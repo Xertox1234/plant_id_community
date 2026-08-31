@@ -59,6 +59,14 @@ any live URL because the whole `plants/` subtree 404s.
    of bug (a viewset silently 404ing on every request) apparently has no
    test coverage today, or the test suite would have caught it at write
    time.
+4. **Once these endpoints are live**, check `PlantSpeciesPageSerializer`
+   and `PlantSpeciesPageListSerializer`'s top-level `"url"` field too — it's
+   in `Meta.fields` with no `get_url` method, so DRF auto-builds it as a
+   plain `ReadOnlyField()` reading `Page.get_url(request=None)` directly —
+   the same class of Site-based host bug todo 308 fixed elsewhere,
+   invisible today only because this endpoint 404s before serialization is
+   ever reached. See todo 324's matching note (item 5) for the confirmed
+   mechanism.
 
 ## Technical Details
 

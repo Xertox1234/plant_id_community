@@ -195,3 +195,59 @@ half of todo 306 that was deliberately left undone.
   to do unilaterally on the strength of the 2026-08-16 live-probe
   precedent. Todo stays `status: pending` until that probe runs and its
   output is recorded here.
+
+### 2026-08-31 - `/code-review` pass on PR #596, findings resolved
+
+Ran a `/code-review` (medium effort) against the PR diff. 6 findings; each
+verified against primary sources (Wagtail/DRF source reads, empirical
+`manage.py shell` checks, live curls) before acting, per this project's
+evidence-before-claims discipline:
+
+- **#1 (most severe, real regression in the new code)**: `_absolute_page_url()`
+  passes a DRF `Request` into `page.get_url_parts(request=...)`, but
+  Wagtail's multi-Site disambiguation there is gated on
+  `isinstance(request, HttpRequest)` — false for a DRF `Request` (confirmed
+  empirically). **Attempted the fix** (unwrap to `request._request`) —
+  confirmed correct in principle, but empirical stress-testing (7 full
+  `apps.blog` suite runs with it vs. 5 without) found it correlated with a
+  rare, unreproduced `Site.DoesNotExist` flake in an unrelated admin-dashboard
+  test. Given this project has zero nested-Site topology today (the gap
+  only matters if one is ever added), **reverted** rather than ship
+  unresolved flakiness risk; documented the trade-off in both helpers'
+  docstrings; filed **todo 328** to revisit if/when nested Sites are ever
+  adopted.
+- **#2 (real, separate landmine)**: `apps/blog/serializers.py` — a second,
+  legacy REST-framework serializer module distinct from the one this todo
+  fixed, live-routed at `/blog/posts/` but with zero consumers found
+  anywhere in web/mobile/backend — has the exact same
+  `build_absolute_uri(obj.get_url())` landmine. Not fixed here (untested
+  legacy code; may warrant deletion rather than patching) — filed **todo 326**.
+- **#3 (real, currently inert)**: Wagtail's own stock `meta.html_url`/
+  `detail_url` fields still resolve via `Site`-based `get_full_url()` —
+  framework code this todo's call-site swap never touched. Confirmed
+  neither field is actually read by the web client today (grepped —
+  type-declared only). Toned down the `RequestAwareImageRenditionField`
+  docstring's "every URL in this API" claim to be explicit about scope.
+  Filed **todo 327** (p4, given zero current consumer impact).
+- **#4 (real, currently moot)**: `BlogAuthorPageSerializer`,
+  `BlogIndexPageSerializer`, `BlogCategoryPageSerializer`, and
+  `PlantSpeciesPageSerializer`/`PlantSpeciesPageListSerializer`/
+  `PlantCategoryIndexPageSerializer` list `"url"` in `Meta.fields` with no
+  `get_url` override, so DRF auto-builds it as a bare `ReadOnlyField()`
+  reading `Page.get_url(request=None)` — same bug, different mechanism.
+  Confirmed empirically (`serializer.get_fields()['url']` inspection). Not
+  fixed here — all six classes are already dead/404 in production per
+  todos 324/325, so this has zero live impact until those land; added a
+  cross-reference note to both so whoever picks them up doesn't miss it.
+- **#5 (test-coverage gap)**: agreed but no longer applicable — it was
+  about the reverted #1 fix's untested nested-Site path scenario; moot now
+  that #1 is reverted and tracked as todo 328 instead.
+- **#6 (minor duplication)**: `_absolute_page_url()` is duplicated verbatim
+  across the two serializer files rather than in a shared module — left
+  as-is, matching this codebase's existing convention (`blocks.py` and
+  `wagtail_forum` also each carry independent copies of the same
+  build-absolute-uri pattern).
+
+Re-verified after all changes: `apps.blog` (241 tests) and
+`apps.plant_identification` (110 tests) both green via `--noinput`, run
+sequentially.

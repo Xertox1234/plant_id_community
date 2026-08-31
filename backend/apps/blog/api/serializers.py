@@ -46,6 +46,24 @@ def _absolute_page_url(request, page):
     host, regardless of how many `Site` rows exist. Returns None if the
     page isn't routable, or the bare relative path if called with no
     request (matching the pre-fix behavior of a request-less URL lookup).
+
+    KNOWN GAP, not fixed here (see todo 328): if a page ever belongs to
+    more than one Wagtail `Site` (e.g. one nested under another's root),
+    Wagtail's own disambiguation inside `get_url_parts()` — matching the
+    *actual* request against `Site.find_for_request()` — only runs when
+    `isinstance(request, HttpRequest)` is true, and DRF's `Request` wrapper
+    (what `self.context["request"]` actually is here) does not subclass
+    it, so that branch never fires and Wagtail falls back to an arbitrary
+    candidate site's root when slicing `page_path`. Unwrapping to the
+    underlying `HttpRequest` (`request._request`) makes the check pass,
+    but was tested and found to make Wagtail's own
+    `Site.find_for_request()` reachable in a new place — introducing rare,
+    unreproduced-root-cause test flakiness (apps.blog's suite failed
+    Site.DoesNotExist in an unrelated admin-dashboard test on 1 of 7
+    full-suite runs with the unwrap, 0 of 5 without it). Not worth the
+    risk for a topology this project doesn't use today (a single flat
+    Site tree, confirmed zero nested-Site configuration) — deliberately
+    left as-is; see todo 328 if this project ever adopts nested Sites.
     """
     url_parts = page.get_url_parts(request=request)
     page_path = url_parts[2] if url_parts else None
@@ -62,8 +80,11 @@ class RequestAwareImageRenditionField(ImageRenditionField):
     and independent from the request that's actually serving this
     response — that's two separate, disagreeing mechanisms for the same
     job (todo 306 AC4); this collapses image URLs onto the one every other
-    URL in this API now uses (todo 308). Building from `request` means the
-    host is always correct regardless of Wagtail `Site` configuration.
+    URL built by this file's own serializers now uses (todo 308). Building
+    from `request` means the host is always correct regardless of Wagtail
+    `Site` configuration. (Wagtail's own stock `meta.html_url`/
+    `detail_url` fields are a separate mechanism this doesn't touch — see
+    todo 327.)
     """
 
     def to_representation(self, image):

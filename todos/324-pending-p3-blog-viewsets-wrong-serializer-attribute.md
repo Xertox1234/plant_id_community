@@ -81,6 +81,19 @@ response at all.
    guidance, and this session's memory:
    `project_drf_skipfield_silent_omission.md`, a close cousin of this exact
    failure mode).
+5. **Once the endpoints are live**, check each serializer's top-level
+   `"url"` field too — `BlogAuthorPageSerializer`, `BlogIndexPageSerializer`,
+   `BlogCategoryPageSerializer` (and `PlantCategoryIndexPageSerializer`)
+   list `"url"` in `Meta.fields` but never define a `get_url` method, so DRF
+   auto-builds it as a plain `ReadOnlyField()` reading the Page model's
+   `url` property directly — `Page.get_url(request=None)`, no request, same
+   class of Site-based host bug todo 308 fixed elsewhere (confirmed
+   empirically: `serializer.get_fields()['url']` is a bare
+   `ReadOnlyField(source=None)`). Invisible today only because these
+   endpoints are currently dead code (this todo) — fixing *this* todo
+   without also adding a `get_url`/`_absolute_page_url` override
+   re-surfaces the todo-308 bug on a field that's about to start working
+   for the first time.
 
 ## Technical Details
 

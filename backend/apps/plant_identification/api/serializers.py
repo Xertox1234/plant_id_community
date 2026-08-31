@@ -31,6 +31,15 @@ def _absolute_page_url(request, page):
     `request.build_absolute_uri()` would then pass through unchanged
     (wrong host). Returns None if the page isn't routable, or the bare
     relative path if called with no request.
+
+    KNOWN GAP, not fixed here (see todo 328) — see the sibling helper's
+    docstring in `apps/blog/api/serializers.py` for the full explanation:
+    Wagtail's multi-Site disambiguation inside `get_url_parts()` is gated
+    on `isinstance(request, HttpRequest)`, which DRF's `Request` wrapper
+    fails, so it never runs here either. Deliberately not unwrapped —
+    tested and found to introduce rare, unreproduced-root-cause test
+    flakiness elsewhere in this codebase, not worth it for a topology
+    this project doesn't use today.
     """
     url_parts = page.get_url_parts(request=request)
     page_path = url_parts[2] if url_parts else None
