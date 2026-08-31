@@ -10,7 +10,6 @@ from apps.blog.api.endpoints import BlogCategoryAPIViewSet, BlogSeriesAPIViewSet
 from apps.blog.api.viewsets import (
     BlogAuthorPageViewSet,
     BlogCategoryPageViewSet,
-    BlogFeedViewSet,
     BlogIndexPageViewSet,
     BlogPostPageViewSet,
 )
@@ -61,7 +60,6 @@ api_router.register_endpoint("blog-posts", BlogPostPageViewSet)
 api_router.register_endpoint("blog-index", BlogIndexPageViewSet)
 api_router.register_endpoint("blog-categories", BlogCategoryPageViewSet)
 api_router.register_endpoint("blog-authors", BlogAuthorPageViewSet)
-api_router.register_endpoint("blog-feeds", BlogFeedViewSet)
 
 # Blog snippets endpoints
 api_router.register_endpoint("categories", BlogCategoryAPIViewSet)
@@ -114,6 +112,31 @@ urlpatterns = [
         "api/v2/blog-posts/popular/",
         BlogPostPageViewSet.as_view({"get": "popular"}),
         name="blog-posts-popular",
+    ),
+    path(
+        "api/v2/blog-posts/featured/",
+        BlogPostPageViewSet.as_view({"get": "featured"}),
+        name="blog-posts-featured",
+    ),
+    path(
+        "api/v2/blog-posts/recent/",
+        BlogPostPageViewSet.as_view({"get": "recent"}),
+        name="blog-posts-recent",
+    ),
+    path(
+        "api/v2/blog-posts/by_category/",
+        BlogPostPageViewSet.as_view({"get": "by_category"}),
+        name="blog-posts-by-category",
+    ),
+    path(
+        "api/v2/blog-posts/search_suggestions/",
+        BlogPostPageViewSet.as_view({"get": "search_suggestions"}),
+        name="blog-posts-search-suggestions",
+    ),
+    path(
+        "api/v2/blog-posts/<int:pk>/related/",
+        BlogPostPageViewSet.as_view({"get": "related"}),
+        name="blog-posts-related",
     ),
     # Django REST Framework API - Versioned (v1)
     path(

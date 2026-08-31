@@ -105,7 +105,6 @@ class BlogPostPageViewSet(PagesAPIViewSet):
             "date_from",
             "date_to",
             "plant_species",
-            "format",  # For RSS/Atom feeds
         ]
     )
 
@@ -176,8 +175,6 @@ class BlogPostPageViewSet(PagesAPIViewSet):
             # `by_category` is intentionally absent — that action builds its own
             # queryset directly and does not flow through get_queryset().
             from django.db.models import Count
-
-            from ..models import BlogComment
 
             queryset = (
                 queryset.select_related(
@@ -272,7 +269,7 @@ class BlogPostPageViewSet(PagesAPIViewSet):
                 logger.warning(f"[PERF] Image rendition prefetching not available: {e}")
 
         else:
-            # Other actions (featured, recent, etc.): Basic prefetching
+            # Any other/unlisted action: basic prefetching only
             queryset = queryset.select_related("author", "series")
 
         return queryset.distinct()
@@ -309,7 +306,11 @@ class BlogPostPageViewSet(PagesAPIViewSet):
     @action(detail=False, methods=["get"])
     def featured(self, request):
         """Get featured blog posts."""
-        featured_posts = self.get_queryset().filter(is_featured=True)[:6]
+        featured_posts = (
+            self.get_queryset()
+            .filter(is_featured=True)
+            .order_by("-first_published_at")[:6]
+        )
 
         serializer = BlogPostPageListSerializer(
             featured_posts, many=True, context={"request": request}
@@ -328,7 +329,7 @@ class BlogPostPageViewSet(PagesAPIViewSet):
             return Response({"error": "limit must be an integer"}, status=400)
         if limit <= 0:
             return Response({"error": "limit must be a positive integer"}, status=400)
-        recent_posts = self.get_queryset()[:limit]
+        recent_posts = self.get_queryset().order_by("-first_published_at")[:limit]
 
         serializer = BlogPostPageListSerializer(
             recent_posts, many=True, context={"request": request}
@@ -529,8 +530,6 @@ class BlogPostPageViewSet(PagesAPIViewSet):
 
         # Use a clean base queryset (no URL query-param filters) so that caller
         # params like ?category=X don't silently narrow the related-posts pool.
-        from ..models import BlogComment
-
         related_posts = (
             BlogPostPage.objects.live()
             .public()
@@ -767,50 +766,3 @@ class BlogAuthorPageViewSet(PagesAPIViewSet):
             filters["expertise_areas__name__icontains"] = expertise
 
         return filters
-
-
-# Additional ViewSet for RSS/Atom feed functionality
-class BlogFeedViewSet(BlogPostPageViewSet):
-    """
-    Special ViewSet for RSS/Atom feeds.
-    Returns blog posts in feed-friendly format.
-    """
-
-    def get_serializer_class(self):
-        """Always use list serializer for feeds."""
-        return BlogPostPageListSerializer
-
-    @action(detail=False, methods=["get"])
-    def rss(self, request):
-        """RSS feed endpoint."""
-        posts = self.get_queryset()[:20]
-
-        # You would implement RSS XML generation here
-        # For now, return JSON that can be converted to RSS
-        serializer = self.get_serializer(posts, many=True)
-
-        return Response(
-            {
-                "format": "rss",
-                "title": "Plant Community Blog",
-                "description": "Latest posts from the Plant Community",
-                "posts": serializer.data,
-            }
-        )
-
-    @action(detail=False, methods=["get"])
-    def atom(self, request):
-        """Atom feed endpoint."""
-        posts = self.get_queryset()[:20]
-
-        serializer = self.get_serializer(posts, many=True)
-
-        return Response(
-            {
-                "format": "atom",
-                "title": "Plant Community Blog",
-                "description": "Latest posts from the Plant Community",
-                "updated": timezone.now().isoformat(),
-                "posts": serializer.data,
-            }
-        )
