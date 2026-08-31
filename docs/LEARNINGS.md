@@ -3528,3 +3528,59 @@ falsified. The equivalent code comment (`_jwt_cookie_flags()` docstring in
 `backend/apps/users/authentication.py`) and the deploy runbook
 (`backend/docs/deployment/railway.md`) were updated in the same change, since
 those aren't append-only and should just state the current topology.
+
+## 2026-08-31 — 6 of 7 `@action` methods on a Wagtail viewset shipped unroutable, discovered by accident (todo 307)
+
+**What happened:** `BlogPostPageViewSet` defined 7 `@action`-decorated
+methods (`featured`, `recent`, `popular`, `by_category`,
+`search_suggestions`, `related`, plus `rss`/`atom` on a subclass). Only
+`popular` ever got a manual `path()` entry in `urls.py`. The other 6 were
+unreachable dead code — importable, individually unit-tested via
+`ViewSet.as_view({"get": "..."})(request)` direct dispatch (which proves
+nothing about routing), but 404 over any real URL — for the months since
+they were written. Nobody noticed because nothing broke: dead code is
+silent. It surfaced only by accident, while investigating a *different* bug
+(todo 306, a `self.action` mismatch) that happened to reference the same
+`get_queryset()` conditional.
+
+**Root cause:** `WagtailAPIRouter`/`BaseAPIViewSet.get_urlpatterns()` only
+ever wires the three fixed base routes (`listing_view`/`detail_view`/
+`find_view`) — unlike DRF's own `SimpleRouter`, it never inspects
+`get_extra_actions()`. Every custom `@action` needs its own explicit
+`path()` entry, and nothing enforces that at write time. The fix
+(todo 307) routed the 5 finished actions, deleted 2 non-functional stubs
+(`rss`/`atom` — JSON, never real XML), and replaced the 6 hand-written
+`path()` entries with a small `extra_action_urlpatterns()` generator that
+builds them from `get_extra_actions()`, so a future unrouted action is
+structurally impossible instead of merely a silent gap.
+
+**A second lesson from the same todo:** routing a dormant `@action` can
+surface bugs nothing could ever have exercised while it was dead. Once
+reachable, `featured()`/`recent()` turned out to slice a queryset with no
+`.order_by()` at all — real posts, real endpoint, undefined order,
+empirically reproduced (posts came back in creation order, not
+`-first_published_at`). A pre-existing, already-documented rule
+(`docs/rules/database.md`: every sliced/paginated public list needs a
+`-id` tie-break) was *also* violated in the same fix — twice, by the same
+session, on the same lines — even though `kimi-review`'s commit-time gate
+and a domain reviewer both had the rule available; it only got caught
+because a `/codify`-triggered re-run of `kimi-review` re-scanned the
+branch diff after the fact, not because either review pass caught it
+inline. A related, narrower gotcha also surfaced: `related`'s
+`self.get_object()` inherits whatever query-string filtering
+`get_queryset()` applies (including filters read directly off
+`request.GET`, not just `filter_backends`), so a caller-supplied filter
+unrelated to the target post can spuriously 404 an otherwise-valid detail
+lookup — accepted as existing, intentional-enough DRF/viewset behavior
+rather than fixed, since `retrieve()` has the identical property already.
+
+**Rule:** on a Wagtail (or any DRF) viewset, a hand-written `path()` per
+`@action` is a standing liability — generate routes from
+`get_extra_actions()` instead (see
+`backend/docs/patterns/domain/wagtail.md`). When routing/exposing
+previously-dead code for the first time, review its whole body as if it
+were new — an unreachable action's bugs are invisible by definition until
+something can finally hit it. And don't assume an already-documented rule
+protects new code just because a reviewer cited it once elsewhere in the
+same session — re-run the review pass on the FINAL diff before merging,
+not only on each incremental patch.

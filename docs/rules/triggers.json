@@ -1017,5 +1017,22 @@
     "source": "codify: todo/309-forum-polls",
     "added": "2026-08-30",
     "severity": "warn"
+  },
+  {
+    "id": "wagtail-action-unrouted",
+    "domains": [
+      "wagtail",
+      "api"
+    ],
+    "path_glob": [
+      "backend/apps/*/api/viewsets.py",
+      "backend/apps/*/api/endpoints.py"
+    ],
+    "content_present": "@action\\b",
+    "message": "New @action on a Wagtail viewset — WagtailAPIRouter/get_urlpatterns() does NOT auto-mount @action methods (only listing_view/detail_view/find_view). Route it via extra_action_urlpatterns() (or a manual path() entry) in urls.py, or it 404s despite passing tests. 6 of 7 actions on BlogPostPageViewSet shipped this way (todo 307).",
+    "pattern_ref": "backend/docs/patterns/domain/wagtail.md",
+    "source": "codify: todo-307-blog-viewset-routing",
+    "added": "2026-08-30",
+    "severity": "warn"
   }
 ]

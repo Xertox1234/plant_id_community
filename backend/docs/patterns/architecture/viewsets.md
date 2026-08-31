@@ -631,3 +631,42 @@ Regression-test shape: `?ordering=-title` returns the default order, and
 `?ordering=<dotted-source>` returns 200 (not 500). Reference:
 `wagtail_forum/api/views.py` (BoardListView comment),
 `wagtail_forum/tests/api/test_topics_list.py::test_ordering_query_param_is_inert`.
+
+## A `get_queryset()` That Reads Query-String Filters Directly Affects Every Action, Including Detail Lookups
+
+**Pattern**: `GenericAPIView.get_object()` calls
+`self.filter_queryset(self.get_queryset())` before doing `.get(pk=...)` —
+so any filtering `get_queryset()` applies unconditionally (whether via
+`filter_backends` or, as in `BlogPostPageViewSet`, by reading
+`self.request.GET.get("category_slug")` etc. directly inside the method
+body) narrows the pool for EVERY action that calls `self.get_queryset()` or
+`self.get_object()`, not just `list()`. A `@action(detail=True)` action
+(or `retrieve()` itself) can spuriously 404 on a real, live, public object
+if the caller passes a filter the object doesn't match — even though the
+object's own pk is correct.
+
+```python
+# get_queryset() narrows by ?category_slug= for every caller, including
+# get_object()'s detail lookup:
+def get_queryset(self):
+    queryset = BlogPostPage.objects.live().public()
+    category_slug = self.request.GET.get("category_slug")
+    if category_slug:
+        queryset = queryset.filter(categories__slug=category_slug)
+    ...
+    return queryset
+
+@action(detail=True, methods=["get"])
+def related(self, request, pk=None):
+    post = self.get_object()  # 404s if pk exists but doesn't match
+    # ?category_slug=<other category>, even though `post` is live/public
+```
+
+This is not a bug to silently "fix" by bypassing `get_object()` — filters
+respected on detail lookups can be intentional API design elsewhere in the
+app. Know the mechanism so a reviewer doesn't mistake expected behavior for
+a mystery 404, and so a caller building a URL that forwards its current
+listing filters onto a detail/`@action(detail=True)` request for a
+different object understands why it can 404. Found on `related`
+(`apps/blog/api/viewsets.py`) during the todo 307 review — see
+`docs/LEARNINGS.md` 2026-08-31.

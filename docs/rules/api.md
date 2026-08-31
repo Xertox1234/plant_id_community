@@ -125,3 +125,11 @@ Compact checklist auto-injected before edits. Long-form:
   route; keep literal routes (`users/experts/`) ABOVE capture routes
   (`users/<str:username>/`) in both files. Hit mid-run in PR 2.5 (me/stats
   404'd host-side).
+- **`get_object()` filters through `get_queryset()`, so any query-string
+  filtering baked into `get_queryset()` (not just `filter_backends`) also
+  narrows detail lookups** — a `@action(detail=True)` (or `retrieve()`
+  itself) can spuriously 404 on a real, live object if the caller passes a
+  filter the object doesn't match. Not automatically a bug to fix — know the
+  mechanism before treating it as one. See
+  `backend/docs/patterns/architecture/viewsets.md` and `docs/LEARNINGS.md`
+  2026-08-31.
