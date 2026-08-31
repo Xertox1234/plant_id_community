@@ -518,11 +518,15 @@ class PopularPostsAPITests(TestCase):
 
         # N+1 fixed: popular action uses list-branch prefetch (select_related +
         # prefetch_related + annotate). Pinned exactly so any added query (N+1
-        # regression) fails the test. Measured: 8 queries for 5 posts.
+        # regression) fails the test. Measured: 7 queries for 5 posts (was 8
+        # before todo 308 — page URLs now build from `get_url_parts()`'s
+        # shared, request-cached Site lookup instead of also calling
+        # `Site.find_for_request()` via `get_full_url()`, dropping one
+        # redundant Site query for the whole list).
         self.assertEqual(
             query_count,
-            8,
-            f"Query count changed: {query_count} queries (expected 8). "
+            7,
+            f"Query count changed: {query_count} queries (expected 7). "
             f"Queries: {[q['sql'][:100] for q in context.captured_queries]}",
         )
 
@@ -543,11 +547,12 @@ class PopularPostsAPITests(TestCase):
         query_count = len(context.captured_queries)
 
         # N+1 fixed: popular action uses list-branch prefetch. Pinned exactly to
-        # catch regressions. Measured: 7 queries for 5 posts.
+        # catch regressions. Measured: 6 queries for 5 posts (was 7 before todo
+        # 308 — see the comment in test_popular_posts_query_optimization above).
         self.assertEqual(
             query_count,
-            7,
-            f"All-time query count changed: {query_count} queries (expected 7)",
+            6,
+            f"All-time query count changed: {query_count} queries (expected 6)",
         )
 
         print(f"\n[PERF] All-time popular query count: {query_count} queries")

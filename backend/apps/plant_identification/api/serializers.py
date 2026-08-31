@@ -9,7 +9,6 @@ from django.db.models import Count
 from django.utils.text import Truncator
 from rest_framework import serializers
 from wagtail.api.v2.serializers import BaseSerializer, PageSerializer
-from wagtail.api.v2.utils import get_full_url
 from wagtail.images.api.fields import ImageRenditionField
 from wagtail.rich_text import get_text_for_indexing
 
@@ -20,6 +19,33 @@ from ..models import (
     PlantSpecies,
     PlantSpeciesPage,
 )
+
+
+def _absolute_page_url(request, page):
+    """A page's absolute URL, derived from the request's own host (todo 308).
+
+    Mirrors `apps/blog/api/serializers.py`'s helper of the same name: uses
+    `get_url_parts()` rather than `get_url()` so the result never depends
+    on how many Wagtail `Site` rows exist — `get_url()` prepends a
+    Site-rooted absolute URL once there's more than one, which
+    `request.build_absolute_uri()` would then pass through unchanged
+    (wrong host). Returns None if the page isn't routable, or the bare
+    relative path if called with no request.
+
+    KNOWN GAP, not fixed here (see todo 328) — see the sibling helper's
+    docstring in `apps/blog/api/serializers.py` for the full explanation:
+    Wagtail's multi-Site disambiguation inside `get_url_parts()` is gated
+    on `isinstance(request, HttpRequest)`, which DRF's `Request` wrapper
+    fails, so it never runs here either. Deliberately not unwrapped —
+    tested and found to introduce rare, unreproduced-root-cause test
+    flakiness elsewhere in this codebase, not worth it for a topology
+    this project doesn't use today.
+    """
+    url_parts = page.get_url_parts(request=request)
+    page_path = url_parts[2] if url_parts else None
+    if not page_path:
+        return None
+    return request.build_absolute_uri(page_path) if request else page_path
 
 
 class PlantSpeciesSerializer(BaseSerializer):
@@ -74,7 +100,7 @@ class PlantSpeciesSerializer(BaseSerializer):
         request = self.context.get("request")
         care_guide = getattr(obj, "care_guide", None)
         if care_guide and request:
-            return get_full_url(request, f"/api/v2/care-guides/{care_guide.id}/")
+            return request.build_absolute_uri(f"/api/v2/care-guides/{care_guide.id}/")
         return None
 
     def get_species_page_url(self, obj):
@@ -82,7 +108,7 @@ class PlantSpeciesSerializer(BaseSerializer):
         request = self.context.get("request")
         species_page = getattr(obj, "species_page", None)
         if species_page and request:
-            return get_full_url(request, species_page.get_url())
+            return _absolute_page_url(request, species_page)
         return None
 
     def get_image_url(self, obj):
@@ -92,7 +118,7 @@ class PlantSpeciesSerializer(BaseSerializer):
             request = self.context.get("request")
             rendition = species_page.hero_image.get_rendition("fill-400x300")
             if request:
-                return get_full_url(request, rendition.url)
+                return request.build_absolute_uri(rendition.url)
             return rendition.url
         return None
 
@@ -213,9 +239,13 @@ class PlantSpeciesPageSerializer(PageSerializer):
                 "title": image.title,
                 "alt": image.title,
                 "url": (
-                    get_full_url(request, rendition.url) if request else rendition.url
+                    request.build_absolute_uri(rendition.url)
+                    if request
+                    else rendition.url
                 ),
-                "thumb": get_full_url(request, thumb.url) if request else thumb.url,
+                "thumb": (
+                    request.build_absolute_uri(thumb.url) if request else thumb.url
+                ),
             }
             images.append(image_data)
 
@@ -249,11 +279,7 @@ class PlantSpeciesPageSerializer(PageSerializer):
                 "id": plant.id,
                 "title": plant.title,
                 "slug": plant.slug,
-                "url": (
-                    get_full_url(request, plant.get_url())
-                    if request
-                    else plant.get_url()
-                ),
+                "url": _absolute_page_url(request, plant),
                 "scientific_name": plant.plant_species.scientific_name,
                 "common_name": (
                     plant.plant_species.common_names.split(",")[0].strip()
@@ -270,7 +296,7 @@ class PlantSpeciesPageSerializer(PageSerializer):
         if plant.hero_image:
             rendition = plant.hero_image.get_rendition("fill-300x200")
             if request:
-                return get_full_url(request, rendition.url)
+                return request.build_absolute_uri(rendition.url)
             return rendition.url
         return None
 
