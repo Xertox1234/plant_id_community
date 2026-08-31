@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: p3
 issue_id: "308"
 tags: [backend, wagtail, config, media]
@@ -90,13 +90,10 @@ half of todo 306 that was deliberately left undone.
 
 ## Acceptance Criteria
 
-- [ ] A live probe of a production (or production-equivalent staging) blog
+- [x] A live probe of a production (or production-equivalent staging) blog
       detail endpoint shows `featured_image.full_url` and
       `related_posts[].url` resolving to the real domain, not
-      `http://localhost`. **Outstanding** — needs a post-merge Railway
-      deploy plus at least one live blog post to probe (prod currently has
-      zero); requires the user's explicit go-ahead before touching prod
-      data. See Work Log.
+      `http://localhost`. Confirmed 2026-08-31 — see Work Log.
 - [x] `web/src/services/blogService.ts`'s `mediaUrl()` re-evaluated: either
       simplified (if the API is now trustworthy) or its docstring updated to
       reflect the actual current mechanism. Docstring updated; rebase logic
@@ -251,3 +248,47 @@ evidence-before-claims discipline:
 Re-verified after all changes: `apps.blog` (241 tests) and
 `apps.plant_identification` (110 tests) both green via `--noinput`, run
 sequentially.
+
+### 2026-08-31 - PR #596 merged, deployed, AC #1 live-probed — DONE
+
+- PR #596 merged to `main` (squash `a44eff1`) at 17:21 UTC. Railway
+  redeployed automatically — confirmed via `railway status` +
+  `Railway.list-deployments`: deployment `e0aff3e0` status `SUCCESS`,
+  `commitHash: a44eff19fa39f33b6f48daf6f7faeb749c756460` (exact match),
+  online and serving by 17:24 UTC.
+- User gave explicit go-ahead to seed prod: ran
+  `railway ssh --service plant_id_community "python manage.py seed_demo_blog --confirm"`
+  — the guarded, idempotent command (aborts unconditionally if any real
+  user account exists; none did). Output: `Blog seed complete: 6 post(s)
+  created, 0 already present.` Created 1 `BlogIndexPage`, 4 categories
+  (care, propagation, pests-diseases, design), 6 posts.
+- Live probe, `GET https://api.houseplant-md.com/api/v2/blog-posts/17/`
+  (post id 17, "Killed by kindness"):
+  ```json
+  "url": "https://api.houseplant-md.com/blog/killed-by-kindness/",
+  ...
+  "related_posts": [{
+    "url": "https://api.houseplant-md.com/blog/fiddle-leaf-adjusting/",
+    "featured_image": {
+      "full_url": "https://media.houseplant-md.com/images/cover-fiddle.2e16d0ba.fill-300x200.png"
+    }
+  }],
+  "featured_image": {
+    "full_url": "https://media.houseplant-md.com/images/cover-kindness.2e16d0ba.fill-800x400.png"
+  }
+  ```
+  **`url` and `related_posts[].url` both resolve to
+  `api.houseplant-md.com` — the real production domain, not
+  `localhost`.** `featured_image.full_url` resolves to
+  `media.houseplant-md.com` (R2/CDN, already-absolute pass-through per
+  `USE_R2=True` — unaffected by this fix either way, as expected).
+  `author.author_page_url` and `categories[0].url` are `null` — expected,
+  no `BlogAuthorPage`/`BlogCategoryPage` exist yet (not part of this
+  seed; `null` is the correct behavior for an unroutable/nonexistent
+  page, not a bug).
+- Plant-identification side (`/api/v2/plant-species/`) has zero seed data
+  in prod today (`total_count: 0`) — not probed live; out of scope for
+  this seed request (user asked specifically for a blog post), and the
+  code fix there is identical and covered by the same test suite as the
+  blog fix.
+- All 3 acceptance criteria now met. Todo archived.
