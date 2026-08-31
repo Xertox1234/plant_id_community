@@ -193,17 +193,8 @@ if settings.DEBUG:
         urlpatterns = [
             path("__debug__/", include(debug_toolbar.urls)),
         ] + urlpatterns
-else:
-    # static() above is a deliberate no-op when DEBUG=False, but production
-    # serves uploaded media straight from MEDIA_ROOT (Railway volume) — there
-    # is no CDN or object storage in front of /media/ yet.
-    from django.views.static import serve as _static_serve
-
-    def _serve_media(request, path):
-        # document_root is read per-request (not captured in the route's kwargs
-        # at import) so override_settings(MEDIA_ROOT=...) works in tests.
-        return _static_serve(request, path, document_root=settings.MEDIA_ROOT)
-
-    urlpatterns += [
-        re_path(r"^media/(?P<path>.*)$", _serve_media, name="serve-media"),
-    ]
+# else: no production /media/ route. Production media is served from R2 via
+# a custom CDN domain (todo 305) — Django never serves it. This branch used
+# to carry a hand-rolled serve() fallback (PR #539's stopgap, from before R2
+# existed); removed once the R2 cutover was verified live (see PR #591 and
+# the sync_media_to_r2 management command).

@@ -243,16 +243,15 @@ celery -A plant_community_backend worker --loglevel=info --concurrency=2
 Add `--beat` (or a separate beat service) only if you move scheduling off the
 cron service above. `CELERY_BROKER_URL` defaults to `REDIS_URL`.
 
+**Media storage** is on Cloudflare R2 (`USE_R2=True`, see the env var
+tables above) — served from `media.houseplant-md.com`, not gunicorn.
+Cut over live 2026-08-31 (todo 305): synced, verified, `serve()` route
+removed. The old `/app/media` Railway volume (PR #539's pre-R2 stopgap)
+is redundant now and can be deleted once you've confirmed nothing still
+references it.
+
 ## Known gaps to address later
 
-- **Media storage — R2 support shipped, not yet cut over (todo 305).** Media
-  is no longer ephemeral (a Railway volume at `/app/media` fixed that, PR
-  #539) but still routes every byte through gunicorn via a hand-rolled
-  `serve()` route with no CDN. `django-storages`/R2 support now exists
-  behind the `USE_R2` flag (see the env var tables above) — flipping it,
-  syncing the volume's contents into the bucket, and verifying live is the
-  remaining cutover step, after which the `serve()` route and the volume
-  can be removed.
 - **Firebase Admin SDK** (mobile auth + garden sync) loads credentials from a file
   path (`GOOGLE_APPLICATION_CREDENTIALS` / `FIREBASE_CREDENTIALS_PATH`). On Railway,
   provide the service-account JSON via an env var written to a file at startup. Not
