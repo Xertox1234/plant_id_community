@@ -51,6 +51,15 @@ def _absolute_page_url(request, page):
 class PlantSpeciesSerializer(BaseSerializer):
     """Serializer for PlantSpecies model as a snippet."""
 
+    # Used both top-level (via `PlantSpeciesAPIViewSet.base_serializer_class`,
+    # where Wagtail's dynamic factory shadows this with its own instance —
+    # see `wagtail/api/v2/serializers.py`'s `get_serializer_class()`) and
+    # nested directly as a plain field (`PlantSpeciesPageSerializer.plant_species`,
+    # `PlantCareGuideSerializer.plant_species`) — the nested case bypasses
+    # that factory entirely, so `to_representation()`'s `self.meta_fields`
+    # read needs this explicit fallback (todo 325).
+    meta_fields = ["type", "detail_url"]
+
     common_name = serializers.SerializerMethodField()
     care_difficulty = serializers.SerializerMethodField()
     care_guide_url = serializers.SerializerMethodField()
@@ -126,6 +135,11 @@ class PlantSpeciesSerializer(BaseSerializer):
 class PlantCategorySerializer(BaseSerializer):
     """Serializer for PlantCategory snippets."""
 
+    # See `PlantSpeciesSerializer.meta_fields`'s comment (todo 325) — this
+    # one is nested directly in `PlantSpeciesPageSerializer.categories` and
+    # `PlantCategoryIndexPageSerializer.get_categories`.
+    meta_fields = ["type", "detail_url"]
+
     plant_count = serializers.SerializerMethodField()
     cover_image = ImageRenditionField("fill-400x300", read_only=True)
     cover_image_thumb = ImageRenditionField(
@@ -157,6 +171,10 @@ class PlantCategorySerializer(BaseSerializer):
 
 class PlantCareGuideSerializer(BaseSerializer):
     """Serializer for PlantCareGuide snippets."""
+
+    # See `PlantSpeciesSerializer.meta_fields`'s comment (todo 325) — this
+    # one is nested directly in `PlantSpeciesPageSerializer.care_guide`.
+    meta_fields = ["type", "detail_url"]
 
     plant_species = PlantSpeciesSerializer(read_only=True)
     care_level_description = serializers.ReadOnlyField()
@@ -196,6 +214,18 @@ class PlantCareGuideSerializer(BaseSerializer):
 class PlantSpeciesPageSerializer(PageSerializer):
     """Serializer for PlantSpeciesPage pages."""
 
+    # Wagtail's `BaseSerializer.to_representation()` unconditionally reads
+    # `self.meta_fields`. Normally that's injected by Wagtail's own dynamic
+    # `get_serializer_class()` factory — bypassed here since
+    # `PlantSpeciesPageViewSet.get_serializer_class()` returns this class
+    # directly — so it must be set explicitly (todo 325).
+    meta_fields = ["type", "detail_url"]
+
+    # Must be declared explicitly: `Page` has its own `url` property, so
+    # without this DRF's auto field-building wins over `get_url()` below
+    # and silently reintroduces the todo-308 bug (confirmed empirically —
+    # matches the working `BlogCategorySerializer.url` pattern).
+    url = serializers.SerializerMethodField()
     plant_species = PlantSpeciesSerializer(read_only=True)
     categories = PlantCategorySerializer(many=True, read_only=True)
     hero_image = ImageRenditionField("fill-800x600", read_only=True)
@@ -211,7 +241,12 @@ class PlantSpeciesPageSerializer(PageSerializer):
 
     class Meta:
         model = PlantSpeciesPage
-        fields = ["id", "title", "slug", "url", "meta"] + [
+        # No "meta" here: Wagtail's `BaseSerializer.to_representation()`
+        # builds the `meta` sub-object itself from `self.meta_fields` — a
+        # literal "meta" in `fields` makes DRF try to build a real field
+        # for a nonexistent model attribute, raising `ImproperlyConfigured`
+        # (todo 325).
+        fields = ["id", "title", "slug", "url"] + [
             "plant_species",
             "introduction",
             "content_blocks",
@@ -224,6 +259,17 @@ class PlantSpeciesPageSerializer(PageSerializer):
             "excerpt",
             "related_plants",
         ]
+
+    def get_url(self, obj):
+        """Request-derived URL (todo 325 item 4), not `Page.get_url(request=None)`.
+
+        Without this override, DRF auto-builds `url` as a bare
+        `ReadOnlyField()` reading the model's `url` property directly — the
+        same Site-based host bug todo 308 fixed elsewhere in this file.
+        Invisible until now only because `/api/v2/plants/` 404'd on every
+        request (todo 325).
+        """
+        return _absolute_page_url(self.context.get("request"), obj)
 
     def get_gallery_images(self, obj):
         """Get gallery image renditions."""
@@ -304,6 +350,11 @@ class PlantSpeciesPageSerializer(PageSerializer):
 class PlantSpeciesPageListSerializer(PageSerializer):
     """Lighter serializer for plant species page lists."""
 
+    # See `PlantSpeciesPageSerializer.meta_fields`'s comment (todo 325).
+    meta_fields = ["type", "detail_url"]
+
+    # See `PlantSpeciesPageSerializer.url`'s comment (todo 325).
+    url = serializers.SerializerMethodField()
     plant_species = PlantSpeciesSerializer(read_only=True)
     categories = PlantCategorySerializer(many=True, read_only=True)
     hero_image_thumb = ImageRenditionField(
@@ -313,13 +364,19 @@ class PlantSpeciesPageListSerializer(PageSerializer):
 
     class Meta:
         model = PlantSpeciesPage
-        fields = ["id", "title", "slug", "url", "meta"] + [
+        # No "meta" here — see `PlantSpeciesPageSerializer.Meta`'s comment.
+        fields = ["id", "title", "slug", "url"] + [
             "plant_species",
             "hero_image_thumb",
             "categories",
             "is_featured",
             "excerpt",
         ]
+
+    def get_url(self, obj):
+        """Request-derived URL (todo 325 item 4) — see
+        `PlantSpeciesPageSerializer.get_url`'s docstring."""
+        return _absolute_page_url(self.context.get("request"), obj)
 
     def get_excerpt(self, obj):
         """Get short excerpt from introduction."""
@@ -332,18 +389,33 @@ class PlantSpeciesPageListSerializer(PageSerializer):
 class PlantCategoryIndexPageSerializer(PageSerializer):
     """Serializer for PlantCategoryIndexPage."""
 
+    # See `PlantSpeciesPageSerializer.meta_fields`'s comment (todo 324/325).
+    meta_fields = ["type", "detail_url"]
+
+    # See `PlantSpeciesPageSerializer.url`'s comment (todo 324/325).
+    url = serializers.SerializerMethodField()
     categories = serializers.SerializerMethodField()
     featured_plants = serializers.SerializerMethodField()
 
     class Meta:
         model = PlantCategoryIndexPage
-        fields = ["id", "title", "slug", "url", "meta"] + [
+        # No "meta" here — see `PlantSpeciesPageSerializer.Meta`'s comment.
+        fields = ["id", "title", "slug", "url"] + [
             "introduction",
             "categories_per_page",
             "show_featured_plants",
             "categories",
             "featured_plants",
         ]
+
+    def get_url(self, obj):
+        """Request-derived URL (todo 324/325), not `Page.get_url(request=None)`.
+
+        Without this override, DRF auto-builds `url` as a bare
+        `ReadOnlyField()` reading the model's `url` property directly — the
+        same Site-based host bug todo 308 fixed elsewhere in this file.
+        """
+        return _absolute_page_url(self.context.get("request"), obj)
 
     def get_categories(self, obj):
         """Get featured plant categories."""

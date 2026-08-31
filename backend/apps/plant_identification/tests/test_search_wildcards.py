@@ -198,11 +198,14 @@ class PlantSpeciesAPIViewSetWildcardTests(APITestCase):
 class PlantSpeciesPageViewSetWildcardTests(APITestCase):
     """Wagtail v2 API PlantSpeciesPageViewSet -- plant_species__family__icontains.
 
-    Exercised via a direct ``get_queryset()`` call rather than an HTTP request:
-    ``/api/v2/plants/`` 404s under the project's DRF ``NamespaceVersioning``
-    because this ``PagesAPIViewSet`` subclass does not set
-    ``versioning_class = None`` (unlike the snippet viewsets). Calling
-    ``get_queryset()`` runs the exact production line the fix touched
+    Exercised via a direct ``get_queryset()`` call rather than an HTTP
+    request: ``/api/v2/plants/`` used to 404 under the project's DRF
+    ``NamespaceVersioning`` because this ``PagesAPIViewSet`` subclass
+    didn't set ``versioning_class = None`` -- fixed by todo 325, see
+    ``apps/plant_identification/tests/test_page_viewsets_versioning_and_wiring.py``
+    for the HTTP-level coverage. Kept as a direct ``get_queryset()`` call
+    here since that's what this test is actually about: the exact
+    production line the fix touched
     (``plant_species__family__icontains`` traversal) over the
     ``.live().public().specific()`` base queryset.
     """
