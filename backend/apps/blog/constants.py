@@ -93,3 +93,6 @@ RELATED_POSTS_LIMIT = 6  # Number of posts returned by the related action
 # Analytics dashboard constants
 ANALYTICS_MIN_VIEWS_FOR_BADGE = 100  # Minimum views to show "popular" badge
 ANALYTICS_MIN_VIEWS_FOR_VIRAL_BADGE = 1000  # Minimum views to show "viral" badge
+
+# Max items in the public blog RSS/Atom feeds (todo 322).
+BLOG_RSS_MAX_ITEMS = 50

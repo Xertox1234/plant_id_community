@@ -11,7 +11,12 @@ import RailSlot from '../components/layout/RailSlot';
 import RailModule from '../components/ui/RailModule';
 import BlogCard from '../components/BlogCard';
 import PageMeta from '../components/PageMeta';
-import { fetchBlogPosts, fetchPopularPosts, fetchCategories } from '../services/blogService';
+import {
+  fetchBlogPosts,
+  fetchPopularPosts,
+  fetchCategories,
+  API_URL,
+} from '../services/blogService';
 import { logger } from '../utils/logger';
 import { useScrollToTop } from '../hooks/useScrollToTop';
 import type { BlogPost, BlogCategory } from '@/types';
@@ -165,6 +170,8 @@ export default function BlogListPage() {
       <PageMeta
         title="Blog — Houseplant MD"
         description="Guides, experiments, and honest failures from the community garden."
+        rssFeedUrl={`${API_URL}/blog/rss/`}
+        atomFeedUrl={`${API_URL}/blog/atom/`}
       />
 
       {/* HeroCard's title renders as an h2 by design — the page still needs

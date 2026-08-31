@@ -19,13 +19,33 @@ interface PageMetaProps {
   title: string;
   description?: string;
   og?: OpenGraph;
+  /** Absolute feed URLs — caller resolves the API origin (e.g. blogService's API_URL). */
+  rssFeedUrl?: string;
+  atomFeedUrl?: string;
 }
 
-export default function PageMeta({ title, description, og }: PageMetaProps) {
+export default function PageMeta({
+  title,
+  description,
+  og,
+  rssFeedUrl,
+  atomFeedUrl,
+}: PageMetaProps) {
   return (
     <>
       <title>{title}</title>
       {description && <meta name="description" content={description} />}
+      {rssFeedUrl && (
+        <link rel="alternate" type="application/rss+xml" title={`${title} RSS`} href={rssFeedUrl} />
+      )}
+      {atomFeedUrl && (
+        <link
+          rel="alternate"
+          type="application/atom+xml"
+          title={`${title} Atom`}
+          href={atomFeedUrl}
+        />
+      )}
       {og && (
         <>
           {og.title && <meta property="og:title" content={og.title} />}

@@ -13,6 +13,7 @@ from apps.blog.api.viewsets import (
     BlogIndexPageViewSet,
     BlogPostPageViewSet,
 )
+from apps.blog.feeds import AtomBlogPostsFeed, BlogPostsFeed
 
 # Import core views
 from apps.core.views import ReactAppView, csp_report_view, csrf_token_view
@@ -208,6 +209,8 @@ urlpatterns = [
         name="forum-sitemap",
     ),
     path("forum/rss/", ForumTopicsFeed(), name="forum-rss"),
+    path("blog/rss/", BlogPostsFeed(), name="blog-rss"),
+    path("blog/atom/", AtomBlogPostsFeed(), name="blog-atom"),
     # Default redirect to Wagtail admin for development
     path("", RedirectView.as_view(url="/cms/", permanent=False)),
     # Wagtail Frontend URLs (should be last)
