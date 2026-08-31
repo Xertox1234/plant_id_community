@@ -190,6 +190,20 @@ class BlogSeriesSerializer(BaseSerializer):
 class BlogAuthorPageSerializer(PageSerializer):
     """Serializer for blog author pages."""
 
+    # Wagtail's `BaseSerializer.to_representation()` unconditionally reads
+    # `self.meta_fields` to split meta fields (type/detail_url/etc.) from
+    # core fields. Normally that's injected by Wagtail's own dynamic
+    # `get_serializer_class()` factory — bypassed here since
+    # `BlogAuthorPageViewSet.get_serializer_class()` returns this class
+    # directly (todo 324) — so it must be set explicitly, same as
+    # `BlogCategorySerializer`/`BlogSeriesSerializer` above.
+    meta_fields = ["type", "detail_url"]
+
+    # Must be declared explicitly: `Page` has its own `url` property, so
+    # without this DRF's auto field-building wins over `get_url()` below
+    # and silently reintroduces the todo-308 bug (confirmed empirically —
+    # matches the working `BlogCategorySerializer.url` pattern above).
+    url = serializers.SerializerMethodField()
     author = serializers.SerializerMethodField()
     expertise_areas = serializers.SerializerMethodField()
     post_count = serializers.SerializerMethodField()
@@ -205,6 +219,16 @@ class BlogAuthorPageSerializer(PageSerializer):
             "post_count",
             "recent_posts",
         ]
+
+    def get_url(self, obj):
+        """Request-derived URL (todo 308's fix), not `Page.get_url(request=None)`.
+
+        Without this override, DRF auto-builds `url` as a bare
+        `ReadOnlyField()` reading the model's `url` property directly — the
+        same Site-based host bug todo 308 fixed on every other serializer
+        in this file (todo 324).
+        """
+        return _absolute_page_url(self.context.get("request"), obj)
 
     def get_author(self, obj):
         """Get author user data."""
@@ -576,6 +600,12 @@ class BlogPostPageListSerializer(serializers.ModelSerializer):
 class BlogIndexPageSerializer(PageSerializer):
     """Serializer for blog index pages."""
 
+    # See `BlogAuthorPageSerializer.meta_fields`'s comment (todo 324).
+    meta_fields = ["type", "detail_url"]
+
+    # See `BlogAuthorPageSerializer.url`'s comment (todo 324) — must be
+    # declared explicitly or DRF's auto field-building wins over `get_url()`.
+    url = serializers.SerializerMethodField()
     featured_posts = serializers.SerializerMethodField()
     categories = serializers.SerializerMethodField()
     recent_posts = serializers.SerializerMethodField()
@@ -592,6 +622,10 @@ class BlogIndexPageSerializer(PageSerializer):
             "categories",
             "recent_posts",
         ]
+
+    def get_url(self, obj):
+        """Request-derived URL (todo 324, same fix as `BlogAuthorPageSerializer.get_url`)."""
+        return _absolute_page_url(self.context.get("request"), obj)
 
     def get_featured_posts(self, obj):
         """Get featured posts if enabled."""
@@ -673,6 +707,12 @@ class BlogIndexPageSerializer(PageSerializer):
 class BlogCategoryPageSerializer(PageSerializer):
     """Serializer for blog category pages."""
 
+    # See `BlogAuthorPageSerializer.meta_fields`'s comment (todo 324).
+    meta_fields = ["type", "detail_url"]
+
+    # See `BlogAuthorPageSerializer.url`'s comment (todo 324) — must be
+    # declared explicitly or DRF's auto field-building wins over `get_url()`.
+    url = serializers.SerializerMethodField()
     category = BlogCategorySerializer(read_only=True)
     posts = serializers.SerializerMethodField()
 
@@ -683,6 +723,10 @@ class BlogCategoryPageSerializer(PageSerializer):
             "posts_per_page",
             "posts",
         ]
+
+    def get_url(self, obj):
+        """Request-derived URL (todo 324, same fix as `BlogAuthorPageSerializer.get_url`)."""
+        return _absolute_page_url(self.context.get("request"), obj)
 
     def get_posts(self, obj):
         """Get posts in this category."""

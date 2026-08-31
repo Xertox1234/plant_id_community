@@ -710,7 +710,29 @@ class BlogIndexPageViewSet(PagesAPIViewSet):
     """ViewSet for blog index pages."""
 
     versioning_class = None  # Disable DRF versioning for Wagtail API
-    serializer_class = BlogIndexPageSerializer
+
+    def get_serializer_class(self):
+        """Return the custom serializer directly (todo 324).
+
+        `serializer_class` is a plain DRF `GenericAPIView` attribute —
+        Wagtail's `BaseAPIViewSet.get_serializer_class()` never reads it.
+        And unlike `PagesAPIViewSet` viewsets that set `base_serializer_class`
+        (e.g. the snippet viewsets in `apps/plant_identification/api/endpoints.py`),
+        overriding `base_serializer_class` here wouldn't work either:
+        Wagtail's `get_serializer_class()` always builds a serializer
+        *dynamically* from `model.api_fields` (`_get_serializer_class()`,
+        `wagtail/api/v2/views.py`), using `base_serializer_class` only as
+        the parent class for that construction — it never reuses this
+        serializer's own `Meta.fields`/`SerializerMethodField`s.
+        `BlogIndexPage` defines no `api_fields`, so that dynamic build would
+        silently drop every custom field (`featured_posts`, `categories`,
+        `recent_posts`) even after fixing the attribute name. Overriding
+        `get_serializer_class()` to return the serializer directly bypasses
+        the dynamic construction entirely — the same pattern
+        `BlogPostPageViewSet` above already uses (and is the only one of
+        these viewsets that worked correctly before this fix).
+        """
+        return BlogIndexPageSerializer
 
     def get_queryset(self):
         return BlogIndexPage.objects.live().public().specific()
@@ -720,7 +742,12 @@ class BlogCategoryPageViewSet(PagesAPIViewSet):
     """ViewSet for blog category pages."""
 
     versioning_class = None  # Disable DRF versioning for Wagtail API
-    serializer_class = BlogCategoryPageSerializer
+
+    def get_serializer_class(self):
+        """Return the custom serializer directly (todo 324) — see
+        `BlogIndexPageViewSet.get_serializer_class`'s docstring for why a
+        `base_serializer_class` rename alone doesn't work."""
+        return BlogCategoryPageSerializer
 
     def get_queryset(self):
         return BlogCategoryPage.objects.live().public().specific()
@@ -730,7 +757,12 @@ class BlogAuthorPageViewSet(PagesAPIViewSet):
     """ViewSet for blog author pages."""
 
     versioning_class = None  # Disable DRF versioning for Wagtail API
-    serializer_class = BlogAuthorPageSerializer
+
+    def get_serializer_class(self):
+        """Return the custom serializer directly (todo 324) — see
+        `BlogIndexPageViewSet.get_serializer_class`'s docstring for why a
+        `base_serializer_class` rename alone doesn't work."""
+        return BlogAuthorPageSerializer
 
     def get_queryset(self):
         return (
