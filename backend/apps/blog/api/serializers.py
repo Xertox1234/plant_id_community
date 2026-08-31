@@ -12,7 +12,6 @@ from django.utils.text import Truncator
 from rest_framework import serializers
 from wagtail.api.v2.serializers import BaseSerializer, PageSerializer
 from wagtail.api.v2.serializers import StreamField as StreamFieldAPIField
-from wagtail.api.v2.utils import get_full_url
 from wagtail.images.api.fields import ImageRenditionField
 from wagtail.images.models import Image, SourceImageIOError
 from wagtail.rich_text import get_text_for_indexing
@@ -29,23 +28,42 @@ from ..models import (
 logger = logging.getLogger(__name__)
 
 
+def _absolute_page_url(request, page):
+    """A page's absolute URL, derived from the request's own host (todo 308).
+
+    `Page.get_url()` decides whether to return a relative or an
+    already-absolute URL by counting Wagtail `Site` rows, and prepends the
+    *Site's* `root_url` (not the request's host) when it picks "absolute" —
+    exactly the mechanism that resolved every URL in this API to
+    `http://localhost/...` in production (no Site row was ever configured
+    for the real domain). `request.build_absolute_uri()` passes an
+    already-absolute string through unchanged, so calling it on
+    `get_url()`'s output wouldn't fix that.
+
+    `get_url_parts()` instead returns the page's path relative to its own
+    site root directly — never Site-rooted-absolute — so building the
+    absolute URL from `request` here always reflects the actual incoming
+    host, regardless of how many `Site` rows exist. Returns None if the
+    page isn't routable, or the bare relative path if called with no
+    request (matching the pre-fix behavior of a request-less URL lookup).
+    """
+    url_parts = page.get_url_parts(request=request)
+    page_path = url_parts[2] if url_parts else None
+    if not page_path:
+        return None
+    return request.build_absolute_uri(page_path) if request else page_path
+
+
 class RequestAwareImageRenditionField(ImageRenditionField):
-    """`ImageRenditionField` with a `full_url` built via `get_full_url()`.
+    """`ImageRenditionField` with a `full_url` built via `request.build_absolute_uri()`.
 
     `Rendition.full_url` (the stock field's source) prefixes with the
-    single global `settings.WAGTAILADMIN_BASE_URL`, unrelated to and
-    independent from `get_full_url()` — already used for every
-    page/author URL in this file, via `Site.find_for_request`. That's two
-    separate, disagreeing mechanisms for the same job (todo 306 AC4); this
-    collapses image URLs onto the one every other URL in this API already
-    uses. NOTE: this does not by itself make the host correct in
-    production — this deploy has no Wagtail `Site` record for its real
-    domain (`Site.find_for_request` falls back to the seeded default,
-    `localhost:80`), so `get_full_url()` returns `http://localhost/...`
-    same as `Rendition.full_url` did (confirmed by a live probe from the
-    web client, see `web/src/services/blogService.ts`'s `mediaUrl()` —
-    deliberately NOT simplified by this todo, see its Work Log). Fixing
-    that is a separate, Site-configuration change, not a serializer one.
+    single global `settings.WAGTAILADMIN_BASE_URL`, which is unrelated to
+    and independent from the request that's actually serving this
+    response — that's two separate, disagreeing mechanisms for the same
+    job (todo 306 AC4); this collapses image URLs onto the one every other
+    URL in this API now uses (todo 308). Building from `request` means the
+    host is always correct regardless of Wagtail `Site` configuration.
     """
 
     def to_representation(self, image):
@@ -54,11 +72,11 @@ class RequestAwareImageRenditionField(ImageRenditionField):
             return data
         request = self.context.get("request")
         # Explicit None without a request, not a silent fall-through to the
-        # superclass's Rendition.full_url (the Site-based mechanism this
+        # superclass's Rendition.full_url (the settings-based mechanism this
         # field exists to replace) — matches _get_post_image's contract
         # (same file) so both degrade the same way with no request in
         # context (code review, todo 306).
-        data["full_url"] = get_full_url(request, data["url"]) if request else None
+        data["full_url"] = request.build_absolute_uri(data["url"]) if request else None
         return data
 
 
@@ -100,7 +118,7 @@ class BlogCategorySerializer(BaseSerializer):
         if obj.id not in url_cache:
             category_page = BlogCategoryPage.objects.filter(category=obj).live().first()
             if category_page and request:
-                url_cache[obj.id] = get_full_url(request, category_page.get_url())
+                url_cache[obj.id] = _absolute_page_url(request, category_page)
             else:
                 url_cache[obj.id] = None
         return url_cache[obj.id]
@@ -142,8 +160,8 @@ class BlogSeriesSerializer(BaseSerializer):
         """Get URL to fetch posts in this series."""
         request = self.context.get("request")
         if request:
-            return get_full_url(
-                request, f"/api/v2/pages/?type=blog.BlogPostPage&series={obj.id}"
+            return request.build_absolute_uri(
+                f"/api/v2/pages/?type=blog.BlogPostPage&series={obj.id}"
             )
         return None
 
@@ -210,7 +228,7 @@ class BlogAuthorPageSerializer(PageSerializer):
                 "id": post.id,
                 "title": post.title,
                 "slug": post.slug,
-                "url": get_full_url(self.context.get("request"), post.get_url()),
+                "url": _absolute_page_url(self.context.get("request"), post),
                 "published_date": post.first_published_at,
                 "excerpt": self._get_excerpt(post),
             }
@@ -280,18 +298,9 @@ class BlogPostPageSerializer(serializers.ModelSerializer):
     def get_url(self, obj):
         """Get page URL."""
         try:
-            url = obj.get_url()
-            if not url:
-                # In test context or when no site configured, return None
-                return None
-            request = self.context.get("request")
-            if request:
-                from wagtail.api.v2.utils import get_full_url
-
-                return get_full_url(request, url)
-            return url
+            return _absolute_page_url(self.context.get("request"), obj)
         except Exception:
-            # Handle cases where get_url() fails (e.g., no site root)
+            # Handle cases where get_url_parts() fails (e.g., no site root)
             return None
 
     def get_author(self, obj):
@@ -403,15 +412,13 @@ class BlogPostPageSerializer(serializers.ModelSerializer):
     def _get_post_url(self, post, request):
         """Get a related post's URL, tolerating an unroutable page.
 
-        `Page.get_url()` can return None/falsy (no Site covers this part of
-        the page tree) — the top-level `get_url()` above already guards for
-        this on the object being serialized; this call site didn't, so one
-        unroutable related post 500'd the whole detail endpoint (todo 306).
+        `_absolute_page_url` returns None for an unroutable page (no Site
+        covers this part of the page tree) rather than raising — this call
+        site used to lack that guard (a bare `post.get_url()` with no
+        None-check), so one unroutable related post 500'd the whole detail
+        endpoint (todo 306).
         """
-        url = post.get_url()
-        if not url:
-            return None
-        return get_full_url(request, url)
+        return _absolute_page_url(request, post)
 
     def _get_author_page_url(self, author):
         """Get author page URL if exists."""
@@ -421,7 +428,7 @@ class BlogPostPageSerializer(serializers.ModelSerializer):
         if author.id not in url_cache:
             author_page = BlogAuthorPage.objects.filter(author=author).live().first()
             if author_page and request:
-                url_cache[author.id] = get_full_url(request, author_page.get_url())
+                url_cache[author.id] = _absolute_page_url(request, author_page)
             else:
                 url_cache[author.id] = None
         return url_cache[author.id]
@@ -450,7 +457,9 @@ class BlogPostPageSerializer(serializers.ModelSerializer):
             return None
         return {
             "url": rendition.url,
-            "full_url": get_full_url(request, rendition.url) if request else None,
+            "full_url": (
+                request.build_absolute_uri(rendition.url) if request else None
+            ),
             "width": rendition.width,
             "height": rendition.height,
             "alt": rendition.alt,
@@ -498,18 +507,9 @@ class BlogPostPageListSerializer(serializers.ModelSerializer):
     def get_url(self, obj):
         """Get page URL."""
         try:
-            url = obj.get_url()
-            if not url:
-                # In test context or when no site configured, return None
-                return None
-            request = self.context.get("request")
-            if request:
-                from wagtail.api.v2.utils import get_full_url
-
-                return get_full_url(request, url)
-            return url
+            return _absolute_page_url(self.context.get("request"), obj)
         except Exception:
-            # Handle cases where get_url() fails (e.g., no site root)
+            # Handle cases where get_url_parts() fails (e.g., no site root)
             return None
 
     def get_author(self, obj):

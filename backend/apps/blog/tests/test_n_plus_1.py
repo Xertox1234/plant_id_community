@@ -679,7 +679,7 @@ class BlogPostMediaUrlConsistencyTest(TestCase):
     when unset, which this project does not set for every deploy
     environment) while every other image field returned a
     `{url, full_url, width, height, alt}` dict built from the request's
-    actual host via `get_full_url()`.
+    actual host via `request.build_absolute_uri()`.
     """
 
     def setUp(self):
@@ -740,15 +740,22 @@ class BlogPostMediaUrlConsistencyTest(TestCase):
 
     @override_settings(ALLOWED_HOSTS=["blog.example.com", "testserver"])
     def test_full_url_is_request_derived_not_settings_based(self):
-        """`full_url` must resolve via `get_full_url()` (Wagtail Sites,
-        request-aware) for whatever Site actually matches the incoming
-        request, not `Rendition.full_url`'s single global
-        `settings.WAGTAILADMIN_BASE_URL` (unset in some deploys → silently
-        wrong host in production, and incapable of ever reflecting a
-        second Site). Registering a second Site with a distinct hostname
-        and requesting through it is the only way to prove that — a Site
-        record it does NOT match would fall back to the default Site,
-        masking the very bug this test exists to catch.
+        """`full_url`/`url` must resolve via `request.build_absolute_uri()`
+        for whatever host actually served the request, not
+        `Rendition.full_url`'s single global `settings.WAGTAILADMIN_BASE_URL`
+        (unset in some deploys → silently wrong host in production, and
+        incapable of ever reflecting more than one domain).
+
+        Registering a second `Site` row sharing the same `root_page` and
+        requesting through its hostname proves this two ways at once:
+        `featured_image.full_url` (never Site-derived — build_absolute_uri
+        applied directly to a rendition path) must reflect it, and so must
+        `url` (page-derived — todo 308's landmine: `Page.get_url()` starts
+        returning an already-absolute, Site-rooted URL once a second Site
+        exists, which `build_absolute_uri()` would pass through unchanged
+        if applied to it directly; the fix instead builds from
+        `get_url_parts()`'s always-relative page path, so `url` stays
+        request-derived regardless of Site count).
         """
         root = Page.objects.get(id=1)
         Site.objects.create(hostname="blog.example.com", port=80, root_page=root)
@@ -762,4 +769,8 @@ class BlogPostMediaUrlConsistencyTest(TestCase):
                 "http://blog.example.com/"
             ),
             response.data["featured_image"]["full_url"],
+        )
+        self.assertTrue(
+            response.data["url"].startswith("http://blog.example.com/"),
+            response.data["url"],
         )

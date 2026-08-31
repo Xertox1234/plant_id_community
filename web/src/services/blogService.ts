@@ -26,14 +26,16 @@ export const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
  * When media is served locally (Django's default, and dev), it lives on the
  * API host, not the SPA host — a relative `/media/...` src breaks whenever
  * the two are on different origins (prod, and locally without a dev-server
- * proxy). The API also emits ABSOLUTE `/media/` URLs whose host isn't
- * trustworthy: `related_posts[].featured_image` is built from Wagtail's
- * static Site record (`get_full_url`), which is uncurated and resolves to
- * the wrong host in every environment where it hasn't been hand-configured
- * (live-probed: `http://localhost/media/...` — port 80, not the API's
- * actual port). Rendition payloads separately carry a `full_url` field with
- * the same Site-record problem, which is why it's deliberately not modeled
- * on `BlogPostImage` either. So: re-base ANY `/media/` PATH — relative or
+ * proxy). The API also emits ABSOLUTE `/media/` URLs, historically built
+ * from Wagtail's static Site record (`get_full_url`), which was uncurated
+ * and resolved to the wrong host in every environment where it hadn't been
+ * hand-configured (live-probed 2026-08-16: `http://localhost/media/...` —
+ * port 80, not the API's actual port). As of todo 308, the backend instead
+ * derives every URL from the request that's actually serving it
+ * (`request.build_absolute_uri()`), so the host it sends should now always
+ * match `API_URL` when hit through the same domain — this rebase is kept
+ * as defense-in-depth rather than removed, since it's a no-op once the
+ * hosts already match. So: re-base ANY `/media/` PATH — relative or
  * absolute — onto `API_URL`, ignoring whatever host the API sent.
  *
  * When the backend's USE_R2 flag is on (todo 305), media instead lives on

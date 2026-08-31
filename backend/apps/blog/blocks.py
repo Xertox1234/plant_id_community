@@ -11,12 +11,14 @@ same `{id, url, alt, width, height}` shape and `request.build_absolute_uri()`
 mechanism the forum's `serialize_image_for_api`
 (`packages/wagtail_forum/wagtail_forum/api/serializers.py`) already
 established and validated in production for the identical problem
-(StreamField image block -> renderable URL). Deliberately NOT
-`get_full_url()` (used elsewhere in `apps/blog/api/serializers.py` for
-page/author URLs): that resolves the host via Wagtail's Sites framework,
-which this deploy has no Site record for beyond the seeded
-`localhost:80` default — `request.build_absolute_uri()` reads the actual
-incoming request's host directly, no Site involved.
+(StreamField image block -> renderable URL). `apps/blog/api/serializers.py`
+originally used Wagtail's `get_full_url()` for page/author URLs instead —
+that resolves the host via Wagtail's Sites framework, which this deploy
+had no Site record for beyond the seeded `localhost:80` default, so every
+URL it built resolved to `http://localhost/...` in production (todo 308).
+That file now uses `request.build_absolute_uri()` too, for the same reason
+this block always has: it reads the actual incoming request's host
+directly, no Site involved.
 """
 
 from wagtail.images.blocks import ImageChooserBlock
