@@ -223,3 +223,33 @@ response at all.
   info, all three verified as false positives against source (see todo
   326's Work Log for the detail — reviewer misread diff hunk-header line
   offsets). Nothing to repair.
+
+### 2026-08-31 - Deployed; partial live probe (1 of 3 endpoints has content)
+
+- Merged via PR #598. Railway auto-deployed on push to `main`
+  (deployment `6f4cf794`, commit `43f1c31`, `SUCCESS`).
+- Post-deploy live probe: `/api/v2/blog-index/` unexpectedly already has
+  content in production (`BlogIndexPage` id 16, "Blog") — **AC #2
+  confirmed for this endpoint**:
+  `curl https://api.houseplant-md.com/api/v2/blog-index/16/` returns
+  `featured_posts: []`, `categories: []`, `recent_posts` (6 posts, each
+  with a request-derived `url` starting `https://api.houseplant-md.com/`),
+  and the page's own `url` = `https://api.houseplant-md.com/blog/` — the
+  fix works end-to-end against real production data, not just the test
+  suite.
+- `/api/v2/blog-authors/` and `/api/v2/blog-categories/` still return zero
+  items (`{"meta": {"total_count": 0}, "items": []}`) — no
+  `BlogAuthorPage`/`BlogCategoryPage` content exists in prod yet, so their
+  custom fields still can't be observed live. **AC #2 stays unchecked** —
+  it's now 1-of-3 confirmed, not all three. Not archiving yet.
+- Incidental observation while probing (not a regression, pre-existing,
+  untouched by this session's PRs): nested `categories[].url` on each
+  blog post is `null` in the live response.
+  `BlogCategorySerializer.get_url` (`apps/blog/api/serializers.py:134-144`)
+  looks up a matching `BlogCategoryPage` for each `BlogCategory` and
+  returns `None` when none exists — consistent with `blog-categories`
+  itself returning zero items above. Expected, not a bug.
+- Remaining follow-up: once `BlogAuthorPage`/`BlogCategoryPage` content is
+  seeded (or if never seeded, that itself is a valid "this AC just can't
+  be fully satisfied" outcome worth a decision), live-probe the other two
+  endpoints, check AC #2, archive.
