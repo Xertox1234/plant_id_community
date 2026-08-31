@@ -345,6 +345,15 @@ ENABLE_CACHE_WARMING=True
 # OAuth - SERVICE_OAUTH*_* pattern
 GOOGLE_OAUTH2_CLIENT_ID=...
 GOOGLE_OAUTH2_CLIENT_SECRET=...
+
+# Object storage (Cloudflare R2, todo 305) - SERVICE_* pattern, gated by
+# a matching ENABLE/USE_* flag
+USE_R2=True
+R2_BUCKET_NAME=...
+R2_ACCESS_KEY_ID=...
+R2_SECRET_ACCESS_KEY=...
+R2_ENDPOINT_URL=https://<account_id>.r2.cloudflarestorage.com
+R2_CUSTOM_DOMAIN=media.example.com
 ```
 
 ---
@@ -488,6 +497,13 @@ PLANT_ID_API_KEY\s*=\s*[A-Za-z0-9]{40,60}
 PLANTNET_API_KEY\s*=\s*[A-Za-z0-9]{20,30}
 ```
 
+**Cloudflare R2 Credentials** (S3-compatible — same shape as AWS access/secret keys):
+
+```regex
+R2_ACCESS_KEY_ID\s*=\s*[A-Za-z0-9]{20,}
+R2_SECRET_ACCESS_KEY\s*=\s*[A-Za-z0-9/+=]{40,}
+```
+
 **Generic API Key**:
 
 ```regex
@@ -567,6 +583,30 @@ exit 0
 2. **Quarterly**: Routine security hygiene (recommended)
 3. **After Breach**: If any system compromise is suspected
 4. **Team Changes**: When team member with access leaves
+
+---
+
+### Pattern: Cloudflare R2 Credential Rotation (todo 305)
+
+**Steps**:
+
+```bash
+# 1. Cloudflare dashboard → R2 → Manage API Tokens → create a new token
+#    scoped to the same bucket (Object Read & Write), then delete the old one
+#    once step 3 confirms the new token works.
+# 2. Update .env file (do NOT commit)
+echo "R2_ACCESS_KEY_ID=new-key-here" >> backend/.env
+echo "R2_SECRET_ACCESS_KEY=new-secret-here" >> backend/.env
+
+# 3. Update both Railway services — the web service AND forum-prune-cron
+#    (railway.cron.json) import the same settings, so both crash-loop if
+#    only one is updated (see validate_environment() in settings.py):
+railway variables --set R2_ACCESS_KEY_ID=new-key-here --set R2_SECRET_ACCESS_KEY=new-secret-here --service <web-service>
+railway variables --set R2_ACCESS_KEY_ID=new-key-here --set R2_SECRET_ACCESS_KEY=new-secret-here --service forum-prune-cron
+
+# 4. Redeploy both services, verify media still serves, then revoke the
+#    old API token in the Cloudflare dashboard.
+```
 
 ---
 
@@ -1081,7 +1121,7 @@ Get API keys from:
 - [ ] Minimum length enforced (50 characters)
 - [ ] Development default clearly marked as insecure
 
-### API Key Management
+### API Key Checklist
 
 - [ ] All external API keys in environment variables
 - [ ] Rate limits documented for each service

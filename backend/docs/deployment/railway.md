@@ -85,6 +85,8 @@ show:
 | `TRUST_PROXY_SSL_HEADER` | `True` — **required**, or `SECURE_SSL_REDIRECT` infinite-loops behind Railway's TLS proxy |
 | `PLANT_ID_API_KEY` | from `backend/.env` |
 | `PLANTNET_API_KEY` | from `backend/.env` |
+| `USE_R2` | `True` once R2 cutover is verified (todo 305) — off keeps media on the local volume/`serve()` route |
+| `R2_BUCKET_NAME`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_ENDPOINT_URL`, `R2_CUSTOM_DOMAIN` | from the R2 bucket + scoped API token (Cloudflare dashboard) — **critical error if any is unset while `USE_R2=True` and `DEBUG=False`**. Must also be set on `forum-prune-cron` below — it imports the same settings |
 
 `CELERY_BROKER_URL` defaults to `REDIS_URL`; no need to set it unless using a
 separate broker. `TRUST_PROXY_SSL_HEADER=True` makes Django trust Railway's
@@ -200,6 +202,7 @@ then be set as in the original steps 2–3).
    | `CSRF_TRUSTED_ORIGINS` | `${{plant_id_community.CSRF_TRUSTED_ORIGINS}}` | critical in production |
    | `CORS_ALLOWED_ORIGINS` | `${{plant_id_community.CORS_ALLOWED_ORIGINS}}` | critical when unset or left at the placeholder default |
    | `DEBUG` | `${{plant_id_community.DEBUG}}` | keeps the cron on the same branch as the web service |
+   | `USE_R2`, `R2_BUCKET_NAME`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_ENDPOINT_URL`, `R2_CUSTOM_DOMAIN` | `${{plant_id_community.*}}` (same names) | same `validate_environment()` block as the web service — omitting these while `USE_R2=True` crash-loops the cron identically to a missing `REDIS_URL` above (todo 305) |
 
    An earlier revision of this runbook said "`REDIS_URL` is not required for
    pruning" — that was wrong. Pruning itself touches no cache, but settings
@@ -242,9 +245,14 @@ cron service above. `CELERY_BROKER_URL` defaults to `REDIS_URL`.
 
 ## Known gaps to address later
 
-- **Media uploads are ephemeral.** Railway wipes the container filesystem on each
-  deploy, so uploaded plant images (`MEDIA_ROOT`) are lost. Wire up object storage
-  (Cloudflare R2 via `django-storages` + `boto3`) for persistence.
+- **Media storage — R2 support shipped, not yet cut over (todo 305).** Media
+  is no longer ephemeral (a Railway volume at `/app/media` fixed that, PR
+  #539) but still routes every byte through gunicorn via a hand-rolled
+  `serve()` route with no CDN. `django-storages`/R2 support now exists
+  behind the `USE_R2` flag (see the env var tables above) — flipping it,
+  syncing the volume's contents into the bucket, and verifying live is the
+  remaining cutover step, after which the `serve()` route and the volume
+  can be removed.
 - **Firebase Admin SDK** (mobile auth + garden sync) loads credentials from a file
   path (`GOOGLE_APPLICATION_CREDENTIALS` / `FIREBASE_CREDENTIALS_PATH`). On Railway,
   provide the service-account JSON via an env var written to a file at startup. Not

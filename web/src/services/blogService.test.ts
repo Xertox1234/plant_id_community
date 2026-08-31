@@ -124,6 +124,15 @@ describe('blogService', () => {
       const url = 'https://cdn.example.com/social-media/cover.webp';
       expect(mediaUrl(url)).toBe(url);
     });
+
+    it('passes an R2-backed media URL through unchanged (todo 305, USE_R2 on)', () => {
+      // django-storages's S3Storage.url() builds https://<custom_domain>/<key>
+      // with no /media/ path segment (that prefix only ever comes from
+      // Django's local-storage MEDIA_URL) — this must NOT be rebased onto
+      // the API origin, or the R2/CDN move is silently undone.
+      const url = 'https://media.houseplant-md.com/original_images/foo.jpg';
+      expect(mediaUrl(url)).toBe(url);
+    });
   });
 
   // ============================================================================

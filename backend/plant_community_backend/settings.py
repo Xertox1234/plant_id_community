@@ -411,6 +411,54 @@ WHITENOISE_MANIFEST_STRICT = not DEBUG  # Strict manifest in production
 MEDIA_URL = "/media/"
 MEDIA_ROOT = BASE_DIR / "media"
 
+# Object storage (Cloudflare R2) — flag-gated, defaults off (todo 305).
+# STORAGES itself was never defined in this file before now, so Django was
+# already using its own implicit defaults for both keys — critically,
+# STATICFILES_STORAGE above has been dead since Django 5.1 removed the
+# shim that used to synthesize STORAGES["staticfiles"] from it (see
+# docs/deployment/railway.md: "vestigial"), so "staticfiles" was already
+# resolving to plain StaticFilesStorage, not whitenoise, despite that
+# setting. Defining STORAGES explicitly means every key must be spelled
+# out or it's dropped — mirror Django's own default here verbatim so this
+# PR changes ONLY "default" (media), not the pre-existing (undocumented
+# side effect, out of scope for todo 305) static-file behavior.
+# "default" starts as the implicit FileSystemStorage and switches to R2
+# below when USE_R2 is on. When off, MEDIA_URL/MEDIA_ROOT above serve as
+# usual; when on, they're unused for URL generation — S3Storage.url()
+# builds URLs from `custom_domain` below, not MEDIA_URL.
+STORAGES = {
+    "default": {"BACKEND": "django.core.files.storage.FileSystemStorage"},
+    "staticfiles": {"BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage"},
+}
+
+USE_R2 = config("USE_R2", default=False, cast=bool)
+if USE_R2:
+    STORAGES["default"] = {
+        "BACKEND": "storages.backends.s3.S3Storage",
+        "OPTIONS": {
+            "bucket_name": config("R2_BUCKET_NAME", default=""),
+            "access_key": config("R2_ACCESS_KEY_ID", default=""),
+            "secret_key": config("R2_SECRET_ACCESS_KEY", default=""),
+            "endpoint_url": config("R2_ENDPOINT_URL", default=""),
+            "region_name": "auto",
+            "custom_domain": config("R2_CUSTOM_DOMAIN", default=""),
+            # querystring_auth defaults True upstream, which signs every URL
+            # with expiring query params — that defeats CDN caching while
+            # still "working" in a quick smoke test. Must be off.
+            "querystring_auth": False,
+            # file_overwrite defaults True upstream (unlike FileSystemStorage).
+            # Paired with the immutable Cache-Control below: a same-name
+            # re-upload must get a new key, not silently replace bytes at a
+            # URL we told the CDN to cache forever.
+            "file_overwrite": False,
+            "object_parameters": {
+                "CacheControl": "public, max-age=31536000, immutable",
+            },
+            # No default_acl — R2 doesn't support ACLs; django-storages
+            # already defaults this to None, so leave it unset.
+        },
+    }
+
 # Default primary key field type
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
@@ -1365,6 +1413,40 @@ def validate_environment():
                 "CORS_ALLOWED_ORIGINS must be configured with actual production domains. "
                 "Set CORS_ALLOWED_ORIGINS=https://yourdomain.com in environment."
             )
+
+    # ========================================
+    # R2_* credentials when object storage is enabled (todo 305)
+    # ========================================
+    # Checked in EVERY environment, not just `if not DEBUG:` above — the
+    # STORAGES block that builds S3Storage's OPTIONS (this file, ~line 435)
+    # has no DEBUG guard either, so USE_R2=True with blank vars would
+    # otherwise construct S3Storage with empty credentials and boot clean,
+    # failing later with an opaque low-level boto3 error far from the real
+    # misconfiguration (e.g. a dev/scratch server with USE_R2 flipped on by
+    # accident). Only production treats it as fatal; DEBUG surfaces it as a
+    # visible warning instead, matching this function's usual warn-vs-error split.
+    if USE_R2:
+        missing_r2_vars = [
+            r2_var
+            for r2_var in (
+                "R2_BUCKET_NAME",
+                "R2_ACCESS_KEY_ID",
+                "R2_SECRET_ACCESS_KEY",
+                "R2_ENDPOINT_URL",
+                "R2_CUSTOM_DOMAIN",
+            )
+            if not config(r2_var, default="")
+        ]
+        for r2_var in missing_r2_vars:
+            message = (
+                f"{r2_var} is required when USE_R2 is enabled. Also set it on "
+                "the forum-prune-cron Railway service — it imports these same "
+                "settings."
+            )
+            if not DEBUG:
+                critical_errors.append(message)
+            else:
+                warnings.append(message)
 
     # ========================================
     # API Key Format Validation (Issue #156)
