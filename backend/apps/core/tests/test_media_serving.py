@@ -1,11 +1,12 @@
 """
-Production /media/ serving (plant_community_backend/urls.py).
+Production /media/ is NOT served by Django (plant_community_backend/urls.py).
 
-Django's static() URL helper is a deliberate no-op when DEBUG=False, so
-before the explicit production route existed every uploaded file 404'd on
-Railway even though the files were on disk (found live 2026-08-16 during
-the forum demo seed). The test runner forces DEBUG=False, which means the
-URLconf here loads the production branch — exactly the route under test.
+PR #539's serve() fallback (a stopgap route reading MEDIA_ROOT directly) was
+removed once the R2 cutover (todo 305, PR #591) was verified live — media is
+now served from an R2-backed CDN domain, not this app. This pins the
+opposite of the old behavior: even a file that physically exists in
+MEDIA_ROOT must 404 through Django, since nothing routes /media/ anymore.
+Regression guard against silently re-adding a local serve route.
 """
 
 import tempfile
@@ -18,21 +19,20 @@ from django.test import TestCase, override_settings
 # TestCase (not SimpleTestCase): a 404 response passes through Wagtail's
 # redirects middleware, which looks up Redirect rows in the database.
 class ProductionMediaServingTests(TestCase):
-    """The DEBUG=False branch of urls.py serves MEDIA_ROOT at /media/."""
+    """The DEBUG=False branch of urls.py has no /media/ route at all."""
 
     def test_urlconf_loaded_the_production_branch(self):
-        # Load-bearing guard: if DEBUG were True here, the assertions below
-        # would pass via the development static() route and prove nothing
-        # about the production one.
+        # Load-bearing guard: if DEBUG were True here, the assertion below
+        # would 404 via a different mechanism (no static() route registered
+        # for a nonexistent file) and prove nothing about production.
         self.assertFalse(settings.DEBUG)
 
-    def test_media_file_is_served(self):
+    def test_existing_media_file_still_returns_404(self):
         with tempfile.TemporaryDirectory() as tmp:
             (Path(tmp) / "probe.txt").write_bytes(b"media-probe")
             with override_settings(MEDIA_ROOT=tmp):
                 response = self.client.get("/media/probe.txt")
-                self.assertEqual(response.status_code, 200)
-                self.assertEqual(b"".join(response.streaming_content), b"media-probe")
+                self.assertEqual(response.status_code, 404)
 
     def test_missing_media_file_returns_404(self):
         with tempfile.TemporaryDirectory() as tmp:
