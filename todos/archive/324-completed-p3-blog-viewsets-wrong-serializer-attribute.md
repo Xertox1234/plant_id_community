@@ -1,5 +1,5 @@
 ---
-status: in_progress
+status: completed
 priority: p3
 issue_id: "324"
 tags: [backend, wagtail, api, blog]
@@ -124,11 +124,15 @@ response at all.
       verified to work is each viewset overriding `get_serializer_class()`
       to return the custom serializer directly, matching
       `BlogPostPageViewSet`'s established pattern.
-- [ ] A live probe of each affected endpoint (post-deploy) shows the custom
-      fields in the response. **Not checked** — `/api/v2/blog-authors/`,
-      `/api/v2/blog-index/`, `/api/v2/blog-categories/` return zero items in
-      production today (no content seeded); nothing to probe yet. Proven
-      locally instead (see Work Log) — same situation as todo 308's AC #1.
+- [x] A live probe of each affected endpoint (post-deploy) shows the custom
+      fields in the response. Seeded content via `seed_demo_blog --confirm`
+      (extended by #603 to create `BlogAuthorPage`/`BlogCategoryPage`) and
+      live-probed all three: `/api/v2/blog-index/` shows `featured_posts`/
+      `categories`/`recent_posts`; `/api/v2/blog-authors/` shows `bio`/
+      `expertise_areas`/`post_count`/`recent_posts` with correct nested
+      posts per author; `/api/v2/blog-categories/` shows `category`/`posts`
+      with correct nested posts per category. All `url` fields
+      request-derived (`https://api.houseplant-md.com/...`), not `localhost`.
 - [x] A regression test per viewset pins presence of at least one custom
       field so this can't silently regress again. `python manage.py test
       apps.blog.tests.test_page_viewsets_serializer_wiring
@@ -253,3 +257,30 @@ response at all.
   seeded (or if never seeded, that itself is a valid "this AC just can't
   be fully satisfied" outcome worth a decision), live-probe the other two
   endpoints, check AC #2, archive.
+
+### 2026-08-31 - Seeded, live-probed, completed
+
+- `seed_demo_blog` extended (PR #603, merged, deployed) to also create
+  `BlogAuthorPage`/`BlogCategoryPage` — the plain `User`/`BlogCategory`
+  rows the command already created were never enough; these page types
+  are what the fixed endpoints actually serve, and nobody had ever
+  created one, in prod or in the seed data.
+- Ran `railway ssh --service plant_id_community "python manage.py
+  seed_demo_blog --confirm"` (same guarded, idempotent command already
+  used for todo 308) against production: `Created author page
+  iris_delgado.` / `sam_whitaker.` / `june_park.` / `theo_brandt.`,
+  `Created category page care.` / `propagation.` / `pests-diseases.` /
+  `design.`, `Blog seed complete: 0 post(s) created, 6 already present.
+  4 author page(s), 4 category page(s) confirmed.`
+- Live-probed both remaining endpoints against production:
+  `/api/v2/blog-authors/` returns 4 items, each with populated `bio`,
+  `expertise_areas`, `post_count`, and `recent_posts` (correct posts per
+  author, e.g. June Park → "Killed by kindness" + "Spider mites move in
+  before you notice"), all `url` fields resolving to
+  `https://api.houseplant-md.com/blog/<slug>/`.
+  `/api/v2/blog-categories/` returns 4 items, each with populated
+  `category` and `posts` (correct posts per category, e.g. Design → 2
+  posts), same request-derived `url` pattern.
+  Combined with `/api/v2/blog-index/`'s earlier confirmation, all three
+  affected endpoints are now proven working against real production data.
+- AC #2 checked. All acceptance criteria satisfied. Archived.
