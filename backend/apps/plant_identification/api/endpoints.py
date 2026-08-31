@@ -294,6 +294,8 @@ class PlantCareGuideAPIViewSet(BaseAPIViewSet):
 class PlantSpeciesPageViewSet(PagesAPIViewSet):
     """ViewSet for PlantSpeciesPage pages."""
 
+    versioning_class = None  # Disable DRF versioning for Wagtail API (todo 325)
+
     def get_serializer_class(self):
         """Use different serializers for list vs detail views."""
         if self.action == "list":
@@ -394,7 +396,21 @@ class PlantSpeciesPageViewSet(PagesAPIViewSet):
 class PlantCategoryIndexPageViewSet(PagesAPIViewSet):
     """ViewSet for PlantCategoryIndexPage."""
 
-    serializer_class = PlantCategoryIndexPageSerializer
+    versioning_class = None  # Disable DRF versioning for Wagtail API (todo 325)
+
+    def get_serializer_class(self):
+        """Return the custom serializer directly (todo 324).
+
+        `serializer_class` is a plain DRF attribute Wagtail's own
+        `get_serializer_class()` never reads — and a `base_serializer_class`
+        rename wouldn't be enough either, since Wagtail builds its
+        serializer dynamically from `model.api_fields`
+        (`_get_serializer_class()`, `wagtail/api/v2/views.py`), which
+        `PlantCategoryIndexPage` doesn't define, silently dropping
+        `categories`/`featured_plants`. See `PlantSpeciesPageViewSet`
+        above (already correctly wired) for the same pattern.
+        """
+        return PlantCategoryIndexPageSerializer
 
     def get_queryset(self):
         return PlantCategoryIndexPage.objects.live().public().specific()
