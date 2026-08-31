@@ -5,7 +5,7 @@ import LoadingSpinner from '../components/ui/LoadingSpinner';
 import StreamFieldRenderer from '../components/StreamFieldRenderer';
 import PageMeta from '../components/PageMeta';
 import NotFoundPage from './NotFoundPage';
-import { fetchBlogPost, mediaUrl } from '../services/blogService';
+import { fetchBlogPost, mediaUrl, API_URL } from '../services/blogService';
 import { stripHtml } from '../utils/sanitize';
 import { logger } from '../utils/logger';
 import { useScrollToTop } from '../hooks/useScrollToTop';
@@ -108,6 +108,8 @@ export default function BlogDetailPage() {
         title={`${post.title} — Houseplant MD`}
         description={post.introduction ? stripHtml(post.introduction) : undefined}
         og={{ title: post.title, type: 'article' }}
+        rssFeedUrl={`${API_URL}/blog/rss/`}
+        atomFeedUrl={`${API_URL}/blog/atom/`}
       />
 
       <header className="mx-auto flex w-full max-w-[70ch] flex-col items-start gap-3.5">
