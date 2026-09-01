@@ -166,3 +166,17 @@ Compact checklist auto-injected before edits. Long-form:
   shipping, not by a failing test, so don't assume a passing suite proves
   this interaction is absent; trace it deliberately whenever `full_clean()`
   and an `except IntegrityError:` savepoint coexist for the same model.
+- **Every django-ai-core vector index shares ONE `PgVectorEmbedding` table,
+  and `document_key` is its PRIMARY KEY.** Keys must carry an index-unique
+  prefix (`ModelSource.source_id` = the model label); `PgVectorProvider.clear()`
+  deletes EVERY index's rows and `delete(keys)` ignores `index_name` — purge
+  with `PgVectorEmbedding.objects.filter(index_name=..., document_key__startswith=...)`.
+  `add()` only upserts the keys it is handed (nothing ever purges a stale tail),
+  and `VectorIndex.update()` re-registers every source object in
+  `ModelSourceIndex` on every call — per-object maintenance goes through the
+  transformer + provider directly. Verified against 0.1.5 (todo 289).
+- **Never call `search_documents()` outside `vector_indexes._scored_search`.**
+  It is the single place that owns the flag, the query cap and the embedding
+  budget; an unsliced result also silently caps at 20 rows. Wrappers:
+  `find_similar_topics()` (Topic pks) and `retrieve_grounding_passages()`
+  (scored, floored). See `backend/docs/patterns/domain/forum.md`.

@@ -428,6 +428,39 @@ pre-publish page or re-embed a page mid-delete (PR #606 review). And
 `retry_backoff=` on an `autoretry_for` task is the backoff FACTOR — `True`
 means factor 1 (~1s/2s/4s), and `default_retry_delay` is ignored on that path.
 
+## django-ai-core 0.1.5 — verified library facts (todo 289)
+
+Read from `backend/venv/.../django_ai_core/contrib/index/` while building
+`BlogChunks`; each one shaped the code and would mislead a reader of the
+library's docstrings alone:
+
+- `ModelSource.__init__` sets `self.chunk_transformer` ONLY when none is
+  passed (`source.py:83`, missing `else`) — passing `chunk_transformer=`
+  leaves the attribute unset and `_object_to_documents` raises
+  `AttributeError`. Set it in a subclass `__init__`.
+- `ModelSource` installs `SimpleChunkTransformer(1000, 100)` by default, so
+  `SimilarTopics` ALREADY chunks (blind character windows), hidden by
+  `find_similar_topics`' pk-dedupe. `get_metadata(obj)` is called once per
+  OBJECT and reused for every chunk — per-chunk metadata (a block anchor)
+  requires overriding `_object_to_documents`.
+- `search_documents()` returns `BaseStorageDocument(document_key, content,
+  metadata, score)` with `score = 1 - cosine_distance`, ordered ascending
+  distance; an UNSLICED iteration silently stops at 20
+  (`storage/base.py:24`). `search_sources()` discards scores in its dedupe.
+- `CachedEmbeddingTransformer.embed_string` is content-hash cached in the DB,
+  so the same query against two indexes is one provider call (and two
+  `EMBED_BUDGET` units — the over-count is the safe direction).
+- `PgVectorEmbedding.document_key` is the table's PRIMARY KEY across every
+  index; `add()` upserts by `(index_name, document_key)`; `delete(keys)`
+  ignores `index_name`; `clear()` wipes every index; `VectorIndex.update()`
+  ends in `post_index_update`, which re-registers every source object in
+  `ModelSourceIndex` on every call. Nothing ever purges stale keys.
+- `contrib/index/signals.py` ships a `post_save` receiver that is never
+  connected (`IndexConfig` has no `ready()`) and passes the model CLASS where
+  an instance is expected — rebuild-on-save is 100% host code.
+- `SentenceChunkTransformer` imports `llama_index` at call time; it is not
+  installed, so that transformer raises `ImportError`.
+
 ## Augmenting a package read view host-side: mix in, never override (todo 275 / M12)
 
 The premium `?semantic=1` section on `/forum/search/` is a `SemanticSearchMixin`
