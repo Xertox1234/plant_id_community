@@ -13,6 +13,11 @@ import { test, expect } from '@playwright/test';
  */
 
 test.describe('Authentication Flows', () => {
+  // Serial: 'can logout successfully' blacklists the refresh token backing the
+  // storageState this whole describe block shares (todo 312) — safest to not
+  // race it against its siblings under this config's fullyParallel: true.
+  test.describe.configure({ mode: 'serial' });
+
   test('user is already logged in (from auth.setup.js)', async ({ page }) => {
     // Navigate to home page
     await page.goto('/', { waitUntil: 'networkidle', timeout: 30000 });
@@ -52,14 +57,27 @@ test.describe('Authentication Flows', () => {
       await userMenuButton.click();
       await page.waitForTimeout(500); // Wait for dropdown animation
 
-      // Click logout button
-      const logoutButton = page.locator('text=/logout/i').first();
-      await logoutButton.click();
+      // Click logout button — the rendered text is "Log out" (with a space,
+      // UserMenu.tsx), which /logout/i never matched; use its role instead.
+      const logoutButton = page.getByRole('menuitem', { name: /log ?out/i });
+      // Wait for the actual logout response, not a fixed DOM-poll timeout
+      // (todo 312) — under this project's real concurrent test load (this
+      // file plus canopy-areas-authenticated.spec.js and
+      // forum-authenticated.spec.js all sharing one backend), the request
+      // reliably took longer than a 2s guess, even against a warm server;
+      // waiting on the network event itself removes the race entirely.
+      await Promise.all([
+        page.waitForResponse(
+          (res) => res.url().endsWith('/api/v1/auth/logout/') && res.request().method() === 'POST'
+        ),
+        logoutButton.click(),
+      ]);
 
       // Wait for redirect to home page
       await page.waitForURL('/', { timeout: 10000 });
 
-      // Verify user menu is no longer visible
+      // Verify user menu is no longer visible — a short timeout is safe now
+      // that we've already waited for the response above.
       const userMenuAfterLogout = await page
         .locator('[data-testid="user-menu"]')
         .isVisible({ timeout: 2000 })
@@ -93,8 +111,22 @@ test.describe('Protected Routes (Unauthenticated)', () => {
     await page.fill('input[type="email"]', 'e2e@test.com');
     await page.fill('input[type="password"]', 'E2ETestPassword123456');
 
-    // Submit form
-    await page.click('button[type="submit"]');
+    // Submit and wait for the actual login response, not a fixed URL-poll
+    // timeout (todo 312) — this test makes the same rate-limited login POST
+    // as its "invalid credentials" sibling below, so it needs the same
+    // network-first wait and 429 diagnostic, not just a bigger guessed number.
+    const [response] = await Promise.all([
+      page.waitForResponse(
+        (res) => res.url().endsWith('/api/v1/auth/login/') && res.request().method() === 'POST'
+      ),
+      page.click('button[type="submit"]'),
+    ]);
+    if (response.status() === 429) {
+      throw new Error(
+        'Login rate limit exhausted — run `manage.py reset_ratelimits` ' +
+          '(auth.setup.js should already do this automatically; see todo 312).'
+      );
+    }
 
     // Wait for redirect to home page
     await page.waitForURL('/', { timeout: 10000 });
@@ -111,10 +143,33 @@ test.describe('Protected Routes (Unauthenticated)', () => {
     await page.fill('input[type="email"]', 'e2e@test.com');
     await page.fill('input[type="password"]', 'WrongPassword123');
 
-    // Submit form
-    await page.click('button[type="submit"]');
+    // Submit and wait for the actual login response, not a fixed DOM-poll
+    // timeout (todo 312) — under this project's real concurrent test load
+    // (this file plus canopy-areas-authenticated.spec.js and
+    // forum-authenticated.spec.js all sharing one backend), the request
+    // reliably took longer than a 5s guess, even against a warm server;
+    // waiting on the network event itself removes the race entirely.
+    const [response] = await Promise.all([
+      page.waitForResponse(
+        (res) => res.url().endsWith('/api/v1/auth/login/') && res.request().method() === 'POST'
+      ),
+      page.click('button[type="submit"]'),
+    ]);
 
-    // Should show error message
+    // Fail loudly and specifically if the shared IP-based login rate limit
+    // (5/15m, backend/apps/plant_identification/constants.py) is exhausted —
+    // that response has no "invalid|incorrect|failed" text at all, so
+    // without this check a tripped limit reads as a confusing, unrelated
+    // "errorVisible: false" instead of naming the real cause.
+    if (response.status() === 429) {
+      throw new Error(
+        'Login rate limit exhausted — run `manage.py reset_ratelimits` ' +
+          '(auth.setup.js should already do this automatically; see todo 312).'
+      );
+    }
+
+    // Should show error message — a short timeout is safe now that we've
+    // already waited for the response above.
     const errorVisible = await page
       .locator('text=/invalid|incorrect|failed/i')
       .isVisible({ timeout: 5000 })

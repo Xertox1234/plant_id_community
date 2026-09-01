@@ -208,8 +208,9 @@ test('can logout successfully', async ({ page }) => {
   await userMenuButton.click();
   await page.waitForTimeout(500); // Dropdown animation
 
-  // Click logout
-  const logoutButton = page.locator('text=/logout/i').first();
+  // Click logout — the rendered text is "Log out" (with a space), which
+  // /logout/i never matches; the menu item's role is the reliable target.
+  const logoutButton = page.getByRole('menuitem', { name: /log ?out/i });
   await logoutButton.click();
 
   // Wait for redirect
@@ -228,7 +229,7 @@ test('can logout successfully', async ({ page }) => {
 **Why this works**:
 
 - Waits for dropdown animation (500ms)
-- Uses flexible selector (`text=/logout/i`)
+- Targets the menu item by role, not exact text (`getByRole('menuitem', { name: /log ?out/i })`)
 - Verifies state change (user menu disappears)
 - Handles async state updates
 

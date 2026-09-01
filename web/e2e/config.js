@@ -31,6 +31,10 @@ export const E2E_TIMEOUTS = {
 
   // Element interactions
   SELECTOR_WAIT: 10000, // 10s for waitForSelector (matches Playwright default)
+
+  // Whole-test budgets
+  SETUP_TEST: 60000, // 60s for auth.setup.js: reset_ratelimits (todo 312) + login,
+  // on top of the default 30s config timeout it already runs close to
 };
 
 /**

@@ -21,6 +21,9 @@ vi.mock('../services/notificationService', () => ({
 vi.mock('../components/layout/NotificationBell', () => ({
   default: () => <div data-testid="notification-bell" />,
 }));
+// The real UserMenu trigger also carries data-testid="user-menu" (todo 312) —
+// this mock's testid isn't a stand-in for a nonexistent one anymore, it's just
+// keeping this suite from depending on UserMenu's internals.
 vi.mock('../components/layout/UserMenu', () => ({
   default: () => <div data-testid="user-menu" />,
 }));

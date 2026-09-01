@@ -84,6 +84,7 @@ export default function UserMenu() {
         className="flex items-center gap-2 px-3 py-2 rounded-lg text-ink-2 hover:bg-surface transition-colors"
         aria-expanded={isOpen}
         aria-haspopup="true"
+        data-testid="user-menu"
       >
         {/* Avatar Circle */}
         <div className="w-8 h-8 rounded-full bg-primary text-on-primary flex items-center justify-center font-medium text-sm">
