@@ -49,6 +49,14 @@ interface StreamFieldRendererProps {
    * 'article': blog detail — reading measure + roomier block rhythm.
    */
   variant?: 'inline' | 'article';
+  /**
+   * When set, each block is wrapped in an element with `id="<prefix>-<index>"`
+   * (index into the StreamField's raw block list) so a citation can deep-link
+   * to the passage (`/blog/<slug>#block-7`, todo 289). Opt-in per renderer: a
+   * thread page mounts one renderer per post, so unconditional ids would
+   * collide.
+   */
+  anchorPrefix?: string;
 }
 
 function renderTextOrSafeHtml(content: string, className = '') {
@@ -82,6 +90,7 @@ export default function StreamFieldRenderer({
   blocks,
   mentionHighlight,
   variant = 'inline',
+  anchorPrefix,
 }: StreamFieldRendererProps) {
   if (!blocks || blocks.length === 0) {
     return null;
@@ -92,13 +101,22 @@ export default function StreamFieldRenderer({
 
   return (
     <div className={wrapper}>
-      {blocks.map((block, index) => (
-        <StreamFieldBlock
-          key={block.id || index}
-          block={block}
-          mentionHighlight={mentionHighlight}
-        />
-      ))}
+      {blocks.map((block, index) => {
+        const rendered = (
+          <StreamFieldBlock
+            key={block.id || index}
+            block={block}
+            mentionHighlight={mentionHighlight}
+          />
+        );
+        if (!anchorPrefix) return rendered;
+        // scroll-mt keeps the anchored block clear of the sticky header.
+        return (
+          <div key={block.id || index} id={`${anchorPrefix}-${index}`} className="scroll-mt-24">
+            {rendered}
+          </div>
+        );
+      })}
     </div>
   );
 }

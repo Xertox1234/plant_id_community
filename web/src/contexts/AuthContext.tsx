@@ -10,7 +10,10 @@ import {
   ReactNode,
 } from 'react';
 import * as authService from '../services/authService';
-import { resetComposeAssistAvailability } from '../services/forumService';
+import {
+  resetComposeAssistAvailability,
+  resetPlantCareAskAvailability,
+} from '../services/forumService';
 import { logger } from '../utils/logger';
 import { rotateRequestId } from '../utils/requestId';
 import { AuthErrorCode } from '../types/auth';
@@ -201,8 +204,12 @@ export function AuthProvider({ children }: AuthProviderProps) {
   // AI assist, then upgrades or logs out and back in as someone else in the same
   // SPA session, keeps a disabled button the server would now allow
   // (todo 275 code review).
+  // The plant-care ask latch (todo 289) is the same kind of session-scoped
+  // "this account can't" fact — and it also covers 401, so signing in must
+  // clear it or the panel stays disabled for the now-authenticated user.
   useEffect(() => {
     resetComposeAssistAvailability();
+    resetPlantCareAskAvailability();
   }, [user?.id]);
 
   // Automatic token refresh for authenticated users

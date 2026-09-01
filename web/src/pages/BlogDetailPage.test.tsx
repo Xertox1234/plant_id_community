@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import BlogDetailPage from './BlogDetailPage';
 import { fetchBlogPost } from '../services/blogService';
@@ -118,5 +118,28 @@ describe('BlogDetailPage', () => {
     mockFetchPost.mockRejectedValue(new Error('Blog post not found'));
     renderPage();
     expect(await screen.findByText('This leaf is not in our records.')).toBeInTheDocument();
+  });
+
+  it('anchors content blocks as #block-N and scrolls a hash deep link to its block (todo 289)', async () => {
+    // A RAG citation links to /blog/<slug>#block-<index>; the anchors are on the
+    // content_blocks renderer ONLY (the introduction is a synthetic block and
+    // must not shift the numbering).
+    // jsdom defines scrollIntoView on HTMLElement.prototype — a spy on
+    // Element.prototype is shadowed and records 0 calls.
+    const scrollIntoView = vi.fn();
+    HTMLElement.prototype.scrollIntoView = scrollIntoView;
+    render(
+      <MemoryRouter initialEntries={['/blog/killed-by-kindness#block-1']}>
+        <Routes>
+          <Route path="/blog/:slug" element={<BlogDetailPage />} />
+        </Routes>
+      </MemoryRouter>
+    );
+    await screen.findByRole('heading', { level: 1, name: 'Killed by kindness' });
+    expect(document.getElementById('block-0')).toHaveTextContent('What overwatering actually is');
+    expect(document.getElementById('block-1')).toHaveTextContent('Roots respire.');
+    expect(document.getElementById('block-0')).not.toHaveTextContent('Most houseplants');
+    await waitFor(() => expect(scrollIntoView).toHaveBeenCalled());
+    expect((scrollIntoView.mock.contexts[0] as Element).id).toBe('block-1');
   });
 });

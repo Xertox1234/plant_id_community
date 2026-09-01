@@ -11,6 +11,29 @@ import StreamFieldRenderer from './StreamFieldRenderer';
 import type { StreamFieldBlock } from '@/types/blog';
 
 describe('StreamFieldRenderer', () => {
+  describe('Block anchors (todo 289 / M13)', () => {
+    const blocks: StreamFieldBlock[] = [
+      { id: 'a', type: 'heading', value: 'Watering' },
+      { id: 'b', type: 'paragraph', value: '<p>Less often than you think.</p>' },
+    ];
+
+    it('emits block-N ids only when anchorPrefix is given', () => {
+      // A RAG citation lands on `#block-<raw_data index>` (the only key present
+      // on every page — headings carry no ids and programmatic content has no
+      // block uuids). Opt-in per renderer: a thread page mounts one renderer per
+      // post, so unconditional ids would collide.
+      const { container, unmount } = render(
+        <StreamFieldRenderer blocks={blocks} anchorPrefix="block" />
+      );
+      expect(container.querySelector('#block-0')).toHaveTextContent('Watering');
+      expect(container.querySelector('#block-1')).toHaveTextContent('Less often than you think.');
+      unmount();
+
+      const plain = render(<StreamFieldRenderer blocks={blocks} />);
+      expect(plain.container.querySelector('[id^="block-"]')).toBeNull();
+    });
+  });
+
   describe('Basic Rendering', () => {
     it('renders null when blocks array is empty', () => {
       const { container } = render(<StreamFieldRenderer blocks={[]} />);
