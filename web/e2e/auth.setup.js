@@ -1,13 +1,23 @@
+import { execSync } from 'node:child_process';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { test as setup, expect } from '@playwright/test';
 import { E2E_TIMEOUTS, E2E_URLS, E2E_TEST_USER, E2E_AUTH_FILE } from './config.js';
+
+const BACKEND_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../backend');
 
 /**
  * Authentication Setup for E2E Tests
  *
- * This file runs BEFORE all other tests to:
- * 1. Log in as the test user (e2e_test_user)
- * 2. Save the authentication state (cookies, localStorage)
- * 3. Store it in .auth/user.json for reuse
+ * This file runs BEFORE all other tests (only for projects that depend on the
+ * 'setup' project — an unauthenticated-only run like --project=chromium never
+ * triggers it) to:
+ * 1. Reset the shared IP-based login rate limit (todo 312 — auth.spec.js's own
+ *    login attempts plus this file's real login otherwise exhaust the 5/15m
+ *    budget across two runs in a row)
+ * 2. Log in as the test user (e2e_test_user)
+ * 3. Save the authentication state (cookies, localStorage)
+ * 4. Store it in .auth/user.json for reuse
  *
  * Other tests can then load this state instead of logging in repeatedly.
  *
@@ -17,6 +27,16 @@ import { E2E_TIMEOUTS, E2E_URLS, E2E_TEST_USER, E2E_AUTH_FILE } from './config.j
  */
 
 setup('authenticate as test user', async ({ page }) => {
+  setup.setTimeout(E2E_TIMEOUTS.SETUP_TEST);
+
+  // Reset rate-limit counters before every run — automatic, not a step a
+  // human has to remember between runs (see todo 312's Work Log).
+  execSync('source venv/bin/activate && python manage.py reset_ratelimits', {
+    cwd: BACKEND_DIR,
+    stdio: 'inherit',
+    shell: '/bin/bash',
+  });
+
   // Navigate to login page
   await page.goto(`${E2E_URLS.FRONTEND}/login`, {
     waitUntil: 'networkidle',
