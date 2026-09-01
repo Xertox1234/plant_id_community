@@ -200,6 +200,11 @@ class PlantCareAskView(UnversionedForumAPIMixin, APIView):
 
         # user= is safe here: this response is per-asker and never cached.
         passages = retrieve_grounding_passages(question, user=request.user)
+        if passages is None:
+            # No index could search (embedding budget exhausted, provider
+            # down): TRANSIENT, and not a claim about the corpus. Nothing
+            # charged — nothing reached a provider.
+            return _unavailable("Plant-care answers are unavailable right now.")
         if not passages:
             # Guardrail 1 — refuse when unsourced. No LLM call, no charge.
             return Response(

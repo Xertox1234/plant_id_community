@@ -331,9 +331,52 @@ def test_floor_is_read_at_call_time():
 
 
 @pytest.mark.django_db
-def test_no_search_ran_returns_empty():
+def test_no_search_at_all_returns_none_not_an_empty_list():
+    """Tri-state, like the core: when NO index searched (budget exhausted,
+    provider down) the caller must say "unavailable", not "no information" —
+    the latter is a confident claim about the corpus that was never checked."""
     with patch(CORE, side_effect=_core_returning()):
+        assert _retrieve() is None
+
+
+@pytest.mark.django_db
+def test_one_index_searching_is_enough_for_a_list():
+    from .test_similar import _topic
+
+    topic = _topic("Tomato blight", "tomato blight", suffix="par")
+    with patch(CORE, side_effect=_core_returning(topic_docs=[_topic_doc(topic, 0.9)])):
+        passages = _retrieve()  # BlogChunks returned None (no search)
+    assert [p.pk for p in passages] == [topic.pk]
+    # Searched-but-empty is a list too: the corpus WAS checked.
+    with patch(CORE, side_effect=_core_returning(topic_docs=[], blog_docs=[])):
         assert _retrieve() == []
+
+
+@pytest.mark.django_db
+def test_unpublished_topic_is_dropped_by_the_refetch():
+    """The index may still hold a topic that was unpublished/moderated away
+    after indexing; `live=True` in the refetch is what keeps it out (pinned on
+    its own — the restricted-board test cannot catch this arm)."""
+    from .test_similar import _topic
+
+    live = _topic("Tomato live", "tomato", suffix="liv")
+    gone = _topic("Tomato gone", "tomato", suffix="gon")
+    gone.live = False
+    gone.save(update_fields=["live"])
+    docs = [_topic_doc(live, 0.9), _topic_doc(gone, 0.95)]
+    with patch(CORE, side_effect=_core_returning(topic_docs=docs)):
+        assert [p.pk for p in _retrieve()] == [live.pk]
+
+
+@pytest.mark.django_db
+def test_restricted_blog_page_is_dropped_by_the_refetch():
+    """`.public()` in the blog refetch — a page restricted AFTER indexing must
+    not leak through a stale chunk (pinned on its own, like the draft case)."""
+    public = _post("Public post", BLOCKS, slug="public-rag")
+    secret = _post("Secret post", BLOCKS, slug="secret-rag", restricted=True)
+    docs = [_blog_doc(public, 0.9), _blog_doc(secret, 0.95)]
+    with patch(CORE, side_effect=_core_returning(blog_docs=docs)):
+        assert [p.pk for p in _retrieve()] == [public.pk]
 
 
 @pytest.mark.django_db

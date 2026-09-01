@@ -22,6 +22,8 @@ be talked out of by a prompt:
 
 import re
 
+from . import constants
+
 INGESTION = "ingestion"
 CHEMICAL_DOSING = "chemical_dosing"
 
@@ -54,7 +56,10 @@ _INGESTION_RE = re.compile(
     # person/animal subject within two words of an ingestion verb
     rf"|{_EATERS}\s+(?:\w+\s+){{0,2}}?{_INGEST_VERBS}"
     # toxicity
-    r"|toxic|toxicity|poison|poisonous|poisoned|poisoning|venomous"
+    # toxicity — but not plant NAMES ("poison ivy") or harm TO plants
+    # ("toxic to plants"); both are ordinary care questions.
+    r"|toxic(?:ity)?(?!\s+(?:to|for)\s+(?:my\s+|the\s+|house)?plants?\b)"
+    r"|poison(?:ous|ed|ing)?(?!\s+(?:ivy|oak|sumac|hemlock)\b)|venomous"
     # "safe for cats", "pet-friendly", "child safe"
     rf"|safe\s+(?:for|around)\s+(?:my\s+|our\s+)?{_PROTECTED}"
     r"|(?:pet|cat|dog|child|kid|baby|toddler|animal)[-\s]?(?:safe|friendly|proof\s+plant)"
@@ -124,7 +129,10 @@ def validate_citations(answer: str, passage_count: int) -> tuple[str, list[int]]
     return text, sorted(valid)
 
 
-_NO_INFORMATION_RE = re.compile(r"^\W*NO_INFORMATION\W*$", re.I)
+# Built from the constant the prompt asks for, so the two cannot drift.
+_NO_INFORMATION_RE = re.compile(
+    rf"^\W*{re.escape(constants.RAG_NO_INFORMATION_SENTINEL)}\W*$", re.I
+)
 
 
 def is_no_information(reply: str) -> bool:

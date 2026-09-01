@@ -244,6 +244,47 @@ import added in an earlier Edit than its first use (hit twice — compose
 `flatten_html`, signals `page_published`); and `MagicMock` has no
 `__name__`, so log labels on a patched index class need `getattr`.
 
+### 2026-09-01 - Review round 1 (PR #606): 4 domain reviewers + bundled, fixes applied
+
+Blocking (HIGH) findings, all fixed with a RED test first:
+
+- **`on_commit` race** (wagtail-reviewer; independently confirmed): the
+  receivers enqueued `sync_blog_page_chunks.delay()` inline. Wagtail's admin
+  publish and Django's `Model.delete()` cascade both fire these signals inside
+  `transaction.atomic()`, so a worker could see the pre-publish page (first
+  publish → purge-only, never indexed) or re-embed a page mid-delete (orphan
+  rows). Now `transaction.on_commit`, the `notifications.py` convention;
+  `test_enqueue_is_deferred_to_commit` pins it with
+  `django_capture_on_commit_callbacks(execute=False)`.
+- **Celery backoff factor** (celery-async-reviewer, verified in
+  `celery/app/autoretry.py:51`): `retry_backoff=True` means factor
+  `int(max(1.0, True)) == 1` (~1s/2s/4s jittered) and `default_retry_delay`
+  is never read on the autoretry path. Now `retry_backoff=RAG_INDEX_RETRY_DELAY`;
+  countdowns pinned at 30/60/120 with jitter patched to its maximum.
+- **Visibility-refetch arms untested** (cross-cutting, mutation-verified):
+  `live=True` on the topic refetch and `.public()` on the blog refetch were
+  not independently pinned. Added an unpublished-topic and a restricted-page
+  case through `retrieve_grounding_passages`.
+
+Non-blocking, fixed anyway (same functions, cheap): permanent chunking errors
+are logged not retried; page state re-checked inside the swap transaction;
+`ignore_result=True`; sentinel regex built from `RAG_NO_INFORMATION_SENTINEL`;
+`RAG_REPORT_QUESTION_PREVIEW_CHARS`; `RAG_QUESTION_MAX_CHARS` a literal with a
+`<= SIMILAR_QUERY_MAX_CHARS` pin; CMS `select_related` pinned on the queryset;
+the two RAG views added to the route-identity/throttle pins.
+
+Own finding from the bundled review's interim note: retrieval collapsed
+"no index could search" into `[]` → the view answered a confident
+`no_information` about a corpus it never consulted. Now tri-state like the
+core (`None` → 503 `unavailable`, transient, nothing charged). Also two
+classifier misfires fixed and pinned: "get rid of poison ivy" and "toxic to
+plants" are care questions, not ingestion.
+
+Left as known issues: no `on_failure` handler (pre-existing gap shared by
+every task in the file); `RagAnswer`/`RagAnswerReport` not in auditlog
+(forum-wide pre-existing gap); no content-hash short-circuit before a re-embed
+(the embedding cache makes unchanged chunks free anyway).
+
 ## Notes
 
 Highest harm ceiling of any AI feature in the repo — plant-care advice, and in the

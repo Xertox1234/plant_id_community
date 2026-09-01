@@ -267,7 +267,20 @@ Corrections found while building, each pinned by a test:
    `slug`+`anchor` (blog) or `topic_id`/`topic_slug`/`board_id`/`board_slug`
    (topic) and the client composes the routes — no server URL building, no
    todo-308 `get_full_url()` landmine.
-10. **Residual risk, stated plainly.** Prompt injection through a passage can
+10. **Retrieval is tri-state, like the core** (review of PR #606). `None` =
+    no index could search (embedding budget exhausted, provider down) → the
+    view answers 503 `unavailable` (transient, nothing charged), never a
+    confident `no_information` about a corpus it never consulted; `[]` = at
+    least one index searched and nothing cleared the floor → `no_information`.
+11. **Index maintenance is enqueued post-commit.** Wagtail's admin publish and
+    Django's `Model.delete()` cascade both fire the page signals inside
+    `transaction.atomic()`; the receivers use `transaction.on_commit` so the
+    worker never sees a pre-publish page or re-embeds a page mid-delete. The
+    sync task treats a chunking failure as permanent (logged, not retried),
+    re-checks the page's live/public state inside the swap transaction, and
+    passes `RAG_INDEX_RETRY_DELAY` as the Celery backoff *factor* (a `True`
+    there means factor 1).
+12. **Residual risk, stated plainly.** Prompt injection through a passage can
     still produce a fluent wrong answer *with* valid `[n]` markers; guardrail 3
     catches only citation-free output. That is exactly the case the report
     loop (guardrail 5) exists for, and why layers 1–4 must not be enabled

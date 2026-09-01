@@ -79,11 +79,27 @@ def test_pesticide_and_chemical_dosing_questions_are_blocked(question):
         "cat-proof shelf for my plants",
         "compost tea for tomatoes",
         "natural remedy for powdery mildew",
+        # Plant NAMES and plant-directed harm are not human/animal ingestion.
+        "how do I get rid of poison ivy in my garden",
+        "is tap water toxic to plants",
         "",
     ],
 )
 def test_ordinary_care_questions_are_not_blocked(question):
     assert classify_blocked_question(question) is None
+
+
+def test_poison_ivy_is_still_blocked_when_an_animal_eats_it():
+    assert classify_blocked_question("my dog ate some poison ivy") == INGESTION
+
+
+def test_sentinel_detection_follows_the_constant_and_the_prompt():
+    """One source of truth: the prompt asks for RAG_NO_INFORMATION_SENTINEL and
+    the detector must recognise exactly that string."""
+    from apps.forum_host import constants
+
+    assert constants.RAG_NO_INFORMATION_SENTINEL in constants.RAG_PROMPT_TEMPLATE
+    assert is_no_information(constants.RAG_NO_INFORMATION_SENTINEL) is True
 
 
 def test_classifier_is_case_and_punctuation_insensitive():

@@ -1,6 +1,7 @@
 import logging
 
 from apps.blog.models import BlogPostPage
+from django.db import transaction
 from django.db.models.signals import post_delete
 from django.dispatch import receiver
 from wagtail.signals import page_published, page_unpublished
@@ -47,21 +48,38 @@ def _on_solution_marked(sender, topic, post, actor, **kwargs):
 
 
 def _enqueue_blog_chunk_sync(page, event: str) -> None:
-    """Enqueue the per-page sync, never inline: the blog's publish handlers run
-    under a <5ms budget and a publish must never fail because the broker is
-    down (the same try/except posture as apps/blog/signals.py)."""
+    """Enqueue the per-page sync, never inline, and only AFTER COMMIT.
+
+    Inline is out because the blog's publish handlers run under a <5ms budget.
+    ``transaction.on_commit`` (the ``notifications.py`` convention) is required
+    because Wagtail's admin publish and Django's ``Model.delete()`` cascade both
+    fire these signals inside ``transaction.atomic()``: a task enqueued straight
+    from the receiver can run on the worker before the commit and see the
+    pre-publish page (a first publish would purge-only and never index) or
+    re-embed a page that is mid-delete (orphan rows nothing purges again).
+    Outside a transaction ``on_commit`` runs the callback immediately.
+
+    The try/except lives INSIDE the callback: an exception there would surface
+    after the commit, from whatever view triggered it, and a publish must never
+    fail because the broker is down (the apps/blog/signals.py posture).
+    """
     from .vector_indexes import rag_enabled
 
     if not isinstance(page, BlogPostPage) or not rag_enabled():
         return
-    try:
-        sync_blog_page_chunks.delay(page.pk)
-    except Exception:
-        logger.exception(
-            "[CELERY] failed to enqueue BlogChunks sync for page %s on %s",
-            page.pk,
-            event,
-        )
+    page_id = page.pk
+
+    def enqueue():
+        try:
+            sync_blog_page_chunks.delay(page_id)
+        except Exception:
+            logger.exception(
+                "[CELERY] failed to enqueue BlogChunks sync for page %s on %s",
+                page_id,
+                event,
+            )
+
+    transaction.on_commit(enqueue)
 
 
 @receiver(page_published)

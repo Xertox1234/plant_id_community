@@ -78,8 +78,29 @@ def test_deleting_an_answer_cascades_its_reports():
 def test_answer_question_is_truncated_for_the_moderation_list():
     answer = _answer(question="x" * 200)
     report = RagAnswerReport.objects.create(answer=answer, reporter=answer.user)
-    assert len(report.answer_question) < 200
+    assert len(report.answer_question) == constants.RAG_REPORT_QUESTION_PREVIEW_CHARS
     assert report.answer_question.endswith("…")
+
+
+@pytest.mark.django_db
+def test_moderation_queryset_select_relates_every_list_column():
+    """The list columns read answer→question, reporter and resolved_by; without
+    these legs the CMS list is an N+1 per row. Pinned on the queryset rather than
+    a full-page query count: a Wagtail admin page carries dozens of unrelated
+    queries that change across Wagtail upgrades."""
+    from apps.forum_host.wagtail_hooks import RagAnswerReportViewSet
+    from django.test import RequestFactory
+
+    request = RequestFactory().get("/cms/")
+    request.user = User.objects.create_superuser(
+        username="qs-mod", email="q@example.com"
+    )
+    qs = RagAnswerReportViewSet().get_queryset(request)
+    assert qs.query.select_related == {
+        "answer": {"user": {}},
+        "reporter": {},
+        "resolved_by": {},
+    }
 
 
 # --------------------------------------------------------------------------- #

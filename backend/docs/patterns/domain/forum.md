@@ -418,8 +418,15 @@ source object in `ModelSourceIndex` on every call, `PgVectorProvider.add()`
 never purges, and `clear()` wipes EVERY index's rows from the shared table. So
 `BlogChunks.build()` purges its own `index_name` rows first and the per-page
 `sync_blog_page_chunks` task embeds first, then swaps the page's key-prefix rows
-in one transaction (`document_key` is the table's primary key — index-unique
-prefixes are what keep `SimilarTopics` and `BlogChunks` rows apart).
+in one transaction, re-checking the page's live/public state inside it
+(`document_key` is the table's primary key — index-unique prefixes are what
+keep `SimilarTopics` and `BlogChunks` rows apart). The receivers enqueue it
+with `transaction.on_commit`, never inline: Wagtail's admin publish and
+Django's `Model.delete()` cascade fire the page signals inside
+`transaction.atomic()`, so an inline `.delay()` lets the worker read the
+pre-publish page or re-embed a page mid-delete (PR #606 review). And
+`retry_backoff=` on an `autoretry_for` task is the backoff FACTOR — `True`
+means factor 1 (~1s/2s/4s), and `default_retry_delay` is ignored on that path.
 
 ## Augmenting a package read view host-side: mix in, never override (todo 275 / M12)
 

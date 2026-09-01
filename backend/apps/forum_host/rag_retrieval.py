@@ -158,12 +158,15 @@ _DEFAULT_INDEXES = (SimilarTopics, BlogChunks)
 
 def retrieve_grounding_passages(
     question: str, *, user=None, indexes=_DEFAULT_INDEXES
-) -> list[Passage]:
+) -> list[Passage] | None:
     """Scored, floored, visibility-checked, merged passages for ``question``.
 
-    Returns ``[]`` when nothing clears the floor — the caller must then answer
-    "no information" WITHOUT an LLM call. Never raises (the core never does,
-    and the refetches are plain ORM reads).
+    TRI-STATE, like the core it wraps: ``None`` when NO index searched at all
+    (embedding budget exhausted, provider down) — the caller must answer
+    "unavailable", not "no information", because the corpus was never checked;
+    ``[]`` when at least one index searched and nothing clears the floor — the
+    caller answers "no information" WITHOUT an LLM call. Never raises (the core
+    never does, and the refetches are plain ORM reads).
 
     ``user`` — pass only from a caller whose OWN response is never cross-user
     cached (the same rule as ``find_similar_topics``); the RAG answer is
@@ -172,15 +175,22 @@ def retrieve_grounding_passages(
     floor = constants.RAG_SIMILARITY_FLOOR
     by_source: dict[str, list] = {}
     top_scores: dict[str, float | None] = {}
+    searched = False
     for index_cls in indexes:
         docs = _scored_search(index_cls, question, constants.RAG_OVERFETCH_PER_INDEX)
         label = getattr(index_cls, "__name__", "index")
         top_scores[label] = max((d.score for d in docs), default=None) if docs else None
-        for doc in docs or ():
+        if docs is None:
+            continue
+        searched = True
+        for doc in docs:
             if doc.score < floor:
                 continue
             source_id = (doc.metadata or {}).get("source_id")
             by_source.setdefault(source_id, []).append(doc)
+    if not searched:
+        logger.warning("[RAG] retrieval unavailable: no index could search")
+        return None
 
     # The calibration signal for RAG_SIMILARITY_FLOOR (todo 330): top score per
     # index on every question, never the question text itself.

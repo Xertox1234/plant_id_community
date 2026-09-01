@@ -99,7 +99,7 @@ class RagAnswerReport(models.Model):
     def answer_question(self) -> str:
         """The asked question, truncated for the moderation list view."""
         question = self.answer.question
-        limit = 80
+        limit = constants.RAG_REPORT_QUESTION_PREVIEW_CHARS
         return question if len(question) <= limit else question[: limit - 1] + "…"
 
     @property

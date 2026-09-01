@@ -276,6 +276,29 @@ def test_nothing_above_floor_returns_no_information_without_calling_the_provider
 
 @override_settings(**ENABLED)
 @pytest.mark.django_db
+def test_no_search_at_all_returns_503_transient_not_no_information():
+    """When the retrieval core could not search (embedding budget exhausted,
+    provider down) the honest answer is "unavailable" — TRANSIENT, so the client
+    keeps offering the action — not a confident "no information" about a corpus
+    that was never consulted. Nothing is charged."""
+    client, _ = _premium_client()
+    with patch(RETRIEVE, return_value=None), patch(GENERATE) as mock_generate:
+        resp = _ask(client)
+    assert resp.status_code == 503
+    assert resp.json()["code"] == "unavailable"
+    mock_generate.assert_not_called()
+    assert cache.get(constants.RAG_BUDGET_CACHE_KEY) is None
+
+
+def test_question_cap_never_exceeds_the_retrieval_cores_query_cap():
+    """The view 400s above RAG_QUESTION_MAX_CHARS precisely so the core's
+    SIMILAR_QUERY_MAX_CHARS cap can never silently truncate an accepted question;
+    the two are separate literals (one is also a column width), so pin the order."""
+    assert constants.RAG_QUESTION_MAX_CHARS <= constants.SIMILAR_QUERY_MAX_CHARS
+
+
+@override_settings(**ENABLED)
+@pytest.mark.django_db
 def test_retrieval_receives_the_asking_user_for_block_filtering():
     """Safe to pass user= here: the response is per-asker and never cached."""
     client, user = _premium_client()

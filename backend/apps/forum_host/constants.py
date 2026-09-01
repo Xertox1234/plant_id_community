@@ -412,7 +412,16 @@ RAG_BUDGET_LIMIT = 100
 # Upper bound on the question text. Equal to the retrieval core's query cap so
 # the view can 400 an over-long question instead of letting the core silently
 # truncate it (a truncated question would be answered as if it were complete).
-RAG_QUESTION_MAX_CHARS = SIMILAR_QUERY_MAX_CHARS
+RAG_QUESTION_MAX_CHARS = 500  # also RagAnswer.question's column width
+# MUST stay <= SIMILAR_QUERY_MAX_CHARS (test-pinned): the core caps at that
+# value, so a larger question cap here would let a question be silently
+# truncated before embedding. A literal rather than an alias because it is
+# also a persisted column width — retuning the similar-topics cap must not
+# resize this table.
+
+# Truncation of the asked question in the CMS "AI answer reports" list column
+# (the inspect view shows it in full).
+RAG_REPORT_QUESTION_PREVIEW_CHARS = 80
 
 # Similarity floor — the single most important guardrail knob (design doc,
 # guardrail 1). `score = 1 - cosine_distance` from the pgvector provider; a
@@ -492,7 +501,11 @@ RAG_REFERRAL_CHEMICAL = (
 RAG_REPORT_DETAIL_MAX_CHARS = 280
 
 # Celery retry policy for the per-page BlogChunks sync task (transient provider
-# or DB errors). Exponential backoff via retry_backoff=True.
+# or DB errors). RAG_INDEX_RETRY_DELAY is passed as retry_backoff= — the
+# BACKOFF FACTOR — so the jittered countdown ceiling is 30s, 60s, 120s.
+# Passing retry_backoff=True would make the factor 1 (Celery reads
+# int(max(1.0, float(retry_backoff)))) and default_retry_delay is never
+# consulted on the autoretry path (review of PR #606).
 RAG_INDEX_MAX_RETRIES = 3
 RAG_INDEX_RETRY_DELAY = 30
 
