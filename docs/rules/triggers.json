@@ -1132,5 +1132,36 @@
     "source": "codify: fix/320-readable-validation-error-message",
     "added": "2026-09-01",
     "severity": "warn"
+  },
+  {
+    "id": "assertin-dict-values-not-wiring",
+    "domains": [
+      "testing"
+    ],
+    "path_glob": [
+      "backend/**/test_*.py"
+    ],
+    "content_present": "assertIn\\([^)]*\\.values\\(\\)",
+    "message": "assertIn(x, d.values()) proves the value reached the dict, not that it reached the RIGHT key — a swapped mapping (access_key/secret_key) passes. Assert by key: assertEqual(d[expected_key], x); if the key set is generated, also pin the mapping itself. See docs/rules/testing.md (todo 321).",
+    "pattern_ref": "docs/rules/testing.md",
+    "source": "codify: fix/321-r2-config-single-source",
+    "added": "2026-09-01",
+    "severity": "warn"
+  },
+  {
+    "id": "settings-imports-app-package",
+    "domains": [
+      "database",
+      "security"
+    ],
+    "path_glob": [
+      "backend/plant_community_backend/settings.py"
+    ],
+    "content_present": "^\\s*(from|import)\\s+apps\\.",
+    "message": "settings.py is importing an app package at settings-import time. That is safe ONLY while apps/__init__.py and apps/<app>/__init__.py stay empty — a model import or app-config added to either later breaks settings load itself with an AppRegistryNotReady pointing nowhere near the cause. It also inverts the dependency direction (apps read settings, not the reverse). Put shared constants in a zero-import module inside plant_community_backend/ instead (see r2_config.py, todo 321).",
+    "pattern_ref": "docs/LEARNINGS.md",
+    "source": "codify: fix/321-r2-config-single-source",
+    "added": "2026-09-01",
+    "severity": "warn"
   }
 ]

@@ -15,6 +15,15 @@ import sentry_sdk
 from decouple import config
 from django.core.exceptions import ImproperlyConfigured
 
+# Single source of truth for the R2 var list + object metadata, shared with
+# apps/core/management/commands/sync_media_to_r2.py (todo 321). Pure literals,
+# no Django imports — safe this early in settings.
+from plant_community_backend.r2_config import (
+    R2_CACHE_CONTROL,
+    R2_REGION_NAME,
+    R2_REQUIRED_VARS,
+)
+
 # Optional JSON logging availability check for tests/local
 try:
     from pythonjsonlogger import jsonlogger  # noqa: F401
@@ -440,7 +449,7 @@ if USE_R2:
             "access_key": config("R2_ACCESS_KEY_ID", default=""),
             "secret_key": config("R2_SECRET_ACCESS_KEY", default=""),
             "endpoint_url": config("R2_ENDPOINT_URL", default=""),
-            "region_name": "auto",
+            "region_name": R2_REGION_NAME,
             "custom_domain": config("R2_CUSTOM_DOMAIN", default=""),
             # querystring_auth defaults True upstream, which signs every URL
             # with expiring query params — that defeats CDN caching while
@@ -452,7 +461,7 @@ if USE_R2:
             # URL we told the CDN to cache forever.
             "file_overwrite": False,
             "object_parameters": {
-                "CacheControl": "public, max-age=31536000, immutable",
+                "CacheControl": R2_CACHE_CONTROL,
             },
             # No default_acl — R2 doesn't support ACLs; django-storages
             # already defaults this to None, so leave it unset.
@@ -1439,15 +1448,7 @@ def validate_environment():
     # visible warning instead, matching this function's usual warn-vs-error split.
     if USE_R2:
         missing_r2_vars = [
-            r2_var
-            for r2_var in (
-                "R2_BUCKET_NAME",
-                "R2_ACCESS_KEY_ID",
-                "R2_SECRET_ACCESS_KEY",
-                "R2_ENDPOINT_URL",
-                "R2_CUSTOM_DOMAIN",
-            )
-            if not config(r2_var, default="")
+            r2_var for r2_var in R2_REQUIRED_VARS if not config(r2_var, default="")
         ]
         for r2_var in missing_r2_vars:
             message = (

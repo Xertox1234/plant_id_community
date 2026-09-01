@@ -64,6 +64,21 @@ Work through each item for every changed file. Emit findings in the structured f
   (`wagtail_forum/models/topic_reads.py`, todo 253 slice 5 follow-up). See
   `backend/docs/patterns/architecture/services.md` and `docs/rules/database.md`.
 
+### Lint/format findings (2026-09-01, todo 321)
+
+- **Never report a lint or formatter violation from a standalone tool run.**
+  Verify it against the repo's ACTUAL gate — `pre-commit run <hook-id> --files
+  <paths>` — and quote that output. A standalone `isort --profile black` run
+  classifies first-party packages from its own cwd, so invoking it from
+  `backend/` marks `plant_community_backend` first-party while pre-commit
+  (which runs from the repo root) does not. That discrepancy produced two
+  `high` "this blocks the commit" findings on imports isort itself had just
+  written, and both were false. If the tool that formatted the file passes on
+  the file, there is no finding.
+- Do not report `settings.py`'s pre-existing whole-file lint violations as
+  findings on a diff that merely touches it — pre-commit lints whole files, and
+  that friction is documented in `backend/CLAUDE.md`.
+
 ## Output Format (Review Mode)" below — do not write prose
 
 ### LSP Workflow (run before the checklist)
