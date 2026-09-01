@@ -141,3 +141,16 @@ Compact checklist auto-injected before edits. Long-form:
   `no_information`/empty 200. Collapsing the two also lets a wrapper cache an
   outage as "no results" for its TTL (`find_similar_topics` /
   `retrieve_grounding_passages` over `_scored_search`, todo 289).
+- **Never surface an exception to a user via `str(exc)`.** DRF's
+  `APIException.__str__` is `str(self.detail)`, so a dict/list detail (every
+  field-level `ValidationError`, nested serializers included) renders as the
+  Python repr `{'poll': {'options': [ErrorDetail(string='…', code='invalid')]}}`;
+  Django's `ValidationError` likewise stringifies as `['…']`. Every web page
+  renders the envelope's `message` verbatim. Flatten with
+  `apps.core.exceptions.readable_message` (its package twin `_readable_message`
+  in `wagtail_forum/api/exception_handler.py` must match — the host's
+  `test_exception_envelope.py` pins both to one table) rather than re-deriving
+  a join per call site; put structure in `errors`. And catch the `ValidationError` that is
+  actually raised — DRF's and Django's are unrelated classes, so `except
+  django.core.exceptions.ValidationError` around a DRF-raising validator is dead
+  code and the request falls through to a generic 500 (todo 320).

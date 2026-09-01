@@ -145,6 +145,16 @@ def test_invalid_poll_is_rejected_and_creates_no_topic(poll, reason):
     # down rather than leaving a poll-less topic behind.
     assert not Topic.objects.exists(), reason
     assert not Poll.objects.exists(), reason
+    # The envelope's message is what NewThreadPage renders verbatim: a readable
+    # "poll.<field>: <text>" sentence from the nested serializer, never
+    # str(exc)'s ErrorDetail dict repr (todo 320). The structured field error
+    # still rides under errors["poll"].
+    message = resp.data["message"]
+    # "poll.<field>: ..." for a named subfield; a malformed poll shape would
+    # collapse to "poll: ..." — either way it names the poll, readably.
+    assert message.startswith("poll"), message
+    assert "ErrorDetail" not in message and "{'" not in message, message
+    assert "poll" in resp.data["errors"], reason
 
 
 @pytest.mark.django_db

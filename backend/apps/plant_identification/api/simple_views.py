@@ -12,14 +12,13 @@ Rate Limiting:
 """
 
 import logging
-from typing import Optional
 
+from apps.core.exceptions import readable_message
 from django.conf import settings
-from django.core.exceptions import ValidationError
-from django.utils.decorators import method_decorator
 from django_ratelimit.decorators import ratelimit
 from rest_framework import status
 from rest_framework.decorators import api_view, parser_classes, permission_classes
+from rest_framework.exceptions import ValidationError
 from rest_framework.parsers import FormParser, MultiPartParser
 from rest_framework.permissions import AllowAny
 from rest_framework.request import Request
@@ -138,8 +137,14 @@ def identify_plant(request: Request) -> Response:
 
             validate_image_file(image_file)
         except ValidationError as e:
+            # DRF's ValidationError (what validate_image_file raises) carries
+            # ErrorDetail objects; str(e) is their Python repr, and the web
+            # client renders "error" verbatim (todo 320).
+            error = readable_message(e)
+            logger.info(f"[PLANT_ID] Rejected upload {image_file.name}: {error}")
             return Response(
-                {"success": False, "error": str(e)}, status=status.HTTP_400_BAD_REQUEST
+                {"success": False, "error": error},
+                status=status.HTTP_400_BAD_REQUEST,
             )
 
         # Validate file size (10MB max)

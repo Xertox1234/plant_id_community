@@ -508,6 +508,12 @@ and share a single envelope:
 `errors` carries field-level validation errors, or `{"detail": "<message>"}` for
 a non-field error; it is absent when the exception has no detail.
 
+`message` is the exception's own text for a single-detail error, and a flattened
+`field: text; other.field: text` sentence for field-level validation errors
+(nested serializers give dotted paths — `poll.options: Poll options must be
+unique.` — and `many=True` children give `field[i].child`). It is always safe to
+render verbatim; read `errors` when you need the structure.
+
 **This envelope is host-owned.** Without registering a handler you get bare DRF
 responses (`{"detail": ...}`) — a silently different contract. Register the
 shipped reference handler:

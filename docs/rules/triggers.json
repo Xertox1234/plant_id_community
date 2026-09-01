@@ -1115,5 +1115,22 @@
     "source": "codify: feat/forum-rag-backend",
     "added": "2026-08-31",
     "severity": "warn"
+  },
+  {
+    "id": "drf-envelope-message-str-exc",
+    "domains": [
+      "api",
+      "forum"
+    ],
+    "path_glob": [
+      "backend/**/exception*.py"
+    ],
+    "content_present": "[\"']message[\"']\\s*:\\s*str\\(exc\\)|message\\s*=\\s*str\\(exc\\)",
+    "content_absent": "readable_message",
+    "message": "An error envelope built as message=str(exc) renders a dict/list DRF detail (every field-level ValidationError, nested serializers included) as the Python repr of ErrorDetail objects, and web pages show message verbatim. Route it through apps.core.exceptions.readable_message (host) / _readable_message (wagtail_forum package twin) and keep both in step — test_exception_envelope.py pins them to one table (todo 320).",
+    "pattern_ref": "backend/docs/patterns/domain/forum.md",
+    "source": "codify: fix/320-readable-validation-error-message",
+    "added": "2026-09-01",
+    "severity": "warn"
   }
 ]

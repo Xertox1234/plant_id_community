@@ -3693,3 +3693,47 @@ the not-blocked table is as load-bearing as the blocked one.
 `retry_backoff` factor and pin computed countdowns; keep tri-state all the
 way to the response; every arm of a compound visibility filter gets its own
 test. All four are in `docs/rules/` now, two with write-time triggers.
+
+### [2026-09-01] `message: str(exc)` showed users a Python dict repr, and a dead `except` turned rejected uploads into 500s (todo 320)
+
+**What broke:** both DRF exception handlers (host `apps/core/exceptions.py`
+and its byte-compatible twin in `wagtail_forum/api/exception_handler.py`)
+built the envelope's `message` as `str(exc)`. DRF's `APIException.__str__`
+is `str(self.detail)`, so any dict/list detail — every field-level
+`ValidationError`, nested serializers included — rendered as
+`{'poll': {'options': [ErrorDetail(string='…', code='invalid')]}}`, and all
+55 `err.message` render sites in `web/src` showed it verbatim. It had been
+live long enough that `NewThreadPage.tsx` documents *working around* "a raw
+validation-error dict" with client-side gating instead of fixing the source.
+
+**The sibling was worse than filed.** While auditing other `str(exc)`
+sites, `plant_identification/api/simple_views.py` looked like the same
+repr leak (`{"error": str(e)}`) — but its `except ValidationError` imported
+*Django's* class while `validate_image_file` raises *DRF's*. Unrelated
+classes: the branch was dead, and every rejected upload on the flagship
+Identify flow fell through to the outer `except Exception` as a **500**
+("An unexpected error occurred") with the real reason only in the log.
+Verified pre-fix with a real-request test (`assert 500 == 400`), then a live
+probe post-fix (`HTTP 400 {"error": "Invalid Content-Type: text/plain. …"}`).
+
+**Fixes:** `readable_message(exc)` flattens dict/list details to
+`field: text; other.field: text` (dotted paths for nested serializers,
+`field[i].child` for `many=True`, no prefix for `non_field_errors`/`detail`,
+a fixed `"Invalid input."` when the detail is empty — never back to
+`str(exc)`); scalar details keep `str(exc)` so the 401/403/404 texts that
+`AuthContext`/`httpClient` match on are untouched. Duplicated into the
+package (it cannot import the host) and pinned by a host-side drift-guard
+test that runs both handlers over one table. `simple_views` catches DRF's
+`ValidationError` and reuses the helper.
+
+**How review caught what tests didn't:** five reviewers, six findings, none
+blocking, all real: the ad-hoc list-only join I first wrote for
+`simple_views` would still have leaked a dict detail; the empty-detail
+fallback re-exposed `'{}'`; "change both or neither" was comment-only until
+the drift test; `startswith("poll.")` was brittle for a malformed poll shape.
+
+**Rules:** never surface an exception to a user via `str(exc)` — flatten or
+read `errors` (write-time trigger `drf-envelope-message-str-exc` on
+`backend/**/exception*.py`); catch the `ValidationError` that is actually
+raised — DRF's and Django's are unrelated, so the wrong `except` is silent
+dead code and a 500. Both in `docs/rules/api.md`.
