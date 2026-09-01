@@ -18,6 +18,11 @@ from pathlib import Path
 
 from django.conf import settings
 from django.test import SimpleTestCase
+from plant_community_backend.r2_config import (
+    R2_CACHE_CONTROL,
+    R2_REGION_NAME,
+    R2_REQUIRED_VARS,
+)
 
 BACKEND_DIR = Path(__file__).resolve().parents[3]
 
@@ -42,14 +47,10 @@ def _run_check(**env_overrides):
     # R2_* values into backend/.env — on that machine, popping the key
     # would silently leak the real value in here. An explicit "" stays
     # present-but-falsy, which is what validate_environment() itself checks.
-    for key in (
-        "USE_R2",
-        "R2_BUCKET_NAME",
-        "R2_ACCESS_KEY_ID",
-        "R2_SECRET_ACCESS_KEY",
-        "R2_ENDPOINT_URL",
-        "R2_CUSTOM_DOMAIN",
-    ):
+    # Driven by the shared tuple (todo 321) so a newly added R2 var is blanked
+    # here automatically — a var this loop forgets is one that CAN leak a real
+    # backend/.env value into these tests.
+    for key in ("USE_R2", *R2_REQUIRED_VARS):
         env[key] = ""
     env.update(env_overrides)
     return subprocess.run(
@@ -64,7 +65,14 @@ def _run_check(**env_overrides):
 
 def _print_storages(**env_overrides):
     """Run a fresh interpreter and dump settings.STORAGES as JSON."""
-    env = {**os.environ, **BASE_ENV, **env_overrides}
+    env = {**os.environ, **BASE_ENV}
+    # Blank first, overrides second — same reasoning as _run_check above, and it
+    # matters more here: this helper prints STORAGES to stdout, so a caller that
+    # overrides only SOME vars would dump an operator's real backend/.env
+    # credentials into the test output. Structural guard, not caller discipline.
+    for key in ("USE_R2", *R2_REQUIRED_VARS):
+        env[key] = ""
+    env.update(env_overrides)
     result = subprocess.run(
         [
             sys.executable,
@@ -138,6 +146,55 @@ class StoragesFlagOnTests(SimpleTestCase):
         self.assertNotIn("default_acl", options)
 
 
+class StoragesSharedConfigTests(SimpleTestCase):
+    """STORAGES reads r2_config's shared definitions, not its own copies (todo 321).
+
+    The STORAGES block still spells out each `"<option>": config("R2_*")` line —
+    those map env vars onto django-storages' own option names. This test is what
+    keeps that hand-written block honest against r2_config.py.
+    """
+
+    # Which django-storages OPTION each env var must land in. Hand-written on
+    # purpose — this is the single place that mapping is asserted, so adding a
+    # var to r2_config fails here until someone states where it feeds. Checking
+    # the option BY KEY (not just "the value appears somewhere in OPTIONS")
+    # is what catches a swapped access_key/secret_key.
+    VAR_TO_OPTION = {
+        "R2_BUCKET_NAME": "bucket_name",
+        "R2_ACCESS_KEY_ID": "access_key",
+        # Not a credential — "secret_key" is django-storages' option NAME.
+        "R2_SECRET_ACCESS_KEY": "secret_key",  # pragma: allowlist secret
+        "R2_ENDPOINT_URL": "endpoint_url",
+        "R2_CUSTOM_DOMAIN": "custom_domain",
+    }
+
+    def test_storages_consumes_the_shared_definitions(self):
+        self.assertEqual(
+            tuple(self.VAR_TO_OPTION),
+            R2_REQUIRED_VARS,
+            "a var was added to r2_config without saying which STORAGES option "
+            "it feeds — add it to VAR_TO_OPTION",
+        )
+        # One unique sentinel per var: whichever var STORAGES stops reading (or
+        # reads into the wrong option), this fails naming that var.
+        sentinels = {var: f"sentinel-{var.lower()}" for var in R2_REQUIRED_VARS}
+        storages = _print_storages(DEBUG="True", USE_R2="True", **sentinels)
+        options = storages["default"]["OPTIONS"]
+
+        for var, option in self.VAR_TO_OPTION.items():
+            with self.subTest(var=var):
+                self.assertEqual(
+                    options.get(option),
+                    sentinels[var],
+                    f"STORAGES option {option!r} should carry {var}",
+                )
+
+        self.assertEqual(options["region_name"], R2_REGION_NAME)
+        # The settings-side Cache-Control had no assertion before todo 321 —
+        # only the sync command's copy of the string was covered.
+        self.assertEqual(options["object_parameters"]["CacheControl"], R2_CACHE_CONTROL)
+
+
 class ValidateEnvironmentR2Tests(SimpleTestCase):
     """validate_environment() fails fast for missing R2_* vars in production."""
 
@@ -153,6 +210,12 @@ class ValidateEnvironmentR2Tests(SimpleTestCase):
         )
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("R2_BUCKET_NAME is required", result.stderr)
+        # Anchors the URL-only arm from OUTSIDE the R2_REQUIRED_VARS
+        # composition (todo 321): shrinking R2_URL_ONLY_VARS to () would stop
+        # production requiring R2_CUSTOM_DOMAIN, and every other test in this
+        # file derives its expectations from that same tuple, so all of them
+        # would shrink with it and stay green.
+        self.assertIn("R2_CUSTOM_DOMAIN is required", result.stderr)
 
     def test_configured_r2_vars_pass_in_production(self):
         result = _run_check(

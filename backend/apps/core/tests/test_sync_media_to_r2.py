@@ -15,6 +15,7 @@ from botocore.exceptions import ClientError
 from django.core.management import call_command
 from django.core.management.base import CommandError
 from django.test import SimpleTestCase, override_settings
+from plant_community_backend.r2_config import R2_BOTO3_REQUIRED_VARS
 
 REQUIRED_ENV = {
     "R2_BUCKET_NAME": "test-bucket",
@@ -34,6 +35,16 @@ def _mock_client(existing_keys=()):
     ]
     client.get_paginator.return_value = paginator
     return client
+
+
+class RequiredEnvFixtureTests(SimpleTestCase):
+    """REQUIRED_ENV keeps hand-written values (the endpoint URL has to look real),
+    so this pins its KEYS to the shared tuple instead — a var added to
+    r2_config without a fixture value here would otherwise leave every test
+    below exercising the command with that var blank (todo 321)."""
+
+    def test_fixture_covers_exactly_the_shared_boto3_vars(self):
+        self.assertEqual(tuple(REQUIRED_ENV), R2_BOTO3_REQUIRED_VARS)
 
 
 class SyncMediaToR2CommandTests(SimpleTestCase):

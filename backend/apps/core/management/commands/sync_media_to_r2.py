@@ -30,9 +30,15 @@ from botocore.exceptions import ClientError
 from decouple import config
 from django.core.management.base import BaseCommand, CommandError
 
-# Must match settings.py's STORAGES["default"]["OPTIONS"]["object_parameters"]
-# so files copied here get the same caching behavior as new R2 uploads.
-CACHE_CONTROL = "public, max-age=31536000, immutable"
+# Shared with settings.py so copied files get the same caching behavior as new
+# R2 uploads (todo 321). Imported from the module, NOT read off
+# settings.STORAGES["default"]["OPTIONS"] — that key only exists on the USE_R2
+# branch, and this command is designed to run while the flag is still off.
+from plant_community_backend.r2_config import (
+    R2_BOTO3_REQUIRED_VARS,
+    R2_CACHE_CONTROL,
+    R2_REGION_NAME,
+)
 
 
 class Command(BaseCommand):
@@ -70,20 +76,10 @@ class Command(BaseCommand):
         if not media_root.is_dir():
             raise CommandError(f"MEDIA_ROOT does not exist: {media_root}")
 
-        bucket_name = config("R2_BUCKET_NAME", default="")
-        access_key = config("R2_ACCESS_KEY_ID", default="")
-        secret_key = config("R2_SECRET_ACCESS_KEY", default="")
-        endpoint_url = config("R2_ENDPOINT_URL", default="")
-        missing = [
-            name
-            for name, value in [
-                ("R2_BUCKET_NAME", bucket_name),
-                ("R2_ACCESS_KEY_ID", access_key),
-                ("R2_SECRET_ACCESS_KEY", secret_key),
-                ("R2_ENDPOINT_URL", endpoint_url),
-            ]
-            if not value
-        ]
+        # Driven by the shared tuple so a new R2 var can't be added to settings
+        # without this command's precondition check noticing (todo 321).
+        env_values = {name: config(name, default="") for name in R2_BOTO3_REQUIRED_VARS}
+        missing = [name for name, value in env_values.items() if not value]
         if missing:
             raise CommandError(
                 f"Missing required env var(s): {', '.join(missing)}. "
@@ -91,12 +87,13 @@ class Command(BaseCommand):
                 "this command runs."
             )
 
+        bucket_name = env_values["R2_BUCKET_NAME"]
         client = boto3.client(
             "s3",
-            endpoint_url=endpoint_url,
-            aws_access_key_id=access_key,
-            aws_secret_access_key=secret_key,
-            region_name="auto",
+            endpoint_url=env_values["R2_ENDPOINT_URL"],
+            aws_access_key_id=env_values["R2_ACCESS_KEY_ID"],
+            aws_secret_access_key=env_values["R2_SECRET_ACCESS_KEY"],
+            region_name=R2_REGION_NAME,
         )
 
         files = sorted(p for p in media_root.rglob("*") if p.is_file())
@@ -141,7 +138,7 @@ class Command(BaseCommand):
                     key,
                     ExtraArgs={
                         "ContentType": content_type or "application/octet-stream",
-                        "CacheControl": CACHE_CONTROL,
+                        "CacheControl": R2_CACHE_CONTROL,
                     },
                 )
                 uploaded += 1
