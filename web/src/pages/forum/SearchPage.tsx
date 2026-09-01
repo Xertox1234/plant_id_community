@@ -3,6 +3,7 @@ import { useSearchParams, Link } from 'react-router-dom';
 import { Search, SearchX } from 'lucide-react';
 import { searchForum, fetchCategories } from '../../services/forumService';
 import ThreadCard from '../../components/forum/ThreadCard';
+import PlantCareAskPanel from '../../components/forum/PlantCareAskPanel';
 import LoadingSpinner from '../../components/ui/LoadingSpinner';
 import Button from '../../components/ui/Button';
 import Card from '../../components/ui/Card';
@@ -290,6 +291,9 @@ export default function SearchPage() {
           />
         </div>
       </div>
+
+      {/* Opt-in RAG plant-care answer (todo 289 / M13) — never fired by a search. */}
+      <PlantCareAskPanel initialQuestion={query} />
 
       {/* Filters */}
       <Card className="mb-6 p-6">

@@ -53,6 +53,17 @@ describe('SearchPage', () => {
     vi.spyOn(forumService, 'searchForum').mockResolvedValue(createMockSearchResults());
   });
 
+  describe('Plant-care ask panel (todo 289 / M13)', () => {
+    it('mounts the panel collapsed, and a search never calls askPlantCare', async () => {
+      renderSearchPage('/forum/search?q=watering');
+      const toggle = screen.getByRole('button', { name: /ask about plant care/i });
+      expect(toggle).toHaveAttribute('aria-expanded', 'false');
+      await waitFor(() => expect(forumService.searchForum).toHaveBeenCalled());
+      // Opt-in only: a keyword search must never spend an AI call.
+      expect(forumService.askPlantCare).not.toHaveBeenCalled();
+    });
+  });
+
   describe('Initial Render', () => {
     it('renders search page with heading', () => {
       renderSearchPage();

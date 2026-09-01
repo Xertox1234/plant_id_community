@@ -296,8 +296,8 @@ Deferred findings converted to todos (Review Doc Tracking convention — the
 - [x] #H6 solved-accepted-answer → todo 273 (completed 2026-07-31, Wave 2 slice 2;
       re-pointed 2026-07-23 when the roadmap moved solved answers to Wave 2 / not 256).
       Todo 273 closed 2026-07-31 once slice 3 (#M6) landed. The
-      all-findings-resolved rename still must NOT fire on this doc — #M13
-      remains open against another todo (#M7 closed 2026-07-31 via todo 281;
+      all-findings-resolved rename was held while #M13 stayed open against
+      todo 289 and fired 2026-09-01 when it closed (#M7 closed 2026-07-31 via todo 281;
       #M2 closed 2026-07-31 via todo 283, M8 later split out of 283 and
       closed 2026-08-30 via todo 309; #M9/#M10 closed 2026-08-29/30 via
       todos 284/319 — see their own Finding Status lines below).
@@ -346,12 +346,14 @@ Deferred findings converted to todos (Review Doc Tracking convention — the
 - [x] #M11 post-permalinks → todo 276 (completed 2026-07-30; Wave 1 shipped the chase + copy-link, verified here)
 - [x] #M12 semantic-search-upgrade → todo 275 (completed 2026-07-29; premium
       `semantic` section on `/forum/search/`, own array so FTS paging is intact)
-- [ ] #M13 rag-plant-care → todo 289 (re-pointed 2026-07-29; todo 275 completed
-      the design round —
-      `docs/superpowers/specs/2026-07-29-forum-rag-plant-care-design.md` — and
-      explicitly descoped implementation: empty corpus, H15 still dormant in
-      prod, no owner for the wrong-answer review loop. Four objective enablement
-      gates recorded in 289)
+- [x] #M13 rag-plant-care → todo 289 (completed 2026-09-01; premium
+      `POST /forum/care/ask/` + `BlogChunks` index + deterministic guardrails
+      + host-owned wrong-answer reports, PR #606, and the web "ask about plant
+      care" panel + `#block-N` blog anchors, PR #607 — dormant behind
+      `FORUM_RAG_ENABLED` + `FORUM_VECTOR_SEARCH_ENABLED`, the M14 posture;
+      the four enablement gates moved to todo 330 (open). Re-pointed
+      2026-07-29 when todo 275 completed the design round —
+      `docs/superpowers/specs/2026-07-29-forum-rag-plant-care-design.md`)
 - [x] #M14 ai-composer-assist → todo 275 (completed 2026-07-29; premium
       `POST /forum/compose/assist/` + TipTap toolbar action, dormant behind
       `FORUM_COMPOSE_ASSIST_ENABLED`)

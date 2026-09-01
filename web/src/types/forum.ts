@@ -328,6 +328,65 @@ export interface SearchForumResponse {
   has_more_posts: boolean;
 }
 
+// ---------------------------------------------------------------------------
+// RAG plant-care answers (todo 289 / M13) — POST /forum/care/ask/
+// ---------------------------------------------------------------------------
+
+export type PlantCareReferralReason = 'ingestion' | 'chemical_dosing';
+
+interface PlantCareSourceBase {
+  /** 1-based; matches the `[n]` markers inside `answer`. */
+  n: number;
+  title: string;
+  /** ISO date (blog: YYYY-MM-DD) or datetime (topic). */
+  date: string;
+  snippet: string;
+}
+
+export interface PlantCareBlogSource extends PlantCareSourceBase {
+  kind: 'blog';
+  slug: string;
+  /** `block-N` on the article, or null once the index drifted after an edit. */
+  anchor: string | null;
+}
+
+export interface PlantCareTopicSource extends PlantCareSourceBase {
+  kind: 'topic';
+  topic_id: number;
+  topic_slug: string;
+  board_id: number;
+  board_slug: string;
+}
+
+export type PlantCareSource = PlantCareBlogSource | PlantCareTopicSource;
+
+/**
+ * Status-discriminated 200 envelope. "No information" and a blocked question
+ * are RESULTS, not errors; only `answered` carries an `answer_id` (and is the
+ * only status that can be reported).
+ */
+export type PlantCareAnswer =
+  | {
+      status: 'answered';
+      answer_id: number;
+      answer: string;
+      citations: number[];
+      sources: PlantCareSource[];
+      disclaimer: string;
+    }
+  | {
+      status: 'passages_only';
+      answer_id: null;
+      sources: PlantCareSource[];
+      disclaimer: string;
+    }
+  | { status: 'no_information'; answer_id: null; sources: [] }
+  | {
+      status: 'referral';
+      answer_id: null;
+      referral: { reason: PlantCareReferralReason; message: string };
+    };
+
 /** Result of toggling a reaction on a post (backend toggle endpoint). */
 export interface ReactionToggleResult {
   /** Map of reaction_type -> count, e.g. { like: 5, love: 2 } */

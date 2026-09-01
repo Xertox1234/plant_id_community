@@ -199,7 +199,8 @@ links to the full audit manifest with detailed findings and resolutions.
   importance), Wagtail AI for premium members. Maturity/gap audit — severity =
   product impact, benchmarked against Wagtail docs + the Discourse/Flarum/NodeBB
   baseline.
-- **Manifest:** [2026-07-11-forum-modernization.md](2026-07-11-forum-modernization.md)
+- **Manifest:** [2026-07-11-forum-modernization-COMPLETED.md](2026-07-11-forum-modernization-COMPLETED.md)
+  (renamed 2026-09-01 when its last open finding, #M13, closed via todo 289)
 - **Findings:** 2 critical, 26 high, 43 medium, 21 low (92 total) from 6
   specialist agents; Phase 2.5 doc research: 24 confirmed, 3 better-fix, 1
   contradicted (H22 — closed false-positive after empirical check: the default

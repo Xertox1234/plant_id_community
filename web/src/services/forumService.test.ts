@@ -21,6 +21,9 @@ import {
   searchForum,
   searchForumUsers,
   improveDraft,
+  askPlantCare,
+  reportPlantCareAnswer,
+  RagError,
   ComposeAssistError,
 } from './forumService';
 import { clearCsrfToken } from '../utils/csrf';
@@ -681,5 +684,67 @@ describe('forumService (wagtail_forum API contract)', () => {
       json: async () => ({ text: '   ' }),
     });
     await expect(improveDraft('<p>draft</p>')).rejects.toBeInstanceOf(ComposeAssistError);
+  });
+
+  // --- RAG plant-care answers (todo 289 / M13) --------------------------------
+
+  it('askPlantCare posts the question with CSRF + cookie auth and returns the envelope', async () => {
+    const envelope = {
+      status: 'no_information',
+      answer_id: null,
+      sources: [],
+    };
+    fetchMock.mockResolvedValueOnce(okJson(envelope));
+    await expect(askPlantCare('how often should I water a pothos')).resolves.toEqual(envelope);
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toContain('/api/v1/forum/care/ask/');
+    expect(init.method).toBe('POST');
+    expect(JSON.parse(init.body)).toEqual({ question: 'how often should I water a pothos' });
+    expect(init.headers['X-CSRFToken']).toBe('test-csrf-token');
+    expect(init.credentials).toBe('include');
+  });
+
+  it('askPlantCare marks 401, 403 and code:disabled as permanent — never a bare 503', async () => {
+    // Same contract as compose assist, plus 401: the search page is PUBLIC, so
+    // an anonymous visitor sees the affordance and the server's 401 teaches.
+    for (const [status, code, permanent] of [
+      [401, undefined, true], // not signed in
+      [403, undefined, true], // not a premium account
+      [503, 'disabled', true], // deployment has the feature off
+      [503, 'unavailable', false], // provider / retrieval blip — transient
+      [503, undefined, false], // unlabelled 503 → assume transient
+      [429, undefined, false], // throttle or budget, retry later
+      [400, undefined, false], // bad question
+    ] as const) {
+      fetchMock.mockResolvedValueOnce({
+        ok: false,
+        status,
+        json: async () => ({ detail: `failed ${status}`, ...(code && { code }) }),
+      });
+      await expect(askPlantCare('q')).rejects.toMatchObject({
+        name: 'RagError',
+        status,
+        code,
+        permanent,
+        message: `failed ${status}`,
+      });
+    }
+  });
+
+  it('askPlantCare rejects an envelope without a known status', async () => {
+    fetchMock.mockResolvedValueOnce(okJson({ status: 'surprise' }));
+    await expect(askPlantCare('q')).rejects.toBeInstanceOf(RagError);
+  });
+
+  it('reportPlantCareAnswer posts the detail to the answer route', async () => {
+    fetchMock.mockResolvedValueOnce(okJson({ reported: true }));
+    await expect(
+      reportPlantCareAnswer(42, 'Pothos should not be watered daily')
+    ).resolves.toBeUndefined();
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toContain('/api/v1/forum/care/answers/42/report/');
+    expect(init.method).toBe('POST');
+    expect(JSON.parse(init.body)).toEqual({ detail: 'Pothos should not be watered daily' });
+    expect(init.headers['X-CSRFToken']).toBe('test-csrf-token');
   });
 });

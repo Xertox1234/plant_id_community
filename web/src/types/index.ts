@@ -28,6 +28,9 @@ export type {
   ThreadPoll,
   ThreadPollOption,
   CreatePollInput,
+  PlantCareAnswer,
+  PlantCareSource,
+  PlantCareReferralReason,
 } from './forum';
 
 // Blog types

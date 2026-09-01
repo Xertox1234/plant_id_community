@@ -1,10 +1,10 @@
 ---
-status: in_progress
+status: completed
 priority: p3
 issue_id: "289"
 tags: [forum, ai, rag, premium, safety]
 dependencies: []
-source_review: "docs/audits/2026-07-11-forum-modernization.md"
+source_review: "docs/audits/2026-07-11-forum-modernization-COMPLETED.md"
 source_finding: "M13"
 ---
 
@@ -108,14 +108,25 @@ Build order (design doc, with the corrections recorded in its
       off → 503 (test-pinned, mirroring `test_compose_assist.py`)
       (2026-09-01: `test_rag.py` bounds 1–4 incl. the settings-source regex pin
       and the two-flag 503)
-- [ ] Report-a-wrong-answer affordance lands in the moderation queue
-      (backend half shipped 2026-09-01: `POST /forum/care/answers/<id>/report/`
-      + CMS "AI answer reports" list/inspect, `test_rag_reports.py`; the web
-      button is PR-2)
-- [ ] Web "ask about plant care" panel on `/forum/search` — `[n]` citations
+- [x] Report-a-wrong-answer affordance lands in the moderation queue
+      (backend 2026-09-01 / PR #606: `POST /forum/care/answers/<id>/report/`
+      + CMS "AI answer reports" list/inspect, `test_rag_reports.py` 14;
+      web 2026-09-01 / PR #607: "This is wrong" button on an answered result,
+      non-optimistic — `PlantCareAskPanel.test.tsx` "reports non-optimistically"
+      + "keeps the report form open … when the report fails")
+- [x] Web "ask about plant care" panel on `/forum/search` — `[n]` citations
       link to the cited passage, sources listed with kind/title/date, visible
       not-expert-advice label, non-optimistic "This is wrong" report
-- [ ] `#block-N` anchors on blog detail so a blog citation lands on the passage
+      (2026-09-01 / PR #607: `PlantCareAskPanel.test.tsx` 15 cases incl.
+      `href="/blog/killed-by-kindness#block-7"` and the `threadPath` route,
+      kind pills + dates in the Sources list, the server disclaimer text;
+      `SearchPage.test.tsx` pins mounted-collapsed + a search never calls
+      `askPlantCare`)
+- [x] `#block-N` anchors on blog detail so a blog citation lands on the passage
+      (2026-09-01 / PR #607: `StreamFieldRenderer.test.tsx` "emits block-N ids
+      only when anchorPrefix is given"; `BlogDetailPage.test.tsx` deep-links
+      `#block-1`, asserts `scrollIntoView` on that element and that the
+      introduction is not numbered)
 
 ## Work Log
 
@@ -284,6 +295,46 @@ Left as known issues: no `on_failure` handler (pre-existing gap shared by
 every task in the file); `RagAnswer`/`RagAnswerReport` not in auditlog
 (forum-wide pre-existing gap); no content-hash short-circuit before a re-embed
 (the embedding cache makes unchanged chunks free anyway).
+
+### 2026-09-01 - PR #606 merged (squash b9a7617); codified
+
+- `/codify` on the branch: rules in `docs/rules/{celery,database,api,testing}.md`,
+  forum.md "django-ai-core 0.1.5 — verified library facts", LEARNINGS
+  2026-09-01, celery-async-reviewer checklist, three write-time triggers
+  (`celery-retry-backoff-true-is-factor-one`,
+  `signal-receiver-delay-without-on-commit`,
+  `vector-search-documents-outside-scored-search`).
+
+### 2026-09-01 - PR-2 (web) built TDD, verified — PR #607
+
+`PlantCareAskPanel` on `/forum/search`, `askPlantCare`/`RagError`/latch/
+`reportPlantCareAnswer` in `forumService`, `AuthContext` clears the latch,
+`StreamFieldRenderer anchorPrefix`, `BlogDetailPage` hash scroll. Every file
+was RED first (missing exports / prop / component).
+
+```
+$ npx vitest run PlantCareAskPanel SearchPage StreamFieldRenderer BlogDetailPage forumService
+PASS (130) FAIL (0)
+$ npm run type-check  → tsc --noEmit, exit 0
+$ npm run lint        → ESLint: 0 errors, 1 warnings (pre-existing coverage artifact)
+$ npx vitest run      → PASS (1004) FAIL (0)          # was 895 at todo 275
+```
+
+A write-time trigger caught a jsdom trap before it shipped: spy
+`HTMLElement.prototype.scrollIntoView`, not `Element.prototype` (shadowed,
+records 0 calls).
+
+### 2026-09-01 - Completed by completing-todos skill
+
+- Verification: all 10 acceptance criteria passed (AC1 via the gate split to
+  todo 330; the other nine test-pinned as quoted above).
+- Review: PR #606 — 4 domain reviewers + bundled `/code-review` round 1: 4
+  HIGH (2 `on_commit`, 1 Celery backoff factor, 1 pair of untested refetch
+  arms) + 6 medium/low, all repaired in `8cb9b88` and re-verified by a full
+  `--create-db` suite (1911 passed). PR #607 — tsc/ESLint/Vitest gates.
+- Audit `#M13` checked off (M14 precedent: shipped dark behind its flag);
+  it was the doc's last open finding, so the review doc was renamed to
+  `…-COMPLETED.md`. Enablement → todo 330.
 
 ## Notes
 

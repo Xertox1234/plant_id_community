@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Link, useParams } from 'react-router-dom';
+import { Link, useLocation, useParams } from 'react-router-dom';
 import Card from '../components/ui/Card';
 import LoadingSpinner from '../components/ui/LoadingSpinner';
 import StreamFieldRenderer from '../components/StreamFieldRenderer';
@@ -35,11 +35,20 @@ function formatDate(value?: string): string | null {
 
 export default function BlogDetailPage() {
   const { slug } = useParams<{ slug: string }>();
+  const { hash } = useLocation();
   useScrollToTop();
   const [post, setPost] = useState<BlogPost | null>(null);
   const [loading, setLoading] = useState(true);
   const [notFound, setNotFound] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // A citation deep link (`#block-N`, todo 289) arrives before the article
+  // has rendered, so the browser's own hash jump finds nothing; scroll once
+  // the post is in the DOM. useScrollToTop already yields to a hash.
+  useEffect(() => {
+    if (!post || !hash) return;
+    document.getElementById(hash.slice(1))?.scrollIntoView({ block: 'start' });
+  }, [post, hash]);
 
   useEffect(() => {
     if (!slug) return;
@@ -146,7 +155,9 @@ export default function BlogDetailPage() {
         </div>
       )}
 
-      <StreamFieldRenderer blocks={post.content_blocks} variant="article" />
+      {/* Anchors on the content blocks ONLY — the introduction above is a
+          synthetic block and must not shift `#block-N` numbering (todo 289). */}
+      <StreamFieldRenderer blocks={post.content_blocks} variant="article" anchorPrefix="block" />
 
       {related.length > 0 && (
         <aside className="mx-auto w-full max-w-[860px] border-t border-line pt-8">

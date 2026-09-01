@@ -45,6 +45,7 @@ import type {
   EventHero,
   BlockedUser,
   ThreadPoll,
+  PlantCareAnswer,
 } from '../types/forum';
 import { slugifyTitle } from '../utils/forumUrls';
 import { htmlToBodyBlocks } from '../utils/forumBody';
@@ -686,4 +687,101 @@ export async function improveDraft(draftHtml: string): Promise<string> {
   const text = (data.text || '').trim();
   if (!text) throw new ComposeAssistError(response.status, 'AI assist returned nothing.');
   return text;
+}
+
+// ---------------------------------------------------------------------------
+// RAG plant-care answers (todo 289 / M13)
+// ---------------------------------------------------------------------------
+
+/**
+ * Error from the plant-care ask endpoint — same contract as `ComposeAssistError`
+ * (status + backend `code`, `permanent` only when retrying can never work),
+ * plus 401: `/forum/search` is PUBLIC, so an anonymous visitor sees the
+ * affordance and the server's 401 teaches. A bare 503 is transient
+ * (`code: "unavailable"` covers a provider blip AND an exhausted retrieval
+ * budget); only `code: "disabled"` means the deployment has the feature off.
+ */
+export class RagError extends Error {
+  readonly status: number;
+  /** Backend discriminator: 'disabled' | 'unavailable' | undefined (non-503). */
+  readonly code?: string;
+  /** True only when retrying can never succeed for this visitor/deployment. */
+  readonly permanent: boolean;
+
+  constructor(status: number, message: string, code?: string) {
+    super(message);
+    this.name = 'RagError';
+    this.status = status;
+    this.code = code;
+    this.permanent = status === 401 || status === 403 || code === 'disabled';
+  }
+}
+
+/**
+ * Session-scoped latch, the compose-assist pattern: once the server has said
+ * this visitor/deployment can never ask (401/403/disabled), remember it here
+ * so a remounted panel does not re-offer and re-fail. Cleared by `AuthContext`
+ * on every auth-state change — a 401/403 latch is about the ACCOUNT and must
+ * not outlive it — and by tests.
+ */
+let plantCareAskUnavailable = false;
+
+export function isPlantCareAskUnavailable(): boolean {
+  return plantCareAskUnavailable;
+}
+
+export function markPlantCareAskUnavailable(): void {
+  plantCareAskUnavailable = true;
+}
+
+export function resetPlantCareAskAvailability(): void {
+  plantCareAskUnavailable = false;
+}
+
+const PLANT_CARE_STATUSES: ReadonlySet<string> = new Set([
+  'answered',
+  'passages_only',
+  'no_information',
+  'referral',
+]);
+
+/**
+ * Ask a plant-care question answered ONLY from this site's blog + forum. The
+ * envelope is status-discriminated (see `PlantCareAnswer`); "no information"
+ * and a blocked question are results, not errors. Ships inert: the endpoint
+ * 503s `code: "disabled"` until FORUM_RAG_ENABLED is set.
+ */
+export async function askPlantCare(question: string): Promise<PlantCareAnswer> {
+  const csrfToken = await getCsrfToken();
+  const response = await fetch(`${FORUM_BASE}/care/ask/`, {
+    method: 'POST',
+    credentials: 'include',
+    headers: {
+      'Content-Type': 'application/json',
+      Accept: 'application/json',
+      ...(csrfToken && { 'X-CSRFToken': csrfToken }),
+    },
+    body: JSON.stringify({ question }),
+  });
+  if (!response.ok) {
+    const body = await response.json().catch(() => ({}));
+    throw new RagError(
+      response.status,
+      body.detail || body.message || `HTTP ${response.status}`,
+      body.code
+    );
+  }
+  const data = (await response.json()) as Partial<PlantCareAnswer>;
+  if (!data || typeof data.status !== 'string' || !PLANT_CARE_STATUSES.has(data.status)) {
+    throw new RagError(response.status, 'Plant-care answer came back in an unknown shape.');
+  }
+  return data as PlantCareAnswer;
+}
+
+/** Report an answered plant-care answer as wrong (moderator review loop). */
+export async function reportPlantCareAnswer(answerId: number, detail: string): Promise<void> {
+  await authenticatedFetch<{ reported: boolean }>(
+    `${FORUM_BASE}/care/answers/${answerId}/report/`,
+    { method: 'POST', body: JSON.stringify({ detail }) }
+  );
 }
