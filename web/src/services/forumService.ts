@@ -69,7 +69,8 @@ interface DrfPage<T> {
  * message text. Sniffing does not work: the backend serialises DRF's
  * `PermissionDenied` as its default detail ("You do not have permission to
  * perform this action."), which contains neither the code nor the word
- * "forbidden" (`apps/core/exceptions.py` builds the envelope as `str(exc)`).
+ * "forbidden" (`apps/core/exceptions.py` builds `message` as `str(exc)` for a
+ * single-detail error; field-level validation errors are flattened instead).
  */
 export class ForumApiError extends Error {
   readonly status: number;

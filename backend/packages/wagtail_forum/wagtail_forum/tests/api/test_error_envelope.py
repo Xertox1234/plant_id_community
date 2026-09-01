@@ -51,6 +51,53 @@ def test_validation_error_nests_field_errors_under_errors():
     assert set(resp.data) == {"error", "message", "code", "status_code", "errors"}
 
 
+READABLE_CASES = [
+    ({"body": ["This field is required."]}, "body: This field is required."),
+    (
+        {"poll": {"options": ["Poll options must be unique."]}},
+        "poll.options: Poll options must be unique.",
+    ),
+    # A many=True child: valid items are empty dicts, failures carry an index.
+    ({"options": [{}, {"text": ["Too long."]}]}, "options[1].text: Too long."),
+    ({"non_field_errors": ["Pick one."]}, "Pick one."),
+    (["A.", "B."], "A. B."),
+    (
+        {"title": ["Required."], "poll": {"question": ["Too long."]}},
+        "title: Required.; poll.question: Too long.",
+    ),
+    # A dict/list detail that flattens to nothing must not fall back to
+    # str(exc) — '{}' is the repr the helper exists to avoid.
+    ({}, "Invalid input."),
+    ({"body": []}, "Invalid input."),
+]
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("detail,expected", READABLE_CASES)
+def test_validation_error_message_is_readable(detail, expected):
+    """``message`` is what a client renders verbatim, so a dict/list detail is
+    flattened to ``field: text`` — never ``str(exc)``'s ``ErrorDetail`` repr
+    (todo 320). Same table as the host's ``test_exception_envelope.py``, which
+    also asserts the two handlers agree on it (drift guard)."""
+    resp = _handle(ValidationError(detail))
+
+    assert resp.status_code == 400
+    assert resp.data["message"] == expected
+    assert "ErrorDetail" not in resp.data["message"]
+    assert "{'" not in resp.data["message"]
+
+
+@pytest.mark.django_db
+def test_scalar_detail_message_is_unchanged():
+    resp = _handle(ValidationError("Poll close time must be in the future."))
+    # DRF wraps a scalar ValidationError detail in a list; it flattens to the
+    # bare sentence, and errors keeps DRF's non_field_errors shape.
+    assert resp.data["message"] == "Poll close time must be in the future."
+    assert resp.data["errors"] == {
+        "non_field_errors": ["Poll close time must be in the future."]
+    }
+
+
 @pytest.mark.django_db
 def test_unhandled_exception_falls_back_to_500_envelope():
     """A non-DRF exception (a bug) still returns the envelope, not an HTML page."""

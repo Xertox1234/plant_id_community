@@ -524,6 +524,18 @@ and interchangeable. Package tests run under the host settings, so the enveloped
 shape can be pinned directly (`tests/api/test_error_envelope.py` +
 `test_topic_create.py::test_oversized_body_is_rejected`).
 
+The `readable_message` flattener (`_readable_message` in the package) is part of
+that contract (todo 320): `message` is `str(exc)` only for a scalar detail; a
+dict/list detail — every field-level `ValidationError`, nested serializers
+included — is flattened to `field: text; other.field: text`, because `str(exc)`
+there is the Python repr of `ErrorDetail` objects and every web page renders
+`message` verbatim. Change it in both handlers or neither:
+`apps/core/tests/test_exception_envelope.py` pins the table AND asserts both
+handlers agree on it (the L16 drift-guard shape below), so a one-sided edit fails
+CI. Host views that catch a DRF `ValidationError` themselves
+(`plant_identification/api/simple_views.py`) reuse `readable_message` rather than
+re-deriving a join.
+
 ## Cross-boundary drift guard when there is no codegen (audit L16)
 
 There is no OpenAPI→TS codegen, so a shared literal that must match on both sides

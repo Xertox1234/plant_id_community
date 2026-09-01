@@ -6,7 +6,7 @@ Provides consistent error responses and logging across all API endpoints.
 
 import logging
 import traceback
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Iterator, Optional
 
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.http import Http404
@@ -52,6 +52,56 @@ def _retry_after_seconds(rate: Optional[str]) -> int:
                 return 3600
             return count * unit_seconds
     return 3600
+
+
+def readable_message(exc: Exception) -> str:
+    """Human-readable envelope ``message`` for a DRF exception.
+
+    ``str(exc)`` is ``str(exc.detail)``, which for a dict/list detail (any
+    field-level ``ValidationError``, nested serializers included) is the Python
+    repr of ``ErrorDetail`` objects — ``{'poll': {'options': [ErrorDetail(
+    string='...', code='invalid')]}}`` — and every web page renders ``message``
+    verbatim (todo 320). Flatten those into ``field: text; other.field: text``;
+    a scalar detail keeps ``str(exc)`` unchanged. ``errors`` stays the
+    structured source of truth. Duplicated as ``_readable_message`` in
+    ``wagtail_forum.api.exception_handler`` (the package cannot import the
+    host) — change both or neither; ``tests/test_exception_envelope.py`` pins
+    the two to the same table.
+    """
+    detail = getattr(exc, "detail", None)
+    if not isinstance(detail, (dict, list)):
+        return str(exc)
+    parts = list(_flatten_detail(detail, ""))
+    # An empty dict/list detail flattens to nothing; str(exc) there would be
+    # the very repr this helper exists to avoid.
+    return "; ".join(parts) if parts else "Invalid input."
+
+
+def _flatten_detail(node: Any, path: str) -> Iterator[str]:
+    """Yield ``path: text`` strings for every leaf of a DRF ``detail`` tree."""
+    if isinstance(node, dict):
+        for key, value in node.items():
+            # non_field_errors is DRF's whole-object bucket, and views raise
+            # ValidationError({"detail": "..."}) for one-off messages — neither
+            # is a field name the user typed into.
+            if key in ("non_field_errors", "detail"):
+                child = path
+            else:
+                child = f"{path}.{key}" if path else str(key)
+            yield from _flatten_detail(value, child)
+    elif isinstance(node, list):
+        # ErrorDetail subclasses str, so a leaf list is a list of strings.
+        texts = [str(item) for item in node if isinstance(item, str)]
+        if texts:
+            joined = " ".join(texts)
+            yield f"{path}: {joined}" if path else joined
+        for index, item in enumerate(node):
+            if isinstance(item, (dict, list)):
+                child = f"{path}[{index}]" if path else f"[{index}]"
+                yield from _flatten_detail(item, child)
+    else:
+        text = str(node)
+        yield f"{path}: {text}" if path else text
 
 
 def custom_exception_handler(
@@ -148,7 +198,7 @@ def custom_exception_handler(
         # Standardize the response format
         error_data = {
             "error": True,
-            "message": str(exc),
+            "message": readable_message(exc),
             "code": getattr(exc, "default_code", "error"),
             "status_code": response.status_code,
         }
