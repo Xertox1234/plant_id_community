@@ -66,6 +66,7 @@ from .api import (
 # package may not import. The route-drift guard allow-lists these host-only
 # additions (see HOST_ONLY_ROUTES in tests/test_ratelimits.py).
 from .compose_assist import ComposeAssistView
+from .rag import PlantCareAnswerReportView, PlantCareAskView
 from .similar import SimilarTopicsView
 from .summary import TopicSummaryView
 
@@ -76,6 +77,15 @@ urlpatterns = [
         "compose/assist/",
         ComposeAssistView.as_view(),
         name="compose-assist",
+    ),
+    # RAG plant-care answers (todo 289 / M13) — host-only, dormant behind
+    # FORUM_RAG_ENABLED + FORUM_VECTOR_SEARCH_ENABLED. The report route is
+    # deliberately NOT flag-gated (see rag.py).
+    path("care/ask/", PlantCareAskView.as_view(), name="care-ask"),
+    path(
+        "care/answers/<int:answer_id>/report/",
+        PlantCareAnswerReportView.as_view(),
+        name="care-answer-report",
     ),
     path("boards/", BoardListView.as_view(), name="board-list"),
     path("boards/<slug:slug>/topics/", TopicListView.as_view(), name="topic-list"),

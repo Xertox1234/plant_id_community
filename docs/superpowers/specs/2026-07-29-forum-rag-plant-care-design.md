@@ -189,3 +189,90 @@ shipping it now would be actively worse than not shipping it:
 Tracked for implementation as **todo 289**; the audit's `#M13` finding stays
 open and re-pointed there (per CLAUDE.md: a finding that *moved* is re-pointed,
 never checked off — `- [x]` means shipped).
+
+## Implementation notes (2026-09-01, todo 289)
+
+Appended at build time rather than rewriting the design above. **Decision:**
+the four enablement gates blocked todo 289 on every pickup (2026-08-29,
+2026-08-31) because they are ops/content conditions no engineering pass can
+satisfy — the only forum AI feature whose text forbade *building*. Every
+sibling (M12, M14, H13 via the 274→280 split) shipped dark behind a default-off
+flag with the operator decision in its own todo, so 289 now does the same:
+the code ships behind `FORUM_RAG_ENABLED` (default `False` → 503) and the
+gates move to **todo 330** (`forum-rag-enable-in-env`). Nothing reaches users
+until an operator flips the flags per 330.
+
+Corrections found while building, each pinned by a test:
+
+1. **Model name.** The blog model is `BlogPostPage` with the StreamField
+   `content_blocks` (blocks `heading`, `paragraph`, `quote`, `code`,
+   `plant_spotlight`, `call_to_action`), not "`BlogPage` bodies". Queryset
+   `.live().public()`.
+2. **"H15 does not chunk" was wrong.** django-ai-core's `ModelSource` installs
+   `SimpleChunkTransformer(1000, 100)` by default, so `SimilarTopics` already
+   chunks — by blind character windows, hidden by `find_similar_topics`'
+   pk-dedupe. The correct statement: H15 chunks unsuitably for citation
+   anchors. `BlogChunks` therefore overrides `_object_to_documents` (the base
+   `get_metadata` is per-object and reused for every chunk) and uses the
+   block-boundary chunker in `rag_chunking.py`.
+3. **Retrieval could not reuse `find_similar_topics`** — it returns `Topic`
+   instances and discards `doc.score`, so the similarity floor (guardrail 1)
+   was unexpressible through it. The flag/cap/`EMBED_BUDGET` core was extracted
+   as `vector_indexes._scored_search` (tri-state: `None` = no search happened,
+   nothing charged; `list` = searched, charged) with two wrappers:
+   `find_similar_topics` (pk cache + Topic refetch, behaviour unchanged) and
+   `rag_retrieval.retrieve_grounding_passages` (floor → per-corpus visibility
+   refetch → dedupe per source object → merge → cap → renumber). Two core
+   calls per question charge two embed units for one provider call (the query
+   embedding is content-hash cached) — accepted, over-count is the safe
+   direction.
+4. **Anchors are `#block-<index>`** (position in `content_blocks.raw_data`).
+   Headings emit no `id` on either surface and Wagtail block uuids are absent
+   on programmatic content, so the index is the only key on every page. The
+   refetch nulls the anchor when the index drifted past the end of `raw_data`
+   after an edit, degrading the citation to the article. The web adds
+   `id="block-N"` wrappers only on blog detail (`anchorPrefix` prop).
+5. **Guardrail 5 lands in host-owned `RagAnswer` + `RagAnswerReport`**
+   (`apps/forum_host/models.py`, the app's first migration) with a CMS
+   `SnippetViewSet` ("AI answer reports", inspect view shows the answer and
+   sources) — not a third target on the package `Report`. That model hard-FKs
+   a post or a message under an exactly-one check constraint, its `file()`
+   penalises the content author's flag count and auto-hides, and the package
+   may not import `apps.*`. An answer has no author and was never posted; it is
+   private to the asker, persisted at answer time so the moderator sees exactly
+   what the user saw, and only for `status: answered` — so `answer_id` (and
+   the report button) exist only for a cited answer.
+6. **`PlantCareNotes` is out of the slice** — no staff-curated model exists.
+   `retrieve_grounding_passages(question, *, user, indexes=(SimilarTopics,
+   BlogChunks))` takes N index classes plus a refetcher registry keyed by
+   `ModelSource.source_id`, so a third corpus is one index class + one
+   refetcher + one `kind`.
+7. **Two-flag gate.** `rag_enabled()` requires `FORUM_RAG_ENABLED` **and**
+   `FORUM_VECTOR_SEARCH_ENABLED`; with vector search off every question would
+   silently come back "no information", so 503 `{"code": "disabled"}` is the
+   honest posture. The report endpoint is deliberately not flag-gated.
+8. **Index maintenance is host code.** `VectorIndex.update()` ends in
+   `post_index_update`, which re-registers a `ModelSourceIndex` row for every
+   object in the queryset on every call, and nothing in the library ever purges
+   stale chunks (`add()` only upserts the keys it is handed; `clear()` wipes
+   every index's rows from the shared table). So `BlogChunks.build()` purges
+   its own `index_name` rows first, and the per-page `sync_blog_page_chunks`
+   task (enqueued on `page_published`/`page_unpublished`/`post_delete`, gated
+   on `rag_enabled()`) embeds first, then swaps the page's key-prefix rows in
+   one transaction. `SimilarTopics` shares the never-purges problem — a
+   follow-up, not fixed here.
+9. **The response is status-discriminated on 200** (`answered` /
+   `no_information` / `referral` / `passages_only`), like the summary
+   endpoint: "no information" is a result, not an error. Sources carry
+   `slug`+`anchor` (blog) or `topic_id`/`topic_slug`/`board_id`/`board_slug`
+   (topic) and the client composes the routes — no server URL building, no
+   todo-308 `get_full_url()` landmine.
+10. **Residual risk, stated plainly.** Prompt injection through a passage can
+    still produce a fluent wrong answer *with* valid `[n]` markers; guardrail 3
+    catches only citation-free output. That is exactly the case the report
+    loop (guardrail 5) exists for, and why layers 1–4 must not be enabled
+    without a named owner for it (todo 330, gate 3). `RAG_SIMILARITY_FLOOR`
+    (0.35) is a starting point, not a measurement; `retrieve_grounding_passages`
+    logs the top score per index on every question so 330 can tune it before
+    enabling. The corpus was still empty at build time (16/200 topics, 0/50
+    articles on 2026-08-29).

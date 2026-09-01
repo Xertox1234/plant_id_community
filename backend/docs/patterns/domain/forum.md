@@ -322,7 +322,7 @@ with no code change.
 
 ## One AI feature, one budget counter (todo 275 / M12, M14, AC4)
 
-The forum now has four AI cost centres, and each owns its **own** cache key:
+The forum now has five AI cost centres, and each owns its **own** cache key:
 
 | Counter | Key | Unit | Degrade posture when exhausted |
 |---------|-----|------|-------------------------------|
@@ -330,6 +330,7 @@ The forum now has four AI cost centres, and each owns its **own** cache key:
 | Spam screening | `ai_rate_limit:forum_spam` | completion | publish via heuristic |
 | Query embeddings | `ai_rate_limit:forum_embed` | embedding | empty semantic results |
 | Composer assist | `ai_rate_limit:forum_compose` | completion | 429 + `Retry-After` |
+| Plant-care answers (todo 289 / M13) | `ai_rate_limit:forum_rag` | completion | 429 + `Retry-After` (peeked BEFORE retrieval, so an unaffordable question spends no embedding) |
 
 Three reasons this is a rule and not bookkeeping taste, each of which was a real
 coupling before the split:
@@ -359,15 +360,66 @@ and is deliberately a second key for a feature already in the table. It exists
 uncounted, and a counter that trips a **hold** is what bounds them. The
 one-budget-per-feature rule still holds: spam screening has exactly one budget
 (`ai_rate_limit:forum_spam`). A feature needs a second key only when it needs a
-posture the budget cannot express. `find_similar_topics()` is the single embedding entry point
-in the forum precisely so this holds for every caller — the compose-time
-similar-topics endpoint, the M12 search section, and any future RAG retrieval.
-**Do not call `SimilarTopics().search_documents()` directly**; it bypasses the
-flag, the budget and the board-visibility refetch at once.
+posture the budget cannot express. `vector_indexes._scored_search()` is the
+single place `search_documents()` is called in the forum precisely so this holds
+for every caller: it owns the flag, the query-length cap and the embedding
+budget's peek-then-consume. Its two sanctioned wrappers are
+`find_similar_topics()` (pk cache + Topic visibility refetch — the compose-time
+similar-topics endpoint and the M12 search section) and
+`rag_retrieval.retrieve_grounding_passages()` (similarity floor + per-corpus
+visibility refetch — RAG, todo 289). **Never call `search_documents()` from
+anywhere else**; it bypasses the flag, the budget and the visibility refetch at
+once. The core's return is tri-state on purpose — `None` = no search happened
+(nothing charged) vs a `list` = searched (charged) — so a wrapper that caches
+results only caches the `list` case; caching a `None` would remember a budget
+outage as "no results" for the cache TTL.
 
 Adding a counter **raises** the aggregate ceiling rather than partitioning a fixed
 one — see the `SPAM_LLM_BUDGET_LIMIT` caveat above; the same arithmetic applies to
-`EMBED_BUDGET_LIMIT` and `COMPOSE_BUDGET_LIMIT`.
+`EMBED_BUDGET_LIMIT`, `COMPOSE_BUDGET_LIMIT` and `RAG_BUDGET_LIMIT`.
+
+## RAG guardrails are product rules, not prompt instructions (todo 289 / M13)
+
+`apps/forum_host/rag.py` has the highest harm ceiling of any AI feature in the
+repo (plant-care advice; in the blocked classes, human/animal ingestion). The
+guardrails ARE the feature, and the order of operations in `post()` is the
+design — see the design doc's "Implementation notes" for the full rationale:
+
+1. **Two-flag gate** (`vector_indexes.rag_enabled()`: `FORUM_RAG_ENABLED` AND
+   `FORUM_VECTOR_SEARCH_ENABLED`) → 503 `{"code": "disabled"}`. M13 is a strict
+   superset of H15; with vector search off every question would silently be
+   "no information".
+2. **Blocked classes before retrieval** (`rag_guardrails.classify_blocked_question`,
+   deterministic regexes, no LLM): ingestion/toxicity/medicinal use and
+   pesticide/chemical dosing → a static referral, no retrieval, no budget. A
+   prompt-level "don't answer toxicity questions" is not a control. The
+   NOT-blocked table in `test_rag_guardrails.py` matters as much as the blocked
+   one — "something is eating my hostas" is a care question, not an ingestion
+   question.
+3. **Refuse when unsourced**: nothing above `RAG_SIMILARITY_FLOOR` → 200
+   `no_information` WITHOUT an LLM call. The floor is read at call time and
+   `retrieve_grounding_passages` logs the top score per index on every
+   question — the calibration signal for enabling (todo 330).
+4. **Citation validation after generation** (`validate_citations`): invented
+   `[n]` markers are dropped; zero valid citations (or the model's own
+   `NO_INFORMATION`) → `passages_only`, the answer suppressed, nothing
+   persisted. Only a cited answer becomes a `RagAnswer` row, so `answer_id` —
+   and the report affordance — exist only for `status: answered`.
+5. **The review loop is host-owned** (`RagAnswer` / `RagAnswerReport` + the
+   CMS "AI answer reports" snippet listing), not a third target on the package
+   `Report` (exactly-one check constraint, author-penalising `file()`, and the
+   package may not import `apps.*`). The report endpoint is deliberately NOT
+   flag-gated. Residual risk: injection through a passage can still yield a
+   fluent wrong answer *with* valid citations — layer 5 is what catches it, so
+   layers 1–4 must not be enabled without a named owner for it.
+
+Index maintenance is host code: `VectorIndex.update()` re-registers every
+source object in `ModelSourceIndex` on every call, `PgVectorProvider.add()`
+never purges, and `clear()` wipes EVERY index's rows from the shared table. So
+`BlogChunks.build()` purges its own `index_name` rows first and the per-page
+`sync_blog_page_chunks` task embeds first, then swaps the page's key-prefix rows
+in one transaction (`document_key` is the table's primary key — index-unique
+prefixes are what keep `SimilarTopics` and `BlogChunks` rows apart).
 
 ## Augmenting a package read view host-side: mix in, never override (todo 275 / M12)
 

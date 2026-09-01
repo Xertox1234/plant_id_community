@@ -363,6 +363,63 @@ def send_forum_email_batch(event: str, recipient_user_ids: list[int], data: dict
 
 @shared_task(
     bind=True,
+    autoretry_for=(Exception,),
+    retry_backoff=True,
+    max_retries=constants.RAG_INDEX_MAX_RETRIES,
+    default_retry_delay=constants.RAG_INDEX_RETRY_DELAY,
+    acks_late=True,
+)
+def sync_blog_page_chunks(self, page_id: int) -> None:
+    """Re-chunk + re-embed ONE blog page into the ``BlogChunks`` index, or
+    purge it (todo 289 / M13). Enqueued by the page-lifecycle receivers in
+    ``signals.py`` on publish / unpublish / delete.
+
+    Idempotent (purge-then-add on the page's own key prefix), so ``acks_late``
+    and ``autoretry_for=(Exception,)`` are safe: a retry after a provider or
+    DB blip redoes exactly one page. Per-page work goes through the transformer
+    and the storage provider DIRECTLY, not ``index.update()`` — that ends in
+    ``post_index_update``, which deletes and re-registers a ``ModelSourceIndex``
+    row for EVERY object in the source queryset on every call.
+
+    Embeds first (network), then swaps the rows in one transaction, so the old
+    chunks keep serving until the new ones are ready and a failed embed leaves
+    the store as it was. ``CachedEmbeddingTransformer`` makes unchanged chunks
+    free. When the feature is off or the page is no longer live+public, only
+    the purge runs: deleting is free, embedding is not.
+    """
+    from apps.blog.models import BlogPostPage
+    from django.db import transaction
+    from django_ai_core.contrib.index.storage.pgvector.models import PgVectorEmbedding
+
+    from .vector_indexes import BlogChunks, _index_name, rag_enabled
+
+    stale = PgVectorEmbedding.objects.filter(
+        index_name=_index_name(BlogChunks),
+        document_key__startswith=f"blog.BlogPostPage:{page_id}:",
+    )
+    page = BlogPostPage.objects.live().public().filter(pk=page_id).first()
+    if page is None or not rag_enabled():
+        deleted, _ = stale.delete()
+        logger.info(
+            "[CELERY] blog page %s: purged %d chunk(s), nothing to embed (%s)",
+            page_id,
+            deleted,
+            "page not live/public" if page is None else "feature off",
+        )
+        return
+
+    index = BlogChunks()
+    documents = list(index.sources[0].objects_to_documents(page))
+    embedded = index.embedding_transformer.embed_documents(documents, batch_size=100)
+    with transaction.atomic():
+        stale.delete()
+        if embedded:
+            index.storage_provider.add(embedded)
+    logger.info("[CELERY] blog page %s: indexed %d chunk(s)", page_id, len(embedded))
+
+
+@shared_task(
+    bind=True,
     max_retries=constants.SUMMARY_MAX_RETRIES,
     default_retry_delay=constants.SUMMARY_RETRY_DELAY,
 )

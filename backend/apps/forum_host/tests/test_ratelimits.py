@@ -38,6 +38,11 @@ HOST_ONLY_ROUTES = {
     ("topics/<int:topic_id>/summary/", "topic-summary"),  # H14 AI thread summary
     ("topics/similar/", "topic-similar"),  # H15 semantic similar topics
     ("compose/assist/", "compose-assist"),  # M14 AI composer assist (todo 275)
+    ("care/ask/", "care-ask"),  # M13 RAG plant-care answers (todo 289)
+    (
+        "care/answers/<int:answer_id>/report/",
+        "care-answer-report",
+    ),  # M13 wrong-answer report (todo 289)
 }
 
 
