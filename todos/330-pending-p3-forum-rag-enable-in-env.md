@@ -4,7 +4,7 @@ priority: p3
 issue_id: "330"
 tags: [forum, ai, rag, premium, safety, ops, deploy]
 dependencies: ["289"]
-source_review: "docs/audits/2026-07-11-forum-modernization.md"
+source_review: "docs/audits/2026-07-11-forum-modernization-COMPLETED.md"
 source_finding: "M13"
 ---
 
@@ -130,6 +130,9 @@ In this order — each step is a precondition of the next:
 - User decision: 289 builds the feature dark; the four gates move here. Gate
   measurements above are carried verbatim from 289's 2026-08-29 gate-check.
   Priority p3 like 289; raise once gates 1–2 are close.
+- 289 shipped: backend PR #606 (merged 2026-09-01, squash b9a7617) and web
+  PR #607. Both routes 503 `code: "disabled"` in prod until step 5 here. The
+  audit doc this points at was renamed `…-COMPLETED.md` when #M13 closed.
 
 ## Notes
 

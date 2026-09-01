@@ -4,7 +4,7 @@ priority: p3
 issue_id: "280"
 tags: [forum, spam, ai, moderation, ops, deploy]
 dependencies: ["274"]
-source_review: "docs/audits/2026-07-11-forum-modernization.md"
+source_review: "docs/audits/2026-07-11-forum-modernization-COMPLETED.md"
 source_finding: "H13"
 ---
 
