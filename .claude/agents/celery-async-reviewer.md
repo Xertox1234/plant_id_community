@@ -27,7 +27,9 @@ Review only the files passed to you. Do not read the full repo.
 - [ ] All tasks must set `max_retries` — no unlimited retries
 - [ ] `autoretry_for` must list specific exceptions — not bare `Exception`
 - [ ] `countdown` or `default_retry_delay` set to avoid thundering herd on failure
+- [ ] On an `autoretry_for` task, `retry_backoff=True` is a backoff FACTOR of 1 (~1s/2s/4s) and `default_retry_delay` is never read — the delay must be passed AS `retry_backoff=<seconds>`; pin the computed countdowns with `push_request(retries=N)` + mocked `retry()` + jitter patched to its maximum (PR #606)
 - [ ] Permanent errors (bad input, logic error) must NOT be retried — catch and log instead
+- [ ] A task enqueued from a Django/Wagtail signal receiver (`page_published`, `post_delete`, …) uses `transaction.on_commit`, with the try/except INSIDE the callback — those signals fire inside `atomic()` (admin publish, `Model.delete()` cascade), so an inline `.delay()` races the commit (PR #606)
 
 **Error Handling**
 

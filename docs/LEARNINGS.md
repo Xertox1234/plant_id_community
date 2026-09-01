@@ -3644,3 +3644,52 @@ index's usefulness; assert on `indexdef`. And a migration touching a
 framework-shared table (`wagtailcore_page`, `auth_user`, etc.) needs the
 same `CONCURRENTLY` + `atomic=False` treatment as a large single-app table —
 arguably more, since its blast radius crosses every app.
+
+### [2026-09-01] RAG plant-care backend (todo 289, PR #606): three bugs a 1895-green suite did not catch
+
+**What shipped:** the forum's RAG plant-care answers, built dark behind
+`FORUM_RAG_ENABLED` + `FORUM_VECTOR_SEARCH_ENABLED` — a `BlogChunks` pgvector
+index, a `_scored_search` core extracted from `find_similar_topics`,
+deterministic guardrails, and host-owned `RagAnswer`/`RagAnswerReport`.
+Built TDD with 136 new tests, three mutation checks, and a full-suite pass;
+review round 1 (four domain reviewers + the bundled `/code-review`) still
+found three real defects, each invisible to the tests as written.
+
+1. **Signal receivers enqueued the index-sync task inline.** Wagtail's admin
+   publish and Django's `Model.delete()` cascade fire
+   `page_published`/`post_delete` INSIDE `transaction.atomic()`, so a fast
+   worker reads the pre-commit row: a first publish sees `live=False`,
+   purges, and never indexes; a delete gets re-embedded into an orphan row.
+   The receiver tests were green because `.delay` was asserted synchronously
+   — the exact behaviour that was wrong. **Fix:** `transaction.on_commit`
+   (the `notifications.py` convention), try/except inside the callback;
+   tests use `django_capture_on_commit_callbacks`, and one pins deferral
+   with `execute=False`. Lesson: a green signal test that asserts the enqueue
+   synchronously is evidence FOR the bug, not against it.
+2. **`retry_backoff=True` with `autoretry_for` is a backoff factor of 1.**
+   Celery computes `factor = int(max(1.0, float(retry_backoff)))` and never
+   reads `default_retry_delay` on that path — the "30/60/120s" in the
+   comment was really ~1/2/4s jittered against a rate-limited embeddings
+   API. The static attribute test (`retry_backoff is True`) pinned the
+   mistake. **Fix:** `retry_backoff=RAG_INDEX_RETRY_DELAY`; countdowns pinned
+   via `push_request(retries=N)` + mocked `retry()` + jitter patched to its
+   maximum. Verified in `celery/app/autoretry.py:51`.
+3. **A tri-state core was collapsed by its wrapper.** `_scored_search` is
+   `None` (no search happened) vs `list` (searched); the retrieval merge
+   folded `None` into `[]`, so an exhausted embedding budget produced a
+   confident 200 `no_information` about a corpus that was never consulted.
+   Surfaced by the bundled review's verifier, not the domain reviewers.
+   **Fix:** `retrieve_grounding_passages` returns `None` when no index
+   searched; the view answers 503 `unavailable` (transient, uncharged).
+
+Also mutation-verified by the cross-cutting reviewer: the `live=True` arm of
+the topic refetch and the `.public()` arm of the blog refetch had no
+independent test — deleting either left every test green. Both now pinned.
+And two classifier misfires ("get rid of poison ivy", "toxic to plants") were
+caught by asking what ordinary care questions LOOK like the blocked classes;
+the not-blocked table is as load-bearing as the blocked one.
+
+**Rules:** enqueue from signals via `on_commit`; pass the delay as the
+`retry_backoff` factor and pin computed countdowns; keep tri-state all the
+way to the response; every arm of a compound visibility filter gets its own
+test. All four are in `docs/rules/` now, two with write-time triggers.

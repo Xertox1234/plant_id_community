@@ -363,6 +363,82 @@ def send_forum_email_batch(event: str, recipient_user_ids: list[int], data: dict
 
 @shared_task(
     bind=True,
+    autoretry_for=(Exception,),
+    # The BACKOFF FACTOR, not a bool: True would mean factor 1 (~1s/2s/4s
+    # jittered) and default_retry_delay is never read on the autoretry path.
+    retry_backoff=constants.RAG_INDEX_RETRY_DELAY,
+    max_retries=constants.RAG_INDEX_MAX_RETRIES,
+    acks_late=True,
+    ignore_result=True,  # side-effect only; nothing reads the result
+)
+def sync_blog_page_chunks(self, page_id: int) -> None:
+    """Re-chunk + re-embed ONE blog page into the ``BlogChunks`` index, or
+    purge it (todo 289 / M13). Enqueued (post-commit) by the page-lifecycle
+    receivers in ``signals.py`` on publish / unpublish / delete.
+
+    Idempotent (purge-then-add on the page's own key prefix, with the page's
+    live/public state re-checked INSIDE the swap transaction so a run whose
+    embed straddled a concurrent unpublish cannot add the page back), so
+    ``acks_late`` and ``autoretry_for=(Exception,)`` are safe: a retry after a
+    provider or DB blip redoes exactly one page. A chunking failure is a
+    PERMANENT error (malformed content_blocks) and is logged, not retried.
+    Per-page work goes through the transformer and the storage provider
+    DIRECTLY, not ``index.update()`` — that ends in ``post_index_update``,
+    which deletes and re-registers a ``ModelSourceIndex`` row for EVERY object
+    in the source queryset on every call.
+
+    Embeds first (network), then swaps the rows in one transaction, so the old
+    chunks keep serving until the new ones are ready and a failed embed leaves
+    the store as it was. ``CachedEmbeddingTransformer`` makes unchanged chunks
+    free. When the feature is off or the page is no longer live+public, only
+    the purge runs: deleting is free, embedding is not.
+    """
+    from apps.blog.models import BlogPostPage
+    from django.db import transaction
+    from django_ai_core.contrib.index.storage.pgvector.models import PgVectorEmbedding
+
+    from .vector_indexes import BlogChunks, _index_name, rag_enabled
+
+    stale = PgVectorEmbedding.objects.filter(
+        index_name=_index_name(BlogChunks),
+        document_key__startswith=f"blog.BlogPostPage:{page_id}:",
+    )
+    live_public = BlogPostPage.objects.live().public().filter(pk=page_id)
+    page = live_public.first()
+    if page is None or not rag_enabled():
+        deleted, _ = stale.delete()
+        logger.info(
+            "[CELERY] blog page %s: purged %d chunk(s), nothing to embed (%s)",
+            page_id,
+            deleted,
+            "page not live/public" if page is None else "feature off",
+        )
+        return
+
+    index = BlogChunks()
+    try:
+        documents = list(index.sources[0].objects_to_documents(page))
+    except Exception:
+        # Deterministic on this content — retrying cannot help. Keep the
+        # existing rows (stale content beats none) and make it visible.
+        logger.exception(
+            "[CELERY] blog page %s: chunking failed; existing chunks kept", page_id
+        )
+        return
+    embedded = index.embedding_transformer.embed_documents(documents, batch_size=100)
+    with transaction.atomic():
+        stale.delete()
+        # Re-checked here, not just above: the embed is a network round-trip
+        # during which an unpublish/delete (and its own purge) may have landed.
+        if embedded and rag_enabled() and live_public.exists():
+            index.storage_provider.add(embedded)
+        else:
+            embedded = []
+    logger.info("[CELERY] blog page %s: indexed %d chunk(s)", page_id, len(embedded))
+
+
+@shared_task(
+    bind=True,
     max_retries=constants.SUMMARY_MAX_RETRIES,
     default_retry_delay=constants.SUMMARY_RETRY_DELAY,
 )

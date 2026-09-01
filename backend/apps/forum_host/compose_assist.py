@@ -29,15 +29,12 @@ double the round-trips for a sub-20s call. The deadline is enforced by
 ``COMPOSE_TIMEOUT_SECONDS`` forwarded into the provider SDK.
 """
 
-import html
 import logging
-import re
 
 from apps.blog.services.ai_rate_limiter import AIRateLimiter
 from apps.blog.wagtail_ai_v3_integration import generate_ai_text
 from apps.users.permissions import IsPremiumUser
 from django.conf import settings
-from django.utils.html import strip_tags
 from drf_spectacular.utils import extend_schema
 from rest_framework import status
 from rest_framework.response import Response
@@ -46,6 +43,7 @@ from wagtail_forum.api.versioning import UnversionedForumAPIMixin
 
 from . import constants
 from .api import _throttled
+from .html_text import flatten_html
 
 logger = logging.getLogger(__name__)
 
@@ -65,42 +63,18 @@ CODE_DISABLED = "disabled"
 CODE_UNAVAILABLE = "unavailable"
 
 
-# Block boundaries in the composer's HTML. Substituted with a newline BEFORE
-# tags are stripped: ``strip_tags`` deletes markup without putting anything in
-# its place, so "<p>one</p><p>two</p>" flattens to "onetwo" and
-# "<li>a</li><li>b</li>" to "ab" — every word fused across a block boundary
-# (verified). That is the normal case for a real forum post, and it degrades the
-# rewrite for every multi-paragraph draft. The package's own ``plain_text_excerpt``
-# avoids this by walking blocks and joining with a separator; raw composer HTML
-# has no block structure to walk, so the boundary is reconstructed here.
-_BLOCK_BOUNDARY_RE = re.compile(
-    r"(?i)</(?:p|div|li|ul|ol|h[1-6]|blockquote|pre)\s*>|<br\s*/?>"
-)
-
-
 def _draft_text(raw: str) -> str:
     """Flatten the composer's HTML draft to the plain text the LLM will see.
 
     The composer posts TipTap HTML. Tags are stripped rather than forwarded:
     markup is pure token cost, and a model shown HTML tends to answer in HTML —
     which this endpoint's contract forbids (the client inserts the reply as a
-    TEXT node). ``strip_tags`` is not a sanitizer and is not used as one here —
-    nothing in this path is rendered as HTML; the reply is plain text and the
-    draft's eventual publish goes through the package's own nh3 allowlist.
-
-    Entities are unescaped after stripping, for two reasons: a draft whose only
-    content is ``<p>&nbsp;</p>`` (a pasted non-breaking space) would otherwise
-    read as the truthy string ``"&nbsp;"`` and buy an LLM call for an empty
-    draft, and an ``&amp;`` left encoded rides through the prompt into a reply
-    the client inserts verbatim as text — so the user's post would end up
-    containing a literal ``&amp;``.
+    TEXT node). The draft's eventual publish goes through the package's own
+    nh3 allowlist. Block-boundary reconstruction and entity unescaping — the
+    todo 275 review's high finding — live in ``html_text.flatten_html``, shared
+    with the RAG blog chunker.
     """
-    if not raw:
-        return ""
-    text = html.unescape(strip_tags(_BLOCK_BOUNDARY_RE.sub("\n", raw)))
-    # Drop the blank lines the substitution leaves behind (nested blocks emit
-    # several boundaries in a row) and normalise each surviving line.
-    return "\n".join(line.strip() for line in text.splitlines() if line.strip())
+    return flatten_html(raw)
 
 
 @_throttled("compose_assist", "POST")

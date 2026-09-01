@@ -1,29 +1,37 @@
-"""Semantic "similar topics" vector index for the forum (todo 255 slice 4 / H15).
+"""Forum vector indexes: "similar topics" (todo 255 slice 4 / H15) and the
+chunked blog index for RAG plant-care answers (todo 289 / M13).
 
 Host-side (not the wagtail_forum package) so it may reach the forum models and
-the visibility predicate. Registers a django-ai-core ``VectorIndex`` over live,
-publicly-visible forum topics, backed by pgvector storage + OpenAI embeddings.
+the visibility predicate. Registers two django-ai-core ``VectorIndex``es —
+``SimilarTopics`` over live, publicly-visible forum topics and ``BlogChunks``
+over live, public blog articles — backed by pgvector storage + OpenAI
+embeddings. Both share one embedding table (``PgVectorEmbedding``,
+discriminated by ``index_name``; ``document_key`` is its primary key).
 
 Import-safety contract (this module is imported at ``AppConfig.ready()``):
 - NOTHING at module/class-definition scope may need ``OPENAI_API_KEY`` or hit the
   DB. ``LLMService.create`` raises ``MissingApiKeyError`` with an empty key, so
-  the embedding transformer AND the source queryset are built lazily in
-  ``SimilarTopics.__init__`` (instance attrs, read by the base ``__init__``).
+  the embedding transformer AND the source queryset are built lazily in each
+  index's ``__init__`` (instance attrs, read by the base ``__init__``).
 - ``storage_provider = PgVectorProvider()`` is safe at class-def (no key/DB).
 
-The feature gates on ``settings.FORUM_VECTOR_SEARCH_ENABLED`` (default False):
-``find_similar_topics`` short-circuits to ``[]`` when off, so no embedding API
-call ever fires in dev/CI. Populate the index with
-``python manage.py rebuild_indexes SimilarTopics``.
+The features gate on ``settings.FORUM_VECTOR_SEARCH_ENABLED`` (default False):
+``_scored_search`` short-circuits when off, so no embedding API call ever fires
+in dev/CI. Populate the indexes with
+``python manage.py rebuild_indexes SimilarTopics BlogChunks`` (a bare
+``rebuild_indexes`` builds both).
 
-See docs/superpowers/specs/2026-07-22-forum-similar-topics-pgvector-design.md.
+See docs/superpowers/specs/2026-07-22-forum-similar-topics-pgvector-design.md
+and docs/superpowers/specs/2026-07-29-forum-rag-plant-care-design.md.
 """
 
 import hashlib
 import logging
 
+from apps.blog.models import BlogPostPage
 from django.conf import settings
 from django.core.cache import cache
+from django.utils.text import slugify
 from django_ai_core.contrib.index import (
     CoreEmbeddingTransformer,
     ModelSource,
@@ -31,6 +39,8 @@ from django_ai_core.contrib.index import (
     registry,
 )
 from django_ai_core.contrib.index.embedding_cache import CachedEmbeddingTransformer
+from django_ai_core.contrib.index.schema import Document
+from django_ai_core.contrib.index.storage.pgvector.models import PgVectorEmbedding
 from django_ai_core.contrib.index.storage.pgvector.provider import PgVectorProvider
 from django_ai_core.llm import LLMService
 from wagtail_forum.api.views import (
@@ -41,6 +51,7 @@ from wagtail_forum.api.views import (
 from wagtail_forum.models import Topic
 
 from . import constants
+from .rag_chunking import chunk_blocks
 
 logger = logging.getLogger(__name__)
 
@@ -99,6 +110,177 @@ class SimilarTopics(VectorIndex):
         super().__init__()
 
 
+class BlogChunkSource(ModelSource):
+    """Vectorize a blog article as block-boundary chunks (todo 289 / M13).
+
+    One ``Document`` per ``rag_chunking.BlogChunk`` with PER-CHUNK metadata
+    (``block_index``, ``heading_path``, ``slug``, ``title``): the base class's
+    ``get_metadata`` is called once per object and the same dict is reused for
+    every chunk, so the anchor a citation needs can only come from overriding
+    ``_object_to_documents``. Keys are ``blog.BlogPostPage:<pk>:<i>`` — the
+    ``document_key`` column is the PRIMARY KEY of the table every index shares,
+    so the ``source_id`` prefix is what keeps them from colliding with
+    ``SimilarTopics``' ``wagtail_forum.Topic:<pk>:<i>`` rows.
+    """
+
+    def __init__(self, queryset):
+        super().__init__(queryset=queryset)
+        # The base __init__ only sets chunk_transformer when NONE is passed and
+        # silently leaves the attribute unset otherwise (django-ai-core 0.1.5).
+        # Unused here — chunking is rag_chunking.chunk_blocks — but pinned so a
+        # future base-class change cannot resurrect blind character windows.
+        self.chunk_transformer = None
+
+    def _object_to_documents(self, obj):
+        if not self.provides_object(obj):
+            raise ValueError("Object does not belong to this source")
+        base = self.get_metadata(obj)
+        chunks = chunk_blocks(obj.content_blocks.raw_data, title=obj.title)
+        for i, chunk in enumerate(chunks):
+            yield Document(
+                document_key=self.get_document_key(obj, i),
+                content=chunk.text,
+                metadata={
+                    **base,
+                    "block_index": chunk.block_index,
+                    "heading_path": chunk.heading_path,
+                    "slug": obj.slug,
+                    "title": obj.title,
+                },
+            )
+
+
+@registry.register()
+class BlogChunks(VectorIndex):
+    """Chunked index over live, public blog articles (todo 289 / M13).
+
+    Same lazy-construction contract as ``SimilarTopics``. ``storage_provider``
+    is its OWN ``PgVectorProvider`` instance: ``VectorIndex.__init__`` stamps
+    ``index_name`` onto the provider instance, so sharing ``SimilarTopics``'
+    would clobber one index's name with the other's.
+    """
+
+    storage_provider = PgVectorProvider()
+    sources = []  # set lazily in __init__ (see module docstring)
+    embedding_transformer = None  # set lazily in __init__
+
+    def __init__(self):
+        self.sources = [BlogChunkSource(BlogPostPage.objects.live().public())]
+        self.embedding_transformer = _build_embedding_transformer()
+        super().__init__()
+
+    def build(self):
+        """Rebuild from scratch: purge THIS index's rows, then re-add.
+
+        ``PgVectorProvider.add()`` only upserts the keys it is handed, so
+        without the purge a page that shrank from 9 chunks to 6 would keep
+        serving ``:6``–``:8`` forever and an unpublished page would stay in the
+        store until the visibility refetch dropped it on every query. Filtered
+        on ``index_name`` — never ``storage_provider.clear()``, which deletes
+        EVERY index's rows from the shared table. Not transactional on purpose:
+        the rebuild embeds over the network and must not hold a DB transaction
+        open across it; ``rebuild_indexes`` is an operator action (todo 330).
+        """
+        PgVectorEmbedding.objects.filter(
+            index_name=self.storage_provider.index_name
+        ).delete()
+        return super().build()
+
+
+def rag_enabled() -> bool:
+    """The RAG plant-care feature's TWO-flag gate (todo 289 / M13).
+
+    M13 is a strict superset of H15: with vector search off every question
+    would silently come back "no information" forever, so ``FORUM_RAG_ENABLED``
+    alone is not enough. Shared by the ask view (503 ``disabled`` when off),
+    the blog page-lifecycle receivers (no index maintenance for a dark feature)
+    and the sync task (purge only — deleting is free, embedding is not).
+    """
+    return bool(
+        getattr(settings, "FORUM_RAG_ENABLED", False)
+        and getattr(settings, "FORUM_VECTOR_SEARCH_ENABLED", False)
+    )
+
+
+def _index_name(index_cls: type[VectorIndex]) -> str:
+    """The ``PgVectorEmbedding.index_name`` an index class stores under.
+
+    Mirrors ``VectorIndex.__init__`` (``f"{slugify(class name)}_index"``) so
+    purge/maintenance queries can target one index's rows WITHOUT
+    instantiating it — instantiation builds the OpenAI transformer and needs a
+    key.
+    """
+    return f"{slugify(index_cls.__name__)}_index"
+
+
+def _scored_search(index_cls: type[VectorIndex], query: str, limit: int):
+    """Embed ``query`` once and return up to ``limit`` scored documents.
+
+    The ONLY place ``search_documents()`` is called in the forum. Every
+    embedding caller routes through here — via ``find_similar_topics`` (topic
+    pks + visibility refetch) or ``rag_retrieval.retrieve_grounding_passages``
+    (similarity floor + per-corpus refetch) — so the flag, the query-length cap
+    and the ``EMBED_BUDGET`` peek-then-consume hold for all of them by
+    construction. Callers must not re-implement the cap: it is here precisely
+    so a new caller cannot forget it and silently invalidate
+    ``EMBED_BUDGET_LIMIT``'s cost math.
+
+    TRI-STATE return, deliberately: ``None`` means no search happened (feature
+    off, blank query, budget exhausted, provider error — nothing was charged);
+    a ``list`` (possibly empty) means the search ran and one unit WAS charged.
+    A wrapper that caches results must only cache the ``list`` case, or a
+    budget outage would be remembered as "no results" for the cache TTL.
+
+    Never raises. Results keep ``doc.score`` (``1 - cosine_distance`` from the
+    pgvector provider) and ``doc.metadata``; the slice matters because an
+    unsliced django-ai-core queryset silently caps at 20.
+    """
+    if not getattr(settings, "FORUM_VECTOR_SEARCH_ENABLED", False):
+        return None
+    query = (query or "").strip()
+    if not query:
+        return None
+    # Bound the embedded text here, not at each call site: embedding cost scales
+    # with input length and EMBED_BUDGET_LIMIT is sized against this cap.
+    query = query[: constants.SIMILAR_QUERY_MAX_CHARS]
+    # Log label only. getattr, not `.__name__`: tests patch the index class
+    # with a MagicMock (to keep them key-free), which has no __name__.
+    label = getattr(index_cls, "__name__", "vector index")
+
+    # Deliberately imported at call time, not module scope — see this module's
+    # import-safety contract.
+    from apps.blog.services.ai_rate_limiter import AIRateLimiter
+
+    # Dedicated query-embedding budget (todo 275 / AC4). Peek, never
+    # check-and-increment: budget is consumed only after a call that actually
+    # reached the provider, so a sustained provider outage cannot drain the cap
+    # via failed attempts. Checked BEFORE the index is instantiated — its
+    # __init__ builds the OpenAI-backed transformer.
+    if not AIRateLimiter.peek_budget(
+        constants.EMBED_BUDGET_CACHE_KEY, constants.EMBED_BUDGET_LIMIT
+    ):
+        logger.warning(
+            "[PERF] %s vector search skipped: query-embedding budget exhausted",
+            label,
+        )
+        return None
+
+    try:
+        docs = list(index_cls().search_documents(query)[:limit])
+    except Exception:
+        logger.exception("[ERROR] %s vector search failed", label)
+        return None
+
+    # Charged only on a call that returned — including an empty result set,
+    # which still embedded the query. A CachedEmbeddingTransformer hit may not
+    # have hit the provider; charging it anyway over-counts spend, which is the
+    # safe direction for a cost cap.
+    AIRateLimiter.consume_budget(
+        constants.EMBED_BUDGET_CACHE_KEY, constants.EMBED_BUDGET_LIMIT
+    )
+    return docs
+
+
 def _search_cache_key(query: str, limit: int) -> str:
     """Cache key for one vector query. Hashed, so an arbitrary user query can never
     produce an oversized or control-character-bearing memcached key.
@@ -126,14 +308,14 @@ def find_similar_topics(
     errors — never raises to the caller. Results are refetched through
     ``_visible_boards()`` (board privacy) in vector-score order.
 
-    This is the ONLY embedding entry point for the forum: the compose-time
-    similar-topics endpoint, the premium semantic-search section (M12) and any
-    future RAG retrieval (M13) all route through here, so every caller inherits
-    the flag, the query length cap, the embedding budget, the embedding cache and
-    the visibility refetch by construction. Callers must not reach
-    ``SimilarTopics().search_documents()`` directly, and must not re-implement the
-    length cap — it lives here precisely so a new caller cannot forget it and
-    silently invalidate ``EMBED_BUDGET_LIMIT``'s cost math.
+    The TOPIC wrapper over ``_scored_search`` (the single embedding entry
+    point): the compose-time similar-topics endpoint and the premium
+    semantic-search section (M12) route through here and inherit the flag, the
+    query length cap, the embedding budget and the embedding cache from the
+    core, plus the pk cache and the visibility refetch from this function. RAG
+    retrieval (M13) is the core's other wrapper — it needs the scores this one
+    discards — see ``rag_retrieval.retrieve_grounding_passages``. Callers must
+    not reach ``search_documents()`` directly.
 
     ``user`` (todo 284/M9): when given, blocked-author topics are excluded in
     the same refetch that already re-runs per-request for board privacy — so
@@ -157,10 +339,6 @@ def find_similar_topics(
     query = query[: constants.SIMILAR_QUERY_MAX_CHARS]
     limit = limit or constants.SIMILAR_TOPICS_LIMIT
 
-    # Deliberately imported at call time, not module scope — see this module's
-    # import-safety contract.
-    from apps.blog.services.ai_rate_limiter import AIRateLimiter
-
     # Embedding-result cache. Keyed on exactly what reaches the vector store (see
     # _search_cache_key — NOT board_slug), storing ordered PKs only: the visibility
     # refetch below always re-runs, so a board restricted after the cache write
@@ -174,36 +352,12 @@ def find_similar_topics(
     ordered_pks = cache.get(cache_key)
 
     if ordered_pks is None:
-        # Dedicated query-embedding budget (todo 275 / AC4). Peek, never
-        # check-and-increment: budget is consumed only after a call that actually
-        # reached the provider, so a sustained provider outage cannot drain the
-        # cap via failed attempts.
-        if not AIRateLimiter.peek_budget(
-            constants.EMBED_BUDGET_CACHE_KEY, constants.EMBED_BUDGET_LIMIT
-        ):
-            logger.warning(
-                "[PERF] Forum semantic search skipped: query-embedding budget "
-                "exhausted; degrading to no semantic results"
-            )
+        docs = _scored_search(SimilarTopics, query, limit * constants.SIMILAR_OVERFETCH)
+        if docs is None:
+            # No search ran (budget exhausted / provider error): degrade to no
+            # semantic results and, crucially, cache NOTHING — see the core's
+            # tri-state contract.
             return []
-
-        try:
-            docs = list(
-                SimilarTopics().search_documents(query)[
-                    : limit * constants.SIMILAR_OVERFETCH
-                ]
-            )
-        except Exception:
-            logger.exception("[ERROR] similar-topics vector search failed")
-            return []
-
-        # Charged only on a call that returned — including an empty result set,
-        # which still embedded the query. A CachedEmbeddingTransformer hit may not
-        # have hit the provider; charging it anyway over-counts spend, which is
-        # the safe direction for a cost cap.
-        AIRateLimiter.consume_budget(
-            constants.EMBED_BUDGET_CACHE_KEY, constants.EMBED_BUDGET_LIMIT
-        )
 
         # pks in vector-score order (search_documents returns ordered by distance).
         ordered_pks = []

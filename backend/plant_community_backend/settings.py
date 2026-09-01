@@ -867,6 +867,18 @@ FORUM_COMPOSE_ASSIST_ENABLED = config(
     "FORUM_COMPOSE_ASSIST_ENABLED", default=False, cast=bool
 )
 
+# Forum RAG plant-care answers (todo 289 / M13). The routes are always mounted
+# but `POST /forum/care/ask/` 503s while this is off. Default OFF, and it is a
+# TWO-flag gate: the feature also needs FORUM_VECTOR_SEARCH_ENABLED (it is a
+# strict superset of the semantic-search substrate — with vector search off
+# every question would silently come back "no information"). Ships dark by
+# design: the corpus is empty and the wrong-answer review queue has no owner
+# yet. Enable per the operator procedure in todo 330, in this order: a working
+# OPENAI_API_KEY, FORUM_VECTOR_SEARCH_ENABLED, `rebuild_indexes SimilarTopics
+# BlogChunks`, a named review-queue owner, then this flag. Bounded then by
+# IsPremiumUser, the per-user `care_ask` throttle and RAG_BUDGET_LIMIT.
+FORUM_RAG_ENABLED = config("FORUM_RAG_ENABLED", default=False, cast=bool)
+
 # Firebase Admin SDK service-account JSON path — the CANONICAL credentials
 # setting: both the auth token exchange (apps/users) and the FCM sender
 # (apps/garden/firebase_config.py) read this. Falls back to the

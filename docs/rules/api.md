@@ -133,3 +133,11 @@ Compact checklist auto-injected before edits. Long-form:
   mechanism before treating it as one. See
   `backend/docs/patterns/architecture/viewsets.md` and `docs/LEARNINGS.md`
   2026-08-31.
+- **Never manufacture a confident negative from "the provider never ran".**
+  A helper over a budget-gated/provider-backed call must stay TRI-STATE —
+  `None` (no call happened: flag off, budget exhausted, provider error) vs
+  `[]` (it ran and found nothing) — all the way to the view, which answers a
+  transient 503 `{"code": "unavailable"}` for `None`, never a cacheable-looking
+  `no_information`/empty 200. Collapsing the two also lets a wrapper cache an
+  outage as "no results" for its TTL (`find_similar_topics` /
+  `retrieve_grounding_passages` over `_scored_search`, todo 289).

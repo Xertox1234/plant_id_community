@@ -41,3 +41,20 @@ Compact checklist auto-injected before edits. Long-form:
   stated invariant and guard rather than propagate (return a falsy result + log).
   "Unreachable today" is not a reason to skip the guard when an invariant depends
   on it (todo 287).
+- **`retry_backoff=` on an `autoretry_for` task is the backoff FACTOR, and
+  `default_retry_delay` is ignored on that path.** Celery computes
+  `factor = int(max(1.0, float(retry_backoff)))`, so `retry_backoff=True` is
+  factor 1 (~1s/2s/4s jittered) no matter what `default_retry_delay` says.
+  Pass the delay itself (`retry_backoff=RAG_INDEX_RETRY_DELAY`) and pin the
+  countdowns with `push_request(retries=N)` + a mocked `retry()` + full jitter
+  patched to its maximum (`celery.utils.time.random.randrange`). Verified in
+  `celery/app/autoretry.py` (PR #606 review).
+- **Enqueue from a signal receiver with `transaction.on_commit`, never a bare
+  `.delay()`.** Wagtail's admin publish and Django's `Model.delete()` cascade
+  fire `page_published`/`page_unpublished`/`post_delete` INSIDE
+  `transaction.atomic()`, so an inline enqueue lets the worker read the
+  pre-commit row (a first publish indexes nothing; a mid-delete row gets
+  re-embedded into an orphan). Put the try/except INSIDE the callback — an
+  exception there surfaces after the commit, from the view. Test with
+  `django_capture_on_commit_callbacks(execute=True)`, and keep any `patch()`
+  open while the captured callbacks run.

@@ -38,6 +38,11 @@ HOST_ONLY_ROUTES = {
     ("topics/<int:topic_id>/summary/", "topic-summary"),  # H14 AI thread summary
     ("topics/similar/", "topic-similar"),  # H15 semantic similar topics
     ("compose/assist/", "compose-assist"),  # M14 AI composer assist (todo 275)
+    ("care/ask/", "care-ask"),  # M13 RAG plant-care answers (todo 289)
+    (
+        "care/answers/<int:answer_id>/report/",
+        "care-answer-report",
+    ),  # M13 wrong-answer report (todo 289)
 }
 
 
@@ -155,6 +160,7 @@ def test_wrapped_routes_use_the_throttled_views():
     unthrottled package view — pin the callbacks (review finding 21)."""
     from apps.forum_host import api as throttled
     from apps.forum_host import api_urls as host
+    from apps.forum_host import rag
 
     wrapped = {
         "topic-list": throttled.TopicListView,
@@ -172,6 +178,9 @@ def test_wrapped_routes_use_the_throttled_views():
         "user-message-send": throttled.MessageSendView,
         "message-report": throttled.MessageReportView,
         "topic-poll-vote": throttled.PollVoteView,
+        # Host-only AI routes (todo 289) — throttled at definition, not wrapped.
+        "care-ask": rag.PlantCareAskView,
+        "care-answer-report": rag.PlantCareAnswerReportView,
     }
     by_name = {p.name: p.callback.view_class for p in host.urlpatterns}
     for name, view_class in wrapped.items():
@@ -185,9 +194,12 @@ def test_every_unsafe_handler_is_throttled():
     marker). search/sync throttle a safe method (GET) and have no unsafe handler,
     so they satisfy this trivially — but gain protection if one is ever added."""
     from apps.forum_host import api as throttled
+    from apps.forum_host import rag
 
     safe = {"GET", "HEAD", "OPTIONS", "TRACE"}
     wrappers = [
+        rag.PlantCareAskView,
+        rag.PlantCareAnswerReportView,
         throttled.TopicListView,
         throttled.PostListView,
         throttled.PostWriteView,

@@ -295,3 +295,15 @@ Compact checklist auto-injected before edits.
   hits a stale cached row instead. Same trap cross-environment: a scratch DB
   sharing dev's Redis serves dev's rendition paths; give any second environment
   its own `REDIS_URL` db index. Hit twice in one session (PR #538).
+- **`django_capture_on_commit_callbacks(execute=False)` + `patch()`: keep the
+  patch open while you invoke the captured callbacks.** A callback that
+  references a module global (`task.delay`) resolves it at CALL time, so once
+  the `with patch(...)` block has exited it hits the real object — the mock
+  records nothing and the test reads as "never enqueued". Nest the capture
+  inside the patch. Also: under `@pytest.mark.django_db` an `on_commit`
+  callback defers forever unless captured, so a receiver test without the
+  fixture goes green by never running the enqueue at all (todo 289).
+- **Log labels derived from a class need `getattr(cls, "__name__", …)` when
+  tests patch that class** — `MagicMock` has no `__name__`, so a bare
+  `cls.__name__` in a log line turns a key-free gating test into an
+  `AttributeError` (todo 289).

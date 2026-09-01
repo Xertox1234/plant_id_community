@@ -1066,5 +1066,54 @@
     "source": "codify: feat/blog-title-gin-index-todo-323",
     "added": "2026-08-31",
     "severity": "warn"
+  },
+  {
+    "id": "celery-retry-backoff-true-is-factor-one",
+    "domains": [
+      "celery"
+    ],
+    "path_glob": [
+      "backend/**/tasks.py"
+    ],
+    "content_present": "retry_backoff\\s*=\\s*True",
+    "message": "retry_backoff=True on an autoretry_for task is a backoff FACTOR of 1 (~1s/2s/4s jittered) and default_retry_delay is never read on that path. Pass the delay itself: retry_backoff=<seconds constant>, and pin the countdowns (push_request + mocked retry + jitter patched to max).",
+    "pattern_ref": "docs/rules/celery.md",
+    "source": "codify: feat/forum-rag-backend",
+    "added": "2026-08-31",
+    "severity": "warn"
+  },
+  {
+    "id": "signal-receiver-delay-without-on-commit",
+    "domains": [
+      "celery",
+      "wagtail"
+    ],
+    "path_glob": [
+      "backend/**/signals.py"
+    ],
+    "content_present": "\\.delay\\(",
+    "content_absent": "on_commit",
+    "message": "A .delay() straight from a signal receiver races the commit: Wagtail admin publish and Model.delete() cascades fire page_published/post_delete INSIDE atomic(), so the worker can read the pre-commit row. Wrap it: transaction.on_commit(lambda: task.delay(pk)), try/except inside the callback; test with django_capture_on_commit_callbacks.",
+    "pattern_ref": "docs/rules/celery.md",
+    "source": "codify: feat/forum-rag-backend",
+    "added": "2026-08-31",
+    "severity": "warn"
+  },
+  {
+    "id": "vector-search-documents-outside-scored-search",
+    "domains": [
+      "database",
+      "forum"
+    ],
+    "path_glob": [
+      "backend/**/*.py"
+    ],
+    "content_present": "\\.search_documents\\(",
+    "content_absent": "def _scored_search",
+    "message": "search_documents() may only be called by vector_indexes._scored_search — it owns the FORUM_VECTOR_SEARCH_ENABLED gate, the query cap and the EMBED_BUDGET peek-then-consume, and an unsliced result silently caps at 20. Use find_similar_topics() (Topic pks) or retrieve_grounding_passages() (scored + floored) instead.",
+    "pattern_ref": "backend/docs/patterns/domain/forum.md",
+    "source": "codify: feat/forum-rag-backend",
+    "added": "2026-08-31",
+    "severity": "warn"
   }
 ]
