@@ -307,3 +307,25 @@ Compact checklist auto-injected before edits.
   tests patch that class** — `MagicMock` has no `__name__`, so a bare
   `cls.__name__` in a log line turns a key-free gating test into an
   `AttributeError` (todo 289).
+- **A test that derives its expectations from the constant under test cannot
+  catch that constant SHRINKING.** After extracting a shared
+  `R2_REQUIRED_VARS` tuple, every test built its fixtures/sentinels by
+  iterating it — so emptying `R2_URL_ONLY_VARS` would have stopped production
+  requiring `R2_CUSTOM_DOMAIN` while the whole suite stayed green (each test
+  silently checked one fewer var). Iterating the shared constant is right for
+  the *grow* direction; the shrink direction needs at least one assertion
+  naming a member **literally**, anchored outside the composition
+  (`assertIn("R2_CUSTOM_DOMAIN is required", stderr)`). Same tautology family
+  as asserting a locally-declared literal (todo 321).
+- **`assertIn(value, some_dict.values())` proves presence, not wiring.** It
+  passes when the value landed under the WRONG key — a swapped
+  `access_key`/`secret_key` in a config dict satisfies it while breaking real
+  auth. Assert by key (`self.assertEqual(options[expected_key], value)`), and
+  when the key set is generated, pin the mapping itself
+  (`assertEqual(tuple(VAR_TO_OPTION), SHARED_TUPLE)`) so a new member can't be
+  added without stating where it belongs (todo 321).
+- **Mutation-verify a drift/guard test before trusting it.** Break the thing it
+  claims to pin, confirm it fails *by name*, then restore the file and `diff`
+  to prove it is byte-identical. Todo 321's first drift test passed a swapped
+  access_key/secret_key mutation — the weakness was invisible until the
+  mutation was actually run.

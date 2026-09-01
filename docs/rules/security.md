@@ -98,3 +98,21 @@ Compact checklist auto-injected before edits. Long-form: `backend/docs/patterns/
   the CLI-unreachability itself: `command.create_parser(...).parse_args([...])`
   with the flag must raise (Django's `CommandParser.error()` raises
   `CommandError`, not argparse's default `SystemExit`).
+- **`detect-secrets` fires on any quoted `SECRET`-ish key mapped to a quoted
+  value, even when that value is an option NAME — and it scans Markdown too.**
+  A dict entry mapping the env var `R2_SECRET_ACCESS_KEY` to django-storages'
+  option name `secret_key` is a Secret Keyword hit, and it fires again on every
+  doc or todo that *quotes* that line — it blocked three separate commits in
+  todo 321, from the test, the archived todo, and this rules file. Mark a real
+  false positive inline (`# pragma: allowlist secret`, or
+  `<!-- pragma: allowlist secret -->` in Markdown); in prose, prefer describing
+  the mapping (`X` → `y`) over reproducing the literal `"key": "value"` pair,
+  so the doc doesn't trip the scanner for the next editor. Never silence it by
+  regenerating `.secrets.baseline` to make the hit disappear (todo 321).
+- **A test helper that prints resolved settings must blank credential env vars
+  before applying its overrides, not rely on callers passing all of them.**
+  `decouple.config()` falls through to `backend/.env` for an ABSENT key, so a
+  partial-override caller on a machine that followed the R2 rotation runbook
+  dumps real credentials into test stdout. Blank (`env[key] = ""`, never
+  `pop()`) every var the code may read, then `env.update(overrides)` — a
+  structural guard, not caller discipline (todo 321).

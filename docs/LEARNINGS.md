@@ -3737,3 +3737,55 @@ read `errors` (write-time trigger `drf-envelope-message-str-exc` on
 `backend/**/exception*.py`); catch the `ValidationError` that is actually
 raised — DRF's and Django's are unrelated, so the wrong `except` is silent
 dead code and a 500. Both in `docs/rules/api.md`.
+
+## R2 config de-duplication (todo 321, 2026-09-01)
+
+**`pre-commit run --all-files` is not a check — it is a repo-wide rewrite.**
+Run mid-task to confirm the staged files were clean, it invoked every
+auto-fixing hook (markdownlint, trailing-whitespace, end-of-file) against the
+**entire** repository and modified 238 unrelated files — not whitespace only,
+but real markdown reflows (blank lines inserted around lists, link blocks
+rewritten). A following `git add -A` staged all of them, turning an 8-file p3
+cleanup into a 246-file commit. Caught at the `git diff --cached --stat`, not
+by any hook: pre-commit *succeeded*, so nothing signalled a problem.
+
+**Root cause:** in a repo with thousands of pre-existing lint violations (the
+documented reason flake8 is pre-commit-only and not CI-gated, see
+`backend/CLAUDE.md`), the auto-fixers have enormous latent work queued. Any
+whole-repo invocation cashes it all in at once.
+
+**Fix / rule:** scope it — `pre-commit run --files <paths>`, or plain
+`git commit` and let the hook run on the staged set. Never `--all-files` unless
+a repo-wide reformat *is* the task. Recovery, if it happens: `git reset`, list
+`git diff --name-only HEAD` minus your intended set, `git checkout HEAD --` that
+list, then stage explicitly by path. Verify with `git show --stat`.
+
+**Second lesson — a shared constant makes its own tests tautological.**
+Extracting `R2_REQUIRED_VARS` and then driving every test's fixtures by
+iterating it means the suite tracks the constant instead of pinning it:
+emptying `R2_URL_ONLY_VARS` would have stopped production requiring
+`R2_CUSTOM_DOMAIN` with all tests green, each silently checking one fewer var.
+Deriving from the shared constant is correct for the *grow* direction; the
+shrink direction needs one literal, externally-anchored assertion. Neither the
+author nor the first reviewer saw this — `cross-cutting-reviewer` did.
+
+**Third — `assertIn(sentinel, options.values())` passed a swapped
+access_key/secret_key mutation.** Membership-in-values proves a value reached
+the dict, not that it reached the right key. Only running the mutation exposed
+it; the assertion had looked strict. Both now in `docs/rules/testing.md`.
+
+**Reviewer findings are evidence, not verdicts.** `django-drf-reviewer`
+reported two `high` isort violations that would "block the commit". False:
+isort itself had written that layout, and `pre-commit run isort --files <both>`
+passed. It had run isort standalone from a cwd where `plant_community_backend`
+resolved as first-party; pre-commit runs from the repo root where it does not.
+Verify a lint/format finding against the repo's actual hook invocation before
+acting on it.
+
+**Also corrected in-flight:** the shared module was first justified as living
+in `plant_community_backend/` because `apps.core.constants` "would only resolve
+via cwd". Wrong — anything that can import `plant_community_backend.settings`
+has `backend/` on `sys.path`, so `apps` is reachable too (verified from
+`cwd=/`). The real reasons are dependency direction (apps read settings, not
+the reverse) and that importing an app package at settings-import time is safe
+only while `apps/__init__.py` and `apps/core/__init__.py` stay empty.
