@@ -1,5 +1,5 @@
 ---
-status: in_progress
+status: completed
 priority: p3
 issue_id: "315"
 tags: [web, react, home]
@@ -241,3 +241,12 @@ $ ./node_modules/.bin/vitest run
 $ npm run lint
 ESLint: 0 errors, 1 warnings in 1 files   # block-navigation.js, pre-existing
 ```
+
+### 2026-09-02 - Completed by completing-todos skill (run 2026-09-02-0458)
+
+- Verification: all 3 acceptance criteria passed, each backed by quoted command
+  output above (AC3 proven by an empty `git diff --name-only` outside `web/`).
+- Review: 3 findings, 2 correctness (both repaired + test-pinned), 1 LOW layout
+  trade-off accepted and recorded.
+- No `source_review` frontmatter on this todo, so there is no `## Finding
+  Status` line to check off anywhere.
