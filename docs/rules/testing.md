@@ -369,3 +369,31 @@ Compact checklist auto-injected before edits.
   pasting the real code that motivated the rule, not a tidied version of it — a
   regex written from the lesson instead of the source can miss the very bug it
   exists for. See `docs/LEARNINGS.md` 2026-09-01.
+- **A mock that fakes a thrown built-in must throw the REAL constructor.**
+  `json: async () => { throw new Error('Unexpected token …') }` reads like a
+  faithful `response.json()` failure and is not: `response.json()` throws a
+  `SyntaxError`, so a bare `catch {}` and a narrowed `catch (e) { if (!(e
+  instanceof SyntaxError)) … }` behave IDENTICALLY against the fake. The suite
+  passes either way and cannot tell you which one shipped — the conflation in
+  todo 310 survived a green run and was only caught in review. Throw
+  `new SyntaxError(…)` (and `TypeError`, `DOMException`, …) so the type
+  discrimination the production code performs is actually exercised.
+- **Mutation-check every new guard: delete it and watch its own tests go red.**
+  Cheaper than it sounds (one `cp` + one revert) and it is the only thing that
+  distinguishes a test from a description. In todo 310 it caught nothing wrong
+  — which is the point: the two guards were then known-load-bearing rather than
+  assumed. It also catches the reverse case, a test that passes for a reason
+  unrelated to the code under it.
+- **Scope a `not.toHaveBeenCalled()` on a shared mock to the key you mean.**
+  `expect(sessionStorageMock.setItem).not.toHaveBeenCalled()` fails for a
+  reason that has nothing to do with the assertion's intent, because
+  `getOrCreateRequestId()` writes a request id to sessionStorage on EVERY
+  request (`web/src/utils/requestId.ts`). Use
+  `not.toHaveBeenCalledWith('user', expect.anything())`. Todo 310.
+- **Appending a test class BELOW `if __name__ == "__main__": unittest.main()`
+  runs nothing, and the suite still says OK.** `unittest.main()` collects the
+  module as it stands when that line executes, so classes defined after it are
+  never registered — the run reports the SAME test count and a green `OK`, which
+  is indistinguishable from success. The tell is the count: 56 before, 56 after
+  adding six tests. Always compare `Ran N tests` before and after, and keep the
+  `__main__` block last in the file. Hit while codifying todos 310/315.

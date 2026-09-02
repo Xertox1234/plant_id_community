@@ -139,3 +139,35 @@ Compact checklist auto-injected before edits. Long-form:
   `min-w-0` on its other two flex rows; only the search button was missed
   (todo 331). Catch it by asserting
   `documentElement.scrollWidth <= clientWidth` at 375px, not by eyeballing.
+- **`isAuthenticated` is `!!user`, so it does NOT change when the identity does.**
+  Gating a component on it (`{isAuthenticated && <Feed />}`) keeps the same
+  element type across an account switch, so React reuses the instance and a
+  mount-once (`[]`) effect never refetches — the header updates to account B
+  (that is `revalidateIdentity()` on tab focus, todo 297) while the component
+  still shows A's data. Key per-identity components on the identity
+  (`<Feed key={user?.id} />`) or put `user?.id` in the effect's deps. Hit in
+  todo 315 (HomePage) — `CategoryListPage` has the same shape with
+  `[isAuthenticated]`.
+- **Gate auth-only fetches on `!isLoading && isAuthenticated`, never
+  `isAuthenticated` alone.** `AuthProvider.initAuth` seeds `user` from
+  `getStoredUser()` (sessionStorage) *before* `getCurrentUser()` verifies with
+  the backend, so a visitor whose session already expired reads as
+  authenticated for the first render — enough to fire the auth-only requests
+  (which 401) and flash the previous session's data. Todo 315.
+- **Never map "we could not determine X" onto a definite negative when callers
+  act on the assertion.** `getCurrentUser()` returning `null` for an unreadable
+  200 looks like a safe default and is not: `null` *asserts* "logged out", and
+  `NewThreadPage`/`ThreadDetailPage` compute
+  `drifted = (current?.id ?? null) !== actingUserId` AFTER a write succeeds, so
+  one unparseable body after a successful reply claims the session changed and
+  then really signs the user out. Return the last known value and log; that
+  changes nothing on screen, which is what "unknown" should do. Todo 310 —
+  caught in review after shipping the wrong version first.
+- **A guard around `await response.json()` must also contain the SHAPE check.**
+  Parsing succeeds for bodies that are not your type: `null` makes the
+  `data.user` deref throw a raw `TypeError` *outside* the try (straight onto the
+  UI via `AuthContext.toAuthError`, the exact class the guard exists to stop),
+  and `{}` throws nothing at all — the call RESOLVES with `user: undefined`,
+  caches the string `"undefined"`, and reports success for a login that leaves
+  `isAuthenticated` false, so `ProtectedLayout` bounces back to `/login` with no
+  error shown. Put `if (!data?.user) throw …` inside the same `try`. Todo 310.

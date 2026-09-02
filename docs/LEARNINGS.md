@@ -3928,3 +3928,101 @@ already-correct code does not self-fire.
 Meta: three of the five findings here are the *same* mistake — trusting an artifact
 because it was written carefully, without running the thing that proves it works.
 The regexes, the fixtures and the routing were each verified by eye and each wrong.
+
+---
+
+## 2026-09-02 — Todos 310 + 315 (web): "unknown" is not "no", and three tooling traps
+
+### 1. Returning `null` for "couldn't determine" actively asserts a falsehood (todo 310)
+
+**What broke.** `authService.getCurrentUser()`'s success-path `response.json()`
+was unguarded. The obvious-looking fix — catch the parse failure, clear
+sessionStorage, `return null` — was written and reasoned about at length by
+analogy to todo 297 (the 2026-08-13 prod incident where the header showed one
+account while a forum reply was created as another). The reasoning was: returning
+the cached user "silently promotes a stale identity to current".
+
+**Root cause of the wrong fix.** The analogy does not hold. Todo 297's failure
+needs *a server response naming a different user*. A body we cannot read carries
+no identity claim at all, so returning the cached user promotes nothing — the UI
+is already displaying that user, so it changes nothing and merely declines to
+update. `null`, by contrast, is a positive claim: "this viewer is logged out."
+
+**What that claim cost.** `revalidateIdentity()` has three callers, and the fix's
+own comment only reasoned about one (tab focus). The other two —
+`web/src/pages/forum/NewThreadPage.tsx:267` and
+`web/src/pages/forum/ThreadDetailPage.tsx:388` — compute
+`drifted = (current?.id ?? null) !== actingUserId` **after a write has already
+succeeded**, and `ThreadDetailPage.tsx:391` renders literally *"Your session
+changed while replying — you were signed out."* when `current?.username` is
+absent. So one unparseable body following a **successful** reply would show that
+notice for a session that never changed, and then `setUser(null)` plus
+`ProtectedLayout.tsx:43` would really sign the user out.
+
+**Fix.** An unreadable 200 returns `getStoredUser()` — the last known value. The
+guard's job is to make the case explicit, logged, and incapable of throwing, not
+to change the answer.
+
+**Generalisable rule.** When a function's return type folds "unknown" into the
+same value as a definite negative (`null`, `false`, `0`), enumerate every caller
+that *branches* on that value before choosing it. A safe-looking default is only
+safe if nobody treats it as evidence.
+
+### 2. A guard around a parse that leaves the deref outside it is not a guard (todo 310)
+
+`login()`/`signup()` wrapped `await response.json()` in try/catch but
+dereferenced `data.user` after it. Two escapes for a body that *parses* but is
+not an `AuthResponse` (proxy returning literal `null`, envelope rename, version
+skew):
+
+- `null` → `TypeError: Cannot read properties of null (reading 'user')` thrown
+  outside the try, escaping to `AuthContext.toAuthError` (`message = err.message`
+  verbatim) and onto the login form — the exact failure class the guard was added
+  to close.
+- `{}` → nothing throws. `login()` **resolves** with `user: undefined`,
+  `sessionStorage.setItem('user', undefined)` stores the string `"undefined"`, and
+  `LoginPage.tsx:128` navigates on `result.success` while `isAuthenticated`
+  (`!!user`) is `false`, so `ProtectedLayout` redirects straight back to `/login`
+  with nothing shown. A silent login loop, from a green suite.
+
+The shape check has to live inside the same `try` as the parse.
+
+### 3. `isAuthenticated` is `!!user` — it survives an identity change (todo 315)
+
+`{isAuthenticated && <HomeActivity />}` keeps the element type stable across an
+account switch, so React reuses the instance and `HomeActivity`'s mount-once
+(`[]`) effect never refetched. Tab 1 on `/` as account A, tab 2 logs out and back
+in as B, focus tab 1: `revalidateIdentity()` updates the header to B (297's fix
+working as designed) while "Your season" still shows A's posts, solutions, streak
+and badge progress. Fixed with `key={user?.id}`. Related: the gate needed
+`!isLoading` too, because `AuthProvider.initAuth` seeds `user` from sessionStorage
+*before* the backend verifies it, so an expired session fires the auth-only
+requests for one render. `CategoryListPage` has the same `[isAuthenticated]`
+shape — pre-existing, untouched here.
+
+### 4. Tooling: three ways a careful step still produced a wrong artifact
+
+**`git mv` stages the rename immediately; a later `git commit` with no pathspec
+sweeps it in.** Marking todo 310 in-progress with `git mv` while todo 315's work
+was mid-flight put 310's rename into 315's commit. The discipline preamble already
+warns about `git mv` + unstaged edits; this is the adjacent case — the rename is
+staged, so it rides *any* subsequent commit, including one for unrelated work.
+Fixed by restoring the file so the branch's net diff for it is zero (rather than
+renaming it back in a second commit, which leaves both branches touching the same
+path and conflicting at merge).
+
+**Three-dot diff cannot detect a duplicate branch; two-dot can.** A local branch
+held codify commits whose content had already been merged to `main` by another
+session six minutes earlier. `git diff origin/main...HEAD` showed 9 files / 398
+insertions — the *changes since the merge base* — so the branch looked like real
+work, and a duplicate PR was opened. `git diff origin/main HEAD` (two-dot, an
+actual tree comparison) was **empty**. Before pushing a branch whose commits
+predate the current session, compare trees, not histories.
+
+**A blanket `str.replace()` over a test file can silently hit a pre-existing
+test.** Inserting a malformed-body test meant editing a `json: async () => {
+throw … }` block that appears verbatim in an older 403 test in the same describe.
+The `assert t.count(old) == 1` guard caught it (count was 2). Anchor such edits on
+something unique to the target — here `ok: true, status: 200` — and keep the count
+assertion; it is the only thing standing between a targeted insert and a silent
+rewrite of someone else's test.
