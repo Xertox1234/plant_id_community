@@ -13,3 +13,17 @@
   your working-tree edits — a rename that should carry a real diff but shows
   `0 insertions(+), 0 deletions(-)` in `git diff --cached --stat` is the
   tell. See `docs/LEARNINGS.md` 2026-07-14 (Tooling / Agents).
+- This repo squash-merges, which ERASES ancestry — so "is this branch's work in
+  `main`?" cannot be answered by any diff or ancestry check. Each one answers a
+  different question: `git diff main...branch` (three-dot) = changes since the
+  merge base, non-empty for merged-and-stale AND for unmerged; `git diff main
+  branch` (two-dot) = is the tree IDENTICAL to main, non-empty the moment main
+  moves on; `git branch -d` refuses; `git cherry` marks `+`. The authoritative
+  check is the PR record: `gh pr list --head <branch> --state all --json
+  number,state,mergedAt`. Run it before any `git branch -D` or remote branch
+  deletion. Two corollaries: a file-hash comparison against main under-reports,
+  because append-only files (`docs/LEARNINGS.md`, `docs/rules/triggers.json`)
+  always differ on an older branch; and a branch with NO PR may still be merged
+  — it can be a local review copy of a differently-named PR head (`pr-538-review`
+  held 24 commits absent from main, all landed via PR #538 from
+  `feat/canopy-forum-content`). See `docs/LEARNINGS.md` 2026-09-02.

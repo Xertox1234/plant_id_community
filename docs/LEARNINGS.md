@@ -4026,3 +4026,54 @@ The `assert t.count(old) == 1` guard caught it (count was 2). Anchor such edits 
 something unique to the target — here `ok: true, status: 200` — and keep the count
 assertion; it is the only thing standing between a targeted insert and a silent
 rewrite of someone else's test.
+
+---
+
+## 2026-09-02 — Squash merge erases ancestry, so every "is it merged?" check lies differently
+
+**Scopes the entry added earlier the same day** ("Three-dot diff cannot detect a
+duplicate branch; two-dot can"). That entry's closing line — *"compare trees, not
+histories"* — is correct for the question it was written about and wrong for the
+adjacent one, and the author of it then made exactly that mistake within the hour.
+
+**What happened.** Six stale local branches needed deleting. `git branch -d`
+refuses a squash-merged branch (no ancestry), so `-D` was required — which
+deletes unconditionally, making "is this work actually in `main`?" a real
+data-loss question. Three checks were run and the first two were wrong:
+
+1. `git diff origin/main <branch>` (two-dot) reported **all six** as differing.
+   That is the check the earlier entry recommends. It is a *tree identity* test:
+   it answers "is this branch byte-identical to main", which is true only for a
+   branch sitting exactly at main's tip. Any merged branch that main has since
+   moved past fails it. It caught the duplicate case only because that branch
+   *was* at main's tree.
+2. A per-file hash comparison against `origin/main` reported `1/1 files` for every
+   branch — a broken shell loop, and the wrong idea anyway: append-only files
+   (`docs/LEARNINGS.md`, `docs/rules/triggers.json`) always differ on an older
+   branch, so the check under-reports merged work even when written correctly.
+3. `gh pr list --head <branch> --state all` settled it in one call: five branches
+   mapped to merged PRs (#613, #617, #608, #609, #612).
+
+**The generalisable point.** Squash merge severs the link these tools rely on, so
+each answers a *different* question and none answers the one being asked:
+
+| check | actually answers | on merged-but-stale |
+|---|---|---|
+| `git diff main...b` | changes since merge base | non-empty (= unmerged) |
+| `git diff main b` | is the tree identical | non-empty (main moved on) |
+| `git branch -d` | is it an ancestor | refuses |
+| `git cherry` | per-commit patch equivalence | `+` (squash combined them) |
+| `gh pr list --head b` | **did the work land** | **definitive** |
+
+**A branch with no PR is not evidence of unmerged work.** `pr-538-review` had 24
+commits absent from `main` and no PR of its own — it was a local copy made to
+*review* PR #538, whose head was `feat/canopy-forum-content` (merged 2026-08-16).
+Of its 58 files only three were absent from main, all three todos since moved to
+`todos/archive/*-completed-*`. Check for a local-review-copy naming convention
+before concluding anything is unmerged.
+
+**Process note, not a git one.** Mid-investigation the wrong file counts were
+reported to the user as "RTK is injecting a `Changes:` header into `git diff`
+output" — stated as a finding. Running `rtk proxy git diff` disproved it
+immediately; the cause was the shell loop. A hypothesis about tooling is worth
+one command before it is worth a sentence.
