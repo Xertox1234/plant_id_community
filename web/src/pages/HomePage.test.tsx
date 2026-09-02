@@ -18,10 +18,12 @@ vi.mock('../utils/logger', () => ({
   logger: { error: vi.fn(), warn: vi.fn(), info: vi.fn(), debug: vi.fn() },
 }));
 
-const mockAuth = (isAuthenticated: boolean) =>
-  ({ user: isAuthenticated ? { id: 1 } : null, isAuthenticated }) as unknown as ReturnType<
-    typeof useAuth
-  >;
+const mockAuth = (isAuthenticated: boolean, { id = 1, isLoading = false } = {}) =>
+  ({
+    user: isAuthenticated ? { id } : null,
+    isAuthenticated,
+    isLoading,
+  }) as unknown as ReturnType<typeof useAuth>;
 
 const myStats: ForumMyStats = {
   posts: 12,
@@ -112,6 +114,47 @@ describe('HomePage', () => {
       // visually, but down to making zero extra network calls.
       expect(forumService.fetchMyStats).not.toHaveBeenCalled();
       expect(forumService.fetchRecentTopics).not.toHaveBeenCalled();
+    });
+
+    // Review finding 2. AuthProvider.initAuth seeds `user` from
+    // getStoredUser() (sessionStorage) BEFORE getCurrentUser() verifies with
+    // the backend, so `isAuthenticated` is briefly true for a visitor whose
+    // session has already expired. Gating on `isAuthenticated` alone would
+    // fire both requests and flash the previous session's stats.
+    it('issues no requests while auth is still being verified', async () => {
+      vi.mocked(useAuth).mockReturnValue(mockAuth(true, { isLoading: true }));
+      renderHome();
+
+      await waitFor(() =>
+        expect(screen.getByRole('heading', { level: 1, name: 'Home' })).toBeInTheDocument()
+      );
+      expect(screen.queryByRole('heading', { name: 'Your season' })).not.toBeInTheDocument();
+      expect(forumService.fetchMyStats).not.toHaveBeenCalled();
+      expect(forumService.fetchRecentTopics).not.toHaveBeenCalled();
+    });
+
+    // Review finding 1. `isAuthenticated` is `!!user`, so it stays true across
+    // an identity change (revalidateIdentity swaps the user on tab focus,
+    // todo 297). Without `key={user?.id}` React reuses the HomeActivity
+    // instance and its mount-once effect never refetches — the header would
+    // show account B while "Your season" still showed account A's numbers.
+    it('refetches when the identity changes underneath a still-authenticated session', async () => {
+      vi.mocked(useAuth).mockReturnValue(mockAuth(true, { id: 1 }));
+      const { rerender } = renderHome();
+      await screen.findByRole('heading', { name: 'Your season' });
+      expect(forumService.fetchMyStats).toHaveBeenCalledTimes(1);
+
+      // Same session, different account — exactly what tab-focus
+      // revalidation produces.
+      vi.mocked(useAuth).mockReturnValue(mockAuth(true, { id: 2 }));
+      rerender(
+        <BrowserRouter>
+          <HomePage />
+        </BrowserRouter>
+      );
+
+      await waitFor(() => expect(forumService.fetchMyStats).toHaveBeenCalledTimes(2));
+      expect(forumService.fetchRecentTopics).toHaveBeenCalledTimes(2);
     });
   });
 });

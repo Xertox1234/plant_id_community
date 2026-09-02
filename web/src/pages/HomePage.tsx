@@ -25,7 +25,7 @@ interface FeatureCardProps {
  * for an anonymous visitor, so logged-out Home is byte-identical to PR 4's.
  */
 export default function HomePage() {
-  const { isAuthenticated } = useAuth();
+  const { user, isAuthenticated, isLoading } = useAuth();
 
   return (
     <div className="flex flex-col gap-8 py-8">
@@ -56,8 +56,22 @@ export default function HomePage() {
           cards: a returning member gets their own activity first, while the
           evergreen "what this site is" row stays reachable for both audiences.
           The parent is `gap-8` (not `space-y-8`), so inserting a child here
-          cannot shift a sibling's margin — see docs/rules/react.md. */}
-      {isAuthenticated && <HomeActivity />}
+          cannot shift a sibling's margin — see docs/rules/react.md.
+
+          `!isLoading` matters, not just `isAuthenticated`: AuthProvider seeds
+          `user` from sessionStorage BEFORE verifying with the backend, so a
+          visitor whose session has since expired would otherwise mount this,
+          fire both requests, and flash the previous session's stats before
+          verification unmounts it.
+
+          `key={user?.id}` matters because `isAuthenticated` is `!!user` — it
+          stays `true` across an identity change, so React would reuse the
+          instance and HomeActivity's mount-once effect would never refetch.
+          `revalidateIdentity()` swaps the user on tab focus precisely to catch
+          a cookie-jar switch (todo 297, live prod incident 2026-08-13); without
+          this key the header would update to account B while "Your season"
+          still showed account A's numbers. */}
+      {!isLoading && isAuthenticated && <HomeActivity key={user?.id} />}
 
       <div className="grid gap-5 md:grid-cols-3">
         <FeatureCard

@@ -178,3 +178,66 @@ The `CategoryListPage` "Your season" tests (4 of them, including the badge-
 complete, singular-day-streak, zero-streak and stats-fetch-rejects edges) pass
 unchanged through the extracted component — the refactor is behaviour-
 preserving, which is the point of extracting rather than copying.
+
+### 2026-09-02 - Code review + repair (run 2026-09-02-0458)
+
+Bundled `/code-review high` over the working tree. Three findings, all real;
+the two correctness ones are repaired, the third is recorded below.
+
+**Finding 1 (MEDIUM) — repaired. An identity swap left the previous account's
+stats on screen.** `isAuthenticated` is `!!user` (`AuthContext.tsx:424`,
+verified), so it stays `true` across an identity change. React therefore reused
+the `HomeActivity` instance, and its mount-once (`[]`) effect never refetched.
+Concrete: tab 1 on `/` as account A; tab 2 logs out and in as B; focus tab 1 →
+`revalidateIdentity()` (mounted unconditionally on focus for exactly this case,
+todo 297) updates the header to B while "Your season" still shows A's posts,
+solutions, streak and badge progress. Same class as the 2026-08-13 prod
+incident 297 was written for. Fix: `key={user?.id}` on the mount, so an
+identity change remounts and refetches instead of showing A's numbers under
+B's name. Pinned by `refetches when the identity changes underneath a
+still-authenticated session`, which rerenders with a different `user.id` and
+asserts both fetches ran twice.
+
+**Finding 2 (LOW/MEDIUM) — repaired. A stale session still fired both
+requests.** `AuthProvider.initAuth` seeds `user` from `getStoredUser()`
+(sessionStorage) *before* `getCurrentUser()` verifies with the backend, so a
+visitor whose refresh cookie has expired briefly reads as authenticated. The
+gate was `isAuthenticated` alone, so that visitor mounted the feed, fired
+`me/stats/` (401) and `topics/recent/`, and could flash their stale numbers
+before `setUser(null)` unmounted it — contradicting this todo's own AC2 claim
+of zero extra requests. Fix: gate on `!isLoading && isAuthenticated`. Pinned by
+`issues no requests while auth is still being verified`.
+
+**Finding 3 (LOW) — accepted, not repaired. Layout shift on authenticated
+Home.** The section sits above the feature-card row, so for a logged-in
+visitor the marketing row renders first and is pushed down when the two
+fetches resolve. The reviewer's two options are reserving height while in
+flight, or moving the section below the feature grid. Not taken in this pass,
+per `CLAUDE.md` → Review loop budget (round 1 repairs blocking findings only;
+this one is LOW and is a layout-polish trade-off, not a correctness bug).
+Reserving height means a guaranteed empty gap for the cases where the section
+legitimately renders nothing; moving it below the marketing row defeats the
+point of the todo, which is that a returning member sees their own activity
+first. Recorded here and in the PR body rather than filed as a new todo —
+whoever tunes Home's above-the-fold layout next should weigh it with the
+skeleton question together.
+
+**Not findings** (reviewer checked and dismissed): `ProgressBar` already guards
+`max <= 0`; `boardIdentity()` has a `Leaf` fallback so an unknown board slug
+cannot crash a row; the three dropped lucide imports are genuinely unused while
+`Layers`/`MessagesSquare`/`Reply` are still needed; the `SeasonStatsGrid`
+extraction changes only Tailwind class *order* on the `mt-6` wrapper, which has
+no CSS effect; `AuthProvider` wraps `App` in `main.tsx:79`, so `useAuth()` in
+HomePage cannot throw.
+
+**Post-repair verification**
+
+```
+$ npx tsc --noEmit
+TypeScript: No errors found
+$ ./node_modules/.bin/vitest run
+ Test Files  88 passed (88)
+      Tests  1028 passed (1028)
+$ npm run lint
+ESLint: 0 errors, 1 warnings in 1 files   # block-navigation.js, pre-existing
+```
