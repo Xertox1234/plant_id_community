@@ -1209,5 +1209,41 @@
     "source": "codify: docs/codify-e2e-suite-green",
     "added": "2026-09-01",
     "severity": "warn"
+  },
+  {
+    "id": "fake-error-type-in-json-mock",
+    "domains": [
+      "testing",
+      "react",
+      "typescript"
+    ],
+    "path_glob": [
+      "web/src/**/*.test.ts",
+      "web/src/**/*.test.tsx"
+    ],
+    "content_present": "throw new Error\\([^)]*(?:Unexpected token|not valid JSON)",
+    "message": "response.json() throws a SyntaxError, not a bare Error. A `new Error(\"Unexpected token ...\")` mock behaves identically against a bare `catch {}` and a narrowed `catch (e instanceof SyntaxError)`, so the suite cannot tell which one shipped (todo 310). Throw `new SyntaxError(...)`.",
+    "pattern_ref": "docs/rules/testing.md",
+    "source": "codify: docs/codify-todos-310-315",
+    "added": "2026-09-01",
+    "severity": "warn"
+  },
+  {
+    "id": "json-parse-guard-without-shape-check",
+    "domains": [
+      "react",
+      "typescript"
+    ],
+    "path_glob": [
+      "web/src/**/*.ts",
+      "web/src/**/*.tsx"
+    ],
+    "content_present": "= await response\\.json\\(\\);\\s*\\n\\s*\\} catch",
+    "content_absent": "if \\(!data",
+    "message": "A try/catch around `response.json()` with no SHAPE check inside it is not a guard (todo 310). A body that PARSES but is not your type still escapes: `null` throws a raw TypeError on the deref OUTSIDE the try (straight to the UI), and `{}` throws nothing at all — the call resolves with an undefined field and reports success. Add `if (!data?.<field>) throw ...` inside the same try.",
+    "pattern_ref": "docs/rules/react.md",
+    "source": "codify: docs/codify-todos-310-315",
+    "added": "2026-09-01",
+    "severity": "warn"
   }
 ]

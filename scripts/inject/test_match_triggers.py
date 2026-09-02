@@ -633,5 +633,103 @@ class TestRealIndexFiresOnKnownBugs(unittest.TestCase):
         )
 
 
+class TestTodo310Triggers(unittest.TestCase):
+    """Todos 310/315 codification — asserted against the REAL docs/rules/triggers.json.
+
+    Fixtures are the ACTUAL pre-fix code from `web/src/services/authService.ts`
+    and its test file, not idealised versions: the parse-guard regex has to match
+    the real four-line `let data / try / await response.json() / } catch` shape,
+    and the mock regex has to match the real fake, which embeds the browser's own
+    message text and an escaped quote.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+        cls.real = mt.load_triggers(root)
+
+    # --- fake-error-type-in-json-mock ---
+
+    def test_bare_error_in_json_mock_fires(self):
+        # Verbatim from the todo-310 first draft.
+        tn, ti = write(
+            "web/src/services/authService.test.ts",
+            "        json: async () => {\n"
+            "          throw new Error('Unexpected token \\'<\\', \"<!DOCTYPE \"... is not valid JSON');\n"
+            "        },\n",
+        )
+        hits = mt.find_matches(tn, ti, self.real, None)
+        self.assertIn("fake-error-type-in-json-mock", ids(hits))
+
+    def test_syntaxerror_in_json_mock_silent(self):
+        # The corrected form. Contains the SAME message text the regex keys on,
+        # so this is an adversarial negative rather than a vacuous one — only
+        # the constructor differs.
+        tn, ti = write(
+            "web/src/services/authService.test.ts",
+            "        json: async () => {\n"
+            "          throw new SyntaxError('Unexpected token \\'<\\', \"<!DOCTYPE \"... is not valid JSON');\n"
+            "        },\n",
+        )
+        hits = mt.find_matches(tn, ti, self.real, None)
+        self.assertNotIn("fake-error-type-in-json-mock", ids(hits))
+
+    def test_unrelated_error_throw_in_test_silent(self):
+        # A thrown Error with no parse-failure text must not fire.
+        tn, ti = write(
+            "web/src/services/authService.test.ts",
+            "        json: async () => {\n"
+            "          throw new Error('network down');\n"
+            "        },\n",
+        )
+        hits = mt.find_matches(tn, ti, self.real, None)
+        self.assertNotIn("fake-error-type-in-json-mock", ids(hits))
+
+    # --- json-parse-guard-without-shape-check ---
+
+    def test_guarded_parse_without_shape_check_fires(self):
+        # Verbatim from the todo-310 first draft, before the shape check moved in.
+        tn, ti = write(
+            "web/src/services/authService.ts",
+            "    let data: AuthResponse;\n"
+            "    try {\n"
+            "      data = await response.json();\n"
+            "    } catch {\n"
+            "      throw new Error('unreadable');\n"
+            "    }\n"
+            "    return data.user;\n",
+        )
+        hits = mt.find_matches(tn, ti, self.real, None)
+        self.assertIn("json-parse-guard-without-shape-check", ids(hits))
+
+    def test_guarded_parse_with_shape_check_silent(self):
+        # The shipped form. The `} catch` still directly follows a parse line, so
+        # the presence regex alone would fire — only `--content-absent` on
+        # `if (!data` suppresses it. That is what this pins.
+        tn, ti = write(
+            "web/src/services/authService.ts",
+            "    let data: AuthResponse;\n"
+            "    try {\n"
+            "      data = await response.json();\n"
+            "      if (!data?.user) throw new SyntaxError('login body is not an AuthResponse');\n"
+            "    } catch (parseError) {\n"
+            "      throw new Error('unreadable', { cause: parseError });\n"
+            "    }\n",
+        )
+        hits = mt.find_matches(tn, ti, self.real, None)
+        self.assertNotIn("json-parse-guard-without-shape-check", ids(hits))
+
+    def test_unguarded_parse_silent(self):
+        # No try/catch at all is a DIFFERENT defect (the one todo 310 fixed), not
+        # this trigger's; it must not claim that case.
+        tn, ti = write(
+            "web/src/services/authService.ts",
+            "    const data: AuthResponse = await response.json();\n"
+            "    return data.user;\n",
+        )
+        hits = mt.find_matches(tn, ti, self.real, None)
+        self.assertNotIn("json-parse-guard-without-shape-check", ids(hits))
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
