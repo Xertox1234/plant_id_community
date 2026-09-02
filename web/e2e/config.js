@@ -61,6 +61,31 @@ export const E2E_TEST_USER = {
 };
 
 /**
- * Auth state file path
+ * Auth state directory
  */
-export const E2E_AUTH_FILE = '.auth/user.json';
+export const E2E_AUTH_DIR = '.auth';
+
+/**
+ * Auth state file path for a given setup project.
+ *
+ * Each authenticated project gets its OWN state file, written by its own setup
+ * project, so the two never share a refresh token (todo 329): auth.spec.js's
+ * "can logout successfully" blacklists the token backing whatever state it loaded
+ * (backend/apps/users/views.py), which under one shared `.auth/user.json` would
+ * invalidate the other project's session mid-run.
+ *
+ * setup-chromium -> .auth/user-chromium.json
+ * setup-firefox  -> .auth/user-firefox.json
+ *
+ * Keep in sync with the `storageState` paths in playwright.config.ts.
+ */
+export function authFileFor(setupProjectName) {
+  const browser = setupProjectName.replace(/^setup-/, '');
+  if (!browser || browser === setupProjectName) {
+    throw new Error(
+      `authFileFor() expects a "setup-<browser>" project name, got "${setupProjectName}". ` +
+        'Rename the setup project or update playwright.config.ts.'
+    );
+  }
+  return `${E2E_AUTH_DIR}/user-${browser}.json`;
+}

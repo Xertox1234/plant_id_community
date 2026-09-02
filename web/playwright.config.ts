@@ -84,53 +84,85 @@ export default defineConfig({
     },
   ],
 
-  // Configure projects for multiple browsers
+  /**
+   * Project layout — two constraints drive it (todo 329):
+   *
+   * 1. LOGIN RATE-LIMIT BUDGET. `POST /api/v1/auth/login/` is IP-rate-limited to
+   *    5/15m (backend/apps/plant_identification/constants.py); the 6th request in
+   *    the window 429s, and every POST counts, not just failed ones. login.spec.js
+   *    costs 2 per project that runs it and each setup project costs 1, so a full
+   *    `npm run test:e2e` currently spends 2 + 1 + 1 = 4 of 5. Adding login.spec.js
+   *    to a second project costs 2 more and breaks the budget. Before todo 329
+   *    those tests lived in auth.spec.js, which every one of the 7 non-setup
+   *    projects matched: 15 POSTs against a budget of 5.
+   *
+   * 2. NO SHARED AUTH STATE. auth.spec.js's "can logout successfully" blacklists
+   *    the refresh token backing the storageState it loaded. One setup project per
+   *    authenticated browser, each writing its own file, keeps one project's logout
+   *    from invalidating the other's session mid-run (`fullyParallel: true` means
+   *    they overlap, and `mode: 'serial'` only orders tests *within* a project).
+   */
   projects: [
-    // Setup project - runs first to authenticate and save state
+    // Setup projects - one per authenticated browser, each logging in separately
+    // so no two authenticated projects share a refresh token.
     {
-      name: 'setup',
+      name: 'setup-chromium',
+      use: { ...devices['Desktop Chrome'] },
+      testMatch: /auth\.setup\.js/,
+    },
+    {
+      name: 'setup-firefox',
+      use: { ...devices['Desktop Firefox'] },
       testMatch: /auth\.setup\.js/,
     },
 
-    // Unauthenticated tests (e.g., health checks, login page)
+    // Unauthenticated tests (e.g., health checks, login page).
+    // `chromium` is the ONLY project that runs login.spec.js - see constraint 1.
     {
       name: 'chromium',
       use: { ...devices['Desktop Chrome'] },
-      testIgnore: /(auth\.setup|forum-authenticated\.spec|canopy-areas-authenticated\.spec)\.js/,
+      testIgnore:
+        /(auth\.setup|auth\.spec|forum-authenticated\.spec|canopy-areas-authenticated\.spec)\.js/,
     },
 
     {
       name: 'firefox',
       use: { ...devices['Desktop Firefox'] },
-      testIgnore: /(auth\.setup|forum-authenticated\.spec|canopy-areas-authenticated\.spec)\.js/,
+      testIgnore:
+        /(auth\.setup|auth\.spec|login\.spec|forum-authenticated\.spec|canopy-areas-authenticated\.spec)\.js/,
     },
 
     {
       name: 'webkit',
       use: { ...devices['Desktop Safari'] },
-      testIgnore: /(auth\.setup|forum-authenticated\.spec|canopy-areas-authenticated\.spec)\.js/,
+      testIgnore:
+        /(auth\.setup|auth\.spec|login\.spec|forum-authenticated\.spec|canopy-areas-authenticated\.spec)\.js/,
     },
 
     // Mobile viewports (unauthenticated)
     {
       name: 'Mobile Chrome',
       use: { ...devices['Pixel 5'] },
-      testIgnore: /(auth\.setup|forum-authenticated\.spec|canopy-areas-authenticated\.spec)\.js/,
+      testIgnore:
+        /(auth\.setup|auth\.spec|login\.spec|forum-authenticated\.spec|canopy-areas-authenticated\.spec)\.js/,
     },
     {
       name: 'Mobile Safari',
       use: { ...devices['iPhone 12'] },
-      testIgnore: /(auth\.setup|forum-authenticated\.spec|canopy-areas-authenticated\.spec)\.js/,
+      testIgnore:
+        /(auth\.setup|auth\.spec|login\.spec|forum-authenticated\.spec|canopy-areas-authenticated\.spec)\.js/,
     },
 
-    // Authenticated tests (forum, protected routes)
+    // Authenticated tests (forum, protected routes). Each loads the state file
+    // written by its own setup project - see constraint 2. Paths must stay in sync
+    // with authFileFor() in e2e/config.js.
     {
       name: 'chromium-authenticated',
       use: {
         ...devices['Desktop Chrome'],
-        storageState: '.auth/user.json',
+        storageState: '.auth/user-chromium.json',
       },
-      dependencies: ['setup'],
+      dependencies: ['setup-chromium'],
       testMatch: /(forum-authenticated|canopy-areas-authenticated|auth)\.spec\.js/,
     },
 
@@ -138,9 +170,9 @@ export default defineConfig({
       name: 'firefox-authenticated',
       use: {
         ...devices['Desktop Firefox'],
-        storageState: '.auth/user.json',
+        storageState: '.auth/user-firefox.json',
       },
-      dependencies: ['setup'],
+      dependencies: ['setup-firefox'],
       testMatch: /(forum-authenticated|canopy-areas-authenticated|auth)\.spec\.js/,
     },
   ],
