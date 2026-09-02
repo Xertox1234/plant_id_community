@@ -3874,3 +3874,57 @@ including an assertion that counted deleted Tailwind classes *and* passed on a
   deleted); recovery was `git rebase --onto origin/main <last-parent-commit>` plus a
   fresh PR. Prefer merging the parent to `main` first and retargeting the child
   before deleting anything.
+
+## A codification pass shipped inert, and its own triggers were wrong (2026-09-01)
+
+Immediately after the todos 329/331 codification above, `/code-review` on that PR
+returned three findings. All three were confirmed empirically before acting, and
+all three were real. They are worth recording because the failure mode is specific
+to *writing rules* rather than writing code: **every artifact looked correct, was
+committed, passed its tests, and did nothing.**
+
+**The rule bullets never reached the files they were about.** `docs/rules/testing.md`
+gained six bullets about Playwright e2e specs — the login-budget and `storageState`
+ones being entirely about `auth.spec.js` and `login.spec.js`. But
+`docs/rules/routing.json`'s testing globs listed `*.spec.ts` / `*.spec.tsx` and no
+`.js`, so those paths routed to **no domain at all**. Both consumers —
+`inject-patterns.sh` at edit time and `kimi-review.sh` at commit time — go through
+`route_domains.py`, so neither would ever load the rules. 9 of the 14 files in
+`web/e2e/` are `.js`. Nothing surfaces this: a rule that routes nowhere is silently
+inert, and the file it lives in still looks authoritative. **Codifying a rule is not
+the same as delivering it** — verify with
+`echo <target path> | python3 scripts/inject/route_domains.py` before believing a
+bullet has shipped. Now a mandatory step in the codify skill.
+
+**A trigger regex missed the exact bug it was written for.** `documentElement\.dataset\.`
+was derived from the *lesson* ("don't write dataset attributes from a spec") rather
+than from the *source*, which aliased the element first
+(`const el = document.documentElement; el.dataset.mode = …`). It was caught only
+because a fixture pasted the real helper. Build the positive fixture from the code
+that motivated the rule, never a tidied version.
+
+**A negative fixture passed vacuously — inside the same commit that codified the
+hollow-test rule.** The corrected pattern `\.dataset\.\w+\s*=` false-fired on reads,
+because `=` matches the first character of `===`. The negative fixture stayed green
+throughout, because it was the one read form containing no `=` at all
+(`expect(x).toBe(y)`). The lesson already in `docs/rules/testing.md` — "a test that
+can't fail isn't a test" — was violated by the commit that wrote it. A negative
+fixture must contain the characters the regex keys on.
+
+**A trigger can ship with a regex that never fires.** `test_match_triggers.py`
+asserts against a module-level two-trigger fixture (`TRIGGERS = [RATELIMIT, ROUTER]`),
+not `docs/rules/triggers.json`, so a new trigger's tests pass without ever
+exercising it. New trigger fixtures must `mt.load_triggers(<root>)`.
+
+**And the rule text has to match the regex's reach.** The `CONN_MAX_AGE` rule said
+"never set a non-zero CONN_MAX_AGE" while the pattern was a case-sensitive
+lowercase `conn_max_age\s*=`, catching only the `dj_database_url` kwarg and missing
+both canonical Django spellings. The first repair still missed them — real code puts
+a quote or bracket between the name and the operator (`'CONN_MAX_AGE':`,
+`['CONN_MAX_AGE'] =`). Fixed to `(?i)conn_max_age['\"]?\]?\s*[=:]\s*[1-9]`, with a
+fixture that runs the real shipped `settings.py` block through it to prove the
+already-correct code does not self-fire.
+
+Meta: three of the five findings here are the *same* mistake — trusting an artifact
+because it was written carefully, without running the thing that proves it works.
+The regexes, the fixtures and the routing were each verified by eye and each wrong.

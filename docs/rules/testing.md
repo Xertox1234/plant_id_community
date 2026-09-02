@@ -361,3 +361,11 @@ Compact checklist auto-injected before edits.
 - **This repo's dev reporter array prints `--list` output twice** (`['list']` plus
   a non-CI `['list']`), so any `--list | grep -c` count is 2x. Dedupe with
   `sort -u` before drawing a conclusion from it.
+- **A negative fixture for a REGEX must contain the characters the pattern keys
+  on.** Otherwise it passes for the wrong reason and pins nothing: `\s*=` silently
+  matched the first character of `===` while its "must stay silent" case was
+  `expect(x).toBe(y)` — the one read form with no `=` in it at all. Pick the
+  adversarial neighbours (`===`, `==`, `!==`), and build the POSITIVE fixture by
+  pasting the real code that motivated the rule, not a tidied version of it — a
+  regex written from the lesson instead of the source can miss the very bug it
+  exists for. See `docs/LEARNINGS.md` 2026-09-01.
