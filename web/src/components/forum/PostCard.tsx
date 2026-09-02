@@ -203,6 +203,7 @@ function PostCard({
 
   return (
     <Card
+      data-testid="post-card"
       className={`group p-5 sm:p-6 ${isSolution ? 'border-secondary/60 ring-1 ring-secondary/40' : ''}`}
     >
       {/* Accepted-answer banner (audit H6). A visible label, not colour alone —
