@@ -166,6 +166,45 @@ Rules:
 - After capturing, run `python3 scripts/inject/test_match_triggers.py` to confirm
   the index still validates. For a high-traffic trigger, add a positive AND a
   negative fixture to `scripts/inject/test_match_triggers.py` before committing.
+- **Build the positive fixture by pasting the REAL code that motivated the rule,
+  never an idealised version of it.** A regex written from the lesson rather than
+  from the source can miss the exact bug it was created for: `documentElement\.dataset\.`
+  looked right and matched nothing, because the real helper aliased the element
+  first (`const el = document.documentElement; el.dataset.mode = …`).
+- **New fixtures must load the REAL index**, not the module-level fixture list —
+  `TRIGGERS` in `test_match_triggers.py` is a hand-built two-trigger set, so a test
+  written against it passes while the shipped trigger never fires. Use
+  `mt.load_triggers(<repo root>)` in `setUpClass` (see
+  `TestE2ESelectorAndStateTriggers`).
+- **Check the negative fixture actually exercises the pattern.** A "silent" case
+  that contains none of the characters the regex keys on proves nothing. `\s*=`
+  matches the first character of `===`, so a read-comparison false-fired while the
+  chosen negative (`expect(x).toBe(y)` — no `=` at all) stayed green. Write `=(?!=)`,
+  and cover `===`, `==` and `!==` explicitly.
+- **Match every spelling the rule text claims.** A rule saying "never set
+  `CONN_MAX_AGE`" needs `(?i)` plus the punctuation real code puts between the name
+  and the operator (`'CONN_MAX_AGE':`, `['CONN_MAX_AGE'] =`) — a lowercase
+  `conn_max_age\s*=` caught only the one kwarg form and missed both canonical
+  Django spellings.
+- **Then confirm the shipped, already-fixed file does not self-fire** by running
+  the real block through the trigger — prose that names the constant and the
+  correct gated assignment must both stay silent.
+
+**Before finishing: confirm the rule can actually reach its target files.** A
+`docs/rules/<domain>.md` bullet only ships if `docs/rules/routing.json` routes
+those paths to that domain — both the inject hook and the kimi gate go through
+`route_domains.py`. A bullet written for files that route to no domain is inert
+and nothing will ever tell you. Verify with the matcher, not by eye:
+
+```bash
+printf '%s\n' <one representative target path per rule> | python3 scripts/inject/route_domains.py
+```
+
+Empty output means the rule is undeliverable — extend that rule's `globs` in
+`routing.json` first, then re-run `.claude/hooks/test-inject-patterns.sh` (order in
+that file is load-bearing). This is not hypothetical: testing rules written for
+`web/e2e/*.spec.js` reached nothing, because the testing globs listed `*.spec.ts`
+and `*.spec.tsx` but no `.js`, and 9 of the 14 files in `web/e2e/` are `.js`.
 
 ## Step 6 — Commit
 

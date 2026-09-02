@@ -74,6 +74,7 @@ Use Grep as fallback for any LSP call that returns an error or empty/inconclusiv
 - [ ] Loading and error states required for any component that fetches data
 - [ ] Error display must render `error.message` (a string), never the structured error object — `String(errorObj)` renders the literal `[object Object]`; `sanitize*` helpers that return non-strings unchanged do NOT prevent this (PR #381)
 - [ ] Responsive design: mobile-first Tailwind classes, minimum tap target 44x44px
+- [ ] A `flex-1` item containing text carries `min-w-0` (and `truncate` on the text, `shrink-0` on adjacent icons). Without it the item's default `min-width: auto` refuses to shrink below intrinsic content width and pushes its SIBLINGS out of the container — so the visible overflow lands on a different element than the cause. Shipped in AppShell's header: the auth actions ran 12px past a 375px viewport because the search button was the item missing `min-w-0` (todo 331)
 - [ ] A new/changed TipTap `suggestion.render()` (`onStart`/`onUpdate`/`onExit`) has real test coverage for its DOM lifecycle (Playwright, a mounted view), not just pure-logic unit tests — a headless `Editor` in Vitest cannot trigger these callbacks at all (`web/docs/patterns/testing.md`)
 
 **CSS / Design Tokens (Canopy)**

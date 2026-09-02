@@ -329,3 +329,43 @@ Compact checklist auto-injected before edits.
   to prove it is byte-identical. Todo 321's first drift test passed a swapped
   access_key/secret_key mutation — the weakness was invisible until the
   mutation was actually run.
+- **A rate-limited endpoint's e2e cost is per-PROJECT, not per-spec.** Login is
+  IP-limited to 5/15m and every POST counts, not just failures — so a spec with 2
+  real logins matched by 7 Playwright projects spends 14, and the suite 429s no
+  matter when the reset runs. Budget = (logins per spec x projects matching it) +
+  setup projects. Scope login specs to ONE project and keep them in their own file:
+  a file whose describe blocks want opposite project sets (one needs
+  `storageState`, one clears it) cannot be scoped correctly at all (todo 329).
+- **Two authenticated projects must never share one `storageState` file.** A logout
+  test blacklists the refresh token backing whatever state it loaded, so under
+  `fullyParallel` it invalidates the other project's session mid-run;
+  `test.describe.configure({mode:'serial'})` only orders tests *within* a project.
+  Give each authenticated project its own setup project writing its own
+  `.auth/user-<browser>.json`, and verify by asserting the two files hold
+  DIFFERENT refresh tokens — a green run is equally consistent with a shared token
+  that simply did not race.
+- **An attribute `:not([href="..."])` is an EXACT match and a query string defeats
+  it.** `:not([href="/forum/new-thread"])` does not exclude
+  `/forum/new-thread?category=54-general-discussion`, so a scoped-looking selector
+  still clicks the CTA. Use the prefix form `:not([href^="/forum/new-thread"])`.
+- **Never drive app state by writing `documentElement.dataset.*` from a spec.** A
+  context provider's mount effect re-applies its own state over the write, so only
+  the assertions expecting the provider's DEFAULTS pass and the rest silently
+  assert against an unchanged page. Drive the real mechanism (the provider's
+  storage keys) and reload. Tell: the "default" case passes while every changed
+  case fails with exactly the default value.
+- **`playwright test` fails at LAUNCH for a browser whose binary is missing** — it
+  does not skip. Before trusting any suite-wide e2e result, confirm the binaries
+  exist (`npx playwright install firefox webkit`); 4 of this repo's 7 projects had
+  been silently failing to launch, so "the suite passes" covered 3 of 7.
+- **This repo's dev reporter array prints `--list` output twice** (`['list']` plus
+  a non-CI `['list']`), so any `--list | grep -c` count is 2x. Dedupe with
+  `sort -u` before drawing a conclusion from it.
+- **A negative fixture for a REGEX must contain the characters the pattern keys
+  on.** Otherwise it passes for the wrong reason and pins nothing: `\s*=` silently
+  matched the first character of `===` while its "must stay silent" case was
+  `expect(x).toBe(y)` — the one read form with no `=` in it at all. Pick the
+  adversarial neighbours (`===`, `==`, `!==`), and build the POSITIVE fixture by
+  pasting the real code that motivated the rule, not a tidied version of it — a
+  regex written from the lesson instead of the source can miss the very bug it
+  exists for. See `docs/LEARNINGS.md` 2026-09-01.

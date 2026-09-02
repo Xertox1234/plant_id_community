@@ -180,3 +180,13 @@ Compact checklist auto-injected before edits. Long-form:
   budget; an unsliced result also silently caps at 20 rows. Wrappers:
   `find_similar_topics()` (Topic pks) and `retrieve_grounding_passages()`
   (scored, floored). See `backend/docs/patterns/domain/forum.md`.
+- **Never set a non-zero `CONN_MAX_AGE` unconditionally.** Persistent connections
+  assume a bounded number of processes (gunicorn); `runserver` spawns a THREAD PER
+  REQUEST and each thread's connection is then held for the full `CONN_MAX_AGE`, so
+  under any parallel load they accumulate far faster than they expire and Postgres
+  hits `max_connections` — every request then 500s with `FATAL: sorry, too many
+  clients already`. Gate it on `DEBUG` (`0 if DEBUG else 600`, overridable via
+  `DB_CONN_MAX_AGE`). Corollary for diagnosis: **a high idle connection count is
+  usually this, not a leak** — check connection *lifetime* before hunting a leak,
+  and measure at true rest (this repo idles at 9, 8 of them Postgres's own
+  background workers). See `docs/LEARNINGS.md` 2026-09-01 (todo 331).

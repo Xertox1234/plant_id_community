@@ -130,3 +130,12 @@ Compact checklist auto-injected before edits. Long-form:
   map exists precisely because per-component copies diverge (todo 257); the
   mistake recurred in PR #538 and the local copy had already drifted on levels
   0–2.
+- **A `flex-1` item that holds text needs `min-w-0`.** A flex item defaults to
+  `min-width: auto`, so it refuses to shrink below its intrinsic content width and
+  pushes its SIBLINGS out of the container — the overflow appears on the sibling
+  (AppShell's header actions ran 12px past a 375px viewport), never on the item
+  that caused it, so it reads as a bug in the wrong element. Pair it with
+  `truncate` on the text and `shrink-0` on adjacent icons. AppShell already used
+  `min-w-0` on its other two flex rows; only the search button was missed
+  (todo 331). Catch it by asserting
+  `documentElement.scrollWidth <= clientWidth` at 375px, not by eyeballing.
