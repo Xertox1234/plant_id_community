@@ -36,7 +36,7 @@
     { "globs": ["firebase/*", "*firebase*"], "domains": ["firebase", "security"], "mode": "additive" },
     { "globs": ["*.dart"], "domains": ["flutter"], "mode": "additive" },
     { "globs": ["web/src/*.tsx"], "domains": ["react", "typescript"], "mode": "additive" },
-    { "globs": ["*/tests/*", "*test_*.py", "*_test.py", "*.test.ts", "*.test.tsx", "*.spec.ts", "*.spec.tsx"], "domains": ["testing"], "mode": "additive" },
+    { "globs": ["*/tests/*", "*test_*.py", "*_test.py", "*.test.ts", "*.test.tsx", "*.spec.ts", "*.spec.tsx", "*.test.js", "*.spec.js", "web/e2e/*"], "domains": ["testing"], "mode": "additive" },
     { "globs": ["*.ts", "*.tsx"], "domains": ["typescript"], "mode": "fallback" }
   ]
 }

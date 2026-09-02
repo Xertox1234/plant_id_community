@@ -209,9 +209,25 @@ class TestE2ESelectorAndStateTriggers(unittest.TestCase):
 
     def test_dataset_read_only_silent(self):
         # Reading/asserting a dataset value is fine; only writing drives state.
+        # NOTE: this fixture alone is vacuous — it is the one read form containing
+        # no '=' at all, so it passed even while `\\s*=` was matching the first
+        # character of '==='. The comparison cases below are the real guard.
         tn, ti = write("web/e2e/theme.spec.ts", "expect(el.dataset.mode).toBe('dark');\n")
         hits = mt.find_matches(tn, ti, self.real, None)
         self.assertNotIn("e2e-writes-documentelement-dataset", ids(hits))
+
+    def test_dataset_comparison_silent(self):
+        """A comparison is a read. `\\s*=` matches the first char of '===' unless
+        the pattern excludes it — caught in review of this PR, not by the suite."""
+        for frag in (
+            "if (el.dataset.mode === 'dark') { return; }\n",
+            "expect(html.dataset.mode == 'dark').toBe(true);\n",
+            "if (el.dataset.mode !== 'dark') { return; }\n",
+        ):
+            with self.subTest(frag=frag.strip()):
+                tn, ti = write("web/e2e/theme.spec.ts", frag)
+                hits = mt.find_matches(tn, ti, self.real, None)
+                self.assertNotIn("e2e-writes-documentelement-dataset", ids(hits))
 
     def test_storage_driven_theme_silent(self):
         tn, ti = write(
@@ -222,9 +238,37 @@ class TestE2ESelectorAndStateTriggers(unittest.TestCase):
         self.assertNotIn("e2e-writes-documentelement-dataset", ids(hits))
 
     def test_hardcoded_conn_max_age_fires(self):
-        tn, ti = write("backend/plant_community_backend/settings.py", "        conn_max_age=600,\n")
+        """All three spellings, not just the dj_database_url kwarg. The rule text
+        says "CONN_MAX_AGE"; a lowercase-only pattern missed the two canonical
+        Django forms a future author is most likely to write."""
+        for frag in (
+            "        conn_max_age=600,\n",
+            "    DATABASES['default']['CONN_MAX_AGE'] = 600\n",
+            "        'CONN_MAX_AGE': 600,\n",
+        ):
+            with self.subTest(frag=frag.strip()):
+                tn, ti = write("backend/plant_community_backend/settings.py", frag)
+                hits = mt.find_matches(tn, ti, self.real, None)
+                self.assertIn("unconditional-conn-max-age", ids(hits))
+
+    def test_zero_conn_max_age_silent(self):
+        tn, ti = write("backend/plant_community_backend/settings.py", "        conn_max_age=0,\n")
         hits = mt.find_matches(tn, ti, self.real, None)
-        self.assertIn("unconditional-conn-max-age", ids(hits))
+        self.assertNotIn("unconditional-conn-max-age", ids(hits))
+
+    def test_real_settings_block_silent(self):
+        """The shipped, fixed settings.py must not self-fire — it names
+        CONN_MAX_AGE in prose twice and assigns DB_CONN_MAX_AGE = config(...)."""
+        root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+        real_settings = os.path.join(root, "backend", "plant_community_backend", "settings.py")
+        with open(real_settings, encoding="utf-8") as fh:
+            body = fh.read()
+        start = body.index("# Persistent connections are a production optimisation")
+        tn, ti = write(
+            "backend/plant_community_backend/settings.py", body[start : start + 1200]
+        )
+        hits = mt.find_matches(tn, ti, self.real, None)
+        self.assertNotIn("unconditional-conn-max-age", ids(hits))
 
     def test_gated_conn_max_age_silent(self):
         tn, ti = write(
