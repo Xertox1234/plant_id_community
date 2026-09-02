@@ -283,10 +283,22 @@ ASGI_APPLICATION = "plant_community_backend.asgi.application"
 
 # Database
 # https://docs.djangoproject.com/en/5.2/ref/settings/#databases
+# Persistent connections are a production optimisation: gunicorn runs a bounded
+# number of worker processes, so at most that many connections are held.
+# `runserver` is the opposite — it spawns a THREAD PER REQUEST, and each thread's
+# connection is kept for CONN_MAX_AGE, so connections accumulate far faster than
+# they expire. Under a parallel E2E run this exhausts Postgres `max_connections`
+# in seconds and the backend starts 500ing with
+# "FATAL: sorry, too many clients already" (todo 331).
+#
+# So: keep 600s wherever DEBUG is off (Railway, CI), close per-request in local
+# development. `DB_CONN_MAX_AGE` overrides either way.
+DB_CONN_MAX_AGE = config("DB_CONN_MAX_AGE", default=0 if DEBUG else 600, cast=int)
+
 DATABASES = {
     "default": dj_database_url.config(
         default=config("DATABASE_URL", default="sqlite:///db.sqlite3"),
-        conn_max_age=600,
+        conn_max_age=DB_CONN_MAX_AGE,
         conn_health_checks=True,
     )
 }
