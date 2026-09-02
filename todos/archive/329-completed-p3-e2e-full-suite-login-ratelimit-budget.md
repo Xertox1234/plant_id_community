@@ -1,9 +1,9 @@
 ---
-status: blocked
+status: completed
 priority: p3
 issue_id: "329"
 tags: [web, e2e, playwright, auth]
-dependencies: ["331"]  # AC-3 only: needs a green full suite (Postgres connections)
+dependencies: ["331"]  # AC-3 was unblocked by 331; both completed 2026-09-01
 ---
 
 # A full `npx playwright test` run may still exceed the shared login rate-limit budget
@@ -95,15 +95,21 @@ default local command per `web/CLAUDE.md`) run twice in a row, both green.
       measured 2026-09-01, see Work Log
 - [x] Fix landed (playwright.config.ts testIgnore scoping, or a per-project
       reset mechanism) for both the rate-limit and storageState-race findings
-- [ ] `npm run test:e2e` run twice in a row, both green, no flake — **blocked by
-      todo 331**, an unrelated pre-existing defect (Postgres connection
-      exhaustion). The rate-limit property this todo is about *was* verified
-      twice in a row: 4 login POSTs, 0x 429, both runs.
-      Closing this out is an AC on **331**, which is the only thing that will
-      resurface it: the sweep skills all filter `^status: pending`, so nothing
-      picks up a `blocked` todo on its own.
+- [x] `npm run test:e2e` run twice in a row, both green, no flake —
+      **213 passed / 4 skipped / 0 failed, exit 0, both runs**, with 4 login POSTs
+      and 0x 429 each. Unblocked by todo 331 (Postgres connection exhaustion, plus
+      13 pre-existing test failures fixed there). The 4 skips are pre-existing
+      deliberate `isMobile` guards.
 
 ## Work Log
+
+### 2026-09-01 - AC-3 closed
+
+Unblocked by todo 331 and completed the same day. 331 fixed the Postgres
+connection exhaustion (`CONN_MAX_AGE=600` on a thread-per-request dev server:
+136 `too many clients` per run → 0) and then the 13 pre-existing test failures
+standing behind it. Final: `npm run test:e2e` twice in a row, 213 passed /
+4 skipped / 0 failed, exit 0 both times.
 
 ### 2026-09-01 - Implemented and verified
 
