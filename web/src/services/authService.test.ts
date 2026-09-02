@@ -268,7 +268,9 @@ describe('authService', () => {
         ok: false,
         status: 403,
         json: async () => {
-          throw new Error('Unexpected token \'<\', "<!DOCTYPE "... is not valid JSON');
+          // A real SyntaxError, matching what response.json() throws — see the
+          // malformed-200 tests below and docs/rules/testing.md.
+          throw new SyntaxError('Unexpected token \'<\', "<!DOCTYPE "... is not valid JSON');
         },
       });
 
