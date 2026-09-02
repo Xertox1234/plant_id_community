@@ -4,6 +4,8 @@ import HeroCard from '../components/ui/HeroCard';
 import ButtonLink from '../components/ui/ButtonLink';
 import Card from '../components/ui/Card';
 import Tile, { type TileTone } from '../components/ui/Tile';
+import HomeActivity from '../components/home/HomeActivity';
+import { useAuth } from '../contexts/AuthContext';
 
 interface FeatureCardProps {
   title: string;
@@ -17,10 +19,14 @@ interface FeatureCardProps {
  * HomePage Component
  *
  * Landing page: hero + three feature cards, on the Canopy primitives
- * (Canopy PR 4). Same copy/links for every visitor — no personalized
- * activity feed (deferred, todo 308).
+ * (Canopy PR 4), plus a personalized activity feed for logged-in visitors
+ * (todo 315). The hero and feature cards are identical for everyone; only
+ * `HomeActivity` is gated, and it mounts nothing — and fetches nothing —
+ * for an anonymous visitor, so logged-out Home is byte-identical to PR 4's.
  */
 export default function HomePage() {
+  const { isAuthenticated } = useAuth();
+
   return (
     <div className="flex flex-col gap-8 py-8">
       {/* HeroCard's title renders as an h2 by design — the page still needs
@@ -45,6 +51,13 @@ export default function HomePage() {
           </>
         }
       />
+
+      {/* Logged-in only. Deliberately below the hero and above the feature
+          cards: a returning member gets their own activity first, while the
+          evergreen "what this site is" row stays reachable for both audiences.
+          The parent is `gap-8` (not `space-y-8`), so inserting a child here
+          cannot shift a sibling's margin — see docs/rules/react.md. */}
+      {isAuthenticated && <HomeActivity />}
 
       <div className="grid gap-5 md:grid-cols-3">
         <FeatureCard
