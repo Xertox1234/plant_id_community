@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { FORUM_CONTENT_LINK, forumThreadLinkIn } from './config.js';
 
 // Checks that the forum pages have no horizontal overflow at key breakpoints.
 // Requires a running backend with at least one forum category seeded.
@@ -29,7 +30,7 @@ for (const vp of VIEWPORTS) {
     await page.setViewportSize({ width: vp.width, height: vp.height });
     await page.goto('/forum');
 
-    const categoryLink = page.locator('a[href^="/forum/"]').first();
+    const categoryLink = page.locator(FORUM_CONTENT_LINK).first();
     await categoryLink.click();
     await expect(page).toHaveURL(/\/forum\/\d+-/);
     expect(await noHorizontalOverflow(page)).toBe(true);
@@ -39,10 +40,11 @@ for (const vp of VIEWPORTS) {
     await page.setViewportSize({ width: vp.width, height: vp.height });
     await page.goto('/forum');
 
-    await page.locator('a[href^="/forum/"]').first().click();
+    await page.locator(FORUM_CONTENT_LINK).first().click();
     await expect(page).toHaveURL(/\/forum\/\d+-/);
 
-    const threadLink = page.locator('a[href*="/forum/"]').filter({ hasText: /.+/ }).first();
+    const boardPath = new URL(page.url()).pathname;
+    const threadLink = page.locator(forumThreadLinkIn(boardPath)).first();
     await threadLink.click();
     await expect(page).toHaveURL(/\/forum\/\d+-.+\/\d+-/);
     expect(await noHorizontalOverflow(page)).toBe(true);
@@ -54,16 +56,9 @@ test('forum index — sort chips meet 44px tap target on mobile', async ({ page 
   await page.goto('/forum');
 
   // Navigate into a category to see the sort chips (Canopy replaced the old
-  // <select> with chip buttons). Scoped to #main-content — the AppShell
-  // header carries /forum/* links on every page — and excluding the hero's
-  // two CTAs, which also live in main and sit before the board list
-  // (docs/rules/testing.md).
-  await page
-    .locator(
-      '#main-content a[href^="/forum/"]:not([href="/forum/new-thread"]):not([href="/forum/search"])'
-    )
-    .first()
-    .click();
+  // <select> with chip buttons). FORUM_CONTENT_LINK skips the header chrome and
+  // the hero's two CTAs (docs/rules/testing.md).
+  await page.locator(FORUM_CONTENT_LINK).first().click();
   await expect(page).toHaveURL(/\/forum\/\d+-/);
 
   const chip = page.locator('#main-content').getByRole('button', { name: 'Newest' });

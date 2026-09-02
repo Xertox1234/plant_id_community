@@ -1,15 +1,26 @@
 // web/e2e/green-thumb-theme.spec.ts
 import { test, expect, type Page } from '@playwright/test';
 
-// Set theme data-attributes on <html> exactly as ThemeContext will (Task 3).
+// Drive the theme through ThemeContext's own storage keys, then reload so the
+// provider initialises from them.
+//
+// This used to write `data-mode`/`data-density` onto <html> directly, from a time
+// when ThemeContext did not exist yet ("exactly as ThemeContext will"). Now that it
+// does, its mount effect re-applies its own state over any direct write, so the
+// attributes snapped back to the defaults (dark / cozy) before the assertion ran.
+// That is why only the tests expecting the DEFAULTS passed — the light-mode and
+// compact-density ones were silently asserting against an unchanged page.
+//
+// Keys and defaults mirror src/contexts/ThemeContext.tsx (gt-mode: dark,
+// gt-density: cozy); omitting a key clears it so the provider falls back.
 async function setTheme(page: Page, attrs: { mode?: string; density?: string }) {
   await page.evaluate((a) => {
-    const el = document.documentElement;
-    if (a.mode) el.dataset.mode = a.mode;
-    else delete el.dataset.mode;
-    if (a.density) el.dataset.density = a.density;
-    else delete el.dataset.density;
+    const set = (key: string, value?: string) =>
+      value ? localStorage.setItem(key, value) : localStorage.removeItem(key);
+    set('gt-mode', a.mode);
+    set('gt-density', a.density);
   }, attrs);
+  await page.reload();
 }
 
 test.describe('Canopy runtime tokens', () => {

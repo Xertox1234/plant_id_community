@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { FORUM_CONTENT_LINK } from './config.js';
 
 /**
  * Example E2E test demonstrating:
@@ -12,8 +13,13 @@ test.describe('Server Readiness', () => {
     // Playwright automatically waits for servers defined in webServer config
     await page.goto('/', { waitUntil: 'networkidle', timeout: 30000 });
 
-    // Check that the page loaded - HomePage has h1 "Discover the World of Plants"
-    await expect(page.locator('h1')).toContainText('Discover the World');
+    // Canopy made the page-level h1 an sr-only landmark ("Home") and moved the
+    // visible hero copy to the h2 below it, so assert both: the landmark exists
+    // and the hero still renders.
+    await expect(page.locator('h1')).toContainText('Home');
+    await expect(
+      page.getByRole('heading', { level: 2, name: /Discover the World/i })
+    ).toBeVisible();
   });
 
   test('backend API is accessible', async ({ request }) => {
@@ -149,14 +155,14 @@ test.describe('Forum Integration', () => {
     // Wait for page to be fully loaded - check for page heading
     await page.waitForSelector('h1', { timeout: 10000 });
 
-    // Wait a bit for data to load
-    await page.waitForTimeout(2000);
-
-    // Verify categories are rendered (or no categories/loading message)
-    const categories = await page.locator('div.bg-white.rounded-lg.shadow-md').count();
-    const noCategoriesMessage = await page.locator('text=/no.*categories/i').count();
-    const loadingSpinner = await page.locator('text=/loading/i').count();
-
-    expect(categories > 0 || noCategoriesMessage > 0 || loadingSpinner > 0).toBeTruthy();
+    // Assert the board list actually rendered. This used to count
+    // `div.bg-white.rounded-lg.shadow-md`, markup the Canopy redesign removed, and
+    // to pass on a "loading"/"no categories" fallback — so it went green whether or
+    // not the forum worked. Wait on a real board link instead (FORUM_CONTENT_LINK
+    // excludes the header chrome and hero CTAs, which render even when the board
+    // list is empty, so this cannot pass vacuously).
+    const boards = page.locator(FORUM_CONTENT_LINK);
+    await expect(boards.first()).toBeVisible({ timeout: 10000 });
+    expect(await boards.count()).toBeGreaterThan(0);
   });
 });

@@ -244,13 +244,16 @@ export default function AppShell({ children }: AppShellProps) {
                 type="button"
                 onClick={() => setPaletteOpen(true)}
                 aria-label="Search plants, posts, people…"
-                className="flex max-w-[430px] flex-1 items-center gap-2.5 rounded-pill border border-line bg-surface-2/70 px-4 py-2.5 text-[13.5px] text-ink-3 transition-colors hover:border-line-2"
+                className="flex min-w-0 max-w-[430px] flex-1 items-center gap-2.5 rounded-pill border border-line bg-surface-2/70 px-4 py-2.5 text-[13.5px] text-ink-3 transition-colors hover:border-line-2"
               >
-                <Search className="h-[15px] w-[15px]" aria-hidden="true" />
-                Search plants, posts, people…
+                <Search className="h-[15px] w-[15px] shrink-0" aria-hidden="true" />
+                {/* min-w-0 + truncate: without them this button's intrinsic width
+                    floors the flex row and the auth actions overflow the viewport
+                    at 375px (todo 331). No effect once there is room to lay out. */}
+                <span className="min-w-0 truncate">Search plants, posts, people…</span>
                 <kbd
                   aria-hidden="true"
-                  className="ml-auto rounded-sm border border-line-2 px-1.5 py-0.5 font-mono text-[10.5px]"
+                  className="ml-auto hidden shrink-0 rounded-sm border border-line-2 px-1.5 py-0.5 font-mono text-[10.5px] sm:block"
                 >
                   {isMac ? '⌘K' : 'Ctrl K'}
                 </kbd>

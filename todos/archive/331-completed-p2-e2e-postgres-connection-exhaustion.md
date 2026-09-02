@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: p2
 issue_id: "331"
 tags: [web, e2e, playwright, backend, database, infra]
@@ -113,14 +113,73 @@ Options 1 and 3 are complementary; do 3 first since it is diagnostic.
 
 ## Acceptance Criteria
 
-- [ ] The 36 at-rest connections are attributed, and any owned by this repo closed
-- [ ] `npm run test:e2e` (no `--project` filter) completes with zero
-      `too many clients already` in the backend log
-- [ ] `npm run test:e2e` run twice in a row, both green, no flake
-- [ ] Todo 329 closed out: its AC-3 ticked, `status: blocked` → `completed`, file
+- [x] The 36 at-rest connections are attributed, and any owned by this repo closed
+      — they *were* the bug, not a separate leak: `CONN_MAX_AGE=600` on a
+      thread-per-request dev server. At true rest the count is 9 (8 of them
+      Postgres's own background workers).
+- [x] `npm run test:e2e` (no `--project` filter) completes with zero
+      `too many clients already` in the backend log — 136 → **0**
+- [x] `npm run test:e2e` run twice in a row, both green, no flake —
+      213 passed / 4 skipped / **0 failed**, exit 0, both runs
+- [x] Todo 329 closed out: its AC-3 ticked, `status: blocked` → `completed`, file
       renamed to match, and archived
 
 ## Work Log
+
+### 2026-09-01 - Completed
+
+**The root cause was not what this todo assumed.** The "36 at-rest connections"
+were not a separate leak to hunt — they were the same bug decaying. At true rest
+the count is 9, 8 of which are Postgres's own background workers.
+
+`plant_community_backend/settings.py` passed `conn_max_age=600` unconditionally.
+That is correct for production (gunicorn holds a bounded number of worker
+processes) but wrong for `runserver`, which spawns a **thread per request**: each
+thread's connection is then held for 10 minutes, so under parallel Playwright load
+threads are created far faster than connections expire. `CONN_MAX_AGE` now defaults
+to 0 when DEBUG is on and stays 600 otherwise, overridable via `DB_CONN_MAX_AGE`;
+Railway and CI are unchanged.
+
+Neither Proposed Solution was taken. Option 1 (cap Playwright workers) would have
+capped the symptom and slowed every local run; Option 2 (raise `max_connections`)
+would have hidden the real defect behind more headroom.
+
+| | before | after |
+|---|---|---|
+| `too many clients already` per full run | **136** | **0** |
+| failing tests | 61 | 51 → 0 (see below) |
+
+**A third defect stood behind this one.** With the connections fixed, 51 failures
+remained — 13 distinct tests, each failing identically on `main`, so none were
+introduced by todos 329/331. Rather than file a fourth layer of the same
+recursion, they were fixed here (see the commit for the full analysis):
+
+1. **A real app bug**: AppShell's search button is `flex-1` without `min-w-0`, so
+   its `min-width: auto` floored it at intrinsic width and pushed the header's auth
+   actions to x=387 in a 375px viewport. Verified fixed at 320–1920px with the
+   430px desktop cap intact.
+2. Unscoped forum link selectors (7 tests) — the trap `docs/rules/testing.md`
+   already documents from PR #536/#537. Now a single shared `FORUM_CONTENT_LINK`,
+   with **prefix** exclusions: a board page's CTA is `/forum/new-thread?category=…`,
+   which an exact-match `:not()` fails to exclude.
+3. The theme spec wrote `data-mode` directly and ThemeContext's mount effect
+   reapplied its own state over it — so only the tests expecting the DEFAULTS
+   passed, and the rest were asserting against an unchanged page.
+4. Stale post-Canopy markup, including a forum assertion that counted deleted
+   Tailwind classes and passed on a "loading" fallback — green whether or not the
+   forum worked.
+
+Also removed a latent race in the browse→board→thread hop: `toHaveURL` resolves
+when the SPA updates the URL, before the board's markup replaces the index's, so
+the second click could re-hit a stale board card.
+
+Final: `npm run test:e2e` twice in a row, **213 passed / 4 skipped / 0 failed**,
+exit 0 both times, 0 `too many clients`, 0× 429, 4 login POSTs per run. The 4
+skips are pre-existing deliberate `isMobile` guards. Vitest 1004 passed.
+
+Prerequisite worth recording: this is only observable after
+`npx playwright install firefox webkit` — those binaries were missing, so 4 of the
+7 projects had been failing at launch and never contributed load.
 
 ### 2026-09-01 - Filed
 

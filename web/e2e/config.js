@@ -61,6 +61,41 @@ export const E2E_TEST_USER = {
 };
 
 /**
+ * Selector for a real forum board/thread link on the current page.
+ *
+ * The AppShell header carries `/forum/search` and `/forum/new-thread` on EVERY
+ * page, and the forum hero repeats both inside `#main-content` ahead of the board
+ * list — so a bare `a[href^="/forum/"]` + `.first()` grabs chrome, not content,
+ * and the click lands on the wrong URL. `docs/rules/testing.md` records this
+ * biting three specs across PR #536/#537; it is defined once here so the next
+ * spec cannot re-derive it wrongly.
+ *
+ * The exclusions are PREFIX matches, not exact ones: a board page's CTA carries a
+ * query string (`/forum/new-thread?category=54-general-discussion`), which an
+ * `[href="/forum/new-thread"]` exact match does NOT exclude — so `.first()` on a
+ * board page lands on "New Thread" instead of the first thread.
+ */
+export const FORUM_CONTENT_LINK =
+  '#main-content a[href^="/forum/"]:not([href^="/forum/new-thread"]):not([href^="/forum/search"])';
+
+/**
+ * Selector for a thread link *within* the board currently open.
+ *
+ * Needed for the second hop of browse → board → thread. `toHaveURL` resolves the
+ * moment the SPA updates the URL, which is before the board's own markup replaces
+ * the index's, so a generic forum-link locator can still match a stale board card
+ * and click straight back to the board you are already on. Anchoring to the live
+ * board path makes that structurally impossible: only a thread under this board
+ * matches, and the board's "New Thread" CTA
+ * (`/forum/new-thread?category=<slug>`) does not.
+ *
+ * @param {string} boardPath e.g. `/forum/54-general-discussion`
+ */
+export function forumThreadLinkIn(boardPath) {
+  return `#main-content a[href^="${boardPath}/"]`;
+}
+
+/**
  * Auth state directory
  */
 export const E2E_AUTH_DIR = '.auth';
