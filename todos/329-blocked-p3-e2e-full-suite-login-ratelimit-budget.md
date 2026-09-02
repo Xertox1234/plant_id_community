@@ -1,9 +1,9 @@
 ---
-status: pending
+status: blocked
 priority: p3
 issue_id: "329"
 tags: [web, e2e, playwright, auth]
-dependencies: []
+dependencies: ["331"]  # AC-3 only: needs a green full suite (Postgres connections)
 ---
 
 # A full `npx playwright test` run may still exceed the shared login rate-limit budget
@@ -90,13 +90,81 @@ default local command per `web/CLAUDE.md`) run twice in a row, both green.
 
 ## Acceptance Criteria
 
-- [ ] Confirmed whether "Authentication Flows" tests actually fail under the
-      5 unauthenticated projects (not just budget-starved)
-- [ ] Fix landed (playwright.config.ts testIgnore scoping, or a per-project
+- [x] Confirmed whether "Authentication Flows" tests actually fail under the
+      5 unauthenticated projects (not just budget-starved) — **they do**, 2 of 3;
+      measured 2026-09-01, see Work Log
+- [x] Fix landed (playwright.config.ts testIgnore scoping, or a per-project
       reset mechanism) for both the rate-limit and storageState-race findings
-- [ ] `npm run test:e2e` run twice in a row, both green, no flake
+- [ ] `npm run test:e2e` run twice in a row, both green, no flake — **blocked by
+      todo 331**, an unrelated pre-existing defect (Postgres connection
+      exhaustion). The rate-limit property this todo is about *was* verified
+      twice in a row: 4 login POSTs, 0x 429, both runs.
+      Closing this out is an AC on **331**, which is the only thing that will
+      resurface it: the sweep skills all filter `^status: pending`, so nothing
+      picks up a `blocked` todo on its own.
 
 ## Work Log
+
+### 2026-09-01 - Implemented and verified
+
+**AC-1 answered first, before any edit** (once the config change lands, the
+question is no longer observable). Each test run individually under
+`--project=chromium` — a single `-g "Authentication Flows"` run would have stopped
+at the first failure under `mode: 'serial'` and answered only a third of it:
+
+| Test | Verdict |
+|------|---------|
+| `user is already logged in` | **FAILS** — no user menu, no username |
+| `can access protected routes when authenticated` | **FAILS** — redirected to `/login` |
+| `can logout successfully` | passes **vacuously** via its own `else` branch |
+
+So 2 of the 3 were genuinely failing under all 5 unauthenticated projects, not
+merely budget-starved. Confirmed at 0 login-POST cost.
+
+**Root cause, sharper than this todo's framing.** `auth.spec.js`'s two describe
+blocks want *opposite* project sets: `Authentication Flows` needs the setup
+`storageState`; `Protected Routes (Unauthenticated)` explicitly clears it and is
+the only real consumer of the login budget. One file cannot be scoped two ways,
+which is why the Recommended Action's `testIgnore`-only fix would have landed at
+exactly 5/5 (zero headroom) *and* left the storageState race untouched.
+
+**What shipped** (decisions confirmed with the user before implementing):
+
+- Split by audience: `Protected Routes (Unauthenticated)` moved verbatim to a new
+  `web/e2e/login.spec.js`, scoped to the `chromium` project alone; `auth.spec.js`
+  keeps `Authentication Flows` and is matched only by the 2 authenticated projects.
+- Per-project auth state: `setup` became `setup-chromium` + `setup-firefox`, each
+  logging in separately and writing its own `.auth/user-<browser>.json` via a new
+  `authFileFor()` in `e2e/config.js`. Kills the race structurally rather than
+  ordering around it.
+
+**Measured before vs after** — same machine, same servers, full unfiltered
+`npm run test:e2e`, login POSTs counted from the Django access log:
+
+| | `main` | this branch |
+|---|---|---|
+| `POST /api/v1/auth/login/` | **15** (2x401, 2x500, 3x200, **8x429**) | **4** (3x200, 1x401) |
+| 429s | **8** | **0** |
+
+15 is exactly the count this todo predicted. Two consecutive runs on the branch
+both gave 4 POSTs / 0x 429.
+
+**The race is verified gone, not merely untriggered.** A green run is consistent
+with a shared token that simply didn't race, so the direct check: the two state
+files carry *distinct* `refresh_token`, `access_token` and `csrftoken` values.
+
+**Two things found along the way:**
+
+- Firefox and WebKit browser binaries were never installed on this machine, so
+  `firefox`, `webkit`, `Mobile Safari` and `firefox-authenticated` had been
+  silently failing to launch. Installed (`playwright install firefox webkit`) —
+  without them none of this is observable.
+- AC-3 is blocked by **todo 331**: Postgres connection exhaustion under full
+  parallelism (`FATAL: sorry, too many clients already`, 136x per run). Verified
+  pre-existing and *worse* on `main` (78 failed / 234 errors) than on this branch
+  (61 / 136), and verified not to be a defect in this change —
+  `--project=chromium-authenticated` alone passes 7/7. Filed rather than folded
+  in: it is a different defect with its own trade-offs.
 
 ### 2026-08-31 - Filed, then measured precisely during todo 312's code review
 

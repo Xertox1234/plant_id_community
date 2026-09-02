@@ -1,4 +1,14 @@
 import { defineConfig, devices } from '@playwright/test';
+import { authFileFor } from './e2e/config.js';
+
+/**
+ * Setup project names. The authenticated projects derive both their
+ * `dependencies` entry and their `storageState` path from these, so a rename
+ * moves all three together — the state file an authenticated project loads is
+ * by construction the one its own setup project writes (todo 329).
+ */
+const SETUP_CHROMIUM = 'setup-chromium';
+const SETUP_FIREFOX = 'setup-firefox';
 
 /**
  * Playwright E2E Testing Configuration
@@ -84,53 +94,86 @@ export default defineConfig({
     },
   ],
 
-  // Configure projects for multiple browsers
+  /**
+   * Project layout — two constraints drive it (todo 329):
+   *
+   * 1. LOGIN RATE-LIMIT BUDGET. `POST /api/v1/auth/login/` is IP-rate-limited to
+   *    5/15m (backend/apps/plant_identification/constants.py); the 6th request in
+   *    the window 429s, and every POST counts, not just failed ones. login.spec.js
+   *    costs 2 per project that runs it and each setup project costs 1, so a full
+   *    `npm run test:e2e` currently spends 2 + 1 + 1 = 4 of 5. Adding login.spec.js
+   *    to a second project costs 2 more and breaks the budget. Before todo 329
+   *    those tests lived in auth.spec.js, which every one of the 7 non-setup
+   *    projects matched: 15 POSTs against a budget of 5.
+   *
+   * 2. NO SHARED AUTH STATE. auth.spec.js's "can logout successfully" blacklists
+   *    the refresh token backing the storageState it loaded. One setup project per
+   *    authenticated browser, each writing its own file, keeps one project's logout
+   *    from invalidating the other's session mid-run (`fullyParallel: true` means
+   *    they overlap, and `mode: 'serial'` only orders tests *within* a project).
+   */
   projects: [
-    // Setup project - runs first to authenticate and save state
+    // Setup projects - one per authenticated browser, each logging in separately
+    // so no two authenticated projects share a refresh token.
     {
-      name: 'setup',
+      name: SETUP_CHROMIUM,
+      use: { ...devices['Desktop Chrome'] },
+      testMatch: /auth\.setup\.js/,
+    },
+    {
+      name: SETUP_FIREFOX,
+      use: { ...devices['Desktop Firefox'] },
       testMatch: /auth\.setup\.js/,
     },
 
-    // Unauthenticated tests (e.g., health checks, login page)
+    // Unauthenticated tests (e.g., health checks, login page).
+    // `chromium` is the ONLY project that runs login.spec.js - see constraint 1.
     {
       name: 'chromium',
       use: { ...devices['Desktop Chrome'] },
-      testIgnore: /(auth\.setup|forum-authenticated\.spec|canopy-areas-authenticated\.spec)\.js/,
+      testIgnore:
+        /(auth\.setup|auth\.spec|forum-authenticated\.spec|canopy-areas-authenticated\.spec)\.js/,
     },
 
     {
       name: 'firefox',
       use: { ...devices['Desktop Firefox'] },
-      testIgnore: /(auth\.setup|forum-authenticated\.spec|canopy-areas-authenticated\.spec)\.js/,
+      testIgnore:
+        /(auth\.setup|auth\.spec|login\.spec|forum-authenticated\.spec|canopy-areas-authenticated\.spec)\.js/,
     },
 
     {
       name: 'webkit',
       use: { ...devices['Desktop Safari'] },
-      testIgnore: /(auth\.setup|forum-authenticated\.spec|canopy-areas-authenticated\.spec)\.js/,
+      testIgnore:
+        /(auth\.setup|auth\.spec|login\.spec|forum-authenticated\.spec|canopy-areas-authenticated\.spec)\.js/,
     },
 
     // Mobile viewports (unauthenticated)
     {
       name: 'Mobile Chrome',
       use: { ...devices['Pixel 5'] },
-      testIgnore: /(auth\.setup|forum-authenticated\.spec|canopy-areas-authenticated\.spec)\.js/,
+      testIgnore:
+        /(auth\.setup|auth\.spec|login\.spec|forum-authenticated\.spec|canopy-areas-authenticated\.spec)\.js/,
     },
     {
       name: 'Mobile Safari',
       use: { ...devices['iPhone 12'] },
-      testIgnore: /(auth\.setup|forum-authenticated\.spec|canopy-areas-authenticated\.spec)\.js/,
+      testIgnore:
+        /(auth\.setup|auth\.spec|login\.spec|forum-authenticated\.spec|canopy-areas-authenticated\.spec)\.js/,
     },
 
-    // Authenticated tests (forum, protected routes)
+    // Authenticated tests (forum, protected routes). Each loads the state file
+    // written by its own setup project - see constraint 2. Both the dependency and
+    // the path derive from the same constant, and auth.setup.js writes via the same
+    // authFileFor(), so the two cannot drift apart.
     {
       name: 'chromium-authenticated',
       use: {
         ...devices['Desktop Chrome'],
-        storageState: '.auth/user.json',
+        storageState: authFileFor(SETUP_CHROMIUM),
       },
-      dependencies: ['setup'],
+      dependencies: [SETUP_CHROMIUM],
       testMatch: /(forum-authenticated|canopy-areas-authenticated|auth)\.spec\.js/,
     },
 
@@ -138,9 +181,9 @@ export default defineConfig({
       name: 'firefox-authenticated',
       use: {
         ...devices['Desktop Firefox'],
-        storageState: '.auth/user.json',
+        storageState: authFileFor(SETUP_FIREFOX),
       },
-      dependencies: ['setup'],
+      dependencies: [SETUP_FIREFOX],
       testMatch: /(forum-authenticated|canopy-areas-authenticated|auth)\.spec\.js/,
     },
   ],

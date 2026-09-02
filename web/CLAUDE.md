@@ -44,6 +44,24 @@ Coverage thresholds in `vitest.config.ts` (80% statements/lines/branches/functio
 
 E2E (Playwright) is excluded from CI for now — run locally with `npm run test:e2e`.
 
+### Gotcha: E2E auth tests are deliberately project-scoped
+
+`POST /api/v1/auth/login/` is IP-rate-limited to 5/15m, and every POST counts
+(not just failures). So real-login tests are scoped, not run everywhere (todo 329):
+
+| File | Projects | Why |
+|------|----------|-----|
+| `e2e/login.spec.js` | `chromium` only | 2 real login POSTs per project. One project + 2 setups = 4 of the 5 budget. |
+| `e2e/auth.spec.js` | the 2 `*-authenticated` | needs `storageState`; it failed outright under unauthenticated projects |
+
+Adding either file to another project costs budget and will 429 the suite. Each
+authenticated project has its own setup project writing its own
+`.auth/user-<browser>.json` — they must not share one, because the logout test
+blacklists the refresh token backing whatever state it loaded.
+
+Known blocker: a full unfiltered run is not green — Postgres connection
+exhaustion under full parallelism (todo 331), unrelated to the above.
+
 ## Gotcha: debounce timers
 
 Use `useRef` — not `useState` — for debounce/interval timer IDs. `useState` triggers a re-render on every update, causes the callback to be recreated, and leaks the timer on unmount:

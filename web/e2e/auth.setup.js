@@ -2,22 +2,32 @@ import { execSync } from 'node:child_process';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { test as setup, expect } from '@playwright/test';
-import { E2E_TIMEOUTS, E2E_URLS, E2E_TEST_USER, E2E_AUTH_FILE } from './config.js';
+import { E2E_TIMEOUTS, E2E_URLS, E2E_TEST_USER, authFileFor } from './config.js';
 
 const BACKEND_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../backend');
 
 /**
  * Authentication Setup for E2E Tests
  *
- * This file runs BEFORE all other tests (only for projects that depend on the
- * 'setup' project — an unauthenticated-only run like --project=chromium never
- * triggers it) to:
- * 1. Reset the shared IP-based login rate limit (todo 312 — auth.spec.js's own
+ * This file backs BOTH setup projects — `setup-chromium` and `setup-firefox` —
+ * one per authenticated browser (todo 329). Each runs in its own browser, logs in
+ * separately, and writes its own state file, so `chromium-authenticated` and
+ * `firefox-authenticated` never share a refresh token that either one's logout
+ * test could blacklist out from under the other.
+ *
+ * It runs BEFORE the tests of whichever project depends on it — an
+ * unauthenticated-only run like --project=chromium never triggers it — to:
+ * 1. Reset the shared IP-based login rate limit (todo 312 — login.spec.js's own
  *    login attempts plus this file's real login otherwise exhaust the 5/15m
- *    budget across two runs in a row)
+ *    budget across two runs in a row; those tests lived in auth.spec.js until
+ *    todo 329 split them out)
  * 2. Log in as the test user (e2e_test_user)
  * 3. Save the authentication state (cookies, localStorage)
- * 4. Store it in .auth/user.json for reuse
+ * 4. Store it in this project's own .auth/user-<browser>.json for reuse
+ *
+ * Both setup projects call reset_ratelimits. Running it twice is safe: a reset only
+ * ever frees budget, never consumes it, and no E2E test asserts a 429 (the two 429
+ * checks in login.spec.js are diagnostics that throw, not expectations).
  *
  * Other tests can then load this state instead of logging in repeatedly.
  *
@@ -26,8 +36,12 @@ const BACKEND_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '
  * - Both servers must be running (Django + Vite)
  */
 
-setup('authenticate as test user', async ({ page }) => {
+setup('authenticate as test user', async ({ page }, testInfo) => {
   setup.setTimeout(E2E_TIMEOUTS.SETUP_TEST);
+
+  // One state file per setup project, so the two authenticated projects never
+  // share a refresh token (todo 329). See authFileFor()'s docstring.
+  const authFile = authFileFor(testInfo.project.name);
 
   // Reset rate-limit counters before every run — automatic, not a step a
   // human has to remember between runs (see todo 312's Work Log).
@@ -67,7 +81,7 @@ setup('authenticate as test user', async ({ page }) => {
   }
 
   // Save authentication state to file
-  await page.context().storageState({ path: E2E_AUTH_FILE });
+  await page.context().storageState({ path: authFile });
 
-  console.log('✅ Authentication state saved to', E2E_AUTH_FILE);
+  console.log('✅ Authentication state saved to', authFile);
 });
