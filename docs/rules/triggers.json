@@ -1163,5 +1163,51 @@
     "source": "codify: fix/321-r2-config-single-source",
     "added": "2026-09-01",
     "severity": "warn"
+  },
+  {
+    "id": "exact-match-href-not-selector",
+    "domains": [
+      "testing"
+    ],
+    "path_glob": [
+      "web/e2e/*"
+    ],
+    "content_present": ":not\\(\\[href=\"",
+    "message": "Attribute :not([href=\"...\"]) is an EXACT match, so a query string defeats it: it will NOT exclude /forum/new-thread?category=<slug>, and .first() then clicks the CTA instead of page content. Use the prefix form :not([href^=\"/forum/new-thread\"]).",
+    "pattern_ref": "web/docs/patterns/testing.md",
+    "source": "codify: docs/codify-e2e-suite-green",
+    "added": "2026-09-01",
+    "severity": "warn"
+  },
+  {
+    "id": "e2e-writes-documentelement-dataset",
+    "domains": [
+      "testing"
+    ],
+    "path_glob": [
+      "web/e2e/*"
+    ],
+    "content_present": "(\\.dataset\\.\\w+\\s*=|delete\\s+[\\w.]+\\.dataset\\.)",
+    "message": "Writing/deleting a dataset attribute from a spec does not drive app state: a context provider (e.g. ThemeContext) re-applies its own state in a mount effect and overwrites it, so only assertions expecting the DEFAULTS pass and the rest silently assert against an unchanged page. Drive the provider storage keys (gt-mode / gt-density) and page.reload().",
+    "pattern_ref": "web/docs/patterns/testing.md",
+    "source": "codify: docs/codify-e2e-suite-green",
+    "added": "2026-09-01",
+    "severity": "warn"
+  },
+  {
+    "id": "unconditional-conn-max-age",
+    "domains": [
+      "database"
+    ],
+    "path_glob": [
+      "backend/**/settings*.py",
+      "backend/*/settings.py"
+    ],
+    "content_present": "conn_max_age\\s*=\\s*[1-9]",
+    "message": "Hardcoded non-zero CONN_MAX_AGE: persistent connections assume bounded PROCESSES (gunicorn), but runserver spawns a thread per request and each holds its connection for the full age, exhausting Postgres max_connections under parallel load (\"FATAL: sorry, too many clients already\"). Gate on DEBUG: conn_max_age=config(\"DB_CONN_MAX_AGE\", default=0 if DEBUG else 600, cast=int).",
+    "pattern_ref": "docs/rules/database.md",
+    "source": "codify: docs/codify-e2e-suite-green",
+    "added": "2026-09-01",
+    "severity": "warn"
   }
 ]

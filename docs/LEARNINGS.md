@@ -3789,3 +3789,88 @@ has `backend/` on `sys.path`, so `apps` is reachable too (verified from
 `cwd=/`). The real reasons are dependency direction (apps read settings, not
 the reverse) and that importing an app package at settings-import time is safe
 only while `apps/__init__.py` and `apps/core/__init__.py` stay empty.
+
+## E2E suite green — three defects deep (todos 329 + 331, 2026-09-01)
+
+`npm run test:e2e` — the documented default local command — could not pass. Each
+"make it green" acceptance criterion turned out to be blocked by a *different*
+defect behind it. Three layers, each of which had to be found before the next was
+even visible.
+
+**Layer 1 — the login rate-limit budget (todo 329).** `auth.spec.js` was matched by
+all 7 non-setup Playwright projects, costing 15 `POST /api/v1/auth/login/` against
+an IP budget of 5/15m (measured on `main`: 15 POSTs, 8 of them 429). The todo's
+prescribed fix — add the file to the unauthenticated projects' `testIgnore` — would
+have landed the budget at *exactly* 5/5 with zero headroom and left a second finding
+untouched.
+
+The sharper root cause: the file's two describe blocks wanted **opposite** project
+sets. "Authentication Flows" needs the setup `storageState`; "Protected Routes
+(Unauthenticated)" explicitly clears it and is the only consumer of the login
+budget. One file cannot be scoped two ways, so no `testIgnore` edit could be
+correct. Splitting by audience was the actual fix. Generalised into
+`docs/rules/testing.md`.
+
+Two of the three "Authentication Flows" tests were also **failing outright** under
+the 5 unauthenticated projects, not merely budget-starved — measured before the
+change, because scoping them out makes the question permanently unobservable.
+Answering an acceptance criterion has to come before the change that erases the
+evidence. They also had to be run *individually*: the block is `mode: 'serial'`, so
+one run reports `1 failed, 2 skipped` and answers a third of the question.
+
+**Layer 2 — `CONN_MAX_AGE` (todo 331).** With the rate limit fixed, ~60 tests still
+failed and the backend was 500ing with `FATAL: sorry, too many clients already`
+(136 occurrences per run). `settings.py` passed `conn_max_age=600`
+unconditionally. Correct for gunicorn — a bounded number of worker processes holds a
+bounded number of connections — and wrong for `runserver`, which spawns a **thread
+per request**, each holding its connection for 10 minutes while parallel Playwright
+load creates threads far faster than they expire.
+
+**The todo's own filed diagnosis was wrong, and in an instructive way.** It recorded
+"36 connections already held at idle" and proposed hunting the leak. There was no
+leak: those 36 were *this same bug decaying*. At true rest the count is 9, 8 of them
+Postgres's own background workers. Check connection **lifetime** before hunting a
+leak, and measure "at rest" on a freshly restarted server — a long-lived dev server
+that has served a test run is not at rest. Neither of the todo's proposed options
+was taken: capping Playwright workers would have capped the symptom and slowed every
+local run; raising `max_connections` would have hidden the defect behind headroom.
+
+**Layer 3 — 13 stale tests, every one failing identically on `main`.** Four causes,
+of which one was a real product bug: AppShell's `flex-1` search button lacked
+`min-w-0`, so `min-width: auto` floored it at intrinsic width and pushed the header's
+auth actions 12px past a 375px viewport. Note the diagnostic shape — **the overflow
+was reported on the sibling, never on the element that caused it.** The other three:
+unscoped forum selectors (the trap `docs/rules/testing.md` already recorded from
+PRs 536/537 — these were the unfixed instances); an e2e helper writing `data-mode`
+directly that ThemeContext's mount effect overwrote; and stale post-Canopy markup,
+including an assertion that counted deleted Tailwind classes *and* passed on a
+"loading" fallback, i.e. green whether or not the forum worked.
+
+### Verification traps this session actually hit
+
+- **A green run does not prove a shared-state race is fixed** — it is equally
+  consistent with the race not having fired. The only discriminating check was
+  asserting the two `.auth/user-<browser>.json` files hold *different* refresh
+  tokens.
+- **4 of 7 Playwright projects had never run here.** Firefox and WebKit binaries
+  were not installed, and Playwright *fails at launch* rather than skipping. Every
+  previous "the E2E suite passes" claim on this machine covered 3 of 7 projects.
+- **`--list | grep -c` double-counts**: the dev reporter array has two `list`
+  reporters. A "12 tests" reading that was really 6 sent one diagnosis down the
+  wrong path until deduped.
+- **A test can pass vacuously and look fine.** `can logout successfully` passed
+  under projects with no auth state by falling through its own `else` branch.
+
+### Process
+
+- **`status: blocked` is a black hole.** Every todo skill (`todo-next`,
+  `todo-sweep`, `completing-todos`) filters `grep -l "^status: pending"`, so a
+  `blocked` todo is picked up by nothing, ever. If you mark one blocked, some *other*
+  pending todo must carry an explicit AC to close it out.
+- **A stacked PR gets almost no CI here** — every workflow filters
+  `pull_request: branches: [main, develop]`, so a PR based on a feature branch ran 1
+  check instead of 17. Worse, merging the parent with `--delete-branch`
+  **auto-closed** the stacked child (GitHub closes a PR whose base branch is
+  deleted); recovery was `git rebase --onto origin/main <last-parent-commit>` plus a
+  fresh PR. Prefer merging the parent to `main` first and retargeting the child
+  before deleting anything.
