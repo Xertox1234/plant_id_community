@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
 import { Link } from 'react-router-dom';
-import { Check, Flame, Layers, MessagesSquare, Reply, ScanSearch } from 'lucide-react';
+import { Layers, MessagesSquare, Reply } from 'lucide-react';
 import {
   fetchForumIndex,
   fetchRecentTopics,
@@ -9,6 +9,7 @@ import {
 } from '../../services/forumService';
 import { createSafeMarkup, SANITIZE_PRESETS } from '../../utils/sanitize';
 import CategoryCard from '../../components/forum/CategoryCard';
+import SeasonStatsGrid from '../../components/forum/SeasonStatsGrid';
 import ForumErrorState from '../../components/forum/ForumErrorState';
 import LoadingSpinner from '../../components/ui/LoadingSpinner';
 import HeroCard from '../../components/ui/HeroCard';
@@ -257,54 +258,7 @@ export default function CategoryListPage() {
         ? myStats && (
             <>
               <h2 className="gt-h3 mt-8">Your season</h2>
-              <div className="mt-6 grid grid-cols-2 gap-4 lg:grid-cols-4">
-                <StatCard
-                  icon={<ScanSearch className="h-4 w-4" aria-hidden="true" />}
-                  value={myStats.identifications_shared}
-                  label="Identifications"
-                  // Badge progress (todo 300 AC2) lives on this card — its
-                  // value IS the badge's tracked metric, so no 5th slot is
-                  // needed in the fixed 4-card grid.
-                  sublabel={
-                    myStats.badge_progress >= myStats.badge_target
-                      ? `${myStats.badge_name} badge complete`
-                      : `${myStats.badge_target - myStats.badge_progress} to ${myStats.badge_name} badge`
-                  }
-                  tone="sage"
-                  progress={{
-                    value: myStats.badge_progress,
-                    max: myStats.badge_target,
-                    label: `${myStats.badge_name} badge progress`,
-                  }}
-                />
-                <StatCard
-                  icon={<MessagesSquare className="h-4 w-4" aria-hidden="true" />}
-                  value={myStats.posts}
-                  label="Posts"
-                  sublabel="all time"
-                  tone="pollen"
-                />
-                <StatCard
-                  icon={<Check className="h-4 w-4" aria-hidden="true" />}
-                  value={myStats.solutions_accepted}
-                  label="Solutions"
-                  sublabel="accepted answers"
-                  tone="bloom"
-                />
-                <StatCard
-                  icon={<Flame className="h-4 w-4" aria-hidden="true" />}
-                  value={myStats.streak_days}
-                  label="Day streak"
-                  sublabel={
-                    myStats.streak_days === 0
-                      ? 'Post to start a streak'
-                      : myStats.streak_days === 1
-                        ? 'day in a row'
-                        : 'days in a row'
-                  }
-                  tone="orchid"
-                />
-              </div>
+              <SeasonStatsGrid stats={myStats} className="mt-6" />
             </>
           )
         : categories.length > 0 && (
