@@ -89,7 +89,33 @@ export async function login(credentials: LoginCredentials): Promise<User> {
       throw new Error(message);
     }
 
-    const data: AuthResponse = await response.json();
+    // Success-path parse is guarded the same way the error path above is
+    // (todo 310). A 200 whose body isn't JSON — an HTML interstitial from a
+    // proxy or CDN, a truncated response — would otherwise let the raw
+    // `SyntaxError` ("Unexpected token '<'...") escape through the outer
+    // catch and reach the UI as `error.message`: the exact failure class
+    // todo 298 fixed on the error branch, on the opposite branch.
+    let data: AuthResponse;
+    try {
+      data = await response.json();
+      // The shape check belongs INSIDE the guard, not after it. A body that
+      // parses but isn't an AuthResponse (a proxy returning literal `null`,
+      // an envelope rename) would otherwise reach `data.user` below: `null`
+      // throws a raw TypeError that escapes to the UI — the exact class this
+      // guard exists to close — and `{}` resolves with `user: undefined`,
+      // caching the string "undefined" and returning success for a login that
+      // leaves `isAuthenticated` false, so ProtectedLayout bounces straight
+      // back to /login with nothing shown.
+      if (!data?.user) throw new SyntaxError('login body is not an AuthResponse');
+    } catch (parseError) {
+      logger.error('[authService] Unreadable login success response', {
+        status: response.status,
+        error: parseError,
+      });
+      throw new Error("Login succeeded but the response couldn't be read. Please try again.", {
+        cause: parseError,
+      });
+    }
 
     // Store user in sessionStorage (cleared on tab close - more secure than localStorage)
     sessionStorage.setItem('user', JSON.stringify(data.user));
@@ -147,7 +173,28 @@ export async function signup(userData: SignupData): Promise<User> {
       throw new Error(message);
     }
 
-    const data: AuthResponse = await response.json();
+    // Same success-path guard as login() (todo 310).
+    let data: AuthResponse;
+    try {
+      data = await response.json();
+      // The shape check belongs INSIDE the guard, not after it. A body that
+      // parses but isn't an AuthResponse (a proxy returning literal `null`,
+      // an envelope rename) would otherwise reach `data.user` below: `null`
+      // throws a raw TypeError that escapes to the UI — the exact class this
+      // guard exists to close — and `{}` resolves with `user: undefined`,
+      // caching the string "undefined" and returning success for a login that
+      // leaves `isAuthenticated` false, so ProtectedLayout bounces straight
+      // back to /login with nothing shown.
+      if (!data?.user) throw new SyntaxError('signup body is not an AuthResponse');
+    } catch (parseError) {
+      logger.error('[authService] Unreadable signup success response', {
+        status: response.status,
+        error: parseError,
+      });
+      throw new Error("Signup succeeded but the response couldn't be read. Please try again.", {
+        cause: parseError,
+      });
+    }
 
     // Store user in sessionStorage (cleared on tab close - more secure than localStorage)
     sessionStorage.setItem('user', JSON.stringify(data.user));
@@ -216,7 +263,39 @@ export async function getCurrentUser(): Promise<User | null> {
       return null;
     }
 
-    const data: User = await response.json();
+    // A 200 we cannot read means we learned NOTHING about who the viewer is —
+    // which is not the same as learning they are logged out (todo 310).
+    //
+    // Returning `null` here would assert the latter, and three callers act on
+    // that assertion: `AuthContext.revalidateIdentity()` reconciles it with
+    // `setUser(null)`, and `NewThreadPage`/`ThreadDetailPage` compute
+    // `drifted = (current?.id ?? null) !== actingUserId` AFTER a write has
+    // already succeeded (todo 297's defense-in-depth). So one unparseable
+    // body following a successful reply would tell the user "Your session
+    // changed while replying — you were signed out." for a session that never
+    // changed, and then actually sign them out via ProtectedLayout.
+    //
+    // Returning the last known user is not "promoting a stale identity" — the
+    // UI is already showing that user, so this changes nothing; it only
+    // declines to update. That is the honest representation of an unknown
+    // outcome, and it is what the pre-existing outer catch already did. The
+    // guard exists to make the case explicit, logged, and incapable of
+    // throwing — not to change the answer.
+    //
+    // A body that parses but is not a user object (a proxy returning literal
+    // `null`, an envelope rename) is the same "cannot read" case: caching it
+    // would store a non-user under the 'user' key.
+    let data: User;
+    try {
+      data = await response.json();
+      if (!data?.id) throw new SyntaxError('current-user body is not a user object');
+    } catch (parseError) {
+      logger.error('[authService] Unreadable current-user response', {
+        status: response.status,
+        error: parseError,
+      });
+      return getStoredUser();
+    }
 
     // Update sessionStorage with fresh user data
     sessionStorage.setItem('user', JSON.stringify(data));
@@ -224,9 +303,14 @@ export async function getCurrentUser(): Promise<User | null> {
     return data;
   } catch (error) {
     logger.error('[authService] Get current user error', { error });
-    // On error, try to get user from sessionStorage as fallback
-    const storedUser = sessionStorage.getItem('user');
-    return storedUser ? JSON.parse(storedUser) : null;
+    // On error, try to get user from sessionStorage as fallback.
+    // Via getStoredUser() rather than an inline `JSON.parse(...)`, which is
+    // itself unguarded and throws OUT of this catch block on a corrupt
+    // sessionStorage value (todo 310). That matters because
+    // `AuthContext.revalidateIdentity()` awaits this on every tab focus with
+    // no try/catch of its own — an inline parse turns corrupt storage into an
+    // unhandled rejection there. getStoredUser() already has the try/catch.
+    return getStoredUser();
   }
 }
 

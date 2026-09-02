@@ -268,7 +268,9 @@ describe('authService', () => {
         ok: false,
         status: 403,
         json: async () => {
-          throw new Error('Unexpected token \'<\', "<!DOCTYPE "... is not valid JSON');
+          // A real SyntaxError, matching what response.json() throws — see the
+          // malformed-200 tests below and docs/rules/testing.md.
+          throw new SyntaxError('Unexpected token \'<\', "<!DOCTYPE "... is not valid JSON');
         },
       });
 
@@ -291,6 +293,67 @@ describe('authService', () => {
 
       // Act & Assert
       await expect(login(mockLoginCredentials)).rejects.toThrow('Login failed with status 502');
+    });
+
+    // todo 310: the mirror image of the 298 fix above — a 200 whose body is
+    // not JSON (an HTML interstitial from a proxy/CDN, a truncated response).
+    // The raw SyntaxError must not reach the UI through the outer catch.
+    it('should show a friendly message for a malformed 200 body, not the parse error', async () => {
+      // Arrange
+      fetchMock.mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => {
+          // A REAL SyntaxError — what response.json() actually throws. A
+          // hand-rolled `new Error(...)` passes against a narrowed catch and a
+          // bare one alike, so it cannot tell the two apart.
+          throw new SyntaxError('Unexpected token \'<\', "<!DOCTYPE "... is not valid JSON');
+        },
+      });
+
+      // Act & Assert
+      const err = await login(mockLoginCredentials).catch((e) => e);
+      expect(err).toBeInstanceOf(Error);
+      expect(err.message).not.toMatch(/unexpected token|did not match the expected pattern/i);
+      expect(err.message).toBe(
+        "Login succeeded but the response couldn't be read. Please try again."
+      );
+      // Nothing was cached from a body we could not read. Scoped to the
+      // 'user' key: getOrCreateRequestId() also writes to sessionStorage on
+      // every request, so a bare not.toHaveBeenCalled() asserts the wrong thing.
+      expect(sessionStorageMock.setItem).not.toHaveBeenCalledWith('user', expect.anything());
+    });
+
+    // Review finding 3. A 200 that PARSES but isn't an AuthResponse — a proxy
+    // returning literal `null`, an envelope rename, API version skew. The
+    // `data.user` deref used to sit OUTSIDE the guard, so this escaped it.
+    it('should reject a 200 that parses to null rather than throw a raw TypeError', async () => {
+      // Arrange
+      fetchMock.mockResolvedValueOnce({ ok: true, status: 200, json: async () => null });
+
+      // Act & Assert — unguarded this is "Cannot read properties of null
+      // (reading 'user')" rendered on the form, the exact class todo 310 closes.
+      const err = await login(mockLoginCredentials).catch((e) => e);
+      expect(err).toBeInstanceOf(Error);
+      expect(err.message).not.toMatch(/cannot read propert/i);
+      expect(err.message).toBe(
+        "Login succeeded but the response couldn't be read. Please try again."
+      );
+    });
+
+    // The silent-loop case: `{}` throws nothing, so unguarded this RESOLVES
+    // with `user: undefined`, caches the string "undefined", and reports
+    // success for a login that leaves isAuthenticated false — ProtectedLayout
+    // then bounces straight back to /login with no error shown.
+    it('should reject a 200 whose body has no user key instead of resolving', async () => {
+      // Arrange
+      fetchMock.mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({}) });
+
+      // Act & Assert
+      await expect(login(mockLoginCredentials)).rejects.toThrow(
+        "Login succeeded but the response couldn't be read. Please try again."
+      );
+      expect(sessionStorageMock.setItem).not.toHaveBeenCalledWith('user', expect.anything());
     });
 
     it('should prefer the nested errors.detail (retry-hint copy) over the terse top-level message', async () => {
@@ -406,6 +469,62 @@ describe('authService', () => {
 
       // Act & Assert
       await expect(signup(mockSignupData)).rejects.toThrow('Signup failed with status 500');
+    });
+
+    // todo 310 — same shape as login()'s malformed-200 case.
+    it('should show a friendly message for a malformed 200 body, not the parse error', async () => {
+      // Arrange
+      fetchMock.mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => {
+          // A REAL SyntaxError — what response.json() actually throws. A
+          // hand-rolled `new Error(...)` passes against a narrowed catch and a
+          // bare one alike, so it cannot tell the two apart.
+          throw new SyntaxError('Unexpected token \'<\', "<!DOCTYPE "... is not valid JSON');
+        },
+      });
+
+      // Act & Assert
+      const err = await signup(mockSignupData).catch((e) => e);
+      expect(err).toBeInstanceOf(Error);
+      expect(err.message).not.toMatch(/unexpected token|did not match the expected pattern/i);
+      expect(err.message).toBe(
+        "Signup succeeded but the response couldn't be read. Please try again."
+      );
+      expect(sessionStorageMock.setItem).not.toHaveBeenCalledWith('user', expect.anything());
+    });
+
+    // Review finding 3. A 200 that PARSES but isn't an AuthResponse — a proxy
+    // returning literal `null`, an envelope rename, API version skew. The
+    // `data.user` deref used to sit OUTSIDE the guard, so this escaped it.
+    it('should reject a 200 that parses to null rather than throw a raw TypeError', async () => {
+      // Arrange
+      fetchMock.mockResolvedValueOnce({ ok: true, status: 200, json: async () => null });
+
+      // Act & Assert — unguarded this is "Cannot read properties of null
+      // (reading 'user')" rendered on the form, the exact class todo 310 closes.
+      const err = await signup(mockSignupData).catch((e) => e);
+      expect(err).toBeInstanceOf(Error);
+      expect(err.message).not.toMatch(/cannot read propert/i);
+      expect(err.message).toBe(
+        "Signup succeeded but the response couldn't be read. Please try again."
+      );
+    });
+
+    // The silent-loop case: `{}` throws nothing, so unguarded this RESOLVES
+    // with `user: undefined`, caches the string "undefined", and reports
+    // success for a login that leaves isAuthenticated false — ProtectedLayout
+    // then bounces straight back to /login with no error shown.
+    it('should reject a 200 whose body has no user key instead of resolving', async () => {
+      // Arrange
+      fetchMock.mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({}) });
+
+      // Act & Assert
+      await expect(signup(mockSignupData)).rejects.toThrow(
+        "Signup succeeded but the response couldn't be read. Please try again."
+      );
+      expect(sessionStorageMock.setItem).not.toHaveBeenCalledWith('user', expect.anything());
     });
 
     it('should fetch CSRF token if not present', async () => {
@@ -560,6 +679,81 @@ describe('authService', () => {
 
       // Assert
       expect(result).toBeNull();
+    });
+
+    // todo 310, corrected after code review. An unreadable 200 means we learned
+    // NOTHING about the identity — not that the viewer is logged out. Returning
+    // null would assert the latter, and NewThreadPage/ThreadDetailPage compute
+    // `drifted = (current?.id ?? null) !== actingUserId` AFTER a write already
+    // succeeded (todo 297), so it would show "Your session changed while
+    // replying — you were signed out." for a session that never changed, and
+    // then really sign them out. The last known user is the honest answer.
+    it('should return the last known user on an unreadable 200, so drift detection stays quiet', async () => {
+      // Arrange
+      sessionStorageMock.getItem.mockImplementation((key: string) =>
+        key === 'user' ? JSON.stringify(mockUser) : null
+      );
+      fetchMock.mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => {
+          // A REAL SyntaxError, which is what response.json() actually throws
+          // — a hand-rolled `new Error(...)` would pass against a narrowed
+          // catch and a bare one alike, so it cannot tell them apart.
+          throw new SyntaxError('Unexpected token \'<\', "<!DOCTYPE "... is not valid JSON');
+        },
+      });
+
+      // Act
+      const result = await getCurrentUser();
+
+      // Assert — same id the caller was acting as, so `drifted` is false.
+      expect(result).toEqual(mockUser);
+      expect(sessionStorageMock.removeItem).not.toHaveBeenCalledWith('user');
+      // Nothing unreadable was written back over the cache.
+      expect(sessionStorageMock.setItem).not.toHaveBeenCalledWith('user', expect.anything());
+    });
+
+    // A body that parses but isn't a user object is the same "cannot read"
+    // case — caching it would put a non-user under the 'user' key.
+    it('should treat a 200 that parses to null as unreadable, not as a logout', async () => {
+      // Arrange
+      sessionStorageMock.getItem.mockImplementation((key: string) =>
+        key === 'user' ? JSON.stringify(mockUser) : null
+      );
+      fetchMock.mockResolvedValueOnce({ ok: true, status: 200, json: async () => null });
+
+      // Act
+      const result = await getCurrentUser();
+
+      // Assert
+      expect(result).toEqual(mockUser);
+      expect(sessionStorageMock.setItem).not.toHaveBeenCalledWith('user', expect.anything());
+    });
+
+    // The genuine "server says you are not authenticated" signal must still
+    // clear and return null — otherwise the above would have neutered it.
+    it('should still clear the cache and return null on a real 401', async () => {
+      // Arrange
+      sessionStorageMock.getItem.mockImplementation((key: string) =>
+        key === 'user' ? JSON.stringify(mockUser) : null
+      );
+      fetchMock.mockResolvedValueOnce({ ok: false, status: 401 });
+
+      // Act & Assert
+      await expect(getCurrentUser()).resolves.toBeNull();
+      expect(sessionStorageMock.removeItem).toHaveBeenCalledWith('user');
+    });
+
+    it('should return null rather than throw when the sessionStorage fallback holds corrupt JSON', async () => {
+      // Arrange
+      fetchMock.mockRejectedValueOnce(new Error('Network error'));
+      sessionStorageMock.getItem.mockImplementation((key: string) =>
+        key === 'user' ? '{not valid json' : null
+      );
+
+      // Act & Assert — resolves, never rejects
+      await expect(getCurrentUser()).resolves.toBeNull();
     });
   });
 
