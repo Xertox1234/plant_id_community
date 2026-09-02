@@ -117,7 +117,8 @@ Options 1 and 3 are complementary; do 3 first since it is diagnostic.
 - [ ] `npm run test:e2e` (no `--project` filter) completes with zero
       `too many clients already` in the backend log
 - [ ] `npm run test:e2e` run twice in a row, both green, no flake
-- [ ] Todo 329's AC-3 ticked once the above holds
+- [ ] Todo 329 closed out: its AC-3 ticked, `status: blocked` → `completed`, file
+      renamed to match, and archived
 
 ## Work Log
 
@@ -132,6 +133,11 @@ Options 1 and 3 are complementary; do 3 first since it is diagnostic.
 
 ## Notes
 
+- **This todo is todo 329's only carrier.** 329 is `status: blocked`, and every
+  sweep skill filters on `^status: pending` (`todo-next`, `todo-sweep`,
+  `completing-todos` — grep them), so 329 will never be picked up on its own. Its
+  AC-3 is satisfied the moment this todo's are, which is why closing it out is an
+  AC here rather than a note.
 - Only visible on this machine after installing the Firefox and WebKit browser
   binaries (`playwright install firefox webkit`) — they were missing, so
   `firefox`, `webkit`, `Mobile Safari` and `firefox-authenticated` had been

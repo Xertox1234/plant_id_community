@@ -99,6 +99,9 @@ default local command per `web/CLAUDE.md`) run twice in a row, both green.
       todo 331**, an unrelated pre-existing defect (Postgres connection
       exhaustion). The rate-limit property this todo is about *was* verified
       twice in a row: 4 login POSTs, 0x 429, both runs.
+      Closing this out is an AC on **331**, which is the only thing that will
+      resurface it: the sweep skills all filter `^status: pending`, so nothing
+      picks up a `blocked` todo on its own.
 
 ## Work Log
 

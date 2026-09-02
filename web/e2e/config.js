@@ -77,7 +77,11 @@ export const E2E_AUTH_DIR = '.auth';
  * setup-chromium -> .auth/user-chromium.json
  * setup-firefox  -> .auth/user-firefox.json
  *
- * Keep in sync with the `storageState` paths in playwright.config.ts.
+ * This is the single source for those paths: auth.setup.js writes through it, and
+ * playwright.config.ts derives each authenticated project's `storageState` from it
+ * using the same project-name constant it passes to `dependencies`. Nothing
+ * hardcodes a path, so a setup project rename cannot leave a project reading a file
+ * no one writes.
  */
 export function authFileFor(setupProjectName) {
   const browser = setupProjectName.replace(/^setup-/, '');

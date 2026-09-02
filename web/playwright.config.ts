@@ -1,4 +1,14 @@
 import { defineConfig, devices } from '@playwright/test';
+import { authFileFor } from './e2e/config.js';
+
+/**
+ * Setup project names. The authenticated projects derive both their
+ * `dependencies` entry and their `storageState` path from these, so a rename
+ * moves all three together — the state file an authenticated project loads is
+ * by construction the one its own setup project writes (todo 329).
+ */
+const SETUP_CHROMIUM = 'setup-chromium';
+const SETUP_FIREFOX = 'setup-firefox';
 
 /**
  * Playwright E2E Testing Configuration
@@ -106,12 +116,12 @@ export default defineConfig({
     // Setup projects - one per authenticated browser, each logging in separately
     // so no two authenticated projects share a refresh token.
     {
-      name: 'setup-chromium',
+      name: SETUP_CHROMIUM,
       use: { ...devices['Desktop Chrome'] },
       testMatch: /auth\.setup\.js/,
     },
     {
-      name: 'setup-firefox',
+      name: SETUP_FIREFOX,
       use: { ...devices['Desktop Firefox'] },
       testMatch: /auth\.setup\.js/,
     },
@@ -154,15 +164,16 @@ export default defineConfig({
     },
 
     // Authenticated tests (forum, protected routes). Each loads the state file
-    // written by its own setup project - see constraint 2. Paths must stay in sync
-    // with authFileFor() in e2e/config.js.
+    // written by its own setup project - see constraint 2. Both the dependency and
+    // the path derive from the same constant, and auth.setup.js writes via the same
+    // authFileFor(), so the two cannot drift apart.
     {
       name: 'chromium-authenticated',
       use: {
         ...devices['Desktop Chrome'],
-        storageState: '.auth/user-chromium.json',
+        storageState: authFileFor(SETUP_CHROMIUM),
       },
-      dependencies: ['setup-chromium'],
+      dependencies: [SETUP_CHROMIUM],
       testMatch: /(forum-authenticated|canopy-areas-authenticated|auth)\.spec\.js/,
     },
 
@@ -170,9 +181,9 @@ export default defineConfig({
       name: 'firefox-authenticated',
       use: {
         ...devices['Desktop Firefox'],
-        storageState: '.auth/user-firefox.json',
+        storageState: authFileFor(SETUP_FIREFOX),
       },
-      dependencies: ['setup-firefox'],
+      dependencies: [SETUP_FIREFOX],
       testMatch: /(forum-authenticated|canopy-areas-authenticated|auth)\.spec\.js/,
     },
   ],
