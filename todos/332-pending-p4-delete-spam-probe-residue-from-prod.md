@@ -23,10 +23,31 @@ Created 2026-09-03 while verifying todo 280 AC3/AC4:
 
 - Account `spam-screen-probe-280`, user id **20**, email
   `spam-screen-probe-280@example.com`, trust level NEW (0).
-- Topics **37-41** (slugs `spam-screen-probe-280`, `…-2` … `…-5`) in board
-  `show-tell`, all rejected by the LLM screen and left as pending drafts.
-- Topic **42** (slug `spam-screen-probe-280-cold`), the post-fix cold-start
-  probe, same state.
+- Topics **37-42** in board `show-tell`, all rejected by the LLM screen and left
+  as pending drafts. **Identify them by id, not by slug** — see the trap below.
+  Ids, slugs and the titles actually stored:
+
+  | id | slug | title |
+  |----|------|-------|
+  | 37 | `spam-screen-probe-280` | CHEAP DESIGNER WATCHES 90% OFF TODAY ONLY |
+  | 38 | `spam-screen-probe-280-2` | CHEAP DESIGNER WATCHES probe 2 |
+  | 39 | `spam-screen-probe-280-3` | CHEAP DESIGNER WATCHES probe 3 |
+  | 40 | `spam-screen-probe-280-4` | CHEAP DESIGNER WATCHES probe 4 |
+  | 41 | `spam-screen-probe-280-5` | CHEAP DESIGNER WATCHES probe 5 |
+  | 42 | `spam-screen-probe-280-cold` | LIMITED TIME crypto seed vault clearance |
+
+- **Trap: searching the admin for `spam-screen-probe-280` finds NOTHING.**
+  `TopicViewSet.search_fields = ["title"]` (`wagtail_hooks.py:23`) — the Topics
+  listing searches titles only, and `slug` is an independent client-supplied
+  `SlugField` on `TopicCreateSerializer` (`api/serializers.py:1060`), not
+  derived from the title. Every probe title is spam prose, so a slug-based
+  search returns zero rows and every acceptance criterion below would pass with
+  all six drafts still present.
+
+- **Trap: delete the topics BEFORE the user.** `Topic.author` and `Post.author`
+  are both `on_delete=models.SET_NULL` (`models/topics.py:39`,
+  `models/posts.py:40`). Deleting user 20 first blanks the author column on all
+  six rows, destroying the last handle that ties them to this cleanup.
 
 **Not a public exposure** — verified anonymously against production the same
 day, and this is the fail-closed path working correctly:
@@ -46,12 +67,28 @@ admin is the only route.
 
 ## Recommended Action
 
-1. In `/cms/`, delete topics 37-42 (search slug prefix `spam-screen-probe-280`).
+**Order matters — topics first, then the user** (see the SET_NULL trap above).
+
+1. Delete topics 37-42 by id, not by search. Go straight to each snippet URL:
+
+   ```
+   /cms/snippets/wagtail_forum/topic/delete/37/
+   /cms/snippets/wagtail_forum/topic/delete/38/
+   /cms/snippets/wagtail_forum/topic/delete/39/
+   /cms/snippets/wagtail_forum/topic/delete/40/
+   /cms/snippets/wagtail_forum/topic/delete/41/
+   /cms/snippets/wagtail_forum/topic/delete/42/
+   ```
+
    Deleting the topic removes its opening post; the drafts were never published,
-   so there is nothing to unpublish first.
-2. Delete the `spam-screen-probe-280` user (id 20). It owns nothing else — it
-   was created solely for the probe and its `forum_posts_count` is 0.
-3. Confirm the moderation queue no longer lists them.
+   so there is nothing to unpublish first. (If you prefer the listing, search
+   the *titles* — `CHEAP DESIGNER WATCHES` and `crypto seed vault` — since slug
+   search does not work.)
+
+2. Only then delete the `spam-screen-probe-280` user (id 20) in the Django/Wagtail
+   user admin.
+
+3. Confirm each of the six ids now 404s in the admin.
 
 ## Technical Details
 
@@ -63,10 +100,13 @@ why a flagged post lands as a pending draft rather than being discarded.
 
 ## Acceptance Criteria
 
-- [ ] Topics 37-42 no longer exist (Wagtail admin search for
-      `spam-screen-probe-280` returns nothing)
-- [ ] User id 20 (`spam-screen-probe-280`) is deleted
-- [ ] The forum moderation queue shows no `spam-screen-probe-280` entries
+- [ ] Each of `/cms/snippets/wagtail_forum/topic/edit/<id>/` for ids **37, 38,
+      39, 40, 41, 42** returns 404 (checked per id — a listing search is NOT
+      acceptable evidence here, see the Findings trap)
+- [ ] User id 20 (`spam-screen-probe-280`) is deleted, and was deleted *after*
+      the topics
+- [ ] A Topics listing search for `CHEAP DESIGNER WATCHES` and for
+      `crypto seed vault` both return zero rows
 
 ## Work Log
 
@@ -77,6 +117,13 @@ why a flagged post lands as a pending draft rather than being discarded.
   re-reads.
 
 ## Notes
+
+The original version of this file told the reader to find the topics by slug
+search and made every acceptance criterion pass on a zero-row result — i.e. it
+would have produced a confidently-ticked cleanup with nothing actually deleted.
+Caught by `/code-review medium` on PR #621. Worth remembering that a todo whose
+verification step can be satisfied by *not finding anything* is worse than no
+todo at all.
 
 p4 because there is no exposure and no functional impact — purely tidiness of
 the moderation queue. Deliberately NOT `status: blocked`: per

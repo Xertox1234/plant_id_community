@@ -393,13 +393,19 @@ a COLD call, not a warm one".
 
 ### Production residue — needs a human with `/cms/` access
 
-Five probe topics (ids 37-41, slugs `spam-screen-probe-280*`) and the account
+Six probe topics (ids 37-42, slugs `spam-screen-probe-280*` — id 42 is the
+post-fix cold-start probe added later in this run) and the account
 `spam-screen-probe-280` (user id 20) exist in production. They are **drafts, not
 exposure** — verified anonymously: absent from `/forum/rss/`, absent from
 `/forum/sitemap.xml`, absent from the board topic list, and topic detail 404s.
 They are moderation-queue clutter only. There is no author-delete endpoint for a
 pending topic and no account-deletion endpoint, so removing them is a Wagtail
 admin action at `/cms/`.
+
+**Do not work from this list — use todo 332.** It carries the two traps this
+section does not: the admin searches topic *titles* only (a slug search finds
+nothing), and `author` is `SET_NULL`, so the user must be deleted *after* the
+topics or the rows lose their last handle.
 
 ### 2026-09-03 - Timeout fix verified against the exact failure mode
 
