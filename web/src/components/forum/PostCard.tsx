@@ -391,7 +391,7 @@ function PostCard({
             <button
               type="button"
               onClick={() => setShowReactionPicker(true)}
-              className="inline-flex items-center min-h-11 px-3 py-1 text-ink-3 border border-transparent hover:border-line hover:bg-surface-3 rounded-full text-sm transition-colors"
+              className="inline-flex items-center justify-center min-h-11 min-w-11 px-3 py-1 text-ink-3 border border-transparent hover:border-line hover:bg-surface-3 rounded-full text-sm transition-colors"
               aria-label="Add reaction"
               title="Add reaction"
             >

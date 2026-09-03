@@ -11,8 +11,10 @@ import Card from '../ui/Card';
  * mirrored — auth-gated or data-gated chrome (bookmark/follow buttons,
  * reaction bars, tag chips, subcategory pills, the reply composer, the rail)
  * is left out so the skeleton never promises something the loaded page may
- * not show. No skeleton renders a heading: e2e/forum-responsive.spec.ts gates
- * its overflow check on the loaded page's h1.
+ * not show. No skeleton renders a heading: the forum-index e2e overflow check
+ * waits for the loaded page's h1, while the board and thread checks gate on the
+ * URL alone and can sample a skeleton mid-fetch — which is why every width
+ * here is fluid.
  *
  * Widths are fluid (fractions, w-full + max-w-*) so nothing can overflow at
  * 375px. Cards reuse <Card> so the chrome is pixel-identical to the loaded
@@ -60,10 +62,12 @@ interface SkeletonStatusProps {
 /**
  * The accessible root. `role="status"` is what the page tests query, so this
  * node must NOT be aria-hidden — only the decorative container below it is.
+ * `status` takes its name from the author only, so the label is also set as
+ * `aria-label` (the sr-only copy is what the live region announces).
  */
 export function SkeletonStatus({ children, label = 'Loading…' }: SkeletonStatusProps) {
   return (
-    <div role="status" aria-live="polite">
+    <div role="status" aria-live="polite" aria-label={label}>
       <span className="sr-only">{label}</span>
       <div aria-hidden="true">{children}</div>
     </div>

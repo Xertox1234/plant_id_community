@@ -57,6 +57,7 @@ describe('ForumSkeleton', () => {
 
   it('UserProfileSkeleton keeps the "Loading profile" wording the page used before', () => {
     render(<UserProfileSkeleton />);
-    expect(screen.getByRole('status')).toHaveTextContent('Loading profile…');
+    const status = screen.getByRole('status', { name: 'Loading profile…' });
+    expect(status).toHaveTextContent('Loading profile…');
   });
 });
