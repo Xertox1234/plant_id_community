@@ -4,7 +4,7 @@ import { Search, SearchX } from 'lucide-react';
 import { searchForum, fetchCategories } from '../../services/forumService';
 import ThreadCard from '../../components/forum/ThreadCard';
 import PlantCareAskPanel from '../../components/forum/PlantCareAskPanel';
-import LoadingSpinner from '../../components/ui/LoadingSpinner';
+import { SearchResultsSkeleton } from '../../components/forum/ForumSkeleton';
 import Button from '../../components/ui/Button';
 import Card from '../../components/ui/Card';
 import { logger } from '../../utils/logger';
@@ -31,7 +31,7 @@ function highlightText(text: string | undefined, query: string) {
   const regex = new RegExp(`(${terms.join('|')})`, 'gi');
   return text.split(regex).map((part, index) =>
     new RegExp(`^(${terms.join('|')})$`, 'i').test(part) ? (
-      <mark key={`${part}-${index}`} className="bg-tertiary/30 rounded px-0.5">
+      <mark key={`${part}-${index}`} className="bg-tertiary/30 rounded-xs px-0.5">
         {part}
       </mark>
     ) : (
@@ -298,7 +298,7 @@ export default function SearchPage() {
       {/* Filters */}
       <Card className="mb-6 p-6">
         <div className="flex items-center justify-between mb-4">
-          <h2 className="text-lg font-semibold text-ink">Filters</h2>
+          <h2 className="gt-h3 text-ink">Filters</h2>
           {hasActiveFilters && (
             <button
               onClick={handleClearFilters}
@@ -333,14 +333,10 @@ export default function SearchPage() {
       </Card>
 
       {/* Search Results */}
-      {loading && (
-        <div className="flex justify-center py-12">
-          <LoadingSpinner />
-        </div>
-      )}
+      {loading && <SearchResultsSkeleton />}
 
       {error && (
-        <div className="bg-error/10 border border-error/30 rounded-lg p-4 mb-6">
+        <div className="bg-error/10 border border-error/30 rounded-md p-4 mb-6">
           <p className="text-error">{error}</p>
         </div>
       )}

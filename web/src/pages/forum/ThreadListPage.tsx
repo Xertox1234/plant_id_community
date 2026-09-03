@@ -6,7 +6,7 @@ import { parseLeadingId } from '../../utils/forumUrls';
 import { boardIdentity } from '../../utils/forumTones';
 import ThreadCard from '../../components/forum/ThreadCard';
 import ForumErrorState from '../../components/forum/ForumErrorState';
-import LoadingSpinner from '../../components/ui/LoadingSpinner';
+import { ThreadListSkeleton } from '../../components/forum/ForumSkeleton';
 import Button from '../../components/ui/Button';
 import ButtonLink from '../../components/ui/ButtonLink';
 import Chip from '../../components/ui/Chip';
@@ -214,7 +214,7 @@ export default function ThreadListPage() {
   if (loading && !category) {
     return (
       <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
-        <LoadingSpinner />
+        <ThreadListSkeleton withHeader />
       </div>
     );
   }
@@ -337,7 +337,7 @@ export default function ThreadListPage() {
 
       {/* Threads */}
       {loading ? (
-        <LoadingSpinner />
+        <ThreadListSkeleton />
       ) : threads.length === 0 ? (
         <div className="py-12 text-center text-ink-3">
           {activeTag ? (

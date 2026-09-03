@@ -440,7 +440,7 @@ export default function NewThreadPage() {
                 <img
                   src={handoff.identificationPreviewUrl}
                   alt="Photo that will be attached to your question"
-                  className="h-20 w-20 shrink-0 rounded object-cover"
+                  className="h-20 w-20 shrink-0 rounded-xs object-cover"
                 />
               )}
               <div className="min-w-0 flex-1">
@@ -514,7 +514,7 @@ export default function NewThreadPage() {
           </label>
 
           {pollEnabled && (
-            <div className="mt-3 space-y-3 rounded-lg border border-line bg-surface-2 p-4">
+            <div className="mt-3 space-y-3 rounded-md border border-line bg-surface-2 p-4">
               <div>
                 <label
                   htmlFor="poll-question"
@@ -529,7 +529,7 @@ export default function NewThreadPage() {
                   onChange={(e) => setPollQuestion(e.target.value)}
                   maxLength={300}
                   placeholder="Best soil mix for aroids?"
-                  className="w-full px-4 py-2 border border-line-2 rounded-lg focus:ring-2 focus:ring-primary focus:border-transparent bg-surface text-ink"
+                  className="w-full px-4 py-2 border border-line-2 rounded-sm focus:ring-2 focus:ring-primary focus:border-transparent bg-surface text-ink"
                 />
               </div>
 
@@ -552,7 +552,7 @@ export default function NewThreadPage() {
                       maxLength={200}
                       aria-label={`Poll option ${index + 1}`}
                       placeholder={`Option ${index + 1}`}
-                      className="w-full px-4 py-2 border border-line-2 rounded-lg focus:ring-2 focus:ring-primary focus:border-transparent bg-surface text-ink"
+                      className="w-full px-4 py-2 border border-line-2 rounded-sm focus:ring-2 focus:ring-primary focus:border-transparent bg-surface text-ink"
                     />
                   ))}
                 </div>
@@ -560,7 +560,7 @@ export default function NewThreadPage() {
                   <button
                     type="button"
                     onClick={() => setPollOptions((prev) => [...prev, ''])}
-                    className="mt-2 min-h-11 rounded px-3 text-sm font-medium text-primary hover:bg-surface-3"
+                    className="mt-2 min-h-11 rounded-xs px-3 text-sm font-medium text-primary hover:bg-surface-3"
                   >
                     + Add option
                   </button>
@@ -584,7 +584,7 @@ export default function NewThreadPage() {
                   value={pollClosesAt}
                   onChange={(e) => setPollClosesAt(e.target.value)}
                   min={minPollCloseDateTime()}
-                  className="w-full px-4 py-2 border border-line-2 rounded-lg focus:ring-2 focus:ring-primary focus:border-transparent bg-surface text-ink"
+                  className="w-full px-4 py-2 border border-line-2 rounded-sm focus:ring-2 focus:ring-primary focus:border-transparent bg-surface text-ink"
                 />
                 <p className="mt-1 text-xs text-ink-3">Leave blank for a poll that never closes.</p>
               </div>

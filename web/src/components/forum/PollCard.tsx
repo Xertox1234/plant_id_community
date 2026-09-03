@@ -1,4 +1,5 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
+import { ChartBar, Check } from 'lucide-react';
 import Button from '../ui/Button';
 import { ForumApiError } from '../../services/forumService';
 import type { ThreadPoll } from '@/types';
@@ -105,15 +106,19 @@ export default function PollCard({ poll, onVote, canVote }: PollCardProps) {
 
   return (
     <section
-      className="mb-6 rounded-lg border border-line bg-surface-2 p-4"
+      className="mb-6 rounded-md border border-line bg-surface-2 p-4"
       aria-labelledby={`poll-question-${current.id}`}
     >
       <div className="mb-3 flex flex-wrap items-baseline justify-between gap-2">
-        <h2 id={`poll-question-${current.id}`} className="text-lg font-semibold text-ink">
-          <span aria-hidden="true">📊</span> {current.question}
+        <h2
+          id={`poll-question-${current.id}`}
+          className="gt-h3 inline-flex items-center gap-2 text-ink"
+        >
+          <ChartBar className="h-4 w-4 shrink-0 text-secondary" aria-hidden="true" />
+          {current.question}
         </h2>
         {current.is_closed && (
-          <span className="rounded bg-surface-3 px-2 py-1 text-xs font-semibold text-ink-2">
+          <span className="rounded-xs bg-surface-3 px-2 py-1 text-xs font-semibold text-ink-2">
             Closed
           </span>
         )}
@@ -126,12 +131,15 @@ export default function PollCard({ poll, onVote, canVote }: PollCardProps) {
           return (
             <li key={option.id}>
               {showResults ? (
-                <div className="rounded border border-line bg-surface p-2">
+                <div className="rounded-sm border border-line bg-surface p-2">
                   <div className="flex items-baseline justify-between gap-2 text-sm">
                     <span className="font-medium text-ink">
                       {option.text}
                       {isMine && (
-                        <span className="ml-2 text-xs font-normal text-primary">✓ your vote</span>
+                        <span className="ml-2 inline-flex items-center gap-1 text-xs font-normal text-primary">
+                          <Check className="h-3 w-3" aria-hidden="true" />
+                          your vote
+                        </span>
                       )}
                     </span>
                     <span className="text-ink-2">
@@ -141,7 +149,10 @@ export default function PollCard({ poll, onVote, canVote }: PollCardProps) {
                   {/* The bar is decorative — the numbers beside it already
                       carry the value, and a progressbar role per option would
                       make a screen reader announce every row twice. */}
-                  <div className="mt-2 h-2 overflow-hidden rounded bg-surface-3" aria-hidden="true">
+                  <div
+                    className="mt-2 h-2 overflow-hidden rounded-pill bg-surface-3"
+                    aria-hidden="true"
+                  >
                     <div className="h-full bg-primary" style={{ width: `${share}%` }} />
                   </div>
                 </div>
@@ -170,7 +181,7 @@ export default function PollCard({ poll, onVote, canVote }: PollCardProps) {
       {/* Always-mounted live region: a conditionally-rendered role node is
           generally NOT announced when it appears. Visually collapsed when
           empty, and its ancestors are all unconditional. */}
-      <p role="alert" aria-live="polite" className={error ? 'mt-2 text-sm text-danger' : 'sr-only'}>
+      <p role="alert" aria-live="polite" className={error ? 'mt-2 text-sm text-error' : 'sr-only'}>
         {error ?? ''}
       </p>
     </section>

@@ -4,6 +4,19 @@ import Link from '@tiptap/extension-link';
 import Placeholder from '@tiptap/extension-placeholder';
 import { ReactNode, useEffect, useRef, useState } from 'react';
 import {
+  Bold,
+  Code,
+  Image as ImageIcon,
+  Italic,
+  Link as LinkIcon,
+  List,
+  ListOrdered,
+  LoaderCircle,
+  Quote,
+  Sparkles,
+  Unlink,
+} from 'lucide-react';
+import {
   ComposeAssistError,
   improveDraft,
   isComposeAssistUnavailable,
@@ -282,7 +295,7 @@ export default function TipTapEditor({
   }
 
   return (
-    <div className={`border border-line-2 rounded-lg overflow-hidden ${className}`}>
+    <div className={`border border-line-2 rounded-sm overflow-hidden ${className}`}>
       {/* Toolbar */}
       {editable && (
         <div className="bg-surface border-b border-line-2 p-2 flex gap-1 flex-wrap">
@@ -291,7 +304,7 @@ export default function TipTapEditor({
             isActive={editor.isActive('bold')}
             title="Bold (Ctrl+B)"
           >
-            <strong>B</strong>
+            <Bold className="h-4 w-4" aria-hidden="true" />
           </ToolbarButton>
 
           <ToolbarButton
@@ -299,7 +312,7 @@ export default function TipTapEditor({
             isActive={editor.isActive('italic')}
             title="Italic (Ctrl+I)"
           >
-            <em>I</em>
+            <Italic className="h-4 w-4" aria-hidden="true" />
           </ToolbarButton>
 
           {/* Strike / headings / code-block are intentionally omitted: the
@@ -317,7 +330,7 @@ export default function TipTapEditor({
             isActive={editor.isActive('bulletList')}
             title="Bullet List"
           >
-            •
+            <List className="h-4 w-4" aria-hidden="true" />
           </ToolbarButton>
 
           <ToolbarButton
@@ -325,7 +338,7 @@ export default function TipTapEditor({
             isActive={editor.isActive('orderedList')}
             title="Numbered List"
           >
-            1.
+            <ListOrdered className="h-4 w-4" aria-hidden="true" />
           </ToolbarButton>
 
           <ToolbarButton
@@ -333,7 +346,7 @@ export default function TipTapEditor({
             isActive={editor.isActive('blockquote')}
             title="Quote"
           >
-            ❝
+            <Quote className="h-4 w-4" aria-hidden="true" />
           </ToolbarButton>
 
           <div className="w-px bg-line-2 mx-1" aria-hidden="true" />
@@ -343,7 +356,7 @@ export default function TipTapEditor({
             isActive={editor.isActive('code')}
             title="Inline Code"
           >
-            {'</>'}
+            <Code className="h-4 w-4" aria-hidden="true" />
           </ToolbarButton>
 
           <div className="w-px bg-line-2 mx-1" aria-hidden="true" />
@@ -356,7 +369,7 @@ export default function TipTapEditor({
             isActive={editor.isActive('link')}
             title="Insert Link"
           >
-            🔗
+            <LinkIcon className="h-4 w-4" aria-hidden="true" />
           </ToolbarButton>
 
           {editor.isActive('link') && (
@@ -364,14 +377,18 @@ export default function TipTapEditor({
               onClick={() => editor.chain().focus().unsetLink().run()}
               title="Remove Link"
             >
-              ⛓️‍💥
+              <Unlink className="h-4 w-4" aria-hidden="true" />
             </ToolbarButton>
           )}
 
           <div className="w-px bg-line-2 mx-1" aria-hidden="true" />
 
           <ToolbarButton onClick={() => fileInputRef.current?.click()} title="Insert image">
-            {uploadingImage ? '⏳' : '🖼️'}
+            {uploadingImage ? (
+              <LoaderCircle className="h-4 w-4 animate-spin" aria-hidden="true" />
+            ) : (
+              <ImageIcon className="h-4 w-4" aria-hidden="true" />
+            )}
           </ToolbarButton>
 
           {/* AI draft improvement (M14) — premium perk, server-gated. Once the
@@ -391,7 +408,11 @@ export default function TipTapEditor({
                   : 'Improve draft with AI (premium; undo to revert)'
             }
           >
-            {aiWorking ? '⏳' : '✨'}
+            {aiWorking ? (
+              <LoaderCircle className="h-4 w-4 animate-spin" aria-hidden="true" />
+            ) : (
+              <Sparkles className="h-4 w-4" aria-hidden="true" />
+            )}
           </ToolbarButton>
           <input
             ref={fileInputRef}
@@ -413,7 +434,7 @@ export default function TipTapEditor({
           <img
             src={altPrompt.previewUrl}
             alt=""
-            className="h-14 w-14 shrink-0 rounded object-cover"
+            className="h-14 w-14 shrink-0 rounded-xs object-cover"
           />
           <div className="flex min-w-0 flex-1 flex-col gap-1">
             <label htmlFor="tiptap-image-alt" className="text-sm font-medium text-ink">
@@ -440,7 +461,7 @@ export default function TipTapEditor({
               }}
               placeholder="e.g. A monstera leaf with brown edges"
               aria-describedby="tiptap-image-alt-hint"
-              className="min-h-11 w-full rounded border border-line-2 bg-surface-1 px-3 text-sm text-ink"
+              className="min-h-11 w-full rounded-sm border border-line-2 bg-surface px-3 text-sm text-ink"
             />
             <span id="tiptap-image-alt-hint" className="text-xs text-ink-3">
               Helps people using screen readers. Leave blank if the image is decorative. This can
@@ -450,14 +471,14 @@ export default function TipTapEditor({
           <button
             type="button"
             onClick={() => void uploadPendingImage(altPrompt.alt)}
-            className="min-h-11 rounded bg-primary/20 px-3 text-sm font-medium text-ink"
+            className="min-h-11 rounded-xs bg-primary/20 px-3 text-sm font-medium text-ink"
           >
             Add image
           </button>
           <button
             type="button"
             onClick={() => void uploadPendingImage('')}
-            className="min-h-11 rounded px-3 text-sm text-ink-2"
+            className="min-h-11 rounded-xs px-3 text-sm text-ink-2"
           >
             Skip
           </button>
@@ -488,12 +509,12 @@ export default function TipTapEditor({
             }}
             placeholder="https://example.com"
             aria-invalid={!!linkError}
-            className="min-h-11 flex-1 rounded border border-line-2 bg-surface-1 px-3 text-sm text-ink"
+            className="min-h-11 flex-1 rounded-sm border border-line-2 bg-surface px-3 text-sm text-ink"
           />
           <button
             type="button"
             onClick={applyLink}
-            className="min-h-11 rounded bg-primary/20 px-3 text-sm font-medium text-ink"
+            className="min-h-11 rounded-xs bg-primary/20 px-3 text-sm font-medium text-ink"
           >
             Apply
           </button>
@@ -503,7 +524,7 @@ export default function TipTapEditor({
               setLinkDraft(null);
               setLinkError(null);
             }}
-            className="min-h-11 rounded px-3 text-sm text-ink-2"
+            className="min-h-11 rounded-xs px-3 text-sm text-ink-2"
           >
             Cancel
           </button>
@@ -573,7 +594,7 @@ function ToolbarButton({ onClick, isActive, title, disabled, children }: Toolbar
       aria-label={title}
       // min-h-11/min-w-11 = 44px WCAG 2.5.5 tap target (audit L10; was ~32px).
       className={`
-        inline-flex min-h-11 min-w-11 items-center justify-center rounded px-3 text-sm font-medium transition-colors
+        inline-flex min-h-11 min-w-11 items-center justify-center rounded-xs px-3 text-sm font-medium transition-colors
         disabled:cursor-not-allowed disabled:opacity-50
         ${isActive ? 'bg-primary/20 text-ink' : 'bg-surface-2 text-ink-2 hover:bg-surface-3'}
       `}

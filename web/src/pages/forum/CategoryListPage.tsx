@@ -11,7 +11,7 @@ import { createSafeMarkup, SANITIZE_PRESETS } from '../../utils/sanitize';
 import CategoryCard from '../../components/forum/CategoryCard';
 import SeasonStatsGrid from '../../components/forum/SeasonStatsGrid';
 import ForumErrorState from '../../components/forum/ForumErrorState';
-import LoadingSpinner from '../../components/ui/LoadingSpinner';
+import { CategoryListSkeleton } from '../../components/forum/ForumSkeleton';
 import HeroCard from '../../components/ui/HeroCard';
 import StatCard from '../../components/ui/StatCard';
 import Card from '../../components/ui/Card';
@@ -157,7 +157,7 @@ export default function CategoryListPage() {
   if (loading) {
     return (
       <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
-        <LoadingSpinner />
+        <CategoryListSkeleton />
       </div>
     );
   }

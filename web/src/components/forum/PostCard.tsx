@@ -1,6 +1,6 @@
 import { memo, useCallback, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Check, Flag, Link2, Pencil, Trash2, UserCheck, UserX } from 'lucide-react';
+import { Check, Flag, Link2, Pencil, SmilePlus, Trash2, UserCheck, UserX } from 'lucide-react';
 import StreamFieldRenderer from '../StreamFieldRenderer';
 import EditHistoryDialog from './EditHistoryDialog';
 import Timestamp from '../ui/Timestamp';
@@ -395,7 +395,7 @@ function PostCard({
               aria-label="Add reaction"
               title="Add reaction"
             >
-              <span aria-hidden="true">+🙂</span>
+              <SmilePlus className="h-4 w-4" aria-hidden="true" />
             </button>
           )}
           {onReact &&

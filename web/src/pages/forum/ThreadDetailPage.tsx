@@ -41,7 +41,7 @@ import IdentificationCard from '../../components/forum/IdentificationCard';
 import PollCard from '../../components/forum/PollCard';
 import ForumErrorState from '../../components/forum/ForumErrorState';
 import TipTapEditor from '../../components/forum/TipTapEditor';
-import LoadingSpinner from '../../components/ui/LoadingSpinner';
+import { ThreadDetailSkeleton } from '../../components/forum/ForumSkeleton';
 import Button from '../../components/ui/Button';
 import ConfirmDialog from '../../components/ui/ConfirmDialog';
 import Avatar from '../../components/ui/Avatar';
@@ -693,7 +693,7 @@ export default function ThreadDetailPage() {
   if (loading) {
     return (
       <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        <LoadingSpinner />
+        <ThreadDetailSkeleton />
       </div>
     );
   }
