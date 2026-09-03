@@ -60,18 +60,22 @@ class ForumProfile(models.Model):
     # initial_read_watermark()'s own fallback rather than this default.
     #
     # Todo 285 (2026-07-31) closed the tradeoff todo 271 #1 had accepted here.
-    # The gap was: profile creation is reached from six non-test call sites
-    # across four modules, only ONE of which means "this user read something":
+    # The gap was: profile creation is reached from seven non-test call sites
+    # across five modules, only ONE of which means "this user read something":
     #   * api/views.py TopicDetailView.retrieve   — a genuine read
     #   * api/views.py MeProfileView.get_object   — fetching one's own profile
     #   * workflow.py (x2)                        — trust check when the user
     #                                               submits a post
+    #   * api/direct_messages.py _screen_dm_body  — trust check when the user
+    #                                               sends a DM (todo 280)
     #   * forum_host/tasks.py                     — push delivery, i.e. a
     #                                               THIRD PARTY's action
     #   * signals.py _refresh_profile             — post-count/trust recount,
     #                                               which bypasses for_user()
     #                                               entirely (get_or_create on
     #                                               user_id)
+    # (api/presence.py touch_last_seen deliberately does NOT appear here: it
+    # uses .filter(user=user), so a presence ping creates no row.)
     # Whichever fired first stamped read_watermark_at=now, so for a pre-ship
     # "sleeper" account (no profile row yet) an unrelated trigger could
     # collapse that user's whole pre-existing unread backlog forest-wide, not

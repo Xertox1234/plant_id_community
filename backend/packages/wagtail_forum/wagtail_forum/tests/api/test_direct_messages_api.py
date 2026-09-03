@@ -2,13 +2,21 @@ import pytest
 from django.contrib.auth import get_user_model
 from django.core.cache import cache
 from django.db import connection
-from django.test.utils import CaptureQueriesContext
+from django.test.utils import CaptureQueriesContext, override_settings
 from rest_framework.test import APIClient
 from wagtail_forum.api.direct_messages import (
     ConversationListView,
     ConversationMessagesView,
 )
-from wagtail_forum.models import Conversation, Message, Report, UserBlock
+from wagtail_forum.models import (
+    Conversation,
+    ForumProfile,
+    Message,
+    Report,
+    TrustLevel,
+    UserBlock,
+)
+from wagtail_forum.spam.base import SpamBackend, SpamResult
 
 User = get_user_model()
 pytestmark = pytest.mark.urls("wagtail_forum.tests.api.urls")
@@ -366,3 +374,140 @@ def test_conversation_messages_swagger_fake_view_guard():
     view = ConversationMessagesView()
     view.swagger_fake_view = True
     assert list(view.get_queryset()) == []
+
+
+# ---------------------------------------------------------------------------
+# DM spam screening is TRUST-ROUTED (todo 280)
+#
+# Posts only reach the configured backend when the author is untrusted
+# (workflow.py::_route_revision_by_trust); DMs used to reach it for every
+# sender at every trust level. With an LLM backend configured that put a
+# synchronous, billable provider call on every DM send, and — because a
+# Message has no revision/workflow state to hold — a fail-closed verdict
+# REJECTS the send outright instead of queueing it for review.
+#
+# The heuristic floor still screens everyone; only the configured backend's
+# extra pass is trust-gated.
+# ---------------------------------------------------------------------------
+
+
+class _RecordingSpamBackend(SpamBackend):
+    """Rejects everything and records that it was consulted.
+
+    Rejecting (rather than passing) makes "was this backend reached?" visible
+    in the response status as well as in ``calls``, so a test cannot pass
+    because the assertion silently looked at the wrong signal.
+    """
+
+    calls: list = []
+
+    def check(self, obj) -> SpamResult:
+        type(self).calls.append(self.extract_text(obj))
+        return SpamResult(False, "AI: recorded")
+
+
+@pytest.fixture
+def recording_backend():
+    _RecordingSpamBackend.calls = []
+    yield _RecordingSpamBackend
+    _RecordingSpamBackend.calls = []
+
+
+_RECORDING_PATH = (
+    "wagtail_forum.tests.api.test_direct_messages_api._RecordingSpamBackend"
+)
+
+
+@override_settings(WAGTAILFORUM_SPAM_BACKEND=_RECORDING_PATH)
+@pytest.mark.django_db
+def test_untrusted_sender_dm_is_screened_by_the_configured_backend(recording_backend):
+    sender = User.objects.create_user(username="dm-untrusted")
+    recipient = User.objects.create_user(username="dm-untrusted-rcpt")
+    profile = ForumProfile.for_user(sender)
+    assert profile.trust_level == TrustLevel.NEW  # below TRUST_AUTOPUBLISH_LEVEL
+    client = APIClient()
+    client.force_authenticate(sender)
+
+    resp = client.post(
+        f"/forum/users/{recipient.username}/messages/", {"body": "buy my thing"}
+    )
+
+    assert resp.status_code == 400
+    assert resp.data["errors"]["detail"] == "AI: recorded"
+    assert recording_backend.calls == ["buy my thing"]
+    assert not Message.objects.exists()
+
+
+@override_settings(WAGTAILFORUM_SPAM_BACKEND=_RECORDING_PATH)
+@pytest.mark.django_db
+def test_trusted_sender_dm_skips_the_configured_backend(recording_backend):
+    sender = User.objects.create_user(username="dm-trusted")
+    recipient = User.objects.create_user(username="dm-trusted-rcpt")
+    profile = ForumProfile.for_user(sender)
+    profile.trust_level = TrustLevel.MEMBER  # == TRUST_AUTOPUBLISH_LEVEL
+    profile.save(update_fields=["trust_level"])
+    client = APIClient()
+    client.force_authenticate(sender)
+
+    resp = client.post(
+        f"/forum/users/{recipient.username}/messages/", {"body": "hello friend"}
+    )
+
+    assert resp.status_code == 201
+    assert recording_backend.calls == []  # no billable provider call
+    assert Message.objects.get().body == "hello friend"
+
+
+@override_settings(WAGTAILFORUM_SPAM_BACKEND=_RECORDING_PATH)
+@pytest.mark.django_db
+def test_trusted_sender_dm_still_gets_the_heuristic_floor(recording_backend):
+    """Trust gates the CONFIGURED backend, never the deterministic floor.
+
+    Without this the gate would silently drop link-flood/banned-word screening
+    for every established member's DMs — trading one problem for a worse one.
+    """
+    sender = User.objects.create_user(username="dm-trusted-spammy")
+    recipient = User.objects.create_user(username="dm-trusted-spammy-rcpt")
+    profile = ForumProfile.for_user(sender)
+    profile.trust_level = TrustLevel.LEADER
+    profile.save(update_fields=["trust_level"])
+    client = APIClient()
+    client.force_authenticate(sender)
+    spammy = " ".join(["http://x.test"] * 4)  # SPAM_MAX_LINKS default is 3
+
+    resp = client.post(f"/forum/users/{recipient.username}/messages/", {"body": spammy})
+
+    assert resp.status_code == 400
+    assert "link" in resp.data["errors"]["detail"].lower()
+    assert recording_backend.calls == []
+    assert not Message.objects.exists()
+
+
+@override_settings(WAGTAILFORUM_SPAM_BACKEND=_RECORDING_PATH)
+@pytest.mark.django_db
+def test_untrusted_sender_dm_floor_comes_from_the_configured_backend(
+    recording_backend,
+):
+    """The gate does NOT bolt the heuristic onto the untrusted branch.
+
+    An untrusted sender reaches the configured backend alone — the package's
+    contract before the gate and after it. Both backends shipped in this repo
+    chain the heuristic themselves, so the floor holds in practice; this pins
+    that it is the BACKEND's property, not something `_screen_dm_body`
+    enforces, so a host configuring a non-chaining backend is not silently
+    relying on a guarantee this call site never made.
+    """
+    sender = User.objects.create_user(username="dm-untrusted-links")
+    recipient = User.objects.create_user(username="dm-untrusted-links-rcpt")
+    assert ForumProfile.for_user(sender).trust_level == TrustLevel.NEW
+    client = APIClient()
+    client.force_authenticate(sender)
+    spammy = " ".join(["http://x.test"] * 4)  # would trip the heuristic floor
+
+    resp = client.post(f"/forum/users/{recipient.username}/messages/", {"body": spammy})
+
+    assert resp.status_code == 400
+    # The configured backend's verdict, NOT the heuristic's "Too many links".
+    assert resp.data["errors"]["detail"] == "AI: recorded"
+    assert recording_backend.calls == [spammy]
+    assert not Message.objects.exists()

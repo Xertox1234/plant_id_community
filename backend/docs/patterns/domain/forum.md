@@ -255,6 +255,56 @@ entry with the backend's default `TIMEOUT` (300s here) instead of
 `AIRateLimiter.TTL` (3600s) — a 12x window shrink that no test would show.
 Use the explicit `cache.set(key, calls + 1, cls.TTL)` idiom.
 
+### Every screening surface must be trust-gated (todo 280)
+
+`get_spam_backend()` has exactly two call sites, and before enabling the LLM
+backend they disagreed about who pays for a provider call:
+
+| Surface | Call site | Trust gate |
+|---------|-----------|------------|
+| Topic/Post publish | `models/moderation.py` (`SpamCheckTask`) | Yes — `workflow.py::_route_revision_by_trust` only starts the workflow for `trust_level < TRUST_AUTOPUBLISH_LEVEL` |
+| Direct message send | `api/direct_messages.py` (`_screen_dm_body`) | Yes, **since todo 280** — was ungated |
+
+The DM path predates the LLM backend, so "screen every send" was free when the
+only backend was the offline heuristic. It stops being free the moment
+`WAGTAILFORUM_SPAM_BACKEND` names a provider-backed backend: an ungated surface
+puts a synchronous, billable call on *every* message, including those from
+established members the post path would never screen.
+
+Worse, **fail-closed is not equivalent across the two surfaces**. A flagged Post
+becomes a pending draft a moderator can still publish; `Message` has no
+revision/workflow state to hold, so the identical verdict rejects the send with
+a 400 and the text is gone. A provider timeout therefore *destroys* a DM where
+it merely *delays* a post — so paying that risk for a trusted sender is the
+worst trade available on this path.
+
+The gate splits the two passes rather than skipping screening:
+
+- **A trusted sender falls back to the package's built-in heuristic** (link
+  flood, banned words) rather than skipping screening the way the post path does
+  for a trusted author. That pass is cheap, offline and deterministic, so
+  dropping it would trade one problem for a worse one. Pinned by
+  `test_trusted_sender_dm_still_gets_the_heuristic_floor`.
+- **Only the configured backend's extra pass is trust-gated**, on the same
+  `TRUST_AUTOPUBLISH_LEVEL` the post path uses — one policy knob, not two.
+
+Be precise about what that first bullet does *not* claim. An **untrusted**
+sender reaches `get_spam_backend()` alone, exactly as every sender did before
+the gate, so their heuristic floor is whatever the configured backend applies —
+it is a property of the backend, not something this call site enforces. Both
+backends in this repo supply it (`HeuristicSpamBackend` *is* the floor;
+`LLMSpamBackend` is heuristic-first before any provider call), so the guarantee
+holds here. A third-party host pointing `WAGTAILFORUM_SPAM_BACKEND` at a
+non-chaining backend screens its untrusted senders with that backend alone —
+the package's pre-existing contract, unchanged by the gate and pinned by
+`test_untrusted_sender_dm_floor_comes_from_the_configured_backend`.
+
+**Rule for any new surface that screens user content:** decide its trust gate at
+the same time as its `get_spam_backend()` call, and state its fail-closed
+consequence. "Screen everything" is only cheap while the backend is offline, and
+which backend is configured is an ops decision made later, elsewhere, by someone
+who will not re-audit the call sites.
+
 ### Enable procedure
 
 The hardening gate above is landed, so the setting is **safe to enable**. Per

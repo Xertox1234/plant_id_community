@@ -41,8 +41,10 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from ..models import Conversation, Message, Report, UserBlock
+from ..conf import get_setting
+from ..models import Conversation, ForumProfile, Message, Report, UserBlock
 from ..spam import get_spam_backend
+from ..spam.heuristic import HeuristicSpamBackend
 from .idempotency import fingerprint, idempotency_cache_key, remember, reserve
 from .pagination import ConversationCursorPagination, MessageCursorPagination
 from .serializers import (
@@ -81,6 +83,47 @@ class _SpamCheckAdapter:
 
     def __init__(self, text):
         self.body = [SimpleNamespace(value=text)]
+
+
+def _screen_dm_body(sender, text):
+    """Screen a DM body, trust-routing the CONFIGURED backend the way
+    ``workflow.py::_route_revision_by_trust`` trust-routes moderation.
+
+    Trust gates only the CONFIGURED backend. A trusted sender falls back to the
+    package's built-in heuristic (link flood, banned words) rather than skipping
+    screening altogether the way the post path does — that pass is cheap,
+    offline, and dropping it would trade one problem for a worse one. Untrusted
+    senders reach ``get_spam_backend()`` exactly as they did before this gate,
+    so their floor is whatever that backend applies: both backends shipped in
+    this repo provide it (``HeuristicSpamBackend`` *is* it; the host's
+    ``LLMSpamBackend`` is heuristic-first), but a third-party host that
+    configures a non-chaining backend screens its untrusted senders with that
+    backend alone. That is the package's existing contract, unchanged here.
+
+    The configured backend is the gated one because on this path it is the
+    expensive and failure-prone one:
+
+    - It is the only screening surface with NO trust gate. A Post reaches the
+      configured backend solely when its author is untrusted; before this gate
+      a DM reached it for every sender at every trust level, so an LLM backend
+      put a synchronous, billable provider call on every message an
+      established member sent.
+    - Fail-closed costs more here than anywhere else. A flagged Post becomes a
+      pending draft a moderator can still publish; a Message has no
+      revision/workflow state to hold (see this module's docstring), so the
+      same verdict REJECTS the send outright and the text is gone. Spending
+      that on a trusted sender because a provider timed out is the worst
+      trade on this path.
+
+    Untrusted senders — the actual DM-spam risk, and the same population the
+    post path screens — still get the full configured backend.
+    """
+    profile = ForumProfile.for_user(sender)
+    if profile.trust_level >= get_setting("TRUST_AUTOPUBLISH_LEVEL"):
+        backend = HeuristicSpamBackend()
+    else:
+        backend = get_spam_backend()
+    return backend.check(_SpamCheckAdapter(text))
 
 
 def _is_blocked_pair(user_a, user_b):
@@ -224,7 +267,7 @@ class MessageSendView(UnversionedForumAPIMixin, APIView):
         serializer.is_valid(raise_exception=True)
         body = serializer.validated_data["body"]
 
-        spam_result = get_spam_backend().check(_SpamCheckAdapter(body))
+        spam_result = _screen_dm_body(request.user, body)
         if not spam_result.is_clean:
             # Surface the backend's real reason (e.g. "Too many links", or an
             # LLM provider's fail-closed "unavailable" verdict) rather than a
