@@ -65,7 +65,7 @@ export default function ConfirmDialog({
         aria-modal="true"
         aria-labelledby={titleId}
         aria-describedby={messageId}
-        className="w-full max-w-sm rounded-lg bg-surface-1 p-6 shadow-xl"
+        className="w-full max-w-sm rounded-lg bg-surface p-6 shadow-3"
         onClick={(e) => e.stopPropagation()}
       >
         <h2 id={titleId} className="text-lg font-semibold text-ink mb-2">

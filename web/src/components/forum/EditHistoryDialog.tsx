@@ -125,11 +125,11 @@ export default function EditHistoryDialog({ open, postId, onClose }: EditHistory
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
-        className="flex max-h-[80vh] w-full max-w-2xl flex-col rounded-lg bg-surface-1 p-6 shadow-xl"
+        className="flex max-h-[80vh] w-full max-w-2xl flex-col rounded-lg bg-surface p-6 shadow-3"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="mb-4 flex items-start justify-between gap-4">
-          <h2 id={titleId} className="text-lg font-semibold text-ink">
+          <h2 id={titleId} className="gt-h3 text-ink">
             Edit history
           </h2>
           <Button data-autofocus variant="outline" onClick={onClose} className="min-h-11">

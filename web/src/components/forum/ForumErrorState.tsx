@@ -22,7 +22,7 @@ export default function ForumErrorState({
   title = 'Error',
 }: ForumErrorStateProps) {
   return (
-    <div className="bg-error/10 border border-error/30 text-ink px-4 py-3 rounded">
+    <div className="bg-error/10 border border-error/30 text-ink px-4 py-3 rounded-md">
       <p>
         <strong>{title}:</strong> {message}
       </p>

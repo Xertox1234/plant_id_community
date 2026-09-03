@@ -75,7 +75,7 @@ describe('PollCard', () => {
     expect(screen.getByText('2 (29%)')).toBeInTheDocument();
     // Exact, not /your vote/i — that substring also matches the "your vote is
     // final" footer, so the loose regex finds two elements.
-    expect(screen.getByText('✓ your vote')).toBeInTheDocument();
+    expect(screen.getByText('your vote')).toBeInTheDocument();
   });
 
   it('shows results and no vote controls once the viewer has voted', () => {
@@ -243,7 +243,7 @@ describe('PollCard', () => {
     const { rerender } = render(<PollCard poll={makePoll()} onVote={onVote} canVote />);
 
     await userEvent.click(screen.getByRole('button', { name: 'Peat' }));
-    expect(await screen.findByText('✓ your vote')).toBeInTheDocument();
+    expect(await screen.findByText('your vote')).toBeInTheDocument();
 
     // The refetch reflects the same vote, plus someone else's in the interim.
     const refetchedPoll = makePoll({
@@ -256,7 +256,7 @@ describe('PollCard', () => {
     });
     rerender(<PollCard poll={refetchedPoll} onVote={onVote} canVote />);
 
-    expect(screen.getByText('✓ your vote')).toBeInTheDocument();
+    expect(screen.getByText('your vote')).toBeInTheDocument();
     expect(screen.getByText(/2 votes/i)).toBeInTheDocument();
   });
 });

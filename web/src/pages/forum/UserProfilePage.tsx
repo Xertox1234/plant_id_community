@@ -7,6 +7,7 @@ import { threadPath, postAnchor } from '../../utils/forumUrls';
 import { TRUST_LEVEL_LABELS } from '../../utils/forumAuthor';
 import { logger } from '../../utils/logger';
 import { UserCheck, UserX } from 'lucide-react';
+import { UserProfileSkeleton } from '../../components/forum/ForumSkeleton';
 import Avatar from '../../components/ui/Avatar';
 import Card from '../../components/ui/Card';
 import Timestamp from '../../components/ui/Timestamp';
@@ -106,8 +107,8 @@ export default function UserProfilePage() {
 
   if (loading) {
     return (
-      <div className="max-w-3xl mx-auto p-6" role="status" aria-label="Loading profile">
-        <div className="h-24 bg-surface-2 rounded-lg animate-pulse" />
+      <div className="max-w-3xl mx-auto p-6">
+        <UserProfileSkeleton />
       </div>
     );
   }

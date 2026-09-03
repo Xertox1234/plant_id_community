@@ -408,3 +408,17 @@ Compact checklist auto-injected before edits.
   config. Prefer positive, id-addressed checks ("each of ids 37-42 now 404s")
   over absence-of-search-hits. Same tautology family as the todo-321 shrink
   direction and `assertIn(value, dict.values())`.
+- **A loading skeleton exposes exactly ONE `role="status"` root per page, and
+  that root is never inside `aria-hidden`.** testing-library's role queries
+  skip `aria-hidden` subtrees, and the page tests' `getByRole('status')`
+  throws on 0 or >1 matches — so the visible root wraps an `aria-hidden`
+  container of pulse blocks (never the reverse) and shape subcomponents never
+  self-wrap. `status` is a name-from-author role: give the root `aria-label`
+  too, or `getByRole('status', { name })` finds nothing (`ForumSkeleton.tsx`,
+  PR #623).
+- **An e2e `expect(...).toBeVisible()` that waits on a fetched page must pass
+  an explicit timeout from `E2E_TIMEOUTS`.** The 5s default sits inside the
+  cold first-load spread — `/forum` took 5.8s on the first run after a
+  dev-server start, `forum-responsive.spec.ts`'s 1280px case failed, then
+  passed 20/20 on rerun. A flake at the timeout boundary reads as a
+  regression in whatever you just changed (PR #623).

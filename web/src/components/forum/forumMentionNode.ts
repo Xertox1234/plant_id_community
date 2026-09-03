@@ -129,7 +129,7 @@ export const ForumMention = Mention.configure({
           getClientRect = props.clientRect;
           dropdown = document.createElement('div');
           dropdown.className =
-            'z-50 min-w-[10rem] max-h-56 overflow-y-auto rounded-lg border border-line bg-surface-2 shadow-lg py-1';
+            'z-50 min-w-[10rem] max-h-56 overflow-y-auto rounded-md border border-line bg-surface-2 shadow-2 py-1';
           document.body.appendChild(dropdown);
           paint();
           position();
@@ -147,7 +147,7 @@ export const ForumMention = Mention.configure({
           if (!dropdown) {
             dropdown = document.createElement('div');
             dropdown.className =
-              'z-50 min-w-[10rem] max-h-56 overflow-y-auto rounded-lg border border-line bg-surface-2 shadow-lg py-1';
+              'z-50 min-w-[10rem] max-h-56 overflow-y-auto rounded-md border border-line bg-surface-2 shadow-2 py-1';
             document.body.appendChild(dropdown);
           }
           paint();
