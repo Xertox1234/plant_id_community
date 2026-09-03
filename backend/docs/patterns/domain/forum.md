@@ -329,7 +329,7 @@ Operational knobs, all in `apps/forum_host/constants.py`:
 |----------|---------|--------|
 | `SPAM_LLM_BUDGET_LIMIT` | 200/hr | Screens before degrading to heuristic (publish). Counts **definitive verdicts only** — see the caveat below. |
 | `SPAM_LLM_ATTEMPTS_LIMIT` | 400/hr | Provider calls (any outcome) before screening trips to a **hold**. Must stay **>** `SPAM_LLM_BUDGET_LIMIT`. |
-| `SPAM_LLM_TIMEOUT_SECONDS` | 3 | Caller **and** provider deadline. Bounds held-transaction time. |
+| `SPAM_LLM_TIMEOUT_SECONDS` | 8 | Caller **and** provider deadline. Bounds held-transaction time. Was 3; raised from production measurement — see below. |
 | `SPAM_LLM_MAX_WORKERS` | 4 | Concurrent screens. Size for peak concurrent moderation. |
 | `SPAM_LLM_CACHE_TTL_SECONDS` | 24h | Verdict cache lifetime (duplicate spam is free). |
 | `SPAM_LLM_PROMPT_VERSION` | 1 | Bump to invalidate cached verdicts after a prompt change. |
@@ -339,6 +339,28 @@ Operational knobs, all in `apps/forum_host/constants.py`:
 also an attempt, so inverting them makes the attempts cap trip first under
 healthy traffic — converting the intended cost-degrade (publish) into a hold on
 legitimate posts.
+
+**Size the timeout against a COLD call, not a warm one** (todo 280, measured
+2026-09-03 in production: gpt-4o-mini over Railway -> OpenAI).
+
+```
+first call after a container start   3.66s   <- timed out at the then-current 3s
+steady state                         1.19s, 1.48s, 1.78s, 2.33s
+```
+
+The first provider call in a fresh process pays SDK construction and a TLS
+handshake on top of the completion. Railway redeploys on every merge, so a
+deadline sized for steady state holds the first screened post after *every*
+deploy, whatever its content — a recurring false positive that looks like a spam
+flag in the moderation queue.
+
+The non-obvious half: **a timeout below real latency saves nothing.**
+`future.result(timeout=...)` cannot cancel an in-flight request — the probe above
+was issued, billed, and answered 0.66s after the caller stopped listening. So
+too-tight is strictly worse than generous: it spends the money, discards the
+verdict it paid for, *and* holds the post. Tune this knob upward on evidence of
+timeouts and downward only on evidence of transaction contention, never as a
+cost control — the attempts cap is the cost control.
 
 **The attempts cap is a sticky hold, by design.** `consume_budget` re-stamps the
 1h TTL on every write, so the window is a rolling hour from the *last* issued

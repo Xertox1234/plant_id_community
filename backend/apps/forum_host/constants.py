@@ -103,7 +103,29 @@ PUSH_TITLE_TOPIC_MAX_CHARS = 80
 # @transaction.atomic publish path, so this bounds the held-transaction time.
 # Read off this module at call time (constants.SPAM_LLM_TIMEOUT_SECONDS) so
 # tests can patch it.
-SPAM_LLM_TIMEOUT_SECONDS = 3
+#
+# Raised 3 -> 8 on 2026-09-03 from measurement, not guesswork. Todo 280's AC4
+# probe against production (gpt-4o-mini, Railway -> OpenAI) logged:
+#
+#   first call after a container start   3.66s   <- TIMED OUT at 3s
+#   steady state                         1.19s, 1.48s, 1.78s, 2.33s
+#
+# The cold call pays SDK construction + TLS handshake on top of the completion,
+# and Railway redeploys on every merge — so at 3s the first screened post after
+# EVERY deploy was held for review regardless of its content.
+#
+# The key point is that a timeout below real latency saves nothing. A
+# future.result() expiry does not cancel the request: probe 1 was issued,
+# billed, and answered 0.66s after the caller stopped listening. Too-tight is
+# strictly worse than generous — it spends the money AND discards the verdict
+# AND holds the post.
+#
+# 8s covers the observed cold start with ~2x margin and steady state with ~3.4x.
+# The cost of raising it is a longer worst-case held transaction; at this
+# forum's real volume (~0-2 topics/day, measured in the same AC4 pass) that is
+# not a contended resource. Re-measure before assuming it still fits if volume
+# grows by orders of magnitude.
+SPAM_LLM_TIMEOUT_SECONDS = 8
 
 # Verdict cache TTL (seconds). Definitive CLEAN/SPAM verdicts are cached by
 # content hash so re-screens and duplicate spam are free.

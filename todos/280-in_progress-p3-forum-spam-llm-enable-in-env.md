@@ -97,15 +97,19 @@ traffic: `backend/apps/forum_host/constants.py` (`SPAM_LLM_BUDGET_LIMIT`,
       misbehaviour (chronic timeout / unparseable replies) by failing **closed**,
       without letting failures drain the verdict budget into publish-unscreened.
       Todo 274's three sustained-failure tests must still pass unchanged.
-- [ ] **Prerequisite (added 2026-09-02):** every `get_spam_backend()` call site
-      is trust-gated before the flip. The DM send path was ungated — see the
-      2026-09-02 Work Log entry.
-- [ ] `WAGTAILFORUM_SPAM_BACKEND` is set to the LLM backend in at least one
-      environment, with a working `OPENAI_API_KEY`.
-- [ ] A real post is screened end-to-end (a `[SECURITY] Forum spam LLM flagged
-      content` or a clean publish observed in that environment's logs).
-- [ ] Budget/timeout tunables reviewed against that environment's actual forum
-      volume; adjusted if the defaults (200/hr, 4 workers, 3s) do not fit.
+- [x] **Prerequisite (added 2026-09-02):** every `get_spam_backend()` call site
+      is trust-gated before the flip. The DM send path was ungated — PR #619,
+      merged 2026-09-03 (`b8f62b2`).
+- [x] `WAGTAILFORUM_SPAM_BACKEND` is set to the LLM backend in at least one
+      environment, with a working `OPENAI_API_KEY`. — production
+      `plant_id_community` service, 2026-09-03.
+- [x] A real post is screened end-to-end (a `[SECURITY] Forum spam LLM flagged
+      content` or a clean publish observed in that environment's logs). — four
+      `[SECURITY]` lines with real AI reasons, quoted below.
+- [x] Budget/timeout tunables reviewed against that environment's actual forum
+      volume; adjusted if the defaults (200/hr, 4 workers, 3s) do not fit. —
+      caps unchanged with reasoning; **timeout raised 3 -> 8s** on measured
+      cold-start latency.
 
 ## Notes
 
@@ -333,3 +337,66 @@ the currently-deployed code still screens every DM. Order:
 4. AC4 evidence gathered read-only already, ahead of the flip: production
    `/forum/rss/` lists **18 topics ever**, most seeded 2026-08-15/16, newest
    2026-08-30. Real volume is ~0–2 topics/day against a 200/hr verdict cap.
+
+### 2026-09-03 - Enabled in production; AC2-4 closed (run 2026-09-02-2327)
+
+**AC2 — the flip.** PR #619 merged (`b8f62b2`) and Railway deploy
+`49a204bc` settled SUCCESS *before* the variable was written, so the trust gate
+was live first — otherwise the running code would still have screened every DM.
+Then `WAGTAILFORUM_SPAM_BACKEND=apps.forum_host.spam.LLMSpamBackend` on the
+`plant_id_community` service. Scoping verified both ways: present on
+`plant_id_community`, **absent** from `forum-prune-cron` (which imports the same
+settings and screens nothing).
+
+**AC3 — a real post screened end-to-end.** A throwaway trust-0 account
+(`spam-screen-probe-280`, user id 20) posted promotional text with one link, so
+the heuristic passed it through to the LLM. Five probes, five holds
+(`{"status":"pending"}`), and the logs distinguish *why* each was held:
+
+```
+[SECURITY] Forum spam LLM flagged content: AI: unsolicited advertising for replicas and discounts
+[SECURITY] Forum spam LLM flagged content: AI: unsolicited advertising for replica watches   (x3)
+```
+
+Note this evidence is only obtainable from the SPAM path: `_parse()` logs
+nothing on a CLEAN verdict, so a clean publish would have produced no positive
+in-log signal at all.
+
+**AC4 — tunables reviewed. Two answers, opposite directions.**
+
+*Caps: no change, deliberately.* Production `/forum/rss/` showed 18 topics ever,
+newest 2026-08-30 — roughly 0-2 topics/day against a 200/hr verdict cap, which
+therefore never binds. Lowering it to "fit" real volume is the **unsafe**
+direction: `SPAM_LLM_BUDGET_LIMIT`'s exhaustion posture is *publish* via the
+heuristic, so a lower cap means an attacker's posts past it publish unscreened.
+Spend is bounded by post rate, and `SPAM_LLM_ATTEMPTS_LIMIT` (400/hr, fail
+closed) is the actual cost control. `SPAM_LLM_MAX_WORKERS` = 4 is untouched for
+the same volume reason.
+
+*Timeout: 3 -> 8s, and the 3s default was actively costing money.* The first
+probe — the first provider call in a fresh container — took **3.66s** and blew
+the 3s deadline; the four steady-state calls took 1.19s, 1.48s, 1.78s, 2.33s.
+The cold call pays SDK construction + TLS handshake on top of the completion,
+and Railway redeploys on every merge, so at 3s the first screened post after
+**every deploy** was held for review regardless of content.
+
+The part worth remembering: `future.result(timeout=...)` cannot cancel an
+in-flight request. Probe 1 was issued, billed, and answered 0.66s *after* the
+caller stopped listening — so a too-tight timeout spends the money, discards the
+verdict it paid for, and holds the post. Too-tight is strictly worse than
+generous. 8s covers the observed cold start with ~2x margin and steady state
+with ~3.4x; the cost is a longer worst-case held transaction, which is not a
+contended resource at this volume.
+
+Codified in `backend/docs/patterns/domain/forum.md` — "Size the timeout against
+a COLD call, not a warm one".
+
+### Production residue — needs a human with `/cms/` access
+
+Five probe topics (ids 37-41, slugs `spam-screen-probe-280*`) and the account
+`spam-screen-probe-280` (user id 20) exist in production. They are **drafts, not
+exposure** — verified anonymously: absent from `/forum/rss/`, absent from
+`/forum/sitemap.xml`, absent from the board topic list, and topic detail 404s.
+They are moderation-queue clutter only. There is no author-delete endpoint for a
+pending topic and no account-deletion endpoint, so removing them is a Wagtail
+admin action at `/cms/`.
