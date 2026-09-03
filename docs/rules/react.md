@@ -171,3 +171,23 @@ Compact checklist auto-injected before edits. Long-form:
   caches the string `"undefined"`, and reports success for a login that leaves
   `isAuthenticated` false, so `ProtectedLayout` bounces back to `/login` with no
   error shown. Put `if (!data?.user) throw …` inside the same `try`. Todo 310.
+- **A Tailwind colour utility whose token is not in `@theme inline` emits
+  NOTHING — no build error, the element silently inherits.** The registered
+  tokens are `surface`/`surface-2`/`surface-3` (there is no `surface-1`),
+  `error` (no `danger`), and the only `on-*` pairs are `on-primary`/`on-clay`
+  (no `on-error`). `bg-surface-1` shipped both dialogs with a transparent
+  modal background; `text-danger` shipped inherited text colour. Check the
+  class against `web/src/index.css` `@theme inline` before writing it
+  (PR #623).
+- **An icon-only button needs `min-w-11` as well as `min-h-11`.** `min-h-11`
+  guarantees only height; swapping a text glyph (`+🙂`, `B`) for a 16px lucide
+  icon shrank PostCard's add-reaction button to ~40px wide, under the 44px
+  WCAG 2.5.5 target. The editor's `ToolbarButton` carries
+  `min-w-11 justify-center` for exactly this — copy it whenever a button's
+  only visible content is an icon (PR #623 review).
+- **Never override a `rounded-*`/`shadow-*` a component already sets by
+  passing another one through `className`.** `Card` emits `rounded-md`;
+  `<Card className="rounded-lg">` puts two `border-radius` utilities on one
+  element and Tailwind's STYLESHEET order, not the class order, decides — so
+  the override may be dead. Give the component a typed prop mapped through a
+  full-class-name record (`ForumSkeleton.tsx` `RADIUS`) instead (todo 333).

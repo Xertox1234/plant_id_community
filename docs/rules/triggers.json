@@ -1263,5 +1263,53 @@
     "source": "codify: chore/close-todo-280",
     "added": "2026-09-03",
     "severity": "warn"
+  },
+  {
+    "id": "tailwind-undefined-color-token",
+    "domains": [
+      "react"
+    ],
+    "path_glob": [
+      "web/src/**/*.tsx",
+      "web/src/**/*.ts"
+    ],
+    "content_present": "\\b(?:bg|text|border|ring|divide|from|to|via|outline|fill|stroke)-(?:surface-1|danger|on-error)\\b",
+    "message": "This colour class has NO token: Tailwind 4 emits nothing and the element silently inherits (two dialogs shipped transparent, PR #623). Use bg-surface (no surface-1), text-error (no danger), text-on-primary/text-ink (no on-error) — see the @theme inline block in web/src/index.css.",
+    "pattern_ref": "web/docs/patterns/tailwind.md",
+    "source": "codify: feat/forum-green-thumb-polish",
+    "added": "2026-09-03",
+    "severity": "warn"
+  },
+  {
+    "id": "card-classname-radius-override",
+    "domains": [
+      "react"
+    ],
+    "path_glob": [
+      "web/src/**/*.tsx"
+    ],
+    "content_present": "<Card\\b[^>]*className=\\{?[\"'`][^\"'`]*\\brounded-(?:xs|sm|lg|xl|pill|full)\\b",
+    "message": "Card already emits rounded-md; a second rounded-* through className puts two border-radius utilities on one element and STYLESHEET order (not class order) decides which wins — the override may be dead. Add a typed radius prop mapped through full class names instead (todo 333).",
+    "pattern_ref": "web/docs/patterns/react-typescript.md",
+    "source": "codify: feat/forum-green-thumb-polish",
+    "added": "2026-09-03",
+    "severity": "warn"
+  },
+  {
+    "id": "skeleton-pulse-without-status-root",
+    "domains": [
+      "react",
+      "testing"
+    ],
+    "path_glob": [
+      "web/src/**/*.tsx"
+    ],
+    "content_present": "animate-pulse",
+    "content_absent": "role=\"status\"",
+    "message": "A pulse skeleton needs ONE role=\"status\" aria-live=\"polite\" root (with aria-label) that is NOT aria-hidden, wrapping an aria-hidden container of blocks — the page tests query getByRole(status), which skips aria-hidden subtrees and throws on 0 or >1 matches. See ForumSkeleton.tsx / SkeletonStatus.",
+    "pattern_ref": "web/docs/patterns/react-typescript.md",
+    "source": "codify: feat/forum-green-thumb-polish",
+    "added": "2026-09-03",
+    "severity": "warn"
   }
 ]

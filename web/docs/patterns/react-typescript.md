@@ -381,3 +381,52 @@ announcement mechanism; the roles are just conveniences that imply it. Test a
 content-swap announcement by asserting the SAME region node's `textContent`
 changes (not that a new node mounted) — that is what proves the live-region
 contract, and it's the non-tautological version of an announce test.
+
+## Skeleton loading states: one status root, hidden blocks (PR #623)
+
+`web/src/components/forum/ForumSkeleton.tsx` is the reference. The contract
+that keeps the page tests (`getByRole('status')`) and screen readers happy:
+
+- **One `role="status" aria-live="polite"` root per page composition**, with
+  `aria-label` (the `status` role is name-from-author; the sr-only copy is
+  what the live region announces). Shape subcomponents (`ThreadCardSkeleton`,
+  `PostCardSkeleton`) never self-wrap — a second root makes `getByRole` throw.
+- **Decorative blocks live under a child `aria-hidden="true"` container** —
+  never put `aria-hidden` on the root, or testing-library's role query skips
+  it and the "shows a status while loading" assertions fail.
+- **Chrome comes from the real primitive** (`<Card>`), so border, gradient,
+  radius and density padding are pixel-identical to the loaded card and only
+  the content bars pulse. Pulse per block (`motion-safe:animate-pulse`), not on
+  the wrapper — a wrapper pulse fades the card chrome too.
+- **Mirror only unconditional structure**: no auth-gated buttons, reaction
+  bars, tag chips, rail modules, or headings (the forum-index e2e overflow
+  check waits for the loaded `h1`; the board/thread checks sample mid-fetch).
+- **Fluid widths only** (fractions, `w-full`, `flex-1`, `w-full max-w-*`);
+  fixed widths stay small and inside `flex-wrap` rows, so 375px never
+  overflows.
+
+```tsx
+export function SkeletonStatus({ children, label = 'Loading…' }) {
+  return (
+    <div role="status" aria-live="polite" aria-label={label}>
+      <span className="sr-only">{label}</span>
+      <div aria-hidden="true">{children}</div>
+    </div>
+  );
+}
+
+const RADIUS = { xs: 'rounded-xs', sm: 'rounded-sm', md: 'rounded-md', pill: 'rounded-pill' } as const;
+export function SkeletonBlock({ className = '', rounded = 'xs' }) {
+  // radius is a prop, not part of className — two rounded-* utilities on one
+  // element are resolved by stylesheet order, not class order
+  return <div className={`bg-surface-3 motion-safe:animate-pulse ${RADIUS[rounded]} ${className}`} />;
+}
+```
+
+To eyeball a skeleton without racing the network, delay the API from a
+throwaway Playwright script rather than throttling devtools:
+
+```js
+await page.route((u) => u.includes('/api/') && /forum|topic/.test(u), (r) => setTimeout(() => r.continue(), 30000));
+await page.goto('/forum', { waitUntil: 'commit' }); await page.waitForTimeout(900);
+```

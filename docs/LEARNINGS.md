@@ -4149,3 +4149,33 @@ A CLEAN verdict logs **nothing** — `_parse()` logs only on SPAM
 (`[SECURITY] Forum spam LLM flagged content`) and on an unparseable reply. Any
 "prove the screen works" evidence must come from the SPAM path; a clean publish
 produces no positive in-log signal at all.
+
+## 2026-09-03 — Forum Green Thumb visual pass (PR #623)
+
+### Undefined Tailwind token classes are silent no-ops
+
+`bg-surface-1` on `ConfirmDialog` and `EditHistoryDialog`, `text-danger` on
+`PollCard`, and `text-on-error` on `NotificationBell` all compiled cleanly and
+rendered nothing: Tailwind 4 emits no rule for a colour utility whose token is
+absent from `@theme inline`, so the dialogs shipped with a **transparent
+background** over whatever was behind them and nobody noticed in dark mode.
+
+**Root cause:** the token names were guessed from the family (`surface-2` and
+`surface-3` exist, so `surface-1` "must"; `error` exists, so `on-error` and
+`danger` "must"). Nothing in the build, lint, or tests checks a class against
+the registered tokens.
+
+**Fix:** `bg-surface`, `text-error` (PR #623); `text-on-error` left for
+todo 333. A `docs/rules/react.md` bullet plus a write-time trigger
+(`tailwind-undefined-color-token`) now name the three known-bad spellings.
+
+### The brief was stale — inventory before implementing a design-system pass
+
+The task said the forum "uses almost none" of the type/shadow tokens and "uses
+emoji as icons", with line numbers for the emoji. By the time it ran, 14 of 21
+forum files already imported lucide, every heading but three was on `gt-*`,
+and there were zero stock hover shadows; the cited line numbers pointed at
+other code. Only a codepoint scan for emoji plus grep for the utilities showed
+what was actually left (three emoji clusters, three headings, three shadows,
+14 bare `rounded`). Treat a design-system brief's premises as hypotheses and
+verify each with a scan before planning around it.
