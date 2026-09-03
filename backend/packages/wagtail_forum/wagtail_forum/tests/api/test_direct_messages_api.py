@@ -481,3 +481,33 @@ def test_trusted_sender_dm_still_gets_the_heuristic_floor(recording_backend):
     assert "link" in resp.data["errors"]["detail"].lower()
     assert recording_backend.calls == []
     assert not Message.objects.exists()
+
+
+@override_settings(WAGTAILFORUM_SPAM_BACKEND=_RECORDING_PATH)
+@pytest.mark.django_db
+def test_untrusted_sender_dm_floor_comes_from_the_configured_backend(
+    recording_backend,
+):
+    """The gate does NOT bolt the heuristic onto the untrusted branch.
+
+    An untrusted sender reaches the configured backend alone — the package's
+    contract before the gate and after it. Both backends shipped in this repo
+    chain the heuristic themselves, so the floor holds in practice; this pins
+    that it is the BACKEND's property, not something `_screen_dm_body`
+    enforces, so a host configuring a non-chaining backend is not silently
+    relying on a guarantee this call site never made.
+    """
+    sender = User.objects.create_user(username="dm-untrusted-links")
+    recipient = User.objects.create_user(username="dm-untrusted-links-rcpt")
+    assert ForumProfile.for_user(sender).trust_level == TrustLevel.NEW
+    client = APIClient()
+    client.force_authenticate(sender)
+    spammy = " ".join(["http://x.test"] * 4)  # would trip the heuristic floor
+
+    resp = client.post(f"/forum/users/{recipient.username}/messages/", {"body": spammy})
+
+    assert resp.status_code == 400
+    # The configured backend's verdict, NOT the heuristic's "Too many links".
+    assert resp.data["errors"]["detail"] == "AI: recorded"
+    assert recording_backend.calls == [spammy]
+    assert not Message.objects.exists()

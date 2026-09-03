@@ -89,9 +89,18 @@ def _screen_dm_body(sender, text):
     """Screen a DM body, trust-routing the CONFIGURED backend the way
     ``workflow.py::_route_revision_by_trust`` trust-routes moderation.
 
-    Every sender gets the deterministic heuristic floor (link flood, banned
-    words) — that is cheap, offline and must not weaken with trust. Only the
-    configured backend's extra pass is gated, because on this path it is the
+    Trust gates only the CONFIGURED backend. A trusted sender falls back to the
+    package's built-in heuristic (link flood, banned words) rather than skipping
+    screening altogether the way the post path does — that pass is cheap,
+    offline, and dropping it would trade one problem for a worse one. Untrusted
+    senders reach ``get_spam_backend()`` exactly as they did before this gate,
+    so their floor is whatever that backend applies: both backends shipped in
+    this repo provide it (``HeuristicSpamBackend`` *is* it; the host's
+    ``LLMSpamBackend`` is heuristic-first), but a third-party host that
+    configures a non-chaining backend screens its untrusted senders with that
+    backend alone. That is the package's existing contract, unchanged here.
+
+    The configured backend is the gated one because on this path it is the
     expensive and failure-prone one:
 
     - It is the only screening surface with NO trust gate. A Post reaches the

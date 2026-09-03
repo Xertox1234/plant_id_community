@@ -280,12 +280,24 @@ worst trade available on this path.
 
 The gate splits the two passes rather than skipping screening:
 
-- **The heuristic floor runs for everyone.** Link flood and banned words are
-  deterministic, offline and free; weakening them with trust would trade one
-  problem for a worse one. Pinned by
+- **A trusted sender falls back to the package's built-in heuristic** (link
+  flood, banned words) rather than skipping screening the way the post path does
+  for a trusted author. That pass is cheap, offline and deterministic, so
+  dropping it would trade one problem for a worse one. Pinned by
   `test_trusted_sender_dm_still_gets_the_heuristic_floor`.
 - **Only the configured backend's extra pass is trust-gated**, on the same
   `TRUST_AUTOPUBLISH_LEVEL` the post path uses — one policy knob, not two.
+
+Be precise about what that first bullet does *not* claim. An **untrusted**
+sender reaches `get_spam_backend()` alone, exactly as every sender did before
+the gate, so their heuristic floor is whatever the configured backend applies —
+it is a property of the backend, not something this call site enforces. Both
+backends in this repo supply it (`HeuristicSpamBackend` *is* the floor;
+`LLMSpamBackend` is heuristic-first before any provider call), so the guarantee
+holds here. A third-party host pointing `WAGTAILFORUM_SPAM_BACKEND` at a
+non-chaining backend screens its untrusted senders with that backend alone —
+the package's pre-existing contract, unchanged by the gate and pinned by
+`test_untrusted_sender_dm_floor_comes_from_the_configured_backend`.
 
 **Rule for any new surface that screens user content:** decide its trust gate at
 the same time as its `get_spam_backend()` call, and state its fail-closed
