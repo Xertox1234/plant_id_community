@@ -117,3 +117,16 @@ Compact checklist auto-injected before edits to the forum code. Long-form:
   assume this host's manager semantics. Caught in review on todo 285's
   `ForumProfile.initial_read_watermark_for_user_id`, where the fallback would
   have reinstated the very bug the todo closed.
+- **Before flipping `WAGTAILFORUM_SPAM_BACKEND` (or any setting that swaps a
+  backend), audit EVERY call site of the abstraction it swaps.** A flag changes
+  the cost and failure profile of code written while the flag was off. Both
+  `get_spam_backend()` call sites must state a trust gate and a fail-closed
+  consequence: `models/moderation.py` screens only untrusted authors, and
+  `api/direct_messages.py` must too (`_screen_dm_body`, todo 280) — it screened
+  every sender at every trust level until then, which was free with the offline
+  heuristic and a billable per-message LLM call the moment the setting moved.
+- **Fail-closed is NOT equivalent across forum surfaces — say which one you are
+  on.** A flagged Topic/Post becomes a pending draft a moderator can still
+  publish; a `Message` has no revision/workflow state to hold, so the identical
+  verdict rejects the send with a 400 and the text is gone. Never reuse a
+  post-path screening decision on the DM path without re-deciding it.

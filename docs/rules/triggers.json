@@ -1245,5 +1245,23 @@
     "source": "codify: docs/codify-todos-310-315",
     "added": "2026-09-01",
     "severity": "warn"
+  },
+  {
+    "id": "forum-spam-backend-call-site-ungated",
+    "domains": [
+      "forum",
+      "security"
+    ],
+    "path_glob": [
+      "backend/packages/wagtail_forum/**/*.py",
+      "backend/apps/forum_host/**/*.py"
+    ],
+    "content_present": "get_spam_backend\\(\\)",
+    "content_absent": "trust_level|class SpamCheckTask",
+    "message": "New get_spam_backend() call site: decide its TRUST GATE and its FAIL-CLOSED consequence now. The post path screens only trust_level < TRUST_AUTOPUBLISH_LEVEL; an ungated site bills an LLM call per request once WAGTAILFORUM_SPAM_BACKEND names a provider backend. And fail-closed differs by surface — a Post becomes a recoverable pending draft, a Message is rejected 400 and lost (todo 280).",
+    "pattern_ref": "backend/docs/patterns/domain/forum.md",
+    "source": "codify: chore/close-todo-280",
+    "added": "2026-09-03",
+    "severity": "warn"
   }
 ]

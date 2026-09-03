@@ -4077,3 +4077,75 @@ reported to the user as "RTK is injecting a `Changes:` header into `git diff`
 output" — stated as a finding. Running `rtk proxy git diff` disproved it
 immediately; the cause was the shell loop. A hypothesis about tooling is worth
 one command before it is worth a sentence.
+
+---
+
+## 2026-09-03 — Enabling the forum LLM spam backend (todo 280)
+
+Two findings, both invisible until the flag was actually flipped against
+production. Neither was caught by the full test suite, which was green
+throughout.
+
+### 1. A config flag re-prices call sites written while it was off
+
+`WAGTAILFORUM_SPAM_BACKEND` swaps the spam backend in one setting.
+`get_spam_backend()` has exactly two call sites and only one was trust-gated:
+`models/moderation.py` screens a Topic/Post solely when its author is untrusted,
+but `api/direct_messages.py` screened **every DM from every sender at every
+trust level**. That was free while the only backend was the offline heuristic —
+and a synchronous, billable LLM call per message the moment the setting moved.
+The DM path shipped (todo 319) *after* todo 280 was written, so the todo's own
+blast-radius description was stale by the time it was executed.
+
+**Root cause:** the decision "who pays for screening" lived implicitly in each
+call site, and nothing tied it to the setting that decides how expensive
+screening is.
+
+**Fix:** `_screen_dm_body()` trust-routes the configured backend on the same
+`TRUST_AUTOPUBLISH_LEVEL` the post path uses, keeping the deterministic
+heuristic floor for everyone (PR #619).
+
+**The worse half — fail-closed is not equivalent across the two surfaces.** A
+flagged Post becomes a pending draft a moderator can still publish; `Message`
+has no revision/workflow state to hold, so the same verdict rejects the send
+with a 400 and the text is *gone*. A 3s provider timeout therefore **destroys**
+a legitimate DM where it merely **delays** a post. Reusing a screening decision
+across surfaces silently changes what failure means.
+
+### 2. A timeout below real latency costs money — it does not save it
+
+First production probe: `[ERROR] Forum spam LLM timed out after 3s`, immediately
+followed by `[PERF] LLM completion ... completed in 3.66s`.
+
+`future.result(timeout=...)` bounds only the **caller**. It cannot cancel an
+in-flight request — the call was issued, billed, and answered 0.66s *after* the
+caller stopped listening. So a too-tight deadline spends the money, discards the
+verdict it paid for, **and** holds the post. Tight is not the conservative
+setting.
+
+**Root cause:** the deadline was sized against expected steady-state latency,
+not against a cold call. The first provider call in a fresh process pays SDK
+construction and a TLS handshake on top of the completion, and Railway redeploys
+on every merge — so the first screened post after *every* deploy was held
+regardless of its content.
+
+**Fix:** `SPAM_LLM_TIMEOUT_SECONDS` 3 → 8 (PR #620), sized from measurement.
+
+**The detail that makes it nastier than it looks.** Post-fix the cold call
+measured **2.34s**, against 3.66s before — cold-start latency is *variable*, and
+3s sat inside that spread. The symptom was therefore intermittent, not
+deterministic, and a fail-closed hold is indistinguishable from a genuine spam
+flag in the moderation queue. It could not have been diagnosed from the queue;
+only the logs separate the two.
+
+**Corollary for any synchronous LLM call:** move the deadline **up** on evidence
+of timeouts and **down** only on evidence of transaction contention. Never use a
+timeout as a cost control — a spend cap that fires *after* the request is issued
+is the cost control (here, `SPAM_LLM_ATTEMPTS_LIMIT`).
+
+### Operational note
+
+A CLEAN verdict logs **nothing** — `_parse()` logs only on SPAM
+(`[SECURITY] Forum spam LLM flagged content`) and on an unparseable reply. Any
+"prove the screen works" evidence must come from the SPAM path; a clean publish
+produces no positive in-log signal at all.
