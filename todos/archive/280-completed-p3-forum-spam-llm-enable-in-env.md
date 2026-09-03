@@ -1,5 +1,5 @@
 ---
-status: in_progress
+status: completed
 priority: p3
 issue_id: "280"
 tags: [forum, spam, ai, moderation, ops, deploy]
@@ -393,10 +393,53 @@ a COLD call, not a warm one".
 
 ### Production residue — needs a human with `/cms/` access
 
-Five probe topics (ids 37-41, slugs `spam-screen-probe-280*`) and the account
+Six probe topics (ids 37-42, slugs `spam-screen-probe-280*` — id 42 is the
+post-fix cold-start probe added later in this run) and the account
 `spam-screen-probe-280` (user id 20) exist in production. They are **drafts, not
 exposure** — verified anonymously: absent from `/forum/rss/`, absent from
 `/forum/sitemap.xml`, absent from the board topic list, and topic detail 404s.
 They are moderation-queue clutter only. There is no author-delete endpoint for a
 pending topic and no account-deletion endpoint, so removing them is a Wagtail
 admin action at `/cms/`.
+
+**Do not work from this list — use todo 332.** It carries the two traps this
+section does not: the admin searches topic *titles* only (a slug search finds
+nothing), and `author` is `SET_NULL`, so the user must be deleted *after* the
+topics or the rows lose their last handle.
+
+### 2026-09-03 - Timeout fix verified against the exact failure mode
+
+PR #620 merged (`6045782`), deploy `560d8ec3` settled SUCCESS. The verification
+that matters is the *cold* call — the case that failed at 3s — so the probe was
+fired as the first screening call into the fresh container, with **novel text**
+(a cached verdict makes no provider call and would have proved nothing).
+
+```
+[PERF] LLM completion for wagtail_ai_default completed in 2.34s
+[SECURITY] Forum spam LLM flagged content: AI: unsolicited advertising for crypto wallets
+```
+
+A real verdict where the same position previously produced
+`[ERROR] Forum spam LLM timed out after 3s`.
+
+Worth noting the cold call was **2.34s here vs 3.66s before**: cold-start
+latency is variable, and the old 3s deadline sat *inside* that spread. So the
+pre-fix behaviour was not "always fails on the first post after a deploy" but
+the more annoying "fails on some of them" — an intermittent, content-independent
+hold that would have been very hard to diagnose from the moderation queue alone,
+since a fail-closed hold and a genuine spam flag land in the same place.
+
+All acceptance criteria are now met and evidenced. Todo closed.
+
+### Completed by completing-todos skill (run 2026-09-02-2327)
+
+- Verification: all 5 acceptance criteria passed, each backed by quoted
+  production log output or command output above.
+- Review: `/code-review high` on the PR #619 slice — 0 blocking, 2 low, both
+  fixed in `eedbec5` rather than deferred (they were accuracy defects in prose
+  written during the same run).
+- Shipped as PRs #619 (`b8f62b2`) and #620 (`6045782`).
+- Deviation from the skill's "never commit" rail, per the project convention
+  that a todo slice ships as a merged PR.
+- Residue requiring a human at `/cms/` is tracked as its own todo, not left
+  buried in this archived file.

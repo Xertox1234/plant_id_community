@@ -397,3 +397,14 @@ Compact checklist auto-injected before edits.
   is indistinguishable from success. The tell is the count: 56 before, 56 after
   adding six tests. Always compare `Ran N tests` before and after, and keep the
   `__main__` block last in the file. Hit while codifying todos 310/315.
+- **A verification step that passes on a NULL result verifies nothing — this
+  applies to a todo's acceptance criteria, not just to test code.** Todo 332
+  told the reader to find six probe topics by searching the slug
+  `spam-screen-probe-280` and made "the search returns nothing" the acceptance
+  criterion; `TopicViewSet.search_fields = ["title"]` searches titles only, so
+  the search returns zero rows on the first try and every criterion passes with
+  all six rows still present. Whenever a criterion is "X returns nothing", ask
+  what ELSE makes it return nothing — a wrong handle, a typo, an unrelated
+  config. Prefer positive, id-addressed checks ("each of ids 37-42 now 404s")
+  over absence-of-search-hits. Same tautology family as the todo-321 shrink
+  direction and `assertIn(value, dict.values())`.
