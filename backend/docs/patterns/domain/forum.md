@@ -255,6 +255,44 @@ entry with the backend's default `TIMEOUT` (300s here) instead of
 `AIRateLimiter.TTL` (3600s) — a 12x window shrink that no test would show.
 Use the explicit `cache.set(key, calls + 1, cls.TTL)` idiom.
 
+### Every screening surface must be trust-gated (todo 280)
+
+`get_spam_backend()` has exactly two call sites, and before enabling the LLM
+backend they disagreed about who pays for a provider call:
+
+| Surface | Call site | Trust gate |
+|---------|-----------|------------|
+| Topic/Post publish | `models/moderation.py` (`SpamCheckTask`) | Yes — `workflow.py::_route_revision_by_trust` only starts the workflow for `trust_level < TRUST_AUTOPUBLISH_LEVEL` |
+| Direct message send | `api/direct_messages.py` (`_screen_dm_body`) | Yes, **since todo 280** — was ungated |
+
+The DM path predates the LLM backend, so "screen every send" was free when the
+only backend was the offline heuristic. It stops being free the moment
+`WAGTAILFORUM_SPAM_BACKEND` names a provider-backed backend: an ungated surface
+puts a synchronous, billable call on *every* message, including those from
+established members the post path would never screen.
+
+Worse, **fail-closed is not equivalent across the two surfaces**. A flagged Post
+becomes a pending draft a moderator can still publish; `Message` has no
+revision/workflow state to hold, so the identical verdict rejects the send with
+a 400 and the text is gone. A provider timeout therefore *destroys* a DM where
+it merely *delays* a post — so paying that risk for a trusted sender is the
+worst trade available on this path.
+
+The gate splits the two passes rather than skipping screening:
+
+- **The heuristic floor runs for everyone.** Link flood and banned words are
+  deterministic, offline and free; weakening them with trust would trade one
+  problem for a worse one. Pinned by
+  `test_trusted_sender_dm_still_gets_the_heuristic_floor`.
+- **Only the configured backend's extra pass is trust-gated**, on the same
+  `TRUST_AUTOPUBLISH_LEVEL` the post path uses — one policy knob, not two.
+
+**Rule for any new surface that screens user content:** decide its trust gate at
+the same time as its `get_spam_backend()` call, and state its fail-closed
+consequence. "Screen everything" is only cheap while the backend is offline, and
+which backend is configured is an ops decision made later, elsewhere, by someone
+who will not re-audit the call sites.
+
 ### Enable procedure
 
 The hardening gate above is landed, so the setting is **safe to enable**. Per

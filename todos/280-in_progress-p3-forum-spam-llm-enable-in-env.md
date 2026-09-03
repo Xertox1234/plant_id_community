@@ -97,6 +97,9 @@ traffic: `backend/apps/forum_host/constants.py` (`SPAM_LLM_BUDGET_LIMIT`,
       misbehaviour (chronic timeout / unparseable replies) by failing **closed**,
       without letting failures drain the verdict budget into publish-unscreened.
       Todo 274's three sustained-failure tests must still pass unchanged.
+- [ ] **Prerequisite (added 2026-09-02):** every `get_spam_backend()` call site
+      is trust-gated before the flip. The DM send path was ungated — see the
+      2026-09-02 Work Log entry.
 - [ ] `WAGTAILFORUM_SPAM_BACKEND` is set to the LLM backend in at least one
       environment, with a working `OPENAI_API_KEY`.
 - [ ] A real post is screened end-to-end (a `[SECURITY] Forum spam LLM flagged
@@ -230,3 +233,103 @@ spend is acceptable:
 
 Caps in force on day one: 200 verdicts/hr (then degrade to heuristic → publish)
 and 400 provider calls/hr (then hold). Review both against real volume — AC4.
+
+### 2026-09-02 - Operator unblocked the key; a pre-flip gate surfaced (run 2026-09-02-2327)
+
+**Operator decision reversed the 2026-07-31 hold:** `OPENAI_API_KEY` on the
+`plant_id_community` service is now funded and current (confirmed by the
+operator — Railway's API returns `valuesRedacted: true`, so no automated check
+can verify a key value).
+
+Railway state re-confirmed read-only before touching anything: still exactly one
+environment (`production`), `OPENAI_API_KEY` present, `WAGTAILFORUM_SPAM_BACKEND`
+still unset (heuristic default live).
+
+**Blocking finding — the todo's blast-radius description was stale.** This todo
+was written 2026-07-25; DMs shipped after it (todo 319). `get_spam_backend()`
+has two call sites, and only one was trust-gated:
+
+| Surface | Trust gate before this run |
+|---------|----------------------------|
+| Topic/Post publish (`models/moderation.py`) | Yes — the workflow only starts for `trust_level < TRUST_AUTOPUBLISH_LEVEL` |
+| DM send (`api/direct_messages.py:227`) | **None** — every sender, every trust level |
+
+So flipping the setting would have put a synchronous, billable LLM call on
+**every DM send by every user**, not just on untrusted posts. And the two
+surfaces are not equivalent under fail-closed: a flagged Post becomes a pending
+draft a moderator can publish, but `Message` has no revision/workflow state to
+hold (that module's own docstring says so), so the same verdict rejects the send
+with a 400 and the text is gone. A 3s provider timeout would therefore *destroy*
+a legitimate DM.
+
+**Operator call: gate DMs first, then enable.** AC2–4 stay open pending the
+deploy.
+
+**What landed** (`packages/wagtail_forum/wagtail_forum/api/direct_messages.py`):
+
+`_screen_dm_body(sender, text)` trust-routes the DM screen on the same
+`TRUST_AUTOPUBLISH_LEVEL` the post path uses. It splits the two passes rather
+than skipping screening:
+
+- The **heuristic floor runs for everyone** — link flood / banned words are
+  deterministic, offline and free, and weakening them with trust would trade one
+  problem for a worse one.
+- Only the **configured backend's** extra pass is gated, so untrusted senders
+  (the actual DM-spam risk, and the same population the post path screens) still
+  get the full LLM screen.
+
+Three tests pin it, written RED first:
+
+```
+test_untrusted_sender_dm_is_screened_by_the_configured_backend
+test_trusted_sender_dm_skips_the_configured_backend
+test_trusted_sender_dm_still_gets_the_heuristic_floor
+```
+
+The third is the load-bearing one — without it the gate could silently drop
+link-flood screening for every established member's DMs.
+
+### Verification — DM trust gate
+
+RED before the fix (2 of 3 new tests failing on current behaviour):
+
+```
+[FAIL] test_trusted_sender_dm_skips_the_configured_backend      assert 400 == 201
+[FAIL] test_trusted_sender_dm_still_gets_the_heuristic_floor    assert 'link' in 'ai: recorded'
+```
+
+GREEN after:
+
+```
+Pytest: 26 passed          # test_direct_messages_api.py
+Pytest: 1118 passed        # packages/wagtail_forum + apps/forum_host
+Pytest: 1947 passed, 0 failed, 8 skipped   # full backend suite, --create-db
+```
+
+Mutation check — `>=` weakened to `>` (a MEMBER at exactly the threshold) makes
+the boundary test red, so it is not hollow:
+
+```
+[FAIL] test_trusted_sender_dm_skips_the_configured_backend      assert 400 == 201
+```
+
+`flake8` clean on both changed files. Codified as "Every screening surface must
+be trust-gated" in `backend/docs/patterns/domain/forum.md`.
+
+### Remaining — AC2–4, after this deploys
+
+The gate must be **live in production before** the variable is set; otherwise
+the currently-deployed code still screens every DM. Order:
+
+1. Merge this PR, confirm the Railway deploy settled.
+2. Set `WAGTAILFORUM_SPAM_BACKEND=apps.forum_host.spam.LLMSpamBackend` on the
+   `plant_id_community` service only (**not** environment-wide —
+   `forum-prune-cron` imports the same settings and screens nothing).
+3. AC3 evidence: a trust-0 throwaway account posts promotional text with ≤3
+   links (so the heuristic passes it through to the LLM), and the
+   `[SECURITY] Forum spam LLM flagged content` line is captured. Note a CLEAN
+   verdict logs **nothing** — `_parse()` only logs on SPAM and on unparseable —
+   so the SPAM line is the only positive in-log evidence available.
+4. AC4 evidence gathered read-only already, ahead of the flip: production
+   `/forum/rss/` lists **18 topics ever**, most seeded 2026-08-15/16, newest
+   2026-08-30. Real volume is ~0–2 topics/day against a 200/hr verdict cap.
