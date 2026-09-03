@@ -15,7 +15,13 @@ Closing todo 280 required proving the LLM spam screen actually flags real
 content in production. That meant a throwaway trust-0 account posting genuine
 promotional spam, six times. The account and its six held drafts are still
 there. They are moderation-queue clutter, not exposure — but nothing removes
-them automatically, and only a human with `/cms/` access can.
+them automatically, so it takes a deliberate cleanup.
+
+**Resolved 2026-09-03 via the Django ORM over `DATABASE_PUBLIC_URL`, not
+`/cms/`.** This section originally said "only a human with `/cms/` access can";
+see the CORRECTION under Findings and the Work Log. `## Recommended Action`
+below is kept as written for the record, but its `/cms/` steps are NOT what was
+executed.
 
 ## Findings
 
@@ -112,9 +118,18 @@ why a flagged post lands as a pending draft rather than being discarded.
 - [x] User id 20 (`spam-screen-probe-280`) is deleted, *after* the topics —
       `User.objects.filter(pk=20).count() == 0` and
       `filter(username=…).count() == 0`.
-- [x] Satisfied by the id-addressed check above rather than by the listing
-      search. Deliberate: "a search returns zero rows" is the vacuous shape this
-      todo was rewritten to avoid, so it is not the evidence relied on.
+- [x] Both title searches return zero rows — run at the DB level, which is
+      exactly what the admin listing does (`search_fields = ["title"]` ->
+      `icontains`):
+      `title__icontains="CHEAP DESIGNER WATCHES"` -> **0**,
+      `title__icontains="crypto seed vault"` -> **0**.
+      (An earlier draft of this line checked the box by declaring the criterion
+      redundant with AC1, on the rationale that a search is the vacuous shape
+      this todo was rewritten to avoid. That rationale was wrong and described
+      the *previous* version: the vacuous handle was the **slug** search, which
+      had already been replaced by a **title** search — and title is the field
+      the admin actually searches. So this was a cheap, working check that got
+      skipped for a bad reason. Run properly above.)
 
 ## Work Log
 
@@ -123,20 +138,6 @@ why a flagged post lands as a pending draft rather than being discarded.
 - Filed rather than left in todo 280's archived Work Log, since the action needs
   a human with `/cms/` access and an archived file is not a worklist anyone
   re-reads.
-
-## Notes
-
-The original version of this file told the reader to find the topics by slug
-search and made every acceptance criterion pass on a zero-row result — i.e. it
-would have produced a confidently-ticked cleanup with nothing actually deleted.
-Caught by `/code-review medium` on PR #621. Worth remembering that a todo whose
-verification step can be satisfied by *not finding anything* is worse than no
-todo at all.
-
-p4 because there is no exposure and no functional impact — purely tidiness of
-the moderation queue. Deliberately NOT `status: blocked`: per
-`docs/LEARNINGS.md`, a blocked todo is invisible to every sweep skill, which is
-the opposite of getting it done.
 
 ### 2026-09-03 - Done via the Django ORM against production
 
@@ -170,5 +171,37 @@ task states and 12 search-index entries came out with the rows.
 
 Verification, all zero: topics, posts, user by pk, user by username, orphan
 revisions (topic + post content types), orphan workflow states. Externally all
-six topic ids return 404 and `/forum/rss/` is unchanged at 18 items — the
-pre-probe count, confirming nothing legitimate was touched.
+six topic ids return 404.
+
+**The RSS count is weaker evidence than it looks — recorded here rather than
+leaned on.** `/forum/rss/` is unchanged at 18 items, but `ForumTopicsFeed.items()`
+filters `live=True` and every probe topic was a draft (`any LIVE topic among
+targets: 0`), so that count was guaranteed unchanged no matter what happened to
+any draft. It bounds collateral among *live* topics only and could not detect
+draft collateral at all — the same "passes on a null result" shape this todo
+codified into `docs/rules/testing.md`. Caught reviewing this file.
+
+The check that *can* see draft collateral, run directly:
+
+```
+topics total: 18   live=True: 18   live=False: 0
+```
+
+Zero drafts remain forum-wide, and the 18 live topics are the pre-probe set.
+Together with the pre-delete dry run (no other content authored by user 20) and
+the cascade counts above (exactly 6 topics / 6 posts), that is the real
+collateral evidence.
+
+## Notes
+
+The original version of this file told the reader to find the topics by slug
+search and made every acceptance criterion pass on a zero-row result — i.e. it
+would have produced a confidently-ticked cleanup with nothing actually deleted.
+Caught by `/code-review medium` on PR #621. Worth remembering that a todo whose
+verification step can be satisfied by *not finding anything* is worse than no
+todo at all.
+
+p4 because there is no exposure and no functional impact — purely tidiness of
+the moderation queue. Deliberately NOT `status: blocked`: per
+`docs/LEARNINGS.md`, a blocked todo is invisible to every sweep skill, which is
+the opposite of getting it done.
