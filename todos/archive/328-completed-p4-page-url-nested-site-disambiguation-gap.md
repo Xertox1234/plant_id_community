@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: p4
 issue_id: "328"
 tags: [backend, wagtail, api]
@@ -99,7 +99,25 @@ At that point:
 - [ ] Not actionable until this project has a nested-Site use case —
       revisit then. No AC until scoped against a real requirement.
 
+Disposition 2026-09-04: **closed as won't-fix** (user decision, see Work
+Log). The box above is deliberately left unchecked — nothing shipped.
+
 ## Work Log
+
+### 2026-09-04 - Closed as won't-fix (run 2026-09-04-0350)
+
+- User decision during the backlog clear-out: this project has never used a
+  nested Wagtail `Site` topology (one prod `Site` row; the only test that
+  creates a second shares the same `root_page`) and none is planned, so the
+  gap has no reachable failure. Closed the way todo 013 was — archived with
+  the `completed` status the lifecycle allows, no code change, the acceptance
+  line intentionally unchecked.
+- The gap stays documented where it matters: the `_absolute_page_url()`
+  docstrings in `apps/blog/api/serializers.py` and
+  `apps/plant_identification/api/serializers.py`. If a nested-Site topology
+  ever lands, re-file from this record and start at "Recommended Action" step
+  2 (root-cause the `test_admin_render_smoke.py` flake before accepting the
+  `request._request` unwrap).
 
 ### 2026-08-31 - Filed
 

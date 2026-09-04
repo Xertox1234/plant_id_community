@@ -272,6 +272,29 @@ then AC4 (TestFlight device push). AC5 ticks last. `DEVELOPMENT_TEAM` =
 `3442937R38` will need adding to the pbxproj for automatic signing — deliberately
 left out of scope here.
 
+### 2026-09-04 - Signing state re-checked; operator steps handed over (run 2026-09-04-0350)
+
+Unchanged since 2026-07-31, re-verified on this Mac:
+
+```
+$ security find-identity -v -p codesigning
+  1) … "Apple Development: william.tower@gmail.com (8YMA4779DD)"   ← still no Apple Distribution
+$ ~/Library/Developer/Xcode/UserData/Provisioning Profiles/  → 3 decodable profiles:
+  com.williamtower.ocrecipes, com.luma.tuner, 3442937R38.*   — none for
+  com.plantcommunity.plantCommunityMobile, none carries aps-environment
+$ DEVELOPMENT_TEAM in ios/Runner.xcodeproj/project.pbxproj → 0 occurrences
+$ PlistBuddy :aps-environment → Runner.entitlements=development, RunnerRelease.entitlements=production
+```
+
+Firebase project for the upload: `plant-community-prod` (from
+`GoogleService-Info.plist`). The user chose to do the portal work now; the
+ordered steps (App ID push capability → APNs key → Firebase upload → Xcode
+team + Push capability → `flutter build ipa --release` → TestFlight push)
+were handed over in-session. AC1 gets verified with `codesign -d
+--entitlements :-` against the produced archive once it exists; AC5 ticks
+last. Xcode will write `DEVELOPMENT_TEAM` into the pbxproj on the main
+checkout — that change rides the closing PR with the checklist tick.
+
 ## Notes
 
 Deliberately NOT fixed during todo 272's closure: flipping the string with no
