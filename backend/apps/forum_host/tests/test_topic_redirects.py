@@ -9,6 +9,10 @@ middleware for a request that reaches this origin, and by the redirects API
 """
 
 import pytest
+from apps.forum_host.redirects import board_topic_prefix, redirect_board_topics
+from django.db import connection
+from django.db.models import F
+from django.test.utils import CaptureQueriesContext
 from wagtail.contrib.redirects.models import Redirect
 from wagtail.models import Page
 from wagtail_forum.models import ForumBoard, ForumIndex, Topic
@@ -206,3 +210,243 @@ def test_duplicate_all_sites_rows_for_the_old_path_are_all_re_pointed():
     topic.save()
 
     assert _links() == [(path_a, topic.get_absolute_url())] * 2
+
+
+# --- board slug renames (todo 334) -------------------------------------------
+
+# SELECT live topics; SAVEPOINT; SELECT manual shadowing rows (for the
+# warning); DELETE shadowing; UPDATE chain collapse; DELETE self-loops;
+# DELETE old-path rows; INSERT; RELEASE SAVEPOINT. Independent of how many
+# topics the board holds (up to REDIRECT_BULK_CREATE_BATCH_SIZE per INSERT).
+BOARD_RENAME_QUERIES = 9
+
+
+def _topic_rows():
+    """Our all-sites rows only — Wagtail's own page auto-redirects (if a Site
+    ever covers /forum/) are site-bound and page-targeted."""
+    return list(
+        Redirect.objects.filter(site=None, redirect_page=None)
+        .order_by("old_path")
+        .values_list(
+            "old_path", "redirect_link", "is_permanent", "automatically_created"
+        )
+    )
+
+
+def _topic_links():
+    return [(old, new) for old, new, *_ in _topic_rows()]
+
+
+def _rename_board(board, slug, capture_on_commit):
+    # page_slug_changed is sent from transaction.on_commit, which a
+    # transactional test never reaches on its own.
+    with capture_on_commit(execute=True):
+        board.slug = slug
+        board.save()
+
+
+def test_board_prefix_matches_the_topic_url_shape():
+    general, _ = _boards()
+    topic = _topic(general, "x")
+    prefix = board_topic_prefix(general.pk, general.slug)
+    assert topic.get_absolute_url() == f"{prefix}{topic.pk}-x"
+
+
+def test_board_rename_redirects_every_live_topic_and_no_drafts(
+    django_capture_on_commit_callbacks,
+):
+    general, _ = _boards()
+    live = [_topic(general, "aphids"), _topic(general, "mealybugs")]
+    _topic(general, "draft", live=False)
+    old_paths = [t.get_absolute_url() for t in live]
+
+    _rename_board(general, "general-chat", django_capture_on_commit_callbacks)
+
+    expected = sorted(
+        (old, t.get_absolute_url(), True, True) for old, t in zip(old_paths, live)
+    )
+    assert _topic_rows() == expected
+    assert all(
+        new.startswith("/forum/%d-general-chat/" % general.pk)
+        for _, new, *_ in expected
+    )
+
+
+def test_board_rename_old_topic_path_is_served_as_a_301(
+    client, django_capture_on_commit_callbacks
+):
+    general, _ = _boards()
+    topic = _topic(general, "aphids")
+    old_path = topic.get_absolute_url()
+
+    _rename_board(general, "general-chat", django_capture_on_commit_callbacks)
+
+    resp = client.get(old_path)
+    assert resp.status_code == 301
+    assert resp["Location"] == topic.get_absolute_url()
+
+
+def test_repeated_board_renames_collapse_chains(django_capture_on_commit_callbacks):
+    general, _ = _boards()
+    topic = _topic(general, "aphids")
+    path_a = topic.get_absolute_url()
+    _rename_board(general, "b", django_capture_on_commit_callbacks)
+    path_b = topic.get_absolute_url()
+
+    _rename_board(general, "c", django_capture_on_commit_callbacks)
+    path_c = topic.get_absolute_url()
+
+    assert _topic_links() == sorted([(path_a, path_c), (path_b, path_c)])
+
+
+def test_board_rename_back_leaves_no_loop(django_capture_on_commit_callbacks):
+    general, _ = _boards()
+    topic = _topic(general, "aphids")
+    path_a = topic.get_absolute_url()
+    _rename_board(general, "b", django_capture_on_commit_callbacks)
+    path_b = topic.get_absolute_url()
+
+    _rename_board(general, "general", django_capture_on_commit_callbacks)
+
+    assert topic.get_absolute_url() == path_a
+    assert _topic_links() == [(path_b, path_a)]
+
+
+def test_board_rename_collapses_a_topic_rename_onto_the_new_board_path(
+    django_capture_on_commit_callbacks,
+):
+    """A topic slug change (x→y) then a board rename: the x row must follow
+    the topic to the new board path, not stop at the old board's y."""
+    general, _ = _boards()
+    topic = _topic(general, "x")
+    path_x = topic.get_absolute_url()
+    topic.slug = "y"
+    topic.save()
+    path_y_old_board = topic.get_absolute_url()
+
+    _rename_board(general, "general-chat", django_capture_on_commit_callbacks)
+    path_y_new_board = topic.get_absolute_url()
+
+    assert _topic_links() == sorted(
+        [(path_x, path_y_new_board), (path_y_old_board, path_y_new_board)]
+    )
+
+
+def test_board_rename_removes_a_manual_row_from_a_topics_new_path(
+    caplog, django_capture_on_commit_callbacks
+):
+    import logging
+
+    general, _ = _boards()
+    topic = _topic(general, "aphids")
+    new_path = topic.get_absolute_url().replace("-general/", "-general-chat/")
+    Redirect.add_redirect(new_path, "/somewhere-else/")  # manual
+
+    log = logging.getLogger("apps.forum_host.redirects")
+    log.addHandler(caplog.handler)
+    try:
+        with caplog.at_level(logging.WARNING, logger=log.name):
+            _rename_board(general, "general-chat", django_capture_on_commit_callbacks)
+    finally:
+        log.removeHandler(caplog.handler)
+
+    assert topic.get_absolute_url() == new_path
+    assert _topic_links() == [
+        (new_path.replace("-general-chat/", "-general/"), new_path)
+    ]
+    assert any(new_path in r.getMessage() for r in caplog.records)
+
+
+def test_board_rename_query_count_is_flat_in_topic_count():
+    general, pests = _boards()
+    Topic.objects.bulk_create(
+        [Topic(board=general, title="T", slug=f"t-{i}") for i in range(3)]
+    )
+    Topic.objects.bulk_create(
+        [Topic(board=pests, title="T", slug=f"t-{i}") for i in range(1000)]
+    )
+
+    def rename(board, slug):
+        before = ForumBoard.objects.get(pk=board.pk)
+        board.slug = slug
+        with CaptureQueriesContext(connection) as ctx:
+            redirect_board_topics(before, board)
+        return len(ctx.captured_queries)
+
+    small = rename(general, "general-2")
+    big = rename(pests, "pests-2")
+
+    assert (small, big) == (BOARD_RENAME_QUERIES, BOARD_RENAME_QUERIES)
+    assert Redirect.objects.filter(site=None).count() == 1003
+
+
+def test_board_rename_with_no_live_topics_writes_nothing(
+    django_capture_on_commit_callbacks,
+):
+    general, _ = _boards()
+    _topic(general, "draft", live=False)
+
+    _rename_board(general, "general-chat", django_capture_on_commit_callbacks)
+
+    assert _topic_rows() == []
+
+
+def test_board_rename_through_the_admin_publish_path(
+    django_capture_on_commit_callbacks,
+):
+    """The promote-tab edit lands via save_revision().publish(), not a bare
+    save(); the signal must fire from that path too."""
+    general, _ = _boards()
+    topic = _topic(general, "aphids")
+    old_path = topic.get_absolute_url()
+
+    with django_capture_on_commit_callbacks(execute=True):
+        general.slug = "general-chat"
+        general.save_revision().publish()
+
+    general.refresh_from_db()
+    assert general.slug == "general-chat"
+    assert _topic_links() == [
+        (old_path, f"/forum/{general.pk}-general-chat/{topic.pk}-aphids")
+    ]
+
+
+# --- review round 1 (code-review, 2026-09-04) ---------------------------------
+
+
+def test_board_rename_back_after_a_topic_was_unpublished_leaves_no_self_loop(
+    django_capture_on_commit_callbacks,
+):
+    """Rename A→B writes rows for both topics; topic 2 is then unpublished, so
+    the rename back B→A skips its new path in the shadowing delete — and the
+    prefix collapse would fold its A→B row into A→A. That row must go."""
+    general, _ = _boards()
+    live_topic = _topic(general, "live")
+    later_draft = _topic(general, "draft")
+    path_a_live = live_topic.get_absolute_url()
+    _rename_board(general, "general-chat", django_capture_on_commit_callbacks)
+    path_b_live = live_topic.get_absolute_url()
+    later_draft.live = False
+    later_draft.save(update_fields=["live"])
+
+    _rename_board(general, "general", django_capture_on_commit_callbacks)
+
+    assert not Redirect.objects.filter(redirect_link=F("old_path")).exists()
+    assert _topic_links() == [(path_b_live, path_a_live)]
+
+
+def test_board_rename_back_with_no_live_topics_still_repairs_stale_rows(
+    django_capture_on_commit_callbacks,
+):
+    """With every topic unpublished there is nothing to write, but the row an
+    earlier rename left (A→B) would otherwise send the topic's own canonical
+    URL to a dead path the moment it is republished."""
+    general, _ = _boards()
+    topic = _topic(general, "aphids")
+    _rename_board(general, "general-chat", django_capture_on_commit_callbacks)
+    topic.live = False
+    topic.save(update_fields=["live"])
+
+    _rename_board(general, "general", django_capture_on_commit_callbacks)
+
+    assert _topic_links() == []
