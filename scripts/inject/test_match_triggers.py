@@ -729,6 +729,90 @@ class TestTodo310Triggers(unittest.TestCase):
         )
         hits = mt.find_matches(tn, ti, self.real, None)
         self.assertNotIn("json-parse-guard-without-shape-check", ids(hits))
+class TestForumWagtailQuickWinTriggers(unittest.TestCase):
+    """PR #624 codification — asserted against the REAL docs/rules/triggers.json.
+    Positive fixtures are the shapes that actually shipped (or nearly did)."""
+
+    @classmethod
+    def setUpClass(cls):
+        root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+        cls.real = mt.load_triggers(root)
+
+    # update_or_create keyed on a None lookup -----------------------------------
+    def test_update_or_create_with_none_lookup_fires(self):
+        # The pre-fix redirects.py shape: site=None in the LOOKUP kwargs.
+        tn, ti = write(
+            "backend/apps/forum_host/redirects.py",
+            "    Redirect.objects.update_or_create(\n"
+            "        old_path=old_path,\n"
+            "        site=None,\n"
+            "        defaults={\n"
+            '            "redirect_link": new_path,\n'
+            "        },\n"
+            "    )\n",
+        )
+        self.assertIn("update-or-create-nullable-lookup", ids(mt.find_matches(tn, ti, self.real, None)))
+
+    def test_update_or_create_with_none_only_in_defaults_silent(self):
+        tn, ti = write(
+            "backend/apps/forum_host/redirects.py",
+            "    Redirect.objects.update_or_create(\n"
+            "        old_path=old_path, site=site,\n"
+            '        defaults={"redirect_page": None, "is_permanent": True},\n'
+            "    )\n",
+        )
+        self.assertNotIn("update-or-create-nullable-lookup", ids(mt.find_matches(tn, ti, self.real, None)))
+
+    # caplog on a non-propagating logger ----------------------------------------
+    def test_caplog_on_apps_logger_without_handler_fires(self):
+        # The shipped test_search_hits.py shape: the logger name lives in a
+        # module constant, so the regex must match the assignment, not the call.
+        tn, ti = write(
+            "backend/apps/forum_host/tests/test_search_hits.py",
+            'LOGGER = "apps.forum_host.search_hits"\n\n'
+            "def test_a_logging_failure_does_not_fail_the_search(monkeypatch, caplog):\n"
+            "    with caplog.at_level(logging.WARNING, logger=LOGGER):\n"
+            '        resp = APIClient().get(SEARCH, {"q": "monstera"})\n',
+        )
+        self.assertIn("caplog-on-non-propagating-logger", ids(mt.find_matches(tn, ti, self.real, None)))
+
+    def test_caplog_on_apps_logger_with_handler_attached_silent(self):
+        tn, ti = write(
+            "backend/apps/forum_host/tests/test_search_hits.py",
+            'LOGGER = "apps.forum_host.search_hits"\n\n'
+            "def test_a_logging_failure_does_not_fail_the_search(monkeypatch, caplog):\n"
+            "    log = logging.getLogger(LOGGER)\n"
+            "    log.addHandler(caplog.handler)\n"
+            "    try:\n"
+            "        with caplog.at_level(logging.WARNING, logger=LOGGER):\n"
+            '            resp = APIClient().get(SEARCH, {"q": "monstera"})\n'
+            "    finally:\n"
+            "        log.removeHandler(caplog.handler)\n",
+        )
+        self.assertNotIn("caplog-on-non-propagating-logger", ids(mt.find_matches(tn, ti, self.real, None)))
+
+    def test_caplog_on_propagating_package_logger_silent(self):
+        # wagtail_forum propagates; the package suite's plain caplog use is fine.
+        tn, ti = write(
+            "backend/apps/forum_host/tests/test_signals.py",
+            'with caplog.at_level("ERROR", logger="forum_host.notifications"):\n    pass\n',
+        )
+        self.assertNotIn("caplog-on-non-propagating-logger", ids(mt.find_matches(tn, ti, self.real, None)))
+
+    # dotted list_export path -----------------------------------------------------
+    def test_dotted_list_export_fires(self):
+        tn, ti = write(
+            "backend/packages/wagtail_forum/wagtail_forum/wagtail_hooks.py",
+            '    list_export = [\n        "id",\n        "post.topic.title",\n        "reporter",\n    ]\n',
+        )
+        self.assertIn("list-export-dotted-nullable-fk", ids(mt.find_matches(tn, ti, self.real, None)))
+
+    def test_property_list_export_silent(self):
+        tn, ti = write(
+            "backend/packages/wagtail_forum/wagtail_forum/wagtail_hooks.py",
+            '    list_export = [\n        "id",\n        "topic_title",\n        "reporter",\n    ]\n',
+        )
+        self.assertNotIn("list-export-dotted-nullable-fk", ids(mt.find_matches(tn, ti, self.real, None)))
 
 
 if __name__ == "__main__":

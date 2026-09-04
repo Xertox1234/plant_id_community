@@ -25,3 +25,12 @@ Compact checklist auto-injected before edits. Long-form:
   incrementing detail view undercounts a user-visible metric; a cached post/topic
   keeps serving unpublished/report-hidden content until the TTL. Mark those
   `private, no-store` so every hit reaches the origin.
+- **A cross-process invalidation key written from `post_save` must wait for
+  `transaction.on_commit`.** `post_save` fires INSIDE the caller's atomic block
+  (every Wagtail admin save is one); a version/token key rotated there is visible
+  to other workers before the row commits, so a worker that reloads in that
+  window memoises the OLD row under the NEW token and never reloads again. Reset
+  any local memo synchronously; rotate the shared key in `on_commit`. Prove both
+  with `django_capture_on_commit_callbacks(execute=False)` — pytest-django never
+  runs `on_commit` on its own, so the race is invisible to a suite that relies on
+  the local reset (PR #624, `apps/forum_host/forum_settings.py`).

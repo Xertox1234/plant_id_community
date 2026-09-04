@@ -4179,3 +4179,63 @@ other code. Only a codepoint scan for emoji plus grep for the utilities showed
 what was actually left (three emoji clusters, three headings, three shadows,
 14 bare `rounded`). Treat a design-system brief's premises as hypotheses and
 verify each with a scan before planning around it.
+
+## 2026-09-04 — Forum Wagtail quick wins (PR #624)
+
+### A cache-invalidation token rotated from `post_save` is visible before the row commits
+
+`ForumSettings` (admin-editable `WAGTAILFORUM_*` overrides) is read through a
+process memo keyed by a shared Redis token; `post_save` rotated the token so
+other workers would reload. Wagtail's `EditView.form_valid` saves inside
+`transaction.atomic()`, so the new token was published while the new row was
+still uncommitted: a worker reloading in that window read the OLD row under
+READ COMMITTED and memoised it under the NEW token — and because a *missing*
+token deliberately keeps the memo, nothing would ever reload it again. Caught
+by the bundled `/code-review` (confirmed against
+`wagtail/admin/views/generic/models.py`), not by the suite: pytest-django never
+runs `on_commit` callbacks, so every test passed on the synchronous local reset
+alone.
+
+**Fix:** reset `_memo` synchronously, rotate the token in
+`transaction.on_commit`; a `django_capture_on_commit_callbacks(execute=False)`
+test now pins that the token is unchanged until commit. Rules added to
+`docs/rules/caching.md` and `docs/rules/testing.md`.
+
+### `unique_together` with a NULL column is not unique, and a manual reverse redirect loops
+
+Topic slug/board changes write `Redirect(old_path, site=None)` rows.
+`update_or_create(old_path=..., site=None)` relied on the model's
+`unique_together(old_path, site)`, which Postgres does not enforce when `site
+IS NULL` (`NULL <> NULL`; Wagtail's own `RedirectForm.clean` de-dupes by hand
+for this reason) — a concurrent double insert would make every later `.get()`
+raise `MultipleObjectsReturned` inside `post_save`, 500ing the topic save until
+a row was hand-deleted. Separately, the chain-collapse
+`filter(redirect_link=old).update(redirect_link=new)` rewrote a hand-made
+reverse row (B→A) into a self-loop B→B, and the "preserve manual rows" rule
+left A→B beside B→A — both real loops here, because topic paths are Wagtail
+404s on the origin so the middleware fires on every hop. Both review-caught;
+the loop was reproduced empirically before the fix.
+
+**Fix:** delete every row whose `old_path` is the new path (warn when it was
+manual) before writing; `filter().update()` all existing rows for the old
+path, create only when none matched. Rules in `docs/rules/database.md` and
+`docs/rules/forum.md`; write-time trigger `update-or-create-nullable-lookup`.
+
+### `caplog` is blind to `apps.*` loggers — the log assertion failed with the code already correct
+
+Two host tests asserted a swallowed-failure warning via `caplog`. With the
+production code already logging correctly, the assertion still failed:
+`settings.LOGGING` sets `propagate=False` on `apps`, `django`, and
+`plant_community_backend` (see the 2026-06-06 entry), so their records never
+reach the root handler pytest installs. The identical assertion shape in the
+package suite worked because `wagtail_forum` propagates — which is exactly what
+made the host failure look like a code bug rather than a harness one.
+
+**Fix:** attach `caplog.handler` to the module logger in a `try/finally`. Rule
+and trigger (`caplog-on-non-propagating-logger`) in `docs/rules/testing.md`.
+
+Also observed, pre-existing and unfiled: the raw `/api/v2/pages/` and
+`/api/v2/images/` router mounts 404 with "Invalid version in URL path" because
+DRF `NamespaceVersioning` rejects the `wagtailapi` namespace — every
+project-owned Wagtail API viewset sets `versioning_class = None`, and the new
+redirects endpoint had to as well (`docs/rules/api.md`, `docs/rules/wagtail.md`).

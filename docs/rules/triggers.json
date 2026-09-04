@@ -1311,5 +1311,53 @@
     "source": "codify: feat/forum-green-thumb-polish",
     "added": "2026-09-03",
     "severity": "warn"
+  },
+  {
+    "id": "update-or-create-nullable-lookup",
+    "domains": [
+      "database",
+      "forum"
+    ],
+    "path_glob": [
+      "backend/**/*.py"
+    ],
+    "content_present": "update_or_create\\([\\s\\S]*?\\b\\w+\\s*=\\s*None",
+    "message": "update_or_create()/.get() keyed on a lookup that includes None: NULL is never equal to NULL, so unique_together/UniqueConstraint does not de-dupe those rows and a concurrent double insert later raises MultipleObjectsReturned (Wagtail Redirect with site=None hit this). Use filter(...).update(...) then create when nothing matched, or UniqueConstraint(nulls_distinct=False).",
+    "pattern_ref": "backend/docs/patterns/domain/forum.md",
+    "source": "codify: feat/forum-wagtail-quick-wins",
+    "added": "2026-09-03",
+    "severity": "warn"
+  },
+  {
+    "id": "caplog-on-non-propagating-logger",
+    "domains": [
+      "testing"
+    ],
+    "path_glob": [
+      "backend/apps/*/tests/*.py",
+      "backend/apps/*/tests/**/*.py"
+    ],
+    "content_present": "(?i)logger\\s*=\\s*\"(apps|django|plant_community_backend)\\.",
+    "content_absent": "addHandler\\(caplog\\.handler\\)",
+    "message": "apps.*, django.* and plant_community_backend.* loggers set propagate=False, so caplog never sees their records and a \"logs a warning\" assertion is green-by-emptiness. Attach the handler: logging.getLogger(name).addHandler(caplog.handler) in a try/finally with removeHandler, before caplog.at_level(...).",
+    "pattern_ref": "docs/rules/testing.md",
+    "source": "codify: feat/forum-wagtail-quick-wins",
+    "added": "2026-09-03",
+    "severity": "warn"
+  },
+  {
+    "id": "list-export-dotted-nullable-fk",
+    "domains": [
+      "wagtail"
+    ],
+    "path_glob": [
+      "backend/**/wagtail_hooks.py"
+    ],
+    "content_present": "list_export\\s*=\\s*\\[[\\s\\S]*?\"[a-z_]+\\.[a-z_]+",
+    "message": "A dotted list_export path is resolved with multigetattr, which raises on a NULL intermediate — through a nullable FK it 500s the whole CSV/XLSX download (a message Report has no post). Expose a model property that returns \"\" for the other shape and export that instead.",
+    "pattern_ref": "backend/docs/patterns/domain/forum.md",
+    "source": "codify: feat/forum-wagtail-quick-wins",
+    "added": "2026-09-03",
+    "severity": "warn"
   }
 ]

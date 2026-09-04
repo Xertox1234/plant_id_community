@@ -671,3 +671,69 @@ Generalizable: when an attribute's *correct* value is indistinguishable from its
 default **on the mount that ships**, behavioural tests cannot protect it there.
 Assert the structure — and when claiming "no test catches this", enumerate the
 urlconfs, because coverage can differ per mount within one repo.
+
+## Wagtail contrib integrations: package hooks, host wiring (Wagtail quick wins, PR #624)
+
+The package stays host-agnostic (`test_reusability`) by exposing small hooks;
+the host (`apps/forum_host/`) does the Wagtail-contrib wiring behind them.
+
+| Package hook | Host wiring | Wagtail contrib |
+|---|---|---|
+| `conf.register_override_provider(fn)` / `conf.MISSING` | `forum_settings.provide` reads the `ForumSettings` generic setting | `wagtail.contrib.settings` |
+| `SearchView.record_search(request, *, query, page)` (no-op) | `search_hits.record_query_hit` on page 1 | `wagtail.contrib.search_promotions` |
+| plain `pre_save`/`post_save` on `Topic` | `redirects.py` writes/repairs `Redirect` rows; `RedirectsAPIViewSet` mounted at `/api/v2/redirects/` | `wagtail.contrib.redirects` |
+| nothing — snippets are already indexed | `signals.py` (package) warns on deleting an image a live post shows | `ReferenceIndex` |
+
+### Override provider: process memo + commit-rotated token
+
+`get_setting` consults providers before the `WAGTAILFORUM_*` setting. A
+provider runs on hot paths (spam check ×2 per post create, autopublish per
+publish, experts per request) whose query counts are pinned, so the host one
+must cost no DB query in steady state:
+
+```python
+_memo = None  # (token seen at load, {NAME: value})
+
+def _values():
+    global _memo
+    token = cache.get(CACHE_KEY)          # 1 cache GET per read
+    if _memo is None or (token is not None and token != _memo[0]):
+        _memo = (token, _load_values())   # 1 SELECT, first read / after a save
+    return _memo[1]
+
+def invalidate(**kwargs):                 # post_save / post_delete
+    global _memo
+    _memo = None                          # this worker: now
+    token = uuid.uuid4().hex
+    transaction.on_commit(lambda: cache.set(CACHE_KEY, token, TTL))  # others: after commit
+```
+
+Three deliberate properties: a *missing* token keeps the memo (so `cache.clear()`
+in tests and a Redis restart never turn reads into queries — worst case "stale
+until the next save"); the token rotates **after commit** (rotating inside the
+admin's atomic block let another worker memoise the uncommitted old row under
+the new token, forever); and the TTL is bounded per `docs/rules/caching.md`
+without driving correctness. Tests that write the row reset the memo to
+`(None, {})` at teardown — the row rolls back, the memo would not.
+
+### Redirect rows: loop- and chain-free by construction
+
+`redirect_topic_path(old, new)` does three things in order: delete **every**
+row whose `old_path == new` (a rename-back's own row or a manual reverse row
+would loop, and the next step would rewrite the manual one into B→B); re-point
+rows whose `redirect_link == old` to `new` (chain collapse); then
+`filter(old_path=old, site=None).update(...)` and create only if nothing
+matched (Postgres does not enforce `unique_together` on a NULL `site`). Gate
+on the topic's **new** `live` state so an auto-hidden topic whose slug a
+moderator fixes on the way back to published still redirects its once-public
+URL. Board-slug renames are out of scope (todo 334).
+
+### What Wagtail already does — pin it, don't rebuild it
+
+`register_snippet` registers the model with `ReferenceIndex`, and the
+`update_reference_index_on_save` handler runs synchronously under the immediate
+django-tasks backend, so the image usage view and delete confirmation list forum
+posts with no forum code. The search-terms report and promoted-results editor
+need only `Query.get(q).add_hit()` — capped to `MAX_QUERY_STRING_LENGTH`, in a
+savepoint, failure-swallowed, never touching cache headers (CDN-served
+anonymous repeats go uncounted by design).

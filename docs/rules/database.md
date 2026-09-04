@@ -190,3 +190,12 @@ Compact checklist auto-injected before edits. Long-form:
   usually this, not a leak** — check connection *lifetime* before hunting a leak,
   and measure at true rest (this repo idles at 9, 8 of them Postgres's own
   background workers). See `docs/LEARNINGS.md` 2026-09-01 (todo 331).
+- **A unique constraint never de-dupes rows where a constrained column is NULL**
+  (SQL: `NULL <> NULL`), so `update_or_create(...)`/`.get(...)` keyed on a
+  `unique_together`/`UniqueConstraint` that includes a nullable column can raise
+  `MultipleObjectsReturned` after a concurrent double insert — Wagtail's
+  `Redirect(old_path, site)` with `site=None` is the live case (Wagtail's own
+  `RedirectForm.clean` de-dupes by hand for this reason). Write
+  `filter(...).update(...)` and create only when nothing matched, or declare
+  `UniqueConstraint(..., nulls_distinct=False)` (Postgres 15+). See
+  `docs/LEARNINGS.md` 2026-09-04 (PR #624).
