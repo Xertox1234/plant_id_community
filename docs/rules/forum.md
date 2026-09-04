@@ -130,3 +130,17 @@ Compact checklist auto-injected before edits to the forum code. Long-form:
   publish; a `Message` has no revision/workflow state to hold, so the identical
   verdict rejects the send with a 400 and the text is gone. Never reuse a
   post-path screening decision on the DM path without re-deciding it.
+- **`ForumSettings` is read through `forum_settings.provide`'s process memo** —
+  change the row with `.save()`/`.delete()` (they rotate the cross-worker token
+  on commit), never `.update()`, which fires no signal and leaves every worker
+  stale until the next admin save. A test that writes the row must leave the
+  memo "known empty" (`_memo = (None, {})`) at teardown: the row rolls back with
+  the test transaction, the process memo does not, and the next pinned
+  query-count test inherits either the stale values or a first-load query.
+- **Topic redirects: nothing may redirect FROM the topic's new path.** Before
+  writing `old → new`, delete every row whose `old_path` equals `new` (auto or
+  manual — warn on manual); otherwise a rename-back or a hand-made reverse row
+  loops through the origin's 404, or the chain-collapse update rewrites it into
+  B→B. Write "update all all-sites rows for the old path, else create", never
+  `update_or_create` (NULL-site uniqueness, `docs/rules/database.md`). Board-slug
+  renames are a documented non-goal (todo 334).

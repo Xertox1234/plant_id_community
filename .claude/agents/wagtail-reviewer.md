@@ -158,6 +158,28 @@ You review: `apps/blog/`, Wagtail page models, StreamField blocks, signals, Wagt
   automatically a bug, but confirm it's understood/intentional rather than
   an accidental side effect of reusing `get_queryset()`.
 
+### Forum Wagtail quick-wins additions (2026-09-04)
+
+- `list_export` on a `SnippetViewSet`: does any entry dot through a NULLABLE
+  FK (`"post.topic.title"` on a model where `post` can be NULL)? `multigetattr`
+  raises on the NULL intermediate and 500s the whole CSV/XLSX download. Require
+  a model property that returns `""` for the other shape (`Report.topic_title`).
+- A diff that adds usage/reference tracking for a snippet's chooser blocks:
+  registered snippets are ALREADY in `ReferenceIndex` (usage views and delete
+  confirmations list them natively). Flag re-implementation; ask for a test
+  that pins the native behaviour and only the genuinely missing piece.
+- A Wagtail contrib API viewset (`RedirectsAPIViewSet`, `PagesAPIViewSet`, …)
+  registered on `api_router` without a `versioning_class = None` subclass: it
+  404s under this project's `NamespaceVersioning` ("Invalid version in URL
+  path") — the raw `pages`/`images` mounts already do.
+- Writes to `wagtail.contrib.redirects.Redirect` with `site=None`:
+  `update_or_create`/`.get` on `(old_path, site)` is unsafe (NULL-site rows are
+  not unique in Postgres — Wagtail's own form de-dupes by hand), and any row
+  whose `old_path` equals the path a live object now occupies must be removed
+  or the middleware loops. A cache token/version key rotated from `post_save`
+  for a Wagtail admin save must sit in `transaction.on_commit` (the admin saves
+  inside `atomic()`).
+
 ## Output Format (Review Mode)
 
 Return ONLY this JSON structure (no surrounding prose, no markdown fences in the actual response — the example fences below show the schema):

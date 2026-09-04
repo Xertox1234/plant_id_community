@@ -185,3 +185,17 @@ Compact checklist auto-injected before edits. Long-form:
   `path()` per action — hand-writing is exactly how 6 of 7 actions on
   `BlogPostPageViewSet` shipped unroutable for months. See
   `docs/LEARNINGS.md` 2026-08-31 and todo 307.
+- **`list_export` resolves dotted paths with `multigetattr`, which RAISES on a
+  NULL intermediate** — `"post.topic.title"` on a `Report` whose `post` is NULL
+  (message reports) 500s the whole CSV/XLSX download. Expose a model property
+  that returns `""` for the other shape (`Report.topic_title`) and export that.
+- **Registered snippets are already in `ReferenceIndex`** (`register_snippet`
+  registers the model; `update_reference_index_on_save` runs synchronously under
+  the immediate django-tasks backend): the image/document usage views and delete
+  confirmations list them natively. Don't rebuild usage tracking — pin it with a
+  test and add only what is missing (e.g. a live-content deletion warning).
+- **A Wagtail contrib API viewset registered on `api_router` needs a subclass
+  with `versioning_class = None`** — DRF `NamespaceVersioning` rejects the
+  router's `wagtailapi` namespace with "Invalid version in URL path", and the raw
+  `/api/v2/pages/` and `/api/v2/images/` mounts already 404 this way. Mirror
+  `apps/forum_host/redirects.py::RedirectsAPIViewSet` (PR #624).

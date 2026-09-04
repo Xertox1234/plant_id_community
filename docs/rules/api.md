@@ -154,3 +154,9 @@ Compact checklist auto-injected before edits. Long-form:
   actually raised — DRF's and Django's are unrelated classes, so `except
   django.core.exceptions.ValidationError` around a DRF-raising validator is dead
   code and the request falls through to a generic 500 (todo 320).
+- **Anything registered on Wagtail's `api_router` must be a subclass that sets
+  `versioning_class = None`.** This project's `NamespaceVersioning` rejects the
+  router's `wagtailapi` namespace ("Invalid version in URL path"); the raw
+  `/api/v2/pages/` and `/api/v2/images/` registrations already 404 for exactly
+  this reason. Every project-owned Wagtail API viewset opts out; a new contrib
+  one (`RedirectsAPIViewSet`) must too. See `docs/rules/wagtail.md` (PR #624).

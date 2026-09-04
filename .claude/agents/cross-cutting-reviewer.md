@@ -49,6 +49,14 @@ sharpens a rule already there, cite that rule rather than re-flagging it.
 - [ ] External APIs (Plant.id, PlantNet, Firebase, OpenAI) MUST be mocked; mock
       shapes match the current API (Plant.id v3: 2 calls — identification +
       `/health_assessment`)
+- [ ] A `caplog` assertion on an `apps.*` / `django.*` / `plant_community_backend.*`
+      logger: is `caplog.handler` attached to that logger (all three set
+      `propagate=False`)? Without it the assertion is green-by-emptiness (PR #624)
+- [ ] A signal/handler that invalidates a cross-process cache (token, version key,
+      `cache.delete`) from `post_save`: is the shared write inside
+      `transaction.on_commit`, and is there a
+      `django_capture_on_commit_callbacks(execute=False)` test proving it does
+      NOT fire before commit? pytest-django never runs `on_commit` on its own
 - [ ] Test naming `test_{feature}_{condition}_{expected_result}`; one assertion
       concept per test; setup in `setUp()`/fixtures
 - [ ] Assertion failure messages cite the issue/PR number; a query-count

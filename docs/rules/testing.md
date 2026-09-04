@@ -422,3 +422,19 @@ Compact checklist auto-injected before edits.
   dev-server start, `forum-responsive.spec.ts`'s 1280px case failed, then
   passed 20/20 on rerun. A flake at the timeout boundary reads as a
   regression in whatever you just changed (PR #623).
+- **`caplog` cannot see `apps.*`, `django.*`, or `plant_community_backend.*`
+  loggers** — `settings.LOGGING` sets `propagate=False` on all three, so their
+  records never reach the root handler pytest installs and a "logs a warning"
+  assertion is green-by-emptiness (it fails, silently for the wrong reason, when
+  the code IS logging). Attach the handler directly —
+  `logging.getLogger(name).addHandler(caplog.handler)` in a `try/finally` with
+  `removeHandler` — before `caplog.at_level(...)`. Package loggers
+  (`wagtail_forum`) propagate and work as-is, which is what masks the difference
+  when the same assertion shape is copied from a package test (PR #624).
+- **To prove a write waits for commit, assert INSIDE a
+  `django_capture_on_commit_callbacks(execute=False)` block** that the shared
+  state (cache token, enqueued task, outbound call) is still unchanged, then run
+  the captured callbacks and assert it changed. `execute=True` alone only proves
+  the write happens eventually; it cannot catch a publish-before-commit race,
+  which is exactly the bug a synchronous-looking suite hides (PR #624; the
+  todo-289 bullet above covers the "defers forever unless captured" half).
