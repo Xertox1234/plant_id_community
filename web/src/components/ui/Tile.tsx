@@ -1,17 +1,13 @@
 import { HTMLAttributes, ReactNode } from 'react';
+import { TILE_BOX, TILE_RADIUS, type TileSize } from './dimensions';
 
 export type TileTone = 'sage' | 'pollen' | 'bloom' | 'orchid';
 
 interface TileProps extends HTMLAttributes<HTMLSpanElement> {
   tone?: TileTone;
-  size?: 'sm' | 'md';
+  size?: TileSize;
   children?: ReactNode;
 }
-
-const SIZES: Record<'sm' | 'md', string> = {
-  sm: 'h-9 w-9 rounded-[11px]',
-  md: 'h-[46px] w-[46px] rounded-[14px]',
-};
 
 export default function Tile({
   tone = 'sage',
@@ -23,7 +19,7 @@ export default function Tile({
 }: TileProps) {
   return (
     <span
-      className={`inline-grid flex-none place-items-center text-abyss ${SIZES[size]} ${className}`}
+      className={`inline-grid flex-none place-items-center text-abyss ${TILE_BOX[size]} ${TILE_RADIUS[size]} ${className}`}
       style={{ background: `var(--gt-tile-${tone})`, ...style }}
       {...props}
     >

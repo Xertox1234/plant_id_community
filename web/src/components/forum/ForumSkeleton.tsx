@@ -1,5 +1,13 @@
 import type { ReactNode } from 'react';
 import Card from '../ui/Card';
+import {
+  AVATAR_BOX,
+  AVATAR_RADIUS,
+  HERO_CARD_PADDING,
+  POST_CARD_PADDING,
+  TILE_BOX,
+  TILE_RADIUS,
+} from '../ui/dimensions';
 
 /**
  * ForumSkeleton — pulse-block loading states for the forum pages.
@@ -18,10 +26,21 @@ import Card from '../ui/Card';
  *
  * Widths are fluid (fractions, w-full + max-w-*) so nothing can overflow at
  * 375px. Cards reuse <Card> so the chrome is pixel-identical to the loaded
- * cards and only the content pulses.
+ * cards and only the content pulses. Tile/avatar boxes, PostCard's padding and
+ * the hero shell come from ui/dimensions.ts, so a primitive change moves the
+ * skeleton with it instead of drifting.
  */
 
-type Radius = 'xs' | 'sm' | 'md' | 'lg' | 'pill';
+type Radius =
+  | 'xs'
+  | 'sm'
+  | 'md'
+  | 'lg'
+  | 'pill'
+  | 'tile-sm'
+  | 'tile-md'
+  | 'avatar-md'
+  | 'avatar-lg';
 
 // Radius is a prop, not part of className, so two rounded-* utilities can
 // never land on the same element (stylesheet order, not class order, would
@@ -32,6 +51,11 @@ const RADIUS: Record<Radius, string> = {
   md: 'rounded-md',
   lg: 'rounded-lg',
   pill: 'rounded-pill',
+  // Primitive-shaped blocks take the primitive's own radius.
+  'tile-sm': TILE_RADIUS.sm,
+  'tile-md': TILE_RADIUS.md,
+  'avatar-md': AVATAR_RADIUS.md,
+  'avatar-lg': AVATAR_RADIUS.lg,
 };
 
 const BOARD_ROWS = 4;
@@ -96,9 +120,9 @@ export function ThreadCardSkeleton() {
 /** Mirrors PostCard: avatar + name/timestamp, three body lines. */
 export function PostCardSkeleton() {
   return (
-    <Card className="p-5 sm:p-6">
+    <Card className={POST_CARD_PADDING}>
       <div className="mb-4 flex items-center gap-3">
-        <SkeletonBlock rounded="sm" className="h-[38px] w-[38px] flex-none" />
+        <SkeletonBlock rounded="avatar-md" className={`${AVATAR_BOX.md} flex-none`} />
         <div className="min-w-0 flex-1">
           <SkeletonBlock className="h-4 w-32 max-w-full" />
           <SkeletonBlock className="mt-1.5 h-3 w-24 max-w-full" />
@@ -118,7 +142,7 @@ export function CategoryCardSkeleton() {
   return (
     <Card className="p-card">
       <div className="flex items-start gap-4">
-        <SkeletonBlock rounded="sm" className="h-[46px] w-[46px] flex-none" />
+        <SkeletonBlock rounded="tile-md" className={`${TILE_BOX.md} flex-none`} />
         <div className="min-w-0 flex-1">
           <SkeletonBlock className="h-5 w-2/5" />
           <SkeletonBlock className="mt-2 h-4 w-full max-w-prose" />
@@ -137,7 +161,7 @@ export function CategoryListSkeleton() {
   return (
     <SkeletonStatus>
       {/* HeroCard: same Card classes, copy column + art column */}
-      <Card className="rounded-lg p-8 md:p-10">
+      <Card radius="lg" className={HERO_CARD_PADDING}>
         <div className="grid items-center gap-8 md:grid-cols-[1.25fr_0.75fr]">
           <div className="flex flex-col items-start gap-3.5">
             <SkeletonBlock className="h-3 w-40 max-w-full" />
@@ -160,7 +184,7 @@ export function CategoryListSkeleton() {
       <div className="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-3">
         {Array.from({ length: 3 }, (_, i) => (
           <Card key={i} className="flex flex-col gap-3 p-card">
-            <SkeletonBlock rounded="sm" className="h-9 w-9" />
+            <SkeletonBlock rounded="tile-sm" className={TILE_BOX.sm} />
             <div>
               <SkeletonBlock className="h-6 w-16" />
               <SkeletonBlock className="mt-1.5 h-3 w-20" />
@@ -204,7 +228,7 @@ export function ThreadListSkeleton({ withHeader = false }: ThreadListSkeletonPro
 
           {/* Board header: tile, name, description, thread count */}
           <div className="mb-6 flex items-start gap-4">
-            <SkeletonBlock rounded="sm" className="h-[46px] w-[46px] flex-none" />
+            <SkeletonBlock rounded="tile-md" className={`${TILE_BOX.md} flex-none`} />
             <div className="min-w-0 flex-1">
               <SkeletonBlock className="h-8 w-1/2" />
               <SkeletonBlock className="mt-2.5 h-4 w-full max-w-prose" />
@@ -289,7 +313,7 @@ export function UserProfileSkeleton() {
       <Card className="mb-8 p-6">
         <SkeletonBlock className="mb-3 h-3 w-28" />
         <div className="flex items-center gap-5">
-          <SkeletonBlock rounded="md" className="h-20 w-20 flex-none" />
+          <SkeletonBlock rounded="avatar-lg" className={`${AVATAR_BOX.lg} flex-none`} />
           <div className="min-w-0 flex-1">
             <SkeletonBlock className="h-8 w-1/2" />
             <SkeletonBlock className="mt-2.5 h-3 w-3/4 max-w-xs" />

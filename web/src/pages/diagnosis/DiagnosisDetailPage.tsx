@@ -253,7 +253,7 @@ export default function DiagnosisDetailPage() {
             <div className="flex items-center justify-center gap-4">
               <button
                 onClick={loadCard}
-                className="px-4 py-2 bg-error text-white rounded-md hover:bg-error/90 transition-colors"
+                className="px-4 py-2 bg-error text-on-error rounded-md hover:bg-error/90 transition-colors"
               >
                 Try Again
               </button>

@@ -6,7 +6,10 @@ export default function NotFoundPage() {
   return (
     <div className="mx-auto max-w-3xl px-4 py-16">
       <PageMeta title="Page not found — Houseplant MD" />
-      <Card className="flex flex-col items-center gap-6 rounded-lg p-10 text-center md:flex-row md:text-left">
+      <Card
+        radius="lg"
+        className="flex flex-col items-center gap-6 p-10 text-center md:flex-row md:text-left"
+      >
         <img
           src="/illustrations/lost-leaf.webp"
           alt=""

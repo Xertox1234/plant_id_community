@@ -19,4 +19,9 @@ describe('HeroCard', () => {
     expect(screen.getByRole('button', { name: 'Join' })).toBeInTheDocument();
     expect(screen.getByTestId('art')).toBeInTheDocument();
   });
+  it('renders on the lg card radius (via the prop, not a className override)', () => {
+    const { container } = render(<HeroCard title="Hi" />);
+    expect(container.firstChild).toHaveClass('rounded-lg');
+    expect(container.firstChild).not.toHaveClass('rounded-md');
+  });
 });

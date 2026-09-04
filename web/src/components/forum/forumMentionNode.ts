@@ -7,6 +7,9 @@ const MAX_SUGGESTIONS = 8;
 // shape, same rate-limit tier (mention_user_search: 30/m, forum_host/
 // constants.py) as the box it's modeled on.
 const SEARCH_DEBOUNCE_MS = 300;
+// One literal for the suggestion dropdown: onStart and onUpdate both build it.
+const DROPDOWN_CLASS =
+  'z-50 min-w-[10rem] max-h-56 overflow-y-auto rounded-md border border-line bg-surface-2 shadow-2 py-1';
 
 interface MentionSuggestionItem {
   id: string;
@@ -128,8 +131,7 @@ export const ForumMention = Mention.configure({
           currentCommand = props.command;
           getClientRect = props.clientRect;
           dropdown = document.createElement('div');
-          dropdown.className =
-            'z-50 min-w-[10rem] max-h-56 overflow-y-auto rounded-md border border-line bg-surface-2 shadow-2 py-1';
+          dropdown.className = DROPDOWN_CLASS;
           document.body.appendChild(dropdown);
           paint();
           position();
@@ -146,8 +148,7 @@ export const ForumMention = Mention.configure({
           getClientRect = props.clientRect;
           if (!dropdown) {
             dropdown = document.createElement('div');
-            dropdown.className =
-              'z-50 min-w-[10rem] max-h-56 overflow-y-auto rounded-md border border-line bg-surface-2 shadow-2 py-1';
+            dropdown.className = DROPDOWN_CLASS;
             document.body.appendChild(dropdown);
           }
           paint();
