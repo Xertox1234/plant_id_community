@@ -134,6 +134,24 @@ In this order — each step is a precondition of the next:
   PR #607. Both routes 503 `code: "disabled"` in prod until step 5 here. The
   audit doc this points at was renamed `…-COMPLETED.md` when #M13 closed.
 
+### 2026-09-04 - Gates re-measured against prod (run 2026-09-04-0350)
+
+User decision: leave pending until the corpus grows; no spend, no config
+change. Measured today so the next pickup starts from current numbers:
+
+| Gate | 2026-08-29 | 2026-09-04 | Verdict |
+|------|-----------|-----------|---------|
+| 1 — `FORUM_VECTOR_SEARCH_ENABLED` on the prod service | absent | absent (`FORUM_RAG_ENABLED` absent too; `OPENAI_API_KEY` present) | FAIL |
+| 2 — live topics (threshold ≥200) | 16 | 18 (5 boards; `/api/v1/forum/boards/` topic_count sum) | FAIL |
+| 2 — blog articles (threshold ≥50) | 0 | 6 (`/api/v2/blog-posts/` total) | FAIL |
+| 3 — review-queue owner | open | open | OPEN |
+| 4 — blocked-class list | signed off | signed off | PASS |
+
+Source: Railway `list-variables` on `plant_id_community` (variable names
+only) and the public API, both read-only. Re-file trigger unchanged: 200 live
+topics **or** 50 articles, plus a named owner for `/cms/` → "AI answer
+reports". Do not AI-generate articles to reach the threshold (circular).
+
 ## Notes
 
 Highest harm ceiling of any AI feature in the repo. Do not flip step 5 before
