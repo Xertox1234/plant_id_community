@@ -97,6 +97,18 @@ class Report(models.Model):
         return f"{self.reason} report on message {self.message_id}"
 
     @property
+    def topic_title(self):
+        """Triage column for the CSV export / inspect view (Wagtail quick
+        wins, item 4) — blank for a message report. A property rather than
+        the dotted ``post.topic.title`` in ``list_export`` because the
+        export resolves dotted paths with ``multigetattr``, which raises on
+        the NULL ``post`` of a message report and would 500 the whole
+        download."""
+        if self.post_id is None:
+            return ""
+        return self.post.topic.title
+
+    @property
     def message_summary(self):
         """Triage column for the CMS admin `ReportViewSet.list_display`
         (todo 319/M10) — blank for a post report (the existing `post` column

@@ -471,3 +471,150 @@ def test_bulk_unpublish_action_blocks_user_without_change_permission(client):
 
     post.refresh_from_db()
     assert post.live is True
+
+
+# --- CSV export + inspect view (Wagtail quick wins, item 4) -------------------
+#
+# ``list_export`` drives the "Download CSV/XLSX" button on the snippet index;
+# ``inspect_view_enabled`` adds a read-only detail page. Pinned here because a
+# column that resolves through a nullable FK (a message report has no post)
+# would 500 the whole export, and because the headings are what a moderator
+# sees in the spreadsheet.
+
+
+def _admin_client(client):
+    client.force_login(User.objects.create_superuser(username="root", email="r@x.io"))
+    return client
+
+
+def _post_report(detail="looks like a bot"):
+    from wagtail.models import Page
+    from wagtail_forum.models import ForumBoard, ForumIndex, Post, Report, Topic
+
+    author = User.objects.create_user(username="author")
+    reporter = User.objects.create_user(username="reporter")
+    root = Page.objects.get(id=1)
+    index = root.add_child(instance=ForumIndex(title="Forum", slug="forum"))
+    board = index.add_child(instance=ForumBoard(title="General", slug="general"))
+    topic = Topic.objects.create(
+        board=board, title="Seedling help", slug="seedling-help", author=author
+    )
+    post = Post.objects.create(topic=topic, author=author, is_opening_post=True)
+    return Report.file(post, reporter, Report.SPAM, detail=detail)
+
+
+def _message_report():
+    from wagtail_forum.models import Conversation, Message, Report
+
+    sender = User.objects.create_user(username="sender")
+    recipient = User.objects.create_user(username="recipient")
+    message = Message.objects.create(
+        conversation=Conversation.between(sender, recipient), sender=sender, body="hi"
+    )
+    return Report.objects.create(
+        message=message, reporter=recipient, reason=Report.ABUSE
+    )
+
+
+def _csv(resp):
+    raw = b"".join(resp.streaming_content) if resp.streaming else resp.content
+    return raw.decode("utf-8-sig").splitlines()
+
+
+REPORT_HEADINGS = [
+    "ID",
+    "Status",
+    "Reason",
+    "Detail",
+    "Topic",
+    "Post",
+    "Message",
+    "Reporter",
+    "Created",
+    "Resolved at",
+    "Resolved by",
+]
+
+TOPIC_HEADINGS = [
+    "ID",
+    "Title",
+    "Board",
+    "Author",
+    "Live",
+    "Pinned",
+    "Closed",
+    "Replies",
+    "Views",
+    "Solved post ID",
+    "Created",
+    "Last post",
+]
+
+
+@pytest.mark.django_db
+def test_report_csv_export_has_triage_columns(client):
+    report = _post_report()
+
+    resp = _admin_client(client).get("/cms/snippets/wagtail_forum/report/?export=csv")
+
+    assert resp.status_code == 200
+    assert resp["Content-Type"].startswith("text/csv")
+    header, row = _csv(resp)[:2]
+    assert header.split(",") == REPORT_HEADINGS
+    assert "looks like a bot" in row
+    assert "Seedling help" in row
+    assert f"Post #{report.post_id}" in row
+    assert "reporter" in row
+
+
+@pytest.mark.django_db
+def test_report_csv_export_survives_a_message_report(client):
+    _post_report()
+    _message_report()
+
+    resp = _admin_client(client).get("/cms/snippets/wagtail_forum/report/?export=csv")
+
+    assert resp.status_code == 200
+    rows = _csv(resp)
+    assert len(rows) == 3  # header + two reports
+    assert any("sender: hi" in r for r in rows)
+
+
+@pytest.mark.django_db
+def test_topic_csv_export_has_triage_columns(client):
+    report = _post_report()
+
+    resp = _admin_client(client).get("/cms/snippets/wagtail_forum/topic/?export=csv")
+
+    assert resp.status_code == 200
+    header, row = _csv(resp)[:2]
+    assert header.split(",") == TOPIC_HEADINGS
+    assert row.startswith(f"{report.post.topic_id},Seedling help,General,author,True")
+
+
+@pytest.mark.django_db
+def test_report_inspect_view_is_reachable(client):
+    from django.urls import reverse
+    from wagtail_forum.models import Report
+
+    report = _post_report()
+    url = reverse(Report.snippet_viewset.get_url_name("inspect"), args=[report.pk])
+
+    resp = _admin_client(client).get(url)
+
+    assert resp.status_code == 200
+    assert b"looks like a bot" in resp.content
+
+
+@pytest.mark.django_db
+def test_topic_inspect_view_is_reachable(client):
+    from django.urls import reverse
+    from wagtail_forum.models import Topic
+
+    topic = _post_report().post.topic
+    url = reverse(Topic.snippet_viewset.get_url_name("inspect"), args=[topic.pk])
+
+    resp = _admin_client(client).get(url)
+
+    assert resp.status_code == 200
+    assert b"seedling-help" in resp.content

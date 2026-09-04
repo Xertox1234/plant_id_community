@@ -18,6 +18,7 @@ from apps.blog.feeds import AtomBlogPostsFeed, BlogPostsFeed
 # Import core views
 from apps.core.views import ReactAppView, csp_report_view, csrf_token_view
 from apps.forum_host.feeds import ForumTopicsFeed
+from apps.forum_host.redirects import RedirectsAPIViewSet
 from apps.forum_host.sitemaps import forum_sitemaps
 from apps.plant_identification.api.endpoints import (
     PlantCareGuideAPIViewSet,
@@ -92,6 +93,10 @@ api_router = WagtailAPIRouter("wagtailapi")
 api_router.register_endpoint("pages", PagesAPIViewSet)
 api_router.register_endpoint("images", ImagesAPIViewSet)
 api_router.register_endpoint("documents", DocumentsAPIViewSet)
+# Headless redirect lookup: GET /api/v2/redirects/find/?html_path=<old path>
+# 302s to the matching row (or 404s). Rows come from the Wagtail admin and
+# from forum topic slug/board changes (apps/forum_host/redirects.py).
+api_router.register_endpoint("redirects", RedirectsAPIViewSet)
 
 # Blog-specific endpoints
 api_router.register_endpoint("blog-posts", BlogPostPageViewSet)
