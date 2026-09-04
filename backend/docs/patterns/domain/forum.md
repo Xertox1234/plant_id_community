@@ -681,7 +681,7 @@ the host (`apps/forum_host/`) does the Wagtail-contrib wiring behind them.
 |---|---|---|
 | `conf.register_override_provider(fn)` / `conf.MISSING` | `forum_settings.provide` reads the `ForumSettings` generic setting | `wagtail.contrib.settings` |
 | `SearchView.record_search(request, *, query, page)` (no-op) | `search_hits.record_query_hit` on page 1 | `wagtail.contrib.search_promotions` |
-| plain `pre_save`/`post_save` on `Topic` | `redirects.py` writes/repairs `Redirect` rows; `RedirectsAPIViewSet` mounted at `/api/v2/redirects/` | `wagtail.contrib.redirects` |
+| plain `pre_save`/`post_save` on `Topic`, `page_slug_changed` on `ForumBoard` | `redirects.py` writes/repairs `Redirect` rows (per topic, or in bulk for every live topic on a board rename); `RedirectsAPIViewSet` mounted at `/api/v2/redirects/` | `wagtail.contrib.redirects` |
 | nothing — snippets are already indexed | `signals.py` (package) warns on deleting an image a live post shows | `ReferenceIndex` |
 
 ### Override provider: process memo + commit-rotated token
@@ -726,7 +726,19 @@ rows whose `redirect_link == old` to `new` (chain collapse); then
 matched (Postgres does not enforce `unique_together` on a NULL `site`). Gate
 on the topic's **new** `live` state so an auto-hidden topic whose slug a
 moderator fixes on the way back to published still redirects its once-public
-URL. Board-slug renames are out of scope (todo 334).
+URL. A **board** slug rename (`page_slug_changed` on `ForumBoard`, sent from
+`transaction.on_commit`, so the handler opens its own `atomic()`) fans the same
+three steps over every live topic as bulk statements — the query count is
+pinned equal at 3 and 1,000 topics (only the INSERT splits past
+`REDIRECT_BULK_CREATE_BATCH_SIZE`): `old_path__in` delete, one prefix
+`Replace()` update for the chain collapse, delete-then-`bulk_create` for the
+rows. The collapse is prefix-wide and runs even with zero live topics, because a
+rename BACK must repair the rows an earlier rename left for topics unpublished
+in between — and it folds exactly those rows onto themselves, so a
+`redirect_link=F("old_path")` delete under the new prefix follows it (review
+round 1 caught both). Per-topic paths come from `Topic.get_absolute_url()` on
+stub instances (no restated URL shape); only the prefix helper restates the
+board half, and a test pins it to the model method (todo 334).
 
 ### What Wagtail already does — pin it, don't rebuild it
 

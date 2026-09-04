@@ -1,5 +1,13 @@
 """Host-level configuration for the mounted wagtail_forum API."""
 
+# Rows per INSERT when a board slug rename redirects every live topic beneath
+# it (redirects.redirect_board_topics): a 1,000-topic board lands in one
+# statement; larger boards add one INSERT per batch. The `old_path__in`
+# statements in the same function are deliberately unbatched (one bind
+# parameter per topic), which caps a single rename at Postgres's 65,535
+# bind-parameter limit — several orders of magnitude above any board here.
+REDIRECT_BULK_CREATE_BATCH_SIZE = 1000
+
 # Default rate limits for the forum API (audit 2026-06-10 H1). The package is
 # host-agnostic and leaves throttling to the host (plan 1C/1D); these are the
 # host's choices. Override per-deployment via settings.FORUM_RATELIMITS.
