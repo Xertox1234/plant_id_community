@@ -298,6 +298,12 @@ SIMILAR_QUERY_MAX_CHARS = 500
 SIMILAR_CACHE_PREFIX = "forum_similar_topics"
 SIMILAR_CACHE_TTL_SECONDS = 300
 
+# forum_settings.py cross-worker invalidation token. A MISSING token is a
+# designed-for state there (workers keep their memo), so the TTL only bounds
+# the key's lifetime per docs/rules/caching.md ("never cache without expiry");
+# it does not drive correctness. One week: far longer than any deploy cycle.
+FORUM_SETTINGS_TOKEN_TTL_SECONDS = 7 * 24 * 60 * 60
+
 # ---------------------------------------------------------------------------
 # Dedicated QUERY-EMBEDDING budget (todo 275 / AC4 — the todo-255 slice-4
 # pre-enablement follow-up). Consumed by find_similar_topics(), so every

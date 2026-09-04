@@ -137,8 +137,49 @@ DEFAULTS = {
 }
 
 
+# Sentinel an override provider returns for "no opinion on this name" — distinct
+# from None, which is a legitimate value for some settings (and the DB-blank
+# marker on the host side). Compare by identity.
+MISSING = object()
+
+# Host-registered override providers, consulted in registration order BEFORE
+# the ``WAGTAILFORUM_<NAME>`` Django setting (Wagtail quick wins, item 1). This
+# is how a host exposes tunables as admin-editable Wagtail settings without the
+# package importing the host: the package owns the lookup order, the host owns
+# the storage. A provider is ``provider(name) -> value | MISSING``; it must be
+# cheap and must not raise (a DB-backed one handles its own outages and
+# answers MISSING). Registration lives here rather than in Django settings so
+# the hook is explicit and testable (``test_conf``), and so an unregistered
+# host is byte-for-byte the pre-hook behaviour.
+_override_providers = []
+
+
+def register_override_provider(provider):
+    """Consult ``provider(name)`` before the Django setting. Idempotent."""
+    if provider not in _override_providers:
+        _override_providers.append(provider)
+
+
+def unregister_override_provider(provider):
+    """Stop consulting ``provider``; unknown providers are ignored."""
+    try:
+        _override_providers.remove(provider)
+    except ValueError:
+        pass
+
+
 def get_setting(name):
+    """Resolve a tunable: host override provider, then the
+    ``WAGTAILFORUM_<name>`` Django setting, then the package default.
+
+    Unknown names raise ``KeyError`` before any provider is consulted, so a
+    typo can never be masked by a provider that answers anything."""
+    default = DEFAULTS[name]
+    for provider in _override_providers:
+        value = provider(name)
+        if value is not MISSING:
+            return copy.deepcopy(value)
     # deepcopy so a caller that mutates a returned list/dict (e.g. the empty
     # SPAM_BANNED_WORDS default) can't poison the shared DEFAULTS for later reads.
-    value = getattr(settings, f"WAGTAILFORUM_{name}", DEFAULTS[name])
+    value = getattr(settings, f"WAGTAILFORUM_{name}", default)
     return copy.deepcopy(value)

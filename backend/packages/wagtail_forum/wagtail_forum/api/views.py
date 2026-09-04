@@ -2252,6 +2252,8 @@ class SearchView(UnversionedForumAPIMixin, PublicForumReadCacheMixin, APIView):
                         ),
                     }
                 )
+        if query:
+            self.record_search(request, query=query, page=page)
         return Response(
             {
                 "topics": topics,
@@ -2261,6 +2263,16 @@ class SearchView(UnversionedForumAPIMixin, PublicForumReadCacheMixin, APIView):
                 "page": page,
             }
         )
+
+    def record_search(self, request, *, query, page):
+        """Host hook (Wagtail quick wins, item 5): called once per search with
+        the query AFTER the bounding in ``get`` and the resolved page, never
+        for an empty query. A no-op here — the package doesn't assume
+        ``wagtail.contrib.search_promotions`` is installed. A host that wants
+        Wagtail's search-terms report overrides this (see the host's
+        ``apps/forum_host/api.py``) and must swallow its own failures: it runs
+        inside the request, after the results are built."""
+        return None
 
 
 class SyncView(UnversionedForumAPIMixin, APIView):

@@ -151,6 +151,9 @@ WAGTAIL_APPS = [
     "wagtail.contrib.forms",
     "wagtail.contrib.redirects",
     "wagtail.contrib.settings",  # Required for Wagtail AI 3.0 admin UI
+    # Search-terms report + promoted results; fed by the forum SearchView
+    # (apps/forum_host/search_hits.py). Its own migrations run on `migrate`.
+    "wagtail.contrib.search_promotions",
     "wagtail.embeds",
     "wagtail.sites",
     "wagtail.users",

@@ -21,6 +21,7 @@ from wagtail_forum.api import user_search as forum_user_search_views
 from wagtail_forum.api import views as forum_views
 
 from .constants import DEFAULT_FORUM_RATELIMITS
+from .search_hits import record_query_hit
 from .semantic_search import SemanticSearchMixin
 
 
@@ -102,7 +103,14 @@ class SearchView(SemanticSearchMixin, forum_views.SearchView):
     # `_throttled` is applied to THIS class, so it wraps the already-composed
     # `get` — a subclass that overrode `get` instead would silently drop the
     # throttle.
-    pass
+
+    def record_search(self, request, *, query, page):
+        # Wagtail search-terms report (quick wins, item 5). First page only:
+        # later pages are the same search, not a new one. record_query_hit
+        # swallows its own failures. Overriding the hook, not `get`, keeps
+        # the throttle above and the mixin's `semantic` section untouched.
+        if page == 1:
+            record_query_hit(query)
 
 
 @_throttled("sync", "GET", key=client_ip_key)

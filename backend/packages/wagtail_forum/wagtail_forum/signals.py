@@ -1,12 +1,15 @@
 import logging
 import threading
 
+from django.contrib.contenttypes.models import ContentType
 from django.db import transaction
 from django.db.models import Count, OuterRef, Subquery, Value
 from django.db.models.functions import Coalesce
 from django.db.models.signals import post_delete, pre_delete
 from django.dispatch import Signal, receiver
 from django.utils import timezone
+from wagtail.images import get_image_model_string
+from wagtail.models import ReferenceIndex
 from wagtail.signals import published, unpublished
 
 logger = logging.getLogger("wagtail_forum")
@@ -349,3 +352,42 @@ def update_counters_on_post_delete(sender, instance, **kwargs):
     if not instance.live or instance.topic_id in _deleting_map():
         return
     _refresh_for_post(instance)
+
+
+@receiver(
+    pre_delete,
+    sender=get_image_model_string(),
+    dispatch_uid="wagtail_forum.warn_image_shown_by_live_posts",
+)
+def warn_when_deleting_an_image_live_posts_show(sender, instance, **kwargs):
+    """Read-side guard for forum images (Wagtail quick wins, item 3).
+
+    Post is a registered snippet, so Wagtail's ReferenceIndex already tracks
+    the images a body's ImageChooserBlock references — the image usage view
+    and the delete confirmation list the posts natively. This adds the one
+    thing they don't: a log line an operator can alert on when an image a
+    LIVE post still shows is deleted anyway (the post keeps a dangling image
+    block; the API serializer renders nothing for it). Deliberately never
+    blocks the delete — a moderator removing an abusive image must win.
+    Drafts/unpublished posts are ignored: nothing public breaks."""
+    post_model = sender._meta.apps.get_model("wagtail_forum", "Post")
+    post_ids = (
+        ReferenceIndex.get_references_to(instance)
+        .filter(base_content_type=ContentType.objects.get_for_model(post_model))
+        .values_list("object_id", flat=True)
+        .distinct()
+    )
+    live = list(
+        post_model.objects.filter(pk__in=[int(pk) for pk in post_ids], live=True)
+        .values_list("pk", "topic_id")
+        .order_by("pk")
+    )
+    if not live:
+        return
+    logger.warning(
+        "Image %s (%r) deleted while shown by %d live forum post(s): %s",
+        instance.pk,
+        instance.title,
+        len(live),
+        ", ".join(f"post {pk} in topic {topic_id}" for pk, topic_id in live),
+    )

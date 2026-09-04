@@ -197,6 +197,30 @@ Every setting is read via `wagtail_forum.conf.get_setting(name)`, which looks up
 Values are deep-copied on read, so mutating a returned list/dict cannot poison
 later reads.
 
+### Host override providers (admin-editable settings)
+
+A host can put some tunables in front of Django settings — for example as a
+`wagtail.contrib.settings` model editors change in the admin — without the
+package importing the host. Register a callable at `AppConfig.ready()`:
+
+```python
+from wagtail_forum.conf import MISSING, register_override_provider
+
+def provide(name):            # name is e.g. "SPAM_MAX_LINKS"
+    value = my_store.get(name)
+    return MISSING if value is None else value
+
+register_override_provider(provide)
+```
+
+`get_setting` consults providers in registration order **before** the
+`WAGTAILFORUM_<NAME>` setting; a provider answers `MISSING` (compare by
+identity) to decline. Providers run on hot paths and inside requests, so they
+must be cheap and must never raise — handle your own outages and answer
+`MISSING`. Unknown names still raise `KeyError` before any provider is asked.
+The reference implementation is the host's `apps/forum_host/forum_settings.py`
+(a memoised, cache-token-invalidated read of a Wagtail generic setting).
+
 ### Moderation and trust
 
 | Setting | Default | Purpose |

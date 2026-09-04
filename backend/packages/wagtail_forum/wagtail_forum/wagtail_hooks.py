@@ -21,6 +21,59 @@ class TopicViewSet(SnippetViewSet):
     list_display = ["title", "board", "author", "live", "reply_count"]
     list_filter = ["live"]
     search_fields = ["title"]
+    # CSV/XLSX download + read-only inspect page (Wagtail quick wins, item
+    # 4). Export columns are the moderation-triage set: enough to spot a
+    # spam wave (author, created, live) and thread health (replies, views,
+    # solved) without a shell. Headings are explicit so the spreadsheet
+    # doesn't depend on verbose_name drift.
+    list_export = [
+        "id",
+        "title",
+        "board",
+        "author",
+        "live",
+        "is_pinned",
+        "is_closed",
+        "reply_count",
+        "view_count",
+        "solved_post_id",
+        "created_at",
+        "last_post_at",
+    ]
+    export_headings = {
+        "id": _("ID"),
+        "title": _("Title"),
+        "board": _("Board"),
+        "author": _("Author"),
+        "live": _("Live"),
+        "is_pinned": _("Pinned"),
+        "is_closed": _("Closed"),
+        "reply_count": _("Replies"),
+        "view_count": _("Views"),
+        "solved_post_id": _("Solved post ID"),
+        "created_at": _("Created"),
+        "last_post_at": _("Last post"),
+    }
+    export_filename = "forum-topics"
+    inspect_view_enabled = True
+    inspect_view_fields = [
+        "title",
+        "slug",
+        "board",
+        "author",
+        "live",
+        "is_pinned",
+        "is_closed",
+        "tags",
+        "reply_count",
+        "view_count",
+        "solved_post",
+        "solved_at",
+        "last_post_at",
+        "last_post_author",
+        "created_at",
+        "updated_at",
+    ]
 
     def get_queryset(self, request):
         qs = super().get_queryset(request)
@@ -83,6 +136,51 @@ class ReportViewSet(SnippetViewSet):
         "created_at",
     ]
     list_filter = ["status", "reason"]
+    # CSV/XLSX download + inspect page (Wagtail quick wins, item 4). Every
+    # column is safe for BOTH report shapes: `topic_title` and
+    # `message_summary` are model properties that return "" for the other
+    # target, because the export resolves dotted paths with multigetattr
+    # and a NULL post would 500 the whole download (see Report.topic_title).
+    list_export = [
+        "id",
+        "status",
+        "reason",
+        "detail",
+        "topic_title",
+        "post",
+        "message_summary",
+        "reporter",
+        "created_at",
+        "resolved_at",
+        "resolved_by",
+    ]
+    export_headings = {
+        "id": _("ID"),
+        "status": _("Status"),
+        "reason": _("Reason"),
+        "detail": _("Detail"),
+        "topic_title": _("Topic"),
+        "post": _("Post"),
+        "message_summary": _("Message"),
+        "reporter": _("Reporter"),
+        "created_at": _("Created"),
+        "resolved_at": _("Resolved at"),
+        "resolved_by": _("Resolved by"),
+    }
+    export_filename = "forum-reports"
+    inspect_view_enabled = True
+    inspect_view_fields = [
+        "status",
+        "reason",
+        "detail",
+        "topic_title",
+        "post",
+        "message_summary",
+        "reporter",
+        "created_at",
+        "resolved_at",
+        "resolved_by",
+    ]
 
     def get_queryset(self, request):
         qs = super().get_queryset(request)
@@ -90,6 +188,7 @@ class ReportViewSet(SnippetViewSet):
             qs = self.model.objects.all()
         return qs.select_related(
             "post",
+            "post__topic",  # topic_title (export/inspect)
             "message__sender",
             "message__conversation",
             "reporter",
