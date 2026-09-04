@@ -5,6 +5,7 @@ import StreamFieldRenderer from '../StreamFieldRenderer';
 import EditHistoryDialog from './EditHistoryDialog';
 import Timestamp from '../ui/Timestamp';
 import Card from '../ui/Card';
+import { POST_CARD_PADDING } from '../ui/dimensions';
 import Avatar from '../ui/Avatar';
 import { userProfilePath } from '../../utils/forumUrls';
 import { DELETED_AUTHOR_USERNAME, TRUST_LEVEL_LABELS } from '../../utils/forumAuthor';
@@ -137,7 +138,7 @@ function PostCard({
   // redact); "Show anyway" is a local, no-refetch reveal.
   if (post.is_blocked && !revealed) {
     return (
-      <Card className="p-5 sm:p-6">
+      <Card className={POST_CARD_PADDING}>
         <div className="flex items-center justify-between gap-3 flex-wrap">
           <p className="text-sm text-ink-3">
             You've blocked{' '}
@@ -204,7 +205,7 @@ function PostCard({
   return (
     <Card
       data-testid="post-card"
-      className={`group p-5 sm:p-6 ${isSolution ? 'border-secondary/60 ring-1 ring-secondary/40' : ''}`}
+      className={`group ${POST_CARD_PADDING} ${isSolution ? 'border-secondary/60 ring-1 ring-secondary/40' : ''}`}
     >
       {/* Accepted-answer banner (audit H6). A visible label, not colour alone —
           the ring carries no meaning for a colour-blind reader and none at

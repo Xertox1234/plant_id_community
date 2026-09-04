@@ -84,6 +84,13 @@ export default function ThreadListPage() {
       try {
         setLoading(true);
         setLoadingMore(false); // a fresh load supersedes any in-flight Load More
+        // Board navigation (not a sort/tag change on the same board): drop the
+        // previous board's chrome and rows so the first-load branch renders the
+        // header skeleton instead of board A's name above board B's list.
+        if (categoryCacheRef.current?.forumId !== forumId) {
+          setCategory(null);
+          setThreads([]);
+        }
         // Drop the old cursor too: it addresses the PREVIOUS result set (other
         // sort/tag), so a Load More clicked during this reload would append
         // wrong-filter rows and then overwrite the new cursor with a stale one.
@@ -100,8 +107,11 @@ export default function ThreadListPage() {
           if (loadGenRef.current !== gen) return;
           categoryCacheRef.current = { forumId, category: categoryData };
           boardSlugRef.current = categoryData.slug;
-          setCategory(categoryData);
         }
+        // Unconditional, cache hit included: the board-navigation reset above
+        // nulls the state while the cache may still hold this board (A → B →
+        // back to A before B resolved), and only this call restores it.
+        setCategory(categoryData);
 
         const threadsData = await fetchThreads({
           board: categoryData.slug,
@@ -335,9 +345,13 @@ export default function ThreadListPage() {
         </div>
       )}
 
-      {/* Threads */}
+      {/* Threads. An error here (category resolved, threads fetch failed) is
+          the error state, never the empty-board copy — the reset above empties
+          the list on every board change, so the two must not look alike. */}
       {loading ? (
         <ThreadListSkeleton />
+      ) : error ? (
+        <ForumErrorState message={error} onRetry={() => setReloadKey((k) => k + 1)} />
       ) : threads.length === 0 ? (
         <div className="py-12 text-center text-ink-3">
           {activeTag ? (

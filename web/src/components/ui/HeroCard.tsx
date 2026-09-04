@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react';
 import Card from './Card';
+import { HERO_CARD_PADDING } from './dimensions';
 
 interface HeroCardProps {
   eyebrow?: string;
@@ -11,7 +12,7 @@ interface HeroCardProps {
 
 export default function HeroCard({ eyebrow, title, description, actions, art }: HeroCardProps) {
   return (
-    <Card className="rounded-lg p-8 md:p-10">
+    <Card radius="lg" className={HERO_CARD_PADDING}>
       <div className={`grid items-center gap-8 ${art ? 'md:grid-cols-[1.25fr_0.75fr]' : ''}`}>
         <div className="flex flex-col items-start gap-3.5">
           {eyebrow && (

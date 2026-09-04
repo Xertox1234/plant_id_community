@@ -8,6 +8,7 @@ import { userProfilePath } from '../../../utils/forumUrls';
 import { TRUST_LEVEL_LABELS } from '../../../utils/forumAuthor';
 import { logger } from '../../../utils/logger';
 import type { ForumExpert } from '@/types';
+import { AVATAR_BOX, AVATAR_RADIUS } from '../../ui/dimensions';
 
 /**
  * Right-rail module: highest-trust community members.
@@ -55,7 +56,7 @@ export default function CommunityExpertsModule() {
                 <img
                   src={expert.avatar ?? specimenAvatar(expert.username)}
                   alt=""
-                  className="h-[34px] w-[34px] rounded-[11px] object-cover"
+                  className={`${AVATAR_BOX.sm} ${AVATAR_RADIUS.sm} object-cover`}
                 />
                 {expert.online && (
                   <span

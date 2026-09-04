@@ -174,8 +174,9 @@ Compact checklist auto-injected before edits. Long-form:
 - **A Tailwind colour utility whose token is not in `@theme inline` emits
   NOTHING — no build error, the element silently inherits.** The registered
   tokens are `surface`/`surface-2`/`surface-3` (there is no `surface-1`),
-  `error` (no `danger`), and the only `on-*` pairs are `on-primary`/`on-clay`
-  (no `on-error`). `bg-surface-1` shipped both dialogs with a transparent
+  `error` (no `danger`), and the `on-*` pairs are `on-primary`/`on-clay`/
+  `on-error` (`on-error` is text on `bg-error`; it flips per mode like
+  `on-clay` — todo 333). `bg-surface-1` shipped both dialogs with a transparent
   modal background; `text-danger` shipped inherited text colour. Check the
   class against `web/src/index.css` `@theme inline` before writing it
   (PR #623).

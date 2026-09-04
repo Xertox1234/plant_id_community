@@ -116,6 +116,91 @@ describe('ThreadListPage', () => {
     expect(document.title).toContain('Plant Care Tips');
   });
 
+  it("drops board A's header while board B loads instead of showing it over B's skeleton", async () => {
+    const boardA = createMockCategory({ id: 'cat-3', slug: 'plant-care', name: 'Plant Care' });
+    const boardB = createMockCategory({ id: 'cat-4', slug: 'pests', name: 'Pests' });
+    let resolveB: (value: ReturnType<typeof createMockCategory>) => void = () => {};
+    vi.spyOn(forumService, 'fetchCategory').mockImplementation((id) =>
+      id === 3
+        ? Promise.resolve(boardA)
+        : new Promise((resolve) => {
+            resolveB = resolve;
+          })
+    );
+    vi.spyOn(forumService, 'fetchThreads').mockResolvedValue({ items: [], meta: { count: 0 } });
+
+    const { rerender } = renderThreadListPage();
+    await screen.findByRole('heading', { level: 1, name: 'Plant Care' });
+
+    // Navigate A → B: useParams is mocked, so swap its value and re-render.
+    vi.mocked(ReactRouter.useParams).mockReturnValue({ categorySlug: '4-pests' });
+    rerender(
+      <MemoryRouter initialEntries={['/forum/4-pests']}>
+        <ThreadListPage />
+      </MemoryRouter>
+    );
+
+    // While B is in flight: no trace of A, and the (header) skeleton is up.
+    await waitFor(() => {
+      expect(screen.queryByRole('heading', { level: 1, name: 'Plant Care' })).toBeNull();
+    });
+    expect(screen.queryByText('Plant Care')).toBeNull();
+    expect(screen.getByRole('status')).toBeInTheDocument();
+
+    resolveB(boardB);
+    await screen.findByRole('heading', { level: 1, name: 'Pests' });
+  });
+
+  it('restores the cached board header when navigating back before the new board resolves', async () => {
+    const boardA = createMockCategory({ id: 'cat-3', slug: 'plant-care', name: 'Plant Care' });
+    const fetchCategorySpy = vi
+      .spyOn(forumService, 'fetchCategory')
+      .mockImplementation((id) => (id === 3 ? Promise.resolve(boardA) : new Promise(() => {})));
+    vi.spyOn(forumService, 'fetchThreads').mockResolvedValue({ items: [], meta: { count: 0 } });
+
+    const { rerender } = renderThreadListPage();
+    await screen.findByRole('heading', { level: 1, name: 'Plant Care' });
+
+    vi.mocked(ReactRouter.useParams).mockReturnValue({ categorySlug: '4-pests' });
+    rerender(
+      <MemoryRouter initialEntries={['/forum/4-pests']}>
+        <ThreadListPage />
+      </MemoryRouter>
+    );
+    await waitFor(() => {
+      expect(screen.queryByRole('heading', { level: 1, name: 'Plant Care' })).toBeNull();
+    });
+
+    // Back to A while B is still pending: A is served from the cache, and the
+    // header must come back with it (review round 1: the cache-hit path used
+    // to skip setCategory, leaving an empty h1).
+    vi.mocked(ReactRouter.useParams).mockReturnValue({ categorySlug: '3-plant-care' });
+    rerender(
+      <MemoryRouter initialEntries={['/forum/3-plant-care']}>
+        <ThreadListPage />
+      </MemoryRouter>
+    );
+    await screen.findByRole('heading', { level: 1, name: 'Plant Care' });
+    await waitFor(() => expect(screen.queryByRole('status')).toBeNull());
+    // A came from the cache: one fetch per board, never a re-fetch of A.
+    expect(fetchCategorySpy).toHaveBeenCalledTimes(2);
+  });
+
+  it('shows the error state, not an empty board, when the category loads but the threads fetch fails', async () => {
+    vi.spyOn(forumService, 'fetchCategory').mockResolvedValue(
+      createMockCategory({ slug: 'plant-care', name: 'Plant Care' })
+    );
+    vi.spyOn(forumService, 'fetchThreads').mockRejectedValue(new Error('Server error'));
+
+    renderThreadListPage();
+
+    await screen.findByRole('heading', { level: 1, name: 'Plant Care' });
+    expect(await screen.findByText(/Server error/)).toBeInTheDocument();
+    expect(screen.queryByText('No threads found.')).toBeNull();
+    // The board chrome and the error coexist — not a full-page error state.
+    expect(screen.getByRole('heading', { level: 1, name: 'Plant Care' })).toBeInTheDocument();
+  });
+
   it('renders threads when API call succeeds', async () => {
     const mockCategory = createMockCategory({ slug: 'plant-care' });
     const mockThreads = {

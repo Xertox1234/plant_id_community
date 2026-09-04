@@ -1,17 +1,13 @@
+import { AVATAR_BOX, AVATAR_RADIUS, type AvatarSize } from './dimensions';
+
 interface AvatarProps {
   src: string;
   alt: string;
-  size?: 'sm' | 'md' | 'lg';
+  size?: AvatarSize;
   /** Green presence dot (e.g. "expert online"). */
   presence?: boolean;
   className?: string;
 }
-
-const SIZES: Record<'sm' | 'md' | 'lg', string> = {
-  sm: 'h-[34px] w-[34px] rounded-[11px]',
-  md: 'h-[38px] w-[38px] rounded-[12px]',
-  lg: 'h-20 w-20 rounded-[16px]',
-};
 
 export default function Avatar({
   src,
@@ -22,7 +18,11 @@ export default function Avatar({
 }: AvatarProps) {
   return (
     <span className={`relative inline-block flex-none ${className}`}>
-      <img src={src} alt={alt} className={`border border-line-2 object-cover ${SIZES[size]}`} />
+      <img
+        src={src}
+        alt={alt}
+        className={`border border-line-2 object-cover ${AVATAR_BOX[size]} ${AVATAR_RADIUS[size]}`}
+      />
       {presence && (
         <span
           data-presence

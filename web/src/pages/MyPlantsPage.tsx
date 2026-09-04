@@ -89,7 +89,7 @@ export default function MyPlantsPage() {
           <p className="text-error mb-4">{error}</p>
           <button
             onClick={loadPlants}
-            className="inline-flex items-center px-4 py-2 bg-error text-white rounded-md hover:bg-error/90 transition-colors"
+            className="inline-flex items-center px-4 py-2 bg-error text-on-error rounded-md hover:bg-error/90 transition-colors"
           >
             Try Again
           </button>

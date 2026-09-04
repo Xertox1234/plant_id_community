@@ -74,6 +74,7 @@
   --gt-ok: var(--canopy-sage);
   --gt-warn: var(--canopy-pollen);
   --gt-error: var(--canopy-red);
+  --gt-on-error: var(--canopy-abyss);
   --gt-pad-card: 16px;
   --gt-pad-screen: 16px;
   --gt-gap: 12px;
@@ -136,6 +137,8 @@
   --gt-clay: #8a6011;
   --gt-on-clay: #f2faf4;
   --gt-error: #a63c2a;
+  /* on-error flips like on-clay: light text on the darkened red here, abyss on canopy-red in dark. */
+  --gt-on-error: #f2faf4;
   --gt-line: color-mix(in oklab, var(--canopy-sage) 38%, transparent);
   --gt-line-2: color-mix(in oklab, var(--canopy-sage) 62%, transparent);
   --gt-primary: var(--canopy-forest);
@@ -191,6 +194,7 @@
   --color-ok: var(--gt-ok);
   --color-warn: var(--gt-warn);
   --color-error: var(--gt-error);
+  --color-on-error: var(--gt-on-error);
   --color-abyss: var(--canopy-abyss);
   --color-pollen: var(--canopy-pollen);
   --color-bloom: var(--canopy-bloom);
