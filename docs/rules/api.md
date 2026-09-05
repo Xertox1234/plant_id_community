@@ -192,3 +192,9 @@ Compact checklist auto-injected before edits. Long-form:
   package Meta ordering can stay oldest-first for in-process iteration
   because CursorPagination applies its own `ordering`. Flip such an order
   only while no consumer exists, and say so in the README (todo 339).
+- **Moderation-held content is returned to its author and nobody else, on
+  every listing that serves the surface** (`Q(is_approved) | Q(author=me)`
+  for top-level rows AND a `Prefetch` with the same predicate for nested
+  ones), so "awaiting moderation" survives a reload without leaking to the
+  public or to other members; staff see everything on the admin route only
+  (todo 352, blog comments).
