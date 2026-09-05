@@ -244,3 +244,21 @@ narrower call sites opt out explicitly.
 Reference: `lib/features/forum/widgets/author_identity.dart`,
 `lib/features/forum/widgets/topic_card.dart`,
 `test/features/forum/widgets/topic_card_test.dart`.
+
+## Forum parity waves 1+2 (todo 341): patterns worth reusing
+
+- `forum_errors.dart::forumErrorMessage()` is the one place an `ApiException`
+  becomes copy: 429 → "Too fast — try again in a minute", 403 → the
+  action's own notice, 400/409/422 → the server's message. New write
+  surfaces call it; they never show `e.toString()`.
+- Optimistic toggles (bookmark, block) snapshot the prior value and restore
+  it on failure; a non-optimistic write (mark solution) waits for the
+  server because it can refuse. Both shapes are provider-tested with a
+  fake API that fails on demand.
+- `Idempotency-Key` goes only on writes whose backend view calls
+  `idempotency_cache_key` (report, mark solution); naturally idempotent
+  writes (block/unblock, bookmark/unbookmark, clear solution) send none —
+  read the view before adding a key.
+- A "jump to" that targets an item possibly outside the built children
+  steps the viewport and pages the cursor with a hard bound, never an
+  unbounded loop (`ensureVisible` only reaches built widgets).
