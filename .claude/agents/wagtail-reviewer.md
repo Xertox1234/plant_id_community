@@ -194,6 +194,23 @@ You review: `apps/blog/`, Wagtail page models, StreamField blocks, signals, Wagt
   search is whole-word only and warns) AND a one-off `update_index` in prod for
   existing rows — check that someone owns the backfill (L10 / todo 337).
 
+### Forum moderation queue additions (2026-09-05)
+
+- A new `ReportView`/`BaseListingView` subclass over model X: its
+  `permission_policy` must be `ModelPermissionPolicy(X)` with the snippet
+  views' `any_permission_required` list — flag any looser proxy permission —
+  AND trace every row link's target view's gate back to the host's
+  bootstrapped group (`forum_host/bootstrap.py`). If the group lacks a perm
+  the linked view checks, that is HIGH: the listing renders dead ends for its
+  real audience while superuser-only tests stay green. Ask for a test that
+  GETs the linked URL as a member of the group (todo 345).
+- In a listing pinned for query count: `UserColumn` costs one
+  `wagtail_userprofile` query per row; an annotation in `list_export` reaches
+  the export raw unless `custom_field_preprocess` decodes it; a class-attribute
+  `no_results_message` drops the base class's filtered-vs-empty text; a
+  `default_ordering` without an `order_queryset` pk tie-break paginates
+  non-deterministically (todo 345).
+
 ## Output Format (Review Mode)
 
 Return ONLY this JSON structure (no surrounding prose, no markdown fences in the actual response — the example fences below show the schema):

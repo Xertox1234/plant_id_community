@@ -1394,5 +1394,54 @@
     "source": "codify: audit/forum-2026-09-04",
     "added": "2026-09-04",
     "severity": "warn"
+  },
+  {
+    "id": "wagtail-listing-no-results-message-attr",
+    "domains": [
+      "wagtail"
+    ],
+    "path_glob": [
+      "backend/**/*.py"
+    ],
+    "content_present": "\\bno_results_message\\s*=(?!=)",
+    "content_absent": "def no_results_message",
+    "message": "A class-attribute no_results_message on a Wagtail listing/ReportView shadows the base cached_property that switches text under is_filtering/is_searching — override the property and branch on them (todo 345).",
+    "pattern_ref": "backend/docs/patterns/domain/forum.md",
+    "source": "codify: feat/todo-338-345-forum-moderation",
+    "added": "2026-09-04",
+    "severity": "warn"
+  },
+  {
+    "id": "wagtail-listing-default-ordering-tie-break",
+    "domains": [
+      "wagtail",
+      "database"
+    ],
+    "path_glob": [
+      "backend/**/*.py"
+    ],
+    "content_present": "\\bdefault_ordering\\s*=(?!=)",
+    "content_absent": "def order_queryset",
+    "message": "default_ordering on a Wagtail listing compiles to a bare order_by(col); override order_queryset to append \"pk\" or paginated pages duplicate/skip equal-timestamp rows (todo 345).",
+    "pattern_ref": "backend/docs/patterns/domain/forum.md",
+    "source": "codify: feat/todo-338-345-forum-moderation",
+    "added": "2026-09-04",
+    "severity": "warn"
+  },
+  {
+    "id": "wagtail-report-usercolumn-per-row-query",
+    "domains": [
+      "wagtail",
+      "performance"
+    ],
+    "path_glob": [
+      "backend/**/*.py"
+    ],
+    "content_present": "UserColumn\\(",
+    "message": "UserColumn renders an avatar via user.wagtail_userprofile — one query PER ROW. In a listing whose query count is pinned, use a plain username Column instead (todo 345).",
+    "pattern_ref": "backend/docs/patterns/domain/forum.md",
+    "source": "codify: feat/todo-338-345-forum-moderation",
+    "added": "2026-09-04",
+    "severity": "warn"
   }
 ]

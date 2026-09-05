@@ -24,7 +24,7 @@ def ensure_forum_bootstrap(sender, **kwargs):
     # Wagtail version drops one.
     perms = Permission.objects.filter(
         content_type__app_label="wagtail_forum",
-        content_type__model__in=["topic", "post"],
+        content_type__model__in=["topic", "post", "report"],
         codename__in=[
             "view_topic",
             "change_topic",
@@ -34,6 +34,12 @@ def ensure_forum_bootstrap(sender, **kwargs):
             "delete_post",
             "publish_topic",
             "publish_post",
+            # Reports (todo 345): the moderation queue and the Report
+            # snippet's inspect/edit views are gated on Report permissions,
+            # so without these a moderator could unpublish a post but never
+            # open, action, or dismiss the report that flagged it.
+            "view_report",
+            "change_report",
         ],
     ) | Permission.objects.filter(
         # Without access_admin a moderator-only user cannot log into /cms/ at all.

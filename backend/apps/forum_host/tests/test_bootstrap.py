@@ -43,6 +43,21 @@ def test_moderator_group_grants_wagtail_admin_access():
 
 
 @pytest.mark.django_db
+def test_moderator_group_can_view_and_change_reports():
+    """The moderation queue (todo 345) and the Report snippet inspect/edit
+    views are gated on Report permissions; a moderator who can act on posts
+    but not on the reports that flagged them would see a queue whose every
+    link bounces to the admin home (review finding, PR for todo 345)."""
+    group = Group.objects.get(name="Forum Moderators")
+    codenames = set(
+        group.permissions.filter(content_type__app_label="wagtail_forum").values_list(
+            "codename", flat=True
+        )
+    )
+    assert {"view_report", "change_report"} <= codenames
+
+
+@pytest.mark.django_db
 def test_post_resolves_the_default_workflow():
     root = Page.objects.get(id=1)
     index = root.add_child(instance=ForumIndex(title="Forum", slug="forum"))

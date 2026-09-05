@@ -496,6 +496,28 @@ def test_a_once_public_topic_renamed_while_unpublished_keeps_its_old_path():
     assert _links() == [(old_path, new_path)]
 
 
+def test_a_once_public_topic_with_a_deleted_author_still_gets_its_redirect():
+    """The same moderation flow for a topic whose author account was deleted
+    after it went public (SET_NULL → author NULL). Before todo 338 the final
+    ``save_revision()`` raised ValidationError on the blank author, so the
+    republish — and with it the redirect's usefulness — was unreachable."""
+    general, _ = _boards()
+    topic = _published_topic(general, "orphan")
+    old_path = topic.get_absolute_url()
+    topic.author.delete()
+    topic.refresh_from_db()
+    assert topic.author_id is None
+
+    topic.unpublish()
+    topic.slug = "orphan-fixed"
+    topic.save()
+    topic.save_revision().publish()
+    topic.refresh_from_db()
+
+    assert topic.live
+    assert _links() == [(old_path, topic.get_absolute_url())]
+
+
 def test_a_once_public_topic_old_path_is_served_as_a_301_after_republish(client):
     general, _ = _boards()
     topic = _published_topic(general, "old-name")

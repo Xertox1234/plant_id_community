@@ -116,3 +116,12 @@ Compact checklist auto-injected before edits. Long-form: `backend/docs/patterns/
   dumps real credentials into test stdout. Blank (`env[key] = ""`, never
   `pop()`) every var the code may read, then `env.update(overrides)` — a
   structural guard, not caller discipline (todo 321).
+- **A bootstrapped role must hold the permissions of every model its UI links
+  into — grant per model, and prove the click-through as a group member.**
+  `forum_host/bootstrap.py`'s "Forum Moderators" group granted topic/post perms
+  only, so the Report snippet views (and later the moderation queue's row
+  links) were superuser-only from the day reports shipped — with every admin
+  test green, because they all log in as a superuser. When a listing, report,
+  or dashboard links to model X's views, add `view_X`/`change_X` to the group
+  in the same PR and add a test that GETs the linked URL as a member of that
+  GROUP, not a hand-assembled permission set (todo 345).
