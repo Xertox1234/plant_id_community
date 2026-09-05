@@ -131,6 +131,16 @@ Compact checklist auto-injected before edits. Long-form:
   because `pytest.ini` only silences Deprecation warnings, not `RuntimeWarning`.
   Before deleting a declarative field, grep the INSTALLED framework for the
   attribute name, and pin the behaviour with an admin-listing test (todo 276 L8).
+- **Declaring `AutocompleteField` IS the CMS prefix-search fix; `update_index` only
+  backfills the STORED column.** The listing calls
+  `backend.autocomplete(q, qs, fields=self.search_fields, ...)`, and modelsearch's
+  Postgres compiler uses `get_fields_vectors` — a query-time `SearchVector(column)`
+  — whenever `fields` is given; `index_entries__autocomplete` is read only when
+  `fields is None` (`postgres.py:652-656`). Pre-existing rows therefore
+  prefix-match in `/cms/` from the deploy onward with an EMPTY stored vector, and
+  a "run `update_index` once" follow-up serves only fields-less callers (none in
+  this repo). Verified in prod 2026-09-05 (todo 337): the listing replay found a
+  July post before the backfill while the stored-column call returned 0 hits.
 - **`expand_db_html` has SIDE EFFECTS — sanitize before it, not only after.**
   Wagtail's DB rich-text representation carries `<embed>` placeholders that the
   expander resolves by *doing work*: `embedtype="media"` calls the oEmbed finder,
