@@ -19,6 +19,9 @@ class NotificationVerb(models.TextChoices):
     # dedupe constraint below applies — re-marking the same answer cannot
     # produce a second bell entry.
     SOLUTION = "solution", _("Answer accepted")
+    # Someone quoted this member's post with a structured post_quote block
+    # (todo 342). Carries `post` (the quoting post) and `quoted_post`.
+    QUOTE = "quote", _("Quoted")
     # moderation/subscription verbs are added by later slices of todo 253.
 
 
@@ -50,6 +53,14 @@ class Notification(models.Model):
     post = models.ForeignKey(
         "wagtail_forum.Post",
         on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name="+",
+    )
+    # QUOTE only: the recipient's post that was quoted (todo 342).
+    quoted_post = models.ForeignKey(
+        "wagtail_forum.Post",
+        on_delete=models.SET_NULL,
         null=True,
         blank=True,
         related_name="+",

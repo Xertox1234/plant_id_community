@@ -10,6 +10,15 @@
 /// - `paragraph`→ sanitized HTML string
 /// - `quote`    → plain string (defensively also accepts the web's
 ///                `{quote_text|quote, attribution}` object)
+/// - `post_quote` → `{text, post_id, available, topic_id, author,
+///                is_blocked, is_muted}` (todo 342): a quote OF A SPECIFIC
+///                POST. `text` is plain text by the same contract as
+///                `quote`; the attribution is resolved server-side and
+///                `available` is `false` (no author/topic) once the quoted
+///                post is gone — the text still renders. `is_blocked` /
+///                `is_muted` say the VIEWER blocked / muted the quoted
+///                author (both `false` for an anonymous viewer) — the card
+///                collapses like a blocked post, never hides.
 /// - `code`     → `{language, code}` object
 /// - `image`    → `{id, url, alt, width, height}` object, or `null` when the
 ///                referenced image was deleted after posting
@@ -24,6 +33,7 @@ library;
 
 import 'package:html/parser.dart' as html_parser;
 
+import 'forum_author.dart';
 import 'forum_rich_text_markup.dart';
 
 sealed class ForumBodyBlock {
@@ -39,6 +49,10 @@ sealed class ForumBodyBlock {
         return ParagraphBlock(value is String ? value : '');
       case 'quote':
         return QuoteBlock(_quoteText(value));
+      case 'post_quote':
+        return PostQuoteBlock.fromJson(
+          value is Map<String, dynamic> ? value : const <String, dynamic>{},
+        );
       case 'code':
         final map = value is Map<String, dynamic>
             ? value
@@ -96,10 +110,61 @@ class ParagraphBlock extends ForumBodyBlock {
   final String html;
 }
 
-/// `quote` → plain string.
+/// `quote` → plain string. The legacy free-form quote; the "Quote" action
+/// writes a [PostQuoteBlock] since todo 342, but older bodies still carry
+/// these.
 class QuoteBlock extends ForumBodyBlock {
   const QuoteBlock(this.text);
   final String text;
+}
+
+/// `post_quote` on read (todo 342): the quoted text plus the server-resolved
+/// attribution. [text] is PLAIN TEXT — render it as text, never as markup.
+/// When [available] is `false` the quoted post is gone (unpublished, hidden,
+/// deleted, or its board no longer visible) and [author]/[topicId] are
+/// `null`; the text still renders, only the attribution changes.
+class PostQuoteBlock extends ForumBodyBlock {
+  const PostQuoteBlock({
+    required this.text,
+    required this.postId,
+    required this.available,
+    this.topicId,
+    this.author,
+    this.isBlocked = false,
+    this.isMuted = false,
+  });
+
+  final String text;
+
+  /// The quoted post's id — `null` only for a malformed envelope.
+  final int? postId;
+  final bool available;
+  final int? topicId;
+  final ForumAuthor? author;
+
+  /// `true` when the VIEWER has blocked the quoted author (todo 284/347 on
+  /// the post; here the quote card collapses the same way). Always `false`
+  /// for an anonymous viewer, and absent from older envelopes.
+  final bool isBlocked;
+
+  /// `true` when the VIEWER has muted the quoted author — the softer
+  /// relation; collapses with its own wording. Blocked wins when both.
+  final bool isMuted;
+
+  factory PostQuoteBlock.fromJson(Map<String, dynamic> json) {
+    final author = json['author'];
+    return PostQuoteBlock(
+      text: json['text'] as String? ?? '',
+      postId: json['post_id'] as int?,
+      available: json['available'] as bool? ?? false,
+      topicId: json['topic_id'] as int?,
+      author: author is Map<String, dynamic>
+          ? ForumAuthor.fromJson(author)
+          : null,
+      isBlocked: json['is_blocked'] as bool? ?? false,
+      isMuted: json['is_muted'] as bool? ?? false,
+    );
+  }
 }
 
 /// `code` → `{language, code}`.
@@ -194,17 +259,20 @@ List<Map<String, dynamic>> buildParagraphBody(String text) {
   ];
 }
 
-/// Write-shape `quote` block (todo 341 wave 3). Per `blocks.py` the value is
-/// a plain string (`BlockQuoteBlock`) that `api/sanitize.py` leaves
-/// untouched by contract — the consumer HTML-escapes it at render time —
-/// so [text] goes in verbatim, never HTML-escaped here. Returns an empty
-/// list for blank input.
-List<Map<String, dynamic>> buildQuoteBlockBody(String text) {
-  final trimmed = text.trim();
-  if (trimmed.isEmpty) return const [];
-  return [
-    {'type': 'quote', 'value': trimmed},
-  ];
+/// Write-shape `post_quote` block (todo 342): `{post, text}` — the quoted
+/// post's id and plain text. Per `blocks.py` (`PostQuoteBlock`) and
+/// `api/sanitize.py`, [text] is plain text the server leaves untouched by
+/// contract — consumers escape it at render time — so it goes in verbatim,
+/// never HTML-escaped here. The server validates the rest on write: the
+/// quoted post must be visible to the writer and not block-paired, at most
+/// three distinct posts per body, non-empty text of at most 1000 chars —
+/// each a 400 with its own sentence, never a silent strip. Callers pass a
+/// non-blank [text] (see `forumQuoteDraft`).
+Map<String, dynamic> buildPostQuoteBlockBody(int postId, String text) {
+  return {
+    'type': 'post_quote',
+    'value': {'post': postId, 'text': text.trim()},
+  };
 }
 
 /// Reader-visible plain text of a body, for quoting it (todo 341 wave 3).
@@ -212,9 +280,10 @@ List<Map<String, dynamic>> buildQuoteBlockBody(String text) {
 /// Headings, paragraphs (HTML → text: `<br>`/`</p>`/`</li>` become line
 /// breaks, every tag is dropped, entities are decoded by the parser) and
 /// code blocks contribute their text, joined by blank lines. Everything else
-/// is dropped: an existing `quote` block (quoting a reply must not nest its
-/// own quotation — the same convention Discourse applies), images, embeds,
-/// deleted images and unknown blocks (nothing a reader could re-read).
+/// is dropped: an existing `quote`/`post_quote` block (quoting a reply must
+/// not nest its own quotation — the same convention Discourse applies),
+/// images, embeds, deleted images and unknown blocks (nothing a reader
+/// could re-read).
 String forumBodyPlainText(List<ForumBodyBlock> blocks) {
   final parts = <String>[];
   for (final block in blocks) {
@@ -223,6 +292,7 @@ String forumBodyPlainText(List<ForumBodyBlock> blocks) {
       ParagraphBlock(:final html) => _paragraphHtmlToText(html),
       CodeBlock(:final code) => code,
       QuoteBlock() ||
+      PostQuoteBlock() ||
       ForumImageBlock() ||
       DeletedImageBlock() ||
       EmbedBlock() ||

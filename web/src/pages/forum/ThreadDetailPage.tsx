@@ -35,7 +35,7 @@ import {
 } from '../../services/forumService';
 import { parseLeadingId, userProfilePath, threadPath } from '../../utils/forumUrls';
 import { DELETED_AUTHOR_USERNAME } from '../../utils/forumAuthor';
-import { bodyBlocksToHtml } from '../../utils/forumBody';
+import { bodyBlocksToHtml, postQuoteHtml, postQuoteText } from '../../utils/forumBody';
 import { draftKey, loadDraft, saveDraft, clearDraft } from '../../utils/forumDrafts';
 import { useIdentitySwap } from '../../hooks/useIdentitySwap';
 import { specimenAvatar } from '../../utils/forumAvatars';
@@ -197,6 +197,9 @@ export default function ThreadDetailPage() {
   // End of the current deep-link flash window (epoch ms) — lets an effect
   // re-run inside the window re-arm the highlight for the remaining time.
   const flashUntilRef = useRef(0);
+  // The reply form — the Quote action scrolls it into view (todo 342). The
+  // form outlives the editor's key-remounts, so the ref stays valid.
+  const composerRef = useRef<HTMLFormElement>(null);
 
   // Load thread and initial posts
   useEffect(() => {
@@ -578,6 +581,46 @@ export default function ThreadDetailPage() {
       }
     },
     [topicId, replyBody, announce, user, revalidateIdentity]
+  );
+
+  // Quote a post into the reply composer (todo 342). The `post_quote`
+  // blockquote goes at the TOP of the draft with anything already written
+  // kept below it; a blank draft gets an empty paragraph after the quote so
+  // the caret (autofocus 'end') lands outside the blockquote rather than
+  // extending it. TipTap's `content` is init-only, so the composer is
+  // remounted through composerKey — the same mechanism as the post-reply
+  // reset — and the draft store is written directly, since a remount fires
+  // no onChange.
+  const handleQuote = useCallback(
+    (post: Post) => {
+      if (topicId == null) return;
+      const postId = Number(post.id);
+      const text = postQuoteText(post.body);
+      if (!Number.isSafeInteger(postId) || postId < 1 || !text) {
+        // An image-only post has nothing to quote, and the server rejects an
+        // empty quote — say so instead of inserting a block that will 400.
+        setNotice('This post has no text to quote.');
+        return;
+      }
+      const quote = postQuoteHtml(postId, text);
+      const next = isBlankHtml(replyBody) ? `${quote}<p></p>` : `${quote}${replyBody}`;
+      setReplyBody(next);
+      saveDraft(draftKey('reply', String(topicId)), next);
+      setComposerKey((k) => k + 1);
+      setAutoFocusComposer(true);
+      composerRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      // Name the quoted author (or post) so consecutive quotes announce
+      // DIFFERENT strings: the announcer swaps a live region's text, and a
+      // repeat of the identical message is not re-read.
+      const authorName = post.author?.display_name || post.author?.username;
+      announce(
+        authorName
+          ? `Quote of ${authorName}'s post added to your reply.`
+          : `Quote of post #${postId} added to your reply.`,
+        'polite'
+      );
+    },
+    [topicId, replyBody, announce]
   );
 
   const handleReact = useCallback(async (postId: string, reactionType: string) => {
@@ -1150,6 +1193,9 @@ export default function ThreadDetailPage() {
                 onUnblock={isAuthenticated ? handleUnblockAuthor : undefined}
                 onMute={isAuthenticated ? handleMuteAuthor : undefined}
                 onUnmute={isAuthenticated ? handleUnmuteAuthor : undefined}
+                // Only where there is a composer to quote INTO: a locked
+                // thread renders none (todo 342).
+                onQuote={isAuthenticated && !thread.is_locked ? handleQuote : undefined}
                 isSolution={isSolution}
                 // Offered only to a viewer the backend says may mark, and never
                 // on the opening post — a question is not its own answer, and
@@ -1229,7 +1275,11 @@ export default function ThreadDetailPage() {
           </p>
         </div>
       ) : (
-        <form onSubmit={handleReply} className="canopy-card rounded-md mt-8 p-5 sm:p-6 space-y-3">
+        <form
+          ref={composerRef}
+          onSubmit={handleReply}
+          className="canopy-card rounded-md mt-8 p-5 sm:p-6 space-y-3"
+        >
           <p className="gt-label">Join the discussion</p>
           <h2 className="gt-h3 text-ink">Post a Reply</h2>
           <TipTapEditor

@@ -6,21 +6,39 @@ import 'models/models.dart';
 /// marked with an ellipsis.
 const int forumQuoteMaxChars = 500;
 
-/// The `quote` block text the "Quote" action pre-fills for [post]: a plain
-/// `username wrote:` attribution line — deliberately WITHOUT the `@`: the
-/// server's mention scanner reads every string block, and `@user` here would
-/// turn the quoted author's email REPLY notification into a push-only
-/// MENTION (review finding; structured attribution is todo
-/// 342's job) followed by the post's reader-visible text, capped at
-/// [forumQuoteMaxChars]. Returns `null` when the post has no quotable text
-/// (image-only, deleted image, an embed).
-String? forumQuoteText(ForumPost post) {
+/// What the "Quote" action carries into the reply composer (todo 342): the
+/// quoted post's id and excerpt — sent as a structured `post_quote` block
+/// (`buildPostQuoteBlockBody`) — plus the author's display name for the
+/// composer's draft card. The name is NOT part of the sent text: the server
+/// resolves the attribution from [postId] on read, and a plain
+/// `username wrote:` line would only feed its mention scanner.
+class ForumQuoteDraft {
+  const ForumQuoteDraft({
+    required this.postId,
+    required this.text,
+    required this.authorName,
+  });
+
+  final int postId;
+  final String text;
+  final String authorName;
+}
+
+/// The quote draft the "Quote" action pre-fills for [post]: its
+/// reader-visible text capped at [forumQuoteMaxChars], keyed to the post's
+/// id. Returns `null` when the post has no quotable text (image-only,
+/// deleted image, an embed).
+ForumQuoteDraft? forumQuoteDraft(ForumPost post) {
   var text = forumBodyPlainText(post.body);
   if (text.isEmpty) return null;
   if (text.length > forumQuoteMaxChars) {
     text = '${text.substring(0, forumQuoteMaxChars).trimRight()}…';
   }
-  return '${post.author.username} wrote:\n$text';
+  return ForumQuoteDraft(
+    postId: post.id,
+    text: text,
+    authorName: post.author.name,
+  );
 }
 
 /// Compact relative-time label for forum timestamps ("just now", "5m", "3h",

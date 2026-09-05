@@ -3,11 +3,13 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:plant_community_mobile/features/forum/forum_format.dart';
 import 'package:plant_community_mobile/features/forum/models/models.dart';
 import 'package:plant_community_mobile/features/forum/providers/forum_providers.dart';
 import 'package:plant_community_mobile/features/forum/screens/forum_composer_screen.dart';
 import 'package:plant_community_mobile/features/forum/services/forum_api.dart';
 import 'package:plant_community_mobile/features/forum/widgets/forum_mention_suggestions.dart';
+import 'package:plant_community_mobile/services/api_service.dart';
 import 'package:plant_community_mobile/services/auth_service.dart';
 
 import '../support/forum_test_support.dart';
@@ -36,21 +38,25 @@ Finder _suggestion(String username) => find.descendant(
   matching: find.text('@$username'),
 );
 
+const _quote = ForumQuoteDraft(
+  postId: 2,
+  text: 'Original point',
+  authorName: 'Bob',
+);
+
 void main() {
-  group('Composer quote draft (todo 341 wave 3)', () {
-    testWidgets('a pre-filled quote is shown, and sent as a quote block '
-        'ahead of the paragraph', (tester) async {
+  group('Composer quote draft (todo 342)', () {
+    testWidgets('a pre-filled quote shows the excerpt and who wrote it, and '
+        'is sent as a post_quote block ahead of the paragraph', (tester) async {
       final api = FakeForumApi();
       await _pumpComposer(
         tester,
         api,
-        args: const ForumComposeArgs.reply(
-          topicId: 10,
-          quoteText: 'bob wrote:\nOriginal point',
-        ),
+        args: const ForumComposeArgs.reply(topicId: 10, quote: _quote),
       );
 
-      expect(find.text('bob wrote:\nOriginal point'), findsOneWidget);
+      expect(find.text('Original point'), findsOneWidget);
+      expect(find.text('— Bob'), findsOneWidget);
       expect(find.byTooltip('Remove quote'), findsOneWidget);
       // A quote alone is not a reply — Post stays disabled until text.
       expect(
@@ -65,8 +71,13 @@ void main() {
       await tester.tap(find.widgetWithText(FilledButton, 'Post'));
       await tester.pumpAndSettle();
 
+      // The structured block: the quoted post's id plus the plain excerpt —
+      // no "wrote:" line, the server carries the attribution.
       expect(api.createReplyBodies.single, [
-        {'type': 'quote', 'value': 'bob wrote:\nOriginal point'},
+        {
+          'type': 'post_quote',
+          'value': {'post': 2, 'text': 'Original point'},
+        },
         {'type': 'paragraph', 'value': 'Agreed.'},
       ]);
     });
@@ -76,15 +87,13 @@ void main() {
       await _pumpComposer(
         tester,
         api,
-        args: const ForumComposeArgs.reply(
-          topicId: 10,
-          quoteText: 'bob wrote:\nOriginal point',
-        ),
+        args: const ForumComposeArgs.reply(topicId: 10, quote: _quote),
       );
 
       await tester.tap(find.byTooltip('Remove quote'));
       await tester.pump();
-      expect(find.text('bob wrote:\nOriginal point'), findsNothing);
+      expect(find.text('Original point'), findsNothing);
+      expect(find.text('— Bob'), findsNothing);
 
       await tester.enterText(find.byType(TextField), 'Agreed.');
       await tester.pump();
@@ -101,7 +110,7 @@ void main() {
       await _pumpComposer(
         tester,
         api,
-        args: const ForumComposeArgs.reply(topicId: 10, quoteText: 'q'),
+        args: const ForumComposeArgs.reply(topicId: 10, quote: _quote),
       );
       await tester.enterText(find.byType(TextField), 'Agreed.');
       await tester.pump();
@@ -113,6 +122,68 @@ void main() {
       await tester.pumpAndSettle();
       expect(api.createReplyKeys.length, 2);
       expect(api.createReplyKeys[0], api.createReplyKeys[1]);
+    });
+
+    testWidgets('removing the quote after a refused submit is new content — '
+        'the resubmit carries a fresh idempotency key', (tester) async {
+      final api = FakeForumApi()
+        ..failCreateReplyWith = ApiException(
+          'One of the quoted posts is not available.',
+          statusCode: 400,
+        );
+      await _pumpComposer(
+        tester,
+        api,
+        args: const ForumComposeArgs.reply(topicId: 10, quote: _quote),
+      );
+      await tester.enterText(find.byType(TextField), 'Agreed.');
+      await tester.pump();
+      await tester.tap(find.widgetWithText(FilledButton, 'Post'));
+      await tester.pumpAndSettle();
+      expect(api.createReplyKeys, hasLength(1));
+
+      // The user's way out of the 400: drop the quote, post the same text.
+      api.failCreateReplyWith = null;
+      await tester.tap(find.byTooltip('Remove quote'));
+      await tester.pump();
+      await tester.tap(find.widgetWithText(FilledButton, 'Post'));
+      await tester.pumpAndSettle();
+
+      expect(api.createReplyKeys, hasLength(2));
+      // Reusing the old key would wedge on the backend's "already used with
+      // a different payload" 422 — a different body is a different attempt.
+      expect(api.createReplyKeys[1], isNot(api.createReplyKeys[0]));
+      expect(api.createReplyBodies[1], [
+        {'type': 'paragraph', 'value': 'Agreed.'},
+      ]);
+    });
+
+    testWidgets('a 400 for the quote shows the server\'s own sentence', (
+      tester,
+    ) async {
+      final api = FakeForumApi()
+        ..failCreateReplyWith = ApiException(
+          'One of the quoted posts is not available.',
+          statusCode: 400,
+        );
+      await _pumpComposer(
+        tester,
+        api,
+        args: const ForumComposeArgs.reply(topicId: 10, quote: _quote),
+      );
+      await tester.enterText(find.byType(TextField), 'Agreed.');
+      await tester.pump();
+      await tester.tap(find.widgetWithText(FilledButton, 'Post'));
+      await tester.pumpAndSettle();
+
+      expect(
+        find.text('One of the quoted posts is not available.'),
+        findsOneWidget,
+      );
+      // Still on the form, quote and text intact, so the user can drop the
+      // quote and post again.
+      expect(find.byTooltip('Remove quote'), findsOneWidget);
+      expect(find.text('Agreed.'), findsOneWidget);
     });
   });
 

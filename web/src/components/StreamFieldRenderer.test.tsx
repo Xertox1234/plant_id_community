@@ -7,8 +7,10 @@
 
 import { describe, it, expect } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import { MemoryRouter } from 'react-router-dom';
 import StreamFieldRenderer from './StreamFieldRenderer';
-import type { StreamFieldBlock } from '@/types/blog';
+import type { PostQuoteBlockValue, StreamFieldBlock } from '@/types/blog';
 
 describe('StreamFieldRenderer', () => {
   describe('Block anchors (todo 289 / M13)', () => {
@@ -729,6 +731,138 @@ describe('StreamFieldRenderer', () => {
       const { container } = render(<StreamFieldRenderer blocks={blocks} />);
 
       expect(container.querySelector('em')).not.toBeNull();
+    });
+  });
+
+  describe('post_quote blocks (todo 342)', () => {
+    const ada = { username: 'ada', display_name: 'Ada', avatar: null, trust_level: 1 };
+    const available: PostQuoteBlockValue = {
+      text: 'water less',
+      post_id: 5,
+      available: true,
+      topic_id: 12,
+      author: ada,
+      is_blocked: false,
+      is_muted: false,
+    };
+    // The attribution links need a Router; the other block tests render bare.
+    const renderQuote = (value: PostQuoteBlockValue, currentTopicId?: number) =>
+      render(
+        <MemoryRouter>
+          <StreamFieldRenderer
+            blocks={[{ id: 'pq', type: 'post_quote', value }]}
+            mentionHighlight
+            currentTopicId={currentTopicId}
+          />
+        </MemoryRouter>
+      );
+
+    it('renders an available quote with its author and a link to the quoted post in this topic', () => {
+      const { container } = renderQuote(available, 12);
+
+      expect(screen.getByText('water less')).toBeInTheDocument();
+      expect(screen.getByRole('link', { name: '@Ada' })).toHaveAttribute(
+        'href',
+        '/forum/users/ada'
+      );
+      expect(screen.getByRole('link', { name: 'this topic' }).getAttribute('href')).toMatch(
+        /#post-5$/
+      );
+      expect(container.textContent).not.toContain('no longer available');
+    });
+
+    it('does not link a quote of a post in another topic (the envelope carries no board)', () => {
+      const { container } = renderQuote({ ...available, topic_id: 99 }, 12);
+
+      expect(screen.getByRole('link', { name: '@Ada' })).toBeInTheDocument();
+      expect(screen.queryByRole('link', { name: 'this topic' })).not.toBeInTheDocument();
+      expect(container.querySelector('footer')).toHaveTextContent('@Ada in another topic');
+    });
+
+    it('renders the text with a muted note when the quoted post is no longer available', () => {
+      renderQuote({ ...available, available: false, topic_id: null, author: null }, 12);
+
+      expect(screen.getByText('water less')).toBeInTheDocument();
+      expect(screen.getByText('Quoted post is no longer available')).toBeInTheDocument();
+      expect(screen.queryByRole('link')).not.toBeInTheDocument();
+    });
+
+    it('renders the quoted text as inert escaped text, never as HTML', () => {
+      // Plain text by contract, unsanitized server-side: a direct API POST can
+      // put markup in it, and it must come out as characters.
+      const payload = '<script>alert(1)</script><img src=x onerror=alert(2)>quoted';
+      const { container } = renderQuote({ ...available, text: payload }, 12);
+
+      expect(container.querySelector('script')).toBeNull();
+      expect(container.querySelector('img')).toBeNull();
+      expect(container.querySelector('[onerror]')).toBeNull();
+      expect(container.textContent).toContain(payload);
+    });
+
+    it('does not link a [deleted] quoted author', () => {
+      renderQuote(
+        {
+          ...available,
+          author: {
+            username: '[deleted]',
+            display_name: '[deleted]',
+            avatar: null,
+            trust_level: null,
+          },
+        },
+        12
+      );
+
+      expect(screen.queryByRole('link', { name: '@[deleted]' })).not.toBeInTheDocument();
+      expect(screen.getByText('@[deleted]')).toBeInTheDocument();
+    });
+
+    it('collapses a quote from an author the viewer has blocked, with a local "Show anyway" reveal', async () => {
+      const { container } = renderQuote({ ...available, is_blocked: true }, 12);
+
+      expect(screen.getByText('Quote from a member you blocked.')).toBeInTheDocument();
+      // COLLAPSE, not hide: the block stays in the flow, but neither the
+      // excerpt nor the author reach the DOM until the viewer asks.
+      expect(screen.queryByText('water less')).not.toBeInTheDocument();
+      expect(container.textContent).not.toContain('Ada');
+      expect(screen.queryByRole('link')).not.toBeInTheDocument();
+
+      await userEvent.click(screen.getByRole('button', { name: 'Show anyway' }));
+
+      expect(screen.getByText('water less')).toBeInTheDocument();
+      expect(screen.getByRole('link', { name: '@Ada' })).toBeInTheDocument();
+      expect(screen.queryByText('Quote from a member you blocked.')).not.toBeInTheDocument();
+    });
+
+    it('collapses a muted author with its own wording, and a block outranks a mute', () => {
+      const { unmount } = renderQuote({ ...available, is_muted: true }, 12);
+
+      expect(screen.getByText('Quote from a member you muted.')).toBeInTheDocument();
+      expect(screen.queryByText('water less')).not.toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Show anyway' })).toBeInTheDocument();
+      unmount();
+
+      renderQuote({ ...available, is_blocked: true, is_muted: true }, 12);
+
+      expect(screen.getByText('Quote from a member you blocked.')).toBeInTheDocument();
+      expect(screen.queryByText('Quote from a member you muted.')).not.toBeInTheDocument();
+    });
+
+    it('renders the normal card when neither signal is set, or when an older payload omits them', () => {
+      const { unmount } = renderQuote(available, 12);
+
+      expect(screen.getByText('water less')).toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: 'Show anyway' })).not.toBeInTheDocument();
+      unmount();
+
+      // Fixtures and payloads from before the collapse signals: absence is
+      // "not collapsed", never a crash.
+      const { is_blocked: _b, is_muted: _m, ...legacy } = available;
+      renderQuote(legacy as PostQuoteBlockValue, 12);
+
+      expect(screen.getByText('water less')).toBeInTheDocument();
+      expect(screen.getByRole('link', { name: '@Ada' })).toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: 'Show anyway' })).not.toBeInTheDocument();
     });
   });
 });

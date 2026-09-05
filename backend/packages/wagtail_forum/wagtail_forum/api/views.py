@@ -91,6 +91,7 @@ from ..models import (
     UserMute,
 )
 from ..models.posts import BLOCK_FORBIDDEN
+from ..quotes import quoted_post_ids
 from ..workflow import submit_edit_for_moderation, submit_for_moderation
 from .exceptions import Conflict, UnprocessableEntity
 from .idempotency import fingerprint, idempotency_cache_key, remember, replay, reserve
@@ -112,6 +113,7 @@ from .serializers import (
     TopicListSerializer,
     build_forum_embed_map,
     build_forum_image_map,
+    build_forum_quote_map,
     serialize_forum_author,
     serialize_forum_body,
     serialize_image_for_api,
@@ -997,6 +999,7 @@ class PostListView(
             **self.get_serializer_context(),
             "forum_image_map": build_forum_image_map(objects),
             "forum_embed_map": build_forum_embed_map(objects),
+            "forum_quote_map": build_forum_quote_map(objects, self.request.user),
             "forum_reacted_map": reacted_map,
         }
         serializer = self.get_serializer(objects, many=True, context=context)
@@ -1145,7 +1148,13 @@ class PostWriteView(UnversionedForumAPIMixin, APIView):
         self._enforce_writable(post.edit_block(request.user))
         serializer = PostEditSerializer(
             data=request.data,
-            context={"request": request, "existing_author_id": post.author_id},
+            context={
+                "request": request,
+                "existing_author_id": post.author_id,
+                # Quotes the stored body already carries stay editable even
+                # if their target has since gone away (django review, 342).
+                "existing_quote_ids": quoted_post_ids(post.body.raw_data),
+            },
         )
         serializer.is_valid(raise_exception=True)
         post.body = ForumBodyBlock().to_python(serializer.validated_data["body"])
@@ -1183,6 +1192,9 @@ class PostWriteView(UnversionedForumAPIMixin, APIView):
                 "request": request,
                 "forum_image_map": build_forum_image_map([serialize_source]),
                 "forum_embed_map": build_forum_embed_map([serialize_source]),
+                "forum_quote_map": build_forum_quote_map(
+                    [serialize_source], request.user
+                ),
             },
         ).data
         data["moderation_status"] = moderation_status
@@ -1398,6 +1410,7 @@ class PostRevisionDetailView(
                     image_map=build_forum_image_map([snapshot]),
                     request=request,
                     embed_map=build_forum_embed_map([snapshot]),
+                    quote_map=build_forum_quote_map([snapshot], request.user),
                 ),
             }
         )
@@ -1932,7 +1945,8 @@ def plain_text_excerpt(stream_value, limit: int) -> str:
     the exact N+1 the ``serialize_forum_body`` raw_data path exists to avoid —
     and slicing rendered HTML can cut a tag mid-attribute. Text-bearing block
     values are strings (paragraph HTML, heading, quote) or a dict carrying a
-    ``code`` string; image blocks hold an int PK and are skipped.
+    ``code`` string or a ``post_quote``'s ``text`` (todo 342); image blocks
+    hold an int PK and are skipped.
     """
     parts: list[str] = []
     total = 0
@@ -1942,6 +1956,8 @@ def plain_text_excerpt(stream_value, limit: int) -> str:
             text = strip_tags(value).strip()
         elif isinstance(value, dict) and isinstance(value.get("code"), str):
             text = value["code"].strip()
+        elif isinstance(value, dict) and isinstance(value.get("text"), str):
+            text = value["text"].strip()
         else:
             continue
         if not text:

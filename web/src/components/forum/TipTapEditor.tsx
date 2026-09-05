@@ -1,4 +1,4 @@
-import { useEditor, EditorContent, Editor } from '@tiptap/react';
+import { useEditor, EditorContent } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
 import Link from '@tiptap/extension-link';
 import Placeholder from '@tiptap/extension-placeholder';
@@ -24,6 +24,7 @@ import {
   uploadPostImage,
 } from '../../services/forumService';
 import { logger } from '../../utils/logger';
+import { ForumBlockquoteAttrs } from './forumBlockquoteAttrs';
 import { ForumImage } from './forumImageNode';
 import { ForumMention } from './forumMentionNode';
 
@@ -92,6 +93,8 @@ export default function TipTapEditor({
       }),
       ForumImage,
       ForumMention,
+      // Quoted-post id on blockquotes (todo 342) — see forumBlockquoteAttrs.
+      ForumBlockquoteAttrs,
     ],
     content,
     editable,

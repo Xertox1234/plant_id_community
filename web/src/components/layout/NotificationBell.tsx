@@ -25,6 +25,10 @@ function notificationLabel(notification: ForumNotification): string {
   switch (notification.verb) {
     case 'mention':
       return `${actorName} mentioned you in "${topicTitle}"`;
+    case 'quote':
+      // Someone quoted one of your posts (todo 342). post_id is the QUOTING
+      // post, so the deep link below lands on the quote, like a reply.
+      return `${actorName} quoted your post in "${topicTitle}"`;
     case 'reply':
     default:
       return `${actorName} replied to "${topicTitle}"`;

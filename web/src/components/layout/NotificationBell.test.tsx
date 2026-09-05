@@ -43,6 +43,7 @@ function makeNotification(overrides: Partial<ForumNotification> = {}): ForumNoti
       board_slug: 'plant-care',
     },
     post_id: null,
+    quoted_post_id: null,
     created_at: '2026-07-14T00:00:00Z',
     read_at: null,
     ...overrides,
@@ -215,5 +216,25 @@ describe('NotificationBell', () => {
 
     expect(notificationService.markNotificationsRead).not.toHaveBeenCalled();
     expect(mockNavigate).toHaveBeenCalledWith('/forum/3-plant-care/10-watering-tips');
+  });
+
+  it('labels a "quote" notification and deep-links to the QUOTING post, like a reply (todo 342)', async () => {
+    vi.mocked(notificationService.fetchUnreadCount).mockResolvedValue(1);
+    vi.mocked(notificationService.fetchNotifications).mockResolvedValue({
+      // post_id is the post that quoted you; quoted_post_id is your own post.
+      results: [makeNotification({ verb: 'quote', post_id: 77, quoted_post_id: 41 })],
+      next: null,
+      previous: null,
+    });
+    renderBell();
+
+    await userEvent.click(await screen.findByLabelText(/notifications/i));
+
+    const row = await screen.findByText('Ada quoted your post in "Watering Tips"');
+    expect(screen.queryByText('Ada replied to "Watering Tips"')).not.toBeInTheDocument();
+
+    await userEvent.click(row);
+
+    expect(mockNavigate).toHaveBeenCalledWith('/forum/3-plant-care/10-watering-tips#post-77');
   });
 });

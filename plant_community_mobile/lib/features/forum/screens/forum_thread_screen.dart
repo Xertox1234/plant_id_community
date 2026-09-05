@@ -102,7 +102,11 @@ class ForumThreadScreen extends ConsumerWidget {
                 ? (post) => _reportPost(context, ref, post)
                 : null,
             onShowHistory: isAuthenticated
-                ? (post) => showForumEditHistorySheet(context, postId: post.id)
+                ? (post) => showForumEditHistorySheet(
+                    context,
+                    postId: post.id,
+                    topicId: topicId,
+                  )
                 : null,
             solvedPostId: topic?.solvedPostId,
             onToggleSolution: canMarkSolution
@@ -131,17 +135,19 @@ class ForumThreadScreen extends ConsumerWidget {
     );
   }
 
-  /// Open the reply composer; with [quoteOf] (the Quote action, todo 341
-  /// wave 3) it opens pre-filled with that post's text as a `quote` block.
+  /// Open the reply composer; with [quoteOf] (the Quote action, todo 342)
+  /// it opens pre-filled with that post's excerpt as a structured
+  /// `post_quote` block keyed to the post's id — the server carries the
+  /// attribution and notifies the quoted author.
   Future<void> _openReply(
     BuildContext context,
     WidgetRef ref, {
     ForumPost? quoteOf,
   }) async {
-    String? quoteText;
+    ForumQuoteDraft? quote;
     if (quoteOf != null) {
-      quoteText = forumQuoteText(quoteOf);
-      if (quoteText == null) {
+      quote = forumQuoteDraft(quoteOf);
+      if (quote == null) {
         // Image-only / embed-only post: nothing a quote block could carry.
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Nothing to quote in that post.')),
@@ -151,7 +157,7 @@ class ForumThreadScreen extends ConsumerWidget {
     }
     final result = await context.pushNamed<bool>(
       'forumCompose',
-      extra: ForumComposeArgs.reply(topicId: topicId, quoteText: quoteText),
+      extra: ForumComposeArgs.reply(topicId: topicId, quote: quote),
     );
     if (result == true) {
       // A new reply is oldest-first-ordered onto the LAST cursor page, so a
@@ -603,6 +609,7 @@ class _ThreadBodyState extends State<_ThreadBody> {
         final card = PostCard(
           key: _keyFor(post),
           post: post,
+          currentTopicId: widget.topicId,
           onOpenLink: widget.onOpenLink,
           onReact: widget.onReact == null
               ? null

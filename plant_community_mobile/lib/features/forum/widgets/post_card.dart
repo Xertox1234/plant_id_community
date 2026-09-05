@@ -28,9 +28,15 @@ class PostCard extends StatefulWidget {
     this.onToggleSolution,
     this.onShowHistory,
     this.onQuote,
+    this.currentTopicId,
   });
 
   final ForumPost post;
+
+  /// The topic this card is shown in — handed to [ForumBodyRenderer] so a
+  /// `post_quote` of a post in this same topic drops its "in topic" link
+  /// (todo 342). `null` where the surface doesn't know (profile activity).
+  final int? currentTopicId;
 
   /// Non-null when the viewer may react (logged in). Called with the type.
   final void Function(String type)? onReact;
@@ -150,7 +156,11 @@ class _PostCardState extends State<PostCard> {
                 child: _PendingChip(),
               ),
             const SizedBox(height: AppSpacing.sm),
-            ForumBodyRenderer(post.body, onOpenLink: widget.onOpenLink),
+            ForumBodyRenderer(
+              post.body,
+              onOpenLink: widget.onOpenLink,
+              currentTopicId: widget.currentTopicId,
+            ),
             if (post.isEdited)
               Padding(
                 padding: const EdgeInsets.only(top: AppSpacing.xs),

@@ -149,6 +149,10 @@ DEFAULTS = {
     # inside ONE timeout window at write time, so this bounds worker-pool
     # pressure per write (and reader-side iframes per post), not wall time.
     "MAX_EMBED_URLS_PER_BODY": 5,
+    # Structured post quotes (todo 342): distinct quoted posts per body, and
+    # the quoted text's length — the API rejects, never truncates.
+    "QUOTES_MAX_PER_POST": 3,
+    "QUOTE_MAX_CHARS": 1000,
     # Digest email (todo 340) — an opt-in package feature; the host only
     # schedules `manage.py send_forum_digest` and may override the templates.
     "DIGEST_DEFAULT_FREQUENCY": "off",  # applied to NEW profiles only

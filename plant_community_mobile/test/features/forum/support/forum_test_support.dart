@@ -64,6 +64,11 @@ class FakeForumApi implements ForumApi {
   /// Fail the first N create-reply attempts with a 500 before succeeding.
   int failCreateReplyTimes = 0;
 
+  /// When set, every [createReply] throws this — for a specific status and
+  /// sentence (e.g. the server's 400 for an unavailable quoted post, todo
+  /// 342).
+  ApiException? failCreateReplyWith;
+
   ReactionToggleResult reactionResult = const ReactionToggleResult(
     reactionCounts: {'like': 1},
     reacted: true,
@@ -328,6 +333,8 @@ class FakeForumApi implements ForumApi {
   }) async {
     createReplyKeys.add(idempotencyKey);
     createReplyBodies.add(body);
+    final fail = failCreateReplyWith;
+    if (fail != null) throw fail;
     if (createReplyKeys.length <= failCreateReplyTimes) {
       throw ApiException('temporary failure', statusCode: 500);
     }
@@ -1052,6 +1059,7 @@ ForumNotification notification({
   int? topicId = 10,
   String topicTitle = 'Sample topic',
   int? postId,
+  int? quotedPostId,
   DateTime? readAt,
 }) {
   return ForumNotification(
@@ -1068,6 +1076,7 @@ ForumNotification notification({
             boardSlug: 'general',
           ),
     postId: postId,
+    quotedPostId: quotedPostId,
     createdAt: DateTime(2026, 1, 1),
     readAt: readAt,
   );

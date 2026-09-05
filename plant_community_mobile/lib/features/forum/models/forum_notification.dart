@@ -44,6 +44,7 @@ class ForumNotification {
     required this.actor,
     this.topic,
     this.postId,
+    this.quotedPostId,
     this.createdAt,
     this.readAt,
   });
@@ -57,8 +58,13 @@ class ForumNotification {
   final ForumNotificationTopicRef? topic;
 
   /// The post this notification is about, or `null` for a post-less verb.
-  /// Deep-link target once push-tap routing lands (todo 311).
+  /// Deep-link target once push-tap routing lands (todo 311). For a `quote`
+  /// this is the QUOTING post — the reply to open — not the quoted one.
   final int? postId;
+
+  /// `quote` only (todo 342): the recipient's own post that was quoted.
+  /// `null` for every other verb.
+  final int? quotedPostId;
   final DateTime? createdAt;
   final DateTime? readAt;
 
@@ -77,6 +83,7 @@ class ForumNotification {
               json['topic'] as Map<String, dynamic>,
             ),
       postId: json['post_id'] as int?,
+      quotedPostId: json['quoted_post_id'] as int?,
       createdAt: _parseDate(json['created_at']),
       readAt: _parseDate(json['read_at']),
     );
@@ -92,6 +99,7 @@ class ForumNotification {
       actor: actor,
       topic: topic,
       postId: postId,
+      quotedPostId: quotedPostId,
       createdAt: createdAt,
       readAt: readAt,
     );

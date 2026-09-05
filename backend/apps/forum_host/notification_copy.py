@@ -74,6 +74,12 @@ FORUM_NOTIFICATION_COPY: dict[str, ForumEventCopy] = {
         # anyway — the answer_accepted branch in notifications.py enqueues no
         # email task (see this module's "whitelist is a feature" note).
     ),
+    "quote": ForumEventCopy(
+        push_title='Your post was quoted in "{topic_title}"',
+        push_title_without_topic="Your post was quoted on the forum",
+        push_body="{actor} quoted your post",
+        # No email arm, like mention (todo 342): bell + push carry it.
+    ),
     "mention": ForumEventCopy(
         push_title='You were mentioned in "{topic_title}"',
         push_title_without_topic="You were mentioned on the forum",

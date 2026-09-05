@@ -201,9 +201,10 @@ void main() {
     });
   });
 
-  group('Thread Quote action (todo 341 wave 3)', () {
-    testWidgets('opens the composer pre-filled with a quote block that is '
-        'sent ahead of the paragraph', (tester) async {
+  group('Thread Quote action (todo 342)', () {
+    testWidgets('opens the composer pre-filled with the post\'s excerpt and '
+        'author, sent as a post_quote block keyed to the post ahead of the '
+        'paragraph', (tester) async {
       final api = FakeForumApi()
         ..topicDetail = topicDetail(id: 10)
         ..posts = CursorPage(
@@ -211,7 +212,7 @@ void main() {
             post(id: 1),
             post(
               id: 2,
-              authorOverride: author(username: 'bob'),
+              authorOverride: author(username: 'bob', displayName: 'Bob B'),
               body: const [ParagraphBlock('Water it <em>less</em>.')],
             ),
           ],
@@ -225,7 +226,10 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.byType(ForumComposerScreen), findsOneWidget);
-      expect(find.text('bob wrote:\nWater it less.'), findsOneWidget);
+      expect(find.text('Water it less.'), findsOneWidget);
+      expect(find.text('— Bob B'), findsOneWidget);
+      // No "wrote:" line anywhere — the server carries the attribution.
+      expect(find.textContaining('wrote'), findsNothing);
 
       await tester.enterText(find.byType(TextField), 'Noted, thanks.');
       await tester.pump();
@@ -233,7 +237,10 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(api.createReplyBodies.single, [
-        {'type': 'quote', 'value': 'bob wrote:\nWater it less.'},
+        {
+          'type': 'post_quote',
+          'value': {'post': 2, 'text': 'Water it less.'},
+        },
         {'type': 'paragraph', 'value': 'Noted, thanks.'},
       ]);
       expect(find.byType(ForumThreadScreen), findsOneWidget);
@@ -279,6 +286,38 @@ void main() {
 
       expect(find.text('Nothing to quote in that post.'), findsOneWidget);
       expect(find.byType(ForumThreadScreen), findsOneWidget);
+    });
+  });
+
+  group('Thread post_quote rendering (todo 342)', () {
+    PostQuoteBlock quoteOf({required int topicId}) => PostQuoteBlock(
+      text: 'Water it less.',
+      postId: 1,
+      available: true,
+      topicId: topicId,
+      author: author(username: 'bob', displayName: 'Bob B'),
+    );
+
+    testWidgets('the thread hands its topic id down: a quote of a post in '
+        'THIS topic has no "in topic" link, one from elsewhere keeps it', (
+      tester,
+    ) async {
+      final api = FakeForumApi()
+        ..topicDetail = topicDetail(id: 10)
+        ..posts = CursorPage(
+          items: [
+            post(id: 1),
+            post(id: 2, body: [quoteOf(topicId: 10)]),
+            post(id: 3, body: [quoteOf(topicId: 7)]),
+          ],
+        );
+
+      await tester.pumpWidget(_wrap(api));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Water it less.'), findsNWidgets(2));
+      expect(find.text('Bob B'), findsNWidgets(2));
+      expect(find.text('in topic'), findsOneWidget);
     });
   });
 }

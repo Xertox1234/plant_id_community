@@ -1,7 +1,11 @@
+import { useState } from 'react';
+import { Link } from 'react-router-dom';
 import { createSafeMarkup, SANITIZE_PRESETS } from '../utils/sanitize';
 import { highlightMentions } from '../utils/mentions';
+import { postAnchor, userProfilePath } from '../utils/forumUrls';
+import { DELETED_AUTHOR_USERNAME } from '../utils/forumAuthor';
 import { mediaUrl } from '../services/blogService';
-import type { StreamFieldBlock as StreamFieldBlockType } from '@/types/blog';
+import type { PostQuoteBlockValue, StreamFieldBlock as StreamFieldBlockType } from '@/types/blog';
 
 /**
  * SafeHTML Component
@@ -57,6 +61,13 @@ interface StreamFieldRendererProps {
    * collide.
    */
   anchorPrefix?: string;
+  /**
+   * Forum posts only (todo 342): the topic the rendered post belongs to. A
+   * `post_quote` of a post in this topic links to that post's anchor; the
+   * read envelope carries only `topic_id` (no board id/slug), so a quote
+   * from another topic cannot be linked from here and says so.
+   */
+  currentTopicId?: number;
 }
 
 function renderTextOrSafeHtml(content: string, className = '') {
@@ -66,6 +77,10 @@ function renderTextOrSafeHtml(content: string, className = '') {
     <div className={className}>{content}</div>
   );
 }
+
+/** Chrome shared by the `quote` block, the `post_quote` block and its collapsed placeholder. */
+const QUOTE_BLOCK_CLASS =
+  'my-8 rounded-r-md border-l-2 border-secondary bg-surface-2/50 py-4 pl-6 pr-4 italic text-ink-2';
 
 function capitalize(value: string): string {
   return value.charAt(0).toUpperCase() + value.slice(1);
@@ -91,6 +106,7 @@ export default function StreamFieldRenderer({
   mentionHighlight,
   variant = 'inline',
   anchorPrefix,
+  currentTopicId,
 }: StreamFieldRendererProps) {
   if (!blocks || blocks.length === 0) {
     return null;
@@ -107,6 +123,7 @@ export default function StreamFieldRenderer({
             key={block.id || index}
             block={block}
             mentionHighlight={mentionHighlight}
+            currentTopicId={currentTopicId}
           />
         );
         if (!anchorPrefix) return rendered;
@@ -129,9 +146,10 @@ export default function StreamFieldRenderer({
 interface StreamFieldBlockProps {
   block: StreamFieldBlockType;
   mentionHighlight?: boolean;
+  currentTopicId?: number;
 }
 
-function StreamFieldBlock({ block, mentionHighlight }: StreamFieldBlockProps) {
+function StreamFieldBlock({ block, mentionHighlight, currentTopicId }: StreamFieldBlockProps) {
   const { type } = block;
 
   switch (type) {
@@ -224,7 +242,7 @@ function StreamFieldBlock({ block, mentionHighlight }: StreamFieldBlockProps) {
       const attribution = typeof value === 'string' ? undefined : value.attribution;
 
       return (
-        <blockquote className="my-8 rounded-r-md border-l-2 border-secondary bg-surface-2/50 py-4 pl-6 pr-4 italic text-ink-2">
+        <blockquote className={QUOTE_BLOCK_CLASS}>
           {/* SECURITY: a forum quote is a Wagtail BlockQuoteBlock (TextBlock) —
               PLAIN TEXT that api/sanitize.py deliberately leaves untouched
               ("text by contract"), so a direct API POST can put `<script>` in it.
@@ -246,6 +264,11 @@ function StreamFieldBlock({ block, mentionHighlight }: StreamFieldBlockProps) {
         </blockquote>
       );
     }
+
+    case 'post_quote':
+      // Its own component: the blocked/muted collapse holds reveal state, and
+      // a hook cannot live inside this switch.
+      return <PostQuoteBlock value={block.value} currentTopicId={currentTopicId} />;
 
     case 'code': {
       // Backend: StructBlock with code (TextBlock) and language (ChoiceBlock)
@@ -336,4 +359,97 @@ function StreamFieldBlock({ block, mentionHighlight }: StreamFieldBlockProps) {
         </div>
       );
   }
+}
+
+/**
+ * PostQuoteBlock — a quote of a specific forum post (todo 342).
+ *
+ * SECURITY: `text` is PLAIN TEXT by the same contract as `quote` above — the
+ * server leaves it unsanitized — so it is rendered as text (React escapes it),
+ * never through SafeHTML. The attribution is the server-resolved envelope: an
+ * author + topic only while the quoted post is still visible, and a muted
+ * note once it has been unpublished, hidden or deleted.
+ *
+ * A quote from an author the VIEWER has blocked or muted is COLLAPSED to a
+ * placeholder with a local, no-refetch "Show anyway" reveal — the same
+ * contract as PostCard (todo 284/347), never hidden outright: the block stays
+ * in the body's flow so the reply still reads as a reply. A block outranks a
+ * mute. The signals are the viewer's, so they are both false for anonymous
+ * viewers and independent of `available`.
+ */
+interface PostQuoteBlockProps {
+  value: PostQuoteBlockValue;
+  currentTopicId?: number;
+}
+
+function PostQuoteBlock({ value, currentTopicId }: PostQuoteBlockProps) {
+  const { text, post_id, available, topic_id, author } = value;
+  // `?? false`: payloads and fixtures from before the collapse signals were
+  // added omit them — absence means "not collapsed", never a crash.
+  const isBlocked = value.is_blocked ?? false;
+  const isMuted = value.is_muted ?? false;
+  // Keyed by reason, like PostCard's revealedFor: revealing a MUTED quote
+  // must not carry over if the viewer then blocks the author.
+  const [revealedFor, setRevealedFor] = useState<'block' | 'mute' | null>(null);
+  const collapsedFor: 'block' | 'mute' | null = isBlocked ? 'block' : isMuted ? 'mute' : null;
+  const collapsed = collapsedFor !== null && revealedFor !== collapsedFor;
+
+  if (collapsed) {
+    return (
+      <blockquote className={QUOTE_BLOCK_CLASS}>
+        <div className="flex flex-wrap items-center justify-between gap-3 not-italic">
+          <p className="text-sm text-ink-3">
+            {collapsedFor === 'block'
+              ? 'Quote from a member you blocked.'
+              : 'Quote from a member you muted.'}
+          </p>
+          <button
+            type="button"
+            onClick={() => setRevealedFor(collapsedFor)}
+            className="min-h-11 rounded-pill px-3 py-1 text-sm text-ink-3 hover:bg-surface-3"
+          >
+            Show anyway
+          </button>
+        </div>
+      </blockquote>
+    );
+  }
+
+  const authorName = author ? author.display_name || author.username : '';
+  const sameTopic = currentTopicId != null && topic_id === currentTopicId;
+  return (
+    <blockquote className={QUOTE_BLOCK_CLASS}>
+      <div className="mb-2 text-[17px] whitespace-pre-line">{text}</div>
+      <footer className="text-sm text-ink-3 not-italic">
+        {available && author ? (
+          <>
+            —{' '}
+            {author.username === DELETED_AUTHOR_USERNAME ? (
+              <span className="font-medium">@{authorName}</span>
+            ) : (
+              <Link
+                to={userProfilePath(author.username)}
+                className="font-medium hover:text-primary hover:underline"
+              >
+                @{authorName}
+              </Link>
+            )}{' '}
+            in{' '}
+            {sameTopic ? (
+              <Link
+                to={{ hash: postAnchor(post_id) }}
+                className="hover:text-primary hover:underline"
+              >
+                this topic
+              </Link>
+            ) : (
+              'another topic'
+            )}
+          </>
+        ) : (
+          'Quoted post is no longer available'
+        )}
+      </footer>
+    </blockquote>
+  );
 }

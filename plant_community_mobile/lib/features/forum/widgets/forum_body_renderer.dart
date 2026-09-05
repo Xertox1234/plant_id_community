@@ -1,18 +1,32 @@
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 
 import '../../../core/constants/app_spacing.dart';
 import '../models/models.dart';
+import 'author_identity.dart';
 import 'forum_html_text.dart';
 
 /// Renders a parsed forum body (list of [ForumBodyBlock]) with block parity to
-/// the web `StreamFieldRenderer`: heading, paragraph (HTML), quote, code,
-/// image, plus graceful fallbacks for deleted images and unknown block types.
+/// the web `StreamFieldRenderer`: heading, paragraph (HTML), quote, post
+/// quote, code, image, plus graceful fallbacks for deleted images and
+/// unknown block types.
 class ForumBodyRenderer extends StatelessWidget {
-  const ForumBodyRenderer(this.blocks, {super.key, this.onOpenLink});
+  const ForumBodyRenderer(
+    this.blocks, {
+    super.key,
+    this.onOpenLink,
+    this.currentTopicId,
+  });
 
   final List<ForumBodyBlock> blocks;
   final void Function(String href)? onOpenLink;
+
+  /// The topic this body is being read in, when the surface knows it (the
+  /// thread, its edit-history sheet). A `post_quote` of a post in the SAME
+  /// topic then drops its "in topic" link — pushing the route the viewer is
+  /// already on would stack a duplicate thread screen.
+  final int? currentTopicId;
 
   @override
   Widget build(BuildContext context) {
@@ -42,6 +56,10 @@ class ForumBodyRenderer extends StatelessWidget {
         onOpenLink: onOpenLink,
       ),
       QuoteBlock(:final text) => _Quote(text: text),
+      PostQuoteBlock quote => _PostQuote(
+        quote: quote,
+        currentTopicId: currentTopicId,
+      ),
       CodeBlock(:final code, :final language) => _Code(
         code: code,
         language: language,
@@ -93,6 +111,185 @@ class _Quote extends StatelessWidget {
           color: theme.colorScheme.onSurfaceVariant,
         ),
       ),
+    );
+  }
+}
+
+/// A quote OF A SPECIFIC POST (todo 342): the excerpt, then who wrote it
+/// and an "in topic" link to the quoted post. The text is plain by
+/// contract (the server never sanitizes it; consumers escape at render)
+/// and `Text` is exactly that — never a markup renderer. When the quoted
+/// post is gone (`available: false`) the excerpt still renders, under a
+/// muted notice instead of an attribution. An available quote whose
+/// envelope nonetheless lacks the author or topic (defensive — the contract
+/// sends both) renders the excerpt with whatever attribution it has and
+/// never the "gone" notice.
+///
+/// The link navigates from here, not through a per-screen callback: every
+/// surface that renders a body (thread, edit history, …) gets the same deep
+/// link with no plumbing, and `forumTopic` already takes a `postId` to
+/// scroll to — the same route a notification tap uses. It is dropped when
+/// the quoted post lives in [currentTopicId] — the viewer is already there.
+///
+/// Stateful only for the blocked/muted reveal: a quote of an author the
+/// viewer blocked or muted renders COLLAPSED (never hidden — the reply
+/// around it still reads as a reply) until "Show anyway", the same local,
+/// no-refetch reveal a blocked post gets in `PostCard`.
+class _PostQuote extends StatefulWidget {
+  const _PostQuote({required this.quote, this.currentTopicId});
+  final PostQuoteBlock quote;
+  final int? currentTopicId;
+
+  @override
+  State<_PostQuote> createState() => _PostQuoteState();
+}
+
+class _PostQuoteState extends State<_PostQuote> {
+  bool _revealed = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final quote = widget.quote;
+    final author = quote.author;
+    final collapsed = (quote.isBlocked || quote.isMuted) && !_revealed;
+    return Semantics(
+      container: true,
+      label: 'Quote from ${author?.name ?? 'a member'}',
+      child: _QuoteRule(
+        child: collapsed
+            ? _CollapsedQuoteNotice(
+                blocked: quote.isBlocked,
+                onReveal: () => setState(() => _revealed = true),
+              )
+            : _PostQuoteBody(
+                quote: quote,
+                currentTopicId: widget.currentTopicId,
+              ),
+      ),
+    );
+  }
+}
+
+/// The left primary rule every quote shape shares.
+class _QuoteRule extends StatelessWidget {
+  const _QuoteRule({required this.child});
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.only(left: AppSpacing.md),
+      decoration: BoxDecoration(
+        border: Border(
+          left: BorderSide(
+            color: Theme.of(context).colorScheme.primary,
+            width: 3,
+          ),
+        ),
+      ),
+      child: child,
+    );
+  }
+}
+
+/// One-line notice for a quote of a blocked/muted author — the same icon,
+/// wording shape and "Show anyway" reveal as `PostCard`'s blocked
+/// placeholder. Blocked wins when both flags are set (the stronger
+/// relation). The excerpt is NOT in the tree until revealed.
+class _CollapsedQuoteNotice extends StatelessWidget {
+  const _CollapsedQuoteNotice({required this.blocked, required this.onReveal});
+  final bool blocked;
+  final VoidCallback onReveal;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final muted = theme.colorScheme.onSurfaceVariant;
+    return Row(
+      children: [
+        Icon(blocked ? Icons.block : Icons.volume_off, size: 16, color: muted),
+        const SizedBox(width: AppSpacing.sm),
+        Expanded(
+          child: Text(
+            blocked
+                ? 'Quote from a member you blocked.'
+                : 'Quote from a member you muted.',
+            style: theme.textTheme.bodySmall?.copyWith(color: muted),
+          ),
+        ),
+        TextButton(onPressed: onReveal, child: const Text('Show anyway')),
+      ],
+    );
+  }
+}
+
+class _PostQuoteBody extends StatelessWidget {
+  const _PostQuoteBody({required this.quote, this.currentTopicId});
+  final PostQuoteBlock quote;
+  final int? currentTopicId;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final muted = theme.colorScheme.onSurfaceVariant;
+    final author = quote.author;
+    final topicId = quote.topicId;
+    final postId = quote.postId;
+    final linked = topicId != null && topicId != currentTopicId;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          quote.text,
+          style: theme.textTheme.bodyMedium?.copyWith(
+            fontStyle: FontStyle.italic,
+            color: muted,
+          ),
+        ),
+        if (!quote.available) ...[
+          const SizedBox(height: AppSpacing.xs),
+          Text(
+            'Quoted post is no longer available',
+            style: theme.textTheme.bodySmall?.copyWith(color: muted),
+          ),
+        ] else if (author != null) ...[
+          const SizedBox(height: AppSpacing.xs),
+          Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              AuthorAvatar(author: author, radius: 10),
+              const SizedBox(width: AppSpacing.xs),
+              Flexible(
+                child: Text(
+                  author.name,
+                  overflow: TextOverflow.ellipsis,
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+              if (linked)
+                TextButton(
+                  onPressed: () => context.pushNamed(
+                    'forumTopic',
+                    pathParameters: {'id': '$topicId'},
+                    queryParameters: postId == null
+                        ? const <String, String>{}
+                        : {'postId': '$postId'},
+                  ),
+                  style: TextButton.styleFrom(
+                    minimumSize: const Size(48, 48),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: AppSpacing.sm,
+                    ),
+                    textStyle: theme.textTheme.bodySmall,
+                  ),
+                  child: const Text('in topic'),
+                ),
+            ],
+          ),
+        ],
+      ],
     );
   }
 }

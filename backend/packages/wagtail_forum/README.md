@@ -387,6 +387,8 @@ Three consequences worth knowing before changing this:
 | `WAGTAILFORUM_DIGEST_MAX_TRENDING_TOPICS` | `10` | Max "active topics you have not seen" rows per digest. |
 | `WAGTAILFORUM_DIGEST_SETTINGS_PATH` | `"/settings"` | Path (under the site origin) the digest's "change or turn it off" link points to. |
 | `WAGTAILFORUM_EMAIL_SITE_URL` | `None` | Absolute origin for links in package emails; `None` falls back to the host's `SITE_URL`. |
+| `WAGTAILFORUM_QUOTES_MAX_PER_POST` | `3` | Distinct posts one body may quote with the structured `post_quote` block (todo 342). |
+| `WAGTAILFORUM_QUOTE_MAX_CHARS` | `1000` | Max characters of a `post_quote` block's text; longer is a 400, never silently truncated. |
 | `WAGTAILFORUM_MAX_EMBED_URLS_PER_BODY` | `5` | Distinct embed URLs one body may carry (they resolve concurrently, so this bounds pool pressure per write and iframes per post, not wall time). |
 
 ## Embeds

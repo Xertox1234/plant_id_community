@@ -105,7 +105,7 @@ def _notification_content(event: str, data: dict) -> tuple[str, str] | None:
     cosmetics). Event values arrive as plain strings (Celery JSON-serializes
     NotificationVerb.MENTION to "mention" through the broker).
 
-    Only reply_added and mention render a tray entry. moderation_decided is
+    Only reply_added, mention and quote render a tray entry. moderation_decided is
     deliberately None: workflow.py fires it with status="published" on EVERY
     routine trust-autopublished post/reply/edit, so a visible block would
     tray-popup "Your post was published" at users for their own ordinary

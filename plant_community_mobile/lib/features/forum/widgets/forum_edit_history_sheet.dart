@@ -12,15 +12,18 @@ import 'forum_body_renderer.dart';
 /// "edited" stamp on a card opens this: the revision list (who, when —
 /// newest first), and one revision's body rendered through the same
 /// [ForumBodyRenderer] as the live post so the two are comparable.
+/// [topicId] is the thread the sheet opened from — the renderer drops a
+/// quote's "in topic" link when it points back here (todo 342).
 Future<void> showForumEditHistorySheet(
   BuildContext context, {
   required int postId,
+  int? topicId,
 }) {
   return showModalBottomSheet<void>(
     context: context,
     isScrollControlled: true,
     showDragHandle: true,
-    builder: (_) => ForumEditHistorySheet(postId: postId),
+    builder: (_) => ForumEditHistorySheet(postId: postId, topicId: topicId),
   );
 }
 
@@ -30,9 +33,10 @@ Future<void> showForumEditHistorySheet(
 /// auto-retries on a backoff timer — leaving a pending timer behind the
 /// sheet for a refusal that will never change (docs/rules/flutter.md).
 class ForumEditHistorySheet extends ConsumerStatefulWidget {
-  const ForumEditHistorySheet({super.key, required this.postId});
+  const ForumEditHistorySheet({super.key, required this.postId, this.topicId});
 
   final int postId;
+  final int? topicId;
 
   @override
   ConsumerState<ForumEditHistorySheet> createState() =>
@@ -177,7 +181,10 @@ class _ForumEditHistorySheetState extends ConsumerState<ForumEditHistorySheet> {
       return SingleChildScrollView(
         child: Padding(
           padding: const EdgeInsets.symmetric(vertical: AppSpacing.sm),
-          child: ForumBodyRenderer(selected.body),
+          child: ForumBodyRenderer(
+            selected.body,
+            currentTopicId: widget.topicId,
+          ),
         ),
       );
     }
