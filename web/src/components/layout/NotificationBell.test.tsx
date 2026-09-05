@@ -5,9 +5,11 @@ import { MemoryRouter } from 'react-router-dom';
 import NotificationBell from './NotificationBell';
 import { UnreadNotificationsProvider } from '../../contexts/UnreadNotificationsContext';
 import * as notificationService from '../../services/notificationService';
+import * as messageService from '../../services/messageService';
 import type { ForumNotification } from '../../types/notifications';
 
 vi.mock('../../services/notificationService');
+vi.mock('../../services/messageService');
 vi.mock('../../contexts/AuthContext', () => ({
   useAuth: () => ({ isAuthenticated: true }),
 }));
@@ -51,6 +53,7 @@ describe('NotificationBell', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.mocked(notificationService.fetchUnreadCount).mockResolvedValue(0);
+    vi.mocked(messageService.fetchUnreadConversationCount).mockResolvedValue(0);
     vi.mocked(notificationService.fetchNotifications).mockResolvedValue({
       results: [],
       next: null,

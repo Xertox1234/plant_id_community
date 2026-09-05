@@ -546,3 +546,48 @@ export interface EventHeroTopic {
 export interface EventHero {
   topic: EventHeroTopic | null;
 }
+
+// ---------------------------------------------------------------------------
+// Direct messages (todo 339) — GET /forum/conversations/ and friends.
+//
+// Typed verbatim off the backend serializers (snake_case, no mapping layer),
+// the same way notifications and the block/mute lists are — there is no
+// string-id or slug convention to translate here.
+// ---------------------------------------------------------------------------
+
+/** The inbox preview of a conversation's most recent message (body ≤140 chars). */
+export interface ConversationLastMessage {
+  body: string;
+  /** True when the VIEWER sent it — the inbox prefixes the preview "You: ". */
+  is_mine: boolean;
+  created_at: string;
+}
+
+/** GET conversations/ row — one two-party thread, most recent activity first. */
+export interface Conversation {
+  id: number;
+  /** The member on the other side; the viewer is never listed. */
+  other_participant: ForumAuthor;
+  created_at: string;
+  last_message_at: string;
+  /** Messages from the other side the viewer has not opened yet. */
+  unread_count: number;
+  /** Null only for a conversation with no messages (not reachable via the API today). */
+  last_message: ConversationLastMessage | null;
+}
+
+/** GET conversations/{id}/messages/ row. `body` is plain text — render it as text. */
+export interface DirectMessage {
+  id: number;
+  conversation_id: number;
+  sender: ForumAuthor;
+  body: string;
+  created_at: string;
+}
+
+/** DRF cursor page (no count) shared by the inbox and the message thread. */
+export interface DirectMessageCursorPage<T> {
+  results: T[];
+  next: string | null;
+  previous: string | null;
+}

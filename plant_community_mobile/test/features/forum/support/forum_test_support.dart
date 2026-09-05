@@ -3,8 +3,28 @@ import 'dart:async';
 import 'package:plant_community_mobile/features/forum/models/models.dart';
 import 'package:plant_community_mobile/features/forum/services/forum_api.dart';
 import 'package:plant_community_mobile/features/forum/services/forum_image_picker.dart';
+import 'package:plant_community_mobile/models/user_profile.dart';
 import 'package:plant_community_mobile/services/api_service.dart';
 import 'package:plant_community_mobile/services/auth_service.dart';
+import 'package:plant_community_mobile/services/user_profile_service.dart';
+
+/// A test [UserProfileService] that resolves to a fixed account profile
+/// (the signed-in user's own `username`) without hitting `/auth/user/`.
+/// Use via `userProfileServiceProvider.overrideWith(() =>
+/// FakeUserProfileService(username: 'me'))` wherever a screen needs to know
+/// who the current user is (the profile "Message" action, todo 339).
+class FakeUserProfileService extends UserProfileService {
+  FakeUserProfileService({required this.username});
+  final String username;
+
+  @override
+  Future<UserProfile?> build() async => UserProfile(
+    id: 1,
+    username: username,
+    email: '$username@example.com',
+    dateJoined: DateTime(2026, 1, 1),
+  );
+}
 
 /// Configurable fake [ForumApi] for forum tests. Read fixtures are set as
 /// fields; writes record the `Idempotency-Key` they received and can be made
@@ -122,6 +142,41 @@ class FakeForumApi implements ForumApi {
   /// "in flight" and resolve them out of order (code review, todo 295: the
   /// stale-response race).
   List<Completer<ForumSearchPage>>? searchGates;
+
+  /// DM fixtures (todo 339). [conversationPages] mirrors [postPages]: page
+  /// N+1 is returned when `cursorUrl` equals page N's `next`; `null` always
+  /// returns the first page. Falls back to [conversations] when empty.
+  List<ForumConversation> conversations = const [];
+  List<CursorPage<ForumConversation>> conversationPages = const [];
+  final List<String?> fetchConversationsCalls = [];
+  int unreadConversationCount = 0;
+
+  /// Fixture for [fetchConversationWith] — `null` (the default) means "no
+  /// conversation yet", which the real client maps from the backend's 404.
+  /// Ignores the `username` argument, like [profile].
+  ForumConversation? conversationWith;
+  final List<String> fetchConversationWithCalls = [];
+
+  /// [fetchMessages] fixtures, NEWEST FIRST like the real endpoint.
+  /// [messagePages] mirrors [postPages]; falls back to [messages].
+  List<ForumDirectMessage> messages = const [];
+  List<CursorPage<ForumDirectMessage>> messagePages = const [];
+  final List<String?> fetchMessagesCalls = [];
+
+  /// [sendMessage] log and hooks. The returned message is authored by
+  /// [senderUsername] with an id from [nextSentMessageId].
+  final List<Map<String, Object?>> sendMessageCalls = [];
+  final List<String> sendMessageKeys = [];
+  String senderUsername = 'me';
+  int nextSentMessageId = 100;
+  ApiException? failSendMessageWith;
+
+  /// When set, [sendMessage] awaits this instead of resolving immediately.
+  Completer<ForumDirectMessage>? sendMessageGate;
+
+  final List<Map<String, Object?>> reportMessageCalls = [];
+  final List<String> reportMessageKeys = [];
+  ApiException? failReportMessageWith;
 
   @override
   Future<List<ForumBoard>> fetchBoards() async => boards;
@@ -335,6 +390,133 @@ class FakeForumApi implements ForumApi {
     unreadCount = (unreadCount - updated).clamp(0, unreadCount);
     return updated;
   }
+
+  @override
+  Future<CursorPage<ForumConversation>> fetchConversations({
+    String? cursorUrl,
+  }) async {
+    fetchConversationsCalls.add(cursorUrl);
+    if (conversationPages.isEmpty) {
+      return CursorPage(items: conversations);
+    }
+    if (cursorUrl == null) return conversationPages.first;
+    for (var i = 1; i < conversationPages.length; i++) {
+      if (conversationPages[i - 1].next == cursorUrl) {
+        return conversationPages[i];
+      }
+    }
+    return conversationPages.last;
+  }
+
+  @override
+  Future<int> fetchUnreadConversationCount() async => unreadConversationCount;
+
+  @override
+  Future<ForumConversation?> fetchConversationWith(String username) async {
+    fetchConversationWithCalls.add(username);
+    return conversationWith;
+  }
+
+  @override
+  Future<CursorPage<ForumDirectMessage>> fetchMessages({
+    required int conversationId,
+    String? cursorUrl,
+  }) async {
+    fetchMessagesCalls.add(cursorUrl);
+    if (messagePages.isEmpty) {
+      return CursorPage(items: messages);
+    }
+    if (cursorUrl == null) return messagePages.first;
+    for (var i = 1; i < messagePages.length; i++) {
+      if (messagePages[i - 1].next == cursorUrl) {
+        return messagePages[i];
+      }
+    }
+    return messagePages.last;
+  }
+
+  @override
+  Future<ForumDirectMessage> sendMessage({
+    required String username,
+    required String body,
+    required String idempotencyKey,
+  }) async {
+    sendMessageCalls.add({'username': username, 'body': body});
+    sendMessageKeys.add(idempotencyKey);
+    final gate = sendMessageGate;
+    if (gate != null) return gate.future;
+    final fail = failSendMessageWith;
+    if (fail != null) throw fail;
+    return directMessage(
+      id: nextSentMessageId++,
+      conversationId: conversationWith?.id ?? 1,
+      senderUsername: senderUsername,
+      body: body,
+    );
+  }
+
+  @override
+  Future<void> reportMessage({
+    required int messageId,
+    required String reason,
+    String? detail,
+    required String idempotencyKey,
+  }) async {
+    reportMessageCalls.add({
+      'messageId': messageId,
+      'reason': reason,
+      'detail': detail,
+    });
+    reportMessageKeys.add(idempotencyKey);
+    final fail = failReportMessageWith;
+    if (fail != null) throw fail;
+  }
+}
+
+/// Build a [ForumConversation] fixture with [otherUsername] on the far side.
+ForumConversation conversation({
+  int id = 1,
+  String otherUsername = 'bob',
+  String? otherDisplayName,
+  int unreadCount = 0,
+  String? lastMessageBody,
+  bool lastMessageIsMine = false,
+  DateTime? lastMessageAt,
+}) {
+  return ForumConversation(
+    id: id,
+    otherParticipant: author(
+      username: otherUsername,
+      displayName: otherDisplayName,
+    ),
+    createdAt: DateTime(2026, 1, 1),
+    lastMessageAt: lastMessageAt ?? DateTime(2026, 1, 2),
+    unreadCount: unreadCount,
+    lastMessage: lastMessageBody == null
+        ? null
+        : ForumLastMessage(
+            body: lastMessageBody,
+            isMine: lastMessageIsMine,
+            createdAt: lastMessageAt ?? DateTime(2026, 1, 2),
+          ),
+  );
+}
+
+/// Build a [ForumDirectMessage] fixture.
+ForumDirectMessage directMessage({
+  int id = 1,
+  int conversationId = 1,
+  String senderUsername = 'bob',
+  String body = 'Hello',
+  DateTime? createdAt,
+}) {
+  return ForumDirectMessage(
+    id: id,
+    conversationId: conversationId,
+    sender: author(username: senderUsername),
+    body: body,
+    createdAt: createdAt ?? DateTime(2026, 1, 1),
+  );
 }
 
 /// A test [AuthService] that returns a fixed [AuthState] without touching

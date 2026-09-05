@@ -1,10 +1,13 @@
 from django.conf import settings
 from django.db import models
 from django.db.models import F, Q
+from django.utils import timezone
 
 # Shared with MessageSendSerializer.body (api/serializers.py) — single source
 # so the model field and the write-serializer's validation can't drift apart.
 MESSAGE_BODY_MAX_CHARS = 4000
+# Inbox row preview length (ConversationSerializer.last_message.body).
+MESSAGE_PREVIEW_CHARS = 140
 
 
 class Conversation(models.Model):
@@ -28,9 +31,20 @@ class Conversation(models.Model):
         related_name="forum_conversations_as_b",
     )
     created_at = models.DateTimeField(auto_now_add=True)
+    # Inbox contract (todo 339). Activity ordering: bumped to the message's
+    # timestamp on every send. Never null — a conversation only exists once a
+    # message was sent, so it starts at that first message (migration 0032
+    # backfills older rows from their newest message).
+    last_message_at = models.DateTimeField(default=timezone.now, db_index=True)
+    # Per-participant read markers: a message from the OTHER side created
+    # after my marker is unread to me; null = I never opened the thread. Two
+    # columns rather than a through-model because a conversation has exactly
+    # two participants by construction (see `between()`).
+    participant_a_read_at = models.DateTimeField(null=True, blank=True)
+    participant_b_read_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
-        ordering = ["-created_at"]
+        ordering = ["-last_message_at", "-id"]
         constraints = [
             models.UniqueConstraint(
                 fields=["participant_a", "participant_b"],
@@ -60,6 +74,21 @@ class Conversation(models.Model):
             self.participant_b_id
             if user.pk == self.participant_a_id
             else self.participant_a_id
+        )
+
+    def read_field_for(self, user):
+        """The read-marker column belonging to `user`'s side."""
+        return (
+            "participant_a_read_at"
+            if user.pk == self.participant_a_id
+            else "participant_b_read_at"
+        )
+
+    def mark_read(self, user, at=None):
+        """Advance `user`'s read marker to `at` (default: now). One UPDATE by
+        pk — never a save() of a possibly-stale instance."""
+        Conversation.objects.filter(pk=self.pk).update(
+            **{self.read_field_for(user): at or timezone.now()}
         )
 
 

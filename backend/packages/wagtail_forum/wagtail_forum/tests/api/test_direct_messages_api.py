@@ -1,3 +1,6 @@
+from datetime import datetime
+from datetime import timezone as dt_timezone
+
 import pytest
 from django.contrib.auth import get_user_model
 from django.core.cache import cache
@@ -17,6 +20,9 @@ from wagtail_forum.models import (
     UserBlock,
 )
 from wagtail_forum.spam.base import SpamBackend, SpamResult
+
+# A stand-in for the AddField default a pre-migration row would hold.
+_EPOCH_FOR_TEST = datetime(2000, 1, 1, tzinfo=dt_timezone.utc)
 
 User = get_user_model()
 pytestmark = pytest.mark.urls("wagtail_forum.tests.api.urls")
@@ -213,11 +219,28 @@ def test_conversation_list_query_count_is_flat():
     process. Without clearing first, this pin is flaky by cache state, not
     by the code under test (mirrors test_ratelimits.py's clear_ratelimit_cache
     fixture)."""
+    from wagtail.images import get_image_model
+    from wagtail.images.tests.utils import get_test_image_file
+    from wagtail_forum.collections import get_forum_image_collection
+
     cache.clear()
     user = User.objects.create_user(username="qcount-list")
     for i in range(3):
         other = User.objects.create_user(username=f"qcount-other-{i}")
-        Conversation.between(user, other)
+        # Every other side gets an avatar so the select_related chain's last
+        # leg (`__avatar`) is really traversed — a fixture without avatars
+        # never exercises it and the pin would survive dropping it
+        # (Pattern 30, query-optimization.md; review finding, todo 339).
+        profile = ForumProfile.for_user(other)
+        profile.avatar = get_image_model().objects.create(
+            title=f"qcount-avatar-{i}",
+            file=get_test_image_file(),
+            collection=get_forum_image_collection(),
+            uploaded_by_user=other,
+        )
+        profile.save(update_fields=["avatar"])
+        conversation = Conversation.between(user, other)
+        Message.objects.create(conversation=conversation, sender=other, body="hi")
     client = APIClient()
     client.force_authenticate(user)
 
@@ -226,9 +249,13 @@ def test_conversation_list_query_count_is_flat():
 
     assert resp.status_code == 200
     assert len(resp.data["results"]) == 3
+    assert all(r["other_participant"]["avatar"] for r in resp.data["results"])
+    assert all(r["unread_count"] == 1 for r in resp.data["results"])
     # presence-touch UPDATE (first hit this window) + 2 blocked-id lookups
-    # (blocker=user, blocked=user) + 1 page query. No separate
-    # cursor-pagination count query — CursorPagination doesn't issue one.
+    # (blocker=user, blocked=user) + 1 page query — the inbox annotations
+    # (unread count, preview subqueries, todo 339) ride that one query. No
+    # separate cursor-pagination count query — CursorPagination doesn't
+    # issue one.
     assert len(ctx.captured_queries) == 4
 
 
@@ -244,7 +271,9 @@ def test_conversation_messages_requires_authentication():
 
 
 @pytest.mark.django_db
-def test_conversation_messages_lists_oldest_first():
+def test_conversation_messages_lists_newest_first_and_marks_read():
+    """Newest first (todo 339): a chat thread opens on its latest page and
+    pages older. Reading marks the caller's side read — and only theirs."""
     a = User.objects.create_user(username="a-msgs")
     b = User.objects.create_user(username="b-msgs")
     conversation = Conversation.between(a, b)
@@ -256,7 +285,11 @@ def test_conversation_messages_lists_oldest_first():
     resp = client.get(f"/forum/conversations/{conversation.pk}/messages/")
 
     assert resp.status_code == 200
-    assert [m["body"] for m in resp.data["results"]] == ["one", "two"]
+    assert [m["body"] for m in resp.data["results"]] == ["two", "one"]
+    conversation.refresh_from_db()
+    assert conversation.read_field_for(a) == "participant_a_read_at"
+    assert conversation.participant_a_read_at is not None
+    assert conversation.participant_b_read_at is None
 
 
 @pytest.mark.django_db
@@ -511,3 +544,218 @@ def test_untrusted_sender_dm_floor_comes_from_the_configured_backend(
     assert resp.data["errors"]["detail"] == "AI: recorded"
     assert recording_backend.calls == [spammy]
     assert not Message.objects.exists()
+
+
+# --- Inbox contract (todo 339) -------------------------------------------
+
+
+def _send(sender, recipient, body):
+    client = APIClient()
+    client.force_authenticate(sender)
+    resp = client.post(f"/forum/users/{recipient.username}/messages/", {"body": body})
+    assert resp.status_code == 201, resp.data
+    return resp.data
+
+
+@pytest.mark.django_db
+def test_inbox_rows_carry_unread_count_preview_and_activity_order():
+    me = User.objects.create_user(username="inbox-me")
+    alice = User.objects.create_user(username="inbox-alice")
+    bob = User.objects.create_user(username="inbox-bob")
+    _send(alice, me, "first from alice")
+    _send(alice, me, "second from alice")
+    _send(bob, me, "hello from bob")  # newer activity -> first in the inbox
+    client = APIClient()
+    client.force_authenticate(me)
+
+    resp = client.get("/forum/conversations/")
+
+    assert resp.status_code == 200
+    rows = resp.data["results"]
+    assert [r["other_participant"]["username"] for r in rows] == [
+        "inbox-bob",
+        "inbox-alice",
+    ]
+    assert [r["unread_count"] for r in rows] == [1, 2]
+    assert rows[1]["last_message"] == {
+        "body": "second from alice",
+        "is_mine": False,
+        "created_at": rows[1]["last_message_at"],
+    }
+    assert "count" not in resp.data  # cursor page, no total
+
+    # Activity, not creation, orders the inbox: a new message in the OLDER
+    # conversation moves it to the top; my own message is never unread to me
+    # and the preview says so.
+    _send(me, alice, "reply to alice")
+    rows = client.get("/forum/conversations/").data["results"]
+    assert [r["other_participant"]["username"] for r in rows] == [
+        "inbox-alice",
+        "inbox-bob",
+    ]
+    assert rows[0]["unread_count"] == 2  # alice's two are still unread to me
+    assert rows[0]["last_message"]["is_mine"] is True
+    assert rows[0]["last_message"]["body"] == "reply to alice"
+
+
+@pytest.mark.django_db
+def test_reading_the_thread_clears_my_unread_only():
+    me = User.objects.create_user(username="read-me")
+    alice = User.objects.create_user(username="read-alice")
+    _send(alice, me, "ping")
+    conversation = Conversation.objects.get()
+    client = APIClient()
+    client.force_authenticate(me)
+    assert client.get("/forum/conversations/").data["results"][0]["unread_count"] == 1
+
+    client.get(f"/forum/conversations/{conversation.pk}/messages/")
+
+    assert client.get("/forum/conversations/").data["results"][0]["unread_count"] == 0
+    # Alice's side is untouched: my reply is unread to HER until she opens it.
+    _send(me, alice, "pong")
+    other = APIClient()
+    other.force_authenticate(alice)
+    assert other.get("/forum/conversations/").data["results"][0]["unread_count"] == 1
+
+
+@pytest.mark.django_db
+def test_unread_count_counts_conversations_not_messages_and_excludes_blocked():
+    me = User.objects.create_user(username="uc-me")
+    alice = User.objects.create_user(username="uc-alice")
+    bob = User.objects.create_user(username="uc-bob")
+    carol = User.objects.create_user(username="uc-carol")
+    _send(alice, me, "a1")
+    _send(alice, me, "a2")
+    _send(bob, me, "b1")
+    _send(carol, me, "c1")
+    UserBlock.objects.create(blocker=me, blocked=carol)
+    client = APIClient()
+    client.force_authenticate(me)
+
+    resp = client.get("/forum/conversations/unread-count/")
+
+    assert resp.status_code == 200
+    assert resp.data == {"count": 2}  # alice (2 msgs) + bob; carol blocked
+    assert APIClient().get("/forum/conversations/unread-count/").status_code == 401
+
+
+@pytest.mark.django_db
+def test_conversation_with_user_resolves_the_thread_or_404s():
+    me = User.objects.create_user(username="with-me")
+    alice = User.objects.create_user(username="with-alice")
+    bob = User.objects.create_user(username="with-bob")
+    client = APIClient()
+    client.force_authenticate(me)
+
+    assert client.get("/forum/conversations/with/with-alice/").status_code == 404
+    _send(alice, me, "hi")
+    resp = client.get("/forum/conversations/with/with-alice/")
+    assert resp.status_code == 200
+    assert resp.data["id"] == Conversation.objects.get().pk
+    assert resp.data["other_participant"]["username"] == "with-alice"
+    assert resp.data["unread_count"] == 1
+    # Unknown user, self, and a blocked pair are all 404 — no existence leak.
+    assert client.get("/forum/conversations/with/nobody/").status_code == 404
+    assert client.get("/forum/conversations/with/with-me/").status_code == 404
+    _send(bob, me, "hey")
+    UserBlock.objects.create(blocker=bob, blocked=me)
+    assert client.get("/forum/conversations/with/with-bob/").status_code == 404
+    assert APIClient().get("/forum/conversations/with/with-alice/").status_code == 401
+
+
+@pytest.mark.django_db
+def test_send_bumps_activity_but_never_a_read_marker():
+    """Only READING marks a side read; sending bumps the inbox order only —
+    a reply fired from a profile must not silently mark the other side's
+    earlier messages as seen."""
+    me = User.objects.create_user(username="bump-me")
+    alice = User.objects.create_user(username="bump-alice")
+    _send(me, alice, "first")
+    conversation = Conversation.objects.get()
+    first = conversation.last_message_at
+    assert first == Message.objects.get().created_at
+    assert conversation.participant_a_read_at is None
+    assert conversation.participant_b_read_at is None
+
+    _send(alice, me, "second")
+
+    conversation.refresh_from_db()
+    assert conversation.last_message_at > first
+    assert conversation.participant_a_read_at is None
+    assert conversation.participant_b_read_at is None
+
+
+@pytest.mark.django_db
+def test_a_message_after_a_read_is_unread_again():
+    """The second arm of the unread filter (`created_at > my_read_at`): once
+    I have read the thread, a NEW message from the other side is unread —
+    deleting that arm would make every thread read-forever after one open."""
+    me = User.objects.create_user(username="again-me")
+    alice = User.objects.create_user(username="again-alice")
+    _send(alice, me, "first")
+    conversation = Conversation.objects.get()
+    client = APIClient()
+    client.force_authenticate(me)
+    client.get(f"/forum/conversations/{conversation.pk}/messages/")
+    assert client.get("/forum/conversations/").data["results"][0]["unread_count"] == 0
+    assert client.get("/forum/conversations/unread-count/").data == {"count": 0}
+
+    _send(alice, me, "second")
+
+    assert client.get("/forum/conversations/").data["results"][0]["unread_count"] == 1
+    assert client.get("/forum/conversations/unread-count/").data == {"count": 1}
+
+
+@pytest.mark.django_db
+def test_unread_count_endpoint_query_count_is_pinned():
+    """The badge poll (120/m per user) must stay cheap: no avatar joins, no
+    preview subqueries — one COUNT with an EXISTS per row."""
+    cache.clear()
+    me = User.objects.create_user(username="ucq-me")
+    for i in range(3):
+        other = User.objects.create_user(username=f"ucq-other-{i}")
+        _send(other, me, "hi")
+    client = APIClient()
+    client.force_authenticate(me)
+
+    with CaptureQueriesContext(connection) as ctx:
+        resp = client.get("/forum/conversations/unread-count/")
+
+    assert resp.data == {"count": 3}
+    # presence-touch UPDATE + 2 blocked-id lookups + 1 count query.
+    assert len(ctx.captured_queries) == 4
+    assert "avatar" not in ctx.captured_queries[-1]["sql"]
+    assert "EXISTS" in ctx.captured_queries[-1]["sql"]
+
+
+@pytest.mark.django_db
+def test_migration_0032_backfills_last_message_at_from_the_newest_message():
+    """Migration 0032's RunPython (todo 339): pre-existing conversations get
+    `last_message_at` from their newest message, falling back to
+    `created_at` for a conversation without messages. Calls the function
+    against the real registry, as test_subscriptions.py does for 0014 —
+    nothing after 0032 changes Conversation/Message's shape."""
+    import importlib
+
+    from django.apps import apps
+
+    backfill = importlib.import_module(
+        "wagtail_forum.migrations.0032_conversation_inbox_fields"
+    ).backfill_last_message_at
+
+    a = User.objects.create_user(username="mig-a")
+    b = User.objects.create_user(username="mig-b")
+    c = User.objects.create_user(username="mig-c")
+    with_messages = Conversation.between(a, b)
+    Message.objects.create(conversation=with_messages, sender=a, body="old")
+    newest = Message.objects.create(conversation=with_messages, sender=b, body="new")
+    empty = Conversation.between(a, c)  # bulk paths could leave one messageless
+    # Simulate the pre-migration state: the column holds the AddField default.
+    Conversation.objects.update(last_message_at=_EPOCH_FOR_TEST)
+
+    backfill(apps, None)
+
+    with_messages.refresh_from_db()
+    empty.refresh_from_db()
+    assert with_messages.last_message_at == newest.created_at
+    assert empty.last_message_at == empty.created_at

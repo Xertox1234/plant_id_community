@@ -5,6 +5,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:plant_community_mobile/core/routing/app_router.dart';
 import 'package:plant_community_mobile/features/forum/models/models.dart';
 import 'package:plant_community_mobile/features/forum/screens/forum_composer_screen.dart';
+import 'package:plant_community_mobile/features/forum/screens/forum_conversation_screen.dart';
+import 'package:plant_community_mobile/features/forum/screens/forum_conversations_screen.dart';
 import 'package:plant_community_mobile/features/forum/screens/forum_notifications_screen.dart';
 import 'package:plant_community_mobile/features/forum/screens/forum_search_screen.dart';
 import 'package:plant_community_mobile/features/forum/screens/forum_thread_screen.dart';
@@ -107,6 +109,134 @@ void main() {
           router.routerDelegate.currentConfiguration.uri.path,
           equals(AppRoutes.login),
         );
+
+        await tester.pump(const Duration(seconds: 4));
+      },
+    );
+
+    testWidgets(
+      'the DM inbox and every thread under it are auth-only (todo 339)',
+      (WidgetTester tester) async {
+        final container = ProviderContainer(
+          overrides: [
+            authServiceProvider.overrideWith(
+              _MockUnauthenticatedAuthNotifier.new,
+            ),
+          ],
+        );
+        addTearDown(container.dispose);
+        container.listen(appRouterProvider, (_, _) {});
+        final router = container.read(appRouterProvider);
+
+        await tester.pumpWidget(MaterialApp.router(routerConfig: router));
+
+        router.go(AppRoutes.forumMessages);
+        await tester.pump(const Duration(milliseconds: 100));
+        expect(
+          router.routerDelegate.currentConfiguration.uri.path,
+          equals(AppRoutes.login),
+        );
+
+        // The parameterised thread route is guarded by prefix, not by the
+        // exact-path set — a regression here would leak a private thread.
+        router.go('${AppRoutes.forumMessages}/bob');
+        await tester.pump(const Duration(milliseconds: 100));
+        expect(
+          router.routerDelegate.currentConfiguration.uri.path,
+          equals(AppRoutes.login),
+        );
+
+        await tester.pump(const Duration(seconds: 4));
+      },
+    );
+
+    testWidgets(
+      'forumConversation route builds ForumConversationScreen for the '
+      'username in the path (todo 339)',
+      (WidgetTester tester) async {
+        final api = FakeForumApi()
+          ..conversationWith = conversation(id: 7, otherUsername: 'bob')
+          ..messages = [directMessage(id: 1, body: 'hello from bob')];
+        final container = ProviderContainer(
+          overrides: [
+            authServiceProvider.overrideWith(
+              _MockAuthenticatedAuthNotifier.new,
+            ),
+            forumApiProvider.overrideWithValue(api),
+            forumSyncStoreProvider.overrideWithValue(InMemoryForumSyncStore()),
+          ],
+        );
+        addTearDown(container.dispose);
+        container.listen(appRouterProvider, (_, _) {});
+        final router = container.read(appRouterProvider);
+
+        await tester.pumpWidget(
+          UncontrolledProviderScope(
+            container: container,
+            child: MaterialApp.router(routerConfig: router),
+          ),
+        );
+
+        router.go('${AppRoutes.forumMessages}/bob');
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 400));
+
+        expect(find.byType(ForumConversationScreen), findsOneWidget);
+        expect(api.fetchConversationWithCalls, ['bob']);
+        expect(find.text('hello from bob'), findsOneWidget);
+
+        await tester.pump(const Duration(seconds: 4));
+      },
+    );
+
+    testWidgets(
+      'tapping the forum home inbox icon opens the DM inbox, and tapping a '
+      'row opens that thread (todo 339)',
+      (WidgetTester tester) async {
+        final api = FakeForumApi()
+          ..conversations = [
+            conversation(
+              id: 7,
+              otherUsername: 'bob',
+              lastMessageBody: 'root rot?',
+            ),
+          ]
+          ..conversationWith = conversation(id: 7, otherUsername: 'bob')
+          ..messages = [directMessage(id: 1, body: 'root rot?')];
+        final container = ProviderContainer(
+          overrides: [
+            authServiceProvider.overrideWith(
+              _MockAuthenticatedAuthNotifier.new,
+            ),
+            forumApiProvider.overrideWithValue(api),
+            forumSyncStoreProvider.overrideWithValue(InMemoryForumSyncStore()),
+          ],
+        );
+        addTearDown(container.dispose);
+        container.listen(appRouterProvider, (_, _) {});
+        final router = container.read(appRouterProvider);
+
+        await tester.pumpWidget(
+          UncontrolledProviderScope(
+            container: container,
+            child: MaterialApp.router(routerConfig: router),
+          ),
+        );
+
+        router.go(AppRoutes.forum);
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 400));
+
+        await tester.tap(find.byTooltip('Messages'));
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 400));
+        expect(find.byType(ForumConversationsScreen), findsOneWidget);
+
+        await tester.tap(find.text('bob'));
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 400));
+        expect(find.byType(ForumConversationScreen), findsOneWidget);
+        expect(api.fetchConversationWithCalls, ['bob']);
 
         await tester.pump(const Duration(seconds: 4));
       },

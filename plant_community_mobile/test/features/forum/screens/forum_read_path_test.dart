@@ -80,6 +80,52 @@ void main() {
     expect(find.text('3'), findsOneWidget);
   });
 
+  testWidgets(
+    'forum home shows the unread conversation count on the inbox icon '
+    '(todo 339)',
+    (tester) async {
+      final api = FakeForumApi()..unreadConversationCount = 2;
+
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            forumApiProvider.overrideWithValue(api),
+            forumSyncStoreProvider.overrideWithValue(InMemoryForumSyncStore()),
+            authServiceProvider.overrideWith(
+              () => FakeAuthService(loggedIn: true),
+            ),
+          ],
+          child: const MaterialApp(home: ForumScreen()),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.byIcon(Icons.mail_outline), findsOneWidget);
+      expect(find.byTooltip('Messages'), findsOneWidget);
+      expect(find.text('2'), findsOneWidget);
+    },
+  );
+
+  testWidgets('forum home hides the inbox icon for an anonymous viewer', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          forumApiProvider.overrideWithValue(FakeForumApi()),
+          forumSyncStoreProvider.overrideWithValue(InMemoryForumSyncStore()),
+          authServiceProvider.overrideWith(
+            () => FakeAuthService(loggedIn: false),
+          ),
+        ],
+        child: const MaterialApp(home: ForumScreen()),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.byIcon(Icons.mail_outline), findsNothing);
+  });
+
   testWidgets('thread screen renders posts with rendered bodies', (
     tester,
   ) async {

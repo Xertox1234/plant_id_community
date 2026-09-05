@@ -49,7 +49,7 @@ class AuthorIdentity extends StatelessWidget {
       // disturb that layout.
       mainAxisSize: MainAxisSize.min,
       children: [
-        _Avatar(author: author, radius: avatarRadius),
+        AuthorAvatar(author: author, radius: avatarRadius),
         const SizedBox(width: AppSpacing.sm),
         Flexible(
           child: Text(
@@ -80,8 +80,11 @@ class AuthorIdentity extends StatelessWidget {
   }
 }
 
-class _Avatar extends StatelessWidget {
-  const _Avatar({required this.author, required this.radius});
+/// An author's avatar image, or their initial on a `primaryContainer` disc
+/// when they have none. Public so the DM inbox (todo 339) can lead a
+/// conversation row with the same avatar rendering as every post.
+class AuthorAvatar extends StatelessWidget {
+  const AuthorAvatar({super.key, required this.author, this.radius = 16});
   final ForumAuthor author;
   final double radius;
 

@@ -390,6 +390,269 @@ Future<int> unreadNotificationCount(Ref ref) {
   return ref.watch(forumApiProvider).fetchUnreadNotificationCount();
 }
 
+/// The user's DM inbox (cursor-paginated, most recent activity first).
+@riverpod
+class ConversationsFeed extends _$ConversationsFeed {
+  @override
+  Future<PagedList<ForumConversation>> build() async {
+    final page = await ref.watch(forumApiProvider).fetchConversations();
+    return PagedList(items: page.items, nextUrl: page.next);
+  }
+
+  Future<void> loadMore() async {
+    final current = state.asData?.value;
+    if (current == null || !current.hasMore || current.isLoadingMore) return;
+    state = AsyncData(
+      PagedList(
+        items: current.items,
+        nextUrl: current.nextUrl,
+        isLoadingMore: true,
+      ),
+    );
+    try {
+      final page = await ref
+          .read(forumApiProvider)
+          .fetchConversations(cursorUrl: current.nextUrl);
+      // Re-read after the await so a concurrent state change isn't lost.
+      final latest = state.asData?.value ?? current;
+      state = AsyncData(
+        PagedList(items: [...latest.items, ...page.items], nextUrl: page.next),
+      );
+    } catch (_) {
+      final latest = state.asData?.value ?? current;
+      state = AsyncData(
+        PagedList(items: latest.items, nextUrl: latest.nextUrl),
+      );
+      rethrow;
+    }
+  }
+
+  /// The thread was opened (the server marked it read): zero that row's
+  /// unread count in place. A whole-provider invalidation would refetch
+  /// page 1 only and drop every page `loadMore` had appended — the same
+  /// discipline as `TopicPosts.applyEditedPost`.
+  void markRead(int conversationId) {
+    final current = state.asData?.value;
+    if (current == null) return;
+    state = AsyncData(
+      PagedList(
+        items: [
+          for (final row in current.items)
+            if (row.id == conversationId) row.copyWith(unreadCount: 0) else row,
+        ],
+        nextUrl: current.nextUrl,
+        isLoadingMore: current.isLoadingMore,
+      ),
+    );
+  }
+
+  /// A message was sent in [conversation]: the row moves to the top with
+  /// the new preview (own message → "You: …", never unread). A conversation
+  /// the loaded pages don't hold yet (first message) is inserted at the top.
+  void applyActivity(ForumConversation conversation) {
+    final current = state.asData?.value;
+    if (current == null) return;
+    state = AsyncData(
+      PagedList(
+        items: [
+          conversation,
+          for (final row in current.items)
+            if (row.id != conversation.id) row,
+        ],
+        nextUrl: current.nextUrl,
+        isLoadingMore: current.isLoadingMore,
+      ),
+    );
+  }
+}
+
+/// Conversations with unread messages, for the inbox badge.
+@riverpod
+Future<int> unreadConversationCount(Ref ref) {
+  return ref.watch(forumApiProvider).fetchUnreadConversationCount();
+}
+
+/// State for [ConversationThread]. [messages] are held oldest → newest (the
+/// display order); [olderCursorUrl] is the API's `next` cursor, which on a
+/// newest-first endpoint walks toward OLDER messages.
+class ConversationThreadState {
+  const ConversationThreadState({
+    required this.conversation,
+    required this.messages,
+    this.olderCursorUrl,
+    this.isLoadingOlder = false,
+    this.isSending = false,
+  });
+
+  /// `null` until the first message is sent — no conversation row exists
+  /// yet for a pair who have never messaged.
+  final ForumConversation? conversation;
+  final List<ForumDirectMessage> messages;
+  final String? olderCursorUrl;
+  final bool isLoadingOlder;
+  final bool isSending;
+
+  bool get hasOlder => olderCursorUrl != null;
+
+  ConversationThreadState copyWith({
+    ForumConversation? conversation,
+    List<ForumDirectMessage>? messages,
+    String? olderCursorUrl,
+    bool clearOlderCursor = false,
+    bool? isLoadingOlder,
+    bool? isSending,
+  }) {
+    return ConversationThreadState(
+      conversation: conversation ?? this.conversation,
+      messages: messages ?? this.messages,
+      olderCursorUrl: clearOlderCursor
+          ? null
+          : (olderCursorUrl ?? this.olderCursorUrl),
+      isLoadingOlder: isLoadingOlder ?? this.isLoadingOlder,
+      isSending: isSending ?? this.isSending,
+    );
+  }
+}
+
+/// A 1:1 DM thread with [username] (todo 339): resolves the conversation
+/// (absent until first send), pages older messages, and sends.
+///
+/// Every page from the API is newest-first; it is reversed on the way in so
+/// [ConversationThreadState.messages] reads oldest → newest like a chat.
+@riverpod
+class ConversationThread extends _$ConversationThread {
+  /// One `Idempotency-Key` per composed message, reused across retries of
+  /// the SAME body and rotated when the body changes — the backend replays
+  /// a same-key/same-payload retry and 422s a same-key/different-payload
+  /// one (docs/rules/flutter.md → Idempotent mobile writes).
+  String? _sendKey;
+  String? _sendFingerprint;
+
+  @override
+  Future<ConversationThreadState> build(String username) async {
+    final api = ref.watch(forumApiProvider);
+    final conversation = await api.fetchConversationWith(username);
+    if (conversation == null) {
+      return const ConversationThreadState(conversation: null, messages: []);
+    }
+    final page = await api.fetchMessages(conversationId: conversation.id);
+    // Reading marks the conversation read server-side. The badge is cheap to
+    // refetch (invalidate); the inbox row is spliced in place IF the inbox
+    // is alive — invalidating it would collapse its loaded pages to page 1.
+    ref.invalidate(unreadConversationCountProvider);
+    if (ref.exists(conversationsFeedProvider)) {
+      ref.read(conversationsFeedProvider.notifier).markRead(conversation.id);
+    }
+    return ConversationThreadState(
+      conversation: conversation,
+      messages: page.items.reversed.toList(growable: false),
+      olderCursorUrl: page.next,
+    );
+  }
+
+  /// Fetch the next (older) page and prepend it. Rethrows on failure with
+  /// the loading flag reset so the caller can surface an error and retry.
+  Future<void> loadOlder() async {
+    final current = state.asData?.value;
+    final conversation = current?.conversation;
+    if (current == null || conversation == null) return;
+    if (!current.hasOlder || current.isLoadingOlder) return;
+    state = AsyncData(current.copyWith(isLoadingOlder: true));
+    try {
+      final page = await ref
+          .read(forumApiProvider)
+          .fetchMessages(
+            conversationId: conversation.id,
+            cursorUrl: current.olderCursorUrl,
+          );
+      // Re-read after the await so a concurrent send isn't lost.
+      final latest = state.asData?.value ?? current;
+      state = AsyncData(
+        latest.copyWith(
+          messages: [...page.items.reversed, ...latest.messages],
+          olderCursorUrl: page.next,
+          clearOlderCursor: page.next == null,
+          isLoadingOlder: false,
+        ),
+      );
+    } catch (_) {
+      final latest = state.asData?.value ?? current;
+      state = AsyncData(latest.copyWith(isLoadingOlder: false));
+      rethrow;
+    }
+  }
+
+  /// Send [body]; appends the server's echo of the message and, on the
+  /// first send, resolves the newly-created conversation. Rethrows so the
+  /// UI can map 403 (blocked) / 400 (empty or spam-screened) to copy.
+  Future<void> send(String body) async {
+    final current = state.asData?.value;
+    if (current == null || current.isSending) return;
+    final trimmed = body.trim();
+    if (trimmed.isEmpty) return;
+    final fingerprint = '$username|$trimmed';
+    if (_sendKey == null || _sendFingerprint != fingerprint) {
+      _sendKey = const Uuid().v4();
+      _sendFingerprint = fingerprint;
+    }
+    final key = _sendKey;
+    if (key == null) return;
+    state = AsyncData(current.copyWith(isSending: true));
+    final api = ref.read(forumApiProvider);
+    try {
+      final message = await api.sendMessage(
+        username: username,
+        body: trimmed,
+        idempotencyKey: key,
+      );
+      _sendKey = null;
+      _sendFingerprint = null;
+      var latest = state.asData?.value ?? current;
+      if (latest.conversation == null) {
+        // First message between this pair: the row now exists server-side.
+        // A failed lookup here must not turn a successful send into an
+        // error — the message is already on the list below.
+        try {
+          final conversation = await api.fetchConversationWith(username);
+          latest = state.asData?.value ?? latest;
+          if (conversation != null) {
+            latest = latest.copyWith(conversation: conversation);
+          }
+        } catch (_) {
+          // Resolved on the next open instead.
+        }
+      }
+      state = AsyncData(
+        latest.copyWith(
+          messages: [...latest.messages, message],
+          isSending: false,
+        ),
+      );
+      final row = latest.conversation;
+      if (row != null && ref.exists(conversationsFeedProvider)) {
+        ref
+            .read(conversationsFeedProvider.notifier)
+            .applyActivity(
+              row.copyWith(
+                unreadCount: 0,
+                lastMessageAt: message.createdAt,
+                lastMessage: ForumLastMessage(
+                  body: message.body,
+                  isMine: true,
+                  createdAt: message.createdAt,
+                ),
+              ),
+            );
+      }
+    } catch (_) {
+      final latest = state.asData?.value ?? current;
+      state = AsyncData(latest.copyWith(isSending: false));
+      rethrow;
+    }
+    ref.invalidate(unreadConversationCountProvider);
+  }
+}
+
 enum ForumSearchStatus { idle, loading, loadingMore, data, error }
 
 /// State for [ForumSearch]. Not [AsyncValue]-wrapped on purpose: search has

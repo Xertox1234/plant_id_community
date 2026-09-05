@@ -641,6 +641,242 @@ final class UnreadNotificationCountProvider
 String _$unreadNotificationCountHash() =>
     r'3784b4dd8f950ce5e47db8f36a1de116af0f98bc';
 
+/// The user's DM inbox (cursor-paginated, most recent activity first).
+
+@ProviderFor(ConversationsFeed)
+final conversationsFeedProvider = ConversationsFeedProvider._();
+
+/// The user's DM inbox (cursor-paginated, most recent activity first).
+final class ConversationsFeedProvider
+    extends
+        $AsyncNotifierProvider<
+          ConversationsFeed,
+          PagedList<ForumConversation>
+        > {
+  /// The user's DM inbox (cursor-paginated, most recent activity first).
+  ConversationsFeedProvider._()
+    : super(
+        from: null,
+        argument: null,
+        retry: null,
+        name: r'conversationsFeedProvider',
+        isAutoDispose: true,
+        dependencies: null,
+        $allTransitiveDependencies: null,
+      );
+
+  @override
+  String debugGetCreateSourceHash() => _$conversationsFeedHash();
+
+  @$internal
+  @override
+  ConversationsFeed create() => ConversationsFeed();
+}
+
+String _$conversationsFeedHash() => r'535e11669a1762cedb0875583c1e38c0bd866b62';
+
+/// The user's DM inbox (cursor-paginated, most recent activity first).
+
+abstract class _$ConversationsFeed
+    extends $AsyncNotifier<PagedList<ForumConversation>> {
+  FutureOr<PagedList<ForumConversation>> build();
+  @$mustCallSuper
+  @override
+  void runBuild() {
+    final ref =
+        this.ref
+            as $Ref<
+              AsyncValue<PagedList<ForumConversation>>,
+              PagedList<ForumConversation>
+            >;
+    final element =
+        ref.element
+            as $ClassProviderElement<
+              AnyNotifier<
+                AsyncValue<PagedList<ForumConversation>>,
+                PagedList<ForumConversation>
+              >,
+              AsyncValue<PagedList<ForumConversation>>,
+              Object?,
+              Object?
+            >;
+    element.handleCreate(ref, build);
+  }
+}
+
+/// Conversations with unread messages, for the inbox badge.
+
+@ProviderFor(unreadConversationCount)
+final unreadConversationCountProvider = UnreadConversationCountProvider._();
+
+/// Conversations with unread messages, for the inbox badge.
+
+final class UnreadConversationCountProvider
+    extends $FunctionalProvider<AsyncValue<int>, int, FutureOr<int>>
+    with $FutureModifier<int>, $FutureProvider<int> {
+  /// Conversations with unread messages, for the inbox badge.
+  UnreadConversationCountProvider._()
+    : super(
+        from: null,
+        argument: null,
+        retry: null,
+        name: r'unreadConversationCountProvider',
+        isAutoDispose: true,
+        dependencies: null,
+        $allTransitiveDependencies: null,
+      );
+
+  @override
+  String debugGetCreateSourceHash() => _$unreadConversationCountHash();
+
+  @$internal
+  @override
+  $FutureProviderElement<int> $createElement($ProviderPointer pointer) =>
+      $FutureProviderElement(pointer);
+
+  @override
+  FutureOr<int> create(Ref ref) {
+    return unreadConversationCount(ref);
+  }
+}
+
+String _$unreadConversationCountHash() =>
+    r'7e9a51b095a5ef04f5d7029917574f955b32a89f';
+
+/// A 1:1 DM thread with [username] (todo 339): resolves the conversation
+/// (absent until first send), pages older messages, and sends.
+///
+/// Every page from the API is newest-first; it is reversed on the way in so
+/// [ConversationThreadState.messages] reads oldest → newest like a chat.
+
+@ProviderFor(ConversationThread)
+final conversationThreadProvider = ConversationThreadFamily._();
+
+/// A 1:1 DM thread with [username] (todo 339): resolves the conversation
+/// (absent until first send), pages older messages, and sends.
+///
+/// Every page from the API is newest-first; it is reversed on the way in so
+/// [ConversationThreadState.messages] reads oldest → newest like a chat.
+final class ConversationThreadProvider
+    extends
+        $AsyncNotifierProvider<ConversationThread, ConversationThreadState> {
+  /// A 1:1 DM thread with [username] (todo 339): resolves the conversation
+  /// (absent until first send), pages older messages, and sends.
+  ///
+  /// Every page from the API is newest-first; it is reversed on the way in so
+  /// [ConversationThreadState.messages] reads oldest → newest like a chat.
+  ConversationThreadProvider._({
+    required ConversationThreadFamily super.from,
+    required String super.argument,
+  }) : super(
+         retry: null,
+         name: r'conversationThreadProvider',
+         isAutoDispose: true,
+         dependencies: null,
+         $allTransitiveDependencies: null,
+       );
+
+  @override
+  String debugGetCreateSourceHash() => _$conversationThreadHash();
+
+  @override
+  String toString() {
+    return r'conversationThreadProvider'
+        ''
+        '($argument)';
+  }
+
+  @$internal
+  @override
+  ConversationThread create() => ConversationThread();
+
+  @override
+  bool operator ==(Object other) {
+    return other is ConversationThreadProvider && other.argument == argument;
+  }
+
+  @override
+  int get hashCode {
+    return argument.hashCode;
+  }
+}
+
+String _$conversationThreadHash() =>
+    r'0ec169bb83884e32903eb74112a8a941d38ee5b1';
+
+/// A 1:1 DM thread with [username] (todo 339): resolves the conversation
+/// (absent until first send), pages older messages, and sends.
+///
+/// Every page from the API is newest-first; it is reversed on the way in so
+/// [ConversationThreadState.messages] reads oldest → newest like a chat.
+
+final class ConversationThreadFamily extends $Family
+    with
+        $ClassFamilyOverride<
+          ConversationThread,
+          AsyncValue<ConversationThreadState>,
+          ConversationThreadState,
+          FutureOr<ConversationThreadState>,
+          String
+        > {
+  ConversationThreadFamily._()
+    : super(
+        retry: null,
+        name: r'conversationThreadProvider',
+        dependencies: null,
+        $allTransitiveDependencies: null,
+        isAutoDispose: true,
+      );
+
+  /// A 1:1 DM thread with [username] (todo 339): resolves the conversation
+  /// (absent until first send), pages older messages, and sends.
+  ///
+  /// Every page from the API is newest-first; it is reversed on the way in so
+  /// [ConversationThreadState.messages] reads oldest → newest like a chat.
+
+  ConversationThreadProvider call(String username) =>
+      ConversationThreadProvider._(argument: username, from: this);
+
+  @override
+  String toString() => r'conversationThreadProvider';
+}
+
+/// A 1:1 DM thread with [username] (todo 339): resolves the conversation
+/// (absent until first send), pages older messages, and sends.
+///
+/// Every page from the API is newest-first; it is reversed on the way in so
+/// [ConversationThreadState.messages] reads oldest → newest like a chat.
+
+abstract class _$ConversationThread
+    extends $AsyncNotifier<ConversationThreadState> {
+  late final _$args = ref.$arg as String;
+  String get username => _$args;
+
+  FutureOr<ConversationThreadState> build(String username);
+  @$mustCallSuper
+  @override
+  void runBuild() {
+    final ref =
+        this.ref
+            as $Ref<
+              AsyncValue<ConversationThreadState>,
+              ConversationThreadState
+            >;
+    final element =
+        ref.element
+            as $ClassProviderElement<
+              AnyNotifier<
+                AsyncValue<ConversationThreadState>,
+                ConversationThreadState
+              >,
+              AsyncValue<ConversationThreadState>,
+              Object?,
+              Object?
+            >;
+    element.handleCreate(ref, () => build(_$args));
+  }
+}
+
 /// Full-text forum search. Offset-paginated (see [ForumSearchPage]) — a
 /// "load more" fetches the next `page` and appends to both sections, since
 /// the two `*_has_more` flags share one page cursor.

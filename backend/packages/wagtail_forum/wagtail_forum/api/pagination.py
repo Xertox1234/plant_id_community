@@ -52,20 +52,22 @@ class PostCursorPagination(ForumCursorPagination):
 
 
 class MessageCursorPagination(ForumCursorPagination):
-    # Messages within a conversation read oldest-first, same shape as
-    # PostCursorPagination (Message.Meta.ordering = ["created_at", "id"]).
-    ordering = ("created_at", "id")
+    # Messages within a conversation read NEWEST-first (todo 339): a chat
+    # thread opens on its latest page and pages OLDER, so the first cursor
+    # page is what an inbox shows and what marks the thread read. Clients
+    # render each page reversed. (Message.Meta.ordering stays oldest-first for
+    # in-process iteration; the cursor applies its own ordering.)
+    ordering = ("-created_at", "-id")
 
 
 class ConversationCursorPagination(ForumCursorPagination):
-    # Most-recently-created conversation first, matching
-    # Conversation.Meta.ordering = ["-created_at"]. CursorPagination always
-    # re-applies its OWN `ordering` via queryset.order_by(*ordering) — the
-    # base ForumCursorPagination's "-id" ordering would be coincidentally
-    # correct today (BigAutoField + auto_now_add stay monotonically aligned
-    # for a single-writer DB) but wouldn't self-enforce the documented intent
-    # the way every other sibling pagination class does (review finding).
-    ordering = ("-created_at", "-id")
+    # Inbox order: most recent activity first (Conversation.last_message_at,
+    # bumped on every send — todo 339), id as the unique tiebreak. Matches
+    # Conversation.Meta.ordering. CursorPagination always re-applies its OWN
+    # `ordering` via queryset.order_by(*ordering), so this must be spelled
+    # out here rather than inherited (review finding on the original
+    # -created_at version).
+    ordering = ("-last_message_at", "-id")
 
 
 class BookmarkCursorPagination(ForumCursorPagination):

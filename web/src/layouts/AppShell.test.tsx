@@ -6,6 +6,7 @@ import { ThemeProvider } from '../contexts/ThemeContext';
 import AppShell from './AppShell';
 import RailSlot, { RAIL_MEDIA_QUERY } from '../components/layout/RailSlot';
 import * as notificationService from '../services/notificationService';
+import * as messageService from '../services/messageService';
 
 const mockAuth = {
   isAuthenticated: false,
@@ -17,6 +18,9 @@ vi.mock('../services/notificationService', () => ({
   fetchUnreadCount: vi.fn(),
   fetchNotifications: vi.fn(),
   markNotificationsRead: vi.fn(),
+}));
+vi.mock('../services/messageService', () => ({
+  fetchUnreadConversationCount: vi.fn(),
 }));
 vi.mock('../components/layout/NotificationBell', () => ({
   default: () => <div data-testid="notification-bell" />,
@@ -50,6 +54,7 @@ beforeEach(() => {
   localStorage.clear();
   delete document.documentElement.dataset.mode;
   vi.mocked(notificationService.fetchUnreadCount).mockResolvedValue(0);
+  vi.mocked(messageService.fetchUnreadConversationCount).mockResolvedValue(0);
   vi.mocked(notificationService.fetchNotifications).mockResolvedValue({
     results: [],
     next: null,
@@ -152,6 +157,7 @@ describe('AppShell', () => {
     mockAuth.isAuthenticated = true;
     renderShell();
     expect(screen.getByTestId('notification-bell')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Messages' })).toHaveAttribute('href', '/messages');
     expect(screen.getByTestId('user-menu')).toBeInTheDocument();
     expect(screen.queryByRole('link', { name: 'Sign up' })).not.toBeInTheDocument();
     expect(screen.queryByRole('link', { name: /log in/i })).not.toBeInTheDocument();
@@ -201,6 +207,18 @@ describe('AppShell', () => {
 
     await userEvent.click(screen.getByRole('button', { name: 'Close menu' }));
     expect(document.body.style.overflow).toBe('');
+  });
+
+  it('hides the inbox link when logged out', () => {
+    renderShell();
+    expect(screen.queryByRole('link', { name: /^messages/i })).not.toBeInTheDocument();
+  });
+
+  it('shows the unread-conversation badge on the inbox link (todo 339)', async () => {
+    mockAuth.isAuthenticated = true;
+    vi.mocked(messageService.fetchUnreadConversationCount).mockResolvedValue(2);
+    renderShell();
+    expect(await screen.findByRole('link', { name: 'Messages (2 unread)' })).toBeInTheDocument();
   });
 
   it('shows the unread count badge on the Forum nav item', async () => {
