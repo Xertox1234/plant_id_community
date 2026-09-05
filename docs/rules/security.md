@@ -159,6 +159,9 @@ Compact checklist auto-injected before edits. Long-form: `backend/docs/patterns/
   `Accept: application/sarif+json`) and read the path: a flow that only reaches
   the sink through a test file's round-trip composition, or that carries taint
   on `[ArrayElement, value]` across differently-typed blocks, is a false
-  positive — dismiss it with the traced rationale, put a `// codeql[<rule>]`
-  comment on the sink so fingerprint shifts do not re-raise it, and still take
-  any cheap hardening the trace suggests (todo 353).
+  positive — dismiss it with the traced rationale, then BREAK the path
+  structurally (GitHub code scanning ignores `// codeql[...]` / `// lgtm[...]`
+  suppression comments, and a dismissed alert comes back as a new number the
+  moment its fingerprint shifts): e.g. `structuredClone` across a test's
+  round-trip boundary; and still take any cheap hardening the trace suggests
+  (todo 353).

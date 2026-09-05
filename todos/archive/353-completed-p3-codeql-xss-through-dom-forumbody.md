@@ -1,5 +1,5 @@
 ---
-status: in_progress
+status: completed
 priority: p3
 issue_id: "353"
 tags: [web, security, codeql, forum]
@@ -49,7 +49,7 @@ standing high-severity alert on `main` has never been assessed.
 
 - [x] Alert #116 is either dismissed with a written false-positive rationale
       or fixed with a regression test
-- [ ] The next PR touching `forumBody.ts` does not re-raise it as "new"
+- [x] The next PR touching `forumBody.ts` does not re-raise it as "new"
 
 ## Work Log
 
@@ -117,3 +117,25 @@ npm run type-check → exit 0; eslint clean
 ```text
 npx vitest run → Test Files 97 passed (97) / Tests 1245 passed (1245)
 ```
+
+### 2026-09-05 - AC2 flipped: the suppression comment did NOT work, the structural break did
+
+The first push (regex + `// codeql[js/xss-through-dom]` comment) made this PR
+re-raise the flow as a NEW alert, #124, at the moved sink line — GitHub code
+scanning ignores in-code suppression comments, so a dismissed alert returns
+whenever its fingerprint shifts. The only data path spanned the two inverse
+functions through the round-trip tests, so the tests now `structuredClone`
+the write blocks before handing them to the read-shape renderer (banner in
+`forumBody.test.ts`); the marker is gone, the rationale stays at the sink.
+
+```text
+$ gh pr checks 648 → Analyze (javascript-typescript) pass; CodeQL pass
+$ code-scanning/alerts?ref=refs/pull/648/head&state=open rule=js/xss-through-dom → none
+$ alert #124 → fixed (refs/pull/648/head); alert #116 → dismissed (false positive)
+```
+
+### 2026-09-05 - Completed by completing-todos skill (run 2026-09-05-1142)
+
+- Verification: both acceptance criteria passed (alert dismissed with the traced rationale + regression test; this PR's CodeQL run reports no `js/xss-through-dom` on `forumBody.ts`).
+- Review: react-typescript — disposition per finding in the Work Log (round pending at the time of archive; any repair rides this PR).
+- Codified: `docs/rules/security.md`, `docs/LEARNINGS.md` (the suppression-comment lesson).
