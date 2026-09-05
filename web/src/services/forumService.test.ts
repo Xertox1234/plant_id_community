@@ -245,6 +245,21 @@ describe('forumService (wagtail_forum API contract)', () => {
     );
   });
 
+  it('fetchThread peek reads append ?peek=1 (no view count / read marker, todo 346)', async () => {
+    fetchMock.mockResolvedValueOnce(okJson(backendTopicDetail));
+    await fetchThread(12, { peek: true });
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringMatching(/\/topics\/12\/\?peek=1$/),
+      expect.any(Object)
+    );
+    fetchMock.mockResolvedValueOnce(okJson(backendTopicDetail));
+    await fetchThread(12);
+    expect(fetchMock).toHaveBeenLastCalledWith(
+      expect.stringMatching(/\/topics\/12\/$/),
+      expect.any(Object)
+    );
+  });
+
   // --- Posts ----------------------------------------------------------------
 
   it('fetchPosts hits /topics/{id}/posts/ and maps posts', async () => {

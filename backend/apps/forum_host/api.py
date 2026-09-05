@@ -119,9 +119,17 @@ class SyncView(forum_views.SyncView):
     pass
 
 
+# GET-only, public, but a polling target since todo 346 (`?peek=1` from the
+# web thread page every 30 s per visible tab) — the same per-IP floor as
+# sync/, so a misbehaving client cannot hammer the join-heavy detail query.
+@_throttled("topic_detail", "GET", key=client_ip_key)
+class TopicDetailView(forum_views.TopicDetailView):
+    pass
+
+
 # NotificationListView has no wrapper here — GET (list) is public-shape (auth
 # required, but not a polling target) and mounted straight from the package in
-# api_urls.py, same as BoardListView/TopicDetailView.
+# api_urls.py, same as BoardListView.
 
 
 @_throttled("notification_unread_count", "GET")

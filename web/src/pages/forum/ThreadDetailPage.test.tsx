@@ -1,9 +1,9 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor, within, act } from '@testing-library/react';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { render, screen, waitFor, within, act, fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import * as ReactRouter from 'react-router-dom';
-import ThreadDetailPage from './ThreadDetailPage';
+import ThreadDetailPage, { NEW_REPLIES_POLL_INTERVAL_MS } from './ThreadDetailPage';
 import { createMockThread, createMockPost } from '../../tests/forumUtils';
 import * as forumService from '../../services/forumService';
 import * as blogService from '../../services/blogService';
@@ -1594,5 +1594,258 @@ describe('ThreadDetailPage', () => {
       const link = await screen.findByRole('link', { name: /see the accepted answer/i });
       expect(link).toHaveAttribute('href', '#post-2');
     });
+  });
+});
+
+describe('ThreadDetailPage new replies pill (todo 346)', () => {
+  const setVisibility = (state: DocumentVisibilityState) => {
+    Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => state });
+  };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(ReactRouter.useParams).mockReturnValue({
+      categorySlug: '3-plant-care',
+      threadSlug: '12-watering-tips',
+    });
+    vi.mocked(useAuth).mockReturnValue(mockAuth(true));
+    vi.mocked(forumService.fetchThreads).mockResolvedValue({
+      items: [],
+      meta: { next: null, count: 0 },
+    });
+    vi.mocked(blogService.fetchPopularPosts).mockResolvedValue([]);
+    setVisibility('visible');
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    setVisibility('visible');
+  });
+
+  const initialPosts = () => ({
+    items: [createMockPost({ id: '1', is_first_post: true }), createMockPost({ id: '2' })],
+    meta: { count: 0, next: null, previous: null },
+  });
+
+  it('polls post_count every 30 s with a peek read and offers to load what landed', async () => {
+    const mockThread = createMockThread({ slug: 'watering-tips', post_count: 1 });
+    const fetchThreadSpy = vi
+      .spyOn(forumService, 'fetchThread')
+      .mockResolvedValueOnce(mockThread)
+      .mockResolvedValue({ ...mockThread, post_count: 3 });
+    const fetchPostsSpy = vi.spyOn(forumService, 'fetchPosts').mockResolvedValue(initialPosts());
+
+    renderThreadDetailPage();
+    await screen.findByText(/1 replies/);
+    expect(screen.queryByRole('button', { name: /new repl/i })).not.toBeInTheDocument();
+    expect(fetchThreadSpy).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(NEW_REPLIES_POLL_INTERVAL_MS);
+    });
+    const pill = await screen.findByRole('button', { name: 'Load 2 new replies' });
+    // Exactly one poll per interval (a faster timer than the constant would
+    // fire more; a slower one, not at all), and the interval is the literal
+    // the load argument in the spike doc is based on.
+    expect(fetchThreadSpy).toHaveBeenCalledTimes(2);
+    expect(NEW_REPLIES_POLL_INTERVAL_MS).toBe(30_000);
+    // The poll is a peek: no view count, no read record, until the reader loads.
+    expect(fetchThreadSpy).toHaveBeenLastCalledWith(12, { peek: true });
+    // Nothing was inserted behind the reader's back.
+    expect(screen.getByText(/1 replies/)).toBeInTheDocument();
+
+    fetchPostsSpy.mockResolvedValue({
+      items: [...initialPosts().items, createMockPost({ id: '3' }), createMockPost({ id: '4' })],
+      meta: { count: 0, next: null, previous: null },
+    });
+    await act(async () => {
+      pill.click();
+    });
+    await waitFor(() => {
+      expect(screen.getByText(/3 replies/)).toBeInTheDocument();
+    });
+    expect(screen.queryByRole('button', { name: /new repl/i })).not.toBeInTheDocument();
+    // Loading them IS reading them: a real (non-peek) read advances the record.
+    expect(fetchThreadSpy).toHaveBeenLastCalledWith(12);
+    expect(fetchPostsSpy).toHaveBeenLastCalledWith({ thread: 12 });
+  });
+
+  it('does no work while the tab is hidden and re-checks as soon as it is visible again', async () => {
+    const mockThread = createMockThread({ slug: 'watering-tips', post_count: 1 });
+    const fetchThreadSpy = vi.spyOn(forumService, 'fetchThread').mockResolvedValue(mockThread);
+    vi.spyOn(forumService, 'fetchPosts').mockResolvedValue(initialPosts());
+
+    renderThreadDetailPage();
+    await screen.findByText(/1 replies/);
+    expect(fetchThreadSpy).toHaveBeenCalledTimes(1);
+
+    setVisibility('hidden');
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(NEW_REPLIES_POLL_INTERVAL_MS * 2);
+    });
+    expect(fetchThreadSpy).toHaveBeenCalledTimes(1);
+
+    setVisibility('visible');
+    await act(async () => {
+      document.dispatchEvent(new Event('visibilitychange'));
+    });
+    await waitFor(() => {
+      expect(fetchThreadSpy).toHaveBeenCalledTimes(2);
+    });
+    expect(fetchThreadSpy).toHaveBeenLastCalledWith(12, { peek: true });
+  });
+
+  it('never overlaps polls: a slow peek still in flight skips the next tick', async () => {
+    const mockThread = createMockThread({ slug: 'watering-tips', post_count: 1 });
+    let resolveSlow: (t: typeof mockThread) => void = () => {};
+    const fetchThreadSpy = vi
+      .spyOn(forumService, 'fetchThread')
+      .mockResolvedValueOnce(mockThread)
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            resolveSlow = resolve;
+          })
+      )
+      .mockResolvedValue({ ...mockThread, post_count: 4 });
+    vi.spyOn(forumService, 'fetchPosts').mockResolvedValue(initialPosts());
+
+    renderThreadDetailPage();
+    await screen.findByText(/1 replies/);
+
+    // Two intervals pass while the first poll hangs: only ONE poll was issued.
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(NEW_REPLIES_POLL_INTERVAL_MS * 2);
+    });
+    expect(fetchThreadSpy).toHaveBeenCalledTimes(2);
+
+    // Once it settles, the next tick polls again and the pill reflects it.
+    await act(async () => {
+      resolveSlow({ ...mockThread, post_count: 2 });
+    });
+    await screen.findByRole('button', { name: 'Load 1 new reply' });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(NEW_REPLIES_POLL_INTERVAL_MS);
+    });
+    await screen.findByRole('button', { name: 'Load 3 new replies' });
+    expect(fetchThreadSpy).toHaveBeenCalledTimes(3);
+  });
+
+  it("re-reads the baseline after the reader's own reply, so no ghost pill follows", async () => {
+    // Two other replies landed before the reader posted: the refresh loads all
+    // of them, and the baseline must be the fresh count (4), not old + 1 (2).
+    // fireEvent (not userEvent) under fake timers: the mocked editor is a
+    // plain textarea, and userEvent.setup() cannot re-stub the clipboard
+    // once this file's module-level userEvent has installed it.
+    const mockThread = createMockThread({ slug: 'watering-tips', post_count: 1 });
+    vi.spyOn(forumService, 'fetchThread')
+      .mockResolvedValueOnce(mockThread)
+      .mockResolvedValue({ ...mockThread, post_count: 4 });
+    vi.spyOn(forumService, 'fetchPosts')
+      .mockResolvedValueOnce(initialPosts())
+      .mockResolvedValue({
+        items: [
+          ...initialPosts().items,
+          createMockPost({ id: '3' }),
+          createMockPost({ id: '4' }),
+          createMockPost({
+            id: '99',
+            body: [{ id: 'b', type: 'paragraph', value: '<p>my reply</p>' }],
+          }),
+        ],
+        meta: { count: 0, next: null, previous: null },
+      });
+    vi.spyOn(forumService, 'createPost').mockResolvedValue({ id: '99', status: 'published' });
+
+    renderThreadDetailPage();
+    await screen.findByRole('button', { name: /Post Reply/i });
+    fireEvent.change(screen.getByLabelText('Write a reply...'), { target: { value: 'my reply' } });
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /Post Reply/i }));
+    });
+    await waitFor(() => expect(screen.getByText('my reply')).toBeInTheDocument());
+    expect(screen.getByText(/4 replies/)).toBeInTheDocument();
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(NEW_REPLIES_POLL_INTERVAL_MS);
+    });
+    expect(screen.queryByRole('button', { name: /new repl/i })).not.toBeInTheDocument();
+  });
+
+  it('does not poll while the thread failed to load', async () => {
+    const fetchThreadSpy = vi
+      .spyOn(forumService, 'fetchThread')
+      .mockRejectedValue(new Error('Thread not found'));
+    vi.spyOn(forumService, 'fetchPosts').mockResolvedValue(initialPosts());
+
+    renderThreadDetailPage();
+    await screen.findByText(/Thread not found/);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(NEW_REPLIES_POLL_INTERVAL_MS * 2);
+    });
+    expect(fetchThreadSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it('grows the Load More count instead of offering a pill while older pages remain', async () => {
+    const mockThread = createMockThread({ slug: 'watering-tips', post_count: 25 });
+    vi.spyOn(forumService, 'fetchThread')
+      .mockResolvedValueOnce(mockThread)
+      .mockResolvedValue({ ...mockThread, post_count: 27 });
+    vi.spyOn(forumService, 'fetchPosts').mockResolvedValue({
+      ...initialPosts(),
+      meta: { count: 0, next: 'http://api/topics/12/posts/?cursor=p2', previous: null },
+    });
+
+    renderThreadDetailPage();
+    await screen.findByRole('button', { name: /Load More Posts \(24 remaining\)/ });
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(NEW_REPLIES_POLL_INTERVAL_MS);
+    });
+    await screen.findByRole('button', { name: /Load More Posts \(26 remaining\)/ });
+    expect(screen.queryByRole('button', { name: /new repl/i })).not.toBeInTheDocument();
+    expect(screen.getByText(/27 replies/)).toBeInTheDocument();
+  });
+
+  it('stops polling on unmount', async () => {
+    const mockThread = createMockThread({ slug: 'watering-tips', post_count: 1 });
+    const fetchThreadSpy = vi.spyOn(forumService, 'fetchThread').mockResolvedValue(mockThread);
+    vi.spyOn(forumService, 'fetchPosts').mockResolvedValue(initialPosts());
+
+    const { unmount } = renderThreadDetailPage();
+    await screen.findByText(/1 replies/);
+    unmount();
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(NEW_REPLIES_POLL_INTERVAL_MS * 2);
+    });
+    expect(fetchThreadSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps a failed poll silent and retries on the next tick', async () => {
+    const mockThread = createMockThread({ slug: 'watering-tips', post_count: 1 });
+    const fetchThreadSpy = vi
+      .spyOn(forumService, 'fetchThread')
+      .mockResolvedValueOnce(mockThread)
+      .mockRejectedValueOnce(new Error('offline'))
+      .mockResolvedValue({ ...mockThread, post_count: 2 });
+    vi.spyOn(forumService, 'fetchPosts').mockResolvedValue(initialPosts());
+
+    renderThreadDetailPage();
+    await screen.findByText(/1 replies/);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(NEW_REPLIES_POLL_INTERVAL_MS);
+    });
+    expect(screen.queryByRole('button', { name: /new repl/i })).not.toBeInTheDocument();
+    expect(screen.queryByText(/Failed to load/)).not.toBeInTheDocument();
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(NEW_REPLIES_POLL_INTERVAL_MS);
+    });
+    await screen.findByRole('button', { name: 'Load 1 new reply' });
+    expect(fetchThreadSpy).toHaveBeenCalledTimes(3);
   });
 });

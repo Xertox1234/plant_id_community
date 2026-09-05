@@ -929,3 +929,19 @@ http(s) allowlist. Flutter: thumbnail card tappable through the renderer's
 existing `onOpenLink`. Reviewer-caught seams: per-block cache query (N+1),
 worker-thread rows leaking across tests, the raw-HTML href bypassing React's
 guard, and the Flutter handler that already existed.
+
+### Polling reads: `?peek=1` on topic detail (todo 346)
+
+The web thread page re-reads a topic's `post_count` every 30 s while the tab
+is visible to offer "Load N new replies". A poll is not a visit, so
+`TopicDetailView.retrieve` returns right after building the response when
+`?peek=1`/`true` is present — before the `view_count` increment
+(`VIEW_COUNT_DEDUP_SECONDS` would otherwise re-count every window) and the
+`TopicRead` record (which would mark replies read that the reader has not
+loaded). Same payload, same `private, no-store` headers, same 404 no-leak
+rule. The client uses `fetchThread(id, { peek: true })` for the poll and a
+plain `fetchThread(id)` when the reader actually loads the replies, so the
+read marker advances exactly when they see them. Any future counter or
+marker added to `retrieve` goes BELOW the peek return. The spike decision
+(why polling, not SSE/WebSockets) is
+`docs/superpowers/specs/2026-09-05-forum-realtime-updates-spike.md`.

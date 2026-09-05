@@ -573,3 +573,52 @@ def test_topic_detail_is_blocked_false_when_not_blocked():
     assert resp.status_code == 200
     assert resp.data["is_blocked"] is False
     assert resp.data["can_block"] is True
+
+
+@pytest.mark.django_db
+@override_settings(
+    WAGTAILFORUM_VIEW_COUNT_DEDUP_SECONDS=900, WAGTAILFORUM_TOPIC_READ_DEDUP_SECONDS=900
+)
+@pytest.mark.parametrize("peek", ["1", "true", "YES"])
+def test_peek_read_skips_view_count_and_topic_read(
+    django_capture_on_commit_callbacks, peek
+):
+    """`?peek=1` (todo 346): the web thread page polls reply_count every 30 s
+    while visible. A poll is not a visit — it must neither count a view nor
+    mark the topic read (the reader has not loaded the new replies). The
+    dedup TTLs are the REAL defaults on purpose: a peek that merely skipped
+    the on_commit but still wrote the dedup keys would make the plain read
+    right after come out deduped — this test fails on that mutant."""
+    cache.clear()
+    board = _board(slug="peek-board")
+    reader = User.objects.create_user(username="peek-reader")
+    topic = Topic.objects.create(board=board, title="Peek", slug="peek", live=True)
+
+    client = APIClient()
+    client.force_authenticate(reader)
+    with django_capture_on_commit_callbacks(execute=True):
+        peeked = client.get(f"/forum/topics/{topic.id}/", {"peek": peek})
+    assert peeked.status_code == 200
+    assert peeked.data["id"] == topic.id  # same payload as a real read
+    topic.refresh_from_db()
+    assert topic.view_count == 0
+    assert not TopicRead.objects.filter(user=reader, topic=topic).exists()
+
+    with django_capture_on_commit_callbacks(execute=True):
+        client.get(f"/forum/topics/{topic.id}/")
+    topic.refresh_from_db()
+    assert topic.view_count == 1
+    assert TopicRead.objects.filter(user=reader, topic=topic).exists()
+
+
+@pytest.mark.django_db
+def test_peek_read_keeps_the_404_no_leak_rule():
+    """The peek branch runs only after the normal retrieve has resolved — a
+    non-live topic must stay a 404 for a poll too, so a refactor that moved
+    the early return above the lookup would fail here."""
+    board = _board(slug="peek-404")
+    topic = Topic.objects.create(board=board, title="Draft", slug="draft", live=False)
+
+    resp = APIClient().get(f"/forum/topics/{topic.id}/", {"peek": "1"})
+
+    assert resp.status_code == 404

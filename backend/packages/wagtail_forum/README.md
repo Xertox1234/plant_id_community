@@ -319,7 +319,7 @@ Three consequences worth knowing before changing this:
 
 | Setting | Default | Purpose |
 |---|---|---|
-| `WAGTAILFORUM_VIEW_COUNT_DEDUP_SECONDS` | `900` (15 min) | Window in which repeat topic-detail GETs from the same user/IP count as one view. |
+| `WAGTAILFORUM_VIEW_COUNT_DEDUP_SECONDS` | `900` (15 min) | Window in which repeat topic-detail GETs from the same user/IP count as one view. A `?peek=1` read (a client polling `post_count` for new replies) never counts a view and never writes the read marker below — a poll is not a visit. |
 | `WAGTAILFORUM_TOPIC_READ_DEDUP_SECONDS` | `900` (15 min) | Read-marker dedup window. Deliberately **separate** from the view-count window — they gate unrelated concerns and only happen to share a default. |
 | `WAGTAILFORUM_PUBLIC_READ_CACHE_SECONDS` | `60` | Shared-cache TTL for **anonymous** board list, topic list, search, recent topics, experts rails, and the event hero only, so a CDN can offload public reads. Authenticated responses are always `private, no-store`. Topic detail and post list are never shared-cached (view counting; moderated-away content must stop serving immediately). Tradeoff: a just-removed topic can linger in the anon-cached *list* for up to this TTL. |
 | `WAGTAILFORUM_RECENT_TOPICS_DEFAULT_LIMIT` | `5` | Default row count for `GET topics/recent/` (the landing "Active now" rail) when `?limit=` is omitted. |

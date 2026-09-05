@@ -233,3 +233,14 @@ Compact checklist auto-injected before edits. Long-form:
   `javascript:` denylist only protects JSX attributes. Drop (or blank) any
   non-`http(s)` URL before interpolating, and use the renderer's
   `getSafeHref()` on JSX links for the stricter allowlist (todo 344 review).
+- **Polling in a page: gate on visibility, re-check on focus, offer — never
+  auto-insert.** Skip the tick while `document.visibilityState === 'hidden'`,
+  call the same check from a `visibilitychange` listener, hold the interval
+  in the effect closure (cleared in cleanup — never a timer id in `useState`,
+  Critical Gotcha #5), guard state writes with the page's current-id ref, keep
+  an `inFlight` flag so a slow response never overlaps the next tick, and use
+  a side-effect-free read (`peek`) for the poll but a REAL read when the user
+  loads the result. New content is offered through a button with
+  `aria-live`, never spliced into a list the reader may be mid-way through
+  (`ThreadDetailPage` new-replies pill, todo 346; the unread bell is the
+  other instance).

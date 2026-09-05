@@ -170,3 +170,12 @@ Compact checklist auto-injected before edits. Long-form:
   (`test_collections.py` precedent), and pin the lock itself by asserting a
   `FOR UPDATE` statement on the row's table in `CaptureQueriesContext`
   (todo 349, `test_a_ballot_is_written_under_a_poll_row_lock`).
+- **A client poll is not a visit — give it a side-effect-free read.** A
+  detail GET that counts views / marks read / touches "last seen" must take a
+  `?peek=1` (or equivalent) that returns the same payload with none of those
+  side effects, declared as an OpenAPI query parameter and tested both ways
+  (peek skips; plain read still records). Otherwise a 30 s poll inflates
+  `view_count` every dedup window and marks replies read that the reader
+  never loaded (todo 346, `TopicDetailView.retrieve`). And the moment an
+  endpoint becomes a polling target it needs the host's per-IP floor like
+  `sync/` (`topic_detail` 120/m) — "not a polling target" comments go stale.

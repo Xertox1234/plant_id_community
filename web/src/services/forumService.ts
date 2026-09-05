@@ -199,8 +199,19 @@ export async function fetchThreads(
   };
 }
 
-export async function fetchThread(topicId: number): Promise<Thread> {
-  const data = await authenticatedFetch<BackendTopicDetail>(`${FORUM_BASE}/topics/${topicId}/`);
+export async function fetchThread(
+  topicId: number,
+  options: {
+    // A poll for new replies: the backend skips the view-count increment and
+    // the topic-read record, so an open tab neither inflates views nor marks
+    // replies the reader has not loaded as seen (todo 346).
+    peek?: boolean;
+  } = {}
+): Promise<Thread> {
+  const query = options.peek ? '?peek=1' : '';
+  const data = await authenticatedFetch<BackendTopicDetail>(
+    `${FORUM_BASE}/topics/${topicId}/${query}`
+  );
   return mapTopicDetailToThread(data);
 }
 
