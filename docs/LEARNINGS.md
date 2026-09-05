@@ -4306,3 +4306,16 @@ the binaries directly — `./node_modules/.bin/eslint`, `./node_modules/.bin/pre
 --write <files>` — the same fix the Playwright/RTK note prescribes, and
 re-run the pre-commit hook (`pre-commit run prettier-web`) to prove the
 formatting actually landed before staging.
+
+### [2026-09-04] `git checkout -- <file>` in a mutation check erased unstaged fixes (PR #629 round 2)
+
+A Pattern-30-style mutation check (`sed` the guard out → run the test → restore)
+restored `apps/forum_host/redirects.py` with `git checkout -- <file>`. The file
+had been edited after its last `git add`, so the checkout restored the INDEX
+copy — the pre-round-2 version — and the round-2 guard (`keep_manual`,
+`ONCE_PUBLIC`) vanished from the working tree while the check printed the
+"restored" line. The full backend suite then ran against the old file, and the
+later `git add` staged the old file. Caught only because a `grep -c` for the
+guard line printed `0` in the log. Rule now in `docs/rules/_discipline.md`:
+back the file up with `cp` (or reverse the `sed`), and grep the restored file
+for the guard before believing the check.

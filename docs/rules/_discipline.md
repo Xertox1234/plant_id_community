@@ -34,3 +34,11 @@
   says it had nothing to do did not run: use `${=VAR}` or `xargs`, and read the
   tool's own count before claiming a verification passed (`docs/LEARNINGS.md`
   2026-09-04).
+- **Never restore a mutation-checked file with `git checkout -- <file>`.** That
+  restores the INDEX version — if the file carries unstaged work (or was staged
+  before the latest edit), the checkout silently discards it and the check
+  reports "restored" anyway. It cost this repo a whole round of redirect fixes
+  once (PR #629 round 2: the guard vanished, the full suite then ran against
+  the old file). Copy the file aside first (`cp f f.bak`; `cp f.bak f`), or
+  apply the mutation and its exact reverse with `sed`, and `grep` the restored
+  file for the guard line before trusting the result.

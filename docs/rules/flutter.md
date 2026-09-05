@@ -114,3 +114,11 @@ Compact checklist auto-injected before edits. Long-form:
   spinner never resolves in the blocked-network test harness (every HTTP request
   400s), so `pumpAndSettle` times out. A dialog opened afterwards needs
   `pump()` + `pump(const Duration(milliseconds: 300))` for its animation.
+- **Never pass `maxWidth`/`maxHeight`/`imageQuality` to a general-purpose
+  gallery `ImagePicker.pickImage`.** `image_picker_android` re-encodes every
+  pick through those bounds: an opaque PNG comes back as JPEG bytes under a
+  `.png` name and an animated GIF is flattened to its first frame; iOS
+  preserves both, so it is a platform split no test surface shows. Guard the
+  SIZE after the pick instead (`XFile.length()` against the backend cap) and
+  keep the bytes exact; reserve the bounds for the camera flow, where the
+  source is always a fresh JPEG (code review round 2, PR #629).
