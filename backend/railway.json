@@ -4,7 +4,7 @@
     "builder": "DOCKERFILE"
   },
   "deploy": {
-    "preDeployCommand": "python manage.py migrate --noinput && python manage.py seed_default_forum",
+    "preDeployCommand": "python manage.py migrate --noinput && python manage.py seed_default_forum && python manage.py seed_default_badges",
     "startCommand": "bash bin/start.sh",
     "drainingSeconds": 60,
     "healthcheckPath": "/api/v1/plant-identification/health/",

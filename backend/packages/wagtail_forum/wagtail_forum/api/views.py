@@ -1600,6 +1600,16 @@ class MeProfileView(
         return ForumProfile.for_user(self.request.user)
 
 
+BADGE_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "slug": {"type": "string"},
+        "name": {"type": "string"},
+        "description": {"type": "string"},
+        "awarded_at": {"type": "string", "format": "date-time"},
+    },
+}
+
 ME_STATS_SCHEMA = {
     "type": "object",
     "properties": {
@@ -1610,8 +1620,29 @@ ME_STATS_SCHEMA = {
         "badge_name": {"type": "string"},
         "badge_progress": {"type": "integer"},
         "badge_target": {"type": "integer"},
+        # Earned badges from the engine (todo 348), display order.
+        "badges": {"type": "array", "items": BADGE_SCHEMA},
     },
 }
+
+
+def _earned_badges(user_id):
+    """`[{slug, name, description, awarded_at}, …]` in display order — one
+    query joining the award to its badge; inactive badges are held but not
+    shown (todo 348)."""
+    from ..models import UserBadge
+
+    return [
+        {
+            "slug": award.badge.slug,
+            "name": award.badge.name,
+            "description": award.badge.description,
+            "awarded_at": award.awarded_at,
+        }
+        for award in UserBadge.objects.filter(user_id=user_id, badge__is_active=True)
+        .select_related("badge")
+        .order_by("badge__order", "badge__id")
+    ]
 
 
 class MeStatsView(UnversionedForumAPIMixin, PrivateForumReadCacheMixin, APIView):
@@ -1645,7 +1676,24 @@ class MeStatsView(UnversionedForumAPIMixin, PrivateForumReadCacheMixin, APIView)
         identifications_shared = ForumIdentificationAttachment.objects.filter(
             topic__author=request.user, topic__live=True
         ).count()
-        badge_target = get_setting("BADGE_BOTANIST_THRESHOLD")
+        # Lazy catch-up (todo 348): a member who qualified before a badge was
+        # seeded — the pre-engine Botanist holders above all — is awarded the
+        # first time they look at their own stats. Idempotent, and a no-op
+        # (one short query) once nothing is left to award.
+        from ..badges import award_badges_for_user, botanist_badge_rule
+
+        award_badges_for_user(request.user.id)
+        # Single source of truth (review): once the Botanist badge exists as
+        # a row, ITS rule is what awards it, so the progress bar reads that
+        # rule; the BADGE_BOTANIST_* settings seed the row and are only the
+        # fallback for a host that has not seeded.
+        botanist = botanist_badge_rule()
+        badge_name = (
+            botanist.badge.name if botanist else get_setting("BADGE_BOTANIST_NAME")
+        )
+        badge_target = (
+            botanist.threshold if botanist else get_setting("BADGE_BOTANIST_THRESHOLD")
+        )
         return Response(
             {
                 "posts": profile.post_count,
@@ -1660,9 +1708,10 @@ class MeStatsView(UnversionedForumAPIMixin, PrivateForumReadCacheMixin, APIView)
                 # `identifications_shared` count above, capped at the
                 # target so a user past threshold reads as "complete", not
                 # an overflowing bar.
-                "badge_name": get_setting("BADGE_BOTANIST_NAME"),
+                "badge_name": badge_name,
                 "badge_progress": min(identifications_shared, badge_target),
                 "badge_target": badge_target,
+                "badges": _earned_badges(request.user.id),
             }
         )
 
@@ -1711,6 +1760,7 @@ PUBLIC_PROFILE_SCHEMA = {
         },
         "is_blocked": {"type": "boolean"},
         "can_block": {"type": "boolean"},
+        "badges": {"type": "array", "items": BADGE_SCHEMA},
     },
 }
 
@@ -1823,6 +1873,10 @@ class PublicProfileView(UnversionedForumAPIMixin, APIView):
                 "is_blocked": is_blocked,
                 "is_muted": is_muted,
                 "can_mute": can_mute,
+                # Earned badges are public identity (todo 348) — shown even
+                # to a viewer who blocked/muted this member: the block hides
+                # their CONTENT, not who they are.
+                "badges": _earned_badges(user.pk),
                 "can_block": can_block,
             }
         )

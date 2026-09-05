@@ -197,7 +197,9 @@ def test_public_profile_query_count_is_bounded():
     # Unaffected by todo 284/M9: this request is anonymous, and is_blocked's
     # `request.user.is_authenticated and ...` short-circuits before any
     # query; can_block is pure Python (no DB hit).
-    assert len(ctx.captured_queries) == 4
+    # 4 -> 5 (todo 348): earned badges, ONE query joining award -> badge,
+    # flat regardless of how many badges the member holds.
+    assert len(ctx.captured_queries) == 5
 
 
 @pytest.mark.django_db

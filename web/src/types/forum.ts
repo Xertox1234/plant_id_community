@@ -447,6 +447,9 @@ export interface ForumUserProfile {
   /** Whether the viewer may block this user — false for their own profile
    * and for anonymous viewers. */
   can_block?: boolean;
+  /** Earned badges in display order (todo 348) — public identity, shown
+   * even to a viewer who blocked or muted this member. */
+  badges?: ForumBadge[];
   /** Whether the viewer has MUTED this author (todo 347) — one-directional,
    * content-only. Same COLLAPSE contract as is_blocked, its own flag. */
   is_muted?: boolean;
@@ -474,6 +477,14 @@ export interface MutedUser {
   muted_at: string;
 }
 
+/** An earned badge from the CMS-curated engine (todo 348). */
+export interface ForumBadge {
+  slug: string;
+  name: string;
+  description: string;
+  awarded_at: string;
+}
+
 /** GET me/stats/ — all-time counts ("Your season" cards, todo 300). */
 export interface ForumMyStats {
   posts: number;
@@ -483,6 +494,8 @@ export interface ForumMyStats {
   badge_name: string;
   badge_progress: number;
   badge_target: number;
+  /** Earned badges in display order (todo 348). */
+  badges: ForumBadge[];
 }
 
 /** The minimal board identity carried on a topic-shaped API row. */

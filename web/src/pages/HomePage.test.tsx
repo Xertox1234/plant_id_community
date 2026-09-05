@@ -33,6 +33,7 @@ const myStats: ForumMyStats = {
   badge_name: 'Botanist',
   badge_progress: 7,
   badge_target: 20,
+  badges: [],
 };
 
 const recentTopic: RecentTopic = {

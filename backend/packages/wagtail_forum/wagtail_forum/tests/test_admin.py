@@ -660,3 +660,57 @@ def test_post_listing_search_matches_a_body_prefix(client):
     # hashes, so only a rendered-row marker pins the field.
     assert b"No posts" not in resp.content
     assert f"/post/edit/{post.pk}/".encode() in resp.content
+
+
+@pytest.mark.django_db
+def test_badge_snippet_list_is_reachable_in_admin(client):
+    """todo 348: badges are CMS-curated snippets in the Forum group."""
+    from wagtail_forum.models import Badge, BadgeMetric, BadgeRule
+
+    admin = User.objects.create_superuser(username="root", email="r@x.io")
+    badge = Badge.objects.create(slug="listed", name="Listed")
+    BadgeRule.objects.create(badge=badge, metric=BadgeMetric.POSTS, threshold=1)
+    client.force_login(admin)
+
+    resp = client.get("/cms/snippets/wagtail_forum/badge/")
+
+    assert resp.status_code == 200
+    assert "Listed" in resp.content.decode()
+
+
+@pytest.mark.django_db
+def test_badge_snippet_create_form_saves_inline_rules(client):
+    """The genuinely new Wagtail surface (todo 348 review): a ClusterableModel
+    snippet whose InlinePanel child formset must persist through the real
+    create view, not just list."""
+    from django.urls import reverse
+    from wagtail_forum.models import Badge
+
+    admin = User.objects.create_superuser(username="root", email="r@x.io")
+    client.force_login(admin)
+    url = reverse(Badge.snippet_viewset.get_url_name("add"))
+    assert client.get(url).status_code == 200
+
+    resp = client.post(
+        url,
+        {
+            "name": "Helper",
+            "slug": "helper",
+            "description": "Answered a question.",
+            "order": "5",
+            "is_active": "on",
+            "rules-TOTAL_FORMS": "1",
+            "rules-INITIAL_FORMS": "0",
+            "rules-MIN_NUM_FORMS": "1",
+            "rules-MAX_NUM_FORMS": "1000",
+            "rules-0-metric": "solutions_accepted",
+            "rules-0-threshold": "1",
+            "rules-0-ORDER": "1",
+            "rules-0-DELETE": "",
+        },
+    )
+
+    assert resp.status_code == 302, resp.content.decode()[:2000]
+    badge = Badge.objects.get(slug="helper")
+    rule = badge.rules.get()
+    assert (rule.metric, rule.threshold) == ("solutions_accepted", 1)

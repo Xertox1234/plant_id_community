@@ -11,7 +11,7 @@ from wagtail.snippets.models import register_snippet
 from wagtail.snippets.permissions import get_permission_name
 from wagtail.snippets.views.snippets import SnippetViewSet, SnippetViewSetGroup
 
-from .models import ForumProfile, Post, Report, Topic
+from .models import Badge, ForumProfile, Post, Report, Topic
 
 
 class TopicViewSet(SnippetViewSet):
@@ -196,8 +196,26 @@ class ReportViewSet(SnippetViewSet):
         )
 
 
+class BadgeViewSet(SnippetViewSet):
+    """CMS-curated badges (todo 348): a host adds or retunes a badge here —
+    rules are inline on the edit form — with no code change."""
+
+    model = Badge
+    icon = "pick"
+    menu_label = _("Badges")
+    list_display = ["name", "slug", "is_active", "order"]
+    list_filter = ["is_active"]
+    search_fields = ["name", "slug"]
+
+
 class ForumViewSetGroup(SnippetViewSetGroup):
-    items = (TopicViewSet, PostViewSet, ForumProfileViewSet, ReportViewSet)
+    items = (
+        TopicViewSet,
+        PostViewSet,
+        ForumProfileViewSet,
+        ReportViewSet,
+        BadgeViewSet,
+    )
     menu_icon = "group"
     menu_label = _("Forum")
     menu_name = "forum"

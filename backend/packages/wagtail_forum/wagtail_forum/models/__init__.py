@@ -1,4 +1,5 @@
 from .activity import ForumActivityDate
+from .badges import Badge, BadgeMetric, BadgeRule, UserBadge
 from .boards import ForumBoard, ForumIndex
 from .bookmarks import TopicBookmark
 from .identifications import ForumIdentificationAttachment
@@ -18,6 +19,9 @@ from .user_blocks import UserBlock
 from .user_mutes import UserMute
 
 __all__ = [
+    "Badge",
+    "BadgeMetric",
+    "BadgeRule",
     "Conversation",
     "ForumActivityDate",
     "ForumBoard",
@@ -40,6 +44,7 @@ __all__ = [
     "TopicRead",
     "TopicSubscription",
     "TrustLevel",
+    "UserBadge",
     "UserBlock",
     "UserMute",
 ]

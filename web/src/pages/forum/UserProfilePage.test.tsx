@@ -99,6 +99,37 @@ describe('UserProfilePage', () => {
     expect(screen.getByRole('link', { name: /back to the forum/i })).toBeInTheDocument();
   });
 
+  it('lists earned badges by name with the description as a tooltip, and nothing when there are none (todo 348)', async () => {
+    vi.spyOn(forumService, 'fetchUserProfile').mockResolvedValue({
+      ...mockProfile,
+      badges: [
+        {
+          slug: 'first-post',
+          name: 'First post',
+          description: 'Published a first post.',
+          awarded_at: '2026-09-01T00:00:00Z',
+        },
+        { slug: 'botanist', name: 'Botanist', description: '', awarded_at: '2026-09-02T00:00:00Z' },
+      ],
+    });
+
+    renderProfile('ada');
+
+    const list = await screen.findByRole('list', { name: 'Badges' });
+    expect(list).toHaveTextContent('First post');
+    expect(list).toHaveTextContent('Botanist');
+    expect(screen.getByTitle('Published a first post.')).toBeInTheDocument();
+  });
+
+  it('renders no badge list for a member without badges', async () => {
+    vi.spyOn(forumService, 'fetchUserProfile').mockResolvedValue({ ...mockProfile, badges: [] });
+
+    renderProfile('ada');
+
+    await screen.findByText('Ada L.');
+    expect(screen.queryByRole('list', { name: 'Badges' })).not.toBeInTheDocument();
+  });
+
   it('hides the block button when can_block is false (own profile, backend authority)', async () => {
     vi.spyOn(forumService, 'fetchUserProfile').mockResolvedValue({
       ...mockProfile,

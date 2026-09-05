@@ -13,7 +13,7 @@ import { specimenAvatar } from '../../utils/forumAvatars';
 import { threadPath, postAnchor } from '../../utils/forumUrls';
 import { TRUST_LEVEL_LABELS } from '../../utils/forumAuthor';
 import { logger } from '../../utils/logger';
-import { UserCheck, UserX, Volume2, VolumeX } from 'lucide-react';
+import { Award, UserCheck, UserX, Volume2, VolumeX } from 'lucide-react';
 import { UserProfileSkeleton } from '../../components/forum/ForumSkeleton';
 import Avatar from '../../components/ui/Avatar';
 import Card from '../../components/ui/Card';
@@ -283,6 +283,23 @@ export default function UserProfilePage() {
         <p className="mb-6 text-sm text-ink-3">
           You've muted this member — their recent activity is hidden.
         </p>
+      )}
+
+      {/* Earned badges (todo 348) — identity, so rendered regardless of the
+          block/mute notices above. */}
+      {profile.badges && profile.badges.length > 0 && (
+        <ul aria-label="Badges" className="mb-6 flex flex-wrap gap-2">
+          {profile.badges.map((badge) => (
+            <li
+              key={badge.slug}
+              title={badge.description || undefined}
+              className="inline-flex items-center gap-1.5 rounded-pill bg-surface-2 px-3 py-1 text-sm text-ink"
+            >
+              <Award className="h-3.5 w-3.5 text-secondary" aria-hidden="true" />
+              {badge.name}
+            </li>
+          ))}
+        </ul>
       )}
 
       {profile.bio && <p className="mb-2 text-ink break-words leading-relaxed">{profile.bio}</p>}

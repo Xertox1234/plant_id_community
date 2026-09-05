@@ -392,6 +392,37 @@ choice(s), empty when they have not voted — individual votes are never
 exposed, only the aggregate. `total_votes` is the number of **voters**, so in
 a multi-choice poll the option counts can sum past it.
 
+## Badges
+
+A small engine, not a catalog (todo 348). `Badge` is a Wagtail snippet a host
+curates in the CMS (name, slug, description, order, active) with inline
+`BadgeRule` rows — `metric >= threshold`, where `metric` is one of the closed
+`BadgeMetric` set (`posts`, `solutions_accepted`, `identifications_shared`,
+`streak_days`: the four counters `GET me/stats/` shows). A badge with several
+rules is earned when **any** one is met; `UserBadge` is unique per
+`(user, badge)` so evaluation is idempotent and never revokes.
+
+Evaluation runs at the moment a member qualifies — a post's or topic's first
+publish, an accepted answer (`wagtail_forum.badges.award_after_commit`, inside
+`transaction.on_commit`) — and lazily on `GET me/stats/` so a member who
+qualified before a badge existed is caught up the first time they look.
+
+**The package ships no badge rows.** Seed the default set (first post, first
+solution, the Botanist badge migrated onto the engine with the same
+`BADGE_BOTANIST_*` settings, 7- and 30-day streaks) with
+`manage.py seed_default_badges` — idempotent on `slug` and never edits an
+existing badge, so it is safe in a deploy's pre-deploy step; then
+`manage.py award_badges --all` once (or `--username <name>`) to backfill
+members who already qualify. `GET me/stats/` and `GET users/{username}/`
+carry `badges: [{slug, name, description, awarded_at}]` in display order;
+the single-badge `badge_name/badge_progress/badge_target` fields on
+`me/stats/` are unchanged in shape. **Once the Botanist badge has been seeded,
+its `BadgeRule` is the single source of truth**: the progress bar reads that
+rule's threshold and the badge row's name, and `WAGTAILFORUM_BADGE_BOTANIST_*`
+(and the admin-editable `ForumSettings` override) only seed the row and serve
+as the fallback for a host that has not seeded — retune the badge in
+Snippets → Badges, not the setting.
+
 ## Identification attachment
 
 A topic may carry **one** `ForumIdentificationAttachment` — a snapshot of a
@@ -446,7 +477,7 @@ correlation handle pointing into private history.
 
 ## Signals
 
-Four signals are public API for hosts (push notifications, analytics, email).
+Five signals are public API for hosts (push notifications, analytics, email).
 They live in `wagtail_forum.signals`.
 
 | Signal | Fired when | kwargs |
@@ -455,6 +486,7 @@ They live in `wagtail_forum.signals`.
 | `reply_added` | A non-opening post is published for the **first** time | `sender=Post`, `topic=<Topic>`, `post=<Post>` |
 | `moderation_decided` | A create or edit finishes routing | `sender=type(obj)`, `obj=<Topic or Post>`, `status="published"` or `"pending"` |
 | `solution_marked` | A post is accepted as a topic's answer | `sender=Topic`, `topic=<Topic>`, `post=<accepted Post>`, `actor=<User who accepted>` |
+| `badge_awarded` | The badge engine grants a badge (todo 348) | `sender=Badge`, `user_id=<int>`, `badge=<Badge>` — already inside `transaction.on_commit`, so a receiver may deliver directly |
 
 ```python
 from django.dispatch import receiver
