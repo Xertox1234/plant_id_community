@@ -120,6 +120,12 @@ Use Grep as fallback for any LSP call that returns an error or empty/inconclusiv
 - Elements appended to `<body>` outside the React tree get a `data-testid`,
   not a utility-class selector.
 
+### Post quote additions (2026-09-05, todo 342)
+
+- [ ] **A referencing block round-trips through the editor by attribute, not by re-declaring the node** — a TipTap `addGlobalAttributes` extension on `blockquote` with `parseHTML` returning `null` when the attribute is absent; a legacy `<blockquote>` must never come back as `data-post-id=""`. Check `htmlToBodyBlocks` strips nested markup to plain text before it lands in a plain-text-by-contract field
+- [ ] **Composer insertion is a remount** (`content` is init-only): a Quote action must write the draft store AND bump the composer key with `autoFocus`; check that the remount does not drop an unrelated in-progress edit composer and that the live region is mounted before the announce
+- [ ] **Every new author-rendering surface reads the viewer's collapse signals** (`is_blocked` / `is_muted` on the quote envelope) and collapses like `PostCard` — never hides — and the `available: false` branch keeps the text with no attribution
+
 ## Output Format (Review Mode)
 
 Return ONLY this JSON structure (no surrounding prose, no markdown fences in the actual response — the example fences below show the schema):

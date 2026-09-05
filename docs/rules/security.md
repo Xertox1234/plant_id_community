@@ -146,3 +146,11 @@ Compact checklist auto-injected before edits. Long-form: `backend/docs/patterns/
   guarded action), make view-bound FKs read-only on the serializer, and
   validate `parent` (same object, depth cap, approved) before reusing the
   forum's spam backend + trust level at service level only (todo 352).
+- **A block that REFERENCES another object (post_quote → post) is validated
+  on write and resolved on read, never trusted from the body.** Write:
+  visible + not block-paired with the writer + capped, with ONE generic 400
+  for missing/unpublished/restricted/blocked (no existence oracle) and a
+  rejection rather than a silent strip. Read: a page-level map
+  (`build_forum_quote_map`) resolves the attribution; a referent that went
+  away renders its stored text with `available: false` and no attribution.
+  The referenced text stays plain-text-by-contract (todo 342).

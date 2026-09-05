@@ -4422,3 +4422,27 @@ same review round: a hand-built `<a href>` string in `bodyBlocksToHtml`
 bypasses React's `javascript:` guard (scheme allowlist added), and the
 Flutter renderer already carried an `onOpenLink` handler that made the
 "non-tappable card, no url_launcher" deferral unnecessary.
+
+## 2026-09-05 — An edit resends the whole body, so write-time reference checks lock authors out (todo 342)
+
+**What broke:** the new `post_quote` block validated "the quoted post must be
+visible and its author not block-paired with the writer" on every write.
+`PostEditSerializer` resubmits the entire body, so once a quoted post was
+unpublished — or its author blocked the editor — every later edit of the
+quoting post 400'd and the author (or a moderator redacting it) could not save
+anything. The image path had hit the identical bug two audits earlier (L21,
+`existing_author_id`), and the quote path shipped without the carve-out because
+no test drove the edit endpoint with a pre-existing reference. Both client
+renderers also ignored the block/mute signals for the nested author until the
+reviewers asked.
+
+**Fix:** the edit call site passes `existing_quote_ids` (the stored body's
+quoted ids) and only NEWLY added quotes must resolve; shape and caps still
+apply to all. The read envelope carries `is_blocked` / `is_muted` and both
+clients collapse, never hide. Rule in `docs/rules/api.md`; PATCH test with a
+gone referent in `test_post_quotes.py`.
+
+**Lesson:** any validator that resolves a referenced object must be given the
+stored body's existing references by the edit call site, and a review pass
+must ask "what does the edit endpoint do with a reference that has since gone
+away?" — a create-only test suite cannot see it.

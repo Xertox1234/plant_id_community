@@ -165,3 +165,9 @@ Compact checklist auto-injected before edits. Long-form:
 - **A `Row(crossAxisAlignment: stretch)` of cards inside a `ListView` has
   unbounded height** — flutter_test's default semantics surfaces it as
   `!semantics.parentDataDirty`; wrap the row in `IntrinsicHeight` (todo 341).
+- **A deep link inside a body renderer must know the screen it is on:** pass the
+  current topic/screen id down and suppress the link when it targets the current
+  screen — `context.pushNamed` to the same route stacks a duplicate. Every parsed
+  field needs a direct assertion (a fixture that carries a value nobody reads back
+  cannot fail), and a nested author surface reads `is_blocked` / `is_muted` and
+  collapses like the post card (todo 342).
