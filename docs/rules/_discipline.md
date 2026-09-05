@@ -42,3 +42,13 @@
   the old file). Copy the file aside first (`cp f f.bak`; `cp f.bak f`), or
   apply the mutation and its exact reverse with `sed`, and `grep` the restored
   file for the guard line before trusting the result.
+- **A tracking pointer must name an artifact a script can resolve AND assert is
+  still open** — otherwise it is a comment, not tracking. Eight pip-audit
+  suppressions said "revisit when a patched release ships (tracked in todo
+  089)". Todo 089 was real, and completed, and archived months earlier. A broken
+  link gets noticed; a link to a CLOSED ticket reads as live tracking forever, so
+  nobody rechecked and a shipped fix went unnoticed for eight weeks. Prefer an id
+  a resolver can look up in both live and archived locations over a path (a path
+  breaks the moment `git mv` archives the file), and have CI assert the target is
+  open. Sibling of the 2026-09-05 lesson "a rename verified only by 'the new file
+  exists' is not verified" — check the property you actually depend on.

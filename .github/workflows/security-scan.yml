@@ -33,7 +33,7 @@ jobs:
         run: |
           cd backend
           pip install --upgrade pip
-          pip install pip-audit
+          pip install pip-audit pyyaml
 
       - name: Run pip-audit (JSON report)
         run: |
@@ -41,29 +41,25 @@ jobs:
           pip-audit -r requirements.txt --format json --output pip-audit-report.json || true
         continue-on-error: true
 
+      # Suppressions live in .github/security-suppressions.yml as DATA, and the
+      # --ignore-vuln flags below are GENERATED from it. Never hand-add a flag
+      # here: a hand-added flag is invisible to the expiry recheck, which is how
+      # eight advisories stayed hidden for two months.
+      - name: Validate security suppressions (schema + policy)
+        run: python3 scripts/check_suppressions.py --validate
+
+      - name: Generate pip-audit suppression flags
+        id: suppressions
+        run: echo "flags=$(python3 scripts/check_suppressions.py --emit-flags)" >> "$GITHUB_OUTPUT"
+
       - name: Run pip-audit (advisory on PR, blocking on schedule/main)
         id: audit
+        env:
+          # Passed via env, never interpolated into `run:` directly.
+          IGNORE_FLAGS: ${{ steps.suppressions.outputs.flags }}
         run: |
           cd backend
-          # Suppressed advisories — each has no upstream fix and is not reachable through app code.
-          # Revisit and drop the flag whenever a patched release ships (tracked in todo 089).
-          # CVE-2026-42304 (Twisted 25.5.0): no stable fix exists (fix is RC-only 26.4.0rc2). Remove when Twisted >=26.4.0 stable releases.
-          # PYSEC-2026-89  (Markdown 3.8.1): no upstream fix (OSV: all versions affected); markdown not imported by app code; DoS path unreachable.
-          # PYSEC-2026-97  (nltk 3.9.4):     no upstream fix (already latest); filestring() path traversal not called by app code.
-          # PYSEC-2026-597 (nltk 3.9.4):     no upstream fix (OSV last_affected=3.9.4, the latest release); percent-encoded path traversal in nltk.data.load()/find(), which app code never calls (nltk is transitive; zero nltk imports in apps/, packages/, plant_community/).
-          # PYSEC-2024-277 (joblib 1.5.2):   supplier-disputed; not imported by app code.
-          # PYSEC-2025-183 (PyJWT 2.13.0):   supplier-disputed; mitigated by JWT_SECRET_KEY (the SIMPLE_JWT SIGNING_KEY PyJWT signs with), validated >=50 chars fail-fast at settings import in ALL environments (settings.py:658).
-          # CVE-2026-31236 (llm 0.27.1):     no upstream fix per OSV/PyPI advisory; llm is a wagtail-ai transitive dep, not imported directly by app code. Remove when a patched llm release ships.
-          # PYSEC-2026-400 (llm 0.27.1):     same unpatched llm 0.27.1 (distinct advisory id from CVE-2026-31236 above); no fix version per OSV; wagtail-ai transitive dep, zero llm imports in apps/, packages/, plant_community_backend/. Remove when a patched llm release ships.
-          pip-audit -r requirements.txt \
-            --ignore-vuln CVE-2026-42304 \
-            --ignore-vuln PYSEC-2026-89 \
-            --ignore-vuln PYSEC-2026-97 \
-            --ignore-vuln PYSEC-2026-597 \
-            --ignore-vuln PYSEC-2024-277 \
-            --ignore-vuln PYSEC-2025-183 \
-            --ignore-vuln CVE-2026-31236 \
-            --ignore-vuln PYSEC-2026-400
+          pip-audit -r requirements.txt $IGNORE_FLAGS
         continue-on-error: true
 
       # PR runs are advisory-only: a fixable CVE with no code change yet shouldn't block
@@ -79,6 +75,22 @@ jobs:
         if: steps.audit.outcome == 'failure' && github.event_name == 'pull_request'
         run: |
           echo "::warning::pip-audit found vulnerabilities with available fixes. Not blocking this PR (advisory-only on pull_request runs) — will hard-fail on the next scheduled scan against main."
+
+      # The suppression expiry gate. Reads the UNSUPPRESSED report written above,
+      # so it sees advisories the --ignore-vuln flags hide from the audit step.
+      # Fails when a suppression outlived its reason: expiry passed, a fix
+      # shipped, or its tracked_by todo was archived/closed.
+      - name: Recheck suppressions for shipped fixes (blocking outside pull_request)
+        if: always() && github.event_name != 'pull_request'
+        run: |
+          python3 scripts/check_suppressions.py --recheck \
+            --report backend/pip-audit-report.json
+
+      - name: Flag suppression drift (advisory on PRs)
+        if: always() && github.event_name == 'pull_request'
+        run: |
+          python3 scripts/check_suppressions.py --recheck \
+            --report backend/pip-audit-report.json --warn-only
 
       - name: Upload pip-audit report
         if: always()
@@ -239,9 +251,20 @@ jobs:
     runs-on: ubuntu-latest
     needs: [backend-security, frontend-security, mobile-security]
     if: always()
+    permissions:
+      contents: read
+      # The alarm opens/updates/closes a tracking issue. Explicit, because the
+      # repo default is `read` and the top-level block grants contents only.
+      issues: write
 
     steps:
-      - name: Check scan results
+      - uses: actions/checkout@v5
+
+      # Three steps, not one. The verdict has to be computed BEFORE the alarm
+      # runs and the gate fails: the previous single step ended in `exit 1`,
+      # so anything appended after it never executed.
+      - name: Compute scan verdict
+        id: verdict
         run: |
           echo "Security scan completed for all platforms"
           echo "Backend: ${{ needs.backend-security.result }}"
@@ -252,7 +275,25 @@ jobs:
              [[ "${{ needs.frontend-security.result }}" == "failure" ]] || \
              [[ "${{ needs.mobile-security.result }}" == "failure" ]]; then
             echo "⚠️ Security vulnerabilities detected! Please review the reports."
-            exit 1
+            echo "failed=true" >> "$GITHUB_OUTPUT"
           else
             echo "✅ No security vulnerabilities detected"
+            echo "failed=false" >> "$GITHUB_OUTPUT"
           fi
+
+      # PR runs stay advisory-only (the deliberate choice documented above), so
+      # they must not file issues. Only schedule/workflow_dispatch reach here.
+      - name: Security scan alarm (open / update / close the tracking issue)
+        if: always() && github.event_name != 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          FAILED: ${{ steps.verdict.outputs.failed }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          BACKEND_RESULT: ${{ needs.backend-security.result }}
+          FRONTEND_RESULT: ${{ needs.frontend-security.result }}
+          MOBILE_RESULT: ${{ needs.mobile-security.result }}
+        run: bash .github/scripts/security_alarm.sh
+
+      - name: Fail the gate
+        if: steps.verdict.outputs.failed == 'true'
+        run: exit 1

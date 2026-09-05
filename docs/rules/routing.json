@@ -24,19 +24,177 @@
     "checklist hint, never blocks). .tsx web specs keep typescript via web/src/*.tsx."
   ],
   "rules": [
-    { "globs": ["backend/apps/blog/*"], "domains": ["wagtail", "api", "security"], "mode": "additive" },
-    { "globs": ["backend/apps/forum/*", "backend/apps/forum_host/*", "backend/packages/wagtail_forum/*"], "domains": ["forum", "wagtail", "security"], "mode": "additive" },
-    { "globs": ["*/migrations/*"], "domains": ["database", "security"], "mode": "additive" },
-    { "globs": ["*/serializers.py"], "domains": ["api"], "mode": "additive" },
-    { "globs": ["*/tasks.py", "*celery*", "*/beat*.py"], "domains": ["celery"], "mode": "additive" },
-    { "globs": ["*/views.py", "*/viewsets.py", "*/api/*.py", "*/permissions.py"], "domains": ["api", "security"], "mode": "additive" },
-    { "globs": ["*/models.py", "*/models/*.py"], "domains": ["database", "security"], "mode": "additive" },
-    { "globs": ["*/cache*.py", "*/signals.py"], "domains": ["caching"], "mode": "additive" },
-    { "globs": ["backend/*.py"], "domains": ["api", "security", "database"], "mode": "fallback" },
-    { "globs": ["firebase/*", "*firebase*"], "domains": ["firebase", "security"], "mode": "additive" },
-    { "globs": ["*.dart"], "domains": ["flutter"], "mode": "additive" },
-    { "globs": ["web/src/*.tsx"], "domains": ["react", "typescript"], "mode": "additive" },
-    { "globs": ["*/tests/*", "*test_*.py", "*_test.py", "*.test.ts", "*.test.tsx", "*.spec.ts", "*.spec.tsx", "*.test.js", "*.spec.js", "web/e2e/*"], "domains": ["testing"], "mode": "additive" },
-    { "globs": ["*.ts", "*.tsx"], "domains": ["typescript"], "mode": "fallback" }
+    {
+      "globs": [
+        "backend/apps/blog/*"
+      ],
+      "domains": [
+        "wagtail",
+        "api",
+        "security"
+      ],
+      "mode": "additive"
+    },
+    {
+      "globs": [
+        "backend/apps/forum/*",
+        "backend/apps/forum_host/*",
+        "backend/packages/wagtail_forum/*"
+      ],
+      "domains": [
+        "forum",
+        "wagtail",
+        "security"
+      ],
+      "mode": "additive"
+    },
+    {
+      "globs": [
+        "*/migrations/*"
+      ],
+      "domains": [
+        "database",
+        "security"
+      ],
+      "mode": "additive"
+    },
+    {
+      "globs": [
+        "*/serializers.py"
+      ],
+      "domains": [
+        "api"
+      ],
+      "mode": "additive"
+    },
+    {
+      "globs": [
+        "*/tasks.py",
+        "*celery*",
+        "*/beat*.py"
+      ],
+      "domains": [
+        "celery"
+      ],
+      "mode": "additive"
+    },
+    {
+      "globs": [
+        "*/views.py",
+        "*/viewsets.py",
+        "*/api/*.py",
+        "*/permissions.py"
+      ],
+      "domains": [
+        "api",
+        "security"
+      ],
+      "mode": "additive"
+    },
+    {
+      "globs": [
+        "*/models.py",
+        "*/models/*.py"
+      ],
+      "domains": [
+        "database",
+        "security"
+      ],
+      "mode": "additive"
+    },
+    {
+      "globs": [
+        "*/cache*.py",
+        "*/signals.py"
+      ],
+      "domains": [
+        "caching"
+      ],
+      "mode": "additive"
+    },
+    {
+      "globs": [
+        "backend/*.py"
+      ],
+      "domains": [
+        "api",
+        "security",
+        "database"
+      ],
+      "mode": "fallback"
+    },
+    {
+      "globs": [
+        ".github/*",
+        "backend/requirements*.txt",
+        "package.json",
+        "web/package.json",
+        "package-lock.json",
+        "web/package-lock.json"
+      ],
+      "domains": [
+        "security"
+      ],
+      "mode": "additive",
+      "_why": "Editing a dependency manifest or a workflow used to inject only _discipline.md — never security.md — so the 'try a bump before suppressing a vuln' rule was invisible at exactly the moment it mattered. Order is load-bearing: this sits after the backend/*.py fallback and before firebase, and no .github/ or manifest path matches any other rule, so there is no fallback interaction."
+    },
+    {
+      "globs": [
+        "firebase/*",
+        "*firebase*"
+      ],
+      "domains": [
+        "firebase",
+        "security"
+      ],
+      "mode": "additive"
+    },
+    {
+      "globs": [
+        "*.dart"
+      ],
+      "domains": [
+        "flutter"
+      ],
+      "mode": "additive"
+    },
+    {
+      "globs": [
+        "web/src/*.tsx"
+      ],
+      "domains": [
+        "react",
+        "typescript"
+      ],
+      "mode": "additive"
+    },
+    {
+      "globs": [
+        "*/tests/*",
+        "*test_*.py",
+        "*_test.py",
+        "*.test.ts",
+        "*.test.tsx",
+        "*.spec.ts",
+        "*.spec.tsx",
+        "*.test.js",
+        "*.spec.js",
+        "web/e2e/*"
+      ],
+      "domains": [
+        "testing"
+      ],
+      "mode": "additive"
+    },
+    {
+      "globs": [
+        "*.ts",
+        "*.tsx"
+      ],
+      "domains": [
+        "typescript"
+      ],
+      "mode": "fallback"
+    }
   ]
 }
