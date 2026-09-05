@@ -38,7 +38,13 @@ from wagtail.images import get_image_model
 from wagtail.search.backends import get_search_backend
 
 try:  # Schema annotations are optional — hosts without drf-spectacular still work.
-    from drf_spectacular.utils import OpenApiExample, extend_schema, extend_schema_view
+    from drf_spectacular.types import OpenApiTypes
+    from drf_spectacular.utils import (
+        OpenApiExample,
+        OpenApiParameter,
+        extend_schema,
+        extend_schema_view,
+    )
 except ImportError:  # pragma: no cover
 
     def extend_schema(**kwargs):
@@ -55,6 +61,15 @@ except ImportError:  # pragma: no cover
 
     def OpenApiExample(*args, **kwargs):  # noqa: N802 - mirrors drf-spectacular API
         return None
+
+    class OpenApiParameter:  # noqa: N801 - mirrors drf-spectacular API
+        QUERY = "query"
+
+        def __init__(self, *args, **kwargs):
+            pass
+
+    class OpenApiTypes:  # noqa: N801 - mirrors drf-spectacular API
+        BOOL = "bool"
 
 
 from ..blocks import ForumBodyBlock
@@ -768,9 +783,23 @@ class TopicListView(
 
 @extend_schema(
     responses={200: TopicDetailSerializer, 404: dict},
+    parameters=[
+        OpenApiParameter(
+            "peek",
+            OpenApiTypes.BOOL,
+            OpenApiParameter.QUERY,
+            required=False,
+            description=(
+                "Read without the side effects of a visit: no view_count "
+                "increment, no topic-read record. For clients polling "
+                "post_count for new replies."
+            ),
+        )
+    ],
     description=(
         "Retrieve a topic's detail. Returns 404 for a non-live topic or a "
-        "topic on a hidden/non-live board (no existence leak)."
+        "topic on a hidden/non-live board (no existence leak). `?peek=1` "
+        "skips the view-count and read-marking side effects (polling)."
     ),
 )
 class TopicDetailView(
@@ -812,6 +841,16 @@ class TopicDetailView(
 
     def retrieve(self, request, *args, **kwargs):
         response = super().retrieve(request, *args, **kwargs)
+        # `?peek=1`: a poll for new replies (the web thread page re-reads
+        # reply_count every 30 s while visible, todo 346) must not carry the
+        # side effects of a real visit — no view_count increment and no
+        # topic-read record, because the reader has NOT seen the new replies
+        # until they choose to load them. Same payload, same cache headers.
+        # The presence touch (TouchLastSeenMixin.initial) still applies: the
+        # client only polls a VISIBLE tab, and that is presence.
+        peek = request.query_params.get("peek", "").strip().lower()
+        if peek in ("1", "true", "yes"):
+            return response
         # Increment view_count after a successful 200, deduplicated per viewer.
         #
         # on_commit timing — accepted as-is, decided 2026-07-29 (todo 271 #2).

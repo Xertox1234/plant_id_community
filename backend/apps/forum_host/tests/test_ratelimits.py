@@ -81,6 +81,30 @@ def test_search_is_throttled_with_429_and_retry_after():
     assert r["Retry-After"] == "60"  # derived from the 2/m window
 
 
+@override_settings(FORUM_RATELIMITS={"topic_detail": "2/m"})
+@pytest.mark.django_db
+def test_topic_detail_is_throttled_per_ip_with_429_and_retry_after():
+    """Topic detail became a polling target in todo 346 (`?peek=1` every 30 s
+    per visible tab), so it gets sync/'s per-IP floor. Anonymous, like the
+    poll from a logged-out reader; peek and plain reads share the bucket."""
+    from wagtail.models import Page
+    from wagtail_forum.models import ForumBoard, ForumIndex, Topic
+
+    root = Page.objects.get(id=1)
+    index = root.add_child(instance=ForumIndex(title="Forum", slug="forum-td-rl"))
+    board = index.add_child(instance=ForumBoard(title="General", slug="td-rl"))
+    topic = Topic.objects.create(board=board, title="T", slug="t", live=True)
+
+    client = APIClient()
+    with freeze_time("2026-06-10 12:00:00"):
+        assert client.get(f"/api/v1/forum/topics/{topic.id}/?peek=1").status_code == 200
+        assert client.get(f"/api/v1/forum/topics/{topic.id}/").status_code == 200
+        r = client.get(f"/api/v1/forum/topics/{topic.id}/?peek=1")
+
+    assert r.status_code == 429
+    assert r["Retry-After"] == "60"
+
+
 @override_settings(FORUM_RATELIMITS={"mention_user_search": "2/m"})
 @pytest.mark.django_db
 def test_mention_user_search_is_throttled_with_429_and_retry_after():
@@ -172,6 +196,7 @@ def test_wrapped_routes_use_the_throttled_views():
         "me-profile": throttled.MeProfileView,
         "search": throttled.SearchView,
         "sync": throttled.SyncView,
+        "topic-detail": throttled.TopicDetailView,
         "topic-subscription": throttled.TopicSubscriptionView,
         "topic-bookmark": throttled.TopicBookmarkView,
         "user-block": throttled.UserBlockView,

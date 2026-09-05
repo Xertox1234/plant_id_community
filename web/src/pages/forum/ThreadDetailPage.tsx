@@ -101,6 +101,12 @@ const CANOPY_FLASH_MS = 2500;
 // FromTheBlogModule's RAIL_POST_LIMIT).
 const RAIL_BOARD_TOPICS_LIMIT = 5;
 
+// New-replies poll (todo 346 — Option A of the real-time spike): re-read the
+// topic's post_count while the tab is visible and OFFER what has landed since
+// the page loaded — never auto-insert, so a reader mid-reply is not reflowed.
+// Same cadence as the unread bell (UNREAD_POLL_INTERVAL_MS).
+export const NEW_REPLIES_POLL_INTERVAL_MS = 30_000;
+
 /**
  * ThreadDetailPage Component
  *
@@ -127,6 +133,13 @@ export default function ThreadDetailPage() {
 
   // Cursor pagination state
   const [nextCursor, setNextCursor] = useState<string | null>(null);
+  // Replies that landed since this page loaded them (poll, todo 346); 0 hides the pill.
+  const [newReplyCount, setNewReplyCount] = useState(0);
+  const [loadingNewReplies, setLoadingNewReplies] = useState(false);
+  // Read inside the poll tick without re-arming the interval on every reply
+  // or page load.
+  const totalPostsRef = useRef(0);
+  const nextCursorRef = useRef<string | null>(null);
   // totalPosts is seeded from thread.post_count (meta.count is hardcoded 0 by the service)
   const [totalPosts, setTotalPosts] = useState<number>(0);
   const [loadingMore, setLoadingMore] = useState<boolean>(false);
@@ -216,6 +229,8 @@ export default function ThreadDetailPage() {
     setAutoFocusComposer(false);
     // The press animation belongs to the thread it happened on.
     setJustPostedId(null);
+    // A stale "N new replies" offer belongs to the previous thread.
+    setNewReplyCount(0);
 
     // react.dev race guard: a stale initial load (fast nav to another thread,
     // unmount, or a Retry superseding an in-flight request) is dropped so
@@ -298,6 +313,101 @@ export default function ThreadDetailPage() {
       }
     }
   }, [nextCursor, topicId, thread?.id]);
+
+  useEffect(() => {
+    totalPostsRef.current = totalPosts;
+  }, [totalPosts]);
+  useEffect(() => {
+    nextCursorRef.current = nextCursor;
+  }, [nextCursor]);
+
+  // Poll for new replies while the thread is visible (todo 346). A hidden tab
+  // does no work; coming back to it re-checks at once. The timer lives in the
+  // effect closure (cleared on cleanup), not in state (Critical Gotcha #5).
+  // `peek` reads carry none of a visit's side effects: no view count, and the
+  // topic is not marked read until the reader actually loads the replies.
+  // Armed only after a SUCCESSFUL load: the error screen must not poll, and
+  // a poll from a superseded run (Retry, navigation) is dropped via `active`
+  // — the ref guard alone would let a late response seed a bogus count.
+  useEffect(() => {
+    if (topicId == null || loading || error || !thread) return;
+    const requestTopicId = topicId;
+    let active = true;
+    let inFlight = false;
+    const check = async () => {
+      if (inFlight || document.visibilityState === 'hidden') return;
+      inFlight = true;
+      try {
+        const fresh = await fetchThread(requestTopicId, { peek: true });
+        if (!active || currentTopicIdRef.current !== requestTopicId) return;
+        const count = fresh.post_count ?? 0;
+        if (nextCursorRef.current) {
+          // Older pages are still unread: new replies are just more of them.
+          // Grow the "Load More (N remaining)" count; no pill until the reader
+          // has reached the end of what was there.
+          setTotalPosts(count);
+        } else {
+          setNewReplyCount(Math.max(0, count - totalPostsRef.current));
+        }
+      } catch (err) {
+        // A failed poll is silent — the next tick retries; the page is unaffected.
+        logger.warn('New-replies poll failed', {
+          component: 'ThreadDetailPage',
+          error: err,
+          context: { threadId: requestTopicId },
+        });
+      } finally {
+        inFlight = false;
+      }
+    };
+    const timer = setInterval(() => void check(), NEW_REPLIES_POLL_INTERVAL_MS);
+    const onVisibilityChange = () => {
+      if (document.visibilityState === 'visible') void check();
+    };
+    document.addEventListener('visibilitychange', onVisibilityChange);
+    return () => {
+      active = false;
+      clearInterval(timer);
+      document.removeEventListener('visibilitychange', onVisibilityChange);
+    };
+  }, [topicId, loading, error, thread]);
+
+  const handleLoadNewReplies = useCallback(async () => {
+    if (topicId == null) return;
+    const requestTopicId = topicId;
+    const offered = newReplyCount;
+    try {
+      setLoadingNewReplies(true);
+      // A real read this time (no peek): loading the replies IS reading them,
+      // so the topic-read record advances. Posts are oldest-first, so the
+      // reader's loaded items keep their keys and the new ones append.
+      const [fresh, refreshed] = await Promise.all([
+        fetchThread(requestTopicId),
+        collectAllPosts(requestTopicId),
+      ]);
+      if (currentTopicIdRef.current !== requestTopicId) return;
+      setPosts(refreshed.items);
+      setNextCursor(refreshed.next);
+      setTotalPosts(fresh.post_count ?? 0);
+      setNewReplyCount(0);
+      announce(`${offered} new ${offered === 1 ? 'reply' : 'replies'} loaded.`, 'polite');
+    } catch (err) {
+      logger.error('Error loading new replies', {
+        component: 'ThreadDetailPage',
+        error: err,
+        context: { threadId: requestTopicId },
+      });
+      if (currentTopicIdRef.current === requestTopicId) {
+        setNotice(
+          `Failed to load new replies: ${err instanceof Error ? err.message : 'Unknown error'}`
+        );
+      }
+    } finally {
+      if (currentTopicIdRef.current === requestTopicId) {
+        setLoadingNewReplies(false);
+      }
+    }
+  }, [topicId, newReplyCount, announce]);
 
   // Deep-link arrival: scroll to and briefly highlight #post-N once posts render.
   // If the target sits on a later cursor page, pull pages until it appears (this
@@ -424,11 +534,19 @@ export default function ThreadDetailPage() {
         setAutoFocusComposer(true);
 
         if (res.status === 'published') {
-          const refreshed = await collectAllPosts(requestTopicId);
+          // Re-read the count alongside the refresh: the walk loads EVERY
+          // reply that landed (anyone's), so `n + 1` would leave the poll's
+          // baseline short and a ghost "new replies" pill would follow.
+          const [refreshed, fresh] = await Promise.all([
+            collectAllPosts(requestTopicId),
+            fetchThread(requestTopicId),
+          ]);
           if (currentTopicIdRef.current !== requestTopicId) return;
           setPosts(refreshed.items);
           setNextCursor(refreshed.next);
-          setTotalPosts((n) => n + 1);
+          setTotalPosts(fresh.post_count ?? 0);
+          // The refresh above loaded everything, including anyone else's.
+          setNewReplyCount(0);
           // Posts are oldest-first, so the just-posted reply is the last item —
           // mark it for the one-shot press-in landing animation.
           setJustPostedId(refreshed.items[refreshed.items.length - 1]?.id ?? null);
@@ -1045,6 +1163,30 @@ export default function ThreadDetailPage() {
             </div>
           );
         })}
+      </div>
+
+      {/* New replies since load — offer, never auto-insert (todo 346). The
+          live region stays mounted (sr-only while empty) so the arrival of
+          the offer is announced; a conditionally rendered aria-live node is
+          created already containing its content and says nothing. */}
+      <div
+        className={newReplyCount > 0 ? 'sticky bottom-4 z-10 mb-4 flex justify-center' : 'sr-only'}
+        aria-live="polite"
+        aria-atomic="true"
+      >
+        {newReplyCount > 0 && (
+          <Button
+            onClick={handleLoadNewReplies}
+            variant="outline"
+            loading={loadingNewReplies}
+            disabled={loadingNewReplies}
+            className="min-h-11 shadow-2"
+          >
+            {loadingNewReplies
+              ? 'Loading...'
+              : `Load ${newReplyCount} new ${newReplyCount === 1 ? 'reply' : 'replies'}`}
+          </Button>
+        )}
       </div>
 
       {/* Load More Button (cursor pagination) */}

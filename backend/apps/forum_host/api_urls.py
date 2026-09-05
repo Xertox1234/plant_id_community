@@ -19,7 +19,7 @@ from wagtail_forum.api.direct_messages import (
 )
 
 # The notification list is auth-gated but not a polling target — mounted
-# straight from the package like BoardListView/TopicDetailView above.
+# straight from the package like BoardListView above.
 from wagtail_forum.api.notifications import NotificationListView
 
 # Same treatment as TopicBookmarkListView — a page load, not a polling target.
@@ -37,7 +37,6 @@ from wagtail_forum.api.views import (
     PostRevisionListView,
     PublicProfileView,
     RecentTopicsView,
-    TopicDetailView,
 )
 
 from .api import (
@@ -55,6 +54,7 @@ from .api import (
     SearchView,
     SyncView,
     TopicBookmarkView,
+    TopicDetailView,
     TopicListView,
     TopicSolutionView,
     TopicSubscriptionView,
@@ -92,9 +92,10 @@ urlpatterns = [
     path("boards/", BoardListView.as_view(), name="board-list"),
     path("boards/<slug:slug>/topics/", TopicListView.as_view(), name="topic-list"),
     # GET-only + AllowAny, mounted straight from the package (no throttle
-    # wrapper) — same treatment as BoardListView/TopicDetailView above. Before
+    # wrapper) — same treatment as BoardListView above. Before
     # topics/<int:topic_id>/, mirroring the package's literal-over-capture order.
     path("topics/recent/", RecentTopicsView.as_view(), name="topics-recent"),
+    # Throttled per IP since todo 346 — the web polls it (`?peek=1`); see api.py.
     path("topics/<int:topic_id>/", TopicDetailView.as_view(), name="topic-detail"),
     path(
         "topics/<int:topic_id>/subscription/",
