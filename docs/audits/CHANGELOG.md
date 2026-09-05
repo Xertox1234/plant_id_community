@@ -274,7 +274,7 @@ links to the full audit manifest with detailed findings and resolutions.
   #606/#607 RAG, #619/#620 spam trust gate, #623 Green Thumb, #624/#625 Wagtail
   quick wins, #626 topic-path redirects, #627 polish). Ran read-only first
   (findings report); the user then chose "fix every Medium and Low, file H1".
-- **Manifest:** [2026-09-04-forum.md](2026-09-04-forum.md)
+- **Manifest:** [2026-09-04-forum-COMPLETED.md](2026-09-04-forum-COMPLETED.md)
 - **Findings:** 1 high, 8 medium, 12 low (21 total) from 7 specialist agents
   (django-drf, wagtail, cross-cutting ×2, react-typescript, flutter-dart,
   celery-async); Phase 2.5 Context7 research: 19 confirmed, 1 better-fix,

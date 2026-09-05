@@ -8,6 +8,10 @@ const MAX_SUGGESTIONS = 8;
 // constants.py) as the box it's modeled on.
 const SEARCH_DEBOUNCE_MS = 300;
 // One literal for the suggestion dropdown: onStart and onUpdate both build it.
+// Stable hook for the Playwright spec (e2e/forum-mention.spec.js): the
+// dropdown lives in <body>, outside the React tree, where a utility-class
+// selector would become ambiguous the day anything else portals to <body>.
+export const DROPDOWN_TESTID = 'mention-suggestions';
 const DROPDOWN_CLASS =
   'z-50 min-w-[10rem] max-h-56 overflow-y-auto rounded-md border border-line bg-surface-2 shadow-2 py-1';
 
@@ -132,6 +136,7 @@ export const ForumMention = Mention.configure({
           getClientRect = props.clientRect;
           dropdown = document.createElement('div');
           dropdown.className = DROPDOWN_CLASS;
+          dropdown.dataset.testid = DROPDOWN_TESTID;
           document.body.appendChild(dropdown);
           paint();
           position();
@@ -149,6 +154,7 @@ export const ForumMention = Mention.configure({
           if (!dropdown) {
             dropdown = document.createElement('div');
             dropdown.className = DROPDOWN_CLASS;
+            dropdown.dataset.testid = DROPDOWN_TESTID;
             document.body.appendChild(dropdown);
           }
           paint();

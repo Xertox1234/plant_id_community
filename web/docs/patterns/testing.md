@@ -223,7 +223,16 @@ Gotchas:
   only the extension's pure-logic helpers.
 - To actually exercise `onStart`/`onUpdate`/`onExit`, use Playwright against a
   real mounted editor — a headless `Editor` in Vitest structurally can't reach
-  them.
+  them. `e2e/forum-mention.spec.js` (todo 336) is that spec for the forum
+  composer: real keystrokes in the NEW-THREAD editor (same `TipTapEditor` +
+  `ForumMention` as the reply composer, which itself has no E2E layer — a
+  fresh local forum has no topic to open), the dropdown asserted in `<body>`
+  with a non-origin `clientRect`, Enter committing exactly one mention node,
+  Escape leaving the count unchanged, and teardown on an in-app route change
+  (a `page.goto()` wipes `<body>` and can never fail). It lives in the `*-authenticated` projects only
+  (session + `users/search/` need auth) — a new spec of this kind must be
+  added to BOTH the authenticated `testMatch` and every unauthenticated
+  project's `testIgnore` in `playwright.config.ts`, and it must be `.js`.
 - When a lifecycle guard like this is only reasoning-verified (traced against
   the library's own source) rather than test-exercised, say so explicitly in
   the PR/todo Work Log — a passing suite shouldn't imply coverage it doesn't
