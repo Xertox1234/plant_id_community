@@ -2,9 +2,15 @@
 #
 # This file is intentionally a thin overlay of requirements.txt — it carries NO
 # version pins of its own. requirements.txt already includes every dev/test tool
-# (pytest, pytest-django, mypy, django-stubs, bandit, safety, factory_boy, Faker,
-# freezegun, coverage, ipython, django-debug-toolbar, …), so a separate frozen
-# copy here only drifts.
+# (pytest, pytest-django, mypy, django-stubs, factory_boy, Faker, freezegun,
+# coverage, ipython, django-debug-toolbar, …), so a separate frozen copy here
+# only drifts.
+#
+# `bandit` and `safety` used to be on that list. Both were declared and invoked
+# by nothing — no workflow, no pre-commit hook, no script — while safety alone
+# dragged in nltk, which carried 18 published advisories. Removed 2026-09-05
+# (todo 355, slice 1). Security scanning is pip-audit + npm audit in
+# .github/workflows/security-scan.yml; adding a scanner here scans nothing.
 #
 # History (todo 217): this used to be a full pip-freeze that silently fell behind
 # requirements.txt — it pinned Django 5.2.7 / wagtail 7.1.2 while prod, CI, and

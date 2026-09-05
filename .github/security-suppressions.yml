@@ -55,42 +55,6 @@ pip_audit:
     owner: "@Xertox1234"
     tracked_by: "355"
 
-  - id: PYSEC-2026-97
-    package: nltk
-    pinned: "3.9.4"
-    reason: >-
-      No upstream fix at suppression time (3.9.4 was latest); the filestring()
-      path traversal is not called by app code. nltk is transitive via safety.
-    clears_when: nltk is removed with safety, or an upstream fix ships.
-    added: "2026-05-20"
-    expires: "2026-11-16"
-    owner: "@Xertox1234"
-    tracked_by: "355"
-
-  - id: PYSEC-2026-597
-    package: nltk
-    pinned: "3.9.4"
-    reason: >-
-      No upstream fix at suppression time (OSV last_affected=3.9.4, then the
-      latest release); percent-encoded path traversal in nltk.data.load()/find(),
-      which app code never calls. nltk is transitive via safety, with zero nltk
-      imports in apps/, packages/, plant_community_backend/.
-    clears_when: nltk is removed with safety, or an upstream fix ships.
-    added: "2026-07-02"
-    expires: "2026-12-29"
-    owner: "@Xertox1234"
-    tracked_by: "355"
-
-  - id: PYSEC-2024-277
-    package: joblib
-    pinned: "1.5.2"
-    reason: Supplier-disputed; not imported by app code. Transitive via nltk.
-    clears_when: joblib leaves the tree with nltk, or the dispute resolves.
-    added: "2026-05-20"
-    expires: "2026-11-16"
-    owner: "@Xertox1234"
-    tracked_by: "355"
-
   - id: PYSEC-2025-183
     package: PyJWT
     pinned: "2.13.0"
@@ -101,30 +65,5 @@ pip_audit:
     clears_when: The advisory is withdrawn, or a patched PyJWT ships.
     added: "2026-05-20"
     expires: "2026-11-16"
-    owner: "@Xertox1234"
-    tracked_by: "355"
-
-  - id: CVE-2026-31236
-    package: llm
-    pinned: "0.27.1"
-    reason: >-
-      No upstream fix per OSV/PyPI advisory; llm is a wagtail-ai transitive dep
-      (wagtail-ai 3.1.0 requires llm>=0.12), not imported directly by app code.
-    clears_when: A patched llm release ships, or OSV records a fix version.
-    added: "2026-05-20"
-    expires: "2026-11-16"
-    owner: "@Xertox1234"
-    tracked_by: "355"
-
-  - id: PYSEC-2026-400
-    package: llm
-    pinned: "0.27.1"
-    reason: >-
-      Same unpatched llm 0.27.1 as CVE-2026-31236 (distinct advisory id); no fix
-      version per OSV. wagtail-ai transitive dep, zero llm imports in apps/,
-      packages/, plant_community_backend/.
-    clears_when: A patched llm release ships, or OSV records a fix version.
-    added: "2026-07-02"
-    expires: "2026-12-29"
     owner: "@Xertox1234"
     tracked_by: "355"
