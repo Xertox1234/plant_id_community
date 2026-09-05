@@ -471,3 +471,16 @@ Compact checklist auto-injected before edits.
   page for the same viewer and assert equality (flat), or pin the absolute
   count — mirror `test_post_list_moderator_own_blocks_add_no_per_post_queries`
   (todo 347 review).
+- **An ORDER BY on a read path is only pinned when the fixture rows are
+  written in a DIFFERENT order.** If the code that creates the rows already
+  iterates in display order, a test asserting the API's order passes with the
+  read-path `order_by` deleted. Create the rows directly, in reverse, so the
+  assertion isolates the read path (todo 348 review).
+- **A command/branch that shares its effect with an earlier call needs its
+  own discriminating assertion.** `award_badges --username` after `--all`
+  asserted a count that was already true; seed a new condition between the
+  two calls and assert it lands only where the second call should reach.
+- **Two implementations of "the same counters" get a drift test, not a
+  comment.** `user_metrics()` and `MeStatsView` both count solutions/
+  identifications; a test asserting equality on one fixture is the cheapest
+  guard against one being edited without the other (todo 348).

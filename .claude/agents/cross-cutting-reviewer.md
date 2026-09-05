@@ -181,6 +181,16 @@ one session pinned nothing)
 - A `select_related` chain on a new list endpoint needs the avatar-bearing
   fixture pin its block sibling has (`test_my_blocks_with_avatars_adds_no_per_row_queries`).
 
+### Badge engine additions (2026-09-05, todo 348)
+
+- An API ordering assertion whose fixture rows were created in that same
+  order does not pin the read-path `order_by` — require rows written in a
+  different order.
+- A second command invocation (`--username` after `--all`) needs an effect
+  the first could not have produced.
+- Two implementations of "the same counters" (engine metrics vs a stats
+  view): require a drift test asserting equality on one fixture.
+
 ## Output Format (Review Mode)
 
 Return ONLY this JSON structure (no surrounding prose, no markdown fences in the actual response — the example fences below show the schema):

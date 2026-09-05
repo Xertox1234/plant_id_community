@@ -875,3 +875,31 @@ DMs and the @mention typeahead are untouched; the muted member's view never
 changes; moderators' own mutes are inert. Tests pin each surface AND the
 other direction (`test_a_mute_is_one_directional_the_muted_member_notices_nothing`,
 the reverse-direction fan-out test in `apps/forum_host/tests/test_signals.py`).
+
+### Badge engine: CMS-curated rules over a closed metric set (todo 348)
+
+`Badge` (a `ClusterableModel` snippet with inline `BadgeRule` rows) +
+`UserBadge` (unique per user/badge, `PROTECT` FK) replace the single
+hardcoded Botanist badge. The shape worth keeping:
+
+```python
+# badges.py
+def user_metrics(user_id) -> dict[str, int]: ...        # the closed BadgeMetric set
+def award_badges_for_user(user_id) -> list[Badge]:      # idempotent; any rule earns
+    candidates = Badge.objects.filter(is_active=True).exclude(awards__user_id=user_id)
+    ...UserBadge.objects.get_or_create(...); notify(badge_awarded, ...)
+def award_after_commit(user_id): transaction.on_commit(lambda: award_badges_for_user(user_id))
+```
+
+Evaluation points: a post's/topic's first publish (`signals.py`, on_commit —
+Wagtail publishes inside a transaction so this really defers; under pytest
+the callback is rolled back unrun, so endpoint query pins cannot see its
+cost), the `solution_marked` receiver (already inside on_commit), and lazily
+on `GET me/stats/` (catches up pre-engine holders without a data migration).
+The package ships **no badge rows**: `seed_default_badges` (idempotent on
+slug AND name, per-row savepoint, wired into `preDeployCommand`) seeds the
+defaults including Botanist; once seeded, the Botanist `BadgeRule` is the
+single source of truth for the stats progress bar and the `BADGE_BOTANIST_*`
+settings only seed/fall back. Reviewer-caught seams: name-collision in the
+seed (deploy blocker), two sources of truth for the threshold, CASCADE on the
+award FK, and the inline-formset create view needing an actual POST test.

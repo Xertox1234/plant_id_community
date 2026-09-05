@@ -211,6 +211,19 @@ You review: `apps/blog/`, Wagtail page models, StreamField blocks, signals, Wagt
   `default_ordering` without an `order_queryset` pk tie-break paginates
   non-deterministically (todo 345).
 
+### Badge engine additions (2026-09-05, todo 348)
+
+- A plain FK from any table to a snippet model: ask for `PROTECT` (or an
+  explicit delete-view warning) — only chooser/`ReferenceIndex` relations get
+  the "used by N" prompt; a `CASCADE` erases history silently.
+- A `ClusterableModel` snippet with `InlinePanel` children needs a test that
+  POSTs the create/edit form with the child management-form fields and
+  asserts the child rows persisted — listing reachability proves nothing
+  about the formset save path.
+- A seed command wired into a deploy step must dedupe on EVERY unique field
+  and isolate each create in a savepoint; a CMS-editable unique field
+  (`name`) is a collision waiting to block deploys.
+
 ## Output Format (Review Mode)
 
 Return ONLY this JSON structure (no surrounding prose, no markdown fences in the actual response — the example fences below show the schema):

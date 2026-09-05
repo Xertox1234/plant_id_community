@@ -4378,3 +4378,20 @@ every author-listing query, never a recollection. Sibling lesson from the
 same review: mirroring a feature leaks at the seams (shared reveal state,
 independent pending flags, an effect reset) — diff the mirror against the
 original site by site (`docs/rules/react.md`).
+
+### [2026-09-05] A pre-deploy seed command that could raise on a CMS rename (todo 348)
+
+`seed_default_badges` was idempotent on `slug`, but `Badge.name` is unique
+too and editable in the CMS. Review traced the path: an editor renames a
+custom badge to "First post" → the next deploy's `preDeployCommand` runs the
+seed → `IntegrityError` inside `transaction.atomic()` → non-zero exit → the
+`&&` chain in `railway.json` stops → every later deploy blocked until the
+row is fixed by hand. Fix: dedupe on every unique field, one savepoint per
+row, skip + warn on `IntegrityError`; test pins a pre-existing badge with a
+default's name. The same review found the seeded Botanist threshold frozen
+in a `BadgeRule` while `me/stats/` kept reading the live setting (two
+sources of truth — the seeded rule now wins and the setting only seeds/
+falls back), and a `CASCADE` from `UserBadge` to `Badge` that would have
+erased award history from a snippet delete with no "used by" warning
+(plain FKs are not in Wagtail's `ReferenceIndex`) — now `PROTECT`. Rules in
+`docs/rules/database.md`.

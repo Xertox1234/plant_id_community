@@ -218,3 +218,15 @@ Compact checklist auto-injected before edits. Long-form:
   aggregate from the rows (`Count("user", distinct=True)`), and if the cost
   matters fold it into the existing query as a correlated `Subquery` rather
   than trusting the caller (todo 349 review).
+- **An idempotent seed command must dedupe on EVERY unique field, in its own
+  savepoint per row — it runs in `preDeployCommand`, where one IntegrityError
+  blocks every later deploy.** `seed_default_badges` checked `slug` only while
+  `name` was also unique and CMS-editable; an editor renaming a custom badge
+  "First post" would have wedged deploys until someone fixed the DB by hand.
+  Check `Q(slug=…) | Q(name=…)`, wrap each create in `transaction.atomic()`
+  and catch `IntegrityError` → skip + warn (todo 348 review).
+- **A plain FK from a history/award table to a Wagtail snippet is `PROTECT`,
+  not `CASCADE`.** Only chooser/`ReferenceIndex`-tracked relations get the
+  admin's "used by N" warning on delete; a plain FK silently cascades, so a
+  moderator deleting a `Badge` would erase every member's award history with
+  no prompt. Refuse the delete and retire via an `is_active` flag (todo 348).

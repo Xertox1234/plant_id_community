@@ -159,6 +159,14 @@ Use Grep as fallback for any LSP call that returns an error or an empty/inconclu
   never landed) — flag it; `grep -n "def <name>"` for every backticked
   function reference in new modules.
 
+### Badge engine additions (2026-09-05, todo 348)
+
+- A value seeded from a setting into a row (threshold, name) while a read
+  path keeps reading the live setting is two sources of truth — flag it;
+  the row wins once it exists, the setting seeds/falls back.
+- A `--all`-style command over every profile streams ids with
+  `.iterator(chunk_size=…)`, never a materialized list.
+
 ## Output Format (Review Mode)
 
 Return ONLY this JSON structure (no surrounding prose, no markdown fences in the actual response — the example fences below show the schema):
