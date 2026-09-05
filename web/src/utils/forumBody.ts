@@ -41,8 +41,12 @@ function quotedPostId(el: Element): number | null {
  * ONLY content of its paragraph. Mirrors the server's known-player set —
  * the server's finder allowlist is still the authority (400 otherwise).
  */
+// `[^\s<>"'\`]+` rather than `\S+`: a pasted "link" carrying HTML
+// meta-characters is never a provider URL, so it stays an ordinary paragraph
+// (where TipTap has already escaped it) instead of becoming an embed value
+// (todo 353 — the CodeQL js/xss-through-dom trace starts at this textContent).
 const PROVIDER_VIDEO_URL =
-  /^https?:\/\/(?:(?:[-\w]+\.)?youtube\.com\/(?:watch\?\S+|shorts\/\S+|live\/\S+|v\/\S+)|youtu\.be\/\S+|(?:www\.)?vimeo\.com\/\S+)$/;
+  /^https?:\/\/(?:(?:[-\w]+\.)?youtube\.com\/(?:watch\?[^\s<>"'`]+|shorts\/[^\s<>"'`]+|live\/[^\s<>"'`]+|v\/[^\s<>"'`]+)|youtu\.be\/[^\s<>"'`]+|(?:www\.)?vimeo\.com\/[^\s<>"'`]+)$/;
 
 /** The bare provider URL if `el` is a paragraph holding exactly one, else null. */
 function embedUrlOf(el: Element): string | null {
@@ -115,7 +119,14 @@ function blockquoteText(el: Element): string {
  * why alt cannot be edited after insert without re-uploading the image.
  */
 export function htmlToBodyBlocks(html: string): ForumBodyWriteBlock[] {
-  const doc = new DOMParser().parseFromString(html, 'text/html');
+  // CodeQL alert #116 (js/xss-through-dom), triaged false positive in todo 353:
+  // its only path from DOM text to this parser runs through forumBody.test.ts
+  // composing bodyBlocksToHtml(htmlToBodyBlocks(...)) and conflates the
+  // regex-validated embed URL with paragraph HTML. In production this `html`
+  // is TipTap's own serialisation; the parsed document is detached and only
+  // read. The paragraph branch of bodyBlocksToHtml carries server-sanitized
+  // HTML, and every other branch escapes (see escapeHtml / the href guard).
+  const doc = new DOMParser().parseFromString(html, 'text/html'); // codeql[js/xss-through-dom]
   const blocks: ForumBodyWriteBlock[] = [];
   let buffer: string[] = [];
   const flush = () => {

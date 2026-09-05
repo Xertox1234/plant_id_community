@@ -13,6 +13,17 @@ import { ForumBlockquoteAttrs } from '../components/forum/forumBlockquoteAttrs';
 import type { StreamFieldBlock } from '@/types/blog';
 
 describe('forumBody serialization', () => {
+  it('never turns a link carrying HTML meta-characters into an embed (todo 353)', () => {
+    const bad = htmlToBodyBlocks('<p>https://youtu.be/abc&lt;script&gt;x</p>');
+    expect(bad).toEqual([
+      { type: 'paragraph', value: '<p>https://youtu.be/abc&lt;script&gt;x</p>' },
+    ]);
+    const quoted = htmlToBodyBlocks('<p>https://www.youtube.com/watch?v=1"onerror="x</p>');
+    expect(quoted[0]?.type).toBe('paragraph');
+    const good = htmlToBodyBlocks('<p>https://youtu.be/abc123</p>');
+    expect(good).toEqual([{ type: 'embed', value: 'https://youtu.be/abc123' }]);
+  });
+
   it('htmlToBodyBlocks splits interleaved text and images into separate blocks', () => {
     const html = '<p>before</p><img src="https://cdn/x.jpg" alt="a" data-image-id="5"><p>after</p>';
     expect(htmlToBodyBlocks(html)).toEqual([

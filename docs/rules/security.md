@@ -154,3 +154,11 @@ Compact checklist auto-injected before edits. Long-form: `backend/docs/patterns/
   (`build_forum_quote_map`) resolves the attribution; a referent that went
   away renders its stored text with `available: false` and no attribution.
   The referenced text stays plain-text-by-contract (todo 342).
+- **Triage a CodeQL alert from its SARIF `codeFlows`, not its headline.** Pull
+  the analysis SARIF (`gh api …/code-scanning/analyses/<id>` with
+  `Accept: application/sarif+json`) and read the path: a flow that only reaches
+  the sink through a test file's round-trip composition, or that carries taint
+  on `[ArrayElement, value]` across differently-typed blocks, is a false
+  positive — dismiss it with the traced rationale, put a `// codeql[<rule>]`
+  comment on the sink so fingerprint shifts do not re-raise it, and still take
+  any cheap hardening the trace suggests (todo 353).
