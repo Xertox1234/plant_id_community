@@ -28,6 +28,12 @@ name: Harness CI
   pull_request:
     branches: [main, develop]
 
+# Least-privilege GITHUB_TOKEN. An explicit top-level block REPLACES the repo
+# default (`default_workflow_permissions: read`) rather than narrowing it, so
+# every scope any job here needs must be listed. See docs/rules/security.md.
+permissions:
+  contents: read
+
 jobs:
   harness-tests:
     name: Hook self-tests and Python inject tests

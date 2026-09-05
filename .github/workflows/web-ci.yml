@@ -13,6 +13,12 @@ name: Web CI
     # reports on PRs that miss the filter (e.g. backend-only changes), which
     # permanently blocks the merge. Same rationale as backend-ci.yml.
 
+# Least-privilege GITHUB_TOKEN. An explicit top-level block REPLACES the repo
+# default (`default_workflow_permissions: read`) rather than narrowing it, so
+# every scope any job here needs must be listed. See docs/rules/security.md.
+permissions:
+  contents: read
+
 jobs:
   web-checks:
     name: Type-check, lint, and unit/component tests

@@ -23,6 +23,12 @@ name: Backend CI
     # check never reports on PRs that miss the filter (e.g. docs-only changes),
     # which permanently blocks the merge.
 
+# Least-privilege GITHUB_TOKEN. An explicit top-level block REPLACES the repo
+# default (`default_workflow_permissions: read`) rather than narrowing it, so
+# every scope any job here needs must be listed. See docs/rules/security.md.
+permissions:
+  contents: read
+
 jobs:
   backend-checks:
     name: Install dependencies and run Django checks
