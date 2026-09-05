@@ -200,6 +200,17 @@ one session pinned nothing)
   (composer round-trips) needs its own scheme allowlist; React's href guard
   only covers JSX attributes.
 
+### Polling additions (2026-09-05, todo 346)
+
+- A client that polls a detail endpoint must use a side-effect-free variant
+  (`?peek=1`): check the read path for counters/markers/"last seen" writes
+  that a poll would trigger, that the peek returns early ABOVE all of them,
+  and that a test proves both halves (peek skips, plain read records).
+- Poll cadence on the web: visibility-gated, re-checked on
+  `visibilitychange`, cleaned up on unmount, in-flight guarded — and the test
+  must fail if the poll is removed (assert the call count after advancing
+  fake timers, not just the pill's presence).
+
 ## Output Format (Review Mode)
 
 Return ONLY this JSON structure (no surrounding prose, no markdown fences in the actual response — the example fences below show the schema):

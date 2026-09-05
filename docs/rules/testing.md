@@ -484,3 +484,14 @@ Compact checklist auto-injected before edits.
   comment.** `user_metrics()` and `MeStatsView` both count solutions/
   identifications; a test asserting equality on one fixture is the cheapest
   guard against one being edited without the other (todo 348).
+- **A poll's baseline must be re-read after the user's own write, and the
+  test must land OTHER users' rows first.** `totalPosts + 1` after a reply
+  that refreshed everyone's replies left the next poll offering a ghost
+  "N new replies" pill; only a test where two foreign replies arrive before
+  the reader posts catches it. Same shape for any "what changed since I
+  loaded" counter: seed from the server's count, never arithmetic (todo 346).
+- **Pin a poll's cadence by call count AND literal.** Advancing fake timers by
+  the exported constant proves nothing if the code keys on the same binding:
+  assert `toHaveBeenCalledTimes(n)` after the advance and `expect(INTERVAL)
+  .toBe(30_000)`; cover the in-flight guard with a deferred promise that
+  spans two ticks (todo 346 review).
