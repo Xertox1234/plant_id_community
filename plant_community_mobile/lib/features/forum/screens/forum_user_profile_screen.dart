@@ -3,6 +3,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../core/constants/app_spacing.dart';
+import '../../../services/auth_service.dart';
+import '../../../services/user_profile_service.dart';
 import '../forum_format.dart';
 import '../providers/forum_providers.dart';
 import '../widgets/author_identity.dart';
@@ -18,9 +20,40 @@ class ForumUserProfileScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final profileAsync = ref.watch(forumUserProfileProvider(username));
+    final isAuthenticated = ref.watch(
+      authServiceProvider.select((s) => s.isAuthenticated),
+    );
+    // The "Message" action (todo 339) is hidden on your own profile and for
+    // anonymous viewers (the backend 401s a DM send). The current username
+    // lives on the account profile, which is only fetched when signed in —
+    // while it is still loading, AND if that fetch failed, the action stays
+    // hidden: without knowing who "you" are, showing it risks offering to
+    // message yourself. Deliberate; the account profile fetch retries on the
+    // next visit, and the inbox remains reachable from the forum home.
+    final myUsername = isAuthenticated
+        ? ref.watch(userProfileServiceProvider).asData?.value?.username
+        : null;
+    final canMessage =
+        myUsername != null &&
+        myUsername != username &&
+        profileAsync.hasValue &&
+        !(profileAsync.asData?.value.author.isDeleted ?? true);
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Profile')),
+      appBar: AppBar(
+        title: const Text('Profile'),
+        actions: [
+          if (canMessage)
+            IconButton(
+              tooltip: 'Message',
+              icon: const Icon(Icons.mail_outline),
+              onPressed: () => context.pushNamed(
+                'forumConversation',
+                pathParameters: {'username': username},
+              ),
+            ),
+        ],
+      ),
       body: SafeArea(
         child: profileAsync.when(
           loading: () => const Center(child: CircularProgressIndicator()),

@@ -24,6 +24,7 @@ import {
   useUnreadNotifications,
 } from '../contexts/UnreadNotificationsContext';
 import NotificationBell from '../components/layout/NotificationBell';
+import MessagesLink from '../components/layout/MessagesLink';
 import UserMenu from '../components/layout/UserMenu';
 import CommandPalette from '../components/CommandPalette';
 import { RAIL_CONTAINER_ID } from '../components/layout/RailSlot';
@@ -281,6 +282,7 @@ export default function AppShell({ children }: AppShellProps) {
                     <Moon className="h-4 w-4" aria-hidden="true" />
                   )}
                 </button>
+                {isAuthenticated && <MessagesLink />}
                 {isAuthenticated && <NotificationBell />}
                 {isAuthenticated ? (
                   <UserMenu />

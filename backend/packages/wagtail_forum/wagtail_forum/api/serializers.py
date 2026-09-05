@@ -25,7 +25,7 @@ from ..models import (
     UserBlock,
     UserMute,
 )
-from ..models.messages import MESSAGE_BODY_MAX_CHARS
+from ..models.messages import MESSAGE_BODY_MAX_CHARS, MESSAGE_PREVIEW_CHARS
 from .sanitize import validate_forum_body
 
 try:  # Schema annotations are optional — hosts without drf-spectacular still work.
@@ -1197,11 +1197,43 @@ class ReportSerializer(serializers.Serializer):
 
 class ConversationSerializer(serializers.Serializer):
     """A 1:1 DM conversation from the requesting user's point of view — the
-    OTHER participant, not both (todo 319/M10)."""
+    OTHER participant, not both (todo 319/M10) — plus the inbox fields (todo
+    339): `unread_count`, `last_message_at`, and a `last_message` preview.
+    Expects a row from `direct_messages._inbox_queryset` (annotations)."""
 
     id = serializers.IntegerField()
     other_participant = serializers.SerializerMethodField()
     created_at = serializers.DateTimeField()
+    last_message_at = serializers.DateTimeField()
+    # Messages from the other side newer than my read marker (own messages
+    # never count).
+    unread_count = serializers.IntegerField(read_only=True)
+    last_message = serializers.SerializerMethodField()
+
+    @extend_schema_field(
+        {
+            "type": "object",
+            "nullable": True,
+            "properties": {
+                "body": {"type": "string", "description": "Preview, truncated"},
+                "is_mine": {"type": "boolean"},
+                "created_at": {"type": "string", "format": "date-time"},
+            },
+        }
+    )
+    def get_last_message(self, conversation):
+        body = getattr(conversation, "last_message_body", None)
+        if body is None:
+            return None
+        request = self.context.get("request")
+        return {
+            "body": body[:MESSAGE_PREVIEW_CHARS],
+            "is_mine": conversation.last_message_sender_id == request.user.pk,
+            # Same ISO rendering as the sibling DateTimeField, not a raw datetime.
+            "created_at": self.fields["last_message_at"].to_representation(
+                conversation.last_message_at
+            ),
+        }
 
     @extend_schema_field(AUTHOR_SCHEMA)
     def get_other_participant(self, conversation):

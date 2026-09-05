@@ -16,6 +16,7 @@ from wagtail_forum.api.bookmarks import TopicBookmarkListView
 from wagtail_forum.api.direct_messages import (
     ConversationListView,
     ConversationMessagesView,
+    ConversationWithUserView,
 )
 
 # The notification list is auth-gated but not a polling target — mounted
@@ -40,6 +41,7 @@ from wagtail_forum.api.views import (
 )
 
 from .api import (
+    ConversationUnreadCountView,
     MeProfileView,
     MessageReportView,
     MessageSendView,
@@ -174,9 +176,20 @@ urlpatterns = [
         MessageSendView.as_view(),
         name="user-message-send",
     ),
-    # Private messaging (todo 319/M10). List views are GET-only page loads —
-    # mounted straight from the package, same treatment as MyBlocksView above.
+    # Private messaging (todo 319/M10; inbox todo 339). List/detail views are
+    # GET-only page loads — mounted straight from the package, same treatment
+    # as MyBlocksView above; the unread-count badge poll is throttled (api.py).
     path("conversations/", ConversationListView.as_view(), name="conversation-list"),
+    path(
+        "conversations/unread-count/",
+        ConversationUnreadCountView.as_view(),
+        name="conversation-unread-count",
+    ),
+    path(
+        "conversations/with/<str:username>/",
+        ConversationWithUserView.as_view(),
+        name="conversation-with-user",
+    ),
     path(
         "conversations/<int:conversation_id>/messages/",
         ConversationMessagesView.as_view(),

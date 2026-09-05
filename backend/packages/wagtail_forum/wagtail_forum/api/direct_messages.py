@@ -27,11 +27,14 @@ Decisions recorded (todo 319's Work Log has the full rationale):
   action for DMs exists.
 """
 
+from datetime import datetime
+from datetime import timezone as dt_timezone
 from types import SimpleNamespace
 
 from django.contrib.auth import get_user_model
 from django.db import transaction
-from django.db.models import Q
+from django.db.models import Case, Count, Exists, F, OuterRef, Q, Subquery, Value, When
+from django.db.models.functions import Coalesce
 from django.shortcuts import get_object_or_404
 from django.utils.translation import gettext_lazy as _
 from rest_framework import generics
@@ -46,6 +49,7 @@ from ..models import Conversation, ForumProfile, Message, Report, UserBlock
 from ..spam import get_spam_backend
 from ..spam.heuristic import HeuristicSpamBackend
 from .idempotency import fingerprint, idempotency_cache_key, remember, reserve
+from .notifications import UNREAD_COUNT_SCHEMA
 from .pagination import ConversationCursorPagination, MessageCursorPagination
 from .serializers import (
     ConversationSerializer,
@@ -146,21 +150,96 @@ def _blocked_pair_ids(user):
     ) | set(UserBlock.objects.filter(blocked=user).values_list("blocker_id", flat=True))
 
 
+# "Never read" compares as "everything is newer than the epoch" so the Exists
+# subquery below needs no NULL branch.
+_EPOCH = datetime(1970, 1, 1, tzinfo=dt_timezone.utc)
+
+
+def _my_read_at(user):
+    """This side's read marker as an expression (the row's a/b column)."""
+    return Case(
+        When(participant_a=user, then=F("participant_a_read_at")),
+        default=F("participant_b_read_at"),
+    )
+
+
+def _my_conversations(user):
+    """`user`'s conversations minus blocked pairs — no annotations, no
+    joins; the base both readers build on."""
+    qs = Conversation.objects.filter(Q(participant_a=user) | Q(participant_b=user))
+    blocked_ids = _blocked_pair_ids(user)
+    if blocked_ids:
+        qs = qs.exclude(participant_a_id__in=blocked_ids).exclude(
+            participant_b_id__in=blocked_ids
+        )
+    return qs
+
+
+def _unread_conversation_count(user):
+    """Conversations with at least one unread message — the badge number.
+    Deliberately NOT `_inbox_queryset`: a poll (120/m per user) must not pay
+    for avatar joins, preview subqueries and a GROUP BY it throws away. One
+    EXISTS per row, one COUNT query (review finding, todo 339)."""
+    newer_from_other_side = (
+        Message.objects.filter(conversation=OuterRef("pk"))
+        .exclude(sender=user)
+        .filter(created_at__gt=Coalesce(OuterRef("my_read_at"), Value(_EPOCH)))
+    )
+    return (
+        _my_conversations(user)
+        .annotate(my_read_at=_my_read_at(user))
+        .annotate(has_unread=Exists(newer_from_other_side))
+        .filter(has_unread=True)
+        .count()
+    )
+
+
+def _inbox_queryset(user):
+    """`user`'s visible conversations with the inbox annotations the
+    ConversationSerializer reads (todo 339): `my_read_at` (this side's read
+    marker), `unread_count` (messages from the other side newer than it),
+    `last_message_body` / `last_message_sender_id` (newest message, via
+    correlated subqueries). One query per page; blocked pairs excluded."""
+    newest = Message.objects.filter(conversation=OuterRef("pk")).order_by(
+        "-created_at", "-id"
+    )
+    return (
+        _my_conversations(user)
+        .select_related(
+            "participant_a__wagtail_forum_profile__avatar",
+            "participant_b__wagtail_forum_profile__avatar",
+        )
+        .annotate(my_read_at=_my_read_at(user))
+        .annotate(
+            unread_count=Count(
+                "messages",
+                filter=~Q(messages__sender=user)
+                & (
+                    Q(my_read_at__isnull=True)
+                    | Q(messages__created_at__gt=F("my_read_at"))
+                ),
+            ),
+            last_message_body=Subquery(newest.values("body")[:1]),
+            last_message_sender_id=Subquery(newest.values("sender_id")[:1]),
+        )
+    )
+
+
 @extend_schema(
     responses={200: ConversationSerializer(many=True)},
     description=(
-        "List the authenticated user's DM conversations, newest-created "
-        "first (cursor-paginated). A conversation with a blocked pair "
-        "(either direction) is excluded."
+        "List the authenticated user's DM conversations — the inbox: most "
+        "recent activity first (cursor-paginated), each row carrying "
+        "`unread_count` and a `last_message` preview. A conversation with a "
+        "blocked pair (either direction) is excluded."
     ),
 )
 class ConversationListView(
     UnversionedForumAPIMixin, PrivateForumReadCacheMixin, generics.ListAPIView
 ):
-    """My conversations, most-recently-created first. Ordered by conversation
-    creation, not last-message activity — an MVP simplification; a
-    last-activity ordering would need a denormalized timestamp this slice
-    doesn't otherwise need."""
+    """My inbox: conversations by last activity (todo 339 replaced the
+    original created-at ordering once a client existed to need an inbox),
+    annotated with unread state and a preview — see `_inbox_queryset`."""
 
     serializer_class = ConversationSerializer
     pagination_class = ConversationCursorPagination
@@ -170,36 +249,76 @@ class ConversationListView(
     def get_queryset(self):
         if getattr(self, "swagger_fake_view", False):
             return Conversation.objects.none()
-        user = self.request.user
-        qs = Conversation.objects.filter(
-            Q(participant_a=user) | Q(participant_b=user)
-        ).select_related(
-            "participant_a__wagtail_forum_profile__avatar",
-            "participant_b__wagtail_forum_profile__avatar",
+        return _inbox_queryset(self.request.user)
+
+
+@extend_schema(
+    responses={200: UNREAD_COUNT_SCHEMA},
+    description=(
+        "Number of the authenticated user's conversations with unread "
+        "messages (not the message count) — the inbox badge. Same `{count}` "
+        "shape as notifications/unread-count/."
+    ),
+)
+class ConversationUnreadCountView(
+    UnversionedForumAPIMixin, PrivateForumReadCacheMixin, APIView
+):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        return Response({"count": _unread_conversation_count(request.user)})
+
+
+@extend_schema(
+    responses={200: ConversationSerializer, 404: dict},
+    description=(
+        "The authenticated user's conversation with `username`, or 404 when "
+        "none exists yet (send a message to start one), when the user is "
+        "unknown, or once either side has blocked the other. Lets a profile's "
+        "'Message' action open the existing thread without listing the inbox."
+    ),
+)
+class ConversationWithUserView(
+    UnversionedForumAPIMixin, PrivateForumReadCacheMixin, APIView
+):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, username):
+        other = get_object_or_404(User, username=username, is_active=True)
+        if other.pk == request.user.pk:
+            raise NotFound()
+        conversation = (
+            _inbox_queryset(request.user)
+            .filter(Q(participant_a=other) | Q(participant_b=other))
+            .first()
         )
-        blocked_ids = _blocked_pair_ids(user)
-        if blocked_ids:
-            qs = qs.exclude(participant_a_id__in=blocked_ids).exclude(
-                participant_b_id__in=blocked_ids
-            )
-        return qs
+        if conversation is None:
+            raise NotFound()
+        return Response(
+            ConversationSerializer(conversation, context={"request": request}).data
+        )
 
 
 @extend_schema(
     responses={200: MessageSerializer(many=True), 404: dict},
     description=(
-        "List messages within one conversation, oldest first (cursor-"
-        "paginated). 404s for a non-participant, or once either side of the "
-        "conversation has blocked the other."
+        "List messages within one conversation, NEWEST first (cursor-"
+        "paginated; page older with the cursor). Reading any page marks the "
+        "conversation read for the caller. 404s for a non-participant, or "
+        "once either side of the conversation has blocked the other."
     ),
 )
 class ConversationMessagesView(
     UnversionedForumAPIMixin, PrivateForumReadCacheMixin, generics.ListAPIView
 ):
-    """Messages within one conversation. 404s (not 403) for a non-participant
-    — same existence-leak posture as `_get_visible_post`: a stranger gets no
-    signal a given conversation id even exists. Also 404s once either side
-    has blocked the other, symmetrically for both participants."""
+    """Messages within one conversation, newest first. 404s (not 403) for a
+    non-participant — same existence-leak posture as `_get_visible_post`: a
+    stranger gets no signal a given conversation id even exists. Also 404s
+    once either side has blocked the other, symmetrically for both
+    participants. A successful read advances the caller's read marker (todo
+    339): opening the thread IS reading it, like the topic-read record on
+    topic detail — the marker is `now`, so a message landing in the same
+    instant counts as seen; acceptable at forum scale."""
 
     serializer_class = MessageSerializer
     pagination_class = MessageCursorPagination
@@ -221,9 +340,17 @@ class ConversationMessagesView(
         other_id = conversation.other_participant_id(user)
         if _is_blocked_pair(user.pk, other_id):
             raise NotFound()
+        self._conversation = conversation
         return conversation.messages.select_related(
             "sender__wagtail_forum_profile__avatar"
         )
+
+    def list(self, request, *args, **kwargs):
+        response = super().list(request, *args, **kwargs)
+        # Only reached after get_queryset resolved (and authorized) the
+        # conversation — a 404 above never marks anything.
+        self._conversation.mark_read(request.user)
+        return response
 
 
 class MessageSendView(UnversionedForumAPIMixin, APIView):
@@ -291,6 +418,14 @@ class MessageSendView(UnversionedForumAPIMixin, APIView):
             conversation = Conversation.between(request.user, recipient)
             message = Message.objects.create(
                 conversation=conversation, sender=request.user, body=body
+            )
+            # Inbox bookkeeping (todo 339): the activity timestamp orders the
+            # inbox. Sending does NOT touch the sender's read marker — only
+            # reading does (ConversationMessagesView) — so a reply sent from a
+            # profile without opening the thread leaves the other side's
+            # earlier messages unread; own messages never count anyway.
+            Conversation.objects.filter(pk=conversation.pk).update(
+                last_message_at=message.created_at
             )
         result = MessageSerializer(message, context={"request": request}).data
         location = _created_location(

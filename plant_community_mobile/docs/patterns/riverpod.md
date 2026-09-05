@@ -258,3 +258,28 @@ expect(harness.events, containsAllInOrder(['clearOnLogout', 'firebase.signOut'])
 
 Reference: `test/services/auth_service_test.dart`,
 `test/services/push_registration_service_test.dart`.
+
+## Paged feed + child screen: splice, don't invalidate (todo 339)
+
+`ConversationsFeed` (inbox) is a `PagedList` provider with `loadMore()`.
+The thread screen sits on top of it and changes what an inbox row should
+show (read → unread 0; send → new preview, row to the top). Invalidating
+the feed from the thread refetches page 1 only and drops the appended
+pages the moment the user pops back — so the feed exposes local splices:
+
+```dart
+void markRead(int conversationId) { /* rewrite that row with unreadCount: 0 */ }
+void applyActivity(ForumConversation row) { /* remove by id, insert at index 0 */ }
+```
+
+and the thread calls them only when the feed is alive:
+
+```dart
+if (ref.exists(conversationsFeedProvider)) {
+  ref.read(conversationsFeedProvider.notifier).markRead(conversation.id);
+}
+ref.invalidate(unreadConversationCountProvider); // a single value: cheap to refetch
+```
+
+Same discipline as `TopicPosts.applyEditedPost`; the test proves the loaded
+pages survive (`fetchConversationsCalls` unchanged after the splice).

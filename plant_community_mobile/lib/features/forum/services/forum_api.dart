@@ -119,7 +119,67 @@ abstract class ForumApi {
     int page = 1,
     bool semantic = false,
   });
+
+  // --- Direct messages (todo 339) -----------------------------------------
+
+  /// The caller's DM inbox, most recent activity first. First page when
+  /// [cursorUrl] is null; pass the absolute `next` URL for a later page.
+  Future<CursorPage<ForumConversation>> fetchConversations({String? cursorUrl});
+
+  /// Number of conversations holding unread messages (NOT unread messages),
+  /// for the inbox badge.
+  Future<int> fetchUnreadConversationCount();
+
+  /// The 1:1 conversation with [username], or `null` when none exists yet —
+  /// the backend 404s for "no conversation", an unknown user AND a blocked
+  /// pair alike, so a null here is "nothing to show", never an error. A
+  /// blocked pair only surfaces as a 403 on [sendMessage].
+  Future<ForumConversation?> fetchConversationWith(String username);
+
+  /// Messages in a conversation, **newest first** (page via `next` for older
+  /// ones). Reading marks the conversation read server-side, so callers
+  /// should refresh the unread badge afterwards.
+  Future<CursorPage<ForumDirectMessage>> fetchMessages({
+    required int conversationId,
+    String? cursorUrl,
+  });
+
+  /// Send [body] to [username], creating the conversation on first send.
+  /// 403 = blocked pair ("You cannot message this user."), 400 = empty /
+  /// spam-screened (the server's own reason), 404 = unknown user. Carries an
+  /// `Idempotency-Key` — the backend replays a same-key retry.
+  Future<ForumDirectMessage> sendMessage({
+    required String username,
+    required String body,
+    required String idempotencyKey,
+  });
+
+  /// Report a message the OTHER participant sent, for moderator review.
+  /// [reason] is one of [forumReportReasons]; [detail] is optional free
+  /// text (≤ 280 chars). Reporting your own message is a 400.
+  Future<void> reportMessage({
+    required int messageId,
+    required String reason,
+    String? detail,
+    required String idempotencyKey,
+  });
 }
+
+/// A report reason the backend accepts (`Report.REASON_CHOICES`), with its
+/// user-facing label. MUST stay in sync with the server.
+class ForumReportReason {
+  const ForumReportReason(this.value, this.label);
+  final String value;
+  final String label;
+}
+
+/// The report reasons the backend accepts, in display order.
+const List<ForumReportReason> forumReportReasons = [
+  ForumReportReason('spam', 'Spam'),
+  ForumReportReason('abuse', 'Abuse'),
+  ForumReportReason('off_topic', 'Off topic'),
+  ForumReportReason('other', 'Other'),
+];
 
 /// The reaction types the backend accepts (`Reaction.REACTION_CHOICES`). MUST
 /// stay in sync with the server; a backend drift-guard test enforces the same
@@ -349,6 +409,81 @@ class HttpForumApi implements ForumApi {
     if (semantic) qp['semantic'] = 1;
     final resp = await _api.get('/forum/search/', queryParameters: qp);
     return ForumSearchPage.fromJson(resp.data as Map<String, dynamic>);
+  }
+
+  @override
+  Future<CursorPage<ForumConversation>> fetchConversations({
+    String? cursorUrl,
+  }) async {
+    final resp = cursorUrl != null
+        ? await _api.get(cursorUrl)
+        : await _api.get('/forum/conversations/');
+    return CursorPage.fromJson(
+      resp.data as Map<String, dynamic>,
+      ForumConversation.fromJson,
+    );
+  }
+
+  @override
+  Future<int> fetchUnreadConversationCount() async {
+    final resp = await _api.get('/forum/conversations/unread-count/');
+    return (resp.data as Map<String, dynamic>)['count'] as int? ?? 0;
+  }
+
+  @override
+  Future<ForumConversation?> fetchConversationWith(String username) async {
+    try {
+      final resp = await _api.get('/forum/conversations/with/$username/');
+      return ForumConversation.fromJson(resp.data as Map<String, dynamic>);
+    } on ApiException catch (e) {
+      if (e.statusCode == 404) return null;
+      rethrow;
+    }
+  }
+
+  @override
+  Future<CursorPage<ForumDirectMessage>> fetchMessages({
+    required int conversationId,
+    String? cursorUrl,
+  }) async {
+    final resp = cursorUrl != null
+        ? await _api.get(cursorUrl)
+        : await _api.get('/forum/conversations/$conversationId/messages/');
+    return CursorPage.fromJson(
+      resp.data as Map<String, dynamic>,
+      ForumDirectMessage.fromJson,
+    );
+  }
+
+  @override
+  Future<ForumDirectMessage> sendMessage({
+    required String username,
+    required String body,
+    required String idempotencyKey,
+  }) async {
+    final resp = await _api.post(
+      '/forum/users/$username/messages/',
+      data: {'body': body},
+      options: _idempotent(idempotencyKey),
+    );
+    return ForumDirectMessage.fromJson(resp.data as Map<String, dynamic>);
+  }
+
+  @override
+  Future<void> reportMessage({
+    required int messageId,
+    required String reason,
+    String? detail,
+    required String idempotencyKey,
+  }) async {
+    await _api.post(
+      '/forum/messages/$messageId/report/',
+      data: {
+        'reason': reason,
+        if (detail != null && detail.isNotEmpty) 'detail': detail,
+      },
+      options: _idempotent(idempotencyKey),
+    );
   }
 }
 

@@ -197,6 +197,7 @@ def test_wrapped_routes_use_the_throttled_views():
         "search": throttled.SearchView,
         "sync": throttled.SyncView,
         "topic-detail": throttled.TopicDetailView,
+        "conversation-unread-count": throttled.ConversationUnreadCountView,
         "topic-subscription": throttled.TopicSubscriptionView,
         "topic-bookmark": throttled.TopicBookmarkView,
         "user-block": throttled.UserBlockView,

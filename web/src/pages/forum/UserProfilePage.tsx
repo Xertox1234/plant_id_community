@@ -10,12 +10,13 @@ import {
 import { useAuth } from '../../contexts/AuthContext';
 import { useAnnounce } from '../../contexts/AnnouncerContext';
 import { specimenAvatar } from '../../utils/forumAvatars';
-import { threadPath, postAnchor } from '../../utils/forumUrls';
+import { threadPath, postAnchor, conversationPath } from '../../utils/forumUrls';
 import { TRUST_LEVEL_LABELS } from '../../utils/forumAuthor';
 import { logger } from '../../utils/logger';
-import { Award, UserCheck, UserX, Volume2, VolumeX } from 'lucide-react';
+import { Award, Mail, UserCheck, UserX, Volume2, VolumeX } from 'lucide-react';
 import { UserProfileSkeleton } from '../../components/forum/ForumSkeleton';
 import Avatar from '../../components/ui/Avatar';
+import ButtonLink from '../../components/ui/ButtonLink';
 import Card from '../../components/ui/Card';
 import Timestamp from '../../components/ui/Timestamp';
 import type { ForumUserProfile } from '../../types/forum';
@@ -214,6 +215,20 @@ export default function UserProfilePage() {
             </div>
           </div>
 
+          {/* Message (todo 339) — the DM entry point. `can_block` is the
+              backend's "authenticated and not yourself" flag, so it doubles
+              as the own-profile guard here; hidden once you've blocked them
+              (the send would 403 anyway). */}
+          {isAuthenticated && profile.can_block && !profile.is_blocked && (
+            <ButtonLink
+              to={conversationPath(profile.username)}
+              variant="secondary"
+              size="sm"
+              className="min-h-11 gap-1.5"
+            >
+              <Mail className="h-3.5 w-3.5" aria-hidden="true" /> Message
+            </ButtonLink>
+          )}
           {/* Block/unblock — never shown for the viewer's own profile or to
               an anonymous viewer (profile.can_block is the backend authority,
               same discipline as PostCard's can_edit/can_delete/can_report). */}

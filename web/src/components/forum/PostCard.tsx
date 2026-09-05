@@ -22,6 +22,7 @@ import { userProfilePath } from '../../utils/forumUrls';
 import { DELETED_AUTHOR_USERNAME, TRUST_LEVEL_LABELS } from '../../utils/forumAuthor';
 import { REACTION_TYPES } from '../../utils/forumReactions';
 import { specimenAvatar } from '../../utils/forumAvatars';
+import { REPORT_REASONS } from './reportReasons';
 import type { Post } from '@/types';
 
 interface PostCardProps {
@@ -49,14 +50,6 @@ interface PostCardProps {
    */
   onToggleSolution?: (post: Post) => void;
 }
-
-// Mirrors wagtail_forum Report.REASON_CHOICES.
-const REPORT_REASONS = [
-  { value: 'spam', label: 'Spam' },
-  { value: 'abuse', label: 'Abuse' },
-  { value: 'off_topic', label: 'Off topic' },
-  { value: 'other', label: 'Other' },
-] as const;
 
 // Helper function for reaction emojis
 function getReactionEmoji(type: string): string {

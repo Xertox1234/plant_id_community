@@ -15,6 +15,8 @@ import '../../features/forum/forum_screen.dart';
 import '../../features/forum/screens/forum_topics_screen.dart';
 import '../../features/forum/screens/forum_thread_screen.dart';
 import '../../features/forum/screens/forum_composer_screen.dart';
+import '../../features/forum/screens/forum_conversation_screen.dart';
+import '../../features/forum/screens/forum_conversations_screen.dart';
 import '../../features/forum/screens/forum_notifications_screen.dart';
 import '../../features/forum/screens/forum_search_screen.dart';
 import '../../features/forum/screens/forum_user_profile_screen.dart';
@@ -47,6 +49,9 @@ abstract class AppRoutes {
   // backend 401s an anonymous request, which the screen could only render as
   // a Retry dead-end (audit 2026-09-04 M6).
   static const forumNotifications = '/forum/notifications';
+  // Auth-only for the same reason: the DM inbox and every thread under it
+  // are the caller's own private messages (todo 339).
+  static const forumMessages = '/forum/messages';
   static const collection = '/collection';
 }
 
@@ -68,7 +73,11 @@ GoRouter appRouter(Ref ref) {
     AppRoutes.profile,
     AppRoutes.garden,
     AppRoutes.forumNotifications,
+    AppRoutes.forumMessages,
   };
+  // Parameterised protected routes (`/forum/messages/:username`) can't be
+  // matched by the exact-path set above; guard them by prefix.
+  const protectedPrefixes = {AppRoutes.forumMessages};
   // Auth routes that authenticated users should not see
   const authOnlyRoutes = {AppRoutes.login, AppRoutes.register};
 
@@ -81,7 +90,10 @@ GoRouter appRouter(Ref ref) {
       final location = state.uri.path;
 
       // Redirect unauthenticated users away from protected routes
-      if (!isAuthenticated && protectedRoutes.contains(location)) {
+      final isProtected =
+          protectedRoutes.contains(location) ||
+          protectedPrefixes.any((p) => location.startsWith('$p/'));
+      if (!isAuthenticated && isProtected) {
         return AppRoutes.login;
       }
 
@@ -251,6 +263,26 @@ GoRouter appRouter(Ref ref) {
           context: context,
           state: state,
           child: const ForumNotificationsScreen(),
+        ),
+      ),
+      GoRoute(
+        path: AppRoutes.forumMessages,
+        name: 'forumMessages',
+        pageBuilder: (context, state) => _buildPageWithTransition(
+          context: context,
+          state: state,
+          child: const ForumConversationsScreen(),
+        ),
+      ),
+      GoRoute(
+        path: '${AppRoutes.forumMessages}/:username',
+        name: 'forumConversation',
+        pageBuilder: (context, state) => _buildPageWithTransition(
+          context: context,
+          state: state,
+          child: ForumConversationScreen(
+            username: state.pathParameters['username'] ?? '',
+          ),
         ),
       ),
       GoRoute(

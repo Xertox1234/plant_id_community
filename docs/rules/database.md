@@ -244,3 +244,13 @@ Compact checklist auto-injected before edits. Long-form:
   in the worker's `finally`, a shared bounded pool (never one per call), and
   a real socket timeout on the request — an executor `.result(timeout)` only
   bounds the CALLER, the stalled thread and its connection live on.
+- **Fixed-cardinality per-side state goes in columns, not a through-table;
+  compute "unread" in ONE annotated query.** A 1:1 conversation has exactly
+  two sides, so `participant_a_read_at`/`participant_b_read_at` + a
+  `Case(When(participant_a=user …))` picks "my" marker, `Count("messages",
+  filter=~Q(sender=user) & (Q(my_read_at__isnull=True) |
+  Q(created_at__gt=F("my_read_at"))))` is the unread count, and two
+  correlated `Subquery`s give the newest message's body/sender — all inside
+  the same page query, so the flat-count pin holds. Denormalize the activity
+  timestamp (`last_message_at`, bumped on write, backfilled in the
+  migration) rather than ordering by a MAX() aggregate (todo 339).

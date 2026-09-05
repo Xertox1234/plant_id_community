@@ -206,7 +206,14 @@ class MessageReportView(forum_direct_message_views.MessageReportView):
     pass
 
 
-# ConversationListView/ConversationMessagesView have no wrapper here — GET
-# (list) is a page load, not a polling target, same treatment as
-# NotificationListView/TopicBookmarkListView/MyBlocksView above — mounted
-# straight from the package in api_urls.py.
+@_throttled("dm_unread_count", "GET")
+class ConversationUnreadCountView(
+    forum_direct_message_views.ConversationUnreadCountView
+):
+    pass
+
+
+# ConversationListView/ConversationMessagesView/ConversationWithUserView have
+# no wrapper here — GET (list/detail) is a page load, not a polling target,
+# same treatment as NotificationListView/TopicBookmarkListView/MyBlocksView
+# above — mounted straight from the package in api_urls.py.

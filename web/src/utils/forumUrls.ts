@@ -42,6 +42,11 @@ export function userProfilePath(username: string): string {
   return `/forum/users/${encodeURIComponent(username)}`;
 }
 
+/** Direct-message thread with a member (todo 339); `/messages` is the inbox. */
+export function conversationPath(username: string): string {
+  return `/messages/${encodeURIComponent(username)}`;
+}
+
 /**
  * Path for a topics/recent row: /forum/{board.id}-{board.slug}/{id}-{slug}.
  *

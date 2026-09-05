@@ -945,3 +945,20 @@ read marker advances exactly when they see them. Any future counter or
 marker added to `retrieve` goes BELOW the peek return. The spike decision
 (why polling, not SSE/WebSockets) is
 `docs/superpowers/specs/2026-09-05-forum-realtime-updates-spike.md`.
+
+### DM inbox contract (todo 339)
+
+`direct_messages._inbox_queryset(user)` is the single source for every
+conversation read: the user's conversations minus blocked pairs, annotated
+with `my_read_at`, `unread_count`, `last_message_body/sender_id`, ordered by
+`Conversation.last_message_at` (bumped in `MessageSendView`; `db_index`).
+`ConversationSerializer` renders `unread_count`, `last_message_at` and a
+`last_message {body ≤140, is_mine, created_at}` preview from those
+annotations — so anything that serializes a conversation must come from
+`_inbox_queryset`, never a bare `Conversation.objects` row. Reading
+(`GET conversations/<id>/messages/`, newest-first) is what marks the
+caller's side read; sending never touches a marker. Badge:
+`conversations/unread-count/` counts conversations with `unread_count > 0`
+(host-throttled like the bell). Profile "Message" action:
+`conversations/with/<username>/` → the thread or 404 (none / unknown /
+blocked / self — no existence leak).

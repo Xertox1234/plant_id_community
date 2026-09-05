@@ -30,7 +30,10 @@ class ForumScreen extends ConsumerWidget {
             onPressed: () => context.pushNamed('forumSearch'),
             icon: const Icon(Icons.search),
           ),
-          if (isAuthenticated) const _NotificationsBellButton(),
+          if (isAuthenticated) ...const [
+            _MessagesInboxButton(),
+            _NotificationsBellButton(),
+          ],
         ],
       ),
       body: SafeArea(
@@ -92,6 +95,27 @@ class ForumScreen extends ConsumerWidget {
             ],
           ),
         ),
+      ),
+    );
+  }
+}
+
+/// Inbox icon with an unread-conversation badge, opening the DM inbox
+/// (todo 339). Sits beside the bell so the two private feeds read as a pair.
+class _MessagesInboxButton extends ConsumerWidget {
+  const _MessagesInboxButton();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final unreadAsync = ref.watch(unreadConversationCountProvider);
+    final unread = unreadAsync.asData?.value ?? 0;
+    return IconButton(
+      tooltip: 'Messages',
+      onPressed: () => context.pushNamed('forumMessages'),
+      icon: Badge(
+        isLabelVisible: unread > 0,
+        label: Text('$unread'),
+        child: const Icon(Icons.mail_outline),
       ),
     );
   }

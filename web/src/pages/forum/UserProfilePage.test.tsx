@@ -130,6 +130,54 @@ describe('UserProfilePage', () => {
     expect(screen.queryByRole('list', { name: 'Badges' })).not.toBeInTheDocument();
   });
 
+  it('links to the DM thread beside Block/Mute for another member (todo 339)', async () => {
+    vi.spyOn(forumService, 'fetchUserProfile').mockResolvedValue({
+      ...mockProfile,
+      can_block: true,
+      is_blocked: false,
+    });
+
+    renderProfile('ada');
+
+    await screen.findByRole('heading', { name: 'Ada L.' });
+    expect(screen.getByRole('link', { name: 'Message' })).toHaveAttribute('href', '/messages/ada');
+    expect(screen.getByRole('button', { name: /^block$/i })).toBeInTheDocument();
+  });
+
+  it('hides the Message link on your own profile (can_block false) and for an anonymous viewer', async () => {
+    vi.spyOn(forumService, 'fetchUserProfile').mockResolvedValue({
+      ...mockProfile,
+      can_block: false,
+    });
+    const { unmount } = renderProfile('ada');
+    await screen.findByRole('heading', { name: 'Ada L.' });
+    expect(screen.queryByRole('link', { name: 'Message' })).not.toBeInTheDocument();
+    unmount();
+
+    vi.mocked(useAuth).mockReturnValue(mockAuth(false));
+    vi.spyOn(forumService, 'fetchUserProfile').mockResolvedValue({
+      ...mockProfile,
+      can_block: true,
+    });
+    renderProfile('ada');
+    await screen.findByRole('heading', { name: 'Ada L.' });
+    expect(screen.queryByRole('link', { name: 'Message' })).not.toBeInTheDocument();
+  });
+
+  it('hides the Message link once you have blocked the member', async () => {
+    vi.spyOn(forumService, 'fetchUserProfile').mockResolvedValue({
+      ...mockProfile,
+      can_block: true,
+      is_blocked: true,
+    });
+
+    renderProfile('ada');
+
+    await screen.findByRole('heading', { name: 'Ada L.' });
+    expect(screen.queryByRole('link', { name: 'Message' })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /^unblock$/i })).toBeInTheDocument();
+  });
+
   it('hides the block button when can_block is false (own profile, backend authority)', async () => {
     vi.spyOn(forumService, 'fetchUserProfile').mockResolvedValue({
       ...mockProfile,

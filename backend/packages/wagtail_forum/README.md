@@ -174,7 +174,24 @@ Routes: boards, topics (list/detail/create), posts (list/create/edit/delete),
 reactions, reports, image upload, profiles (`me` + public), search, delta `sync`,
 user mention search, notifications (list/unread-count/mark-read), recent topics,
 community experts, block/unblock + blocked-user list, private messaging
-(conversations, send, report), and the landing-page event hero.
+(inbox, unread-count, with-user lookup, messages, send, report), and the
+landing-page event hero.
+
+### Direct messages: the inbox contract
+
+`GET conversations/` is an inbox: most recent activity first
+(`Conversation.last_message_at`, bumped on every send), each row carrying
+`unread_count` (messages from the other side newer than the caller's read
+marker — own messages never count) and a `last_message` preview
+(`{body, is_mine, created_at}`, body truncated to `MESSAGE_PREVIEW_CHARS`).
+`GET conversations/unread-count/` returns `{count}` — the number of
+conversations with unread messages, for a badge; a host should throttle it
+like `notifications/unread-count/`. `GET conversations/with/<username>/`
+resolves the caller's conversation with one user (404 when none exists yet,
+the user is unknown, or either side has blocked the other) so a profile's
+"Message" action can open the existing thread. `GET conversations/<id>/messages/`
+is **newest first** (page older with the cursor; render a page reversed)
+and reading any page marks the conversation read for the caller.
 
 The package ships **no authentication and no throttling** by design — see
 [Rate limiting](#rate-limiting).

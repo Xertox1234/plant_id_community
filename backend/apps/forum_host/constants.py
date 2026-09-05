@@ -44,6 +44,8 @@ DEFAULT_FORUM_RATELIMITS = {
     # Generous — the bell polls this on an interval; the limit exists only to
     # bound a runaway/malicious client, not to constrain normal polling cadence.
     "notification_unread_count": "120/m",
+    # The DM inbox badge polls this on the same cadence as the bell (todo 339).
+    "dm_unread_count": "120/m",
     # Same tier, same reason: the thread page polls `?peek=1` every 30 s per
     # VISIBLE tab (todo 346) — per-IP so a NAT'd office with many tabs still
     # fits; the limit bounds a runaway client, not normal cadence.

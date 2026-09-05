@@ -244,3 +244,18 @@ Compact checklist auto-injected before edits. Long-form:
   `aria-live`, never spliced into a list the reader may be mid-way through
   (`ThreadDetailPage` new-replies pill, todo 346; the unread bell is the
   other instance).
+- **One poll stream per cadence: a second badge joins the existing tick,
+  and a failure in one fetch must not blank the other.** The DM unread count
+  rides `UnreadNotificationsContext`'s 30 s tick via `Promise.allSettled`
+  (not `Promise.all`), same epoch guard, no second interval; a rejected DM
+  fetch leaves the bell's count intact and vice versa — tested explicitly
+  (todo 339).
+- **A chat thread from newest-first pages: render each page reversed,
+  prepend older pages, key by id, and dedupe the echo of your own send
+  against a later page.** The thread page owns the ordering; the API's
+  cursor order is the API's business (todo 339, `ConversationPage`).
+- **`react-hooks/refs`: never read `ref.current` during render — hand a
+  child an accessor (`getEpoch={() => ref.current}`) and let it read at
+  event time.** And a control you disable while submitting cannot take
+  focus in the same tick: request focus with a state bump and focus in an
+  effect once React has re-enabled it (todo 339, `ConversationPage`).

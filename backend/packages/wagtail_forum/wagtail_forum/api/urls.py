@@ -4,6 +4,8 @@ from .bookmarks import TopicBookmarkListView, TopicBookmarkView
 from .direct_messages import (
     ConversationListView,
     ConversationMessagesView,
+    ConversationUnreadCountView,
+    ConversationWithUserView,
     MessageReportView,
     MessageSendView,
 )
@@ -124,8 +126,19 @@ urlpatterns = [
         MessageSendView.as_view(),
         name="user-message-send",
     ),
-    # Private messaging (todo 319/M10).
+    # Private messaging (todo 319/M10; inbox contract todo 339). Literal
+    # paths before the <int:conversation_id> capture, as everywhere else.
     path("conversations/", ConversationListView.as_view(), name="conversation-list"),
+    path(
+        "conversations/unread-count/",
+        ConversationUnreadCountView.as_view(),
+        name="conversation-unread-count",
+    ),
+    path(
+        "conversations/with/<str:username>/",
+        ConversationWithUserView.as_view(),
+        name="conversation-with-user",
+    ),
     path(
         "conversations/<int:conversation_id>/messages/",
         ConversationMessagesView.as_view(),

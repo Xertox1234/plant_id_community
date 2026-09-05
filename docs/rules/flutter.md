@@ -129,3 +129,16 @@ Compact checklist auto-injected before edits. Long-form:
   instead of shipping a visible-but-inert URL. New block widgets accept the
   same handler; a blank envelope renders the sibling placeholder (like a
   deleted image), never an empty card (todo 344 review).
+- **A DM-style thread is a `reverse: true` list pinned to the newest item;
+  `loadOlder()` prepends a reversed page; `send()` appends the echo and
+  invalidates the badge + inbox providers — never the thread itself (an
+  invalidation loop).** Idempotency-Key per action: reuse for a same-body
+  retry, rotate when the body changes (todo 339, `ConversationThread`).
+- **Never `ref.invalidate` a PAGED feed from a child screen — splice it.**
+  A feed's `build()` fetches page 1 only, so invalidating it from a thread
+  (after read/send) silently drops every page `loadMore` appended while the
+  inbox is still mounted underneath. Expose `markRead(id)` /
+  `applyActivity(row)`-style methods that rewrite the loaded items in
+  place, call them only `if (ref.exists(provider))`, and keep invalidation
+  for cheap single-value providers like a badge count (todo 339 review;
+  `TopicPosts.applyEditedPost` is the precedent).
