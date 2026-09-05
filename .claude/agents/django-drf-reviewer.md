@@ -186,6 +186,11 @@ Use Grep as fallback for any LSP call that returns an error or an empty/inconclu
 - [ ] **Every new surface that renders an author lands in the block/mute signal path.** A nested attribution (quote envelope, DM preview, badge holder) needs the viewer's `is_blocked` / `is_muted` like `PostSerializer` (COLLAPSE, not HIDE — never drop the attribution, `available` must stay truthful); anonymous viewers and moderators get constant `False`
 - [ ] **`plain_text_excerpt` (search / recent topics) handles every block kind that carries text** — a new dict-valued block (`post_quote.text`) silently falls through to `continue` and yields an empty excerpt for a post made only of that block
 
+### Notification preference additions (2026-09-05, todo 343)
+
+- [ ] **A preference matrix is stored sparse, resolved on read, partial on write** — check the read shape is the fully resolved matrix (never the raw overrides), a partial PATCH merges server-side against the instance, unknown keys / non-booleans are a 400 under the field key, and a test pins that the defaults equal the pre-existing behaviour (shipping the feature must change nothing for members with no overrides)
+- [ ] **Per-recipient gating lives inside the fan-out task** where the profile row is already in hand (bulk-fetch for batches); the event → preference verb map is explicit and unmapped events stay UNGATED
+
 ## Output Format (Review Mode)
 
 Return ONLY this JSON structure (no surrounding prose, no markdown fences in the actual response — the example fences below show the schema):

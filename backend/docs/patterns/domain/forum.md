@@ -1013,3 +1013,21 @@ Three review-caught rules (todo 342):
   must never present it as that member's verbatim words. Fan-out fires only
   at create time (reply_added / topic_created): a quote or mention added by
   a later edit notifies nobody — the same pre-existing limit mentions have.
+
+### Per-channel notification preferences (todo 343)
+
+`ForumProfile.notification_preferences` is a sparse `{verb: {channel: bool}}`
+overrides map; `wagtail_forum/preferences.py` resolves it against
+`NOTIFICATION_DEFAULTS` (`resolve_preferences`), validates a partial client
+payload (`validate_preferences`), merges it (`merge_preferences`) and answers
+the host's fan-out (`wants_channel(overrides, event, channel)`). In-app is
+always on; `NOTIFICATION_MATRIX` lists exactly the cells with a delivery
+path — `reply` {push, email}, `mention` / `quote` / `solution` {push} — so a
+stored preference can never be inert, and the tray-silent moderation push
+(a client sync signal with no in-app row) is not a preference at all. A cell
+the host's defaults omit falls back to the package's own default for that
+cell. `MeProfileSerializer` exposes the resolved matrix
+and accepts a partial one; the host's `send_forum_push`,
+`send_forum_push_batch` and `send_forum_email_batch` check `wants_channel`
+after the `forum_notifications` master switch. Defaults are the pre-343
+behaviour, pinned by test, so shipping it changed nothing for anyone.

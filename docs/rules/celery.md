@@ -86,3 +86,7 @@ Compact checklist auto-injected before edits. Long-form:
   `SoftTimeLimitExceeded` re-enqueue a continuation; package code that
   catches `Exception` must re-raise that class BY NAME (`type(exc).__name__`)
   since it cannot import Celery (todo 340 review).
+- **Gate a per-recipient preference inside the fan-out task, where the profile
+  row is already in hand**, not in the enqueueing request; map event names to
+  preference verbs explicitly and leave unmapped events UNGATED so a future
+  event cannot be silently dropped by an old preference row (todo 343).

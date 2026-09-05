@@ -266,3 +266,10 @@ Compact checklist auto-injected before edits. Long-form:
   remounting the composer with `autoFocus` — TipTap `content` is init-only. A
   nested attribution must read the viewer's `is_blocked` / `is_muted` and collapse
   like the parent card, never hide (todo 342).
+- **A settings matrix saves one cell per interaction:** optimistic flip, PATCH
+  only that cell (the server merges), replace local state with the response,
+  revert exactly that cell on failure, disable every cell while a save is in
+  flight, and announce through one always-mounted live region. Render only the
+  cells the server's resolved object carries, and treat a missing object (an
+  older backend — separate deploy pipelines) as the load-error branch, never
+  an unguarded index (todo 343).
