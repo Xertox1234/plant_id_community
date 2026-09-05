@@ -300,7 +300,7 @@ export default function ThreadListPage() {
                 type="search"
                 name="search"
                 placeholder="Search this board…"
-                className="min-h-11 flex-1 rounded-pill border border-line bg-surface-2/60 px-4 py-2 text-[13.5px] text-ink transition-colors placeholder:text-ink-3 focus:border-transparent focus:ring-2 focus:ring-secondary focus:outline-none"
+                className="min-h-11 flex-1 rounded-pill border border-line bg-surface-2/60 px-4 py-2 text-body-sm text-ink transition-colors placeholder:text-ink-3 focus:border-transparent focus:ring-2 focus:ring-secondary focus:outline-none"
               />
               <Button type="submit" variant="secondary">
                 Search
@@ -404,7 +404,7 @@ export default function ThreadListPage() {
       <RailSlot>
         {category?.description && (
           <RailModule icon={<Info aria-hidden="true" />} title="About this board">
-            <p className="text-[13px] leading-relaxed text-ink-2">{category.description}</p>
+            <p className="text-body-sm leading-relaxed text-ink-2">{category.description}</p>
             {category.thread_count != null && (
               <p className="gt-label">{category.thread_count} threads</p>
             )}

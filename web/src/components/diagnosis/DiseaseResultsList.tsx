@@ -38,7 +38,7 @@ export default function DiseaseResultsList({ results }: Props) {
               <h3 className="text-lg font-semibold text-ink">
                 {r.suggested_disease_name || r.display_name || 'Unknown condition'}
               </h3>
-              <span className="shrink-0 rounded-pill border border-line bg-surface-2/60 px-2.5 py-0.5 font-mono text-[13px] tabular-nums text-ink-2">
+              <span className="shrink-0 rounded-pill border border-line bg-surface-2/60 px-2.5 py-0.5 font-mono text-body-sm tabular-nums text-ink-2">
                 {r.confidence_percentage}%<span className="sr-only"> confidence</span>
               </span>
             </div>

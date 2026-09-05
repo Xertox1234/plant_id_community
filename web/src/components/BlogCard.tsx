@@ -55,10 +55,10 @@ function BlogCard({ post, compact = false }: BlogCardProps) {
           />
         )}
         <span className="flex min-w-0 flex-col gap-0.5">
-          <span className="truncate text-[13px] font-medium text-ink transition-colors group-hover:text-primary">
+          <span className="truncate text-body-sm font-medium text-ink transition-colors group-hover:text-primary">
             {post.title}
           </span>
-          {meta && <span className="font-mono text-[11px] text-ink-3">{meta}</span>}
+          {meta && <span className="font-mono text-micro text-ink-3">{meta}</span>}
         </span>
       </Link>
     );
@@ -83,17 +83,17 @@ function BlogCard({ post, compact = false }: BlogCardProps) {
         )}
         <span className="flex flex-1 flex-col gap-2.5 p-5">
           {category && (
-            <span className="self-start rounded-pill border border-line bg-surface-2/60 px-2.5 py-0.5 font-mono text-[11px] uppercase tracking-[0.14em] text-ink-2">
+            <span className="self-start rounded-pill border border-line bg-surface-2/60 px-2.5 py-0.5 font-mono text-micro uppercase tracking-[0.14em] text-ink-2">
               {category.name}
             </span>
           )}
-          <span className="text-[17px] font-semibold leading-snug text-ink transition-colors group-hover:text-primary">
+          <span className="text-lead font-semibold leading-snug text-ink transition-colors group-hover:text-primary">
             {post.title}
           </span>
           {excerpt && (
-            <span className="line-clamp-2 text-[13.5px] leading-relaxed text-ink-2">{excerpt}</span>
+            <span className="line-clamp-2 text-body-sm leading-relaxed text-ink-2">{excerpt}</span>
           )}
-          {meta && <span className="mt-auto pt-1 font-mono text-[11.5px] text-ink-3">{meta}</span>}
+          {meta && <span className="mt-auto pt-1 font-mono text-micro text-ink-3">{meta}</span>}
         </span>
       </Link>
     </Card>

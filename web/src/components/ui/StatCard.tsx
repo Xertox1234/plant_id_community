@@ -30,8 +30,8 @@ export default function StatCard({
       </Tile>
       <div>
         <div className="font-mono text-[22px] tracking-tight tabular-nums">{value}</div>
-        <div className="text-[12.5px] font-medium">{label}</div>
-        {sublabel && <div className="text-[11.5px] text-ink-3">{sublabel}</div>}
+        <div className="text-meta font-medium">{label}</div>
+        {sublabel && <div className="text-micro text-ink-3">{sublabel}</div>}
       </div>
       {progress && (
         <ProgressBar

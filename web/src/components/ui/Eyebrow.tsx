@@ -9,7 +9,7 @@ export interface EyebrowProps {
 export default function Eyebrow({ children, className = '' }: EyebrowProps) {
   return (
     <p
-      className={`font-sans font-semibold uppercase text-ink-3 text-[11px] leading-[1.4] tracking-[0.66px] ${className}`}
+      className={`font-sans font-semibold uppercase text-ink-3 text-micro leading-[1.4] tracking-[0.66px] ${className}`}
     >
       {children}
     </p>

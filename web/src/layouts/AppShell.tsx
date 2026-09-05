@@ -47,7 +47,7 @@ const NAV = [
 ];
 
 function navClass({ isActive }: { isActive: boolean }) {
-  return `flex items-center gap-2.5 rounded-md px-3 py-2 text-[13.5px] font-medium transition-colors ${
+  return `flex items-center gap-2.5 rounded-md px-3 py-2 text-body-sm font-medium transition-colors ${
     isActive ? 'app-nav-active' : 'text-ink-2 hover:bg-surface-2/70 hover:text-ink'
   }`;
 }
@@ -92,7 +92,7 @@ function SideFoot({ onNavigate }: SideFootProps) {
       {isAuthenticated ? (
         <button
           onClick={handleLogout}
-          className="flex items-center gap-2.5 rounded-md px-3 py-2 text-left text-[13.5px] font-medium text-ink-2 transition-colors hover:bg-surface-2/70 hover:text-ink"
+          className="flex items-center gap-2.5 rounded-md px-3 py-2 text-left text-body-sm font-medium text-ink-2 transition-colors hover:bg-surface-2/70 hover:text-ink"
         >
           <LogOut className="h-[17px] w-[17px] opacity-85" aria-hidden="true" />
           Log out
@@ -119,7 +119,7 @@ function Brand({ onNavigate }: BrandProps) {
       aria-label="Houseplant MD home"
     >
       <BrandMark size={34} />
-      <span className="text-[14.5px] leading-tight font-semibold text-ink">
+      <span className="text-body leading-tight font-semibold text-ink">
         Houseplant MD
         <small className="block font-mono text-[9.5px] tracking-[0.14em] text-ink-3 uppercase">
           The plant clinic
@@ -245,7 +245,7 @@ export default function AppShell({ children }: AppShellProps) {
                 type="button"
                 onClick={() => setPaletteOpen(true)}
                 aria-label="Search plants, posts, people…"
-                className="flex min-w-0 max-w-[430px] flex-1 items-center gap-2.5 rounded-pill border border-line bg-surface-2/70 px-4 py-2.5 text-[13.5px] text-ink-3 transition-colors hover:border-line-2"
+                className="flex min-w-0 max-w-[430px] flex-1 items-center gap-2.5 rounded-pill border border-line bg-surface-2/70 px-4 py-2.5 text-body-sm text-ink-3 transition-colors hover:border-line-2"
               >
                 <Search className="h-[15px] w-[15px] shrink-0" aria-hidden="true" />
                 {/* min-w-0 + truncate: without them this button's intrinsic width
@@ -254,7 +254,7 @@ export default function AppShell({ children }: AppShellProps) {
                 <span className="min-w-0 truncate">Search plants, posts, people…</span>
                 <kbd
                   aria-hidden="true"
-                  className="ml-auto hidden shrink-0 rounded-sm border border-line-2 px-1.5 py-0.5 font-mono text-[10.5px] sm:block"
+                  className="ml-auto hidden shrink-0 rounded-sm border border-line-2 px-1.5 py-0.5 font-mono text-micro sm:block"
                 >
                   {isMac ? '⌘K' : 'Ctrl K'}
                 </kbd>
@@ -289,7 +289,7 @@ export default function AppShell({ children }: AppShellProps) {
                 ) : (
                   <Link
                     to="/signup"
-                    className="canopy-cta rounded-pill px-4 py-2 text-[13px] font-semibold"
+                    className="canopy-cta rounded-pill px-4 py-2 text-body-sm font-semibold"
                   >
                     Sign up
                   </Link>

@@ -99,7 +99,7 @@ export default function HomeActivity() {
                         <img
                           src={t.thumbnail_url}
                           alt=""
-                          className="h-10 w-10 flex-none rounded-[10px] border border-line object-cover"
+                          className="h-10 w-10 flex-none rounded-sm border border-line object-cover"
                         />
                       ) : (
                         <Tile tone={tone} size="sm" aria-hidden="true">

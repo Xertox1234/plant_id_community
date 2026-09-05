@@ -38,7 +38,7 @@ export default function IdentificationCard({
         <Sparkles className="h-4 w-4 text-secondary" aria-hidden="true" />
         <h2
           id="identification-heading"
-          className="gt-label normal-case tracking-normal text-[13px] font-semibold text-ink"
+          className="gt-label normal-case tracking-normal text-body-sm font-semibold text-ink"
         >
           What the app suggested
         </h2>

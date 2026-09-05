@@ -113,7 +113,9 @@ export default function StreamFieldRenderer({
   }
 
   const wrapper =
-    variant === 'article' ? 'mx-auto w-full max-w-[70ch] text-[15px]' : 'prose prose-lg max-w-none';
+    variant === 'article'
+      ? 'mx-auto w-full max-w-[70ch] text-body-lg'
+      : 'prose prose-lg max-w-none';
 
   return (
     <div className={wrapper}>
@@ -254,9 +256,9 @@ function StreamFieldBlock({ block, mentionHighlight, currentTopicId }: StreamFie
               forumBody.ts writes. */}
           {quoteText &&
             (mentionHighlight ? (
-              <div className="mb-2 text-[17px] whitespace-pre-line">{quoteText}</div>
+              <div className="mb-2 text-lead whitespace-pre-line">{quoteText}</div>
             ) : (
-              renderTextOrSafeHtml(quoteText, 'mb-2 text-[17px]')
+              renderTextOrSafeHtml(quoteText, 'mb-2 text-lead')
             ))}
           {attribution && (
             <footer className="text-sm text-ink-3 not-italic">— {attribution}</footer>
@@ -274,7 +276,7 @@ function StreamFieldBlock({ block, mentionHighlight, currentTopicId }: StreamFie
       // Backend: StructBlock with code (TextBlock) and language (ChoiceBlock)
       const { code, language } = block.value;
       return (
-        <pre className="my-6 overflow-x-auto rounded-md border border-line bg-surface-2/60 p-4 font-mono text-[13px] text-ink">
+        <pre className="my-6 overflow-x-auto rounded-md border border-line bg-surface-2/60 p-4 font-mono text-body-sm text-ink">
           <code className={`language-${language || 'text'}`}>{code}</code>
         </pre>
       );
@@ -331,10 +333,10 @@ function StreamFieldBlock({ block, mentionHighlight, currentTopicId }: StreamFie
       // Map button style to Tailwind classes
       const buttonClasses =
         buttonStyle === 'secondary'
-          ? 'inline-block rounded-pill border border-line bg-surface-2/60 px-6 py-2.5 text-[13.5px] font-semibold text-ink-2 transition-colors hover:bg-surface-2 hover:text-ink'
+          ? 'inline-block rounded-pill border border-line bg-surface-2/60 px-6 py-2.5 text-body-sm font-semibold text-ink-2 transition-colors hover:bg-surface-2 hover:text-ink'
           : buttonStyle === 'outline'
-            ? 'inline-block rounded-pill border border-line bg-transparent px-6 py-2.5 text-[13.5px] font-semibold text-ink-2 transition-colors hover:bg-surface-2/60 hover:text-ink'
-            : 'canopy-cta inline-block rounded-pill px-6 py-2.5 text-[13.5px] font-semibold';
+            ? 'inline-block rounded-pill border border-line bg-transparent px-6 py-2.5 text-body-sm font-semibold text-ink-2 transition-colors hover:bg-surface-2/60 hover:text-ink'
+            : 'canopy-cta inline-block rounded-pill px-6 py-2.5 text-body-sm font-semibold';
 
       return (
         <div className="canopy-card my-8 rounded-md p-8 text-center">
@@ -419,7 +421,7 @@ function PostQuoteBlock({ value, currentTopicId }: PostQuoteBlockProps) {
   const sameTopic = currentTopicId != null && topic_id === currentTopicId;
   return (
     <blockquote className={QUOTE_BLOCK_CLASS}>
-      <div className="mb-2 text-[17px] whitespace-pre-line">{text}</div>
+      <div className="mb-2 text-lead whitespace-pre-line">{text}</div>
       <footer className="text-sm text-ink-3 not-italic">
         {available && author ? (
           <>

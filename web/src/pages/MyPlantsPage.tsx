@@ -26,7 +26,7 @@ interface StaticPillProps {
 function StaticPill({ children, tone = 'text-ink-2', suffix }: StaticPillProps) {
   return (
     <span
-      className={`shrink-0 rounded-pill border border-line bg-surface-2/60 px-2.5 py-0.5 font-mono text-[11px] ${tone}`}
+      className={`shrink-0 rounded-pill border border-line bg-surface-2/60 px-2.5 py-0.5 font-mono text-micro ${tone}`}
     >
       {children}
       {suffix && <span className="sr-only"> {suffix}</span>}

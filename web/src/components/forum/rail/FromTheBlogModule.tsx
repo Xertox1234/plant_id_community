@@ -41,13 +41,13 @@ export default function FromTheBlogModule() {
         {posts.map((post) => (
           <li key={post.id}>
             <Link to={`/blog/${post.meta?.slug ?? post.slug}`} className="group block">
-              <span className="text-[13px] font-medium text-ink transition-colors group-hover:text-primary">
+              <span className="text-body-sm font-medium text-ink transition-colors group-hover:text-primary">
                 {post.title}
               </span>
               {/* The popular endpoint sends `excerpt`, not the detail payload's
                   `introduction` — gate on what this module's fetch actually returns. */}
               {(post.excerpt ?? post.introduction) && (
-                <span className="mt-0.5 line-clamp-2 block text-[12px] text-ink-3">
+                <span className="mt-0.5 line-clamp-2 block text-meta text-ink-3">
                   {post.excerpt ?? post.introduction}
                 </span>
               )}

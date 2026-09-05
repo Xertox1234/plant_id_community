@@ -221,6 +221,26 @@
   --radius-pill: 999px;
 }
 
+/* ───────── body-text scale (todo 351): the rungs the UI actually uses, line-heights paired.
+   Display sizes stay on the .gt-* classes below; `text-hero` is the one display rung
+   used as a responsive override (`gt-h1 md:text-hero`). Use these, never text-[NNpx]. ───────── */
+@theme {
+  --text-micro: 11px;
+  --text-micro--line-height: 1.35;
+  --text-meta: 12.5px;
+  --text-meta--line-height: 1.4;
+  --text-body-sm: 13px;
+  --text-body-sm--line-height: 1.45;
+  --text-body: 14px;
+  --text-body--line-height: 1.5;
+  --text-body-lg: 15px;
+  --text-body-lg--line-height: 1.5;
+  --text-lead: 17px;
+  --text-lead--line-height: 1.4;
+  --text-hero: 38px;
+  --text-hero--line-height: 1.1; /* gt-h1's leading — the hero rung only changes size */
+}
+
 /* ───────── dark variant keyed to OUR toggle, not OS prefers-color-scheme ───────── */
 @custom-variant dark (&:where([data-mode="dark"], [data-mode="dark"] *));
 

@@ -78,3 +78,29 @@ answer's `ring-*` box-shadow (PR #537). Author such rules outside every
 `@layer`, with a comment explaining the cascade dependency — see
 `.app-rail:not(:has(*))` and the static `.canopy-flash .canopy-card` rule in
 `web/src/index.css`.
+
+## Body-text scale (todo 351)
+
+Display typography lives on the `gt-display` / `gt-h1–h3` / `gt-label`
+classes; body text uses the static `@theme` scale in `src/index.css`:
+
+| Utility | Size | Use |
+|---------|------|-----|
+| `text-micro` | 11px | badges, kbd hints, timestamps in tight rails |
+| `text-meta` | 12.5px | metadata rows, author lines, secondary labels |
+| `text-body-sm` | 13px | dense body copy, list rows, form help |
+| `text-body` | 14px | default body copy |
+| `text-body-lg` | 15px | reading copy (thread bodies, article prose) |
+| `text-lead` | 17px | card titles, section headings inside cards |
+| `text-hero` | 38px | the one display rung used as `gt-h1 md:text-hero` |
+
+Each rung pairs a line-height; an explicit `leading-*` in the same class list
+still wins. Near-twins were consolidated (11.5→micro, 12→meta, 13.5→body-sm,
+14.5→body, 10/10.5→micro). Recorded exceptions that stay arbitrary: the
+AppShell wordmark micro-label (9.5px, tracked uppercase), the StatCard value
+(22px mono figure) and the article `h2`/`h3` inside `StreamFieldRenderer`
+(24/19px — an article scale, not body text). The forum thread title sits on
+`gt-display` alone; per-component overrides of a display class are the
+antipattern this todo removed. `rounded-[10px]` was a twin of `rounded-sm`
+(`--radius-sm: 10px`) — use the token; a value between rungs (11/12/14px in
+`dimensions.ts`) is allowed only there, with the skeleton sharing it.

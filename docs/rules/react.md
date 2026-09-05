@@ -273,3 +273,9 @@ Compact checklist auto-injected before edits. Long-form:
   cells the server's resolved object carries, and treat a missing object (an
   older backend — separate deploy pipelines) as the load-error branch, never
   an unguarded index (todo 343).
+- **Never `text-[NNpx]`: use the body-text scale** (`text-micro` 11, `text-meta`
+  12.5, `text-body-sm` 13, `text-body` 14, `text-body-lg` 15, `text-lead` 17,
+  `text-hero` 38 as a responsive display override) or a `gt-*` display class.
+  A radius that equals a `--radius-*` value is that token, never an arbitrary
+  twin; a dimension a skeleton mirrors lives in `components/ui/dimensions.ts`
+  (todo 351).

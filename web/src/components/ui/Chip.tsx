@@ -13,7 +13,7 @@ export default function Chip({ active = false, children, className = '', ...prop
     <button
       type="button"
       aria-pressed={active}
-      className={`rounded-pill px-4 py-2 text-[13px] font-medium transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-secondary ${look} ${className}`}
+      className={`rounded-pill px-4 py-2 text-body-sm font-medium transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-secondary ${look} ${className}`}
       {...props}
     >
       {children}

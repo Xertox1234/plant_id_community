@@ -43,7 +43,7 @@ const LOAD_ERROR_TEXT = "Couldn't load comments.";
 const PENDING_BADGE = 'Awaiting moderation — only you can see this';
 
 const TEXTAREA_CLASS =
-  'w-full rounded-md border border-line bg-surface-2/60 px-3 py-2 text-[14px] text-ink placeholder:text-ink-3 focus:border-transparent focus:ring-2 focus:ring-secondary focus:outline-none disabled:opacity-60';
+  'w-full rounded-md border border-line bg-surface-2/60 px-3 py-2 text-body text-ink placeholder:text-ink-3 focus:border-transparent focus:ring-2 focus:ring-secondary focus:outline-none disabled:opacity-60';
 
 function authorName(author: BlogCommentAuthor | null | undefined): string {
   return author?.display_name || author?.username || 'Anonymous';
@@ -90,20 +90,20 @@ function CommentBody({ comment }: CommentBodyProps) {
   return (
     <>
       <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
-        <span className="text-[13.5px] font-semibold text-ink">{authorName(comment.author)}</span>
+        <span className="text-body-sm font-semibold text-ink">{authorName(comment.author)}</span>
         <Timestamp
           iso={comment.created_at}
           prefix="Posted"
-          className="font-mono text-[11.5px] text-ink-3"
+          className="font-mono text-micro text-ink-3"
         />
         {!comment.is_approved && (
-          <span className="rounded-pill border border-line bg-surface-2/60 px-2 py-0.5 text-[11.5px] text-ink-2">
+          <span className="rounded-pill border border-line bg-surface-2/60 px-2 py-0.5 text-micro text-ink-2">
             {PENDING_BADGE}
           </span>
         )}
       </div>
       {/* PLAIN TEXT by contract — never HTML, never dangerouslySetInnerHTML. */}
-      <p className="whitespace-pre-wrap break-words text-[14px] leading-relaxed text-ink">
+      <p className="whitespace-pre-wrap break-words text-body leading-relaxed text-ink">
         {comment.content}
       </p>
     </>
@@ -358,7 +358,7 @@ export default function BlogCommentSection({
         onSubmit={(event) => void handleReplySubmit(event, comment.id)}
         className="mt-1 flex flex-col gap-2"
       >
-        <label htmlFor={id} className="text-[12.5px] font-semibold text-ink-2">
+        <label htmlFor={id} className="text-meta font-semibold text-ink-2">
           Reply to {authorName(comment.author)}
         </label>
         <textarea
@@ -372,7 +372,7 @@ export default function BlogCommentSection({
           className={TEXTAREA_CLASS}
         />
         <div className="flex items-center justify-between gap-3">
-          <span className="font-mono text-[11px] text-ink-3">
+          <span className="font-mono text-micro text-ink-3">
             {`${replyDraft.length}/${BLOG_COMMENT_MAX_LENGTH}`}
           </span>
           <div className="flex items-center gap-2">
@@ -410,7 +410,7 @@ export default function BlogCommentSection({
       aria-labelledby="blog-comments-heading"
       className="mx-auto flex w-full max-w-[70ch] flex-col gap-5 border-t border-line pt-8"
     >
-      <h2 id="blog-comments-heading" className="text-[17px] font-semibold text-ink">
+      <h2 id="blog-comments-heading" className="text-lead font-semibold text-ink">
         Comments ({count})
       </h2>
 
@@ -423,7 +423,7 @@ export default function BlogCommentSection({
         data-testid="blog-comments-notice"
         className={
           liveText
-            ? 'rounded-md border border-line bg-surface-2 px-4 py-3 text-[13.5px] text-ink-2'
+            ? 'rounded-md border border-line bg-surface-2 px-4 py-3 text-body-sm text-ink-2'
             : 'sr-only'
         }
       >
@@ -431,7 +431,7 @@ export default function BlogCommentSection({
       </div>
 
       {closed ? (
-        <p className="text-[13.5px] text-ink-3">{CLOSED_TEXT}</p>
+        <p className="text-body-sm text-ink-3">{CLOSED_TEXT}</p>
       ) : (
         <>
           {loadError && (
@@ -445,7 +445,7 @@ export default function BlogCommentSection({
           {loading && <LoadingSpinner label="Loading comments…" className="py-6" />}
 
           {loaded && comments.length === 0 && (
-            <p className="text-[13.5px] text-ink-3">No comments yet.</p>
+            <p className="text-body-sm text-ink-3">No comments yet.</p>
           )}
 
           {comments.length > 0 && (
@@ -485,7 +485,7 @@ export default function BlogCommentSection({
             <form onSubmit={(event) => void handleSubmit(event)} className="flex flex-col gap-2">
               <label
                 htmlFor="blog-comment-composer"
-                className="text-[13.5px] font-semibold text-ink"
+                className="text-body-sm font-semibold text-ink"
               >
                 Add a comment
               </label>
@@ -500,7 +500,7 @@ export default function BlogCommentSection({
                 className={TEXTAREA_CLASS}
               />
               <div className="flex items-center justify-between gap-3">
-                <span className="font-mono text-[11px] text-ink-3">
+                <span className="font-mono text-micro text-ink-3">
                   {`${draft.length}/${BLOG_COMMENT_MAX_LENGTH}`}
                 </span>
                 <Button
@@ -518,7 +518,7 @@ export default function BlogCommentSection({
           )}
 
           {showSignIn && (
-            <p className="text-[13.5px] text-ink-2">
+            <p className="text-body-sm text-ink-2">
               <Link
                 to="/login"
                 className="font-semibold text-primary underline-offset-2 hover:underline"
