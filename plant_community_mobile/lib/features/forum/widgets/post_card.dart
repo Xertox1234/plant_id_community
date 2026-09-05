@@ -27,6 +27,7 @@ class PostCard extends StatefulWidget {
     this.isSolution = false,
     this.onToggleSolution,
     this.onShowHistory,
+    this.onQuote,
   });
 
   final ForumPost post;
@@ -67,6 +68,13 @@ class PostCard extends StatefulWidget {
   /// When `null` the stamp is a static label (an anonymous viewer — the
   /// history endpoint is auth-only).
   final VoidCallback? onShowHistory;
+
+  /// Called when the Quote action is tapped (todo 341 wave 3) — the caller
+  /// opens the reply composer pre-filled with this post's text as a `quote`
+  /// block. Wired only for a signed-in viewer on an open topic; `null`
+  /// renders no button. A visible action beside the reactions, not a menu
+  /// entry, so a post with no other capability still offers it.
+  final VoidCallback? onQuote;
 
   @override
   State<PostCard> createState() => _PostCardState();
@@ -149,10 +157,22 @@ class _PostCardState extends State<PostCard> {
                 child: _EditedStamp(onTap: widget.onShowHistory),
               ),
             const SizedBox(height: AppSpacing.sm),
-            ReactionPills(
-              counts: post.reactionCounts,
-              reacted: post.reacted,
-              onReact: widget.onReact,
+            Row(
+              children: [
+                Expanded(
+                  child: ReactionPills(
+                    counts: post.reactionCounts,
+                    reacted: post.reacted,
+                    onReact: widget.onReact,
+                  ),
+                ),
+                if (widget.onQuote != null)
+                  IconButton(
+                    tooltip: 'Quote',
+                    icon: const Icon(Icons.format_quote_outlined, size: 20),
+                    onPressed: widget.onQuote,
+                  ),
+              ],
             ),
           ],
         ),

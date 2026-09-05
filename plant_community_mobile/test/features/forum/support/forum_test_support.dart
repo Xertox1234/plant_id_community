@@ -213,11 +213,39 @@ class FakeForumApi implements ForumApi {
   final List<int> fetchRevisionCalls = [];
   ApiException? failRevisionsWith;
 
+  /// Engagement fixtures (todo 341 wave 3). [votePoll] returns [voteResult]
+  /// when set; otherwise it recomputes [topicDetail]'s poll the way the
+  /// server would (the chosen ids become `my_vote_option_ids`, each chosen
+  /// option's count and the voter total grow by one). [voteGate] holds the
+  /// request in flight.
+  final List<List<int>> votePollCalls = [];
+  ApiException? failVoteWith;
+  ForumPoll? voteResult;
+  Completer<ForumPoll>? voteGate;
+
+  /// Social fixtures (todo 341 wave 4). [mentionGates] mirrors
+  /// [searchGates]: the Nth [searchMentionUsers] call awaits `gates[N-1]`.
+  final List<String> mentionSearchCalls = [];
+  List<ForumMentionUser> mentionUsers = const [];
+  ApiException? failMentionSearchWith;
+  List<Completer<List<ForumMentionUser>>>? mentionGates;
+
+  ForumMyStats stats = myStats();
+  int fetchMyStatsCalls = 0;
+  ApiException? failMyStatsWith;
+
+  List<ForumExpert> experts = const [];
+  int fetchExpertsCalls = 0;
+  ApiException? failExpertsWith;
+
   @override
   Future<List<ForumBoard>> fetchBoards() async => boards;
 
+  int fetchTopicDetailCalls = 0;
+
   @override
   Future<ForumTopicDetail> fetchTopicDetail(int topicId) async {
+    fetchTopicDetailCalls++;
     final detail = topicDetail;
     if (detail == null) {
       throw ApiException('no fixture', statusCode: 404);
@@ -613,6 +641,213 @@ class FakeForumApi implements ForumApi {
     }
     return detail;
   }
+
+  @override
+  Future<ForumPoll> votePoll({
+    required int topicId,
+    required List<int> optionIds,
+  }) async {
+    votePollCalls.add(List.of(optionIds));
+    final gate = voteGate;
+    if (gate != null) return gate.future;
+    final fail = failVoteWith;
+    if (fail != null) throw fail;
+    final fixed = voteResult;
+    if (fixed != null) return fixed;
+    final current = topicDetail?.poll;
+    if (current == null) {
+      throw ApiException('This topic has no poll.', statusCode: 404);
+    }
+    return ForumPoll(
+      id: current.id,
+      question: current.question,
+      closesAt: current.closesAt,
+      isClosed: current.isClosed,
+      maxChoices: current.maxChoices,
+      options: [
+        for (final option in current.options)
+          ForumPollOption(
+            id: option.id,
+            text: option.text,
+            order: option.order,
+            voteCount: optionIds.contains(option.id)
+                ? option.voteCount + 1
+                : option.voteCount,
+          ),
+      ],
+      totalVotes: current.totalVotes + 1,
+      myVoteOptionIds: [...optionIds]..sort(),
+    );
+  }
+
+  @override
+  Future<List<ForumMentionUser>> searchMentionUsers(String query) async {
+    mentionSearchCalls.add(query);
+    final gates = mentionGates;
+    if (gates != null && mentionSearchCalls.length <= gates.length) {
+      return gates[mentionSearchCalls.length - 1].future;
+    }
+    final fail = failMentionSearchWith;
+    if (fail != null) throw fail;
+    final lower = query.toLowerCase();
+    return mentionUsers
+        .where((u) => u.username.toLowerCase().startsWith(lower))
+        .toList(growable: false);
+  }
+
+  @override
+  Future<ForumMyStats> fetchMyStats() async {
+    fetchMyStatsCalls++;
+    final fail = failMyStatsWith;
+    if (fail != null) throw fail;
+    return stats;
+  }
+
+  @override
+  Future<List<ForumExpert>> fetchExperts() async {
+    fetchExpertsCalls++;
+    final fail = failExpertsWith;
+    if (fail != null) throw fail;
+    return experts;
+  }
+}
+
+/// Build a [ForumPollOption] fixture.
+ForumPollOption pollOption({required int id, String? text, int voteCount = 0}) {
+  return ForumPollOption(
+    id: id,
+    text: text ?? 'Option $id',
+    order: id,
+    voteCount: voteCount,
+  );
+}
+
+/// Build a [ForumPoll] fixture — three options (Weekly / Fortnightly / When
+/// dry) unless [options] is given.
+ForumPoll poll({
+  int id = 1,
+  String question = 'How often do you water?',
+  int maxChoices = 1,
+  List<ForumPollOption>? options,
+  int totalVotes = 0,
+  List<int> myVoteOptionIds = const [],
+  bool isClosed = false,
+}) {
+  return ForumPoll(
+    id: id,
+    question: question,
+    isClosed: isClosed,
+    maxChoices: maxChoices,
+    options:
+        options ??
+        [
+          pollOption(id: 1, text: 'Weekly'),
+          pollOption(id: 2, text: 'Fortnightly'),
+          pollOption(id: 3, text: 'When dry'),
+        ],
+    totalVotes: totalVotes,
+    myVoteOptionIds: myVoteOptionIds,
+  );
+}
+
+/// Build a [ForumIdentification] fixture. `image` is `null` by default —
+/// never set a non-empty URL in a `pumpAndSettle` test (CachedNetworkImage
+/// never settles in the blocked-network harness).
+ForumIdentification identification({
+  List<ForumIdentificationCandidate>? candidates,
+  String provider = 'plant.id',
+  ForumImageBlock? image,
+}) {
+  return ForumIdentification(
+    image: image,
+    provider: provider,
+    candidates:
+        candidates ??
+        const [
+          ForumIdentificationCandidate(
+            name: 'Swiss cheese plant',
+            scientificName: 'Monstera deliciosa',
+            confidence: 0.92,
+          ),
+          ForumIdentificationCandidate(
+            name: 'Monkey mask',
+            scientificName: 'Monstera adansonii',
+            confidence: 0.05,
+          ),
+        ],
+  );
+}
+
+/// Build a [ForumBadge] fixture.
+ForumBadge badge({
+  String slug = 'botanist',
+  String name = 'Botanist',
+  String description = 'Shared 10 identifications',
+}) {
+  return ForumBadge(
+    slug: slug,
+    name: name,
+    description: description,
+    awardedAt: DateTime(2026, 1, 5),
+  );
+}
+
+/// Raw map for one `badges[]` entry (`BADGE_SCHEMA`) — for [profile]'s
+/// `badges` param, which routes through the real parse path.
+Map<String, dynamic> badgeJson({
+  String slug = 'botanist',
+  String name = 'Botanist',
+  String description = 'Shared 10 identifications',
+}) {
+  return {
+    'slug': slug,
+    'name': name,
+    'description': description,
+    'awarded_at': DateTime.utc(2026, 1, 5).toIso8601String(),
+  };
+}
+
+/// Build a [ForumMyStats] fixture (`GET me/stats/`).
+ForumMyStats myStats({
+  int posts = 0,
+  int solutionsAccepted = 0,
+  int identificationsShared = 0,
+  int streakDays = 0,
+  String badgeName = 'Botanist',
+  int badgeProgress = 0,
+  int badgeTarget = 10,
+  List<ForumBadge> badges = const [],
+}) {
+  return ForumMyStats(
+    posts: posts,
+    solutionsAccepted: solutionsAccepted,
+    identificationsShared: identificationsShared,
+    streakDays: streakDays,
+    badgeName: badgeName,
+    badgeProgress: badgeProgress,
+    badgeTarget: badgeTarget,
+    badges: badges,
+  );
+}
+
+/// Build a [ForumExpert] fixture (`GET users/experts/` row).
+ForumExpert expert({
+  String username = 'sage',
+  int trustLevel = 4,
+  bool online = false,
+}) {
+  return ForumExpert(
+    author: author(username: username, trustLevel: trustLevel),
+    online: online,
+  );
+}
+
+/// Build a [ForumMentionUser] fixture (`GET users/search/` row).
+ForumMentionUser mentionUser(String username, {String? displayName}) {
+  return ForumMentionUser(
+    username: username,
+    displayName: displayName ?? username,
+  );
 }
 
 /// Build a [ForumPostRevision] fixture (an edit-history row).
@@ -782,6 +1017,9 @@ ForumTopicDetail topicDetail({
   bool isBookmarked = false,
   int? solvedPostId,
   bool canMarkSolution = false,
+  bool locked = false,
+  ForumPoll? poll,
+  ForumIdentification? identification,
 }) {
   return ForumTopicDetail(
     id: id,
@@ -791,7 +1029,7 @@ ForumTopicDetail topicDetail({
     author: author(),
     isPinned: false,
     isClosed: false,
-    locked: false,
+    locked: locked,
     replyCount: 3,
     viewCount: 12,
     createdAt: DateTime(2026, 1, 1),
@@ -802,6 +1040,8 @@ ForumTopicDetail topicDetail({
     isBookmarked: isBookmarked,
     solvedPostId: solvedPostId,
     canMarkSolution: canMarkSolution,
+    poll: poll,
+    identification: identification,
   );
 }
 
@@ -906,6 +1146,7 @@ ForumProfile profile({
   List<Map<String, dynamic>> recentPosts = const [],
   bool isBlocked = false,
   bool canBlock = false,
+  List<Map<String, dynamic>> badges = const [],
 }) {
   return ForumProfile.fromJson({
     'username': username,
@@ -921,6 +1162,7 @@ ForumProfile profile({
     'recent_posts': recentPosts,
     'is_blocked': isBlocked,
     'can_block': canBlock,
+    'badges': badges,
   });
 }
 

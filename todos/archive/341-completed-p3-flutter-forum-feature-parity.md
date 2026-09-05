@@ -1,5 +1,5 @@
 ---
-status: in_progress
+status: completed
 priority: p3
 issue_id: "341"
 tags: [forum, flutter, parity, epic]
@@ -68,12 +68,12 @@ DMs UI is **excluded** — tracked separately as todo 339 (web is missing too).
 
 ## Acceptance Criteria
 
-- [ ] Wave 1: report + block/unblock usable from a thread and profile
-- [ ] Wave 2: mark solution (as topic author), bookmark toggle + list,
+- [x] Wave 1: report + block/unblock usable from a thread and profile
+- [x] Wave 2: mark solution (as topic author), bookmark toggle + list,
       edit history view
-- [ ] Wave 3: vote in a poll, see results, view an attached plant-ID card
-- [ ] Wave 4: mention autocomplete in composer, streak/badge display
-- [ ] Each wave: `flutter test` green + golden/widget tests for new widgets
+- [x] Wave 3: vote in a poll, see results, view an attached plant-ID card
+- [x] Wave 4: mention autocomplete in composer, streak/badge display
+- [x] Each wave: `flutter test` green + golden/widget tests for new widgets
 
 ## Work Log
 
@@ -140,3 +140,72 @@ dart run build_runner build --delete-conflicting-outputs → regenerated (guards
 flutter analyze → No issues found!; dart format → 3 changed
 flutter test (parity providers + thread parity + post card) → +44 all passed
 ```
+
+### 2026-09-05 - Waves 3 + 4 implemented (general-purpose agent; second PR, reviewed below)
+
+- **Wave 3:** `poll_card.dart` in the thread header (radio when
+  `max_choices == 1`, checkboxes with a cap otherwise; results bars;
+  closed/anonymous states; the pending ballot lives on the model as a
+  client-only `pendingOptionIds` so controls disable at once while counts
+  stay server-authoritative — the web's rule; a 409 shows the server's
+  sentence and resyncs the single-value topic detail; no Idempotency-Key
+  because `PollVoteView` never consumes one); `identification_card.dart`
+  (snapshot, never a live fetch); a visible **Quote** button on the post
+  card → the reply composer opens with a real leading `quote` block
+  (`forumBodyPlainText`: heading/paragraph/code text, nested quotes and
+  media dropped, 500-char cap) whose first line is a plain-text
+  `@user wrote:` attribution (the server's mention scanner will therefore
+  notify the quoted author as a MENTION — noted for todo 342's real verb).
+- **Wave 4:** `MentionSearch` (300 ms debounce, generation counter drops
+  superseded responses, timer cancelled on dispose) feeding an inline
+  suggestions strip above the composer field (a caret overlay would sit
+  under the keyboard); `me/stats/` "Your season" grid + badge chips on the
+  forum home, badge chips on profiles; an "Experts · N online" strip with
+  an online dot (no experts surface existed).
+- A real unbounded-height bug (a stretch `Row` of cards inside the home
+  `ListView`) surfaced through flutter_test's default semantics and was
+  fixed with `IntrinsicHeight`.
+
+```text
+$ flutter analyze → No issues found!
+$ flutter test → 00:32 +611 ~3: All tests passed!  (+75 over waves 1+2)
+$ dart run build_runner build --delete-conflicting-outputs → wrote 0 outputs at the end (consistent)
+mutation checks (cp backups): poll cap >= → > → 1 red; quote block type → paragraph → 2 red; mention debounce → zero → 2 red
+```
+
+### 2026-09-05 - Review round 1 (waves 3+4): flutter-dart reviewer — repaired
+
+- **[high] the quote attribution `@user wrote:` was a hidden notification
+  change**: the server's mention scanner reads every string block, so
+  quoting a topic subscriber demoted their email REPLY notification to a
+  push-only MENTION (traced through `apps/forum_host/notifications.py`).
+  Repaired: the attribution is `user wrote:` (no `@`) with a regression
+  assertion; the quoted author keeps the normal reply path until todo 342
+  adds a real QUOTE verb.
+
+```text
+$ flutter analyze → No issues found!
+$ flutter test (engagement models + composer + thread) → +37 all passed; full suite → 00:32 +611 ~3: All tests passed!
+```
+
+### 2026-09-05 - Acceptance criteria evidence
+
+- Wave 1 (report + block/unblock from a thread and profile): PR #643 —
+  `post_card_test.dart` (report sheet), `forum_user_profile_screen_test.dart`
+  (block confirm / unblock / blocked notice), `forum_thread_parity_test.dart`.
+- Wave 2 (mark solution as topic author, bookmark toggle + list, edit
+  history): PR #643 — `forum_parity_providers_test.dart`,
+  `forum_thread_parity_test.dart` (Accepted answer chip, jump to answer),
+  `forum_bookmarks_screen_test.dart`, edit-history sheet tests.
+- Wave 3 (vote in a poll, see results, plant-ID card): this PR —
+  poll ballot single/multi/results/closed/anonymous tests, thread vote +
+  409 resync, ID card tests.
+- Wave 4 (mention autocomplete, streak/badge display): this PR — mention
+  debounce/supersede/insert tests, stats grid + badge chips, profile badges.
+- Each wave `flutter test` green + widget tests: waves 1+2 `+536`, waves
+  3+4 `+611` (all passed), `flutter analyze` clean on both.
+
+### 2026-09-05 - Completed by completing-todos skill (run 2026-09-05-0408)
+
+- Verification: all 5 acceptance criteria evidenced across PR #643 (waves 1+2, +536) and this PR (waves 3+4, +611); flutter analyze clean.
+- Review: flutter-dart per wave pair — every finding repaired (re-entrancy guards, 409 copy, 48 dp, chip semantics; quote attribution without @).

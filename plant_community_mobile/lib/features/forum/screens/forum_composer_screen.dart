@@ -10,6 +10,7 @@ import '../models/models.dart';
 import '../services/forum_api.dart';
 import '../services/forum_composer_controller.dart';
 import '../services/forum_image_picker.dart';
+import '../widgets/forum_mention_suggestions.dart';
 import '../widgets/forum_notice_banner.dart';
 import '../widgets/forum_rich_text_toolbar.dart';
 
@@ -23,9 +24,13 @@ class ForumComposeArgs {
       topicId = null,
       postId = null,
       initialBodyText = '',
-      hasNonTextContent = false;
+      hasNonTextContent = false,
+      quoteText = null;
 
-  const ForumComposeArgs.reply({required this.topicId})
+  /// Reply to [topicId]. [quoteText] (the "Quote" action, todo 341 wave 3)
+  /// pre-fills a read-only `quote` block above the body field — it is sent
+  /// as a real `quote` block, never folded into the paragraph.
+  const ForumComposeArgs.reply({required this.topicId, this.quoteText})
     : mode = ForumComposeMode.reply,
       boardSlug = null,
       boardTitle = null,
@@ -76,7 +81,8 @@ class ForumComposeArgs {
   }) : mode = ForumComposeMode.edit,
        boardSlug = null,
        boardTitle = null,
-       topicId = null;
+       topicId = null,
+       quoteText = null;
 
   final ForumComposeMode mode;
   final String? boardSlug;
@@ -85,6 +91,7 @@ class ForumComposeArgs {
   final int? postId;
   final String initialBodyText;
   final bool hasNonTextContent;
+  final String? quoteText;
 }
 
 /// Compose a new topic or a reply. Holds one [ForumComposerController] for the
@@ -125,6 +132,11 @@ class _ForumComposerScreenState extends ConsumerState<ForumComposerScreen> {
   bool _uploadingImage = false;
   String? _imageError;
 
+  /// The pre-filled quote (reply mode, todo 341 wave 3), removable with one
+  /// tap. Not counted as unsent input: the user never typed it and the
+  /// Quote action recreates it in one tap.
+  String? _quoteText;
+
   bool get _isTopic => widget.args.mode == ForumComposeMode.topic;
   bool get _isEdit => widget.args.mode == ForumComposeMode.edit;
   bool get _supportsImage => !_isEdit;
@@ -134,6 +146,7 @@ class _ForumComposerScreenState extends ConsumerState<ForumComposerScreen> {
     super.initState();
     _controller = ForumComposerController(api: ref.read(forumApiProvider));
     if (_isEdit) _bodyController.text = widget.args.initialBodyText;
+    _quoteText = widget.args.quoteText;
     // A listener (not just the body TextField's `onChanged`) so `_canSubmit`
     // re-evaluates when the rich-text toolbar mutates `controller.value`
     // programmatically (todo 314) — `TextField.onChanged` only fires for
@@ -288,6 +301,7 @@ class _ForumComposerScreenState extends ConsumerState<ForumComposerScreen> {
           topicId: widget.args.topicId!,
           bodyText: _bodyController.text,
           imageId: _attachedImage?.id,
+          quoteText: _quoteText,
         );
         status = result.status;
       }
@@ -418,10 +432,21 @@ class _ForumComposerScreenState extends ConsumerState<ForumComposerScreen> {
           ),
           const SizedBox(height: AppSpacing.sm),
         ],
+        if (_quoteText != null)
+          Padding(
+            padding: const EdgeInsets.only(bottom: AppSpacing.sm),
+            child: _QuoteDraft(
+              text: _quoteText!,
+              onRemove: () => setState(() => _quoteText = null),
+            ),
+          ),
         Align(
           alignment: Alignment.centerLeft,
           child: ForumRichTextToolbar(controller: _bodyController),
         ),
+        // Above the field, not below it: a strip under a five-line field
+        // would sit beneath the keyboard (todo 341 wave 4).
+        ForumMentionSuggestions(controller: _bodyController),
         TextField(
           controller: _bodyController,
           decoration: InputDecoration(
@@ -469,6 +494,54 @@ class _ForumComposerScreenState extends ConsumerState<ForumComposerScreen> {
               : Text(_isEdit ? 'Save' : 'Post'),
         ),
       ],
+    );
+  }
+}
+
+/// The pre-filled quote, read-only, in the same left-rule styling the body
+/// renderer gives a `quote` block — so what the author sees is what the
+/// thread will show. Removable (48dp target).
+class _QuoteDraft extends StatelessWidget {
+  const _QuoteDraft({required this.text, required this.onRemove});
+
+  final String text;
+  final VoidCallback onRemove;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Semantics(
+      container: true,
+      label: 'Quoted text',
+      child: Container(
+        padding: const EdgeInsets.only(left: AppSpacing.md),
+        decoration: BoxDecoration(
+          border: Border(
+            left: BorderSide(color: theme.colorScheme.primary, width: 3),
+          ),
+        ),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Expanded(
+              child: Text(
+                text,
+                maxLines: 6,
+                overflow: TextOverflow.ellipsis,
+                style: theme.textTheme.bodyMedium?.copyWith(
+                  fontStyle: FontStyle.italic,
+                  color: theme.colorScheme.onSurfaceVariant,
+                ),
+              ),
+            ),
+            IconButton(
+              tooltip: 'Remove quote',
+              icon: const Icon(Icons.close, size: 20),
+              onPressed: onRemove,
+            ),
+          ],
+        ),
+      ),
     );
   }
 }

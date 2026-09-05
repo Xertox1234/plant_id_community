@@ -215,7 +215,7 @@ final class TopicDetailProvider
   }
 }
 
-String _$topicDetailHash() => r'e61a781ebc811408e1de6b14193af42759440efd';
+String _$topicDetailHash() => r'53a58642f5691840b609ff0c0d2ccfd5cd84b5b6';
 
 /// A single topic's detail, plus subscribe/unsubscribe (todo 293), the
 /// bookmark toggle and the accepted-answer mark/clear (todo 341).
@@ -1037,6 +1037,180 @@ abstract class _$ConversationThread
               Object?
             >;
     element.handleCreate(ref, () => build(_$args));
+  }
+}
+
+/// The viewer's all-time stats + earned badges for the forum home (todo 341
+/// wave 4). Auth-only — mount it only for a signed-in member.
+
+@ProviderFor(meStats)
+final meStatsProvider = MeStatsProvider._();
+
+/// The viewer's all-time stats + earned badges for the forum home (todo 341
+/// wave 4). Auth-only — mount it only for a signed-in member.
+
+final class MeStatsProvider
+    extends
+        $FunctionalProvider<
+          AsyncValue<ForumMyStats>,
+          ForumMyStats,
+          FutureOr<ForumMyStats>
+        >
+    with $FutureModifier<ForumMyStats>, $FutureProvider<ForumMyStats> {
+  /// The viewer's all-time stats + earned badges for the forum home (todo 341
+  /// wave 4). Auth-only — mount it only for a signed-in member.
+  MeStatsProvider._()
+    : super(
+        from: null,
+        argument: null,
+        retry: null,
+        name: r'meStatsProvider',
+        isAutoDispose: true,
+        dependencies: null,
+        $allTransitiveDependencies: null,
+      );
+
+  @override
+  String debugGetCreateSourceHash() => _$meStatsHash();
+
+  @$internal
+  @override
+  $FutureProviderElement<ForumMyStats> $createElement(
+    $ProviderPointer pointer,
+  ) => $FutureProviderElement(pointer);
+
+  @override
+  FutureOr<ForumMyStats> create(Ref ref) {
+    return meStats(ref);
+  }
+}
+
+String _$meStatsHash() => r'ccf2903f184b3d41fd565130f4e835b888fcfce6';
+
+/// Highest-trust members with their online flag, for the forum home's
+/// experts strip (todo 341 wave 4).
+
+@ProviderFor(experts)
+final expertsProvider = ExpertsProvider._();
+
+/// Highest-trust members with their online flag, for the forum home's
+/// experts strip (todo 341 wave 4).
+
+final class ExpertsProvider
+    extends
+        $FunctionalProvider<
+          AsyncValue<List<ForumExpert>>,
+          List<ForumExpert>,
+          FutureOr<List<ForumExpert>>
+        >
+    with
+        $FutureModifier<List<ForumExpert>>,
+        $FutureProvider<List<ForumExpert>> {
+  /// Highest-trust members with their online flag, for the forum home's
+  /// experts strip (todo 341 wave 4).
+  ExpertsProvider._()
+    : super(
+        from: null,
+        argument: null,
+        retry: null,
+        name: r'expertsProvider',
+        isAutoDispose: true,
+        dependencies: null,
+        $allTransitiveDependencies: null,
+      );
+
+  @override
+  String debugGetCreateSourceHash() => _$expertsHash();
+
+  @$internal
+  @override
+  $FutureProviderElement<List<ForumExpert>> $createElement(
+    $ProviderPointer pointer,
+  ) => $FutureProviderElement(pointer);
+
+  @override
+  FutureOr<List<ForumExpert>> create(Ref ref) {
+    return experts(ref);
+  }
+}
+
+String _$expertsHash() => r'624fd2152794f14d1ede133c8ea76ce3a9869a2f';
+
+/// The composer's @mention autocomplete (todo 341 wave 4): a debounced,
+/// cancel-on-supersede username lookup. Every [lookup] cancels the pending
+/// timer AND bumps a generation so a response already in flight for an
+/// older prefix discards itself instead of overwriting a newer one — the
+/// web's `searchToken` discipline. A failed lookup shows nothing; it never
+/// blocks typing. autoDispose: the timer dies with the composer.
+
+@ProviderFor(MentionSearch)
+final mentionSearchProvider = MentionSearchProvider._();
+
+/// The composer's @mention autocomplete (todo 341 wave 4): a debounced,
+/// cancel-on-supersede username lookup. Every [lookup] cancels the pending
+/// timer AND bumps a generation so a response already in flight for an
+/// older prefix discards itself instead of overwriting a newer one — the
+/// web's `searchToken` discipline. A failed lookup shows nothing; it never
+/// blocks typing. autoDispose: the timer dies with the composer.
+final class MentionSearchProvider
+    extends $NotifierProvider<MentionSearch, MentionSearchState> {
+  /// The composer's @mention autocomplete (todo 341 wave 4): a debounced,
+  /// cancel-on-supersede username lookup. Every [lookup] cancels the pending
+  /// timer AND bumps a generation so a response already in flight for an
+  /// older prefix discards itself instead of overwriting a newer one — the
+  /// web's `searchToken` discipline. A failed lookup shows nothing; it never
+  /// blocks typing. autoDispose: the timer dies with the composer.
+  MentionSearchProvider._()
+    : super(
+        from: null,
+        argument: null,
+        retry: null,
+        name: r'mentionSearchProvider',
+        isAutoDispose: true,
+        dependencies: null,
+        $allTransitiveDependencies: null,
+      );
+
+  @override
+  String debugGetCreateSourceHash() => _$mentionSearchHash();
+
+  @$internal
+  @override
+  MentionSearch create() => MentionSearch();
+
+  /// {@macro riverpod.override_with_value}
+  Override overrideWithValue(MentionSearchState value) {
+    return $ProviderOverride(
+      origin: this,
+      providerOverride: $SyncValueProvider<MentionSearchState>(value),
+    );
+  }
+}
+
+String _$mentionSearchHash() => r'a41d3049ebc3d3834bd5ab5d4e253e4ad78192b5';
+
+/// The composer's @mention autocomplete (todo 341 wave 4): a debounced,
+/// cancel-on-supersede username lookup. Every [lookup] cancels the pending
+/// timer AND bumps a generation so a response already in flight for an
+/// older prefix discards itself instead of overwriting a newer one — the
+/// web's `searchToken` discipline. A failed lookup shows nothing; it never
+/// blocks typing. autoDispose: the timer dies with the composer.
+
+abstract class _$MentionSearch extends $Notifier<MentionSearchState> {
+  MentionSearchState build();
+  @$mustCallSuper
+  @override
+  void runBuild() {
+    final ref = this.ref as $Ref<MentionSearchState, MentionSearchState>;
+    final element =
+        ref.element
+            as $ClassProviderElement<
+              AnyNotifier<MentionSearchState, MentionSearchState>,
+              MentionSearchState,
+              Object?,
+              Object?
+            >;
+    element.handleCreate(ref, build);
   }
 }
 
