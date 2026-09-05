@@ -43,6 +43,8 @@ export type {
   BlogPost,
   BlogCategory,
   RelatedPostSummary,
+  BlogComment,
+  BlogCommentAuthor,
 } from './blog';
 
 // Plant Identification types

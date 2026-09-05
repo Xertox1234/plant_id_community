@@ -948,8 +948,10 @@ class BlogComment(models.Model):
 
     @property
     def is_reply(self):
-        """Check if this is a reply to another comment."""
-        return self.parent is not None
+        """Check if this is a reply to another comment. `parent_id`, not
+        `parent`: the FK access costs a query per row on every list
+        (review finding, todo 352)."""
+        return self.parent_id is not None
 
     def get_replies(self):
         """Get approved replies to this comment."""

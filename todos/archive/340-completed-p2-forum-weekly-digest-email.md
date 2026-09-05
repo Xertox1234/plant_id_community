@@ -1,5 +1,5 @@
 ---
-status: in_progress
+status: completed
 priority: p2
 issue_id: "340"
 tags: [forum, email, celery, package]
@@ -82,7 +82,7 @@ only scheduling and templates overrides — same split as the spam backends:
 - [x] Off by default; users opt in via profile field
 - [x] Package tests: digest content excludes hidden/restricted topics and
       blocked authors; zero qualifying content → no send
-- [ ] Host Celery beat sends weekly; a `--dry-run` run on prod data shows
+- [x] Host Celery beat sends weekly; a `--dry-run` run on prod data shows
       sane recipient counts before first real send
 - [x] Web settings toggle for the digest frequency
 
@@ -248,3 +248,25 @@ Post-repair full backend suite (alone, `--create-db`) and full web suite:
 2172 passed, 8 skipped, 5 warnings in 294.56s (0:04:54)
 Test Files 94 passed (94) / Tests 1166 passed (1166)
 ```
+
+### 2026-09-05 - Prod dry-run after the deploy (PR #641 merged 13:30 UTC, Railway deployment SUCCESS)
+
+Run locally against the PRODUCTION database (read-only: `--dry-run` sends
+and writes nothing and never takes the run lock), with the app service's
+environment from `railway run` and the Postgres service's public URL
+injected as `DATABASE_URL` (the app env carries only the private one):
+
+```text
+$ railway run --service plant_id_community -- sh -c 'DATABASE_URL="$PUB" REDIS_URL=redis://localhost:6379/9 EMAIL_BACKEND=django.core.mail.backends.console.EmailBackend venv/bin/python manage.py send_forum_digest --frequency weekly --dry-run'
+[EMAIL] digest frequency=weekly window_days=7 recipients=0 due=0 empty=0 would send=0 failed=0 (dry run — nothing sent, nothing written)
+```
+
+Sane and expected: the preference is opt-in and brand new, so nobody is a
+recipient yet; the first Monday 09:00 UTC fire will send nothing until
+members opt in on `/settings`. Migration 0033 is live (the query on
+`digest_frequency` succeeded).
+
+### 2026-09-05 - Completed by completing-todos skill (run 2026-09-05-0408)
+
+- Verification: all 5 acceptance criteria evidenced (backend 2172 passed / web 1166 passed; prod --dry-run recipients=0 after the deploy).
+- Review: celery-async + cross-cutting + django-drf (backend), react-typescript (web) — 1 round each; every finding repaired (run lock + atomic claim, cohort limits/retries/continuation, per-member fault isolation, timezone pin, loud missing origin, second creation path, uncapped exclusion, no re-fetch, runbook; web refocus + stronger tests).

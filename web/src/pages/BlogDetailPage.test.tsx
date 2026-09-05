@@ -3,8 +3,9 @@ import { render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import BlogDetailPage from './BlogDetailPage';
 import { fetchBlogPost } from '../services/blogService';
+import { fetchBlogComments } from '../services/blogCommentService';
 import { createMockBlogPost } from '@/tests/utils';
-import type { BlogPost } from '@/types';
+import type { BlogPost, BlogComment } from '@/types';
 
 vi.mock('../services/blogService', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../services/blogService')>();
@@ -14,7 +15,24 @@ vi.mock('../services/blogService', async (importOriginal) => {
   };
 });
 
+// The comment section (todo 352) lives at the bottom of the page; its own
+// states are covered in BlogCommentSection.test.tsx. Signed-out posture so
+// no composer renders here, and a resolved empty list so nothing rejects.
+vi.mock('../services/blogCommentService', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../services/blogCommentService')>();
+  return {
+    ...actual,
+    fetchBlogComments: vi.fn(),
+    addBlogComment: vi.fn(),
+    flagBlogComment: vi.fn(),
+  };
+});
+vi.mock('../contexts/AuthContext', () => ({
+  useAuth: () => ({ user: null, isAuthenticated: false, isLoading: false }),
+}));
+
 const mockFetchPost = vi.mocked(fetchBlogPost);
+const mockFetchComments = vi.mocked(fetchBlogComments);
 
 const post: BlogPost = createMockBlogPost({
   excerpt: undefined,
@@ -62,6 +80,7 @@ function renderPage() {
 
 beforeEach(() => {
   mockFetchPost.mockResolvedValue(post);
+  mockFetchComments.mockResolvedValue([]);
 });
 
 describe('BlogDetailPage', () => {
@@ -112,6 +131,39 @@ describe('BlogDetailPage', () => {
     renderPage();
     await screen.findByRole('heading', { level: 1, name: 'Killed by kindness' });
     expect(screen.queryByText('More from the blog')).not.toBeInTheDocument();
+  });
+
+  it("mounts the comment section with the post id and the detail payload's comment_count (todo 352)", async () => {
+    mockFetchPost.mockResolvedValue({ ...post, allow_comments: true, comment_count: 4 });
+    // Hold the list so the pre-load heading is observable.
+    let resolveComments: (c: BlogComment[]) => void = () => {};
+    mockFetchComments.mockImplementation(
+      () =>
+        new Promise<BlogComment[]>((resolve) => {
+          resolveComments = resolve;
+        })
+    );
+    renderPage();
+    await screen.findByRole('heading', { level: 1, name: 'Killed by kindness' });
+    // The server's count until the list lands…
+    expect(screen.getByRole('heading', { name: 'Comments (4)' })).toBeInTheDocument();
+    await waitFor(() => expect(mockFetchComments).toHaveBeenCalledWith(post.id));
+    resolveComments([]);
+    // …then the loaded (empty) list, with the signed-out affordance.
+    expect(await screen.findByText('No comments yet.')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Comments (0)' })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Sign in to comment' })).toHaveAttribute(
+      'href',
+      '/login'
+    );
+  });
+
+  it('shows the closed note and never fetches comments when the post disallows them (todo 352)', async () => {
+    mockFetchPost.mockResolvedValue({ ...post, allow_comments: false, comment_count: 0 });
+    renderPage();
+    await screen.findByRole('heading', { level: 1, name: 'Killed by kindness' });
+    expect(screen.getByText('Comments are closed on this post.')).toBeInTheDocument();
+    expect(mockFetchComments).not.toHaveBeenCalled();
   });
 
   it('renders the 404 page for an unknown slug', async () => {

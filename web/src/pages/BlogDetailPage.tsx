@@ -4,6 +4,7 @@ import Card from '../components/ui/Card';
 import LoadingSpinner from '../components/ui/LoadingSpinner';
 import StreamFieldRenderer from '../components/StreamFieldRenderer';
 import PageMeta from '../components/PageMeta';
+import BlogCommentSection from '../components/blog/BlogCommentSection';
 import NotFoundPage from './NotFoundPage';
 import { fetchBlogPost, mediaUrl, API_URL } from '../services/blogService';
 import { stripHtml } from '../utils/sanitize';
@@ -191,6 +192,14 @@ export default function BlogDetailPage() {
           </div>
         </aside>
       )}
+
+      {/* Reader comments (todo 352). allow_comments/comment_count ride the
+          v2 DETAIL payload — see fetchBlogPost. */}
+      <BlogCommentSection
+        postId={post.id}
+        allowComments={post.allow_comments}
+        commentCount={post.comment_count}
+      />
     </article>
   );
 }

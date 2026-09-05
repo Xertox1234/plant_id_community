@@ -8,13 +8,22 @@ Following the existing pattern from plant identification and forum APIs.
 import logging
 
 from django.contrib.auth import get_user_model
-from django.db.models import Count, Prefetch, Q
+from django.db.models import Count, F, Prefetch, Q
+from django.utils.decorators import method_decorator
 from django_filters.rest_framework import DjangoFilterBackend
+from drf_spectacular.utils import extend_schema
 from rest_framework import filters, permissions, status, viewsets
 from rest_framework.decorators import action, api_view
 from rest_framework.pagination import PageNumberPagination
 from rest_framework.response import Response
 
+from .comments import (
+    comment_ratelimit,
+    decide_approval,
+    models_q_visible_to,
+    resolve_parent,
+)
+from .constants import COMMENT_AUTO_FLAG_THRESHOLD, COMMENT_FLAG_DEDUP_SECONDS
 from .models import (
     BlogAuthorPage,
     BlogCategory,
@@ -171,7 +180,9 @@ class BlogPostPageViewSet(viewsets.ReadOnlyModelViewSet):
 
     @action(detail=True, methods=["get"])
     def comments(self, request, pk=None):
-        """Get approved comments for a blog post."""
+        """Top-level comments for a blog post with their replies: approved
+        ones, plus the caller's OWN pending ones so an author sees their
+        "awaiting moderation" comment after a reload (todo 352)."""
         post = self.get_object()
 
         if not post.allow_comments:
@@ -180,12 +191,19 @@ class BlogPostPageViewSet(viewsets.ReadOnlyModelViewSet):
                 status=status.HTTP_403_FORBIDDEN,
             )
 
+        visible = models_q_visible_to(request.user)
         comments = (
-            BlogComment.objects.filter(
-                post=post, is_approved=True, parent=None  # Only top-level comments
-            )
+            BlogComment.objects.filter(visible, post=post, parent=None)
             .select_related("author")
-            .prefetch_related("replies")
+            .prefetch_related(
+                Prefetch(
+                    "replies",
+                    queryset=BlogComment.objects.filter(visible)
+                    .select_related("author")
+                    .order_by("created_at"),
+                    to_attr="visible_replies",
+                )
+            )
             .order_by("created_at")
         )
 
@@ -194,11 +212,42 @@ class BlogPostPageViewSet(viewsets.ReadOnlyModelViewSet):
         )
         return Response(serializer.data)
 
+    @extend_schema(
+        request={
+            "type": "object",
+            "properties": {
+                "content": {"type": "string"},
+                "parent": {"type": "integer"},
+            },
+        },
+        responses={
+            201: BlogCommentSerializer,
+            400: dict,
+            401: dict,
+            403: dict,
+            404: dict,
+            429: dict,
+        },
+        description=(
+            "Add a comment or a one-level reply. Rate-limited per user (429); "
+            "spam screening and the author's forum trust level decide "
+            "is_approved (false = awaiting moderation, visible to the author "
+            "only); 403 when the post has comments disabled."
+        ),
+    )
     @action(
         detail=True, methods=["post"], permission_classes=[permissions.IsAuthenticated]
     )
+    @method_decorator(comment_ratelimit("comment_create"))
     def add_comment(self, request, pk=None):
-        """Add a new comment to a blog post."""
+        """Add a comment (or a one-level reply) to a blog post.
+
+        Protected since todo 352: per-user rate limit (429), the forum spam
+        backend screens the text, and the author's forum trust level decides
+        `is_approved` — anything held shows as pending to its author only and
+        waits in the admin moderation queue. `parent` must be an approved
+        top-level comment on THIS post.
+        """
         post = self.get_object()
 
         if not post.allow_comments:
@@ -207,22 +256,22 @@ class BlogPostPageViewSet(viewsets.ReadOnlyModelViewSet):
                 status=status.HTTP_403_FORBIDDEN,
             )
 
-        # Create comment
-        comment_data = request.data.copy()
-        comment_data["post"] = post.id
-        comment_data["author"] = request.user.id
-
         serializer = BlogCommentSerializer(
-            data=comment_data, context={"request": request}
+            data={"content": request.data.get("content", "")},
+            context={"request": request},
         )
-        if serializer.is_valid():
-            comment = serializer.save(author=request.user)
-            return Response(
-                BlogCommentSerializer(comment, context={"request": request}).data,
-                status=status.HTTP_201_CREATED,
-            )
-
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+        serializer.is_valid(raise_exception=True)
+        parent = resolve_parent(request.data.get("parent"), post, request.user)
+        is_approved, _reason = decide_approval(
+            request.user, serializer.validated_data["content"]
+        )
+        comment = serializer.save(
+            author=request.user, post=post, parent=parent, is_approved=is_approved
+        )
+        return Response(
+            BlogCommentSerializer(comment, context={"request": request}).data,
+            status=status.HTTP_201_CREATED,
+        )
 
 
 class BlogCategoryViewSet(viewsets.ReadOnlyModelViewSet):
@@ -363,41 +412,77 @@ class BlogAuthorViewSet(viewsets.ReadOnlyModelViewSet):
         return Response(serializer.data)
 
 
-class BlogCommentViewSet(viewsets.ModelViewSet):
+class BlogCommentViewSet(viewsets.ReadOnlyModelViewSet):
     """
-    ViewSet for blog comments with moderation.
+    Read comments + flag one. READ-ONLY since todo 352: creation goes through
+    `BlogPostPageViewSet.add_comment` only — the generic POST/PUT/DELETE this
+    ModelViewSet used to expose bypassed `allow_comments`, spam screening,
+    trust gating and rate limiting, and let a caller create a comment on any
+    post. Editing/deleting is an admin-queue concern for now.
     """
 
     serializer_class = BlogCommentSerializer
     permission_classes = [permissions.IsAuthenticatedOrReadOnly]
 
     def get_queryset(self):
-        """Get comments visible to the current user."""
+        """Comments visible to the current user — staff see everything, others
+        approved only — with their replies prefetched under the same
+        visibility so the serializer's `replies` never costs a query per row
+        (review finding, todo 352)."""
         if self.request.user.is_staff:
-            # Staff can see all comments
-            return BlogComment.objects.all().select_related("author", "post")
+            base = BlogComment.objects.all()
+            reply_visibility = Q()
         else:
-            # Regular users see only approved comments
-            return BlogComment.objects.filter(is_approved=True).select_related(
-                "author", "post"
+            base = BlogComment.objects.filter(is_approved=True)
+            reply_visibility = Q(is_approved=True)
+        return base.select_related("author", "post").prefetch_related(
+            Prefetch(
+                "replies",
+                queryset=BlogComment.objects.filter(reply_visibility)
+                .select_related("author")
+                .order_by("created_at"),
+                to_attr="visible_replies",
             )
+        )
 
-    def perform_create(self, serializer):
-        """Set the author to the current user when creating a comment."""
-        serializer.save(author=self.request.user)
-
+    @extend_schema(
+        responses={200: dict, 400: dict, 401: dict, 404: dict, 429: dict},
+        description=(
+            "Flag a comment for moderation. Rate-limited per user (429); one "
+            "user's repeat flags on the same comment count once; you cannot "
+            "flag your own comment (400)."
+        ),
+    )
     @action(
         detail=True, methods=["post"], permission_classes=[permissions.IsAuthenticated]
     )
+    @method_decorator(comment_ratelimit("comment_flag"))
     def flag(self, request, pk=None):
-        """Flag a comment for moderation."""
-        comment = self.get_object()
+        """Flag a comment for moderation. Rate-limited per user (429) and
+        deduplicated: one user's repeat flags on the same comment count once
+        (todo 352)."""
+        from django.core.cache import cache
 
-        # Increment flag count
-        comment.flag_count += 1
-        if comment.flag_count >= 5:  # Auto-hide after 5 flags
-            comment.is_flagged = True
-        comment.save()
+        comment = self.get_object()
+        if comment.author_id == request.user.pk:
+            return Response(
+                {"detail": "You cannot flag your own comment."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        dedup_key = f"blog:comment-flag:{comment.pk}:{request.user.pk}"
+        if not cache.add(dedup_key, True, COMMENT_FLAG_DEDUP_SECONDS):
+            return Response({"detail": "Comment has been flagged for review."})
+
+        BlogComment.objects.filter(pk=comment.pk).update(flag_count=F("flag_count") + 1)
+        comment.refresh_from_db(fields=["flag_count"])
+        if comment.flag_count >= COMMENT_AUTO_FLAG_THRESHOLD and not comment.is_flagged:
+            # Enough distinct members flagged it: pull it from public view into
+            # the existing "pending approval" admin queue, where a moderator
+            # can approve (restore) or reject it. Without this the flag had no
+            # observable outcome (review finding, todo 352).
+            BlogComment.objects.filter(pk=comment.pk).update(
+                is_flagged=True, is_approved=False, approved_at=None
+            )
 
         return Response({"detail": "Comment has been flagged for review."})
 

@@ -96,3 +96,18 @@ ANALYTICS_MIN_VIEWS_FOR_VIRAL_BADGE = 1000  # Minimum views to show "viral" badg
 
 # Max items in the public blog RSS/Atom feeds (todo 322).
 BLOG_RSS_MAX_ITEMS = 50
+
+# Comment endpoints (todo 352). Overridable per name via settings.BLOG_RATELIMITS,
+# same shape as FORUM_RATELIMITS; keys are per authenticated user.
+DEFAULT_BLOG_RATELIMITS = {
+    "comment_create": "10/h",
+    "comment_flag": "20/h",
+}
+# A comment auto-approves only when its author's FORUM trust level reaches
+# this (wagtail_forum.models.TrustLevel value; MEMBER = 2). Below it — and
+# always when the spam backend flags the text — the comment is held for the
+# existing admin moderation queue. Override with BLOG_COMMENT_AUTO_APPROVE_TRUST_LEVEL.
+DEFAULT_COMMENT_AUTO_APPROVE_TRUST_LEVEL = 2
+# One user's repeat flags on the same comment count once (cache-deduped).
+COMMENT_FLAG_DEDUP_SECONDS = 24 * 60 * 60
+COMMENT_AUTO_FLAG_THRESHOLD = 5
