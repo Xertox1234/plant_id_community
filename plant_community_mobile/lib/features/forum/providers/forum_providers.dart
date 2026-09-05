@@ -81,12 +81,132 @@ class BoardTopics extends _$BoardTopics {
   }
 }
 
-/// A single topic's detail, plus subscribe/unsubscribe (todo 293).
+/// A single topic's detail, plus subscribe/unsubscribe (todo 293), the
+/// bookmark toggle and the accepted-answer mark/clear (todo 341).
 @riverpod
 class TopicDetail extends _$TopicDetail {
+  /// One `Idempotency-Key` per (topic, post) mark, reused across retries of
+  /// the SAME post and rotated when a different post is marked — the backend
+  /// replays a same-key/same-payload retry and 422s a same-key/different-
+  /// payload one (docs/rules/flutter.md → Idempotent mobile writes).
+  String? _solutionKey;
+  String? _solutionFingerprint;
+
   @override
   Future<ForumTopicDetail> build(int topicId) {
     return ref.watch(forumApiProvider).fetchTopicDetail(topicId);
+  }
+
+  /// Bookmark if not bookmarked, else remove the bookmark. OPTIMISTIC
+  /// (unlike [toggleSubscription]): a bookmark is the viewer's own private
+  /// flag with no server-side refusal path beyond auth, so the icon flips at
+  /// once and reverts on failure — mirrors the web's handleToggleBookmark.
+  /// Rethrows so the caller can surface the error. Splices the bookmarks
+  /// feed in place when it is mounted (never invalidates a paged feed).
+  Future<void> toggleBookmark() async {
+    final current = state.asData?.value;
+    if (current == null) return;
+    // Re-entrancy guard (review): a double-tap would fire two opposite,
+    // key-less writes whose LAST response wins regardless of tap order —
+    // the second tap is dropped until the first settles.
+    if (_bookmarkInFlight) return;
+    _bookmarkInFlight = true;
+    try {
+      await _toggleBookmarkOnce(current);
+    } finally {
+      _bookmarkInFlight = false;
+    }
+  }
+
+  bool _bookmarkInFlight = false;
+
+  Future<void> _toggleBookmarkOnce(ForumTopicDetail current) async {
+    final wasBookmarked = current.isBookmarked;
+    state = AsyncData(current.copyWith(isBookmarked: !wasBookmarked));
+    final api = ref.read(forumApiProvider);
+    final bool bookmarked;
+    try {
+      bookmarked = wasBookmarked
+          ? await api.unbookmarkTopic(topicId)
+          : await api.bookmarkTopic(topicId);
+    } catch (_) {
+      // Re-read after the await so a concurrent subscription toggle isn't
+      // lost; only the bookmark flag is rolled back.
+      final latest = state.asData?.value ?? current;
+      state = AsyncData(latest.copyWith(isBookmarked: wasBookmarked));
+      rethrow;
+    }
+    final latest = state.asData?.value ?? current;
+    final updated = latest.copyWith(isBookmarked: bookmarked);
+    state = AsyncData(updated);
+    if (ref.exists(bookmarksFeedProvider)) {
+      ref
+          .read(bookmarksFeedProvider.notifier)
+          .applyBookmark(updated, bookmarked: bookmarked);
+    }
+  }
+
+  /// Accept [postId] as this topic's answer. NOT optimistic, deliberately:
+  /// `solved_post_id` is SHARED topic state other readers see, and the
+  /// backend can legitimately refuse (403 if the viewer's rights changed,
+  /// 422 for a non-live post or the opening post) — the badge moves only
+  /// once the server confirms where it landed (web: handleToggleSolution).
+  /// Rethrows on failure, keeping the idempotency key for a same-post retry.
+  Future<void> markSolution(int postId) async {
+    // Re-entrancy guard (review): a double-tap re-sends the same
+    // Idempotency-Key while the first request holds it → 409 twin. Drop the
+    // second tap instead of surfacing a conflict for a succeeding action.
+    if (_solutionInFlight) return;
+    _solutionInFlight = true;
+    try {
+      await _markSolutionOnce(postId);
+    } finally {
+      _solutionInFlight = false;
+    }
+  }
+
+  bool _solutionInFlight = false;
+
+  Future<void> _markSolutionOnce(int postId) async {
+    final current = state.asData?.value;
+    if (current == null) return;
+    final fingerprint = '$topicId|$postId';
+    if (_solutionKey == null || _solutionFingerprint != fingerprint) {
+      _solutionKey = const Uuid().v4();
+      _solutionFingerprint = fingerprint;
+    }
+    final key = _solutionKey;
+    if (key == null) return;
+    final result = await ref
+        .read(forumApiProvider)
+        .markSolution(topicId: topicId, postId: postId, idempotencyKey: key);
+    _solutionKey = null;
+    _solutionFingerprint = null;
+    _applySolution(result, fallback: current);
+  }
+
+  /// Clear this topic's accepted answer (a server-side no-op when unsolved).
+  /// Rethrows on failure — same non-optimistic contract as [markSolution].
+  Future<void> clearSolution() async {
+    final current = state.asData?.value;
+    if (current == null) return;
+    final result = await ref.read(forumApiProvider).clearSolution(topicId);
+    _applySolution(result, fallback: current);
+  }
+
+  void _applySolution(
+    ForumSolutionResult result, {
+    required ForumTopicDetail fallback,
+  }) {
+    // Re-read after the await so a concurrent bookmark/subscription toggle
+    // isn't lost.
+    final latest = state.asData?.value ?? fallback;
+    state = AsyncData(
+      latest.copyWith(
+        solvedPostId: result.solvedPostId,
+        clearSolvedPostId: !result.isSolved,
+      ),
+    );
   }
 
   /// Subscribe if currently unsubscribed, else unsubscribe. Writes back the
@@ -108,12 +228,80 @@ class TopicDetail extends _$TopicDetail {
   }
 }
 
-/// A public forum profile, keyed by username (`GET /forum/users/{username}/`).
+/// A public forum profile, keyed by username (`GET /forum/users/{username}/`),
+/// plus the viewer's block/unblock of that member (todo 341).
 @riverpod
 class ForumUserProfile extends _$ForumUserProfile {
   @override
   Future<ForumProfile> build(String username) {
     return ref.watch(forumApiProvider).fetchProfile(username);
+  }
+
+  /// Block if not blocked, else unblock. Optimistic with revert (a block is
+  /// the viewer's own list, like a bookmark); writes back the server's
+  /// returned `blocked` state and rethrows on failure so the screen can map
+  /// 400 (self-block) / 429 to copy. Broadcasts the change so a thread
+  /// mounted underneath collapses/reveals that author's posts in place
+  /// (see [AuthorBlockChanges]).
+  Future<void> toggleBlock() async {
+    final current = state.asData?.value;
+    if (current == null) return;
+    // Same re-entrancy guard as toggleBookmark: never two opposite writes.
+    if (_blockInFlight) return;
+    _blockInFlight = true;
+    try {
+      await _toggleBlockOnce(current);
+    } finally {
+      _blockInFlight = false;
+    }
+  }
+
+  bool _blockInFlight = false;
+
+  Future<void> _toggleBlockOnce(ForumProfile current) async {
+    final wasBlocked = current.isBlocked;
+    state = AsyncData(current.withBlocked(!wasBlocked));
+    final api = ref.read(forumApiProvider);
+    final bool blocked;
+    try {
+      blocked = wasBlocked
+          ? await api.unblockUser(username)
+          : await api.blockUser(username);
+    } catch (_) {
+      final latest = state.asData?.value ?? current;
+      state = AsyncData(latest.withBlocked(wasBlocked));
+      rethrow;
+    }
+    final latest = state.asData?.value ?? current;
+    state = AsyncData(latest.withBlocked(blocked));
+    ref
+        .read(authorBlockChangesProvider.notifier)
+        .emit(username: username, blocked: blocked);
+  }
+}
+
+/// One block/unblock the viewer just performed, for [AuthorBlockChanges].
+class AuthorBlockChange {
+  const AuthorBlockChange({required this.username, required this.blocked});
+  final String username;
+  final bool blocked;
+}
+
+/// The most recent block/unblock the viewer performed (todo 341). A block
+/// happens on the PROFILE screen but changes what every loaded post by that
+/// author should render in a thread mounted underneath — and the profile
+/// has no topic id to splice. Invalidating the paged thread would collapse
+/// its loaded pages to page 1, so instead each [TopicPosts] listens here
+/// and splices `isBlocked` locally. `keepAlive` so an emit is never lost
+/// between the profile's call and a thread's listener; listeners are not
+/// fired on subscribe, so a newly-built thread never replays a stale event.
+@Riverpod(keepAlive: true)
+class AuthorBlockChanges extends _$AuthorBlockChanges {
+  @override
+  AuthorBlockChange? build() => null;
+
+  void emit({required String username, required bool blocked}) {
+    state = AuthorBlockChange(username: username, blocked: blocked);
   }
 }
 
@@ -126,11 +314,82 @@ const _maxRefreshPages = 50;
 /// reaction toggle that updates the affected post in place.
 @riverpod
 class TopicPosts extends _$TopicPosts {
+  /// One `Idempotency-Key` per (post, reason, detail) report, reused across
+  /// retries of the SAME report and rotated when any of them changes —
+  /// mirrors `ConversationThread.send` (docs/rules/flutter.md).
+  String? _reportKey;
+  String? _reportFingerprint;
+
   @override
   Future<PagedList<ForumPost>> build(int topicId) async {
+    // Before the first await: a block/unblock performed on a profile pushed
+    // over this thread splices every loaded post by that author in place
+    // (todo 341) — see [AuthorBlockChanges] for why this is not an
+    // invalidation.
+    ref.listen(authorBlockChangesProvider, (_, change) {
+      if (change != null) {
+        applyAuthorBlocked(change.username, blocked: change.blocked);
+      }
+    });
     final page = await ref.watch(forumApiProvider).fetchPosts(topicId: topicId);
     return PagedList(items: page.items, nextUrl: page.next);
   }
+
+  /// Rewrite `isBlocked` on every loaded post by [username] — a local
+  /// splice, same discipline as [applyEditedPost].
+  void applyAuthorBlocked(String username, {required bool blocked}) {
+    final current = state.asData?.value;
+    if (current == null) return;
+    if (!current.items.any((p) => p.author.username == username)) return;
+    state = AsyncData(
+      PagedList(
+        items: [
+          for (final p in current.items)
+            if (p.author.username == username) p.withBlocked(blocked) else p,
+        ],
+        nextUrl: current.nextUrl,
+        isLoadingMore: current.isLoadingMore,
+      ),
+    );
+  }
+
+  /// Report [postId] for moderator review (todo 341). Rethrows so the
+  /// caller can map 400 (own post / already reported) / 429 to copy; the
+  /// idempotency key survives a failure for a same-report retry and is
+  /// dropped once the server has accepted it.
+  Future<void> reportPost({
+    required int postId,
+    required String reason,
+    String? detail,
+  }) async {
+    // Re-entrancy guard (review): a double-tap re-sends the same
+    // Idempotency-Key while the first holds it (409 twin); drop it.
+    if (_reportInFlight) return;
+    _reportInFlight = true;
+    try {
+      final fingerprint = '$postId|$reason|${detail ?? ''}';
+      if (_reportKey == null || _reportFingerprint != fingerprint) {
+        _reportKey = const Uuid().v4();
+        _reportFingerprint = fingerprint;
+      }
+      final key = _reportKey;
+      if (key == null) return;
+      await ref
+          .read(forumApiProvider)
+          .reportPost(
+            postId: postId,
+            reason: reason,
+            detail: detail,
+            idempotencyKey: key,
+          );
+      _reportKey = null;
+      _reportFingerprint = null;
+    } finally {
+      _reportInFlight = false;
+    }
+  }
+
+  bool _reportInFlight = false;
 
   /// Refetch every page of the thread from the start (todo 291). Posts are
   /// oldest-first, so a just-posted reply is always on the LAST cursor page —
@@ -470,6 +729,68 @@ class ConversationsFeed extends _$ConversationsFeed {
 @riverpod
 Future<int> unreadConversationCount(Ref ref) {
   return ref.watch(forumApiProvider).fetchUnreadConversationCount();
+}
+
+/// The viewer's bookmarked topics (cursor-paginated, most recently
+/// bookmarked first — todo 341).
+@riverpod
+class BookmarksFeed extends _$BookmarksFeed {
+  @override
+  Future<PagedList<ForumTopicListItem>> build() async {
+    final page = await ref.watch(forumApiProvider).fetchBookmarks();
+    return PagedList(items: page.items, nextUrl: page.next);
+  }
+
+  Future<void> loadMore() async {
+    final current = state.asData?.value;
+    if (current == null || !current.hasMore || current.isLoadingMore) return;
+    state = AsyncData(
+      PagedList(
+        items: current.items,
+        nextUrl: current.nextUrl,
+        isLoadingMore: true,
+      ),
+    );
+    try {
+      final page = await ref
+          .read(forumApiProvider)
+          .fetchBookmarks(cursorUrl: current.nextUrl);
+      // Re-read after the await so a concurrent splice isn't lost.
+      final latest = state.asData?.value ?? current;
+      state = AsyncData(
+        PagedList(items: [...latest.items, ...page.items], nextUrl: page.next),
+      );
+    } catch (_) {
+      final latest = state.asData?.value ?? current;
+      state = AsyncData(
+        PagedList(items: latest.items, nextUrl: latest.nextUrl),
+      );
+      rethrow;
+    }
+  }
+
+  /// The thread screen toggled [topic]'s bookmark: drop the row on
+  /// unbookmark, or insert it at the top (most recent first) on bookmark. A
+  /// whole-provider invalidation would refetch page 1 only and drop every
+  /// page `loadMore` had appended — the same discipline as
+  /// `ConversationsFeed.markRead`.
+  void applyBookmark(ForumTopicDetail topic, {required bool bookmarked}) {
+    final current = state.asData?.value;
+    if (current == null) return;
+    final without = [
+      for (final row in current.items)
+        if (row.id != topic.id) row,
+    ];
+    state = AsyncData(
+      PagedList(
+        items: bookmarked
+            ? [ForumTopicListItem.fromDetail(topic), ...without]
+            : without,
+        nextUrl: current.nextUrl,
+        isLoadingMore: current.isLoadingMore,
+      ),
+    );
+  }
 }
 
 /// State for [ConversationThread]. [messages] are held oldest → newest (the

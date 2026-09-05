@@ -106,6 +106,35 @@ void main() {
     },
   );
 
+  testWidgets(
+    'forum home offers the Bookmarks entry to a signed-in member only '
+    '(todo 341)',
+    (tester) async {
+      Widget wrap({required bool loggedIn}) => ProviderScope(
+        overrides: [
+          forumApiProvider.overrideWithValue(FakeForumApi()),
+          forumSyncStoreProvider.overrideWithValue(InMemoryForumSyncStore()),
+          authServiceProvider.overrideWith(
+            () => FakeAuthService(loggedIn: loggedIn),
+          ),
+        ],
+        child: const MaterialApp(home: ForumScreen()),
+      );
+
+      await tester.pumpWidget(wrap(loggedIn: true));
+      await tester.pumpAndSettle();
+      expect(find.byTooltip('Bookmarks'), findsOneWidget);
+      expect(find.byIcon(Icons.bookmark_border), findsOneWidget);
+
+      // A fresh ProviderScope — re-pumping the same scope with different
+      // overrides keeps the first container (and its signed-in fake).
+      await tester.pumpWidget(const SizedBox());
+      await tester.pumpWidget(wrap(loggedIn: false));
+      await tester.pumpAndSettle();
+      expect(find.byTooltip('Bookmarks'), findsNothing);
+    },
+  );
+
   testWidgets('forum home hides the inbox icon for an anonymous viewer', (
     tester,
   ) async {

@@ -55,6 +55,16 @@ class TopicCard extends StatelessWidget {
                         color: theme.colorScheme.onSurfaceVariant,
                       ),
                     ),
+                  if (topic.isSolved)
+                    Padding(
+                      padding: const EdgeInsets.only(right: AppSpacing.xs),
+                      child: Icon(
+                        Icons.check_circle,
+                        size: 15,
+                        color: theme.colorScheme.secondary,
+                        semanticLabel: 'Solved',
+                      ),
+                    ),
                   Expanded(
                     child: Text(
                       topic.title,

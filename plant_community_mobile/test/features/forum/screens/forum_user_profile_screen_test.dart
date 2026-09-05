@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:plant_community_mobile/features/forum/screens/forum_user_profile_screen.dart';
 import 'package:plant_community_mobile/features/forum/services/forum_api.dart';
+import 'package:plant_community_mobile/services/api_service.dart';
 import 'package:plant_community_mobile/services/auth_service.dart';
 import 'package:plant_community_mobile/services/user_profile_service.dart';
 
@@ -144,6 +145,142 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(_messageButton(), findsNothing);
+    });
+  });
+
+  group('ForumUserProfileScreen Block / Unblock (todo 341)', () {
+    Finder menu() => find.byTooltip('Profile options');
+
+    testWidgets('the menu is hidden when the server says can_block is false '
+        '(anonymous viewer, own profile)', (tester) async {
+      final api = FakeForumApi()..profile = profile(username: 'alice');
+
+      await tester.pumpWidget(_wrap(api, me: 'me'));
+      await tester.pumpAndSettle();
+
+      expect(menu(), findsNothing);
+    });
+
+    testWidgets('the menu is hidden for an anonymous viewer even if the '
+        'payload claims can_block', (tester) async {
+      final api = FakeForumApi()
+        ..profile = profile(username: 'alice', canBlock: true);
+
+      await tester.pumpWidget(_wrap(api));
+      await tester.pumpAndSettle();
+
+      expect(menu(), findsNothing);
+    });
+
+    testWidgets('Block asks for confirmation, then calls the API and shows the '
+        'blocked notice, hides Message, and offers Unblock', (tester) async {
+      final api = FakeForumApi()
+        ..profile = profile(
+          username: 'alice',
+          canBlock: true,
+          recentTopics: [profileTopicRefJson(id: 1, title: 'Monstera care')],
+        );
+
+      await tester.pumpWidget(_wrap(api, me: 'me'));
+      await tester.pumpAndSettle();
+      expect(_messageButton(), findsOneWidget);
+      expect(find.text('Monstera care'), findsOneWidget);
+
+      await tester.tap(menu());
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Block'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Block alice?'), findsOneWidget);
+      expect(api.blockCalls, isEmpty); // nothing sent before confirming
+      await tester.tap(
+        find.descendant(
+          of: find.byType(AlertDialog),
+          matching: find.text('Block'),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(api.blockCalls, ['alice']);
+      expect(find.textContaining("You've blocked alice"), findsOneWidget);
+      expect(_messageButton(), findsNothing);
+      // The activity lists collapse like the server's own blocked response.
+      expect(find.text('Monstera care'), findsNothing);
+
+      await tester.tap(menu());
+      await tester.pumpAndSettle();
+      expect(find.text('Unblock'), findsOneWidget);
+    });
+
+    testWidgets('cancelling the confirmation sends nothing', (tester) async {
+      final api = FakeForumApi()
+        ..profile = profile(username: 'alice', canBlock: true);
+
+      await tester.pumpWidget(_wrap(api, me: 'me'));
+      await tester.pumpAndSettle();
+
+      await tester.tap(menu());
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Block'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Cancel'));
+      await tester.pumpAndSettle();
+
+      expect(api.blockCalls, isEmpty);
+      expect(find.textContaining("You've blocked"), findsNothing);
+      expect(_messageButton(), findsOneWidget);
+    });
+
+    testWidgets('Unblock needs no confirmation and clears the notice', (
+      tester,
+    ) async {
+      final api = FakeForumApi()
+        ..profile = profile(username: 'alice', canBlock: true, isBlocked: true);
+
+      await tester.pumpWidget(_wrap(api, me: 'me'));
+      await tester.pumpAndSettle();
+      expect(find.textContaining("You've blocked alice"), findsOneWidget);
+      expect(_messageButton(), findsNothing);
+
+      await tester.tap(menu());
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Unblock'));
+      await tester.pumpAndSettle();
+
+      expect(find.byType(AlertDialog), findsNothing);
+      expect(api.unblockCalls, ['alice']);
+      expect(find.textContaining("You've blocked"), findsNothing);
+      expect(_messageButton(), findsOneWidget);
+    });
+
+    testWidgets('a rate-limited block reverts and reads as "too fast", never '
+        'a raw exception', (tester) async {
+      final api = FakeForumApi()
+        ..profile = profile(username: 'alice', canBlock: true)
+        ..failBlockWith = ApiException(
+          'Too many requests. Please wait a moment and try again.',
+          statusCode: 429,
+        );
+
+      await tester.pumpWidget(_wrap(api, me: 'me'));
+      await tester.pumpAndSettle();
+
+      await tester.tap(menu());
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Block'));
+      await tester.pumpAndSettle();
+      await tester.tap(
+        find.descendant(
+          of: find.byType(AlertDialog),
+          matching: find.text('Block'),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('Too fast — try again in a minute'), findsOneWidget);
+      expect(find.textContaining('ApiException'), findsNothing);
+      expect(find.textContaining("You've blocked"), findsNothing);
+      expect(_messageButton(), findsOneWidget);
     });
   });
 }

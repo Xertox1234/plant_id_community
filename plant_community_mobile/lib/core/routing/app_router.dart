@@ -12,6 +12,7 @@ import '../../features/profile/profile_screen.dart';
 import '../../features/settings/settings_screen.dart';
 import '../../features/care/care_screen.dart';
 import '../../features/forum/forum_screen.dart';
+import '../../features/forum/screens/forum_bookmarks_screen.dart';
 import '../../features/forum/screens/forum_topics_screen.dart';
 import '../../features/forum/screens/forum_thread_screen.dart';
 import '../../features/forum/screens/forum_composer_screen.dart';
@@ -52,6 +53,8 @@ abstract class AppRoutes {
   // Auth-only for the same reason: the DM inbox and every thread under it
   // are the caller's own private messages (todo 339).
   static const forumMessages = '/forum/messages';
+  // Auth-only: the bookmarks list is the caller's own (todo 341).
+  static const forumBookmarks = '/forum/bookmarks';
   static const collection = '/collection';
 }
 
@@ -74,6 +77,7 @@ GoRouter appRouter(Ref ref) {
     AppRoutes.garden,
     AppRoutes.forumNotifications,
     AppRoutes.forumMessages,
+    AppRoutes.forumBookmarks,
   };
   // Parameterised protected routes (`/forum/messages/:username`) can't be
   // matched by the exact-path set above; guard them by prefix.
@@ -272,6 +276,15 @@ GoRouter appRouter(Ref ref) {
           context: context,
           state: state,
           child: const ForumConversationsScreen(),
+        ),
+      ),
+      GoRoute(
+        path: AppRoutes.forumBookmarks,
+        name: 'forumBookmarks',
+        pageBuilder: (context, state) => _buildPageWithTransition(
+          context: context,
+          state: state,
+          child: const ForumBookmarksScreen(),
         ),
       ),
       GoRoute(

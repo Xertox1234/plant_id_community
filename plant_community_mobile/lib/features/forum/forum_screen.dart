@@ -30,9 +30,14 @@ class ForumScreen extends ConsumerWidget {
             onPressed: () => context.pushNamed('forumSearch'),
             icon: const Icon(Icons.search),
           ),
-          if (isAuthenticated) ...const [
-            _MessagesInboxButton(),
-            _NotificationsBellButton(),
+          if (isAuthenticated) ...[
+            IconButton(
+              tooltip: 'Bookmarks',
+              onPressed: () => context.pushNamed('forumBookmarks'),
+              icon: const Icon(Icons.bookmark_border),
+            ),
+            const _MessagesInboxButton(),
+            const _NotificationsBellButton(),
           ],
         ],
       ),

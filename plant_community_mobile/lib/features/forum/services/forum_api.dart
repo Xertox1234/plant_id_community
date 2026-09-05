@@ -163,6 +163,68 @@ abstract class ForumApi {
     String? detail,
     required String idempotencyKey,
   });
+
+  // --- Safety (todo 341 wave 1) --------------------------------------------
+
+  /// Report a post for moderator review (`POST /forum/posts/{id}/reports/`).
+  /// [reason] is one of [forumReportReasons]; [detail] is optional free text
+  /// (≤ 280 chars). 400 for your own post (callers gate on `post.canReport`);
+  /// reporting the same post twice is a server-side no-op, not an error.
+  /// Carries an `Idempotency-Key` — the backend replays a same-key retry.
+  Future<void> reportPost({
+    required int postId,
+    required String reason,
+    String? detail,
+    required String idempotencyKey,
+  });
+
+  /// Block / unblock [username] for the caller. Both are idempotent
+  /// server-side (`UserBlockView` reads no `Idempotency-Key`, so none is
+  /// sent — same reasoning as [subscribeToTopic]); 400 on self-block; 404
+  /// for a missing/inactive user. Returns the resulting `blocked` state.
+  Future<bool> blockUser(String username);
+  Future<bool> unblockUser(String username);
+
+  // --- Thread experience (todo 341 wave 2) ---------------------------------
+
+  /// Accept [postId] as [topicId]'s answer (`POST /forum/topics/{id}/
+  /// solution/`). Topic author or moderator only (403); the post must be a
+  /// live reply on THIS topic and not the opening post (422). Carries an
+  /// `Idempotency-Key` (the backend replays a same-key/same-payload retry
+  /// and 422s a same-key/different-payload one).
+  Future<ForumSolutionResult> markSolution({
+    required int topicId,
+    required int postId,
+    required String idempotencyKey,
+  });
+
+  /// Clear [topicId]'s accepted answer. Idempotent server-side (a 200 no-op
+  /// on an unsolved topic) and the view reads no `Idempotency-Key`.
+  Future<ForumSolutionResult> clearSolution(int topicId);
+
+  /// Bookmark / unbookmark a topic for the caller. Both idempotent
+  /// server-side and key-less (`TopicBookmarkView` reads no
+  /// `Idempotency-Key`); returns the resulting `bookmarked` state.
+  Future<bool> bookmarkTopic(int topicId);
+  Future<bool> unbookmarkTopic(int topicId);
+
+  /// The caller's bookmarked topics, most recently bookmarked first
+  /// (`GET /forum/me/bookmarks/`, `TopicListSerializer` rows). First page
+  /// when [cursorUrl] is null; pass the absolute `next` URL for a later one.
+  Future<CursorPage<ForumTopicListItem>> fetchBookmarks({String? cursorUrl});
+
+  /// A post's edit history, newest first (`GET /forum/posts/{id}/
+  /// revisions/`, unpaginated). Author or moderator only — a 403 is an
+  /// EXPECTED state, not a failure: once anyone other than the author has
+  /// edited the post, its history is moderator-only (earlier revisions still
+  /// hold whatever that edit removed).
+  Future<List<ForumPostRevision>> fetchPostRevisions(int postId);
+
+  /// One revision's body, in the same block shape as the live post.
+  Future<ForumPostRevisionDetail> fetchPostRevision({
+    required int postId,
+    required int revisionId,
+  });
 }
 
 /// A report reason the backend accepts (`Report.REASON_CHOICES`), with its
@@ -484,6 +546,98 @@ class HttpForumApi implements ForumApi {
       },
       options: _idempotent(idempotencyKey),
     );
+  }
+
+  @override
+  Future<void> reportPost({
+    required int postId,
+    required String reason,
+    String? detail,
+    required String idempotencyKey,
+  }) async {
+    await _api.post(
+      '/forum/posts/$postId/reports/',
+      data: {
+        'reason': reason,
+        if (detail != null && detail.isNotEmpty) 'detail': detail,
+      },
+      options: _idempotent(idempotencyKey),
+    );
+  }
+
+  @override
+  Future<bool> blockUser(String username) async {
+    final resp = await _api.post('/forum/users/$username/block/');
+    return (resp.data as Map<String, dynamic>)['blocked'] as bool? ?? true;
+  }
+
+  @override
+  Future<bool> unblockUser(String username) async {
+    final resp = await _api.delete('/forum/users/$username/block/');
+    return (resp.data as Map<String, dynamic>)['blocked'] as bool? ?? false;
+  }
+
+  @override
+  Future<ForumSolutionResult> markSolution({
+    required int topicId,
+    required int postId,
+    required String idempotencyKey,
+  }) async {
+    final resp = await _api.post(
+      '/forum/topics/$topicId/solution/',
+      data: {'post_id': postId},
+      options: _idempotent(idempotencyKey),
+    );
+    return ForumSolutionResult.fromJson(resp.data as Map<String, dynamic>);
+  }
+
+  @override
+  Future<ForumSolutionResult> clearSolution(int topicId) async {
+    final resp = await _api.delete('/forum/topics/$topicId/solution/');
+    return ForumSolutionResult.fromJson(resp.data as Map<String, dynamic>);
+  }
+
+  @override
+  Future<bool> bookmarkTopic(int topicId) async {
+    final resp = await _api.post('/forum/topics/$topicId/bookmark/');
+    return (resp.data as Map<String, dynamic>)['bookmarked'] as bool? ?? true;
+  }
+
+  @override
+  Future<bool> unbookmarkTopic(int topicId) async {
+    final resp = await _api.delete('/forum/topics/$topicId/bookmark/');
+    return (resp.data as Map<String, dynamic>)['bookmarked'] as bool? ?? false;
+  }
+
+  @override
+  Future<CursorPage<ForumTopicListItem>> fetchBookmarks({
+    String? cursorUrl,
+  }) async {
+    final resp = cursorUrl != null
+        ? await _api.get(cursorUrl)
+        : await _api.get('/forum/me/bookmarks/');
+    return CursorPage.fromJson(
+      resp.data as Map<String, dynamic>,
+      ForumTopicListItem.fromJson,
+    );
+  }
+
+  @override
+  Future<List<ForumPostRevision>> fetchPostRevisions(int postId) async {
+    final resp = await _api.get('/forum/posts/$postId/revisions/');
+    return (resp.data as List<dynamic>? ?? const [])
+        .whereType<Map<String, dynamic>>()
+        .map(ForumPostRevision.fromJson)
+        .toList(growable: false);
+  }
+
+  @override
+  Future<ForumPostRevisionDetail> fetchPostRevision({
+    required int postId,
+    required int revisionId,
+  }) async {
+    final resp = await _api.get('/forum/posts/$postId/revisions/$revisionId/');
+    return ForumPostRevisionDetail.fromJson(resp.data as Map<String, dynamic>);
   }
 }
 

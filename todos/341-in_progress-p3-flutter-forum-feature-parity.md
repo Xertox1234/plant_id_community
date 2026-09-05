@@ -1,5 +1,5 @@
 ---
-status: pending
+status: in_progress
 priority: p3
 issue_id: "341"
 tags: [forum, flutter, parity, epic]
@@ -82,3 +82,61 @@ DMs UI is **excluded** — tracked separately as todo 339 (web is missing too).
 - Surfaced by the 2026-09-04 forum competitive assessment, ranked gap #5:
   "Parity gaps on Flutter… the web/mobile asymmetry is backwards" for the
   primary platform.
+
+### 2026-09-05 - Started by completing-todos skill (run 2026-09-05-1142)
+
+- Picked up by automated workflow.
+
+### 2026-09-05 - Waves 1 + 2 implemented (general-purpose agent against the backend contract; run 2026-09-05-1142)
+
+Shipping as one PR for the two waves (safety + thread experience) — each
+wave is independently usable, the review is per PR, and the stacked-branch
+cost per PR is real; waves 3 + 4 follow as a second PR.
+
+- **Wave 1:** shared `forum_report_sheet.dart` (extracted from the DM
+  screen, which now reuses it) on `post_card.dart` when `can_report`;
+  Block/Unblock in the profile app-bar menu (`can_block`, confirm dialog,
+  blocked notice, Message hidden when blocked); blocked authors' posts
+  collapse with a local "Show anyway" (`is_blocked` on `PostSerializer` —
+  there is no `author_blocked`); a keepAlive `AuthorBlockChanges` notifier
+  lets a mounted thread splice the flag after a block on the profile.
+- **Wave 2:** `markSolution`/`clearSolution` (`topics/<id>/solution/`,
+  non-optimistic — the server may refuse), "Accepted answer" chip derived
+  from the topic's `solved_post_id` (no per-post flag exists), bounded
+  "Jump to answer" (viewport steps + next-cursor pages); bookmark toggle
+  (optimistic + revert) and `/forum/bookmarks` (protected route, load more,
+  splice into the mounted feed); edit-history sheet on the "edited" chip
+  (`posts/<id>/revisions/` + detail rendered by `ForumBodyRenderer`; 403 =
+  moderator-only copy); `forumErrorMessage()` maps 429/403/400/409/422.
+- Idempotency-Key only where the server consumes it (`reportPost`,
+  `markSolution`; verified against the views) — block/bookmark/clear are
+  naturally idempotent. Report route is `posts/<id>/reports/` (plural).
+
+```text
+$ dart run build_runner build --delete-conflicting-outputs → current (second run wrote 0 outputs)
+$ flutter analyze → No issues found!
+$ dart format --set-exit-if-changed … → 0 changed
+$ flutter test → 00:25 +533 ~3: All tests passed!
+mutation checks (cp backups, no git checkout; MUTANT residue 0): block confirm skipped → red; solution ignores server solved_post_id → red (provider + widget); bookmark splice no-op → red
+```
+
+### 2026-09-05 - Review round 1 (waves 1+2): flutter-dart reviewer — all repaired
+
+- **[medium] no in-flight guard on the optimistic toggles** — a double-tap
+  fired two opposite key-less writes whose last response won. Repaired:
+  re-entrancy guards on `toggleBookmark`, `toggleBlock`, `markSolution`
+  and `reportPost` (the second tap is dropped until the first settles);
+  provider tests fire two calls and assert one API request.
+- **[medium] a same-key twin (double-tap on Report / Mark as answer)
+  surfaced the server's "Idempotency-Key is being processed" text** —
+  repaired: 409 maps to "That's already in progress — give it a moment."
+  and the guards above stop the twin in the first place.
+- **[medium] 44 dp targets** (history chip, Jump to answer, revision tiles)
+  → 48 dp per `flutter-patterns.md`; **[low]** the accepted-answer chip's
+  `Semantics` now `excludeSemantics` (no double announce).
+
+```text
+dart run build_runner build --delete-conflicting-outputs → regenerated (guards changed the class hashes)
+flutter analyze → No issues found!; dart format → 3 changed
+flutter test (parity providers + thread parity + post card) → +44 all passed
+```

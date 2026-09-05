@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -5,8 +7,11 @@ import 'package:go_router/go_router.dart';
 import '../../../core/constants/app_spacing.dart';
 import '../../../services/api_service.dart';
 import '../../../services/auth_service.dart';
+import '../forum_errors.dart';
 import '../models/models.dart';
 import '../providers/forum_providers.dart';
+import '../widgets/forum_edit_history_sheet.dart';
+import '../widgets/forum_report_sheet.dart';
 import '../widgets/post_card.dart';
 import 'forum_composer_screen.dart';
 
@@ -35,15 +40,26 @@ class ForumThreadScreen extends ConsumerWidget {
       authServiceProvider.select((s) => s.isAuthenticated),
     );
 
-    final title = detail.asData?.value.title ?? initialTitle ?? 'Topic';
-    final isLocked = detail.asData?.value.isLocked ?? false;
-    final isSubscribed = detail.asData?.value.isSubscribed ?? false;
+    final topic = detail.asData?.value;
+    final title = topic?.title ?? initialTitle ?? 'Topic';
+    final isLocked = topic?.isLocked ?? false;
+    final isSubscribed = topic?.isSubscribed ?? false;
+    final isBookmarked = topic?.isBookmarked ?? false;
+    // Server authority for the mark/unmark affordance (topic author or a
+    // moderator) — never re-derived from the viewer's identity here.
+    final canMarkSolution =
+        isAuthenticated && (topic?.canMarkSolution ?? false);
 
     return Scaffold(
       appBar: AppBar(
         title: Text(title),
         actions: [
-          if (isAuthenticated && detail.hasValue)
+          if (isAuthenticated && detail.hasValue) ...[
+            IconButton(
+              tooltip: isBookmarked ? 'Remove bookmark' : 'Bookmark',
+              icon: Icon(isBookmarked ? Icons.bookmark : Icons.bookmark_border),
+              onPressed: () => _toggleBookmark(context, ref),
+            ),
             IconButton(
               tooltip: isSubscribed ? 'Unsubscribe' : 'Subscribe',
               icon: Icon(
@@ -53,6 +69,7 @@ class ForumThreadScreen extends ConsumerWidget {
               ),
               onPressed: () => _toggleSubscription(context, ref),
             ),
+          ],
         ],
       ),
       body: SafeArea(
@@ -76,6 +93,16 @@ class ForumThreadScreen extends ConsumerWidget {
             onOpenLink: (href) => _showLink(context, href),
             onEdit: (post) => _openEdit(context, ref, post),
             onDelete: (post) => _confirmDelete(context, ref, post),
+            onReport: isAuthenticated
+                ? (post) => _reportPost(context, ref, post)
+                : null,
+            onShowHistory: isAuthenticated
+                ? (post) => showForumEditHistorySheet(context, postId: post.id)
+                : null,
+            solvedPostId: topic?.solvedPostId,
+            onToggleSolution: canMarkSolution
+                ? (post) => _toggleSolution(context, ref, post)
+                : null,
             highlightPostId: highlightPostId,
           ),
         ),
@@ -129,6 +156,98 @@ class ForumThreadScreen extends ConsumerWidget {
           const SnackBar(content: Text('Could not update subscription.')),
         );
       }
+    }
+  }
+
+  Future<void> _toggleBookmark(BuildContext context, WidgetRef ref) async {
+    try {
+      await ref.read(topicDetailProvider(topicId).notifier).toggleBookmark();
+    } catch (e) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              forumErrorMessage(e, fallback: 'Could not update bookmark.'),
+            ),
+          ),
+        );
+      }
+    }
+  }
+
+  /// Accept [post] as the answer, or clear it when it already is. The
+  /// detail's `solvedPostId` is the single source of "is this the answer"
+  /// — read fresh here rather than trusting a card's stale render.
+  Future<void> _toggleSolution(
+    BuildContext context,
+    WidgetRef ref,
+    ForumPost post,
+  ) async {
+    final notifier = ref.read(topicDetailProvider(topicId).notifier);
+    final isCurrent =
+        ref.read(topicDetailProvider(topicId)).asData?.value.solvedPostId ==
+        post.id;
+    try {
+      if (isCurrent) {
+        await notifier.clearSolution();
+      } else {
+        await notifier.markSolution(post.id);
+      }
+    } catch (e) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              forumErrorMessage(
+                e,
+                fallback: 'Could not update the accepted answer.',
+                forbidden:
+                    "Only the topic's author or a moderator can accept an "
+                    'answer.',
+              ),
+            ),
+          ),
+        );
+      }
+    }
+  }
+
+  Future<void> _reportPost(
+    BuildContext context,
+    WidgetRef ref,
+    ForumPost post,
+  ) async {
+    final choice = await showForumReportSheet(
+      context,
+      title: 'Report post',
+      prompt: 'Why are you reporting this post?',
+    );
+    if (choice == null || !context.mounted) return;
+    try {
+      await ref
+          .read(topicPostsProvider(topicId).notifier)
+          .reportPost(
+            postId: post.id,
+            reason: choice.reason,
+            detail: choice.detail,
+          );
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Reported')));
+    } catch (e) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            forumErrorMessage(
+              e,
+              fallback: 'Could not send your report.',
+              forbidden: "You can't report this post.",
+            ),
+          ),
+        ),
+      );
     }
   }
 
@@ -208,6 +327,10 @@ class ForumThreadScreen extends ConsumerWidget {
   }
 }
 
+/// Safety bound on the "Jump to answer" chase (viewport steps + cursor
+/// pages) for a pathologically long thread.
+const _maxJumpSteps = 60;
+
 class _ThreadBody extends StatefulWidget {
   const _ThreadBody({
     required this.topicId,
@@ -218,6 +341,10 @@ class _ThreadBody extends StatefulWidget {
     required this.onOpenLink,
     required this.onEdit,
     required this.onDelete,
+    this.onReport,
+    this.onShowHistory,
+    this.solvedPostId,
+    this.onToggleSolution,
     this.highlightPostId,
   });
 
@@ -229,15 +356,25 @@ class _ThreadBody extends StatefulWidget {
   final void Function(String href) onOpenLink;
   final void Function(ForumPost post) onEdit;
   final void Function(ForumPost post) onDelete;
+  final void Function(ForumPost post)? onReport;
+  final void Function(ForumPost post)? onShowHistory;
+
+  /// The accepted answer's post id (todo 341) — drives the card ring and
+  /// the "Jump to answer" banner.
+  final int? solvedPostId;
+
+  /// Non-null only when the viewer may mark/unmark (topic author or
+  /// moderator). Never wired on the opening post below.
+  final void Function(ForumPost post)? onToggleSolution;
   final int? highlightPostId;
 
   @override
   State<_ThreadBody> createState() => _ThreadBodyState();
 }
 
-/// Stateful only for [_highlightKey] and the one-shot highlight scroll —
-/// everything else about a topic's post list is still driven top-down from
-/// [ForumThreadScreen]'s providers.
+/// Stateful for [_highlightKey] and the one-shot highlight scroll, plus the
+/// "Jump to answer" chase (todo 341) — everything else about a topic's post
+/// list is still driven top-down from [ForumThreadScreen]'s providers.
 class _ThreadBodyState extends State<_ThreadBody> {
   /// Only the single highlighted post (if any) ever needs a key — attached
   /// in `itemBuilder` only when `post.id == widget.highlightPostId`. A
@@ -248,6 +385,14 @@ class _ThreadBodyState extends State<_ThreadBody> {
   /// upstream — two simultaneously-mounted widgets sharing one `GlobalKey`
   /// would be a hard Flutter crash. A single field sidesteps all three.
   final _highlightKey = GlobalKey();
+
+  /// Same single-key discipline for the accepted answer. When the answer IS
+  /// the highlighted post, [_highlightKey] wins (a widget takes one key) and
+  /// [_answerKey] resolves to it — see [_keyFor]/[_jumpToAnswer].
+  final _solutionKey = GlobalKey();
+
+  final _scrollController = ScrollController();
+  bool _jumping = false;
 
   @override
   void initState() {
@@ -270,7 +415,8 @@ class _ThreadBodyState extends State<_ThreadBody> {
     // very likely off-screen on first frame, and the scroll below silently
     // no-ops — a known, deliberate limitation, not a bug. No visual
     // highlight flash and no cross-page "Load More" chasing either, both
-    // also out of scope.
+    // also out of scope. (The "Jump to answer" chase below is the
+    // explicit-tap counterpart that DOES walk the list.)
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       final postContext = _highlightKey.currentContext;
@@ -283,11 +429,79 @@ class _ThreadBodyState extends State<_ThreadBody> {
   }
 
   @override
+  void dispose() {
+    _scrollController.dispose();
+    super.dispose();
+  }
+
+  GlobalKey? _keyFor(ForumPost post) {
+    if (post.id == widget.highlightPostId) return _highlightKey;
+    if (post.id == widget.solvedPostId) return _solutionKey;
+    return null;
+  }
+
+  GlobalKey get _answerKey => widget.highlightPostId == widget.solvedPostId
+      ? _highlightKey
+      : _solutionKey;
+
+  /// `true` once the answer card is built and has been scrolled into view.
+  /// The key's context is read and used with no async gap in between — it
+  /// is re-read on every pass of the chase below, never held across one.
+  Future<bool> _revealAnswerIfBuilt() {
+    final answerContext = _answerKey.currentContext;
+    if (answerContext == null) return Future<bool>.value(false);
+    return Scrollable.ensureVisible(
+      answerContext,
+      alignment: 0.05,
+      duration: const Duration(milliseconds: 300),
+    ).then((_) => true);
+  }
+
+  /// Scroll the accepted answer into view. A lazy list only attaches the
+  /// key once the card is BUILT (docs/rules/flutter.md), so this walks the
+  /// list a viewport at a time until it is — pulling the next cursor page
+  /// when the answer is not on a loaded one — bounded by [_maxJumpSteps].
+  Future<void> _jumpToAnswer() async {
+    final solvedId = widget.solvedPostId;
+    if (solvedId == null || _jumping) return;
+    _jumping = true;
+    try {
+      for (var i = 0; i < _maxJumpSteps && mounted; i++) {
+        if (await _revealAnswerIfBuilt()) return;
+        if (!widget.paged.items.any((p) => p.id == solvedId)) {
+          // On a later page (or gone): load the next page and re-check.
+          if (!widget.paged.hasMore || widget.paged.isLoadingMore) return;
+          try {
+            await widget.onLoadMore();
+          } catch (_) {
+            return;
+          }
+          continue;
+        }
+        if (!_scrollController.hasClients) return;
+        final position = _scrollController.position;
+        if (position.pixels >= position.maxScrollExtent) return;
+        _scrollController.jumpTo(
+          math.min(
+            position.pixels + position.viewportDimension,
+            position.maxScrollExtent,
+          ),
+        );
+        // Let the list build the newly-visible cards before re-checking.
+        await WidgetsBinding.instance.endOfFrame;
+      }
+    } finally {
+      _jumping = false;
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
     if (widget.paged.items.isEmpty) {
       return const Center(child: Text('No posts yet.'));
     }
-    return ListView.separated(
+    final list = ListView.separated(
+      controller: _scrollController,
       padding: const EdgeInsets.fromLTRB(
         AppSpacing.md,
         AppSpacing.md,
@@ -304,8 +518,9 @@ class _ThreadBodyState extends State<_ThreadBody> {
           );
         }
         final post = widget.paged.items[index];
+        final onToggleSolution = widget.onToggleSolution;
         return PostCard(
-          key: post.id == widget.highlightPostId ? _highlightKey : null,
+          key: _keyFor(post),
           post: post,
           onOpenLink: widget.onOpenLink,
           onReact: widget.onReact == null
@@ -313,12 +528,79 @@ class _ThreadBodyState extends State<_ThreadBody> {
               : (type) => widget.onReact!(post.id, type),
           onEdit: () => widget.onEdit(post),
           onDelete: () => widget.onDelete(post),
+          onReport: widget.onReport == null
+              ? null
+              : () => widget.onReport!(post),
+          onShowHistory: widget.onShowHistory == null
+              ? null
+              : () => widget.onShowHistory!(post),
+          isSolution: post.id == widget.solvedPostId,
+          // A question is not its own answer — the endpoint 422s the
+          // opening post, so never offer it (mirrors the web).
+          onToggleSolution: onToggleSolution == null || post.isOpeningPost
+              ? null
+              : () => onToggleSolution(post),
           onAuthorTap: () => context.pushNamed(
             'forumUserProfile',
             pathParameters: {'username': post.author.username},
           ),
         );
       },
+    );
+    if (widget.solvedPostId == null) return list;
+    return Column(
+      children: [
+        _SolvedBanner(onJump: _jumpToAnswer),
+        Expanded(child: list),
+      ],
+    );
+  }
+}
+
+/// Header strip for a solved topic with the "Jump to answer" affordance.
+class _SolvedBanner extends StatelessWidget {
+  const _SolvedBanner({required this.onJump});
+
+  final Future<void> Function() onJump;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    return Material(
+      color: scheme.secondaryContainer,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(
+          horizontal: AppSpacing.md,
+          vertical: AppSpacing.xs,
+        ),
+        child: Row(
+          children: [
+            Icon(
+              Icons.check_circle,
+              size: 18,
+              color: scheme.onSecondaryContainer,
+            ),
+            const SizedBox(width: AppSpacing.sm),
+            Expanded(
+              child: Text(
+                'This topic has an accepted answer',
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: scheme.onSecondaryContainer,
+                ),
+              ),
+            ),
+            TextButton(
+              onPressed: onJump,
+              style: TextButton.styleFrom(
+                foregroundColor: scheme.onSecondaryContainer,
+                minimumSize: const Size(48, 48),
+              ),
+              child: const Text('Jump to answer'),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }

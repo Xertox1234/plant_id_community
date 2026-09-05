@@ -79,6 +79,8 @@ class ForumProfile {
     this.joinedAt,
     required this.recentTopics,
     required this.recentPosts,
+    this.isBlocked = false,
+    this.canBlock = false,
   });
 
   final ForumAuthor author;
@@ -88,6 +90,34 @@ class ForumProfile {
   final DateTime? joinedAt;
   final List<ForumProfileTopicRef> recentTopics;
   final List<ForumProfilePostRef> recentPosts;
+
+  /// Whether the VIEWER has blocked this member (todo 284/M9). Only the
+  /// viewer's own block is ever exposed — never whether this member has
+  /// blocked the viewer. When `true` the server already sends empty
+  /// [recentTopics]/[recentPosts].
+  final bool isBlocked;
+
+  /// Whether the viewer may block this member: `false` for an anonymous
+  /// viewer and on your own profile — server authority (`UserBlock.can_block`).
+  final bool canBlock;
+
+  /// Returns a copy with [isBlocked] replaced (the block/unblock toggle).
+  /// A freshly-blocked member's activity lists are cleared to match what
+  /// the server will send on the next fetch; an unblock leaves the (already
+  /// empty) lists alone — they refill on the next open.
+  ForumProfile withBlocked(bool isBlocked) {
+    return ForumProfile(
+      author: author,
+      bio: bio,
+      signature: signature,
+      postCount: postCount,
+      joinedAt: joinedAt,
+      recentTopics: isBlocked ? const [] : recentTopics,
+      recentPosts: isBlocked ? const [] : recentPosts,
+      isBlocked: isBlocked,
+      canBlock: canBlock,
+    );
+  }
 
   factory ForumProfile.fromJson(Map<String, dynamic> json) {
     return ForumProfile(
@@ -104,6 +134,8 @@ class ForumProfile {
           .whereType<Map<String, dynamic>>()
           .map(ForumProfilePostRef.fromJson)
           .toList(growable: false),
+      isBlocked: json['is_blocked'] as bool? ?? false,
+      canBlock: json['can_block'] as bool? ?? false,
     );
   }
 }

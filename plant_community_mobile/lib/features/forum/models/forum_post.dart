@@ -22,6 +22,8 @@ class ForumPost {
     required this.canEdit,
     required this.canDelete,
     required this.canReport,
+    this.isBlocked = false,
+    this.canBlock = false,
   });
 
   final int id;
@@ -48,6 +50,15 @@ class ForumPost {
   final bool canDelete;
   final bool canReport;
 
+  /// `true` when the VIEWER has blocked this post's author (todo 284/M9).
+  /// The server COLLAPSES rather than hides — the body is still in [body],
+  /// the card just renders a "You've blocked …" placeholder until revealed.
+  final bool isBlocked;
+
+  /// Whether the viewer may block this post's author (never for their own
+  /// posts, a deleted author, or an anonymous viewer) — server authority.
+  final bool canBlock;
+
   bool get isEdited => editedAt != null;
 
   factory ForumPost.fromJson(Map<String, dynamic> json) {
@@ -68,6 +79,8 @@ class ForumPost {
       canEdit: json['can_edit'] as bool? ?? false,
       canDelete: json['can_delete'] as bool? ?? false,
       canReport: json['can_report'] as bool? ?? false,
+      isBlocked: json['is_blocked'] as bool? ?? false,
+      canBlock: json['can_block'] as bool? ?? false,
     );
   }
 
@@ -76,6 +89,18 @@ class ForumPost {
   ForumPost withReactions({
     required Map<String, int> reactionCounts,
     required List<String> reacted,
+  }) {
+    return copyWith(reactionCounts: reactionCounts, reacted: reacted);
+  }
+
+  /// Returns a copy with [isBlocked] replaced (local splice after the viewer
+  /// blocks/unblocks this post's author from their profile, todo 341).
+  ForumPost withBlocked(bool isBlocked) => copyWith(isBlocked: isBlocked);
+
+  ForumPost copyWith({
+    Map<String, int>? reactionCounts,
+    List<String>? reacted,
+    bool? isBlocked,
   }) {
     return ForumPost(
       id: id,
@@ -87,11 +112,13 @@ class ForumPost {
       editedAt: editedAt,
       isOpeningPost: isOpeningPost,
       isPending: isPending,
-      reactionCounts: reactionCounts,
-      reacted: reacted,
+      reactionCounts: reactionCounts ?? this.reactionCounts,
+      reacted: reacted ?? this.reacted,
       canEdit: canEdit,
       canDelete: canDelete,
       canReport: canReport,
+      isBlocked: isBlocked ?? this.isBlocked,
+      canBlock: canBlock,
     );
   }
 
