@@ -438,3 +438,15 @@ Compact checklist auto-injected before edits.
   the write happens eventually; it cannot catch a publish-before-commit race,
   which is exactly the bug a synchronous-looking suite hides (PR #624; the
   todo-289 bullet above covers the "defers forever unless captured" half).
+- **An exact query pin on an AUTHENTICATED forum endpoint must
+  `cache.delete(f"forum:presence:{user.pk}")` before capturing.** The todo-301
+  presence touch is one UPDATE gated by `cache.add()` on that key; the test cache
+  is Redis when it is reachable, which outlives both the per-test rollback and a
+  `--create-db` rebuild — so a recycled pk from an earlier run within the 5-minute
+  throttle silently skips the UPDATE and the pin drops by one. `assertNumQueries`
+  precedents that count the touch (`test_notifications_api.py`) got lucky, not
+  right (audit 2026-09-04 L12, Phase 6).
+- **`expect(x, hasLength(SomeClass.limit))` / `assert n == MODULE.CONST` TRACKS
+  the constant; it does not pin it.** Shrinking the bound goes green. Assert the
+  literal value next to the behaviour (`expect(ForumSyncService.maxPages, 500)`)
+  when the number itself is the guarantee (todo 321 lesson, re-hit 2026-09-04 L9).

@@ -16,6 +16,7 @@ import {
 } from '../services/forumService';
 import { logger } from '../utils/logger';
 import { rotateRequestId } from '../utils/requestId';
+import { clearAllDrafts } from '../utils/forumDrafts';
 import { AuthErrorCode } from '../types/auth';
 import type { User, LoginCredentials, SignupData, AuthError } from '../types/auth';
 
@@ -195,6 +196,23 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
     initAuth();
   }, []);
+
+  // Composer drafts are keyed by topic/board, not account, and sessionStorage
+  // outlives every identity change in this tab (audit 2026-09-04 L4). logout()
+  // clears them, but a swap can also arrive passively — a focus revalidation
+  // that finds another account's cookie, or an expired session followed by a
+  // different login — so reconcile here on the identity itself. Only a change
+  // BETWEEN two real accounts clears: the first identity after mount (a reload)
+  // and an expire → same-account re-login must keep the draft.
+  const draftsOwnerIdRef = useRef<number | null>(null);
+  useEffect(() => {
+    const nextId = user?.id ?? null;
+    if (nextId === null) return;
+    if (draftsOwnerIdRef.current !== null && draftsOwnerIdRef.current !== nextId) {
+      clearAllDrafts();
+    }
+    draftsOwnerIdRef.current = nextId;
+  }, [user?.id]);
 
   // Clear per-account API capability latches whenever the identity changes.
   // One effect keyed on the user id rather than a call in each of login/register/

@@ -679,6 +679,49 @@ describe('AuthContext', () => {
     const userA: User = { id: 1, username: 'user-a', email: 'a@example.com' };
     const userB: User = { id: 2, username: 'user-b', email: 'b@example.com' };
 
+    it('drops composer drafts when a focus revalidation swaps to another account (audit L4)', async () => {
+      vi.mocked(authService.getStoredUser).mockReturnValue(userA);
+      vi.mocked(authService.getCurrentUser).mockResolvedValueOnce(userA);
+      sessionStorage.setItem('forum-draft:reply:28', '<p>account A, unsent</p>');
+
+      const { result } = renderHook(() => useAuth(), { wrapper: AuthProvider });
+      await waitFor(() => expect(result.current.user).toEqual(userA));
+      // Mount (and a reload's stored → confirmed same identity) keeps the draft.
+      expect(sessionStorage.getItem('forum-draft:reply:28')).not.toBeNull();
+
+      vi.mocked(authService.getCurrentUser).mockResolvedValueOnce(userB);
+      await act(async () => {
+        window.dispatchEvent(new Event('focus'));
+      });
+
+      await waitFor(() => expect(result.current.user).toEqual(userB));
+      expect(sessionStorage.getItem('forum-draft:reply:28')).toBeNull();
+    });
+
+    it('keeps composer drafts across an expired session re-entered by the same account', async () => {
+      vi.mocked(authService.getStoredUser).mockReturnValue(userA);
+      vi.mocked(authService.getCurrentUser).mockResolvedValueOnce(userA);
+      sessionStorage.setItem('forum-draft:reply:28', '<p>still mine</p>');
+
+      const { result } = renderHook(() => useAuth(), { wrapper: AuthProvider });
+      await waitFor(() => expect(result.current.user).toEqual(userA));
+
+      // Session expired server-side: revalidation reads no user…
+      vi.mocked(authService.getCurrentUser).mockResolvedValueOnce(null);
+      await act(async () => {
+        window.dispatchEvent(new Event('focus'));
+      });
+      await waitFor(() => expect(result.current.user).toBeNull());
+      // …then the same account logs back in. The draft was never anyone else's.
+      vi.mocked(authService.login).mockResolvedValue(userA);
+      await act(async () => {
+        await result.current.login({ email: 'a@example.com', password: 'x' } as LoginCredentials);
+      });
+      await waitFor(() => expect(result.current.user).toEqual(userA));
+
+      expect(sessionStorage.getItem('forum-draft:reply:28')).toBe('<p>still mine</p>');
+    });
+
     it('updates the context when a window focus reveals a changed identity', async () => {
       vi.mocked(authService.getStoredUser).mockReturnValue(userA);
       vi.mocked(authService.getCurrentUser).mockResolvedValueOnce(userA);

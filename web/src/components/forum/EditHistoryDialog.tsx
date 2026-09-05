@@ -139,8 +139,11 @@ export default function EditHistoryDialog({ open, postId, onClose }: EditHistory
 
         {/* Always-mounted live region: an ancestor that is conditionally
             rendered would recreate it with its content, which is the exact
-            anti-pattern a live region exists to avoid. */}
-        <p role="status" aria-live="polite" className="text-sm text-error">
+            anti-pattern a live region exists to avoid. Bare `aria-live`, not
+            `role="status"`: the LoadingSpinner mounted below already carries
+            that role, and two status regions in one dialog make every
+            `getByRole('status')` query ambiguous (audit 2026-09-04 L7). */}
+        <p aria-live="polite" className="text-sm text-error">
           {error ?? ''}
         </p>
 

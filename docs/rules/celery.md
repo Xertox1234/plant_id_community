@@ -58,3 +58,9 @@ Compact checklist auto-injected before edits. Long-form:
   exception there surfaces after the commit, from the view. Test with
   `django_capture_on_commit_callbacks(execute=True)`, and keep any `patch()`
   open while the captured callbacks run.
+- **Per-task options like `ignore_result` are baked into each message at ENQUEUE
+  time** (`Task.apply_async` → the message headers); the worker only falls back
+  to the task class's value when the header is missing. Changing the decorator
+  fixes messages produced from now on — a broker backlog keeps the old value
+  and will still write result rows when first consumed. Say so in the runbook
+  before someone reads it as "the fix didn't take" (audit 2026-09-04 L3/H1).

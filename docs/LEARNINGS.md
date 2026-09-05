@@ -4239,3 +4239,83 @@ Also observed, pre-existing and unfiled: the raw `/api/v2/pages/` and
 DRF `NamespaceVersioning` rejects the `wagtailapi` namespace — every
 project-owned Wagtail API viewset sets `versioning_class = None`, and the new
 redirects endpoint had to as well (`docs/rules/api.md`, `docs/rules/wagtail.md`).
+
+### [2026-09-04] Forum audit fix run (PR #629) — five root causes and two tooling traps
+
+**Wagtail draft-state write-through defeated the topic-redirect snapshot (M1).**
+`apps/forum_host/redirects.py` snapshotted the old path in `pre_save` and wrote
+a `Redirect` in `post_save` only when the topic was live. Since Wagtail 6.0 the
+generic snippet edit view saves an UNPUBLISHED object's draft straight to the
+row (`form.save(commit=not self.object.live)`), and the later Publish is a
+plain `object.save()` off the revision — so "hide → fix slug in /cms/ →
+publish" wrote nothing: by the publish save the row already carried the new
+slug. The documentation-research suggestion (snapshot from `live_revision`)
+could not work either: `UnpublishAction` nulls it. `first_published_at`
+survives unpublish and is set by every `revision.publish()`, so "once public"
+is `old.live or old.first_published_at is not None`, and the hidden save is
+the one that writes the row. Only a test that actually unpublishes, `save()`s,
+then `save_revision().publish()`s reproduces it — the existing "unpublished
+topic" test started unpublished and never had a public path to lose.
+
+**`istartswith` wants `text_pattern_ops`, not `varchar_pattern_ops` (L11).**
+Django compiles it as `UPPER("col"::text) LIKE UPPER(%s)`; the cast makes the
+indexed expression `text`. The research note's `varchar_pattern_ops` snippet
+would have compiled and never been chosen. The `EXPLAIN` test with
+`SET LOCAL enable_seqscan = off` is what caught the distinction, not reading
+docs. Pattern 33 in `performance/query-optimization.md`.
+
+**Three Phase 6 catches behind a green suite.** (1) The composer `PopScope`
+guard prompted "Discard draft?" after a moderation-QUEUED submit — the text is
+still in the controllers behind the pending view (`canPop` must include
+`_pending`). (2) An exact query pin on an authenticated forum endpoint counted
+the presence-touch UPDATE, which `cache.add()` gates on a Redis key that
+outlives `--create-db`; a recycled pk would have dropped the count by one.
+(3) The `auth_user` index migration built without `CONCURRENTLY` — an ACCESS
+EXCLUSIVE lock on the busiest table, against two in-repo precedents. None of
+these fails a test today; all three were review findings on a passing branch.
+
+**A "defer until X" ops decision needs a todo that re-checks X (H1).** Todo 261
+deferred the Celery worker "until push/email/summaries are turned on". The
+trigger arrived piecemeal (OPENAI key live for spam, todo 280) and nothing
+re-evaluated the deferral, so five shipped tasks enqueue into a queue nobody
+consumes. Filed as todo 335 with the backlog-drain step — and note that
+`ignore_result` is baked into each message at enqueue, so the backlog will
+still write result rows when first consumed.
+
+**Tooling: zsh does not word-split an unquoted `$VAR`.** `pre-commit run
+--files $FILES`, `prettier --write $WEB`, and a `$RUN` command variable all ran
+on ONE argument: pre-commit reported "no files to check" and three mutation
+checks never executed while looking like they had. Use `${=VAR}` or `xargs`,
+and treat "no files" / "no such file" as "the check did not run".
+
+**Tooling: the `kimi-review` binary is not on PATH here, and the commit hook
+silently no-ops without it** (`command -v kimi-review || exit 0`). The vendored
+`python3 scripts/kimi-review` works with `backend/venv` (no findings over this
+branch's full diff). The audit skill's "kimi-review is not optional" gate is
+only real if the invocation is the vendored one.
+
+### [2026-09-04] Worktree tooling: a symlinked `node_modules` breaks `npx <bin>`, not `npx vitest`
+
+In `.worktrees/<name>/web`, `node_modules` was a symlink to the main
+checkout's directory (the cheap way to run the web suite without a second
+install). `npx vitest run` worked; `npx eslint src` failed with
+`npm error could not determine executable to run`, and Prettier's pre-commit
+hook reported the same files as unformatted after a `--write` that had silently
+done nothing — the write ran on ONE shell word (see the zsh entry above). Call
+the binaries directly — `./node_modules/.bin/eslint`, `./node_modules/.bin/prettier
+--write <files>` — the same fix the Playwright/RTK note prescribes, and
+re-run the pre-commit hook (`pre-commit run prettier-web`) to prove the
+formatting actually landed before staging.
+
+### [2026-09-04] `git checkout -- <file>` in a mutation check erased unstaged fixes (PR #629 round 2)
+
+A Pattern-30-style mutation check (`sed` the guard out → run the test → restore)
+restored `apps/forum_host/redirects.py` with `git checkout -- <file>`. The file
+had been edited after its last `git add`, so the checkout restored the INDEX
+copy — the pre-round-2 version — and the round-2 guard (`keep_manual`,
+`ONCE_PUBLIC`) vanished from the working tree while the check printed the
+"restored" line. The full backend suite then ran against the old file, and the
+later `git add` staged the old file. Caught only because a `grep -c` for the
+guard line printed `0` in the log. Rule now in `docs/rules/_discipline.md`:
+back the file up with `cp` (or reverse the `sed`), and grep the restored file
+for the guard before believing the check.

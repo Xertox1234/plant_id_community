@@ -180,6 +180,20 @@ You review: `apps/blog/`, Wagtail page models, StreamField blocks, signals, Wagt
   for a Wagtail admin save must sit in `transaction.on_commit` (the admin saves
   inside `atomic()`).
 
+### Forum audit additions (2026-09-04)
+
+- A `pre_save` receiver on a `DraftStateMixin` model that snapshots the DB row,
+  paired with a `post_save` that acts only when `instance.live`: flag it.
+  Wagtail 6+ saves an UNPUBLISHED object's draft edit straight to the row
+  (`form.save(commit=not live)`), so the publish save sees old == new. The
+  once-public gate is `old.live or old.first_published_at is not None` — never
+  `live_revision` (unpublish nulls it). Ask for a test that unpublishes,
+  `save()`s, then `save_revision().publish()`s (audit 2026-09-04 M1).
+- A new `index.SearchField` on a snippet whose `SnippetViewSet.search_fields`
+  is set needs the matching `index.AutocompleteField` (else the admin listing
+  search is whole-word only and warns) AND a one-off `update_index` in prod for
+  existing rows — check that someone owns the backfill (L10 / todo 337).
+
 ## Output Format (Review Mode)
 
 Return ONLY this JSON structure (no surrounding prose, no markdown fences in the actual response — the example fences below show the schema):

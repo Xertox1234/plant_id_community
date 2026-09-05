@@ -180,8 +180,26 @@ class _ResultsBody extends ConsumerWidget {
               child: result.status == ForumSearchStatus.loadingMore
                   ? const CircularProgressIndicator()
                   : OutlinedButton(
-                      onPressed: () =>
-                          ref.read(forumSearchProvider.notifier).loadMore(),
+                      // loadMore() restores the prior page and RETHROWS
+                      // (unlike search(), which swallows), so an un-awaited
+                      // call here was a silent no-op plus an unhandled async
+                      // error — the other three "Load more" buttons all
+                      // await inside try/catch (audit 2026-09-04 M5).
+                      onPressed: () async {
+                        try {
+                          await ref
+                              .read(forumSearchProvider.notifier)
+                              .loadMore();
+                        } catch (_) {
+                          if (context.mounted) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(
+                                content: Text('Could not load more.'),
+                              ),
+                            );
+                          }
+                        }
+                      },
                       child: const Text('Load more'),
                     ),
             ),

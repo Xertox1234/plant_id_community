@@ -15,6 +15,10 @@
 import { logger } from '../utils/logger';
 import { getCsrfToken } from '../utils/csrf';
 import { getOrCreateRequestId } from '../utils/requestId';
+// Composer drafts are keyed by topic/board, not user, and sessionStorage
+// outlives a logout — drop them so the next account in this tab never sees
+// the previous one's unsent text (audit 2026-09-04 L4).
+import { clearAllDrafts } from '../utils/forumDrafts';
 import type { User, LoginCredentials, SignupData, AuthResponse } from '../types/auth';
 import type { ApiError } from '../types/api';
 
@@ -235,10 +239,12 @@ export async function logout(): Promise<void> {
 
     // Always clear sessionStorage regardless of API response
     sessionStorage.removeItem('user');
+    clearAllDrafts();
   } catch (error) {
     logger.error('[authService] Logout error', { error });
     // Still clear sessionStorage even if API fails
     sessionStorage.removeItem('user');
+    clearAllDrafts();
     throw error;
   }
 }

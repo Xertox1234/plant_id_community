@@ -98,3 +98,27 @@ Compact checklist auto-injected before edits. Long-form:
   `flutter pub run build_runner build --delete-conflicting-outputs && git
   diff --exit-code -- lib test` as its own explicit pre-push step, not
   something "run flutter test" already covers.
+- **`PopScope(canPop: …)` guards must enumerate every "nothing to lose" state,
+  and each OR-arm of the guard needs its own widget test.** A composer whose
+  submit landed as moderation-queued still holds the text in its controllers
+  behind the pending view — `canPop: !_hasUnsentInput` alone asks "Discard
+  draft?" for content that was already sent (`canPop: _pending || …`). Title-only
+  (topic mode) and image-only inputs are separate arms; a test that only types a
+  body proves none of them. An explicit `Navigator.of(context).pop(...)` after a
+  successful submit BYPASSES `canPop` (only `maybePop` / AppBar back / system back
+  honour it), so post-submit pops need no special-casing. Drive the guard with
+  `tester.pageBack()` on a composer pushed behind a home route — as `home:` it is
+  the root and the AppBar shows no back button (audit 2026-09-04 L8).
+- **After any tap that mounts a `CachedNetworkImage` (an attached-photo
+  thumbnail), use bounded `pump()`s, never `pumpAndSettle()`** — its placeholder
+  spinner never resolves in the blocked-network test harness (every HTTP request
+  400s), so `pumpAndSettle` times out. A dialog opened afterwards needs
+  `pump()` + `pump(const Duration(milliseconds: 300))` for its animation.
+- **Never pass `maxWidth`/`maxHeight`/`imageQuality` to a general-purpose
+  gallery `ImagePicker.pickImage`.** `image_picker_android` re-encodes every
+  pick through those bounds: an opaque PNG comes back as JPEG bytes under a
+  `.png` name and an animated GIF is flattened to its first frame; iOS
+  preserves both, so it is a platform split no test surface shows. Guard the
+  SIZE after the pick instead (`XFile.length()` against the backend cap) and
+  keep the bytes exact; reserve the bounds for the camera flow, where the
+  source is always a fresh JPEG (code review round 2, PR #629).

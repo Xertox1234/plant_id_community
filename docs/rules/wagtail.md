@@ -199,3 +199,14 @@ Compact checklist auto-injected before edits. Long-form:
   router's `wagtailapi` namespace with "Invalid version in URL path", and the raw
   `/api/v2/pages/` and `/api/v2/images/` mounts already 404 this way. Mirror
   `apps/forum_host/redirects.py::RedirectsAPIViewSet` (PR #624).
+- **A `DraftStateMixin` snippet's draft edit WRITES THROUGH to the DB row when
+  the object is not live** (Wagtail 6.0+: the generic edit view saves with
+  `commit=not self.object.live`), and the later Publish is a plain
+  `object.save()` off the revision — so a pre_save "snapshot the old row"
+  receiver sees old == new on publish and writes nothing. Never gate such a
+  receiver on the NEW `live` state, and never use `live_revision` as the
+  once-public source: `UnpublishAction` nulls it. `first_published_at` survives
+  unpublish and is set by every `revision.publish()`; "once public" is
+  `old.live or old.first_published_at is not None`. A "hide it, fix the slug,
+  republish it" test (unpublish → `save()` → `save_revision().publish()`) is the
+  only shape that catches this. Audit 2026-09-04 M1, `apps/forum_host/redirects.py`.

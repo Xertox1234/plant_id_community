@@ -107,7 +107,7 @@ def _send_fcm_message(fcm, token: str, str_data: dict, content, event: str):
     return fcm.send(message)
 
 
-@shared_task(bind=True, max_retries=3, default_retry_delay=30)
+@shared_task(bind=True, max_retries=3, default_retry_delay=30, ignore_result=True)
 def send_forum_push(self, event: str, recipient_user_id: int, data: dict):
     """Send a single FCM data message for a forum event.
 
@@ -194,7 +194,15 @@ def send_forum_push(self, event: str, recipient_user_id: int, data: dict):
         )
 
 
-@shared_task(autoretry_for=(OperationalError,), retry_backoff=True, max_retries=3)
+@shared_task(
+    autoretry_for=(OperationalError,),
+    # The BACKOFF FACTOR (30s/60s/120s jittered ceiling), not a bool — True
+    # meant factor 1, ~1s/2s/4s (audit 2026-09-04 M8; see the sibling
+    # sync_blog_page_chunks and constants.NOTIFICATION_BATCH_RETRY_DELAY).
+    retry_backoff=constants.NOTIFICATION_BATCH_RETRY_DELAY,
+    max_retries=constants.NOTIFICATION_BATCH_MAX_RETRIES,
+    ignore_result=True,  # side-effect only; every call site is a bare .delay()
+)
 def send_forum_push_batch(event: str, recipient_user_ids: list[int], data: dict):
     """Fan out one forum FCM push to many recipients from a SINGLE enqueue (todo 268).
 
@@ -276,7 +284,12 @@ def send_forum_push_batch(event: str, recipient_user_ids: list[int], data: dict)
             send_forum_push.delay(event, user.pk, data)
 
 
-@shared_task(autoretry_for=(OperationalError,), retry_backoff=True, max_retries=3)
+@shared_task(
+    autoretry_for=(OperationalError,),
+    retry_backoff=constants.NOTIFICATION_BATCH_RETRY_DELAY,  # factor, see above
+    max_retries=constants.NOTIFICATION_BATCH_MAX_RETRIES,
+    ignore_result=True,  # side-effect only; every call site is a bare .delay()
+)
 def send_forum_email_batch(event: str, recipient_user_ids: list[int], data: dict):
     """Send forum reply-notification emails to many recipients from a SINGLE
     enqueue (todo 268), replacing the per-recipient send_forum_email fan-out.
@@ -441,6 +454,7 @@ def sync_blog_page_chunks(self, page_id: int) -> None:
     bind=True,
     max_retries=constants.SUMMARY_MAX_RETRIES,
     default_retry_delay=constants.SUMMARY_RETRY_DELAY,
+    ignore_result=True,  # side-effect only (writes the cache); nothing reads it
 )
 def generate_topic_summary(self, topic_id: int) -> None:
     """Generate + cache an AI summary for a forum topic (todo 255 slice 3 / H14).

@@ -159,6 +159,20 @@ one session pinned nothing)
       (templates via `template_name=`, enum members, settings keys) — and verify
       each candidate individually rather than deleting by association
 
+### Forum audit additions (2026-09-04)
+
+- An exact query pin on an AUTHENTICATED forum endpoint that does not
+  `cache.delete(f"forum:presence:{user.pk}")` first: flag it. The presence
+  touch is one UPDATE gated by `cache.add()` on a Redis key that outlives
+  `--create-db`, so a recycled pk drops the count by one (L12).
+- A raw-SQL index migration on a hot table (`auth_user`, `wagtailcore_page`)
+  without `CONCURRENTLY` + `atomic = False`: flag it (blog 0012/0014 precedent;
+  L11). And `istartswith`/`istartswith`-shaped LIKE prefixes want a
+  `text_pattern_ops` expression index with an `EXPLAIN` test, not a trigram GIN.
+- Per-tab browser state not keyed by account (sessionStorage drafts) cleared
+  only in `logout()`: flag it — it must also clear on the identity-change
+  reconciliation, between two real accounts only (L4).
+
 ## Output Format (Review Mode)
 
 Return ONLY this JSON structure (no surrounding prose, no markdown fences in the actual response — the example fences below show the schema):

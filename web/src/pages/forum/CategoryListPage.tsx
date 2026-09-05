@@ -47,7 +47,7 @@ const RECENT_TOPICS_FETCH_LIMIT = 5;
  */
 export default function CategoryListPage() {
   useScrollToTop();
-  const { isAuthenticated } = useAuth();
+  const { user, isAuthenticated, isLoading: authLoading } = useAuth();
   const [categories, setCategories] = useState<Category[]>([]);
   // CMS-authored welcome copy (ForumIndex.intro, audit L2). Sanitized
   // server-side too — this is the second layer, not the only one.
@@ -128,12 +128,24 @@ export default function CategoryListPage() {
   // "Your season" stats — a separate effect (and its own ignore guard) so an
   // unauthenticated visitor never triggers the auth-only request, and so a
   // failure here can never fail the board list above.
+  // Keyed on the IDENTITY, not just `isAuthenticated` (audit 2026-09-04 M3;
+  // docs/rules/react.md): `isAuthenticated` is `!!user`, so a tab-focus
+  // `revalidateIdentity()` that swaps account A for account B never flips it,
+  // and A's private numbers would stay on screen under B's session. And gated
+  // on `!authLoading`: AuthProvider seeds `user` from sessionStorage before the
+  // backend verifies it, so an expired session reads as authenticated for the
+  // first render — long enough to fire a request that 401s (todo 315).
+  const userId = user?.id;
   useEffect(() => {
     let ignore = false;
+    if (authLoading) return;
     if (!isAuthenticated) {
       setMyStats(null);
       return;
     }
+    // Identity changed (or first load): never show the previous account's
+    // stats while the new ones are in flight.
+    setMyStats(null);
     fetchMyStats()
       .then((stats) => {
         if (!ignore) setMyStats(stats);
@@ -149,7 +161,7 @@ export default function CategoryListPage() {
     return () => {
       ignore = true;
     };
-  }, [isAuthenticated]);
+  }, [isAuthenticated, authLoading, userId]);
 
   // Sanitize once so the render can gate on the result rather than the input.
   const introMarkup = useMemo(() => createSafeMarkup(intro, SANITIZE_PRESETS.STANDARD), [intro]);

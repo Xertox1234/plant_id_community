@@ -1359,5 +1359,40 @@
     "source": "codify: feat/forum-wagtail-quick-wins",
     "added": "2026-09-03",
     "severity": "warn"
+  },
+  {
+    "id": "flutter-popscope-canpop-states",
+    "domains": [
+      "flutter"
+    ],
+    "path_glob": [
+      "plant_community_mobile/lib/**/*.dart"
+    ],
+    "content_present": "canPop:\\s*!",
+    "message": "PopScope canPop with a bare negated guard: enumerate every \"nothing to lose\" state too (a moderation-queued submit still holds the text — canPop: _pending || !_hasUnsentInput) and give each OR-arm of the guard its own widget test; explicit Navigator.pop() bypasses canPop, only maybePop/back honours it.",
+    "pattern_ref": "docs/rules/flutter.md",
+    "source": "codify: audit/forum-2026-09-04",
+    "added": "2026-09-04",
+    "severity": "warn"
+  },
+  {
+    "id": "forum-query-pin-presence-key",
+    "domains": [
+      "testing",
+      "forum"
+    ],
+    "path_glob": [
+      "backend/packages/wagtail_forum/**/tests/*.py",
+      "backend/packages/wagtail_forum/**/tests/**/*.py",
+      "backend/apps/forum_host/tests/*.py",
+      "backend/apps/forum_host/tests/**/*.py"
+    ],
+    "content_present": "force_authenticate\\([\\s\\S]*?CaptureQueriesContext\\(",
+    "content_absent": "forum:presence",
+    "message": "Exact query pin on an authenticated forum endpoint: cache.delete(f\"forum:presence:{user.pk}\") before the capture — the presence touch is one UPDATE gated by cache.add() on a Redis key that outlives DB rebuilds, so a recycled pk silently drops the count by one.",
+    "pattern_ref": "docs/rules/testing.md",
+    "source": "codify: audit/forum-2026-09-04",
+    "added": "2026-09-04",
+    "severity": "warn"
   }
 ]

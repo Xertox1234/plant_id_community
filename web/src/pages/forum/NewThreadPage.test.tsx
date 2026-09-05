@@ -154,6 +154,55 @@ describe('NewThreadPage', () => {
     expect(screen.queryByRole('link', { name: /view the topic/i })).not.toBeInTheDocument();
   });
 
+  it('announces a failed submit through the persistent live region (audit M4)', async () => {
+    vi.spyOn(forumService, 'createThread').mockRejectedValue(new Error('Failed to create thread'));
+    renderPage();
+    await screen.findByText('Plant Care');
+    await userEvent.type(screen.getByLabelText(/title/i), 'My Topic');
+    await userEvent.type(screen.getByLabelText('body'), 'hello');
+    await userEvent.click(screen.getByRole('button', { name: /post|create|submit/i }));
+
+    // Both the banner and the announcer region carry the text.
+    await screen.findAllByText('Failed to create thread');
+    // The banner is conditionally mounted (never announced on its own); the
+    // assertive announcer region carries the failure.
+    await waitFor(() =>
+      expect(document.querySelector('[data-announcer="assertive"]')).toHaveTextContent(
+        'Failed to create thread'
+      )
+    );
+  });
+
+  it('a passive account swap empties the form and its stored draft (code review, L4)', async () => {
+    const { rerender } = renderPage();
+    await screen.findByText('Plant Care');
+    await userEvent.type(screen.getByLabelText(/title/i), 'Account A title');
+    await userEvent.type(screen.getByLabelText('body'), 'account A body');
+    await waitFor(() =>
+      expect(sessionStorage.getItem('forum-draft:new-thread:3-plant-care')).toContain(
+        'Account A title'
+      )
+    );
+
+    // A focus revalidation found another account's cookie: same page
+    // instance, new identity.
+    vi.mocked(useAuth).mockReturnValue({
+      ...mockAuth(),
+      user: { id: 2, username: 'someone-else' },
+    } as unknown as ReturnType<typeof useAuth>);
+    rerender(
+      <MemoryRouter>
+        <AnnouncerProvider>
+          <NewThreadPage />
+        </AnnouncerProvider>
+      </MemoryRouter>
+    );
+
+    await waitFor(() => expect(screen.getByLabelText(/title/i)).toHaveValue(''));
+    expect(screen.getByLabelText('body')).toHaveValue('');
+    expect(sessionStorage.getItem('forum-draft:new-thread:3-plant-care')).toBeNull();
+  });
+
   it('pending topic → on-page moderation confirmation, no native alert, no navigation into it (M24)', async () => {
     const alertSpy = vi.spyOn(window, 'alert').mockImplementation(() => {});
     vi.spyOn(forumService, 'createThread').mockResolvedValue({
