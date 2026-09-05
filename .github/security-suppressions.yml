@@ -48,7 +48,10 @@ pip_audit:
     pinned: "3.8.1"
     reason: >-
       No upstream fix (OSV: all versions affected); markdown is not imported by
-      app code and the DoS path is unreachable.
+      app code and the DoS path is unreachable. NOTE 2026-09-05: pip-audit no
+      longer reports this id at all, so this entry currently suppresses nothing.
+      Left in place pending re-assessment at `expires` rather than removed on one
+      day's data.
     clears_when: An upstream Markdown release addresses the advisory.
     added: "2026-05-20"
     expires: "2026-11-16"
@@ -61,7 +64,10 @@ pip_audit:
     reason: >-
       Supplier-disputed; mitigated by JWT_SECRET_KEY (the SIMPLE_JWT SIGNING_KEY
       PyJWT signs with), validated >=50 chars fail-fast at settings import in ALL
-      environments (backend/plant_community_backend/settings.py:658).
+      environments (backend/plant_community_backend/settings.py:658). NOTE
+      2026-09-05: pip-audit no longer reports this id at all, so this entry
+      currently suppresses nothing. Left in place pending re-assessment at
+      `expires` rather than removed on one day's data.
     clears_when: The advisory is withdrawn, or a patched PyJWT ships.
     added: "2026-05-20"
     expires: "2026-11-16"

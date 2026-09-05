@@ -247,6 +247,14 @@ That closes the loop: a suppression outliving its fix reaches a human within a w
 
 #### 2d. Block new advisories — merge-base diff, no new permissions
 
+> **NOT SHIPPED.** PR #658 delivered 2a, 2b, 2c and 2e; this job was not
+> written. `grep -n new-vuln-gate .github/workflows/security-scan.yml`
+> returns nothing on `main` as of 2026-09-05 (found during slice 1).
+> **Do not add `"No new dependency advisories"` to branch protection** —
+> a required check that never reports deadlocks every PR, which is the
+> exact failure this plan warns about two sections below. Either build the
+> job first, or drop the item; it is not a prerequisite for slices 2–6.
+
 New `new-vuln-gate` job, `if: github.event_name == 'pull_request'`, `contents: read`
 only. Audit base and head **in the same run** (identical advisory DB), fail on ids
 present in head and absent in base. A newly-published CVE against a static pin cannot
@@ -291,7 +299,10 @@ check that never reports deadlocks PRs, and this repo has hit that.
    reporting — that is the file half.
 2. `gh api repos/:owner/:repo/branches/main/protection > before.json`.
 3. `POST .../branches/main/protection/required_status_checks/contexts` with a bare array:
-   `["Analyze (python)","Analyze (javascript-typescript)","Analyze (actions)","No new dependency advisories"]`.
+   `["Analyze (python)","Analyze (javascript-typescript)","Analyze (actions)"]`.
+   **Three contexts, not four** — `"No new dependency advisories"` was removed
+   because §2d never shipped (see the note there). Requiring a check no
+   workflow produces blocks every PR permanently.
    **Never `PATCH .../protection`** — omitted fields reset to default and would clobber
    `enforce_admins` and the existing 5 contexts.
 4. `GET` again, diff against `before.json`, confirm the original 5 survive.
