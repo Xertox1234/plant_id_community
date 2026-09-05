@@ -60,7 +60,8 @@ RUN DEBUG=True JWT_SECRET_KEY=build-only-throwaway-value-not-a-real-key-00000000
 RUN DEBUG=True JWT_SECRET_KEY=build-only-throwaway-value-not-a-real-key-000000000000000 DATABASE_URL=sqlite:////tmp/build.sqlite3 python manage.py collectstatic --noinput --verbosity 1  # pragma: allowlist secret
 
 # Railway's railway.json `deploy.startCommand` overrides this at deploy time
-# (now gunicorn-only — migrate/seed run in preDeployCommand, static baked above).
+# (`bash bin/start.sh`: gunicorn + the co-located Celery worker, todo 335 —
+# migrate/seed run in preDeployCommand, static baked above).
 # CMD is a sane fallback for a bare `docker run`; secrets are injected at runtime.
 EXPOSE 8000
 CMD ["gunicorn", "plant_community_backend.wsgi:application", "--bind", "0.0.0.0:8000", "--workers", "2", "--timeout", "120"]

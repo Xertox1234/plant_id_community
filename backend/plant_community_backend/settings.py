@@ -1099,6 +1099,17 @@ CELERY_TASK_SOFT_TIME_LIMIT = config(
     "CELERY_TASK_SOFT_TIME_LIMIT", default=90, cast=int
 )
 CELERY_TASK_ALWAYS_EAGER = config("CELERY_TASK_ALWAYS_EAGER", default=False, cast=bool)
+# The worker is co-located with gunicorn (bin/start.sh, todo 335) and boots in
+# parallel with it; keep retrying the broker at startup instead of exiting
+# (which would trip the start script's crash coupling and restart the
+# container). Explicit because Celery 5.3+ warns when it is unset.
+CELERY_BROKER_CONNECTION_RETRY_ON_STARTUP = True
+# The forum tasks ack early (no acks_late — a redelivered email batch would
+# double-send; the idempotent sync_blog_page_chunks is the deliberate exception),
+# so every prefetched message dies with the worker. Reserve one per pool process
+# instead of the default four so a redeploy can strand at most `concurrency`
+# messages; railway.json drainingSeconds gives the warm shutdown time to finish.
+CELERY_WORKER_PREFETCH_MULTIPLIER = 1
 
 # Security settings - Apply to both development and production (Issue #014)
 SECURE_BROWSER_XSS_FILTER = True  # Enable XSS filtering in IE/Edge (legacy browsers)
