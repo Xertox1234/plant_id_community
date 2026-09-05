@@ -235,6 +235,26 @@ The reference implementation is the host's `apps/forum_host/forum_settings.py`
 Trust levels are `TrustLevel` in `wagtail_forum.models.profiles`:
 `NEW=0`, `BASIC=1`, `MEMBER=2`, `REGULAR=3`, `LEADER=4`.
 
+#### Moderation queue (admin report)
+
+The package registers a **Forum moderation queue** under the Wagtail admin
+*Reports* menu (`wagtail_forum.admin_views.ModerationQueueView`, mounted via
+the `register_admin_urls` hook at `<admin>/forum/reports/moderation-queue/`,
+URL name `wagtail_forum_reports:moderation_queue`). It lists reports in the
+`open` and `auto_hidden` statuses, oldest first, with the reason, reporter and
+their trust level, the reported content's excerpt, and how many open reports
+the same target has; it filters by reason/status and exports CSV/XLSX like
+any Wagtail report. The menu item and the view are gated on the `Report`
+model's own permissions (any of view/change/add/delete on
+`wagtail_forum.report` — the same gate as the Report snippet's index and
+inspect views), so a moderator group below superuser sees it as long as it
+holds those; grant `view_report` + `change_report` to your moderator group,
+as `forum_host/bootstrap.py`'s "Forum Moderators" group does. The queue is a
+listing only: every row links to the `Report` snippet inspect view, where
+actioning/dismissing already lives. Note the read scope: message (DM)
+reports show the sender and a body excerpt to anyone who can open the
+queue, exactly as the Report snippet listing already does.
+
 ### Inline image uploads
 
 Uploads land in a dedicated Wagtail collection, and a post body may only reference

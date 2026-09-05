@@ -38,6 +38,13 @@ class Topic(
         settings.AUTH_USER_MODEL,
         on_delete=models.SET_NULL,
         null=True,
+        # blank=True for the same reason as Post.author (todo 338, LEARNINGS
+        # 2026-07-03): save_revision() runs full_clean(), which rejects the
+        # NULL that SET_NULL leaves behind on account deletion — without it a
+        # moderator can never republish (hide → fix slug → publish) an
+        # account-deleted author's topic. The admin panels below deliberately
+        # omit `author`, so this does not expose a blank-able field to staff.
+        blank=True,
         related_name="wagtail_forum_topics",
     )
     is_pinned = models.BooleanField(default=False)

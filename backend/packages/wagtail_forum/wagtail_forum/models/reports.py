@@ -123,6 +123,22 @@ class Report(models.Model):
         excerpt = body if len(body) <= 60 else body[:57] + "..."
         return f"{self.message.sender}: {excerpt}"
 
+    @property
+    def target_excerpt(self):
+        """One-line "what was reported" for the moderation queue's title
+        column and export (todo 345): topic title + a plain-text slice of the
+        post body for a post report, ``message_summary`` for a message report.
+        ``plain_text_excerpt`` reads ``raw_data`` so the excerpt never
+        resolves image blocks (no per-row image query); imported lazily
+        because ``api.views`` imports this module."""
+        if self.post_id is None:
+            return self.message_summary
+        from ..api.views import plain_text_excerpt
+
+        title = self.post.topic.title
+        text = plain_text_excerpt(self.post.body, 80)
+        return f"{title}: {text}" if text else title
+
     @classmethod
     def file(cls, post, reporter, reason, detail=""):
         """Create a report, bump the author's cumulative flag count, and

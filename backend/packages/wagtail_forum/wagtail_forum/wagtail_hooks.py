@@ -330,3 +330,34 @@ class ForumUnpublishBulkAction(SnippetBulkAction):
 
 
 hooks.register("register_bulk_action", ForumUnpublishBulkAction)
+
+
+@hooks.register("register_admin_urls")
+def register_moderation_queue_urls():
+    """Mounts the moderation queue report under the admin root (todo 345).
+    Wagtail wraps every hook-registered admin pattern in require_admin_access,
+    so the view's own PermissionCheckedMixin only has to add the moderator
+    check on top of "may enter the admin at all"."""
+    from django.urls import include, path
+
+    return [path("forum/reports/", include("wagtail_forum.admin_urls"))]
+
+
+@hooks.register("register_reports_menu_item")
+def register_moderation_queue_menu_item():
+    """ "Forum moderation queue" under the admin Reports menu, shown to users
+    holding wagtail_forum.change_post (ModerationQueueMenuItem.is_shown) —
+    not AdminOnlyMenuItem, because the trust system grants moderation below
+    superuser. reverse() inside the hook body, never a hardcoded /cms/ path
+    (audit 2026-07-17 M1); the registry is lazy so the URLconf is loaded."""
+    from django.urls import reverse
+
+    from .admin_views import ModerationQueueMenuItem
+
+    return ModerationQueueMenuItem(
+        _("Forum moderation queue"),
+        reverse("wagtail_forum_reports:moderation_queue"),
+        name="forum-moderation-queue",
+        icon_name="warning",
+        order=1300,
+    )
