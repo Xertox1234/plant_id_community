@@ -1,5 +1,5 @@
 ---
-status: in_progress
+status: completed
 priority: p2
 issue_id: "335"
 tags: [forum, celery, ops, deploy, railway, notifications]
@@ -119,15 +119,15 @@ revisited it.
 
 ## Acceptance Criteria
 
-- [ ] A worker process consumes the `celery` queue in production (visible in
+- [x] A worker process consumes the `celery` queue in production (visible in
       Railway logs / `celery inspect ping`), or Option 3 is implemented and the
       enqueue sites no-op without a worker.
-- [ ] A reply on a subscribed topic in prod produces a `send_forum_push_batch`
+- [x] A reply on a subscribed topic in prod produces a `send_forum_push_batch`
       execution in the worker log (push delivery itself still depends on the
       Firebase key).
 - [x] The pre-existing backlog was measured (`LLEN`) and either drained or
       purged deliberately, with the count recorded in the work log.
-- [ ] `backend/docs/deployment/railway.md` no longer describes a worker-less
+- [x] `backend/docs/deployment/railway.md` no longer describes a worker-less
       topology as current.
 
 ## Work Log
@@ -266,6 +266,73 @@ revisited it.
   `REDIS_URL`, path `/1`, and `CELERY_BROKER_URL == REDIS_URL + "/1"` → True.
   Takes effect with the worker deploy (the running container still sees db 0,
   which is now empty).
+
+### 2026-09-05 - Deployed (PR #631 → `1551791`, Railway deployment `03dcb900`, SUCCESS)
+
+- `railway ssh -- celery -A plant_community_backend inspect ping`:
+
+  ```text
+  ->  celery@d2d0cfe88e1e: OK
+          pong
+  1 node online.
+  ```
+
+- Deployment log (`railway logs --deployment 03dcb900…`):
+
+  ```text
+  [start] worker pid 2 (celery -A plant_community_backend worker --loglevel=info --concurrency=2 --max-tasks-per-child=500); web pid 3 (gunicorn … --bind 0.0.0.0:8080 --workers 2 --timeout 120)
+  [2026-09-05 03:51:40 +0000] [3] [INFO] Listening at: http://0.0.0.0:8080 (3)
+  [tasks] … send_forum_push, send_forum_push_batch, send_forum_email_batch, generate_topic_summary, sync_blog_page_chunks
+  [2026-09-05 03:51:44,367: INFO/MainProcess] Connected to redis://<redacted>@redis.railway.internal:6379/1
+  [2026-09-05 03:51:45,476: INFO/MainProcess] celery@d2d0cfe88e1e ready.
+  ```
+
+- In-container: broker db **1**, `LLEN celery` 0, `unacked` 0, kombu bindings
+  present (`celery`, `celery.pidbox`, `celeryev`). Public healthcheck: HTTP 200.
+- No `Traceback` / `restart k/5` lines in the first 200 log lines.
+
+### 2026-09-05 - End-to-end consumption probe (synthetic, harmless)
+
+- From the prod shell: `send_forum_push_batch.delay("reply_added", [], {"topic_id": "0", "probe": "todo-335-ac-check"})`
+  (empty recipients, Firebase unset → no side effects) → task id
+  `a81e2a50-…`. Deployment log 8 s later:
+
+  ```text
+  Task apps.forum_host.tasks.send_forum_push_batch[a81e2a50-b4e5-45e9-823a-63d6e084b1f9] received
+  Task apps.forum_host.tasks.send_forum_push_batch[a81e2a50-b4e5-45e9-823a-63d6e084b1f9] succeeded in 0.0007279142737388611s: None
+  ```
+
+  Enqueue → Redis db 1 → worker → execute works in prod. AC2 still wants a
+  REAL reply on a subscribed topic (see the next entry).
+
+### 2026-09-05 - AC2: a real reply on a subscribed topic (user-posted)
+
+- Reply posted by the user on topic 27 (`/forum/13-pests-diseases/27-hosta-leaves-eaten-overnight`).
+  Deployment log at 04:00:33 UTC:
+
+  ```text
+  Task apps.forum_host.tasks.send_forum_push[b37e3dcc-…] succeeded in 0.00077s: None
+  Task apps.forum_host.tasks.send_forum_push_batch[fb637734-…] received
+  Task apps.forum_host.tasks.send_forum_push_batch[fb637734-…] succeeded in 0.00030s: None
+  Task apps.forum_host.tasks.send_forum_email_batch[5dd82f64-…] received
+  [EMAIL] forum.reply_added email to user=19: sent=True
+  … (users 12, 13, 14, 15, 16, 18 likewise)
+  Task apps.forum_host.tasks.send_forum_email_batch[5dd82f64-…] succeeded in 7.43s: None
+  ```
+
+- Push batches return immediately (Firebase unset); the email batch delivered
+  7 reply notifications via Resend SMTP — the first forum emails ever sent from
+  production.
+
+### 2026-09-05 - Completed by completing-todos skill (run 2026-09-05-0250)
+
+- Verification: all 4 acceptance criteria passed with quoted prod evidence
+  (ping + log, real-reply task executions, 429-message purge, runbook).
+- Review: celery-async-reviewer 1 high + 4 medium, cross-cutting-reviewer
+  3 medium + 4 low — all applied before merge; 0 blocking.
+- Shipped as PR #631 (`1551791`), Railway deployment `03dcb900`. Deviation
+  from the skill's no-commit rail per the project's "a todo slice ships as a
+  merged PR" convention; the archive lands in a follow-up PR.
 
 ## Notes
 
