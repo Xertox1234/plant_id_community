@@ -199,3 +199,14 @@ Compact checklist auto-injected before edits. Long-form:
   `filter(...).update(...)` and create only when nothing matched, or declare
   `UniqueConstraint(..., nulls_distinct=False)` (Postgres 15+). See
   `docs/LEARNINGS.md` 2026-09-04 (PR #624).
+- **`istartswith` compiles to `UPPER("col"::text) LIKE UPPER(%s)` on Postgres —
+  a prefix LIKE on a `text` EXPRESSION.** Neither the column's plain B-tree nor
+  a trigram GIN (Pattern 32's `icontains` fix) serves it; under a non-C locale a
+  plain B-tree cannot serve LIKE at all. The index that does is a functional
+  B-tree on `UPPER(col)` with `text_pattern_ops` (the expression is `text` after
+  the cast, so NOT `varchar_pattern_ops`), built `CONCURRENTLY` with
+  `atomic = False` on any hot table. Prove it, don't assert it: pin
+  `pg_indexes.indexdef` AND run the real ORM query through `EXPLAIN` with
+  `SET LOCAL enable_seqscan = off` and assert the index name appears — a wrong
+  opclass or expression compiles fine and is simply never chosen. See
+  `performance/query-optimization.md` Pattern 33 (audit 2026-09-04 L11).

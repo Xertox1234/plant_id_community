@@ -1489,3 +1489,58 @@ assert "upper(" in indexdef  # catches the exact bug this pattern describes
 ```
 
 Found via code review (not the initial implementation) in todo 323 — the first version of the migration passed `makemigrations`, applied cleanly, and had a green existence-only test, while doing nothing for the query it was written to fix. See also `docs/rules/database.md`'s GIN-index rule and `docs/LEARNINGS.md` 2026-08-31.
+
+## Pattern 33: Prefix lookups (`istartswith`) need a `text_pattern_ops` expression index — and an EXPLAIN-backed test
+
+**Problem** (audit 2026-09-04 L11): the @mention autocomplete runs
+`User.objects.filter(is_active=True, username__istartswith=query)`. `username`
+carries only Django's default unique B-tree. On PostgreSQL Django compiles the
+lookup as `UPPER("auth_user"."username"::text) LIKE UPPER(%s)` — a prefix
+`LIKE` on a *text expression* — so that index is never a candidate: it is on
+the bare column, and under a non-C locale a default-opclass B-tree cannot
+serve `LIKE` at all (PostgreSQL §11.10). Pattern 32's trigram GIN is the fix
+for `icontains`' *leading* wildcard; a prefix has none, and the cheap shape is
+a functional B-tree on the same expression with the pattern-matching opclass.
+
+**Which opclass:** the ORM casts the column to `text` and `upper()` returns
+`text`, so the indexed expression's type is `text` → `text_pattern_ops`. A
+`varchar_pattern_ops` index compiles fine and is never chosen — exactly the
+silent miss todo 323 documents for the bare-column trigram index.
+
+**Migration shape** (`apps/users/migrations/0011_username_upper_pattern_index.py`):
+hand-written `RunPython` with a `connection.vendor` guard (SQLite has no
+opclasses), literal SQL (no f-strings), `CONCURRENTLY` + `atomic = False`
+because `auth_user` is touched by every authenticated request (blog 0012/0014
+precedent), and a reversible `DROP INDEX CONCURRENTLY IF EXISTS`. Not in
+`Meta.indexes`, so `makemigrations --check` stays clean.
+
+```python
+cursor.execute(
+    "CREATE INDEX CONCURRENTLY IF NOT EXISTS users_username_upper_pat_idx "
+    "ON auth_user (UPPER(username) text_pattern_ops)"
+)
+```
+
+**Test shape** (`apps/users/tests/test_indexes.py`) — two assertions, both
+needed. The `indexdef` pin catches a later migration swapping the expression
+or opclass; the EXPLAIN proves the planner can actually serve the *real ORM
+query* from it, which is the only thing that shows the expression and opclass
+match what Django emits:
+
+```python
+sql, params = (
+    User.objects.filter(is_active=True, username__istartswith="ad")
+    .values("pk").query.sql_with_params()
+)
+with connection.cursor() as cursor:
+    cursor.execute("SET LOCAL enable_seqscan = off")
+    cursor.execute("EXPLAIN " + sql, params)
+    plan = "\n".join(line[0] for line in cursor.fetchall())
+self.assertIn("users_username_upper_pat_idx", plan, plan)
+```
+
+Both tests are `@skipUnless(connection.vendor == "postgresql")`, so a SQLite
+`DATABASE_URL` skips them silently — they are only meaningful on the Postgres
+suite (local `.env` or CI's `backend-tests`). At today's row count the planner
+still picks a seq scan without the `enable_seqscan` override, correctly, for a
+tiny table; this is a scaling-latent fix, not an active hot path.

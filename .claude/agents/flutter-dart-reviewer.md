@@ -70,6 +70,19 @@ Review only the files passed to you. Do not read the full repo.
 - [ ] Healing listeners (`onTokenRefresh` etc.) attached BEFORE the fallible first attempt, with an `onError:` handler (a platform error event is otherwise an unhandled zone error)
 - [ ] Interceptor side-effect suppression rides the REQUEST (`Options(extra:)` checked in the interceptor), never a boolean flag around an awaited call — `Future.timeout` abandons the Future but the request keeps running and its late response outlives the flag
 
+### Forum audit additions (2026-09-04)
+
+- `PopScope(canPop: …)`: does the guard enumerate every "nothing to lose"
+  state (e.g. a submit that landed as moderation-queued still holds its text
+  behind the pending view), and does each OR-arm of the guard have its own
+  widget test (title-only, image-only, body-only)? An explicit
+  `Navigator.pop()` after a successful submit bypasses `canPop`; only
+  `maybePop`/back honours it (audit 2026-09-04 L8).
+- Any test that taps into a `CachedNetworkImage` mount must use bounded
+  `pump()`s — `pumpAndSettle()` times out in the blocked-network harness.
+- A test asserting `hasLength(SomeClass.constant)` tracks the constant rather
+  than pinning it; the literal belongs next to the behaviour (L9).
+
 ## Output Format (Review Mode)
 
 Return ONLY this JSON structure (no surrounding prose, no markdown fences in the actual response — the example fences below show the schema):

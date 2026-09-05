@@ -305,4 +305,4 @@ links to the full audit manifest with detailed findings and resolutions.
 - **Close baseline:** backend forum + users 1336 passed, `check` +
   `makemigrations --check` clean; web 1068 passed, `tsc` + eslint clean;
   mobile analyze clean, 427 passed, codegen regenerated.
-- **Commit(s):** branch `audit/forum-2026-09-04` (PR pending).
+- **Commit(s):** `22c2d1f` (fixes) + the codify docs commit on branch `audit/forum-2026-09-04` — PR #629.

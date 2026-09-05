@@ -192,3 +192,12 @@ Compact checklist auto-injected before edits. Long-form:
   element and Tailwind's STYLESHEET order, not the class order, decides — so
   the override may be dead. Give the component a typed prop mapped through a
   full-class-name record (`ForumSkeleton.tsx` `RADIUS`) instead (todo 333).
+- **Per-tab state that is NOT keyed by account (sessionStorage composer drafts)
+  must be cleared where the identity RECONCILES, not only in `logout()`.** A
+  swap can arrive passively — a focus `revalidateIdentity()` that finds another
+  account's cookie, or an expired session followed by a different login — and
+  `sessionStorage` outlives all of it. Clear from an `AuthContext` effect on
+  `user?.id` that fires only on a change BETWEEN two real accounts: never on
+  mount/reload (the stored → confirmed same identity), and never on
+  expire → same-account re-login, or the draft the user was writing when the
+  session died is exactly what you destroy (audit 2026-09-04 L4).
