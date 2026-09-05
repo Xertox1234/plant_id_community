@@ -127,5 +127,5 @@ Items marked `deferred` must have a linked todo and rationale.
 
 ## Finding Status
 
-- [ ] #L5 mention-dropdown-playwright-spec → todo 336
+- [x] #L5 mention-dropdown-playwright-spec → todo 336 (completed 2026-09-05)
 - [x] #M1 topic-author-blank-parity → todo 338 (completed 2026-09-05)
