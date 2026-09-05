@@ -4360,3 +4360,21 @@ hook on Edit/Write only, so no rules and no trigger reached the edit. Same
 for the `no_results_message`/`default_ordering` triggers written the same
 day. Fix: source files go through the Write/Edit tools (or the trigger
 matcher is run over the result); the rule is in `docs/rules/testing.md`.
+
+### [2026-09-05] A per-site decision table written from memory recorded a false "already covered" (todo 347)
+
+The mute todo asked for every block-aware site to be enumerated with a
+decision. The Work Log said "home activity feed — reuses the topic list
+filter". The cross-cutting reviewer grepped the call sites of
+`_exclude_blocked_authors`/`_annotate_author_blocked` and found
+`RecentTopicsView` (the home "Active now" feed) had never called either —
+blocks had been missing there since todo 284, and the mute slice would have
+inherited the gap while claiming otherwise. Fix: the helper is now chained
+before the slice (no-op for anonymous/moderators; the authenticated response
+is already private/no-store), with a test that proves the viewer's mutes and
+blocks hide the topic while anonymous still sees it. Rule (`docs/rules/forum.md`):
+an "all surfaces" claim is a grep of the helper call sites diffed against
+every author-listing query, never a recollection. Sibling lesson from the
+same review: mirroring a feature leaks at the seams (shared reveal state,
+independent pending flags, an effect reset) — diff the mirror against the
+original site by site (`docs/rules/react.md`).

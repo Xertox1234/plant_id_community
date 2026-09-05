@@ -235,6 +235,26 @@ The reference implementation is the host's `apps/forum_host/forum_settings.py`
 Trust levels are `TrustLevel` in `wagtail_forum.models.profiles`:
 `NEW=0`, `BASIC=1`, `MEMBER=2`, `REGULAR=3`, `LEADER=4`.
 
+#### Mute (one-way) vs block (two-way)
+
+Two member-to-member tools, deliberately different in scope (todo 347):
+
+| | Mute (`UserMute`) | Block (`UserBlock`) |
+|---|---|---|
+| Direction | one-way — only the muter's view changes | reciprocal — both members stop seeing each other |
+| Topics / search / experts rail / notifications | hidden for the muter | hidden for both |
+| Posts in a thread, topic detail | `is_muted` flag, client collapses | `is_blocked` flag, client collapses |
+| Public profile | `is_muted`, activity emptied for the muter | `is_blocked`, activity emptied |
+| Direct messages | **unaffected** (a muted member's messages still arrive) | refused with 403, conversation hidden |
+| @mention typeahead | unaffected | excluded both ways |
+| Notification fan-out | the muter receives nothing from the muted member | neither side receives anything |
+| Moderators | their own mutes are inert (like blocks) | their own blocks are inert |
+
+`POST`/`DELETE /forum/users/{username}/mute/` → `{"muted": bool}` (idempotent;
+400 on self, 404 for a missing/inactive user) and `GET /forum/me/mutes/`
+(flat list, newest first) mirror the block endpoints; the host mounts them
+with the same `60/m` throttles (`mute_create`/`mute_delete`).
+
 #### Moderation queue (admin report)
 
 The package registers a **Forum moderation queue** under the Wagtail admin

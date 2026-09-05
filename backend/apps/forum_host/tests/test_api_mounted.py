@@ -36,6 +36,29 @@ def test_block_endpoint_is_mounted_and_throttled():
 
 
 @pytest.mark.django_db
+def test_mute_endpoints_are_mounted_and_throttled():
+    """todo 347: one round-trip through the REAL host mount, mirroring
+    test_block_endpoint_is_mounted_and_throttled (route parity is enforced
+    by test_host_api_routes_match_package; this proves the wrapper works)."""
+    muter = User.objects.create_user(username="mounted-muter")
+    target = User.objects.create_user(username="mounted-muted")
+    client = APIClient()
+    client.force_authenticate(muter)
+
+    resp = client.post(f"/api/v1/forum/users/{target.username}/mute/")
+    assert resp.status_code == 200
+    assert resp.data == {"muted": True}
+
+    resp = client.get("/api/v1/forum/me/mutes/")
+    assert resp.status_code == 200
+    assert [row["username"] for row in resp.data] == [target.username]
+
+    resp = client.delete(f"/api/v1/forum/users/{target.username}/mute/")
+    assert resp.status_code == 200
+    assert resp.data == {"muted": False}
+
+
+@pytest.mark.django_db
 def test_dm_endpoints_are_mounted_and_throttled():
     """todo 319/M10: one round-trip through the REAL host mount, mirroring
     test_block_endpoint_is_mounted_and_throttled."""

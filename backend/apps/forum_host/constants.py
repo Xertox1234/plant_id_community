@@ -56,6 +56,9 @@ DEFAULT_FORUM_RATELIMITS = {
     # idempotent, low-stakes toggle.
     "block_create": "60/m",
     "block_delete": "60/m",
+    # Mute/unmute (todo 347) — same shape and budget as block/unblock.
+    "mute_create": "60/m",
+    "mute_delete": "60/m",
     # Same tier as reply_create (todo 319 / M10) — a per-user interactive
     # write. MessageReportView reuses the report_create rate NAME (below) —
     # same value, but its own independent bucket (django-ratelimit keys the

@@ -1,13 +1,19 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
-import { fetchUserProfile, blockUser, unblockUser } from '../../services/forumService';
+import {
+  fetchUserProfile,
+  blockUser,
+  unblockUser,
+  muteUser,
+  unmuteUser,
+} from '../../services/forumService';
 import { useAuth } from '../../contexts/AuthContext';
 import { useAnnounce } from '../../contexts/AnnouncerContext';
 import { specimenAvatar } from '../../utils/forumAvatars';
 import { threadPath, postAnchor } from '../../utils/forumUrls';
 import { TRUST_LEVEL_LABELS } from '../../utils/forumAuthor';
 import { logger } from '../../utils/logger';
-import { UserCheck, UserX } from 'lucide-react';
+import { UserCheck, UserX, Volume2, VolumeX } from 'lucide-react';
 import { UserProfileSkeleton } from '../../components/forum/ForumSkeleton';
 import Avatar from '../../components/ui/Avatar';
 import Card from '../../components/ui/Card';
@@ -27,6 +33,8 @@ export default function UserProfilePage() {
   const [error, setError] = useState<string | null>(null);
   const [isBlockActionPending, setIsBlockActionPending] = useState(false);
   const [blockActionError, setBlockActionError] = useState<string | null>(null);
+  const [isMuteActionPending, setIsMuteActionPending] = useState(false);
+  const [muteActionError, setMuteActionError] = useState<string | null>(null);
   // Guards a late block/unblock response from writing onto a DIFFERENT
   // profile the user has since navigated to (same rationale as
   // ThreadDetailPage's currentTopicIdRef).
@@ -49,6 +57,7 @@ export default function UserProfilePage() {
     setLoading(true);
     setError(null);
     setBlockActionError(null);
+    setMuteActionError(null);
     fetchUserProfile(username)
       .then((data) => {
         if (active) setProfile(data);
@@ -107,6 +116,45 @@ export default function UserProfilePage() {
     } finally {
       if (currentUsernameRef.current === requestUsername) {
         setIsBlockActionPending(false);
+      }
+    }
+  };
+
+  // Mute/unmute (todo 347): same optimistic-flag + mandatory-refetch shape
+  // as handleToggleBlock — the server empties recent activity for a muted
+  // member exactly as it does for a blocked one.
+  const handleToggleMute = async () => {
+    if (!profile) return;
+    const requestUsername = username;
+    const wasMuted = profile.is_muted ?? false;
+    setIsMuteActionPending(true);
+    setMuteActionError(null);
+    setProfile((prev) => (prev ? { ...prev, is_muted: !wasMuted } : prev));
+    try {
+      if (wasMuted) {
+        await unmuteUser(requestUsername);
+      } else {
+        await muteUser(requestUsername);
+      }
+      const fresh = await fetchUserProfile(requestUsername);
+      if (currentUsernameRef.current === requestUsername) {
+        setProfile(fresh);
+      }
+    } catch (err) {
+      logger.error('Error toggling user mute', {
+        component: 'UserProfilePage',
+        error: err,
+        context: { username: requestUsername },
+      });
+      if (currentUsernameRef.current === requestUsername) {
+        setProfile((prev) => (prev ? { ...prev, is_muted: wasMuted } : prev));
+        const message = err instanceof Error ? err.message : 'Failed to update mute';
+        setMuteActionError(message);
+        announce(message, 'assertive');
+      }
+    } finally {
+      if (currentUsernameRef.current === requestUsername) {
+        setIsMuteActionPending(false);
       }
     }
   };
@@ -174,7 +222,10 @@ export default function UserProfilePage() {
               <button
                 type="button"
                 onClick={handleToggleBlock}
-                disabled={isBlockActionPending}
+                // One gate for both actions (todo 347 review): each ends with
+                // its own profile refetch, and two in flight would race —
+                // the slower one silently overwriting the other's flag.
+                disabled={isBlockActionPending || isMuteActionPending}
                 className={`min-h-11 px-3 py-1.5 text-sm rounded-pill inline-flex items-center gap-1.5 disabled:opacity-50 ${
                   profile.is_blocked
                     ? 'text-ink-3 hover:bg-surface-3'
@@ -196,12 +247,41 @@ export default function UserProfilePage() {
               )}
             </div>
           )}
+          {/* Mute/unmute (todo 347) — the lighter tool beside block. */}
+          {isAuthenticated && profile.can_mute && (
+            <div className="flex flex-col items-end gap-1">
+              <button
+                type="button"
+                onClick={handleToggleMute}
+                disabled={isBlockActionPending || isMuteActionPending}
+                className="min-h-11 px-3 py-1.5 text-sm rounded-pill inline-flex items-center gap-1.5 text-ink-3 hover:bg-surface-3 disabled:opacity-50"
+              >
+                {profile.is_muted ? (
+                  <>
+                    <Volume2 className="h-3.5 w-3.5" aria-hidden="true" /> Unmute
+                  </>
+                ) : (
+                  <>
+                    <VolumeX className="h-3.5 w-3.5" aria-hidden="true" /> Mute
+                  </>
+                )}
+              </button>
+              {muteActionError && (
+                <p className="text-xs text-error text-right">{muteActionError}</p>
+              )}
+            </div>
+          )}
         </div>
       </Card>
 
       {profile.is_blocked && (
         <p className="mb-6 text-sm text-ink-3">
           You've blocked this member — their recent activity is hidden.
+        </p>
+      )}
+      {profile.is_muted && !profile.is_blocked && (
+        <p className="mb-6 text-sm text-ink-3">
+          You've muted this member — their recent activity is hidden.
         </p>
       )}
 

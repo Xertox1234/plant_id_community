@@ -779,6 +779,12 @@ def test_multi_choice_poll_costs_no_more_queries_than_single_choice():
     assert detail.data["poll"]["total_votes"] == 3  # 3 voters, 6 rows
     assert [o["vote_count"] for o in detail.data["poll"]["options"]] == [2, 2, 2]
     assert len(multi_ctx.captured_queries) == len(single_ctx.captured_queries)
+    # Absolute as well as relative (kimi-review, PR #634): the anonymous
+    # poll-less detail is 5 (test_a_poll_less_topic_detail_query_count_is_
+    # unchanged_by_the_poll_field) + ONE options query that carries the
+    # distinct-voter subquery. A regression that made the total a separate
+    # query would move both counts together and pass the equality alone.
+    assert len(multi_ctx.captured_queries) == 6
 
 
 @pytest.mark.django_db

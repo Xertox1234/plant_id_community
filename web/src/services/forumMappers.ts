@@ -111,6 +111,8 @@ export interface BackendPost {
   can_report: boolean;
   is_blocked?: boolean;
   can_block?: boolean;
+  is_muted?: boolean;
+  can_mute?: boolean;
 }
 
 /**
@@ -275,6 +277,8 @@ export function mapPostToPost(p: BackendPost, threadId: string): Post {
     can_report: p.can_report,
     is_blocked: p.is_blocked ?? false,
     can_block: p.can_block ?? false,
+    is_muted: p.is_muted ?? false,
+    can_mute: p.can_mute ?? false,
   };
 }
 
@@ -315,6 +319,8 @@ export function mapSearchPostToPost(p: BackendSearchPost): Post {
     can_report: false,
     is_blocked: false,
     can_block: false,
+    is_muted: false,
+    can_mute: false,
     topic_title: p.topic_title,
     topic_slug: p.topic_slug,
     board_id: p.board_id,

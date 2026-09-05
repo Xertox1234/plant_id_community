@@ -144,3 +144,20 @@ Compact checklist auto-injected before edits to the forum code. Long-form:
   B→B. Write "update all all-sites rows for the old path, else create", never
   `update_or_create` (NULL-site uniqueness, `docs/rules/database.md`). Board-slug
   renames are a documented non-goal (todo 334).
+- **A viewer-preference filter (block, mute, …) lives in the two shared
+  helpers — `_annotate_author_blocked` (COLLAPSE surfaces) and
+  `_exclude_blocked_authors` (HIDE surfaces) in `api/views.py` — and EVERY
+  read view that lists content by author must call one of them.** Mute (todo
+  347) landed in one place because of this; the review still found
+  `RecentTopicsView` (home "Active now" feed) had never called either, so
+  blocks were missing there too. Before claiming "all surfaces", grep the
+  call sites of both helpers and diff that list against every `Topic.objects`
+  / `Post.objects` listing in `api/views.py` — a Work Log decision table
+  written from memory recorded a false "reuses the topic list filter".
+- **A mute is one-directional and content-only; a block is reciprocal.**
+  Mute never touches DMs, the @mention typeahead, or anything the MUTED member
+  sees; moderators' own mutes are inert like their blocks. Fan-out
+  suppression (`forum_host/notifications.py::_drop_blocked_pairs`) keys off
+  the recipient having muted the ACTOR only. Any future actor-scoped
+  moderation verb must carry a NULL actor or an explicit exemption, or muting
+  a moderator silences their official notices (todo 347 review, INFO).

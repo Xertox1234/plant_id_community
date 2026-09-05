@@ -29,6 +29,16 @@ def _drop_blocked_pairs(users, actor):
             "blocker_id", flat=True
         )
     )
+    # Mute (todo 347): a recipient who muted the actor gets nothing from
+    # them either — ONE direction: the actor muting a recipient changes
+    # nothing about what that recipient receives.
+    from wagtail_forum.models import UserMute
+
+    blocked |= set(
+        UserMute.objects.filter(muted=actor, muter_id__in=ids).values_list(
+            "muter_id", flat=True
+        )
+    )
     return [u for u in users if u.pk not in blocked]
 
 

@@ -464,3 +464,10 @@ Compact checklist auto-injected before edits.
   Write NEW source with the Write tool; keep scripted edits for mechanical
   bulk changes, and run `python3 scripts/inject/match_triggers.py`-style
   checks (or the reviewers) on anything written around the hook.
+- **An N+1 pin must vary the ROW COUNT, not the presence of the condition.**
+  Comparing "with mute" vs "without mute" (or with/without any per-row flag)
+  passes under the exact regression it targets: a per-object `.exists()`
+  fallback inflates BOTH captures equally. Capture a 1-row page and a 10-row
+  page for the same viewer and assert equality (flat), or pin the absolute
+  count — mirror `test_post_list_moderator_own_blocks_add_no_per_post_queries`
+  (todo 347 review).

@@ -636,6 +636,122 @@ describe('PostCard', () => {
     expect(onUnblock).toHaveBeenCalledWith('blocked-author');
   });
 
+  it('shows the mute control only when can_mute is true and a handler is provided (todo 347)', () => {
+    const { rerender } = render(
+      <BrowserRouter>
+        <PostCard post={createMockPost({ can_mute: true })} onMute={vi.fn()} />
+      </BrowserRouter>
+    );
+    expect(screen.getByTitle('Mute user')).toBeInTheDocument();
+
+    rerender(
+      <BrowserRouter>
+        <PostCard post={createMockPost({ can_mute: false })} onMute={vi.fn()} />
+      </BrowserRouter>
+    );
+    expect(screen.queryByTitle('Mute user')).not.toBeInTheDocument();
+
+    rerender(
+      <BrowserRouter>
+        <PostCard post={createMockPost({ can_mute: true })} />
+      </BrowserRouter>
+    );
+    expect(screen.queryByTitle('Mute user')).not.toBeInTheDocument();
+  });
+
+  it('calls onMute with the author username when Mute is clicked', async () => {
+    const onMute = vi.fn().mockResolvedValue(undefined);
+    const post = createMockPost({
+      can_mute: true,
+      author: { username: 'chatty', display_name: 'Chatty', avatar: null, trust_level: 1 },
+    });
+
+    render(
+      <BrowserRouter>
+        <PostCard post={post} onMute={onMute} />
+      </BrowserRouter>
+    );
+
+    await userEvent.click(screen.getByTitle('Mute user'));
+
+    expect(onMute).toHaveBeenCalledWith('chatty');
+  });
+
+  it('collapses a muted author post behind its own placeholder, with reveal and inline Unmute', async () => {
+    const onUnmute = vi.fn().mockResolvedValue(undefined);
+    const post = createMockPost({
+      is_muted: true,
+      can_mute: true,
+      content_raw: 'muted content stays hidden until revealed',
+      author: { username: 'chatty', display_name: 'Chatty Cathy', avatar: null, trust_level: 1 },
+    });
+
+    render(
+      <BrowserRouter>
+        <PostCard post={post} onUnmute={onUnmute} />
+      </BrowserRouter>
+    );
+
+    // Its own wording — a mute is not a block.
+    expect(screen.getByText(/you've muted/i)).toBeInTheDocument();
+    expect(screen.queryByText(/you've blocked/i)).not.toBeInTheDocument();
+    expect(screen.queryByText('muted content stays hidden until revealed')).not.toBeInTheDocument();
+
+    await userEvent.click(screen.getByText('Unmute'));
+    expect(onUnmute).toHaveBeenCalledWith('chatty');
+
+    fireEvent.click(screen.getByText('Show anyway'));
+    expect(screen.queryByText('Show anyway')).not.toBeInTheDocument();
+    // Revealed: the action row now offers Unmute (not Mute).
+    expect(screen.getByTitle('Unmute user')).toBeInTheDocument();
+    expect(screen.queryByTitle('Mute user')).not.toBeInTheDocument();
+  });
+
+  it('revealing a muted post does not pre-empt the block placeholder if the author is blocked afterwards', async () => {
+    // The card survives a refetch under a stable key, so the reveal state
+    // must be per-reason, not one boolean (review of todo 347).
+    const author = { username: 'chatty', display_name: 'Chatty', avatar: null, trust_level: 1 };
+    const { rerender } = render(
+      <BrowserRouter>
+        <PostCard
+          post={createMockPost({ is_muted: true, can_block: true, author })}
+          onBlock={vi.fn()}
+        />
+      </BrowserRouter>
+    );
+    await userEvent.click(screen.getByText('Show anyway'));
+    expect(screen.getByTitle('Block user')).toBeInTheDocument();
+
+    rerender(
+      <BrowserRouter>
+        <PostCard
+          post={createMockPost({ is_muted: true, is_blocked: true, can_block: true, author })}
+          onBlock={vi.fn()}
+        />
+      </BrowserRouter>
+    );
+
+    expect(screen.getByText(/you've blocked/i)).toBeInTheDocument();
+    expect(screen.queryByTitle('Block user')).not.toBeInTheDocument();
+  });
+
+  it('a member who is both blocked and muted shows the block placeholder', () => {
+    const post = createMockPost({
+      is_blocked: true,
+      is_muted: true,
+      author: { username: 'both', display_name: 'Both', avatar: null, trust_level: 1 },
+    });
+
+    render(
+      <BrowserRouter>
+        <PostCard post={post} />
+      </BrowserRouter>
+    );
+
+    expect(screen.getByText(/you've blocked/i)).toBeInTheDocument();
+    expect(screen.queryByText(/you've muted/i)).not.toBeInTheDocument();
+  });
+
   it('copies a permalink to the clipboard', async () => {
     const writeText = vi.fn().mockResolvedValue(undefined);
     Object.assign(navigator, { clipboard: { writeText } });

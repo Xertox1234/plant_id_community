@@ -1160,6 +1160,38 @@ describe('ThreadDetailPage', () => {
     await waitFor(() => expect(forumService.fetchPosts).toHaveBeenCalledTimes(2));
   });
 
+  it('mutes a post author and refetches the thread (todo 347)', async () => {
+    vi.spyOn(forumService, 'fetchThread').mockResolvedValue(createMockThread());
+    vi.spyOn(forumService, 'fetchPosts').mockResolvedValue({
+      items: [createMockPost({ id: '5', can_mute: true })],
+      meta: { count: 0, next: null, previous: null },
+    });
+    vi.spyOn(forumService, 'muteUser').mockResolvedValue(undefined);
+
+    renderThreadDetailPage();
+
+    await userEvent.click(await screen.findByTitle('Mute user'));
+
+    expect(forumService.muteUser).toHaveBeenCalledWith('testuser');
+    await waitFor(() => expect(forumService.fetchPosts).toHaveBeenCalledTimes(2));
+  });
+
+  it('shows an error notice when muting fails and does not refetch', async () => {
+    vi.spyOn(forumService, 'fetchThread').mockResolvedValue(createMockThread());
+    vi.spyOn(forumService, 'fetchPosts').mockResolvedValue({
+      items: [createMockPost({ id: '5', can_mute: true })],
+      meta: { count: 0, next: null, previous: null },
+    });
+    vi.spyOn(forumService, 'muteUser').mockRejectedValue(new Error('Failed to mute user'));
+
+    renderThreadDetailPage();
+
+    await userEvent.click(await screen.findByTitle('Mute user'));
+
+    await screen.findByText('Failed to mute user');
+    expect(forumService.fetchPosts).toHaveBeenCalledTimes(1);
+  });
+
   it('shows an error notice when blocking fails and does not refetch', async () => {
     vi.spyOn(forumService, 'fetchThread').mockResolvedValue(createMockThread());
     vi.spyOn(forumService, 'fetchPosts').mockResolvedValue({

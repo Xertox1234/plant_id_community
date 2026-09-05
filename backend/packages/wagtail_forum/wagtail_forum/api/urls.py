@@ -16,6 +16,7 @@ from .polls import PollVoteView
 from .solutions import TopicSolutionView
 from .subscriptions import TopicSubscriptionView
 from .user_blocks import MyBlocksView, UserBlockView
+from .user_mutes import MyMutesView, UserMuteView
 from .user_search import UserMentionSearchView
 from .views import (
     BoardListView,
@@ -94,6 +95,7 @@ urlpatterns = [
     path("me/stats/", MeStatsView.as_view(), name="me-stats"),
     path("me/bookmarks/", TopicBookmarkListView.as_view(), name="me-bookmarks"),
     path("me/blocks/", MyBlocksView.as_view(), name="me-blocks"),
+    path("me/mutes/", MyMutesView.as_view(), name="me-mutes"),
     path("event/", EventHeroView.as_view(), name="event-hero"),
     path("search/", SearchView.as_view(), name="search"),
     path("sync/", SyncView.as_view(), name="sync"),
@@ -111,6 +113,11 @@ urlpatterns = [
         "users/<str:username>/block/",
         UserBlockView.as_view(),
         name="user-block",
+    ),
+    path(
+        "users/<str:username>/mute/",
+        UserMuteView.as_view(),
+        name="user-mute",
     ),
     path(
         "users/<str:username>/messages/",

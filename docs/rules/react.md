@@ -217,3 +217,13 @@ Compact checklist auto-injected before edits. Long-form:
   `aria-describedby` on each box pointing at the "Pick up to N" hint explains
   why. Assert `toHaveAttribute('aria-disabled', 'true')` +
   `toHaveAccessibleDescription(...)`, not `toBeDisabled()` (todo 349 review).
+- **Mirroring a feature (mute ↔ block) leaks at the seams: diff the two
+  implementations side by side before calling it done.** Three omissions
+  shipped to review in todo 347, none in the mirrored code itself: a shared
+  `revealed` boolean let a reveal of the mute placeholder pre-empt a later
+  block placeholder (track `revealedFor: 'block' | 'mute' | null` — the card
+  survives a refetch under a stable key); two independent pending flags let
+  the block and mute handlers race their profile refetches (one shared gate
+  disables both buttons while either is in flight); and the navigation
+  effect reset the block error but not the mute error. Grep every site the
+  ORIGINAL touches — effects, resets, shared state — not just its handlers.
