@@ -346,8 +346,9 @@ def register_moderation_queue_urls():
 @hooks.register("register_reports_menu_item")
 def register_moderation_queue_menu_item():
     """ "Forum moderation queue" under the admin Reports menu, shown to users
-    holding wagtail_forum.change_post (ModerationQueueMenuItem.is_shown) —
-    not AdminOnlyMenuItem, because the trust system grants moderation below
+    the Report snippet views admit — any of add/change/delete/view on
+    wagtail_forum.report (ModerationQueueMenuItem.is_shown) — not
+    AdminOnlyMenuItem, because the trust system grants moderation below
     superuser. reverse() inside the hook body, never a hardcoded /cms/ path
     (audit 2026-07-17 M1); the registry is lazy so the URLconf is loaded."""
     from django.urls import reverse
