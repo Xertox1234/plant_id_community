@@ -149,6 +149,14 @@ DEFAULTS = {
     # inside ONE timeout window at write time, so this bounds worker-pool
     # pressure per write (and reader-side iframes per post), not wall time.
     "MAX_EMBED_URLS_PER_BODY": 5,
+    # Digest email (todo 340) — an opt-in package feature; the host only
+    # schedules `manage.py send_forum_digest` and may override the templates.
+    "DIGEST_DEFAULT_FREQUENCY": "off",  # applied to NEW profiles only
+    "DIGEST_WINDOW_DAYS": 7,  # activity window per weekly digest
+    "DIGEST_MAX_WATCHED_TOPICS": 10,  # "new replies on topics you follow" rows
+    "DIGEST_MAX_TRENDING_TOPICS": 10,  # "active topics you have not seen" rows
+    "DIGEST_SETTINGS_PATH": "/settings",  # where the email's manage link points
+    "EMAIL_SITE_URL": None,  # absolute origin for email links; None = settings.SITE_URL
 }
 
 

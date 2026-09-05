@@ -14,6 +14,15 @@ class TrustLevel(models.IntegerChoices):
     LEADER = 4, _("Leader")
 
 
+class DigestFrequency(models.TextChoices):
+    """How often a member wants the forum digest email (todo 340). Opt-in:
+    the package default is OFF; a host may change the default for NEW
+    profiles via ``WAGTAILFORUM_DIGEST_DEFAULT_FREQUENCY``."""
+
+    OFF = "off", _("Off")
+    WEEKLY = "weekly", _("Weekly")
+
+
 class ForumProfile(models.Model):
     user = models.OneToOneField(
         settings.AUTH_USER_MODEL,
@@ -47,6 +56,13 @@ class ForumProfile(models.Model):
     flags_received = models.PositiveIntegerField(default=0)
     joined_at = models.DateTimeField(auto_now_add=True)
     last_seen = models.DateTimeField(null=True, blank=True)
+    # Digest email (todo 340). `digest_frequency` is the member's choice —
+    # exposed read/write on `me/`; `last_digest_sent_at` is the command's
+    # idempotency marker (a re-run inside the window sends nothing twice).
+    digest_frequency = models.CharField(
+        max_length=10, choices=DigestFrequency.choices, default=DigestFrequency.OFF
+    )
+    last_digest_sent_at = models.DateTimeField(null=True, blank=True)
     # Per-user fallback baseline for "unread" (todo 253 slice 5, H10): a
     # topic is unread if its last_post_at is newer than this, UNLESS a more
     # specific TopicRead row exists for that exact topic. Plain default (not
@@ -145,9 +161,16 @@ class ForumProfile(models.Model):
         # genuinely unrecoverable case — an IntegrityError whose retry also
         # finds nothing, e.g. the user row vanished — as a misleading
         # DoesNotExist. See services.md "Don't Re-Wrap get_or_create".
+        from ..conf import get_setting
+
         profile, _ = cls.objects.get_or_create(
             user=user,
-            defaults={"read_watermark_at": lambda: cls.initial_read_watermark(user)},
+            defaults={
+                "read_watermark_at": lambda: cls.initial_read_watermark(user),
+                # The host's default for NEW members only; an existing member's
+                # explicit choice is never overwritten by a setting change.
+                "digest_frequency": lambda: get_setting("DIGEST_DEFAULT_FREQUENCY"),
+            },
         )
         return profile
 

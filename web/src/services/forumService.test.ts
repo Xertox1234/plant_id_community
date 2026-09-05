@@ -17,6 +17,8 @@ import {
   blockUser,
   unblockUser,
   fetchBlockedUsers,
+  fetchMyForumProfile,
+  updateMyForumProfile,
   uploadPostImage,
   searchForum,
   searchForumUsers,
@@ -87,6 +89,20 @@ const backendPost = {
   reaction_counts: {},
   can_edit: false,
   can_delete: false,
+};
+
+// GET/PATCH me/profile/ (MeProfileSerializer). `avatar_id`/`fcm_token` are
+// write-only and never appear in a response.
+const backendMyProfile = {
+  display_name: 'Jane Doe',
+  bio: '',
+  signature: '',
+  title: '',
+  trust_level: 1,
+  post_count: 3,
+  capabilities: { can_react: true, can_reply: true, can_create_topic: true },
+  avatar: null,
+  digest_frequency: 'off',
 };
 
 // ---------------------------------------------------------------------------
@@ -546,6 +562,28 @@ describe('forumService (wagtail_forum API contract)', () => {
     expect(url).toContain('/me/blocks/');
     expect(result).toHaveLength(1);
     expect(result[0].username).toBe('noisy-neighbor');
+  });
+
+  it('fetchMyForumProfile GETs /me/profile/ (todo 340)', async () => {
+    fetchMock.mockResolvedValueOnce(okJson(backendMyProfile));
+    const result = await fetchMyForumProfile();
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toContain('/me/profile/');
+    expect(init.method).toBeUndefined(); // GET
+    expect(result.digest_frequency).toBe('off');
+    expect(result.display_name).toBe('Jane Doe');
+  });
+
+  it('updateMyForumProfile PATCHes /me/profile/ with a JSON body and returns the updated profile', async () => {
+    fetchMock.mockResolvedValueOnce(okJson({ ...backendMyProfile, digest_frequency: 'weekly' }));
+    const result = await updateMyForumProfile({ digest_frequency: 'weekly' });
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toContain('/me/profile/');
+    expect(init.method).toBe('PATCH');
+    expect(JSON.parse(init.body)).toEqual({ digest_frequency: 'weekly' });
+    expect(init.credentials).toBe('include');
+    expect(init.headers['X-CSRFToken']).toBe('test-csrf-token');
+    expect(result.digest_frequency).toBe('weekly');
   });
 
   it('markSolution POSTs the post id to /topics/{id}/solution/', async () => {

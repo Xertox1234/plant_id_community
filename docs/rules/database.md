@@ -254,3 +254,9 @@ Compact checklist auto-injected before edits. Long-form:
   the same page query, so the flat-count pin holds. Denormalize the activity
   timestamp (`last_message_at`, bumped on write, backfilled in the
   migration) rather than ordering by a MAX() aggregate (todo 339).
+- **When a capped list also drives an exclusion, compute the exclusion from
+  the UNCAPPED set.** The digest's "topics you follow" is capped for
+  display, but "active topics you have not seen" must exclude every
+  followed topic — slicing first let an overflow topic resurface in the
+  other section (todo 340 review). Same for any "shown N of M, exclude
+  from the rest" shape.

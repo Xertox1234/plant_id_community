@@ -8,7 +8,7 @@ from .moderation import SpamCheckTask
 from .notifications import Notification, NotificationVerb
 from .polls import Poll, PollOption, PollVote
 from .posts import Post
-from .profiles import ForumProfile, TrustLevel
+from .profiles import DigestFrequency, ForumProfile, TrustLevel
 from .reactions import Reaction
 from .reports import Report
 from .subscriptions import TopicSubscription
@@ -19,6 +19,7 @@ from .user_blocks import UserBlock
 from .user_mutes import UserMute
 
 __all__ = [
+    "DigestFrequency",
     "Badge",
     "BadgeMetric",
     "BadgeRule",

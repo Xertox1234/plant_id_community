@@ -42,7 +42,10 @@ fi
 : "${CELERY_CONCURRENCY:=2}"
 : "${WORKER_MAX_RESTARTS:=5}"
 : "${WORKER_RESTART_DELAY:=5}"
-WORKER_CMD=${WORKER_CMD:-"celery -A plant_community_backend worker --loglevel=info --concurrency=${CELERY_CONCURRENCY} --max-tasks-per-child=500"}
+# -B embeds beat (CELERY_BEAT_SCHEDULE: the weekly forum digest, todo 340)
+# in this single worker; the schedule file lives in /tmp so the read-only
+# app dir is never written.
+WORKER_CMD=${WORKER_CMD:-"celery -A plant_community_backend worker -B --schedule=/tmp/celerybeat-schedule --loglevel=info --concurrency=${CELERY_CONCURRENCY} --max-tasks-per-child=500"}
 WEB_CMD=${WEB_CMD:-"gunicorn plant_community_backend.wsgi:application --bind 0.0.0.0:${PORT} --workers 2 --timeout 120"}
 
 worker_pid=""

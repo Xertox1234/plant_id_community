@@ -512,3 +512,8 @@ Compact checklist auto-injected before edits.
   and assert on the surviving document). A `boundingBox` "not at the
   origin" check is the same trap for a positioned overlay: assert
   `toHaveCSS('position', 'fixed')` (todo 336 review).
+- **A persistent live region is proven by grabbing the node BEFORE the data
+  loads and asserting it is the same node afterwards** — capturing it only
+  after `findBy…` resolves cannot tell a region outside the loading/loaded
+  conditional from one nested inside the loaded branch (todo 340 review,
+  `SettingsPage` digest section).

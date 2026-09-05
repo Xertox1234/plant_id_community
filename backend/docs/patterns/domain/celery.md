@@ -116,3 +116,18 @@ assert mock_retry.call_args.kwargs["countdown"] == 60  # 30 * 2**1
 
 Reference: `backend/apps/forum_host/tests/test_tasks.py` (exhaustion via
 `.apply()` + countdown pins via `push_request`).
+
+## Periodic tasks: embedded beat in the co-located worker (todo 340)
+
+There was no beat schedule before the digest. `CELERY_BEAT_SCHEDULE` lives
+in settings (crontab, UTC), and `bin/start.sh` runs
+`celery worker -B --schedule=/tmp/celerybeat-schedule …` so the single
+worker container also ticks the schedule — no second process, no second
+service. Rules that make this safe: the scheduled task is a thin
+`call_command` wrapper around an idempotent management command (per-row
+`last_*_sent_at` marker, "due" window, `--dry-run`), so a restart of the
+worker (start.sh restarts it up to 5×) or a deploy overlap cannot double
+send; and `test_tasks.py` pins the beat entry's `task` to the registered
+task's `.name`, because beat only logs a typo'd name. `bin/test-start.sh`
+needs bash ≥ 5.1 (`wait -n` pid list) — run it in Docker on macOS:
+`docker run --rm -v "$PWD/bin:/w" -w /w bash:5.2 bash test-start.sh`.

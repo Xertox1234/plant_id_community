@@ -12,6 +12,7 @@ from pathlib import Path
 
 import dj_database_url
 import sentry_sdk
+from celery.schedules import crontab
 from decouple import config
 from django.core.exceptions import ImproperlyConfigured
 
@@ -1131,6 +1132,18 @@ CELERY_BROKER_CONNECTION_RETRY_ON_STARTUP = True
 # instead of the default four so a redeploy can strand at most `concurrency`
 # messages; railway.json drainingSeconds gives the warm shutdown time to finish.
 CELERY_WORKER_PREFETCH_MULTIPLIER = 1
+# Periodic tasks (beat is embedded in the co-located worker: bin/start.sh
+# starts `celery worker -B`). Crontabs are evaluated in CELERY_TIMEZONE —
+# pinned to Django's TIME_ZONE (UTC) so "Monday 09:00" cannot drift if
+# either default changes (todo 340). Overlap safety lives in the command
+# (run lock + per-member marker), not here.
+CELERY_TIMEZONE = TIME_ZONE
+CELERY_BEAT_SCHEDULE = {
+    "forum-weekly-digest": {
+        "task": "apps.forum_host.tasks.send_forum_weekly_digest",
+        "schedule": crontab(hour=9, minute=0, day_of_week="monday"),
+    },
+}
 
 # Security settings - Apply to both development and production (Issue #014)
 SECURE_BROWSER_XSS_FILTER = True  # Enable XSS filtering in IE/Edge (legacy browsers)

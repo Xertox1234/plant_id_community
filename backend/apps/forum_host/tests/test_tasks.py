@@ -818,3 +818,60 @@ def test_push_batch_autoretry_countdown_is_exponential_from_the_retry_delay(
             send_forum_push_batch.pop_request()
 
     assert mock_retry.call_args.kwargs["countdown"] == ceiling
+
+
+def test_weekly_digest_is_scheduled_on_a_registered_task():
+    """The beat entry (todo 340) must name a task Celery can import — a typo
+    here is silent in prod (beat logs an error and moves on)."""
+    from apps.forum_host import tasks
+    from celery.schedules import crontab
+    from django.conf import settings
+
+    entry = settings.CELERY_BEAT_SCHEDULE["forum-weekly-digest"]
+    assert entry["task"] == tasks.send_forum_weekly_digest.name
+    assert isinstance(entry["schedule"], crontab)
+    assert entry["schedule"].day_of_week == {1}  # monday
+    assert entry["schedule"].hour == {9}
+    # The crontab is evaluated in CELERY_TIMEZONE — pinned, not defaulted.
+    assert settings.CELERY_TIMEZONE == "UTC" == settings.TIME_ZONE
+
+
+def test_weekly_digest_task_is_sized_for_a_cohort_and_retries_db_blips():
+    """Review finding: the global 90 s soft limit and no-retry default are
+    for single-object tasks; a cohort run needs its own budget."""
+    from apps.forum_host import tasks
+    from django.db import OperationalError
+
+    task = tasks.send_forum_weekly_digest
+    assert task.soft_time_limit == tasks.DIGEST_SOFT_TIME_LIMIT >= 20 * 60
+    assert task.time_limit == tasks.DIGEST_TIME_LIMIT > task.soft_time_limit
+    assert OperationalError in task.autoretry_for
+    assert task.max_retries == 3
+
+
+def test_weekly_digest_task_runs_the_package_command_and_logs_its_summary(caplog):
+    from apps.forum_host import tasks
+
+    def fake_command(name, frequency, stdout):
+        stdout.write("[EMAIL] digest frequency=weekly recipients=3 due=1 sent=1\n")
+
+    with patch("django.core.management.call_command", side_effect=fake_command) as cmd:
+        with caplog.at_level("INFO", logger="forum_host.tasks"):
+            tasks.send_forum_weekly_digest.apply()
+
+    assert cmd.call_args.args == ("send_forum_digest",)
+    assert cmd.call_args.kwargs["frequency"] == "weekly"
+    assert any("recipients=3 due=1 sent=1" in r.getMessage() for r in caplog.records)
+
+
+def test_weekly_digest_task_re_enqueues_itself_after_a_soft_time_limit():
+    from apps.forum_host import tasks
+    from celery.exceptions import SoftTimeLimitExceeded
+
+    with patch(
+        "django.core.management.call_command", side_effect=SoftTimeLimitExceeded()
+    ):
+        with patch.object(tasks.send_forum_weekly_digest, "apply_async") as again:
+            tasks.send_forum_weekly_digest.apply()
+
+    again.assert_called_once_with(countdown=tasks.DIGEST_CONTINUATION_DELAY)

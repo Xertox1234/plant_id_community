@@ -177,6 +177,23 @@ community experts, block/unblock + blocked-user list, private messaging
 (inbox, unread-count, with-user lookup, messages, send, report), and the
 landing-page event hero.
 
+### Digest email (opt-in, host-scheduled)
+
+`manage.py send_forum_digest --frequency weekly [--dry-run] [--window-days N]`
+emails every member whose `ForumProfile.digest_frequency` is `weekly` (off
+by default; `me/` exposes the field) a digest of **new replies on topics
+they follow** (their unread `reply` notifications, grouped per topic) and
+the **most active public topics they have not read** since the window
+began — both filtered like the API (live, unrestricted boards; blocked
+authors excluded). A member with nothing new gets no email. The package
+sends with Django's mail API from `DEFAULT_FROM_EMAIL`; the templates
+`wagtail_forum/email/digest.txt` and `digest.html` are overridable through
+normal template resolution. Scheduling is the host's (cron or Celery beat —
+the package never imports Celery); `last_digest_sent_at` makes a re-run
+inside the window a no-op, and `--dry-run` reports recipient/due/empty
+counts without sending or writing. Links use `EMAIL_SITE_URL` (or the
+host's `SITE_URL`) and the manage link points at `DIGEST_SETTINGS_PATH`.
+
 ### Direct messages: the inbox contract
 
 `GET conversations/` is an inbox: most recent activity first
@@ -364,6 +381,12 @@ Three consequences worth knowing before changing this:
 | `WAGTAILFORUM_POLL_OPTION_MAX_LENGTH` | `200` | Max characters per poll option. Must stay `<=` the model column's `max_length` (200). |
 | `WAGTAILFORUM_ALLOW_EMBED_BLOCKS` | `False` | Enables the `embed` body block (video/oEmbed, see [Embeds](#embeds)). Off: the API refuses the block and reads carry no player URL. The provider allowlist is Wagtail's `WAGTAILEMBEDS_FINDERS`. |
 | `WAGTAILFORUM_EMBED_FETCH_TIMEOUT_SECONDS` | `5` | Bound on the author's wait for the one network call embeds make — resolving each provider's oEmbed data at write time. A body's distinct URLs are fetched concurrently inside ONE such window, and it is also the socket timeout `TimeoutOEmbedFinder` puts on the request itself. A slow provider degrades its post to a link card instead of hanging the create. |
+| `WAGTAILFORUM_DIGEST_DEFAULT_FREQUENCY` | `"off"` | Digest frequency given to NEW profiles (`off` / `weekly`). Opt-in by default; a member's own choice (`digest_frequency` on `me/`) is never overwritten by this. |
+| `WAGTAILFORUM_DIGEST_WINDOW_DAYS` | `7` | Activity window of one digest; a member is due again once their last digest is older than the window minus a day of scheduler jitter. |
+| `WAGTAILFORUM_DIGEST_MAX_WATCHED_TOPICS` | `10` | Max "new replies on topics you follow" rows per digest. |
+| `WAGTAILFORUM_DIGEST_MAX_TRENDING_TOPICS` | `10` | Max "active topics you have not seen" rows per digest. |
+| `WAGTAILFORUM_DIGEST_SETTINGS_PATH` | `"/settings"` | Path (under the site origin) the digest's "change or turn it off" link points to. |
+| `WAGTAILFORUM_EMAIL_SITE_URL` | `None` | Absolute origin for links in package emails; `None` falls back to the host's `SITE_URL`. |
 | `WAGTAILFORUM_MAX_EMBED_URLS_PER_BODY` | `5` | Distinct embed URLs one body may carry (they resolve concurrently, so this bounds pool pressure per write and iframes per post, not wall time). |
 
 ## Embeds

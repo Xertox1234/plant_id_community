@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Your weekly forum digest</title></head>
+<body style="margin:0;padding:24px;font-family:-apple-system,Segoe UI,Roboto,sans-serif;color:#1f2a1f;background:#f6f8f4">
+  <div style="max-width:560px;margin:0 auto;background:#ffffff;border:1px solid #dfe6da;border-radius:8px;padding:24px">
+    <p style="margin:0 0 16px">Hi {{ display_name }},</p>
+    <p style="margin:0 0 20px;color:#4a5a48">Here is what happened on the forum since {{ since|date:"j M" }}.</p>
+    {% if watched %}
+    <h2 style="font-size:16px;margin:0 0 8px">New replies on topics you follow</h2>
+    <ul style="padding-left:18px;margin:0 0 20px">
+      {% for t in watched %}
+      <li style="margin:0 0 8px"><a href="{{ t.url }}" style="color:#2f6b3a">{{ t.title }}</a>
+        <span style="color:#6b7a69"> — {{ t.new_replies }} new {{ t.new_replies|pluralize:"reply,replies" }} · {{ t.board_title }}</span></li>
+      {% endfor %}
+    </ul>
+    {% endif %}
+    {% if trending %}
+    <h2 style="font-size:16px;margin:0 0 8px">Active topics you have not seen</h2>
+    <ul style="padding-left:18px;margin:0 0 20px">
+      {% for t in trending %}
+      <li style="margin:0 0 8px"><a href="{{ t.url }}" style="color:#2f6b3a">{{ t.title }}</a>
+        <span style="color:#6b7a69"> — {{ t.reply_count }} {{ t.reply_count|pluralize:"reply,replies" }} · {{ t.board_title }}</span></li>
+      {% endfor %}
+    </ul>
+    {% endif %}
+    <p style="font-size:12px;color:#6b7a69;margin:24px 0 0">You receive this because your forum digest is set to weekly.
+      <a href="{{ settings_url }}" style="color:#2f6b3a">Change or turn it off</a>.</p>
+  </div>
+</body>
+</html>

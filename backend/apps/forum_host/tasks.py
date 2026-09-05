@@ -18,6 +18,58 @@ from . import constants
 logger = logging.getLogger("forum_host.tasks")
 
 
+# Sized for a cohort, not a single object: the global 90 s/120 s limits are
+# for the per-post tasks below. A digest run costs a few queries + one SMTP
+# round-trip per due member; ~1,500 members fit in 25 minutes at 1 s each.
+DIGEST_SOFT_TIME_LIMIT = 25 * 60
+DIGEST_TIME_LIMIT = 30 * 60
+DIGEST_CONTINUATION_DELAY = 60
+
+
+@shared_task(
+    bind=True,
+    autoretry_for=(OperationalError,),
+    retry_backoff=60,  # seconds; a transient DB blip retries in 1/2/4 min
+    max_retries=3,
+    soft_time_limit=DIGEST_SOFT_TIME_LIMIT,
+    time_limit=DIGEST_TIME_LIMIT,
+    ignore_result=True,
+)
+def send_forum_weekly_digest(self):
+    """Celery beat entry (settings.CELERY_BEAT_SCHEDULE) for the package's
+    `send_forum_digest` command (todo 340). The package owns content and
+    sending; this is only the host's scheduling wire.
+
+    Overlap safety is the COMMAND's: a cache run-lock makes a second fire
+    (beat re-firing after a worker restart, two containers during a deploy)
+    exit immediately, and `last_digest_sent_at` is written per member before
+    the loop advances, so a run killed by the time limit resumes where it
+    stopped — the continuation re-enqueued below simply picks up the members
+    still due. Retrying on OperationalError is safe for the same reason.
+    """
+    from io import StringIO
+
+    from celery.exceptions import SoftTimeLimitExceeded
+    from django.core.management import call_command
+
+    logger.info("[EMAIL] forum weekly digest: starting (task=%s)", self.request.id)
+    out = StringIO()
+    try:
+        call_command("send_forum_digest", frequency="weekly", stdout=out)
+    except SoftTimeLimitExceeded:
+        logger.warning(
+            "[EMAIL] forum weekly digest hit the soft time limit (task=%s); "
+            "re-enqueuing to finish the members still due",
+            self.request.id,
+        )
+        send_forum_weekly_digest.apply_async(countdown=DIGEST_CONTINUATION_DELAY)
+        return
+    finally:
+        for line in out.getvalue().splitlines():
+            if line.strip():
+                logger.info("%s (task=%s)", line, self.request.id)
+
+
 def _is_permanent_fcm_error(exc: Exception) -> bool:
     """Permanent FCM failures must not be retried (docs/patterns/domain/celery.md;
     audit 2026-07-11 M33): a stale/invalid device token (UnregisteredError) or a
