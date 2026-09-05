@@ -1459,5 +1459,20 @@
     "source": "codify: feat/todo-344-forum-embeds",
     "added": "2026-09-05",
     "severity": "warn"
+  },
+  {
+    "id": "web-arbitrary-text-size",
+    "domains": [
+      "react"
+    ],
+    "path_glob": [
+      "web/src/**/*.tsx"
+    ],
+    "content_present": "text-\\[[0-9]+(\\.[0-9]+)?px\\]",
+    "message": "Arbitrary font size: use the body-text scale (text-micro/meta/body-sm/body/body-lg/lead, text-hero) or a gt-* display class instead of text-[NNpx] — the article headings and wordmark label are the only recorded exceptions (todo 351)",
+    "pattern_ref": "web/docs/patterns/tailwind.md",
+    "source": "codify: feat/todo-351-web-body-text-scale",
+    "added": "2026-09-05",
+    "severity": "warn"
   }
 ]
