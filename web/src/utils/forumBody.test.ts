@@ -12,6 +12,12 @@ import { ForumImage } from '../components/forum/forumImageNode';
 import { ForumBlockquoteAttrs } from '../components/forum/forumBlockquoteAttrs';
 import type { StreamFieldBlock } from '@/types/blog';
 
+// Round-trip tests feed WRITE blocks back into the READ-shape renderer. The
+// `structuredClone` boundary is deliberate (todo 353): it is the only place
+// the codebase composes bodyBlocksToHtml(htmlToBodyBlocks(...)) directly, and
+// CodeQL js/xss-through-dom chained THROUGH this file to reach the DOMParser
+// sink (conflating the embed URL with paragraph HTML on the shared array).
+// Production never has that path — TipTap sits between the two functions.
 describe('forumBody serialization', () => {
   it('never turns a link carrying HTML meta-characters into an embed (todo 353)', () => {
     const bad = htmlToBodyBlocks('<p>https://youtu.be/abc&lt;script&gt;x</p>');
@@ -160,7 +166,9 @@ describe('forumBody quote blocks (audit M1)', () => {
       { type: 'quote', value: 'a < b\n\nsecond line' },
     ]);
     // Stable under a second pass — re-editing a saved post must not drift.
-    expect(htmlToBodyBlocks(bodyBlocksToHtml(once as StreamFieldBlock[]))).toEqual(once);
+    expect(htmlToBodyBlocks(bodyBlocksToHtml(structuredClone(once) as StreamFieldBlock[]))).toEqual(
+      once
+    );
   });
 
   it('does not promote a single newline to a paragraph break on re-edit', () => {
@@ -184,7 +192,7 @@ describe('forumBody quote blocks (audit M1)', () => {
     const evil = htmlToBodyBlocks(
       '<blockquote>a &lt;img src=x onerror=alert(1)&gt; b</blockquote>'
     );
-    const html = bodyBlocksToHtml(evil as StreamFieldBlock[]);
+    const html = bodyBlocksToHtml(structuredClone(evil) as StreamFieldBlock[]);
     expect(html).not.toContain('<img');
     expect(html).toContain('&lt;img');
     // ...and re-parsing that HTML yields the same plain text, not an image block.

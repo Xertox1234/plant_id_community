@@ -120,13 +120,16 @@ function blockquoteText(el: Element): string {
  */
 export function htmlToBodyBlocks(html: string): ForumBodyWriteBlock[] {
   // CodeQL alert #116 (js/xss-through-dom), triaged false positive in todo 353:
-  // its only path from DOM text to this parser runs through forumBody.test.ts
-  // composing bodyBlocksToHtml(htmlToBodyBlocks(...)) and conflates the
-  // regex-validated embed URL with paragraph HTML. In production this `html`
-  // is TipTap's own serialisation; the parsed document is detached and only
+  // its only path from DOM text to this parser ran through forumBody.test.ts
+  // composing bodyBlocksToHtml(htmlToBodyBlocks(...)), conflating the
+  // regex-validated embed URL with paragraph HTML on the shared array (the
+  // tests now clone across that boundary). In production this `html` is
+  // TipTap's own serialisation; the parsed document is detached and only
   // read. The paragraph branch of bodyBlocksToHtml carries server-sanitized
   // HTML, and every other branch escapes (see escapeHtml / the href guard).
-  const doc = new DOMParser().parseFromString(html, 'text/html'); // codeql[js/xss-through-dom]
+  // GitHub code scanning ignores in-code suppression comments, so the fix
+  // has to be structural, not annotated.
+  const doc = new DOMParser().parseFromString(html, 'text/html');
   const blocks: ForumBodyWriteBlock[] = [];
   let buffer: string[] = [];
   const flush = () => {
