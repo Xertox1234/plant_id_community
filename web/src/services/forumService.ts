@@ -77,11 +77,18 @@ interface DrfPage<T> {
  */
 export class ForumApiError extends Error {
   readonly status: number;
+  /**
+   * Seconds from a 429's `Retry-After` header, when the throwing service
+   * captured it (messageService does, for the group-create bucket, todo 350);
+   * null when the header was absent, not an integer, or not read.
+   */
+  readonly retryAfter: number | null;
 
-  constructor(message: string, status: number) {
+  constructor(message: string, status: number, retryAfter: number | null = null) {
     super(message);
     this.name = 'ForumApiError';
     this.status = status;
+    this.retryAfter = retryAfter;
   }
 }
 

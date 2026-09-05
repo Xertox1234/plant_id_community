@@ -136,6 +136,16 @@ abstract class ForumApi {
   /// blocked pair only surfaces as a 403 on [sendMessage].
   Future<ForumConversation?> fetchConversationWith(String username);
 
+  /// The single inbox row for conversation [id], from
+  /// `GET /forum/conversations/<id>/` — the by-id sibling of
+  /// [fetchConversationWith], and the way a group resolves its title and
+  /// roster from a deep link (todo 350). The
+  /// backend 404s alike for a non-participant, a removed member and a
+  /// blocked direct pair, so a `null` here is "no longer available to me",
+  /// never an error. Any OTHER failure (5xx, network) rethrows — a
+  /// transient outage must not read as a permanently gone group.
+  Future<ForumConversation?> fetchConversation(int id);
+
   /// Messages in a conversation, **newest first** (page via `next` for older
   /// ones). Reading marks the conversation read server-side, so callers
   /// should refresh the unread badge afterwards.
@@ -162,6 +172,52 @@ abstract class ForumApi {
     required String reason,
     String? detail,
     required String idempotencyKey,
+  });
+
+  // --- Group conversations (todo 350) --------------------------------------
+
+  /// Create a titled group with [usernames] (2–7 others; duplicates and
+  /// myself are ignored server-side) and send [body] as its first message —
+  /// a group only exists once a message was sent, like a direct thread.
+  /// Returns the new inbox row. 400 "One of the members cannot be added."
+  /// for ANY refused member (inactive, block-paired — deliberately no
+  /// oracle), 429 from the `dm_group_create` bucket (5/h). Carries an
+  /// `Idempotency-Key` — the backend replays a same-key retry.
+  Future<ForumConversation> createGroupConversation({
+    required String title,
+    required List<String> usernames,
+    required String body,
+    required String idempotencyKey,
+  });
+
+  /// Send [body] into conversation [conversationId] — the by-id route every
+  /// kind accepts, used for groups (a direct thread keeps [sendMessage]).
+  /// 403 = not a participant, or "You cannot message this group." when any
+  /// member is block-paired with me; 400 = empty / spam-screened. Carries
+  /// an `Idempotency-Key` like the direct send.
+  Future<ForumDirectMessage> sendConversationMessage({
+    required int conversationId,
+    required String body,
+    required String idempotencyKey,
+  });
+
+  /// Add [username] to a group I created (`POST …/participants/`); returns
+  /// the updated inbox row. Same rules as creation (cap, block-pair,
+  /// active); adding an existing member is a no-op 200. 403 when I am not
+  /// the creator, 404 for a direct thread. No `Idempotency-Key`: the
+  /// endpoint is naturally idempotent (a repeat is that no-op 200).
+  Future<ForumConversation> addParticipant({
+    required int conversationId,
+    required String username,
+  });
+
+  /// Remove [username] from a group (`DELETE …/participants/<username>/`,
+  /// 204). Any member may remove THEMSELVES (leave); only the creator may
+  /// remove others, and cannot leave while others remain (400 "Transfer or
+  /// close the group first."). Naturally idempotent — no key.
+  Future<void> removeParticipant({
+    required int conversationId,
+    required String username,
   });
 
   // --- Safety (todo 341 wave 1) --------------------------------------------
@@ -535,6 +591,17 @@ class HttpForumApi implements ForumApi {
   }
 
   @override
+  Future<ForumConversation?> fetchConversation(int id) async {
+    try {
+      final resp = await _api.get('/forum/conversations/$id/');
+      return ForumConversation.fromJson(resp.data as Map<String, dynamic>);
+    } on ApiException catch (e) {
+      if (e.statusCode == 404) return null;
+      rethrow;
+    }
+  }
+
+  @override
   Future<CursorPage<ForumDirectMessage>> fetchMessages({
     required int conversationId,
     String? cursorUrl,
@@ -576,6 +643,57 @@ class HttpForumApi implements ForumApi {
         if (detail != null && detail.isNotEmpty) 'detail': detail,
       },
       options: _idempotent(idempotencyKey),
+    );
+  }
+
+  @override
+  Future<ForumConversation> createGroupConversation({
+    required String title,
+    required List<String> usernames,
+    required String body,
+    required String idempotencyKey,
+  }) async {
+    final resp = await _api.post(
+      '/forum/conversations/',
+      data: {'title': title, 'usernames': usernames, 'body': body},
+      options: _idempotent(idempotencyKey),
+    );
+    return ForumConversation.fromJson(resp.data as Map<String, dynamic>);
+  }
+
+  @override
+  Future<ForumDirectMessage> sendConversationMessage({
+    required int conversationId,
+    required String body,
+    required String idempotencyKey,
+  }) async {
+    final resp = await _api.post(
+      '/forum/conversations/$conversationId/messages/',
+      data: {'body': body},
+      options: _idempotent(idempotencyKey),
+    );
+    return ForumDirectMessage.fromJson(resp.data as Map<String, dynamic>);
+  }
+
+  @override
+  Future<ForumConversation> addParticipant({
+    required int conversationId,
+    required String username,
+  }) async {
+    final resp = await _api.post(
+      '/forum/conversations/$conversationId/participants/',
+      data: {'username': username},
+    );
+    return ForumConversation.fromJson(resp.data as Map<String, dynamic>);
+  }
+
+  @override
+  Future<void> removeParticipant({
+    required int conversationId,
+    required String username,
+  }) async {
+    await _api.delete(
+      '/forum/conversations/$conversationId/participants/$username/',
     );
   }
 

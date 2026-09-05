@@ -1,5 +1,13 @@
 import { describe, it, expect } from 'vitest';
-import { slugifyTitle, parseLeadingId, categoryPath, threadPath, postAnchor } from './forumUrls';
+import {
+  slugifyTitle,
+  parseLeadingId,
+  categoryPath,
+  threadPath,
+  postAnchor,
+  conversationPath,
+  groupConversationPath,
+} from './forumUrls';
 import type { Category, Thread } from '../types/forum';
 
 describe('forumUrls', () => {
@@ -30,5 +38,11 @@ describe('forumUrls', () => {
   it('postAnchor builds a #post-N fragment', () => {
     expect(postAnchor(42)).toBe('#post-42');
     expect(postAnchor('42')).toBe('#post-42');
+  });
+
+  it('conversation paths: a direct thread by (encoded) username, a group by id under a third segment', () => {
+    expect(conversationPath('ada')).toBe('/messages/ada');
+    expect(conversationPath('ada lovelace')).toBe('/messages/ada%20lovelace');
+    expect(groupConversationPath(12)).toBe('/messages/group/12');
   });
 });

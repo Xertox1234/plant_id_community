@@ -1031,3 +1031,22 @@ and accepts a partial one; the host's `send_forum_push`,
 `send_forum_push_batch` and `send_forum_email_batch` check `wants_channel`
 after the `forum_notifications` master switch. Defaults are the pre-343
 behaviour, pinned by test, so shipping it changed nothing for anyone.
+
+### Group conversations (todo 350)
+
+`Conversation.kind` is `direct` (canonical `(participant_a, participant_b)`
+pair, `between()`) or `group` (title, `created_by`, no pair — the
+`forum_conversation_kind_shape` CHECK pins it). Membership and per-member
+read markers for BOTH kinds live in `ConversationParticipant`; migration 0036
+backfilled the pairs. `api/direct_messages.py`: `_my_conversations` is an
+EXISTS on my participant row (no join), `_visible_messages` filters a blocked
+member's messages inside a group, `_inbox_queryset` prefetches members so the
+row carries `participants` / `created_by` / `can_manage` and the preview's
+`sender` without extra queries (flat-count pinned across group sizes).
+Endpoints: `POST conversations/` (group create + first message,
+`dm_group_create` 5/h), `POST conversations/<id>/messages/` (send by id, any
+kind, `message_send`), `POST/DELETE conversations/<id>/participants[/<user>]`
+(creator-managed, `dm_group_manage`). Policies: cap `DM_GROUP_MAX_PARTICIPANTS`
+(8 incl. creator); a block pair in the room refuses sends (403) and hides that
+member's messages from the blocker; the creator cannot leave while others
+remain (no transfer in v1); no DM push/email exists for any kind.

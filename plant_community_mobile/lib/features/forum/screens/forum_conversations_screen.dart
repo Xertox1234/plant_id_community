@@ -7,10 +7,12 @@ import '../forum_format.dart';
 import '../models/models.dart';
 import '../providers/forum_providers.dart';
 import '../widgets/author_identity.dart';
+import '../widgets/forum_avatar_cluster.dart';
 
 /// The authenticated user's DM inbox (todo 339): one row per conversation,
 /// most recent activity first, unread rows emphasised with a count chip.
-/// Tapping a row opens the thread with that member.
+/// Tapping a row opens the thread with that member — or, for a group
+/// (todo 350), the group thread by id.
 class ForumConversationsScreen extends ConsumerWidget {
   const ForumConversationsScreen({super.key});
 
@@ -19,7 +21,16 @@ class ForumConversationsScreen extends ConsumerWidget {
     final conversationsAsync = ref.watch(conversationsFeedProvider);
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Messages')),
+      appBar: AppBar(
+        title: const Text('Messages'),
+        actions: [
+          IconButton(
+            tooltip: 'New group',
+            icon: const Icon(Icons.group_add_outlined),
+            onPressed: () => context.pushNamed('forumNewGroup'),
+          ),
+        ],
+      ),
       body: SafeArea(
         child: conversationsAsync.when(
           loading: () => const Center(child: CircularProgressIndicator()),
@@ -42,10 +53,19 @@ class ForumConversationsScreen extends ConsumerWidget {
             },
             child: _ConversationsList(
               paged: paged,
-              onOpen: (c) => context.pushNamed(
-                'forumConversation',
-                pathParameters: {'username': c.otherParticipant.username},
-              ),
+              onOpen: (c) => c.isGroup
+                  ? context.pushNamed(
+                      'forumGroupConversation',
+                      pathParameters: {'id': '${c.id}'},
+                    )
+                  : context.pushNamed(
+                      'forumConversation',
+                      pathParameters: {
+                        'username':
+                            c.otherParticipant?.username ??
+                            ForumAuthor.deletedUsername,
+                      },
+                    ),
               onLoadMore: () =>
                   ref.read(conversationsFeedProvider.notifier).loadMore(),
             ),
@@ -99,6 +119,20 @@ class _ConversationsList extends StatelessWidget {
   }
 }
 
+/// The inbox preview line: own last message → "You: …"; in a group, another
+/// member's → "Ada: …" so the reader knows who spoke last; a direct thread
+/// needs no name (the row is already titled with the other member).
+String conversationPreview(ForumConversation conversation) {
+  final last = conversation.lastMessage;
+  if (last == null) return 'No messages yet.';
+  if (last.isMine) return 'You: ${last.body}';
+  final sender = last.sender;
+  if (conversation.isGroup && sender != null) {
+    return '${sender.name}: ${last.body}';
+  }
+  return last.body;
+}
+
 class _ConversationTile extends StatelessWidget {
   const _ConversationTile({required this.conversation, required this.onTap});
 
@@ -108,12 +142,15 @@ class _ConversationTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final other = conversation.otherParticipant;
+    final isGroup = conversation.isGroup;
+    // A direct row always carries the far side (a deleted member is the
+    // `[deleted]` sentinel, never null); the fallback only guards a
+    // malformed payload.
+    final other =
+        conversation.otherParticipant ?? ForumAuthor.fromJson(const {});
+    final name = isGroup ? (conversation.title ?? 'Group') : other.name;
     final unread = conversation.hasUnread;
-    final last = conversation.lastMessage;
-    final preview = last == null
-        ? 'No messages yet.'
-        : (last.isMine ? 'You: ${last.body}' : last.body);
+    final preview = conversationPreview(conversation);
     final time = forumRelativeTime(conversation.lastMessageAt);
     // Unread rows read bold in both the name and preview; read rows keep the
     // preview in the quieter onSurfaceVariant.
@@ -125,9 +162,11 @@ class _ConversationTile extends StatelessWidget {
           : null,
       child: ListTile(
         onTap: onTap,
-        leading: AuthorAvatar(author: other, radius: 20),
+        leading: isGroup
+            ? AuthorAvatarCluster(authors: conversation.participants)
+            : AuthorAvatar(author: other, radius: 20),
         title: Text(
-          other.name,
+          name,
           maxLines: 1,
           overflow: TextOverflow.ellipsis,
           style: theme.textTheme.titleSmall?.copyWith(fontWeight: emphasis),

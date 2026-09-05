@@ -213,7 +213,32 @@ class ConversationUnreadCountView(
     pass
 
 
-# ConversationListView/ConversationMessagesView/ConversationWithUserView have
-# no wrapper here — GET (list/detail) is a page load, not a polling target,
-# same treatment as NotificationListView/TopicBookmarkListView/MyBlocksView
-# above — mounted straight from the package in api_urls.py.
+# ConversationWithUserView has no wrapper here — GET (detail) is a page load,
+# not a polling target, same treatment as NotificationListView/
+# TopicBookmarkListView/MyBlocksView above — mounted straight from the
+# package in api_urls.py. The list and messages views ARE wrapped since todo
+# 350 gave them POST arms (group create, send by id); their GETs stay unrated.
+
+
+@_throttled("dm_group_create", "POST")
+class ConversationListView(forum_direct_message_views.ConversationListView):
+    pass
+
+
+@_throttled("message_send", "POST")
+class ConversationMessagesView(forum_direct_message_views.ConversationMessagesView):
+    pass
+
+
+@_throttled("dm_group_manage", "POST")
+class ConversationParticipantsView(
+    forum_direct_message_views.ConversationParticipantsView
+):
+    pass
+
+
+@_throttled("dm_group_manage", "DELETE")
+class ConversationParticipantView(
+    forum_direct_message_views.ConversationParticipantView
+):
+    pass

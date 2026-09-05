@@ -258,3 +258,52 @@ def test_host_mounted_private_reads_carry_no_store_cache_headers():
         assert "private" in cache_control, path
         assert "public" not in cache_control, path
         assert "Cookie" in resp["Vary"] and "Authorization" in resp["Vary"], path
+
+
+@pytest.mark.django_db
+def test_group_conversation_endpoints_are_mounted_and_throttled():
+    """todo 350: one round-trip through the REAL host mount — create a group,
+    add a member, leave — and the wrappers carry their throttle flags."""
+    from apps.forum_host import api as host_api
+
+    creator = User.objects.create_user(username="mounted-group-creator")
+    for name in ("mg-a", "mg-b", "mg-c"):
+        User.objects.create_user(username=name)
+    client = APIClient()
+    client.force_authenticate(creator)
+
+    created = client.post(
+        "/api/v1/forum/conversations/",
+        {"title": "Mounted", "usernames": ["mg-a", "mg-b"], "body": "hi"},
+        format="json",
+    )
+    assert created.status_code == 201, created.data
+    group_id = created.data["id"]
+
+    added = client.post(
+        f"/api/v1/forum/conversations/{group_id}/participants/",
+        {"username": "mg-c"},
+        format="json",
+    )
+    assert added.status_code == 200 and added.data["participant_count"] == 4
+
+    sent = client.post(
+        f"/api/v1/forum/conversations/{group_id}/messages/",
+        {"body": "second"},
+        format="json",
+    )
+    assert sent.status_code == 201
+
+    member = APIClient()
+    member.force_authenticate(User.objects.get(username="mg-c"))
+    assert (
+        member.delete(
+            f"/api/v1/forum/conversations/{group_id}/participants/mg-c/"
+        ).status_code
+        == 204
+    )
+
+    assert "POST" in host_api.ConversationListView._forum_throttled_methods
+    assert "POST" in host_api.ConversationMessagesView._forum_throttled_methods
+    assert "POST" in host_api.ConversationParticipantsView._forum_throttled_methods
+    assert "DELETE" in host_api.ConversationParticipantView._forum_throttled_methods

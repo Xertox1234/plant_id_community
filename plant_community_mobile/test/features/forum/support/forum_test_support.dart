@@ -14,16 +14,25 @@ import 'package:plant_community_mobile/services/user_profile_service.dart';
 /// FakeUserProfileService(username: 'me'))` wherever a screen needs to know
 /// who the current user is (the profile "Message" action, todo 339).
 class FakeUserProfileService extends UserProfileService {
-  FakeUserProfileService({required this.username});
+  FakeUserProfileService({required this.username, this.gate});
   final String username;
 
+  /// When set, [build] awaits it before resolving — holds the account
+  /// profile in its loading state so a test can prove nothing that depends
+  /// on "who am I" renders early.
+  final Future<void>? gate;
+
   @override
-  Future<UserProfile?> build() async => UserProfile(
-    id: 1,
-    username: username,
-    email: '$username@example.com',
-    dateJoined: DateTime(2026, 1, 1),
-  );
+  Future<UserProfile?> build() async {
+    final pending = gate;
+    if (pending != null) await pending;
+    return UserProfile(
+      id: 1,
+      username: username,
+      email: '$username@example.com',
+      dateJoined: DateTime(2026, 1, 1),
+    );
+  }
 }
 
 /// Configurable fake [ForumApi] for forum tests. Read fixtures are set as
@@ -162,6 +171,15 @@ class FakeForumApi implements ForumApi {
   ForumConversation? conversationWith;
   final List<String> fetchConversationWithCalls = [];
 
+  /// Fixture for [fetchConversation] (the by-id detail GET a group resolves
+  /// through, todo 350). Returns [conversationDetail] when set, else the
+  /// matching row from [conversations], else `null` — which the real client
+  /// maps from the backend's 404 ("not a participant / removed / gone").
+  /// [failFetchConversationWith] throws instead, for the non-404 branch.
+  ForumConversation? conversationDetail;
+  final List<int> fetchConversationCalls = [];
+  ApiException? failFetchConversationWith;
+
   /// [fetchMessages] fixtures, NEWEST FIRST like the real endpoint.
   /// [messagePages] mirrors [postPages]; falls back to [messages].
   List<ForumDirectMessage> messages = const [];
@@ -182,6 +200,33 @@ class FakeForumApi implements ForumApi {
   final List<Map<String, Object?>> reportMessageCalls = [];
   final List<String> reportMessageKeys = [];
   ApiException? failReportMessageWith;
+
+  /// Group DM fixtures (todo 350). [createGroupConversation] records the
+  /// exact `{title, usernames, body}` payload and returns [createdGroup]
+  /// (or a fixture built from the payload when unset).
+  final List<Map<String, Object?>> createGroupConversationCalls = [];
+  final List<String> createGroupConversationKeys = [];
+  ForumConversation? createdGroup;
+  ApiException? failCreateGroupWith;
+
+  /// When set, [createGroupConversation] awaits this instead of resolving —
+  /// holds the create "in flight" to prove the submit guard.
+  Completer<ForumConversation>? createGroupGate;
+
+  /// [sendConversationMessage] log — the by-id send a group uses. Returns a
+  /// message authored by [senderUsername] in that conversation.
+  final List<Map<String, Object?>> sendConversationMessageCalls = [];
+  final List<String> sendConversationMessageKeys = [];
+  ApiException? failSendConversationMessageWith;
+
+  /// [addParticipant] returns [addParticipantResult] when set, else the
+  /// matching [conversations] row with the new member appended.
+  final List<Map<String, Object?>> addParticipantCalls = [];
+  ForumConversation? addParticipantResult;
+  ApiException? failAddParticipantWith;
+
+  final List<Map<String, Object?>> removeParticipantCalls = [];
+  ApiException? failRemoveParticipantWith;
 
   /// Safety fixtures (todo 341 wave 1).
   final List<Map<String, Object?>> reportPostCalls = [];
@@ -488,6 +533,19 @@ class FakeForumApi implements ForumApi {
   }
 
   @override
+  Future<ForumConversation?> fetchConversation(int id) async {
+    fetchConversationCalls.add(id);
+    final fail = failFetchConversationWith;
+    if (fail != null) throw fail;
+    final preset = conversationDetail;
+    if (preset != null) return preset;
+    for (final row in conversations) {
+      if (row.id == id) return row;
+    }
+    return null;
+  }
+
+  @override
   Future<CursorPage<ForumDirectMessage>> fetchMessages({
     required int conversationId,
     String? cursorUrl,
@@ -539,6 +597,90 @@ class FakeForumApi implements ForumApi {
     });
     reportMessageKeys.add(idempotencyKey);
     final fail = failReportMessageWith;
+    if (fail != null) throw fail;
+  }
+
+  @override
+  Future<ForumConversation> createGroupConversation({
+    required String title,
+    required List<String> usernames,
+    required String body,
+    required String idempotencyKey,
+  }) async {
+    createGroupConversationCalls.add({
+      'title': title,
+      'usernames': usernames,
+      'body': body,
+    });
+    createGroupConversationKeys.add(idempotencyKey);
+    final gate = createGroupGate;
+    if (gate != null) return gate.future;
+    final fail = failCreateGroupWith;
+    if (fail != null) throw fail;
+    return createdGroup ??
+        groupConversation(
+          id: 500,
+          title: title,
+          memberUsernames: usernames,
+          lastMessageBody: body,
+          lastMessageIsMine: true,
+          canManage: true,
+        );
+  }
+
+  @override
+  Future<ForumDirectMessage> sendConversationMessage({
+    required int conversationId,
+    required String body,
+    required String idempotencyKey,
+  }) async {
+    sendConversationMessageCalls.add({
+      'conversationId': conversationId,
+      'body': body,
+    });
+    sendConversationMessageKeys.add(idempotencyKey);
+    final fail = failSendConversationMessageWith;
+    if (fail != null) throw fail;
+    return directMessage(
+      id: nextSentMessageId++,
+      conversationId: conversationId,
+      senderUsername: senderUsername,
+      body: body,
+    );
+  }
+
+  @override
+  Future<ForumConversation> addParticipant({
+    required int conversationId,
+    required String username,
+  }) async {
+    addParticipantCalls.add({
+      'conversationId': conversationId,
+      'username': username,
+    });
+    final fail = failAddParticipantWith;
+    if (fail != null) throw fail;
+    final preset = addParticipantResult;
+    if (preset != null) return preset;
+    final row = conversations.firstWhere((c) => c.id == conversationId);
+    return row.copyWith(
+      participants: [
+        ...row.participants,
+        author(username: username),
+      ],
+    );
+  }
+
+  @override
+  Future<void> removeParticipant({
+    required int conversationId,
+    required String username,
+  }) async {
+    removeParticipantCalls.add({
+      'conversationId': conversationId,
+      'username': username,
+    });
+    final fail = failRemoveParticipantWith;
     if (fail != null) throw fail;
   }
 
@@ -908,6 +1050,56 @@ ForumConversation conversation({
         : ForumLastMessage(
             body: lastMessageBody,
             isMine: lastMessageIsMine,
+            createdAt: lastMessageAt ?? DateTime(2026, 1, 2),
+          ),
+  );
+}
+
+/// Build a GROUP [ForumConversation] fixture (todo 350). The roster is
+/// [creatorUsername] first, then [memberUsernames], in joined order — the
+/// requesting user is whichever of them the test's [FakeUserProfileService]
+/// names. [lastMessageSender] defaults to the first other member.
+ForumConversation groupConversation({
+  int id = 12,
+  String title = 'Seed swap committee',
+  String creatorUsername = 'me',
+  List<String> memberUsernames = const ['ada', 'bob'],
+  bool canManage = false,
+  int unreadCount = 0,
+  String? lastMessageBody,
+  bool lastMessageIsMine = false,
+  String? lastMessageSender,
+  DateTime? lastMessageAt,
+}) {
+  final creator = author(username: creatorUsername);
+  final participants = [
+    creator,
+    for (final username in memberUsernames) author(username: username),
+  ];
+  final senderUsername =
+      lastMessageSender ??
+      (lastMessageIsMine
+          ? creatorUsername
+          : (memberUsernames.isEmpty
+                ? creatorUsername
+                : memberUsernames.first));
+  return ForumConversation(
+    id: id,
+    kind: ForumConversationKind.group,
+    title: title,
+    otherParticipant: null,
+    participants: participants,
+    createdBy: creator,
+    canManage: canManage,
+    createdAt: DateTime(2026, 1, 1),
+    lastMessageAt: lastMessageAt ?? DateTime(2026, 1, 2),
+    unreadCount: unreadCount,
+    lastMessage: lastMessageBody == null
+        ? null
+        : ForumLastMessage(
+            body: lastMessageBody,
+            isMine: lastMessageIsMine,
+            sender: author(username: senderUsername),
             createdAt: lastMessageAt ?? DateTime(2026, 1, 2),
           ),
   );

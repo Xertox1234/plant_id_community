@@ -13,6 +13,7 @@ from wagtail_forum.api.direct_messages import (
 )
 from wagtail_forum.models import (
     Conversation,
+    ConversationParticipant,
     ForumProfile,
     Message,
     Report,
@@ -26,6 +27,13 @@ _EPOCH_FOR_TEST = datetime(2000, 1, 1, tzinfo=dt_timezone.utc)
 
 User = get_user_model()
 pytestmark = pytest.mark.urls("wagtail_forum.tests.api.urls")
+
+
+def _read_at(conversation, user):
+    """`user`'s read marker — on their participant row since todo 350."""
+    return ConversationParticipant.objects.get(
+        conversation=conversation, user=user
+    ).read_at
 
 
 @pytest.mark.django_db
@@ -256,7 +264,9 @@ def test_conversation_list_query_count_is_flat():
     # (unread count, preview subqueries, todo 339) ride that one query. No
     # separate cursor-pagination count query — CursorPagination doesn't
     # issue one.
-    assert len(ctx.captured_queries) == 4
+    # + the participants prefetch (one query per page, todo 350: the row now
+    # carries every member for group titles/avatars) = 5, flat per page.
+    assert len(ctx.captured_queries) == 5
 
 
 @pytest.mark.django_db
@@ -286,10 +296,8 @@ def test_conversation_messages_lists_newest_first_and_marks_read():
 
     assert resp.status_code == 200
     assert [m["body"] for m in resp.data["results"]] == ["two", "one"]
-    conversation.refresh_from_db()
-    assert conversation.read_field_for(a) == "participant_a_read_at"
-    assert conversation.participant_a_read_at is not None
-    assert conversation.participant_b_read_at is None
+    assert _read_at(conversation, a) is not None
+    assert _read_at(conversation, b) is None
 
 
 @pytest.mark.django_db
@@ -580,8 +588,10 @@ def test_inbox_rows_carry_unread_count_preview_and_activity_order():
     assert rows[1]["last_message"] == {
         "body": "second from alice",
         "is_mine": False,
+        "sender": rows[1]["last_message"]["sender"],
         "created_at": rows[1]["last_message_at"],
     }
+    assert rows[1]["last_message"]["sender"]["username"] == "inbox-alice"
     assert "count" not in resp.data  # cursor page, no total
 
     # Activity, not creation, orders the inbox: a new message in the OLDER
@@ -674,15 +684,15 @@ def test_send_bumps_activity_but_never_a_read_marker():
     conversation = Conversation.objects.get()
     first = conversation.last_message_at
     assert first == Message.objects.get().created_at
-    assert conversation.participant_a_read_at is None
-    assert conversation.participant_b_read_at is None
+    assert _read_at(conversation, me) is None
+    assert _read_at(conversation, alice) is None
 
     _send(alice, me, "second")
 
     conversation.refresh_from_db()
     assert conversation.last_message_at > first
-    assert conversation.participant_a_read_at is None
-    assert conversation.participant_b_read_at is None
+    assert _read_at(conversation, me) is None
+    assert _read_at(conversation, alice) is None
 
 
 @pytest.mark.django_db

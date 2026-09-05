@@ -774,6 +774,41 @@ class ConversationsFeed extends _$ConversationsFeed {
       ),
     );
   }
+
+  /// A group's roster changed (member added/removed, todo 350): rewrite
+  /// that row in place. Membership is not activity, so the row keeps its
+  /// position; a row the loaded pages don't hold is left alone.
+  void replaceRow(ForumConversation conversation) {
+    final current = state.asData?.value;
+    if (current == null) return;
+    state = AsyncData(
+      PagedList(
+        items: [
+          for (final row in current.items)
+            if (row.id == conversation.id) conversation else row,
+        ],
+        nextUrl: current.nextUrl,
+        isLoadingMore: current.isLoadingMore,
+      ),
+    );
+  }
+
+  /// I left group [conversationId] (todo 350): drop its row — a removed
+  /// member no longer sees the conversation server-side (inbox 404).
+  void remove(int conversationId) {
+    final current = state.asData?.value;
+    if (current == null) return;
+    state = AsyncData(
+      PagedList(
+        items: [
+          for (final row in current.items)
+            if (row.id != conversationId) row,
+        ],
+        nextUrl: current.nextUrl,
+        isLoadingMore: current.isLoadingMore,
+      ),
+    );
+  }
 }
 
 /// Conversations with unread messages, for the inbox badge.
@@ -854,6 +889,7 @@ class ConversationThreadState {
     this.olderCursorUrl,
     this.isLoadingOlder = false,
     this.isSending = false,
+    this.isUnavailable = false,
   });
 
   /// `null` until the first message is sent — no conversation row exists
@@ -864,6 +900,12 @@ class ConversationThreadState {
   final bool isLoadingOlder;
   final bool isSending;
 
+  /// The conversation resolved to a 404 — I am not (or am no longer) a
+  /// participant, so there is nothing to read. A group thread renders its
+  /// own copy for this instead of the generic error; a direct thread never
+  /// sets it (an absent 1:1 row is "not started yet", not "gone").
+  final bool isUnavailable;
+
   bool get hasOlder => olderCursorUrl != null;
 
   ConversationThreadState copyWith({
@@ -873,6 +915,7 @@ class ConversationThreadState {
     bool clearOlderCursor = false,
     bool? isLoadingOlder,
     bool? isSending,
+    bool? isUnavailable,
   }) {
     return ConversationThreadState(
       conversation: conversation ?? this.conversation,
@@ -882,6 +925,7 @@ class ConversationThreadState {
           : (olderCursorUrl ?? this.olderCursorUrl),
       isLoadingOlder: isLoadingOlder ?? this.isLoadingOlder,
       isSending: isSending ?? this.isSending,
+      isUnavailable: isUnavailable ?? this.isUnavailable,
     );
   }
 }
@@ -1011,6 +1055,7 @@ class ConversationThread extends _$ConversationThread {
                 lastMessage: ForumLastMessage(
                   body: message.body,
                   isMine: true,
+                  sender: message.sender,
                   createdAt: message.createdAt,
                 ),
               ),
@@ -1022,6 +1067,211 @@ class ConversationThread extends _$ConversationThread {
       rethrow;
     }
     ref.invalidate(unreadConversationCountProvider);
+  }
+}
+
+/// A group DM thread by conversation id (todo 350). Same state shape and
+/// paging as [ConversationThread]; sends through the by-id endpoint and
+/// manages the roster. The contract has no conversation-detail endpoint, so
+/// the inbox row is taken from the mounted inbox when it holds it (row tap,
+/// or a just-created group spliced in) and otherwise from inbox page 1; a
+/// row not found there leaves [ConversationThreadState.conversation] null —
+/// messages and sending still work by id, only the title/roster degrade.
+@riverpod
+class GroupConversationThread extends _$GroupConversationThread {
+  /// One `Idempotency-Key` per composed message, reused across retries of
+  /// the SAME body and rotated when the body changes (docs/rules/flutter.md
+  /// → Idempotent mobile writes).
+  String? _sendKey;
+  String? _sendFingerprint;
+
+  @override
+  Future<ConversationThreadState> build(int conversationId) async {
+    final api = ref.watch(forumApiProvider);
+    final conversation = await _resolveConversation(api);
+    if (conversation == null) {
+      // The detail GET 404'd: not a participant, removed, or the group is
+      // gone. Reading its messages would only 404 too — surface the
+      // unavailable copy instead of an error the user can't act on.
+      return const ConversationThreadState(
+        conversation: null,
+        messages: [],
+        isUnavailable: true,
+      );
+    }
+    final page = await api.fetchMessages(conversationId: conversationId);
+    // Reading marks my participant row read server-side — same badge /
+    // inbox-splice discipline as the direct thread.
+    ref.invalidate(unreadConversationCountProvider);
+    if (ref.exists(conversationsFeedProvider)) {
+      ref.read(conversationsFeedProvider.notifier).markRead(conversationId);
+    }
+    return ConversationThreadState(
+      conversation: conversation,
+      messages: page.items.reversed.toList(growable: false),
+      olderCursorUrl: page.next,
+    );
+  }
+
+  /// The group's inbox row. A mounted inbox is only a CACHE — the by-id
+  /// detail GET is the source of truth, so a deep link or a restored route
+  /// with no inbox behind it still resolves the title, roster and
+  /// `can_manage`. Never scan inbox page 1: a group past page 1 would land
+  /// on a permanently disabled screen.
+  ///
+  /// `null` means the GET 404'd (see [ForumApi.fetchConversation]); any
+  /// other failure propagates as the provider's error state.
+  Future<ForumConversation?> _resolveConversation(ForumApi api) async {
+    if (ref.exists(conversationsFeedProvider)) {
+      final rows = ref.read(conversationsFeedProvider).asData?.value.items;
+      if (rows != null) {
+        for (final row in rows) {
+          if (row.id == conversationId) return row;
+        }
+      }
+    }
+    return api.fetchConversation(conversationId);
+  }
+
+  /// Fetch the next (older) page and prepend it. Rethrows on failure with
+  /// the loading flag reset so the caller can surface an error and retry.
+  Future<void> loadOlder() async {
+    final current = state.asData?.value;
+    if (current == null || !current.hasOlder || current.isLoadingOlder) {
+      return;
+    }
+    state = AsyncData(current.copyWith(isLoadingOlder: true));
+    try {
+      final page = await ref
+          .read(forumApiProvider)
+          .fetchMessages(
+            conversationId: conversationId,
+            cursorUrl: current.olderCursorUrl,
+          );
+      // Re-read after the await so a concurrent send isn't lost.
+      final latest = state.asData?.value ?? current;
+      state = AsyncData(
+        latest.copyWith(
+          messages: [...page.items.reversed, ...latest.messages],
+          olderCursorUrl: page.next,
+          clearOlderCursor: page.next == null,
+          isLoadingOlder: false,
+        ),
+      );
+    } catch (_) {
+      final latest = state.asData?.value ?? current;
+      state = AsyncData(latest.copyWith(isLoadingOlder: false));
+      rethrow;
+    }
+  }
+
+  /// Send [body] through `POST /forum/conversations/<id>/messages/` and
+  /// append the server's echo. Rethrows so the UI can map 403 (not a
+  /// member / block-paired) and 400 (empty or spam-screened) to copy.
+  Future<void> send(String body) async {
+    final current = state.asData?.value;
+    if (current == null || current.isSending) return;
+    final trimmed = body.trim();
+    if (trimmed.isEmpty) return;
+    final fingerprint = '$conversationId|$trimmed';
+    if (_sendKey == null || _sendFingerprint != fingerprint) {
+      _sendKey = const Uuid().v4();
+      _sendFingerprint = fingerprint;
+    }
+    final key = _sendKey;
+    if (key == null) return;
+    state = AsyncData(current.copyWith(isSending: true));
+    try {
+      final message = await ref
+          .read(forumApiProvider)
+          .sendConversationMessage(
+            conversationId: conversationId,
+            body: trimmed,
+            idempotencyKey: key,
+          );
+      _sendKey = null;
+      _sendFingerprint = null;
+      final latest = state.asData?.value ?? current;
+      state = AsyncData(
+        latest.copyWith(
+          messages: [...latest.messages, message],
+          isSending: false,
+        ),
+      );
+      final row = latest.conversation;
+      if (row != null && ref.exists(conversationsFeedProvider)) {
+        ref
+            .read(conversationsFeedProvider.notifier)
+            .applyActivity(
+              row.copyWith(
+                unreadCount: 0,
+                lastMessageAt: message.createdAt,
+                lastMessage: ForumLastMessage(
+                  body: message.body,
+                  isMine: true,
+                  sender: message.sender,
+                  createdAt: message.createdAt,
+                ),
+              ),
+            );
+      }
+    } catch (_) {
+      final latest = state.asData?.value ?? current;
+      state = AsyncData(latest.copyWith(isSending: false));
+      rethrow;
+    }
+    ref.invalidate(unreadConversationCountProvider);
+  }
+
+  /// Add [username] (creator only). The server's returned row replaces the
+  /// local one — it is the authority on the roster and the count.
+  Future<void> addMember(String username) async {
+    final row = await ref
+        .read(forumApiProvider)
+        .addParticipant(conversationId: conversationId, username: username);
+    _replaceConversation(row);
+  }
+
+  /// Remove [username] (creator only; 204 returns nothing, so the roster
+  /// is trimmed locally).
+  Future<void> removeMember(String username) async {
+    await ref
+        .read(forumApiProvider)
+        .removeParticipant(conversationId: conversationId, username: username);
+    final row = state.asData?.value.conversation;
+    if (row == null) return;
+    _replaceConversation(
+      row.copyWith(
+        participants: [
+          for (final member in row.participants)
+            if (member.username != username) member,
+        ],
+      ),
+    );
+  }
+
+  /// Leave the group as [myUsername]: the inbox row is dropped — a removed
+  /// member no longer sees the conversation. The caller pops the screen.
+  Future<void> leave(String myUsername) async {
+    await ref
+        .read(forumApiProvider)
+        .removeParticipant(
+          conversationId: conversationId,
+          username: myUsername,
+        );
+    if (ref.exists(conversationsFeedProvider)) {
+      ref.read(conversationsFeedProvider.notifier).remove(conversationId);
+    }
+  }
+
+  void _replaceConversation(ForumConversation row) {
+    final current = state.asData?.value;
+    if (current != null) {
+      state = AsyncData(current.copyWith(conversation: row));
+    }
+    if (ref.exists(conversationsFeedProvider)) {
+      ref.read(conversationsFeedProvider.notifier).replaceRow(row);
+    }
   }
 }
 

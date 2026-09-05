@@ -521,3 +521,27 @@ verbs × channels preference grid:
   function of JSX order on the page. One page-level smoke test covers
   composition. A Retry test still has to prove the refetch: assert the SECOND
   response's content renders, plus the call count.
+
+## Group conversations in the inbox and thread (todo 350)
+
+- **Resolve a thread by id with the single-row GET** (`fetchConversation(id)` →
+  `GET /forum/conversations/<id>/`, 404 → unavailable state); never walk the
+  paginated inbox to find one row — a quiet group behind hundreds of busier
+  threads would read as "unavailable".
+- **Every nested author is nullable at the edges:** `last_message.sender` is
+  null once that member left, `other_participant` is null for a group — render
+  a "Former member" / non-linked fallback and keep the group and direct
+  branches separate (a null on a direct row must not borrow the group layout).
+- **Membership state is local and response-driven:** add → replace the row
+  with the response; remove/leave → 204 → functional drop guarded by the
+  conversation id; one in-flight gate disables every membership control.
+  Leave goes through the confirm dialog, announces, then navigates.
+- **A chip picker is a combobox:** Enter/comma commit typed text, Backspace on
+  empty pops, ArrowDown/Up move `aria-activedescendant` through a
+  `role="listbox"` of debounced suggestions (timer + AbortController in the
+  effect), Enter commits the highlight, Escape closes without submitting; at
+  the cap the box stays focusable (`readOnly` + `aria-disabled` + hint).
+- **400 sentences are the contract:** the envelope flattener prefixes field
+  keys, so the server raises one-off messages under `detail` and the client
+  renders `message` verbatim — a fixture that hard-codes the bare sentence is
+  only valid because of that server rule.

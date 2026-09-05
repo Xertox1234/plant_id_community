@@ -191,6 +191,12 @@ Use Grep as fallback for any LSP call that returns an error or an empty/inconclu
 - [ ] **A preference matrix is stored sparse, resolved on read, partial on write** — check the read shape is the fully resolved matrix (never the raw overrides), a partial PATCH merges server-side against the instance, unknown keys / non-booleans are a 400 under the field key, and a test pins that the defaults equal the pre-existing behaviour (shipping the feature must change nothing for members with no overrides)
 - [ ] **Per-recipient gating lives inside the fan-out task** where the profile row is already in hand (bulk-fetch for batches); the event → preference verb map is explicit and unmapped events stay UNGATED
 
+### Group conversation additions (2026-09-05, todo 350)
+
+- [ ] **Retrofitting membership onto a canonical pair:** a through model for EVERY kind (the pair stays for the canonical case), a CHECK constraint pinning the kind ⇒ pair shape, and the backfill in the SAME migration BEFORE the columns it copies from are dropped — require a `MigrationExecutor` test that seeds the old schema
+- [ ] **Shared-room block policy is explicit and pinned:** visibility of the room, filtering of the blocked member's messages/previews/unread counts, an explicit 403 on send, and the same generic 400 for adding a blocked as a missing member (no oracle) — each with a test
+- [ ] **Membership endpoints answer 404 for a direct thread, a stranger and a non-member alike;** the last-member / creator-leave edge is decided (orphan rows or forbid) and tested
+
 ## Output Format (Review Mode)
 
 Return ONLY this JSON structure (no surrounding prose, no markdown fences in the actual response — the example fences below show the schema):

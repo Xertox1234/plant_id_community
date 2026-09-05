@@ -14,8 +14,7 @@ from wagtail_forum.api.bookmarks import TopicBookmarkListView
 # GET-only, page-load views — no throttle wrapper, same treatment as
 # NotificationListView/TopicBookmarkListView/MyBlocksView (todo 319/M10).
 from wagtail_forum.api.direct_messages import (
-    ConversationListView,
-    ConversationMessagesView,
+    ConversationDetailView,
     ConversationWithUserView,
 )
 
@@ -41,6 +40,10 @@ from wagtail_forum.api.views import (
 )
 
 from .api import (
+    ConversationListView,
+    ConversationMessagesView,
+    ConversationParticipantsView,
+    ConversationParticipantView,
     ConversationUnreadCountView,
     MeProfileView,
     MessageReportView,
@@ -191,9 +194,25 @@ urlpatterns = [
         name="conversation-with-user",
     ),
     path(
+        "conversations/<int:conversation_id>/",
+        ConversationDetailView.as_view(),
+        name="conversation-detail",
+    ),
+    path(
         "conversations/<int:conversation_id>/messages/",
         ConversationMessagesView.as_view(),
         name="conversation-messages",
+    ),
+    # Group membership (todo 350) — creator-managed; rated via dm_group_manage.
+    path(
+        "conversations/<int:conversation_id>/participants/",
+        ConversationParticipantsView.as_view(),
+        name="conversation-participants",
+    ),
+    path(
+        "conversations/<int:conversation_id>/participants/<str:username>/",
+        ConversationParticipantView.as_view(),
+        name="conversation-participant",
     ),
     path(
         "messages/<int:message_id>/report/",

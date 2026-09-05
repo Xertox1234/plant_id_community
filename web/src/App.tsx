@@ -80,8 +80,11 @@ function App() {
           <Route element={<RootLayout />}>
             {/* Composing a thread requires auth (the API rejects anon writes). */}
             <Route path="/forum/new-thread" element={<NewThreadPage />} />
-            {/* Direct messages (todo 339) — the inbox and one thread per member. */}
+            {/* Direct messages (todo 339) — the inbox and one thread per member;
+                group threads (todo 350) share the page under a three-segment
+                path that cannot collide with a username. */}
             <Route path="/messages" element={<MessagesPage />} />
+            <Route path="/messages/group/:id" element={<ConversationPage />} />
             <Route path="/messages/:username" element={<ConversationPage />} />
             <Route path="/diagnose" element={<DiseaseDiagnosePage />} />
             <Route path="/my-plants" element={<MyPlantsPage />} />

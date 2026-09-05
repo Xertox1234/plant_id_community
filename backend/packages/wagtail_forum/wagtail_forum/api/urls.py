@@ -2,8 +2,11 @@ from django.urls import path
 
 from .bookmarks import TopicBookmarkListView, TopicBookmarkView
 from .direct_messages import (
+    ConversationDetailView,
     ConversationListView,
     ConversationMessagesView,
+    ConversationParticipantsView,
+    ConversationParticipantView,
     ConversationUnreadCountView,
     ConversationWithUserView,
     MessageReportView,
@@ -140,9 +143,25 @@ urlpatterns = [
         name="conversation-with-user",
     ),
     path(
+        "conversations/<int:conversation_id>/",
+        ConversationDetailView.as_view(),
+        name="conversation-detail",
+    ),
+    path(
         "conversations/<int:conversation_id>/messages/",
         ConversationMessagesView.as_view(),
         name="conversation-messages",
+    ),
+    # Group membership (todo 350).
+    path(
+        "conversations/<int:conversation_id>/participants/",
+        ConversationParticipantsView.as_view(),
+        name="conversation-participants",
+    ),
+    path(
+        "conversations/<int:conversation_id>/participants/<str:username>/",
+        ConversationParticipantView.as_view(),
+        name="conversation-participant",
     ),
     path(
         "messages/<int:message_id>/report/",

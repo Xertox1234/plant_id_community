@@ -1,21 +1,24 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { useCallback, useEffect, useId, useRef, useState } from 'react';
+import { Link, useNavigate } from 'react-router-dom';
 import { fetchConversations } from '../../services/messageService';
 import { useAuth } from '../../contexts/AuthContext';
 import { specimenAvatar } from '../../utils/forumAvatars';
-import { conversationPath } from '../../utils/forumUrls';
+import { conversationPath, groupConversationPath } from '../../utils/forumUrls';
 import { logger } from '../../utils/logger';
 import Avatar from '../../components/ui/Avatar';
 import Button from '../../components/ui/Button';
 import Card from '../../components/ui/Card';
 import CountBadge from '../../components/ui/CountBadge';
 import Timestamp from '../../components/ui/Timestamp';
-import { AVATAR_BOX } from '../../components/ui/dimensions';
+import { AVATAR_BOX, AVATAR_RADIUS } from '../../components/ui/dimensions';
 import ForumErrorState from '../../components/forum/ForumErrorState';
 import { SkeletonBlock, SkeletonStatus } from '../../components/forum/ForumSkeleton';
-import type { Conversation } from '../../types/forum';
+import NewGroupConversationForm from '../../components/forum/NewGroupConversationForm';
+import type { Conversation, ForumAuthor } from '../../types/forum';
 
 const SKELETON_ROWS = 4;
+/** How many member avatars a group row shows before folding the rest into "+N". */
+const STACK_LIMIT = 3;
 
 function InboxSkeleton() {
   return (
@@ -35,20 +38,165 @@ function InboxSkeleton() {
   );
 }
 
+function authorName(author: ForumAuthor): string {
+  return author.display_name || author.username;
+}
+
+interface ParticipantStackProps {
+  participants: ForumAuthor[];
+  viewerUsername: string | undefined;
+}
+
 /**
- * The direct-message inbox (todo 339): one row per conversation, most recent
- * activity first. Routed under ProtectedLayout, so an anonymous visitor is
- * bounced to /login before this renders — the same treatment as every other
- * auth-only page.
+ * Overlapping trio of member avatars for a group row, the viewer left out
+ * (they know what they look like) and everyone past the third folded into a
+ * "+N" tile of the same box. Decorative: the row's accessible name carries
+ * the title and the member count.
+ */
+function ParticipantStack({ participants, viewerUsername }: ParticipantStackProps) {
+  const others = viewerUsername
+    ? participants.filter((p) => p.username !== viewerUsername)
+    : participants;
+  const shown = others.slice(0, STACK_LIMIT);
+  const extra = others.length - shown.length;
+  return (
+    <span className="flex flex-none -space-x-2" aria-hidden="true">
+      {shown.map((p) => (
+        <Avatar key={p.username} size="sm" src={p.avatar || specimenAvatar(p.username)} alt="" />
+      ))}
+      {extra > 0 && (
+        <span
+          className={`inline-grid place-items-center border border-line bg-surface-2 font-mono text-micro font-semibold text-ink-2 ${AVATAR_BOX.sm} ${AVATAR_RADIUS.sm}`}
+        >
+          +{extra}
+        </span>
+      )}
+    </span>
+  );
+}
+
+interface InboxRowProps {
+  conversation: Conversation;
+  viewerUsername: string | undefined;
+}
+
+/**
+ * One inbox row. A direct row is the other member's avatar and name; a group
+ * row (todo 350) is its title over a stack of member avatars, and its preview
+ * is prefixed with who sent it ("Ada: …", "You: …") — in a group the sender
+ * is not implied by the row the way it is for a two-party thread.
+ */
+function InboxRow({ conversation, viewerUsername }: InboxRowProps) {
+  const { last_message: last } = conversation;
+  const unread = conversation.unread_count > 0;
+  const isGroup = conversation.kind === 'group';
+  const other = conversation.other_participant;
+
+  // A direct row without the other side cannot be opened: the backend never
+  // sends one, but a null here must degrade on its OWN terms rather than
+  // borrow the group layout and link to a group path (react review).
+  const unavailable = !isGroup && !other;
+
+  let name: string;
+  let href: string;
+  let preview: string;
+  let label: string;
+  if (isGroup) {
+    name = conversation.title;
+    href = groupConversationPath(conversation.id);
+    // `sender` is null once that member left the group — keep the text and
+    // attribute it neutrally instead of reading through null (react review).
+    const who = last?.is_mine ? 'You' : last?.sender ? authorName(last.sender) : 'Former member';
+    preview = last ? `${who}: ${last.body}` : '';
+    label = `${name} (group of ${conversation.participant_count}${
+      unread ? `, ${conversation.unread_count} unread` : ''
+    })`;
+  } else if (unavailable) {
+    name = 'Unavailable conversation';
+    href = '';
+    preview = last ? last.body : '';
+    label = name;
+  } else {
+    name = authorName(other);
+    href = conversationPath(other.username);
+    preview = last ? `${last.is_mine ? 'You: ' : ''}${last.body}` : '';
+    label = `${name}${unread ? ` (${conversation.unread_count} unread)` : ''}`;
+  }
+
+  const rowClass =
+    'flex items-center gap-4 px-5 py-4 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-secondary';
+  const body = (
+    <>
+      {isGroup ? (
+        <ParticipantStack
+          participants={conversation.participants}
+          viewerUsername={viewerUsername}
+        />
+      ) : other ? (
+        <Avatar src={other.avatar || specimenAvatar(other.username)} alt="" />
+      ) : (
+        <Avatar src={specimenAvatar(String(conversation.id))} alt="" />
+      )}
+      <div className="min-w-0 flex-1">
+        <div className="flex items-baseline justify-between gap-3">
+          <span
+            className={`truncate ${unread ? 'font-semibold text-ink' : 'font-medium text-ink-2'}`}
+          >
+            {name}
+          </span>
+          <span className="gt-label shrink-0 normal-case tracking-normal">
+            <Timestamp iso={conversation.last_message_at} />
+          </span>
+        </div>
+        <p className={`mt-0.5 truncate text-sm ${unread ? 'text-ink' : 'text-ink-3'}`}>{preview}</p>
+      </div>
+      {unread && (
+        <span className="shrink-0" aria-hidden="true">
+          <CountBadge count={conversation.unread_count} />
+        </span>
+      )}
+    </>
+  );
+
+  return (
+    <li>
+      {unavailable ? (
+        <div aria-label={label} className={`${rowClass} opacity-70`} data-kind={conversation.kind}>
+          {body}
+        </div>
+      ) : (
+        <Link
+          to={href}
+          aria-label={label}
+          className={`${rowClass} hover:bg-surface-2/60`}
+          data-unread={unread || undefined}
+          data-kind={conversation.kind}
+        >
+          {body}
+        </Link>
+      )}
+    </li>
+  );
+}
+
+/**
+ * The message inbox (todo 339): one row per conversation, most recent
+ * activity first — direct threads and groups (todo 350) interleaved. Routed
+ * under ProtectedLayout, so an anonymous visitor is bounced to /login before
+ * this renders — the same treatment as every other auth-only page.
  */
 export default function MessagesPage() {
   const { user } = useAuth();
+  const navigate = useNavigate();
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loadMoreError, setLoadMoreError] = useState<string | null>(null);
+  const [composingGroup, setComposingGroup] = useState(false);
+  const groupToggleId = useId();
+  const groupFormId = useId();
   // Monotonic request epoch: a page that resolves after a newer initial load
   // (retry, identity change) must not append onto the fresher list.
   const requestEpochRef = useRef(0);
@@ -106,10 +254,40 @@ export default function MessagesPage() {
   return (
     <div className="max-w-3xl mx-auto p-6">
       <title>Messages · Houseplant MD</title>
-      <header className="mb-6">
-        <p className="gt-label mb-1">Inbox</p>
-        <h1 className="gt-h1 text-ink">Messages</h1>
+      <header className="mb-6 flex items-end justify-between gap-4">
+        <div>
+          <p className="gt-label mb-1">Inbox</p>
+          <h1 className="gt-h1 text-ink">Messages</h1>
+        </div>
+        {user && (
+          <Button
+            id={groupToggleId}
+            variant="outline"
+            size="sm"
+            aria-expanded={composingGroup}
+            aria-controls={groupFormId}
+            onClick={() => setComposingGroup((open) => !open)}
+            className="min-h-11"
+          >
+            New group
+          </Button>
+        )}
       </header>
+
+      {composingGroup && (
+        <Card id={groupFormId} className="mb-6 p-5">
+          <h2 className="gt-h3 text-ink mb-4">New group</h2>
+          <NewGroupConversationForm
+            onCreated={(created) => navigate(groupConversationPath(created.id))}
+            onCancel={() => {
+              setComposingGroup(false);
+              // A disclosure that closes must hand focus back to its toggle,
+              // or a keyboard user lands on <body> (react review).
+              document.getElementById(groupToggleId)?.focus();
+            }}
+          />
+        </Card>
+      )}
 
       {loading && <InboxSkeleton />}
 
@@ -121,7 +299,7 @@ export default function MessagesPage() {
         <Card className="px-6 py-10 text-center">
           <p className="text-ink font-medium">No messages yet.</p>
           <p className="mt-1 text-sm text-ink-3">
-            Open a member's profile and press Message to start a conversation.
+            Open a member's profile and press Message to start a conversation, or start a group.
           </p>
         </Card>
       )}
@@ -130,46 +308,13 @@ export default function MessagesPage() {
         <>
           <Card>
             <ul aria-label="Conversations" className="divide-y divide-line">
-              {conversations.map((conversation) => {
-                const { other_participant: other, last_message: last } = conversation;
-                const name = other.display_name || other.username;
-                const unread = conversation.unread_count > 0;
-                const preview = last ? `${last.is_mine ? 'You: ' : ''}${last.body}` : '';
-                return (
-                  <li key={conversation.id}>
-                    <Link
-                      to={conversationPath(other.username)}
-                      aria-label={`${name}${unread ? ` (${conversation.unread_count} unread)` : ''}`}
-                      className="flex items-center gap-4 px-5 py-4 transition-colors hover:bg-surface-2/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-secondary"
-                      data-unread={unread || undefined}
-                    >
-                      <Avatar src={other.avatar || specimenAvatar(other.username)} alt="" />
-                      <div className="min-w-0 flex-1">
-                        <div className="flex items-baseline justify-between gap-3">
-                          <span
-                            className={`truncate ${unread ? 'font-semibold text-ink' : 'font-medium text-ink-2'}`}
-                          >
-                            {name}
-                          </span>
-                          <span className="gt-label shrink-0 normal-case tracking-normal">
-                            <Timestamp iso={conversation.last_message_at} />
-                          </span>
-                        </div>
-                        <p
-                          className={`mt-0.5 truncate text-sm ${unread ? 'text-ink' : 'text-ink-3'}`}
-                        >
-                          {preview}
-                        </p>
-                      </div>
-                      {unread && (
-                        <span className="shrink-0" aria-hidden="true">
-                          <CountBadge count={conversation.unread_count} />
-                        </span>
-                      )}
-                    </Link>
-                  </li>
-                );
-              })}
+              {conversations.map((conversation) => (
+                <InboxRow
+                  key={conversation.id}
+                  conversation={conversation}
+                  viewerUsername={user?.username}
+                />
+              ))}
             </ul>
           </Card>
 

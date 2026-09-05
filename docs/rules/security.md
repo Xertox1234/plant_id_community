@@ -165,3 +165,8 @@ Compact checklist auto-injected before edits. Long-form: `backend/docs/patterns/
   moment its fingerprint shifts): e.g. `structuredClone` across a test's
   round-trip boundary; and still take any cheap hardening the trace suggests
   (todo 353).
+- **A block pair inside a shared room is a POLICY decision — record it and pin
+  it:** hide the blocked member's messages from the blocker's reads, previews
+  and unread counts (never the room itself), refuse sends with an explicit 403
+  while both are in it, and reject adding a block-paired member with the same
+  generic 400 as a missing user so membership is no oracle (todo 350).

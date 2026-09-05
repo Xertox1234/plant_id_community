@@ -170,6 +170,8 @@ DEFAULTS = {
     # behaviour, so an existing member with no overrides notices no change.
     # A host may change them without a migration; a member's stored
     # overrides always win.
+    # Group DMs (todo 350): members per conversation INCLUDING the creator.
+    "DM_GROUP_MAX_PARTICIPANTS": 8,
     "NOTIFICATION_DEFAULTS": {
         "reply": {"push": True, "email": True},
         "mention": {"push": True},

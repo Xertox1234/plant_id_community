@@ -18,6 +18,7 @@ import '../../features/forum/screens/forum_thread_screen.dart';
 import '../../features/forum/screens/forum_composer_screen.dart';
 import '../../features/forum/screens/forum_conversation_screen.dart';
 import '../../features/forum/screens/forum_conversations_screen.dart';
+import '../../features/forum/screens/forum_new_group_screen.dart';
 import '../../features/forum/screens/forum_notifications_screen.dart';
 import '../../features/forum/screens/forum_search_screen.dart';
 import '../../features/forum/screens/forum_user_profile_screen.dart';
@@ -53,6 +54,11 @@ abstract class AppRoutes {
   // Auth-only for the same reason: the DM inbox and every thread under it
   // are the caller's own private messages (todo 339).
   static const forumMessages = '/forum/messages';
+  // Auth-only, same reason: group DM threads live under their own prefix so
+  // `/forum/messages/:username` can never swallow `new` or a numeric id as
+  // a member name (todo 350).
+  static const forumGroups = '/forum/groups';
+  static const forumNewGroup = '/forum/groups/new';
   // Auth-only: the bookmarks list is the caller's own (todo 341).
   static const forumBookmarks = '/forum/bookmarks';
   static const collection = '/collection';
@@ -81,7 +87,7 @@ GoRouter appRouter(Ref ref) {
   };
   // Parameterised protected routes (`/forum/messages/:username`) can't be
   // matched by the exact-path set above; guard them by prefix.
-  const protectedPrefixes = {AppRoutes.forumMessages};
+  const protectedPrefixes = {AppRoutes.forumMessages, AppRoutes.forumGroups};
   // Auth routes that authenticated users should not see
   const authOnlyRoutes = {AppRoutes.login, AppRoutes.register};
 
@@ -295,6 +301,28 @@ GoRouter appRouter(Ref ref) {
           state: state,
           child: ForumConversationScreen(
             username: state.pathParameters['username'] ?? '',
+          ),
+        ),
+      ),
+      // Declared BEFORE the `:id` route: go_router takes the first match, and
+      // `:id` would otherwise capture the literal `new`.
+      GoRoute(
+        path: AppRoutes.forumNewGroup,
+        name: 'forumNewGroup',
+        pageBuilder: (context, state) => _buildPageWithTransition(
+          context: context,
+          state: state,
+          child: const ForumNewGroupScreen(),
+        ),
+      ),
+      GoRoute(
+        path: '${AppRoutes.forumGroups}/:id',
+        name: 'forumGroupConversation',
+        pageBuilder: (context, state) => _buildPageWithTransition(
+          context: context,
+          state: state,
+          child: ForumConversationScreen(
+            conversationId: int.tryParse(state.pathParameters['id'] ?? '') ?? 0,
           ),
         ),
       ),

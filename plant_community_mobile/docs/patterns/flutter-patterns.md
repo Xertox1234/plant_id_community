@@ -289,3 +289,23 @@ Reference: `lib/features/forum/widgets/author_identity.dart`,
   the "gone" notice appears only when `available` is `false`) and
   notifies the quoted author with the `quote` verb. A rejected quote
   is a 400 whose sentence `forumErrorMessage` shows verbatim.
+
+## Group conversations (todo 350)
+
+- **Resolve a group by id through `fetchConversation(id)`** (the single-row
+  GET; 404 → unavailable, retry re-fetches) with the mounted inbox row as a
+  cache — never scan inbox page 1: a deep link or restored route would land on
+  a permanently disabled screen.
+- **Membership actions splice, never invalidate:** add → `replaceRow` with
+  the returned row; remove/leave → drop locally (`remove`); sends move the
+  row to the top (`applyActivity`). Leave is a hard-to-reverse action and
+  uses the same `showDialog<bool>` confirmation as Block.
+- **Nullable authors everywhere:** `otherParticipant` is null for a group and
+  `lastMessage.sender` once a member left — "Former member" fallback, no `!`.
+  GATE the attribution on the first profile resolve so the viewer's own
+  messages never flash on the wrong side; do NOT hand-cache the username —
+  Riverpod's `asData` already retains the last resolved value across a
+  re-fetch, so a cache there is dead code (proved by mutation, todo 350).
+- **Shared-widget chrome gets a 375-wide test** (avatar cluster in the inbox
+  row); the cluster's summary `Semantics` uses `excludeSemantics: true` so it
+  announces "N members", not the initials.
