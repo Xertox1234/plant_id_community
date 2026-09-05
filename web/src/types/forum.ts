@@ -92,11 +92,11 @@ export interface ThreadPollOption {
 }
 
 /**
- * A thread's poll (audit M8).
+ * A thread's poll (audit M8; multi-choice since todo 349).
  *
- * One vote per user per poll, enforced by a DB constraint. A second vote is
- * REJECTED (409), not replaced — so `my_vote_option_id`, once set, is final
- * for this viewer and the vote controls should read as decided.
+ * One submission per user per poll. A second submission is REJECTED (409),
+ * not replaced or topped up — so `my_vote_option_ids`, once non-empty, is
+ * final for this viewer and the vote controls should read as decided.
  */
 export interface ThreadPoll {
   id: number;
@@ -104,13 +104,19 @@ export interface ThreadPoll {
   /** ISO datetime, or null when the poll never closes. */
   closes_at: string | null;
   is_closed: boolean;
+  /** 1 = single-choice; N = a voter may pick up to N options in one ballot. */
+  max_choices: number;
   options: ThreadPollOption[];
+  /**
+   * People who answered (distinct voters), not vote rows — in a multi-choice
+   * poll the per-option counts can sum past this.
+   */
   total_votes: number;
   /**
-   * THIS viewer's own choice, or null (also null for anonymous). Never anyone
-   * else's — only the aggregate is public.
+   * THIS viewer's own choice(s); empty when they have not voted (and always
+   * empty for anonymous). Never anyone else's — only the aggregate is public.
    */
-  my_vote_option_id: number | null;
+  my_vote_option_ids: number[];
 }
 
 /**
@@ -259,6 +265,11 @@ export interface CreatePollInput {
   options: string[];
   /** ISO datetime in the future, or omitted for a poll that never closes. */
   closes_at?: string | null;
+  /**
+   * How many options one voter may pick (todo 349). Omitted = 1, the
+   * single-choice poll; must not exceed the number of non-blank options.
+   */
+  max_choices?: number;
 }
 
 /** Create-topic input (POST /boards/{slug}/topics/). content is HTML. */

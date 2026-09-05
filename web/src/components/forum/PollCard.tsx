@@ -6,8 +6,9 @@ import type { ThreadPoll } from '@/types';
 
 interface PollCardProps {
   poll: ThreadPoll;
-  /** Cast a vote. Resolves with the poll as the SERVER recomputed it. */
-  onVote: (optionId: number) => Promise<ThreadPoll>;
+  /** Cast a ballot (1..max_choices option ids). Resolves with the poll as
+   * the SERVER recomputed it. */
+  onVote: (optionIds: number[]) => Promise<ThreadPoll>;
   /** Signed-out viewers see results but get no vote controls. */
   canVote: boolean;
 }
@@ -24,6 +25,11 @@ function percent(count: number, total: number): number {
  * Renders a thread's poll (audit M8): the question, the options, and — once
  * the viewer has voted, or the poll has closed — a result bar per option.
  *
+ * Single-choice polls (`max_choices === 1`) vote with one click per option.
+ * Multi-choice polls (todo 349) collect a ballot of checkboxes, capped at
+ * `max_choices`, and submit it with one Vote button — the server takes the
+ * whole ballot or refuses it, so there is no partial state to reconcile.
+ *
  * Every number here comes from the server. The component never increments a
  * count locally: a vote resolves with the recomputed poll and that REPLACES
  * local state, so what a member sees always matches the rows behind it.
@@ -31,14 +37,20 @@ function percent(count: number, total: number): number {
  * Results are hidden until the viewer votes (or the poll closes) so the
  * running tally cannot anchor their choice. The total is shown throughout,
  * because "how many have answered" is not itself a nudge toward an option.
+ * In a multi-choice poll that total is VOTERS, and the per-option counts can
+ * sum past it — each bar is "share of voters who picked this".
  */
 export default function PollCard({ poll, onVote, canVote }: PollCardProps) {
   const [current, setCurrent] = useState<ThreadPoll>(poll);
-  const [pendingOptionId, setPendingOptionId] = useState<number | null>(null);
+  // The ballot in flight, or null. Doubles as the single-choice loading
+  // indicator (which button spins) and the in-flight guard for both kinds.
+  const [pending, setPending] = useState<number[] | null>(null);
+  // Multi-choice draft: the option ids ticked but not yet submitted.
+  const [selected, setSelected] = useState<number[]>([]);
   const [error, setError] = useState<string | null>(null);
   // Set on a 409: the server says this viewer already voted, but `current`
   // (seeded from a possibly-stale `poll` prop — another tab, a bfcache
-  // restore) still shows my_vote_option_id as null. Without this, the
+  // restore) still shows an empty my_vote_option_ids. Without this, the
   // controls stay clickable and every retry 409s again with no way out.
   const [staleVote, setStaleVote] = useState(false);
 
@@ -57,39 +69,41 @@ export default function PollCard({ poll, onVote, canVote }: PollCardProps) {
   useEffect(() => {
     if (poll !== pollRef.current) {
       pollRef.current = poll;
-      if (pendingOptionId === null) {
+      if (pending === null) {
         setCurrent(poll);
       }
     }
-  }, [poll, pendingOptionId]);
+  }, [poll, pending]);
 
-  const hasVoted = current.my_vote_option_id !== null;
-  // A second vote is rejected server-side (409), never replaced — so once the
-  // viewer has voted the controls are done, not merely busy. `staleVote`
-  // does NOT feed this: `current` still shows 0 (or pre-vote) counts, and
-  // switching to the results view would render those stale numbers as if
-  // they were authoritative. Keep the buttons in place, just disabled — the
-  // alert explains why — rather than fabricating a results panel from data
-  // that was never refetched.
+  const isMulti = current.max_choices > 1;
+  const hasVoted = current.my_vote_option_ids.length > 0;
+  // A second submission is rejected server-side (409), never replaced — so
+  // once the viewer has voted the controls are done, not merely busy.
+  // `staleVote` does NOT feed this: `current` still shows 0 (or pre-vote)
+  // counts, and switching to the results view would render those stale
+  // numbers as if they were authoritative. Keep the controls in place, just
+  // disabled — the alert explains why — rather than fabricating a results
+  // panel from data that was never refetched.
   const showResults = hasVoted || current.is_closed;
   const votingDisabled = !canVote || hasVoted || current.is_closed || staleVote;
+  const inFlight = pending !== null;
 
   const handleVote = useCallback(
-    async (optionId: number) => {
-      if (votingDisabled || pendingOptionId !== null) return;
-      setPendingOptionId(optionId);
+    async (optionIds: number[]) => {
+      if (votingDisabled || inFlight || optionIds.length === 0) return;
+      setPending(optionIds);
       setError(null);
       try {
         // Not optimistic, deliberately: the counts are shared state every
         // reader sees, and the server can legitimately refuse (409 on a
         // second vote or a poll that closed while the page was open). Showing
         // a count that then has to be walked back is worse than a brief wait.
-        setCurrent(await onVote(optionId));
+        setCurrent(await onVote(optionIds));
       } catch (err) {
         if (err instanceof ForumApiError && err.status === 409) {
           // Branch on the STATUS, never the message text (see
           // EditHistoryDialog's identical discipline) — a stale local
-          // my_vote_option_id can't be corrected without a refetch this
+          // my_vote_option_ids can't be corrected without a refetch this
           // component doesn't have, so stop offering a retry that can only
           // ever 409 again.
           setStaleVote(true);
@@ -98,11 +112,29 @@ export default function PollCard({ poll, onVote, canVote }: PollCardProps) {
           setError(err instanceof Error ? err.message : 'Failed to record your vote');
         }
       } finally {
-        setPendingOptionId(null);
+        setPending(null);
       }
     },
-    [onVote, votingDisabled, pendingOptionId]
+    [onVote, votingDisabled, inFlight]
   );
+
+  const toggleSelected = (optionId: number) => {
+    setSelected((prev) =>
+      prev.includes(optionId)
+        ? prev.filter((id) => id !== optionId)
+        : prev.length < current.max_choices
+          ? [...prev, optionId]
+          : prev
+    );
+  };
+
+  const totalNoun = isMulti
+    ? current.total_votes === 1
+      ? 'voter'
+      : 'voters'
+    : current.total_votes === 1
+      ? 'vote'
+      : 'votes';
 
   return (
     <section
@@ -124,10 +156,18 @@ export default function PollCard({ poll, onVote, canVote }: PollCardProps) {
         )}
       </div>
 
+      {isMulti && !showResults && (
+        <p id={`poll-cap-${current.id}`} className="mb-2 text-sm text-ink-2">
+          Pick up to {current.max_choices}.
+        </p>
+      )}
+
       <ul className="space-y-2">
         {current.options.map((option) => {
           const share = percent(option.vote_count, current.total_votes);
-          const isMine = current.my_vote_option_id === option.id;
+          const isMine = current.my_vote_option_ids.includes(option.id);
+          const isSelected = selected.includes(option.id);
+          const capped = !isSelected && selected.length >= current.max_choices;
           return (
             <li key={option.id}>
               {showResults ? (
@@ -156,12 +196,38 @@ export default function PollCard({ poll, onVote, canVote }: PollCardProps) {
                     <div className="h-full bg-primary" style={{ width: `${share}%` }} />
                   </div>
                 </div>
+              ) : isMulti ? (
+                <label
+                  className={`flex min-h-11 cursor-pointer items-center gap-3 rounded-sm border border-line bg-surface px-3 py-2 text-sm text-ink has-[:disabled]:cursor-not-allowed has-[:disabled]:opacity-60 ${
+                    capped ? 'opacity-60' : ''
+                  }`}
+                >
+                  <input
+                    type="checkbox"
+                    className="h-4 w-4"
+                    checked={isSelected}
+                    // The cap is enforced here, not only server-side: an
+                    // unticked box goes inert once the ballot is full, so
+                    // the Vote button can never send a ballot the server
+                    // would refuse whole. aria-disabled + a no-op rather
+                    // than `disabled`, so the capped box stays in the tab
+                    // order and a screen reader hears WHY (the cap hint is
+                    // its description) instead of the option vanishing.
+                    onChange={() => {
+                      if (!capped) toggleSelected(option.id);
+                    }}
+                    aria-disabled={capped || undefined}
+                    aria-describedby={`poll-cap-${current.id}`}
+                    disabled={votingDisabled || inFlight}
+                  />
+                  {option.text}
+                </label>
               ) : (
                 <Button
-                  onClick={() => handleVote(option.id)}
+                  onClick={() => handleVote([option.id])}
                   variant="outline"
-                  disabled={votingDisabled || pendingOptionId !== null}
-                  loading={pendingOptionId === option.id}
+                  disabled={votingDisabled || inFlight}
+                  loading={pending?.includes(option.id) ?? false}
                   className="min-h-11 w-full justify-start text-left"
                 >
                   {option.text}
@@ -172,8 +238,20 @@ export default function PollCard({ poll, onVote, canVote }: PollCardProps) {
         })}
       </ul>
 
+      {isMulti && !showResults && (
+        <Button
+          onClick={() => handleVote(selected)}
+          variant="primary"
+          disabled={votingDisabled || inFlight || selected.length === 0}
+          loading={inFlight}
+          className="mt-3 min-h-11"
+        >
+          Vote
+        </Button>
+      )}
+
       <p className="mt-3 text-sm text-ink-2">
-        {current.total_votes} {current.total_votes === 1 ? 'vote' : 'votes'}
+        {current.total_votes} {totalNoun}
         {!canVote && !current.is_closed && ' · sign in to vote'}
         {canVote && hasVoted && ' · your vote is final'}
       </p>

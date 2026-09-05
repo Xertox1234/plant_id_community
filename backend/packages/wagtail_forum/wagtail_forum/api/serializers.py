@@ -261,10 +261,16 @@ POLL_SCHEMA = {
         "question": {"type": "string"},
         "closes_at": {"type": "string", "format": "date-time", "nullable": True},
         "is_closed": {"type": "boolean"},
+        # 1 = single-choice; N = a voter may pick up to N options in their
+        # one submission (todo 349).
+        "max_choices": {"type": "integer"},
         "options": {"type": "array", "items": POLL_OPTION_SCHEMA},
+        # People who answered (distinct voters), not vote rows — in a
+        # multi-choice poll the option counts can sum to more than this.
         "total_votes": {"type": "integer"},
-        # The requesting viewer's own choice, or null. Never anyone else's.
-        "my_vote_option_id": {"type": "integer", "nullable": True},
+        # The requesting viewer's own choice(s); empty when they have not
+        # voted (and always empty for anonymous). Never anyone else's.
+        "my_vote_option_ids": {"type": "array", "items": {"type": "integer"}},
     },
 }
 CAPABILITIES_SCHEMA = {
@@ -513,7 +519,8 @@ class TopicDetailSerializer(serializers.ModelSerializer):
         already fetched, and we return before touching options. That is what
         keeps test_topic_detail.py's 5/8 pins intact for every poll-less
         topic. A topic WITH a poll pays one query for the aggregated options
-        and, for an authenticated viewer, one for their own vote. Deliberately
+        (the distinct-voter total rides that same query as a subquery, todo
+        349) and, for an authenticated viewer, one for their own vote. Deliberately
         NOT a `prefetch_related("poll__options")` on the view: a to-many
         prefetch runs its query for every request, which would move both pins
         for the overwhelmingly common poll-less case to buy nothing.
@@ -523,17 +530,18 @@ class TopicDetailSerializer(serializers.ModelSerializer):
             return None
         request = self.context.get("request")
         user = getattr(request, "user", None)
-        my_vote = None
+        my_votes = []
         if user is not None and user.is_authenticated:
-            # Anonymous stays None — never leak anyone else's choice. The
+            # Anonymous stays empty — never leak anyone else's choice. The
             # authenticated lookup stays here (not in Poll.serialize) since
-            # only THIS caller knows who "the viewer" is.
-            my_vote = (
+            # only THIS caller knows who "the viewer" is. One query for the
+            # whole ballot (N rows for a multi-choice vote, todo 349).
+            my_votes = list(
                 PollVote.objects.filter(poll=poll, user=user)
+                .order_by("option_id")
                 .values_list("option_id", flat=True)
-                .first()
             )
-        return poll.serialize(my_vote)
+        return poll.serialize(my_votes)
 
     @extend_schema_field(OpenApiTypes.BOOL)
     def get_is_subscribed(self, obj):
@@ -1001,6 +1009,10 @@ class TopicPollSerializer(serializers.Serializer):
     options = _BoundedOptionListField(child=serializers.CharField(allow_blank=True))
     # Null / omitted means the poll never closes.
     closes_at = serializers.DateTimeField(required=False, allow_null=True)
+    # How many options one voter may pick (todo 349). Omitted = 1, the
+    # single-choice poll; bounded to the option count in validate() below
+    # (after blanks are dropped), so "pick up to 5 of 3" cannot be stored.
+    max_choices = serializers.IntegerField(required=False, default=1, min_value=1)
 
     def validate_question(self, value):
         question = " ".join(str(value).split())
@@ -1053,6 +1065,20 @@ class TopicPollSerializer(serializers.Serializer):
                 _("Poll close time must be in the future.")
             )
         return value
+
+    def validate(self, attrs):
+        # Object-level: needs the normalized option list, which only exists
+        # after validate_options has dropped blanks.
+        if attrs["max_choices"] > len(attrs["options"]):
+            raise serializers.ValidationError(
+                {
+                    "max_choices": [
+                        _("max_choices cannot exceed the number of options (%(n)d).")
+                        % {"n": len(attrs["options"])}
+                    ]
+                }
+            )
+        return attrs
 
 
 class TopicCreateSerializer(_ForumBodyContract):

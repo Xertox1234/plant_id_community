@@ -274,6 +274,43 @@ describe('NewThreadPage', () => {
       );
     });
 
+    it('sends max_choices only when it is above the single-choice default (todo 349)', async () => {
+      vi.spyOn(forumService, 'createThread').mockResolvedValue({
+        id: '12',
+        slug: 'my-topic',
+        status: 'published',
+      });
+      renderPage();
+      await screen.findByText('Plant Care');
+      await userEvent.type(screen.getByLabelText(/title/i), 'My Topic');
+      await userEvent.type(screen.getByLabelText('body'), 'hello');
+      await userEvent.click(screen.getByRole('checkbox', { name: /add a poll/i }));
+      await userEvent.type(screen.getByLabelText(/poll question/i), 'Pests seen?');
+      await userEvent.type(screen.getByLabelText('Poll option 1'), 'Aphids');
+      await userEvent.type(screen.getByLabelText('Poll option 2'), 'Mites');
+
+      // The select only offers 1..filled options, so "3 of 2" cannot be
+      // chosen; and blanking an option AFTER choosing 3 clamps the value
+      // down with the list (review: a controlled value matching no option
+      // would gate Post invisibly), so the payload carries the clamped 2.
+      const choices = screen.getByLabelText(/choices per voter/i);
+      expect(screen.queryByRole('option', { name: '3' })).not.toBeInTheDocument();
+      await userEvent.click(screen.getByRole('button', { name: /add option/i }));
+      await userEvent.type(screen.getByLabelText('Poll option 3'), 'Scale');
+      await userEvent.selectOptions(choices, '3');
+      expect(choices).toHaveValue('3');
+      await userEvent.clear(screen.getByLabelText('Poll option 3'));
+      expect(choices).toHaveValue('2');
+      await userEvent.click(screen.getByRole('button', { name: /post|create|submit/i }));
+
+      await waitFor(() => expect(forumService.createThread).toHaveBeenCalled());
+      expect(forumService.createThread).toHaveBeenCalledWith(
+        expect.objectContaining({
+          poll: { question: 'Pests seen?', options: ['Aphids', 'Mites', ''], max_choices: 2 },
+        })
+      );
+    });
+
     it('disables Post when the poll toggle is on but the poll is left blank, so an otherwise-valid topic cannot 400 on an empty poll', async () => {
       vi.spyOn(forumService, 'createThread');
       renderPage();

@@ -153,6 +153,10 @@ export default function NewThreadPage() {
   // be in the past by the time it reaches validate_closes_at's future-only
   // check).
   const [pollClosesAt, setPollClosesAt] = useState<string>('');
+  // How many options one voter may pick (todo 349). 1 is the classic
+  // single-choice poll and is omitted from the payload; the server refuses a
+  // value above the non-blank option count, so canSubmit folds that in too.
+  const [pollMaxChoices, setPollMaxChoices] = useState<number>(1);
   const [loading, setLoading] = useState<boolean>(true);
   const [submitting, setSubmitting] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
@@ -224,10 +228,15 @@ export default function NewThreadPage() {
   // blank rows and then rejects fewer than MIN_POLL_OPTIONS, so "enabled but
   // empty" is a guaranteed 400 that would otherwise take the whole topic
   // down with it. Vacuously valid when the toggle is off.
+  const filledPollOptions = pollOptions.filter((option) => option.trim() !== '').length;
+  // Clamped to the filled option count rather than validated against it: if
+  // an option is blanked AFTER "3 of 3" was chosen, the select's option list
+  // shrinks and a raw state of 3 would match nothing (an invisible selection
+  // gating Post from another control). The clamp is the single value the
+  // select shows, the payload sends, and the server accepts.
+  const effectiveMaxChoices = Math.min(pollMaxChoices, Math.max(1, filledPollOptions));
   const pollValid =
-    !pollEnabled ||
-    (pollQuestion.trim() !== '' &&
-      pollOptions.filter((option) => option.trim() !== '').length >= MIN_POLL_OPTIONS);
+    !pollEnabled || (pollQuestion.trim() !== '' && filledPollOptions >= MIN_POLL_OPTIONS);
 
   const canSubmit = !!category && title.trim() !== '' && !isBlankHtml(body) && pollValid;
 
@@ -262,6 +271,9 @@ export default function NewThreadPage() {
                   // treats absence as "never closes", and an empty string
                   // is not a valid ISO datetime for the server to parse.
                   ...(pollClosesAt ? { closes_at: new Date(pollClosesAt).toISOString() } : {}),
+                  // Omitted for the single-choice default, so the classic
+                  // payload is byte-for-byte what it was before todo 349.
+                  ...(effectiveMaxChoices > 1 ? { max_choices: effectiveMaxChoices } : {}),
                 },
               }
             : {}),
@@ -318,6 +330,7 @@ export default function NewThreadPage() {
       tagsInput,
       identification,
       pollEnabled,
+      effectiveMaxChoices,
       pollQuestion,
       pollOptions,
       pollClosesAt,
@@ -583,10 +596,41 @@ export default function NewThreadPage() {
                   </button>
                 )}
                 <p className="mt-1 text-xs text-ink-3">
-                  Two options minimum, {MAX_POLL_OPTIONS} maximum. Blank rows are ignored. Members
-                  get one vote each and cannot change it.
+                  Two options minimum, {MAX_POLL_OPTIONS} maximum. Blank rows are ignored. Each
+                  member votes once and cannot change it.
                 </p>
               </fieldset>
+
+              <div>
+                <label
+                  htmlFor="poll-max-choices"
+                  className="block text-sm font-medium text-ink-2 mb-1"
+                >
+                  Choices per voter
+                </label>
+                {/* A select bounded by the filled option count, not a free
+                    number input: it cannot offer a value the server would
+                    refuse, and a controlled number input snaps to its
+                    fallback on clear (typing "2" after a clear yields "12"). */}
+                <select
+                  id="poll-max-choices"
+                  value={effectiveMaxChoices}
+                  onChange={(e) => setPollMaxChoices(Number(e.target.value))}
+                  className="w-24 px-4 py-2 border border-line-2 rounded-sm focus:ring-2 focus:ring-primary focus:border-transparent bg-surface text-ink"
+                >
+                  {Array.from({ length: Math.max(1, filledPollOptions) }, (_, i) => i + 1).map(
+                    (n) => (
+                      <option key={n} value={n}>
+                        {n}
+                      </option>
+                    )
+                  )}
+                </select>
+                <p className="mt-1 text-xs text-ink-3">
+                  1 for a single-choice poll; up to the number of options for &ldquo;pick all that
+                  apply&rdquo;.
+                </p>
+              </div>
 
               <div>
                 <label
