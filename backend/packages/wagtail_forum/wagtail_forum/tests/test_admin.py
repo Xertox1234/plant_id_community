@@ -714,3 +714,27 @@ def test_badge_snippet_create_form_saves_inline_rules(client):
     badge = Badge.objects.get(slug="helper")
     rule = badge.rules.get()
     assert (rule.metric, rule.threshold) == ("solutions_accepted", 1)
+
+
+@pytest.mark.django_db
+def test_profile_snippet_edit_form_never_renders_the_token_or_preference_json(client):
+    """The FCM token is a credential and the preference overrides are only
+    valid through the API's validation (todo 343) — neither may appear as a
+    raw admin input (cross-cutting review)."""
+    from django.urls import reverse
+    from wagtail_forum.models import ForumProfile
+
+    admin = User.objects.create_superuser(username="root_prefs", email="rp@x.io")
+    client.force_login(admin)
+    member = User.objects.create_user(username="prefs-member")
+    profile = ForumProfile.for_user(member)
+
+    resp = client.get(
+        reverse("wagtailsnippets_wagtail_forum_forumprofile:edit", args=[profile.pk])
+    )
+
+    assert resp.status_code == 200
+    html = resp.content.decode()
+    assert 'name="notification_preferences"' not in html
+    assert 'name="fcm_token"' not in html
+    assert 'name="bio"' in html  # the ordinary fields still render

@@ -161,6 +161,21 @@ DEFAULTS = {
     "DIGEST_MAX_TRENDING_TOPICS": 10,  # "active topics you have not seen" rows
     "DIGEST_SETTINGS_PATH": "/settings",  # where the email's manage link points
     "EMAIL_SITE_URL": None,  # absolute origin for email links; None = settings.SITE_URL
+    # Per-channel notification preferences (todo 343): the matrix a member
+    # gets when they have not chosen otherwise. In-app is always on and is
+    # NOT a preference. Only cells with a real delivery path exist (see
+    # preferences.NOTIFICATION_MATRIX): email is wired for replies only, and
+    # the moderation push is a tray-silent client sync with no in-app row,
+    # so it is not a preference at all. These defaults ARE the pre-343
+    # behaviour, so an existing member with no overrides notices no change.
+    # A host may change them without a migration; a member's stored
+    # overrides always win.
+    "NOTIFICATION_DEFAULTS": {
+        "reply": {"push": True, "email": True},
+        "mention": {"push": True},
+        "quote": {"push": True},
+        "solution": {"push": True},
+    },
 }
 
 

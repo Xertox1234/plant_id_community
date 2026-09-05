@@ -397,14 +397,16 @@ export async function fetchMutedUsers(): Promise<MutedUser[]> {
 // ---------------------------------------------------------------------------
 
 /** Fetch the caller's own forum profile, including the weekly digest email
- * preference (todo 340). Auth required — anonymous callers get a 401. */
+ * preference (todo 340) and the fully resolved per-channel notification
+ * matrix (todo 343). Auth required — anonymous callers get a 401. */
 export async function fetchMyForumProfile(): Promise<ForumMyProfile> {
   return authenticatedFetch<ForumMyProfile>(`${FORUM_BASE}/me/profile/`);
 }
 
-/** Partially update the caller's own forum profile. Only the digest cadence
- * is editable from the web today (todo 340). Resolves with the full, updated
- * profile — the same shape `fetchMyForumProfile` returns. */
+/** Partially update the caller's own forum profile — the digest cadence
+ * (todo 340) and/or a PARTIAL notification matrix (todo 343; only the cells
+ * sent are merged). Resolves with the full, updated profile — the same shape
+ * `fetchMyForumProfile` returns. */
 export async function updateMyForumProfile(patch: ForumMyProfilePatch): Promise<ForumMyProfile> {
   return authenticatedFetch<ForumMyProfile>(`${FORUM_BASE}/me/profile/`, {
     method: 'PATCH',

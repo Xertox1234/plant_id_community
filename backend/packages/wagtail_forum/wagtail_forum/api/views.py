@@ -1638,7 +1638,12 @@ class PostReportView(UnversionedForumAPIMixin, APIView):
         responses={200: MeProfileSerializer, 400: dict, 401: dict},
         description=(
             "Update the authenticated user's forum profile (partial). Returns "
-            "400 if bio exceeds 2000 chars or fcm_token exceeds 255 chars."
+            "400 if bio exceeds 2000 chars, fcm_token exceeds 255 chars, or "
+            "notification_preferences names an unknown event/channel, a channel "
+            "that event does not deliver on, or a non-boolean value (todo 343: "
+            "a PARTIAL {event: {push, email?}} matrix merged into the stored "
+            "overrides; the response carries the fully resolved matrix, whose "
+            "keys are exactly the cells that exist)."
         ),
     ),
 )

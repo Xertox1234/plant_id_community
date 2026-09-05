@@ -63,6 +63,12 @@ class ForumProfile(models.Model):
         max_length=10, choices=DigestFrequency.choices, default=DigestFrequency.OFF
     )
     last_digest_sent_at = models.DateTimeField(null=True, blank=True)
+    # Per-channel notification overrides (todo 343): a SPARSE map
+    # {verb: {channel: bool}} holding only the cells the member changed;
+    # everything else resolves to `NOTIFICATION_DEFAULTS` at read time
+    # (`preferences.resolve_preferences`), so a host default change reaches
+    # every member who never touched that cell. `{}` == all defaults.
+    notification_preferences = models.JSONField(default=dict, blank=True)
     # Per-user fallback baseline for "unread" (todo 253 slice 5, H10): a
     # topic is unread if its last_post_at is newer than this, UNLESS a more
     # specific TopicRead row exists for that exact topic. Plain default (not

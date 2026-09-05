@@ -103,6 +103,14 @@ const backendMyProfile = {
   capabilities: { can_react: true, can_reply: true, can_create_topic: true },
   avatar: null,
   digest_frequency: 'off',
+  // Resolved on read (todo 343): ONLY the cells with a delivery path —
+  // email exists for replies alone, so the other rows carry just `push`.
+  notification_preferences: {
+    reply: { push: true, email: true },
+    mention: { push: true },
+    quote: { push: true },
+    solution: { push: true },
+  },
 };
 
 // ---------------------------------------------------------------------------
@@ -572,6 +580,36 @@ describe('forumService (wagtail_forum API contract)', () => {
     expect(init.method).toBeUndefined(); // GET
     expect(result.digest_frequency).toBe('off');
     expect(result.display_name).toBe('Jane Doe');
+    expect(result.notification_preferences).toStrictEqual({
+      reply: { push: true, email: true },
+      mention: { push: true },
+      quote: { push: true },
+      solution: { push: true },
+    });
+  });
+
+  it('updateMyForumProfile sends a PARTIAL notification matrix as-is — only the toggled cell (todo 343)', async () => {
+    fetchMock.mockResolvedValueOnce(
+      okJson({
+        ...backendMyProfile,
+        notification_preferences: {
+          ...backendMyProfile.notification_preferences,
+          mention: { push: false },
+        },
+      })
+    );
+    const result = await updateMyForumProfile({
+      notification_preferences: { mention: { push: false } },
+    });
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toContain('/me/profile/');
+    expect(init.method).toBe('PATCH');
+    expect(JSON.parse(init.body)).toStrictEqual({
+      notification_preferences: { mention: { push: false } },
+    });
+    // The response carries the full resolved matrix, not the partial we sent.
+    expect(result.notification_preferences?.mention).toStrictEqual({ push: false });
+    expect(result.notification_preferences?.reply).toStrictEqual({ push: true, email: true });
   });
 
   it('updateMyForumProfile PATCHes /me/profile/ with a JSON body and returns the updated profile', async () => {

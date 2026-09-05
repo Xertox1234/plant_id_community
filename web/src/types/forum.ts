@@ -502,6 +502,33 @@ export interface ForumMyStats {
  * choices on `ForumProfile`. Opt-in: `'off'` is the default. */
 export type DigestFrequency = 'off' | 'weekly';
 
+/** Notification events a member can tune per channel (todo 343) — mirrors
+ * the backend verb set. In-app notifications are always on and are NOT a
+ * preference; only the two opt-in channels below are. */
+export type NotificationVerb = 'reply' | 'mention' | 'quote' | 'solution';
+
+/** The opt-in delivery channels (todo 343). */
+export type NotificationChannel = 'push' | 'email';
+
+/** `notification_preferences` on GET me/profile/ — resolved, and holding ONLY
+ * the cells that have a delivery path: `push` for every verb, `email` for
+ * `reply` alone today. The KEYS of the object tell the client which cells
+ * exist; a cell that is present is always a boolean (the client never
+ * supplies defaults), a cell that is absent has no channel to switch. */
+export type NotificationPreferences = Record<
+  NotificationVerb,
+  Partial<Record<NotificationChannel, boolean>>
+>;
+
+/** `notification_preferences` on PATCH me/profile/ — a PARTIAL matrix. Only
+ * the cells present are merged into the stored overrides; the response
+ * carries the resolved matrix again. Unknown verbs/channels, non-boolean
+ * values, or a cell the resolved matrix does not contain ("Email is not
+ * available for mention.") are a 400. */
+export type NotificationPreferencesPatch = Partial<
+  Record<NotificationVerb, Partial<Record<NotificationChannel, boolean>>>
+>;
+
 /**
  * GET/PATCH me/profile/ — the caller's OWN forum profile (auth-only).
  *
@@ -522,12 +549,20 @@ export interface ForumMyProfile {
   avatar: string | null;
   /** Weekly digest email preference (todo 340). */
   digest_frequency: DigestFrequency;
+  /** Per-channel notification preferences (todo 343). Optional because web
+   * and backend deploy on separate pipelines: a web build can run against a
+   * backend that does not send the field yet, and the settings page must
+   * degrade to "not available" rather than crash on it. */
+  notification_preferences?: NotificationPreferences;
 }
 
-/** PATCH me/profile/ body. Only the digest cadence is editable from the web
- * today (todo 340) — widen deliberately, field by field. */
+/** PATCH me/profile/ body. Editable from the web: the digest cadence
+ * (todo 340) and the per-channel notification matrix (todo 343) — widen
+ * deliberately, field by field. Every field is optional so a caller sends
+ * only what changed. */
 export interface ForumMyProfilePatch {
-  digest_frequency: DigestFrequency;
+  digest_frequency?: DigestFrequency;
+  notification_preferences?: NotificationPreferencesPatch;
 }
 
 /** The minimal board identity carried on a topic-shaped API row. */
