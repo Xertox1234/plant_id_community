@@ -962,3 +962,22 @@ caller's side read; sending never touches a marker. Badge:
 (host-throttled like the bell). Profile "Message" action:
 `conversations/with/<username>/` → the thread or 404 (none / unknown /
 blocked / self — no existence leak).
+
+### Weekly digest email (todo 340)
+
+`wagtail_forum/digest.py` builds one member's digest in two sections —
+**watched** (unread `reply` notifications since the window, grouped per
+topic, blocked repliers dropped) and **trending** (visible topics active in
+the window the member has not read since their last post, minus own,
+watched and blocked-author topics) — through the API's own visibility
+helpers (`_visible_boards`, `_exclude_blocked_authors`), renders the
+package templates `wagtail_forum/email/digest.txt|html` (a host shadows
+them to restyle) and sends with `EmailMultiAlternatives` from
+`DEFAULT_FROM_EMAIL`. `manage.py send_forum_digest --frequency weekly` walks
+`digest_recipients()` (opted-in, active, has an email), skips members not
+`is_due` (last digest younger than the window minus a jitter day), skips
+empty digests without writing, and stamps `last_digest_sent_at` after a
+send. Opt-in lives on `ForumProfile.digest_frequency` (`me/profile/`);
+`DIGEST_DEFAULT_FREQUENCY` seeds NEW profiles only. The host schedules it
+(`CELERY_BEAT_SCHEDULE` → `send_forum_weekly_digest` → `call_command`) with
+beat embedded in the co-located worker.

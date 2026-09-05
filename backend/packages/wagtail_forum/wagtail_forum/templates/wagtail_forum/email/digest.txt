@@ -1,0 +1,17 @@
+{% autoescape off %}Hi {{ display_name }},
+
+Here is what happened on the forum since {{ since|date:"j M" }}.
+{% if watched %}
+New replies on topics you follow
+--------------------------------
+{% for t in watched %}- {{ t.title }} ({{ t.new_replies }} new {{ t.new_replies|pluralize:"reply,replies" }}, {{ t.board_title }})
+  {{ t.url }}
+{% endfor %}{% endif %}{% if trending %}
+Active topics you have not seen
+-------------------------------
+{% for t in trending %}- {{ t.title }} ({{ t.reply_count }} {{ t.reply_count|pluralize:"reply,replies" }}, {{ t.board_title }})
+  {{ t.url }}
+{% endfor %}{% endif %}
+You receive this because your forum digest is set to weekly.
+Change or turn it off: {{ settings_url }}
+{% endautoescape %}

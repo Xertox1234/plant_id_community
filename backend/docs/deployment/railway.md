@@ -109,13 +109,22 @@ directly-reachable host can't be tricked into thinking plain HTTP is secure).
 **Current prod topology (since 2026-09-05, todo 335): the web service runs
 gunicorn AND a Celery worker in the same container** via `bash bin/start.sh`
 (`railway.json` `deploy.startCommand`), plus the `forum-prune-cron` service for
-`prune_forum_tombstones`. There is still no beat process — scheduling stays on
-the cron service.
+`prune_forum_tombstones`. Since todo 340 the worker also **embeds Celery
+beat** (`-B`, schedule file `/tmp/celerybeat-schedule`) for
+`CELERY_BEAT_SCHEDULE` — today the weekly forum digest (Monday 09:00 UTC,
+`send_forum_weekly_digest` → `manage.py send_forum_digest`). Two mechanisms,
+deliberately: the cron service runs one-off maintenance commands on its own
+container; beat runs package-scheduled jobs inside the worker. Both are safe to
+double-fire: the digest command holds a cache run-lock and stamps
+`last_digest_sent_at` per member before advancing, and a run killed by the
+task's 25-minute soft limit re-enqueues itself to finish the members still due.
 
-`bin/start.sh` starts `celery -A plant_community_backend worker --loglevel=info
---concurrency=2 --max-tasks-per-child=500` and gunicorn as siblings and
-supervises them with three rules (self-test `bash backend/bin/test-start.sh`,
-run by CI in the Django-checks job):
+`bin/start.sh` starts `celery -A plant_community_backend worker -B
+--schedule=/tmp/celerybeat-schedule --loglevel=info --concurrency=2
+--max-tasks-per-child=500` and gunicorn as siblings and supervises them with
+three rules (self-test `bash backend/bin/test-start.sh`, run by CI in the
+Django-checks job; on macOS run it in Docker — `docker run --rm -v
+"$PWD/bin:/w" -w /w bash:5.2 bash test-start.sh` — because it needs bash 5.1):
 
 - **gunicorn exits on its own → the worker is stopped and the script exits 1**,
   so Railway's `ON_FAILURE` policy (5 container restarts, `railway.json`)
@@ -163,6 +172,13 @@ premium users (`OPENAI_API_KEY` — live, bounded by the summary budget),
   against the 5-restart budget until the next container restart). Never
   `kill` gunicorn to "restart the app" — that is the exit-1 path; use
   `railway redeploy`, which also resets the budget.
+- **Beat liveness:** `celery inspect ping` proves the worker is up, not that
+  beat is ticking. Check `railway logs` for `beat: Starting...` after every
+  worker (re)start and, on Mondays, for `[EMAIL] forum weekly digest:
+  starting`; a wrong task name in `CELERY_BEAT_SCHEDULE` only logs an error
+  (`test_weekly_digest_is_scheduled_on_a_registered_task` pins it). A
+  worker-only restart also restarts beat — a due entry can re-fire, which the
+  digest command's run-lock absorbs.
 - **Queue depth:** over `railway ssh`, `python manage.py shell -c` with
   `redis.from_url(settings.CELERY_BROKER_URL).llen("celery")`.
 - **Broker db:** the web service sets `CELERY_BROKER_URL=${{Redis.REDIS_URL}}/1`

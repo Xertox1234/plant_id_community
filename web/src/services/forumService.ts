@@ -45,6 +45,8 @@ import type {
   EventHero,
   BlockedUser,
   MutedUser,
+  ForumMyProfile,
+  ForumMyProfilePatch,
   ThreadPoll,
   PlantCareAnswer,
 } from '../types/forum';
@@ -388,6 +390,26 @@ export async function unmuteUser(username: string): Promise<void> {
  * unpaginated — same low-cardinality contract as the blocklist (todo 347). */
 export async function fetchMutedUsers(): Promise<MutedUser[]> {
   return authenticatedFetch<MutedUser[]>(`${FORUM_BASE}/me/mutes/`);
+}
+
+// ---------------------------------------------------------------------------
+// Own profile (me/profile/)
+// ---------------------------------------------------------------------------
+
+/** Fetch the caller's own forum profile, including the weekly digest email
+ * preference (todo 340). Auth required — anonymous callers get a 401. */
+export async function fetchMyForumProfile(): Promise<ForumMyProfile> {
+  return authenticatedFetch<ForumMyProfile>(`${FORUM_BASE}/me/profile/`);
+}
+
+/** Partially update the caller's own forum profile. Only the digest cadence
+ * is editable from the web today (todo 340). Resolves with the full, updated
+ * profile — the same shape `fetchMyForumProfile` returns. */
+export async function updateMyForumProfile(patch: ForumMyProfilePatch): Promise<ForumMyProfile> {
+  return authenticatedFetch<ForumMyProfile>(`${FORUM_BASE}/me/profile/`, {
+    method: 'PATCH',
+    body: JSON.stringify(patch),
+  });
 }
 
 // ---------------------------------------------------------------------------

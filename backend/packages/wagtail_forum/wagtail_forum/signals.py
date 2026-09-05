@@ -162,7 +162,10 @@ def _refresh_profile(author_id):
         defaults={
             "read_watermark_at": lambda: (
                 ForumProfile.initial_read_watermark_for_user_id(author_id)
-            )
+            ),
+            # Same seeding as ForumProfile.for_user — a first row created by a
+            # recount must not silently skip the host's digest default.
+            "digest_frequency": lambda: get_setting("DIGEST_DEFAULT_FREQUENCY"),
         },
     )
     thresholds = get_setting("TRUST_THRESHOLDS")

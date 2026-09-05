@@ -1306,6 +1306,8 @@ class MeProfileSerializer(serializers.ModelSerializer):
             "fcm_token",
             "avatar",
             "avatar_id",
+            # Digest email preference (todo 340): "off" | "weekly".
+            "digest_frequency",
         ]
         read_only_fields = ["title", "trust_level", "post_count"]
 

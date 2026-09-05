@@ -498,6 +498,38 @@ export interface ForumMyStats {
   badges: ForumBadge[];
 }
 
+/** Digest email cadence (todo 340) — mirrors the backend `DigestFrequency`
+ * choices on `ForumProfile`. Opt-in: `'off'` is the default. */
+export type DigestFrequency = 'off' | 'weekly';
+
+/**
+ * GET/PATCH me/profile/ — the caller's OWN forum profile (auth-only).
+ *
+ * `avatar` is the ready-to-render absolute URL (or null). The write side
+ * takes `avatar_id` and `fcm_token` instead, both write-only on the
+ * serializer, so neither ever appears in a response. `title`, `trust_level`
+ * and `post_count` are read-only.
+ */
+export interface ForumMyProfile {
+  display_name: string;
+  bio: string;
+  signature: string;
+  title: string;
+  trust_level: number;
+  post_count: number;
+  /** v1: static `{can_react, can_reply, can_create_topic}`, all true. */
+  capabilities: Record<string, boolean>;
+  avatar: string | null;
+  /** Weekly digest email preference (todo 340). */
+  digest_frequency: DigestFrequency;
+}
+
+/** PATCH me/profile/ body. Only the digest cadence is editable from the web
+ * today (todo 340) — widen deliberately, field by field. */
+export interface ForumMyProfilePatch {
+  digest_frequency: DigestFrequency;
+}
+
 /** The minimal board identity carried on a topic-shaped API row. */
 export interface BoardSummary {
   id: number;

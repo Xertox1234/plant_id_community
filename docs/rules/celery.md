@@ -64,3 +64,25 @@ Compact checklist auto-injected before edits. Long-form:
   fixes messages produced from now on — a broker backlog keeps the old value
   and will still write result rows when first consumed. Say so in the runbook
   before someone reads it as "the fix didn't take" (audit 2026-09-04 L3/H1).
+- **A package feature that needs a schedule ships a management command; the
+  host schedules it (beat or cron) and the package never imports Celery.**
+  `send_forum_digest` is the package boundary; the host's beat entry is a
+  one-line `call_command` task. Make the command idempotent per row (a
+  `last_*_sent_at` marker + "due" window) so an overlapping double fire — a
+  deploy briefly running two containers with embedded beat — cannot send
+  twice, and give it `--dry-run` that sends and writes NOTHING (todo 340).
+- **Embedded beat (`celery worker -B`) is fine for a single co-located
+  worker; put its schedule file in `/tmp`, pin the beat entry's task name
+  to the registered task in a test, and re-check the todo's premise — "beat
+  already exists" was false here.** A beat entry with a typo'd task name
+  fails silently in prod logs (todo 340).
+- **"Idempotent per row" is not overlap safety — a check-then-act loop
+  double-sends for its whole duration.** A batch command needs BOTH a run
+  lock (`cache.add` key per job, released in `finally`, ignored by
+  `--dry-run`) and an atomic per-row claim (`UPDATE … WHERE marker =
+  <value read>`, reverted on failure) before the side effect. Size a
+  cohort task's `soft_time_limit`/`time_limit` yourself (the global 90 s is
+  request-shaped), declare `autoretry_for=(OperationalError,)`, and on
+  `SoftTimeLimitExceeded` re-enqueue a continuation; package code that
+  catches `Exception` must re-raise that class BY NAME (`type(exc).__name__`)
+  since it cannot import Celery (todo 340 review).

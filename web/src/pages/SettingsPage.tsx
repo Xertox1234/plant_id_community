@@ -5,25 +5,27 @@
  * Allows users to configure app preferences and notifications.
  *
  * Features (planned):
- * - Email notifications preferences
+ * - Email notifications preferences ← PARTIALLY LIVE: weekly digest opt-in only (todo 340)
  * - Privacy settings — blocked users ← LIVE (todo 284/M9); muted users ← LIVE (todo 347)
  * - Theme preferences (density / dark mode) ← LIVE in Phase A
  * - Language selection
  * - Account deletion
  */
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState, type ChangeEvent } from 'react';
 import { useTheme, type Density } from '../contexts/ThemeContext';
 import {
   fetchBlockedUsers,
   unblockUser,
   fetchMutedUsers,
   unmuteUser,
+  fetchMyForumProfile,
+  updateMyForumProfile,
 } from '../services/forumService';
 import { specimenAvatar } from '../utils/forumAvatars';
 import { logger } from '../utils/logger';
 import Eyebrow from '../components/ui/Eyebrow';
 import Avatar from '../components/ui/Avatar';
-import type { BlockedUser, MutedUser } from '../types/forum';
+import type { BlockedUser, MutedUser, DigestFrequency, ForumMyProfile } from '../types/forum';
 
 const DENSITIES: Density[] = ['comfortable', 'cozy', 'compact'];
 
@@ -59,6 +61,154 @@ function ThemeControls() {
         </div>
       </section>
     </div>
+  );
+}
+
+const DIGEST_OPTIONS: { value: DigestFrequency; label: string }[] = [
+  { value: 'off', label: 'Off' },
+  { value: 'weekly', label: 'Weekly' },
+];
+
+function isDigestFrequency(value: string): value is DigestFrequency {
+  return DIGEST_OPTIONS.some((option) => option.value === value);
+}
+
+function EmailDigestSection() {
+  // The caller's own profile (todo 340). `digest_frequency` is the only
+  // field this section edits; the rest rides along untouched.
+  const [profile, setProfile] = useState<ForumMyProfile | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  // Bumped by Retry so the load effect re-runs.
+  const [loadAttempt, setLoadAttempt] = useState(0);
+  const [saving, setSaving] = useState(false);
+  const selectRef = useRef<HTMLSelectElement>(null);
+  const [refocusRequest, setRefocusRequest] = useState(0);
+  useEffect(() => {
+    if (refocusRequest > 0) selectRef.current?.focus();
+  }, [refocusRequest]);
+  // Outcome of the last save — "Saved" or the error — rendered in ONE
+  // always-mounted live region below.
+  const [notice, setNotice] = useState<{ text: string; tone: 'saved' | 'error' } | null>(null);
+
+  useEffect(() => {
+    let ignore = false;
+    fetchMyForumProfile()
+      .then((data) => {
+        if (!ignore) setProfile(data);
+      })
+      .catch((err) => {
+        if (!ignore) {
+          setLoadError(err instanceof Error ? err.message : 'Failed to load email preferences');
+        }
+      });
+    return () => {
+      ignore = true;
+    };
+  }, [loadAttempt]);
+
+  const retry = () => {
+    setLoadError(null);
+    setLoadAttempt((n) => n + 1);
+  };
+
+  const handleChange = async (event: ChangeEvent<HTMLSelectElement>) => {
+    if (saving) return; // disabled meanwhile, and a programmatic change must not race
+    const next = event.target.value;
+    if (!profile || !isDigestFrequency(next) || next === profile.digest_frequency) return;
+    const previous = profile.digest_frequency;
+    setNotice(null);
+    setSaving(true);
+    // Optimistic: the control shows the new choice while the save is in
+    // flight (it is disabled meanwhile, so no second change can race it)…
+    setProfile({ ...profile, digest_frequency: next });
+    try {
+      const updated = await updateMyForumProfile({ digest_frequency: next });
+      setProfile(updated);
+      setNotice({ text: 'Saved', tone: 'saved' });
+    } catch (err) {
+      logger.error('Error updating digest frequency', {
+        component: 'SettingsPage',
+        error: err,
+        context: { digest_frequency: next },
+      });
+      // …and reverts to the last SAVED value when it fails.
+      setProfile((cur) => (cur ? { ...cur, digest_frequency: previous } : cur));
+      setNotice({
+        text: err instanceof Error ? err.message : 'Failed to save email preferences',
+        tone: 'error',
+      });
+    } finally {
+      setSaving(false);
+      // Disabling the select while saving blurred a keyboard user to <body>;
+      // focusing here is a no-op (still disabled this tick) — the effect
+      // below refocuses once React has re-enabled it (ConversationPage's
+      // pattern).
+      setRefocusRequest((n) => n + 1);
+    }
+  };
+
+  return (
+    <section className="p-screen">
+      <Eyebrow>Email digest</Eyebrow>
+      <p className="mt-1 text-sm text-ink-3">
+        A weekly email with new replies on topics you follow and the most active topics you have not
+        seen. Off by default.
+      </p>
+      {profile === null ? (
+        loadError ? (
+          <div className="mt-2">
+            <p className="text-sm text-error">{loadError}</p>
+            <button
+              type="button"
+              onClick={retry}
+              className="mt-1 min-h-11 px-3 py-1 text-sm text-primary hover:bg-primary/10 rounded-pill"
+            >
+              Retry
+            </button>
+          </div>
+        ) : (
+          <p className="mt-2 text-sm text-ink-3">Loading…</p>
+        )
+      ) : (
+        <div className="mt-3 flex flex-wrap items-center gap-3">
+          <label htmlFor="digest-frequency" className="text-sm font-medium text-ink-2">
+            Frequency
+          </label>
+          <select
+            id="digest-frequency"
+            ref={selectRef}
+            value={profile.digest_frequency}
+            onChange={handleChange}
+            disabled={saving}
+            aria-busy={saving || undefined}
+            aria-describedby="digest-frequency-status"
+            className="min-h-11 rounded-sm border border-line bg-surface-2/60 px-3 py-2 text-ink focus:ring-2 focus:ring-secondary focus:outline-none disabled:opacity-50"
+          >
+            {DIGEST_OPTIONS.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+        </div>
+      )}
+      {/* Save outcome — ALWAYS mounted, only the text swaps; `sr-only` while
+          empty. It sits outside the load/loaded conditional above on purpose:
+          a live region under a conditionally rendered ancestor is recreated
+          with its content and announces nothing (docs/rules/react.md). */}
+      <p
+        id="digest-frequency-status"
+        aria-live="polite"
+        aria-atomic="true"
+        className={
+          notice
+            ? `mt-2 text-sm ${notice.tone === 'error' ? 'text-error' : 'text-ink-3'}`
+            : 'sr-only'
+        }
+      >
+        {notice?.text}
+      </p>
+    </section>
   );
 }
 
@@ -227,6 +377,9 @@ export default function SettingsPage() {
 
       {/* Theme Controls */}
       <ThemeControls />
+
+      {/* Email digest (todo 340) */}
+      <EmailDigestSection />
 
       {/* Blocked users (todo 284/M9) */}
       <BlockedUsersSection />
