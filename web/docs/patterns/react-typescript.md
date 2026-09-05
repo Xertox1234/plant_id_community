@@ -430,3 +430,19 @@ throwaway Playwright script rather than throttling devtools:
 await page.route((u) => u.includes('/api/') && /forum|topic/.test(u), (r) => setTimeout(() => r.continue(), 30000));
 await page.goto('/forum', { waitUntil: 'commit' }); await page.waitForTimeout(900);
 ```
+
+## Chat-style thread over newest-first cursor pages (todo 339)
+
+`ConversationPage` reads `GET conversations/<id>/messages/`, which pages
+newest-first so a thread opens on its latest messages. The page keeps a
+single oldest→newest array: the first page is reversed on arrival, "Load
+older" fetches `next` and prepends that page reversed, a successful send
+appends the returned message, and every merge dedupes by `id` so the echo of
+a send cannot reappear when a later page contains it. Guard every async
+result on the username the request was issued for (a late response for the
+previous thread must not render into the current one), keep the draft on a
+failed send, and surface a 403 in a persistent `aria-live` region (a
+conditionally rendered live region announces nothing). The resolve step —
+`GET conversations/with/<username>/` → 404 means "no thread yet", not an
+error — renders the empty state with a live composer and re-resolves after
+the first send.

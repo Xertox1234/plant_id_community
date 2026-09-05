@@ -179,3 +179,16 @@ Compact checklist auto-injected before edits. Long-form:
   never loaded (todo 346, `TopicDetailView.retrieve`). And the moment an
   endpoint becomes a polling target it needs the host's per-IP floor like
   `sync/` (`topic_detail` 120/m) — "not a polling target" comments go stale.
+- **Before building a UI on a "shipped" list endpoint, check it is
+  UI-complete: an inbox needs unread state, activity ordering and a preview
+  AT THE PACKAGE LEVEL**, not the client walking pages to compute them. The
+  DM API shipped list+send+report but no read markers, no `last_message_at`
+  and creation-time ordering — the client half of todo 339 could not start
+  until `_inbox_queryset` existed. A reusable package stays UI-complete for
+  any host: fields/annotations in the package, throttles in the host.
+- **A read endpoint's pagination order is part of the contract — pick the
+  order the CLIENT reads in.** A chat thread opens on its newest page and
+  pages older, so `conversations/<id>/messages/` is newest-first; the
+  package Meta ordering can stay oldest-first for in-process iteration
+  because CursorPagination applies its own `ordering`. Flip such an order
+  only while no consumer exists, and say so in the README (todo 339).
