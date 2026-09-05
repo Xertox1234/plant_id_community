@@ -6,6 +6,12 @@ name: Harness CI
 #     that doesn't touch the harness — GitHub waits forever for a check that
 #     never reports. The tests are fast and exercise repo-resident harness code,
 #     so running them on every PR is cheap and keeps the required check honest.
+#     Scope note: "harness code" now also covers the security-suppression
+#     validator (scripts/check_suppressions.py). It belongs here rather than in
+#     security-scan.yml because --validate is schema-and-policy only — it never
+#     fails from the passage of time or from a newly published CVE, so it is safe
+#     on every PR, and a malformed suppression should be caught before it merges
+#     rather than a week later on the schedule.
 #   - push to main/develop: only when the harness itself changes (.claude/hooks/,
 #     scripts/inject/, docs/rules/, or this workflow).
 #
@@ -24,6 +30,9 @@ name: Harness CI
       - '.claude/hooks/**'
       - 'scripts/inject/**'
       - 'docs/rules/**'
+      - 'scripts/check_suppressions.py'
+      - 'scripts/test_check_suppressions.py'
+      - '.github/security-suppressions.yml'
       - '.github/workflows/harness-ci.yml'
   pull_request:
     branches: [main, develop]
@@ -60,3 +69,12 @@ jobs:
           python3 scripts/inject/test_match_triggers.py
           python3 scripts/inject/test_capture_trigger.py
           python3 scripts/inject/test_capture_from_review.py
+
+      - name: Security suppression validator
+        run: |
+          pip install pyyaml
+          python3 scripts/test_check_suppressions.py
+          # Schema + policy on the real file. Never time-dependent, so a
+          # suppression expiring mid-review cannot block an unrelated PR; the
+          # expiry recheck lives in security-scan.yml's scheduled run.
+          python3 scripts/check_suppressions.py --validate

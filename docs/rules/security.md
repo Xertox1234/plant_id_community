@@ -31,9 +31,38 @@ Compact checklist auto-injected before edits. Long-form: `backend/docs/patterns/
 - **Try a bump before suppressing a vuln.** pip-audit's empty "Fix Versions"
   column does NOT mean unfixable — the advisory's affected range may exclude a
   newer release (bleach `GHSA-g75f-g53v-794x` showed no fix at 6.3.0 but was gone
-  at 6.4.0). Add an `--ignore-vuln` line (in `.github/workflows/security-scan.yml`)
-  only when no bump clears it, with a dated one-line justification. Run
-  `npm audit fix` WITHOUT `--force` (`--force` pulls breaking majors).
+  at 6.4.0). Only when no bump clears it, add an entry to
+  **`.github/security-suppressions.yml`** — NOT an `--ignore-vuln` flag in the
+  workflow, which is generated from that file by
+  `scripts/check_suppressions.py --emit-flags`. A hand-added flag is invisible to
+  the expiry recheck. Every entry needs `expires` (<=180 days from `added`),
+  `owner`, `reason`, `clears_when`, and a `tracked_by` naming a todo `issue_id`
+  that is still OPEN; `--validate` enforces all of it. Run `npm audit fix`
+  WITHOUT `--force` (`--force` pulls breaking majors).
+- **A suppression must be able to expire, and its tracker must be resolvable.**
+  `--ignore-vuln` hides an advisory unconditionally — including after a fix
+  ships, which makes the gate blind to the very thing it was told to watch. Eight
+  suppressions carried the note "revisit when a patched release ships (tracked in
+  todo 089)"; todo 089 was real, and completed, and archived. A pointer to a
+  CLOSED artifact reads as live tracking, so nobody rechecked, and Twisted 26.4.0
+  shipped against a suppression whose own text said "remove when 26.4.0 stable
+  releases". Verify with the UNSUPPRESSED pip-audit report
+  (`--recheck --report backend/pip-audit-report.json`), not with "a newer release
+  exists" — the two disagree in both directions.
+- **Two advisory databases, two answers — keep both scanners.** pip-audit reads
+  OSV/PyPI; Dependabot reads the GitHub Advisory Database. Dependabot surfaced 71
+  advisories pip-audit's ignore list hid, and pip-audit reports a Django advisory
+  (fix 6.0.8) that Dependabot does not report at all. Neither is a superset.
+- **A top-level workflow `permissions:` block REPLACES the repo default, it does
+  not narrow it.** With `default_workflow_permissions: read`, adding
+  `permissions: contents: read` REVOKES every other read scope. Enumerate what the
+  jobs actually need: `mobile-ci.yml` uses `dorny/paths-filter`, which requires
+  `pull-requests: read`, and it backs the required `mobile-ci-gate` — omitting it
+  blocks every PR.
+- **A ruleset has no additive sub-resource.** `PUT /repos/{o}/{r}/rulesets/{id}`
+  REPLACES the whole `rules` array — the same hazard as `PATCH`ing branch
+  protection with a partial payload, but with no narrow endpoint to fall back on.
+  Prefer the UI; if you must use the API, `GET` → append → `PUT` → `GET` and diff.
 - **Trust only provider-verified emails.** Never match or create a Django
   account from a provider-supplied email the provider hasn't marked verified;
   fail closed when the verification signal is absent. Each OAuth/federated path

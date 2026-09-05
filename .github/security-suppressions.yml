@@ -1,0 +1,130 @@
+# pip-audit advisory suppressions — DATA, not flags.
+#
+# The `--ignore-vuln` flags in .github/workflows/security-scan.yml are GENERATED
+# from this file by scripts/check_suppressions.py --emit-flags. Never hand-add a
+# flag to the workflow: a hand-added flag bypasses the expiry recheck entirely,
+# which is exactly how 19 advisories stayed hidden for two months.
+#
+# WHY THIS FILE EXISTS
+# The previous ignore list lived as bash flags with rationale comments. Two
+# things went wrong, and both are structural rather than careless:
+#   1. `--ignore-vuln` hides an advisory UNCONDITIONALLY, including after a fix
+#      ships. The Twisted entry said "Remove when Twisted >=26.4.0 stable
+#      releases." It did. Nothing was watching, because the gate could no longer
+#      see the advisory it was told to ignore.
+#   2. The list's header pointed at "todo 089" for tracking. Todo 089 was real —
+#      and completed and archived. A pointer to a CLOSED artifact reads as live
+#      tracking; a broken link would at least have been noticed.
+# Hence: every entry carries an `expires` date and a `tracked_by` todo id, and
+# scripts/check_suppressions.py fails the build when either goes stale.
+#
+# RUN LOCALLY
+#   cd backend && pip-audit -r requirements.txt ${=$(python3 ../scripts/check_suppressions.py --emit-flags)}
+# NOTE the ${=...}: this project's shell is zsh, which does NOT word-split an
+# unquoted $VAR. Without it pip-audit receives ONE argument and silently audits
+# nothing — a check that reports "nothing to do" did not run.
+
+version: 1
+
+policy:
+  # An entry may not be granted a longer initial window than this.
+  max_expiry_days: 180
+
+pip_audit:
+  - id: CVE-2026-42304
+    package: Twisted
+    pinned: "25.5.0"
+    reason: >-
+      No stable fix existed at suppression time (the fix was RC-only 26.4.0rc2);
+      not reachable through app code.
+    clears_when: Twisted >= 26.4.0 stable releases.
+    added: "2026-05-20"
+    expires: "2026-11-16"
+    owner: "@Xertox1234"
+    tracked_by: "355"
+
+  - id: PYSEC-2026-89
+    package: Markdown
+    pinned: "3.8.1"
+    reason: >-
+      No upstream fix (OSV: all versions affected); markdown is not imported by
+      app code and the DoS path is unreachable.
+    clears_when: An upstream Markdown release addresses the advisory.
+    added: "2026-05-20"
+    expires: "2026-11-16"
+    owner: "@Xertox1234"
+    tracked_by: "355"
+
+  - id: PYSEC-2026-97
+    package: nltk
+    pinned: "3.9.4"
+    reason: >-
+      No upstream fix at suppression time (3.9.4 was latest); the filestring()
+      path traversal is not called by app code. nltk is transitive via safety.
+    clears_when: nltk is removed with safety, or an upstream fix ships.
+    added: "2026-05-20"
+    expires: "2026-11-16"
+    owner: "@Xertox1234"
+    tracked_by: "355"
+
+  - id: PYSEC-2026-597
+    package: nltk
+    pinned: "3.9.4"
+    reason: >-
+      No upstream fix at suppression time (OSV last_affected=3.9.4, then the
+      latest release); percent-encoded path traversal in nltk.data.load()/find(),
+      which app code never calls. nltk is transitive via safety, with zero nltk
+      imports in apps/, packages/, plant_community_backend/.
+    clears_when: nltk is removed with safety, or an upstream fix ships.
+    added: "2026-07-02"
+    expires: "2026-12-29"
+    owner: "@Xertox1234"
+    tracked_by: "355"
+
+  - id: PYSEC-2024-277
+    package: joblib
+    pinned: "1.5.2"
+    reason: Supplier-disputed; not imported by app code. Transitive via nltk.
+    clears_when: joblib leaves the tree with nltk, or the dispute resolves.
+    added: "2026-05-20"
+    expires: "2026-11-16"
+    owner: "@Xertox1234"
+    tracked_by: "355"
+
+  - id: PYSEC-2025-183
+    package: PyJWT
+    pinned: "2.13.0"
+    reason: >-
+      Supplier-disputed; mitigated by JWT_SECRET_KEY (the SIMPLE_JWT SIGNING_KEY
+      PyJWT signs with), validated >=50 chars fail-fast at settings import in ALL
+      environments (backend/plant_community_backend/settings.py:658).
+    clears_when: The advisory is withdrawn, or a patched PyJWT ships.
+    added: "2026-05-20"
+    expires: "2026-11-16"
+    owner: "@Xertox1234"
+    tracked_by: "355"
+
+  - id: CVE-2026-31236
+    package: llm
+    pinned: "0.27.1"
+    reason: >-
+      No upstream fix per OSV/PyPI advisory; llm is a wagtail-ai transitive dep
+      (wagtail-ai 3.1.0 requires llm>=0.12), not imported directly by app code.
+    clears_when: A patched llm release ships, or OSV records a fix version.
+    added: "2026-05-20"
+    expires: "2026-11-16"
+    owner: "@Xertox1234"
+    tracked_by: "355"
+
+  - id: PYSEC-2026-400
+    package: llm
+    pinned: "0.27.1"
+    reason: >-
+      Same unpatched llm 0.27.1 as CVE-2026-31236 (distinct advisory id); no fix
+      version per OSV. wagtail-ai transitive dep, zero llm imports in apps/,
+      packages/, plant_community_backend/.
+    clears_when: A patched llm release ships, or OSV records a fix version.
+    added: "2026-07-02"
+    expires: "2026-12-29"
+    owner: "@Xertox1234"
+    tracked_by: "355"

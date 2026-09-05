@@ -4497,3 +4497,59 @@ criteria). Going forward, after archiving assert the old path is gone:
 
 **Lesson:** a rename verified only by "the new file exists" is not verified.
 Check the absence of the old path, not just the presence of the new one.
+
+## 2026-09-05 — A correct alarm that reaches nobody is not an alarm (todos 354, 355)
+
+**What broke:** 51 CodeQL alerts and 71 dependency advisories accumulated over
+ten months on a public repo. The obvious reading — "no scanning, nobody looked" —
+was wrong on both counts.
+
+**Root cause:** `security-scan.yml` runs pip-audit and npm audit and hard-fails
+on its weekly schedule, exactly as designed. It had failed **8 consecutive weeks
+since 2026-07-13** (31 of its last 40 scheduled runs). A failed *scheduled* run
+blocks no PR, appears on no PR's check list, and lands only in GitHub's default
+notification stream. The signal was correct, on time, and consumed by nobody.
+
+Three compounding failures, all of the same shape:
+
+1. **`--ignore-vuln` suppresses unconditionally, including after a fix ships.**
+   The gate was structurally blind to its own ignore list. The Twisted entry read
+   "Remove when Twisted >=26.4.0 stable releases." 26.4.0 shipped; the real
+   2026-08-31 pip-audit report lists `fix_versions: ["26.4.0", "26.4.0rc2"]`;
+   nothing noticed, because nothing could see it.
+2. **The tracker was a pointer to a closed artifact.** The ignore list said
+   "tracked in todo 089". Todo 089 was real — and completed, and archived. A
+   broken link gets noticed; a link to a closed ticket reads as live tracking
+   forever.
+3. **The rule that would have prevented it already existed and never fired.**
+   `docs/rules/security.md` already said "try a bump before suppressing a vuln".
+   But `docs/rules/routing.json` matched no `.github/**` or manifest path, so
+   editing the scan workflow injected only `_discipline.md` — never
+   `security.md`. The guidance was invisible at the one moment it mattered.
+
+**Fix:** suppressions moved to `.github/security-suppressions.yml` as validated
+data with `expires`, `owner`, `clears_when` and a `tracked_by` todo id; the
+workflow's flags are generated from it by `scripts/check_suppressions.py
+--emit-flags`. `--recheck` reads the UNSUPPRESSED pip-audit report the job
+already writes and fails when a suppression outlived its reason. A failing
+scheduled run now opens and updates one GitHub issue and self-closes when green.
+`routing.json` routes `.github/**` and manifests to the security domain, and two
+`triggers.json` entries fire at write time.
+
+**Lessons:**
+
+- **Verify with the artifact, not the proxy.** "A newer release exists" is weaker
+  than "pip-audit now reports a fix version" — `nltk 3.10.3` exists but
+  `PYSEC-2026-597` still has no fix, while `llm 0.34` exists and OSV records no
+  fix either. Ask the tool that owns the answer.
+- **Two advisory databases give two answers; neither is a superset.** Dependabot
+  surfaced 71 advisories pip-audit's ignore list hid; pip-audit reports a Django
+  advisory (fix 6.0.8) Dependabot does not report at all. Keep both.
+- **A dependency declared but never invoked still costs.** `safety` and `bandit`
+  are in `requirements.txt` and run in no workflow, no pre-commit hook, and no
+  `.claude` hook — yet `safety` is the sole parent of `nltk`, worth 18
+  advisories. Unused tooling is not free; it is supply-chain surface.
+- **Location beats status text when asking "is this still open?"** 13 archived
+  todos still say `status: pending`, and archived files carry legacy statuses
+  (`ready`, `resolved`, `closed`). `completing-todos` archives by `git mv`, so
+  the directory is the reliable signal.
