@@ -386,3 +386,51 @@ implementation to wipe. A test that needs a different posture (a matching media
 query, a rejecting clipboard) installs its own stub and restores the global
 afterward — don't teach the shared polyfill per-test behavior. See
 `docs/LEARNINGS.md` 2026-08-15.
+
+## A page that calls `useAnnounce()` needs `AnnouncerProvider` — or a hoisted mock — in its tests
+
+`useAnnounce()` throws outside an `AnnouncerProvider`. In the app every routed
+page is inside one (`main.tsx` wraps `<App />`), so the first place a new
+`announce(...)` call fails is the page's own test file, which usually renders
+the page bare inside a `MemoryRouter`. Two shapes, pick by what the test wants
+to assert (audit 2026-09-04 M4):
+
+```tsx
+// 1. Assert the CALL — cheapest; SearchPage.test.tsx / UserProfilePage.test.tsx.
+const announceMock = vi.hoisted(() => vi.fn());
+vi.mock('../../contexts/AnnouncerContext', () => ({ useAnnounce: () => announceMock }));
+// …
+expect(announceMock).toHaveBeenCalledWith('Search failed', 'assertive');
+
+// 2. Assert the REGION — proves the text reaches the live region; NewThreadPage.test.tsx.
+render(<MemoryRouter><AnnouncerProvider><NewThreadPage /></AnnouncerProvider></MemoryRouter>);
+await waitFor(() =>
+  expect(document.querySelector('[data-announcer="assertive"]')).toHaveTextContent(
+    'Failed to create thread'
+  )
+);
+```
+
+With shape 2 the same text is also in the inline banner, so `findByText` finds
+two elements — use `findAllByText` for the banner and the `[data-announcer]`
+selector for the region. `vi.hoisted` is required for shape 1: the `vi.mock`
+factory is hoisted above imports, so a bare top-level `const` is not yet
+defined when it runs.
+
+## ThreadDetailPage post fixtures render from `body` blocks, not `content_html`
+
+`createMockPost()` defaults `content_raw`/`content_html`, but the thread page
+renders each post through the block renderer, so text placed in those fields
+never reaches the DOM — a `getByText('…')` on it times out with no other
+symptom. Give the fixture a block (audit 2026-09-04 M2 test):
+
+```ts
+createMockPost({
+  id: '7',
+  body: [{ id: 'b7', type: 'paragraph', value: '<p>thread B post</p>' }],
+});
+```
+
+Same for a per-thread `fetchPosts` mock: key it on the call's `{ thread }`
+argument (`mockImplementation(async ({ thread }) => …)`) rather than chaining
+`mockResolvedValueOnce`, or the second thread's load consumes the wrong page.

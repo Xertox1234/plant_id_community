@@ -82,7 +82,11 @@ correctly. Focus on genuinely new issues, not style preferences.
 3. For each genuinely new finding, **verify it in current code** — read the file
    at the reported line, grep for the flagged pattern. If the code does not match,
    mark `false-positive` with evidence.
-4. Write all verified findings to the manifest with status `open` and the
+4. Severity is the auditor's call, not the agent's — agents rate high (9 of
+   21 rows were calibrated down on 2026-09-04). When you change one, record
+   the agent's rating and the reason in the Verification column so the user
+   can re-rank.
+5. Write all verified findings to the manifest with status `open` and the
    reporting agent.
 
 ## Phase 2.5: Research
@@ -138,6 +142,17 @@ For **each** finding the user wants fixed:
    ```bash
    kimi-review --scope "[one-line fix description]" --profile plant_id --rules [domain]
    ```
+
+   The `kimi-review` binary may not be on `PATH` (it was not on 2026-09-04),
+   and the commit hook then no-ops **silently** (`command -v kimi-review ||
+   exit 0`) — so "the gate passed" proves nothing. Use the vendored canonical
+   copy instead, fed the fix's diff:
+
+   ```bash
+   git diff -- <fixed files> | python3 scripts/kimi-review --scope "[fix]" --profile plant_id --rules [domain]
+   ```
+
+   (`python3` must see the `openai` package — `backend/venv/bin/python` does.)
 
    - **CRITICAL**: stop the loop, surface to the user — do not mark `verified`
      until resolved.

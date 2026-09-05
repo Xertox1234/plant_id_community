@@ -27,3 +27,10 @@
   — it can be a local review copy of a differently-named PR head (`pr-538-review`
   held 24 commits absent from main, all landed via PR #538 from
   `feat/canopy-forum-content`). See `docs/LEARNINGS.md` 2026-09-02.
+- This project's Bash tool runs **zsh, which does not word-split an unquoted
+  `$VAR`** — `pre-commit run --files $FILES`, `prettier --write $WEB`, or a
+  `$RUN` command variable all execute against ONE argument, and the tools
+  report "no files to check" / "no such file" instead of failing. A check that
+  says it had nothing to do did not run: use `${=VAR}` or `xargs`, and read the
+  tool's own count before claiming a verification passed (`docs/LEARNINGS.md`
+  2026-09-04).

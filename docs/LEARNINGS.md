@@ -4293,3 +4293,16 @@ silently no-ops without it** (`command -v kimi-review || exit 0`). The vendored
 `python3 scripts/kimi-review` works with `backend/venv` (no findings over this
 branch's full diff). The audit skill's "kimi-review is not optional" gate is
 only real if the invocation is the vendored one.
+
+### [2026-09-04] Worktree tooling: a symlinked `node_modules` breaks `npx <bin>`, not `npx vitest`
+
+In `.worktrees/<name>/web`, `node_modules` was a symlink to the main
+checkout's directory (the cheap way to run the web suite without a second
+install). `npx vitest run` worked; `npx eslint src` failed with
+`npm error could not determine executable to run`, and Prettier's pre-commit
+hook reported the same files as unformatted after a `--write` that had silently
+done nothing — the write ran on ONE shell word (see the zsh entry above). Call
+the binaries directly — `./node_modules/.bin/eslint`, `./node_modules/.bin/prettier
+--write <files>` — the same fix the Playwright/RTK note prescribes, and
+re-run the pre-commit hook (`pre-commit run prettier-web`) to prove the
+formatting actually landed before staging.
