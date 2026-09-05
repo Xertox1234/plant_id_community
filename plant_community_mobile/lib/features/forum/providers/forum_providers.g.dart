@@ -673,7 +673,7 @@ final class ConversationsFeedProvider
   ConversationsFeed create() => ConversationsFeed();
 }
 
-String _$conversationsFeedHash() => r'535e11669a1762cedb0875583c1e38c0bd866b62';
+String _$conversationsFeedHash() => r'563bc5e01b5e7dbc3bef4262373b4a42141d1776';
 
 /// The user's DM inbox (cursor-paginated, most recent activity first).
 
@@ -802,7 +802,7 @@ final class ConversationThreadProvider
 }
 
 String _$conversationThreadHash() =>
-    r'0ec169bb83884e32903eb74112a8a941d38ee5b1';
+    r'd6466cc5f39a39a1d25775d866d8fbcf66239ab4';
 
 /// A 1:1 DM thread with [username] (todo 339): resolves the conversation
 /// (absent until first send), pages older messages, and sends.
