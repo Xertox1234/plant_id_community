@@ -139,3 +139,15 @@ $ alert #124 → fixed (refs/pull/648/head); alert #116 → dismissed (false pos
 - Verification: both acceptance criteria passed (alert dismissed with the traced rationale + regression test; this PR's CodeQL run reports no `js/xss-through-dom` on `forumBody.ts`).
 - Review: react-typescript — disposition per finding in the Work Log (round pending at the time of archive; any repair rides this PR).
 - Codified: `docs/rules/security.md`, `docs/LEARNINGS.md` (the suppression-comment lesson).
+
+### 2026-09-05 - Review round 1 (react-typescript): 5 findings, none blocking
+
+- Verified empirically by the reviewer: the tightened regex rejects both
+  crafted payloads that the old `\S+` accepted and none of ten legitimate
+  provider URL shapes; the new test is not vacuous (`textContent` decodes
+  `&lt;script&gt;` before the regex runs).
+- LOW "is the suppression comment doing anything?" → answered: it was not;
+  removed, structural break shipped and verified (entry above).
+- LOW "say the regex change is load-bearing" → recorded here and in the
+  commit: a provider-shaped link carrying `<>"'` or a backtick now stays a
+  paragraph instead of becoming an embed value.
