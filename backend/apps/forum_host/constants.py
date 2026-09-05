@@ -545,6 +545,15 @@ RAG_REPORT_DETAIL_MAX_CHARS = 280
 RAG_INDEX_MAX_RETRIES = 3
 RAG_INDEX_RETRY_DELAY = 30
 
+# Same shape for the notification fan-out batch tasks' autoretry on
+# OperationalError (audit 2026-09-04 M8): the FACTOR, so the jittered
+# countdown ceiling is 30s, 60s, 120s — matching send_forum_push's manual
+# backoff — instead of the ~1s/2s/4s that `retry_backoff=True` meant. A
+# near-instant retry against a DB that just raised OperationalError is the
+# thundering herd docs/rules/celery.md warns about.
+NOTIFICATION_BATCH_MAX_RETRIES = 3
+NOTIFICATION_BATCH_RETRY_DELAY = 30
+
 # Grounded-generation prompt. TWO untrusted slots, both fenced: the QUESTION is
 # user input, and the PASSAGES are user-authored forum text and blog copy that
 # can carry injection attempts at greater length. The ingestion/dosing refusal

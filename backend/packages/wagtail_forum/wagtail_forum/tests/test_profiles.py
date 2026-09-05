@@ -139,18 +139,19 @@ def test_str_prefers_display_name():
 
 
 @pytest.mark.django_db
-def test_for_user_falls_back_on_integrity_error(monkeypatch):
-    """Simulate a lost create race: get_or_create raises IntegrityError because
-    a concurrent request already inserted the profile; for_user must recover by
-    returning the existing row rather than propagating the error."""
+def test_for_user_does_not_mask_an_unrecoverable_integrity_error(monkeypatch):
+    """get_or_create already recovers a lost create race itself (its INSERT
+    runs in a savepoint and an IntegrityError is retried as a .get() before
+    it is re-raised), so the only IntegrityError that can escape it is one
+    whose retry ALSO found no row — e.g. the user row vanished. The former
+    outer `except IntegrityError: .get()` wrapper (audit 2026-09-04 L1)
+    turned that into a misleading DoesNotExist; it must propagate as-is."""
     user = User.objects.create_user(username="ada")
-    existing = ForumProfile.objects.create(user=user)
 
     def _raise(**kwargs):
-        raise IntegrityError("duplicate key")
+        raise IntegrityError("user row vanished")
 
     monkeypatch.setattr(ForumProfile.objects, "get_or_create", _raise)
 
-    recovered = ForumProfile.for_user(user)
-
-    assert recovered.pk == existing.pk
+    with pytest.raises(IntegrityError):
+        ForumProfile.for_user(user)

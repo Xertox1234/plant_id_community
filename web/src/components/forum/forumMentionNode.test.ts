@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, afterEach } from 'vitest';
 import { Editor } from '@tiptap/core';
 import StarterKit from '@tiptap/starter-kit';
 import { ForumMention, resolveMentionSuggestions } from './forumMentionNode';
@@ -103,5 +103,129 @@ describe('resolveMentionSuggestions', () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+});
+
+/**
+ * The suggestion dropdown's DOM lifecycle (audit 2026-09-04 L5). ProseMirror's
+ * suggestion plugin calls these render() callbacks against a MOUNTED
+ * EditorView, which a headless Editor never has (web/docs/patterns/testing.md)
+ * — so the callbacks are driven directly with the props shape the plugin
+ * hands them. This is the only coverage the ~115 lines of dropdown
+ * creation, positioning, keyboard navigation and teardown have.
+ */
+describe('ForumMention suggestion render() lifecycle', () => {
+  type Item = { id: string; label: string };
+  type Renderer = ReturnType<
+    NonNullable<NonNullable<typeof ForumMention.options.suggestion>['render']>
+  >;
+
+  const items: Item[] = [
+    { id: 'ada', label: 'ada' },
+    { id: 'adele', label: 'adele' },
+    { id: 'adrian', label: 'adrian' },
+  ];
+
+  function makeProps(overrides: Partial<{ items: Item[]; isDestroyed: boolean }> = {}) {
+    const command = vi.fn();
+    const props = {
+      editor: { isDestroyed: overrides.isDestroyed ?? false },
+      items: overrides.items ?? items,
+      command,
+      clientRect: () => ({ bottom: 100, left: 40 }) as DOMRect,
+      query: 'ad',
+      text: '@ad',
+      range: { from: 0, to: 3 },
+      decorationNode: null,
+    };
+    return { command, props: props as unknown as Parameters<Renderer['onStart']>[0] };
+  }
+
+  function dropdown(): HTMLDivElement | null {
+    return document.body.querySelector<HTMLDivElement>('div.z-50');
+  }
+
+  function renderer(): Renderer {
+    return ForumMention.options.suggestion!.render!() as Renderer;
+  }
+
+  afterEach(() => {
+    document.body.innerHTML = '';
+  });
+
+  it('onStart mounts one button per item below the trigger, first item selected', () => {
+    const r = renderer();
+    r.onStart(makeProps().props);
+
+    const el = dropdown();
+    expect(el).not.toBeNull();
+    expect(el!.style.position).toBe('fixed');
+    expect(el!.style.top).toBe('104px');
+    expect(el!.style.left).toBe('40px');
+    const buttons = Array.from(el!.querySelectorAll('button'));
+    expect(buttons.map((b) => b.textContent)).toEqual(['@ada', '@adele', '@adrian']);
+    expect(buttons[0].className).toContain('bg-primary/20');
+    expect(buttons[1].className).not.toContain('bg-primary/20');
+  });
+
+  it('arrow keys move the selection (wrapping) and Enter commits the selected item', () => {
+    const r = renderer();
+    const { command, props } = makeProps();
+    r.onStart(props);
+
+    expect(
+      r.onKeyDown({ event: new KeyboardEvent('keydown', { key: 'ArrowDown' }) } as never)
+    ).toBe(true);
+    expect(dropdown()!.querySelectorAll('button')[1].className).toContain('bg-primary/20');
+    r.onKeyDown({ event: new KeyboardEvent('keydown', { key: 'ArrowUp' }) } as never);
+    r.onKeyDown({ event: new KeyboardEvent('keydown', { key: 'ArrowUp' }) } as never);
+    expect(dropdown()!.querySelectorAll('button')[2].className).toContain('bg-primary/20');
+
+    expect(r.onKeyDown({ event: new KeyboardEvent('keydown', { key: 'Enter' }) } as never)).toBe(
+      true
+    );
+    expect(command).toHaveBeenCalledWith(items[2]);
+    // Keys the dropdown does not own fall through to the editor.
+    expect(r.onKeyDown({ event: new KeyboardEvent('keydown', { key: 'a' }) } as never)).toBe(false);
+  });
+
+  it('mousedown on an item commits it without stealing the caret', () => {
+    const r = renderer();
+    const { command, props } = makeProps();
+    r.onStart(props);
+
+    const event = new MouseEvent('mousedown', { cancelable: true, bubbles: true });
+    dropdown()!.querySelectorAll('button')[1].dispatchEvent(event);
+
+    expect(command).toHaveBeenCalledWith(items[1]);
+    expect(event.defaultPrevented).toBe(true);
+  });
+
+  it('onUpdate repaints in place and onExit tears the dropdown down', () => {
+    const r = renderer();
+    r.onStart(makeProps().props);
+    r.onUpdate(makeProps({ items: [items[0]] }).props);
+    expect(dropdown()!.querySelectorAll('button')).toHaveLength(1);
+    expect(document.body.querySelectorAll('div.z-50')).toHaveLength(1);
+
+    r.onExit(makeProps().props);
+    expect(dropdown()).toBeNull();
+    // A stale keydown after exit is a no-op, not a crash on a removed node.
+    expect(r.onKeyDown({ event: new KeyboardEvent('keydown', { key: 'Enter' }) } as never)).toBe(
+      false
+    );
+  });
+
+  it('never creates a dropdown for an empty list or a torn-down editor, and removes one on update', () => {
+    const r = renderer();
+    r.onStart(makeProps({ items: [] }).props);
+    expect(dropdown()).toBeNull();
+    r.onStart(makeProps({ isDestroyed: true }).props);
+    expect(dropdown()).toBeNull();
+
+    r.onStart(makeProps().props);
+    expect(dropdown()).not.toBeNull();
+    r.onUpdate(makeProps({ isDestroyed: true }).props);
+    expect(dropdown()).toBeNull();
   });
 });

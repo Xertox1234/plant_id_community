@@ -450,3 +450,77 @@ def test_board_rename_back_with_no_live_topics_still_repairs_stale_rows(
     _rename_board(general, "general", django_capture_on_commit_callbacks)
 
     assert _topic_links() == []
+
+
+# --- audit 2026-09-04 M1: once-public paths of hidden topics -------------------
+
+
+def _published_topic(board, slug):
+    """A topic taken through a real publish so it carries
+    ``first_published_at``, like every topic the moderation workflow makes
+    live (``Topic.objects.create`` is born live but never "published").
+    ``save_revision`` runs ``full_clean``, so it needs an author."""
+    from django.contrib.auth import get_user_model
+
+    author = get_user_model().objects.create_user(username=f"author-{slug}")
+    topic = _topic(board, slug, author=author)
+    topic.save_revision().publish()
+    topic.refresh_from_db()
+    return topic
+
+
+def test_a_once_public_topic_renamed_while_unpublished_keeps_its_old_path():
+    """The "hide it, fix the slug, republish it" moderation flow. Since Wagtail
+    6.0 the admin saves a draft edit of an UNPUBLISHED snippet straight to the
+    row (``form.save(commit=not live)``) and the Publish button is then a plain
+    ``save()``: by that save the row already carries the new slug, so a
+    receiver that waits for the publish sees old == new and writes nothing.
+    The hidden save has to write the row, and the publish must leave it be."""
+    general, _ = _boards()
+    topic = _published_topic(general, "aphids")
+    old_path = topic.get_absolute_url()
+    topic.unpublish()
+    assert topic.first_published_at is not None and not topic.live
+
+    topic.slug = "aphids-fixed"
+    topic.save()  # the edit view's write-through for a non-live object
+    new_path = topic.get_absolute_url()
+    assert _links() == [(old_path, new_path)]
+
+    topic.save_revision().publish()  # the Publish button
+    topic.refresh_from_db()
+    assert topic.live
+    assert _links() == [(old_path, new_path)]
+
+
+def test_a_once_public_topic_old_path_is_served_as_a_301_after_republish(client):
+    general, _ = _boards()
+    topic = _published_topic(general, "old-name")
+    old_path = topic.get_absolute_url()
+    topic.unpublish()
+    topic.slug = "new-name"
+    topic.save()
+    topic.save_revision().publish()
+
+    resp = client.get(old_path)
+
+    assert resp.status_code == 301
+    assert resp["Location"] == topic.get_absolute_url()
+
+
+def test_board_rename_writes_a_row_for_a_once_public_hidden_topic(
+    django_capture_on_commit_callbacks,
+):
+    """Same reasoning in bulk: a topic that was public under the old board
+    path and is hidden right now gets its row, so the old link is right the
+    moment it is republished; a never-published draft still gets none."""
+    general, _ = _boards()
+    hidden = _published_topic(general, "aphids")
+    hidden.unpublish()
+    _topic(general, "draft", live=False)
+    old_path = hidden.get_absolute_url()
+
+    _rename_board(general, "general-chat", django_capture_on_commit_callbacks)
+
+    hidden.refresh_from_db()
+    assert _topic_links() == [(old_path, hidden.get_absolute_url())]

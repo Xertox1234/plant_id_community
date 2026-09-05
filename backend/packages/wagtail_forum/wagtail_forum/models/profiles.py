@@ -1,6 +1,6 @@
 from django.conf import settings
 from django.contrib.auth import get_user_model
-from django.db import IntegrityError, models
+from django.db import models
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 from wagtail.images import get_image_model_string
@@ -137,19 +137,18 @@ class ForumProfile(models.Model):
 
     @classmethod
     def for_user(cls, user):
-        # get_or_create is not atomic: under concurrent first-touch requests
-        # (e.g. fan-out mobile API calls in Plan 1C) two callers can both miss
-        # the SELECT and race to INSERT, with the loser hitting the OneToOne
-        # unique constraint. Fall back to a plain get() in that case.
-        try:
-            profile, _ = cls.objects.get_or_create(
-                user=user,
-                defaults={
-                    "read_watermark_at": lambda: cls.initial_read_watermark(user)
-                },
-            )
-        except IntegrityError:
-            profile = cls.objects.get(user=user)
+        # Concurrent first-touch requests (e.g. fan-out mobile API calls) can
+        # both miss the SELECT and race to INSERT. get_or_create already owns
+        # that race: its INSERT runs in a savepoint and an IntegrityError is
+        # retried as a .get() before it is re-raised, so the loser gets the
+        # winner's row. Re-wrapping it (audit 2026-09-04 L1) only masked the
+        # genuinely unrecoverable case — an IntegrityError whose retry also
+        # finds nothing, e.g. the user row vanished — as a misleading
+        # DoesNotExist. See services.md "Don't Re-Wrap get_or_create".
+        profile, _ = cls.objects.get_or_create(
+            user=user,
+            defaults={"read_watermark_at": lambda: cls.initial_read_watermark(user)},
+        )
         return profile
 
     def __str__(self):

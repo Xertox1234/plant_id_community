@@ -43,6 +43,10 @@ abstract class AppRoutes {
   // Phase 2 feature routes
   static const care = '/care';
   static const forum = '/forum';
+  // Auth-only: the notifications feed is the caller's own inbox and the
+  // backend 401s an anonymous request, which the screen could only render as
+  // a Retry dead-end (audit 2026-09-04 M6).
+  static const forumNotifications = '/forum/notifications';
   static const collection = '/collection';
 }
 
@@ -60,7 +64,11 @@ GoRouter appRouter(Ref ref) {
   ref.onDispose(authChanged.dispose);
 
   // Protected routes that require authentication
-  const protectedRoutes = {AppRoutes.profile, AppRoutes.garden};
+  const protectedRoutes = {
+    AppRoutes.profile,
+    AppRoutes.garden,
+    AppRoutes.forumNotifications,
+  };
   // Auth routes that authenticated users should not see
   const authOnlyRoutes = {AppRoutes.login, AppRoutes.register};
 
@@ -237,7 +245,7 @@ GoRouter appRouter(Ref ref) {
         },
       ),
       GoRoute(
-        path: '/forum/notifications',
+        path: AppRoutes.forumNotifications,
         name: 'forumNotifications',
         pageBuilder: (context, state) => _buildPageWithTransition(
           context: context,

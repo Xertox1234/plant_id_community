@@ -15,9 +15,23 @@ abstract class ForumImagePicker {
 class DeviceForumImagePicker implements ForumImagePicker {
   const DeviceForumImagePicker();
 
+  /// Downscale on the device, same bounds as the plant-ID camera flow
+  /// (`camera_screen.dart`): a full-resolution phone photo is routinely
+  /// larger than the backend's 10 MB cap (`wagtail_forum/conf.py`
+  /// IMAGE_MAX_SIZE_BYTES), so without this the whole file went over the
+  /// wire only to be rejected (audit 2026-09-04 M7). The forum serves a
+  /// bounded rendition anyway, so nothing above this is ever displayed.
+  static const int maxDimension = 1080;
+  static const int jpegQuality = 85;
+
   @override
   Future<String?> pickImagePath() async {
-    final file = await ImagePicker().pickImage(source: ImageSource.gallery);
+    final file = await ImagePicker().pickImage(
+      source: ImageSource.gallery,
+      maxWidth: maxDimension.toDouble(),
+      maxHeight: maxDimension.toDouble(),
+      imageQuality: jpegQuality,
+    );
     return file?.path;
   }
 }

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { fetchUserProfile, blockUser, unblockUser } from '../../services/forumService';
 import { useAuth } from '../../contexts/AuthContext';
+import { useAnnounce } from '../../contexts/AnnouncerContext';
 import { specimenAvatar } from '../../utils/forumAvatars';
 import { threadPath, postAnchor } from '../../utils/forumUrls';
 import { TRUST_LEVEL_LABELS } from '../../utils/forumAuthor';
@@ -20,6 +21,7 @@ import type { ForumUserProfile } from '../../types/forum';
 export default function UserProfilePage() {
   const { username = '' } = useParams<{ username: string }>();
   const { isAuthenticated } = useAuth();
+  const announce = useAnnounce();
   const [profile, setProfile] = useState<ForumUserProfile | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -96,7 +98,11 @@ export default function UserProfilePage() {
       });
       if (currentUsernameRef.current === requestUsername) {
         setProfile((prev) => (prev ? { ...prev, is_blocked: wasBlocked } : prev));
-        setBlockActionError(err instanceof Error ? err.message : 'Failed to update block');
+        const message = err instanceof Error ? err.message : 'Failed to update block';
+        setBlockActionError(message);
+        // The inline error is conditionally mounted, so it is never announced
+        // on its own (audit 2026-09-04 M4).
+        announce(message, 'assertive');
       }
     } finally {
       if (currentUsernameRef.current === requestUsername) {

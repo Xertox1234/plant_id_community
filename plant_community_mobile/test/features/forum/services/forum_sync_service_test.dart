@@ -2,6 +2,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:plant_community_mobile/features/forum/models/models.dart';
 import 'package:plant_community_mobile/features/forum/services/forum_sync_service.dart';
 import 'package:plant_community_mobile/features/forum/services/forum_sync_store.dart';
+import 'package:plant_community_mobile/services/api_service.dart';
 
 import '../support/forum_test_support.dart';
 
@@ -126,6 +127,59 @@ void main() {
       },
     );
 
+    test('a failure on a later page leaves the persisted mirror and cursor '
+        'untouched (audit 2026-09-04 L9)', () async {
+      // sync() persists only after the whole has_more walk, so a page-2
+      // failure must not half-apply page 1: the store keeps exactly what
+      // the previous successful sync left.
+      await store.saveTopics({1: stub(id: 1, title: 'kept')});
+      await store.saveCursor(const ForumSyncCursor(since: null, sinceId: 1));
+      final failing = _FailingSyncApi(failOnCall: 2)
+        ..syncPages = [
+          ForumSyncPage(
+            topics: [stub(id: 2, title: 'never-persisted')],
+            deleted: const [ForumTombstone(topicId: 1, boardId: 1)],
+            hasMore: true,
+            nextSince: DateTime.utc(2026, 3, 1),
+            nextSinceId: 2,
+          ),
+        ];
+      final failingService = ForumSyncService(api: failing, store: store);
+
+      await expectLater(failingService.sync(), throwsA(isA<ApiException>()));
+
+      final kept = await store.loadTopics();
+      expect(kept.keys, [1]);
+      expect(kept[1]!.title, 'kept');
+      final cursor = await store.loadCursor();
+      expect(cursor.since, isNull);
+      expect(cursor.sinceId, 1);
+    });
+
+    test(
+      'a contract that never clears has_more is cut off at the page bound',
+      () async {
+        // The fake repeats its last page, so has_more stays true forever.
+        api.syncPages = [
+          ForumSyncPage(
+            topics: [stub(id: 1)],
+            deleted: const [],
+            hasMore: true,
+            nextSince: DateTime.utc(2026, 3, 1),
+            nextSinceId: 1,
+          ),
+        ];
+
+        final merged = await service.sync();
+
+        // Pin the value, not just the loop's use of it: a shrunk bound
+        // would otherwise go green (todo 321 lesson).
+        expect(ForumSyncService.maxPages, 500);
+        expect(api.syncCalls, hasLength(500));
+        expect(merged.single.id, 1);
+      },
+    );
+
     test('cachedTopics reads the mirror without hitting the network', () async {
       await store.saveTopics({1: stub(id: 1, title: 'cached')});
       final cached = await service.cachedTopics();
@@ -133,4 +187,24 @@ void main() {
       expect(api.syncCalls, isEmpty);
     });
   });
+}
+
+/// A [FakeForumApi] whose Nth [sync] call throws instead of returning a page.
+class _FailingSyncApi extends FakeForumApi {
+  _FailingSyncApi({required this.failOnCall});
+
+  final int failOnCall;
+  int _calls = 0;
+
+  @override
+  Future<ForumSyncPage> sync({
+    DateTime? since,
+    int? sinceId,
+    String? boardSlug,
+  }) async {
+    if (++_calls == failOnCall) {
+      throw ApiException('boom', statusCode: 503);
+    }
+    return super.sync(since: since, sinceId: sinceId, boardSlug: boardSlug);
+  }
 }

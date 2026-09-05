@@ -83,6 +83,35 @@ void main() {
       await tester.pump(const Duration(seconds: 4));
     });
 
+    testWidgets(
+      'forum notifications is auth-only: an anonymous go() lands on login '
+      '(audit 2026-09-04 M6)',
+      (WidgetTester tester) async {
+        final container = ProviderContainer(
+          overrides: [
+            authServiceProvider.overrideWith(
+              _MockUnauthenticatedAuthNotifier.new,
+            ),
+          ],
+        );
+        addTearDown(container.dispose);
+
+        final router = container.read(appRouterProvider);
+
+        await tester.pumpWidget(MaterialApp.router(routerConfig: router));
+
+        router.go(AppRoutes.forumNotifications);
+        await tester.pump(const Duration(milliseconds: 100));
+
+        expect(
+          router.routerDelegate.currentConfiguration.uri.path,
+          equals(AppRoutes.login),
+        );
+
+        await tester.pump(const Duration(seconds: 4));
+      },
+    );
+
     testWidgets('Should navigate to camera screen', (
       WidgetTester tester,
     ) async {
@@ -262,54 +291,51 @@ void main() {
       await tester.pump(const Duration(seconds: 4));
     });
 
-    testWidgets(
-      'a ?postId= query param scrolls the highlighted post into view '
-      '(todo 311)',
-      (tester) async {
-        // Enough posts that post 6 starts off past the bottom of the
-        // viewport — asserting both that post 1 scrolled OUT of view and
-        // that post 6 scrolled IN is stronger evidence of an actual scroll
-        // than just checking post 6 is present (which could otherwise be
-        // vacuously true if it happened to already be on screen).
-        final posts = [
-          for (var i = 1; i <= 6; i++)
-            post(id: i, body: [ParagraphBlock('Post $i body')]),
-        ];
-        final container = ProviderContainer(
-          overrides: [
-            authServiceProvider.overrideWith(
-              _MockUnauthenticatedAuthNotifier.new,
-            ),
-            forumApiProvider.overrideWithValue(
-              FakeForumApi()
-                ..topicDetail = topicDetail()
-                ..posts = CursorPage(items: posts),
-            ),
-            forumSyncStoreProvider.overrideWithValue(InMemoryForumSyncStore()),
-          ],
-        );
-        addTearDown(container.dispose);
-        final router = container.read(appRouterProvider);
-        await tester.pumpWidget(
-          UncontrolledProviderScope(
-            container: container,
-            child: MaterialApp.router(routerConfig: router),
+    testWidgets('a ?postId= query param scrolls the highlighted post into view '
+        '(todo 311)', (tester) async {
+      // Enough posts that post 6 starts off past the bottom of the
+      // viewport — asserting both that post 1 scrolled OUT of view and
+      // that post 6 scrolled IN is stronger evidence of an actual scroll
+      // than just checking post 6 is present (which could otherwise be
+      // vacuously true if it happened to already be on screen).
+      final posts = [
+        for (var i = 1; i <= 6; i++)
+          post(id: i, body: [ParagraphBlock('Post $i body')]),
+      ];
+      final container = ProviderContainer(
+        overrides: [
+          authServiceProvider.overrideWith(
+            _MockUnauthenticatedAuthNotifier.new,
           ),
-        );
+          forumApiProvider.overrideWithValue(
+            FakeForumApi()
+              ..topicDetail = topicDetail()
+              ..posts = CursorPage(items: posts),
+          ),
+          forumSyncStoreProvider.overrideWithValue(InMemoryForumSyncStore()),
+        ],
+      );
+      addTearDown(container.dispose);
+      final router = container.read(appRouterProvider);
+      await tester.pumpWidget(
+        UncontrolledProviderScope(
+          container: container,
+          child: MaterialApp.router(routerConfig: router),
+        ),
+      );
 
-        router.go('/forum/topics/10?postId=6', extra: 'A topic');
-        await tester.pump();
-        await tester.pump(const Duration(milliseconds: 400));
-        // Post-frame callback: one more pump for it to run and the scroll
-        // animation to settle.
-        await tester.pumpAndSettle();
+      router.go('/forum/topics/10?postId=6', extra: 'A topic');
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 400));
+      // Post-frame callback: one more pump for it to run and the scroll
+      // animation to settle.
+      await tester.pumpAndSettle();
 
-        expect(find.textContaining('Post 6 body'), findsOneWidget);
-        expect(find.textContaining('Post 1 body'), findsNothing);
+      expect(find.textContaining('Post 6 body'), findsOneWidget);
+      expect(find.textContaining('Post 1 body'), findsNothing);
 
-        await tester.pump(const Duration(seconds: 4));
-      },
-    );
+      await tester.pump(const Duration(seconds: 4));
+    });
 
     testWidgets(
       'post-highlight scroll is a documented no-op for a post outside the '
@@ -749,52 +775,47 @@ void main() {
       },
     );
 
-    testWidgets(
-      'tapping a notification with a post_id passes it through as '
-      'highlightPostId (todo 311)',
-      (tester) async {
-        final api = FakeForumApi()
-          ..notifications = [notification(id: 1, topicId: 10, postId: 2)]
-          ..topicDetail = topicDetail(id: 10)
-          ..unreadCount = 1;
-        final container = ProviderContainer(
-          overrides: [
-            authServiceProvider.overrideWith(
-              _MockAuthenticatedAuthNotifier.new,
-            ),
-            forumApiProvider.overrideWithValue(api),
-            forumSyncStoreProvider.overrideWithValue(InMemoryForumSyncStore()),
-          ],
-        );
-        addTearDown(container.dispose);
-        final router = container.read(appRouterProvider);
-        container.listen(appRouterProvider, (_, _) {});
-        await tester.pumpWidget(
-          UncontrolledProviderScope(
-            container: container,
-            child: MaterialApp.router(routerConfig: router),
-          ),
-        );
+    testWidgets('tapping a notification with a post_id passes it through as '
+        'highlightPostId (todo 311)', (tester) async {
+      final api = FakeForumApi()
+        ..notifications = [notification(id: 1, topicId: 10, postId: 2)]
+        ..topicDetail = topicDetail(id: 10)
+        ..unreadCount = 1;
+      final container = ProviderContainer(
+        overrides: [
+          authServiceProvider.overrideWith(_MockAuthenticatedAuthNotifier.new),
+          forumApiProvider.overrideWithValue(api),
+          forumSyncStoreProvider.overrideWithValue(InMemoryForumSyncStore()),
+        ],
+      );
+      addTearDown(container.dispose);
+      final router = container.read(appRouterProvider);
+      container.listen(appRouterProvider, (_, _) {});
+      await tester.pumpWidget(
+        UncontrolledProviderScope(
+          container: container,
+          child: MaterialApp.router(routerConfig: router),
+        ),
+      );
 
-        router.go('/forum/notifications');
-        await tester.pump();
-        await tester.pump(const Duration(milliseconds: 400));
+      router.go('/forum/notifications');
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 400));
 
-        await tester.tap(find.byType(ListTile));
-        await tester.pump();
-        await tester.pump(const Duration(milliseconds: 400));
+      await tester.tap(find.byType(ListTile));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 400));
 
-        expect(find.byType(ForumThreadScreen), findsOneWidget);
-        expect(
-          tester.widget<ForumThreadScreen>(
-            find.byType(ForumThreadScreen),
-          ).highlightPostId,
-          2,
-        );
+      expect(find.byType(ForumThreadScreen), findsOneWidget);
+      expect(
+        tester
+            .widget<ForumThreadScreen>(find.byType(ForumThreadScreen))
+            .highlightPostId,
+        2,
+      );
 
-        await tester.pump(const Duration(seconds: 4));
-      },
-    );
+      await tester.pump(const Duration(seconds: 4));
+    });
 
     testWidgets(
       'a failed mark-read does not block opening the topic (todo 293)',
@@ -838,62 +859,61 @@ void main() {
       },
     );
 
-    testWidgets(
-      'tapping a post author opens their public profile (todo 317)',
-      (tester) async {
-        // Closes the AC #2 verification gap: unit-level tests prove
-        // onAuthorTap fires, and screen-level tests prove
-        // ForumUserProfileScreen renders given a username, but nothing taps
-        // a real author through a real GoRouter and confirms it actually
-        // lands on the profile screen. A typo in any of the 3 duplicated
-        // 'forumUserProfile' route-name string literals (this route's
-        // registration in app_router.dart, or either pushNamed call site in
-        // forum_thread_screen.dart/forum_topics_screen.dart) would crash
-        // this test.
-        final api = FakeForumApi()
-          ..topicDetail = topicDetail()
-          ..posts = CursorPage(
-            items: [post(authorOverride: author(username: 'alice'))],
-          )
-          ..profile = profile(username: 'alice');
-        final container = ProviderContainer(
-          overrides: [
-            authServiceProvider.overrideWith(
-              _MockUnauthenticatedAuthNotifier.new,
-            ),
-            forumApiProvider.overrideWithValue(api),
-            forumSyncStoreProvider.overrideWithValue(InMemoryForumSyncStore()),
-          ],
-        );
-        addTearDown(container.dispose);
-        final router = container.read(appRouterProvider);
-        // See the "posting a reply" test above for why this listen is
-        // needed: appRouterProvider is autoDispose and this test navigates
-        // twice.
-        container.listen(appRouterProvider, (_, _) {});
-        await tester.pumpWidget(
-          UncontrolledProviderScope(
-            container: container,
-            child: MaterialApp.router(routerConfig: router),
+    testWidgets('tapping a post author opens their public profile (todo 317)', (
+      tester,
+    ) async {
+      // Closes the AC #2 verification gap: unit-level tests prove
+      // onAuthorTap fires, and screen-level tests prove
+      // ForumUserProfileScreen renders given a username, but nothing taps
+      // a real author through a real GoRouter and confirms it actually
+      // lands on the profile screen. A typo in any of the 3 duplicated
+      // 'forumUserProfile' route-name string literals (this route's
+      // registration in app_router.dart, or either pushNamed call site in
+      // forum_thread_screen.dart/forum_topics_screen.dart) would crash
+      // this test.
+      final api = FakeForumApi()
+        ..topicDetail = topicDetail()
+        ..posts = CursorPage(
+          items: [post(authorOverride: author(username: 'alice'))],
+        )
+        ..profile = profile(username: 'alice');
+      final container = ProviderContainer(
+        overrides: [
+          authServiceProvider.overrideWith(
+            _MockUnauthenticatedAuthNotifier.new,
           ),
-        );
+          forumApiProvider.overrideWithValue(api),
+          forumSyncStoreProvider.overrideWithValue(InMemoryForumSyncStore()),
+        ],
+      );
+      addTearDown(container.dispose);
+      final router = container.read(appRouterProvider);
+      // See the "posting a reply" test above for why this listen is
+      // needed: appRouterProvider is autoDispose and this test navigates
+      // twice.
+      container.listen(appRouterProvider, (_, _) {});
+      await tester.pumpWidget(
+        UncontrolledProviderScope(
+          container: container,
+          child: MaterialApp.router(routerConfig: router),
+        ),
+      );
 
-        router.go('/forum/topics/10', extra: 'A topic');
-        await tester.pump();
-        await tester.pump(const Duration(milliseconds: 400));
+      router.go('/forum/topics/10', extra: 'A topic');
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 400));
 
-        await tester.tap(find.text('alice'));
-        await tester.pump();
-        await tester.pump(const Duration(milliseconds: 400));
+      await tester.tap(find.text('alice'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 400));
 
-        expect(find.byType(ForumUserProfileScreen), findsOneWidget);
-        // Proves the actual argument (not just A username) reached the API
-        // layer for the profile that was actually opened.
-        expect(api.fetchProfileCalls, ['alice']);
+      expect(find.byType(ForumUserProfileScreen), findsOneWidget);
+      // Proves the actual argument (not just A username) reached the API
+      // layer for the profile that was actually opened.
+      expect(api.fetchProfileCalls, ['alice']);
 
-        await tester.pump(const Duration(seconds: 4));
-      },
-    );
+      await tester.pump(const Duration(seconds: 4));
+    });
 
     group('Authentication Guard Tests', () {
       testWidgets(

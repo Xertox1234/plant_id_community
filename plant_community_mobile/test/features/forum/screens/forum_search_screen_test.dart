@@ -23,6 +23,53 @@ void main() {
     expect(find.text('Search topics and posts.'), findsOneWidget);
   });
 
+  testWidgets('a failed "Load more" shows a SnackBar and keeps page 1 '
+      '(audit 2026-09-04 M5)', (tester) async {
+    // loadMore() restores the prior page and rethrows; the button used to
+    // discard that Future, so the tap did nothing visible and the error
+    // went unhandled.
+    final api = _FailingLoadMoreApi()
+      ..searchResult = const ForumSearchPage(
+        topics: [
+          ForumSearchTopicHit(
+            id: 1,
+            slug: 'monstera-care',
+            title: 'Monstera care tips',
+            replyCount: 4,
+            viewCount: 20,
+            isPinned: false,
+            isSolved: false,
+            boardId: 1,
+            boardSlug: 'general',
+          ),
+        ],
+        posts: [],
+        topicsHasMore: true,
+        postsHasMore: false,
+        page: 1,
+      );
+
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [forumApiProvider.overrideWithValue(api)],
+        child: const MaterialApp(home: ForumSearchScreen()),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextField), 'monstera');
+    await tester.testTextInput.receiveAction(TextInputAction.search);
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Load more'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Could not load more.'), findsOneWidget);
+    expect(find.text('Monstera care tips'), findsOneWidget);
+    expect(find.text('Load more'), findsOneWidget);
+    // The page-2 request was attempted (and failed) exactly once.
+    expect(api.failedPageLoads, 1);
+  });
+
   testWidgets('submitting a query renders topic and post hits', (tester) async {
     final api = FakeForumApi()
       ..searchResult = const ForumSearchPage(
@@ -238,4 +285,23 @@ void main() {
     expect(find.text('Topic 2'), findsOneWidget);
     expect(find.widgetWithText(OutlinedButton, 'Load more'), findsNothing);
   });
+}
+
+/// A [FakeForumApi] whose page-2 search throws — the "Load more" failure.
+class _FailingLoadMoreApi extends FakeForumApi {
+  int failedPageLoads = 0;
+
+  @override
+  Future<ForumSearchPage> search({
+    required String q,
+    String? board,
+    int page = 1,
+    bool semantic = false,
+  }) async {
+    if (page > 1) {
+      failedPageLoads++;
+      throw ApiException('boom', statusCode: 503);
+    }
+    return super.search(q: q, board: board, page: page, semantic: semantic);
+  }
 }

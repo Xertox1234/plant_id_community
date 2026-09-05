@@ -100,8 +100,12 @@ describe('EditHistoryDialog', () => {
     // Present and EMPTY — a region that only appears with its content is the
     // anti-pattern an aria-live region exists to avoid, and findByText after
     // the fact would pass either way.
-    const region = await screen.findByRole('status');
+    // Bare aria-live (not role="status") so it never collides with the
+    // LoadingSpinner's own status role in `getByRole('status')` queries.
+    const dialog = await screen.findByRole('dialog');
+    const region = dialog.querySelector('p[aria-live="polite"]');
     expect(region).toBeInTheDocument();
+    expect(region).not.toHaveAttribute('role');
     expect(region).toHaveTextContent('');
   });
 

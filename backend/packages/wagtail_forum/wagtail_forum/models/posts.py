@@ -76,6 +76,14 @@ class Post(
 
     search_fields = [
         index.SearchField("body"),
+        # PostViewSet.search_fields = ["body"] turns on the CMS listing search
+        # box, and Wagtail's generic `search_queryset` only calls
+        # `search_backend.autocomplete()` while this list is non-empty — else
+        # it falls back to whole-word `search()` plus a RuntimeWarning
+        # ("does not specify any AutocompleteFields"). Same fix as Topic's
+        # title (todo 276 / audit L8); audit 2026-09-04 L10. Pinned by
+        # tests/test_admin.py::test_post_listing_search_matches_a_body_prefix.
+        index.AutocompleteField("body"),
         # Any real-backend search over live posts filters on this; without it
         # Elasticsearch raises FilterFieldError (Topic declares it; Post must too).
         index.FilterField("live"),

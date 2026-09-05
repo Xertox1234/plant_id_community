@@ -289,7 +289,12 @@ export default function NewThreadPage() {
           error: err,
           context: { board: category.slug },
         });
-        setError(err instanceof Error ? err.message : 'Failed to create thread');
+        const message = err instanceof Error ? err.message : 'Failed to create thread';
+        setError(message);
+        // The banner below is conditionally mounted, so it is never announced
+        // on its own (audit 2026-09-04 M4; MDN live regions) — route the
+        // failure through the persistent announcer like the success path.
+        announce(message, 'assertive');
       } finally {
         setSubmitting(false);
       }

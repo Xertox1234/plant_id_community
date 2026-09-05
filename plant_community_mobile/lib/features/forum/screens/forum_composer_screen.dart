@@ -142,6 +142,9 @@ class _ForumComposerScreenState extends ConsumerState<ForumComposerScreen> {
     // else typed) would otherwise leave the Post button's enabled state
     // stale.
     _bodyController.addListener(_onBodyChanged);
+    // The title feeds `_hasUnsentInput` (PopScope.canPop is read from the
+    // last build), so it needs the same rebuild-on-change as the body.
+    _titleController.addListener(_onBodyChanged);
   }
 
   void _onBodyChanged() => setState(() {});
@@ -149,9 +152,41 @@ class _ForumComposerScreenState extends ConsumerState<ForumComposerScreen> {
   @override
   void dispose() {
     _bodyController.removeListener(_onBodyChanged);
+    _titleController.removeListener(_onBodyChanged);
     _titleController.dispose();
     _bodyController.dispose();
     super.dispose();
+  }
+
+  /// Text (or an attachment) the user typed and has not sent — what a back
+  /// gesture would silently throw away (audit 2026-09-04 L8). An edit counts
+  /// only if it differs from the post as it was opened.
+  bool get _hasUnsentInput {
+    if (_isEdit) return _bodyController.text != widget.args.initialBodyText;
+    return _titleController.text.trim().isNotEmpty ||
+        _bodyController.text.trim().isNotEmpty ||
+        _attachedImage != null;
+  }
+
+  Future<bool> _confirmDiscard() async {
+    final discard = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Discard draft?'),
+        content: const Text('Your unsent text will be lost.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: const Text('Keep editing'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            child: const Text('Discard'),
+          ),
+        ],
+      ),
+    );
+    return discard ?? false;
   }
 
   bool get _canSubmit {
@@ -298,20 +333,33 @@ class _ForumComposerScreenState extends ConsumerState<ForumComposerScreen> {
     );
     final title = _isEdit ? 'Edit post' : (_isTopic ? 'New topic' : 'Reply');
 
-    return Scaffold(
-      appBar: AppBar(title: Text(title)),
-      body: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.all(AppSpacing.md),
-          child: !isAuthenticated
-              ? _LoginPrompt(
-                  action: _isTopic
-                      ? 'start a topic'
-                      : (_isEdit ? 'edit this post' : 'reply'),
-                )
-              : _pending
-              ? _PendingView(what: _what)
-              : _form(context),
+    // Back with unsent text asks first (audit 2026-09-04 L8). `canPop` only
+    // governs maybePop (AppBar back, system back); the explicit
+    // `Navigator.pop` after a published submit is unaffected. A pending
+    // (moderation-queued) submit keeps the text in the controllers behind
+    // the _PendingView, but it HAS been sent — never prompt for it.
+    return PopScope(
+      canPop: _pending || !_hasUnsentInput,
+      onPopInvokedWithResult: (didPop, _) async {
+        if (didPop) return;
+        final discard = await _confirmDiscard();
+        if (discard && context.mounted) Navigator.of(context).pop();
+      },
+      child: Scaffold(
+        appBar: AppBar(title: Text(title)),
+        body: SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.all(AppSpacing.md),
+            child: !isAuthenticated
+                ? _LoginPrompt(
+                    action: _isTopic
+                        ? 'start a topic'
+                        : (_isEdit ? 'edit this post' : 'reply'),
+                  )
+                : _pending
+                ? _PendingView(what: _what)
+                : _form(context),
+          ),
         ),
       ),
     );
@@ -365,7 +413,8 @@ class _ForumComposerScreenState extends ConsumerState<ForumComposerScreen> {
             ),
             textInputAction: TextInputAction.next,
             maxLength: 255,
-            onChanged: (_) => setState(() {}),
+            // No onChanged — the `_titleController` listener registered in
+            // initState rebuilds on every change, like the body field below.
           ),
           const SizedBox(height: AppSpacing.sm),
         ],

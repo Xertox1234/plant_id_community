@@ -9,6 +9,8 @@ import type { ForumUserProfile } from '../../types/forum';
 
 vi.mock('../../services/forumService');
 vi.mock('../../contexts/AuthContext', () => ({ useAuth: vi.fn() }));
+const announceMock = vi.hoisted(() => vi.fn());
+vi.mock('../../contexts/AnnouncerContext', () => ({ useAnnounce: () => announceMock }));
 
 const mockAuth = (isAuthenticated: boolean) =>
   ({ isAuthenticated }) as unknown as ReturnType<typeof useAuth>;
@@ -156,6 +158,21 @@ describe('UserProfilePage', () => {
     expect(screen.getByText('No topics yet.')).toBeInTheDocument();
     expect(screen.getByText('No replies yet.')).toBeInTheDocument();
     expect(forumService.fetchUserProfile).toHaveBeenCalledTimes(2);
+  });
+
+  it('announces the block failure for screen readers (audit M4)', async () => {
+    vi.spyOn(forumService, 'fetchUserProfile').mockResolvedValue({
+      ...mockProfile,
+      can_block: true,
+      is_blocked: false,
+    });
+    vi.spyOn(forumService, 'blockUser').mockRejectedValue(new Error('Failed to block user'));
+
+    renderProfile('ada');
+    await userEvent.click(await screen.findByRole('button', { name: /^block$/i }));
+
+    await screen.findByText('Failed to block user');
+    expect(announceMock).toHaveBeenCalledWith('Failed to block user', 'assertive');
   });
 
   it('rolls back and shows an error when blocking fails', async () => {

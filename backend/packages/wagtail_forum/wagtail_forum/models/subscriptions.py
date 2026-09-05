@@ -7,7 +7,7 @@ recipient list instead of hard-coding the topic author.
 """
 
 from django.conf import settings
-from django.db import IntegrityError, models
+from django.db import models
 
 
 class TopicSubscription(models.Model):
@@ -44,21 +44,19 @@ class TopicSubscription(models.Model):
     def subscribe(cls, user, topic):
         """Idempotently subscribe `user` to `topic`.
 
-        get_or_create is not atomic: under concurrent first-touch requests
-        (e.g. two replies from the same user racing) two callers can both
-        miss the SELECT and race to INSERT, with the loser hitting the
-        unique constraint. Fall back to a plain get() in that case — mirrors
-        ForumProfile.for_user (models/profiles.py). get_or_create's INSERT
-        runs in its own inner savepoint, so the IntegrityError rolls back
-        only that savepoint; callers invoking this inside the ambient
-        publish transaction (apps/forum_host/notifications.py) are safe as
-        long as this exact try/except shape is preserved — a naked
-        `.create()` here would poison the outer transaction instead.
+        Concurrent first-touch requests (e.g. two replies from the same user
+        racing) can both miss the SELECT and race to INSERT. get_or_create
+        owns that race: its INSERT runs in its own savepoint and an
+        IntegrityError is retried as a .get() before it is re-raised, so the
+        loser gets the winner's row. That savepoint — not any try/except
+        here — is also what keeps callers inside the ambient publish
+        transaction (apps/forum_host/notifications.py) safe: a naked
+        `.create()` would poison the outer transaction, get_or_create never
+        does. The former outer wrapper (audit 2026-09-04 L2) could only fire
+        in the unrecoverable case and turned it into a misleading
+        DoesNotExist. Mirrors ForumProfile.for_user (models/profiles.py).
         """
-        try:
-            subscription, _ = cls.objects.get_or_create(user=user, topic=topic)
-        except IntegrityError:
-            subscription = cls.objects.get(user=user, topic=topic)
+        subscription, _ = cls.objects.get_or_create(user=user, topic=topic)
         return subscription
 
     @classmethod

@@ -618,3 +618,38 @@ def test_topic_inspect_view_is_reachable(client):
 
     assert resp.status_code == 200
     assert b"seedling-help" in resp.content
+
+
+@pytest.mark.django_db
+def test_post_listing_search_matches_a_body_prefix(client):
+    """Pins `index.AutocompleteField("body")` on Post (audit 2026-09-04 L10),
+    the Post half of test_topic_listing_search_matches_a_title_prefix: with
+    PostViewSet.search_fields=["body"] but no AutocompleteField, Wagtail's
+    admin `search_queryset` falls back to whole-word search() (plus a
+    RuntimeWarning pytest does not fail on), so "photosynth" stops matching
+    "photosynthesis basics" in the CMS with every test still green."""
+    from wagtail.models import Page
+    from wagtail_forum.models import ForumBoard, ForumIndex, ForumProfile, Post, Topic
+
+    author = User.objects.create_user(username="prefix_search_author")
+    ForumProfile.for_user(author)
+    root = Page.objects.get(id=1)
+    index = root.add_child(instance=ForumIndex(title="PForum", slug="pforum"))
+    board = index.add_child(instance=ForumBoard(title="PGeneral", slug="pgeneral"))
+    topic = Topic.objects.create(board=board, title="PT", slug="pt", author=author)
+    post = Post(
+        topic=topic,
+        author=author,
+        is_opening_post=True,
+        body=[{"type": "paragraph", "value": "<p>photosynthesis basics</p>"}],
+    )
+    post.save()
+    post.save_revision().publish()
+
+    admin = User.objects.create_superuser(username="root_pp", email="rpp@x.io")
+    client.force_login(admin)
+
+    resp = client.get("/cms/snippets/wagtail_forum/post/?q=photosynth")
+
+    assert resp.status_code == 200
+    assert str(post.pk).encode() in resp.content

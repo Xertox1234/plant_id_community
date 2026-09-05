@@ -13,6 +13,7 @@ import 'package:plant_community_mobile/features/forum/models/models.dart';
 import 'package:plant_community_mobile/features/forum/models/forum_rich_text_markup.dart';
 import 'package:plant_community_mobile/features/forum/screens/forum_composer_screen.dart';
 import 'package:plant_community_mobile/features/forum/services/forum_api.dart';
+import 'package:plant_community_mobile/features/forum/services/forum_image_picker.dart';
 import 'package:plant_community_mobile/features/forum/widgets/forum_body_renderer.dart';
 import 'package:plant_community_mobile/services/auth_service.dart';
 
@@ -94,6 +95,7 @@ Future<TextSpan> _pumpRenderedBody(
 }
 
 void main() {
+  _backGuardTests();
   group('rich text composer round-trip (todo 314) — compose -> submit -> '
       'render, one test per mark', () {
     testWidgets('bold', (tester) async {
@@ -344,5 +346,164 @@ void main() {
         );
       },
     );
+  });
+}
+
+/// The composer behind a real route, so `pageBack()` hits an AppBar back
+/// button that goes through `Navigator.maybePop` (which is what PopScope
+/// governs) — as `home:` the composer would be the root route.
+Future<void> _pumpComposerBehindHome(
+  WidgetTester tester,
+  FakeForumApi api, {
+  ForumComposeArgs args = const ForumComposeArgs.reply(topicId: 10),
+  ForumImagePicker imagePicker = const DeviceForumImagePicker(),
+}) async {
+  await tester.pumpWidget(
+    ProviderScope(
+      overrides: [
+        forumApiProvider.overrideWithValue(api),
+        authServiceProvider.overrideWith(() => FakeAuthService(loggedIn: true)),
+      ],
+      child: MaterialApp(
+        home: Builder(
+          builder: (context) => Scaffold(
+            body: TextButton(
+              onPressed: () => Navigator.of(context).push(
+                MaterialPageRoute<void>(
+                  builder: (_) =>
+                      ForumComposerScreen(args: args, imagePicker: imagePicker),
+                ),
+              ),
+              child: const Text('open composer'),
+            ),
+          ),
+        ),
+      ),
+    ),
+  );
+  await tester.tap(find.text('open composer'));
+  await tester.pumpAndSettle();
+}
+
+void _backGuardTests() {
+  group('unsent-draft back guard (audit 2026-09-04 L8)', () {
+    testWidgets('back with unsent text asks first; Keep editing stays', (
+      tester,
+    ) async {
+      await _pumpComposerBehindHome(tester, FakeForumApi());
+      await tester.enterText(find.byType(TextField), 'half written');
+      await tester.pump();
+
+      await tester.pageBack();
+      await tester.pumpAndSettle();
+      expect(find.text('Discard draft?'), findsOneWidget);
+
+      await tester.tap(find.text('Keep editing'));
+      await tester.pumpAndSettle();
+      expect(find.byType(ForumComposerScreen), findsOneWidget);
+      expect(find.text('half written'), findsOneWidget);
+    });
+
+    testWidgets('a title alone (topic mode) is unsent input too', (
+      tester,
+    ) async {
+      // Each arm of _hasUnsentInput needs its own case (Phase 6 review):
+      // title-only is reachable only in topic mode.
+      await _pumpComposerBehindHome(
+        tester,
+        FakeForumApi(),
+        args: const ForumComposeArgs.topic(boardSlug: 'general'),
+      );
+      await tester.enterText(find.byType(TextField).first, 'Only a title');
+      await tester.pump();
+
+      await tester.pageBack();
+      await tester.pumpAndSettle();
+
+      expect(find.text('Discard draft?'), findsOneWidget);
+    });
+
+    testWidgets('an attached image with no text is unsent input too', (
+      tester,
+    ) async {
+      await _pumpComposerBehindHome(
+        tester,
+        FakeForumApi(),
+        imagePicker: FakeForumImagePicker(nextPath: '/tmp/leaf.jpg'),
+      );
+      await tester.tap(find.widgetWithText(OutlinedButton, 'Add photo'));
+      // Bounded pumps, not pumpAndSettle: the thumbnail's CachedNetworkImage
+      // spinner never resolves in the blocked-network harness (see the
+      // attach test in forum_read_path_test.dart).
+      await tester.pump();
+      await tester.pump();
+      expect(find.widgetWithText(OutlinedButton, 'Add photo'), findsNothing);
+
+      await tester.pageBack();
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 300));
+
+      expect(find.text('Discard draft?'), findsOneWidget);
+    });
+
+    testWidgets('Discard leaves the composer', (tester) async {
+      await _pumpComposerBehindHome(tester, FakeForumApi());
+      await tester.enterText(find.byType(TextField), 'half written');
+      await tester.pump();
+
+      await tester.pageBack();
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Discard'));
+      await tester.pumpAndSettle();
+
+      expect(find.byType(ForumComposerScreen), findsNothing);
+    });
+
+    testWidgets('back with nothing typed leaves without a prompt', (
+      tester,
+    ) async {
+      await _pumpComposerBehindHome(tester, FakeForumApi());
+
+      await tester.pageBack();
+      await tester.pumpAndSettle();
+
+      expect(find.text('Discard draft?'), findsNothing);
+      expect(find.byType(ForumComposerScreen), findsNothing);
+    });
+
+    testWidgets('a moderation-queued submit pops without a prompt', (
+      tester,
+    ) async {
+      // The text is still in the controllers behind the pending view, but it
+      // has been sent — back must not ask to discard it (Phase 6 review).
+      final api = FakeForumApi()..replyStatus = ForumModerationStatus.pending;
+      await _pumpComposerBehindHome(tester, api);
+      await tester.enterText(find.byType(TextField), 'queued');
+      await tester.pump();
+      await tester.tap(find.widgetWithText(FilledButton, 'Post'));
+      await tester.pumpAndSettle();
+      expect(find.byType(ForumComposerScreen), findsOneWidget);
+
+      await tester.pageBack();
+      await tester.pumpAndSettle();
+
+      expect(find.text('Discard draft?'), findsNothing);
+      expect(find.byType(ForumComposerScreen), findsNothing);
+    });
+
+    testWidgets('a successful submit still pops without a prompt', (
+      tester,
+    ) async {
+      final api = FakeForumApi()..replyStatus = ForumModerationStatus.published;
+      await _pumpComposerBehindHome(tester, api);
+      await tester.enterText(find.byType(TextField), 'sent');
+      await tester.pump();
+
+      await tester.tap(find.widgetWithText(FilledButton, 'Post'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Discard draft?'), findsNothing);
+      expect(find.byType(ForumComposerScreen), findsNothing);
+    });
   });
 }

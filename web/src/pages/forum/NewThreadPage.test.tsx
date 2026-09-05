@@ -154,6 +154,25 @@ describe('NewThreadPage', () => {
     expect(screen.queryByRole('link', { name: /view the topic/i })).not.toBeInTheDocument();
   });
 
+  it('announces a failed submit through the persistent live region (audit M4)', async () => {
+    vi.spyOn(forumService, 'createThread').mockRejectedValue(new Error('Failed to create thread'));
+    renderPage();
+    await screen.findByText('Plant Care');
+    await userEvent.type(screen.getByLabelText(/title/i), 'My Topic');
+    await userEvent.type(screen.getByLabelText('body'), 'hello');
+    await userEvent.click(screen.getByRole('button', { name: /post|create|submit/i }));
+
+    // Both the banner and the announcer region carry the text.
+    await screen.findAllByText('Failed to create thread');
+    // The banner is conditionally mounted (never announced on its own); the
+    // assertive announcer region carries the failure.
+    await waitFor(() =>
+      expect(document.querySelector('[data-announcer="assertive"]')).toHaveTextContent(
+        'Failed to create thread'
+      )
+    );
+  });
+
   it('pending topic → on-page moderation confirmation, no native alert, no navigation into it (M24)', async () => {
     const alertSpy = vi.spyOn(window, 'alert').mockImplementation(() => {});
     vi.spyOn(forumService, 'createThread').mockResolvedValue({

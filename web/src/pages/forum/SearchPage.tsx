@@ -8,6 +8,7 @@ import { SearchResultsSkeleton } from '../../components/forum/ForumSkeleton';
 import Button from '../../components/ui/Button';
 import Card from '../../components/ui/Card';
 import { logger } from '../../utils/logger';
+import { useAnnounce } from '../../contexts/AnnouncerContext';
 import { sanitizeSearchQuery } from '../../utils/validation';
 import { threadPath } from '../../utils/forumUrls';
 import PageMeta from '../../components/PageMeta';
@@ -79,6 +80,7 @@ export default function SearchPage() {
   // Generation guard: a new query/category bumps this; a stale in-flight
   // performSearch or Load More re-checks it and drops its response so it can't
   // append the old query's results onto the new query's list or desync `page`.
+  const announce = useAnnounce();
   const searchGenRef = useRef(0);
 
   // Get search params. Sanitize the query (strip control chars, cap length) as
@@ -145,14 +147,18 @@ export default function SearchPage() {
           error: err,
           context: { query, category },
         });
-        setError(err instanceof Error ? err.message : 'Search failed');
+        const message = err instanceof Error ? err.message : 'Search failed';
+        setError(message);
+        // The banner is conditionally mounted, so it is never announced on
+        // its own (audit 2026-09-04 M4).
+        announce(message, 'assertive');
       } finally {
         if (searchGenRef.current === gen) setLoading(false);
       }
     };
 
     performSearch();
-  }, [query, category]);
+  }, [query, category, announce]);
 
   // Cleanup debounce timer on unmount
   useEffect(() => {
@@ -252,11 +258,15 @@ export default function SearchPage() {
         error: err,
         context: { query, category, page: nextPage },
       });
-      setError(err instanceof Error ? err.message : 'Search failed');
+      const message = err instanceof Error ? err.message : 'Search failed';
+      setError(message);
+      // The banner is conditionally mounted, so it is never announced on
+      // its own (audit 2026-09-04 M4).
+      announce(message, 'assertive');
     } finally {
       if (searchGenRef.current === gen) setLoadingMore(false);
     }
-  }, [query, category, page, loadingMore]);
+  }, [query, category, page, loadingMore, announce]);
 
   // Check if any filters are active
   const hasActiveFilters = useMemo(() => !!category, [category]);

@@ -23,9 +23,11 @@ import {
   getGoogleOAuthUrl,
 } from './authService';
 import { clearCsrfToken } from '../utils/csrf';
+import { clearAllDrafts } from '../utils/forumDrafts';
 import type { User, LoginCredentials, SignupData, AuthResponse } from '../types/auth';
 
 // Mock logger to prevent console noise in tests
+vi.mock('../utils/forumDrafts', () => ({ clearAllDrafts: vi.fn() }));
 vi.mock('../utils/logger', () => ({
   logger: {
     info: vi.fn(),
@@ -600,6 +602,14 @@ describe('authService', () => {
 
       // Assert
       expect(sessionStorageMock.removeItem).toHaveBeenCalledWith('user');
+    });
+
+    it('drops every composer draft so the next account in this tab never sees them (audit L4)', async () => {
+      fetchMock.mockResolvedValueOnce({ ok: true, json: async () => ({ success: true }) });
+
+      await logout();
+
+      expect(clearAllDrafts).toHaveBeenCalledTimes(1);
     });
 
     it('should clear sessionStorage even on network error', async () => {

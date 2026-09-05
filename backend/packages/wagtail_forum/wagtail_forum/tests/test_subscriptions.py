@@ -125,21 +125,21 @@ def test_backfill_author_subscriptions_is_idempotent():
 
 
 @pytest.mark.django_db
-def test_subscribe_falls_back_on_integrity_error(monkeypatch):
-    """Mirrors ForumProfile.for_user's race test (test_profiles.py): simulate
-    a lost create race where get_or_create raises IntegrityError because a
-    concurrent request already inserted the row — subscribe() must recover by
-    returning the existing row rather than propagating the error (load-bearing
-    for callers inside the ambient publish transaction's savepoint)."""
+def test_subscribe_does_not_mask_an_unrecoverable_integrity_error(monkeypatch):
+    """Mirrors ForumProfile.for_user (test_profiles.py): get_or_create owns
+    the lost-create race (savepoint + internal .get() retry), so the only
+    IntegrityError that escapes it is one whose retry ALSO found no row —
+    e.g. the topic was hard-deleted mid-race. The former outer wrapper
+    (audit 2026-09-04 L2) turned that into a misleading DoesNotExist; it
+    must propagate as-is. The ambient publish transaction stays safe either
+    way — the savepoint is get_or_create's own, not the wrapper's."""
     user = User.objects.create_user(username="ada6")
     topic = _topic(slug="t6")
-    existing = TopicSubscription.objects.create(user=user, topic=topic)
 
     def _raise(**kwargs):
-        raise IntegrityError("duplicate key")
+        raise IntegrityError("topic vanished")
 
     monkeypatch.setattr(TopicSubscription.objects, "get_or_create", _raise)
 
-    recovered = TopicSubscription.subscribe(user, topic)
-
-    assert recovered.pk == existing.pk
+    with pytest.raises(IntegrityError):
+        TopicSubscription.subscribe(user, topic)

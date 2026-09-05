@@ -21,7 +21,8 @@ class ForumSyncService {
   /// Safety bound: 200 topics/page × 500 pages = 100k topics, far beyond any
   /// realistic delta, guarding against a contract regression that never
   /// clears `has_more`.
-  static const int _maxPages = 500;
+  /// Public only so the sync tests can pin the bound.
+  static const int maxPages = 500;
 
   /// Run a delta sync. Returns the merged topic mirror sorted newest-first.
   Future<List<ForumTopicStub>> sync({String? boardSlug}) async {
@@ -29,7 +30,7 @@ class ForumSyncService {
     var topics = await _store.loadTopics();
 
     var pages = 0;
-    while (pages < _maxPages) {
+    while (pages < maxPages) {
       pages++;
       final page = await _api.sync(
         since: cursor.since,

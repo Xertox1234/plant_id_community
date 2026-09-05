@@ -618,6 +618,50 @@ describe('CategoryListPage', () => {
       expect(within(statCard('Day streak')).queryByText(/days in a row/)).not.toBeInTheDocument();
     });
 
+    it('refetches "Your season" when the signed-in identity changes without a logout (audit M3)', async () => {
+      vi.spyOn(forumService, 'fetchForumIndex').mockResolvedValue(indexPayload([]));
+      vi.mocked(useAuth).mockReturnValue(mockAuth(true));
+      vi.mocked(forumService.fetchMyStats).mockResolvedValue(makeMyStats({ posts: 120 }));
+
+      const { rerender } = renderCategoryListPage();
+      const postsCard = () => screen.getByText('Posts').parentElement as HTMLElement;
+      await waitFor(() => expect(within(postsCard()).getByText('120')).toBeInTheDocument());
+
+      // A tab-focus revalidateIdentity() swaps the user object; isAuthenticated
+      // (`!!user`) stays true the whole time.
+      vi.mocked(forumService.fetchMyStats).mockResolvedValue(makeMyStats({ posts: 345 }));
+      vi.mocked(useAuth).mockReturnValue({
+        user: { id: 2 },
+        isAuthenticated: true,
+      } as unknown as ReturnType<typeof useAuth>);
+      rerender(
+        <BrowserRouter>
+          <CategoryListPage />
+        </BrowserRouter>
+      );
+
+      await waitFor(() => expect(within(postsCard()).getByText('345')).toBeInTheDocument());
+      expect(screen.queryByText('120')).not.toBeInTheDocument();
+      expect(forumService.fetchMyStats).toHaveBeenCalledTimes(2);
+    });
+
+    it('does not fetch "Your season" while auth is still being verified (audit M3)', async () => {
+      vi.spyOn(forumService, 'fetchForumIndex').mockResolvedValue(indexPayload([]));
+      // AuthProvider seeds `user` from sessionStorage before the backend
+      // confirms it — an expired session reads as authenticated for a moment.
+      vi.mocked(useAuth).mockReturnValue({
+        user: { id: 1 },
+        isAuthenticated: true,
+        isLoading: true,
+      } as unknown as ReturnType<typeof useAuth>);
+
+      renderCategoryListPage();
+      // Mount effects have all run once the index fetch has fired.
+      await waitFor(() => expect(forumService.fetchForumIndex).toHaveBeenCalledTimes(1));
+
+      expect(forumService.fetchMyStats).not.toHaveBeenCalled();
+    });
+
     it('shows the original trio and no "Your season" heading when anonymous', async () => {
       vi.spyOn(forumService, 'fetchForumIndex').mockResolvedValue(
         indexPayload([createMockCategory({ id: 'cat-1', name: 'Plant Care' })])

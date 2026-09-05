@@ -366,11 +366,19 @@ export default function ThreadDetailPage() {
     async (e: FormEvent<HTMLFormElement>) => {
       e.preventDefault();
       if (topicId == null || isBlankHtml(replyBody)) return;
+      // Stale-thread guard (audit 2026-09-04 M2), same as every other write
+      // handler here: route param changes reuse this component instance, so
+      // a reply submitted on thread A that resolves after navigating to
+      // thread B must not clear B's composer or replace B's post list — and
+      // this chain (createPost → revalidateIdentity → collectAllPosts) is
+      // the longest await on the page.
+      const requestTopicId = topicId;
       try {
         setReplySubmitting(true);
         setNotice(null);
-        const res = await createPost({ thread: topicId, content: replyBody });
-        if (topicId != null) clearDraft(draftKey('reply', String(topicId)));
+        const res = await createPost({ thread: requestTopicId, content: replyBody });
+        clearDraft(draftKey('reply', String(requestTopicId)));
+        if (currentTopicIdRef.current !== requestTopicId) return;
         setReplyBody('');
         // Remount the editor so it visibly clears, and focus the fresh composer
         // (M25) — remount-via-key alone left focus dropped after posting.
@@ -386,13 +394,15 @@ export default function ThreadDetailPage() {
         // user's moderation queue just the same.
         const actingUserId = user?.id ?? null;
         const current = await revalidateIdentity();
+        if (currentTopicIdRef.current !== requestTopicId) return;
         const drifted = (current?.id ?? null) !== actingUserId;
         const driftNotice = current?.username
           ? `Your session changed while replying — this was posted as ${current.username}, not the account you started with.`
           : 'Your session changed while replying — you were signed out.';
 
         if (res.status === 'published') {
-          const refreshed = await collectAllPosts(topicId);
+          const refreshed = await collectAllPosts(requestTopicId);
+          if (currentTopicIdRef.current !== requestTopicId) return;
           setPosts(refreshed.items);
           setNextCursor(refreshed.next);
           setTotalPosts((n) => n + 1);
@@ -417,9 +427,11 @@ export default function ThreadDetailPage() {
         logger.error('Error posting reply', {
           component: 'ThreadDetailPage',
           error: err,
-          context: { threadId: topicId },
+          context: { threadId: requestTopicId },
         });
-        setNotice(err instanceof Error ? err.message : 'Failed to post reply');
+        if (currentTopicIdRef.current === requestTopicId) {
+          setNotice(err instanceof Error ? err.message : 'Failed to post reply');
+        }
       } finally {
         setReplySubmitting(false);
       }

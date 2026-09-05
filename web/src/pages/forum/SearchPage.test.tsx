@@ -10,6 +10,9 @@ import * as forumService from '../../services/forumService';
 // Mock the forumService
 vi.mock('../../services/forumService');
 
+const announceMock = vi.hoisted(() => vi.fn());
+vi.mock('../../contexts/AnnouncerContext', () => ({ useAnnounce: () => announceMock }));
+
 // Mock the AuthContext
 vi.mock('../../contexts/AuthContext', () => ({
   useAuth: vi.fn(() => ({ user: null, isAuthenticated: false })),
@@ -147,6 +150,18 @@ describe('SearchPage', () => {
       await waitFor(() => {
         expect(screen.getByText('Search failed')).toBeInTheDocument();
       });
+    });
+
+    it('announces a failed search for screen readers (audit M4)', async () => {
+      vi.spyOn(forumService, 'fetchCategories').mockResolvedValue([]);
+      vi.spyOn(forumService, 'searchForum').mockRejectedValue(new Error('Search failed'));
+
+      renderSearchPage('/forum/search?q=watering');
+
+      await waitFor(() => expect(screen.getByText('Search failed')).toBeInTheDocument());
+      // The inline banner is conditionally mounted, so it is never announced
+      // on its own — the persistent announcer must carry the failure.
+      expect(announceMock).toHaveBeenCalledWith('Search failed', 'assertive');
     });
   });
 

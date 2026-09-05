@@ -343,3 +343,46 @@ def test_experts_hides_a_user_the_viewer_has_blocked():
 
     assert resp.status_code == 200
     assert resp.data["results"] == []
+
+
+# --- audit 2026-09-04 L12 ------------------------------------------------------
+
+
+def _avatar_for(user):
+    from wagtail.images import get_image_model
+    from wagtail.images.tests.utils import get_test_image_file
+    from wagtail_forum.collections import get_forum_image_collection
+
+    return get_image_model().objects.create(
+        title=f"{user.username}-avatar",
+        file=get_test_image_file(),
+        collection=get_forum_image_collection(),
+        uploaded_by_user=user,
+    )
+
+
+@pytest.mark.django_db
+def test_experts_list_with_avatars_adds_no_per_row_queries():
+    """Pattern 30 (query-optimization.md): a pin over a select_related chain
+    only guards the legs the fixture TRAVERSES. The profile-table count above
+    cannot see an N+1 against wagtailimages_image, so give every expert an
+    avatar and pin the whole endpoint EXACTLY. Mutation-checked: dropping
+    "avatar" from ExpertsView's select_related turns this red."""
+    _board()
+    for i in range(4):
+        user = User.objects.create_user(username=f"expert{i}")
+        profile = ForumProfile.for_user(user)
+        profile.trust_level = 3
+        profile.avatar = _avatar_for(user)
+        profile.save(update_fields=["trust_level", "avatar"])
+
+    with CaptureQueriesContext(connection) as ctx:
+        resp = APIClient().get("/forum/users/experts/")
+
+    assert resp.status_code == 200
+    assert len(resp.data["results"]) == 4
+    assert all(r["avatar"] for r in resp.data["results"])
+    # Pinned EXACTLY: one SELECT joining user + avatar. No .public() lookup
+    # here (experts is not board-scoped) and the client is anonymous, so no
+    # presence touch either.
+    assert len(ctx.captured_queries) == 1, [q["sql"][:80] for q in ctx.captured_queries]

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { render, screen, waitFor, within, act } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import * as ReactRouter from 'react-router-dom';
@@ -597,6 +597,65 @@ describe('ThreadDetailPage', () => {
 
     expect(screen.getByRole('button', { name: /^follow$/i })).toBeInTheDocument();
     expect(screen.queryByText('Network error')).not.toBeInTheDocument();
+  });
+
+  it('a reply that resolves after navigating to a different thread does not replace that thread (audit M2)', async () => {
+    const threadA = createMockThread({ id: '12', slug: 'watering-tips' });
+    const threadB = createMockThread({ id: '34', slug: 'different-thread' });
+    const fetchThreadSpy = vi
+      .spyOn(forumService, 'fetchThread')
+      .mockResolvedValueOnce(threadA)
+      .mockResolvedValueOnce(threadB);
+    const page = (id: string, text: string) => ({
+      items: [
+        createMockPost({
+          id,
+          body: [{ id: `b${id}`, type: 'paragraph', value: `<p>${text}</p>` }],
+        }),
+      ],
+      meta: { count: 1, next: null, previous: null },
+    });
+    vi.spyOn(forumService, 'fetchPosts').mockImplementation(async ({ thread }) =>
+      thread === 34 ? page('7', 'thread B post') : page('8', 'thread A post')
+    );
+    let resolveCreate!: (value: { id: string; status: 'published' }) => void;
+    vi.spyOn(forumService, 'createPost').mockReturnValue(
+      new Promise((resolve) => {
+        resolveCreate = resolve;
+      })
+    );
+
+    const { rerender } = renderThreadDetailPage();
+    await screen.findByText('thread A post');
+    await userEvent.type(screen.getByLabelText('Write a reply...'), 'a reply on A');
+    await userEvent.click(screen.getByRole('button', { name: /post reply/i }));
+
+    vi.mocked(ReactRouter.useParams).mockReturnValue({
+      categorySlug: '3-plant-care',
+      threadSlug: '34-different-thread',
+    });
+    rerender(
+      <MemoryRouter initialEntries={['/forum/plant-care/34-different-thread']}>
+        <AnnouncerProvider>
+          <ThreadDetailPage />
+        </AnnouncerProvider>
+      </MemoryRouter>
+    );
+    await waitFor(() => expect(fetchThreadSpy).toHaveBeenCalledWith(34));
+    await screen.findByText('thread B post');
+
+    // Thread A's reply now lands. Without the guard this re-collected thread
+    // A's posts into thread B's list and announced success on the wrong page.
+    await act(async () => {
+      resolveCreate({ id: '99', status: 'published' });
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    });
+
+    expect(screen.getByText('thread B post')).toBeInTheDocument();
+    expect(screen.queryByText('thread A post')).not.toBeInTheDocument();
+    expect(document.querySelector('[data-announcer="polite"]')).not.toHaveTextContent(
+      'Reply posted.'
+    );
   });
 
   it('does not leave the Bookmark button stuck loading after navigating to a different thread mid-request', async () => {

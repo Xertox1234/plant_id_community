@@ -36,7 +36,7 @@ a host may not install, and the package must not assume it.
 import logging
 
 from django.db import transaction
-from django.db.models import F, Value
+from django.db.models import F, Q, Value
 from django.db.models.functions import Replace
 from django.db.models.signals import post_save, pre_save
 from django.dispatch import receiver
@@ -66,7 +66,10 @@ def remember_old_path(sender, instance, update_fields=None, raw=False, **kwargs)
     if update_fields is not None and not _PATH_FIELDS.intersection(update_fields):
         return
     old = sender.objects.filter(pk=instance.pk).select_related("board").first()
-    if old is not None:
+    # Only a path that was ever public is worth a row: live now, or published
+    # at some point — unpublish keeps ``first_published_at`` (it clears
+    # ``live_revision``). A never-published draft's path was always a 404.
+    if old is not None and (old.live or old.first_published_at is not None):
         setattr(instance, _OLD_PATH_ATTR, old.get_absolute_url())
 
 
@@ -77,10 +80,18 @@ def remember_old_path(sender, instance, update_fields=None, raw=False, **kwargs)
 )
 def redirect_old_path(sender, instance, created, raw=False, **kwargs):
     old_path = getattr(instance, _OLD_PATH_ATTR, None)
-    # Gate on the NEW live state: an auto-hidden topic whose slug a moderator
-    # fixes on the way back to published still gets its once-public URL
-    # redirected; an unpublished topic's path is a 404 either way.
-    if raw or created or not old_path or not instance.live:
+    # Deliberately NOT gated on the new ``live`` state (audit 2026-09-04 M1).
+    # Since Wagtail 6.0 the admin saves a draft edit of an UNPUBLISHED
+    # snippet straight to the row (``form.save(commit=not live)``), and the
+    # later publish is a plain ``save()`` whose pre_save snapshot then reads
+    # the already-renamed row: waiting for the publish would find old == new
+    # and write nothing, leaving the once-public URL a plain 404 — the "hide
+    # it, fix the slug, republish it" moderation flow. So the draft save
+    # writes the row: it costs nothing (the target 404s until republished,
+    # exactly as the old path already does) and it is the only save that
+    # still knows the once-public path. The pre_save gate above keeps
+    # never-published drafts out.
+    if raw or created or not old_path:
         return
     new_path = instance.get_absolute_url()
     if Redirect.normalise_path(old_path) == Redirect.normalise_path(new_path):
@@ -162,16 +173,21 @@ def redirect_board_topics(board_before, board):
     because the caller's has already committed: a failure leaves the table as
     it was, never half-moved.
 
-    Unpublished topics get no row (their path is a 404 before and after); the
-    chain collapse still re-points rows aimed at them, by prefix, so they are
-    right if the topic is published again — which is why steps 1–2 run even
-    when no topic is live, and why a row the collapse folds onto itself is
-    dropped (2b)."""
+    Never-published drafts get no row (their path is a 404 before and after);
+    a once-public topic that is unpublished right now does, for the same
+    reason the per-topic receiver writes one while hidden (audit 2026-09-04
+    M1): its old path was public and the new one is right the moment it is
+    republished. The chain collapse still re-points rows aimed at drafts, by
+    prefix, so they are right if the draft is ever published — which is why
+    steps 2–2b run even when no topic qualifies (step 1 has nothing to shadow
+    then), and why a row the collapse folds onto itself is dropped (2b)."""
     old_prefix = board_topic_prefix(board.pk, board_before.slug)
     new_prefix = board_topic_prefix(board.pk, board.slug)
     if old_prefix == new_prefix:
         return
-    live = board.topics.filter(live=True).values_list("id", "slug")
+    live = board.topics.filter(
+        Q(live=True) | Q(first_published_at__isnull=False)
+    ).values_list("id", "slug")
     pairs = [
         (
             Redirect.normalise_path(

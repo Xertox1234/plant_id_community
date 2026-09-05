@@ -267,3 +267,42 @@ links to the full audit manifest with detailed findings and resolutions.
 - **Close baseline:** full worktree pytest suite 1088 passed / 8 skipped;
   `manage.py check` clean; kimi-review clean on all four fix diffs.
 - **Commit(s):** branch `chore/forum-wagtail-audit-2026-07-17` (PR pending).
+
+### 2026-09-04 — Community Forum Post-Sprint Full Audit
+
+- **Trigger:** User-invoked `/audit` after a run of forum-only PRs (#589 polls,
+  #606/#607 RAG, #619/#620 spam trust gate, #623 Green Thumb, #624/#625 Wagtail
+  quick wins, #626 topic-path redirects, #627 polish). Ran read-only first
+  (findings report); the user then chose "fix every Medium and Low, file H1".
+- **Manifest:** [2026-09-04-forum.md](2026-09-04-forum.md)
+- **Findings:** 1 high, 8 medium, 12 low (21 total) from 7 specialist agents
+  (django-drf, wagtail, cross-cutting ×2, react-typescript, flutter-dart,
+  celery-async); Phase 2.5 Context7 research: 19 confirmed, 1 better-fix,
+  2 not-applicable, 0 contradicted. Backend security came back a **verified
+  zero** (route-by-route permission/throttle/ownership matrix).
+- **Resolved:** 20 fixed & verified, 1 deferred (H1 → todo 335), 0 open.
+- **Headline (H1, deferred):** no Celery worker exists in any tracked deploy
+  config **or** the live Railway project, while five forum tasks enqueue on
+  shipped paths — the todo-261 deferral went stale once `OPENAI_API_KEY` went
+  live. An ops/spend decision, filed as todo 335 with the backlog-drain step.
+- **Fixed:** M1 topic redirects now survive "unpublish → fix slug in /cms/ →
+  publish" (Wagtail 6+ writes draft edits through to the row; gate on
+  `first_published_at`, since unpublish nulls `live_revision`); M2 stale-thread
+  guard on the reply handler; M3 "Your season" keyed on identity + auth-loading
+  gate; M4 failure banners announced via the persistent live region; M5 mobile
+  search "Load more" awaited + SnackBar; M6 `/forum/notifications` auth-gated;
+  M7 gallery picks downscaled before upload; M8 batch tasks' `retry_backoff`
+  factor 30 (was `True` = 1 s); L1/L2 redundant `get_or_create` wrappers
+  removed; L3 `ignore_result` on side-effect tasks; L4 drafts cleared on logout;
+  L5 mention dropdown lifecycle tests; L6/L7 a11y nits; L8 composer back-guard;
+  L9 sync failure/page-bound tests; L10 `Post` autocomplete search field
+  (prod: run `update_index` once); L11 `UPPER(username) text_pattern_ops` index
+  with an EXPLAIN-backed test; L12 avatar-leg query pins (mutation-checked).
+- **Process:** `kimi-review` is not installed on this machine, so the per-fix
+  gate was targeted tests + mutation checks on every new pin + the Phase 6
+  domain reviewers over the staged diff. Agent severities were calibrated down
+  in 9 rows (recorded per row).
+- **Close baseline:** backend forum + users 1336 passed, `check` +
+  `makemigrations --check` clean; web 1068 passed, `tsc` + eslint clean;
+  mobile analyze clean, 427 passed, codegen regenerated.
+- **Commit(s):** branch `audit/forum-2026-09-04` (PR pending).

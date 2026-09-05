@@ -747,3 +747,74 @@ def test_send_forum_push_batch_does_not_re_enqueue_on_permanent_error(exc):
         send_forum_push_batch("reply_added", [user.pk], {"topic_id": "1"})
 
     mock_single.assert_not_called()
+
+
+# --- audit 2026-09-04 M8 / L3 -------------------------------------------------
+
+
+def test_side_effect_only_tasks_ignore_results():
+    """Every forum task is fire-and-forget (each call site is a bare .delay()
+    and nothing reads the AsyncResult), so none may persist a result into the
+    configured backend (audit 2026-09-04 L3; domain/celery.md)."""
+    from apps.forum_host.tasks import (
+        generate_topic_summary,
+        send_forum_email_batch,
+        send_forum_push,
+        send_forum_push_batch,
+        sync_blog_page_chunks,
+    )
+
+    for task in (
+        send_forum_push,
+        send_forum_push_batch,
+        send_forum_email_batch,
+        generate_topic_summary,
+        sync_blog_page_chunks,
+    ):
+        assert task.ignore_result is True, task.name
+
+
+def test_batch_tasks_declare_a_real_backoff_factor():
+    """``retry_backoff`` on an autoretry task is the FACTOR: ``True`` meant
+    ~1s/2s/4s (audit 2026-09-04 M8; docs/rules/celery.md), i.e. a near-instant
+    retry against a DB that just raised OperationalError."""
+    from apps.forum_host import constants
+    from apps.forum_host.tasks import send_forum_email_batch, send_forum_push_batch
+    from django.db import OperationalError
+
+    for task in (send_forum_push_batch, send_forum_email_batch):
+        assert OperationalError in task.autoretry_for, task.name
+        assert task.retry_backoff == constants.NOTIFICATION_BATCH_RETRY_DELAY
+        assert task.max_retries == constants.NOTIFICATION_BATCH_MAX_RETRIES
+
+
+@pytest.mark.parametrize("prior_retries, ceiling", [(0, 30), (1, 60), (2, 120)])
+def test_push_batch_autoretry_countdown_is_exponential_from_the_retry_delay(
+    prior_retries, ceiling
+):
+    """Pinned the sync_blog_page_chunks way (test_rag_index_tasks.py): fake the
+    retry counter, mock retry(), patch full jitter to its maximum, and read the
+    countdown the autoretry wrapper computes for the pre-send bulk fetch."""
+    from apps.forum_host.tasks import send_forum_push_batch
+    from celery.exceptions import Retry
+    from django.db import OperationalError
+
+    with patch(
+        "apps.garden.firebase_config.is_firebase_available", return_value=True
+    ), patch(
+        "apps.garden.firebase_config.get_fcm_client", return_value=MagicMock()
+    ), patch.object(
+        ForumProfile.objects, "filter", side_effect=OperationalError("db down")
+    ), patch(
+        "celery.utils.time.random.randrange", side_effect=lambda n: n - 1
+    ), patch.object(
+        send_forum_push_batch, "retry", side_effect=Retry("retried")
+    ) as mock_retry:
+        send_forum_push_batch.push_request(retries=prior_retries)
+        try:
+            with pytest.raises(Retry):
+                send_forum_push_batch.run("reply_added", [1], {"topic_id": "1"})
+        finally:
+            send_forum_push_batch.pop_request()
+
+    assert mock_retry.call_args.kwargs["countdown"] == ceiling
