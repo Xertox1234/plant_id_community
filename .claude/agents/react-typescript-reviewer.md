@@ -84,6 +84,19 @@ Use Grep as fallback for any LSP call that returns an error or empty/inconclusiv
 - [ ] New CSS property values use `--gt-*` semantic tokens, never raw `--canopy-*` ramp vars — the raw ramp is mode-blind and fails contrast in the mode the author didn't look at (PR #537 flash ring: ~1.4:1 in light). Raw ramp vars are legal only on the RHS of the `:root`/`[data-mode]` token-definition blocks (`web/docs/patterns/tailwind.md`)
 - [ ] A static rule that must visually beat a Tailwind utility on the same element (state ring, hide rule) must sit OUTSIDE every `@layer` — `@layer components` always loses to utilities regardless of specificity; check any new `@layer components` rule whose target also carries utility classes for the same property (two shipped instances: PR #536 rail hide vs `xl:flex`, PR #537 flash ring vs `ring-*`)
 
+### Multi-choice polls additions (2026-09-05, todo 349)
+
+- A controlled `<select>`/`<input>` whose valid range is derived from OTHER
+  state (option count, filled rows) must clamp its value to that range —
+  validating instead leaves an invisible selection gating a submit button.
+- A capped checkbox group that uses `disabled` for the capped boxes removes
+  them from the tab order; ask for `aria-disabled` + a no-op and an
+  `aria-describedby` to the cap hint, and tests that assert the attribute
+  and accessible description rather than `toBeDisabled()`.
+- `onChange={(e) => set(Number(e.target.value) || fallback)}` on a controlled
+  number input: clear snaps to the fallback and the next keystroke appends
+  ("2" → "12"). Flag it; prefer a bounded `<select>` or raw-string state.
+
 ## Output Format (Review Mode)
 
 Return ONLY this JSON structure (no surrounding prose, no markdown fences in the actual response — the example fences below show the schema):

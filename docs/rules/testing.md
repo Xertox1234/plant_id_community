@@ -450,3 +450,17 @@ Compact checklist auto-injected before edits.
   the constant; it does not pin it.** Shrinking the bound goes green. Assert the
   literal value next to the behaviour (`expect(ForumSyncService.maxPages, 500)`)
   when the number itself is the guarantee (todo 321 lesson, re-hit 2026-09-04 L9).
+- **A status-only assertion on an endpoint with LAYERED validation is vacuous
+  — assert the validator's own text.** `{option_ids: [x, x]}` is 400 from the
+  dedup validator AND from the view's option-count check (`filter(id__in=)`
+  collapses the duplicate), so `assert resp.status_code == 400` survives
+  deleting the validator. When two guards answer the same payload, assert the
+  message of the one under test (todo 349 review).
+- **Bash/python-scripted source edits bypass the write-time triggers.** The
+  `inject-patterns` hook fires on Edit/Write tool calls only; a heredoc or
+  `python3 - <<EOF` rewrite of a `.py`/`.tsx` file gets no rule injection and
+  no `triggers.json` warning — `drf-listfield-late-bound` would have flagged
+  the unbounded `serializers.ListField(` a reviewer later caught (todo 349).
+  Write NEW source with the Write tool; keep scripted edits for mechanical
+  bulk changes, and run `python3 scripts/inject/match_triggers.py`-style
+  checks (or the reviewers) on anything written around the hook.

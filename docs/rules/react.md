@@ -201,3 +201,19 @@ Compact checklist auto-injected before edits. Long-form:
   mount/reload (the stored → confirmed same identity), and never on
   expire → same-account re-login, or the draft the user was writing when the
   session died is exactly what you destroy (audit 2026-09-04 L4).
+- **A controlled `<select>` whose `<option>` list is derived from other state
+  must CLAMP its value, not validate against it.** Pick "3 of 3", blank an
+  option, and the list becomes [1, 2] while state still says 3: the select
+  renders no selection and a submit button elsewhere goes disabled for a
+  reason nobody can see. Derive `effective = Math.min(raw, optionCount)` and
+  use it for the value, the payload, and the validity check (todo 349 review).
+- **A controlled `<input type="number">` snaps to its fallback on clear, so the
+  next keystroke appends:** `onChange={(e) => set(Number(e.target.value) || 1)}`
+  turns clear-then-"2" into `12`. For a small bounded choice use a `<select>`;
+  otherwise keep the raw string in state and parse on submit (todo 349).
+- **Cap a checkbox group with `aria-disabled` + a no-op, not `disabled`.**
+  `disabled` drops the capped boxes out of the tab order, so a keyboard/AT
+  user finds options silently gone; `aria-disabled` keeps them focusable, and
+  `aria-describedby` on each box pointing at the "Pick up to N" hint explains
+  why. Assert `toHaveAttribute('aria-disabled', 'true')` +
+  `toHaveAccessibleDescription(...)`, not `toBeDisabled()` (todo 349 review).

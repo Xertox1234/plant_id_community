@@ -134,6 +134,20 @@ Use Grep as fallback for any LSP call that returns an error or an empty/inconclu
 - [ ] `SerializerMethodField` that queries the DB is a BLOCKER N+1 — use conditional annotations instead
 - [ ] UUID fields on models exposed via API must use `models.UUIDField(default=uuid.uuid4)`
 
+### Multi-choice polls additions (2026-09-05, todo 349)
+
+- A model aggregate that derives a per-user fact by summing per-row counts
+  (e.g. "voters = sum(option counts)") is trusting a VIEW-level invariant;
+  flag it when the DB constraint that used to guarantee one row per user has
+  been widened. Ask for `Count(..., distinct=True)`, folded into the existing
+  query as a `Subquery` if the count is pinned.
+- A `select_for_update()` guard with a single read inside the lock has no
+  deterministic test shape — ask for the fast-check + locked-re-check split
+  (module-level helper, monkeypatched to miss once) and a `FOR UPDATE` pin in
+  `CaptureQueriesContext`.
+- Any `serializers.ListField(` in a write serializer must be a
+  `_BoundedListField` subclass (raw-length gate before per-item parsing).
+
 ## Output Format (Review Mode)
 
 Return ONLY this JSON structure (no surrounding prose, no markdown fences in the actual response — the example fences below show the schema):

@@ -210,3 +210,11 @@ Compact checklist auto-injected before edits. Long-form:
   `SET LOCAL enable_seqscan = off` and assert the index name appears — a wrong
   opclass or expression compiles fine and is simply never chosen. See
   `performance/query-optimization.md` Pattern 33 (audit 2026-09-04 L11).
+- **A model-level aggregate must not depend on a VIEW-level invariant.**
+  `Poll.results()` summed per-option counts as "voters" because the vote view
+  guaranteed one row per voter — the moment the DB constraint moved to
+  `(poll, user, option)`, any writer that bypassed the view (admin, a data
+  migration, a second endpoint) would double-count silently. Compute the
+  aggregate from the rows (`Count("user", distinct=True)`), and if the cost
+  matters fold it into the existing query as a correlated `Subquery` rather
+  than trusting the caller (todo 349 review).

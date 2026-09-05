@@ -4348,3 +4348,15 @@ Smaller `ReportView` seams from the same review: `UserColumn` is one
 (`custom_field_preprocess`); a class-attribute `no_results_message` shadows the
 filter-aware property; `default_ordering` needs an `order_queryset` pk
 tie-break for stable pagination.
+
+### [2026-09-05] Scripted edits skipped the write-time triggers (todo 349)
+
+The multi-choice poll endpoint shipped its `option_ids` as a plain
+`serializers.ListField(` — the exact signature `docs/rules/triggers.json`'s
+`drf-listfield-late-bound` exists to catch — and a reviewer found it, not the
+hook. Cause: the file was written by a `python3 - <<'EOF'` script in Bash
+(auto mode prefers shell edits), and `inject-patterns.sh` is a PreToolUse
+hook on Edit/Write only, so no rules and no trigger reached the edit. Same
+for the `no_results_message`/`default_ordering` triggers written the same
+day. Fix: source files go through the Write/Edit tools (or the trigger
+matcher is run over the result); the rule is in `docs/rules/testing.md`.
