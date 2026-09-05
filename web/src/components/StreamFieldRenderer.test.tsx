@@ -79,6 +79,56 @@ describe('StreamFieldRenderer', () => {
       });
     });
 
+    it('renders an embed block as a sandboxed iframe on the server-derived player URL, never provider HTML (todo 344)', () => {
+      const { container } = render(
+        <StreamFieldRenderer
+          blocks={[
+            {
+              type: 'embed',
+              id: 'e1',
+              value: {
+                url: 'https://youtu.be/dQw4w9WgXcQ',
+                provider_name: 'YouTube',
+                title: 'Repotting a monstera',
+                thumbnail_url: 'https://i.ytimg.com/t.jpg',
+                embed_url: 'https://www.youtube-nocookie.com/embed/dQw4w9WgXcQ',
+              },
+            },
+          ]}
+        />
+      );
+      const frame = container.querySelector('iframe');
+      expect(frame).toHaveAttribute('src', 'https://www.youtube-nocookie.com/embed/dQw4w9WgXcQ');
+      expect(frame).toHaveAttribute('title', 'Repotting a monstera');
+      expect(frame?.getAttribute('sandbox')).toContain('allow-scripts');
+      expect(frame).toHaveAttribute('referrerpolicy', 'strict-origin-when-cross-origin');
+    });
+
+    it('renders an embed without a player URL as a thumbnail link card that opens the original link', () => {
+      render(
+        <StreamFieldRenderer
+          blocks={[
+            {
+              type: 'embed',
+              id: 'e2',
+              value: {
+                url: 'https://vimeo.com/148751763',
+                provider_name: 'Vimeo',
+                title: '',
+                thumbnail_url: 'https://i.vimeocdn.com/t.jpg',
+                embed_url: null,
+              },
+            },
+          ]}
+        />
+      );
+      const link = screen.getByRole('link', { name: /vimeo\.com\/148751763/ });
+      expect(link).toHaveAttribute('href', 'https://vimeo.com/148751763');
+      expect(link).toHaveAttribute('rel', 'noopener noreferrer');
+      expect(screen.getByText('Watch on Vimeo')).toBeInTheDocument();
+      expect(document.querySelector('iframe')).toBeNull();
+    });
+
     it('renders image block as an <img> with the rendition url and alt', () => {
       const blocks: StreamFieldBlock[] = [
         {

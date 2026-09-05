@@ -3,6 +3,32 @@ import 'package:plant_community_mobile/features/forum/models/forum_body_block.da
 
 void main() {
   group('parseForumBody', () {
+    test('parses an embed envelope, and a bare URL from an older client', () {
+      final blocks = parseForumBody([
+        {
+          'type': 'embed',
+          'value': {
+            'url': 'https://youtu.be/dQw4w9WgXcQ',
+            'provider_name': 'YouTube',
+            'title': 'Repotting',
+            'thumbnail_url': 'https://i/t.jpg',
+            'embed_url': 'https://www.youtube-nocookie.com/embed/dQw4w9WgXcQ',
+          },
+        },
+        {'type': 'embed', 'value': 'https://vimeo.com/148751763'},
+      ]);
+
+      expect(blocks[0], isA<EmbedBlock>());
+      final first = blocks[0] as EmbedBlock;
+      expect(first.url, 'https://youtu.be/dQw4w9WgXcQ');
+      expect(first.providerName, 'YouTube');
+      expect(first.title, 'Repotting');
+      expect(first.thumbnailUrl, 'https://i/t.jpg');
+      final second = blocks[1] as EmbedBlock;
+      expect(second.url, 'https://vimeo.com/148751763');
+      expect(second.title, '');
+    });
+
     test('parses all five block types', () {
       final blocks = parseForumBody([
         {'type': 'heading', 'value': 'A heading', 'id': '1'},
@@ -47,10 +73,10 @@ void main() {
 
     test('unknown block type → UnknownBlock preserving the type', () {
       final blocks = parseForumBody([
-        {'type': 'embed', 'value': 'whatever'},
+        {'type': 'gallery', 'value': 'whatever'},
       ]);
       expect(blocks.single, isA<UnknownBlock>());
-      expect((blocks.single as UnknownBlock).type, 'embed');
+      expect((blocks.single as UnknownBlock).type, 'gallery');
     });
 
     test('quote object form (web shape) extracts text', () {

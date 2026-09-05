@@ -3,7 +3,7 @@
 /// Mirrors the backend on-read shape (`FORUM_BODY_SCHEMA`,
 /// `wagtail_forum/api/serializers.py`): a JSON array of
 /// `{type, value, id}`. The permitted block types are
-/// `heading`, `paragraph`, `quote`, `code`, `image` (`blocks.py`).
+/// `heading`, `paragraph`, `quote`, `code`, `image`, `embed` (`blocks.py`).
 ///
 /// Per-type `value` on read:
 /// - `heading`  → plain string
@@ -13,6 +13,9 @@
 /// - `code`     → `{language, code}` object
 /// - `image`    → `{id, url, alt, width, height}` object, or `null` when the
 ///                referenced image was deleted after posting
+/// - `embed`    → `{url, provider_name, title, thumbnail_url, embed_url}`
+///                (todo 344): a video link the server unfurled. Mobile
+///                renders a thumbnail card — no WebView, no provider HTML.
 ///
 /// Unknown block types are preserved as [UnknownBlock] and rendered as a
 /// graceful fallback, mirroring the web renderer's `default:` case, rather
@@ -54,6 +57,17 @@ sealed class ForumBodyBlock {
         }
         // value == null → the image row was deleted after posting.
         return const DeletedImageBlock();
+      case 'embed':
+        if (value is Map<String, dynamic>) {
+          return EmbedBlock(
+            url: value['url'] as String? ?? '',
+            providerName: value['provider_name'] as String? ?? '',
+            title: value['title'] as String? ?? '',
+            thumbnailUrl: value['thumbnail_url'] as String? ?? '',
+          );
+        }
+        // A pre-unfurl client could only have sent the bare URL.
+        return EmbedBlock(url: value is String ? value : '');
       default:
         return UnknownBlock(type);
     }
@@ -128,6 +142,22 @@ class ForumImageBlock extends ForumBodyBlock {
 /// `image` whose referenced image row was deleted (`value == null`).
 class DeletedImageBlock extends ForumBodyBlock {
   const DeletedImageBlock();
+}
+
+/// A video link the server unfurled (todo 344). `embedUrl` is deliberately
+/// not carried: mobile shows a thumbnail card with the provider and title,
+/// never an inline player — see the renderer.
+class EmbedBlock extends ForumBodyBlock {
+  const EmbedBlock({
+    required this.url,
+    this.providerName = '',
+    this.title = '',
+    this.thumbnailUrl = '',
+  });
+  final String url;
+  final String providerName;
+  final String title;
+  final String thumbnailUrl;
 }
 
 /// A block type the client does not recognise — preserved for a fallback

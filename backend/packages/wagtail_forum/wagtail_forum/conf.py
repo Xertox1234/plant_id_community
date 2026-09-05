@@ -134,6 +134,21 @@ DEFAULTS = {
     # <= the matching column max_lengths in models/polls.py.
     "POLL_QUESTION_MAX_LENGTH": 300,
     "POLL_OPTION_MAX_LENGTH": 200,
+    # Video/oEmbed blocks (todo 344). Off by default: a reusable package
+    # cannot assume a host wants external provider lookups and third-party
+    # iframes; the block exists in the schema regardless (blocks.py) but the
+    # API refuses it and reads carry no player URL until this is True. The
+    # provider allowlist is Wagtail's own WAGTAILEMBEDS_FINDERS.
+    "ALLOW_EMBED_BLOCKS": False,
+    # Hard bound on the ONE network call embeds make — at write time, while
+    # the author waits (wagtail_forum/embeds.py::warm_embed). Wagtail's
+    # oEmbed finder has no timeout of its own; a slow provider degrades the
+    # post to a link card rather than hanging the create.
+    "EMBED_FETCH_TIMEOUT_SECONDS": 5,
+    # Distinct embed URLs one body may carry. They are fetched concurrently
+    # inside ONE timeout window at write time, so this bounds worker-pool
+    # pressure per write (and reader-side iframes per post), not wall time.
+    "MAX_EMBED_URLS_PER_BODY": 5,
 }
 
 

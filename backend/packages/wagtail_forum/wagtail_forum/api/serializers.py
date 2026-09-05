@@ -4,11 +4,13 @@ from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 from rest_framework import serializers
 from wagtail.blocks import RichTextBlock
+from wagtail.embeds.blocks import EmbedBlock
 from wagtail.images import get_image_model
 from wagtail.rich_text import expand_db_html
 
 from ..collections import get_forum_image_collection
 from ..conf import get_setting
+from ..embeds import embed_envelope
 from ..models import (
     ForumBoard,
     ForumProfile,
@@ -659,7 +661,22 @@ def build_forum_image_map(posts):
     return {img.id: img for img in images}
 
 
-def serialize_forum_body(stream_value, image_map=None, request=None):
+def build_forum_embed_map(posts):
+    """Map {url: Embed} for every embed block across *posts* — one query, or
+    none when there are no embed blocks or the host has embeds off. The
+    embed twin of build_forum_image_map, for the same reason: the post-list
+    query count must stay flat however many videos a page carries."""
+    from ..embeds import cached_embeds_for
+
+    return cached_embeds_for(
+        raw.get("value")
+        for post in posts
+        for raw in post.body.raw_data
+        if raw.get("type") == "embed"
+    )
+
+
+def serialize_forum_body(stream_value, image_map=None, request=None, embed_map=None):
     """StreamField -> [{type, value, id}] for the React StreamFieldRenderer.
 
     Iterates the RAW StreamField data, never the resolved StreamValue: merely
@@ -676,6 +693,8 @@ def serialize_forum_body(stream_value, image_map=None, request=None):
     """
     image_map = image_map or {}
     child_blocks = stream_value.stream_block.child_blocks
+    from ..embeds import _UNSET
+
     blocks = []
     for raw in stream_value.raw_data:
         block_type = raw.get("type")
@@ -684,6 +703,15 @@ def serialize_forum_body(stream_value, image_map=None, request=None):
         if block_type == "image":
             image = image_map.get(raw_value)
             value = serialize_image_for_api(image, request) if image else None
+        elif isinstance(child, EmbedBlock):
+            # DB-only envelope (todo 344): never `child.to_python`, whose
+            # EmbedValue.html would call the provider on a cache miss —
+            # inline, untimed, on a public read. With a page map the row is
+            # already in hand (query-free); without one, a single lookup.
+            url = raw_value or ""
+            value = embed_envelope(
+                url, cached=embed_map.get(url) if embed_map is not None else _UNSET
+            )
         elif isinstance(child, RichTextBlock):
             value = expand_db_html(raw_value or "")
         elif child is not None:
@@ -743,6 +771,7 @@ class PostSerializer(serializers.ModelSerializer):
             obj.body,
             self.context.get("forum_image_map"),
             self.context.get("request"),
+            embed_map=self.context.get("forum_embed_map"),
         )
 
     @extend_schema_field(OpenApiTypes.DATETIME)
