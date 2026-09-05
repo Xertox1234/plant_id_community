@@ -431,7 +431,7 @@ export default function ConversationPage() {
                     <span className="sr-only">{mine ? 'You:' : `${name}:`} </span>
                     {/* Plain text by contract — React escapes it; pre-wrap keeps
                         the author's line breaks. Never HTML here. */}
-                    <p className="whitespace-pre-wrap break-words text-[15px] leading-relaxed">
+                    <p className="whitespace-pre-wrap break-words text-body-lg leading-relaxed">
                       {message.body}
                     </p>
                     <div className="mt-1 flex flex-wrap items-center justify-between gap-x-3">
@@ -512,7 +512,7 @@ export default function ConversationPage() {
           className="w-full rounded-md border border-line bg-surface-2/60 px-3 py-2 text-ink placeholder:text-ink-3 focus:border-transparent focus:ring-2 focus:ring-secondary focus:outline-none disabled:opacity-60"
         />
         <div className="flex items-center justify-between gap-3">
-          <span className="font-mono text-[11px] text-ink-3">
+          <span className="font-mono text-micro text-ink-3">
             {`${draft.length}/${MESSAGE_MAX_LENGTH}`}
             <span className="hidden sm:inline"> · ⌘/Ctrl + Enter to send</span>
           </span>

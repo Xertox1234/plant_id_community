@@ -7,6 +7,7 @@ import {
   POST_CARD_PADDING,
   TILE_BOX,
   TILE_RADIUS,
+  FEATURED_ART_MAX_WIDTH,
 } from '../ui/dimensions';
 
 /**
@@ -175,7 +176,7 @@ export function CategoryListSkeleton() {
           </div>
           <SkeletonBlock
             rounded="lg"
-            className="aspect-square w-full max-w-[200px] justify-self-start md:max-w-[260px] md:justify-self-end"
+            className={`aspect-square w-full justify-self-start ${FEATURED_ART_MAX_WIDTH} md:justify-self-end`}
           />
         </div>
       </Card>

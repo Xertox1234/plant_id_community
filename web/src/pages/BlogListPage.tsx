@@ -20,6 +20,7 @@ import {
 import { logger } from '../utils/logger';
 import { useScrollToTop } from '../hooks/useScrollToTop';
 import type { BlogPost, BlogCategory } from '@/types';
+import { FEATURED_ART_WIDTH } from '../components/ui/dimensions';
 
 const POSTS_PER_PAGE = 8; // 2-col grid → even pages
 
@@ -199,7 +200,7 @@ export default function BlogListPage() {
             alt=""
             width={280}
             height={280}
-            className="canopy-float w-[200px] md:w-[260px]"
+            className={`canopy-float ${FEATURED_ART_WIDTH}`}
           />
         }
       />
@@ -235,14 +236,14 @@ export default function BlogListPage() {
             defaultValue={search}
             aria-label="Search articles"
             placeholder="Search articles…"
-            className="w-full rounded-pill border border-line bg-surface-2/60 py-2 pl-10 pr-4 text-[13px] text-ink placeholder:text-ink-3 transition-colors hover:bg-surface-2 focus:outline-none focus-visible:ring-2 focus-visible:ring-secondary"
+            className="w-full rounded-pill border border-line bg-surface-2/60 py-2 pl-10 pr-4 text-body-sm text-ink placeholder:text-ink-3 transition-colors hover:bg-surface-2 focus:outline-none focus-visible:ring-2 focus-visible:ring-secondary"
           />
         </form>
       </div>
 
       {/* Active-search count + clear (spec §7). */}
       {hasFilters && !loading && !error && (
-        <div className="flex items-center gap-3 font-mono text-[12px] text-ink-3">
+        <div className="flex items-center gap-3 font-mono text-meta text-ink-3">
           <span>
             {totalCount} {totalCount === 1 ? 'article' : 'articles'}
             {search && <> for “{search}”</>}
@@ -264,15 +265,15 @@ export default function BlogListPage() {
       )}
 
       {error && (
-        <div className="rounded-md border border-error/30 bg-error/10 p-6 text-center text-[13.5px] text-error">
+        <div className="rounded-md border border-error/30 bg-error/10 p-6 text-center text-body-sm text-error">
           Couldn’t load the blog — {error}
         </div>
       )}
 
       {!loading && !error && posts.length === 0 && (
         <div className="canopy-card rounded-md p-10 text-center">
-          <p className="text-[15px] font-semibold text-ink">No articles found</p>
-          <p className="mt-1 text-[13.5px] text-ink-2">
+          <p className="text-body-lg font-semibold text-ink">No articles found</p>
+          <p className="mt-1 text-body-sm text-ink-2">
             Try a different search, or browse every topic.
           </p>
           {hasFilters && (

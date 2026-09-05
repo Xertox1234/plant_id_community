@@ -30,6 +30,7 @@ import { eventHeroTopicPath } from '../../utils/forumUrls';
 import { boardIdentity } from '../../utils/forumTones';
 import { resolveBoardFilter } from '../../utils/forumBoardFilter';
 import type { Category, ForumMyStats, RecentTopic, EventHeroTopic } from '@/types';
+import { FEATURED_ART_WIDTH } from '../../components/ui/dimensions';
 
 // The landing rail's recent-activity fetch, passed through to
 // ActiveNowModule (which re-slices its own display to 3 regardless of how
@@ -197,7 +198,7 @@ export default function CategoryListPage() {
       alt=""
       width={280}
       height={280}
-      className="canopy-float w-[200px] md:w-[260px]"
+      className={`canopy-float ${FEATURED_ART_WIDTH}`}
     />
   );
 

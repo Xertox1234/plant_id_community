@@ -34,3 +34,11 @@ export const AVATAR_RADIUS: Record<AvatarSize, string> = {
 export const POST_CARD_PADDING = 'p-5 sm:p-6';
 /** HeroCard's shell padding; the radius is Card's `radius="lg"`. */
 export const HERO_CARD_PADDING = 'p-8 md:p-10';
+
+/**
+ * Featured-board / featured-article artwork (todo 351): the card sets the
+ * width, the skeleton mirrors it as a max-width on a `w-full` block — the
+ * pair must move together, which is why both live here.
+ */
+export const FEATURED_ART_WIDTH = 'w-[200px] md:w-[260px]';
+export const FEATURED_ART_MAX_WIDTH = 'max-w-[200px] md:max-w-[260px]';

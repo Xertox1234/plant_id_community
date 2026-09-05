@@ -103,7 +103,7 @@ export default function ThemePreviewPage() {
               data-mode={mode}
               className="bg-surface text-ink p-card rounded-md shadow-2 border border-line"
             >
-              <p className="text-[10px] uppercase tracking-wide text-ink-3">
+              <p className="text-micro uppercase tracking-wide text-ink-3">
                 {density}/{mode}
               </p>
               <Swatches />

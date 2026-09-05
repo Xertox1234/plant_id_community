@@ -1035,7 +1035,7 @@ export default function ThreadDetailPage() {
         <div className="flex items-start justify-between flex-wrap gap-4">
           <div className="flex-1 min-w-0">
             <h1
-              className="gt-display text-[26px] sm:text-[34px] text-ink mb-3"
+              className="gt-display break-words text-ink mb-3"
               style={{ viewTransitionName: `thread-${thread.id}` }}
             >
               {thread.title}
@@ -1334,7 +1334,7 @@ export default function ThreadDetailPage() {
                   <Avatar src={person.avatar || specimenAvatar(person.username)} alt="" size="sm" />
                   <Link
                     to={userProfilePath(person.username)}
-                    className="min-w-0 truncate text-[13px] font-medium text-ink transition-colors hover:text-primary"
+                    className="min-w-0 truncate text-body-sm font-medium text-ink transition-colors hover:text-primary"
                   >
                     {person.display}
                   </Link>
@@ -1352,7 +1352,7 @@ export default function ThreadDetailPage() {
               {railThreads.map((t) => (
                 <li key={t.id}>
                   <Link to={threadPath(thread.category, t)} className="group block">
-                    <span className="line-clamp-2 text-[13px] font-medium text-ink transition-colors group-hover:text-primary">
+                    <span className="line-clamp-2 text-body-sm font-medium text-ink transition-colors group-hover:text-primary">
                       {t.title}
                     </span>
                     <span className="gt-label mt-0.5 block normal-case tracking-normal">

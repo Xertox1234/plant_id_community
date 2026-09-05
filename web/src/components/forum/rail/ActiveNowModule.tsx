@@ -68,7 +68,7 @@ export default function ActiveNowModule({ topics: providedTopics }: ActiveNowMod
                   <img
                     src={t.thumbnail_url}
                     alt=""
-                    className="h-10 w-10 flex-none rounded-[10px] border border-line object-cover"
+                    className="h-10 w-10 flex-none rounded-sm border border-line object-cover"
                   />
                 ) : (
                   <Tile tone={tone} size="sm" aria-hidden="true">
@@ -76,7 +76,7 @@ export default function ActiveNowModule({ topics: providedTopics }: ActiveNowMod
                   </Tile>
                 )}
                 <span className="min-w-0">
-                  <span className="block text-[12.5px] leading-snug font-medium text-ink transition-colors group-hover:text-primary">
+                  <span className="block text-meta leading-snug font-medium text-ink transition-colors group-hover:text-primary">
                     {t.title}
                   </span>
                   <span className="gt-label mt-0.5 block normal-case tracking-normal">

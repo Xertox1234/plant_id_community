@@ -95,7 +95,7 @@ export default function BlogDetailPage() {
 
   if (error || !post) {
     return (
-      <div className="mx-auto max-w-[70ch] rounded-md border border-error/30 bg-error/10 p-6 text-center text-[13.5px] text-error">
+      <div className="mx-auto max-w-[70ch] rounded-md border border-error/30 bg-error/10 p-6 text-center text-body-sm text-error">
         Couldn’t load this article{error ? ` — ${error}` : ''}
       </div>
     );
@@ -125,14 +125,14 @@ export default function BlogDetailPage() {
       <header className="mx-auto flex w-full max-w-[70ch] flex-col items-start gap-3.5">
         <div className="flex flex-wrap items-center gap-3">
           {category && (
-            <span className="rounded-pill border border-line bg-surface-2/60 px-2.5 py-0.5 font-mono text-[11px] uppercase tracking-[0.14em] text-ink-2">
+            <span className="rounded-pill border border-line bg-surface-2/60 px-2.5 py-0.5 font-mono text-micro uppercase tracking-[0.14em] text-ink-2">
               {category.name}
             </span>
           )}
-          {date && <span className="font-mono text-[12px] text-ink-3">{date}</span>}
+          {date && <span className="font-mono text-meta text-ink-3">{date}</span>}
         </div>
-        <h1 className="gt-h1 text-balance md:text-[38px]">{post.title}</h1>
-        {authorLine && <p className="font-mono text-[12.5px] text-ink-3">{authorLine}</p>}
+        <h1 className="gt-h1 text-balance md:text-hero">{post.title}</h1>
+        {authorLine && <p className="font-mono text-meta text-ink-3">{authorLine}</p>}
       </header>
 
       {coverSrc && (
@@ -162,7 +162,7 @@ export default function BlogDetailPage() {
 
       {related.length > 0 && (
         <aside className="mx-auto w-full max-w-[860px] border-t border-line pt-8">
-          <h2 className="mb-4 text-[17px] font-semibold text-ink">More from the blog</h2>
+          <h2 className="mb-4 text-lead font-semibold text-ink">More from the blog</h2>
           <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
             {related.slice(0, 3).map((rp) => (
               <Card key={rp.id} interactive className="overflow-hidden">
@@ -179,11 +179,11 @@ export default function BlogDetailPage() {
                     />
                   )}
                   <span className="flex flex-1 flex-col gap-1.5 p-4">
-                    <span className="text-[14px] font-semibold leading-snug text-ink transition-colors group-hover:text-primary">
+                    <span className="text-body font-semibold leading-snug text-ink transition-colors group-hover:text-primary">
                       {rp.title}
                     </span>
                     {rp.excerpt && (
-                      <span className="line-clamp-2 text-[12.5px] text-ink-2">{rp.excerpt}</span>
+                      <span className="line-clamp-2 text-meta text-ink-2">{rp.excerpt}</span>
                     )}
                   </span>
                 </Link>

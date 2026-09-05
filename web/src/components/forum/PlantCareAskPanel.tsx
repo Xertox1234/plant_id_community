@@ -68,13 +68,13 @@ function formatSourceDate(value: string): string {
 function AnswerText({ answer, sources }: { answer: string; sources: PlantCareSource[] }) {
   const byNumber = new Map(sources.map((s) => [s.n, s]));
   return (
-    <p className="text-[15px] leading-relaxed text-ink">
+    <p className="text-body-lg leading-relaxed text-ink">
       {answer.split(CITATION_SPLIT).map((part, i) => {
         const match = part.match(CITATION_MATCH);
         if (!match) return <Fragment key={i}>{part}</Fragment>;
         const numbers = match[1].split(',').map((n) => parseInt(n.trim(), 10));
         return (
-          <span key={i} className="font-mono text-[12px] text-ink-2">
+          <span key={i} className="font-mono text-meta text-ink-2">
             [
             {numbers.map((n, j) => {
               const source = byNumber.get(n);
@@ -107,10 +107,10 @@ function SourceList({ sources }: { sources: PlantCareSource[] }) {
   return (
     <ol aria-label="Sources" className="mt-3 space-y-2">
       {sources.map((source) => (
-        <li key={source.n} className="flex flex-col gap-0.5 text-[13px]">
+        <li key={source.n} className="flex flex-col gap-0.5 text-body-sm">
           <div className="flex flex-wrap items-center gap-2">
-            <span className="font-mono text-[11px] text-ink-3">[{source.n}]</span>
-            <span className="inline-flex items-center gap-1 rounded-pill border border-line px-2 py-0.5 text-[11px] text-ink-2">
+            <span className="font-mono text-micro text-ink-3">[{source.n}]</span>
+            <span className="inline-flex items-center gap-1 rounded-pill border border-line px-2 py-0.5 text-micro text-ink-2">
               {source.kind === 'blog' ? (
                 <BookOpen className="h-3 w-3" aria-hidden="true" />
               ) : (
@@ -218,7 +218,7 @@ export default function PlantCareAskPanel({ initialQuestion = '' }: PlantCareAsk
         </span>
         <span className="gt-label">AI · Premium</span>
       </button>
-      <p className="mt-2 text-[13px] text-ink-2">{DISCLOSURE}</p>
+      <p className="mt-2 text-body-sm text-ink-2">{DISCLOSURE}</p>
 
       {open && (
         <div id="plant-care-ask-body" className="mt-4">
@@ -243,7 +243,7 @@ export default function PlantCareAskPanel({ initialQuestion = '' }: PlantCareAsk
               className="w-full rounded-md border border-line bg-surface-2/60 px-3 py-2 text-ink placeholder:text-ink-3 focus:border-transparent focus:ring-2 focus:ring-secondary focus:outline-none disabled:opacity-60"
             />
             <div className="flex items-center justify-between gap-3">
-              <span className="font-mono text-[11px] text-ink-3">{`${question.length}/${QUESTION_MAX}`}</span>
+              <span className="font-mono text-micro text-ink-3">{`${question.length}/${QUESTION_MAX}`}</span>
               <Button
                 type="submit"
                 size="sm"
@@ -261,22 +261,22 @@ export default function PlantCareAskPanel({ initialQuestion = '' }: PlantCareAsk
           <p
             role="status"
             aria-live="polite"
-            className={error ? 'mt-3 text-[13px] text-error' : 'sr-only'}
+            className={error ? 'mt-3 text-body-sm text-error' : 'sr-only'}
           >
             {error ?? ''}
           </p>
 
           {result?.status === 'referral' && (
-            <p className="mt-4 text-[14px] leading-relaxed text-ink">{result.referral.message}</p>
+            <p className="mt-4 text-body leading-relaxed text-ink">{result.referral.message}</p>
           )}
 
           {result?.status === 'no_information' && (
-            <p className="mt-4 text-[14px] leading-relaxed text-ink-2">{NO_INFORMATION}</p>
+            <p className="mt-4 text-body leading-relaxed text-ink-2">{NO_INFORMATION}</p>
           )}
 
           {result?.status === 'passages_only' && (
             <div className="mt-4">
-              <p className="text-[14px] text-ink-2">
+              <p className="text-body text-ink-2">
                 No confident answer — here’s what the site has:
               </p>
               <SourceList sources={result.sources} />
@@ -292,7 +292,7 @@ export default function PlantCareAskPanel({ initialQuestion = '' }: PlantCareAsk
 
               <div className="mt-4 border-t border-line pt-3">
                 {reported ? (
-                  <p className="text-[13px] text-ink-2">
+                  <p className="text-body-sm text-ink-2">
                     Reported — thanks, a moderator will review it.
                   </p>
                 ) : reporting ? (
@@ -312,9 +312,9 @@ export default function PlantCareAskPanel({ initialQuestion = '' }: PlantCareAsk
                       onChange={(event) => setReportDetail(event.target.value)}
                       maxLength={REPORT_DETAIL_MAX}
                       rows={2}
-                      className="w-full rounded-md border border-line bg-surface-2/60 px-3 py-2 text-[13px] text-ink focus:border-transparent focus:ring-2 focus:ring-secondary focus:outline-none"
+                      className="w-full rounded-md border border-line bg-surface-2/60 px-3 py-2 text-body-sm text-ink focus:border-transparent focus:ring-2 focus:ring-secondary focus:outline-none"
                     />
-                    {reportError && <p className="text-[13px] text-error">{reportError}</p>}
+                    {reportError && <p className="text-body-sm text-error">{reportError}</p>}
                     <div className="flex items-center gap-2">
                       <Button type="submit" size="sm" variant="secondary" loading={reportBusy}>
                         Submit report

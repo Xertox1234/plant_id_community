@@ -424,7 +424,7 @@ export default function CommandPalette({ open, onClose }: CommandPaletteProps) {
           setHasNavigated(true);
           setActiveIndex(index);
         }}
-        className={`flex min-h-11 items-center gap-2.5 px-4 text-[13.5px] transition-colors ${
+        className={`flex min-h-11 items-center gap-2.5 px-4 text-body-sm transition-colors ${
           selected ? 'bg-surface-2 text-ink' : 'text-ink-2 hover:bg-surface-2/70 hover:text-ink'
         }`}
       >
@@ -465,7 +465,7 @@ export default function CommandPalette({ open, onClose }: CommandPaletteProps) {
               aria-label="Search plants, posts, people"
               aria-activedescendant={activeRow?.id}
               autoComplete="off"
-              className="w-full bg-transparent text-[14px] text-ink outline-none placeholder:text-ink-3"
+              className="w-full bg-transparent text-body text-ink outline-none placeholder:text-ink-3"
             />
           </div>
           <div className="max-h-[60vh] overflow-y-auto py-2">
@@ -477,9 +477,9 @@ export default function CommandPalette({ open, onClose }: CommandPaletteProps) {
             {showTopics && (
               <div>
                 <p className="gt-label px-4 pt-3 pb-1.5">Topics</p>
-                {topicsLoading && <p className="px-4 py-2 text-[13px] text-ink-3">Searching…</p>}
+                {topicsLoading && <p className="px-4 py-2 text-body-sm text-ink-3">Searching…</p>}
                 {!topicsLoading && topicsError && (
-                  <p className="px-4 py-2 text-[13px] text-error">
+                  <p className="px-4 py-2 text-body-sm text-error">
                     Search is unavailable right now
                   </p>
                 )}
@@ -493,9 +493,9 @@ export default function CommandPalette({ open, onClose }: CommandPaletteProps) {
             {showPeople && (
               <div>
                 <p className="gt-label px-4 pt-3 pb-1.5">People</p>
-                {peopleLoading && <p className="px-4 py-2 text-[13px] text-ink-3">Searching…</p>}
+                {peopleLoading && <p className="px-4 py-2 text-body-sm text-ink-3">Searching…</p>}
                 {!peopleLoading && peopleError && (
-                  <p className="px-4 py-2 text-[13px] text-error">
+                  <p className="px-4 py-2 text-body-sm text-error">
                     Search is unavailable right now
                   </p>
                 )}

@@ -22,7 +22,7 @@ interface ConfidencePillProps {
 function ConfidencePill({ value, tone = 'text-ink-2', suffix }: ConfidencePillProps) {
   return (
     <span
-      className={`shrink-0 rounded-pill border border-line bg-surface-2/60 px-2.5 py-0.5 font-mono text-[13px] tabular-nums ${tone}`}
+      className={`shrink-0 rounded-pill border border-line bg-surface-2/60 px-2.5 py-0.5 font-mono text-body-sm tabular-nums ${tone}`}
     >
       {Math.round(value * 100)}%{suffix && <span className="sr-only"> {suffix}</span>}
     </span>
