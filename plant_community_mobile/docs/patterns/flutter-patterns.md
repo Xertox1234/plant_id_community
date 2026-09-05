@@ -262,3 +262,19 @@ Reference: `lib/features/forum/widgets/author_identity.dart`,
 - A "jump to" that targets an item possibly outside the built children
   steps the viewport and pages the cursor with a hard bound, never an
   unbounded loop (`ensureVisible` only reaches built widgets).
+
+## Forum parity waves 3+4 (todo 341): polls, mentions, quotes
+
+- `poll_card.dart`: `ForumPoll.pendingOptionIds` is client-only state (never
+  serialised) that disables the ballot the instant a vote is sent; the
+  server's poll object replaces the model on success, so percentages are
+  never computed locally. A 409 means "already voted" — show the server's
+  sentence and `ref.invalidate` the SINGLE-VALUE topic detail to resync.
+- `forum_mention_suggestions.dart`: `mentionFragmentAt(text, caret)` finds
+  the `@word` under the caret (emails are not mentions), `insertMention`
+  replaces exactly that fragment; the `MentionSearch` notifier debounces
+  300 ms, cancels its timer on dispose and discards superseded responses
+  by generation. The strip sits above the field, inline.
+- Quote: `forumBodyPlainText` (heading/paragraph/code; nested quotes and
+  media dropped) + `forumQuoteText` (500-char cap) → a leading `quote`
+  block via `buildQuoteBlockBody`, attribution as its plain first line.

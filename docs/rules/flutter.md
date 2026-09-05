@@ -153,3 +153,15 @@ Compact checklist auto-injected before edits. Long-form:
   — a provider retries a failed future on its own schedule, and a
   moderator-only 403 is a state to render, not an error to retry (edit
   history, todo 341).
+- **A vote/ballot is optimistic in its CONTROLS, never in its counts.** Keep
+  a client-only pending set on the model so the card disables at once,
+  replace the whole object with the server's response on success, clear the
+  pending set and rethrow on failure — counts always come from the server
+  (a 409 "already voted" resyncs the single-value provider). Mention
+  suggestions render as an inline strip above the field, not a caret
+  `OverlayEntry` (it sits under the keyboard); debounce with a `Timer`
+  cancelled in `ref.onDispose` and a generation counter that drops
+  superseded responses (todo 341 waves 3+4).
+- **A `Row(crossAxisAlignment: stretch)` of cards inside a `ListView` has
+  unbounded height** — flutter_test's default semantics surfaces it as
+  `!semantics.parentDataDirty`; wrap the row in `IntrinsicHeight` (todo 341).
