@@ -903,3 +903,29 @@ single source of truth for the stats progress bar and the `BADGE_BOTANIST_*`
 settings only seed/fall back. Reviewer-caught seams: name-collision in the
 seed (deploy blocker), two sources of truth for the threshold, CASCADE on the
 award FK, and the inline-formset create view needing an actual POST test.
+
+### Embeds: allowlisted providers, one bounded fetch, DB-only reads (todo 344)
+
+`wagtail_forum/embeds.py` is the whole posture:
+
+```python
+is_supported_url(url)      # http(s), <= 2048 chars, accepted by the host's WAGTAILEMBEDS_FINDERS
+warm_embeds(urls)          # write time: get_embed() per URL on the shared pool, ONE timeout window, swallow everything
+TimeoutOEmbedFinder        # host registers it in WAGTAILEMBEDS_FINDERS: requests.get(..., timeout=) for real
+cached_embeds_for(urls)    # read time: ONE Embed query per page (hash__in), none when embeds are off
+embed_envelope(url, cached)  # {url, provider_name, title, thumbnail_url, embed_url|None} — never html
+derive_embed_url(url)      # youtube-nocookie / player.vimeo from the ORIGINAL url, else None
+```
+
+The block is declared unconditionally (schema) but inert until
+`ALLOW_EMBED_BLOCKS`; `validate_forum_body` refuses it otherwise, checks the
+finder allowlist and the per-body cap (`MAX_EMBED_URLS_PER_BODY`), then
+warms the distinct URLs concurrently. `build_forum_embed_map`
+rides the serializer context beside `build_forum_image_map` so a page of
+videos costs one query. Web: a URL-only paragraph becomes the block on
+submit; the renderer iframes `embed_url` with `sandbox`/`referrerPolicy` or
+shows a thumbnail card; re-edit round-trips through `<p><a href>` with an
+http(s) allowlist. Flutter: thumbnail card tappable through the renderer's
+existing `onOpenLink`. Reviewer-caught seams: per-block cache query (N+1),
+worker-thread rows leaking across tests, the raw-HTML href bypassing React's
+guard, and the Flutter handler that already existed.

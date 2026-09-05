@@ -125,3 +125,15 @@ Compact checklist auto-injected before edits. Long-form: `backend/docs/patterns/
   or dashboard links to model X's views, add `view_X`/`change_X` to the group
   in the same PR and add a test that GETs the linked URL as a member of that
   GROUP, not a hand-assembled permission set (todo 345).
+- **oEmbed/video embeds: network once at write time under a hard timeout,
+  reads DB-only, never deliver provider HTML.** Wagtail's oEmbed finder calls
+  `requests.get` with no timeout and `EmbedValue.html`/`get_embed` fetch on a
+  cache miss — so resolve into the `Embed` table while the author waits
+  (`TimeoutOEmbedFinder` puts a real socket timeout on the request AND a
+  shared bounded pool + `EMBED_FETCH_TIMEOUT_SECONDS` bounds the author's wait;
+  cap distinct URLs per body), read only that table on
+  the serve path, and derive the player URL server-side from the ORIGINAL
+  url onto a known host (`youtube-nocookie.com`, `player.vimeo.com`); clients
+  iframe that with `sandbox` and fall back to thumbnail + link. The provider
+  allowlist is the host's `WAGTAILEMBEDS_FINDERS` — keep it short, and gate
+  the block behind a package setting that defaults OFF (todo 344).

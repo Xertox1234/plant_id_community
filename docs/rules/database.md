@@ -230,3 +230,17 @@ Compact checklist auto-injected before edits. Long-form:
   admin's "used by N" warning on delete; a plain FK silently cascades, so a
   moderator deleting a `Badge` would erase every member's award history with
   no prompt. Refuse the delete and retire via an `is_active` flag (todo 348).
+- **A per-block cache lookup on a serialized body is an N+1 — batch it per
+  page like `build_forum_image_map`.** `embed_envelope` did one `Embed`
+  query per embed block; a page of posts each with a video cost a query per
+  post until `build_forum_embed_map` threaded one `hash__in` query through
+  the serializer context. Any new block type that reads a row on serialize
+  gets a page-level map and a 1-vs-N flatness pin (todo 344, kimi-review).
+- **A worker thread has its OWN DB connection: close it, and expect its
+  writes to outlive the test transaction.** `warm_embed`'s thread commits
+  the `Embed` row for real (pytest's transaction only wraps the test
+  thread), so rows leak into later tests — use distinct fixture keys per
+  test and delete leftovers up front; in production, `connection.close()`
+  in the worker's `finally`, a shared bounded pool (never one per call), and
+  a real socket timeout on the request — an executor `.result(timeout)` only
+  bounds the CALLER, the stalled thread and its connection live on.

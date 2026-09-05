@@ -1443,5 +1443,21 @@
     "source": "codify: feat/todo-338-345-forum-moderation",
     "added": "2026-09-04",
     "severity": "warn"
+  },
+  {
+    "id": "forum-embed-read-path-fetch",
+    "domains": [
+      "wagtail",
+      "security"
+    ],
+    "path_glob": [
+      "backend/**/api/*.py"
+    ],
+    "content_present": "\\bget_embed\\(",
+    "message": "get_embed() fetches the provider on a cache miss — never call it on a read/serialize path. Reads are DB-only: cached_embeds_for()/build_forum_embed_map() + embed_envelope(); provider I/O belongs in warm_embeds() at write time only (todo 344).",
+    "pattern_ref": "backend/docs/patterns/domain/forum.md",
+    "source": "codify: feat/todo-344-forum-embeds",
+    "added": "2026-09-05",
+    "severity": "warn"
   }
 ]

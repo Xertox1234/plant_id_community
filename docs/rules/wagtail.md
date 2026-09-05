@@ -240,3 +240,11 @@ Compact checklist auto-injected before edits. Long-form:
   branch on them); `default_ordering`/`?ordering=` compile to a bare
   `order_by(col)` — override `order_queryset` to append `pk`, or 50-row pages
   can duplicate/skip equal-timestamp rows (todo 345).
+- **A new StreamField block type is four changes, not one:** the block +
+  its state migration (the block list is schema), a `serialize_forum_body`
+  branch that never resolves the block through `to_python` when that would
+  do I/O (`EmbedValue.html` fetches), a renderer case on the web AND a model
+  - widget case on Flutter (with the "unknown type" fixtures moved to a
+  still-unknown name), and a README contract entry. Gate a host-optional
+  block with a package setting rather than making the block list vary per
+  host (todo 344).

@@ -122,3 +122,10 @@ Compact checklist auto-injected before edits. Long-form:
   SIZE after the pick instead (`XFile.length()` against the backend cap) and
   keep the bytes exact; reserve the bounds for the camera flow, where the
   source is always a fresh JPEG (code review round 2, PR #629).
+- **Before declaring a capability "missing" (no url_launcher, no player…),
+  grep for the handler the renderer already threads.** `ForumBodyRenderer`
+  passes `onOpenLink` to paragraph links and the thread screen surfaces it
+  in a SnackBar — so the embed card could be tappable through that path
+  instead of shipping a visible-but-inert URL. New block widgets accept the
+  same handler; a blank envelope renders the sibling placeholder (like a
+  deleted image), never an empty card (todo 344 review).

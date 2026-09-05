@@ -191,6 +191,15 @@ one session pinned nothing)
 - Two implementations of "the same counters" (engine metrics vs a stats
   view): require a drift test asserting equality on one fixture.
 
+### Embed additions (2026-09-05, todo 344)
+
+- Network I/O in a write path must be bounded (timeout) and absent from the
+  read path; grep the serialize path for `get_embed`/`to_python` on
+  I/O-bearing blocks.
+- A hand-built HTML string on the web that is later parsed into a live DOM
+  (composer round-trips) needs its own scheme allowlist; React's href guard
+  only covers JSX attributes.
+
 ## Output Format (Review Mode)
 
 Return ONLY this JSON structure (no surrounding prose, no markdown fences in the actual response — the example fences below show the schema):
