@@ -8,10 +8,13 @@ import '../../../core/constants/app_spacing.dart';
 import '../../../services/api_service.dart';
 import '../../../services/auth_service.dart';
 import '../forum_errors.dart';
+import '../forum_format.dart';
 import '../models/models.dart';
 import '../providers/forum_providers.dart';
 import '../widgets/forum_edit_history_sheet.dart';
 import '../widgets/forum_report_sheet.dart';
+import '../widgets/identification_card.dart';
+import '../widgets/poll_card.dart';
 import '../widgets/post_card.dart';
 import 'forum_composer_screen.dart';
 
@@ -49,6 +52,8 @@ class ForumThreadScreen extends ConsumerWidget {
     // moderator) — never re-derived from the viewer's identity here.
     final canMarkSolution =
         isAuthenticated && (topic?.canMarkSolution ?? false);
+    // Quote pre-fills a reply, so it follows the reply FAB's own gate.
+    final canQuote = isAuthenticated && !isLocked && detail.hasValue;
 
     return Scaffold(
       appBar: AppBar(
@@ -104,6 +109,15 @@ class ForumThreadScreen extends ConsumerWidget {
                 ? (post) => _toggleSolution(context, ref, post)
                 : null,
             highlightPostId: highlightPostId,
+            identification: topic?.identification,
+            poll: topic?.poll,
+            canVote: isAuthenticated,
+            onVote: isAuthenticated
+                ? (optionIds) => _votePoll(context, ref, optionIds)
+                : null,
+            onQuote: canQuote
+                ? (post) => _openReply(context, ref, quoteOf: post)
+                : null,
           ),
         ),
       ),
@@ -117,10 +131,27 @@ class ForumThreadScreen extends ConsumerWidget {
     );
   }
 
-  Future<void> _openReply(BuildContext context, WidgetRef ref) async {
+  /// Open the reply composer; with [quoteOf] (the Quote action, todo 341
+  /// wave 3) it opens pre-filled with that post's text as a `quote` block.
+  Future<void> _openReply(
+    BuildContext context,
+    WidgetRef ref, {
+    ForumPost? quoteOf,
+  }) async {
+    String? quoteText;
+    if (quoteOf != null) {
+      quoteText = forumQuoteText(quoteOf);
+      if (quoteText == null) {
+        // Image-only / embed-only post: nothing a quote block could carry.
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Nothing to quote in that post.')),
+        );
+        return;
+      }
+    }
     final result = await context.pushNamed<bool>(
       'forumCompose',
-      extra: ForumComposeArgs.reply(topicId: topicId),
+      extra: ForumComposeArgs.reply(topicId: topicId, quoteText: quoteText),
     );
     if (result == true) {
       // A new reply is oldest-first-ordered onto the LAST cursor page, so a
@@ -156,6 +187,41 @@ class ForumThreadScreen extends ConsumerWidget {
           const SnackBar(content: Text('Could not update subscription.')),
         );
       }
+    }
+  }
+
+  /// Cast a poll ballot (todo 341 wave 3). A 409 is branched on STATUS,
+  /// never message text, and bypasses [forumErrorMessage]'s in-flight-twin
+  /// wording: for a poll it means "already voted" (a stale
+  /// `my_vote_option_ids` — another device) or "closed while this thread
+  /// was open", and the server's own sentence names which. The single-value
+  /// detail is then refetched so the ballot resyncs — cheap, and not a
+  /// paged feed.
+  Future<void> _votePoll(
+    BuildContext context,
+    WidgetRef ref,
+    List<int> optionIds,
+  ) async {
+    try {
+      await ref.read(topicDetailProvider(topicId).notifier).votePoll(optionIds);
+    } catch (e) {
+      if (!context.mounted) return;
+      final String message;
+      if (e is ApiException && e.statusCode == 409) {
+        message = e.message.isNotEmpty
+            ? e.message
+            : 'You have already voted in this poll.';
+        ref.invalidate(topicDetailProvider(topicId));
+      } else {
+        message = forumErrorMessage(
+          e,
+          fallback: 'Could not record your vote.',
+          forbidden: 'Sign in to vote.',
+        );
+      }
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(message)));
     }
   }
 
@@ -346,6 +412,11 @@ class _ThreadBody extends StatefulWidget {
     this.solvedPostId,
     this.onToggleSolution,
     this.highlightPostId,
+    this.identification,
+    this.poll,
+    this.canVote = false,
+    this.onVote,
+    this.onQuote,
   });
 
   final int topicId;
@@ -367,6 +438,16 @@ class _ThreadBody extends StatefulWidget {
   /// moderator). Never wired on the opening post below.
   final void Function(ForumPost post)? onToggleSolution;
   final int? highlightPostId;
+
+  /// Header cards (todo 341 wave 3): the plant-ID snapshot and the poll,
+  /// rendered once under the opening post — never fetched here.
+  final ForumIdentification? identification;
+  final ForumPoll? poll;
+  final bool canVote;
+  final Future<void> Function(List<int> optionIds)? onVote;
+
+  /// Non-null when the viewer may reply (signed in, topic open).
+  final void Function(ForumPost post)? onQuote;
 
   @override
   State<_ThreadBody> createState() => _ThreadBodyState();
@@ -519,7 +600,7 @@ class _ThreadBodyState extends State<_ThreadBody> {
         }
         final post = widget.paged.items[index];
         final onToggleSolution = widget.onToggleSolution;
-        return PostCard(
+        final card = PostCard(
           key: _keyFor(post),
           post: post,
           onOpenLink: widget.onOpenLink,
@@ -544,7 +625,13 @@ class _ThreadBodyState extends State<_ThreadBody> {
             'forumUserProfile',
             pathParameters: {'username': post.author.username},
           ),
+          onQuote: widget.onQuote == null ? null : () => widget.onQuote!(post),
         );
+        // The header cards ride the first item: under it when it is the
+        // opening post, above it otherwise (an OP held for moderation).
+        return index == 0
+            ? _withHeaderCards(card, leading: !post.isOpeningPost)
+            : card;
       },
     );
     if (widget.solvedPostId == null) return list;
@@ -552,6 +639,35 @@ class _ThreadBodyState extends State<_ThreadBody> {
       children: [
         _SolvedBanner(onJump: _jumpToAnswer),
         Expanded(child: list),
+      ],
+    );
+  }
+}
+
+extension on _ThreadBodyState {
+  /// [card] plus the identification snapshot and poll cards (todo 341 wave
+  /// 3), or just [card] when the topic carries neither.
+  Widget _withHeaderCards(Widget card, {required bool leading}) {
+    final identification = widget.identification;
+    final poll = widget.poll;
+    final cards = <Widget>[
+      if (identification != null)
+        IdentificationCard(
+          identification: identification,
+          solvedPostId: widget.solvedPostId,
+          onJumpToAnswer: widget.solvedPostId == null ? null : _jumpToAnswer,
+        ),
+      if (poll != null)
+        PollCard(poll: poll, canVote: widget.canVote, onVote: widget.onVote),
+    ];
+    if (cards.isEmpty) return card;
+    final ordered = leading ? [...cards, card] : [card, ...cards];
+    return Column(
+      children: [
+        for (var i = 0; i < ordered.length; i++) ...[
+          if (i > 0) const SizedBox(height: AppSpacing.sm),
+          ordered[i],
+        ],
       ],
     );
   }

@@ -73,22 +73,34 @@ class ForumComposerController {
     );
   }
 
-  /// Post a reply to [topicId]. See [submitTopic] re: [imageId].
+  /// Post a reply to [topicId]. See [submitTopic] re: [imageId]. A non-empty
+  /// [quoteText] (the "Quote" action, todo 341 wave 3) leads the body as a
+  /// real `quote` block — never folded into the paragraph — and is part of
+  /// the idempotency fingerprint like every other piece of content.
   Future<CreateReplyResult> submitReply({
     required int topicId,
     required String bodyText,
     int? imageId,
+    String? quoteText,
   }) {
-    _refreshKeyForContent('reply|$topicId|${bodyText.trim()}|${imageId ?? ''}');
+    _refreshKeyForContent(
+      'reply|$topicId|${(quoteText ?? '').trim()}|${bodyText.trim()}|'
+      '${imageId ?? ''}',
+    );
     return _api.createReply(
       topicId: topicId,
-      body: _buildBody(bodyText, imageId),
+      body: _buildBody(bodyText, imageId, quoteText: quoteText),
       idempotencyKey: _key,
     );
   }
 
-  List<Map<String, dynamic>> _buildBody(String bodyText, int? imageId) {
+  List<Map<String, dynamic>> _buildBody(
+    String bodyText,
+    int? imageId, {
+    String? quoteText,
+  }) {
     return [
+      if (quoteText != null) ...buildQuoteBlockBody(quoteText),
       ...buildParagraphBody(bodyText),
       if (imageId != null) buildImageBlockBody(imageId),
     ];

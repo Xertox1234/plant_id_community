@@ -10,6 +10,7 @@ import '../forum_format.dart';
 import '../providers/forum_providers.dart';
 import '../widgets/author_identity.dart';
 import '../widgets/forum_notice_banner.dart';
+import '../widgets/forum_stats_grid.dart';
 
 /// A public forum profile: identity + trust + recent activity, read-only.
 /// Backed by `GET /forum/users/{username}/` (`AllowAny` server-side, so this
@@ -130,6 +131,13 @@ class ForumUserProfileScreen extends ConsumerWidget {
                   ),
                 ),
               ),
+              // Earned badges are public identity (todo 348): shown even
+              // when the viewer has blocked this member.
+              if (profile.badges.isNotEmpty) ...[
+                const SizedBox(height: AppSpacing.lg),
+                const _SectionHeader('Badges'),
+                ForumBadgeChips(badges: profile.badges),
+              ],
               const SizedBox(height: AppSpacing.lg),
               const _SectionHeader('Recent topics'),
               if (profile.recentTopics.isEmpty)

@@ -22,6 +22,8 @@
 /// than crashing the whole body.
 library;
 
+import 'package:html/parser.dart' as html_parser;
+
 import 'forum_rich_text_markup.dart';
 
 sealed class ForumBodyBlock {
@@ -190,6 +192,54 @@ List<Map<String, dynamic>> buildParagraphBody(String text) {
   return [
     {'type': 'paragraph', 'value': generateForumRichHtml(trimmed)},
   ];
+}
+
+/// Write-shape `quote` block (todo 341 wave 3). Per `blocks.py` the value is
+/// a plain string (`BlockQuoteBlock`) that `api/sanitize.py` leaves
+/// untouched by contract — the consumer HTML-escapes it at render time —
+/// so [text] goes in verbatim, never HTML-escaped here. Returns an empty
+/// list for blank input.
+List<Map<String, dynamic>> buildQuoteBlockBody(String text) {
+  final trimmed = text.trim();
+  if (trimmed.isEmpty) return const [];
+  return [
+    {'type': 'quote', 'value': trimmed},
+  ];
+}
+
+/// Reader-visible plain text of a body, for quoting it (todo 341 wave 3).
+///
+/// Headings, paragraphs (HTML → text: `<br>`/`</p>`/`</li>` become line
+/// breaks, every tag is dropped, entities are decoded by the parser) and
+/// code blocks contribute their text, joined by blank lines. Everything else
+/// is dropped: an existing `quote` block (quoting a reply must not nest its
+/// own quotation — the same convention Discourse applies), images, embeds,
+/// deleted images and unknown blocks (nothing a reader could re-read).
+String forumBodyPlainText(List<ForumBodyBlock> blocks) {
+  final parts = <String>[];
+  for (final block in blocks) {
+    final text = switch (block) {
+      HeadingBlock(:final text) => text,
+      ParagraphBlock(:final html) => _paragraphHtmlToText(html),
+      CodeBlock(:final code) => code,
+      QuoteBlock() ||
+      ForumImageBlock() ||
+      DeletedImageBlock() ||
+      EmbedBlock() ||
+      UnknownBlock() => '',
+    }.trim();
+    if (text.isNotEmpty) parts.add(text);
+  }
+  return parts.join('\n\n');
+}
+
+String _paragraphHtmlToText(String html) {
+  final withBreaks = html
+      .replaceAll(RegExp(r'<br\s*/?>', caseSensitive: false), '\n')
+      .replaceAll(RegExp(r'</(p|li)>', caseSensitive: false), '\n');
+  final text = html_parser.parseFragment(withBreaks).text ?? '';
+  // Collapse the runs of blank lines the separators above can produce.
+  return text.replaceAll(RegExp(r'\n{3,}'), '\n\n').trim();
 }
 
 /// Write-shape `image` block, referencing an already-uploaded image's id.

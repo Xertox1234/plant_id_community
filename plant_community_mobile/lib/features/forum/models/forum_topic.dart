@@ -1,4 +1,6 @@
 import 'forum_author.dart';
+import 'forum_identification.dart';
+import 'forum_poll.dart';
 
 /// A topic row in a board listing. Mirrors the backend `TopicListSerializer`.
 class ForumTopicListItem {
@@ -133,6 +135,8 @@ class ForumTopicDetail {
     this.canMarkSolution = false,
     this.isBlocked = false,
     this.canBlock = false,
+    this.identification,
+    this.poll,
   });
 
   final int id;
@@ -170,6 +174,13 @@ class ForumTopicDetail {
   /// Whether the viewer may block the topic's author.
   final bool canBlock;
 
+  /// The plant-ID snapshot the author attached at compose time (audit M6),
+  /// detail-only. `null` for the overwhelmingly common no-snapshot topic.
+  final ForumIdentification? identification;
+
+  /// The topic's poll with server-computed results (audit M8), detail-only.
+  final ForumPoll? poll;
+
   bool get isLocked => isClosed || locked;
   bool get isSolved => solvedPostId != null;
 
@@ -183,6 +194,7 @@ class ForumTopicDetail {
     bool? isBookmarked,
     int? solvedPostId,
     bool clearSolvedPostId = false,
+    ForumPoll? poll,
   }) {
     return ForumTopicDetail(
       id: id,
@@ -207,6 +219,8 @@ class ForumTopicDetail {
       canMarkSolution: canMarkSolution,
       isBlocked: isBlocked,
       canBlock: canBlock,
+      identification: identification,
+      poll: poll ?? this.poll,
     );
   }
 
@@ -240,6 +254,14 @@ class ForumTopicDetail {
       canMarkSolution: json['can_mark_solution'] as bool? ?? false,
       isBlocked: json['is_blocked'] as bool? ?? false,
       canBlock: json['can_block'] as bool? ?? false,
+      identification: json['identification'] is Map<String, dynamic>
+          ? ForumIdentification.fromJson(
+              json['identification'] as Map<String, dynamic>,
+            )
+          : null,
+      poll: json['poll'] is Map<String, dynamic>
+          ? ForumPoll.fromJson(json['poll'] as Map<String, dynamic>)
+          : null,
     );
   }
 }

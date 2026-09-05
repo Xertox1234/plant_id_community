@@ -6,6 +6,8 @@ import '../../core/constants/app_spacing.dart';
 import '../../services/auth_service.dart';
 import 'models/models.dart';
 import 'providers/forum_providers.dart';
+import 'widgets/forum_experts_strip.dart';
+import 'widgets/forum_stats_grid.dart';
 
 /// Community forum home: the boards a member can browse, plus a "Recent
 /// activity" list backed by the offline delta-sync mirror.
@@ -46,10 +48,15 @@ class ForumScreen extends ConsumerWidget {
           onRefresh: () async {
             ref.invalidate(boardsProvider);
             ref.invalidate(recentTopicsProvider);
+            ref.invalidate(expertsProvider);
+            // Auth-only: never refetch the stats for a signed-out viewer.
+            if (isAuthenticated) ref.invalidate(meStatsProvider);
           },
           child: ListView(
             padding: const EdgeInsets.all(AppSpacing.md),
             children: [
+              if (isAuthenticated) const _YourSeasonSection(),
+              const _ExpertsSection(),
               const _SectionHeader('Boards'),
               boardsAsync.when(
                 loading: () => const _SectionLoader(),
@@ -101,6 +108,70 @@ class ForumScreen extends ConsumerWidget {
           ),
         ),
       ),
+    );
+  }
+}
+
+/// "Your season": the signed-in member's all-time stats grid + earned badge
+/// chips (`GET me/stats/`, todo 341 wave 4). Only mounted when signed in —
+/// the endpoint is auth-only.
+class _YourSeasonSection extends ConsumerWidget {
+  const _YourSeasonSection();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final statsAsync = ref.watch(meStatsProvider);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const _SectionHeader('Your season'),
+        statsAsync.when(
+          loading: () => const _SectionLoader(),
+          error: (error, _) => _SectionError(
+            message: 'Could not load your stats.',
+            onRetry: () => ref.invalidate(meStatsProvider),
+          ),
+          data: (stats) => Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              ForumStatsGrid(stats: stats),
+              if (stats.badges.isNotEmpty) ...[
+                const SizedBox(height: AppSpacing.sm),
+                ForumBadgeChips(badges: stats.badges),
+              ],
+            ],
+          ),
+        ),
+        const SizedBox(height: AppSpacing.lg),
+      ],
+    );
+  }
+}
+
+/// "Experts" strip with the online dot (`GET users/experts/`, todo 341 wave
+/// 4). A rail, not a feed: while loading, on error, or when the site has no
+/// experts yet it renders nothing rather than adding noise to the home.
+class _ExpertsSection extends ConsumerWidget {
+  const _ExpertsSection();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final experts = ref.watch(expertsProvider).asData?.value ?? const [];
+    if (experts.isEmpty) return const SizedBox.shrink();
+    final online = experts.where((e) => e.online).length;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _SectionHeader(online > 0 ? 'Experts · $online online' : 'Experts'),
+        ForumExpertsStrip(
+          experts: experts,
+          onTap: (expert) => context.pushNamed(
+            'forumUserProfile',
+            pathParameters: {'username': expert.author.username},
+          ),
+        ),
+        const SizedBox(height: AppSpacing.lg),
+      ],
     );
   }
 }

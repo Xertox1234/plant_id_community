@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 import 'package:uuid/uuid.dart';
 
@@ -207,6 +209,55 @@ class TopicDetail extends _$TopicDetail {
         clearSolvedPostId: !result.isSolved,
       ),
     );
+  }
+
+  /// Cast the viewer's ballot in this topic's poll (todo 341 wave 3). The
+  /// ballot is marked pending at once — `poll.pendingOptionIds` — so the
+  /// card disables its controls without waiting; the COUNTS are never
+  /// touched locally: they are shared state every reader sees and the
+  /// server can legitimately refuse (409 already voted / closed, 400 over
+  /// the cap), so the poll is replaced wholesale by the server's recomputed
+  /// one on success and the pending marker is cleared (revert) on failure.
+  /// Rethrows so the caller can map the status to copy.
+  Future<void> votePoll(List<int> optionIds) async {
+    // Re-entrancy guard: a double-tap would send two ballots; the second
+    // would only ever 409 against the first, so drop it.
+    if (_voteInFlight) return;
+    _voteInFlight = true;
+    try {
+      await _votePollOnce(optionIds);
+    } finally {
+      _voteInFlight = false;
+    }
+  }
+
+  bool _voteInFlight = false;
+
+  Future<void> _votePollOnce(List<int> optionIds) async {
+    final current = state.asData?.value;
+    final poll = current?.poll;
+    if (current == null || poll == null || optionIds.isEmpty) return;
+    state = AsyncData(
+      current.copyWith(poll: poll.copyWith(pendingOptionIds: optionIds)),
+    );
+    final ForumPoll updated;
+    try {
+      updated = await ref
+          .read(forumApiProvider)
+          .votePoll(topicId: topicId, optionIds: optionIds);
+    } catch (_) {
+      // Re-read after the await so a concurrent bookmark/subscription
+      // toggle isn't lost; only the pending marker is rolled back.
+      final latest = state.asData?.value ?? current;
+      state = AsyncData(
+        latest.copyWith(
+          poll: (latest.poll ?? poll).copyWith(pendingOptionIds: const []),
+        ),
+      );
+      rethrow;
+    }
+    final latest = state.asData?.value ?? current;
+    state = AsyncData(latest.copyWith(poll: updated));
   }
 
   /// Subscribe if currently unsubscribed, else unsubscribe. Writes back the
@@ -971,6 +1022,100 @@ class ConversationThread extends _$ConversationThread {
       rethrow;
     }
     ref.invalidate(unreadConversationCountProvider);
+  }
+}
+
+/// The viewer's all-time stats + earned badges for the forum home (todo 341
+/// wave 4). Auth-only — mount it only for a signed-in member.
+@riverpod
+Future<ForumMyStats> meStats(Ref ref) {
+  return ref.watch(forumApiProvider).fetchMyStats();
+}
+
+/// Highest-trust members with their online flag, for the forum home's
+/// experts strip (todo 341 wave 4).
+@riverpod
+Future<List<ForumExpert>> experts(Ref ref) {
+  return ref.watch(forumApiProvider).fetchExperts();
+}
+
+/// Debounce window for the @mention lookup — the web's SEARCH_DEBOUNCE_MS
+/// (forumMentionNode.ts), sized for the endpoint's 30/min per-user tier.
+const forumMentionDebounce = Duration(milliseconds: 300);
+
+/// Cap on rendered suggestions, matching the web's MAX_SUGGESTIONS.
+const forumMentionMaxSuggestions = 8;
+
+/// State for [MentionSearch]: the prefix these [results] answer (or are
+/// being fetched for), empty when no `@word` is under the caret.
+class MentionSearchState {
+  const MentionSearchState({
+    this.query = '',
+    this.results = const [],
+    this.isLoading = false,
+  });
+
+  final String query;
+  final List<ForumMentionUser> results;
+  final bool isLoading;
+
+  bool get isActive => query.isNotEmpty;
+}
+
+/// The composer's @mention autocomplete (todo 341 wave 4): a debounced,
+/// cancel-on-supersede username lookup. Every [lookup] cancels the pending
+/// timer AND bumps a generation so a response already in flight for an
+/// older prefix discards itself instead of overwriting a newer one — the
+/// web's `searchToken` discipline. A failed lookup shows nothing; it never
+/// blocks typing. autoDispose: the timer dies with the composer.
+@riverpod
+class MentionSearch extends _$MentionSearch {
+  Timer? _debounce;
+  int _generation = 0;
+
+  @override
+  MentionSearchState build() {
+    ref.onDispose(() => _debounce?.cancel());
+    return const MentionSearchState();
+  }
+
+  /// Fetch suggestions for [prefix] once typing pauses for
+  /// [forumMentionDebounce]. An empty prefix clears the suggestions.
+  void lookup(String prefix) {
+    _debounce?.cancel();
+    final generation = ++_generation;
+    if (prefix.isEmpty) {
+      state = const MentionSearchState();
+      return;
+    }
+    // Keep the previous list visible while the narrower lookup is pending
+    // (typing "al" → "ali" shouldn't blank the strip for 300 ms).
+    state = MentionSearchState(
+      query: prefix,
+      results: state.results,
+      isLoading: true,
+    );
+    _debounce = Timer(forumMentionDebounce, () async {
+      List<ForumMentionUser> results;
+      try {
+        results = await ref.read(forumApiProvider).searchMentionUsers(prefix);
+      } catch (_) {
+        results = const [];
+      }
+      if (!ref.mounted || generation != _generation) return; // superseded
+      state = MentionSearchState(
+        query: prefix,
+        results: results.take(forumMentionMaxSuggestions).toList(),
+      );
+    });
+  }
+
+  /// Drop everything, including a lookup still in flight (its response is
+  /// discarded when it lands).
+  void clear() {
+    _debounce?.cancel();
+    _generation++;
+    state = const MentionSearchState();
   }
 }
 

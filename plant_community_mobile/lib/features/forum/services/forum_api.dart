@@ -225,6 +225,37 @@ abstract class ForumApi {
     required int postId,
     required int revisionId,
   });
+
+  // --- Engagement + social (todo 341 waves 3+4) ---------------------------
+
+  /// Cast the viewer's ONE ballot in [topicId]'s poll (`POST /forum/topics/
+  /// {id}/poll/vote/`, body `{option_ids}`) and return the poll as the
+  /// server recomputed it. 400 for more options than `max_choices`, a
+  /// repeated option or an option of another poll; 409 when the viewer has
+  /// already voted (the message names their choice) or the poll has closed;
+  /// 404 for a topic without a poll.
+  ///
+  /// No `Idempotency-Key`: `PollVoteView` (api/polls.py) never calls
+  /// `idempotency_cache_key`, and a retry of a committed ballot is refused
+  /// with 409 by the one-submission rule itself — there is nothing a key
+  /// could dedupe (docs/rules/flutter.md → verify the server consumes it).
+  Future<ForumPoll> votePoll({
+    required int topicId,
+    required List<int> optionIds,
+  });
+
+  /// Username-prefix search for the composer's @mention autocomplete
+  /// (`GET /forum/users/search/?q=`, `istartswith`, auth required, 30/min
+  /// per user). An empty [query] returns `[]` without a request.
+  Future<List<ForumMentionUser>> searchMentionUsers(String query);
+
+  /// The viewer's all-time forum stats + earned badges (`GET /forum/me/
+  /// stats/`, auth required).
+  Future<ForumMyStats> fetchMyStats();
+
+  /// Highest-trust active members with their `online` presence flag
+  /// (`GET /forum/users/experts/`, public).
+  Future<List<ForumExpert>> fetchExperts();
 }
 
 /// A report reason the backend accepts (`Report.REASON_CHOICES`), with its
@@ -638,6 +669,48 @@ class HttpForumApi implements ForumApi {
   }) async {
     final resp = await _api.get('/forum/posts/$postId/revisions/$revisionId/');
     return ForumPostRevisionDetail.fromJson(resp.data as Map<String, dynamic>);
+  }
+
+  @override
+  Future<ForumPoll> votePoll({
+    required int topicId,
+    required List<int> optionIds,
+  }) async {
+    final resp = await _api.post(
+      '/forum/topics/$topicId/poll/vote/',
+      data: {'option_ids': optionIds},
+    );
+    return ForumPoll.fromJson(resp.data as Map<String, dynamic>);
+  }
+
+  @override
+  Future<List<ForumMentionUser>> searchMentionUsers(String query) async {
+    final trimmed = query.trim();
+    if (trimmed.isEmpty) return const [];
+    final resp = await _api.get(
+      '/forum/users/search/',
+      queryParameters: {'q': trimmed},
+    );
+    return (resp.data as List<dynamic>? ?? const [])
+        .whereType<Map<String, dynamic>>()
+        .map(ForumMentionUser.fromJson)
+        .toList(growable: false);
+  }
+
+  @override
+  Future<ForumMyStats> fetchMyStats() async {
+    final resp = await _api.get('/forum/me/stats/');
+    return ForumMyStats.fromJson(resp.data as Map<String, dynamic>);
+  }
+
+  @override
+  Future<List<ForumExpert>> fetchExperts() async {
+    final resp = await _api.get('/forum/users/experts/');
+    final data = resp.data as Map<String, dynamic>;
+    return (data['results'] as List<dynamic>? ?? const [])
+        .whereType<Map<String, dynamic>>()
+        .map(ForumExpert.fromJson)
+        .toList(growable: false);
   }
 }
 

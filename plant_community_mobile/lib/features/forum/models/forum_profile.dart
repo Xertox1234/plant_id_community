@@ -1,4 +1,5 @@
 import 'forum_author.dart';
+import 'forum_stats.dart';
 
 /// A topic authored by the profile's user (`recent_topics[]`).
 class ForumProfileTopicRef {
@@ -81,6 +82,7 @@ class ForumProfile {
     required this.recentPosts,
     this.isBlocked = false,
     this.canBlock = false,
+    this.badges = const [],
   });
 
   final ForumAuthor author;
@@ -101,6 +103,11 @@ class ForumProfile {
   /// viewer and on your own profile — server authority (`UserBlock.can_block`).
   final bool canBlock;
 
+  /// Earned badges in display order (todo 348). Public identity — the
+  /// server sends them even to a viewer who blocked this member (a block
+  /// hides their CONTENT, not who they are), so [withBlocked] keeps them.
+  final List<ForumBadge> badges;
+
   /// Returns a copy with [isBlocked] replaced (the block/unblock toggle).
   /// A freshly-blocked member's activity lists are cleared to match what
   /// the server will send on the next fetch; an unblock leaves the (already
@@ -116,6 +123,7 @@ class ForumProfile {
       recentPosts: isBlocked ? const [] : recentPosts,
       isBlocked: isBlocked,
       canBlock: canBlock,
+      badges: badges,
     );
   }
 
@@ -136,6 +144,7 @@ class ForumProfile {
           .toList(growable: false),
       isBlocked: json['is_blocked'] as bool? ?? false,
       canBlock: json['can_block'] as bool? ?? false,
+      badges: parseForumBadges(json['badges']),
     );
   }
 }
