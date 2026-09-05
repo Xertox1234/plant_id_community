@@ -517,3 +517,9 @@ Compact checklist auto-injected before edits.
   after `findBy…` resolves cannot tell a region outside the loading/loaded
   conditional from one nested inside the loaded branch (todo 340 review,
   `SettingsPage` digest section).
+- **The one `django_db(transaction=True)` exception is a `MigrationExecutor`
+  test** (DDL cannot run with pending trigger events inside the test
+  transaction). Do not add `serialized_rollback=True` to "fix" the flush: the
+  host's post_migrate bootstrap re-creates rows the snapshot also carries
+  (UniqueViolation at setup). Prove the full suite still passes with the
+  marker and record the run in the test's comment (todo 350).

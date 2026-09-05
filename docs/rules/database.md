@@ -260,3 +260,8 @@ Compact checklist auto-injected before edits. Long-form:
   followed topic — slicing first let an overflow topic resurface in the
   other section (todo 340 review). Same for any "shown N of M, exclude
   from the rest" shape.
+- **Retrofitting membership onto a canonical pair: add a through model for EVERY
+  kind, keep the pair columns for the canonical case, and pin the shape with a
+  CHECK constraint** (`kind=direct` ⇒ pair non-null, `kind=group` ⇒ pair null).
+  Backfill in the SAME migration before dropping the columns the rows move from,
+  and prove it with a MigrationExecutor test that seeds the old schema (todo 350).
