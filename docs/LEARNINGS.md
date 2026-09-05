@@ -4474,3 +4474,26 @@ next run reported the alert as fixed.
 file; only the SARIF does. Read the flow before deciding, and note that
 CodeQL analyses test code too — a test that composes two inverse functions
 manufactures a data path production never has.
+
+## 2026-09-05 — Archiving a todo left the pre-archive copy behind, duplicating the backlog (todos 340, 341)
+
+**What happened:** two todos shipped with BOTH files tracked —
+`todos/<id>-in_progress-….md` and `todos/archive/<id>-completed-….md`. PR #641
+carried 340's duplicate. The backlog then listed a finished todo as still
+in progress, and the next sweep's discovery step
+(`grep -l "^status: pending\|in_progress" todos/*.md`) would have re-picked
+completed work; the duplicate also carried the stale unchecked acceptance
+criteria, so it read as unfinished.
+
+**Root cause:** the archive step renames with `git mv` and then the slice's
+own `git add -A todos/…` (or a later merge resolution) re-materialised the
+original path, so the rename landed as an add-without-delete. `git status`
+showed only the new file as added, which is why it passed review.
+
+**Fix:** `git rm` the stale copies after confirming the archived version is a
+superset (the only unique lines were the stale `status:` and the unchecked
+criteria). Going forward, after archiving assert the old path is gone:
+`ls todos/<id>-*` must return nothing before the slice is committed.
+
+**Lesson:** a rename verified only by "the new file exists" is not verified.
+Check the absence of the old path, not just the presence of the new one.
