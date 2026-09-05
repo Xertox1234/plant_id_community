@@ -4446,3 +4446,31 @@ gone referent in `test_post_quotes.py`.
 stored body's existing references by the edit call site, and a review pass
 must ask "what does the edit endpoint do with a reference that has since gone
 away?" — a create-only test suite cannot see it.
+
+## 2026-09-05 — CodeQL js/xss-through-dom on forumBody.ts was a test-file round trip (todo 353)
+
+**What happened:** a high-severity code-scanning alert sat open on `main` for
+five weeks and re-surfaced as "new" on every PR that shifted its fingerprint.
+Nobody had read its path. The SARIF `codeFlows` showed the "DOM text" was the
+pasted-link paragraph text in `embedUrlOf`, and the only route to the
+`DOMParser.parseFromString` sink went through `forumBody.test.ts` composing
+`bodyBlocksToHtml(htmlToBodyBlocks(...))`, with the taint carried on
+`[ArrayElement, value]` so the regex-validated embed URL "became" a
+paragraph's HTML in the model. In production the parser input is TipTap's
+own serialisation and the parsed document is detached and read-only.
+
+**Fix:** dismissed as false positive via the code-scanning API (the comment
+field caps at 280 chars — the full rationale lives in the todo), the cheap
+hardening the trace suggested (the provider-link regex rejects HTML
+meta-characters so such a "link" stays an escaped paragraph), and — after
+the PR's own CodeQL run re-raised the flow as a NEW alert at the moved sink
+line despite a `// codeql[js/xss-through-dom]` comment — a structural
+break: the round-trip tests `structuredClone` the write blocks before
+handing them to the read-shape renderer, so no data path spans the two
+functions. GitHub code scanning ignores in-code suppression comments; the
+next run reported the alert as fixed.
+
+**Lesson:** the alert page's headline never says the path crosses a test
+file; only the SARIF does. Read the flow before deciding, and note that
+CodeQL analyses test code too — a test that composes two inverse functions
+manufactures a data path production never has.
