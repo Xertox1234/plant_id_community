@@ -104,35 +104,103 @@ directly-reachable host can't be tricked into thinking plain HTTP is secure).
   rebuild the frontend. Workers Builds has no manual "rebuild" button; add a
   Deploy Hook (Settings → Builds → Deploy Hooks) and `curl -X POST` its URL.
 
-## Background jobs & scheduling — current topology (forum ops, todo 261 / H21)
+## Background jobs & scheduling — current topology (forum ops, todo 261 / H21 → todo 335)
 
-**Current prod topology: a SINGLE web service (gunicorn). There is no Celery
-worker and no beat/cron process.** This has two consequences that the forum
-code cannot signal at runtime:
+**Current prod topology (since 2026-09-05, todo 335): the web service runs
+gunicorn AND a Celery worker in the same container** via `bash bin/start.sh`
+(`railway.json` `deploy.startCommand`), plus the `forum-prune-cron` service for
+`prune_forum_tombstones`. There is still no beat process — scheduling stays on
+the cron service.
 
-1. **Every forum `.delay()` task silently drops.** `send_forum_push`,
-   `send_forum_push_batch`, `send_forum_email_batch`, and
-   `generate_topic_summary` are enqueued to Redis but nothing consumes the
-   queue, so they never execute. (Push is separately gated on the Firebase key,
-   which is also unset in prod — see below.)
-2. **Tombstone pruning never runs.** `prune_forum_tombstones` documents "run
-   daily via beat/cron" but no scheduler invokes it, so `TopicDeletedLog` grows
-   unbounded and the 30-day `WAGTAILFORUM_SYNC_TOMBSTONE_RETENTION_DAYS`
-   retention contract is unenforced.
+`bin/start.sh` starts `celery -A plant_community_backend worker --loglevel=info
+--concurrency=2 --max-tasks-per-child=500` and gunicorn as siblings and
+supervises them with three rules (self-test `bash backend/bin/test-start.sh`,
+run by CI in the Django-checks job):
 
-### Decision (todo 261): schedule pruning now, defer the worker
+- **gunicorn exits on its own → the worker is stopped and the script exits 1**,
+  so Railway's `ON_FAILURE` policy (5 container restarts, `railway.json`)
+  restarts the container.
+- **the worker exits on its own (any status, even 0) → restarted in-container**
+  after `WORKER_RESTART_DELAY` (5 s), up to `WORKER_MAX_RESTARTS` (5) times,
+  while gunicorn keeps serving; every restart is logged as
+  `[start] worker exited with status N; restart k/5`. Past the budget the
+  script exits 1 and the failure escalates to a container restart. A dead
+  worker must never quietly leave gunicorn serving a queue nobody drains (the
+  2026-07 → 2026-09-05 topology in the History section), but one flaky worker
+  crash must not spend the bounded container-restart budget either — that
+  budget is shared with the web tier, and exhausting it stops the service.
+- **SIGTERM (redeploy, `railway redeploy`) → forwarded to both, exit 0.**
+  `drainingSeconds: 60` in `railway.json` is what gives the worker's warm
+  shutdown time to finish in-flight tasks — Railway's default is **0 s** between
+  SIGTERM and SIGKILL (deployment-teardown docs).
 
-Railway bills per-second for allocated resources with **no scale-to-zero**, so
-an always-on worker costs ~$3–5/mo even while idle. Because push is already
-gated on the (unset) Firebase key and summaries need the OpenAI key, a worker
-today would deliver almost nothing. So:
+`CELERY_BROKER_CONNECTION_RETRY_ON_STARTUP = True` keeps a worker that boots
+before Redis answers retrying instead of exiting (Celery gives up after
+`broker_connection_max_retries`, default 100, after which the restart budget
+above applies). `CELERY_WORKER_PREFETCH_MULTIPLIER = 1` limits what a hard kill
+can strand to one reserved message per pool process — the forum tasks ack early
+on purpose, because a redelivered `send_forum_email_batch` would double-email
+(`sync_blog_page_chunks`, idempotent, is the one `acks_late=True` exception).
 
-- **Now — add a cron service for pruning** (near-$0; runs a few seconds/day).
-- **Defer the worker** until push/email/summaries are actually turned on. When
-  that happens, the cheapest path is to run the Celery worker **inside the
-  existing gunicorn container** (a process manager, or `celery … worker &`
-  alongside gunicorn) rather than paying for a second always-on service — you
-  already fund that container 24/7.
+What the worker now delivers, gated by env: **reply emails** (`EMAIL_HOST` is
+Resend SMTP with credentials set in prod — live), **topic summaries** for
+premium users (`OPENAI_API_KEY` — live, bounded by the summary budget),
+**push** (`FIREBASE_CREDENTIALS_PATH` — unset, so `send_forum_push*` log
+"Firebase not configured" and return), and `sync_blog_page_chunks` (dark behind
+`FORUM_RAG_ENABLED`).
+
+### Operating the worker
+
+- **Is it alive?** `railway ssh -- celery -A plant_community_backend inspect ping`
+  (expect `celery@<host>: OK`), or look for `celery@… ready.` in the service
+  log next to gunicorn's `Booting worker` lines.
+- **Not covered by the healthcheck.** Railway's healthcheck probes gunicorn's
+  `/health/` only; a worker stuck retrying the broker or wedged on a task is
+  invisible to it. Run the ping above after every deploy that touches Celery
+  settings or `bin/start.sh`.
+- **Worker-only restart:** `railway ssh -- celery -A plant_community_backend
+  control shutdown` makes `start.sh` restart the worker after 5 s (it counts
+  against the 5-restart budget until the next container restart). Never
+  `kill` gunicorn to "restart the app" — that is the exit-1 path; use
+  `railway redeploy`, which also resets the budget.
+- **Queue depth:** over `railway ssh`, `python manage.py shell -c` with
+  `redis.from_url(settings.CELERY_BROKER_URL).llen("celery")`.
+- **Broker db:** the web service sets `CELERY_BROKER_URL=${{Redis.REDIS_URL}}/1`
+  (reference variable, 2026-09-05) so the broker and result backend live in
+  Redis db 1, apart from the Django cache in db 0 — django-redis's
+  `cache.clear()` is an unscoped `FLUSHDB`, and with a shared db it would also
+  delete every queued task. Set the same variable on any future worker service.
+  The settings default (`REDIS_URL` as-is) is dev-only.
+- **Purging:** `railway ssh -- celery -A plant_community_backend purge -f`
+  deletes every queued message in the configured broker — measure (`LLEN`) and
+  record first; it is irreversible. The pre-worker backlog (429 stale messages
+  in db 0 on 2026-09-05: 209 push batches, 208 email batches, 12 direct pushes)
+  was purged before the first worker start so weeks-old reply emails were not
+  sent; the db-1 broker started empty. Those messages all carried
+  `ignore_result: False` — per-task options are baked into each message at
+  enqueue time, so a backlog produced before audit L3 would have written result
+  rows when consumed; that is expected, not a sign the L3 fix missed.
+- **Sizing:** the container's cgroup ceilings are 24 vCPU / 24 GB with ~450 MB
+  in use before the worker; prefork concurrency 2 adds about three Django
+  processes. Raise `CELERY_CONCURRENCY` (env) rather than editing the script —
+  and count Postgres connections when you do: each prefork child keeps its own
+  connection open for `CONN_MAX_AGE` (600 s in prod), on top of gunicorn's, so
+  concurrency N adds N long-lived connections (todo 331 is what exhausting
+  them looks like).
+- **A second service instead?** Same repo + root dir, start command from the
+  reference section below, and a copy of every env var (`USE_R2` parity
+  included). Only worth it if the worker must scale or restart independently
+  of the web tier.
+
+### History — the todo-261 deferral (2026-07 → 2026-09-05)
+
+Until 2026-09-05 prod was a single gunicorn service: every forum `.delay()`
+was enqueued to Redis and nothing consumed it, so pushes, reply emails and
+summaries never ran and the queue grew with no TTL (audit 2026-09-04 H1, todo
+335). The deferral reasoning — "push is gated on the unset Firebase key and
+summaries need the OpenAI key, so a worker would deliver almost nothing" —
+went stale once `OPENAI_API_KEY` (todo 280) and the Resend SMTP credentials
+went live. Pruning was moved to the cron service at the time; that part stands.
 
 ### Add the tombstone-pruning cron service
 
@@ -230,14 +298,13 @@ then be set as in the original steps 2–3).
    return nothing. Also note the log stream tags ordinary INFO lines as
    `[ERRO]`; that prefix is not a real error.
 
-### Add the worker later (when push/email/summaries are enabled)
+### Worker start command (reference)
 
-Cheapest: co-locate in the web container. Standalone (if you want independent
-scaling) is a **second service**, same repo + root directory, custom start
-command — this also covers blog AI generation:
+The co-located worker is started by `bin/start.sh` (see "Background jobs &
+scheduling" above). For a standalone service the equivalent command is:
 
 ```bash
-celery -A plant_community_backend worker --loglevel=info --concurrency=2
+celery -A plant_community_backend worker --loglevel=info --concurrency=2 --max-tasks-per-child=500
 ```
 
 Add `--beat` (or a separate beat service) only if you move scheduling off the

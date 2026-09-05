@@ -68,6 +68,13 @@ jobs:
       - name: Run Django system checks
         run: python manage.py check
 
+      - name: Start-script self-test (bin/start.sh supervision rules)
+        # The Railway start command runs gunicorn + the Celery worker in one
+        # container (todo 335). Proves: a dead gunicorn takes the container
+        # down (so Railway restarts it); a dead worker is restarted in-container
+        # up to its budget, then escalates; SIGTERM reaches both. Pure bash >= 5.1.
+        run: bash bin/test-start.sh
+
       - name: Check for missing migrations
         # Fails the build when a model change has no accompanying migration
         # (L17, todo 261). `--check` exits non-zero if makemigrations WOULD
