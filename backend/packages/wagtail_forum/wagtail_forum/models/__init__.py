@@ -15,6 +15,7 @@ from .tombstones import TopicDeletedLog
 from .topic_reads import TopicRead
 from .topics import Topic
 from .user_blocks import UserBlock
+from .user_mutes import UserMute
 
 __all__ = [
     "Conversation",
@@ -40,4 +41,5 @@ __all__ = [
     "TopicSubscription",
     "TrustLevel",
     "UserBlock",
+    "UserMute",
 ]

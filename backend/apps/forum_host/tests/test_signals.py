@@ -132,6 +132,76 @@ def test_reply_added_does_not_notify_a_recipient_who_blocked_the_replier(
 
 
 @pytest.mark.django_db
+def test_reply_added_does_not_notify_a_subscriber_who_muted_the_replier(
+    django_capture_on_commit_callbacks,
+):
+    """Mute (todo 347) suppresses at fan-out time like a block: a subscriber
+    who muted the replier gets no bell row and no push/email enqueued."""
+    from wagtail_forum.models import UserMute
+
+    topic_author = User.objects.create_user(username="topicowner-mutes")
+    replier = User.objects.create_user(username="replier-muted")
+    UserMute.mute(topic_author, replier)
+
+    root = Page.objects.get(id=1)
+    index = root.add_child(instance=ForumIndex(title="Forum4", slug="forum4"))
+    board = index.add_child(instance=ForumBoard(title="General4", slug="general4"))
+    topic = Topic.objects.create(
+        board=board, title="T4", slug="t4", author=topic_author
+    )
+    TopicSubscription.subscribe(topic_author, topic)
+
+    with (
+        patch("apps.forum_host.tasks.send_forum_push_batch.delay") as mock_push,
+        patch("apps.forum_host.tasks.send_forum_email_batch.delay") as mock_email,
+    ):
+        from apps.forum_host.notifications import dispatch
+
+        post = Post.objects.create(topic=topic, author=replier)
+        with django_capture_on_commit_callbacks(execute=True):
+            dispatch("reply_added", topic=topic, post=post)
+
+    mock_push.assert_not_called()
+    mock_email.assert_not_called()
+    assert not Notification.objects.filter(recipient=topic_author, post=post).exists()
+
+
+@pytest.mark.django_db
+def test_reply_added_still_notifies_a_subscriber_the_replier_has_muted(
+    django_capture_on_commit_callbacks,
+):
+    """The other direction is deliberately NOT suppressed: a mute is the
+    muter's preference only. The replier muting the subscriber changes
+    nothing about what the subscriber receives (unlike a block, which is
+    reciprocal)."""
+    from wagtail_forum.models import UserMute
+
+    topic_author = User.objects.create_user(username="topicowner-muted-by")
+    replier = User.objects.create_user(username="replier-who-mutes")
+    UserMute.mute(replier, topic_author)  # reverse direction
+
+    root = Page.objects.get(id=1)
+    index = root.add_child(instance=ForumIndex(title="Forum5", slug="forum5"))
+    board = index.add_child(instance=ForumBoard(title="General5", slug="general5"))
+    topic = Topic.objects.create(
+        board=board, title="T5", slug="t5", author=topic_author
+    )
+    TopicSubscription.subscribe(topic_author, topic)
+
+    with (
+        patch("apps.forum_host.tasks.send_forum_push_batch.delay"),
+        patch("apps.forum_host.tasks.send_forum_email_batch.delay"),
+    ):
+        from apps.forum_host.notifications import dispatch
+
+        post = Post.objects.create(topic=topic, author=replier)
+        with django_capture_on_commit_callbacks(execute=True):
+            dispatch("reply_added", topic=topic, post=post)
+
+    assert Notification.objects.filter(recipient=topic_author, post=post).exists()
+
+
+@pytest.mark.django_db
 def test_reply_added_does_not_notify_a_mentioned_user_who_blocked_the_replier(
     django_capture_on_commit_callbacks,
 ):

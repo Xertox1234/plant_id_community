@@ -641,7 +641,10 @@ def test_edit_query_count_is_pinned():
     # (author_is_blocked only exists on a get_queryset()-built list/detail
     # response), so PostSerializer.get_is_blocked falls back to ONE .exists()
     # check. get_can_block adds no query (pure Python, no DB hit).
-    assert len(ctx.captured_queries) == 73, len(ctx.captured_queries)
+    # 73 -> 74 (todo 347): the mute flag has the same single-object fallback
+    # as the block flag above — PostSerializer.get_is_muted pays ONE
+    # UserMute.exists() when no author_is_muted annotation is present.
+    assert len(ctx.captured_queries) == 74, len(ctx.captured_queries)
 
 
 def test_patch_retry_with_idempotency_key_writes_one_revision():

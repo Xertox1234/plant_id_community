@@ -73,6 +73,7 @@ from ..models import (
     Topic,
     TopicRead,
     UserBlock,
+    UserMute,
 )
 from ..models.posts import BLOCK_FORBIDDEN
 from ..workflow import submit_edit_for_moderation, submit_for_moderation
@@ -242,13 +243,22 @@ def _annotate_author_blocked(qs, user, *, author_field="author_id"):
     construct.
     """
     if not _should_filter_blocks(user):
-        return qs.annotate(author_is_blocked=Value(False, output_field=BooleanField()))
+        return qs.annotate(
+            author_is_blocked=Value(False, output_field=BooleanField()),
+            author_is_muted=Value(False, output_field=BooleanField()),
+        )
     return qs.annotate(
         author_is_blocked=Exists(
             UserBlock.objects.filter(
                 blocker_id=user.pk, blocked_id=OuterRef(author_field)
             )
-        )
+        ),
+        # Mute (todo 347): same COLLAPSE contract, its own flag — the client
+        # renders a "muted" placeholder/action distinct from "blocked". One
+        # direction only: the viewer's OWN mutes, never who muted them.
+        author_is_muted=Exists(
+            UserMute.objects.filter(muter_id=user.pk, muted_id=OuterRef(author_field))
+        ),
     )
 
 
@@ -278,7 +288,13 @@ def _exclude_blocked_authors(qs, user, *, author_field="author_id"):
     if not _should_filter_blocks(user):
         return qs
     blocked_ids = UserBlock.objects.filter(blocker_id=user.pk).values("blocked_id")
-    return qs.exclude(**{f"{author_field}__in": Subquery(blocked_ids)})
+    # Mute (todo 347) hides on the same HIDE surfaces (topic list, search,
+    # experts rail, notifications) — the viewer's own mutes only; a mute
+    # never changes what the MUTED member sees, unlike a block.
+    muted_ids = UserMute.objects.filter(muter_id=user.pk).values("muted_id")
+    return qs.exclude(**{f"{author_field}__in": Subquery(blocked_ids)}).exclude(
+        **{f"{author_field}__in": Subquery(muted_ids)}
+    )
 
 
 def _replay_or_none(cache_key, payload_fingerprint):
@@ -1742,7 +1758,14 @@ class PublicProfileView(UnversionedForumAPIMixin, APIView):
             and UserBlock.objects.filter(blocker=request.user, blocked=user).exists()
         )
         can_block = UserBlock.can_block(request.user, user)
-        if is_blocked:
+        # Mute (todo 347) collapses this profile's activity the same way —
+        # the viewer asked not to see this member's content anywhere.
+        is_muted = (
+            request.user.is_authenticated
+            and UserMute.objects.filter(muter=request.user, muted=user).exists()
+        )
+        can_mute = UserMute.can_mute(request.user, user)
+        if is_blocked or is_muted:
             # Skip both activity queries entirely when blocked — the
             # viewer's own preference collapsing their view of this
             # profile's activity, consistent with every other surface.
@@ -1798,6 +1821,8 @@ class PublicProfileView(UnversionedForumAPIMixin, APIView):
                 "recent_topics": recent_topics,
                 "recent_posts": recent_posts,
                 "is_blocked": is_blocked,
+                "is_muted": is_muted,
+                "can_mute": can_mute,
                 "can_block": can_block,
             }
         )
@@ -1895,13 +1920,18 @@ class RecentTopicsView(UnversionedForumAPIMixin, PublicForumReadCacheMixin, APIV
             limit = get_setting("RECENT_TOPICS_DEFAULT_LIMIT")
         limit = max(1, min(limit, get_setting("RECENT_TOPICS_MAX_LIMIT")))
 
-        topics = list(
-            Topic.objects.filter(
-                board__in=_visible_boards(), live=True, last_post_at__isnull=False
-            )
-            .select_related("board")
-            .order_by("-last_post_at", "-id")[:limit]
-        )
+        recent = Topic.objects.filter(
+            board__in=_visible_boards(), live=True, last_post_at__isnull=False
+        ).select_related("board")
+        # HIDE (todo 347 review): the home "Active now" feed had never been
+        # block-aware — a member's own blocks and mutes shape it now like the
+        # board topic list. No-op for anonymous and moderators
+        # (_should_filter_blocks), and PublicForumReadCacheMixin already
+        # serves authenticated responses private/no-store, so the anonymous
+        # shared cache never holds a personalised page. Chained BEFORE the
+        # slice — .exclude() after [:limit] raises.
+        recent = _exclude_blocked_authors(recent, request.user)
+        topics = list(recent.order_by("-last_post_at", "-id")[:limit])
         topic_ids = [t.pk for t in topics]
 
         # First image block id per topic, from opening posts' raw stream data.

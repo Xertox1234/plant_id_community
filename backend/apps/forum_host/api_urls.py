@@ -24,6 +24,7 @@ from wagtail_forum.api.notifications import NotificationListView
 
 # Same treatment as TopicBookmarkListView — a page load, not a polling target.
 from wagtail_forum.api.user_blocks import MyBlocksView
+from wagtail_forum.api.user_mutes import MyMutesView
 
 # GET-only views are mounted straight from the package (no throttle); views with
 # a throttled write handler come from the host wrappers in .api.
@@ -59,6 +60,7 @@ from .api import (
     TopicSubscriptionView,
     UserBlockView,
     UserMentionSearchView,
+    UserMuteView,
 )
 
 # Host-only AI routes (todo 255 slice 3 / H14, slice 4 / H15; todo 275 / M14) —
@@ -153,6 +155,7 @@ urlpatterns = [
     path("me/stats/", MeStatsView.as_view(), name="me-stats"),
     path("me/bookmarks/", TopicBookmarkListView.as_view(), name="me-bookmarks"),
     path("me/blocks/", MyBlocksView.as_view(), name="me-blocks"),
+    path("me/mutes/", MyMutesView.as_view(), name="me-mutes"),
     # GET-only + AllowAny — mounted straight from the package (no throttle
     # wrapper), mirrors RecentTopicsView/ExpertsView.
     path("event/", EventHeroView.as_view(), name="event-hero"),
@@ -164,6 +167,7 @@ urlpatterns = [
     path("users/experts/", ExpertsView.as_view(), name="users-experts"),
     path("users/<str:username>/", PublicProfileView.as_view(), name="user-profile"),
     path("users/<str:username>/block/", UserBlockView.as_view(), name="user-block"),
+    path("users/<str:username>/mute/", UserMuteView.as_view(), name="user-mute"),
     path(
         "users/<str:username>/messages/",
         MessageSendView.as_view(),

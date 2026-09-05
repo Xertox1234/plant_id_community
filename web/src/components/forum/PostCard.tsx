@@ -1,6 +1,17 @@
 import { memo, useCallback, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Check, Flag, Link2, Pencil, SmilePlus, Trash2, UserCheck, UserX } from 'lucide-react';
+import {
+  Check,
+  Flag,
+  Link2,
+  Pencil,
+  SmilePlus,
+  Trash2,
+  UserCheck,
+  UserX,
+  Volume2,
+  VolumeX,
+} from 'lucide-react';
 import StreamFieldRenderer from '../StreamFieldRenderer';
 import EditHistoryDialog from './EditHistoryDialog';
 import Timestamp from '../ui/Timestamp';
@@ -23,6 +34,10 @@ interface PostCardProps {
    * discipline as onReport: visibility is `post.can_block && handler`. */
   onBlock?: (username: string) => Promise<void>;
   onUnblock?: (username: string) => Promise<void>;
+  /** Mute/unmute this post's author (todo 347) — the one-directional,
+   * content-only sibling of block. Same gate: `post.can_mute && handler`. */
+  onMute?: (username: string) => Promise<void>;
+  onUnmute?: (username: string) => Promise<void>;
   /** Whether this post is the topic's accepted answer (audit H6). */
   isSolution?: boolean;
   /**
@@ -69,6 +84,8 @@ function PostCard({
   onReport,
   onBlock,
   onUnblock,
+  onMute,
+  onUnmute,
   isSolution = false,
   onToggleSolution,
 }: PostCardProps) {
@@ -80,18 +97,25 @@ function PostCard({
   const showDelete = !!post.can_delete && !!onDelete;
   const showReport = !!post.can_report && !!onReport;
   const showBlockAction = !!post.can_block && !!(onBlock || onUnblock);
+  const showMuteAction = !!post.can_mute && !!(onMute || onUnmute);
   const [isReporting, setIsReporting] = useState(false);
   const [reportReason, setReportReason] = useState<string>(REPORT_REASONS[0].value);
   const [hasReported, setHasReported] = useState(false);
   const [isSubmittingReport, setIsSubmittingReport] = useState(false);
   const [isBlockActionPending, setIsBlockActionPending] = useState(false);
+  const [isMuteActionPending, setIsMuteActionPending] = useState(false);
   // Local-only: reveals a collapsed (is_blocked) post without a refetch — the
   // real author/body are already in the payload (server doesn't redact).
   // Deliberately NOT tracking a local "just blocked/unblocked" flag: blocking
   // an author can affect every OTHER post by them on the page too, so the
   // handler is called as-is and the parent's refetch is the only source of
   // truth for post.is_blocked (todo 284/M9).
-  const [revealed, setRevealed] = useState(false);
+  // Which placeholder the viewer clicked through — not a bare boolean, so a
+  // reveal of the MUTE placeholder does not also pre-empt the BLOCK
+  // placeholder if the author is blocked afterwards (the card survives the
+  // refetch under a stable key). A block reveal covers both, since block
+  // outranks mute below (todo 347 review).
+  const [revealedFor, setRevealedFor] = useState<'block' | 'mute' | null>(null);
   const [copiedLink, setCopiedLink] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
   // Stable identity: EditHistoryDialog's focus effect depends on [open,
@@ -132,11 +156,33 @@ function PostCard({
     }
   };
 
+  // Mute/unmute (todo 347): same non-optimistic contract as block — the
+  // parent's refetch is the only source of truth for post.is_muted.
+  const handleMute = async () => {
+    if (!onMute) return;
+    setIsMuteActionPending(true);
+    try {
+      await onMute(post.author.username);
+    } finally {
+      setIsMuteActionPending(false);
+    }
+  };
+
+  const handleUnmute = async () => {
+    if (!onUnmute) return;
+    setIsMuteActionPending(true);
+    try {
+      await onUnmute(post.author.username);
+    } finally {
+      setIsMuteActionPending(false);
+    }
+  };
+
   // Collapsed placeholder for a blocked author's post (todo 284/M9) — COLLAPSE,
   // not HIDE: removing a reply mid-thread would break numbering/reply-count
   // continuity. The real content is already in `post` (server doesn't
   // redact); "Show anyway" is a local, no-refetch reveal.
-  if (post.is_blocked && !revealed) {
+  if (post.is_blocked && revealedFor !== 'block') {
     return (
       <Card className={POST_CARD_PADDING}>
         <div className="flex items-center justify-between gap-3 flex-wrap">
@@ -150,7 +196,7 @@ function PostCard({
           <div className="flex gap-2">
             <button
               type="button"
-              onClick={() => setRevealed(true)}
+              onClick={() => setRevealedFor('block')}
               className="min-h-11 px-3 py-1 text-sm text-ink-3 hover:bg-surface-3 rounded-pill"
             >
               Show anyway
@@ -163,6 +209,44 @@ function PostCard({
                 className="min-h-11 px-3 py-1 text-sm text-primary hover:bg-primary/10 rounded-pill inline-flex items-center gap-1.5 disabled:opacity-50"
               >
                 <UserCheck className="h-3.5 w-3.5" aria-hidden="true" /> Unblock
+              </button>
+            )}
+          </div>
+        </div>
+      </Card>
+    );
+  }
+
+  // Muted author (todo 347): the same COLLAPSE + local reveal as a block,
+  // its own wording and action. A block outranks a mute above, so a member
+  // who is both shows the block placeholder.
+  if (!post.is_blocked && post.is_muted && revealedFor !== 'mute') {
+    return (
+      <Card className={POST_CARD_PADDING}>
+        <div className="flex items-center justify-between gap-3 flex-wrap">
+          <p className="text-sm text-ink-3">
+            You've muted{' '}
+            <span className="font-medium text-ink">
+              {post.author.display_name || post.author.username}
+            </span>
+            .
+          </p>
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={() => setRevealedFor('mute')}
+              className="min-h-11 px-3 py-1 text-sm text-ink-3 hover:bg-surface-3 rounded-pill"
+            >
+              Show anyway
+            </button>
+            {onUnmute && (
+              <button
+                type="button"
+                onClick={handleUnmute}
+                disabled={isMuteActionPending}
+                className="min-h-11 px-3 py-1 text-sm text-primary hover:bg-primary/10 rounded-pill inline-flex items-center gap-1.5 disabled:opacity-50"
+              >
+                <Volume2 className="h-3.5 w-3.5" aria-hidden="true" /> Unmute
               </button>
             )}
           </div>
@@ -423,7 +507,7 @@ function PostCard({
       {/* Trust & safety row — Block/Unblock and Report never show for the
           post's own author (can_block/can_report are the backend authority;
           mirrors can_edit/can_delete). */}
-      {(showBlockAction || showReport) && (
+      {(showBlockAction || showMuteAction || showReport) && (
         <div className="flex justify-end items-center gap-2 pt-3 border-t border-line">
           {showBlockAction &&
             (post.is_blocked
@@ -447,6 +531,30 @@ function PostCard({
                     title="Block user"
                   >
                     <UserX className="h-3.5 w-3.5" aria-hidden="true" /> Block
+                  </button>
+                ))}
+          {showMuteAction &&
+            (post.is_muted
+              ? onUnmute && (
+                  <button
+                    type="button"
+                    onClick={handleUnmute}
+                    disabled={isMuteActionPending}
+                    className="min-h-11 px-3 py-1 text-sm text-ink-3 hover:bg-surface-3 rounded-pill inline-flex items-center gap-1.5 disabled:opacity-50"
+                    title="Unmute user"
+                  >
+                    <Volume2 className="h-3.5 w-3.5" aria-hidden="true" /> Unmute
+                  </button>
+                )
+              : onMute && (
+                  <button
+                    type="button"
+                    onClick={handleMute}
+                    disabled={isMuteActionPending}
+                    className="min-h-11 px-3 py-1 text-sm text-ink-3 hover:bg-surface-3 rounded-pill inline-flex items-center gap-1.5 disabled:opacity-50"
+                    title="Mute user"
+                  >
+                    <VolumeX className="h-3.5 w-3.5" aria-hidden="true" /> Mute
                   </button>
                 ))}
           {showReport &&

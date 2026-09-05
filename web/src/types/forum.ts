@@ -217,6 +217,11 @@ export interface Post {
   /** Whether the viewer may block this post's author — false for their own
    * posts and for anonymous viewers. */
   can_block?: boolean;
+  /** Whether the viewer has MUTED this author (todo 347) — one-directional,
+   * content-only. Same COLLAPSE contract as is_blocked, its own flag. */
+  is_muted?: boolean;
+  /** Whether the viewer may mute this user — false for themselves/anonymous. */
+  can_mute?: boolean;
 }
 
 /**
@@ -442,6 +447,11 @@ export interface ForumUserProfile {
   /** Whether the viewer may block this user — false for their own profile
    * and for anonymous viewers. */
   can_block?: boolean;
+  /** Whether the viewer has MUTED this author (todo 347) — one-directional,
+   * content-only. Same COLLAPSE contract as is_blocked, its own flag. */
+  is_muted?: boolean;
+  /** Whether the viewer may mute this user — false for themselves/anonymous. */
+  can_mute?: boolean;
 }
 
 /** GET me/blocks/ row (todo 284/M9) — a member the viewer has blocked. */
@@ -452,6 +462,16 @@ export interface BlockedUser {
   trust_level: number | null;
   title: string;
   blocked_at: string;
+}
+
+/** GET me/mutes/ row (todo 347) — a member the viewer has muted. */
+export interface MutedUser {
+  username: string;
+  display_name: string;
+  avatar: string | null;
+  trust_level: number | null;
+  title: string;
+  muted_at: string;
 }
 
 /** GET me/stats/ — all-time counts ("Your season" cards, todo 300). */

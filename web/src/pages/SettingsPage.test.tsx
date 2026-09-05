@@ -1,6 +1,6 @@
 // web/src/pages/SettingsPage.test.tsx
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { BrowserRouter } from 'react-router-dom';
 import { ThemeProvider } from '../contexts/ThemeContext';
@@ -23,10 +23,11 @@ describe('SettingsPage theme controls', () => {
     localStorage.clear();
     delete document.documentElement.dataset.density;
     delete document.documentElement.dataset.mode;
-    // Default: no blocked users, so the theme-control tests below (which
-    // don't care about the blocked-users section) don't hang on an
-    // unresolved auto-mocked promise.
+    // Default: no blocked/muted users, so the theme-control tests below (which
+    // don't care about those sections) don't hang on an unresolved
+    // auto-mocked promise.
     vi.mocked(forumService.fetchBlockedUsers).mockResolvedValue([]);
+    vi.mocked(forumService.fetchMutedUsers).mockResolvedValue([]);
   });
 
   it('renders no palette controls', () => {
@@ -52,6 +53,7 @@ describe('SettingsPage blocked users (todo 284/M9)', () => {
     localStorage.clear();
     delete document.documentElement.dataset.density;
     delete document.documentElement.dataset.mode;
+    vi.mocked(forumService.fetchMutedUsers).mockResolvedValue([]);
   });
 
   it('shows an empty state when the caller has blocked no one', async () => {
@@ -133,5 +135,80 @@ describe('SettingsPage blocked users (todo 284/M9)', () => {
 
     expect(await screen.findByText('Failed to unblock user')).toBeInTheDocument();
     expect(screen.getByText('Noisy Neighbor')).toBeInTheDocument();
+  });
+});
+
+describe('SettingsPage muted users (todo 347)', () => {
+  beforeEach(() => {
+    localStorage.clear();
+    delete document.documentElement.dataset.density;
+    delete document.documentElement.dataset.mode;
+    vi.mocked(forumService.fetchBlockedUsers).mockResolvedValue([]);
+  });
+
+  it('shows an empty state and explains that a mute is one-way', async () => {
+    vi.mocked(forumService.fetchMutedUsers).mockResolvedValue([]);
+
+    renderPage();
+
+    expect(await screen.findByText("You haven't muted anyone.")).toBeInTheDocument();
+    expect(
+      screen.getByText(/hides a member's posts and notifications from you only/i)
+    ).toBeInTheDocument();
+  });
+
+  it('lists muted users in server order and removes a row when Unmute succeeds, without a refetch', async () => {
+    vi.mocked(forumService.fetchMutedUsers).mockResolvedValue([
+      {
+        username: 'chatty',
+        display_name: 'Chatty Cathy',
+        avatar: null,
+        trust_level: 2,
+        title: '',
+        muted_at: new Date('2026-08-01T00:00:00Z').toISOString(),
+      },
+      {
+        username: 'loud',
+        display_name: '',
+        avatar: null,
+        trust_level: null,
+        title: '',
+        muted_at: new Date('2026-07-01T00:00:00Z').toISOString(),
+      },
+    ]);
+    vi.mocked(forumService.unmuteUser).mockResolvedValue(undefined);
+
+    renderPage();
+
+    expect(await screen.findByText('Chatty Cathy')).toBeInTheDocument();
+    expect(screen.getByText('loud')).toBeInTheDocument(); // username fallback
+    await userEvent.click(screen.getAllByRole('button', { name: /unmute/i })[0]);
+
+    expect(forumService.unmuteUser).toHaveBeenCalledWith('chatty');
+    await waitFor(() => expect(screen.queryByText('Chatty Cathy')).not.toBeInTheDocument());
+    expect(screen.getByText('loud')).toBeInTheDocument();
+    expect(forumService.fetchMutedUsers).toHaveBeenCalledTimes(1);
+  });
+
+  it('surfaces an error and keeps the row when Unmute fails', async () => {
+    vi.mocked(forumService.fetchMutedUsers).mockResolvedValue([
+      {
+        username: 'chatty',
+        display_name: 'Chatty Cathy',
+        avatar: null,
+        trust_level: 2,
+        title: '',
+        muted_at: new Date('2026-08-01T00:00:00Z').toISOString(),
+      },
+    ]);
+    vi.mocked(forumService.unmuteUser).mockRejectedValue(new Error('Failed to unmute user'));
+
+    renderPage();
+
+    await screen.findByText('Chatty Cathy');
+    await userEvent.click(screen.getByRole('button', { name: /unmute/i }));
+
+    expect(await screen.findByText('Failed to unmute user')).toBeInTheDocument();
+    expect(screen.getByText('Chatty Cathy')).toBeInTheDocument();
   });
 });

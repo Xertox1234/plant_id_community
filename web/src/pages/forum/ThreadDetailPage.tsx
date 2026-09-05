@@ -23,6 +23,8 @@ import {
   reportPost,
   blockUser,
   unblockUser,
+  muteUser,
+  unmuteUser,
   subscribeToTopic,
   unsubscribeFromTopic,
   bookmarkTopic,
@@ -638,6 +640,36 @@ export default function ThreadDetailPage() {
     }
   }, []);
 
+  // Mute/unmute an author (todo 347) — same full-refetch contract as block:
+  // a mute affects every post by that author on the page.
+  const handleMuteAuthor = useCallback(async (username: string) => {
+    try {
+      await muteUser(username);
+      setReloadKey((k) => k + 1);
+    } catch (err) {
+      logger.error('Error muting user', {
+        component: 'ThreadDetailPage',
+        error: err,
+        context: { username },
+      });
+      setNotice(err instanceof Error ? err.message : 'Failed to mute user');
+    }
+  }, []);
+
+  const handleUnmuteAuthor = useCallback(async (username: string) => {
+    try {
+      await unmuteUser(username);
+      setReloadKey((k) => k + 1);
+    } catch (err) {
+      logger.error('Error unmuting user', {
+        component: 'ThreadDetailPage',
+        error: err,
+        context: { username },
+      });
+      setNotice(err instanceof Error ? err.message : 'Failed to unmute user');
+    }
+  }, []);
+
   // Open the styled delete confirmation (M24 — replaces window.confirm).
   const handleDelete = useCallback((post: Post) => {
     setPendingDelete(post);
@@ -998,6 +1030,8 @@ export default function ThreadDetailPage() {
                 onReport={isAuthenticated ? handleReport : undefined}
                 onBlock={isAuthenticated ? handleBlockAuthor : undefined}
                 onUnblock={isAuthenticated ? handleUnblockAuthor : undefined}
+                onMute={isAuthenticated ? handleMuteAuthor : undefined}
+                onUnmute={isAuthenticated ? handleUnmuteAuthor : undefined}
                 isSolution={isSolution}
                 // Offered only to a viewer the backend says may mark, and never
                 // on the opening post — a question is not its own answer, and

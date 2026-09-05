@@ -21,6 +21,7 @@ from ..models import (
     TopicBookmark,
     TopicSubscription,
     UserBlock,
+    UserMute,
 )
 from ..models.messages import MESSAGE_BODY_MAX_CHARS
 from .sanitize import validate_forum_body
@@ -396,7 +397,9 @@ class TopicDetailSerializer(serializers.ModelSerializer):
     # ANNOTATE, not HIDE (todo 284/M9) — same discipline as is_subscribed/
     # is_bookmarked above. See get_is_blocked/get_can_block.
     is_blocked = serializers.SerializerMethodField()
+    is_muted = serializers.SerializerMethodField()
     can_block = serializers.SerializerMethodField()
+    can_mute = serializers.SerializerMethodField()
     # The topic's poll with server-computed results (audit M8). DETAIL-ONLY,
     # like `identification` and for the same reason. See get_poll.
     poll = serializers.SerializerMethodField()
@@ -427,6 +430,8 @@ class TopicDetailSerializer(serializers.ModelSerializer):
             "can_mark_solution",
             "identification",
             "is_blocked",
+            "is_muted",
+            "can_mute",
             "can_block",
             "poll",
         ]
@@ -452,6 +457,26 @@ class TopicDetailSerializer(serializers.ModelSerializer):
         request = self.context.get("request")
         user = getattr(request, "user", None)
         return UserBlock.can_block(user, obj.author)
+
+    @extend_schema_field(OpenApiTypes.BOOL)
+    def get_is_muted(self, obj):
+        # Mirrors get_is_blocked: the queryset annotation when present
+        # (zero extra query), a direct .exists() only for a single-object
+        # response that bypassed get_queryset's annotation (todo 347).
+        annotated = getattr(obj, "author_is_muted", None)
+        if annotated is not None:
+            return annotated
+        request = self.context.get("request")
+        user = getattr(request, "user", None)
+        if user is None or not user.is_authenticated or obj.author_id is None:
+            return False
+        return UserMute.objects.filter(muter=user, muted_id=obj.author_id).exists()
+
+    @extend_schema_field(OpenApiTypes.BOOL)
+    def get_can_mute(self, obj):
+        request = self.context.get("request")
+        user = getattr(request, "user", None)
+        return UserMute.can_mute(user, obj.author)
 
     @extend_schema_field(TAGS_SCHEMA)
     def get_tags(self, obj):
@@ -681,7 +706,9 @@ class PostSerializer(serializers.ModelSerializer):
     can_report = serializers.SerializerMethodField()
     # COLLAPSE, not HIDE (todo 284/M9) — see get_is_blocked/get_can_block.
     is_blocked = serializers.SerializerMethodField()
+    is_muted = serializers.SerializerMethodField()
     can_block = serializers.SerializerMethodField()
+    can_mute = serializers.SerializerMethodField()
 
     class Meta:
         model = Post
@@ -701,6 +728,8 @@ class PostSerializer(serializers.ModelSerializer):
             "can_delete",
             "can_report",
             "is_blocked",
+            "is_muted",
+            "can_mute",
             "can_block",
         ]
 
@@ -798,6 +827,22 @@ class PostSerializer(serializers.ModelSerializer):
     @extend_schema_field(OpenApiTypes.BOOL)
     def get_can_block(self, obj):
         return UserBlock.can_block(self._request_user(), obj.author)
+
+    @extend_schema_field(OpenApiTypes.BOOL)
+    def get_is_muted(self, obj):
+        # Mirrors get_is_blocked (todo 347): annotation first, .exists()
+        # fallback only for a single-object response.
+        annotated = getattr(obj, "author_is_muted", None)
+        if annotated is not None:
+            return annotated
+        user = self._request_user()
+        if user is None or not user.is_authenticated or obj.author_id is None:
+            return False
+        return UserMute.objects.filter(muter=user, muted_id=obj.author_id).exists()
+
+    @extend_schema_field(OpenApiTypes.BOOL)
+    def get_can_mute(self, obj):
+        return UserMute.can_mute(self._request_user(), obj.author)
 
 
 NOTIFICATION_TOPIC_SCHEMA = {

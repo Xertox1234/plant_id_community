@@ -6,19 +6,24 @@
  *
  * Features (planned):
  * - Email notifications preferences
- * - Privacy settings — blocked users ← LIVE (todo 284/M9)
+ * - Privacy settings — blocked users ← LIVE (todo 284/M9); muted users ← LIVE (todo 347)
  * - Theme preferences (density / dark mode) ← LIVE in Phase A
  * - Language selection
  * - Account deletion
  */
 import { useEffect, useState } from 'react';
 import { useTheme, type Density } from '../contexts/ThemeContext';
-import { fetchBlockedUsers, unblockUser } from '../services/forumService';
+import {
+  fetchBlockedUsers,
+  unblockUser,
+  fetchMutedUsers,
+  unmuteUser,
+} from '../services/forumService';
 import { specimenAvatar } from '../utils/forumAvatars';
 import { logger } from '../utils/logger';
 import Eyebrow from '../components/ui/Eyebrow';
 import Avatar from '../components/ui/Avatar';
-import type { BlockedUser } from '../types/forum';
+import type { BlockedUser, MutedUser } from '../types/forum';
 
 const DENSITIES: Density[] = ['comfortable', 'cozy', 'compact'];
 
@@ -133,6 +138,84 @@ function BlockedUsersSection() {
   );
 }
 
+function MutedUsersSection() {
+  // Mirror of BlockedUsersSection (todo 347): same per-row pending state,
+  // same local removal without a refetch.
+  const [muted, setMuted] = useState<MutedUser[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [pending, setPending] = useState<Record<string, boolean>>({});
+
+  useEffect(() => {
+    let active = true;
+    fetchMutedUsers()
+      .then((data) => {
+        if (active) setMuted(data);
+      })
+      .catch((err) => {
+        if (active) setError(err instanceof Error ? err.message : 'Failed to load muted users');
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  const handleUnmute = async (username: string) => {
+    setPending((prev) => ({ ...prev, [username]: true }));
+    try {
+      await unmuteUser(username);
+      setMuted((prev) => (prev ? prev.filter((u) => u.username !== username) : prev));
+    } catch (err) {
+      logger.error('Error unmuting user', {
+        component: 'SettingsPage',
+        error: err,
+        context: { username },
+      });
+      setError(err instanceof Error ? err.message : 'Failed to unmute user');
+    } finally {
+      setPending((prev) => {
+        const next = { ...prev };
+        delete next[username];
+        return next;
+      });
+    }
+  };
+
+  return (
+    <section className="p-screen">
+      <Eyebrow>Muted users</Eyebrow>
+      <p className="mt-1 text-sm text-ink-3">
+        Muting hides a member's posts and notifications from you only — they can still see and
+        message you. Block for the stronger, two-way version.
+      </p>
+      {error && <p className="mt-2 text-sm text-error">{error}</p>}
+      {muted === null ? (
+        <p className="mt-2 text-sm text-ink-3">Loading…</p>
+      ) : muted.length === 0 ? (
+        <p className="mt-2 text-sm text-ink-3">You haven't muted anyone.</p>
+      ) : (
+        <ul className="mt-2 divide-y divide-line">
+          {muted.map((u) => (
+            <li key={u.username} className="flex items-center justify-between gap-3 py-3">
+              <div className="flex items-center gap-3 min-w-0">
+                <Avatar src={u.avatar || specimenAvatar(u.username)} alt="" size="md" />
+                <span className="truncate text-ink">{u.display_name || u.username}</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => handleUnmute(u.username)}
+                disabled={!!pending[u.username]}
+                className="min-h-11 shrink-0 px-3 py-1 text-sm text-primary hover:bg-primary/10 rounded-pill disabled:opacity-50"
+              >
+                Unmute
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
+  );
+}
+
 export default function SettingsPage() {
   return (
     <div className="max-w-4xl mx-auto px-4 py-12">
@@ -147,6 +230,9 @@ export default function SettingsPage() {
 
       {/* Blocked users (todo 284/M9) */}
       <BlockedUsersSection />
+
+      {/* Muted users (todo 347) */}
+      <MutedUsersSection />
     </div>
   );
 }

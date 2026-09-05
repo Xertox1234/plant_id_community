@@ -44,6 +44,7 @@ import type {
   ForumExpert,
   EventHero,
   BlockedUser,
+  MutedUser,
   ThreadPoll,
   PlantCareAnswer,
 } from '../types/forum';
@@ -352,6 +353,30 @@ export async function unblockUser(username: string): Promise<void> {
  * unpaginated — matches the backend's low-cardinality contract (todo 284/M9). */
 export async function fetchBlockedUsers(): Promise<BlockedUser[]> {
   return authenticatedFetch<BlockedUser[]>(`${FORUM_BASE}/me/blocks/`);
+}
+
+/** Mute a member (todo 347) — hides their forum content and stops their
+ * reply/mention notifications reaching YOU; nothing changes for them and
+ * their messages still arrive (the lighter tool beside block). Idempotent. */
+export async function muteUser(username: string): Promise<void> {
+  await authenticatedFetch<{ muted: boolean }>(
+    `${FORUM_BASE}/users/${encodeURIComponent(username)}/mute/`,
+    { method: 'POST' }
+  );
+}
+
+/** Unmute a member. Idempotent. */
+export async function unmuteUser(username: string): Promise<void> {
+  await authenticatedFetch<{ muted: boolean }>(
+    `${FORUM_BASE}/users/${encodeURIComponent(username)}/mute/`,
+    { method: 'DELETE' }
+  );
+}
+
+/** Fetch the caller's muted members, most recently muted first. Flat,
+ * unpaginated — same low-cardinality contract as the blocklist (todo 347). */
+export async function fetchMutedUsers(): Promise<MutedUser[]> {
+  return authenticatedFetch<MutedUser[]>(`${FORUM_BASE}/me/mutes/`);
 }
 
 // ---------------------------------------------------------------------------

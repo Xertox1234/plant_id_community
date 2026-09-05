@@ -160,6 +160,71 @@ describe('UserProfilePage', () => {
     expect(forumService.fetchUserProfile).toHaveBeenCalledTimes(2);
   });
 
+  it('mutes a user optimistically, then refetches, and says so without calling it a block (todo 347)', async () => {
+    vi.spyOn(forumService, 'fetchUserProfile')
+      .mockResolvedValueOnce({ ...mockProfile, can_block: true, can_mute: true, is_muted: false })
+      .mockResolvedValueOnce({
+        ...mockProfile,
+        can_block: true,
+        can_mute: true,
+        is_muted: true,
+        recent_topics: [],
+        recent_posts: [],
+      });
+    vi.spyOn(forumService, 'muteUser').mockResolvedValue(undefined);
+
+    renderProfile('ada');
+
+    await userEvent.click(await screen.findByRole('button', { name: /^mute$/i }));
+
+    expect(await screen.findByRole('button', { name: /^unmute$/i })).toBeInTheDocument();
+    expect(forumService.muteUser).toHaveBeenCalledWith('ada');
+    expect(
+      await screen.findByText("You've muted this member — their recent activity is hidden.")
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/you've blocked this member/i)).not.toBeInTheDocument();
+    // Block stays available beside it — mute is the lighter option, not a replacement.
+    expect(screen.getByRole('button', { name: /^block$/i })).toBeInTheDocument();
+    expect(forumService.fetchUserProfile).toHaveBeenCalledTimes(2);
+  });
+
+  it('disables Block while a mute is in flight, so the two refetches cannot race', async () => {
+    vi.spyOn(forumService, 'fetchUserProfile').mockResolvedValue({
+      ...mockProfile,
+      can_block: true,
+      can_mute: true,
+      is_muted: false,
+    });
+    let resolveMute: () => void = () => {};
+    vi.spyOn(forumService, 'muteUser').mockImplementation(
+      () => new Promise<void>((res) => (resolveMute = res))
+    );
+
+    renderProfile('ada');
+    await userEvent.click(await screen.findByRole('button', { name: /^mute$/i }));
+
+    expect(screen.getByRole('button', { name: /^block$/i })).toBeDisabled();
+    resolveMute();
+    await screen.findByRole('button', { name: /^unmute$/i });
+    expect(screen.getByRole('button', { name: /^block$/i })).not.toBeDisabled();
+  });
+
+  it('rolls back, shows and announces the error when muting fails', async () => {
+    vi.spyOn(forumService, 'fetchUserProfile').mockResolvedValue({
+      ...mockProfile,
+      can_mute: true,
+      is_muted: false,
+    });
+    vi.spyOn(forumService, 'muteUser').mockRejectedValue(new Error('Failed to mute user'));
+
+    renderProfile('ada');
+    await userEvent.click(await screen.findByRole('button', { name: /^mute$/i }));
+
+    expect(await screen.findByText('Failed to mute user')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /^mute$/i })).toBeInTheDocument();
+    expect(announceMock).toHaveBeenCalledWith('Failed to mute user', 'assertive');
+  });
+
   it('announces the block failure for screen readers (audit M4)', async () => {
     vi.spyOn(forumService, 'fetchUserProfile').mockResolvedValue({
       ...mockProfile,

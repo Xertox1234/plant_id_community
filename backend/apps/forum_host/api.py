@@ -17,6 +17,7 @@ from wagtail_forum.api import polls as forum_poll_views
 from wagtail_forum.api import solutions as forum_solution_views
 from wagtail_forum.api import subscriptions as forum_subscription_views
 from wagtail_forum.api import user_blocks as forum_user_block_views
+from wagtail_forum.api import user_mutes as forum_user_mute_views
 from wagtail_forum.api import user_search as forum_user_search_views
 from wagtail_forum.api import views as forum_views
 
@@ -154,6 +155,16 @@ class TopicBookmarkView(forum_bookmark_views.TopicBookmarkView):
 @_throttled("block_delete", "DELETE")
 class UserBlockView(forum_user_block_views.UserBlockView):
     pass
+
+
+@_throttled("mute_create", "POST")
+@_throttled("mute_delete", "DELETE")
+class UserMuteView(forum_user_mute_views.UserMuteView):
+    pass
+
+
+# MyMutesView has no wrapper here — GET (list) is a page load, like
+# MyBlocksView above — mounted straight from the package in api_urls.py.
 
 
 # MyBlocksView has no wrapper here — GET (list) is a page load, not a polling
