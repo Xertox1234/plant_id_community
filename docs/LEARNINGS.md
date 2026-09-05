@@ -4319,3 +4319,32 @@ later `git add` staged the old file. Caught only because a `grep -c` for the
 guard line printed `0` in the log. Rule now in `docs/rules/_discipline.md`:
 back the file up with `cp` (or reverse the `sed`), and grep the restored file
 for the guard before believing the check.
+
+### [2026-09-05] The bootstrapped Forum Moderators group could not open a single report (todo 345 review)
+
+Building the moderation queue as a Wagtail `ReportView` gated on
+`wagtail_forum.change_post`, two reviewers independently traced every row's
+inspect link into the `Report` snippet views — whose `any_permission_required`
+is on `Report` — and then into `apps/forum_host/bootstrap.py`, which grants the
+"Forum Moderators" group `*_topic`/`*_post` permissions plus `access_admin` and
+nothing else. So the Report snippet listing, inspect and edit views had been
+superuser-only since reports shipped (todo 254): a real moderator could
+unpublish a post but never open, action, or dismiss the report that flagged it,
+and the new queue would have rendered a full page of links that each bounce to
+the admin home. Every admin test was green because `test_admin.py` logs in as a
+superuser, and the new queue test asserted only that the href STRING was in the
+HTML.
+
+Fix: `bootstrap.py` grants `view_report` + `change_report`
+(`test_moderator_group_can_view_and_change_reports`), the queue is gated on the
+Report model's own policy (same people as the views it links to; the DM-excerpt
+read scope is therefore the snippet's, not wider), and the listing test now
+follows each row's link as a member of the bootstrapped group. Rules:
+`docs/rules/wagtail.md` (listing takes the linked model's policy), and
+`docs/rules/security.md` (a bootstrapped role holds perms for every model its
+UI links into — prove the click-through as a GROUP member, never a superuser).
+Smaller `ReportView` seams from the same review: `UserColumn` is one
+`wagtail_userprofile` query per row; `list_export` ships raw annotations
+(`custom_field_preprocess`); a class-attribute `no_results_message` shadows the
+filter-aware property; `default_ordering` needs an `order_queryset` pk
+tie-break for stable pagination.

@@ -749,3 +749,63 @@ posts with no forum code. The search-terms report and promoted-results editor
 need only `Query.get(q).add_hit()` — capped to `MAX_QUERY_STRING_LENGTH`, in a
 savepoint, failure-swallowed, never touching cache headers (CDN-served
 anonymous repeats go uncounted by design).
+
+### Moderation queue: a `ReportView` over `Report`, gated like the snippet (todo 345)
+
+The queue is Wagtail's report framework, not a bespoke admin view: a
+`ReportView` subclass gets the listing, sortable columns, filters, pagination,
+CSV/XLSX export and the Reports-menu entry for free, and stays a *listing* —
+every row links to the existing `Report` snippet inspect view, so there is one
+mutation path. The shape (`wagtail_forum/admin_views.py`, `admin_urls.py`,
+`wagtail_hooks.py`):
+
+```python
+class ModerationQueueView(ReportView):
+    index_url_name = "wagtail_forum_reports:moderation_queue"
+    index_results_url_name = "wagtail_forum_reports:moderation_queue_results"
+    permission_policy = ModelPermissionPolicy(Report)          # the snippet's gate
+    any_permission_required = ["add", "change", "delete", "view"]
+    default_ordering = "created_at"                            # oldest first
+    columns = [TitleColumn("target_excerpt", get_url=_inspect_url), ...]
+    custom_field_preprocess = {"reporter_trust_level": {"csv": label, "xlsx": label}}
+
+    def order_queryset(self, queryset):        # deterministic pages
+        ordering = self.ordering
+        ordering = (ordering,) if isinstance(ordering, str) else ordering
+        return queryset.order_by(*ordering, "pk")
+
+    def get_queryset(self):
+        self.queryset = Report.objects.filter(status__in=QUEUE_STATUSES).select_related(...)
+            .annotate(reporter_trust_level=F("reporter__wagtail_forum_profile__trust_level"),
+                      target_open_reports=Case(When(post__isnull=False, then=Subquery(open_on_post)),
+                                               default=Subquery(open_on_message)))
+        return super().get_queryset()
+
+
+@hooks.register("register_admin_urls")
+def register_moderation_queue_urls():
+    return [path("forum/reports/", include("wagtail_forum.admin_urls"))]   # namespaced module
+
+
+@hooks.register("register_reports_menu_item")
+def register_moderation_queue_menu_item():
+    return ModerationQueueMenuItem(_("Forum moderation queue"),
+                                   reverse("wagtail_forum_reports:moderation_queue"), ...)
+```
+
+Three things the review caught that the framework does not tell you:
+
+- **Gate on the linked model's policy, and grant it to the bootstrapped group.**
+  The first cut gated on `change_post`; the "Forum Moderators" group held no
+  `*_report` perm, so every row link bounced. `bootstrap.py` now grants
+  `view_report` + `change_report`, and `test_moderation_queue.py::_moderator()`
+  is a member of that group who GETs each row's inspect URL and expects 200.
+- **Keep the query count flat across rows.** `UserColumn` renders an avatar via
+  `user.wagtail_userprofile` — one query per row — so the reporter column is a
+  plain username `Column`; the trust level is an annotation (LEFT JOIN), the
+  sibling-report count a correlated subquery per target shape. Pinned by an
+  equal-count assertion for 1 vs 3 rows across post and message reports.
+- **Export and empty state have their own seams.** `list_export` sends the raw
+  annotation to the sheet (decode with `custom_field_preprocess`); a
+  class-attribute `no_results_message` would hide the base class's
+  filtered-vs-empty distinction (override the `cached_property` instead).

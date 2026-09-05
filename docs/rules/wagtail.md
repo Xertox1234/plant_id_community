@@ -220,3 +220,23 @@ Compact checklist auto-injected before edits. Long-form:
   `old.live or old.first_published_at is not None`. A "hide it, fix the slug,
   republish it" test (unpublish → `save()` → `save_revision().publish()`) is the
   only shape that catches this. Audit 2026-09-04 M1, `apps/forum_host/redirects.py`.
+- **A new admin listing/report over model X takes X's permission policy, and
+  its row links must open for the bootstrapped role.** Set
+  `permission_policy = ModelPermissionPolicy(X)` +
+  `any_permission_required = ["add", "change", "delete", "view"]` on the
+  `ReportView`/`BaseListingView` subclass — the same gate as X's snippet
+  index/inspect views — never a looser proxy. A `Report` queue gated on
+  `change_post` rendered rows whose inspect links bounced every real moderator,
+  because `forum_host/bootstrap.py` had never granted a single `*_report` perm.
+  Pin it by GETting a row's link as a member of the bootstrapped GROUP, not as a
+  superuser (todo 345).
+- **`ReportView` costs to know before pinning a listing:** `UserColumn` resolves
+  `user.wagtail_userprofile` per row (one query each — use a plain username
+  `Column` when the count must stay flat); an annotation in `list_export` reaches
+  the CSV/XLSX as its raw value (decode via
+  `custom_field_preprocess = {"field": {"csv": fn, "xlsx": fn}}`); a
+  class-attribute `no_results_message` shadows the base `cached_property` that
+  switches text under `is_filtering`/`is_searching` (override the property and
+  branch on them); `default_ordering`/`?ordering=` compile to a bare
+  `order_by(col)` — override `order_queryset` to append `pk`, or 50-row pages
+  can duplicate/skip equal-timestamp rows (todo 345).
