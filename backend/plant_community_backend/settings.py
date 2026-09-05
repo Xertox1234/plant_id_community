@@ -868,6 +868,27 @@ WAGTAILFORUM_SPAM_BACKEND = config(
     default="wagtail_forum.spam.heuristic.HeuristicSpamBackend",
 )
 
+# Forum video embeds (todo 344). The package's embed block is inert until this
+# is True; the provider allowlist below is Wagtail's own finder config and is
+# deliberately SHORT — every provider is an external oEmbed endpoint the write
+# path calls and a third-party iframe host the web sandboxes. Add a provider
+# here only with its own embed-URL derivation in wagtail_forum/embeds.py.
+WAGTAILFORUM_ALLOW_EMBED_BLOCKS = config(
+    "FORUM_EMBEDS_ENABLED", default=True, cast=bool
+)
+from wagtail.embeds.oembed_providers import vimeo as _oembed_vimeo  # noqa: E402
+from wagtail.embeds.oembed_providers import youtube as _oembed_youtube  # noqa: E402
+
+WAGTAILEMBEDS_FINDERS = [
+    {
+        # The package finder: Wagtail's oEmbed lookup plus a real socket
+        # timeout (the stock finder has none) — bounds the API write path
+        # AND the admin embed chooser.
+        "class": "wagtail_forum.embeds.TimeoutOEmbedFinder",
+        "providers": [_oembed_youtube, _oembed_vimeo],
+    }
+]
+
 # Forum semantic "similar topics" (todo 255 slice 4 / H15). The pgvector index
 # apps are always installed (the CREATE EXTENSION migration runs wherever the
 # vector extension is present), but the endpoint + any embedding API spend gate

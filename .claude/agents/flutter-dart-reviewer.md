@@ -83,6 +83,16 @@ Review only the files passed to you. Do not read the full repo.
 - A test asserting `hasLength(SomeClass.constant)` tracks the constant rather
   than pinning it; the literal belongs next to the behaviour (L9).
 
+### Embed additions (2026-09-05, todo 344)
+
+- Before accepting a "capability missing" deferral (no url_launcher, no
+  player), grep for the handler the renderer already threads (`onOpenLink`)
+  and its call site; the answer usually already ships.
+- A new block widget mirrors its sibling's fallbacks: placeholder for a
+  blank/deleted envelope, loading placeholder on network images, a
+  consistent fallback icon, and `excludeSemantics` when a composed label
+  already describes the children.
+
 ## Output Format (Review Mode)
 
 Return ONLY this JSON structure (no surrounding prose, no markdown fences in the actual response — the example fences below show the schema):

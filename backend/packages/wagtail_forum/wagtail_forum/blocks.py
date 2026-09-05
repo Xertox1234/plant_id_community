@@ -1,4 +1,5 @@
 from wagtail import blocks
+from wagtail.embeds.blocks import EmbedBlock
 from wagtail.images.blocks import ImageChooserBlock
 
 
@@ -25,6 +26,13 @@ class ForumBodyBlock(blocks.StreamBlock):
     quote = blocks.BlockQuoteBlock()
     code = CodeBlock()
     image = ImageChooserBlock()
+    # Video/oEmbed (todo 344). Declared unconditionally — a StreamField's
+    # block list is schema (migration 0031) and must not vary per host —
+    # but INERT unless the host sets WAGTAILFORUM_ALLOW_EMBED_BLOCKS: the API
+    # refuses the block on write, and the read envelope carries no player
+    # URL, so a CMS-inserted embed on a host that has not opted in renders
+    # as a plain link. See wagtail_forum/embeds.py for the posture.
+    embed = EmbedBlock(help_text="A video URL from a provider the site allows")
 
     class Meta:
         required = False

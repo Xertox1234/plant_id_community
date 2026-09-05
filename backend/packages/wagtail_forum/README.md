@@ -345,6 +345,47 @@ Three consequences worth knowing before changing this:
 | `WAGTAILFORUM_POLL_MAX_OPTIONS` | `10` | Most options a poll may have. A separate, non-configurable ceiling (`MAX_POLL_OPTION_LIST_ITEMS = 100`) rejects an oversized raw list *before* per-item validation, so raising this setting cannot be used to amplify parse cost. |
 | `WAGTAILFORUM_POLL_QUESTION_MAX_LENGTH` | `300` | Max characters for a poll question. Inner whitespace is collapsed on write. Must stay `<=` the model column's `max_length` (300). |
 | `WAGTAILFORUM_POLL_OPTION_MAX_LENGTH` | `200` | Max characters per poll option. Must stay `<=` the model column's `max_length` (200). |
+| `WAGTAILFORUM_ALLOW_EMBED_BLOCKS` | `False` | Enables the `embed` body block (video/oEmbed, see [Embeds](#embeds)). Off: the API refuses the block and reads carry no player URL. The provider allowlist is Wagtail's `WAGTAILEMBEDS_FINDERS`. |
+| `WAGTAILFORUM_EMBED_FETCH_TIMEOUT_SECONDS` | `5` | Bound on the author's wait for the one network call embeds make — resolving each provider's oEmbed data at write time. A body's distinct URLs are fetched concurrently inside ONE such window, and it is also the socket timeout `TimeoutOEmbedFinder` puts on the request itself. A slow provider degrades its post to a link card instead of hanging the create. |
+| `WAGTAILFORUM_MAX_EMBED_URLS_PER_BODY` | `5` | Distinct embed URLs one body may carry (they resolve concurrently, so this bounds pool pressure per write and iframes per post, not wall time). |
+
+## Embeds
+
+Forum bodies may carry an `embed` block — a video URL (todo 344). It is
+**inert by default**: the block is part of the body schema on every host, but
+until `WAGTAILFORUM_ALLOW_EMBED_BLOCKS` is `True` the API refuses it on write
+and the read envelope carries no player URL. Which providers are allowed is
+Wagtail's own `WAGTAILEMBEDS_FINDERS`; keep that list short — each provider is
+an external oEmbed endpoint the write path calls and an iframe host clients
+must trust — and register the package's finder class so the provider request
+carries a real socket timeout (Wagtail's stock finder has none, and the admin
+embed chooser calls it directly, outside the API's own bound):
+
+```python
+WAGTAILEMBEDS_FINDERS = [
+    {"class": "wagtail_forum.embeds.TimeoutOEmbedFinder", "providers": [youtube, vimeo]},
+]
+```
+
+```jsonc
+// write:  {"type": "embed", "value": "https://youtu.be/dQw4w9WgXcQ"}
+// read:   {"type": "embed", "value": {
+//   "url": "https://youtu.be/dQw4w9WgXcQ",
+//   "provider_name": "YouTube", "title": "…", "thumbnail_url": "https://…",
+//   "embed_url": "https://www.youtube-nocookie.com/embed/dQw4w9WgXcQ"   // or null
+// }}
+```
+
+The posture (`wagtail_forum/embeds.py`): the provider is contacted **once, at
+write time, under `WAGTAILFORUM_EMBED_FETCH_TIMEOUT_SECONDS`** to fill
+Wagtail's `Embed` cache table; **reads never fetch** (they read that table);
+and **provider HTML is never delivered** — `embed_url` is derived from the
+original URL for providers the package knows how to iframe (YouTube via
+`youtube-nocookie.com`, Vimeo), so a web client renders its own sandboxed
+iframe and every client can fall back to `thumbnail_url` + `title` + the link.
+An unreachable provider, a timeout, or an unknown-but-allowed provider all
+degrade to that link card; nothing 500s and nothing is stored beyond the URL.
+Unsupported or non-http(s) URLs are 400 on write.
 
 ## Polls
 

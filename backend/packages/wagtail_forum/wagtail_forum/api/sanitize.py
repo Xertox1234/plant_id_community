@@ -18,12 +18,15 @@ from django.db.models import Q
 from django.utils.translation import gettext_lazy as _
 from rest_framework import serializers
 from wagtail.blocks import ChooserBlock, RichTextBlock, StructBlock
+from wagtail.embeds.blocks import EmbedBlock
 from wagtail.images import get_image_model
 from wagtail.images.blocks import ImageChooserBlock
 from wagtail.rich_text import expand_db_html
 
 from ..blocks import ForumBodyBlock
 from ..collections import get_forum_image_collection
+from ..conf import get_setting
+from ..embeds import is_supported_url, warm_embeds
 
 # Allowlist scoped to ForumBodyBlock's RichTextBlock features (bold, italic, link,
 # ol, ul, code) plus the structural tags Wagtail emits. nh3 drops everything else,
@@ -174,6 +177,39 @@ def validate_forum_body(value, allowed_uploader_ids):
                 raise serializers.ValidationError(_("Invalid post body."))
         elif not isinstance(block_value, str):
             raise serializers.ValidationError(_("Invalid post body."))
+
+    # Embed blocks (todo 344): a URL string, only when the host opted in,
+    # only from a provider the host's finders accept. Then the ONE network
+    # call this feature makes — resolving the provider's oEmbed data into
+    # Wagtail's cache table — happens here at write time, bounded, so reads
+    # never fetch (wagtail_forum/embeds.py).
+    embed_types = {
+        name
+        for name, block in body_block.child_blocks.items()
+        if isinstance(block, EmbedBlock)
+    }
+    embed_urls = [
+        block["value"]
+        for block in value
+        if isinstance(block, dict) and block.get("type") in embed_types
+    ]
+    if embed_urls:
+        if not get_setting("ALLOW_EMBED_BLOCKS"):
+            raise serializers.ValidationError(_("Embeds are not enabled on this site."))
+        for url in embed_urls:
+            if not is_supported_url(url):
+                raise serializers.ValidationError(
+                    _(
+                        "Unsupported embed URL — only links from allowed video providers work."
+                    )
+                )
+        distinct = list(dict.fromkeys(embed_urls))  # each distinct URL once
+        max_embeds = get_setting("MAX_EMBED_URLS_PER_BODY")
+        if len(distinct) > max_embeds:
+            raise serializers.ValidationError(
+                _("A post may embed at most %(n)d videos.") % {"n": max_embeds}
+            )
+        warm_embeds(distinct)  # concurrently, one timeout window for the lot
 
     # Non-image chooser blocks stay rejected outright: there is no upload/
     # validation path for them, so a caller could store a nonexistent PK

@@ -4395,3 +4395,30 @@ falls back), and a `CASCADE` from `UserBadge` to `Badge` that would have
 erased award history from a snippet delete with no "used by" warning
 (plain FKs are not in Wagtail's `ReferenceIndex`) — now `PROTECT`. Rules in
 `docs/rules/database.md`.
+
+### [2026-09-05] Embeds: the worker thread's rows outlived the test transaction, and the read path was an N+1 (todo 344)
+
+Two things the green unit tests hid. (1) `warm_embed` resolves the
+provider on a worker thread so the fetch can be bounded by a timeout —
+which means that thread has its own Django connection and COMMITS the
+`Embed` row outside pytest's per-test transaction. The row survived into
+the next test, whose `create()` on the same URL hit the unique hash and
+whose "one fetch" assertion read 0 because the cache already held the row.
+Fix: distinct video ids per test plus an up-front delete, and the worker
+closes its connection in `finally`. The reviewers then pointed at the
+root: `.result(timeout=)` only bounds the caller — Wagtail's finder calls
+`requests.get` with NO timeout, so a stalled provider keeps the thread and
+its connection alive past the bound (and the Wagtail admin's embed chooser
+calls `get_embed` directly, outside the API wrapper entirely). Fix:
+`TimeoutOEmbedFinder`, a subclass the host registers in
+`WAGTAILEMBEDS_FINDERS` that passes the setting as a real socket timeout,
+plus a shared bounded pool that resolves a body's URLs concurrently inside
+one window, plus a cap on distinct URLs per body. (2) `embed_envelope` looked its own `Embed` row up per block —
+kimi-review flagged the missing query pin, and the pin would have shown a
+page of embed posts costing a query per post. Fix: `build_forum_embed_map`
+batches one `hash__in` query per page through the serializer context
+exactly like the image map, with a 1-vs-5 flatness test. Also caught in the
+same review round: a hand-built `<a href>` string in `bodyBlocksToHtml`
+bypasses React's `javascript:` guard (scheme allowlist added), and the
+Flutter renderer already carried an `onOpenLink` handler that made the
+"non-tappable card, no url_launcher" deferral unnecessary.

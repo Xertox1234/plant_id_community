@@ -167,6 +167,19 @@ Use Grep as fallback for any LSP call that returns an error or an empty/inconclu
 - A `--all`-style command over every profile streams ids with
   `.iterator(chunk_size=…)`, never a materialized list.
 
+### Embed additions (2026-09-05, todo 344)
+
+- Any body-block serializer branch that reads a row per block (embed cache,
+  chooser, related model) needs a page-level map threaded through the
+  serializer context and a 1-vs-N flatness pin — the image map is the
+  precedent.
+- Wagtail's `get_finder_for_embed()` RETURNS the finder's embed dict (not a
+  finder); a test that patches it to return a dict is correct — do not flag
+  it as the wrong type.
+- Code that runs work on a worker thread: check the thread closes its DB
+  connection, and that tests account for its commits escaping the test
+  transaction.
+
 ## Output Format (Review Mode)
 
 Return ONLY this JSON structure (no surrounding prose, no markdown fences in the actual response — the example fences below show the schema):

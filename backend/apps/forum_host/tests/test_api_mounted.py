@@ -83,6 +83,45 @@ def test_badges_ship_through_the_host_mount():
 
 
 @pytest.mark.django_db
+def test_embed_blocks_ship_through_the_host_mount_as_envelopes():
+    """todo 344: the embed envelope is new read behaviour on a package view,
+    so prove it through the REAL /api/v1/forum/ mount (docs/rules/forum.md)
+    — and that the host's default has embeds ON."""
+    from django.conf import settings
+    from wagtail.models import Page
+    from wagtail_forum.models import ForumBoard, ForumIndex, Post, Topic
+
+    assert settings.WAGTAILFORUM_ALLOW_EMBED_BLOCKS is True
+    root = Page.objects.get(id=1)
+    index = root.add_child(
+        instance=ForumIndex(title="Forum", slug="forum-mounted-embed")
+    )
+    board = index.add_child(instance=ForumBoard(title="General", slug="mounted-embed"))
+    author = User.objects.create_user(username="mounted-embed-author")
+    topic = Topic.objects.create(
+        board=board, title="V", slug="mounted-embed-t", live=True, author=author
+    )
+    Post.objects.create(
+        topic=topic,
+        author=author,
+        is_opening_post=True,
+        live=True,
+        body=[{"type": "embed", "value": "https://youtu.be/mountedvid1"}],
+    )
+
+    resp = APIClient().get(f"/api/v1/forum/topics/{topic.id}/posts/")
+
+    assert resp.status_code == 200
+    block = resp.data["results"][0]["body"][0]
+    assert block["type"] == "embed"
+    assert (
+        block["value"]["embed_url"]
+        == "https://www.youtube-nocookie.com/embed/mountedvid1"
+    )
+    assert "html" not in block["value"]
+
+
+@pytest.mark.django_db
 def test_dm_endpoints_are_mounted_and_throttled():
     """todo 319/M10: one round-trip through the REAL host mount, mirroring
     test_block_endpoint_is_mounted_and_throttled."""

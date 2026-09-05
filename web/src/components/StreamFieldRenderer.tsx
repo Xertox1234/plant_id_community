@@ -170,6 +170,53 @@ function StreamFieldBlock({ block, mentionHighlight }: StreamFieldBlockProps) {
       );
     }
 
+    case 'embed': {
+      // Forum video embed (todo 344). SECURITY: never provider HTML — the
+      // server derives a player URL on a known host (youtube-nocookie /
+      // player.vimeo) and the iframe is sandboxed; anything else is a
+      // thumbnail + link card. `allow-same-origin` is the iframe's OWN
+      // origin (the provider), which the YouTube/Vimeo players require.
+      const { url, embed_url, title, thumbnail_url, provider_name } = block.value;
+      const label = title || url;
+      if (embed_url) {
+        return (
+          <div className="my-5 aspect-video overflow-hidden rounded-md border border-line bg-surface-2">
+            <iframe
+              src={embed_url}
+              title={label}
+              className="h-full w-full"
+              sandbox="allow-scripts allow-same-origin allow-presentation allow-popups allow-popups-to-escape-sandbox"
+              referrerPolicy="strict-origin-when-cross-origin"
+              allow="encrypted-media; picture-in-picture; fullscreen"
+              loading="lazy"
+            />
+          </div>
+        );
+      }
+      return (
+        <a
+          href={getSafeHref(url)}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="my-5 flex items-center gap-3 rounded-md border border-line bg-surface-2 p-3 text-ink hover:bg-surface-3"
+        >
+          {thumbnail_url && (
+            <img
+              src={thumbnail_url}
+              alt=""
+              className="h-16 w-28 shrink-0 rounded-sm object-cover"
+            />
+          )}
+          <span className="min-w-0">
+            <span className="block truncate font-medium">{label}</span>
+            <span className="block text-xs text-ink-3">
+              {provider_name ? `Watch on ${provider_name}` : 'Open link'}
+            </span>
+          </span>
+        </a>
+      );
+    }
+
     case 'quote': {
       // Backend: StructBlock with quote_text (RichTextBlock) and attribution (CharBlock)
       const { value } = block;

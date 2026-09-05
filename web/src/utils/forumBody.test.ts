@@ -192,3 +192,65 @@ describe('forumBody quote blocks (audit M1)', () => {
     }
   });
 });
+
+describe('forumBody embed blocks (todo 344)', () => {
+  it('turns a paragraph that is only a YouTube or Vimeo link into an embed block', () => {
+    const blocks = htmlToBodyBlocks(
+      '<p>Watch this:</p><p>https://youtu.be/dQw4w9WgXcQ</p><p><a href="https://vimeo.com/148751763">https://vimeo.com/148751763</a></p>'
+    );
+    expect(blocks).toEqual([
+      { type: 'paragraph', value: '<p>Watch this:</p>' },
+      { type: 'embed', value: 'https://youtu.be/dQw4w9WgXcQ' },
+      { type: 'embed', value: 'https://vimeo.com/148751763' },
+    ]);
+  });
+
+  it('leaves a link inside prose, or an unknown provider, as ordinary paragraph text', () => {
+    const blocks = htmlToBodyBlocks(
+      '<p>See https://youtu.be/dQw4w9WgXcQ for details</p><p>https://example.com/video/1</p>'
+    );
+    expect(blocks.every((b) => b.type === 'paragraph')).toBe(true);
+    expect(blocks).toHaveLength(1);
+  });
+
+  it('accepts a youtube.com/live share link as an embed, and drops a persisted non-http(s) embed url on re-edit', () => {
+    expect(
+      htmlToBodyBlocks('<p>https://www.youtube.com/live/abcDEF12345?feature=share</p>')
+    ).toEqual([{ type: 'embed', value: 'https://www.youtube.com/live/abcDEF12345?feature=share' }]);
+    expect(
+      bodyBlocksToHtml([
+        {
+          type: 'embed',
+          value: {
+            url: 'javascript:alert(1)',
+            provider_name: '',
+            title: '',
+            thumbnail_url: '',
+            embed_url: null,
+          },
+        },
+      ])
+    ).toBe('');
+  });
+
+  it('round-trips an embed envelope back to a link paragraph and then to an embed block', () => {
+    const html = bodyBlocksToHtml([
+      {
+        type: 'embed',
+        value: {
+          url: 'https://youtu.be/dQw4w9WgXcQ',
+          provider_name: 'YouTube',
+          title: 'T',
+          thumbnail_url: '',
+          embed_url: 'https://www.youtube-nocookie.com/embed/dQw4w9WgXcQ',
+        },
+      },
+    ]);
+    expect(html).toBe(
+      '<p><a href="https://youtu.be/dQw4w9WgXcQ">https://youtu.be/dQw4w9WgXcQ</a></p>'
+    );
+    expect(htmlToBodyBlocks(html)).toEqual([
+      { type: 'embed', value: 'https://youtu.be/dQw4w9WgXcQ' },
+    ]);
+  });
+});

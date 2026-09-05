@@ -115,6 +115,25 @@ export interface ImageBlock extends BaseStreamFieldBlock {
 }
 
 /**
+ * Forum video embed (todo 344). The server derives `embed_url` for providers
+ * it knows how to iframe (YouTube via youtube-nocookie, Vimeo) and NEVER
+ * delivers provider HTML; `embed_url` is null when the host has embeds off
+ * or the provider has no known player — render the thumbnail/link card.
+ */
+export interface EmbedBlockValue {
+  url: string;
+  provider_name: string;
+  title: string;
+  thumbnail_url: string;
+  embed_url: string | null;
+}
+
+export interface EmbedBlock extends BaseStreamFieldBlock {
+  type: 'embed';
+  value: EmbedBlockValue;
+}
+
+/**
  * StreamField block types
  */
 export type StreamFieldBlock =
@@ -123,6 +142,7 @@ export type StreamFieldBlock =
   | QuoteBlock
   | CodeBlock
   | ImageBlock
+  | EmbedBlock
   | PlantSpotlightBlock
   | CallToActionBlock;
 

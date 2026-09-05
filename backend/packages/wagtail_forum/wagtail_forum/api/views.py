@@ -95,6 +95,7 @@ from .serializers import (
     TopicCreateSerializer,
     TopicDetailSerializer,
     TopicListSerializer,
+    build_forum_embed_map,
     build_forum_image_map,
     serialize_forum_author,
     serialize_forum_body,
@@ -956,6 +957,7 @@ class PostListView(
         context = {
             **self.get_serializer_context(),
             "forum_image_map": build_forum_image_map(objects),
+            "forum_embed_map": build_forum_embed_map(objects),
             "forum_reacted_map": reacted_map,
         }
         serializer = self.get_serializer(objects, many=True, context=context)
@@ -1141,6 +1143,7 @@ class PostWriteView(UnversionedForumAPIMixin, APIView):
             context={
                 "request": request,
                 "forum_image_map": build_forum_image_map([serialize_source]),
+                "forum_embed_map": build_forum_embed_map([serialize_source]),
             },
         ).data
         data["moderation_status"] = moderation_status
@@ -1355,6 +1358,7 @@ class PostRevisionDetailView(
                     snapshot.body,
                     image_map=build_forum_image_map([snapshot]),
                     request=request,
+                    embed_map=build_forum_embed_map([snapshot]),
                 ),
             }
         )

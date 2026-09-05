@@ -227,3 +227,9 @@ Compact checklist auto-injected before edits. Long-form:
   disables both buttons while either is in flight); and the navigation
   effect reset the block error but not the mute error. Grep every site the
   ORIGINAL touches — effects, resets, shared state — not just its handlers.
+- **A hand-built HTML string bypasses React's `href`/`src` guard — allowlist
+  the scheme yourself.** `bodyBlocksToHtml` interpolates a persisted URL into
+  `<a href>` markup that TipTap parses into the live composer DOM; React 19's
+  `javascript:` denylist only protects JSX attributes. Drop (or blank) any
+  non-`http(s)` URL before interpolating, and use the renderer's
+  `getSafeHref()` on JSX links for the stricter allowlist (todo 344 review).

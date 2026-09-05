@@ -47,6 +47,19 @@ class ForumBodyRenderer extends StatelessWidget {
         language: language,
       ),
       ForumImageBlock(:final url, :final alt) => _Image(url: url, alt: alt),
+      EmbedBlock(
+        :final url,
+        :final providerName,
+        :final title,
+        :final thumbnailUrl,
+      ) =>
+        _EmbedCard(
+          url: url,
+          providerName: providerName,
+          title: title,
+          thumbnailUrl: thumbnailUrl,
+          onOpenLink: onOpenLink,
+        ),
       DeletedImageBlock() => _Placeholder(
         icon: Icons.broken_image_outlined,
         label: 'Image unavailable',
@@ -147,6 +160,112 @@ class _Image extends StatelessWidget {
           errorWidget: (context, _, _) => const _Placeholder(
             icon: Icons.broken_image_outlined,
             label: 'Image unavailable',
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// A video embed as a thumbnail card (todo 344): provider, title and the
+/// link — never an inline player or provider HTML. Tapping hands the URL to
+/// the same [onOpenLink] the paragraph links use (the thread screen shows
+/// it in a SnackBar; a real launcher is todo 341 parity work). A blank
+/// envelope (no url, no title) renders the unavailable placeholder, like a
+/// deleted image, rather than an empty card.
+class _EmbedCard extends StatelessWidget {
+  const _EmbedCard({
+    required this.url,
+    required this.providerName,
+    required this.title,
+    required this.thumbnailUrl,
+    this.onOpenLink,
+  });
+  final String url;
+  final String providerName;
+  final String title;
+  final String thumbnailUrl;
+  final void Function(String href)? onOpenLink;
+
+  @override
+  Widget build(BuildContext context) {
+    if (url.isEmpty && title.isEmpty) {
+      return const _Placeholder(
+        icon: Icons.videocam_off_outlined,
+        label: 'Video unavailable',
+      );
+    }
+    final theme = Theme.of(context);
+    final label = title.isNotEmpty ? title : url;
+    final fallbackIcon = Icon(
+      Icons.play_circle_outline,
+      size: 32,
+      color: theme.colorScheme.onSurfaceVariant,
+    );
+    return Semantics(
+      label: providerName.isNotEmpty
+          ? '$providerName video: $label'
+          : 'Video: $label',
+      button: onOpenLink != null,
+      // The composed label already says everything the two Text children
+      // say; without this a screen reader announces the title twice.
+      excludeSemantics: true,
+      child: Material(
+        color: theme.colorScheme.surfaceContainerHighest,
+        borderRadius: BorderRadius.circular(AppSpacing.rXs),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(AppSpacing.rXs),
+          onTap: onOpenLink == null || url.isEmpty
+              ? null
+              : () => onOpenLink!(url),
+          child: Padding(
+            padding: const EdgeInsets.all(AppSpacing.sm),
+            child: Row(
+              children: [
+                if (thumbnailUrl.isNotEmpty)
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(AppSpacing.rXs),
+                    child: SizedBox(
+                      width: 96,
+                      height: 54,
+                      child: CachedNetworkImage(
+                        imageUrl: thumbnailUrl,
+                        fit: BoxFit.cover,
+                        placeholder: (context, _) => ColoredBox(
+                          color: theme.colorScheme.surfaceContainerHigh,
+                        ),
+                        errorWidget: (context, _, _) => fallbackIcon,
+                      ),
+                    ),
+                  )
+                else
+                  fallbackIcon,
+                const SizedBox(width: AppSpacing.sm),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        label,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: theme.textTheme.bodyMedium,
+                      ),
+                      Text(
+                        providerName.isNotEmpty
+                            ? 'Watch on $providerName'
+                            : url,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: theme.colorScheme.onSurfaceVariant,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
           ),
         ),
       ),

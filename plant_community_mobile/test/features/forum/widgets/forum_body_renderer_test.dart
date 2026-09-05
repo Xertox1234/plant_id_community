@@ -23,14 +23,17 @@ void main() {
       ParagraphBlock('<p>Hello <strong>world</strong></p>'),
       QuoteBlock('A wise quote'),
       CodeBlock(code: 'print("hi")', language: 'dart'),
-      UnknownBlock('embed'),
+      UnknownBlock('gallery'),
     ]);
 
     expect(find.text('The heading'), findsOneWidget);
     expect(find.textContaining('world'), findsOneWidget);
     expect(find.text('A wise quote'), findsOneWidget);
     expect(find.text('print("hi")'), findsOneWidget);
-    expect(find.textContaining('Unsupported content (embed)'), findsOneWidget);
+    expect(
+      find.textContaining('Unsupported content (gallery)'),
+      findsOneWidget,
+    );
   });
 
   testWidgets('image block renders a CachedNetworkImage', (tester) async {
@@ -44,6 +47,48 @@ void main() {
       ),
     ]);
     expect(find.byType(CachedNetworkImage), findsOneWidget);
+  });
+
+  testWidgets('embed renders a thumbnail card, never a player', (tester) async {
+    await _pump(tester, const [
+      EmbedBlock(
+        url: 'https://youtu.be/dQw4w9WgXcQ',
+        providerName: 'YouTube',
+        title: 'Repotting a monstera',
+        thumbnailUrl: 'https://i.ytimg.com/t.jpg',
+      ),
+      EmbedBlock(url: 'https://vimeo.com/148751763'),
+    ]);
+    expect(find.text('Repotting a monstera'), findsOneWidget);
+    expect(find.text('Watch on YouTube'), findsOneWidget);
+    expect(find.byType(CachedNetworkImage), findsOneWidget); // thumbnail only
+    // No provider, no title: the link itself is the label.
+    expect(find.text('https://vimeo.com/148751763'), findsNWidgets(2));
+  });
+
+  testWidgets(
+    'tapping an embed card hands its URL to onOpenLink, like a link',
+    (tester) async {
+      final opened = <String>[];
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: ForumBodyRenderer(const [
+              EmbedBlock(url: 'https://youtu.be/dQw4w9WgXcQ', title: 'T'),
+            ], onOpenLink: opened.add),
+          ),
+        ),
+      );
+      await tester.tap(find.text('T'));
+      expect(opened, ['https://youtu.be/dQw4w9WgXcQ']);
+    },
+  );
+
+  testWidgets('a blank embed envelope renders the unavailable placeholder', (
+    tester,
+  ) async {
+    await _pump(tester, const [EmbedBlock(url: '')]);
+    expect(find.textContaining('Video unavailable'), findsOneWidget);
   });
 
   testWidgets('deleted image renders the unavailable placeholder', (

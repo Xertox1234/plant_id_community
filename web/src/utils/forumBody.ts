@@ -13,7 +13,23 @@ import type { StreamFieldBlock } from '@/types/blog';
 export type ForumBodyWriteBlock =
   | { type: 'paragraph'; value: string }
   | { type: 'quote'; value: string }
-  | { type: 'image'; value: number };
+  | { type: 'image'; value: number }
+  | { type: 'embed'; value: string };
+
+/**
+ * A pasted video link becomes an `embed` block (todo 344) when it is the
+ * ONLY content of its paragraph. Mirrors the server's known-player set —
+ * the server's finder allowlist is still the authority (400 otherwise).
+ */
+const PROVIDER_VIDEO_URL =
+  /^https?:\/\/(?:(?:[-\w]+\.)?youtube\.com\/(?:watch\?\S+|shorts\/\S+|live\/\S+|v\/\S+)|youtu\.be\/\S+|(?:www\.)?vimeo\.com\/\S+)$/;
+
+/** The bare provider URL if `el` is a paragraph holding exactly one, else null. */
+function embedUrlOf(el: Element): string | null {
+  if (el.tagName !== 'P' || el.querySelector('img')) return null;
+  const text = (el.textContent ?? '').trim();
+  return PROVIDER_VIDEO_URL.test(text) ? text : null;
+}
 
 /**
  * Escape text destined for composer HTML. `quote` is a Wagtail `BlockQuoteBlock`
@@ -62,9 +78,16 @@ export function htmlToBodyBlocks(html: string): ForumBodyWriteBlock[] {
   for (const node of Array.from(doc.body.childNodes)) {
     const el = node.nodeType === Node.ELEMENT_NODE ? (node as Element) : null;
     const imageId = el?.tagName === 'IMG' ? el.getAttribute('data-image-id') : null;
+    const embedUrl = el ? embedUrlOf(el) : null;
     if (imageId) {
       flush();
       blocks.push({ type: 'image', value: Number(imageId) });
+    } else if (embedUrl) {
+      // A paragraph that is just a video link → its own embed block; the
+      // server unfurls it (todo 344). Re-editing round-trips through
+      // bodyBlocksToHtml's <p><a> form back to this branch.
+      flush();
+      blocks.push({ type: 'embed', value: embedUrl });
     } else if (el?.tagName === 'BLOCKQUOTE') {
       // A top-level blockquote becomes its OWN `quote` block, not inline markup
       // in a paragraph: the server's nh3 allowlist has no <blockquote>, so a
@@ -114,6 +137,18 @@ export function bodyBlocksToHtml(body: StreamFieldBlock[] | null | undefined): s
       }
       if (block.type === 'paragraph') {
         return typeof block.value === 'string' ? block.value : '';
+      }
+      if (block.type === 'embed') {
+        // The read shape is an envelope; only the original URL goes back
+        // into the composer, as a link paragraph htmlToBodyBlocks recognises.
+        // SECURITY: this is a hand-built HTML string later parsed into the
+        // live composer DOM — React's own href guard does not apply here —
+        // so a persisted URL with a non-http(s) scheme (a direct API POST
+        // that skipped the composer) is dropped, not linked (review).
+        const url = typeof block.value === 'string' ? block.value : block.value.url;
+        if (!url || !/^https?:\/\//i.test(url)) return '';
+        const safe = escapeHtml(url);
+        return `<p><a href="${safe.replace(/"/g, '&quot;')}">${safe}</a></p>`;
       }
       if (block.type === 'quote') {
         // Plain text in, escaped markup out — see escapeHtml. One <p> per
