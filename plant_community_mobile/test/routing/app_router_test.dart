@@ -150,6 +150,40 @@ void main() {
       },
     );
 
+    testWidgets('the group compose screen and every group thread are auth-only '
+        '(todo 350)', (WidgetTester tester) async {
+      final container = ProviderContainer(
+        overrides: [
+          authServiceProvider.overrideWith(
+            _MockUnauthenticatedAuthNotifier.new,
+          ),
+        ],
+      );
+      addTearDown(container.dispose);
+      container.listen(appRouterProvider, (_, _) {});
+      final router = container.read(appRouterProvider);
+
+      await tester.pumpWidget(MaterialApp.router(routerConfig: router));
+
+      // Both live under the `/forum/groups` prefix guard, not the
+      // exact-path set — `new` and a numeric id have to be covered alike.
+      router.go(AppRoutes.forumNewGroup);
+      await tester.pump(const Duration(milliseconds: 100));
+      expect(
+        router.routerDelegate.currentConfiguration.uri.path,
+        equals(AppRoutes.login),
+      );
+
+      router.go('${AppRoutes.forumGroups}/12');
+      await tester.pump(const Duration(milliseconds: 100));
+      expect(
+        router.routerDelegate.currentConfiguration.uri.path,
+        equals(AppRoutes.login),
+      );
+
+      await tester.pump(const Duration(seconds: 4));
+    });
+
     testWidgets(
       'forumConversation route builds ForumConversationScreen for the '
       'username in the path (todo 339)',

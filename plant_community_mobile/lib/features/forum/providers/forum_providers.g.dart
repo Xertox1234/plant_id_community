@@ -772,7 +772,7 @@ final class ConversationsFeedProvider
   ConversationsFeed create() => ConversationsFeed();
 }
 
-String _$conversationsFeedHash() => r'563bc5e01b5e7dbc3bef4262373b4a42141d1776';
+String _$conversationsFeedHash() => r'ae0fd6a9ccfac503f3588845005a0ecdc4f7a840';
 
 /// The user's DM inbox (cursor-paginated, most recent activity first).
 
@@ -965,7 +965,7 @@ final class ConversationThreadProvider
 }
 
 String _$conversationThreadHash() =>
-    r'd6466cc5f39a39a1d25775d866d8fbcf66239ab4';
+    r'e432289bc0bd44472f2507f53a19c31346249d0d';
 
 /// A 1:1 DM thread with [username] (todo 339): resolves the conversation
 /// (absent until first send), pages older messages, and sends.
@@ -1016,6 +1016,156 @@ abstract class _$ConversationThread
   String get username => _$args;
 
   FutureOr<ConversationThreadState> build(String username);
+  @$mustCallSuper
+  @override
+  void runBuild() {
+    final ref =
+        this.ref
+            as $Ref<
+              AsyncValue<ConversationThreadState>,
+              ConversationThreadState
+            >;
+    final element =
+        ref.element
+            as $ClassProviderElement<
+              AnyNotifier<
+                AsyncValue<ConversationThreadState>,
+                ConversationThreadState
+              >,
+              AsyncValue<ConversationThreadState>,
+              Object?,
+              Object?
+            >;
+    element.handleCreate(ref, () => build(_$args));
+  }
+}
+
+/// A group DM thread by conversation id (todo 350). Same state shape and
+/// paging as [ConversationThread]; sends through the by-id endpoint and
+/// manages the roster. The contract has no conversation-detail endpoint, so
+/// the inbox row is taken from the mounted inbox when it holds it (row tap,
+/// or a just-created group spliced in) and otherwise from inbox page 1; a
+/// row not found there leaves [ConversationThreadState.conversation] null —
+/// messages and sending still work by id, only the title/roster degrade.
+
+@ProviderFor(GroupConversationThread)
+final groupConversationThreadProvider = GroupConversationThreadFamily._();
+
+/// A group DM thread by conversation id (todo 350). Same state shape and
+/// paging as [ConversationThread]; sends through the by-id endpoint and
+/// manages the roster. The contract has no conversation-detail endpoint, so
+/// the inbox row is taken from the mounted inbox when it holds it (row tap,
+/// or a just-created group spliced in) and otherwise from inbox page 1; a
+/// row not found there leaves [ConversationThreadState.conversation] null —
+/// messages and sending still work by id, only the title/roster degrade.
+final class GroupConversationThreadProvider
+    extends
+        $AsyncNotifierProvider<
+          GroupConversationThread,
+          ConversationThreadState
+        > {
+  /// A group DM thread by conversation id (todo 350). Same state shape and
+  /// paging as [ConversationThread]; sends through the by-id endpoint and
+  /// manages the roster. The contract has no conversation-detail endpoint, so
+  /// the inbox row is taken from the mounted inbox when it holds it (row tap,
+  /// or a just-created group spliced in) and otherwise from inbox page 1; a
+  /// row not found there leaves [ConversationThreadState.conversation] null —
+  /// messages and sending still work by id, only the title/roster degrade.
+  GroupConversationThreadProvider._({
+    required GroupConversationThreadFamily super.from,
+    required int super.argument,
+  }) : super(
+         retry: null,
+         name: r'groupConversationThreadProvider',
+         isAutoDispose: true,
+         dependencies: null,
+         $allTransitiveDependencies: null,
+       );
+
+  @override
+  String debugGetCreateSourceHash() => _$groupConversationThreadHash();
+
+  @override
+  String toString() {
+    return r'groupConversationThreadProvider'
+        ''
+        '($argument)';
+  }
+
+  @$internal
+  @override
+  GroupConversationThread create() => GroupConversationThread();
+
+  @override
+  bool operator ==(Object other) {
+    return other is GroupConversationThreadProvider &&
+        other.argument == argument;
+  }
+
+  @override
+  int get hashCode {
+    return argument.hashCode;
+  }
+}
+
+String _$groupConversationThreadHash() =>
+    r'7b1e012813f8397c54895a34271f8d4bae45c7fb';
+
+/// A group DM thread by conversation id (todo 350). Same state shape and
+/// paging as [ConversationThread]; sends through the by-id endpoint and
+/// manages the roster. The contract has no conversation-detail endpoint, so
+/// the inbox row is taken from the mounted inbox when it holds it (row tap,
+/// or a just-created group spliced in) and otherwise from inbox page 1; a
+/// row not found there leaves [ConversationThreadState.conversation] null —
+/// messages and sending still work by id, only the title/roster degrade.
+
+final class GroupConversationThreadFamily extends $Family
+    with
+        $ClassFamilyOverride<
+          GroupConversationThread,
+          AsyncValue<ConversationThreadState>,
+          ConversationThreadState,
+          FutureOr<ConversationThreadState>,
+          int
+        > {
+  GroupConversationThreadFamily._()
+    : super(
+        retry: null,
+        name: r'groupConversationThreadProvider',
+        dependencies: null,
+        $allTransitiveDependencies: null,
+        isAutoDispose: true,
+      );
+
+  /// A group DM thread by conversation id (todo 350). Same state shape and
+  /// paging as [ConversationThread]; sends through the by-id endpoint and
+  /// manages the roster. The contract has no conversation-detail endpoint, so
+  /// the inbox row is taken from the mounted inbox when it holds it (row tap,
+  /// or a just-created group spliced in) and otherwise from inbox page 1; a
+  /// row not found there leaves [ConversationThreadState.conversation] null —
+  /// messages and sending still work by id, only the title/roster degrade.
+
+  GroupConversationThreadProvider call(int conversationId) =>
+      GroupConversationThreadProvider._(argument: conversationId, from: this);
+
+  @override
+  String toString() => r'groupConversationThreadProvider';
+}
+
+/// A group DM thread by conversation id (todo 350). Same state shape and
+/// paging as [ConversationThread]; sends through the by-id endpoint and
+/// manages the roster. The contract has no conversation-detail endpoint, so
+/// the inbox row is taken from the mounted inbox when it holds it (row tap,
+/// or a just-created group spliced in) and otherwise from inbox page 1; a
+/// row not found there leaves [ConversationThreadState.conversation] null —
+/// messages and sending still work by id, only the title/roster degrade.
+
+abstract class _$GroupConversationThread
+    extends $AsyncNotifier<ConversationThreadState> {
+  late final _$args = ref.$arg as int;
+  int get conversationId => _$args;
+
+  FutureOr<ConversationThreadState> build(int conversationId);
   @$mustCallSuper
   @override
   void runBuild() {

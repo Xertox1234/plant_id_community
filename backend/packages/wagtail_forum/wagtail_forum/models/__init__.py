@@ -3,7 +3,7 @@ from .badges import Badge, BadgeMetric, BadgeRule, UserBadge
 from .boards import ForumBoard, ForumIndex
 from .bookmarks import TopicBookmark
 from .identifications import ForumIdentificationAttachment
-from .messages import Conversation, Message
+from .messages import Conversation, ConversationKind, ConversationParticipant, Message
 from .moderation import SpamCheckTask
 from .notifications import Notification, NotificationVerb
 from .polls import Poll, PollOption, PollVote
@@ -24,6 +24,8 @@ __all__ = [
     "BadgeMetric",
     "BadgeRule",
     "Conversation",
+    "ConversationKind",
+    "ConversationParticipant",
     "ForumActivityDate",
     "ForumBoard",
     "ForumIdentificationAttachment",

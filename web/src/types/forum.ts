@@ -622,22 +622,48 @@ export interface EventHero {
 // string-id or slug convention to translate here.
 // ---------------------------------------------------------------------------
 
+/** `direct` is the two-party thread of todo 339; `group` is a titled thread of up to 8 members (todo 350). */
+export type ConversationKind = 'direct' | 'group';
+
 /** The inbox preview of a conversation's most recent message (body ≤140 chars). */
 export interface ConversationLastMessage {
   body: string;
   /** True when the VIEWER sent it — the inbox prefixes the preview "You: ". */
   is_mine: boolean;
+  /**
+   * Who sent it — a group preview is prefixed with this member's name (todo
+   * 350). Null once that member has left the group: the serializer resolves
+   * the sender among the CURRENT members only, so a departed member's last
+   * message keeps its body and `is_mine` but loses its author.
+   */
+  sender: ForumAuthor | null;
   created_at: string;
 }
 
-/** GET conversations/ row — one two-party thread, most recent activity first. */
+/**
+ * GET conversations/ row, most recent activity first. One interface with a
+ * `kind` discriminator rather than two: the group keys are present on direct
+ * rows too (`participants: [me, other]`, `created_by: null`), so a direct row
+ * is not a different shape, just one with fixed values — and page fixtures
+ * spread `Partial<Conversation>` overrides, which a union would not accept.
+ */
 export interface Conversation {
   id: number;
-  /** The member on the other side; the viewer is never listed. */
-  other_participant: ForumAuthor;
+  kind: ConversationKind;
+  /** Group title (≤80 chars); the empty string for a direct thread. */
+  title: string;
+  /** Direct: the member on the other side (the viewer is never listed). Group: null. */
+  other_participant: ForumAuthor | null;
+  /** Every member INCLUDING the viewer, in joined order (≤ 8 for a group). */
+  participants: ForumAuthor[];
+  participant_count: number;
+  /** The group's creator; null for a direct thread. */
+  created_by: ForumAuthor | null;
+  /** True when the viewer is the creator — may add and remove members. */
+  can_manage: boolean;
   created_at: string;
   last_message_at: string;
-  /** Messages from the other side the viewer has not opened yet. */
+  /** Messages from others the viewer has not opened yet. */
   unread_count: number;
   /** Null only for a conversation with no messages (not reachable via the API today). */
   last_message: ConversationLastMessage | null;

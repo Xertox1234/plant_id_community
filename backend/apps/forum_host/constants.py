@@ -24,6 +24,10 @@ DEFAULT_FORUM_RATELIMITS = {
     # find one.
     "poll_vote": "30/h",
     "report_create": "10/h",
+    # Group DMs (todo 350): creating a room is a bulk-invite surface, so it is
+    # rated far below a single send; membership changes sit in between.
+    "dm_group_create": "5/h",
+    "dm_group_manage": "30/h",
     # SHARED SCOPE — accepted, monitor-only (todo 272 item 2, 2026-07-29).
     # `PATCH /forum/me/profile/` (MeProfileView) is the single writer endpoint
     # for THREE unrelated callers, so they consume one 10/h budget together:

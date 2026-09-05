@@ -25,7 +25,12 @@ from ..models import (
     UserBlock,
     UserMute,
 )
-from ..models.messages import MESSAGE_BODY_MAX_CHARS, MESSAGE_PREVIEW_CHARS
+from ..models.messages import (
+    GROUP_TITLE_MAX_CHARS,
+    MAX_GROUP_INVITE_ITEMS,
+    MESSAGE_BODY_MAX_CHARS,
+    MESSAGE_PREVIEW_CHARS,
+)
 from .sanitize import validate_forum_body
 
 try:  # Schema annotations are optional — hosts without drf-spectacular still work.
@@ -1288,19 +1293,56 @@ class ReportSerializer(serializers.Serializer):
 
 
 class ConversationSerializer(serializers.Serializer):
-    """A 1:1 DM conversation from the requesting user's point of view — the
-    OTHER participant, not both (todo 319/M10) — plus the inbox fields (todo
-    339): `unread_count`, `last_message_at`, and a `last_message` preview.
-    Expects a row from `direct_messages._inbox_queryset` (annotations)."""
+    """A DM conversation from the requesting user's point of view — for a
+    direct thread the OTHER participant (todo 319/M10), for a group (todo
+    350) the title, every member and who may manage it — plus the inbox
+    fields (todo 339): `unread_count`, `last_message_at`, and a
+    `last_message` preview. Expects a row from
+    `direct_messages._inbox_queryset` (annotations + participants prefetch)."""
 
     id = serializers.IntegerField()
+    kind = serializers.CharField()
+    title = serializers.CharField()
     other_participant = serializers.SerializerMethodField()
+    participants = serializers.SerializerMethodField()
+    participant_count = serializers.SerializerMethodField()
+    created_by = serializers.SerializerMethodField()
+    can_manage = serializers.SerializerMethodField()
     created_at = serializers.DateTimeField()
     last_message_at = serializers.DateTimeField()
-    # Messages from the other side newer than my read marker (own messages
-    # never count).
+    # Messages from other members newer than my read marker (own messages
+    # never count; a blocked member's group messages never count).
     unread_count = serializers.IntegerField(read_only=True)
     last_message = serializers.SerializerMethodField()
+
+    def _members(self, conversation):
+        return [p.user for p in conversation.participants.all()]
+
+    @extend_schema_field({"type": "array", "items": AUTHOR_SCHEMA})
+    def get_participants(self, conversation):
+        request = self.context.get("request")
+        return [serialize_forum_author(u, request) for u in self._members(conversation)]
+
+    @extend_schema_field({"type": "integer"})
+    def get_participant_count(self, conversation):
+        return len(self._members(conversation))
+
+    @extend_schema_field({**AUTHOR_SCHEMA, "nullable": True})
+    def get_created_by(self, conversation):
+        if not conversation.is_group or conversation.created_by is None:
+            return None
+        return serialize_forum_author(
+            conversation.created_by, self.context.get("request")
+        )
+
+    @extend_schema_field({"type": "boolean"})
+    def get_can_manage(self, conversation):
+        request = self.context.get("request")
+        return bool(
+            conversation.is_group
+            and request is not None
+            and conversation.created_by_id == request.user.pk
+        )
 
     @extend_schema_field(
         {
@@ -1309,6 +1351,7 @@ class ConversationSerializer(serializers.Serializer):
             "properties": {
                 "body": {"type": "string", "description": "Preview, truncated"},
                 "is_mine": {"type": "boolean"},
+                "sender": {**AUTHOR_SCHEMA, "nullable": True},
                 "created_at": {"type": "string", "format": "date-time"},
             },
         }
@@ -1318,17 +1361,26 @@ class ConversationSerializer(serializers.Serializer):
         if body is None:
             return None
         request = self.context.get("request")
+        sender_id = conversation.last_message_sender_id
+        # The sender is one of the (prefetched) members unless they left the
+        # group — then the preview carries no attribution rather than a query.
+        sender = next(
+            (u for u in self._members(conversation) if u.pk == sender_id), None
+        )
         return {
             "body": body[:MESSAGE_PREVIEW_CHARS],
-            "is_mine": conversation.last_message_sender_id == request.user.pk,
+            "is_mine": sender_id == request.user.pk,
+            "sender": serialize_forum_author(sender, request) if sender else None,
             # Same ISO rendering as the sibling DateTimeField, not a raw datetime.
             "created_at": self.fields["last_message_at"].to_representation(
                 conversation.last_message_at
             ),
         }
 
-    @extend_schema_field(AUTHOR_SCHEMA)
+    @extend_schema_field({**AUTHOR_SCHEMA, "nullable": True})
     def get_other_participant(self, conversation):
+        if conversation.is_group:
+            return None
         request = self.context.get("request")
         other_id = conversation.other_participant_id(request.user)
         other_user = (
@@ -1361,6 +1413,29 @@ class MessageSendSerializer(serializers.Serializer):
         if not stripped:
             raise serializers.ValidationError(_("Message cannot be empty."))
         return stripped
+
+
+class _BoundedUsernameListField(_BoundedListField):
+    max_items = MAX_GROUP_INVITE_ITEMS
+    too_many_message = _("Too many members.")
+
+
+class GroupConversationCreateSerializer(MessageSendSerializer):
+    """`POST conversations/` (todo 350): a title, the other members and the
+    first message. Member semantics (dedup, cap, block pairs) are resolved
+    in the view — the serializer only bounds the shape."""
+
+    title = serializers.CharField(
+        max_length=GROUP_TITLE_MAX_CHARS, trim_whitespace=True
+    )
+    # Raw length bounded BEFORE per-item validation (cross-cutting review).
+    usernames = _BoundedUsernameListField(
+        child=serializers.CharField(max_length=150), min_length=1
+    )
+
+
+class ParticipantAddSerializer(serializers.Serializer):
+    username = serializers.CharField(max_length=150, trim_whitespace=True)
 
 
 NOTIFICATION_PREFERENCES_SCHEMA = {

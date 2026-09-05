@@ -202,6 +202,10 @@ def test_wrapped_routes_use_the_throttled_views():
         "topic-bookmark": throttled.TopicBookmarkView,
         "user-block": throttled.UserBlockView,
         "user-message-send": throttled.MessageSendView,
+        "conversation-list": throttled.ConversationListView,
+        "conversation-messages": throttled.ConversationMessagesView,
+        "conversation-participants": throttled.ConversationParticipantsView,
+        "conversation-participant": throttled.ConversationParticipantView,
         "message-report": throttled.MessageReportView,
         "topic-poll-vote": throttled.PollVoteView,
         # Host-only AI routes (todo 289) — throttled at definition, not wrapped.
@@ -239,6 +243,10 @@ def test_every_unsafe_handler_is_throttled():
         throttled.TopicBookmarkView,
         throttled.UserBlockView,
         throttled.MessageSendView,
+        throttled.ConversationListView,
+        throttled.ConversationMessagesView,
+        throttled.ConversationParticipantsView,
+        throttled.ConversationParticipantView,
         throttled.MessageReportView,
         throttled.PollVoteView,
     ]
@@ -540,3 +548,26 @@ def test_message_report_is_throttled_with_429_and_retry_after():
 
     assert r.status_code == 429  # NOT 403 — Ratelimited subclasses PermissionDenied
     assert r["Retry-After"] == "3600"  # derived from the 2/h window
+
+
+@override_settings(FORUM_RATELIMITS={"dm_group_create": "1/h"})
+@pytest.mark.django_db
+def test_group_create_is_throttled_with_429_and_retry_after():
+    """Group creation is a bulk-invite surface (todo 350): proves the
+    dm_group_create bucket is live on the host mount, not dead config."""
+    creator = User.objects.create_user(username="group-throttle")
+    for name in ("gt-a", "gt-b"):
+        User.objects.create_user(username=name)
+    client = APIClient()
+    client.force_authenticate(creator)
+    payload = {"title": "Throttle", "usernames": ["gt-a", "gt-b"], "body": "hi"}
+
+    with freeze_time("2026-06-10 12:00:00"):
+        first = client.post("/api/v1/forum/conversations/", payload, format="json")
+        assert first.status_code == 201, first.data
+        second = client.post("/api/v1/forum/conversations/", payload, format="json")
+
+    assert (
+        second.status_code == 429
+    )  # NOT 403 — Ratelimited subclasses PermissionDenied
+    assert second["Retry-After"] == "3600"

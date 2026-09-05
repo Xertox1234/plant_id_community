@@ -48,6 +48,15 @@ export function conversationPath(username: string): string {
 }
 
 /**
+ * Group conversation by id (todo 350). Three segments, so React Router's
+ * score-based matching never confuses it with `/messages/:username` — a
+ * member literally named "group" still resolves to the two-segment route.
+ */
+export function groupConversationPath(conversationId: number): string {
+  return `/messages/group/${conversationId}`;
+}
+
+/**
  * Path for a topics/recent row: /forum/{board.id}-{board.slug}/{id}-{slug}.
  *
  * Delegates to `threadPath` (which itself composes `categoryPath`) instead of
