@@ -97,6 +97,14 @@ Use Grep as fallback for any LSP call that returns an error or empty/inconclusiv
   number input: clear snaps to the fallback and the next keystroke appends
   ("2" → "12"). Flag it; prefer a bounded `<select>` or raw-string state.
 
+### Mute additions (2026-09-05, todo 347)
+
+- A component mirroring an existing feature (mute ↔ block): diff the two
+  side by side and check the SEAMS — shared reveal/collapse state must be
+  per-reason (`revealedFor`), two handlers that refetch the same object need
+  one shared pending gate, and every effect that resets the original's error
+  must reset the mirror's.
+
 ## Output Format (Review Mode)
 
 Return ONLY this JSON structure (no surrounding prose, no markdown fences in the actual response — the example fences below show the schema):

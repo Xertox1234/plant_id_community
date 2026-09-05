@@ -173,6 +173,14 @@ one session pinned nothing)
   only in `logout()`: flag it — it must also clear on the identity-change
   reconciliation, between two real accounts only (L4).
 
+### Mute additions (2026-09-05, todo 347)
+
+- An N+1 query pin that compares "condition present" vs "condition absent"
+  is non-discriminating (a per-row fallback inflates both); require a 1-row
+  vs N-row flatness comparison or an absolute pin.
+- A `select_related` chain on a new list endpoint needs the avatar-bearing
+  fixture pin its block sibling has (`test_my_blocks_with_avatars_adds_no_per_row_queries`).
+
 ## Output Format (Review Mode)
 
 Return ONLY this JSON structure (no surrounding prose, no markdown fences in the actual response — the example fences below show the schema):

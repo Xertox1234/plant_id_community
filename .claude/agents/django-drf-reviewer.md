@@ -148,6 +148,17 @@ Use Grep as fallback for any LSP call that returns an error or an empty/inconclu
 - Any `serializers.ListField(` in a write serializer must be a
   `_BoundedListField` subclass (raw-length gate before per-item parsing).
 
+### Mute additions (2026-09-05, todo 347)
+
+- A new viewer-preference filter (block/mute/ignore) must land in
+  `_annotate_author_blocked` / `_exclude_blocked_authors`, and the reviewer
+  must grep every `Topic.objects` / `Post.objects` listing in `api/views.py`
+  for one that calls neither (RecentTopicsView shipped that way) — a Work Log
+  "all surfaces" table is a claim to verify, not evidence.
+- A docstring that names a helper which does not exist (a planned name that
+  never landed) — flag it; `grep -n "def <name>"` for every backticked
+  function reference in new modules.
+
 ## Output Format (Review Mode)
 
 Return ONLY this JSON structure (no surrounding prose, no markdown fences in the actual response — the example fences below show the schema):

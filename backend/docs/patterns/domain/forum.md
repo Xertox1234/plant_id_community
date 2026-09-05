@@ -843,3 +843,35 @@ them back, so the two payloads stay byte-identical once options can be
 reordered. Web: checkbox ballot capped in the UI with `aria-disabled`, one
 Vote button; composer "Choices per voter" is a `<select>` clamped to the
 filled option count. Flutter builds multi-choice from the start in todo 341.
+
+### Mute: a one-way preference filter riding the block helpers (todo 347)
+
+`UserMute(muter, muted)` is `UserBlock`'s one-directional, content-only
+sibling. What made it a small change is that every block-aware surface reads
+two helpers in `api/views.py`, so both grew a second clause and every surface
+became mute-aware at once:
+
+```python
+def _annotate_author_blocked(qs, user, *, author_field="author_id"):   # COLLAPSE
+    if not _should_filter_blocks(user):          # anonymous + moderators: constant False
+        return qs.annotate(author_is_blocked=Value(False, ...), author_is_muted=Value(False, ...))
+    return qs.annotate(
+        author_is_blocked=Exists(UserBlock.objects.filter(blocker_id=user.pk, blocked_id=OuterRef(author_field))),
+        author_is_muted=Exists(UserMute.objects.filter(muter_id=user.pk, muted_id=OuterRef(author_field))),
+    )
+
+def _exclude_blocked_authors(qs, user, *, author_field="author_id"):   # HIDE
+    ...
+    return qs.exclude(**{f"{author_field}__in": Subquery(blocked_ids)}).exclude(
+        **{f"{author_field}__in": Subquery(muted_ids)})
+```
+
+Per-site decisions (recorded in the todo's Work Log and the package README's
+mute-vs-block table): topic list, search, experts rail, notifications
+(read-time + fan-out), and — after the review found it had never been
+block-aware — the home `topics/recent/` feed are HIDE; post list and topic
+detail COLLAPSE via `is_muted`; the public profile flags and empties activity;
+DMs and the @mention typeahead are untouched; the muted member's view never
+changes; moderators' own mutes are inert. Tests pin each surface AND the
+other direction (`test_a_mute_is_one_directional_the_muted_member_notices_nothing`,
+the reverse-direction fan-out test in `apps/forum_host/tests/test_signals.py`).
