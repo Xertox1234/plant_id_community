@@ -1363,8 +1363,42 @@ class MessageSendSerializer(serializers.Serializer):
         return stripped
 
 
+NOTIFICATION_PREFERENCES_SCHEMA = {
+    "type": "object",
+    "description": (
+        "Per-event push/email preferences (todo 343). Read: the fully resolved "
+        "matrix. Write: a PARTIAL matrix merged into the stored overrides."
+    ),
+    "additionalProperties": {
+        "type": "object",
+        "properties": {"push": {"type": "boolean"}, "email": {"type": "boolean"}},
+    },
+}
+
+
+@extend_schema_field(NOTIFICATION_PREFERENCES_SCHEMA)
+class NotificationPreferencesField(serializers.Field):
+    """Reads the RESOLVED matrix (defaults + overrides, every cell present)
+    and accepts a PARTIAL one; the merge with the stored overrides happens in
+    `MeProfileSerializer.update`, which sees the instance."""
+
+    def to_representation(self, value):
+        from ..preferences import resolve_preferences
+
+        return resolve_preferences(value)
+
+    def to_internal_value(self, data):
+        from ..preferences import InvalidPreferences, validate_preferences
+
+        try:
+            return validate_preferences(data)
+        except InvalidPreferences as exc:
+            raise serializers.ValidationError(str(exc)) from exc
+
+
 class MeProfileSerializer(serializers.ModelSerializer):
     capabilities = serializers.SerializerMethodField()
+    notification_preferences = NotificationPreferencesField(required=False)
     bio = serializers.CharField(
         max_length=MAX_BIO_CHARS, required=False, allow_blank=True
     )
@@ -1400,12 +1434,24 @@ class MeProfileSerializer(serializers.ModelSerializer):
             "avatar_id",
             # Digest email preference (todo 340): "off" | "weekly".
             "digest_frequency",
+            # Per-event push/email matrix (todo 343): resolved on read,
+            # partial on write.
+            "notification_preferences",
         ]
         read_only_fields = ["title", "trust_level", "post_count"]
 
     def update(self, instance, validated_data):
         from django.db import transaction
 
+        from ..preferences import merge_preferences
+
+        if "notification_preferences" in validated_data:
+            # PATCH carries a PARTIAL matrix: merge into the stored overrides
+            # so every cell the caller did not mention keeps its value.
+            validated_data["notification_preferences"] = merge_preferences(
+                instance.notification_preferences,
+                validated_data["notification_preferences"],
+            )
         token = validated_data.get("fcm_token")
         if not token:
             return super().update(instance, validated_data)

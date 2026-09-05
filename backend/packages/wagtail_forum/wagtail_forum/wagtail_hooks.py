@@ -110,6 +110,11 @@ class ForumProfileViewSet(SnippetViewSet):
     # ForumProfile is a plain model (not index.Indexed), so this list drives a
     # direct ORM icontains filter, not the search backend (audit M20).
     search_fields = ["user__username"]
+    # Never render as raw admin inputs: the FCM token is a device credential
+    # and the preference overrides are only valid through the API's
+    # validate_preferences contract (cross-cutting review, todo 343) — an
+    # auto-generated JSON field would let an admin store any shape.
+    exclude_form_fields = ["fcm_token", "notification_preferences"]
 
     def get_queryset(self, request):
         # __str__ falls back to user.get_username() — N+1 without this.

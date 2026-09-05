@@ -386,6 +386,7 @@ Three consequences worth knowing before changing this:
 | `WAGTAILFORUM_DIGEST_MAX_WATCHED_TOPICS` | `10` | Max "new replies on topics you follow" rows per digest. |
 | `WAGTAILFORUM_DIGEST_MAX_TRENDING_TOPICS` | `10` | Max "active topics you have not seen" rows per digest. |
 | `WAGTAILFORUM_DIGEST_SETTINGS_PATH` | `"/settings"` | Path (under the site origin) the digest's "change or turn it off" link points to. |
+| `WAGTAILFORUM_NOTIFICATION_DEFAULTS` | reply push+email on; mention/quote/solution push on | Per-event `{push, email?}` matrix a member gets until they change a cell (todo 343). Only cells with a delivery path exist (email for replies only; the tray-silent moderation push is not a preference). In-app is always on. Stored overrides on `me/profile/` (`notification_preferences`, partial PATCH) win; a cell the host omits falls back to the package default. |
 | `WAGTAILFORUM_EMAIL_SITE_URL` | `None` | Absolute origin for links in package emails; `None` falls back to the host's `SITE_URL`. |
 | `WAGTAILFORUM_QUOTES_MAX_PER_POST` | `3` | Distinct posts one body may quote with the structured `post_quote` block (todo 342). |
 | `WAGTAILFORUM_QUOTE_MAX_CHARS` | `1000` | Max characters of a `post_quote` block's text; longer is a 400, never silently truncated. |

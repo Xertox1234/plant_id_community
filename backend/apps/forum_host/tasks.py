@@ -12,6 +12,7 @@ import logging
 
 from celery import shared_task
 from django.db import OperationalError
+from wagtail_forum.preferences import wants_channel
 
 from . import constants
 
@@ -105,7 +106,7 @@ def _notification_content(event: str, data: dict) -> tuple[str, str] | None:
     cosmetics). Event values arrive as plain strings (Celery JSON-serializes
     NotificationVerb.MENTION to "mention" through the broker).
 
-    Only reply_added, mention and quote render a tray entry. moderation_decided is
+    Only reply_added, mention, quote and answer_accepted render a tray entry. moderation_decided is
     deliberately None: workflow.py fires it with status="published" on EVERY
     routine trust-autopublished post/reply/edit, so a visible block would
     tray-popup "Your post was published" at users for their own ordinary
@@ -198,6 +199,13 @@ def send_forum_push(self, event: str, recipient_user_id: int, data: dict):
         return
 
     profile = ForumProfile.for_user(user)
+    if not wants_channel(profile.notification_preferences, event, "push"):
+        logger.debug(
+            "[FCM] forum push skipped — user %s opted out of push for %s",
+            recipient_user_id,
+            event,
+        )
+        return
     token = profile.fcm_token
     if not token:
         logger.debug(
@@ -308,6 +316,10 @@ def send_forum_push_batch(event: str, recipient_user_ids: list[int], data: dict)
         user = profile.user
         if getattr(user, "forum_notifications", True) is not True:
             continue
+        # Per-event preference (todo 343) — checked here, where the profile
+        # row is already in hand, rather than in the enqueueing request.
+        if not wants_channel(profile.notification_preferences, event, "push"):
+            continue
         if not profile.fcm_token:
             continue
         try:
@@ -398,6 +410,15 @@ def send_forum_email_batch(event: str, recipient_user_ids: list[int], data: dict
     # Materialize up front so a transient OperationalError can only fire here,
     # before any email is sent (see the docstring's retry-safety note).
     users = list(User.objects.filter(pk__in=recipient_user_ids))
+    # Per-event email preference (todo 343): one bulk fetch; a user with no
+    # profile row has no overrides and gets the defaults.
+    from wagtail_forum.models import ForumProfile
+
+    overrides_by_user = dict(
+        ForumProfile.objects.filter(user_id__in=recipient_user_ids).values_list(
+            "user_id", "notification_preferences"
+        )
+    )
 
     topic = post.topic
     topic_url = f"{settings.SITE_URL}{topic.get_absolute_url()}"
@@ -414,6 +435,13 @@ def send_forum_email_batch(event: str, recipient_user_ids: list[int], data: dict
             # legible at this layer.)
             logger.warning(
                 "[EMAIL] forum email skipped — user %s has no email on file", user.pk
+            )
+            continue
+        if not wants_channel(overrides_by_user.get(user.pk), event, "email"):
+            logger.debug(
+                "[EMAIL] forum email skipped — user %s opted out of email for %s",
+                user.pk,
+                event,
             )
             continue
         sent = service.send_forum_reply_notification(

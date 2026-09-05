@@ -472,3 +472,52 @@ A `post_quote` block references another post: `{post, text}` on write,
   rendering an author: read `is_blocked` / `is_muted` and collapse with the
   same placeholder + "Show anyway" reveal `PostCard` uses — never hide.
   `available: false` keeps the text with no attribution.
+
+## Preference matrices on the settings page (todo 343)
+
+`NotificationPreferencesSection` in `SettingsPage.tsx` is the shape for any
+verbs × channels preference grid:
+
+- **Section-owned state.** Each settings section fetches its own copy of the
+  profile (`fetchMyForumProfile`) with the ignore-flag cleanup and a Retry that
+  bumps a load counter — no shared page store, so a failed section never
+  blanks its neighbours. The cost is one GET per section; the PATCH response
+  always carries the whole profile, so copies cannot disagree on what they render.
+- **The keys say which cells exist.** The resolved matrix holds ONLY cells with
+  a delivery path (`email` for `reply` alone today), typed
+  `Record<Verb, Partial<Record<Channel, boolean>>>`. A cell the API did not
+  send renders a muted `—` plus an sr-only "Not available", never a checkbox —
+  the server 400s a PATCH for it. Read cells through one accessor that also
+  tolerates a missing row or a non-boolean, so the verb list in the client is
+  a rendering order, not a contract.
+- **Deploy skew is a load failure, not a crash.** Web and backend ship on
+  separate pipelines, so `notification_preferences` is optional on
+  `ForumMyProfile`. A loaded profile whose matrix is missing or not an object
+  takes the same message-plus-Retry branch as a failed request
+  ("Notification preferences are not available yet.") instead of being
+  indexed; Retry resets the profile so the section shows "Loading…" again.
+- **One cell per save.** The change handler is guarded by `saving` (set before
+  the await, cleared in `finally`), flips the cell optimistically, PATCHes
+  `{ notification_preferences: { [verb]: { [channel]: next } } }` (the server
+  merges partial matrices), replaces the local profile with the response, and
+  on failure reverts exactly that cell and shows the error text in the same
+  always-mounted live region that says "Saved". Both the flip and the revert
+  use the functional `setProfile((cur) => …)` form so neither depends on the
+  render the handler closed over. Every cell is disabled while one save is in
+  flight; per-cell pending state (`BlockedUsersSection`'s map) is the upgrade
+  path for a grid large enough to make that hurt.
+- **Accessible grid.** `<table>` with `scope`d headers and an sr-only caption
+  (the table's accessible name); each checkbox has
+  `aria-label="<Channel> for <Event>"`; a wrapping `<label>` only enlarges the
+  44 px target; the toggled cell is captured in a ref inside the handler
+  (never during render) and refocused through a state bump + effect after the
+  re-render that disabled it — but only when `document.activeElement` is
+  `<body>` (the disable stole focus) or still inside the section (a section
+  ref). A user who tabbed elsewhere while the save was in flight keeps their
+  place.
+- **Test sections standalone.** Both profile-backed sections are named exports
+  and their tests render the section itself, so `mockResolvedValueOnce` chains
+  and `toHaveBeenCalledTimes` counts are the section's own rather than a
+  function of JSX order on the page. One page-level smoke test covers
+  composition. A Retry test still has to prove the refetch: assert the SECOND
+  response's content renders, plus the call count.

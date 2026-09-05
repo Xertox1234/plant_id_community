@@ -203,3 +203,10 @@ Compact checklist auto-injected before edits. Long-form:
   images, `existing_quote_ids` for post quotes), or a referent that went away
   later locks the author out of saving anything else. Newly added references
   still validate (todo 342, audit L21).
+- **A preference matrix is resolved on read and partial on write.** Store only
+  the cells a member changed, deep-merge with the host defaults at read time
+  (so a default change reaches untouched cells), accept a partial PATCH that
+  merges server-side, reject unknown keys/non-booleans with a 400, and pin
+  that the defaults equal the pre-existing behaviour. Offer ONLY cells that
+  have a delivery path (an accepted-but-inert preference is a lie) and fall
+  back to the package default per cell, never a literal (todo 343).
