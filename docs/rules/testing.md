@@ -495,3 +495,20 @@ Compact checklist auto-injected before edits.
   assert `toHaveBeenCalledTimes(n)` after the advance and `expect(INTERVAL)
   .toBe(30_000)`; cover the in-flight guard with a deferred promise that
   spans two ticks (todo 346 review).
+- **An E2E spec must not depend on seeded content it does not create.** The
+  first board of a fresh local forum is EMPTY, so "open the first topic"
+  fails before the assertion under test; drive the same component from a
+  page that needs no fixture (the new-thread composer mounts the same
+  `TipTapEditor`) or create the row in the spec. Lists load after the page
+  shell — read links with `expect.poll`, never a one-shot `$$eval` (todo 336).
+- **A new authenticated Playwright spec is a THREE-place change:** the `.js`
+  file, both `*-authenticated` projects' `testMatch`, and every
+  unauthenticated project's `testIgnore` — miss the last and the spec runs
+  logged-out in five projects and fails on the composer (todo 336).
+- **Two E2E assertions that can never fail:** `toContainText(q)` when an
+  earlier step already put a superstring of `q` on the page (assert the
+  NODE count / exact node text instead), and "element gone" after
+  `page.goto()` (the whole document is gone — drive an in-app route change
+  and assert on the surviving document). A `boundingBox` "not at the
+  origin" check is the same trap for a positioned overlay: assert
+  `toHaveCSS('position', 'fixed')` (todo 336 review).

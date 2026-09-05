@@ -105,6 +105,21 @@ Use Grep as fallback for any LSP call that returns an error or empty/inconclusiv
   one shared pending gate, and every effect that resets the original's error
   must reset the mirror's.
 
+### Playwright additions (2026-09-05, todo 336)
+
+- A new `e2e/*.spec.js` that needs a session must appear in both
+  authenticated projects' `testMatch` AND all five unauthenticated
+  `testIgnore` regexes in `playwright.config.ts`; check both lists.
+- A spec that opens "the first topic/board/post" depends on seeded content —
+  flag it unless the spec creates the row or drives a fixture-free page.
+- Async lists: a one-shot `$$eval` right after navigation reads the shell,
+  not the data — expect `expect.poll` / a locator wait.
+- For every E2E assertion, name the change that turns it red: substring
+  checks satisfied by an earlier step, absence checks after `page.goto()`,
+  and "not at origin" box checks on overlays are vacuous.
+- Elements appended to `<body>` outside the React tree get a `data-testid`,
+  not a utility-class selector.
+
 ## Output Format (Review Mode)
 
 Return ONLY this JSON structure (no surrounding prose, no markdown fences in the actual response — the example fences below show the schema):
