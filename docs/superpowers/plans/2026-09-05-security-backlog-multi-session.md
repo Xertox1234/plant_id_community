@@ -129,6 +129,28 @@ three must be corrected in the repo.
 4. **The root `package.json` is not dead.** `web/CLAUDE.md` §Deployment documents
    `npm run deploy` against it. All 14 root rows trace to `wrangler` transitives.
 
+### Corrections from slice 1 (2026-09-05, verified against OSV and PyPI)
+
+- **The `llm` advisory IS fixed by a bump — the suppression's premise was wrong.**
+  Both `llm` entries said "No upstream fix per OSV/PyPI advisory." OSV records
+  `last_affected: 0.27.1` for GHSA-g76p-4vg5-f4qh, and a query at 0.31.1 returns
+  **zero** vulns. `last_affected` with no `fixed` event is precisely the empty
+  "Fix Versions" column `docs/rules/security.md` warns is *not* proof of
+  unfixability. Todo 355's "Removal is the only fix" is likewise wrong.
+- **Twisted 26.4.0 stable shipped 2026-05-11 — nine days BEFORE the suppression
+  that says it hadn't.** The entry added 2026-05-20 reads "No stable fix existed
+  at suppression time (the fix was RC-only 26.4.0rc2)." It was false when
+  written, not merely stale. Session 6 bumps it; there is no permanent residue.
+- **`safety`'s exclusive subtree is 21 packages, not 6.** The plan expected
+  `nltk, joblib, regex, typer, dparse` (+ eyeball `authlib`). The real closure
+  also carries `filelock, Jinja2, joserfc, MarkupSafe, marshmallow, psutil,
+  ruamel.yaml, ruamel.yaml.clib, shellingham, stevedore, tenacity, tomlkit`.
+  Because `requirements.txt` is a flat freeze that pins transitives as their own
+  lines, deleting only the three top-level entries would have left all 18
+  children installed — including `nltk` and every one of its 18 advisories.
+  The subtree must be computed and deleted explicitly; the freeze diff then
+  proves nothing was over-deleted.
+
 ---
 
 ## Session 1 — Prevention
@@ -225,6 +247,14 @@ That closes the loop: a suppression outliving its fix reaches a human within a w
 
 #### 2d. Block new advisories — merge-base diff, no new permissions
 
+> **NOT SHIPPED.** PR #658 delivered 2a, 2b, 2c and 2e; this job was not
+> written. `grep -n new-vuln-gate .github/workflows/security-scan.yml`
+> returns nothing on `main` as of 2026-09-05 (found during slice 1).
+> **Do not add `"No new dependency advisories"` to branch protection** —
+> a required check that never reports deadlocks every PR, which is the
+> exact failure this plan warns about two sections below. Either build the
+> job first, or drop the item; it is not a prerequisite for slices 2–6.
+
 New `new-vuln-gate` job, `if: github.event_name == 'pull_request'`, `contents: read`
 only. Audit base and head **in the same run** (identical advisory DB), fail on ids
 present in head and absent in base. A newly-published CVE against a static pin cannot
@@ -269,7 +299,10 @@ check that never reports deadlocks PRs, and this repo has hit that.
    reporting — that is the file half.
 2. `gh api repos/:owner/:repo/branches/main/protection > before.json`.
 3. `POST .../branches/main/protection/required_status_checks/contexts` with a bare array:
-   `["Analyze (python)","Analyze (javascript-typescript)","Analyze (actions)","No new dependency advisories"]`.
+   `["Analyze (python)","Analyze (javascript-typescript)","Analyze (actions)"]`.
+   **Three contexts, not four** — `"No new dependency advisories"` was removed
+   because §2d never shipped (see the note there). Requiring a check no
+   workflow produces blocks every PR permanently.
    **Never `PATCH .../protection`** — omitted fields reset to default and would clobber
    `enforce_admins` and the existing 5 contexts.
 4. `GET` again, diff against `before.json`, confirm the original 5 survive.
@@ -302,9 +335,16 @@ throwaway PR confirming all 9 required contexts report.
 
 ### The re-freeze mechanic (sessions 2, 5, 6 — stated once)
 
-`backend/requirements.txt` is a 234-line freeze with **two hand edits a naive
-`pip freeze >` destroys**: line 187's inline `ruff` comment and line 234's
-`-e ./packages/wagtail_forum`.
+`backend/requirements.txt` is a flat freeze with **two hand edits a naive
+`pip freeze >` destroys**: the inline `ruff` comment and the trailing
+`-e ./packages/wagtail_forum`. Find them by content, never by line number —
+slice 1 took the file from 234 lines to 213 and moved both. The check is
+`grep -n 'ruff==.*# F401' requirements.txt` and `tail -1 requirements.txt`.
+
+It is a flat freeze, so **transitives are pinned as their own lines**: deleting a
+top-level package does not remove its children. Compute the exclusive subtree
+first (a package in the file that no *other* remaining package requires), delete
+all of it, then let the freeze diff prove nothing was over-deleted.
 
 ```bash
 cd backend
@@ -326,7 +366,7 @@ are — the freeze reproduces the input minus the removed subtree.
 | 3 | `web/` lockfile refresh | `cd web && npm update`. **Zero `package.json` edits** — every target is inside an existing caret range. **Supersedes Dependabot PRs #650–#654.** | 18 GHSAs |
 | 4 | Root `wrangler` bump | `wrangler ^4.95.0 → ^4.129.0`; regenerate root lock. Do **not** delete the manifest. | 14 rows / 9 GHSAs |
 | 5 | **Wagtail 7.4.3 + DRF 3.17.2** | `:224` and `:69`. **Runs alone** — two concurrent pytest runs corrupt the shared test DB. **Read the release notes first.** | 7 GHSAs |
-| 6 | Backend transitive re-freeze | `sqlparse 0.6.0`, `pyasn1 0.6.4`, `h2 4.4.1`, `httplib2 0.32.0`, `setuptools 83.0.0`, and **`cryptography 50.0.1` + `pyOpenSSL 26.4.0` as a pair**. `Twisted` stays (only fix is a pre-release). | 12 GHSAs, leaves 1 |
+| 6 | Backend transitive re-freeze | `sqlparse 0.6.0`, `pyasn1 0.6.4`, `h2 4.4.1`, `httplib2 0.32.0`, `setuptools 83.0.0`, **`Django 6.0.7 → 6.0.8`**, **`Twisted 25.5.0 → 26.4.0`**, and **`cryptography 50.0.1` + `pyOpenSSL 26.4.0` as a pair**. | 14 GHSAs, leaves 0 |
 
 **`cryptography` cannot move alone.** `pyOpenSSL 26.2.0` caps `cryptography<49`; the
 advisory wants `>=50.0.0`; `pyOpenSSL 26.4.0` requires `>=49.0.0`. Unpaired, `pip check`
@@ -350,7 +390,7 @@ Session 1 already took the 8 `actions/missing-workflow-permissions` alerts.
 | 7 | Backend view-layer | `oauth_views.py` provider allowlist (todo 354 settled these as false positives — the fix makes the taint unreachable; add a regression test). Plus 12 `py/stack-trace-exposure` — cross-check todo 320's error-envelope work first; confirm `simple_urls.py`/`simple_views.py` are still reachable. | 20 |
 | 8 | Clear-text logging | 13 live-code redactions (`weather_service.py` ×9, `settings.py` ×2, `care_assistant_service.py`, `ratelimit.py`) keeping the bracketed-prefix convention; 3 dev-script dismissals. Per §Evidence before claims, report count-found vs count-changed. | 16 |
 | 9 | Web cluster + dedup | `js/xss-through-dom` #122 — **353's lesson is binding: a suppression comment is not a fix**; break the path structurally or dismiss via API. 3 sanitization dismissals citing 354. Dedup `isBlankHtml`, duplicated verbatim across two pages. | 4 |
-| 10 | Closeout | Final counts; document the Twisted residue; flip both epics to `completed` and archive. | — |
+| 10 | Closeout | Final counts; document any residue; flip both epics to `completed` and archive. | — |
 
 ---
 
@@ -415,7 +455,7 @@ committed on the feature branch **before the session ends** — squash-merge car
 
 ```bash
 gh api --paginate "repos/:owner/:repo/dependabot/alerts?state=open&per_page=100" \
-  --jq '.[].security_advisory.ghsa_id' | sort -u | wc -l     # expect 1 (Twisted)
+  --jq '.[].security_advisory.ghsa_id' | sort -u | wc -l     # expect 0
 gh api --paginate "repos/:owner/:repo/code-scanning/alerts?state=open&per_page=100" \
   --jq 'length'                                              # expect 0
 gh run list --workflow security-scan.yml --event schedule --limit 4   # expect success
