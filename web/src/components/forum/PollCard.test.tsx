@@ -11,14 +11,30 @@ function makePoll(overrides: Partial<ThreadPoll> = {}): ThreadPoll {
     question: 'Best soil for aroids?',
     closes_at: null,
     is_closed: false,
+    max_choices: 1,
     options: [
       { id: 10, text: 'Peat', order: 0, vote_count: 0 },
       { id: 11, text: 'Coir', order: 1, vote_count: 0 },
     ],
     total_votes: 0,
-    my_vote_option_id: null,
+    my_vote_option_ids: [],
     ...overrides,
   };
+}
+
+/** A three-option, pick-up-to-two poll (todo 349). */
+function makeMultiPoll(overrides: Partial<ThreadPoll> = {}): ThreadPoll {
+  return makePoll({
+    id: 2,
+    question: 'Which pests have you seen this year?',
+    max_choices: 2,
+    options: [
+      { id: 20, text: 'Aphids', order: 0, vote_count: 0 },
+      { id: 21, text: 'Mites', order: 1, vote_count: 0 },
+      { id: 22, text: 'Scale', order: 2, vote_count: 0 },
+    ],
+    ...overrides,
+  });
 }
 
 describe('PollCard', () => {
@@ -58,7 +74,7 @@ describe('PollCard', () => {
     const onVote = vi.fn().mockResolvedValue(
       makePoll({
         total_votes: 7,
-        my_vote_option_id: 10,
+        my_vote_option_ids: [10],
         options: [
           { id: 10, text: 'Peat', order: 0, vote_count: 5 },
           { id: 11, text: 'Coir', order: 1, vote_count: 2 },
@@ -69,7 +85,7 @@ describe('PollCard', () => {
 
     await userEvent.click(screen.getByRole('button', { name: 'Peat' }));
 
-    expect(onVote).toHaveBeenCalledWith(10);
+    expect(onVote).toHaveBeenCalledWith([10]);
     expect(await screen.findByText(/7 votes/i)).toBeInTheDocument();
     expect(screen.getByText('5 (71%)')).toBeInTheDocument();
     expect(screen.getByText('2 (29%)')).toBeInTheDocument();
@@ -82,7 +98,7 @@ describe('PollCard', () => {
     render(
       <PollCard
         poll={makePoll({
-          my_vote_option_id: 11,
+          my_vote_option_ids: [11],
           total_votes: 3,
           options: [
             { id: 10, text: 'Peat', order: 0, vote_count: 1 },
@@ -116,7 +132,7 @@ describe('PollCard', () => {
   });
 
   it('a 409 (already voted elsewhere) permanently disables voting without switching to results, unlike a transient failure', async () => {
-    // Simulates a stale local my_vote_option_id: another tab already
+    // Simulates a stale local my_vote_option_ids: another tab already
     // recorded this viewer's vote, so the server rejects it as a duplicate
     // even though `current` here still shows null (0 votes). Branching on
     // status, not message text, per this codebase's established discipline
@@ -192,7 +208,7 @@ describe('PollCard', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Coir' }));
 
     expect(onVote).toHaveBeenCalledTimes(1);
-    resolveVote(makePoll({ my_vote_option_id: 10, total_votes: 1 }));
+    resolveVote(makePoll({ my_vote_option_ids: [10], total_votes: 1 }));
   });
 
   it('resyncs to an updated poll prop on a same-thread refresh (todo 320 #2)', () => {
@@ -201,7 +217,7 @@ describe('PollCard', () => {
     // vote now counted — `key={poll.id}` does not remount for this case,
     // so only the resync effect can pick it up.
     const initialPoll = makePoll({
-      my_vote_option_id: 10,
+      my_vote_option_ids: [10],
       total_votes: 3,
       options: [
         { id: 10, text: 'Peat', order: 0, vote_count: 2 },
@@ -212,7 +228,7 @@ describe('PollCard', () => {
     expect(screen.getByText('2 (67%)')).toBeInTheDocument();
 
     const refetchedPoll = makePoll({
-      my_vote_option_id: 10,
+      my_vote_option_ids: [10],
       total_votes: 4,
       options: [
         { id: 10, text: 'Peat', order: 0, vote_count: 3 },
@@ -232,7 +248,7 @@ describe('PollCard', () => {
     // new prop only because the refetch itself now includes this viewer's
     // vote — asserted here, not assumed.
     const votedPoll = makePoll({
-      my_vote_option_id: 10,
+      my_vote_option_ids: [10],
       total_votes: 1,
       options: [
         { id: 10, text: 'Peat', order: 0, vote_count: 1 },
@@ -247,7 +263,7 @@ describe('PollCard', () => {
 
     // The refetch reflects the same vote, plus someone else's in the interim.
     const refetchedPoll = makePoll({
-      my_vote_option_id: 10,
+      my_vote_option_ids: [10],
       total_votes: 2,
       options: [
         { id: 10, text: 'Peat', order: 0, vote_count: 1 },
@@ -258,5 +274,80 @@ describe('PollCard', () => {
 
     expect(screen.getByText('your vote')).toBeInTheDocument();
     expect(screen.getByText(/2 votes/i)).toBeInTheDocument();
+  });
+
+  describe('multi-choice (todo 349)', () => {
+    it('offers checkboxes and a single Vote button, disabled until something is picked', () => {
+      render(<PollCard poll={makeMultiPoll()} onVote={vi.fn()} canVote />);
+
+      expect(screen.getByText('Pick up to 2.')).toBeInTheDocument();
+      expect(screen.getAllByRole('checkbox')).toHaveLength(3);
+      expect(screen.queryByRole('button', { name: 'Aphids' })).not.toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Vote' })).toBeDisabled();
+    });
+
+    it('caps the ballot at max_choices while keeping the capped box focusable and described', async () => {
+      render(<PollCard poll={makeMultiPoll()} onVote={vi.fn()} canVote />);
+
+      await userEvent.click(screen.getByRole('checkbox', { name: 'Aphids' }));
+      await userEvent.click(screen.getByRole('checkbox', { name: 'Mites' }));
+
+      const scale = screen.getByRole('checkbox', { name: 'Scale' });
+      // aria-disabled, not `disabled`: still in the tab order, still
+      // described by the cap hint — clicking it just does nothing.
+      expect(scale).toHaveAttribute('aria-disabled', 'true');
+      expect(scale).not.toBeDisabled();
+      expect(scale).toHaveAccessibleDescription('Pick up to 2.');
+      await userEvent.click(scale);
+      expect(scale).not.toBeChecked();
+      // Unticking one re-opens the cap.
+      await userEvent.click(screen.getByRole('checkbox', { name: 'Aphids' }));
+      expect(scale).not.toHaveAttribute('aria-disabled');
+      await userEvent.click(scale);
+      expect(scale).toBeChecked();
+    });
+
+    it('submits the whole ballot as an array and shows every picked option as mine', async () => {
+      const onVote = vi.fn().mockResolvedValue(
+        makeMultiPoll({
+          total_votes: 3,
+          my_vote_option_ids: [20, 22],
+          options: [
+            { id: 20, text: 'Aphids', order: 0, vote_count: 3 },
+            { id: 21, text: 'Mites', order: 1, vote_count: 1 },
+            { id: 22, text: 'Scale', order: 2, vote_count: 2 },
+          ],
+        })
+      );
+      render(<PollCard poll={makeMultiPoll()} onVote={onVote} canVote />);
+
+      await userEvent.click(screen.getByRole('checkbox', { name: 'Scale' }));
+      await userEvent.click(screen.getByRole('checkbox', { name: 'Aphids' }));
+      await userEvent.click(screen.getByRole('button', { name: 'Vote' }));
+
+      // Click order, as ticked — the server sorts; the client just sends.
+      expect(onVote).toHaveBeenCalledWith([22, 20]);
+      // Totals are VOTERS, so option shares can sum past 100%.
+      expect(await screen.findByText(/3 voters/i)).toBeInTheDocument();
+      expect(screen.getByText('3 (100%)')).toBeInTheDocument();
+      expect(screen.getByText('2 (67%)')).toBeInTheDocument();
+      expect(screen.getAllByText('your vote')).toHaveLength(2);
+      expect(screen.queryByRole('checkbox')).not.toBeInTheDocument();
+    });
+
+    it('shows results and no ballot once the viewer has voted in a multi-choice poll', () => {
+      render(
+        <PollCard
+          poll={makeMultiPoll({ total_votes: 1, my_vote_option_ids: [21] })}
+          onVote={vi.fn()}
+          canVote
+        />
+      );
+
+      expect(screen.queryByRole('checkbox')).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: 'Vote' })).not.toBeInTheDocument();
+      expect(screen.getByText(/1 voter\b/i)).toBeInTheDocument();
+      expect(screen.getByText(/your vote is final/i)).toBeInTheDocument();
+    });
   });
 });

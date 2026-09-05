@@ -15,6 +15,7 @@ summarizes, and it is the thing a client would try to write.
 from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.db import models
+from django.db.models.functions import Coalesce
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 
@@ -33,6 +34,11 @@ class Poll(models.Model):
     # Null means "open forever". A closed poll still renders its results — it
     # just stops accepting votes.
     closes_at = models.DateTimeField(null=True, blank=True)
+    # N-of-K (todo 349). 1 is the original single-choice poll; a voter may
+    # pick up to this many options in their ONE submission (a vote is still
+    # final — see PollVoteView). Bounded on write to the option count by
+    # TopicPollSerializer.validate, so it can never exceed what is offered.
+    max_choices = models.PositiveSmallIntegerField(default=1)
     created_at = models.DateTimeField(auto_now_add=True)
 
     def __str__(self):
@@ -46,13 +52,29 @@ class Poll(models.Model):
         """`[{id, text, order, vote_count}, …]` in display order, plus a total.
 
         Aggregated from the vote rows on every read. `Count("votes")` folds
-        into the options query, so this is ONE query for the whole poll
-        regardless of how many options or votes it has.
+        into the options query, and the voter total rides the SAME query as a
+        correlated subquery on every option row, so this is ONE query for the
+        whole poll regardless of how many options or votes it has.
+
+        `total_votes` is people who answered — distinct voters — not rows: in
+        a multi-choice poll a voter contributes one row per option they
+        picked, so the option counts can sum past it. Counted from the rows
+        for single-choice polls too (rather than summing the option counts),
+        so the number stays right even for a writer that bypasses
+        PollVoteView's one-submission check (review of todo 349).
         """
+        voters = (
+            PollVote.objects.filter(poll=models.OuterRef("poll_id"))
+            .order_by()
+            .values("poll")
+            .annotate(n=models.Count("user", distinct=True))
+            .values("n")
+        )
         options = list(
-            self.options.annotate(vote_count=models.Count("votes")).order_by(
-                "order", "id"
-            )
+            self.options.annotate(
+                vote_count=models.Count("votes"),
+                voters=Coalesce(models.Subquery(voters), 0),
+            ).order_by("order", "id")
         )
         return {
             "options": [
@@ -64,25 +86,24 @@ class Poll(models.Model):
                 }
                 for option in options
             ],
-            # Summed in Python from rows already fetched above — a second
-            # aggregate query would buy nothing. Each vote is counted exactly
-            # once because UniqueConstraint(poll, user) makes double-voting
-            # impossible at the DB level.
-            "total_votes": sum(option.vote_count for option in options),
+            # Every option row carries the same poll-level subquery value;
+            # a poll always has >= POLL_MIN_OPTIONS options, so [0] exists.
+            "total_votes": options[0].voters if options else 0,
         }
 
-    def serialize(self, my_vote_option_id):
+    def serialize(self, my_vote_option_ids):
         """The one read shape shared by every poll-returning endpoint.
 
         `TopicDetailSerializer.get_poll` and `PollVoteView` both return this
         exact dict — it used to be hand-duplicated in both places (todo 320
         #3), which let them silently drift with only a 2-of-6-field test
-        catching it. The caller resolves `my_vote_option_id` and passes it in
+        catching it. The caller resolves `my_vote_option_ids` and passes it in
         rather than this method querying for it: `get_poll` looks it up for
-        the viewer (None for anonymous — never leak anyone else's choice),
-        while `PollVoteView` already has it from the row it just wrote and
+        the viewer (empty for anonymous — never leak anyone else's choice),
+        while `PollVoteView` already has it from the rows it just wrote and
         would otherwise pay a redundant query for information it has in hand
-        (todo 320 #4).
+        (todo 320 #4). A list even for single-choice polls (todo 349): one
+        shape for both kinds, and "has voted" is simply a non-empty list.
         """
         results = self.results()
         return {
@@ -90,9 +111,10 @@ class Poll(models.Model):
             "question": self.question,
             "closes_at": self.closes_at,
             "is_closed": self.is_closed,
+            "max_choices": self.max_choices,
             "options": results["options"],
             "total_votes": results["total_votes"],
-            "my_vote_option_id": my_vote_option_id,
+            "my_vote_option_ids": list(my_vote_option_ids),
         }
 
 
@@ -139,12 +161,17 @@ class PollVote(models.Model):
 
     class Meta:
         constraints = [
-            # One vote per user per poll. This is what makes Poll.results
-            # trustworthy without a stored counter: the row count IS the
-            # answer, and no user can inflate it. Single-choice by design for
-            # the first cut — multi-choice would need this constraint widened
-            # to include `option`, which is a different product decision.
-            models.UniqueConstraint(fields=["poll", "user"], name="uniq_poll_vote"),
+            # One row per (poll, user, option): a multi-choice ballot is N rows
+            # (todo 349), and no user can count twice for the same option, so
+            # Poll.results stays trustworthy without a stored counter. The
+            # original (poll, user) constraint enforced "one submission per
+            # voter" at the DB level; that invariant now lives in
+            # PollVoteView, which takes a per-poll row lock and refuses a
+            # second submission before writing (409), for single- and
+            # multi-choice polls alike.
+            models.UniqueConstraint(
+                fields=["poll", "user", "option"], name="uniq_poll_vote_option"
+            ),
         ]
         indexes = [
             # Results aggregate by option; the per-poll read is the hot path.
@@ -157,14 +184,15 @@ class PollVote(models.Model):
         # invariant for any OTHER writer (Django admin, a data migration, a
         # future second view) that doesn't go through that view. Deliberately
         # NOT wired into `save()`: Django's `full_clean()` also runs
-        # `validate_constraints()`, which would pre-check `uniq_poll_vote`
-        # against the DB and turn a double-vote into a `ValidationError`
-        # raised before `save()` — but `PollVoteView.post` specifically
-        # relies on catching the *DB's own* `IntegrityError` from that
-        # constraint to return 409 (see the savepoint comment there). Calling
-        # `save()` here would change that to an uncaught 500. Any writer that
-        # wants this check must call `full_clean()` (or just `clean()`)
-        # itself — see test_poll_vote_clean_rejects_option_from_another_poll.
+        # `validate_constraints()`, which would pre-check
+        # `uniq_poll_vote_option` against the DB and turn a duplicate row
+        # into a `ValidationError` raised before `save()` — but
+        # `PollVoteView.post` relies on catching the *DB's own*
+        # `IntegrityError` from that constraint as its last-line 409 (see the
+        # savepoint comment there). Calling `save()` here would change that
+        # to an uncaught 500. Any writer that wants this check must call
+        # `full_clean()` (or just `clean()`) itself — see
+        # test_poll_vote_clean_rejects_option_from_another_poll.
         super().clean()
         if self.option_id and self.poll_id and self.option.poll_id != self.poll_id:
             raise ValidationError(

@@ -30,7 +30,7 @@
     { "globs": ["*/serializers.py"], "domains": ["api"], "mode": "additive" },
     { "globs": ["*/tasks.py", "*celery*", "*/beat*.py"], "domains": ["celery"], "mode": "additive" },
     { "globs": ["*/views.py", "*/viewsets.py", "*/api/*.py", "*/permissions.py"], "domains": ["api", "security"], "mode": "additive" },
-    { "globs": ["*/models.py"], "domains": ["database", "security"], "mode": "additive" },
+    { "globs": ["*/models.py", "*/models/*.py"], "domains": ["database", "security"], "mode": "additive" },
     { "globs": ["*/cache*.py", "*/signals.py"], "domains": ["caching"], "mode": "additive" },
     { "globs": ["backend/*.py"], "domains": ["api", "security", "database"], "mode": "fallback" },
     { "globs": ["firebase/*", "*firebase*"], "domains": ["firebase", "security"], "mode": "additive" },

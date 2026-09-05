@@ -339,26 +339,38 @@ votes exist silently rewrites what those votes meant.
   "poll": {
     "question": "Best soil for aroids?",
     "options": ["Peat", "Coir", "Bark"],   // 2–10, blanks dropped, unique
-    "closes_at": "2026-08-07T00:00:00Z"    // optional; null = never closes
+    "closes_at": "2026-08-07T00:00:00Z",   // optional; null = never closes
+    "max_choices": 1                       // optional; 1 = single-choice, N = pick up to N
   }
 }
 ```
+
+`max_choices` (todo 349) must be between 1 and the number of non-blank
+options; omitted means the classic single-choice poll.
 
 **Vote counts are never stored.** `PollOption` has no counter column; results
 are aggregated from `PollVote` rows on every read (`Poll.results()`), which is
 one query for the whole poll. There is no writable count anywhere in the API —
 a client sending `vote_count` or `total_votes` has those keys ignored.
 
-`POST /forum/topics/{id}/poll/vote/` with `{"option_id": N}` casts a vote and
-returns the poll with fresh results. **One vote per user per poll, enforced by
-`UniqueConstraint(poll, user)`**: a second vote is rejected with **409** (the
-message names the existing choice), *not* silently replaced. That is a product
-decision — see todo 283's Work Log for the reasoning and the revisit trigger.
-Voting on a closed poll is also 409; an option belonging to a different poll is
-400; a hidden or restricted topic is 404, like every other forum read.
+`POST /forum/topics/{id}/poll/vote/` with `{"option_ids": [N, …]}` (1 to
+`max_choices` option ids; `{"option_id": N}` is accepted as the single form)
+casts a vote and returns the poll with fresh results. **One submission per
+user per poll**: the view takes a per-poll row lock and rejects a second
+submission with **409** (the message names the existing choice(s)), *not*
+silently replaced or topped up — for single- and multi-choice polls alike.
+That is a product decision — see todo 283's Work Log for the reasoning and
+todo 349's for why it carried over to multi-choice (results are hidden until
+you vote, so a change-vote would let a voter peek and re-decide). The DB
+constraint is one row per `(poll, user, option)`. Voting on a closed poll is
+also 409; more ids than `max_choices`, a repeated id, or an option belonging
+to a different poll is 400 (the whole ballot is refused — nothing partial);
+a hidden or restricted topic is 404, like every other forum read.
 
-`my_vote_option_id` on the poll payload is the **requesting** viewer's own
-choice, or null — individual votes are never exposed, only the aggregate.
+`my_vote_option_ids` on the poll payload is the **requesting** viewer's own
+choice(s), empty when they have not voted — individual votes are never
+exposed, only the aggregate. `total_votes` is the number of **voters**, so in
+a multi-choice poll the option counts can sum past it.
 
 ## Identification attachment
 

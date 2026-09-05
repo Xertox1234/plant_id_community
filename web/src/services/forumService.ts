@@ -265,20 +265,21 @@ export async function unbookmarkTopic(topicId: number): Promise<void> {
 }
 
 /**
- * Cast this user's vote in a thread's poll (audit M8).
+ * Cast this user's ballot in a thread's poll (audit M8; N-of-K since todo 349).
  *
- * Returns the poll with freshly aggregated results — the server is the only
- * thing that counts votes, so the caller replaces its poll state with this
- * rather than incrementing anything locally.
+ * `optionIds` is 1..`max_choices` option ids. Returns the poll with freshly
+ * aggregated results — the server is the only thing that counts votes, so the
+ * caller replaces its poll state with this rather than incrementing anything
+ * locally.
  *
- * One vote per user per poll. A second vote is REJECTED with 409, not
- * replaced; callers should branch on `err.status === 409` rather than on the
- * message text (the backend's wording is not a contract).
+ * One submission per user per poll. A second submission is REJECTED with 409,
+ * not replaced; callers should branch on `err.status === 409` rather than on
+ * the message text (the backend's wording is not a contract).
  */
-export async function votePoll(topicId: number, optionId: number): Promise<ThreadPoll> {
+export async function votePoll(topicId: number, optionIds: number[]): Promise<ThreadPoll> {
   return authenticatedFetch<ThreadPoll>(`${FORUM_BASE}/topics/${topicId}/poll/vote/`, {
     method: 'POST',
-    body: JSON.stringify({ option_id: optionId }),
+    body: JSON.stringify({ option_ids: optionIds }),
   });
 }
 

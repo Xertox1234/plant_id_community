@@ -809,3 +809,37 @@ Three things the review caught that the framework does not tell you:
   annotation to the sheet (decode with `custom_field_preprocess`); a
   class-attribute `no_results_message` would hide the base class's
   filtered-vs-empty distinction (override the `cached_property` instead).
+
+### Multi-choice polls: one final ballot, one lock, one query (todo 349)
+
+`Poll.max_choices` (default 1) turns the single-choice poll into an N-of-K
+ballot without a second model: `PollVote` is unique per `(poll, user,
+option)`, so a ballot is N rows and `Poll.results()` stays row-based. The
+three shapes that carry it:
+
+```python
+# models/polls.py — voters counted from the rows, in the SAME query as the
+# option counts; never "sum the counts" (trusts a view invariant)
+voters = (PollVote.objects.filter(poll=OuterRef("poll_id")).order_by()
+          .values("poll").annotate(n=Count("user", distinct=True)).values("n"))
+options = self.options.annotate(vote_count=Count("votes"),
+                                voters=Coalesce(Subquery(voters), 0))
+
+# api/polls.py — one submission per voter, enforced by the view, not the DB
+existing = _existing_ballot(poll, user)          # fast, unlocked
+if existing: raise Conflict(...)
+with transaction.atomic():
+    Poll.objects.select_for_update().get(pk=poll.pk)
+    if _existing_ballot(poll, user): raise Conflict(...)   # locked re-check
+    PollVote.objects.bulk_create([...])          # the whole ballot or nothing
+```
+
+Decisions worth not re-deciding: a second submission is **409, never
+replaced or merged** (results are hidden until you vote, so change-vote
+would let a voter peek and re-decide — the todo-283 rule carried over);
+`option_ids` is a `_BoundedListField` (raw-length gate before per-item
+parsing); the vote response sorts the ballot ids exactly as `get_poll` reads
+them back, so the two payloads stay byte-identical once options can be
+reordered. Web: checkbox ballot capped in the UI with `aria-disabled`, one
+Vote button; composer "Choices per voter" is a `<select>` clamped to the
+filled option count. Flutter builds multi-choice from the start in todo 341.

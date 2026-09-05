@@ -951,7 +951,7 @@ export default function ThreadDetailPage() {
           // display-shaped string every mapper produces, and every other call
           // on this page — fetchThread, the subscribe/bookmark toggles —
           // already uses topicId as the canonical numeric id.
-          onVote={(optionId) => votePoll(topicId, optionId)}
+          onVote={(optionIds) => votePoll(topicId, optionIds)}
         />
       )}
 

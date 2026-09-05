@@ -160,3 +160,13 @@ Compact checklist auto-injected before edits. Long-form:
   `/api/v2/pages/` and `/api/v2/images/` registrations already 404 for exactly
   this reason. Every project-owned Wagtail API viewset opts out; a new contrib
   one (`RedirectsAPIViewSet`) must too. See `docs/rules/wagtail.md` (PR #624).
+- **A "does it already exist?" guard under `select_for_update()` needs two
+  reads: a cheap unlocked check, then the locked re-check — and a test for
+  each.** With a single read inside the lock the interleaving cannot be
+  simulated (`docs/rules/testing.md` forbids `transaction=True`), so deleting
+  the guard turns no test red. Shape: `_existing(...)` as a module-level
+  helper called before AND inside `atomic()` + `select_for_update()`; test by
+  monkeypatching it to miss once and asserting the locked re-check refuses
+  (`test_collections.py` precedent), and pin the lock itself by asserting a
+  `FOR UPDATE` statement on the row's table in `CaptureQueriesContext`
+  (todo 349, `test_a_ballot_is_written_under_a_poll_row_lock`).

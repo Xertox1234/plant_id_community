@@ -38,8 +38,16 @@ def _topic(slug="t", live=True, board=None, author=None):
     return topic
 
 
-def _poll(topic, question="Best soil?", options=("Peat", "Coir"), closes_at=None):
-    poll = Poll.objects.create(topic=topic, question=question, closes_at=closes_at)
+def _poll(
+    topic,
+    question="Best soil?",
+    options=("Peat", "Coir"),
+    closes_at=None,
+    max_choices=1,
+):
+    poll = Poll.objects.create(
+        topic=topic, question=question, closes_at=closes_at, max_choices=max_choices
+    )
     for index, text in enumerate(options):
         PollOption.objects.create(poll=poll, text=text, order=index)
     return poll
@@ -225,7 +233,8 @@ def test_vote_records_the_choice_and_returns_computed_results():
 
     assert resp.status_code == 200
     assert resp.data["total_votes"] == 1
-    assert resp.data["my_vote_option_id"] == peat.id
+    assert resp.data["my_vote_option_ids"] == [peat.id]
+    assert resp.data["max_choices"] == 1
     counts = {option["text"]: option["vote_count"] for option in resp.data["options"]}
     assert counts == {"Peat": 1, "Coir": 0}
     assert PollVote.objects.filter(poll=poll, user=voter, option=peat).count() == 1
@@ -426,6 +435,409 @@ def test_vote_response_matches_topic_detail_poll_shape():
 
 
 # --------------------------------------------------------------------------
+# Multi-choice (todo 349)
+# --------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+def test_compose_a_multi_choice_poll_stores_max_choices():
+    board = _board("mc1")
+    author = User.objects.create_user(username="mc1-author")
+    client = APIClient()
+    client.force_authenticate(author)
+
+    resp = _create_topic(
+        client,
+        board,
+        poll={
+            "question": "Pests seen?",
+            "options": ["Aphids", "Mites", "Scale"],
+            "max_choices": 2,
+        },
+    )
+
+    assert resp.status_code == 201, resp.data
+    poll = Poll.objects.get()
+    assert poll.max_choices == 2
+    detail = APIClient().get(f"/forum/topics/{poll.topic_id}/")
+    assert detail.data["poll"]["max_choices"] == 2
+
+
+@pytest.mark.django_db
+def test_max_choices_defaults_to_single_choice():
+    board = _board("mc2")
+    author = User.objects.create_user(username="mc2-author")
+    client = APIClient()
+    client.force_authenticate(author)
+
+    resp = _create_topic(client, board, poll={"question": "Q?", "options": ["A", "B"]})
+
+    assert resp.status_code == 201, resp.data
+    assert Poll.objects.get().max_choices == 1
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    "poll, reason",
+    [
+        (
+            {"question": "Q?", "options": ["A", "B"], "max_choices": 3},
+            "more than options",
+        ),
+        (
+            {"question": "Q?", "options": ["A", "B", ""], "max_choices": 3},
+            "blanks don't count",
+        ),
+        ({"question": "Q?", "options": ["A", "B"], "max_choices": 0}, "zero"),
+    ],
+)
+def test_invalid_max_choices_is_rejected_and_creates_no_topic(poll, reason):
+    board = _board(f"mc3-{abs(hash(reason)) % 10000}")
+    author = User.objects.create_user(username=f"mc3-{abs(hash(reason)) % 10000}")
+    client = APIClient()
+    client.force_authenticate(author)
+
+    resp = _create_topic(client, board, poll=poll)
+
+    assert resp.status_code == 400, reason
+    assert "max_choices" in str(resp.data["errors"]["poll"]), reason
+    assert not Topic.objects.exists() and not Poll.objects.exists(), reason
+
+
+@pytest.mark.django_db
+def test_multi_choice_vote_records_each_option_and_counts_the_voter_once():
+    board = _board("mv1")
+    author = User.objects.create_user(username="mv1-author")
+    first, second = (User.objects.create_user(username=f"mv1-v{i}") for i in range(2))
+    topic = _topic("mv1-t", board=board, author=author)
+    poll = _poll(topic, options=("Aphids", "Mites", "Scale"), max_choices=2)
+    aphids, mites, scale = poll.options.all()
+
+    client = APIClient()
+    client.force_authenticate(first)
+    resp = client.post(
+        f"/forum/topics/{topic.id}/poll/vote/",
+        {"option_ids": [mites.id, aphids.id]},
+        format="json",
+    )
+
+    assert resp.status_code == 200, resp.data
+    assert resp.data["my_vote_option_ids"] == [aphids.id, mites.id]
+    assert resp.data["total_votes"] == 1  # one voter, two rows
+    counts = {o["text"]: o["vote_count"] for o in resp.data["options"]}
+    assert counts == {"Aphids": 1, "Mites": 1, "Scale": 0}
+    assert PollVote.objects.filter(poll=poll, user=first).count() == 2
+
+    client.force_authenticate(second)
+    resp = client.post(
+        f"/forum/topics/{topic.id}/poll/vote/",
+        {"option_ids": [mites.id]},
+        format="json",
+    )
+    assert resp.data["total_votes"] == 2
+    assert {o["text"]: o["vote_count"] for o in resp.data["options"]} == {
+        "Aphids": 1,
+        "Mites": 2,
+        "Scale": 0,
+    }
+    # And the detail view agrees with the vote response, ballot included.
+    detail = client.get(f"/forum/topics/{topic.id}/")
+    assert detail.data["poll"] == resp.data
+    assert detail.data["poll"]["my_vote_option_ids"] == [mites.id]
+
+
+@pytest.mark.django_db
+def test_a_ballot_with_more_choices_than_allowed_is_rejected_whole():
+    board = _board("mv2")
+    author = User.objects.create_user(username="mv2-author")
+    voter = User.objects.create_user(username="mv2-voter")
+    topic = _topic("mv2-t", board=board, author=author)
+    poll = _poll(topic, options=("A", "B", "C"), max_choices=2)
+    ids = [o.id for o in poll.options.all()]
+
+    client = APIClient()
+    client.force_authenticate(voter)
+    resp = client.post(
+        f"/forum/topics/{topic.id}/poll/vote/", {"option_ids": ids}, format="json"
+    )
+
+    assert resp.status_code == 400
+    assert "option_ids" in resp.data["errors"]
+    assert not PollVote.objects.exists()
+
+
+@pytest.mark.django_db
+def test_a_single_choice_poll_rejects_a_two_option_ballot():
+    """max_choices=1 (every pre-349 poll) keeps its exact contract: the array
+    form is accepted, but only with one id."""
+    board = _board("mv3")
+    author = User.objects.create_user(username="mv3-author")
+    voter = User.objects.create_user(username="mv3-voter")
+    topic = _topic("mv3-t", board=board, author=author)
+    poll = _poll(topic)
+    ids = [o.id for o in poll.options.all()]
+
+    client = APIClient()
+    client.force_authenticate(voter)
+    two = client.post(
+        f"/forum/topics/{topic.id}/poll/vote/", {"option_ids": ids}, format="json"
+    )
+    one = client.post(
+        f"/forum/topics/{topic.id}/poll/vote/", {"option_ids": ids[:1]}, format="json"
+    )
+
+    assert two.status_code == 400
+    assert one.status_code == 200
+    assert one.data["my_vote_option_ids"] == ids[:1]
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    "payload, reason",
+    [
+        ({"option_ids": []}, "empty ballot"),
+        ({}, "no option at all"),
+        ({"option_ids": "1"}, "not a list"),
+    ],
+)
+def test_malformed_ballots_are_rejected(payload, reason):
+    board = _board(f"mv4-{abs(hash(reason)) % 10000}")
+    author = User.objects.create_user(username=f"mv4-a-{abs(hash(reason)) % 10000}")
+    voter = User.objects.create_user(username=f"mv4-v-{abs(hash(reason)) % 10000}")
+    topic = _topic(f"mv4-t-{abs(hash(reason)) % 10000}", board=board, author=author)
+    _poll(topic, max_choices=2)
+
+    client = APIClient()
+    client.force_authenticate(voter)
+    resp = client.post(f"/forum/topics/{topic.id}/poll/vote/", payload, format="json")
+
+    assert resp.status_code == 400, reason
+    assert not PollVote.objects.exists(), reason
+
+
+@pytest.mark.django_db
+def test_repeating_an_option_or_mixing_the_two_forms_is_rejected():
+    board = _board("mv5")
+    author = User.objects.create_user(username="mv5-author")
+    voter = User.objects.create_user(username="mv5-voter")
+    topic = _topic("mv5-t", board=board, author=author)
+    poll = _poll(topic, max_choices=2)
+    peat = poll.options.first()
+
+    client = APIClient()
+    client.force_authenticate(voter)
+    repeated = client.post(
+        f"/forum/topics/{topic.id}/poll/vote/",
+        {"option_ids": [peat.id, peat.id]},
+        format="json",
+    )
+    mixed = client.post(
+        f"/forum/topics/{topic.id}/poll/vote/",
+        {"option_id": peat.id, "option_ids": [peat.id]},
+        format="json",
+    )
+
+    assert repeated.status_code == 400
+    # The dedup validator's own text, not just its status: the view's
+    # option-count mismatch check also 400s this payload (filter(id__in)
+    # collapses the duplicate), so a bare 400 would survive deleting the
+    # validator (cross-cutting review).
+    assert "Each option may be chosen at most once." in str(
+        repeated.data["errors"]["option_ids"]
+    )
+    assert mixed.status_code == 400
+    assert not PollVote.objects.exists()
+
+
+@pytest.mark.django_db
+def test_an_oversized_ballot_is_refused_before_per_item_parsing():
+    from wagtail_forum.api.serializers import MAX_POLL_OPTION_LIST_ITEMS
+
+    board = _board("mv8")
+    author = User.objects.create_user(username="mv8-author")
+    voter = User.objects.create_user(username="mv8-voter")
+    topic = _topic("mv8-t", board=board, author=author)
+    _poll(topic, max_choices=2)
+
+    client = APIClient()
+    client.force_authenticate(voter)
+    # Not integers on purpose: a per-item parse would 400 on "x" — the
+    # length gate must answer first, with its own message.
+    resp = client.post(
+        f"/forum/topics/{topic.id}/poll/vote/",
+        {"option_ids": ["x"] * (MAX_POLL_OPTION_LIST_ITEMS + 1)},
+        format="json",
+    )
+
+    assert resp.status_code == 400
+    assert "Too many options in one ballot." in str(resp.data["errors"]["option_ids"])
+
+
+@pytest.mark.django_db
+def test_locked_recheck_refuses_a_ballot_the_fast_path_missed(monkeypatch):
+    """Deterministic stand-in for the concurrent double-submit (docs/rules/
+    database.md, test_collections.py precedent): the fast, unlocked read is
+    made to miss once, so only the re-read under the poll row lock stands
+    between a second ballot and a duplicate. Deleting that re-check turns
+    this red (200 and two ballots)."""
+    from wagtail_forum.api import polls as polls_module
+
+    board = _board("mv9")
+    author = User.objects.create_user(username="mv9-author")
+    voter = User.objects.create_user(username="mv9-voter")
+    topic = _topic("mv9-t", board=board, author=author)
+    poll = _poll(topic, options=("A", "B", "C"), max_choices=2)
+    a, b, c = poll.options.all()
+
+    client = APIClient()
+    client.force_authenticate(voter)
+    assert (
+        client.post(
+            f"/forum/topics/{topic.id}/poll/vote/",
+            {"option_ids": [a.id]},
+            format="json",
+        ).status_code
+        == 200
+    )
+
+    real = polls_module._existing_ballot
+    calls = {"n": 0}
+
+    def miss_once(poll_, user):
+        calls["n"] += 1
+        return [] if calls["n"] == 1 else real(poll_, user)
+
+    monkeypatch.setattr(polls_module, "_existing_ballot", miss_once)
+    second = client.post(
+        f"/forum/topics/{topic.id}/poll/vote/",
+        {"option_ids": [b.id, c.id]},
+        format="json",
+    )
+
+    assert calls["n"] == 2  # the fast path missed, the locked re-check ran
+    assert second.status_code == 409
+    assert list(
+        PollVote.objects.filter(poll=poll, user=voter).values_list(
+            "option_id", flat=True
+        )
+    ) == [a.id]
+
+
+@pytest.mark.django_db
+def test_a_ballot_is_written_under_a_poll_row_lock():
+    """Pins the lock itself, which no sequential test can exercise: the
+    write transaction must SELECT the poll row FOR UPDATE before inserting."""
+    board = _board("mv10")
+    author = User.objects.create_user(username="mv10-author")
+    voter = User.objects.create_user(username="mv10-voter")
+    topic = _topic("mv10-t", board=board, author=author)
+    poll = _poll(topic, max_choices=2)
+
+    client = APIClient()
+    client.force_authenticate(voter)
+    with CaptureQueriesContext(connection) as ctx:
+        resp = client.post(
+            f"/forum/topics/{topic.id}/poll/vote/",
+            {"option_ids": [poll.options.first().id]},
+            format="json",
+        )
+
+    assert resp.status_code == 200
+    locking = [
+        q["sql"]
+        for q in ctx.captured_queries
+        if "FOR UPDATE" in q["sql"] and "wagtail_forum_poll" in q["sql"]
+    ]
+    assert len(locking) == 1, [q["sql"][:80] for q in ctx.captured_queries]
+
+
+@pytest.mark.django_db
+def test_multi_choice_poll_costs_no_more_queries_than_single_choice():
+    """The distinct-voter total rides the options query as a subquery, so a
+    multi-choice poll's topic detail — and its vote response — cost exactly
+    what a single-choice poll's do (cross-cutting review: pin the cost, not
+    just the number)."""
+    board = _board("mv11")
+    author = User.objects.create_user(username="mv11-author")
+    single_topic = _topic("mv11-single", board=board, author=author)
+    _poll(single_topic)
+    multi_topic = _topic("mv11-multi", board=board, author=author)
+    multi = _poll(multi_topic, options=("A", "B", "C"), max_choices=2)
+    for i in range(3):
+        u = User.objects.create_user(username=f"mv11-v{i}")
+        PollVote.objects.create(poll=multi, option=multi.options.all()[i], user=u)
+        PollVote.objects.create(
+            poll=multi, option=multi.options.all()[(i + 1) % 3], user=u
+        )
+
+    anon = APIClient()
+    with CaptureQueriesContext(connection) as single_ctx:
+        anon.get(f"/forum/topics/{single_topic.id}/")
+    with CaptureQueriesContext(connection) as multi_ctx:
+        detail = anon.get(f"/forum/topics/{multi_topic.id}/")
+
+    assert detail.data["poll"]["total_votes"] == 3  # 3 voters, 6 rows
+    assert [o["vote_count"] for o in detail.data["poll"]["options"]] == [2, 2, 2]
+    assert len(multi_ctx.captured_queries) == len(single_ctx.captured_queries)
+
+
+@pytest.mark.django_db
+def test_a_ballot_with_a_foreign_option_is_rejected_whole():
+    board = _board("mv6")
+    author = User.objects.create_user(username="mv6-author")
+    voter = User.objects.create_user(username="mv6-voter")
+    mine = _topic("mv6-mine", board=board, author=author)
+    theirs = _topic("mv6-theirs", board=board, author=author)
+    poll = _poll(mine, max_choices=2)
+    other = _poll(theirs, question="Other?", options=("X", "Y"))
+
+    client = APIClient()
+    client.force_authenticate(voter)
+    resp = client.post(
+        f"/forum/topics/{mine.id}/poll/vote/",
+        {"option_ids": [poll.options.first().id, other.options.first().id]},
+        format="json",
+    )
+
+    assert resp.status_code == 400
+    assert not PollVote.objects.exists()  # nothing partial
+
+
+@pytest.mark.django_db
+def test_second_submission_on_a_multi_choice_poll_is_rejected_not_merged():
+    """The todo-283 decision carried over (todo 349 Work Log): one final
+    submission per voter, whatever its size — no top-up, no replacement."""
+    board = _board("mv7")
+    author = User.objects.create_user(username="mv7-author")
+    voter = User.objects.create_user(username="mv7-voter")
+    topic = _topic("mv7-t", board=board, author=author)
+    poll = _poll(topic, options=("A", "B", "C"), max_choices=3)
+    a, b, c = poll.options.all()
+
+    client = APIClient()
+    client.force_authenticate(voter)
+    client.post(
+        f"/forum/topics/{topic.id}/poll/vote/", {"option_ids": [a.id]}, format="json"
+    )
+    top_up = client.post(
+        f"/forum/topics/{topic.id}/poll/vote/",
+        {"option_ids": [b.id, c.id]},
+        format="json",
+    )
+
+    assert top_up.status_code == 409
+    assert str(a.id) in top_up.data["message"]
+    assert list(
+        PollVote.objects.filter(poll=poll, user=voter).values_list(
+            "option_id", flat=True
+        )
+    ) == [a.id]
+    assert (
+        APIClient().get(f"/forum/topics/{topic.id}/").data["poll"]["total_votes"] == 1
+    )
+
+
+# --------------------------------------------------------------------------
 # Topic detail rendering + query pins
 # --------------------------------------------------------------------------
 
@@ -452,15 +864,15 @@ def test_my_vote_is_null_for_anonymous_and_never_leaks_another_users_choice():
     PollVote.objects.create(poll=poll, option=poll.options.first(), user=voter)
 
     anon = APIClient().get(f"/forum/topics/{topic.id}/")
-    assert anon.data["poll"]["my_vote_option_id"] is None
+    assert anon.data["poll"]["my_vote_option_ids"] == []
     # The aggregate is public; the individual choice is not.
     assert anon.data["poll"]["total_votes"] == 1
 
     client = APIClient()
     client.force_authenticate(onlooker)
     assert (
-        client.get(f"/forum/topics/{topic.id}/").data["poll"]["my_vote_option_id"]
-        is None
+        client.get(f"/forum/topics/{topic.id}/").data["poll"]["my_vote_option_ids"]
+        == []
     )
 
 

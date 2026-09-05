@@ -731,6 +731,7 @@ class TopicListView(
                             topic=topic,
                             question=poll_data["question"],
                             closes_at=poll_data.get("closes_at"),
+                            max_choices=poll_data["max_choices"],
                         )
                         # bulk_create so a 10-option poll costs ONE insert, not
                         # ten, inside the topic-create transaction. `order` is

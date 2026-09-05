@@ -105,7 +105,7 @@ def test_poll_vote_endpoint_is_mounted_and_throttled():
         f"/api/v1/forum/topics/{topic.id}/poll/vote/", {"option_id": peat.id}
     )
     assert resp.status_code == 200
-    assert resp.data["my_vote_option_id"] == peat.id
+    assert resp.data["my_vote_option_ids"] == [peat.id]
 
     # A second vote is rejected, not replaced (todo 309's own product
     # decision, see the package README's Polls section).

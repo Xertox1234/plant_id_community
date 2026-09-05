@@ -465,12 +465,13 @@ describe('ThreadDetailPage', () => {
           question: 'Best soil?',
           closes_at: null,
           is_closed: false,
+          max_choices: 1,
           options: [
             { id: 10, text: 'Peat', order: 0, vote_count: 0 },
             { id: 11, text: 'Coir', order: 1, vote_count: 0 },
           ],
           total_votes: 0,
-          my_vote_option_id: null,
+          my_vote_option_ids: [],
         },
       })
     );
@@ -480,12 +481,13 @@ describe('ThreadDetailPage', () => {
       question: 'Best soil?',
       closes_at: null,
       is_closed: false,
+      max_choices: 1,
       options: [
         { id: 10, text: 'Peat', order: 0, vote_count: 1 },
         { id: 11, text: 'Coir', order: 1, vote_count: 0 },
       ],
       total_votes: 1,
-      my_vote_option_id: 10,
+      my_vote_option_ids: [10],
     });
 
     renderThreadDetailPage();
@@ -493,7 +495,7 @@ describe('ThreadDetailPage', () => {
     await userEvent.click(await screen.findByRole('button', { name: 'Peat' }));
 
     // Voted with the TOPIC id (12 from useParams), not the poll id.
-    expect(voteSpy).toHaveBeenCalledWith(12, 10);
+    expect(voteSpy).toHaveBeenCalledWith(12, [10]);
     expect(await screen.findByText('1 (100%)')).toBeInTheDocument();
   });
 
