@@ -17,7 +17,9 @@ void main() {
     ) async {
       await pump(
         tester,
-        TopicCard(topic: topic(authorOverride: author(username: 'alice'))),
+        TopicCard(
+          topic: topic(authorOverride: author(username: 'alice')),
+        ),
       );
 
       expect(find.byType(AuthorIdentity), findsOneWidget);

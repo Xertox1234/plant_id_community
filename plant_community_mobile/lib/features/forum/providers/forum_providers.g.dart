@@ -167,15 +167,18 @@ abstract class _$BoardTopics
   }
 }
 
-/// A single topic's detail, plus subscribe/unsubscribe (todo 293).
+/// A single topic's detail, plus subscribe/unsubscribe (todo 293), the
+/// bookmark toggle and the accepted-answer mark/clear (todo 341).
 
 @ProviderFor(TopicDetail)
 final topicDetailProvider = TopicDetailFamily._();
 
-/// A single topic's detail, plus subscribe/unsubscribe (todo 293).
+/// A single topic's detail, plus subscribe/unsubscribe (todo 293), the
+/// bookmark toggle and the accepted-answer mark/clear (todo 341).
 final class TopicDetailProvider
     extends $AsyncNotifierProvider<TopicDetail, ForumTopicDetail> {
-  /// A single topic's detail, plus subscribe/unsubscribe (todo 293).
+  /// A single topic's detail, plus subscribe/unsubscribe (todo 293), the
+  /// bookmark toggle and the accepted-answer mark/clear (todo 341).
   TopicDetailProvider._({
     required TopicDetailFamily super.from,
     required int super.argument,
@@ -212,9 +215,10 @@ final class TopicDetailProvider
   }
 }
 
-String _$topicDetailHash() => r'5fa285fd1947476cbbb4ae065e9d26026c89592e';
+String _$topicDetailHash() => r'e61a781ebc811408e1de6b14193af42759440efd';
 
-/// A single topic's detail, plus subscribe/unsubscribe (todo 293).
+/// A single topic's detail, plus subscribe/unsubscribe (todo 293), the
+/// bookmark toggle and the accepted-answer mark/clear (todo 341).
 
 final class TopicDetailFamily extends $Family
     with
@@ -234,7 +238,8 @@ final class TopicDetailFamily extends $Family
         isAutoDispose: true,
       );
 
-  /// A single topic's detail, plus subscribe/unsubscribe (todo 293).
+  /// A single topic's detail, plus subscribe/unsubscribe (todo 293), the
+  /// bookmark toggle and the accepted-answer mark/clear (todo 341).
 
   TopicDetailProvider call(int topicId) =>
       TopicDetailProvider._(argument: topicId, from: this);
@@ -243,7 +248,8 @@ final class TopicDetailFamily extends $Family
   String toString() => r'topicDetailProvider';
 }
 
-/// A single topic's detail, plus subscribe/unsubscribe (todo 293).
+/// A single topic's detail, plus subscribe/unsubscribe (todo 293), the
+/// bookmark toggle and the accepted-answer mark/clear (todo 341).
 
 abstract class _$TopicDetail extends $AsyncNotifier<ForumTopicDetail> {
   late final _$args = ref.$arg as int;
@@ -267,15 +273,18 @@ abstract class _$TopicDetail extends $AsyncNotifier<ForumTopicDetail> {
   }
 }
 
-/// A public forum profile, keyed by username (`GET /forum/users/{username}/`).
+/// A public forum profile, keyed by username (`GET /forum/users/{username}/`),
+/// plus the viewer's block/unblock of that member (todo 341).
 
 @ProviderFor(ForumUserProfile)
 final forumUserProfileProvider = ForumUserProfileFamily._();
 
-/// A public forum profile, keyed by username (`GET /forum/users/{username}/`).
+/// A public forum profile, keyed by username (`GET /forum/users/{username}/`),
+/// plus the viewer's block/unblock of that member (todo 341).
 final class ForumUserProfileProvider
     extends $AsyncNotifierProvider<ForumUserProfile, ForumProfile> {
-  /// A public forum profile, keyed by username (`GET /forum/users/{username}/`).
+  /// A public forum profile, keyed by username (`GET /forum/users/{username}/`),
+  /// plus the viewer's block/unblock of that member (todo 341).
   ForumUserProfileProvider._({
     required ForumUserProfileFamily super.from,
     required String super.argument,
@@ -312,9 +321,10 @@ final class ForumUserProfileProvider
   }
 }
 
-String _$forumUserProfileHash() => r'abbc9e46e10cfc9bf81fbd2c773ec938812ef251';
+String _$forumUserProfileHash() => r'c233b82c86ec4604ae18852faaac33203e9fcb07';
 
-/// A public forum profile, keyed by username (`GET /forum/users/{username}/`).
+/// A public forum profile, keyed by username (`GET /forum/users/{username}/`),
+/// plus the viewer's block/unblock of that member (todo 341).
 
 final class ForumUserProfileFamily extends $Family
     with
@@ -334,7 +344,8 @@ final class ForumUserProfileFamily extends $Family
         isAutoDispose: true,
       );
 
-  /// A public forum profile, keyed by username (`GET /forum/users/{username}/`).
+  /// A public forum profile, keyed by username (`GET /forum/users/{username}/`),
+  /// plus the viewer's block/unblock of that member (todo 341).
 
   ForumUserProfileProvider call(String username) =>
       ForumUserProfileProvider._(argument: username, from: this);
@@ -343,7 +354,8 @@ final class ForumUserProfileFamily extends $Family
   String toString() => r'forumUserProfileProvider';
 }
 
-/// A public forum profile, keyed by username (`GET /forum/users/{username}/`).
+/// A public forum profile, keyed by username (`GET /forum/users/{username}/`),
+/// plus the viewer's block/unblock of that member (todo 341).
 
 abstract class _$ForumUserProfile extends $AsyncNotifier<ForumProfile> {
   late final _$args = ref.$arg as String;
@@ -363,6 +375,93 @@ abstract class _$ForumUserProfile extends $AsyncNotifier<ForumProfile> {
               Object?
             >;
     element.handleCreate(ref, () => build(_$args));
+  }
+}
+
+/// The most recent block/unblock the viewer performed (todo 341). A block
+/// happens on the PROFILE screen but changes what every loaded post by that
+/// author should render in a thread mounted underneath — and the profile
+/// has no topic id to splice. Invalidating the paged thread would collapse
+/// its loaded pages to page 1, so instead each [TopicPosts] listens here
+/// and splices `isBlocked` locally. `keepAlive` so an emit is never lost
+/// between the profile's call and a thread's listener; listeners are not
+/// fired on subscribe, so a newly-built thread never replays a stale event.
+
+@ProviderFor(AuthorBlockChanges)
+final authorBlockChangesProvider = AuthorBlockChangesProvider._();
+
+/// The most recent block/unblock the viewer performed (todo 341). A block
+/// happens on the PROFILE screen but changes what every loaded post by that
+/// author should render in a thread mounted underneath — and the profile
+/// has no topic id to splice. Invalidating the paged thread would collapse
+/// its loaded pages to page 1, so instead each [TopicPosts] listens here
+/// and splices `isBlocked` locally. `keepAlive` so an emit is never lost
+/// between the profile's call and a thread's listener; listeners are not
+/// fired on subscribe, so a newly-built thread never replays a stale event.
+final class AuthorBlockChangesProvider
+    extends $NotifierProvider<AuthorBlockChanges, AuthorBlockChange?> {
+  /// The most recent block/unblock the viewer performed (todo 341). A block
+  /// happens on the PROFILE screen but changes what every loaded post by that
+  /// author should render in a thread mounted underneath — and the profile
+  /// has no topic id to splice. Invalidating the paged thread would collapse
+  /// its loaded pages to page 1, so instead each [TopicPosts] listens here
+  /// and splices `isBlocked` locally. `keepAlive` so an emit is never lost
+  /// between the profile's call and a thread's listener; listeners are not
+  /// fired on subscribe, so a newly-built thread never replays a stale event.
+  AuthorBlockChangesProvider._()
+    : super(
+        from: null,
+        argument: null,
+        retry: null,
+        name: r'authorBlockChangesProvider',
+        isAutoDispose: false,
+        dependencies: null,
+        $allTransitiveDependencies: null,
+      );
+
+  @override
+  String debugGetCreateSourceHash() => _$authorBlockChangesHash();
+
+  @$internal
+  @override
+  AuthorBlockChanges create() => AuthorBlockChanges();
+
+  /// {@macro riverpod.override_with_value}
+  Override overrideWithValue(AuthorBlockChange? value) {
+    return $ProviderOverride(
+      origin: this,
+      providerOverride: $SyncValueProvider<AuthorBlockChange?>(value),
+    );
+  }
+}
+
+String _$authorBlockChangesHash() =>
+    r'1a78699ddb5622c8bda709105fd0284648c50c4c';
+
+/// The most recent block/unblock the viewer performed (todo 341). A block
+/// happens on the PROFILE screen but changes what every loaded post by that
+/// author should render in a thread mounted underneath — and the profile
+/// has no topic id to splice. Invalidating the paged thread would collapse
+/// its loaded pages to page 1, so instead each [TopicPosts] listens here
+/// and splices `isBlocked` locally. `keepAlive` so an emit is never lost
+/// between the profile's call and a thread's listener; listeners are not
+/// fired on subscribe, so a newly-built thread never replays a stale event.
+
+abstract class _$AuthorBlockChanges extends $Notifier<AuthorBlockChange?> {
+  AuthorBlockChange? build();
+  @$mustCallSuper
+  @override
+  void runBuild() {
+    final ref = this.ref as $Ref<AuthorBlockChange?, AuthorBlockChange?>;
+    final element =
+        ref.element
+            as $ClassProviderElement<
+              AnyNotifier<AuthorBlockChange?, AuthorBlockChange?>,
+              AuthorBlockChange?,
+              Object?,
+              Object?
+            >;
+    element.handleCreate(ref, build);
   }
 }
 
@@ -414,7 +513,7 @@ final class TopicPostsProvider
   }
 }
 
-String _$topicPostsHash() => r'ec2d97417757d2e091dd2c5ab25ec0bc111489af';
+String _$topicPostsHash() => r'9f0a5d3f37a25d7330a968e11cab567599a4c784';
 
 /// Posts in a topic (oldest-first), cursor-paginated with [loadMore], plus a
 /// reaction toggle that updates the affected post in place.
@@ -742,6 +841,70 @@ final class UnreadConversationCountProvider
 
 String _$unreadConversationCountHash() =>
     r'7e9a51b095a5ef04f5d7029917574f955b32a89f';
+
+/// The viewer's bookmarked topics (cursor-paginated, most recently
+/// bookmarked first — todo 341).
+
+@ProviderFor(BookmarksFeed)
+final bookmarksFeedProvider = BookmarksFeedProvider._();
+
+/// The viewer's bookmarked topics (cursor-paginated, most recently
+/// bookmarked first — todo 341).
+final class BookmarksFeedProvider
+    extends
+        $AsyncNotifierProvider<BookmarksFeed, PagedList<ForumTopicListItem>> {
+  /// The viewer's bookmarked topics (cursor-paginated, most recently
+  /// bookmarked first — todo 341).
+  BookmarksFeedProvider._()
+    : super(
+        from: null,
+        argument: null,
+        retry: null,
+        name: r'bookmarksFeedProvider',
+        isAutoDispose: true,
+        dependencies: null,
+        $allTransitiveDependencies: null,
+      );
+
+  @override
+  String debugGetCreateSourceHash() => _$bookmarksFeedHash();
+
+  @$internal
+  @override
+  BookmarksFeed create() => BookmarksFeed();
+}
+
+String _$bookmarksFeedHash() => r'91a4e431dffd7886366c3a89c4385b363f20e686';
+
+/// The viewer's bookmarked topics (cursor-paginated, most recently
+/// bookmarked first — todo 341).
+
+abstract class _$BookmarksFeed
+    extends $AsyncNotifier<PagedList<ForumTopicListItem>> {
+  FutureOr<PagedList<ForumTopicListItem>> build();
+  @$mustCallSuper
+  @override
+  void runBuild() {
+    final ref =
+        this.ref
+            as $Ref<
+              AsyncValue<PagedList<ForumTopicListItem>>,
+              PagedList<ForumTopicListItem>
+            >;
+    final element =
+        ref.element
+            as $ClassProviderElement<
+              AnyNotifier<
+                AsyncValue<PagedList<ForumTopicListItem>>,
+                PagedList<ForumTopicListItem>
+              >,
+              AsyncValue<PagedList<ForumTopicListItem>>,
+              Object?,
+              Object?
+            >;
+    element.handleCreate(ref, build);
+  }
+}
 
 /// A 1:1 DM thread with [username] (todo 339): resolves the conversation
 /// (absent until first send), pages older messages, and sends.

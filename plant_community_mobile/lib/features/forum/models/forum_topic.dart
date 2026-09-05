@@ -15,6 +15,7 @@ class ForumTopicListItem {
     this.lastPostAt,
     this.lastPostAuthor,
     required this.isUnread,
+    this.isSolved = false,
   });
 
   final int id;
@@ -32,6 +33,9 @@ class ForumTopicListItem {
   /// unknown — see the backend rationale in `serializers.py`.
   final ForumAuthor? lastPostAuthor;
   final bool isUnread;
+
+  /// Whether the topic has an accepted answer (`is_solved`).
+  final bool isSolved;
 
   /// Whether posting is blocked (closed OR locked), mirroring the web
   /// mapper's `is_locked = is_closed || locked`.
@@ -57,6 +61,30 @@ class ForumTopicListItem {
               json['last_post_author'] as Map<String, dynamic>,
             ),
       isUnread: json['is_unread'] as bool? ?? false,
+      isSolved: json['is_solved'] as bool? ?? false,
+    );
+  }
+
+  /// A list row built from a topic detail — the thread screen bookmarks a
+  /// topic it holds only as a [ForumTopicDetail], and the bookmarks feed
+  /// (which lists `TopicListSerializer` rows) is spliced locally rather than
+  /// refetched (todo 341). `is_unread` is not on the detail payload; a topic
+  /// the viewer is currently reading is not unread.
+  factory ForumTopicListItem.fromDetail(ForumTopicDetail detail) {
+    return ForumTopicListItem(
+      id: detail.id,
+      title: detail.title,
+      slug: detail.slug,
+      author: detail.author,
+      isPinned: detail.isPinned,
+      isClosed: detail.isClosed,
+      locked: detail.locked,
+      replyCount: detail.replyCount,
+      viewCount: detail.viewCount,
+      lastPostAt: detail.lastPostAt,
+      lastPostAuthor: detail.lastPostAuthor,
+      isUnread: false,
+      isSolved: detail.isSolved,
     );
   }
 }
@@ -100,6 +128,11 @@ class ForumTopicDetail {
     this.lastPostAuthor,
     this.openingPostId,
     required this.isSubscribed,
+    this.isBookmarked = false,
+    this.solvedPostId,
+    this.canMarkSolution = false,
+    this.isBlocked = false,
+    this.canBlock = false,
   });
 
   final int id;
@@ -118,11 +151,39 @@ class ForumTopicDetail {
   final int? openingPostId;
   final bool isSubscribed;
 
+  /// Save-for-later, distinct from [isSubscribed]'s notify-me intent
+  /// (todo 283). `false` for an anonymous viewer.
+  final bool isBookmarked;
+
+  /// The accepted answer's post id, or `null` while unsolved. The single
+  /// source for "is this post the answer" — mirrors the web's
+  /// `isSolvedPost`; `is_solved` is derived here, never read separately.
+  final int? solvedPostId;
+
+  /// Whether THIS viewer may accept/clear an answer (topic author or a
+  /// moderator) — server authority, never re-derived client-side.
+  final bool canMarkSolution;
+
+  /// Whether the viewer has blocked the topic's author (todo 284/M9).
+  final bool isBlocked;
+
+  /// Whether the viewer may block the topic's author.
+  final bool canBlock;
+
   bool get isLocked => isClosed || locked;
+  bool get isSolved => solvedPostId != null;
 
   /// Returns a copy with [isSubscribed] replaced (used after a
   /// subscribe/unsubscribe call, whose response carries the fresh state).
-  ForumTopicDetail withSubscribed(bool isSubscribed) {
+  ForumTopicDetail withSubscribed(bool isSubscribed) =>
+      copyWith(isSubscribed: isSubscribed);
+
+  ForumTopicDetail copyWith({
+    bool? isSubscribed,
+    bool? isBookmarked,
+    int? solvedPostId,
+    bool clearSolvedPostId = false,
+  }) {
     return ForumTopicDetail(
       id: id,
       title: title,
@@ -138,7 +199,14 @@ class ForumTopicDetail {
       lastPostAt: lastPostAt,
       lastPostAuthor: lastPostAuthor,
       openingPostId: openingPostId,
-      isSubscribed: isSubscribed,
+      isSubscribed: isSubscribed ?? this.isSubscribed,
+      isBookmarked: isBookmarked ?? this.isBookmarked,
+      solvedPostId: clearSolvedPostId
+          ? null
+          : (solvedPostId ?? this.solvedPostId),
+      canMarkSolution: canMarkSolution,
+      isBlocked: isBlocked,
+      canBlock: canBlock,
     );
   }
 
@@ -167,6 +235,11 @@ class ForumTopicDetail {
             ),
       openingPostId: json['opening_post_id'] as int?,
       isSubscribed: json['is_subscribed'] as bool? ?? false,
+      isBookmarked: json['is_bookmarked'] as bool? ?? false,
+      solvedPostId: json['solved_post_id'] as int?,
+      canMarkSolution: json['can_mark_solution'] as bool? ?? false,
+      isBlocked: json['is_blocked'] as bool? ?? false,
+      canBlock: json['can_block'] as bool? ?? false,
     );
   }
 }

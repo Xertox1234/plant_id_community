@@ -5,9 +5,11 @@ import 'package:go_router/go_router.dart';
 import '../../../core/constants/app_spacing.dart';
 import '../../../services/auth_service.dart';
 import '../../../services/user_profile_service.dart';
+import '../forum_errors.dart';
 import '../forum_format.dart';
 import '../providers/forum_providers.dart';
 import '../widgets/author_identity.dart';
+import '../widgets/forum_notice_banner.dart';
 
 /// A public forum profile: identity + trust + recent activity, read-only.
 /// Backed by `GET /forum/users/{username}/` (`AllowAny` server-side, so this
@@ -33,11 +35,19 @@ class ForumUserProfileScreen extends ConsumerWidget {
     final myUsername = isAuthenticated
         ? ref.watch(userProfileServiceProvider).asData?.value?.username
         : null;
+    final profile = profileAsync.asData?.value;
+    final isBlocked = profile?.isBlocked ?? false;
     final canMessage =
         myUsername != null &&
         myUsername != username &&
-        profileAsync.hasValue &&
-        !(profileAsync.asData?.value.author.isDeleted ?? true);
+        profile != null &&
+        !profile.author.isDeleted &&
+        // A blocked pair 403s on send — don't offer a dead action.
+        !isBlocked;
+    // Block/Unblock (todo 341): `can_block` is the server's answer to "may
+    // this viewer block this member" — false for an anonymous viewer and on
+    // your own profile — so no client-side identity check is re-derived.
+    final canBlock = isAuthenticated && (profile?.canBlock ?? false);
 
     return Scaffold(
       appBar: AppBar(
@@ -52,6 +62,19 @@ class ForumUserProfileScreen extends ConsumerWidget {
                 pathParameters: {'username': username},
               ),
             ),
+          if (canBlock)
+            PopupMenuButton<String>(
+              tooltip: 'Profile options',
+              onSelected: (value) {
+                if (value == 'block') _toggleBlock(context, ref, isBlocked);
+              },
+              itemBuilder: (context) => [
+                PopupMenuItem(
+                  value: 'block',
+                  child: Text(isBlocked ? 'Unblock' : 'Block'),
+                ),
+              ],
+            ),
         ],
       ),
       body: SafeArea(
@@ -64,6 +87,16 @@ class ForumUserProfileScreen extends ConsumerWidget {
           data: (profile) => ListView(
             padding: const EdgeInsets.all(AppSpacing.md),
             children: [
+              if (profile.isBlocked)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: AppSpacing.md),
+                  child: ForumNoticeBanner(
+                    icon: Icons.block,
+                    message:
+                        "You've blocked ${profile.author.name}. Their posts "
+                        'are collapsed and they can\'t message you.',
+                  ),
+                ),
               AuthorIdentity(
                 author: profile.author,
                 avatarRadius: 32,
@@ -136,6 +169,56 @@ class ForumUserProfileScreen extends ConsumerWidget {
         ),
       ),
     );
+  }
+
+  /// Block after an explicit confirmation (it hides content and cuts off
+  /// DMs both ways); unblocking is the reversible direction, no dialog.
+  Future<void> _toggleBlock(
+    BuildContext context,
+    WidgetRef ref,
+    bool isBlocked,
+  ) async {
+    if (!isBlocked) {
+      final confirmed = await showDialog<bool>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: Text('Block $username?'),
+          content: const Text(
+            "Their posts will be collapsed for you and you won't be able to "
+            'message each other. You can unblock them at any time.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(false),
+              child: const Text('Cancel'),
+            ),
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(true),
+              child: const Text('Block'),
+            ),
+          ],
+        ),
+      );
+      if (confirmed != true || !context.mounted) return;
+    }
+    try {
+      await ref.read(forumUserProfileProvider(username).notifier).toggleBlock();
+    } catch (e) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            forumErrorMessage(
+              e,
+              fallback: isBlocked
+                  ? 'Could not unblock this member.'
+                  : 'Could not block this member.',
+              forbidden: "You can't block this member.",
+            ),
+          ),
+        ),
+      );
+    }
   }
 }
 

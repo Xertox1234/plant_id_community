@@ -97,6 +97,23 @@ class ReactionToggleResult {
   }
 }
 
+/// Result of `POST`/`DELETE /forum/topics/{id}/solution/` — the topic's
+/// CURRENT accepted-answer state, structurally identical for mark and clear
+/// so a client never infers `is_solved` from the status code.
+class ForumSolutionResult {
+  const ForumSolutionResult({required this.isSolved, this.solvedPostId});
+
+  final bool isSolved;
+  final int? solvedPostId;
+
+  factory ForumSolutionResult.fromJson(Map<String, dynamic> json) {
+    return ForumSolutionResult(
+      isSolved: json['is_solved'] as bool? ?? false,
+      solvedPostId: json['solved_post_id'] as int?,
+    );
+  }
+}
+
 /// Result of `POST /forum/images/` — `{id, url, alt, width, height}`.
 class ForumImageUploadResult {
   const ForumImageUploadResult({

@@ -178,6 +178,41 @@ class FakeForumApi implements ForumApi {
   final List<String> reportMessageKeys = [];
   ApiException? failReportMessageWith;
 
+  /// Safety fixtures (todo 341 wave 1).
+  final List<Map<String, Object?>> reportPostCalls = [];
+  final List<String> reportPostKeys = [];
+  ApiException? failReportPostWith;
+  final List<String> blockCalls = [];
+  final List<String> unblockCalls = [];
+  ApiException? failBlockWith;
+
+  /// Thread-experience fixtures (todo 341 wave 2). [solutionResult] is
+  /// returned by [markSolution]; [clearSolution] always returns unsolved.
+  final List<Map<String, Object?>> markSolutionCalls = [];
+  final List<String> markSolutionKeys = [];
+  final List<int> clearSolutionCalls = [];
+  ApiException? failSolutionWith;
+  ForumSolutionResult? solutionResult;
+
+  final List<int> bookmarkCalls = [];
+  final List<int> unbookmarkCalls = [];
+  ApiException? failBookmarkWith;
+
+  /// [fetchBookmarks] fixtures. [bookmarkPages] mirrors [postPages]; falls
+  /// back to [bookmarks].
+  List<ForumTopicListItem> bookmarks = const [];
+  List<CursorPage<ForumTopicListItem>> bookmarkPages = const [];
+  final List<String?> fetchBookmarksCalls = [];
+
+  /// [fetchPostRevisions]/[fetchPostRevision] fixtures — a single list and
+  /// a map by revision id, both ignoring the `postId` argument (like
+  /// [profile]). Unset detail ids throw a 404.
+  List<ForumPostRevision> revisions = const [];
+  Map<int, ForumPostRevisionDetail> revisionDetails = const {};
+  final List<int> fetchRevisionsCalls = [];
+  final List<int> fetchRevisionCalls = [];
+  ApiException? failRevisionsWith;
+
   @override
   Future<List<ForumBoard>> fetchBoards() async => boards;
 
@@ -471,6 +506,140 @@ class FakeForumApi implements ForumApi {
     final fail = failReportMessageWith;
     if (fail != null) throw fail;
   }
+
+  @override
+  Future<void> reportPost({
+    required int postId,
+    required String reason,
+    String? detail,
+    required String idempotencyKey,
+  }) async {
+    reportPostCalls.add({'postId': postId, 'reason': reason, 'detail': detail});
+    reportPostKeys.add(idempotencyKey);
+    final fail = failReportPostWith;
+    if (fail != null) throw fail;
+  }
+
+  @override
+  Future<bool> blockUser(String username) async {
+    blockCalls.add(username);
+    final fail = failBlockWith;
+    if (fail != null) throw fail;
+    return true;
+  }
+
+  @override
+  Future<bool> unblockUser(String username) async {
+    unblockCalls.add(username);
+    final fail = failBlockWith;
+    if (fail != null) throw fail;
+    return false;
+  }
+
+  @override
+  Future<ForumSolutionResult> markSolution({
+    required int topicId,
+    required int postId,
+    required String idempotencyKey,
+  }) async {
+    markSolutionCalls.add({'topicId': topicId, 'postId': postId});
+    markSolutionKeys.add(idempotencyKey);
+    final fail = failSolutionWith;
+    if (fail != null) throw fail;
+    return solutionResult ??
+        ForumSolutionResult(isSolved: true, solvedPostId: postId);
+  }
+
+  @override
+  Future<ForumSolutionResult> clearSolution(int topicId) async {
+    clearSolutionCalls.add(topicId);
+    final fail = failSolutionWith;
+    if (fail != null) throw fail;
+    return const ForumSolutionResult(isSolved: false);
+  }
+
+  @override
+  Future<bool> bookmarkTopic(int topicId) async {
+    bookmarkCalls.add(topicId);
+    final fail = failBookmarkWith;
+    if (fail != null) throw fail;
+    return true;
+  }
+
+  @override
+  Future<bool> unbookmarkTopic(int topicId) async {
+    unbookmarkCalls.add(topicId);
+    final fail = failBookmarkWith;
+    if (fail != null) throw fail;
+    return false;
+  }
+
+  @override
+  Future<CursorPage<ForumTopicListItem>> fetchBookmarks({
+    String? cursorUrl,
+  }) async {
+    fetchBookmarksCalls.add(cursorUrl);
+    if (bookmarkPages.isEmpty) {
+      return CursorPage(items: bookmarks);
+    }
+    if (cursorUrl == null) return bookmarkPages.first;
+    for (var i = 1; i < bookmarkPages.length; i++) {
+      if (bookmarkPages[i - 1].next == cursorUrl) {
+        return bookmarkPages[i];
+      }
+    }
+    return bookmarkPages.last;
+  }
+
+  @override
+  Future<List<ForumPostRevision>> fetchPostRevisions(int postId) async {
+    fetchRevisionsCalls.add(postId);
+    final fail = failRevisionsWith;
+    if (fail != null) throw fail;
+    return revisions;
+  }
+
+  @override
+  Future<ForumPostRevisionDetail> fetchPostRevision({
+    required int postId,
+    required int revisionId,
+  }) async {
+    fetchRevisionCalls.add(revisionId);
+    final fail = failRevisionsWith;
+    if (fail != null) throw fail;
+    final detail = revisionDetails[revisionId];
+    if (detail == null) {
+      throw ApiException('no fixture', statusCode: 404);
+    }
+    return detail;
+  }
+}
+
+/// Build a [ForumPostRevision] fixture (an edit-history row).
+ForumPostRevision revision({
+  int id = 1,
+  String username = 'alice',
+  DateTime? createdAt,
+}) {
+  return ForumPostRevision(
+    id: id,
+    createdAt: createdAt ?? DateTime(2026, 1, 3),
+    user: author(username: username),
+  );
+}
+
+/// Build a [ForumPostRevisionDetail] fixture (one revision's body).
+ForumPostRevisionDetail revisionDetail({
+  int id = 1,
+  String username = 'alice',
+  List<ForumBodyBlock> body = const [ParagraphBlock('Older wording')],
+}) {
+  return ForumPostRevisionDetail(
+    id: id,
+    createdAt: DateTime(2026, 1, 3),
+    user: author(username: username),
+    body: body,
+  );
 }
 
 /// Build a [ForumConversation] fixture with [otherUsername] on the far side.
@@ -559,6 +728,10 @@ ForumPost post({
   List<String> reacted = const [],
   bool canEdit = false,
   bool canDelete = false,
+  bool canReport = false,
+  bool isBlocked = false,
+  bool canBlock = false,
+  DateTime? editedAt,
 }) {
   return ForumPost(
     id: id,
@@ -566,13 +739,16 @@ ForumPost post({
     author: authorOverride ?? author(),
     body: body,
     createdAt: DateTime(2026, 1, 1),
+    editedAt: editedAt,
     isOpeningPost: id == 1,
     isPending: isPending,
     reactionCounts: reactionCounts,
     reacted: reacted,
     canEdit: canEdit,
     canDelete: canDelete,
-    canReport: false,
+    canReport: canReport,
+    isBlocked: isBlocked,
+    canBlock: canBlock,
   );
 }
 
@@ -600,7 +776,13 @@ ForumTopicListItem topic({
 }
 
 /// Build a [ForumTopicDetail] fixture.
-ForumTopicDetail topicDetail({int id = 10, String title = 'Sample topic'}) {
+ForumTopicDetail topicDetail({
+  int id = 10,
+  String title = 'Sample topic',
+  bool isBookmarked = false,
+  int? solvedPostId,
+  bool canMarkSolution = false,
+}) {
   return ForumTopicDetail(
     id: id,
     title: title,
@@ -617,6 +799,9 @@ ForumTopicDetail topicDetail({int id = 10, String title = 'Sample topic'}) {
     lastPostAuthor: author(),
     openingPostId: 1,
     isSubscribed: false,
+    isBookmarked: isBookmarked,
+    solvedPostId: solvedPostId,
+    canMarkSolution: canMarkSolution,
   );
 }
 
@@ -719,6 +904,8 @@ ForumProfile profile({
   DateTime? joinedAt,
   List<Map<String, dynamic>> recentTopics = const [],
   List<Map<String, dynamic>> recentPosts = const [],
+  bool isBlocked = false,
+  bool canBlock = false,
 }) {
   return ForumProfile.fromJson({
     'username': username,
@@ -732,6 +919,8 @@ ForumProfile profile({
     'joined_at': joinedAt?.toIso8601String(),
     'recent_topics': recentTopics,
     'recent_posts': recentPosts,
+    'is_blocked': isBlocked,
+    'can_block': canBlock,
   });
 }
 

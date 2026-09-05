@@ -9,6 +9,7 @@ export 'forum_conversation.dart';
 export 'forum_direct_message.dart';
 export 'forum_notification.dart';
 export 'forum_post.dart';
+export 'forum_post_revision.dart';
 export 'forum_profile.dart';
 export 'forum_search.dart';
 export 'forum_sync.dart';

@@ -142,3 +142,14 @@ Compact checklist auto-injected before edits. Long-form:
   place, call them only `if (ref.exists(provider))`, and keep invalidation
   for cheap single-value providers like a badge count (todo 339 review;
   `TopicPosts.applyEditedPost` is the precedent).
+- **Derive shared state from its owner, never mirror it per row.** The
+  accepted answer lives on the topic (`solved_post_id`); a per-post
+  `is_solution` does not exist server-side, so the chip is computed from the
+  topic and one write updates every row. A cross-screen change that a paged
+  feed must reflect (block a member on the profile → collapse their posts
+  in a mounted thread) goes through a small keepAlive change notifier that
+  the feed listens to and splices — not an invalidate (todo 341 waves 1+2).
+- **Load an "expected 403" sheet imperatively, not through a FutureProvider**
+  — a provider retries a failed future on its own schedule, and a
+  moderator-only 403 is a state to render, not an error to retry (edit
+  history, todo 341).
