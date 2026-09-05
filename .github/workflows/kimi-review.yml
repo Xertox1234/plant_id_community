@@ -21,6 +21,12 @@ concurrency:
   group: kimi-review-${{ github.event.pull_request.number }}
   cancel-in-progress: true
 
+# Least-privilege GITHUB_TOKEN. An explicit top-level block REPLACES the repo
+# default (`default_workflow_permissions: read`) rather than narrowing it, so
+# every scope any job here needs must be listed. See docs/rules/security.md.
+permissions:
+  contents: read
+
 jobs:
   kimi-review:
     runs-on: ubuntu-latest
