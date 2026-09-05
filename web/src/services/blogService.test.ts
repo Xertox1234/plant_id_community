@@ -266,27 +266,36 @@ describe('blogService', () => {
   // ============================================================================
 
   describe('fetchBlogPost', () => {
-    it('should fetch a single blog post by slug', async () => {
+    // The list route serves the light serializer (no body fields, todo 306),
+    // so the slug lookup is only used to find the id; the DETAIL route is
+    // what the page renders from (todo 352 — live-probed, see blogService.ts).
+    const listingHit = { id: mockBlogPost.id, slug: 'test-post', title: 'Test Blog Post' };
+
+    it('should resolve the slug via the listing, then fetch the id-addressed detail', async () => {
       // Arrange
-      vi.mocked(apiClient.get).mockResolvedValueOnce({
-        data: {
-          items: [mockBlogPost],
-          meta: { total_count: 1 },
-        },
-      });
+      vi.mocked(apiClient.get)
+        .mockResolvedValueOnce({
+          data: { items: [listingHit], meta: { total_count: 1 } },
+        })
+        .mockResolvedValueOnce({ data: mockBlogPost });
 
       // Act
       const result = await fetchBlogPost('test-post');
 
-      // Assert
+      // Assert — the DETAIL payload is returned, not the listing row.
       expect(result).toEqual(mockBlogPost);
-      const callUrl = vi.mocked(apiClient.get).mock.calls[0][0];
-      expect(callUrl).toContain('slug=test-post');
-      expect(callUrl).toContain('type=blog.BlogPostPage');
-      expect(callUrl).toContain('fields=*');
+      expect(apiClient.get).toHaveBeenCalledTimes(2);
+      const listingUrl = vi.mocked(apiClient.get).mock.calls[0][0];
+      expect(listingUrl).toContain('/api/v2/blog-posts/?');
+      expect(listingUrl).toContain('slug=test-post');
+      expect(listingUrl).toContain('type=blog.BlogPostPage');
+      expect(listingUrl).toContain('limit=1');
+      expect(vi.mocked(apiClient.get).mock.calls[1][0]).toBe(
+        `/api/v2/blog-posts/${mockBlogPost.id}/?fields=*`
+      );
     });
 
-    it('should throw error when blog post is not found', async () => {
+    it('should throw error when blog post is not found (and never hit the detail route)', async () => {
       // Arrange
       vi.mocked(apiClient.get).mockResolvedValueOnce({
         data: {
@@ -297,6 +306,17 @@ describe('blogService', () => {
 
       // Act & Assert
       await expect(fetchBlogPost('non-existent')).rejects.toThrow('Blog post not found');
+      expect(apiClient.get).toHaveBeenCalledTimes(1);
+    });
+
+    it('should propagate a detail-route failure', async () => {
+      vi.mocked(apiClient.get)
+        .mockResolvedValueOnce({
+          data: { items: [listingHit], meta: { total_count: 1 } },
+        })
+        .mockRejectedValueOnce(new Error('Detail unavailable'));
+
+      await expect(fetchBlogPost('test-post')).rejects.toThrow('Detail unavailable');
     });
 
     it('should handle API errors', async () => {

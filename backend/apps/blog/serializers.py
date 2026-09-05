@@ -177,14 +177,31 @@ class BlogCommentSerializer(serializers.ModelSerializer):
             "created_at",
             "updated_at",
         ]
-        read_only_fields = ["author", "is_approved", "created_at", "updated_at"]
+        # `post` is read-only since todo 352: the view binds the post from the
+        # URL, so a client can no longer target another post through the body.
+        # `post` and `parent` are read-only since todo 352: the view binds the
+        # post from the URL and resolves `parent` scoped to what the caller can
+        # see on that post, so the body can target neither another post nor an
+        # arbitrary comment id.
+        read_only_fields = [
+            "post",
+            "parent",
+            "author",
+            "is_approved",
+            "created_at",
+            "updated_at",
+        ]
 
     def get_replies(self, obj):
-        """Get approved replies to this comment."""
+        """Replies to this comment — approved ones, plus the caller's own
+        pending ones when the view prefetched `visible_replies` (todo 352).
+        Thread depth is ONE level: a reply never nests replies."""
         if obj.is_reply:  # Don't nest replies of replies
             return []
 
-        replies = obj.get_replies()
+        replies = getattr(obj, "visible_replies", None)
+        if replies is None:
+            replies = obj.get_replies()
         return BlogCommentSerializer(replies, many=True, context=self.context).data
 
 

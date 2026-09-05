@@ -137,3 +137,12 @@ Compact checklist auto-injected before edits. Long-form: `backend/docs/patterns/
   iframe that with `sandbox` and fall back to thumbnail + link. The provider
   allowlist is the host's `WAGTAILEMBEDS_FINDERS` — keep it short, and gate
   the block behind a package setting that defaults OFF (todo 344).
+- **"Wire up the UI" for a dormant endpoint starts with an audit of EVERY
+  write path to that model, not just the one the UI will call.** The blog
+  comment API had a `ModelViewSet` whose generic `POST /comments/` (and
+  PUT/DELETE) bypassed `allow_comments`, spam, trust and rate limits and let
+  a body choose ANY post; `parent` accepted any comment on any post at any
+  depth. Close or gate every route (`ReadOnlyModelViewSet` + the one
+  guarded action), make view-bound FKs read-only on the serializer, and
+  validate `parent` (same object, depth cap, approved) before reusing the
+  forum's spam backend + trust level at service level only (todo 352).

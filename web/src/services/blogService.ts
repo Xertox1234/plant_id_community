@@ -8,6 +8,7 @@
  * and structured logging for distributed tracing.
  */
 
+import axios from 'axios';
 import apiClient from '../utils/httpClient';
 import { logger } from '../utils/logger';
 import type {
@@ -129,23 +130,51 @@ export async function fetchBlogPosts(
 }
 
 /**
- * Fetch a single blog post by slug.
+ * Fetch a single blog post by slug — two requests, by necessity.
+ *
+ * The v2 LIST route (`/api/v2/blog-posts/?slug=…`) serves
+ * `BlogPostPageListSerializer` since todo 306 routed `listing_view` to the
+ * light serializer, and that serializer ignores `fields=*`: the payload has
+ * no `content_blocks`, `introduction`, `related_posts` or `allow_comments`
+ * (live-probed 2026-09-05, locally and in prod — the article body was
+ * silently empty on this page). Only the DETAIL route
+ * (`/api/v2/blog-posts/<id>/`) goes through `BlogPostPageSerializer`, and
+ * Wagtail's detail route is id-addressed, so: resolve the slug to an id via
+ * the listing (one row, light), then fetch the detail. Both responses are
+ * server-cached (BlogCacheService), so the extra hop is cheap.
  */
 export async function fetchBlogPost(slug: string): Promise<BlogPost> {
   try {
     const params = new URLSearchParams({
       type: 'blog.BlogPostPage',
       slug: slug,
-      fields: '*', // Get all fields for detail view
+      limit: '1',
     });
 
-    const response = await apiClient.get(`/api/v2/blog-posts/?${params}`);
+    const listing = await apiClient.get(`/api/v2/blog-posts/?${params}`);
+    const hit = listing.data.items?.[0];
 
-    if (!response.data.items || response.data.items.length === 0) {
+    if (!hit) {
       throw new Error('Blog post not found');
     }
 
-    return response.data.items[0];
+    let detail;
+    try {
+      detail = await apiClient.get(
+        `/api/v2/blog-posts/${encodeURIComponent(String(hit.id))}/?fields=*`
+      );
+    } catch (detailError) {
+      // A listing hit that 404s on the detail hop (a stale cached listing
+      // pointing at a since-unpublished page) is still "not found" — by
+      // STATUS, so the page's NotFoundPage branch fires, not the generic
+      // error banner.
+      if (axios.isAxiosError(detailError) && detailError.response?.status === 404) {
+        throw new Error('Blog post not found', { cause: detailError });
+      }
+      throw detailError;
+    }
+
+    return detail.data;
   } catch (error) {
     logger.error('Error fetching blog post', {
       component: 'BlogService',

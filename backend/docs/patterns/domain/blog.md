@@ -513,7 +513,7 @@ WAGTAIL_AI = {
 }
 ```
 
-### Key Points
+### Key Points — PROVIDERS Configuration
 
 - ✅ **No deprecation warnings** in logs
 - ✅ **Cleaner configuration** (less nesting)
@@ -818,3 +818,24 @@ These Wagtail AI patterns ensure:
 **Status**: ✅ Production-validated (Issue #157)
 **Performance**: <100ms cached, 80-95% cost reduction
 **Official Docs**: Wagtail AI 3.0 (<https://github.com/wagtail/wagtail-ai>)
+
+## Comment protection: forum services at service level (todo 352)
+
+`apps/blog/comments.py` is the whole gate for the pre-existing
+`BlogComment` flow. Creation happens ONLY through
+`BlogPostPageViewSet.add_comment` (the generic viewset is read-only + `flag`):
+per-user rate limit (`DEFAULT_BLOG_RATELIMITS` / `BLOG_RATELIMITS`, 429 via
+`apps.core.ratelimit`), `validate_parent` (same post, top-level, approved —
+thread depth is one level), then `decide_approval` = staff → approved;
+`ForumProfile.trust_level` below `BLOG_COMMENT_AUTO_APPROVE_TRUST_LEVEL`
+(MEMBER) → held WITHOUT calling the spam backend (the outcome is fixed and
+the configured backend may be a billable LLM call); at/above it the forum
+spam backend (`get_spam_backend().check(adapter)`) decides. Held comments sit in the existing admin queue; the
+`comments` listing returns them to their author only. No forum MODEL is
+reused — `Topic`/`Post` are forum-shaped — only the services, exactly as
+the DM path does. `flag` is rate-limited and cache-deduped per user.
+`flag` is rate-limited, cache-deduped per user, and at
+`COMMENT_AUTO_FLAG_THRESHOLD` distinct flags the comment is hidden into the
+same pending queue. Listings prefetch replies under the caller's visibility
+(`visible_replies`) and `is_reply` reads `parent_id` — a per-row parent or
+reply query is the regression the query pins guard.

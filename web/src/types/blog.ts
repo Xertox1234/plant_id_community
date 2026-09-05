@@ -261,6 +261,52 @@ export interface BlogPost {
   related_posts?: RelatedPostSummary[];
   reading_time?: number | null;
   view_count?: number;
+  /**
+   * Reader comments (todo 352). Both come from the v2 DETAIL serializer
+   * (`BlogPostPageSerializer`); the LIST serializer sends `comment_count`
+   * only, so `allow_comments` is absent on list/popular payloads. Missing
+   * = unknown, not closed — `BlogCommentSection` then lets the comments
+   * endpoint's own 403 decide.
+   */
+  allow_comments?: boolean;
+  /** Approved comments incl. replies; the server sends 0 when comments are closed. */
+  comment_count?: number;
+}
+
+/**
+ * Blog comment author — `apps/blog/serializers.py` `UserSerializer`
+ * (id/username/first_name/last_name/display_name/avatar_url).
+ */
+export interface BlogCommentAuthor {
+  id?: number;
+  username?: string;
+  first_name?: string;
+  last_name?: string;
+  /** Server-computed: get_full_name() or username. Preferred display string. */
+  display_name?: string;
+  avatar_url?: string | null;
+}
+
+/**
+ * Blog comment — DRF v1 `BlogCommentSerializer` (todo 352).
+ *
+ * `content` is PLAIN TEXT (a TextField; never HTML — render it as text).
+ * Thread depth is ONE level: a top-level comment carries its `replies`, a
+ * reply has `parent` set and `replies: []`. `is_approved: false` means
+ * "awaiting moderation" — the API returns such comments only to their
+ * author (approved ones plus the caller's own pending ones).
+ */
+export interface BlogComment {
+  id: number;
+  post: number;
+  author: BlogCommentAuthor;
+  content: string;
+  parent: number | null;
+  is_approved: boolean;
+  is_reply: boolean;
+  replies: BlogComment[];
+  created_at: string;
+  updated_at: string;
 }
 
 /**
