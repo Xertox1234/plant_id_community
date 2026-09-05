@@ -93,6 +93,12 @@ Review only the files passed to you. Do not read the full repo.
   consistent fallback icon, and `excludeSemantics` when a composed label
   already describes the children.
 
+### Post quote additions (2026-09-05, todo 342)
+
+- [ ] **A body renderer that navigates knows its own screen** — a deep link to the current topic must be suppressed (`currentTopicId` threaded down), or `pushNamed` stacks a duplicate `ForumThreadScreen`
+- [ ] **Every parsed model field is asserted directly** — a notification fixture carrying `quoted_post_id: 12` that no test reads back leaves the JSON key mutable; require a fromJson round-trip + `asRead()` preservation test
+- [ ] **"Gone" copy only on `available == false`** — a defensive null author/topic on an available block renders neutral attribution, never the unavailable notice; nested author surfaces read `is_blocked` / `is_muted` and reuse the post collapse-with-reveal
+
 ## Output Format (Review Mode)
 
 Return ONLY this JSON structure (no surrounding prose, no markdown fences in the actual response — the example fences below show the schema):

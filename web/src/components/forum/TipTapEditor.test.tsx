@@ -632,4 +632,21 @@ describe('TipTapEditor', () => {
     expect(screen.queryByTitle(/not available for this account/i)).not.toBeInTheDocument();
     expect(forumService.isComposeAssistUnavailable()).toBe(false);
   });
+
+  it('keeps a quoted post id on a blockquote through its schema (todo 342)', async () => {
+    // Pins the editor's OWN configuration (ForumBlockquoteAttrs registered):
+    // the attribute reaches the live ProseMirror DOM, so getHTML() on save
+    // carries it back to forumBody's post_quote branch. Without the
+    // extension the schema drops it and every quote degrades to `quote`.
+    const { container } = render(
+      <TipTapEditor
+        content='<blockquote data-post-id="7"><p>quoted</p></blockquote><p></p>'
+        onChange={vi.fn()}
+        editable
+      />
+    );
+    await waitFor(() => expect(container.querySelector('.ProseMirror')).toBeInTheDocument());
+
+    expect(container.querySelector('.ProseMirror blockquote[data-post-id="7"]')).not.toBeNull();
+  });
 });

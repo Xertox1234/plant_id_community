@@ -259,3 +259,10 @@ Compact checklist auto-injected before edits. Long-form:
   event time.** And a control you disable while submitting cannot take
   focus in the same tick: request focus with a state bump and focus in an
   effect once React has re-enabled it (todo 339, `ConversationPage`).
+- **A block that references another object is plain data at the client too:** render
+  its `text` as React text (never `SafeHTML`), round-trip its id through a TipTap
+  global attribute (`addGlobalAttributes` on the existing node, `parseHTML` → null
+  when absent so legacy nodes never gain an empty attribute), and insert it by
+  remounting the composer with `autoFocus` — TipTap `content` is init-only. A
+  nested attribution must read the viewer's `is_blocked` / `is_muted` and collapse
+  like the parent card, never hide (todo 342).

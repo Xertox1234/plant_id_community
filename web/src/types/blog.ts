@@ -2,6 +2,8 @@
  * Blog & Wagtail CMS Types
  */
 
+import type { ForumAuthor } from './forum';
+
 export type StreamFieldBlockId = string | number;
 
 interface BaseStreamFieldBlock {
@@ -134,12 +136,40 @@ export interface EmbedBlock extends BaseStreamFieldBlock {
 }
 
 /**
+ * A quote OF A SPECIFIC FORUM POST (todo 342) — the READ envelope of a
+ * `post_quote` block (backend `serialize_post_quote`). `text` is PLAIN TEXT
+ * by the same contract as the legacy `quote` block: the server leaves it
+ * unsanitized, so it must be rendered as text (React escapes), never as HTML.
+ * `available: false` — with `author` and `topic_id` null — means the quoted
+ * post has since been unpublished, hidden or deleted; the text still renders.
+ * `is_blocked` / `is_muted` are the VIEWER's collapse signals for the quoted
+ * author (the same `PostSerializer.is_blocked` / `is_muted` contract, todo
+ * 284/347): both false for anonymous viewers, and independent of `available`.
+ * The WRITE shape is `ForumBodyWriteBlock` in `utils/forumBody.ts`.
+ */
+export interface PostQuoteBlockValue {
+  text: string;
+  post_id: number;
+  available: boolean;
+  topic_id: number | null;
+  author: ForumAuthor | null;
+  is_blocked: boolean;
+  is_muted: boolean;
+}
+
+export interface PostQuoteBlock extends BaseStreamFieldBlock {
+  type: 'post_quote';
+  value: PostQuoteBlockValue;
+}
+
+/**
  * StreamField block types
  */
 export type StreamFieldBlock =
   | ParagraphBlock
   | HeadingBlock
   | QuoteBlock
+  | PostQuoteBlock
   | CodeBlock
   | ImageBlock
   | EmbedBlock

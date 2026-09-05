@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:plant_community_mobile/features/forum/models/models.dart';
 import 'package:plant_community_mobile/features/forum/widgets/post_card.dart';
 
 import '../support/forum_test_support.dart';
@@ -34,6 +35,32 @@ void main() {
     ) async {
       await pump(tester, PostCard(post: post()));
       expect(find.byTooltip('Quote'), findsNothing);
+    });
+  });
+
+  group('PostCard post_quote in the current topic (todo 342)', () {
+    final body = [
+      PostQuoteBlock(
+        text: 'Water it less.',
+        postId: 1,
+        available: true,
+        topicId: 10,
+        author: author(username: 'bob', displayName: 'Bob B'),
+      ),
+    ];
+
+    testWidgets('currentTopicId reaches the body: a same-topic quote has no '
+        '"in topic" link, a foreign one keeps it', (tester) async {
+      await pump(tester, PostCard(post: post(id: 2, body: body)));
+      expect(find.text('in topic'), findsOneWidget);
+
+      await pump(
+        tester,
+        PostCard(post: post(id: 2, body: body), currentTopicId: 10),
+      );
+      expect(find.text('Water it less.'), findsOneWidget);
+      expect(find.text('Bob B'), findsOneWidget);
+      expect(find.text('in topic'), findsNothing);
     });
   });
 }

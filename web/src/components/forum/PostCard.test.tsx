@@ -4,13 +4,14 @@ import userEvent from '@testing-library/user-event';
 import { BrowserRouter } from 'react-router-dom';
 import PostCard from './PostCard';
 import { createMockPost } from '../../tests/forumUtils';
+import type { Post } from '@/types';
 
 /**
  * Helper to render PostCard with Router context.
  * Passes onEdit/onDelete/onReact by default so display tests stay unaffected
  * by the handler-presence guards.
  */
-function renderPostCard(post, onEdit = vi.fn(), onDelete = vi.fn(), onReact = vi.fn()) {
+function renderPostCard(post: Post, onEdit = vi.fn(), onDelete = vi.fn(), onReact = vi.fn()) {
   return render(
     <BrowserRouter>
       <PostCard post={post} onEdit={onEdit} onDelete={onDelete} onReact={onReact} />
@@ -907,5 +908,45 @@ describe('PostCard', () => {
     fireEvent.click(button);
 
     expect(onToggleSolution).toHaveBeenCalledTimes(1);
+  });
+
+  describe('quote action (todo 342)', () => {
+    it('shows the Quote control only when an onQuote handler is provided', () => {
+      const post = createMockPost();
+      const { unmount } = render(
+        <BrowserRouter>
+          <PostCard post={post} onQuote={vi.fn()} />
+        </BrowserRouter>
+      );
+      expect(screen.getByTitle('Quote post')).toBeInTheDocument();
+      // Visible text gives it its accessible name — reachable by name, not
+      // just by title.
+      expect(screen.getByRole('button', { name: 'Quote' })).toBeInTheDocument();
+      unmount();
+
+      // No handler (logged out, locked thread): no control, and no empty
+      // action row either.
+      render(
+        <BrowserRouter>
+          <PostCard post={post} />
+        </BrowserRouter>
+      );
+      expect(screen.queryByTitle('Quote post')).not.toBeInTheDocument();
+    });
+
+    it('calls onQuote with the post', async () => {
+      const onQuote = vi.fn();
+      const post = createMockPost({ id: '9' });
+      render(
+        <BrowserRouter>
+          <PostCard post={post} onQuote={onQuote} />
+        </BrowserRouter>
+      );
+
+      await userEvent.click(screen.getByTitle('Quote post'));
+
+      expect(onQuote).toHaveBeenCalledTimes(1);
+      expect(onQuote).toHaveBeenCalledWith(post);
+    });
   });
 });

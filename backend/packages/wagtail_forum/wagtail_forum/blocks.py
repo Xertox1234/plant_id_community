@@ -11,6 +11,22 @@ class CodeBlock(blocks.StructBlock):
         icon = "code"
 
 
+class PostQuoteBlock(blocks.StructBlock):
+    """A quote OF A SPECIFIC POST (todo 342): the quoted post's id plus the
+    quoted text. `text` is plain text by the same contract as `quote`
+    (consumers escape at render time); `post` is validated on write
+    (visible topic, author not block-paired with the writer, capped per
+    body — api/sanitize.py) and resolved on read into a safe attribution
+    envelope (api/serializers.py serialize_forum_body). The legacy `quote`
+    block stays for free-form quotes."""
+
+    post = blocks.IntegerBlock(min_value=1)
+    text = blocks.TextBlock()
+
+    class Meta:
+        icon = "openquote"
+
+
 class ForumBodyBlock(blocks.StreamBlock):
     """The only blocks a forum post may contain. No raw HTML."""
 
@@ -24,6 +40,7 @@ class ForumBodyBlock(blocks.StreamBlock):
         features=["bold", "italic", "link", "ol", "ul", "code"]
     )
     quote = blocks.BlockQuoteBlock()
+    post_quote = PostQuoteBlock()
     code = CodeBlock()
     image = ImageChooserBlock()
     # Video/oEmbed (todo 344). Declared unconditionally — a StreamField's

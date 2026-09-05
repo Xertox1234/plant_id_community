@@ -180,6 +180,12 @@ Use Grep as fallback for any LSP call that returns an error or an empty/inconclu
   connection, and that tests account for its commits escaping the test
   transaction.
 
+### Post quote additions (2026-09-05, todo 342)
+
+- [ ] **An edit resends the whole body — write-time reference checks must exempt what the stored body already carries.** Any validator that resolves a referenced object (image uploader → `existing_author_id`, quoted post → `existing_quote_ids`) must be given the stored body's existing references by the edit call site, or a referent that later went away (unpublished, restricted, author blocked the editor) locks the author — and a moderator — out of saving anything else. Check the edit serializer's context, not just the create path; require a PATCH test with a pre-existing reference whose target is gone
+- [ ] **Every new surface that renders an author lands in the block/mute signal path.** A nested attribution (quote envelope, DM preview, badge holder) needs the viewer's `is_blocked` / `is_muted` like `PostSerializer` (COLLAPSE, not HIDE — never drop the attribution, `available` must stay truthful); anonymous viewers and moderators get constant `False`
+- [ ] **`plain_text_excerpt` (search / recent topics) handles every block kind that carries text** — a new dict-valued block (`post_quote.text`) silently falls through to `continue` and yields an empty excerpt for a post made only of that block
+
 ## Output Format (Review Mode)
 
 Return ONLY this JSON structure (no surrounding prose, no markdown fences in the actual response — the example fences below show the schema):

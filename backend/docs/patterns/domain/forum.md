@@ -981,3 +981,35 @@ send. Opt-in lives on `ForumProfile.digest_frequency` (`me/profile/`);
 `DIGEST_DEFAULT_FREQUENCY` seeds NEW profiles only. The host schedules it
 (`CELERY_BEAT_SCHEDULE` → `send_forum_weekly_digest` → `call_command`) with
 beat embedded in the co-located worker.
+
+### Structured post quotes (todo 342)
+
+`post_quote = {post: <id>, text}` sits beside the legacy `quote` block.
+`api/sanitize.py` validates it (`quotes.resolve_quotable_posts`: live post on
+a live visible board, author not block-paired with the writer, ≤
+`QUOTES_MAX_PER_POST` distinct posts, text ≤ `QUOTE_MAX_CHARS`) and rejects
+with one generic message. `serialize_forum_body` renders it through
+`build_forum_quote_map` (one query per page) as
+`{text, post_id, available, topic_id, author}`. The host's fan-out
+(`_quoted_authors_for` in `apps/forum_host/notifications.py`) turns each
+quoted author into a QUOTE notification (`quoted_post` set) instead of a
+REPLY — mention wins over quote for the same person, blocked pairs and
+self-quotes are dropped — with push event `"quote"` and no email arm.
+
+Three review-caught rules (todo 342):
+
+- **An edit resends the whole body**, so write-time reference checks must
+  exempt what the stored body already carries: the edit call site passes
+  `existing_quote_ids` (the image path's `existing_author_id` precedent,
+  audit L21). Otherwise a quoted post that was later unpublished — or whose
+  author later blocked the editor — locks the author out of saving ANY
+  other change. Newly added quotes still resolve; caps and shape apply to all.
+- **A quote is one more surface rendering an author.** The envelope carries
+  `is_blocked` / `is_muted` for the viewer (two bounded queries per page,
+  only for filtered viewers), mirroring `PostSerializer`; clients collapse,
+  never hide, because `available` must stay truthful.
+- **`text` is the QUOTER's excerpt**, not verified content: renderers show
+  it as "quoted by the post's author", attributed to the quoted member, and
+  must never present it as that member's verbatim words. Fan-out fires only
+  at create time (reply_added / topic_created): a quote or mention added by
+  a later edit notifies nobody — the same pre-existing limit mentions have.

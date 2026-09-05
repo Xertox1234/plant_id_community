@@ -21,6 +21,7 @@ def create_notifications(
     actor: Optional[AbstractBaseUser] = None,
     topic: Optional[Topic] = None,
     post: Optional[Post] = None,
+    quoted_post: Optional[Post] = None,
 ) -> list[Notification]:
     """Create one Notification per recipient, idempotently.
 
@@ -41,7 +42,12 @@ def create_notifications(
     """
     to_create = [
         Notification(
-            recipient=recipient, actor=actor, verb=verb, topic=topic, post=post
+            recipient=recipient,
+            actor=actor,
+            verb=verb,
+            topic=topic,
+            post=post,
+            quoted_post=quoted_post,
         )
         for recipient in recipients
         if recipient is not None and (actor is None or recipient.pk != actor.pk)

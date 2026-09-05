@@ -94,6 +94,109 @@ void main() {
       expect(parseForumBody('nope'), isEmpty);
       expect(parseForumBody([42, 'x']), isEmpty);
     });
+
+    test('post_quote: the read envelope, available and gone (todo 342)', () {
+      final blocks = parseForumBody([
+        {
+          'type': 'post_quote',
+          'value': {
+            'text': 'Water it less.',
+            'post_id': 42,
+            'available': true,
+            'topic_id': 7,
+            'author': {
+              'username': 'bob',
+              'display_name': 'Bob B',
+              'avatar': null,
+              'trust_level': 2,
+            },
+          },
+        },
+        {
+          'type': 'post_quote',
+          'value': {
+            'text': 'Gone now',
+            'post_id': 43,
+            'available': false,
+            'topic_id': null,
+            'author': null,
+          },
+        },
+        {'type': 'post_quote', 'value': null},
+      ]);
+
+      final live = blocks[0] as PostQuoteBlock;
+      expect(live.text, 'Water it less.');
+      expect(live.postId, 42);
+      expect(live.available, isTrue);
+      expect(live.topicId, 7);
+      expect(live.author?.name, 'Bob B');
+      expect(live.author?.trustLevel, 2);
+
+      final gone = blocks[1] as PostQuoteBlock;
+      expect(gone.text, 'Gone now');
+      expect(gone.postId, 43);
+      expect(gone.available, isFalse);
+      expect(gone.topicId, isNull);
+      expect(gone.author, isNull);
+
+      // A malformed envelope is a quote with nothing in it, never a crash.
+      final blank = blocks[2] as PostQuoteBlock;
+      expect(blank.text, '');
+      expect(blank.postId, isNull);
+      expect(blank.available, isFalse);
+    });
+
+    test('post_quote: is_blocked / is_muted parse, and default to false when '
+        'absent (older envelopes, anonymous viewers)', () {
+      final blocks = parseForumBody([
+        {
+          'type': 'post_quote',
+          'value': {
+            'text': 'x',
+            'post_id': 1,
+            'available': true,
+            'is_blocked': true,
+            'is_muted': true,
+          },
+        },
+        {
+          'type': 'post_quote',
+          'value': {'text': 'y', 'post_id': 2, 'available': true},
+        },
+        {
+          'type': 'post_quote',
+          'value': {
+            'text': 'z',
+            'post_id': 3,
+            'available': true,
+            'is_blocked': null,
+            'is_muted': false,
+          },
+        },
+      ]);
+
+      final both = blocks[0] as PostQuoteBlock;
+      expect(both.isBlocked, isTrue);
+      expect(both.isMuted, isTrue);
+
+      final absent = blocks[1] as PostQuoteBlock;
+      expect(absent.isBlocked, isFalse);
+      expect(absent.isMuted, isFalse);
+
+      final nulled = blocks[2] as PostQuoteBlock;
+      expect(nulled.isBlocked, isFalse);
+      expect(nulled.isMuted, isFalse);
+    });
+  });
+
+  group('buildPostQuoteBlockBody (todo 342)', () {
+    test('emits the write shape: the quoted id and verbatim plain text', () {
+      expect(buildPostQuoteBlockBody(42, '  <b>raw</b> & "quoted"  '), {
+        'type': 'post_quote',
+        'value': {'post': 42, 'text': '<b>raw</b> & "quoted"'},
+      });
+    });
   });
 
   group('buildParagraphBody', () {

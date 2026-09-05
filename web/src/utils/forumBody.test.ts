@@ -1,8 +1,15 @@
 import { describe, it, expect } from 'vitest';
 import { Editor } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
-import { htmlToBodyBlocks, bodyBlocksToHtml } from './forumBody';
+import {
+  htmlToBodyBlocks,
+  bodyBlocksToHtml,
+  postQuoteHtml,
+  postQuoteText,
+  QUOTE_TEXT_MAX_CHARS,
+} from './forumBody';
 import { ForumImage } from '../components/forum/forumImageNode';
+import { ForumBlockquoteAttrs } from '../components/forum/forumBlockquoteAttrs';
 import type { StreamFieldBlock } from '@/types/blog';
 
 describe('forumBody serialization', () => {
@@ -252,5 +259,195 @@ describe('forumBody embed blocks (todo 344)', () => {
     expect(htmlToBodyBlocks(html)).toEqual([
       { type: 'embed', value: 'https://youtu.be/dQw4w9WgXcQ' },
     ]);
+  });
+});
+
+describe('forumBody post_quote blocks (todo 342)', () => {
+  const ada = { username: 'ada', display_name: 'Ada', avatar: null, trust_level: 1 };
+
+  it('turns a top-level blockquote carrying data-post-id into a post_quote block', () => {
+    expect(
+      htmlToBodyBlocks('<p>re:</p><blockquote data-post-id="5"><p>one</p><p>two</p></blockquote>')
+    ).toEqual([
+      { type: 'paragraph', value: '<p>re:</p>' },
+      { type: 'post_quote', value: { post: 5, text: 'one\n\ntwo' } },
+    ]);
+  });
+
+  it('keeps a blockquote without a usable post id as a legacy quote', () => {
+    // No attribute, a non-numeric one, zero and a negative all fall back to
+    // `quote`: a post_quote the server is certain to 400 would block the
+    // whole reply for a malformed attribute nobody typed on purpose.
+    for (const attr of ['', ' data-post-id="abc"', ' data-post-id="0"', ' data-post-id="-3"']) {
+      expect(htmlToBodyBlocks(`<blockquote${attr}><p>q</p></blockquote>`)).toEqual([
+        { type: 'quote', value: 'q' },
+      ]);
+    }
+  });
+
+  it('writes an available post_quote back with its post id and ESCAPED text', () => {
+    const html = bodyBlocksToHtml([
+      {
+        type: 'post_quote',
+        value: {
+          text: '<script>alert(1)</script>\n\nsecond',
+          post_id: 5,
+          available: true,
+          topic_id: 12,
+          author: ada,
+          is_blocked: false,
+          is_muted: false,
+        },
+      },
+    ]);
+    expect(html).toBe(
+      '<blockquote data-post-id="5"><p>&lt;script&gt;alert(1)&lt;/script&gt;</p><p>second</p></blockquote>'
+    );
+    // ...and re-parsing yields the WRITE shape with the original plain text.
+    expect(htmlToBodyBlocks(html)).toEqual([
+      { type: 'post_quote', value: { post: 5, text: '<script>alert(1)</script>\n\nsecond' } },
+    ]);
+  });
+
+  it('keeps the post id of a quote whose post is no longer available on re-edit', () => {
+    // The server exempts ids the stored body already carries from the
+    // availability re-check on edit (existing_quote_ids), so the quote keeps
+    // its id and attribution instead of silently degrading to a plain quote.
+    const html = bodyBlocksToHtml([
+      {
+        type: 'post_quote',
+        value: {
+          text: 'gone',
+          post_id: 5,
+          available: false,
+          topic_id: null,
+          author: null,
+          is_blocked: false,
+          is_muted: false,
+        },
+      },
+    ]);
+    expect(html).toBe('<blockquote data-post-id="5"><p>gone</p></blockquote>');
+    expect(htmlToBodyBlocks(html)).toEqual([
+      { type: 'post_quote', value: { post: 5, text: 'gone' } },
+    ]);
+  });
+
+  it('writes a single newline (a list-sourced quote) as <br> and reads it back as "\\n"', () => {
+    // postQuoteText joins list items with one "\n". A bare newline inside a
+    // <p> is collapsed to a space by ProseMirror, so it must travel as <br>,
+    // and the <br> must come back as "\n" — never as a tag in `text`.
+    const html = postQuoteHtml(7, 'one\ntwo\n\nthree');
+    expect(html).toBe('<blockquote data-post-id="7"><p>one<br>two</p><p>three</p></blockquote>');
+    expect(htmlToBodyBlocks(html)).toEqual([
+      { type: 'post_quote', value: { post: 7, text: 'one\ntwo\n\nthree' } },
+    ]);
+    // A <br> with whitespace around it (a hand-edited body) trims per line.
+    expect(htmlToBodyBlocks('<blockquote><p>a <br> b</p></blockquote>')).toEqual([
+      { type: 'quote', value: 'a\nb' },
+    ]);
+  });
+
+  it('postQuoteHtml builds exactly the composer form htmlToBodyBlocks reads back', () => {
+    const html = postQuoteHtml(7, 'a < b\n\nc & d');
+    expect(html).toBe('<blockquote data-post-id="7"><p>a &lt; b</p><p>c &amp; d</p></blockquote>');
+    expect(htmlToBodyBlocks(html)).toEqual([
+      { type: 'post_quote', value: { post: 7, text: 'a < b\n\nc & d' } },
+    ]);
+  });
+
+  it('round-trips through a REAL TipTap editor only WITH the blockquote attribute extension', () => {
+    const content = '<p>a</p><blockquote data-post-id="5"><p>q</p></blockquote><p>b</p>';
+    // The composer's own configuration (StarterKit's blockquote plus
+    // ForumBlockquoteAttrs): the id survives ProseMirror's parse/serialize.
+    const editor = new Editor({
+      extensions: [StarterKit, ForumImage, ForumBlockquoteAttrs],
+      content,
+    });
+    try {
+      expect(htmlToBodyBlocks(editor.getHTML())).toEqual([
+        { type: 'paragraph', value: '<p>a</p>' },
+        { type: 'post_quote', value: { post: 5, text: 'q' } },
+        { type: 'paragraph', value: '<p>b</p>' },
+      ]);
+    } finally {
+      editor.destroy();
+    }
+    // Control: without it the schema drops the unknown attribute and the
+    // quote silently degrades — the exact failure the extension exists for.
+    const bare = new Editor({ extensions: [StarterKit, ForumImage], content });
+    try {
+      expect(htmlToBodyBlocks(bare.getHTML())).toContainEqual({ type: 'quote', value: 'q' });
+    } finally {
+      bare.destroy();
+    }
+  });
+
+  it('keeps the line breaks of a list-sourced quote through a REAL TipTap editor', () => {
+    // The seam the unit test cannot cover: ProseMirror collapses a bare "\n"
+    // inside a paragraph to a space, so list items would run together
+    // ("one two"). Written as <br> (StarterKit's HardBreak) each item keeps
+    // its own line, and the text reads back with "\n" between items.
+    const editor = new Editor({
+      extensions: [StarterKit, ForumImage, ForumBlockquoteAttrs],
+      content: postQuoteHtml(5, 'one\ntwo\n\nthree'),
+    });
+    try {
+      expect(editor.getHTML()).toContain('<br>');
+      expect(htmlToBodyBlocks(editor.getHTML())).toEqual([
+        { type: 'post_quote', value: { post: 5, text: 'one\ntwo\n\nthree' } },
+      ]);
+    } finally {
+      editor.destroy();
+    }
+  });
+});
+
+describe('postQuoteText (todo 342)', () => {
+  it('keeps a hard line break inside a source paragraph as "\\n" (never merges the words)', () => {
+    const body = [
+      { type: 'paragraph', value: '<p>water  it<br>weekly</p>', id: 'p1' },
+    ] as unknown as StreamFieldBlock[];
+    expect(postQuoteText(body)).toBe('water it\nweekly');
+  });
+
+  it('lifts paragraphs, list items and legacy quotes out as blank-line separated plain text', () => {
+    const body: StreamFieldBlock[] = [
+      {
+        type: 'paragraph',
+        value:
+          '<p>Hello <strong>there</strong>, <span class="mention" data-mention="ada">@ada</span></p><ul><li>one</li><li>two</li></ul>',
+      },
+      { type: 'image', value: { id: 1, url: 'https://cdn/x.jpg' } },
+      { type: 'quote', value: 'an earlier quote' },
+      // A quote of someone else's post is NOT re-quoted: it would put a third
+      // person's words under this author's name.
+      {
+        type: 'post_quote',
+        value: {
+          text: 'nested',
+          post_id: 3,
+          available: true,
+          topic_id: 1,
+          author: null,
+          is_blocked: false,
+          is_muted: false,
+        },
+      },
+      { type: 'paragraph', value: '<p>bye</p>' },
+    ];
+    expect(postQuoteText(body)).toBe('Hello there, @ada\n\none\ntwo\n\nan earlier quote\n\nbye');
+  });
+
+  it('returns "" for a body with no text, and cuts long text at the cap with an ellipsis', () => {
+    expect(postQuoteText([{ type: 'image', value: { id: 1, url: 'https://cdn/x.jpg' } }])).toBe('');
+    expect(postQuoteText(undefined)).toBe('');
+    const long = 'x'.repeat(QUOTE_TEXT_MAX_CHARS + 100);
+    const cut = postQuoteText([{ type: 'paragraph', value: `<p>${long}</p>` }]);
+    expect(cut).toHaveLength(QUOTE_TEXT_MAX_CHARS + 1);
+    expect(cut.endsWith('…')).toBe(true);
+    // The literal, not the binding: the cap itself is the guarantee — it must
+    // stay under the server's 1000-char QUOTE_MAX_CHARS.
+    expect(QUOTE_TEXT_MAX_CHARS).toBe(500);
   });
 });

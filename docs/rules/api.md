@@ -198,3 +198,8 @@ Compact checklist auto-injected before edits. Long-form:
   ones), so "awaiting moderation" survives a reload without leaking to the
   public or to other members; staff see everything on the admin route only
   (todo 352, blog comments).
+- **An edit resends the whole body: exempt references the stored body already
+  carries from write-time availability checks** (`existing_author_id` for
+  images, `existing_quote_ids` for post quotes), or a referent that went away
+  later locks the author out of saving anything else. Newly added references
+  still validate (todo 342, audit L21).

@@ -118,6 +118,33 @@ def dispatch(event, **kwargs):
             ),
         }
 
+    def _quoted_authors_for(post, actor, *, exclude_pks=()):
+        """[(author, quoted_post)] a quoting post notifies — visible quoted
+        posts only, the actor and already-mentioned users excluded, blocked
+        pairs dropped (wagtail_forum.quotes.resolve_quoted_authors + the
+        same bidirectional block rule as mentions)."""
+        from wagtail_forum.quotes import resolve_quoted_authors
+
+        if post is None:
+            return []
+        exclude = set(exclude_pks) | ({actor.pk} if actor is not None else set())
+        pairs = resolve_quoted_authors(post, exclude_pks=exclude)
+        kept = {u.pk for u in _drop_blocked_pairs([u for u, _ in pairs], actor)}
+        return [(u, q) for u, q in pairs if u.pk in kept]
+
+    def _enqueue_quote_push_for(users, payload):
+        # Same shape as the mention push: batch task, event "quote" (copy in
+        # notification_copy.py), no email arm.
+        from wagtail_forum.models import NotificationVerb
+
+        pks = [user.pk for user in users]
+        if not pks:
+            return
+        try:
+            send_forum_push_batch.delay(NotificationVerb.QUOTE, pks, payload)
+        except Exception:
+            logger.exception("[CELERY] forum_host: failed to enqueue quote push batch")
+
     def _enqueue_mention_push_for(mentioned, payload):
         from wagtail_forum.models import NotificationVerb
 
@@ -159,6 +186,7 @@ def dispatch(event, **kwargs):
                         event,
                     )
             _enqueue_mention_push_for(mentioned, payload)
+            _enqueue_quote_push_for([user for user, _ in quoted], payload)
 
         def _enqueue_email():
             # Mentioned users get bell + push only, not email, this slice
@@ -223,6 +251,15 @@ def dispatch(event, **kwargs):
                 )
                 mentioned_pks = {user.pk for user in mentioned}
 
+                # Structured quotes (todo 342): the quoted authors get a QUOTE
+                # notification instead of a plain REPLY — a mention of the same
+                # person wins (excluded here); blocked pairs are dropped like
+                # every other fan-out.
+                quoted = _quoted_authors_for(
+                    post, post_author, exclude_pks=mentioned_pks
+                )
+                quoted_pks = {user.pk for user, _ in quoted}
+
                 subs = TopicSubscription.objects.filter(topic=topic).select_related(
                     "user"
                 )
@@ -233,7 +270,7 @@ def dispatch(event, **kwargs):
                 # post (todo 253 slice 4) — the (recipient, verb, post)
                 # unique constraint doesn't collapse across different verbs,
                 # so without this exclude() they'd get two bell entries.
-                subs = subs.exclude(user_id__in=mentioned_pks)
+                subs = subs.exclude(user_id__in=mentioned_pks | quoted_pks)
                 # todo 284/M9: a blocked pair gets no reply notification —
                 # subscribers aren't a mention case, so this is the only
                 # place that path can be fixed (unlike mentioned above,
@@ -256,6 +293,15 @@ def dispatch(event, **kwargs):
                     topic=topic,
                     post=post,
                 )
+                for user, quoted_post in quoted:
+                    create_notifications(
+                        recipients=[user],
+                        verb=NotificationVerb.QUOTE,
+                        actor=post_author,
+                        topic=topic,
+                        post=post,
+                        quoted_post=quoted_post,
+                    )
             # Only registered once the write above actually succeeds — a
             # notification-write failure must not still deliver a push/email,
             # or a recipient gets a delivery with no corresponding in-app
@@ -424,7 +470,27 @@ def dispatch(event, **kwargs):
                     topic=topic,
                     post=post,
                 )
+                # An opening post can quote too (todo 342).
+                quoted = (
+                    _quoted_authors_for(
+                        post, author, exclude_pks={user.pk for user in mentioned}
+                    )
+                    if post is not None
+                    else []
+                )
+                for user, quoted_post in quoted:
+                    create_notifications(
+                        recipients=[user],
+                        verb=NotificationVerb.QUOTE,
+                        actor=author,
+                        topic=topic,
+                        post=post,
+                        quoted_post=quoted_post,
+                    )
             transaction.on_commit(_enqueue_mention_push)
+            transaction.on_commit(
+                lambda: _enqueue_quote_push_for([user for user, _ in quoted], payload)
+            )
         except Exception:
             logger.exception(
                 "[ERROR] forum_host: failed to process topic_created topic=%s",

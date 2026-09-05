@@ -446,3 +446,29 @@ conditionally rendered live region announces nothing). The resolve step —
 `GET conversations/with/<username>/` → 404 means "no thread yet", not an
 error — renders the empty state with a live composer and re-resolves after
 the first send.
+
+## Referencing blocks in the forum composer (post quotes, todo 342)
+
+A `post_quote` block references another post: `{post, text}` on write,
+`{text, post_id, available, topic_id, author, is_blocked, is_muted}` on read.
+
+- **Round-trip by attribute, not by re-declaring the node.** A TipTap
+  `Extension.create({ addGlobalAttributes })` on `blockquote` maps
+  `postId ↔ data-post-id`; `parseHTML` returns `null` when the attribute is
+  absent so a legacy `<blockquote>` never comes back as `data-post-id=""`.
+  `htmlToBodyBlocks` turns a top-level blockquote with the attribute into
+  `post_quote`, stripping nested markup to plain text (`<br>` ↔ `"\n"`);
+  `bodyBlocksToHtml` writes it back escaped, keeping the attribute even when
+  `available` is false — the server exempts quotes the stored body already
+  carries from re-validation on edit, so the client never downgrades one.
+- **Insertion is a remount.** TipTap `content` is init-only, so the Quote
+  action writes the draft store, sets the body and bumps the composer key
+  with `autoFocus`, then scrolls the form into view and announces. Vary the
+  announcement per quote (author name / post number): the announcer relies
+  on consecutive messages differing, so an identical string is silent.
+- **Render the excerpt as text, collapse on the viewer's signals.** The
+  quote's `text` is the quoter's excerpt (plain text by contract) rendered
+  as React text, never `SafeHTML`. A nested attribution is one more surface
+  rendering an author: read `is_blocked` / `is_muted` and collapse with the
+  same placeholder + "Show anyway" reveal `PostCard` uses — never hide.
+  `available: false` keeps the text with no attribution.

@@ -20,16 +20,22 @@ export interface NotificationTopicRef {
   board_slug: string;
 }
 
-/** 'mention' added in slice 4; later slices add moderation/subscription. */
-export type ForumNotificationVerb = 'reply' | 'mention';
+/**
+ * 'mention' added in slice 4; 'quote' in todo 342 (someone quoted your post);
+ * later slices add moderation/subscription.
+ */
+export type ForumNotificationVerb = 'reply' | 'mention' | 'quote';
 
 export interface ForumNotification {
   id: number;
   verb: ForumNotificationVerb;
   actor: NotificationActor | null;
   topic: NotificationTopicRef | null;
-  /** The post this notification is about, for deep links; null for post-less verbs. */
+  /** The post this notification is about, for deep links; null for post-less verbs.
+   * For `quote` this is the QUOTING post (the deep-link target), like a reply. */
   post_id: number | null;
+  /** For `quote`: the post of yours that was quoted (todo 342); null otherwise. */
+  quoted_post_id: number | null;
   created_at: string;
   read_at: string | null;
 }

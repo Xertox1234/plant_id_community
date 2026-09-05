@@ -5,6 +5,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/constants/app_spacing.dart';
 import '../../../services/api_service.dart';
 import '../../../services/auth_service.dart';
+import '../forum_errors.dart';
+import '../forum_format.dart';
 import '../models/forum_rich_text_markup.dart';
 import '../models/models.dart';
 import '../services/forum_api.dart';
@@ -25,12 +27,13 @@ class ForumComposeArgs {
       postId = null,
       initialBodyText = '',
       hasNonTextContent = false,
-      quoteText = null;
+      quote = null;
 
-  /// Reply to [topicId]. [quoteText] (the "Quote" action, todo 341 wave 3)
-  /// pre-fills a read-only `quote` block above the body field — it is sent
-  /// as a real `quote` block, never folded into the paragraph.
-  const ForumComposeArgs.reply({required this.topicId, this.quoteText})
+  /// Reply to [topicId]. [quote] (the "Quote" action, todo 342) pre-fills a
+  /// read-only, removable quote card above the body field — sent as a
+  /// structured `post_quote` block `{post, text}`, never folded into the
+  /// paragraph; the server resolves the attribution from the post id.
+  const ForumComposeArgs.reply({required this.topicId, this.quote})
     : mode = ForumComposeMode.reply,
       boardSlug = null,
       boardTitle = null,
@@ -82,7 +85,7 @@ class ForumComposeArgs {
        boardSlug = null,
        boardTitle = null,
        topicId = null,
-       quoteText = null;
+       quote = null;
 
   final ForumComposeMode mode;
   final String? boardSlug;
@@ -91,7 +94,7 @@ class ForumComposeArgs {
   final int? postId;
   final String initialBodyText;
   final bool hasNonTextContent;
-  final String? quoteText;
+  final ForumQuoteDraft? quote;
 }
 
 /// Compose a new topic or a reply. Holds one [ForumComposerController] for the
@@ -132,10 +135,10 @@ class _ForumComposerScreenState extends ConsumerState<ForumComposerScreen> {
   bool _uploadingImage = false;
   String? _imageError;
 
-  /// The pre-filled quote (reply mode, todo 341 wave 3), removable with one
-  /// tap. Not counted as unsent input: the user never typed it and the
-  /// Quote action recreates it in one tap.
-  String? _quoteText;
+  /// The pre-filled quote (reply mode, todo 342), removable with one tap.
+  /// Not counted as unsent input: the user never typed it and the Quote
+  /// action recreates it in one tap.
+  ForumQuoteDraft? _quote;
 
   bool get _isTopic => widget.args.mode == ForumComposeMode.topic;
   bool get _isEdit => widget.args.mode == ForumComposeMode.edit;
@@ -146,7 +149,7 @@ class _ForumComposerScreenState extends ConsumerState<ForumComposerScreen> {
     super.initState();
     _controller = ForumComposerController(api: ref.read(forumApiProvider));
     if (_isEdit) _bodyController.text = widget.args.initialBodyText;
-    _quoteText = widget.args.quoteText;
+    _quote = widget.args.quote;
     // A listener (not just the body TextField's `onChanged`) so `_canSubmit`
     // re-evaluates when the rich-text toolbar mutates `controller.value`
     // programmatically (todo 314) — `TextField.onChanged` only fires for
@@ -301,7 +304,7 @@ class _ForumComposerScreenState extends ConsumerState<ForumComposerScreen> {
           topicId: widget.args.topicId!,
           bodyText: _bodyController.text,
           imageId: _attachedImage?.id,
-          quoteText: _quoteText,
+          quote: _quote,
         );
         status = result.status;
       }
@@ -325,9 +328,31 @@ class _ForumComposerScreenState extends ConsumerState<ForumComposerScreen> {
         // "Topic is closed or locked.") — so edit shows it verbatim rather
         // than the generic "tap again to retry" copy below, which would be
         // actively wrong for the frozen/locked case (todo 292 AC3).
-        _error = (!_isEdit && e.statusCode == 409)
-            ? 'Still processing your last attempt — tap Post again to retry.'
-            : e.message;
+        //
+        // Everything else goes through the forum's one error mapper (todo
+        // 341): a 400 shows the server's own sentence — for a quote that is
+        // "One of the quoted posts is not available." / "A post may quote
+        // at most 3 other posts." / "A quote may be at most 1000
+        // characters." (todo 342) — and a 429 the shared rate-limit line.
+        // A 403 now shows the mapper's shared generic permission copy
+        // ("You don't have permission to do that.") instead of the server
+        // line — an intentional change with todo 342: the backend's
+        // create-reply 403s are bare `PermissionDenied()` (a blocked pair,
+        // a closed board), whose default detail is no more specific than
+        // ours, and every other forum write already maps 403 this way.
+        // The fallback keeps the client's own network/5xx wording rather
+        // than a generic line, so an offline user still learns why.
+        _error = switch (e.statusCode) {
+          409 when !_isEdit =>
+            'Still processing your last attempt — tap Post again to retry.',
+          409 => e.message,
+          _ => forumErrorMessage(
+            e,
+            fallback: e.message.isNotEmpty
+                ? e.message
+                : 'Something went wrong. Tap Post to retry.',
+          ),
+        };
       });
     } catch (e) {
       if (!mounted) return;
@@ -432,12 +457,12 @@ class _ForumComposerScreenState extends ConsumerState<ForumComposerScreen> {
           ),
           const SizedBox(height: AppSpacing.sm),
         ],
-        if (_quoteText != null)
+        if (_quote != null)
           Padding(
             padding: const EdgeInsets.only(bottom: AppSpacing.sm),
             child: _QuoteDraft(
-              text: _quoteText!,
-              onRemove: () => setState(() => _quoteText = null),
+              quote: _quote!,
+              onRemove: () => setState(() => _quote = null),
             ),
           ),
         Align(
@@ -499,20 +524,23 @@ class _ForumComposerScreenState extends ConsumerState<ForumComposerScreen> {
 }
 
 /// The pre-filled quote, read-only, in the same left-rule styling the body
-/// renderer gives a `quote` block — so what the author sees is what the
-/// thread will show. Removable (48dp target).
+/// renderer gives a `post_quote` block — the excerpt, then who wrote it —
+/// so what the author sees is what the thread will show. The name is
+/// display only: the server resolves the attribution from the post id
+/// (todo 342). Removable (48dp target).
 class _QuoteDraft extends StatelessWidget {
-  const _QuoteDraft({required this.text, required this.onRemove});
+  const _QuoteDraft({required this.quote, required this.onRemove});
 
-  final String text;
+  final ForumQuoteDraft quote;
   final VoidCallback onRemove;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final muted = theme.colorScheme.onSurfaceVariant;
     return Semantics(
       container: true,
-      label: 'Quoted text',
+      label: 'Quoting ${quote.authorName}',
       child: Container(
         padding: const EdgeInsets.only(left: AppSpacing.md),
         decoration: BoxDecoration(
@@ -524,14 +552,26 @@ class _QuoteDraft extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Expanded(
-              child: Text(
-                text,
-                maxLines: 6,
-                overflow: TextOverflow.ellipsis,
-                style: theme.textTheme.bodyMedium?.copyWith(
-                  fontStyle: FontStyle.italic,
-                  color: theme.colorScheme.onSurfaceVariant,
-                ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    quote.text,
+                    maxLines: 6,
+                    overflow: TextOverflow.ellipsis,
+                    style: theme.textTheme.bodyMedium?.copyWith(
+                      fontStyle: FontStyle.italic,
+                      color: muted,
+                    ),
+                  ),
+                  const SizedBox(height: AppSpacing.xs),
+                  Text(
+                    '— ${quote.authorName}',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: theme.textTheme.bodySmall?.copyWith(color: muted),
+                  ),
+                ],
               ),
             ),
             IconButton(

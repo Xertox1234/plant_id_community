@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:go_router/go_router.dart';
 import 'package:plant_community_mobile/features/forum/models/models.dart';
 import 'package:plant_community_mobile/features/forum/screens/forum_notifications_screen.dart';
 import 'package:plant_community_mobile/features/forum/services/forum_api.dart';
@@ -8,6 +9,56 @@ import 'package:plant_community_mobile/features/forum/services/forum_api.dart';
 import '../support/forum_test_support.dart';
 
 void main() {
+  testWidgets('a quote reads "quoted your post" and opens the quoting reply '
+      'exactly like a reply does (todo 342)', (tester) async {
+    final api = FakeForumApi()
+      ..notifications = [
+        notification(
+          id: 1,
+          verb: 'quote',
+          topicTitle: 'Fiddle leaf fig',
+          postId: 55,
+          quotedPostId: 12,
+        ),
+      ];
+    final opened = <Uri>[];
+    final router = GoRouter(
+      routes: [
+        GoRoute(path: '/', builder: (_, _) => const ForumNotificationsScreen()),
+        GoRoute(
+          path: '/forum/topics/:id',
+          name: 'forumTopic',
+          builder: (_, state) {
+            opened.add(state.uri);
+            return const Scaffold(body: Text('topic'));
+          },
+        ),
+      ],
+    );
+
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [forumApiProvider.overrideWithValue(api)],
+        child: MaterialApp.router(routerConfig: router),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(
+      find.textContaining('alice quoted your post in "Fiddle leaf fig"'),
+      findsOneWidget,
+    );
+    expect(find.byIcon(Icons.format_quote_outlined), findsOneWidget);
+
+    await tester.tap(find.byType(ListTile));
+    await tester.pumpAndSettle();
+
+    expect(api.markReadCalls.single, [1]);
+    // Deep-links to the QUOTING post (`post_id`), not the quoted one.
+    expect(opened.single.path, '/forum/topics/10');
+    expect(opened.single.queryParameters, {'postId': '55'});
+  });
+
   testWidgets('lists notifications, newest first, with read/unread state', (
     tester,
   ) async {

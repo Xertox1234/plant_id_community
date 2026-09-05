@@ -1,5 +1,6 @@
 import 'package:uuid/uuid.dart';
 
+import '../forum_format.dart';
 import '../models/models.dart';
 import 'forum_api.dart';
 
@@ -73,23 +74,24 @@ class ForumComposerController {
     );
   }
 
-  /// Post a reply to [topicId]. See [submitTopic] re: [imageId]. A non-empty
-  /// [quoteText] (the "Quote" action, todo 341 wave 3) leads the body as a
-  /// real `quote` block — never folded into the paragraph — and is part of
-  /// the idempotency fingerprint like every other piece of content.
+  /// Post a reply to [topicId]. See [submitTopic] re: [imageId]. A [quote]
+  /// (the "Quote" action, todo 342) leads the body as a structured
+  /// `post_quote` block `{post, text}` — never folded into the paragraph —
+  /// and both its id and text are part of the idempotency fingerprint like
+  /// every other piece of content.
   Future<CreateReplyResult> submitReply({
     required int topicId,
     required String bodyText,
     int? imageId,
-    String? quoteText,
+    ForumQuoteDraft? quote,
   }) {
     _refreshKeyForContent(
-      'reply|$topicId|${(quoteText ?? '').trim()}|${bodyText.trim()}|'
-      '${imageId ?? ''}',
+      'reply|$topicId|${quote?.postId ?? ''}|${(quote?.text ?? '').trim()}|'
+      '${bodyText.trim()}|${imageId ?? ''}',
     );
     return _api.createReply(
       topicId: topicId,
-      body: _buildBody(bodyText, imageId, quoteText: quoteText),
+      body: _buildBody(bodyText, imageId, quote: quote),
       idempotencyKey: _key,
     );
   }
@@ -97,10 +99,10 @@ class ForumComposerController {
   List<Map<String, dynamic>> _buildBody(
     String bodyText,
     int? imageId, {
-    String? quoteText,
+    ForumQuoteDraft? quote,
   }) {
     return [
-      if (quoteText != null) ...buildQuoteBlockBody(quoteText),
+      if (quote != null) buildPostQuoteBlockBody(quote.postId, quote.text),
       ...buildParagraphBody(bodyText),
       if (imageId != null) buildImageBlockBody(imageId),
     ];

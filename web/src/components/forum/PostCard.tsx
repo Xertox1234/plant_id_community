@@ -5,6 +5,7 @@ import {
   Flag,
   Link2,
   Pencil,
+  Quote,
   SmilePlus,
   Trash2,
   UserCheck,
@@ -39,6 +40,12 @@ interface PostCardProps {
    * content-only sibling of block. Same gate: `post.can_mute && handler`. */
   onMute?: (username: string) => Promise<void>;
   onUnmute?: (username: string) => Promise<void>;
+  /**
+   * Quote this post into the reply composer (todo 342). Passed only when the
+   * viewer can actually reply (signed in, thread not locked) — its presence
+   * is the affordance, the same contract as onReact.
+   */
+  onQuote?: (post: Post) => void;
   /** Whether this post is the topic's accepted answer (audit H6). */
   isSolution?: boolean;
   /**
@@ -79,6 +86,7 @@ function PostCard({
   onUnblock,
   onMute,
   onUnmute,
+  onQuote,
   isSolution = false,
   onToggleSolution,
 }: PostCardProps) {
@@ -433,10 +441,16 @@ function PostCard({
 
       {/* Post Content */}
       <div className="mb-4 break-words leading-relaxed">
-        <StreamFieldRenderer blocks={post.body} mentionHighlight />
+        {/* `post.thread` is the topic id as a string (mapPostToPost) — lets a
+            quote of a post in THIS topic link to its anchor (todo 342). */}
+        <StreamFieldRenderer
+          blocks={post.body}
+          mentionHighlight
+          currentTopicId={Number(post.thread) || undefined}
+        />
       </div>
 
-      {(onReact || nonZeroReactions.length > 0) && (
+      {(onReact || onQuote || nonZeroReactions.length > 0) && (
         <div className="flex flex-wrap items-center gap-2 pt-4 border-t border-line">
           {nonZeroReactions.map((type) => {
             // Whether the CURRENT user has this reaction active (M23). Only
@@ -494,6 +508,18 @@ function PostCard({
                 <span aria-hidden="true">{getReactionEmoji(type)}</span>
               </button>
             ))}
+          {/* Quote into the reply composer (todo 342). Right-aligned, away from
+              the reaction toggles; visible text gives it its accessible name. */}
+          {onQuote && (
+            <button
+              type="button"
+              onClick={() => onQuote(post)}
+              className="ml-auto min-h-11 px-3 py-1 text-sm text-ink-3 hover:text-primary hover:bg-surface-3 rounded-pill inline-flex items-center gap-1.5"
+              title="Quote post"
+            >
+              <Quote className="h-3.5 w-3.5" aria-hidden="true" /> Quote
+            </button>
+          )}
         </div>
       )}
 

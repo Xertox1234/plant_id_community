@@ -217,7 +217,7 @@ void main() {
     });
   });
 
-  group('forumBodyPlainText + buildQuoteBlockBody', () {
+  group('forumBodyPlainText', () {
     test('flattens headings, paragraph HTML and code; drops the rest', () {
       final text = forumBodyPlainText([
         const HeadingBlock('Title'),
@@ -225,6 +225,11 @@ void main() {
           'a <strong>bold</strong> line<br>second &amp; third',
         ),
         const QuoteBlock('nested quote'),
+        const PostQuoteBlock(
+          text: 'nested post quote',
+          postId: 5,
+          available: true,
+        ),
         const ForumImageBlock(id: 1, url: 'u', alt: 'a'),
         const DeletedImageBlock(),
         const EmbedBlock(url: 'https://youtu.be/x'),
@@ -233,6 +238,7 @@ void main() {
       ]);
       expect(text, 'Title\n\na bold line\nsecond & third\n\nprint(1)');
       expect(text, isNot(contains('nested quote')));
+      expect(text, isNot(contains('nested post quote')));
     });
 
     test('list items become lines', () {
@@ -243,40 +249,37 @@ void main() {
         'one\ntwo',
       );
     });
-
-    test('buildQuoteBlockBody emits a real quote block, verbatim text', () {
-      expect(buildQuoteBlockBody('  bob wrote:\n<b>raw</b>  '), [
-        {'type': 'quote', 'value': 'bob wrote:\n<b>raw</b>'},
-      ]);
-      expect(buildQuoteBlockBody('   '), isEmpty);
-    });
   });
 
-  group('forumQuoteText', () {
-    test('prefixes a plain attribution line', () {
-      final text = forumQuoteText(
+  group('forumQuoteDraft (todo 342)', () {
+    test('keys the excerpt to the post id and carries the author name '
+        'separately — never as a "wrote:" line in the text', () {
+      final draft = forumQuoteDraft(
         post(
-          authorOverride: author(username: 'bob'),
+          id: 2,
+          authorOverride: author(username: 'bob', displayName: 'Bob B'),
           body: const [ParagraphBlock('Water it less.')],
         ),
-      );
-      expect(text, 'bob wrote:\nWater it less.');
-      // No '@' in the attribution: the server's mention scanner reads every
-      // string block, and '@bob' would demote bob's email reply notification
-      // to a push-only mention (review finding, todo 341 waves 3+4).
-      expect(text, isNot(contains('@')));
+      )!;
+      expect(draft.postId, 2);
+      expect(draft.text, 'Water it less.');
+      expect(draft.authorName, 'Bob B');
+      // The server resolves the attribution from the id; a name in the text
+      // would only feed its mention scanner (todo 341 waves 3+4 review).
+      expect(draft.text, isNot(contains('wrote')));
+      expect(draft.text, isNot(contains('@')));
     });
 
     test('caps the excerpt and marks the cut', () {
       final long = 'x' * (forumQuoteMaxChars + 50);
-      final text = forumQuoteText(post(body: [ParagraphBlock(long)]))!;
-      expect(text.endsWith('…'), isTrue);
-      expect(text.length, 'alice wrote:\n'.length + forumQuoteMaxChars + 1);
+      final draft = forumQuoteDraft(post(body: [ParagraphBlock(long)]))!;
+      expect(draft.text.endsWith('…'), isTrue);
+      expect(draft.text.length, forumQuoteMaxChars + 1);
     });
 
     test('is null for a post with nothing quotable', () {
       expect(
-        forumQuoteText(
+        forumQuoteDraft(
           post(
             body: const [ForumImageBlock(id: 1, url: 'u', alt: '')],
           ),

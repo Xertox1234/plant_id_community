@@ -157,10 +157,10 @@ class _NotificationTile extends StatelessWidget {
   }
 }
 
-/// Copy per `NotificationVerb` (`reply` | `mention` | `solution` —
-/// `wagtail_forum/models/notifications.py`). An unrecognized verb falls back
-/// to a generic line rather than throwing, so an older-client/newer-backend
-/// skew degrades gracefully.
+/// Copy per `NotificationVerb` (`reply` | `mention` | `quote` | `solution`
+/// — `wagtail_forum/models/notifications.py`). An unrecognized verb falls
+/// back to a generic line rather than throwing, so an older-client/newer-
+/// backend skew degrades gracefully.
 String _labelFor(ForumNotification notification) {
   final actorName = notification.actor.name;
   final topicTitle = notification.topic?.title;
@@ -169,6 +169,11 @@ String _labelFor(ForumNotification notification) {
       return topicTitle != null
           ? '$actorName mentioned you in "$topicTitle"'
           : '$actorName mentioned you';
+    case 'quote':
+      // Opens like a reply: `post_id` is the QUOTING post (todo 342).
+      return topicTitle != null
+          ? '$actorName quoted your post in "$topicTitle"'
+          : '$actorName quoted your post';
     case 'solution':
       return topicTitle != null
           ? '$actorName marked your reply as the answer in "$topicTitle"'
@@ -188,6 +193,8 @@ IconData _iconFor(String verb) {
   switch (verb) {
     case 'mention':
       return Icons.alternate_email;
+    case 'quote':
+      return Icons.format_quote_outlined;
     case 'solution':
       return Icons.check_circle_outline;
     case 'reply':

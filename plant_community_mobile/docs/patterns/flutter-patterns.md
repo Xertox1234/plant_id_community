@@ -275,6 +275,17 @@ Reference: `lib/features/forum/widgets/author_identity.dart`,
   replaces exactly that fragment; the `MentionSearch` notifier debounces
   300 ms, cancels its timer on dispose and discards superseded responses
   by generation. The strip sits above the field, inline.
-- Quote: `forumBodyPlainText` (heading/paragraph/code; nested quotes and
-  media dropped) + `forumQuoteText` (500-char cap) → a leading `quote`
-  block via `buildQuoteBlockBody`, attribution as its plain first line.
+- Quote (todo 342): `forumBodyPlainText` (heading/paragraph/code; nested
+  quotes and media dropped) + `forumQuoteDraft` (500-char cap, keyed to
+  the post id; the author name rides along for the composer's draft card
+  only) → a leading structured `post_quote` block `{post, text}` via
+  `buildPostQuoteBlockBody`. No `"user wrote:"` line in the text — the
+  server resolves the attribution on read (`PostQuoteBlock.available` /
+  `author` / `topicId`; the renderer links "in topic" to the quoted post
+  unless it lives in the topic being read — `ForumBodyRenderer.currentTopicId`,
+  threaded from the thread screen and its edit-history sheet — and
+  collapses a quote of a blocked/muted author (`isBlocked` / `isMuted`)
+  behind the same "Show anyway" reveal `PostCard` uses, never hiding it;
+  the "gone" notice appears only when `available` is `false`) and
+  notifies the quoted author with the `quote` verb. A rejected quote
+  is a 400 whose sentence `forumErrorMessage` shows verbatim.

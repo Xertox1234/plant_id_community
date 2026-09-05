@@ -9,6 +9,7 @@ import * as forumService from '../../services/forumService';
 import * as blogService from '../../services/blogService';
 import { useAuth } from '../../contexts/AuthContext';
 import { AnnouncerProvider } from '../../contexts/AnnouncerContext';
+import { htmlToBodyBlocks } from '../../utils/forumBody';
 import { logger } from '../../utils/logger';
 
 vi.mock('react-router-dom', async () => {
@@ -22,6 +23,9 @@ vi.mock('react-router-dom', async () => {
 // Mock the forumService; stub TipTapEditor to a textarea (jsdom-hostile rich editor).
 // The aria-label is the placeholder so the reply composer ("Write a reply...") and
 // the edit editor ("body", no placeholder) are individually addressable.
+// `content` rides through as defaultValue so what the page PUTS INTO the
+// editor (a loaded edit body, a Quote insert — todo 342) is observable; a stub
+// that dropped it would show an empty field whatever the page did.
 vi.mock('../../services/forumService');
 // Defensive mock for FromTheBlogModule's rail fetch and the page's own
 // "more in this board" rail fetch. Neither fires here: the setup.ts
@@ -32,14 +36,17 @@ vi.mock('../../services/blogService');
 vi.mock('../../contexts/AuthContext', () => ({ useAuth: vi.fn() }));
 vi.mock('../../components/forum/TipTapEditor', () => ({
   default: ({
+    content,
     onChange,
     placeholder,
   }: {
+    content?: string;
     onChange?: (html: string) => void;
     placeholder?: string;
   }) => (
     <textarea
       aria-label={placeholder || 'body'}
+      defaultValue={content}
       onChange={(e) => onChange?.(`<p>${e.target.value}</p>`)}
     />
   ),
@@ -1251,7 +1258,12 @@ describe('ThreadDetailPage', () => {
 
     await screen.findByText('old');
     await userEvent.click(screen.getByTitle('Edit post'));
-    await userEvent.type(await screen.findByLabelText('body'), 'new body');
+    // The editor opens on the existing body (forwarded by the stub above);
+    // replace it, as a real edit would.
+    const editBox = await screen.findByLabelText('body');
+    expect(editBox).toHaveValue('<p>old</p>');
+    await userEvent.clear(editBox);
+    await userEvent.type(editBox, 'new body');
     await userEvent.click(screen.getByRole('button', { name: /^Save$/i }));
 
     await waitFor(() =>
@@ -1847,5 +1859,163 @@ describe('ThreadDetailPage new replies pill (todo 346)', () => {
     });
     await screen.findByRole('button', { name: 'Load 1 new reply' });
     expect(fetchThreadSpy).toHaveBeenCalledTimes(3);
+  });
+});
+
+describe('ThreadDetailPage quote reply (todo 342)', () => {
+  // Own top-level describe (real timers, cleared drafts): the poll suite above
+  // runs on fake timers, and a stored draft from one case would otherwise be
+  // restored into the next one's composer.
+  beforeEach(() => {
+    vi.clearAllMocks();
+    sessionStorage.clear();
+    vi.mocked(ReactRouter.useParams).mockReturnValue({
+      categorySlug: '3-plant-care',
+      threadSlug: '12-watering-tips',
+    });
+    vi.mocked(useAuth).mockReturnValue(mockAuth(true));
+    vi.mocked(forumService.fetchThreads).mockResolvedValue({
+      items: [],
+      meta: { next: null, count: 0 },
+    });
+    vi.mocked(blogService.fetchPopularPosts).mockResolvedValue([]);
+  });
+
+  const quotablePost = () =>
+    createMockPost({
+      id: '5',
+      body: [{ id: 'b5', type: 'paragraph', value: '<p>Water it <strong>less</strong>.</p>' }],
+    });
+
+  it('puts a post_quote blockquote at the top of the reply draft, keeping what was typed below it', async () => {
+    // jsdom defines scrollIntoView on HTMLElement.prototype; spy there so the
+    // real call on the <form> is captured.
+    const scrollSpy = vi.fn();
+    HTMLElement.prototype.scrollIntoView = scrollSpy;
+    vi.spyOn(forumService, 'fetchThread').mockResolvedValue(createMockThread());
+    vi.spyOn(forumService, 'fetchPosts').mockResolvedValue({
+      items: [quotablePost()],
+      meta: { count: 1, next: null, previous: null },
+    });
+
+    renderThreadDetailPage();
+    await userEvent.type(await screen.findByLabelText('Write a reply...'), 'my draft');
+    await userEvent.click(screen.getByTitle('Quote post'));
+
+    // The composer is remounted on the new content (TipTap's `content` is
+    // init-only); the quote leads and the existing draft follows it.
+    expect(await screen.findByLabelText('Write a reply...')).toHaveValue(
+      '<blockquote data-post-id="5"><p>Water it less.</p></blockquote><p>my draft</p>'
+    );
+    // Persisted like typed content — a remount fires no onChange.
+    expect(sessionStorage.getItem('forum-draft:reply:12')).toContain('data-post-id="5"');
+    expect(scrollSpy).toHaveBeenCalledTimes(1);
+    expect(document.querySelector('[data-announcer="polite"]')).toHaveTextContent(
+      "Quote of Test User's post added to your reply."
+    );
+  });
+
+  it('announces each quote with its author, so two quotes in a row are read out twice', async () => {
+    // The announcer swaps one live region's text; a repeat of the identical
+    // string is not re-read, so the message must vary per quoted post.
+    vi.spyOn(forumService, 'fetchThread').mockResolvedValue(createMockThread());
+    vi.spyOn(forumService, 'fetchPosts').mockResolvedValue({
+      items: [
+        createMockPost({
+          id: '5',
+          author: { username: 'ada', display_name: 'Ada', avatar: null, trust_level: 1 },
+          body: [{ id: 'b5', type: 'paragraph', value: '<p>Water it less.</p>' }],
+        }),
+        createMockPost({
+          id: '6',
+          author: { username: 'bob', display_name: '', avatar: null, trust_level: 1 },
+          body: [{ id: 'b6', type: 'paragraph', value: '<p>More light.</p>' }],
+        }),
+      ],
+      meta: { count: 2, next: null, previous: null },
+    });
+
+    renderThreadDetailPage();
+    const region = () => document.querySelector('[data-announcer="polite"]');
+    await userEvent.click((await screen.findAllByTitle('Quote post'))[0]);
+    const first = region()?.textContent;
+    expect(first).toBe("Quote of Ada's post added to your reply.");
+
+    await userEvent.click(screen.getAllByTitle('Quote post')[1]);
+    // Falls back to the username when there is no display name.
+    expect(region()?.textContent).toBe("Quote of bob's post added to your reply.");
+    expect(region()?.textContent).not.toBe(first);
+  });
+
+  it('submits the quote as a post_quote block', async () => {
+    vi.spyOn(forumService, 'fetchThread').mockResolvedValue(createMockThread());
+    vi.spyOn(forumService, 'fetchPosts').mockResolvedValue({
+      items: [quotablePost()],
+      meta: { count: 1, next: null, previous: null },
+    });
+    const createSpy = vi
+      .spyOn(forumService, 'createPost')
+      .mockResolvedValue({ id: '99', status: 'published' });
+
+    renderThreadDetailPage();
+    await userEvent.click(await screen.findByTitle('Quote post'));
+    // A blank draft gets an empty paragraph after the quote so the caret
+    // lands outside the blockquote; the quote alone enables Post Reply.
+    expect(screen.getByLabelText('Write a reply...')).toHaveValue(
+      '<blockquote data-post-id="5"><p>Water it less.</p></blockquote><p></p>'
+    );
+    await userEvent.click(screen.getByRole('button', { name: /post reply/i }));
+
+    await waitFor(() => expect(createSpy).toHaveBeenCalledTimes(1));
+    const { content } = createSpy.mock.calls[0][0];
+    // What the (mocked) service sends is htmlToBodyBlocks(content) — the
+    // block shape the server validates.
+    expect(htmlToBodyBlocks(content)).toContainEqual({
+      type: 'post_quote',
+      value: { post: 5, text: 'Water it less.' },
+    });
+  });
+
+  it('offers Quote only where there is a composer to quote into: not on a locked thread, not logged out', async () => {
+    vi.spyOn(forumService, 'fetchPosts').mockResolvedValue({
+      items: [quotablePost()],
+      meta: { count: 1, next: null, previous: null },
+    });
+    const fetchThreadSpy = vi
+      .spyOn(forumService, 'fetchThread')
+      .mockResolvedValue(createMockThread({ is_locked: true }));
+
+    const { unmount } = renderThreadDetailPage();
+    await screen.findByText(/This thread is locked/);
+    expect(screen.queryByTitle('Quote post')).not.toBeInTheDocument();
+    unmount();
+
+    fetchThreadSpy.mockResolvedValue(createMockThread());
+    vi.mocked(useAuth).mockReturnValue(mockAuth(false));
+    renderThreadDetailPage();
+    await screen.findByText(/to post a reply/);
+    expect(screen.queryByTitle('Quote post')).not.toBeInTheDocument();
+  });
+
+  it('refuses to quote a post with no text instead of inserting an empty quote', async () => {
+    vi.spyOn(forumService, 'fetchThread').mockResolvedValue(createMockThread());
+    vi.spyOn(forumService, 'fetchPosts').mockResolvedValue({
+      items: [
+        createMockPost({
+          id: '5',
+          body: [{ id: 'i5', type: 'image', value: { id: 1, url: 'https://cdn/x.jpg' } }],
+        }),
+      ],
+      meta: { count: 1, next: null, previous: null },
+    });
+
+    renderThreadDetailPage();
+    await userEvent.click(await screen.findByTitle('Quote post'));
+
+    // The server rejects an empty quote, so nothing is inserted and the
+    // notice says why.
+    expect(await screen.findByText('This post has no text to quote.')).toBeInTheDocument();
+    expect(screen.getByLabelText('Write a reply...')).toHaveValue('');
+    expect(sessionStorage.getItem('forum-draft:reply:12')).toBeNull();
   });
 });

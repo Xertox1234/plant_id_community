@@ -209,8 +209,11 @@ FORUM_BODY_SCHEMA = {
             "type": {"type": "string"},
             # The block content — the field codegen clients actually need
             # (audit 2026-07-11 H25): HTML string (paragraph), plain string
-            # (heading/quote), {language, code} (code block), or the
-            # {id, url, alt, width, height} rendition dict (image).
+            # (heading/quote), {language, code} (code block), the
+            # {id, url, alt, width, height} rendition dict (image), the embed
+            # envelope (todo 344) or the {text, post_id, available, topic_id,
+            # author, is_blocked, is_muted} quote envelope (todo 342) — see
+            # serialize_forum_body for the authoritative shapes.
             "value": {
                 "oneOf": [
                     {"type": "string"},
@@ -676,7 +679,74 @@ def build_forum_embed_map(posts):
     )
 
 
-def serialize_forum_body(stream_value, image_map=None, request=None, embed_map=None):
+def build_forum_quote_map(posts, user=None):
+    """Map {post_id: Post} for every `post_quote` block across *posts* — one
+    query, or none (todo 342). Same reason as the image/embed maps: the
+    post-list query count stays flat however many quotes a page carries.
+
+    Each mapped post also carries `author_is_blocked` / `author_is_muted`
+    for the VIEWER (two bounded queries per page, only when the page quotes
+    anything and the viewer is a filtered one): a quote is one more surface
+    rendering an author, and the block feature's contract is COLLAPSE, not
+    HIDE — the client gets the same signal `PostSerializer.is_blocked` /
+    `is_muted` give for the post itself. Anonymous viewers and moderators
+    get constant `False`, like `_annotate_author_blocked`."""
+    from ..quotes import quoted_post_ids, visible_quoted_posts
+    from .views import _should_filter_blocks
+
+    ids: list[int] = []
+    for post in posts:
+        for pid in quoted_post_ids(post.body.raw_data):
+            if pid not in ids:
+                ids.append(pid)
+    quote_map = visible_quoted_posts(ids)
+    blocked: set[int] = set()
+    muted: set[int] = set()
+    author_ids = {p.author_id for p in quote_map.values() if p.author_id}
+    if author_ids and _should_filter_blocks(user):
+        blocked = set(
+            UserBlock.objects.filter(
+                blocker_id=user.pk, blocked_id__in=author_ids
+            ).values_list("blocked_id", flat=True)
+        )
+        muted = set(
+            UserMute.objects.filter(
+                muter_id=user.pk, muted_id__in=author_ids
+            ).values_list("muted_id", flat=True)
+        )
+    for quoted in quote_map.values():
+        quoted.author_is_blocked = quoted.author_id in blocked
+        quoted.author_is_muted = quoted.author_id in muted
+    return quote_map
+
+
+def serialize_post_quote(raw_value, quote_map, request=None):
+    """The API envelope of a `post_quote` block: the stored text plus a safe
+    attribution resolved from the page map. A quoted post that is gone
+    (unpublished, hidden, deleted) still renders its text with
+    `available: false` and no attribution — never a leak of what it was."""
+    value = raw_value if isinstance(raw_value, dict) else {}
+    pid = value.get("post")
+    quoted = quote_map.get(pid) if quote_map else None
+    return {
+        "text": value.get("text") or "",
+        "post_id": pid,
+        "available": quoted is not None,
+        "topic_id": quoted.topic_id if quoted is not None else None,
+        "author": (
+            serialize_forum_author(quoted.author, request)
+            if quoted is not None
+            else None
+        ),
+        # Collapse signals for the viewer (see build_forum_quote_map).
+        "is_blocked": bool(getattr(quoted, "author_is_blocked", False)),
+        "is_muted": bool(getattr(quoted, "author_is_muted", False)),
+    }
+
+
+def serialize_forum_body(
+    stream_value, image_map=None, request=None, embed_map=None, quote_map=None
+):
     """StreamField -> [{type, value, id}] for the React StreamFieldRenderer.
 
     Iterates the RAW StreamField data, never the resolved StreamValue: merely
@@ -714,6 +784,8 @@ def serialize_forum_body(stream_value, image_map=None, request=None, embed_map=N
             )
         elif isinstance(child, RichTextBlock):
             value = expand_db_html(raw_value or "")
+        elif block_type == "post_quote":
+            value = serialize_post_quote(raw_value, quote_map or {}, request)
         elif child is not None:
             value = child.get_api_representation(child.to_python(raw_value))
         else:  # unknown type (cannot occur in stored data — validated on write)
@@ -772,6 +844,7 @@ class PostSerializer(serializers.ModelSerializer):
             self.context.get("forum_image_map"),
             self.context.get("request"),
             embed_map=self.context.get("forum_embed_map"),
+            quote_map=self.context.get("forum_quote_map"),
         )
 
     @extend_schema_field(OpenApiTypes.DATETIME)
@@ -893,10 +966,21 @@ class NotificationSerializer(serializers.ModelSerializer):
     # Deep-link target for clients (wave 1.3): the post this notification is
     # about, or null for a post-less verb.
     post_id = serializers.IntegerField(read_only=True, allow_null=True)
+    # The post that was quoted, for QUOTE notifications (todo 342).
+    quoted_post_id = serializers.IntegerField(read_only=True, allow_null=True)
 
     class Meta:
         model = Notification
-        fields = ["id", "verb", "actor", "topic", "post_id", "created_at", "read_at"]
+        fields = [
+            "id",
+            "verb",
+            "actor",
+            "topic",
+            "post_id",
+            "quoted_post_id",
+            "created_at",
+            "read_at",
+        ]
 
     @extend_schema_field(AUTHOR_SCHEMA)
     def get_actor(self, obj):
@@ -929,7 +1013,15 @@ class _ForumBodyContract(serializers.Serializer):
     body = serializers.JSONField()
 
     def validate_body(self, value):
-        return validate_forum_body(value, self._allowed_uploader_ids())
+        request = self.context.get("request")
+        return validate_forum_body(
+            value,
+            self._allowed_uploader_ids(),
+            user=request.user if request else None,
+            # Edit only: quotes the stored body already carries (set by the
+            # edit call site, like `existing_author_id`).
+            existing_quote_ids=self.context.get("existing_quote_ids", ()),
+        )
 
     def _allowed_uploader_ids(self):
         # An image block may reference: (a) something the acting request user

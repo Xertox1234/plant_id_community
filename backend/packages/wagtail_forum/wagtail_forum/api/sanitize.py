@@ -17,7 +17,7 @@ import nh3
 from django.db.models import Q
 from django.utils.translation import gettext_lazy as _
 from rest_framework import serializers
-from wagtail.blocks import ChooserBlock, RichTextBlock, StructBlock
+from wagtail.blocks import ChooserBlock, IntegerBlock, RichTextBlock, StructBlock
 from wagtail.embeds.blocks import EmbedBlock
 from wagtail.images import get_image_model
 from wagtail.images.blocks import ImageChooserBlock
@@ -27,6 +27,7 @@ from ..blocks import ForumBodyBlock
 from ..collections import get_forum_image_collection
 from ..conf import get_setting
 from ..embeds import is_supported_url, warm_embeds
+from ..quotes import resolve_quotable_posts
 
 # Allowlist scoped to ForumBodyBlock's RichTextBlock features (bold, italic, link,
 # ol, ul, code) plus the structural tags Wagtail emits. nh3 drops everything else,
@@ -112,7 +113,7 @@ def serialize_forum_intro(html: str) -> str:
     )
 
 
-def validate_forum_body(value, allowed_uploader_ids):
+def validate_forum_body(value, allowed_uploader_ids, user=None, existing_quote_ids=()):
     """Validate + sanitize a forum post body (raw StreamField list-of-dicts).
 
     1. Reject an oversized body (block count / total size) — bounds parse cost.
@@ -129,6 +130,13 @@ def validate_forum_body(value, allowed_uploader_ids):
     ``Image.uploaded_by_user`` and ``Post.author`` both go ``SET_NULL`` on
     account deletion in the same operation, so a deleted author's pre-existing
     uploads carry ``uploaded_by_user_id=None`` right alongside the post.
+
+    ``existing_quote_ids`` (edit only) lists the posts the stored body ALREADY
+    quotes: they are exempt from the availability re-check, because an edit
+    resends the whole body and a quoted post that has since been unpublished
+    (or whose author has since blocked the editor) must not lock the author
+    — or a moderator — out of saving any other change. Shape and caps still
+    apply to every block; only NEWLY added quotes must resolve (todo 342).
 
     Returns the cleaned value so the caller stores the safe version.
     """
@@ -166,8 +174,18 @@ def validate_forum_body(value, allowed_uploader_ids):
             raise serializers.ValidationError(_("Invalid post body."))
         block_value = block.get("value")
         if block["type"] in struct_types:
+            # Sub-values are typed per child block: an IntegerBlock (the
+            # post_quote's `post`, todo 342) takes an int (never a bool),
+            # everything else a string — so a text-by-contract sub-block
+            # can never persist a non-string.
+            children = body_block.child_blocks[block["type"]].child_blocks
             if not isinstance(block_value, dict) or not all(
-                isinstance(v, str) for v in block_value.values()
+                (
+                    isinstance(v, int) and not isinstance(v, bool)
+                    if isinstance(children.get(k), IntegerBlock)
+                    else isinstance(v, str)
+                )
+                for k, v in block_value.items()
             ):
                 raise serializers.ValidationError(_("Invalid post body."))
         elif block["type"] in image_types:
@@ -210,6 +228,51 @@ def validate_forum_body(value, allowed_uploader_ids):
                 _("A post may embed at most %(n)d videos.") % {"n": max_embeds}
             )
         warm_embeds(distinct)  # concurrently, one timeout window for the lot
+
+    # Structured post quotes (todo 342): a dict {post, text}; the quoted post
+    # must exist, be visible and not be authored by someone block-paired
+    # with the writer — a failure is a 400, never a silent strip. Distinct
+    # quoted posts are capped, and the text is bounded (plain text by the
+    # same contract as `quote`: consumers escape it at render time).
+    quote_blocks = [
+        block
+        for block in value
+        if isinstance(block, dict) and block.get("type") == "post_quote"
+    ]
+    if quote_blocks:
+        max_quotes = get_setting("QUOTES_MAX_PER_POST")
+        max_chars = get_setting("QUOTE_MAX_CHARS")
+        ids = []
+        for block in quote_blocks:
+            qv = block.get("value")
+            pid = qv.get("post") if isinstance(qv, dict) else None
+            text = qv.get("text") if isinstance(qv, dict) else None
+            if (
+                not isinstance(pid, int)
+                or isinstance(pid, bool)
+                or pid < 1
+                or not isinstance(text, str)
+                or not text.strip()
+            ):
+                raise serializers.ValidationError(_("Invalid quote."))
+            if len(text) > max_chars:
+                raise serializers.ValidationError(
+                    _("A quote may be at most %(n)d characters.") % {"n": max_chars}
+                )
+            if pid not in ids:
+                ids.append(pid)
+        if len(ids) > max_quotes:
+            raise serializers.ValidationError(
+                _("A post may quote at most %(n)d other posts.") % {"n": max_quotes}
+            )
+        new_ids = [pid for pid in ids if pid not in set(existing_quote_ids)]
+        quotable = resolve_quotable_posts(new_ids, user) if new_ids else {}
+        if any(pid not in quotable for pid in new_ids):
+            # One message for missing, unpublished, restricted and blocked —
+            # the endpoint must not be an oracle for what exists.
+            raise serializers.ValidationError(
+                _("One of the quoted posts is not available.")
+            )
 
     # Non-image chooser blocks stay rejected outright: there is no upload/
     # validation path for them, so a caller could store a nonexistent PK
