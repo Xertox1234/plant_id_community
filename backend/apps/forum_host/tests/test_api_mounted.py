@@ -59,6 +59,30 @@ def test_mute_endpoints_are_mounted_and_throttled():
 
 
 @pytest.mark.django_db
+def test_badges_ship_through_the_host_mount():
+    """todo 348: `badges` on me/stats/ and the public profile are new
+    behaviour on package read views, so prove them through the REAL
+    /api/v1/forum/ mount (docs/rules/forum.md), not only the package
+    urlconf — including the lazy award on me/stats/."""
+    from wagtail_forum.models import Badge, BadgeMetric, BadgeRule, ForumActivityDate
+
+    member = User.objects.create_user(username="mounted-badges")
+    ForumActivityDate.record(member.pk)
+    badge = Badge.objects.create(slug="day-one", name="Day one")
+    BadgeRule.objects.create(badge=badge, metric=BadgeMetric.STREAK_DAYS, threshold=1)
+    client = APIClient()
+    client.force_authenticate(member)
+
+    stats = client.get("/api/v1/forum/me/stats/")
+    assert stats.status_code == 200
+    assert [b["slug"] for b in stats.data["badges"]] == ["day-one"]
+
+    profile = APIClient().get(f"/api/v1/forum/users/{member.username}/")
+    assert profile.status_code == 200
+    assert [b["slug"] for b in profile.data["badges"]] == ["day-one"]
+
+
+@pytest.mark.django_db
 def test_dm_endpoints_are_mounted_and_throttled():
     """todo 319/M10: one round-trip through the REAL host mount, mirroring
     test_block_endpoint_is_mounted_and_throttled."""

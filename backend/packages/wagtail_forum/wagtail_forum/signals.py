@@ -12,6 +12,8 @@ from wagtail.images import get_image_model_string
 from wagtail.models import ReferenceIndex
 from wagtail.signals import published, unpublished
 
+from .badges import award_after_commit, award_badges_for_user
+
 logger = logging.getLogger("wagtail_forum")
 
 # Public signals for hosts (e.g. push notifications). kwargs: post, topic.
@@ -28,6 +30,11 @@ moderation_decided = Signal()
 # notify that their answer was un-accepted, and a "your answer was rejected"
 # push is a product decision nobody made.
 solution_marked = Signal()
+# A badge was awarded (todo 348). kwargs: user_id, badge. Fired from
+# wagtail_forum.badges.award_badges_for_user — which itself runs inside
+# transaction.on_commit at every signal-site trigger — so a receiver may
+# deliver a push/email directly without its own on_commit.
+badge_awarded = Signal()
 
 
 def notify(signal, **kwargs):
@@ -248,6 +255,9 @@ def update_counters_on_publish(sender, instance, **kwargs):
             # admin-created topics that have no opening post yet.
             opening = instance.posts.filter(is_opening_post=True).first()
             notify(topic_created, sender=Topic, post=opening, topic=instance)
+            # Badges (todo 348): a topic going live is what makes its
+            # identification attachment count (`identifications_shared`).
+            award_after_commit(instance.author_id)
         return
     if not isinstance(instance, Post):
         return
@@ -268,6 +278,17 @@ def update_counters_on_publish(sender, instance, **kwargs):
     # a late one.
     if _is_first_publish(post) and post.author_id is not None:
         ForumActivityDate.record(post.author_id)
+        # Badges (todo 348), after the activity row above so a streak badge
+        # sees today's day; on_commit so a rolled-back publish awards nothing.
+        award_after_commit(post.author_id)
+
+
+@receiver(solution_marked)
+def award_badges_on_solution(sender, topic, post, **kwargs):
+    """`solutions_accepted` moved for the answer's author (todo 348). The
+    view fires solution_marked inside on_commit already, so evaluate now."""
+    if post is not None:
+        award_badges_for_user(post.author_id)
 
 
 @receiver(unpublished)
