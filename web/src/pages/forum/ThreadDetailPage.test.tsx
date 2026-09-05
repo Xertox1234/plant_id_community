@@ -625,6 +625,9 @@ describe('ThreadDetailPage', () => {
       })
     );
 
+    const auth = mockAuth(true);
+    vi.mocked(useAuth).mockReturnValue(auth);
+
     const { rerender } = renderThreadDetailPage();
     await screen.findByText('thread A post');
     await userEvent.type(screen.getByLabelText('Write a reply...'), 'a reply on A');
@@ -656,6 +659,88 @@ describe('ThreadDetailPage', () => {
     expect(document.querySelector('[data-announcer="polite"]')).not.toHaveTextContent(
       'Reply posted.'
     );
+    // The todo-297 write-time identity refresh is not skipped by the guard —
+    // it touches only AuthContext (code review round 2, PR #629).
+    expect(auth.revalidateIdentity).toHaveBeenCalledTimes(1);
+  });
+
+  it('a drifted identity is still announced when the reply lands after navigating away', async () => {
+    vi.spyOn(forumService, 'fetchThread')
+      .mockResolvedValueOnce(createMockThread({ id: '12', slug: 'watering-tips' }))
+      .mockResolvedValueOnce(createMockThread({ id: '34', slug: 'different-thread' }));
+    vi.spyOn(forumService, 'fetchPosts').mockResolvedValue({
+      items: [],
+      meta: { count: 0, next: null, previous: null },
+    });
+    let resolveCreate!: (value: { id: string; status: 'published' }) => void;
+    vi.spyOn(forumService, 'createPost').mockReturnValue(
+      new Promise((resolve) => {
+        resolveCreate = resolve;
+      })
+    );
+    vi.mocked(useAuth).mockReturnValue({
+      isAuthenticated: true,
+      user: { id: 1, username: 'test-user' },
+      revalidateIdentity: vi.fn().mockResolvedValue({ id: 2, username: 'someone-else' }),
+    } as unknown as ReturnType<typeof useAuth>);
+
+    const { rerender } = renderThreadDetailPage();
+    await userEvent.type(await screen.findByLabelText('Write a reply...'), 'a reply on A');
+    await userEvent.click(screen.getByRole('button', { name: /post reply/i }));
+    vi.mocked(ReactRouter.useParams).mockReturnValue({
+      categorySlug: '3-plant-care',
+      threadSlug: '34-different-thread',
+    });
+    rerender(
+      <MemoryRouter initialEntries={['/forum/plant-care/34-different-thread']}>
+        <AnnouncerProvider>
+          <ThreadDetailPage />
+        </AnnouncerProvider>
+      </MemoryRouter>
+    );
+    await waitFor(() => expect(forumService.fetchThread).toHaveBeenCalledWith(34));
+
+    await act(async () => {
+      resolveCreate({ id: '99', status: 'published' });
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    });
+
+    // No page-state write for thread A, but the drift reaches the app-global
+    // announcer instead of being lost with the navigation.
+    expect(document.querySelector('[data-announcer="assertive"]')).toHaveTextContent(
+      /posted as someone-else/i
+    );
+    // …and only there: no notice banner was written onto thread B's page.
+    expect(screen.getAllByText(/posted as someone-else/i)).toHaveLength(1);
+  });
+
+  it('a passive account swap empties the reply composer and its stored draft (code review, L4)', async () => {
+    vi.spyOn(forumService, 'fetchThread').mockResolvedValue(createMockThread());
+    vi.spyOn(forumService, 'fetchPosts').mockResolvedValue({
+      items: [],
+      meta: { count: 0, next: null, previous: null },
+    });
+    vi.mocked(useAuth).mockReturnValue(mockAuth(true));
+
+    const { rerender } = renderThreadDetailPage();
+    await userEvent.type(await screen.findByLabelText('Write a reply...'), 'account A, unsent');
+    expect(sessionStorage.getItem('forum-draft:reply:12')).toContain('account A, unsent');
+
+    // A focus revalidation found another account's cookie: same page, new user.
+    vi.mocked(useAuth).mockReturnValue({
+      ...mockAuth(true),
+      user: { id: 2 },
+    } as unknown as ReturnType<typeof useAuth>);
+    rerender(
+      <MemoryRouter initialEntries={['/forum/plant-care/watering-tips']}>
+        <AnnouncerProvider>
+          <ThreadDetailPage />
+        </AnnouncerProvider>
+      </MemoryRouter>
+    );
+
+    await waitFor(() => expect(screen.getByLabelText('Write a reply...')).toHaveValue(''));
+    expect(sessionStorage.getItem('forum-draft:reply:12')).toBeNull();
   });
 
   it('does not leave the Bookmark button stuck loading after navigating to a different thread mid-request', async () => {

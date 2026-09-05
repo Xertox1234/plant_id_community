@@ -54,6 +54,11 @@ _OLD_PATH_ATTR = "_forum_redirect_old_path"
 # Only these fields can move the path; a counters/flags save with an explicit
 # update_fields skips the extra SELECT entirely.
 _PATH_FIELDS = {"slug", "board", "board_id"}
+# "Was this topic ever public?" — live now, or published at some point.
+# ``unpublish()`` keeps ``first_published_at`` (it clears ``live_revision``);
+# a never-published draft's path was always a 404. ONE definition for both
+# the per-topic receiver and the board-rename bulk path (code review, PR #629).
+ONCE_PUBLIC = Q(live=True) | Q(first_published_at__isnull=False)
 
 
 @receiver(
@@ -65,11 +70,14 @@ def remember_old_path(sender, instance, update_fields=None, raw=False, **kwargs)
         return
     if update_fields is not None and not _PATH_FIELDS.intersection(update_fields):
         return
-    old = sender.objects.filter(pk=instance.pk).select_related("board").first()
-    # Only a path that was ever public is worth a row: live now, or published
-    # at some point — unpublish keeps ``first_published_at`` (it clears
-    # ``live_revision``). A never-published draft's path was always a 404.
-    if old is not None and (old.live or old.first_published_at is not None):
+    # Only a once-public path is worth a row; the same single SELECT, and a
+    # non-qualifying row yields None instead of a fetched row failing a test.
+    old = (
+        sender.objects.filter(ONCE_PUBLIC, pk=instance.pk)
+        .select_related("board")
+        .first()
+    )
+    if old is not None:
         setattr(instance, _OLD_PATH_ATTR, old.get_absolute_url())
 
 
@@ -96,13 +104,14 @@ def redirect_old_path(sender, instance, created, raw=False, **kwargs):
     new_path = instance.get_absolute_url()
     if Redirect.normalise_path(old_path) == Redirect.normalise_path(new_path):
         return
-    redirect_topic_path(old_path, new_path)
+    redirect_topic_path(old_path, new_path, keep_manual=not instance.live)
 
 
-def redirect_topic_path(old_path, new_path):
+def redirect_topic_path(old_path, new_path, *, keep_manual=False):
     """Write ``old_path → new_path`` and keep the table loop- and chain-free.
     Runs inside the caller's transaction (the topic save), so a rolled-back
-    save leaves no stray redirect."""
+    save leaves no stray redirect. ``keep_manual`` — the topic is hidden right
+    now — makes an editor's own row FROM the old path win (see below)."""
     old_path = Redirect.normalise_path(old_path)
     new_path = Redirect.normalise_path(new_path)
     # Nothing may redirect FROM the path the topic now lives at: our own
@@ -121,6 +130,31 @@ def redirect_topic_path(old_path, new_path):
     shadowing.delete()
     # Chain collapse: whatever sent visitors to the old path sends them on.
     Redirect.objects.filter(redirect_link=old_path).update(redirect_link=new_path)
+    # For a HIDDEN topic, an editor's own row FROM the old path wins: a
+    # moderator who sent a hidden duplicate's once-public URL to its canonical
+    # topic has decided where that path goes, and rewriting it would point
+    # that URL at a hidden 404 and relabel it auto-created, silently (code
+    # review, PR #629). A competing auto row under the same NULL-site path
+    # would be ambiguous, so write nothing — loudly. For a LIVE topic a manual
+    # row from its own path was inert (the middleware only answers 404s) and
+    # re-pointing it to the topic's new home is what the tests below pin.
+    if keep_manual:
+        manual = Redirect.objects.filter(
+            old_path=old_path, site=None, automatically_created=False
+        )
+        kept = False
+        for row in manual:
+            kept = True
+            logger.info(
+                "[REDIRECT] Kept manual redirect %s -> %s; not writing the "
+                "automatic %s -> %s for a hidden topic's move",
+                row.old_path,
+                row.link,
+                old_path,
+                new_path,
+            )
+        if kept:
+            return
     # Re-point EVERY existing all-sites row for the old path (see module
     # docstring on NULL-site uniqueness), else create the one row.
     updated = Redirect.objects.filter(old_path=old_path, site=None).update(
@@ -164,8 +198,8 @@ def redirect_board_topics_on_slug_change(sender, instance, instance_before, **kw
 
 
 def redirect_board_topics(board_before, board):
-    """Bulk form of :func:`redirect_topic_path` for every LIVE topic under
-    ``board``, whose slug moved from ``board_before.slug`` to ``board.slug``.
+    """Bulk form of :func:`redirect_topic_path` for every once-public topic
+    under ``board``, whose slug moved from ``board_before.slug`` to ``board.slug``.
     The same three steps, each as one statement over the whole set, so the
     admin save costs the same number of queries at 3 topics as at 1,000 (the
     redirect tests pin both); only the INSERT splits past
@@ -185,9 +219,7 @@ def redirect_board_topics(board_before, board):
     new_prefix = board_topic_prefix(board.pk, board.slug)
     if old_prefix == new_prefix:
         return
-    live = board.topics.filter(
-        Q(live=True) | Q(first_published_at__isnull=False)
-    ).values_list("id", "slug")
+    once_public = board.topics.filter(ONCE_PUBLIC).values_list("id", "slug", "live")
     pairs = [
         (
             Redirect.normalise_path(
@@ -197,9 +229,11 @@ def redirect_board_topics(board_before, board):
                 Topic(board=board, id=topic_id, slug=slug).get_absolute_url()
             ),
         )
-        for topic_id, slug in live
+        for topic_id, slug, _live in once_public
     ]
-    old_paths = [old for old, _ in pairs]
+    hidden_old_paths = [
+        old for (old, _new), (_id, _slug, live) in zip(pairs, once_public) if not live
+    ]
     new_paths = [new for _, new in pairs]
     with transaction.atomic():
         # 1. Nothing may redirect FROM a path a live topic now lives at — the
@@ -234,11 +268,29 @@ def redirect_board_topics(board_before, board):
         ).delete()
         if not pairs:
             return
-        # 3. One all-sites row per live topic. Update-or-create in bulk is
-        #    delete-then-insert: every existing row for an old path (there
+        # 3. One all-sites row per once-public topic. Update-or-create in bulk
+        #    is delete-then-insert: every existing row for an old path (there
         #    can be several — NULL-site uniqueness, see the module docstring)
         #    is replaced by the one row, exactly as the per-topic update does.
-        Redirect.objects.filter(old_path__in=old_paths, site=None).delete()
+        #    An editor's own row from a HIDDEN topic's old path is kept and the
+        #    automatic one skipped, as in redirect_topic_path.
+        manual_old = set(
+            Redirect.objects.filter(
+                old_path__in=hidden_old_paths, site=None, automatically_created=False
+            ).values_list("old_path", flat=True)
+        )
+        for old in sorted(manual_old):
+            logger.info(
+                "[REDIRECT] Kept manual redirect from %s; not writing the "
+                "automatic row for a hidden topic in the board rename",
+                old,
+            )
+        pairs = [(old, new) for old, new in pairs if old not in manual_old]
+        if not pairs:
+            return
+        Redirect.objects.filter(
+            old_path__in=[old for old, _ in pairs], site=None
+        ).delete()
         Redirect.objects.bulk_create(
             [
                 Redirect(

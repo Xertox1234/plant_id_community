@@ -446,6 +446,48 @@ void _backGuardTests() {
       expect(find.text('Discard draft?'), findsOneWidget);
     });
 
+    testWidgets('an untouched edit leaves without a prompt', (tester) async {
+      // The edit-mode arm compares against the post as it was opened
+      // (code review round 2, PR #629): nothing changed → nothing to lose.
+      final editedPost = post(
+        id: 7,
+        body: [ParagraphBlock(generateForumRichHtml('as opened'))],
+        canEdit: true,
+      );
+      await _pumpComposerBehindHome(
+        tester,
+        FakeForumApi(),
+        args: ForumComposeArgs.edit(post: editedPost),
+      );
+      expect(find.text('as opened'), findsOneWidget);
+
+      await tester.pageBack();
+      await tester.pumpAndSettle();
+
+      expect(find.text('Discard draft?'), findsNothing);
+      expect(find.byType(ForumComposerScreen), findsNothing);
+    });
+
+    testWidgets('a changed edit asks before discarding', (tester) async {
+      final editedPost = post(
+        id: 7,
+        body: [ParagraphBlock(generateForumRichHtml('as opened'))],
+        canEdit: true,
+      );
+      await _pumpComposerBehindHome(
+        tester,
+        FakeForumApi(),
+        args: ForumComposeArgs.edit(post: editedPost),
+      );
+      await tester.enterText(find.byType(TextField), 'as opened, revised');
+      await tester.pump();
+
+      await tester.pageBack();
+      await tester.pumpAndSettle();
+
+      expect(find.text('Discard draft?'), findsOneWidget);
+    });
+
     testWidgets('Discard leaves the composer', (tester) async {
       await _pumpComposerBehindHome(tester, FakeForumApi());
       await tester.enterText(find.byType(TextField), 'half written');

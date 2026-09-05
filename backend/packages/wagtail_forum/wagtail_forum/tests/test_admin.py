@@ -183,7 +183,10 @@ def test_post_search_fields_finds_live_post_by_body_text(client):
     resp = client.get("/cms/snippets/wagtail_forum/post/?q=photosynthesis")
 
     assert resp.status_code == 200
-    assert str(post.pk).encode() in resp.content
+    # A rendered ROW, not a substring: `str(post.pk)` matched asset hashes
+    # and the CSRF token, so the old assertion passed on "No posts".
+    assert b"No posts" not in resp.content
+    assert f"/post/edit/{post.pk}/".encode() in resp.content
 
 
 @pytest.mark.django_db
@@ -652,4 +655,8 @@ def test_post_listing_search_matches_a_body_prefix(client):
     resp = client.get("/cms/snippets/wagtail_forum/post/?q=photosynth")
 
     assert resp.status_code == 200
-    assert str(post.pk).encode() in resp.content
+    # Mutation-checked (code review, PR #629): with the AutocompleteField
+    # removed the page says "No posts" — `str(post.pk)` still matched asset
+    # hashes, so only a rendered-row marker pins the field.
+    assert b"No posts" not in resp.content
+    assert f"/post/edit/{post.pk}/".encode() in resp.content

@@ -3,6 +3,7 @@ import { useNavigate, useSearchParams, useLocation, Link } from 'react-router-do
 import { createThread, fetchCategories, fetchCategory } from '../../services/forumService';
 import { parseLeadingId, threadPath, categoryPath } from '../../utils/forumUrls';
 import { draftKey, loadDraft, saveDraft, clearDraft } from '../../utils/forumDrafts';
+import { useIdentitySwap } from '../../hooks/useIdentitySwap';
 import TipTapEditor from '../../components/forum/TipTapEditor';
 import ForumErrorState from '../../components/forum/ForumErrorState';
 import LoadingSpinner from '../../components/ui/LoadingSpinner';
@@ -165,6 +166,17 @@ export default function NewThreadPage() {
   const [reloadKey, setReloadKey] = useState(0);
   const announce = useAnnounce();
   const { user, revalidateIdentity } = useAuth();
+  // A passive account swap clears the stored drafts in AuthContext; this
+  // page's own title/body/tags state would re-persist the previous account's
+  // text on the next keystroke (code review, PR #629) — reset it and remount
+  // the editor (TipTap takes its content at mount only).
+  const [composerEpoch, setComposerEpoch] = useState<number>(0);
+  useIdentitySwap(user?.id, () => {
+    setTitle('');
+    setBody('');
+    setTagsInput('');
+    setComposerEpoch((e) => e + 1);
+  });
 
   useEffect(() => {
     // react.dev race guard: drop a stale response (unmount, or a retry/param
@@ -599,7 +611,12 @@ export default function NewThreadPage() {
 
         <div>
           <span className="gt-label block mb-1.5 transition-colors">Message</span>
-          <TipTapEditor content={body} onChange={setBody} placeholder="Write your post..." />
+          <TipTapEditor
+            key={composerEpoch}
+            content={body}
+            onChange={setBody}
+            placeholder="Write your post..."
+          />
         </div>
 
         {error && (

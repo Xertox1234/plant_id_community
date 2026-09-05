@@ -35,6 +35,7 @@ import { parseLeadingId, userProfilePath, threadPath } from '../../utils/forumUr
 import { DELETED_AUTHOR_USERNAME } from '../../utils/forumAuthor';
 import { bodyBlocksToHtml } from '../../utils/forumBody';
 import { draftKey, loadDraft, saveDraft, clearDraft } from '../../utils/forumDrafts';
+import { useIdentitySwap } from '../../hooks/useIdentitySwap';
 import { specimenAvatar } from '../../utils/forumAvatars';
 import PostCard from '../../components/forum/PostCard';
 import IdentificationCard from '../../components/forum/IdentificationCard';
@@ -134,6 +135,18 @@ export default function ThreadDetailPage() {
   // TipTap's `content` is init-only, so resetting replyBody won't clear the editor;
   // bumping this key remounts a fresh (empty) composer after a successful reply.
   const [composerKey, setComposerKey] = useState<number>(0);
+  // A passive account swap (focus revalidation, expired session + a different
+  // login) clears the stored drafts in AuthContext, but this page's own reply
+  // state would re-persist the previous account's text on the next keystroke
+  // (code review, PR #629) — drop it and remount the editor.
+  useIdentitySwap(user?.id, () => {
+    setReplyBody('');
+    setComposerKey((k) => k + 1);
+    // AuthContext drops every draft key on the swap; this page's own persist
+    // only runs from the editor's onChange, so clear this topic's key here
+    // too rather than depend on the ordering of two effects.
+    if (topicId != null) clearDraft(draftKey('reply', String(topicId)));
+  });
   const [editingPostId, setEditingPostId] = useState<string | null>(null);
   const [editBody, setEditBody] = useState<string>('');
   const [editSubmitting, setEditSubmitting] = useState<boolean>(false);
@@ -378,12 +391,6 @@ export default function ThreadDetailPage() {
         setNotice(null);
         const res = await createPost({ thread: requestTopicId, content: replyBody });
         clearDraft(draftKey('reply', String(requestTopicId)));
-        if (currentTopicIdRef.current !== requestTopicId) return;
-        setReplyBody('');
-        // Remount the editor so it visibly clears, and focus the fresh composer
-        // (M25) — remount-via-key alone left focus dropped after posting.
-        setComposerKey((k) => k + 1);
-        setAutoFocusComposer(true);
         // Defense-in-depth (todo 297): the reply already posted under
         // whatever identity the cookie carried — this can only detect a
         // switch, not prevent one (a TOCTOU race, same as NewThreadPage).
@@ -391,14 +398,28 @@ export default function ThreadDetailPage() {
         // incident went unnoticed, so a drifted identity gets a distinct,
         // visible notice instead — checked regardless of published/pending,
         // since a misattributed pending reply silently lands in the wrong
-        // user's moderation queue just the same.
+        // user's moderation queue just the same. It runs BEFORE the
+        // stale-thread guard: it only touches AuthContext, and it is the one
+        // write-time identity refresh (AuthContext otherwise revalidates on
+        // focus alone), so navigating threads mid-post must not skip it
+        // (code review, PR #629).
         const actingUserId = user?.id ?? null;
         const current = await revalidateIdentity();
-        if (currentTopicIdRef.current !== requestTopicId) return;
         const drifted = (current?.id ?? null) !== actingUserId;
         const driftNotice = current?.username
           ? `Your session changed while replying — this was posted as ${current.username}, not the account you started with.`
           : 'Your session changed while replying — you were signed out.';
+        if (currentTopicIdRef.current !== requestTopicId) {
+          // The page moved on, but a drift still has to be heard somewhere;
+          // the announcer is app-global.
+          if (drifted) announce(driftNotice, 'assertive');
+          return;
+        }
+        setReplyBody('');
+        // Remount the editor so it visibly clears, and focus the fresh composer
+        // (M25) — remount-via-key alone left focus dropped after posting.
+        setComposerKey((k) => k + 1);
+        setAutoFocusComposer(true);
 
         if (res.status === 'published') {
           const refreshed = await collectAllPosts(requestTopicId);

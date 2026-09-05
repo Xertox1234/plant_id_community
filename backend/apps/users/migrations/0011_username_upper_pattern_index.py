@@ -23,13 +23,11 @@ can serve the real ORM query from it (``enable_seqscan = off`` + EXPLAIN); at
 today's row count Postgres still picks a seq scan, correctly, for a tiny table.
 """
 
-from django.db import connection, migrations
-
-INDEX_NAME = "users_username_upper_pat_idx"
+from django.db import migrations
 
 
 def create_index(apps, schema_editor):
-    if connection.vendor != "postgresql":
+    if schema_editor.connection.vendor != "postgresql":
         return
     with schema_editor.connection.cursor() as cursor:
         cursor.execute(
@@ -39,7 +37,7 @@ def create_index(apps, schema_editor):
 
 
 def drop_index(apps, schema_editor):
-    if connection.vendor != "postgresql":
+    if schema_editor.connection.vendor != "postgresql":
         return
     with schema_editor.connection.cursor() as cursor:
         cursor.execute("DROP INDEX CONCURRENTLY IF EXISTS users_username_upper_pat_idx")

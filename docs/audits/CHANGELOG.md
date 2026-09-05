@@ -305,4 +305,5 @@ links to the full audit manifest with detailed findings and resolutions.
 - **Close baseline:** backend forum + users 1336 passed, `check` +
   `makemigrations --check` clean; web 1068 passed, `tsc` + eslint clean;
   mobile analyze clean, 427 passed, codegen regenerated.
-- **Commit(s):** `22c2d1f` (fixes) + the codify docs commit on branch `audit/forum-2026-09-04` — PR #629.
+- **Round 2:** `/code-review medium` on the PR → 8 confirmed (6 defects in the fixes: hollow L10 pin, reply guard skipping the identity refresh, L4 composer state, hidden-topic manual redirects overwritten, Android picker re-encode, untested edit-mode guard arm; 2 cleanups), all applied with tests.
+- **Commit(s):** `22c2d1f` (fixes), `9819617` + `c8a7a28` (codify), plus the round-2 fix commit on branch `audit/forum-2026-09-04` — PR #629.

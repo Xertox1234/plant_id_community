@@ -173,6 +173,36 @@ describe('NewThreadPage', () => {
     );
   });
 
+  it('a passive account swap empties the form and its stored draft (code review, L4)', async () => {
+    const { rerender } = renderPage();
+    await screen.findByText('Plant Care');
+    await userEvent.type(screen.getByLabelText(/title/i), 'Account A title');
+    await userEvent.type(screen.getByLabelText('body'), 'account A body');
+    await waitFor(() =>
+      expect(sessionStorage.getItem('forum-draft:new-thread:3-plant-care')).toContain(
+        'Account A title'
+      )
+    );
+
+    // A focus revalidation found another account's cookie: same page
+    // instance, new identity.
+    vi.mocked(useAuth).mockReturnValue({
+      ...mockAuth(),
+      user: { id: 2, username: 'someone-else' },
+    } as unknown as ReturnType<typeof useAuth>);
+    rerender(
+      <MemoryRouter>
+        <AnnouncerProvider>
+          <NewThreadPage />
+        </AnnouncerProvider>
+      </MemoryRouter>
+    );
+
+    await waitFor(() => expect(screen.getByLabelText(/title/i)).toHaveValue(''));
+    expect(screen.getByLabelText('body')).toHaveValue('');
+    expect(sessionStorage.getItem('forum-draft:new-thread:3-plant-care')).toBeNull();
+  });
+
   it('pending topic → on-page moderation confirmation, no native alert, no navigation into it (M24)', async () => {
     const alertSpy = vi.spyOn(window, 'alert').mockImplementation(() => {});
     vi.spyOn(forumService, 'createThread').mockResolvedValue({
