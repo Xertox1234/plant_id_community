@@ -4636,3 +4636,46 @@ the same trap as the green checks that never ran `--recheck`.
   "fixing" a non-bug. It is still fragile — as the last line of a script it
   becomes the exit status — so the `if` form is preferable for durability, not
   correctness.
+
+## 2026-09-06 — A scanner that never reads a file still reports on it, confidently (todo 355 slice 3, todo 356)
+
+Slice 3 bumped `wrangler` in the **root** `package.json` — the first PR to touch
+that lockfile since the new-advisory gate shipped. Local `npm audit` at the root
+went `6 vulnerabilities (1 low, 5 high)` → `found 0 vulnerabilities`. The CI
+gate observed none of it, and said so in the affirmative.
+
+`.github/workflows/security-scan.yml` hardcodes `web/` in every npm step:
+
+- `frontend-security` (`:115-183`) is `cd web` throughout — so the weekly
+  hard-failing scan has **never** audited the root manifest.
+- `new-vuln-gate` scopes on `(^|/)package-lock\.json$` at `:292`, whose `^`
+  branch matches the root lockfile, so it sets `npm=true`. Its audit step at
+  `:326-337` then reads `web/package.json` and `web/package-lock.json`
+  regardless. Both sides come out identical, and the gate prints
+  `npm audit: N advisories on base, N on head, 0 new`.
+
+**The failure mode is not a silent skip — it is a confident wrong answer.** A
+skip would have been legible: the gate has a "skipped (no manifest change in
+this PR)" status and prints it. Because *detection* and *action* were scoped
+differently, the job took the detection branch and then did the wrong work,
+producing the exact string a reviewer is looking for. A PR that *adds* an
+advisory to the root lockfile passes this gate today.
+
+The general shape, and the thing to check when writing any conditional CI job:
+**whenever a job decides "is this relevant?" separately from "what do I look
+at?", the two predicates must be derived from the same value.** Here the scope
+step computed a boolean and threw away *which* path matched. Pass the paths
+forward, or the job will eventually answer about a file it never opened.
+
+Same day, same repo, the sibling fact this compounds: the root manifest is the
+production deploy path. Workers Builds runs `npm clean-install` at the root and
+deploys with `npx wrangler versions upload` from the root `node_modules` (build
+`45880b9e`). So the one tree the scanner could not see is the one that ships.
+Fourteen advisories sat there, visible only to Dependabot.
+
+Corollary for handoff notes: the slice 3 stanza instructed the next session to
+"confirm `new-vuln-gate` reports `NPM: true` and `0 new`". That instruction was
+written from the workflow's *intent*, not its behaviour, and following it would
+have manufactured false confidence. **A verification step in a handoff is a
+claim, and inherits the same evidence burden as any other claim.** Tracked as
+todo 356.
