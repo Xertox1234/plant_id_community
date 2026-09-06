@@ -20,4 +20,4 @@ module = "apps.plant_identification.models"
 ignore_errors = true
 
 [tool.django-stubs]
-django_settings_module = "backend.settings"
+django_settings_module = "plant_community_backend.settings"

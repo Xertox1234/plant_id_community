@@ -551,4 +551,6 @@ def test_topic_detail_query_count_with_an_identification_is_pinned():
 
     assert resp.status_code == 200
     assert resp.data["identification"]["image"] is not None
-    assert len(ctx.captured_queries) == 7, [q["sql"] for q in ctx.captured_queries]
+    # 6, not 7, since Django 6.1: the opening-post PK refetch behind
+    # get_opening_post_id is gone (see test_topic_detail.py's anonymous pin).
+    assert len(ctx.captured_queries) == 6, [q["sql"] for q in ctx.captured_queries]

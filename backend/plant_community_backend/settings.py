@@ -181,7 +181,6 @@ THIRD_PARTY_APPS = [
     "imagekit",
     "widget_tweaks",
     "csp",  # Content Security Policy
-    "django_celery_beat",
     "auditlog",  # Audit trail for data access tracking (GDPR compliance)
     # OAuth Authentication
     "allauth",
