@@ -58,13 +58,9 @@ import { useScrollToTop } from '../../hooks/useScrollToTop';
 import { useMediaQuery } from '../../hooks/useMediaQuery';
 import { logger } from '../../utils/logger';
 import PageMeta from '../../components/PageMeta';
+import { isBlankHtml } from '../../utils/forumBody';
 import type { Thread, Post } from '@/types';
 import type { PaginatedResponse } from '@/types/forum';
-
-/** Strip tags + whitespace to detect an effectively-empty rich-text body. */
-function isBlankHtml(html: string): boolean {
-  return html.replace(/<[^>]*>/g, '').trim() === '';
-}
 
 /**
  * Whether the post with `postId` is the topic's accepted answer. The single

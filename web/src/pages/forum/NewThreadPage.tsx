@@ -13,6 +13,7 @@ import PageMeta from '../../components/PageMeta';
 import { useAnnounce } from '../../contexts/AnnouncerContext';
 import { useAuth } from '../../contexts/AuthContext';
 import { useScrollToTop } from '../../hooks/useScrollToTop';
+import { isBlankHtml } from '../../utils/forumBody';
 import { logger } from '../../utils/logger';
 import type { Category, CreateIdentificationInput } from '@/types';
 
@@ -27,11 +28,6 @@ import type { Category, CreateIdentificationInput } from '@/types';
  */
 const MAX_POLL_OPTIONS = 10;
 const MIN_POLL_OPTIONS = 2;
-
-/** Strip tags + whitespace to detect an effectively-empty rich-text body. */
-function isBlankHtml(html: string): boolean {
-  return html.replace(/<[^>]*>/g, '').trim() === '';
-}
 
 /**
  * `now`, formatted for a `datetime-local` input's `min` attribute

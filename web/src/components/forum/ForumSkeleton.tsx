@@ -33,15 +33,7 @@ import {
  */
 
 type Radius =
-  | 'xs'
-  | 'sm'
-  | 'md'
-  | 'lg'
-  | 'pill'
-  | 'tile-sm'
-  | 'tile-md'
-  | 'avatar-md'
-  | 'avatar-lg';
+  'xs' | 'sm' | 'md' | 'lg' | 'pill' | 'tile-sm' | 'tile-md' | 'avatar-md' | 'avatar-lg';
 
 // Radius is a prop, not part of className, so two rounded-* utilities can
 // never land on the same element (stylesheet order, not class order, would
