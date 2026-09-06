@@ -132,9 +132,14 @@ def get_trusted_client_ip(request: HttpRequest) -> Optional[str]:
     if getattr(settings, "RATELIMIT_LOG_RESOLUTION", False):
         # Diagnostic only (off by default). Dumps the candidate forwarding headers
         # so the real client-IP shape of an unknown proxy can be confirmed once.
-        # Every address is pseudonymized: the shape this exists to reveal — hop
-        # count, which position holds a real IP, which header won — survives
-        # log_safe_ip, but the identifying low bits do not.
+        # Every address goes through log_safe_ip, which keeps the shape this
+        # diagnostic exists to reveal (hop count, which position holds a real
+        # address, which header won) out of plaintext. It is obfuscation, NOT
+        # anonymization: log_safe_ip shows the first two IPv4 octets and an
+        # UNSALTED sha256 prefix of the whole address, so the remaining 16 bits
+        # brute-force in ~15ms. It keeps addresses out of casual log exposure
+        # and correlatable across lines; treat the output as still personal
+        # data, and keep this flag off outside a live proxy investigation.
         logger.warning(
             "[RATELIMIT-RESOLVE] remote_addr=%s x_forwarded_for=%r "
             "x_envoy_external_address=%r x_real_ip=%r meta_key=%r proxy_count=%s "

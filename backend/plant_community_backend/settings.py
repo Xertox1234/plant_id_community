@@ -1563,10 +1563,13 @@ def validate_environment():
             r.ping()
             # Log the endpoint only — REDIS_URL carries the password in its
             # userinfo component, and this runs on every process start.
+            # `.port` is None when the URL omits one (managed Redis often does),
+            # so fall back rather than printing the literal string "None".
             _redis_parts = urlsplit(redis_url)
+            _redis_port = _redis_parts.port or "default"
             logger.info(
                 f"✅ Redis connection successful: {_redis_parts.hostname}"
-                f":{_redis_parts.port}{_redis_parts.path}"
+                f":{_redis_port}{_redis_parts.path}"
             )
         except redis.ConnectionError as e:
             critical_errors.append(
