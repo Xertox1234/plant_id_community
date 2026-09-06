@@ -11,7 +11,7 @@ Provides:
 """
 
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 import requests
@@ -77,7 +77,9 @@ class WeatherService:
         cache_key = CACHE_KEY_WEATHER_CURRENT.format(lat=lat, lng=lng)
         cached_data = cache.get(cache_key)
         if cached_data:
-            logger.info(f"[CACHE] HIT for weather at {lat},{lng}")
+            # Coordinates omitted: precise user garden positions (see the
+            # garden_calendar twin). The hit/miss signal is the useful part.
+            logger.info("[CACHE] HIT for weather")
             return cached_data
 
         # Call OpenWeatherMap API
@@ -90,7 +92,7 @@ class WeatherService:
                 "units": "imperial",  # Fahrenheit, mph
             }
 
-            logger.info(f"[WEATHER] Fetching current weather for {lat},{lng}")
+            logger.info("[WEATHER] Fetching current weather")
             response = requests.get(url, params=params, timeout=cls.get_timeout())
             response.raise_for_status()
 
@@ -118,12 +120,18 @@ class WeatherService:
 
             # Cache for 1 hour
             cache.set(cache_key, weather_data, CACHE_TIMEOUT_WEATHER)
-            logger.info(f"[WEATHER] Cached current weather for {lat},{lng}")
+            logger.info("[WEATHER] Cached current weather")
 
             return weather_data
 
         except requests.RequestException as e:
-            logger.error(f"[ERROR] OpenWeather API failed: {str(e)}")
+            # Never interpolate the exception: the key rides the query string as
+            # `appid`, and HTTPError's message is "... for url: <prepared URL>",
+            # so str(e) writes OPENWEATHER_API_KEY into the log on any 401/429.
+            status = getattr(getattr(e, "response", None), "status_code", None)
+            logger.error(
+                f"[ERROR] OpenWeather API failed: {type(e).__name__} (status={status})"
+            )
             return None
         except (KeyError, ValueError) as e:
             logger.error(f"[ERROR] Failed to parse weather data: {str(e)}")
@@ -159,7 +167,7 @@ class WeatherService:
         cache_key = CACHE_KEY_WEATHER_FORECAST.format(lat=lat, lng=lng)
         cached_data = cache.get(cache_key)
         if cached_data:
-            logger.info(f"[CACHE] HIT for forecast at {lat},{lng}")
+            logger.info("[CACHE] HIT for forecast")
             return cached_data
 
         # Call OpenWeatherMap API
@@ -172,7 +180,7 @@ class WeatherService:
                 "units": "imperial",  # Fahrenheit, mph
             }
 
-            logger.info(f"[WEATHER] Fetching forecast for {lat},{lng}")
+            logger.info("[WEATHER] Fetching forecast")
             response = requests.get(url, params=params, timeout=cls.get_timeout())
             response.raise_for_status()
 
@@ -213,12 +221,18 @@ class WeatherService:
 
             # Cache for 1 hour
             cache.set(cache_key, forecast_list, CACHE_TIMEOUT_WEATHER)
-            logger.info(f"[WEATHER] Cached forecast for {lat},{lng}")
+            logger.info("[WEATHER] Cached forecast")
 
             return forecast_list
 
         except requests.RequestException as e:
-            logger.error(f"[ERROR] OpenWeather API failed: {str(e)}")
+            # Never interpolate the exception: the key rides the query string as
+            # `appid`, and HTTPError's message is "... for url: <prepared URL>",
+            # so str(e) writes OPENWEATHER_API_KEY into the log on any 401/429.
+            status = getattr(getattr(e, "response", None), "status_code", None)
+            logger.error(
+                f"[ERROR] OpenWeather API failed: {type(e).__name__} (status={status})"
+            )
             return None
         except (KeyError, ValueError) as e:
             logger.error(f"[ERROR] Failed to parse forecast data: {str(e)}")

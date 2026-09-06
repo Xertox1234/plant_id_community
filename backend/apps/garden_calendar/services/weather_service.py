@@ -13,13 +13,11 @@ This service handles:
 
 import logging
 import os
-from datetime import datetime, timedelta
-from typing import Any, Dict, List, Optional
+from datetime import datetime
+from typing import Any, Dict, Optional
 
 import requests
-from django.conf import settings
 from django.core.cache import cache
-from django.utils import timezone
 
 from ..constants import (
     CACHE_KEY_WEATHER_CURRENT,
@@ -72,11 +70,13 @@ class WeatherService:
 
         cached_data = cache.get(cache_key)
         if cached_data:
-            logger.info(f"[CACHE] HIT for current weather at {latitude}, {longitude}")
+            # Coordinates are deliberately absent: they are precise user garden
+            # positions, and the hit/miss signal is what has diagnostic value.
+            logger.info("[CACHE] HIT for current weather")
             return cached_data
 
         # Make API call
-        logger.info(f"[WEATHER] Fetching current weather for {latitude}, {longitude}")
+        logger.info("[WEATHER] Fetching current weather")
 
         try:
             response = requests.get(
@@ -97,12 +97,18 @@ class WeatherService:
 
             # Cache for 30 minutes
             cache.set(cache_key, result, CACHE_TIMEOUT_WEATHER)
-            logger.info(f"[CACHE] SET current weather for {latitude}, {longitude}")
+            logger.info("[CACHE] SET current weather")
 
             return result
 
         except requests.exceptions.RequestException as e:
-            logger.error(f"[WEATHER] API call failed: {e}")
+            # Never interpolate the exception: the key rides the query string as
+            # `appid`, and HTTPError's message is "... for url: <prepared URL>",
+            # so str(e) writes OPENWEATHER_API_KEY into the log on any 401/429.
+            status = getattr(getattr(e, "response", None), "status_code", None)
+            logger.error(
+                f"[WEATHER] API call failed: {type(e).__name__} (status={status})"
+            )
             return None
 
     @staticmethod
@@ -131,13 +137,11 @@ class WeatherService:
 
         cached_data = cache.get(cache_key)
         if cached_data:
-            logger.info(f"[CACHE] HIT for weather forecast at {latitude}, {longitude}")
+            logger.info("[CACHE] HIT for weather forecast")
             return cached_data
 
         # Make API call
-        logger.info(
-            f"[WEATHER] Fetching {days}-day forecast for {latitude}, {longitude}"
-        )
+        logger.info(f"[WEATHER] Fetching {days}-day forecast")
 
         try:
             response = requests.get(
@@ -159,12 +163,18 @@ class WeatherService:
 
             # Cache for 1 hour
             cache.set(cache_key, result, 3600)
-            logger.info(f"[CACHE] SET weather forecast for {latitude}, {longitude}")
+            logger.info("[CACHE] SET weather forecast")
 
             return result
 
         except requests.exceptions.RequestException as e:
-            logger.error(f"[WEATHER] API call failed: {e}")
+            # Never interpolate the exception: the key rides the query string as
+            # `appid`, and HTTPError's message is "... for url: <prepared URL>",
+            # so str(e) writes OPENWEATHER_API_KEY into the log on any 401/429.
+            status = getattr(getattr(e, "response", None), "status_code", None)
+            logger.error(
+                f"[WEATHER] API call failed: {type(e).__name__} (status={status})"
+            )
             return None
 
     @staticmethod
@@ -283,9 +293,7 @@ class WeatherService:
         Returns:
             Dictionary with watering recommendation
         """
-        logger.info(
-            f"[WEATHER] Calculating watering recommendation for {latitude}, {longitude}"
-        )
+        logger.info("[WEATHER] Calculating watering recommendation")
 
         current = WeatherService.get_current_weather(latitude, longitude)
         forecast = WeatherService.get_forecast(latitude, longitude, days=3)
@@ -364,7 +372,7 @@ class WeatherService:
         Returns:
             Dictionary with frost risk assessment
         """
-        logger.info(f"[WEATHER] Checking frost risk for {latitude}, {longitude}")
+        logger.info("[WEATHER] Checking frost risk")
 
         forecast = WeatherService.get_forecast(latitude, longitude, days=days_ahead)
 
@@ -443,4 +451,4 @@ class WeatherService:
         for key in cache_keys:
             cache.delete(key)
 
-        logger.info(f"[CACHE] INVALIDATED weather cache for {latitude}, {longitude}")
+        logger.info("[CACHE] INVALIDATED weather cache")
