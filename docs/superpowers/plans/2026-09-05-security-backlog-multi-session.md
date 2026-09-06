@@ -247,13 +247,24 @@ That closes the loop: a suppression outliving its fix reaches a human within a w
 
 #### 2d. Block new advisories — merge-base diff, no new permissions
 
-> **NOT SHIPPED.** PR #658 delivered 2a, 2b, 2c and 2e; this job was not
-> written. `grep -n new-vuln-gate .github/workflows/security-scan.yml`
-> returns nothing on `main` as of 2026-09-05 (found during slice 1).
-> **Do not add `"No new dependency advisories"` to branch protection** —
-> a required check that never reports deadlocks every PR, which is the
-> exact failure this plan warns about two sections below. Either build the
-> job first, or drop the item; it is not a prerequisite for slices 2–6.
+> **SHIPPED 2026-09-06** as `new-vuln-gate` in `.github/workflows/security-scan.yml`,
+> with `scripts/new_vuln_gate.py` + 19 tests wired into `harness-ci`. Two
+> deviations from the design above, both deliberate:
+>
+> - **Dependabot is exempt from blocking, not from reporting** (`--warn-only`
+>   when `github.actor == 'dependabot[bot]'`). Every Dependabot PR here exists
+>   to close advisories — the config is security-updates-only — and a bump that
+>   closes several can surface one new transitive advisory. Failing those PRs
+>   would be backwards.
+> - **Each half is gated on its own manifest appearing in the diff**, not just
+>   the npm half. Otherwise every docs-only PR pays for two full dependency
+>   resolutions.
+>
+> **Still NOT in branch protection, deliberately** — do not add
+> `"No new dependency advisories"` to the required contexts until it has
+> reported on several real PRs including a Dependabot one. On 2026-09-05
+> requiring the CodeQL contexts deadlocked every Dependabot PR; the file half
+> comes first, protection second.
 
 New `new-vuln-gate` job, `if: github.event_name == 'pull_request'`, `contents: read`
 only. Audit base and head **in the same run** (identical advisory DB), fail on ids

@@ -32,6 +32,8 @@ name: Harness CI
       - 'docs/rules/**'
       - 'scripts/check_suppressions.py'
       - 'scripts/test_check_suppressions.py'
+      - 'scripts/new_vuln_gate.py'
+      - 'scripts/test_new_vuln_gate.py'
       - '.github/security-suppressions.yml'
       - '.github/workflows/harness-ci.yml'
   pull_request:
@@ -78,3 +80,6 @@ jobs:
           # suppression expiring mid-review cannot block an unrelated PR; the
           # expiry recheck lives in security-scan.yml's scheduled run.
           python3 scripts/check_suppressions.py --validate
+
+      - name: New-advisory gate
+        run: python3 scripts/test_new_vuln_gate.py
