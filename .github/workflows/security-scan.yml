@@ -310,12 +310,32 @@ jobs:
           pip install pip-audit
           mkdir -p /tmp/gate
           git show "$BASE_SHA:backend/requirements.txt" > /tmp/gate/base-requirements.txt
+          # `cd backend` is load-bearing. requirements.txt ends with
+          # `-e ./packages/wagtail_forum`, a path relative to THAT directory, and
+          # pip resolves relative requirement paths against the CURRENT WORKING
+          # DIRECTORY, not against the requirements file. Auditing from the repo
+          # root made pip reject it ("not a valid editable requirement"), so both
+          # audits produced no JSON and the compare step below died on a missing
+          # baseline -- the pip half of this gate had never once returned a result.
+          # The blocking `backend-security` job above got this right by accident,
+          # because it happens to `cd backend` for unrelated reasons.
+          cd backend
           # `|| true`: pip-audit exits non-zero merely because advisories exist.
           # The report is the artefact we want; the diff decides pass/fail.
           pip-audit -r /tmp/gate/base-requirements.txt --format json \
             --output /tmp/gate/base-pip.json || true
-          pip-audit -r backend/requirements.txt --format json \
+          pip-audit -r requirements.txt --format json \
             --output /tmp/gate/head-pip.json || true
+          # That `|| true` cannot tell "advisories found" from "pip-audit crashed",
+          # which is exactly how the cwd bug stayed invisible. Assert the artefacts
+          # HERE, where the failing command's output is directly above, rather than
+          # letting the compare step report a missing file two steps later.
+          for f in /tmp/gate/base-pip.json /tmp/gate/head-pip.json; do
+            if [ ! -s "$f" ]; then
+              echo "::error::pip-audit produced no report at $f - see its output above"
+              exit 1
+            fi
+          done
 
       - name: Set up Node.js
         if: steps.scope.outputs.npm == 'true'
@@ -335,6 +355,14 @@ jobs:
           # --package-lock-only: resolve from the lockfile, no install.
           (cd /tmp/gate/base-web && npm audit --package-lock-only --json > /tmp/gate/base-npm.json || true)
           (cd web && npm audit --package-lock-only --json > /tmp/gate/head-npm.json || true)
+          # Same assertion as the pip side: a crashed audit and a clean audit are
+          # indistinguishable through `|| true`, and silence must not read as pass.
+          for f in /tmp/gate/base-npm.json /tmp/gate/head-npm.json; do
+            if [ ! -s "$f" ]; then
+              echo "::error::npm audit produced no report at $f - see its output above"
+              exit 1
+            fi
+          done
 
       # Dependabot is exempt from BLOCKING, not from reporting. Every Dependabot
       # PR here exists to close advisories (the config is security-updates-only),

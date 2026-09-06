@@ -11,10 +11,11 @@ from functools import wraps
 from typing import Dict, List, Optional, Union
 
 import requests
+from apps.core.utils.pii_safe_logging import log_safe_api_error
 from django.conf import settings
 from django.core.cache import cache
 
-from ..exceptions import APIUnavailable, RateLimitExceeded
+from ..exceptions import RateLimitExceeded
 
 logger = logging.getLogger(__name__)
 
@@ -77,21 +78,30 @@ def retry_on_failure(max_retries=3, backoff_factor=1):
                     return func(*args, **kwargs)
                 except requests.exceptions.RequestException as e:
                     last_exception = e
+                    # NEVER interpolate `e` here. This decorator wraps the
+                    # Trefle request methods, whose session carries
+                    # `token=<TREFLE_API_KEY>` on every call, and requests
+                    # builds its exception message from the prepared URL — so
+                    # a raw `{e}` leaked the key once per retry, three times
+                    # per failed call.
                     if attempt < max_retries - 1:  # Don't sleep on last attempt
                         sleep_time = backoff_factor * (2**attempt)
                         logger.warning(
-                            f"API call failed (attempt {attempt + 1}/{max_retries}), retrying in {sleep_time}s: {e}"
+                            f"API call failed (attempt {attempt + 1}/{max_retries}), "
+                            f"retrying in {sleep_time}s: {log_safe_api_error(e)}"
                         )
                         time.sleep(sleep_time)
                     else:
                         logger.error(
-                            f"API call failed after {max_retries} attempts: {e}"
+                            f"API call failed after {max_retries} attempts: "
+                            f"{log_safe_api_error(e)}"
                         )
 
             # If all retries failed, return None or raise the last exception
             if last_exception:
                 logger.error(
-                    f"Final failure after {max_retries} retries: {last_exception}"
+                    f"Final failure after {max_retries} retries: "
+                    f"{log_safe_api_error(last_exception)}"
                 )
             return None
 
@@ -217,7 +227,10 @@ class TrefleAPIService:
                 monitor.record_api_call("trefle", endpoint, success=False)
             raise
         except requests.exceptions.RequestException as e:
-            logger.error(f"Trefle API request failed: {url} - {str(e)}")
+            # NOT str(e): `session.params` carries `token=<TREFLE_API_KEY>` on
+            # EVERY request, and HTTPError's message is the prepared URL.
+            # `url` itself is the bare endpoint, so it stays.
+            logger.error(f"Trefle API request failed: {url} - {log_safe_api_error(e)}")
             monitor = self._get_monitor()
             if monitor:
                 monitor.record_api_call("trefle", endpoint, success=False)
@@ -503,10 +516,21 @@ class TrefleAPIService:
                 "api_key_valid": result is not None,
                 "last_check": "now",
             }
-        except Exception as e:
+        except Exception as exc:
+            # This dict is returned verbatim by the anonymous /status/ endpoint.
+            # `logger.exception` would format the traceback, whose last line is
+            # the exception message -- and for an HTTPError that message embeds
+            # the prepared URL, i.e. this service's own `token` parameter.
+            if isinstance(exc, requests.RequestException):
+                logger.error(
+                    "[TREFLE] Service status check failed: %s",
+                    log_safe_api_error(exc),
+                )
+            else:
+                logger.exception("[TREFLE] Service status check failed")
             return {
                 "status": "error",
                 "api_key_valid": False,
-                "error": str(e),
+                "error": "Service status check failed",
                 "last_check": "now",
             }

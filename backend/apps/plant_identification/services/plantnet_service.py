@@ -5,7 +5,6 @@ PlantNet API provides AI-powered plant identification from images.
 Documentation: https://my.plantnet.org/
 """
 
-import base64
 import hashlib
 import io
 import logging
@@ -13,6 +12,7 @@ from typing import Any, Dict, List, Optional, Union
 
 import requests
 from apps.core.exceptions import ExternalAPIError
+from apps.core.utils.pii_safe_logging import log_safe_api_error
 from django.conf import settings
 from django.core.cache import cache
 from django.core.files.base import ContentFile
@@ -160,7 +160,11 @@ class PlantNetAPIService:
             return result
 
         except requests.exceptions.RequestException as e:
-            logger.error(f"[ERROR] PlantNet API request failed: {str(e)}")
+            # NOT str(e): the key rides the query string as `api-key`, and
+            # HTTPError's message is "... for url: <prepared URL>".
+            logger.error(
+                f"[ERROR] PlantNet API request failed: {log_safe_api_error(e)}"
+            )
             if hasattr(e, "response") and e.response is not None:
                 logger.error(f"Response status: {e.response.status_code}")
                 logger.error(f"Response body: {e.response.text[:500]}")
@@ -268,7 +272,10 @@ class PlantNetAPIService:
             image_hash = hashlib.sha256(combined_image_data).hexdigest()
             organs_str = ":".join(sorted(organs) if organs else ["none"])
             modifiers_str = ":".join(sorted(modifiers) if modifiers else ["none"])
-            cache_key = f"plantnet:{self.API_VERSION}:{project}:{image_hash}:{organs_str}:{modifiers_str}:{include_related_images}"
+            cache_key = (
+                f"plantnet:{self.API_VERSION}:{project}:{image_hash}:"
+                f"{organs_str}:{modifiers_str}:{include_related_images}"
+            )
 
             # Check cache first
             cached_result = cache.get(cache_key)
@@ -293,7 +300,7 @@ class PlantNetAPIService:
                 )
 
             # Quota available - proceed with API call
-            logger.info(f"[QUOTA] PlantNet quota available (calling API)")
+            logger.info("[QUOTA] PlantNet quota available (calling API)")
 
             # Prepare multipart form data exactly like the working TypeScript implementation
             # Each organ is added separately, not as an array
@@ -321,8 +328,8 @@ class PlantNetAPIService:
         except CircuitBreakerError:
             # Circuit breaker is open - expected operational state, not an error
             logger.warning(
-                f"[CIRCUIT] PlantNet circuit breaker open - service degraded "
-                f"(failing fast without API call)"
+                "[CIRCUIT] PlantNet circuit breaker open - service degraded "
+                "(failing fast without API call)"
             )
             raise ExternalAPIError(
                 "PlantNet service is temporarily unavailable. Please try again in a few moments.",
@@ -497,7 +504,7 @@ class PlantNetAPIService:
             return response.json()
 
         except requests.exceptions.RequestException as e:
-            logger.error(f"PlantNet projects request failed: {str(e)}")
+            logger.error(f"PlantNet projects request failed: {log_safe_api_error(e)}")
             return None
 
     def get_available_projects(self) -> List[Dict[str, Any]]:
@@ -564,16 +571,28 @@ class PlantNetAPIService:
                 return {
                     "status": "unavailable",
                     "api_key_valid": False,
-                    "error": f"HTTP {response.status_code}: {response.text[:100]}",
+                    "error": f"HTTP {response.status_code}",
                     "projects_available": len(self.PROJECTS),
                     "last_check": "now",
                 }
 
-        except Exception as e:
+        except Exception as exc:
+            # This dict is returned verbatim by the anonymous /status/ endpoint.
+            # The detail belongs in the log -- but `logger.exception` formats the
+            # traceback, whose last line is the exception message, and for an
+            # HTTPError that message embeds the prepared URL (i.e. `api-key`).
+            # Keep the traceback only when it did not come from the HTTP client.
+            if isinstance(exc, requests.RequestException):
+                logger.error(
+                    "[PLANTNET] Service status check failed: %s",
+                    log_safe_api_error(exc),
+                )
+            else:
+                logger.exception("[PLANTNET] Service status check failed")
             return {
                 "status": "error",
                 "api_key_valid": False,
-                "error": str(e),
+                "error": "Service status check failed",
                 "projects_available": len(self.PROJECTS),
                 "last_check": "now",
             }

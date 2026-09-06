@@ -1555,11 +1555,22 @@ def validate_environment():
     else:
         # Test Redis connection (Issue #156)
         try:
+            from urllib.parse import urlsplit
+
             import redis
 
             r = redis.from_url(redis_url)
             r.ping()
-            logger.info(f"✅ Redis connection successful: {redis_url}")
+            # Log the endpoint only — REDIS_URL carries the password in its
+            # userinfo component, and this runs on every process start.
+            # `.port` is None when the URL omits one (managed Redis often does),
+            # so fall back rather than printing the literal string "None".
+            _redis_parts = urlsplit(redis_url)
+            _redis_port = _redis_parts.port or "default"
+            logger.info(
+                f"✅ Redis connection successful: {_redis_parts.hostname}"
+                f":{_redis_port}{_redis_parts.path}"
+            )
         except redis.ConnectionError as e:
             critical_errors.append(
                 f"Redis connection failed: {e}. "
