@@ -4863,3 +4863,52 @@ Verification shape that made all of this cheap: `pip install --dry-run -r
 combinations can be tested before a single line is written. It does not prove
 *behaviour* — cryptography crossed two major versions here, and only CI's fresh
 install and full suite could speak to that.
+
+## 2026-09-06 — A config validator that *warns* about a fatal-class misconfiguration silently permits it (todo 359)
+
+Investigating why SQLite appears throughout a Postgres-only repo turned up one
+finding with teeth. `settings.py:304` defaults `DATABASE_URL` to
+`sqlite:///db.sqlite3` — legitimately, because the Dockerfile's
+`compilemessages`/`collectstatic` steps and CI's `backend-checks` job need
+settings to import with no database. But `validate_environment()`
+(`settings.py:1639`) classed "SQLite while `DEBUG=False`" as a **warning**, and
+only `critical_errors` raises `ImproperlyConfigured`. So the guard existed,
+fired correctly, and stopped nothing.
+
+**What made it dangerous was the deploy shape, not the check.** The instinct is
+"a wrong `DATABASE_URL` would obviously blow up." It does not. Running
+`railway.json`'s real `preDeployCommand` against a throwaway SQLite file with
+`DEBUG=False` and every production-required var supplied:
+
+```
+manage.py migrate --noinput    -> exit 0   (the Postgres-only DDL self-skipped
+                                            via its connection.vendor guards —
+                                            the guards that make SQLite dev work
+                                            are exactly what make this silent)
+manage.py seed_default_forum   -> exit 0   "Created ForumIndex 'forum'."
+manage.py seed_default_badges  -> exit 0   "Seeded 5 missing badge(s) of 5."
+```
+
+A dropped or typo'd `DATABASE_URL` therefore produces a **fully green deploy**
+that passes its healthcheck and serves an empty forum from a database that dies
+with the container. `docs/deployment/railway.md` notes a failing preDeploy
+safely keeps the previous deployment serving — that net never engages, because
+nothing fails. The only signal is one `logger.warning` whose text
+("PostgreSQL strongly recommended for performance") reads as a perf suggestion.
+
+**Rule**: in `validate_environment()`, classify by *consequence*, not by
+confidence. Anything that would let the service boot and serve wrong or empty
+data belongs in `critical_errors` (fatal when `not DEBUG`), not `warnings`. The
+correct shape already existed one screen up at `settings.py:1509-1521`, where
+the R2 credential check does exactly this and its comment gives the same
+reasoning — "would otherwise construct S3Storage with empty credentials and boot
+clean, failing later with an opaque low-level boto3 error far from the real
+misconfiguration."
+
+**Method note worth keeping**: the severity claim was wrong until it was run.
+The reasonable-sounding version ("the preDeploy would crash, so it's low
+severity") and the real behaviour differ, and only executing the actual deploy
+chain distinguished them. When rating a latent misconfiguration, run the
+production command sequence against the broken config rather than reasoning
+about what it would do — a vendor-guarded migration set is specifically built to
+*not* fail on the other engine.
