@@ -27,7 +27,7 @@ Full dump kept at the alert numbers below; clusters, not individual alerts,
 are the unit of work.
 
 | n | Rule | Severity | Where |
-|---|------|----------|-------|
+| --- | ------ | ---------- | ------- |
 | 16 | `py/clear-text-logging-sensitive-data` | high | 8× `weather_service.py`, 2× `settings.py`, `care_assistant_service.py`, `ratelimit.py:143`, plus 4 in dev/test scripts |
 | 12 | `py/stack-trace-exposure` | medium | 5× `blog/api_views.py`, 2× `plant_identification/urls.py`, 2× `simple_views.py`, `simple_urls.py`, `file_validation.py`, `wagtail_forum/api/serializers.py:1471` |
 | 8 | `py/url-redirection` | medium | all 8 in `apps/users/oauth_views.py` (lines 129–189) |
@@ -188,7 +188,7 @@ analysis on `main` confirms closure.**
 **Shipped — four slices, all CI-green, none merged yet:**
 
 | PR | Slice | Alerts |
-|----|-------|--------|
+| ---- | ------- | -------- |
 | #670 | Redis password + OpenWeather key + coordinate logs + `log_safe_ip` on the ratelimit diagnostic | 9 |
 | #671 | `py/stack-trace-exposure` — 11 sites, incl. the 3 anonymous ones | 11 |
 | #672 | OAuth `SUPPORTED_PROVIDERS` allowlist, both mounts | 8 |
@@ -204,7 +204,7 @@ slices merge and `main` re-analyses, because a dismissal applied before a later
 slice shifts a file's fingerprints comes straight back:
 
 | Alert(s) | Reason | Rationale |
-|---|---|---|
+| --- | --- | --- |
 | #64, #65 | false positive | Taint is the `api_key_checks` tuple (`settings.py:1527`); the message at `:1536` interpolates only `key_name`, `len(key_value)`, `min_length`. No key material. |
 | #106 | false positive | Flagged expression is `proxy_count`, an int from `getattr(settings, ..., 0)`. (The unmasked client IPs beside it were fixed in #670.) |
 | #66 | false positive | Source is the hardcoded `CACHE_KEY_CARE_PLAN` literal (`garden/constants.py:24`); the logged value is a species name + climate zone. |
@@ -218,6 +218,82 @@ that shifts a line in `settings.py`; two files (`ForumSkeleton.tsx`,
 `types/diagnosis.ts`) were already prettier-dirty on `main` and block every web
 commit; several touched backend files carried pre-existing flake8 debt that
 blocks any commit touching them, since pre-commit lints whole files.
+
+### 2026-09-06 - Review round 1, and four more leaks the first pass missed
+
+Independent review of the four code slices (django-drf-reviewer,
+react-typescript-reviewer). Every finding below was re-verified here by
+executing the path before it was acted on.
+
+**The important one: the fix pass was incomplete.** Slice 1 closed OpenWeather
+and Redis. It missed **Trefle and PlantNet, which leak by the same mechanism**
+— both authenticate with a QUERY PARAMETER (`token`, `api-key`), so the
+prepared URL in `requests`' exception message carries the key:
+
+```text
+str(HTTPError) == "401 Client Error: Unauthorized for url:
+                   https://trefle.io/api/v1/plants/search?token=<THE KEY>&q=rose"
+```
+
+`trefle_service.py:126` sets `token` on `session.params`, so it rides *every*
+request. Six sites, closed in #671 — and the worst was
+`retry_on_failure`, which logged the exception once per attempt, so a failing
+call leaked the key three times. Two of the six were `logger.exception` calls
+**this todo's own slice 2 had just added**: moving `str(e)` out of the response
+body and into a traceback does not redact it, because the traceback ends with
+the same message.
+
+How they were found is the transferable part: not by reading, but by listing
+every file the *new JIT trigger* would fire on, then asking of each whether its
+key rides the URL or a header. Header-authenticated clients (Plant.id,
+plant.health, Unsplash, Pexels) are safe by construction. The count in the
+entry above is therefore wrong in the todo's favour: CodeQL raised 16
+clear-text-logging alerts and **none** of them was one of the four real leaks.
+
+**A test of mine verified nothing.**
+`test_service_status_dicts_carry_no_exception_text` built the service with
+`__new__` (so `self.session` never existed) and patched the module's `requests`
+attribute (which does not affect `self.session.get`). The exception actually
+raised was `AttributeError`, so `assert BOOM not in ...` passed whether or not
+the fix was present. Rewritten to force a real `HTTPError` with a keyed URL and
+assert the key reaches neither body nor log. Second-order version of the same
+defect: the first rewrite used `caplog`, and the `apps.*` loggers are
+`propagate=False`, so those assertions would also have passed vacuously — the
+test now attaches its own handler.
+
+**Other findings, all fixed:**
+
+- `ratelimit.py` — my comment claimed `log_safe_ip` destroys "the identifying
+  low bits". False: it shows two IPv4 octets plus an *unsalted* sha256 prefix,
+  so the rest is a 2^16 search. Measured: `203.0.113.42` recovered from the
+  masked line in **0.014s**. Comment now says obfuscation, not anonymization.
+- `oauth_views.py` — the allowlist was pinned to a *copy* of itself in the
+  tests, so adding a provider without a dispatch branch would silently 400 with
+  the `else` arms marked `pragma: no cover`. Tests now parametrise over
+  `SUPPORTED_PROVIDERS`; mutation adding `facebook` fails 4 tests.
+- `oauth_views.py` — the raw `?error=` value was logged verbatim (log forging).
+  Conforming RFC 6749 codes pass through; anything else logs as a shape.
+- `settings.py` — `urlsplit(...).port` is `None` for a portless `REDIS_URL`, so
+  the line read `host:None/1`.
+- `forumBody.ts` — the JSDoc claimed numeric whitespace entities were "the ONLY
+  behavioural difference, measured". Re-probed across 17 inputs: **five**
+  classes diverge (add malformed attributes, `<script>`, `<style>`). Two tests
+  differentiated nothing — one asserted a case where both implementations
+  agree, the other was `typeof x === 'boolean'`.
+
+**Codified** (#670): `docs/rules/security.md` gains the two rules, and
+`triggers.json` 92 -> 94 gains `requests-exception-interpolated` and
+`connection-url-in-log`, both proven to fire on the pre-fix source and go quiet
+on the post-fix source.
+
+**Dependency PRs settled alongside:** #666/#667 (Dependabot) and #669 delivered
+the identical wrangler 4.129.0 tree, but #669's locally-regenerated lockfile had
+dropped all 16 `libc` glibc/musl discriminators for sharp. #669 now carries the
+bot's lockfile blob verbatim; #666/#667 close as superseded.
+
+**Status unchanged — this stays `pending`.** The 11 dismissals above still run
+last, after `main` re-analyses. Widening the AST drift guard from the two
+query-string services to the whole service layer is **todo 358**.
 
 ## Notes
 
