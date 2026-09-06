@@ -112,6 +112,38 @@ def log_safe_ip(ip_address: Optional[str]) -> str:
         return "ip:error***00000000"
 
 
+def log_safe_api_error(exc: Optional[BaseException]) -> str:
+    """
+    Summarize an outbound-HTTP exception without its URL.
+
+    ``requests`` builds its exception message from the **prepared** URL --
+    ``"401 Client Error: Unauthorized for url: https://host/p?token=..."`` --
+    so ``str(exc)`` writes any query-string credential into the log, and so
+    does ``logger.exception``, whose traceback ends with that same message.
+    Trefle sends its key as ``token`` and PlantNet as ``api-key``, so every
+    4xx/5xx from either used to log the key. Nothing at the log site mentions
+    a key, which is why neither a reader nor a taint scanner catches it.
+
+    Args:
+        exc: The exception raised by the HTTP client
+
+    Returns:
+        Exception type plus the response status, when there is one
+
+    Example:
+        >>> log_safe_api_error(HTTPError("401 ... for url: ...?token=s3cret"))
+        "HTTPError(status=401)"
+    """
+    if exc is None:
+        return "unknown-error"
+
+    try:
+        status = getattr(getattr(exc, "response", None), "status_code", None)
+        return f"{type(exc).__name__}(status={status})"
+    except Exception:
+        return "error"
+
+
 def log_safe_user_context(user, include_email: bool = False) -> str:
     """
     Create a GDPR-compliant user context string for logging.

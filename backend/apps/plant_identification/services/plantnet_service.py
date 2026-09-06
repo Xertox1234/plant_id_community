@@ -12,6 +12,7 @@ from typing import Any, Dict, List, Optional, Union
 
 import requests
 from apps.core.exceptions import ExternalAPIError
+from apps.core.utils.pii_safe_logging import log_safe_api_error
 from django.conf import settings
 from django.core.cache import cache
 from django.core.files.base import ContentFile
@@ -159,7 +160,11 @@ class PlantNetAPIService:
             return result
 
         except requests.exceptions.RequestException as e:
-            logger.error(f"[ERROR] PlantNet API request failed: {str(e)}")
+            # NOT str(e): the key rides the query string as `api-key`, and
+            # HTTPError's message is "... for url: <prepared URL>".
+            logger.error(
+                f"[ERROR] PlantNet API request failed: {log_safe_api_error(e)}"
+            )
             if hasattr(e, "response") and e.response is not None:
                 logger.error(f"Response status: {e.response.status_code}")
                 logger.error(f"Response body: {e.response.text[:500]}")
@@ -499,7 +504,7 @@ class PlantNetAPIService:
             return response.json()
 
         except requests.exceptions.RequestException as e:
-            logger.error(f"PlantNet projects request failed: {str(e)}")
+            logger.error(f"PlantNet projects request failed: {log_safe_api_error(e)}")
             return None
 
     def get_available_projects(self) -> List[Dict[str, Any]]:
@@ -571,10 +576,19 @@ class PlantNetAPIService:
                     "last_check": "now",
                 }
 
-        except Exception:
-            # This dict is returned verbatim by the anonymous /status/ endpoint,
-            # so the exception text stays in the log (CodeQL #114).
-            logger.exception("[PLANTNET] Service status check failed")
+        except Exception as exc:
+            # This dict is returned verbatim by the anonymous /status/ endpoint.
+            # The detail belongs in the log -- but `logger.exception` formats the
+            # traceback, whose last line is the exception message, and for an
+            # HTTPError that message embeds the prepared URL (i.e. `api-key`).
+            # Keep the traceback only when it did not come from the HTTP client.
+            if isinstance(exc, requests.RequestException):
+                logger.error(
+                    "[PLANTNET] Service status check failed: %s",
+                    log_safe_api_error(exc),
+                )
+            else:
+                logger.exception("[PLANTNET] Service status check failed")
             return {
                 "status": "error",
                 "api_key_valid": False,
