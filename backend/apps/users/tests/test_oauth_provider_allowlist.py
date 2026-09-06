@@ -15,6 +15,7 @@ The view is mounted twice, so both mounts are exercised.
 """
 
 import pytest
+from apps.users.oauth_views import SUPPORTED_PROVIDERS
 from django.core.cache import cache
 from django.test import Client
 
@@ -69,7 +70,11 @@ def test_plain_unknown_provider_is_refused(template):
 
 @pytest.mark.django_db
 @pytest.mark.parametrize("template", MOUNTS)
-@pytest.mark.parametrize("provider", ["google", "github"])
+# Parametrised over the allowlist itself, not a copy of it: adding a
+# provider to SUPPORTED_PROVIDERS without a matching branch in both
+# if/elif dispatches must fail here, since those `else` arms are marked
+# `pragma: no cover` and coverage would not flag them going live.
+@pytest.mark.parametrize("provider", sorted(SUPPORTED_PROVIDERS))
 def test_supported_providers_still_redirect(template, provider):
     """The guard must not break the real flow: a supported provider with no
     `code` still redirects to the frontend as before."""
@@ -95,7 +100,11 @@ def test_login_endpoint_refuses_an_unknown_provider():
         "/api/v1/auth/oauth/{provider}/login/",
     ],
 )
-@pytest.mark.parametrize("provider", ["google", "github"])
+# Parametrised over the allowlist itself, not a copy of it: adding a
+# provider to SUPPORTED_PROVIDERS without a matching branch in both
+# if/elif dispatches must fail here, since those `else` arms are marked
+# `pragma: no cover` and coverage would not flag them going live.
+@pytest.mark.parametrize("provider", sorted(SUPPORTED_PROVIDERS))
 def test_login_endpoint_still_serves_supported_providers(path, provider):
     """The guard sits ahead of oauth_login's whole body, so this is the one
     happy path it could plausibly have broken: the frontend calls this endpoint

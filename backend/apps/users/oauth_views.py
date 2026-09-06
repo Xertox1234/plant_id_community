@@ -3,6 +3,7 @@ Custom OAuth views for handling social authentication with JWT token generation.
 """
 
 import logging
+import re
 import secrets
 from urllib.parse import urlencode
 
@@ -26,6 +27,10 @@ logger = logging.getLogger(__name__)
 # reshape the query/fragment of the frontend URL we redirect to. Validating up
 # front makes that unreachable rather than merely harmless.
 SUPPORTED_PROVIDERS = frozenset({"google", "github"})
+
+# RFC 6749 §4.1.2.1 error codes are `*( %x20-21 / %x23-5B / %x5D-7E )`; this is
+# the conservative subset every real provider uses, plus a length cap.
+_OAUTH_ERROR_CODE = re.compile(r"[A-Za-z0-9_.:-]{1,64}")
 
 
 def get_oauth_redirect_url(provider):
@@ -147,7 +152,17 @@ def oauth_callback(request, provider):
         error = request.GET.get("error")
 
         if error:
-            logger.warning(f"OAuth error for {provider}: {error}")
+            # `error` is attacker-controlled — it arrives verbatim in the query
+            # string, and a newline in it forges a second log line. RFC 6749
+            # §4.1.2.1 error codes are ASCII tokens, so anything else is logged
+            # as a shape rather than a value. (`provider` is already allowlisted
+            # above.) The redirect below urlencodes the same value.
+            safe_error = (
+                error
+                if _OAUTH_ERROR_CODE.fullmatch(error)
+                else f"<non-conforming, {len(error)} chars>"
+            )
+            logger.warning("OAuth error for %s: %s", provider, safe_error)
             # Redirect to frontend with error
             frontend_url = get_oauth_redirect_url(provider)
             return HttpResponseRedirect(f"{frontend_url}?{urlencode({'error': error})}")
