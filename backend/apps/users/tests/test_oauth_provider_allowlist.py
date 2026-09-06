@@ -85,3 +85,26 @@ def test_login_endpoint_refuses_an_unknown_provider():
 
     assert resp.status_code == 400
     assert RAW_CRAFTED not in resp.content.decode()
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    "path",
+    [
+        "/api/auth/oauth/{provider}/login/",
+        "/api/v1/auth/oauth/{provider}/login/",
+    ],
+)
+@pytest.mark.parametrize("provider", ["google", "github"])
+def test_login_endpoint_still_serves_supported_providers(path, provider):
+    """The guard sits ahead of oauth_login's whole body, so this is the one
+    happy path it could plausibly have broken: the frontend calls this endpoint
+    to get `oauth_url` before it ever reaches a callback."""
+    resp = Client().get(path.format(provider=provider))
+
+    # 503 is the legitimate "OAuth app not configured" answer; what must NOT
+    # happen is the 400 the allowlist returns for an unknown provider.
+    assert resp.status_code in (200, 503), resp.content.decode()[:200]
+    if resp.status_code == 200:
+        assert resp.json()["provider"] == provider
+        assert resp.json()["oauth_url"].startswith("https://")
