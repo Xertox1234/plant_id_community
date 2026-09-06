@@ -57,16 +57,21 @@ def test_topic_detail_returns_live_topic():
     }
     assert resp.data["opening_post_id"] == opening.id
     # Anonymous is_subscribed/is_bookmarked both short-circuit with zero extra
-    # queries (todo 253 slice 3, todo 283 / M2) — the pin below stays 5, not
-    # 7, for this request.
+    # queries (todo 253 slice 3, todo 283 / M2) — the pin below stays 4, not
+    # 6, for this request.
     assert resp.data["is_subscribed"] is False
     assert resp.data["is_bookmarked"] is False
-    # Exactly 5: page-view-restriction check, topic fetch (select_related board +
+    # Exactly 4: page-view-restriction check, topic fetch (select_related board +
     # author/last_post_author down to ForumProfile.avatar — LEFT JOINs, no extra
-    # queries), opening-post id lookup, post refetch by id, and the tags prefetch
-    # (todo 276 / M5).
+    # queries), opening-post id lookup, and the tags prefetch (todo 276 / M5).
+    # Was 5 until Django 6.1: get_opening_post_id's `.only("id").first()` used to
+    # cost a second, redundant `SELECT id, topic_id ... WHERE id = <pk>` refetch of
+    # the row it had just identified. Django 6.1's deferred-field fetch modes drop
+    # it — same response, one query less. Verified by diffing captured SQL on 6.0.7
+    # vs 6.1.1: the only query that disappears is that PK refetch; the liveness and
+    # page-view-restriction checks are untouched.
     # Pinned EXACTLY (docs/rules/testing.md) — if this changes, explain the new count here.
-    assert len(ctx.captured_queries) == 5
+    assert len(ctx.captured_queries) == 4
 
 
 @pytest.mark.django_db
@@ -97,7 +102,7 @@ def test_topic_detail_is_subscribed_for_authenticated_user():
     with CaptureQueriesContext(connection) as ctx:
         resp = client.get(f"/forum/topics/{topic.id}/")
     assert resp.data["is_subscribed"] is True
-    # Pinned EXACTLY (docs/rules/testing.md): the anonymous pin (5, incl. the
+    # Pinned EXACTLY (docs/rules/testing.md): the anonymous pin (4, incl. the
     # todo-276 tags prefetch) + one TopicSubscription.objects.filter(...).exists()
     # + one TopicBookmark.objects.filter(...).exists() (todo 283 / M2, same
     # shape as the subscription check — this test doesn't bookmark, so it's
@@ -110,7 +115,7 @@ def test_topic_detail_is_subscribed_for_authenticated_user():
     # short-circuits on `user.pk == self.author_id`. Plus ONE for the todo 301
     # presence touch (an UPDATE on the caller's own ForumProfile, throttled —
     # every authenticated forum request pays this once).
-    assert len(ctx.captured_queries) == 10
+    assert len(ctx.captured_queries) == 9
 
     client.force_authenticate(non_subscriber)
     resp = client.get(f"/forum/topics/{topic.id}/")
@@ -141,10 +146,10 @@ def test_topic_detail_is_bookmarked_for_authenticated_user():
         resp = client.get(f"/forum/topics/{topic.id}/")
     assert resp.data["is_bookmarked"] is True
     assert resp.data["is_subscribed"] is False
-    # Same pin as test_topic_detail_is_subscribed_for_authenticated_user (10)
+    # Same pin as test_topic_detail_is_subscribed_for_authenticated_user (9)
     # — see that test's comment for the full breakdown (incl. the todo 301
     # presence touch).
-    assert len(ctx.captured_queries) == 10
+    assert len(ctx.captured_queries) == 9
 
     client.force_authenticate(non_bookmarker)
     resp = client.get(f"/forum/topics/{topic.id}/")
@@ -275,9 +280,9 @@ def test_view_count_does_not_add_queries_to_response():
         resp = APIClient().get(f"/forum/topics/{topic.id}/")
 
     assert resp.status_code == 200
-    # Same 5 as the topic-detail pin above (4 + the todo-276 tags prefetch) —
+    # Same 4 as the topic-detail pin above (3 + the todo-276 tags prefetch) —
     # the point of this test is that view_count adds NO query, not the absolute.
-    assert len(ctx.captured_queries) == 5
+    assert len(ctx.captured_queries) == 4
 
 
 # ---- read-recording (todo 253 slice 5, H10) ---------------------------------

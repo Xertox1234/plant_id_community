@@ -780,11 +780,11 @@ def test_multi_choice_poll_costs_no_more_queries_than_single_choice():
     assert [o["vote_count"] for o in detail.data["poll"]["options"]] == [2, 2, 2]
     assert len(multi_ctx.captured_queries) == len(single_ctx.captured_queries)
     # Absolute as well as relative (kimi-review, PR #634): the anonymous
-    # poll-less detail is 5 (test_a_poll_less_topic_detail_query_count_is_
+    # poll-less detail is 4 (test_a_poll_less_topic_detail_query_count_is_
     # unchanged_by_the_poll_field) + ONE options query that carries the
     # distinct-voter subquery. A regression that made the total a separate
     # query would move both counts together and pass the equality alone.
-    assert len(multi_ctx.captured_queries) == 6
+    assert len(multi_ctx.captured_queries) == 5
 
 
 @pytest.mark.django_db
@@ -890,14 +890,16 @@ def test_a_poll_less_topic_detail_query_count_is_unchanged_by_the_poll_field():
     and get_poll returns before touching options.
 
     Pinned EXACTLY (docs/rules/testing.md) against the SAME counts
-    test_topic_detail.py asserts without any poll in the picture: 5 anonymous,
-    10 for an authenticated non-author (the base 5 + a subscription check + a
-    bookmark check + the two can_mark_solution permission-table reads, per
-    that file's own breakdown — todo 283/293 landed after this test was
-    first written and raised the authenticated count from 8 to 10; the poll
-    field itself adds none of it). If either moves, the select_related has
-    been replaced by a prefetch (which runs its query for every request) and
-    the change must be explained in both places.
+    test_topic_detail.py asserts without any poll in the picture: 4 anonymous,
+    9 for an authenticated non-author (the base 4 + a subscription check + a
+    bookmark check + the two can_mark_solution permission-table reads + the
+    todo-301 presence touch, per that file's own breakdown — todo 283/293
+    landed after this test was first written and raised the authenticated
+    count from 8 to 10, and Django 6.1 then dropped the shared base by one —
+    see test_topic_detail.py's anonymous pin for why — bringing it to 9; the
+    poll field itself adds none of it). If either moves, the select_related
+    has been replaced by a prefetch (which runs its query for every request)
+    and the change must be explained in both places.
     """
     board = _board("pd3")
     author = User.objects.create_user(username="pd3-author")
@@ -907,14 +909,14 @@ def test_a_poll_less_topic_detail_query_count_is_unchanged_by_the_poll_field():
     with CaptureQueriesContext(connection) as anon_ctx:
         anon = APIClient().get(f"/forum/topics/{topic.id}/")
     assert anon.data["poll"] is None
-    assert len(anon_ctx.captured_queries) == 5
+    assert len(anon_ctx.captured_queries) == 4
 
     client = APIClient()
     client.force_authenticate(viewer)
     with CaptureQueriesContext(connection) as auth_ctx:
         auth = client.get(f"/forum/topics/{topic.id}/")
     assert auth.data["poll"] is None
-    assert len(auth_ctx.captured_queries) == 10
+    assert len(auth_ctx.captured_queries) == 9
 
 
 @pytest.mark.django_db

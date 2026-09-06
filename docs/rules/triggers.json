@@ -1552,5 +1552,20 @@
     "source": "codify: docs/codify-session-2026-09-06",
     "added": "2026-09-06",
     "severity": "warn"
+  },
+  {
+    "id": "pytest-blanket-deprecationwarning-ignore",
+    "domains": [
+      "testing"
+    ],
+    "path_glob": [
+      "*pytest.ini"
+    ],
+    "content_present": "ignore::(?:Pending)?DeprecationWarning\\s*$",
+    "message": "A blanket ignore::DeprecationWarning blinds the suite to RemovedInDjangoNNWarning (it subclasses DeprecationWarning) -- exactly the signal a framework upgrade needs, and nothing tells you it is blind. Use always:: to make it visible, or error:: once first-party warnings are cleared. Scope an ignore to the offending module (ignore::DeprecationWarning:taggit.*) rather than ignoring the class outright.",
+    "pattern_ref": "docs/rules/testing.md",
+    "source": "codify: chore/django-6.1-upgrade",
+    "added": "2026-09-06",
+    "severity": "warn"
   }
 ]

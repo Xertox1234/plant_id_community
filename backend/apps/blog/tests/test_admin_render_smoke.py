@@ -174,3 +174,45 @@ class WagtailAdminRenderSmokeTests(TestCase):
                 reverse(f"blog_admin:{name}", args=(page.id,)).encode(),
                 response.content,
             )
+
+    def test_page_edit_view_renders_the_form(self):
+        """The page EDIT form renders (200) with its fields, not a 500.
+
+        The listing test above renders page ROWS; this renders the editor
+        itself — Wagtail's form/panel/StreamField machinery plus every widget's
+        media. That is a strictly larger surface than the dashboard or the
+        explorer, and it is where a Django-version incompatibility inside
+        Wagtail surfaces first: the 2026-06-06 `format_html` incident in this
+        module's docstring reached the login page only because the raising hook
+        was global, and a breakage confined to form rendering would have shown
+        up here and nowhere else in this file.
+
+        Added while upgrading Django 6.0 -> 6.1 (Wagtail 7.4.3 declares
+        `Django>=5.2` with no upper bound but classifies only up to 6.0, so the
+        pairing is untested upstream). Asserts on rendered field content rather
+        than the bare status code, for the reason
+        test_blog_posts_summary_item_renders gives: a 200 alone can hide a
+        panel that silently failed to render.
+        """
+        author = User.objects.create_user(username="edit-view-author")
+        post = BlogPostPage(
+            title="Editable Post",
+            slug="editable-post",
+            author=author,
+            publish_date=date.today(),
+            introduction="<p>Intro.</p>",
+        )
+        self._blog_index().add_child(instance=post)
+        post.save_revision().publish()
+
+        admin = User.objects.create_superuser(username="root4", email="r4@x.io")
+        self.client.force_login(admin)
+        response = self.client.get(
+            reverse("wagtailadmin_pages:edit", args=(post.id,)), secure=True
+        )
+
+        self.assertEqual(response.status_code, 200)
+        # The title input carries the current value — proves the form bound and
+        # rendered, not merely that the view returned a page shell.
+        self.assertIn(b'name="title"', response.content)
+        self.assertIn(b"Editable Post", response.content)
