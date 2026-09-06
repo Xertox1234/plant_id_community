@@ -31,18 +31,6 @@ policy:
   max_expiry_days: 180
 
 pip_audit:
-  - id: CVE-2026-42304
-    package: Twisted
-    pinned: "25.5.0"
-    reason: >-
-      No stable fix existed at suppression time (the fix was RC-only 26.4.0rc2);
-      not reachable through app code.
-    clears_when: Twisted >= 26.4.0 stable releases.
-    added: "2026-05-20"
-    expires: "2026-11-16"
-    owner: "@Xertox1234"
-    tracked_by: "355"
-
   - id: PYSEC-2026-89
     package: Markdown
     pinned: "3.8.1"

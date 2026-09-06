@@ -222,3 +222,33 @@ Compact checklist auto-injected before edits. Long-form: `backend/docs/patterns/
   exception-shaped values are exactly the class a taint scanner does not
   follow, which is why CodeQL flagged 16 logging sites here and none of the
   four that carried credentials (todo 354).
+- **The step that produces an artefact must assert it produced it — `|| true`
+  turns "the tool crashed" into "the tool found nothing".** `new-vuln-gate`'s
+  pip half had never returned a result: it ran `pip-audit -r
+  backend/requirements.txt` from the repo ROOT, pip resolves a relative
+  requirement path against the CWD (so `-e ./packages/wagtail_forum` was
+  invalid), both audits died, `|| true` swallowed it, and the failure surfaced
+  two steps later as a missing file. Any command whose non-zero exit is
+  *expected* needs an explicit `[ -s "$out" ]` check in the same step, where the
+  failing output is still on screen (todo 354, PR #678).
+- **A bump that closes an advisory must clear its suppression in the same PR.**
+  `.github/security-suppressions.yml` kept a Twisted entry reading
+  `clears_when: Twisted >= 26.4.0 stable releases` after 26.4.0 shipped — its
+  `pinned:` field simply false, suppressing an advisory that no longer existed.
+  Grep the package name in that file whenever you bump it; `expires` will catch
+  it eventually, months late (todo 354).
+- **Choose fix-vs-dismiss on a scanner alert by whether the CODE should change,
+  never by which one you predict will clear the alert.** Todo 354 fixed 8
+  `py/url-redirection` alerts with a provider allowlist specifically because a
+  fix is durable and a dismissal is not — and closed zero of them, because
+  CodeQL does not model a `frozenset` membership test as a sanitizer (nor a
+  hand-rolled `escapeHtml`, todo 353). It models its own sanitizer list and
+  structural impossibility. Re-count after the merge; do not trust the plan.
+- **When a single-package bump cannot resolve, read the constraint before trying
+  another version.** `cryptography==50.0.0` failed; 49.0.0 (the other listed fix
+  version) fails identically, because `pyOpenSSL==26.2.0` caps it at `<49`. Bump
+  the capping package instead. And never merge an `rc`/`a`/`b` version into
+  production requirements without checking for a stable sibling — Dependabot
+  proposed `Twisted==26.4.0rc2` with green CI while 26.4.0 stable existed.
+  `pip install --dry-run -r <file>` proves resolution in seconds without
+  touching the venv; it does not prove behaviour (todo 354).

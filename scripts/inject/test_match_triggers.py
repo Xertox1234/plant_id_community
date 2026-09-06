@@ -815,5 +815,66 @@ class TestForumWagtailQuickWinTriggers(unittest.TestCase):
         self.assertNotIn("list-export-dotted-nullable-fk", ids(mt.find_matches(tn, ti, self.real, None)))
 
 
+class TestCiArtifactStepTrigger(unittest.TestCase):
+    """Todo 354 codification — asserted against the REAL docs/rules/triggers.json.
+
+    Fixtures are the shipped shapes from .github/workflows/security-scan.yml
+    before and after PR #678, not idealised versions: the pre-fix step wrote its
+    report and swallowed the exit code, so a crashed pip-audit was
+    indistinguishable from a clean audit and new-vuln-gate silently audited
+    nothing for months.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+        cls.real = mt.load_triggers(root)
+
+    PRE_FIX = (
+        "          pip-audit -r /tmp/gate/base-requirements.txt --format json \\\n"
+        "            --output /tmp/gate/base-pip.json || true\n"
+        "          pip-audit -r backend/requirements.txt --format json \\\n"
+        "            --output /tmp/gate/head-pip.json || true\n"
+    )
+
+    POST_FIX = PRE_FIX + (
+        "          for f in /tmp/gate/base-pip.json /tmp/gate/head-pip.json; do\n"
+        '            if [ ! -s "$f" ]; then\n'
+        '              echo "::error::pip-audit produced no report at $f"\n'
+        "              exit 1\n"
+        "            fi\n"
+        "          done\n"
+    )
+
+    def test_swallowed_failure_fires(self):
+        tn, ti = write(".github/workflows/security-scan.yml", self.PRE_FIX)
+        hits = mt.find_matches(tn, ti, self.real, None)
+        self.assertIn("ci-artifact-step-swallows-failure", ids(hits))
+
+    def test_redirect_form_also_fires(self):
+        # The npm half uses `> file.json || true` rather than --output.
+        tn, ti = write(
+            ".github/workflows/security-scan.yml",
+            "          (cd web && npm audit --json > /tmp/gate/head-npm.json || true)\n",
+        )
+        hits = mt.find_matches(tn, ti, self.real, None)
+        self.assertIn("ci-artifact-step-swallows-failure", ids(hits))
+
+    def test_asserted_artefact_is_silent(self):
+        # `|| true` is still present — the assertion below it is what suppresses.
+        tn, ti = write(".github/workflows/security-scan.yml", self.POST_FIX)
+        hits = mt.find_matches(tn, ti, self.real, None)
+        self.assertNotIn("ci-artifact-step-swallows-failure", ids(hits))
+
+    def test_unrelated_or_true_is_silent(self):
+        # `|| true` with no artefact written is not what this rule is about.
+        tn, ti = write(
+            ".github/workflows/security-scan.yml",
+            "          rm -f /tmp/gate/stale.lock || true\n",
+        )
+        hits = mt.find_matches(tn, ti, self.real, None)
+        self.assertNotIn("ci-artifact-step-swallows-failure", ids(hits))
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
