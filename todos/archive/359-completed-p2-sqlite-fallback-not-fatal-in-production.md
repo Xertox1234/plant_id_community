@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: p2
 issue_id: "359"
 tags: [backend, config, deployment, security]
@@ -190,21 +190,35 @@ radius of this change inside the test suite is those three cases.
 
 ## Acceptance Criteria
 
-- [ ] `manage.py check` with `DEBUG=False` and a `sqlite://` `DATABASE_URL`
+- [x] `manage.py check` with `DEBUG=False` and a `sqlite://` `DATABASE_URL`
       exits non-zero with a message naming `DATABASE_URL`
-- [ ] `manage.py check` with `DEBUG=True` and a `sqlite://` `DATABASE_URL`
+- [x] `manage.py check` with `DEBUG=True` and a `sqlite://` `DATABASE_URL`
       exits zero and still surfaces the warning
-- [ ] `backend-checks` CI job stays green (proves the DEBUG gate holds for
+- [x] `backend-checks` CI job stays green (proves the DEBUG gate holds for
       `check` / `makemigrations --check` / `spectacular`)
-- [ ] The two Dockerfile build commands still exit 0 when run standalone with
+- [x] The two Dockerfile build commands still exit 0 when run standalone with
       the Dockerfile's own env (`DEBUG=True`,
       `DATABASE_URL=sqlite:////tmp/build.sqlite3`, throwaway `JWT_SECRET_KEY`):
       `manage.py compilemessages -i venv` and `manage.py collectstatic --noinput`.
       A full `docker build` also proves it but is not required.
-- [ ] All of `apps/core/tests/test_r2_storage.py` passes with the new
+- [x] All of `apps/core/tests/test_r2_storage.py` passes with the new
       `BASE_ENV`
-- [ ] Full backend suite green, at or above the 609-passed baseline
-- [ ] `forum-prune-cron` confirmed to have `DATABASE_URL` set before merge
+- [x] Full backend suite green, at or above the 609-passed baseline
+- [x] `forum-prune-cron` confirmed to have `DATABASE_URL` set before merge
+
+### 2026-09-06 - Verification
+
+- Production SQLite guard: the new subprocess regression tests cover `DEBUG=False` fatal behavior and `DEBUG=True` warning behavior; `apps/core/tests/test_r2_storage.py` passed `11 passed`.
+- CI-style checks with DEBUG=True and SQLite passed: `manage.py check` reported `System check identified no issues (0 silenced)`, `makemigrations --check --dry-run` reported `No changes detected`, and `manage.py spectacular --file /dev/null` exited 0 with only the existing schema diagnostics.
+- Dockerfile build commands passed with DEBUG=True and SQLite: `compilemessages -i venv` completed successfully and `collectstatic --noinput` copied 275 static files.
+- Full backend suite: `2273 passed, 8 skipped, 5 warnings`.
+- Railway CLI verification in the production environment reported `forum-prune-cron` as `Completed`; a secrets-safe variable-name check confirmed `DATABASE_URL_present=True` without printing values.
+- `git diff --check` passed. Focused review rounds found no critical, high, or medium findings.
+
+### 2026-09-06 - Completed by completing-todos skill
+
+- Verification: all seven acceptance criteria passed with the evidence above.
+- Review: no critical, high, or medium findings; the DEBUG warning-path assertion was strengthened after review.
 
 ## Notes
 
