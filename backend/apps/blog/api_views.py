@@ -102,9 +102,9 @@ class PlantLookupView(View):
                 {"success": False, "error": "Invalid JSON data"}, status=400
             )
         except Exception as e:
-            logger.error(f"Error in plant lookup: {str(e)}")
+            logger.error(f"Error in plant lookup: {str(e)}", exc_info=True)
             return JsonResponse(
-                {"success": False, "error": f"Internal server error: {str(e)}"},
+                {"success": False, "error": "Internal server error"},
                 status=500,
             )
 
@@ -185,8 +185,11 @@ class PlantSuggestionsView(View):
             )
 
         except Exception as e:
-            logger.error(f"Error getting plant suggestions: {str(e)}")
-            return JsonResponse({"success": False, "error": str(e)}, status=500)
+            logger.error(f"Error getting plant suggestions: {str(e)}", exc_info=True)
+            return JsonResponse(
+                {"success": False, "error": "Failed to get plant suggestions"},
+                status=500,
+            )
 
 
 @require_http_methods(["POST"])
@@ -278,12 +281,9 @@ def generate_ai_content(request):
             )
 
         except Exception as ai_error:
-            logger.error(f"Wagtail AI generation error: {str(ai_error)}")
+            logger.error(f"Wagtail AI generation error: {str(ai_error)}", exc_info=True)
             return JsonResponse(
-                {
-                    "success": False,
-                    "error": f"AI content generation failed: {str(ai_error)}",
-                },
+                {"success": False, "error": "AI content generation failed"},
                 status=500,
             )
 
@@ -292,8 +292,10 @@ def generate_ai_content(request):
             {"success": False, "error": "Invalid JSON data"}, status=400
         )
     except Exception as e:
-        logger.error(f"Error in AI content generation: {str(e)}")
-        return JsonResponse({"success": False, "error": str(e)}, status=500)
+        logger.error(f"Error in AI content generation: {str(e)}", exc_info=True)
+        return JsonResponse(
+            {"success": False, "error": "AI content generation failed"}, status=500
+        )
 
 
 @require_http_methods(["GET"])
@@ -351,8 +353,10 @@ def plant_data_stats(request):
         return JsonResponse({"success": True, "stats": stats})
 
     except Exception as e:
-        logger.error(f"Error getting plant data stats: {str(e)}")
-        return JsonResponse({"success": False, "error": str(e)}, status=500)
+        logger.error(f"Error getting plant data stats: {str(e)}", exc_info=True)
+        return JsonResponse(
+            {"success": False, "error": "Failed to get plant data stats"}, status=500
+        )
 
 
 # Removed: generate_blog_field_content() function

@@ -93,10 +93,13 @@ def validate_image_file(image_file: BinaryIO) -> bool:
         img = Image.open(image_file)
         img.verify()  # Verify it's a complete image without loading entire file
         image_file.seek(0)  # Reset for later processing
-    except Exception as e:
+    except Exception:
+        # PIL's message is not shown to the user: it reaches the client through
+        # simple_views' readable_message() (CodeQL #23 -> #121).
+        logger.warning("Image failed PIL verification", exc_info=True)
         raise ValidationError(
-            f"Invalid or corrupted image file: {str(e)}. "
-            f"File may be incomplete, corrupted, or not a valid image."
+            "Invalid or corrupted image file. "
+            "File may be incomplete, corrupted, or not a valid image."
         )
 
     return True
