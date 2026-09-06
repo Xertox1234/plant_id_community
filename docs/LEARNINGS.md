@@ -4598,3 +4598,41 @@ Measured on PR #650, every check that ran green in both states:
   here were reverted against a saved snapshot and proven identical by a flattened
   key diff. Unlike classic protection's `PATCH`, a ruleset `PUT` replaces the
   whole `rules` array — safe only with the full array in hand.
+
+## 2026-09-06 — A mechanism that has never fired is not verified
+
+Session 1 shipped the security alarm (`security_alarm.sh` → a tracking issue)
+and the suppression expiry recheck. Both were "done", both had green CI, and
+**neither had ever executed**. Zero `security-scan-alarm` issues had existed in
+any state; `check_suppressions.py --recheck` is schedule/dispatch-only and needs
+a `--report` path, so every green check on every PR ran `--validate` instead.
+The mode that fails on a shipped fix had never run once.
+
+Two `workflow_dispatch` runs settled it, and both mechanisms worked:
+
+- **`--recheck` caught the advisory it was built for**, on its first real
+  execution: `CVE-2026-42304 (Twisted 25.5.0): a fix has shipped — pip-audit
+  reports fix_versions=26.4.0,26.4.0rc2`. Note the *union* of both rows — the
+  duplicate-row merge in `load_report()` is what stops the message reading
+  "26.4.0rc2" alone and inviting the stale "still RC-only" conclusion that kept
+  the suppression alive.
+- **The alarm opened issue #663, and the second dispatch commented on it rather
+  than opening #664** — the one-open-issue dedupe key holds.
+- `sync_alarm_todo.py --dry-run` resolved the bridge correctly
+  (`would create 356-pending-p2-security-scan-alarm.md`).
+
+**Self-close remains unproven.** It needs a green scheduled run, which cannot
+happen until the Twisted bump lands. Recorded as unproven rather than claimed —
+the same trap as the green checks that never ran `--recheck`.
+
+- **The generalizable rule: "shipped" and "exercised" are different claims.**
+  For anything gated on an event CI does not produce on PRs — a `schedule`, a
+  `workflow_dispatch`, a failure path — a green check list is not evidence.
+  Find the cheapest way to make it fire for real (here: two dispatches, four
+  minutes) and read its actual output.
+- **`[ x ] && arr+=(y)` under `set -euo pipefail` is safe**, contrary to a
+  natural reading: the failing `[` is not the command following the final `&&`,
+  so the exemption applies and the script continues. Verified empirically before
+  "fixing" a non-bug. It is still fragile — as the last line of a script it
+  becomes the exit status — so the `if` form is preferable for durability, not
+  correctness.
