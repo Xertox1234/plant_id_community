@@ -494,9 +494,17 @@ describe('isBlankHtml', () => {
   it('counts a numeric entity for ASCII whitespace as blank (behaviour change)', () => {
     // The replaced implementation was `html.replace(/<[^>]*>/g, '').trim()`,
     // which left "&#32;" as six literal characters and called it NOT blank.
-    // This is the ONLY behavioural difference, measured across the cases below.
     expect(isBlankHtml('<p>&#32;</p>')).toBe(true); // encoded space
     expect(isBlankHtml('<p>&#9;</p>')).toBe(true); // encoded tab
+  });
+
+  it('also counts malformed and script/style-only bodies as blank', () => {
+    // The other three measured divergences from the old regex. Every one of
+    // them points the same way — toward "blank" — so the failure mode of
+    // getting this wrong is a silently disabled submit button, not a leak.
+    expect(isBlankHtml('<p title="x>hello</p>')).toBe(true); // regex: false
+    expect(isBlankHtml('<script>alert(1)</script>')).toBe(true); // regex: false
+    expect(isBlankHtml('<style>p{color:red}</style>')).toBe(true); // regex: false
   });
 
   it('leaves every other entity exactly as the old regex had it', () => {
@@ -508,13 +516,19 @@ describe('isBlankHtml', () => {
     expect(isBlankHtml('<p>&lt;</p>')).toBe(false);
   });
 
-  it('is not fooled by a truncated tag, which the regex mishandled', () => {
-    // SearchPage's comment notes content_raw "may contain truncated HTML tags".
+  it('keeps a truncated tail non-blank, exactly as the regex did', () => {
+    // Pinned as a NON-difference. An earlier version of this test claimed the
+    // regex "mishandled" this; it does not — both call `<p>hello<` non-blank.
     expect(isBlankHtml('<p>hello<')).toBe(false);
+    expect(isBlankHtml('<p>&nbsp;</p>')).toBe(false);
   });
 
-  it('never returns the stripped text to a render sink', () => {
-    // Guards the reason this is not a sanitizer bug: the value is a boolean.
-    expect(typeof isBlankHtml('<script>alert(1)</script>')).toBe('boolean');
+  it('returns a boolean, never the stripped text', () => {
+    // The reason this was never a sanitizer bug: the stripped string does not
+    // escape the function, so it can never reach a render sink. Asserted by
+    // value, not by `typeof` — a `typeof x === 'boolean'` check passes for any
+    // boolean-returning implementation, including a broken one.
+    expect(isBlankHtml('<p>real text</p>')).toBe(false);
+    expect(isBlankHtml('<p></p>')).toBe(true);
   });
 });

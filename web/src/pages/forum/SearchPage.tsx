@@ -396,7 +396,10 @@ export default function SearchPage() {
               <h2 className="gt-h3 text-ink mb-4">Posts ({searchResults.total_posts})</h2>
               <div className="space-y-4">
                 {searchResults.posts.map((post) => {
-                  // content_raw holds the backend excerpt (may contain truncated HTML tags).
+                  // content_raw holds the backend excerpt. plain_text_excerpt()
+                  // already strips tags per block BEFORE truncating, so a
+                  // truncated tag does not actually reach here today — the swap
+                  // to stripHtml closed a CodeQL alert, it did not fix a bug.
                   // Strip tags so we render plain text only — never dangerouslySetInnerHTML.
                   const plainExcerpt = stripHtml(post.content_raw);
                   // Build a real thread link from the board/topic identity carried by
