@@ -2,12 +2,14 @@
 URL configuration for simple Plant ID API server
 """
 
-import json
+import logging
 
 from django.http import JsonResponse
 from django.urls import path
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_http_methods
+
+logger = logging.getLogger(__name__)
 
 
 # Simple test views
@@ -71,8 +73,11 @@ def identify_plant(request):
             }
         )
 
-    except Exception as e:
-        return JsonResponse({"success": False, "error": str(e)}, status=500)
+    except Exception:
+        logger.exception("Plant identification failed")
+        return JsonResponse(
+            {"success": False, "error": "Plant identification failed"}, status=500
+        )
 
 
 urlpatterns = [

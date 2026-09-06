@@ -2,6 +2,8 @@
 URL configuration for plant identification API endpoints.
 """
 
+import logging
+
 from django.urls import include, path
 from rest_framework import status as http_status
 from rest_framework.decorators import api_view
@@ -12,6 +14,8 @@ from . import views
 from .api import simple_views
 
 app_name = "plant_identification"
+
+logger = logging.getLogger(__name__)
 
 
 @api_view(["GET"])
@@ -65,9 +69,11 @@ def service_status(request):
         service = PlantIdentificationService()
         status = service.get_service_status()
         return Response(status)
-    except Exception as e:
+    except Exception:
+        # Anonymous endpoint: log the detail, return a generic body.
+        logger.exception("[PLANT_ID] service_status failed")
         return Response(
-            {"error": str(e), "status": "error"},
+            {"error": "Service status unavailable", "status": "error"},
             status=http_status.HTTP_503_SERVICE_UNAVAILABLE,
         )
 

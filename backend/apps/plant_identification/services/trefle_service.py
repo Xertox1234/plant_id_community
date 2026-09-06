@@ -14,7 +14,7 @@ import requests
 from django.conf import settings
 from django.core.cache import cache
 
-from ..exceptions import APIUnavailable, RateLimitExceeded
+from ..exceptions import RateLimitExceeded
 
 logger = logging.getLogger(__name__)
 
@@ -503,10 +503,13 @@ class TrefleAPIService:
                 "api_key_valid": result is not None,
                 "last_check": "now",
             }
-        except Exception as e:
+        except Exception:
+            # This dict is returned verbatim by the anonymous /status/ endpoint,
+            # so the exception text stays in the log (CodeQL #114).
+            logger.exception("[TREFLE] Service status check failed")
             return {
                 "status": "error",
                 "api_key_valid": False,
-                "error": str(e),
+                "error": "Service status check failed",
                 "last_check": "now",
             }

@@ -5,7 +5,6 @@ PlantNet API provides AI-powered plant identification from images.
 Documentation: https://my.plantnet.org/
 """
 
-import base64
 import hashlib
 import io
 import logging
@@ -268,7 +267,10 @@ class PlantNetAPIService:
             image_hash = hashlib.sha256(combined_image_data).hexdigest()
             organs_str = ":".join(sorted(organs) if organs else ["none"])
             modifiers_str = ":".join(sorted(modifiers) if modifiers else ["none"])
-            cache_key = f"plantnet:{self.API_VERSION}:{project}:{image_hash}:{organs_str}:{modifiers_str}:{include_related_images}"
+            cache_key = (
+                f"plantnet:{self.API_VERSION}:{project}:{image_hash}:"
+                f"{organs_str}:{modifiers_str}:{include_related_images}"
+            )
 
             # Check cache first
             cached_result = cache.get(cache_key)
@@ -293,7 +295,7 @@ class PlantNetAPIService:
                 )
 
             # Quota available - proceed with API call
-            logger.info(f"[QUOTA] PlantNet quota available (calling API)")
+            logger.info("[QUOTA] PlantNet quota available (calling API)")
 
             # Prepare multipart form data exactly like the working TypeScript implementation
             # Each organ is added separately, not as an array
@@ -321,8 +323,8 @@ class PlantNetAPIService:
         except CircuitBreakerError:
             # Circuit breaker is open - expected operational state, not an error
             logger.warning(
-                f"[CIRCUIT] PlantNet circuit breaker open - service degraded "
-                f"(failing fast without API call)"
+                "[CIRCUIT] PlantNet circuit breaker open - service degraded "
+                "(failing fast without API call)"
             )
             raise ExternalAPIError(
                 "PlantNet service is temporarily unavailable. Please try again in a few moments.",
@@ -564,16 +566,19 @@ class PlantNetAPIService:
                 return {
                     "status": "unavailable",
                     "api_key_valid": False,
-                    "error": f"HTTP {response.status_code}: {response.text[:100]}",
+                    "error": f"HTTP {response.status_code}",
                     "projects_available": len(self.PROJECTS),
                     "last_check": "now",
                 }
 
-        except Exception as e:
+        except Exception:
+            # This dict is returned verbatim by the anonymous /status/ endpoint,
+            # so the exception text stays in the log (CodeQL #114).
+            logger.exception("[PLANTNET] Service status check failed")
             return {
                 "status": "error",
                 "api_key_valid": False,
-                "error": str(e),
+                "error": "Service status check failed",
                 "projects_available": len(self.PROJECTS),
                 "last_check": "now",
             }
