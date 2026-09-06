@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: p3
 issue_id: "354"
 tags: [security, codeql, backend, web, ci]
@@ -114,11 +114,11 @@ Work cluster by cluster, cheapest and most real first. Do not batch-dismiss.
 
 ## Acceptance Criteria
 
-- [ ] Every one of the 51 alerts is either fixed on `main` or dismissed with a written reason
-- [ ] All 5 workflow files carry an explicit top-level `permissions:` block
-- [ ] The 8 `py/url-redirection` alerts are closed — preferably by an allowlist check on `provider` in `oauth_views.py` with a regression test, otherwise dismissed with the `str`-converter rationale
-- [ ] No alert is "resolved" by an in-source suppression comment alone (353's lesson)
-- [ ] `gh api "repos/:owner/:repo/code-scanning/alerts?state=open"` returns 0 alerts, or the residue is listed here with the reason it stays open
+- [x] Every one of the 51 alerts is either fixed on `main` or dismissed with a written reason
+- [x] All 5 workflow files carry an explicit top-level `permissions:` block
+- [x] The 8 `py/url-redirection` alerts are closed — preferably by an allowlist check on `provider` in `oauth_views.py` with a regression test, otherwise dismissed with the `str`-converter rationale
+- [x] No alert is "resolved" by an in-source suppression comment alone (353's lesson)
+- [x] `gh api "repos/:owner/:repo/code-scanning/alerts?state=open"` returns 0 alerts, or the residue is listed here with the reason it stays open
 
 ## Work Log
 
@@ -368,6 +368,87 @@ author-written exception message from an inherited one, and flags any
 statements on a public repository's security tab, and they are the one step of
 this todo that no test can undo. All 20 now have a written rationale, so the
 sweep is mechanical — but it needs an explicit go-ahead.
+
+### 2026-09-06 - Verified and archived by completing-todos skill (run 2026-09-06-1934)
+
+All five acceptance criteria flipped against command output, not recollection.
+
+**AC1 + AC5 — every alert closed, every dismissal reasoned.**
+
+```text
+$ gh api ".../code-scanning/alerts?state=open" --jq 'length'
+0
+
+$ gh api ".../code-scanning/alerts" --jq 'group_by(.state)[] | "\(length) \(.[0].state)"'
+103 fixed
+21  dismissed
+
+$ ... select((.dismissed_comment // "") == "") | length
+0        # no dismissal without a written rationale
+```
+
+The criterion's "51" was wrong; the live backlog was **43** (cluster 1 had
+already been closed by PR #657 before this todo was picked up). 23 closed as
+`fixed` by the four slices, 20 dismissed on 2026-09-06 with per-alert reasons
+recorded in the census entry above. The 21st dismissal is #116 from todo 353.
+
+**AC2 — all 5 workflows carry a top-level `permissions:` block.**
+
+```text
+mobile-ci.yml    yes      backend-ci.yml   yes      web-ci.yml   yes
+harness-ci.yml   yes      kimi-review.yml  yes
+```
+
+Satisfied by commit `7db347a` (PR #657) during todo 355's prevention work,
+before this todo was started.
+
+**AC3 — the `py/url-redirection` cluster is closed, both ways.**
+
+```text
+8 dismissed (false positive)   3 fixed      # 11 across the rule's history
+regression test on main: backend/apps/users/tests/test_oauth_provider_allowlist.py
+```
+
+The todo offered allowlist-with-test *or* dismissal; both shipped. Worth
+carrying forward: the allowlist closed **none** of the 8 on its own — CodeQL
+does not model a `frozenset` membership test as a sanitizer, so the dismissals
+were required regardless. See the census entry above and `docs/LEARNINGS.md`.
+
+**AC4 — no alert resolved by an in-source comment.**
+
+```text
+$ git grep -cE '//\s*codeql\[|#\s*codeql\[|//\s*lgtm\[' origin/main -- .
+0 files
+```
+
+353's lesson held: the `// codeql[...]` marker it trialled was removed, and
+nothing here reintroduced one.
+
+**Review.** Round 1 ran during implementation, not at archive time:
+`django-drf-reviewer` over PRs #670/#671/#672 and `react-typescript-reviewer`
+over #673. Findings and their disposition are in the 2026-09-06 review entry
+above — two HIGH (the Trefle/PlantNet key leaks) and one MEDIUM (a test of mine
+that verified nothing) were repaired and shipped in #671; the rest were fixed in
+#670/#672/#673. Per the project's two-round review budget, no third round was
+opened at archive; this step's diff is a file rename.
+
+**Follow-ups already filed, not left implicit:** todo 358 (widen the AST drift
+guard to the whole service layer). Remaining known advisory: `django==6.0.7`
+PYSEC-2026-3717, fixed in 6.0.8, no PR open yet.
+
+
+### 2026-09-06 - Completed by completing-todos skill (run 2026-09-06-1934)
+
+- Verification: all 5 acceptance criteria passed, each backed by quoted command
+  output in the entry above (0 open alerts; 103 fixed / 21 dismissed, none with
+  an empty rationale; 5/5 workflows carry `permissions:`; 0 in-source
+  suppression comments).
+- Review: 2 reviewer agents during implementation, 12 findings, 3 blocking (2
+  HIGH credential leaks + 1 MEDIUM vacuous test) — all repaired and merged in
+  #671. No third round per the project's review budget.
+- Codified: `docs/rules/security.md` (6 rules), `docs/rules/triggers.json`
+  (92 -> 95), `docs/LEARNINGS.md` (5 entries) across PRs #670, #669 and #687.
+
 
 ## Notes
 
