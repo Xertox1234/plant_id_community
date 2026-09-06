@@ -179,7 +179,9 @@
         "*.spec.tsx",
         "*.test.js",
         "*.spec.js",
-        "web/e2e/*"
+        "web/e2e/*",
+        "*pytest.ini",
+        "*conftest.py"
       ],
       "domains": [
         "testing"

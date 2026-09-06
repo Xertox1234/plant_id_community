@@ -1544,3 +1544,53 @@ Both tests are `@skipUnless(connection.vendor == "postgresql")`, so a SQLite
 suite (local `.env` or CI's `backend-tests`). At today's row count the planner
 still picks a seq scan without the `enable_seqscan` override, correctly, for a
 tiny table; this is a scaling-latent fix, not an active hot path.
+
+## Pattern 34: Re-pinning a query count after a framework upgrade — diff the SQL, don't trust the direction
+
+This repo pins query counts exactly (`assert len(ctx.captured_queries) == N`)
+rather than asserting an upper bound, so a framework upgrade that changes the
+ORM's behaviour turns them red *by design*. The trap is the fix: bumping the
+number until the test passes discards the only signal the pin exists to produce.
+
+**A count that went down is not self-evidently an optimization.** It is equally
+the shape of a dropped `live`/visibility filter, a skipped permission read, or a
+prefetch that silently stopped running. The direction tells you nothing; only the
+statement that disappeared does.
+
+### The procedure
+
+1. **Isolate which package moved it.** Downgrade one suspect at a time, keeping
+   everything else at the new version, and re-run the failing test. Upgrading
+   Django and DRF together and finding a moved pin tells you nothing about which
+   one did it; downgrading only Django and watching the test go green does.
+2. **Dump the SQL on both versions.** Temporarily write `ctx.captured_queries` to
+   a file (a truncated pytest assertion message is not enough), on the old
+   version and the new one. Back the test file up with `cp` first and restore
+   from that copy — never `git checkout -- <file>`, which restores the *index*
+   and silently discards unstaged work.
+3. **Name the delta in the pin's comment.** `docs/rules/testing.md` requires the
+   new count be explained; the explanation is the specific statement added or
+   removed, not "Django 6.1 changed it".
+4. **Confirm the response body is unchanged.** Content assertions passing on both
+   versions is what separates "does less work" from "does less".
+
+### Worked example (Django 6.0.7 → 6.1.1, PR #695)
+
+Seven `wagtail_forum` pins each dropped by exactly one. Downgrading only Django
+(holding DRF at 3.18.0) made them pass, so Django owned the change. The SQL diff
+named the vanished statement:
+
+```sql
+SELECT "wagtail_forum_post"."id", "wagtail_forum_post"."topic_id"
+FROM "wagtail_forum_post" WHERE "wagtail_forum_post"."id" = 1 LIMIT 21
+```
+
+A deferred-field load of `topic_id` — `TopicDetailSerializer.get_opening_post_id`
+does `.only("id").first()`, and Django's `_known_related_objects` population read
+the FK that `.only()` had deferred, re-selecting a row already identified by
+primary key. Django 6.1's deferred-field fetch modes eliminate it.
+
+Safe to re-pin *because* the statement carried no `WHERE live`, no permission
+predicate, and no filter beyond the PK it already had — and the page-view
+restriction and liveness checks both still appear in the remaining queries.
+That reasoning is what belongs in the comment; the number alone is not evidence.

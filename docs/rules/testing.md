@@ -523,3 +523,17 @@ Compact checklist auto-injected before edits.
   host's post_migrate bootstrap re-creates rows the snapshot also carries
   (UniqueViolation at setup). Prove the full suite still passes with the
   marker and record the run in the test's comment (todo 350).
+- **Never `ignore::DeprecationWarning` in pytest config.** Django's
+  `RemovedInDjangoNNWarning` subclasses `DeprecationWarning`, so the blanket
+  ignore blinds the suite to precisely the signal a framework upgrade needs —
+  and nothing ever tells you it is blind. Use `always::` to make it visible, or
+  `error::` once first-party warnings are cleared, to make it a gate. `always::`
+  only restores pytest's built-in default; it cannot fail a build (todo 363/364,
+  Django 6.1 upgrade).
+- **A pinned query count that moves under a dependency upgrade is re-pinned only
+  after diffing the captured SQL between the two versions.** Downgrade the single
+  suspect package to isolate which one moved it, dump `ctx.captured_queries` on
+  both, and name the added or removed statement in the pin's comment. A count
+  that went *down* is not self-evidently an optimization — it is equally the
+  shape of a dropped `live`/visibility filter or a skipped permission read, and
+  only the SQL diff distinguishes them (Django 6.1 upgrade, PR #695).

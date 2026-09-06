@@ -4912,3 +4912,51 @@ chain distinguished them. When rating a latent misconfiguration, run the
 production command sequence against the broken config rather than reasoning
 about what it would do — a vendor-guarded migration set is specifically built to
 *not* fail on the other engine.
+
+## 2026-09-06 — The package blocking your upgrade may not be a dependency at all; and "no newer release" ≠ "not upgradeable" (PR #695, todos 363–365)
+
+Upgrading Django 6.0.7 → 6.1.1 looked blocked. `pip install Django==6.1.1` failed
+outright: `django-celery-beat==2.9.0` declares `Django<6.1`, and 2.9.0 was — and
+still is — the newest release on PyPI, six months old, with the tracking issue
+(celery/django-celery-beat#1079) open. The obvious readings were "wait for
+upstream" or "pin a git ref in production requirements."
+
+Both were wrong, for two separate reasons.
+
+**First: the blocker was not load-bearing.** `django_celery_beat` appeared in
+exactly one line of the entire codebase — `INSTALLED_APPS`. No imports, no
+`PeriodicTask`/`CrontabSchedule` usage, no `CELERY_BEAT_SCHEDULER` setting, and no
+migration depending on it. Beat had always run Celery's own file-based
+`PersistentScheduler` (`bin/start.sh`'s `celery worker -B --schedule=…`) against a
+static `CELERY_BEAT_SCHEDULE`. The package contributed a version ceiling and
+nothing else. Deleting it — plus its now-parentless transitives
+`django-timezone-field`, `python-crontab`, `cron-descriptor` — cleared the block.
+
+The near-miss worth recording: `settings.py` imports `crontab`, which *looks* like
+`python-crontab` and is actually `celery.schedules.crontab`, shipped with celery.
+Removing a transitive on the strength of its name would have broken the schedule.
+Check what the import resolves to, not what it is spelled.
+
+**Second: the upstream fix already existed, unreleased.** `main`'s
+`requirements/runtime.txt` reads `Django>=3.2.25,<6.2` and `setup.py` classifies
+Django 6.1. A PyPI query alone says "blocked indefinitely"; the repository says
+"fixed, not shipped." Those are different situations with different options, and
+only the second source distinguishes them.
+
+**Corollary on reading a dependency audit.** Most of the stack's "stale" packages
+— `django-storages`, `djangorestframework-simplejwt`, `django-taggit`, `whitenoise`
+and ~10 others — were already at their latest release. They were not lagging pins;
+upstream simply had not declared 6.x support. That is a real risk (untested, found
+at runtime) but it is not fixable by bumping, and conflating the two produces an
+upgrade plan full of no-op work. Conversely `django-treebeard` 7.0.1 exists with a
+Django 6.1 classifier and is *unusable*: Wagtail 7.4.3 and 8.0 both cap it `<6.0`.
+Read the parent's constraint before proposing a child's bump.
+
+**Method that produced all of the above:** query PyPI's `requires_dist` and
+classifiers directly. `backend/venv` had drifted from `requirements.txt` (wagtail
+7.4.2 installed vs 7.4.3 pinned), so the installed metadata was not authoritative
+about what the pins would actually resolve to.
+
+The seven query-count pins this upgrade moved are covered separately —
+`backend/docs/patterns/performance/query-optimization.md` Pattern 34 — including
+why a count that *drops* still needs the SQL diff before you believe it.
