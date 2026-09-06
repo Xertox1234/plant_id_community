@@ -27,25 +27,30 @@ KEYED_IN_QUERY_STRING = [
 
 Those are the two services that authenticate with a **query parameter**, where
 `requests`' prepared-URL exception message carries the key. The scope was
-narrowed on purpose during todo 354, because running the guard across
-`apps/*/services/*.py` failed on seven files and the PR could not own them all.
+narrowed on purpose during todo 354: running it across `apps/*/services/*.py`
+failed on files that PR did not own, and one of those failures was a real leak
+being fixed on a sibling branch at the time.
 
 ## Findings
 
-Widening it to `apps/*/services/*.py` today fails on:
+Widening it to `apps/*/services/*.py` fails on exactly four files. Measured by
+running the guard function over every service on a tree with all six todo-354
+PRs merged together, so this is the post-merge state, not a prediction:
 
-| File | Why it fails | Real leak? |
-| --- | --- | --- |
-| `garden_calendar/services/weather_service.py` | raw `{e}` in a requests handler | **was** — fixed in #670 (todo 354 slice 1); this row should disappear once that merges |
-| `plant_identification/services/plant_health_service.py` | raw `{str(e)}` | No — `Api-Key` **header** auth, so the URL carries no credential |
-| `plant_identification/services/plant_id_service.py` | raw `{e}` | No — `Api-Key` header |
-| `plant_identification/services/unsplash_service.py` | raw `{str(e)}` | No — `Authorization: Client-ID` header |
-| `plant_identification/services/pexels_service.py` | raw `{str(e)}` | No — `Authorization` header |
+| File | Line | Why it fails | Real leak? |
+| --- | --- | --- | --- |
+| `plant_identification/services/plant_health_service.py` | 166 | `{str(e)}` | No — `Api-Key` **header** auth, so the URL carries no credential |
+| `plant_identification/services/plant_id_service.py` | 311 | `{e}` | No — `Api-Key` header |
+| `plant_identification/services/unsplash_service.py` | 92 | `{str(e)}` | No — `Authorization: Client-ID` header |
+| `plant_identification/services/pexels_service.py` | 85 | `{str(e)}` | No — `Authorization` header |
 
-So five of the seven are **header-authenticated and safe today**. They are not
-harmless, though: the exception message still writes the full request URL —
-including any query string a future change adds — into the log. The guard is
-what would catch that change.
+All four are **header-authenticated and safe today**. Both weather services and
+both query-string services are already clean on that tree, so there is no live
+leak left to chase — this todo is purely about making the property structural.
+
+They are not harmless, though: the exception message still writes the full
+request URL into the log, so the day someone adds a query parameter to one of
+these clients, the leak is silent and the guard is what would catch it.
 
 `packages/wagtail_forum/wagtail_forum/embeds.py:89` also interpolates, into an
 `EmbedNotFoundException` message rather than a log; the URL there is the user's
