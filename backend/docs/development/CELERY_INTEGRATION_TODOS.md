@@ -144,7 +144,10 @@ logger.warning(f"Scheduled notifications not yet implemented. Sending immediatel
 - **Purpose**: Schedule notifications for future delivery (e.g., "Remind me in 3 days")
 - **Current state**: API accepts schedule_time but ignores it (logs warning)
 - **User experience**: Receives notification immediately instead of at scheduled time
-- **Pattern**: Standard Celery beat or django-celery-beat for scheduled tasks
+- **Pattern**: Standard Celery beat (`CELERY_BEAT_SCHEDULE` + the file-based
+  `PersistentScheduler`, as `bin/start.sh` already runs). NOT
+  `django-celery-beat` — removed 2026-09-06 (PR #695) as unused and because
+  it capped `Django<6.1`.
 
 **Implementation Plan** (when Celery is integrated):
 

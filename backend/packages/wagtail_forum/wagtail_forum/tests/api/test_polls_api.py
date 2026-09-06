@@ -892,14 +892,14 @@ def test_a_poll_less_topic_detail_query_count_is_unchanged_by_the_poll_field():
     Pinned EXACTLY (docs/rules/testing.md) against the SAME counts
     test_topic_detail.py asserts without any poll in the picture: 4 anonymous,
     9 for an authenticated non-author (the base 4 + a subscription check + a
-    bookmark check + the two can_mark_solution permission-table reads, per
-    that file's own breakdown — todo 283/293 landed after this test was
-    first written and raised the authenticated count from 8 to 10, and Django
-    6.1 then dropped the shared base by one — see test_topic_detail.py's
-    anonymous pin for why — bringing it to 9; the poll field itself adds none
-    of it). If either moves, the select_related has
-    been replaced by a prefetch (which runs its query for every request) and
-    the change must be explained in both places.
+    bookmark check + the two can_mark_solution permission-table reads + the
+    todo-301 presence touch, per that file's own breakdown — todo 283/293
+    landed after this test was first written and raised the authenticated
+    count from 8 to 10, and Django 6.1 then dropped the shared base by one —
+    see test_topic_detail.py's anonymous pin for why — bringing it to 9; the
+    poll field itself adds none of it). If either moves, the select_related
+    has been replaced by a prefetch (which runs its query for every request)
+    and the change must be explained in both places.
     """
     board = _board("pd3")
     author = User.objects.create_user(username="pd3-author")
