@@ -341,12 +341,33 @@ never by remembered alert number.
 | #115, #87, #82 | test files | used in tests |
 | #122 | `TipTapEditor.tsx:438` | false positive - blob URL into `<img src>`, pre-declared benign by todo 353 |
 | #123 | `wagtail_forum/api/serializers.py:1471` | false positive - `ValueError` subclass, hand-written literals only |
-| **#121** | `simple_views.py:146` | **needs triage** - not a clean dismissal. Slice 2 dropped the PIL text at `file_validation.py:98`, which was supposed to close the `#23`/`#121` pair. It did not. Read the SARIF `codeFlows` before dispositioning it. |
+| #121 | `simple_views.py:146` | false positive - triaged below |
+
+**#121 triaged — false positive, and the `#23`/`#121` pair is settled.** The
+alert reads "stack trace information flows to this location", pointing at
+`simple_views.py:146`'s `return Response({"error": error})`, where
+`error = readable_message(e)` on the `ValidationError` from
+`validate_image_file`. Every one of that function's three `raise` sites carries
+an author-written message, verified by executing the path — a JPEG magic header
+followed by garbage, which passes the magic-byte layer and fails PIL:
+
+```text
+log:    WARNING Image failed PIL verification
+        Traceback ... OSError: Truncated File Read      <- stays in the log
+client: 'Invalid or corrupted image file. File may be incomplete,
+         corrupted, or not a valid image.'              <- pure literal
+```
+
+The other two sites interpolate `image_file.content_type` and the detected
+`mime` — the client's own input echoed back, not internal state. So slice 2's
+edit at `file_validation.py:98` did work; CodeQL simply cannot tell an
+author-written exception message from an inherited one, and flags any
+`except -> Response` on principle.
 
 **Dismissals are deliberately NOT applied here.** They are outward-facing
 statements on a public repository's security tab, and they are the one step of
-this todo that no test can undo. They need an explicit go-ahead, and #121 needs
-a real answer first.
+this todo that no test can undo. All 20 now have a written rationale, so the
+sweep is mechanical — but it needs an explicit go-ahead.
 
 ## Notes
 
