@@ -21,6 +21,34 @@ The current web code contains a partial image path (`TipTapEditor`,
 and close only the missing integration or production-flow gaps; do not create a
 second upload path.
 
+## Findings
+
+The partial implementation named in the Problem section is real, not assumed —
+every reference below was resolved during the PR #688 review:
+
+- `web/src/services/forumService.ts:571` —
+  `export async function uploadPostImage(imageFile: File, alt?: string): Promise<UploadedImage>`
+  already exists, and already takes an `alt` argument.
+- `web/src/components/forum/TipTapEditor.tsx`,
+  `web/src/components/forum/forumImageNode.ts`, `web/src/utils/forumBody.ts`,
+  `web/src/components/StreamFieldRenderer.tsx`,
+  `backend/packages/wagtail_forum/wagtail_forum/api/views.py` and
+  `.../api/sanitize.py` all exist.
+
+No audit of *behaviour* has been performed yet. Which of the Acceptance Criteria
+below already hold, and which are genuinely missing, is unknown until the trace
+in Scope is run — that is the first task, not a formality.
+
+## Recommended Action
+
+1. Run the Scope trace end to end and record, per Acceptance Criterion, whether
+   it currently passes. This turns the criteria into a checklist with evidence
+   rather than a wishlist.
+2. Close only the gaps that trace surfaces. Do not add a second upload path
+   alongside `uploadPostImage`.
+3. Fill in the Findings section above with what the trace actually found before
+   writing any code.
+
 ## Scope
 
 - Trace the button → hidden file input → client validation → alt-text prompt →
@@ -54,7 +82,7 @@ second upload path.
 - [ ] `npm run type-check`, `npm run lint`, focused tests, and the relevant
       browser flow pass.
 
-## Technical References
+## Technical Details
 
 - `web/src/components/forum/TipTapEditor.tsx`
 - `web/src/services/forumService.ts` (`uploadPostImage`)
@@ -70,3 +98,17 @@ p2 because this is a visible forum affordance and an incomplete or unreliable
 upload path can cause user content loss, inaccessible images, or orphaned
 uploads. The existing partial implementation must be verified before any new
 code is added.
+
+## Work Log
+
+### 2026-09-06 - Filed and made template-compliant
+
+- Filed by an earlier session; lived untracked in the working tree until
+  committed in PR #688.
+- Review of PR #688 found the file missing three sections required by
+  `todos/TEMPLATE.md:12` (`Findings`, `Recommended Action`, `Work Log`) and
+  naming `Technical Details` as `Technical References`. All four fixed here.
+- The added `Findings` content is deliberately limited to references verified
+  during that review (file existence, and `uploadPostImage` at
+  `forumService.ts:571`). The behavioural audit this todo asks for has NOT been
+  run, and no finding from it has been invented — that remains task 1.

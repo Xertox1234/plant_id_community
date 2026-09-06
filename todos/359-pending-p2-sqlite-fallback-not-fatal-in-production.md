@@ -174,7 +174,7 @@ radius of this change inside the test suite is those three cases.
 
 ## Technical Details
 
-- `validate_environment()` spans `settings.py:1451-1731` and is called
+- `validate_environment()` spans `settings.py:1451-1730` and is called
   unconditionally at `settings.py:1734`, i.e. at settings import.
 - `warnings` / `critical_errors` are initialised at `settings.py:1465-1466`.
 - The DEBUG-only pretty-print of warnings is `settings.py:1716-1722`; in
