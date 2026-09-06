@@ -3,7 +3,9 @@ Custom OAuth views for handling social authentication with JWT token generation.
 """
 
 import logging
+import re
 import secrets
+from urllib.parse import urlencode
 
 from apps.core.ratelimit import client_ip_key, ratelimit
 from apps.core.utils.pii_safe_logging import log_safe_user_context
@@ -18,6 +20,17 @@ from rest_framework.response import Response
 from .authentication import set_jwt_cookies
 
 logger = logging.getLogger(__name__)
+
+# The only values `provider` may take. Both views validate against this before
+# building any URL from it: the route is `oauth/<str:provider>/...`, and Django's
+# `str` converter matches anything except `/` — so `?` and `#` get through and
+# reshape the query/fragment of the frontend URL we redirect to. Validating up
+# front makes that unreachable rather than merely harmless.
+SUPPORTED_PROVIDERS = frozenset({"google", "github"})
+
+# RFC 6749 §4.1.2.1 error codes are `*( %x20-21 / %x23-5B / %x5D-7E )`; this is
+# the conservative subset every real provider uses, plus a length cap.
+_OAUTH_ERROR_CODE = re.compile(r"[A-Za-z0-9_.:-]{1,64}")
 
 
 def get_oauth_redirect_url(provider):
@@ -36,6 +49,12 @@ def oauth_login(request, provider):
     """
     Initiate OAuth login process for the specified provider.
     """
+    if provider not in SUPPORTED_PROVIDERS:
+        return Response(
+            {"error": "Provider not supported"},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
     try:
         state = secrets.token_urlsafe(32)
         request.session["oauth_state"] = state
@@ -94,9 +113,9 @@ def oauth_login(request, provider):
                 f"state={state}"
             )
 
-        else:
+        else:  # pragma: no cover - unreachable, guarded above
             return Response(
-                {"error": f"Provider {provider} not supported"},
+                {"error": "Provider not supported"},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
@@ -117,16 +136,36 @@ def oauth_callback(request, provider):
     """
     Handle OAuth callback and generate JWT tokens.
     """
+    # Before ANY redirect: every branch below interpolates `provider` into the
+    # frontend URL (CodeQL py/url-redirection #8-11, #13, #69, #70, #103).
+    # Matches oauth_login, which already 400s on an unsupported provider.
+    if provider not in SUPPORTED_PROVIDERS:
+        logger.warning("[SECURITY] OAuth callback for an unsupported provider")
+        return Response(
+            {"error": "Provider not supported"},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
     try:
         # Get authorization code from query params
         code = request.GET.get("code")
         error = request.GET.get("error")
 
         if error:
-            logger.warning(f"OAuth error for {provider}: {error}")
+            # `error` is attacker-controlled — it arrives verbatim in the query
+            # string, and a newline in it forges a second log line. RFC 6749
+            # §4.1.2.1 error codes are ASCII tokens, so anything else is logged
+            # as a shape rather than a value. (`provider` is already allowlisted
+            # above.) The redirect below urlencodes the same value.
+            safe_error = (
+                error
+                if _OAUTH_ERROR_CODE.fullmatch(error)
+                else f"<non-conforming, {len(error)} chars>"
+            )
+            logger.warning("OAuth error for %s: %s", provider, safe_error)
             # Redirect to frontend with error
             frontend_url = get_oauth_redirect_url(provider)
-            return HttpResponseRedirect(f"{frontend_url}?error={error}")
+            return HttpResponseRedirect(f"{frontend_url}?{urlencode({'error': error})}")
 
         # Validate state to prevent CSRF attacks
         received_state = request.GET.get("state", "")
@@ -150,8 +189,8 @@ def oauth_callback(request, provider):
             user_data = _handle_google_callback(request, code)
         elif provider == "github":
             user_data = _handle_github_callback(request, code)
-        else:
-            logger.error(f"Unsupported provider: {provider}")
+        else:  # pragma: no cover - unreachable, guarded above
+            logger.error("Unsupported provider reached the callback dispatch")
             frontend_url = get_oauth_redirect_url(provider)
             return HttpResponseRedirect(f"{frontend_url}?error=unsupported_provider")
 

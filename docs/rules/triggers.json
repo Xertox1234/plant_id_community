@@ -1504,5 +1504,37 @@
     "source": "todo 355 / security-scan silent-failure incident 2026-09-05",
     "added": "2026-09-05",
     "severity": "warn"
+  },
+  {
+    "id": "requests-exception-interpolated",
+    "domains": [
+      "security"
+    ],
+    "path_glob": [
+      "backend/**/*.py"
+    ],
+    "content_present": "except\\s+requests[\\w.]*\\.?(RequestException|HTTPError|ConnectionError|Timeout|exceptions\\.\\w+)[^\\n]*\\bas\\b",
+    "content_absent": "log_safe_api_error|type\\(\\w+\\)\\.__name__",
+    "message": "Catching a requests exception — do NOT interpolate it. HTTPError.__str__ is '... for url: <prepared URL>', so str(e) writes every query-string secret to the log (OPENWEATHER_API_KEY rode `appid=` this way). Log type(e).__name__ + e.response.status_code, and never put str(e) in a response body.",
+    "pattern_ref": "docs/rules/security.md",
+    "source": "todos 354",
+    "added": "2026-09-06",
+    "severity": "warn"
+  },
+  {
+    "id": "connection-url-in-log",
+    "domains": [
+      "security"
+    ],
+    "path_glob": [
+      "backend/**/*.py"
+    ],
+    "content_present": "logger\\.\\w+\\(\\s*f?[\"'][^\"'\\n]*\\{[^}\\n]*(?i:url|dsn|uri)[^}\\n]*\\}",
+    "content_absent": "urlsplit|urlparse|\\.hostname",
+    "message": "A URL interpolated into a log line - REDIS_URL / DATABASE_URL / broker URLs carry the password in their userinfo component (the part before the @ in the authority). Log urlsplit(u).hostname/.port/.path instead; settings.validate_environment() leaked REDIS_URL on every process start.",
+    "pattern_ref": "docs/rules/security.md",
+    "source": "todos 354",
+    "added": "2026-09-06",
+    "severity": "warn"
   }
 ]

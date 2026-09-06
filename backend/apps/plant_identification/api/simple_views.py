@@ -237,8 +237,9 @@ def health_check(request):
         )
 
     except Exception as e:
-        logger.error(f"Health check failed: {str(e)}")
+        logger.error(f"Health check failed: {str(e)}", exc_info=True)
+        # Anonymous endpoint: the detail stays in the log, not in the body.
         return Response(
-            {"status": "unhealthy", "error": str(e)},
+            {"status": "unhealthy", "error": "Health check failed"},
             status=status.HTTP_503_SERVICE_UNAVAILABLE,
         )

@@ -149,11 +149,7 @@ export interface Disease {
  * Treatment status types
  */
 export type TreatmentStatus =
-  | 'not_started'
-  | 'in_progress'
-  | 'successful'
-  | 'failed'
-  | 'monitoring';
+  'not_started' | 'in_progress' | 'successful' | 'failed' | 'monitoring';
 
 /**
  * Disease type categories

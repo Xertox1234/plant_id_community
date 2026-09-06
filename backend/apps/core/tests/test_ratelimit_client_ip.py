@@ -181,3 +181,20 @@ class LogResolutionTests(SimpleTestCase):
         req = _request(remote_addr=PROXY_IP, xff=CLIENT_IP)
         self.assertEqual(get_trusted_client_ip(req), CLIENT_IP)
         self.assertEqual(client_ip_key(None, req), CLIENT_IP)
+
+    def test_diagnostic_never_logs_a_raw_address(self):
+        """No full IP reaches the log — only pseudonymized forms (todo 354)."""
+        req = _request(remote_addr=PROXY_IP, xff=f"{SPOOF_IP}, {CLIENT_IP}")
+        with self.assertLogs("apps.core.ratelimit", level="WARNING") as captured:
+            get_trusted_client_ip(req)
+        line = "\n".join(captured.output)
+
+        for raw in (CLIENT_IP, PROXY_IP, SPOOF_IP):
+            self.assertNotIn(raw, line, f"{raw} leaked into the diagnostic log")
+
+        # ...but the diagnostic still works: both XFF hops are present and
+        # distinguishable, and the resolved value is the masked client.
+        self.assertIn("203.0.***", line)  # CLIENT_IP, masked
+        self.assertIn("1.2.***", line)  # SPOOF_IP, masked
+        self.assertIn("10.0.***", line)  # PROXY_IP, masked
+        self.assertEqual(line.count("resolved="), 1)
