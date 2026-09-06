@@ -535,5 +535,29 @@ gh api repos/:owner/:repo/branches/main/protection --jq '.required_status_checks
 - `npm audit --package-lock-only --json` as the cheap path for the npm diff.
 - Wagtail 7.4.3 / DRF 3.17.2 release notes — read at the top of session 5.
 - TipTap 3.22.5 → 3.30.x breaking changes — the main risk in session 3.
-- Whether Cloudflare Workers Builds runs `npm ci` at root (quoted from a comment in
-  `wrangler.jsonc`, not the dashboard).
+- ~~Whether Cloudflare Workers Builds runs `npm ci` at root (quoted from a comment in
+  `wrangler.jsonc`, not the dashboard).~~ **VERIFIED 2026-09-06 (slice 3).** It does.
+  Build `45880b9e` logs `Installing project dependencies: npm clean-install` at the
+  repo root (`added 41 packages`), *then* the user build command
+  `cd web && npm ci && npm run build`, then the deploy command
+  `npx wrangler versions upload`, which resolves wrangler from the root
+  `node_modules`. The root manifest is the production deploy path — the plan's
+  "do not delete it" instruction is correct for a stronger reason than the
+  `web/CLAUDE.md` §Deployment reference it cited.
+
+### Correction: the security scan has never read the root manifest (2026-09-06)
+
+Found while shipping slice 3. `.github/workflows/security-scan.yml` hardcodes
+`web/` in every npm step — `frontend-security` (`:115-183`) is `cd web`
+throughout, and `new-vuln-gate`'s audit step (`:326-337`) reads
+`web/package.json` / `web/package-lock.json` regardless of which lockfile the PR
+changed. The gate's *scope* regex at `:292` does match the root lockfile, so it
+sets `npm=true` and then compares `web/` against `web/`: a confident `0 new`
+that read nothing relevant. **A false green, not a skip.**
+
+Consequence for this plan: §2d's "npm half runs only when a lockfile is in the
+diff, but the job always reports a status, so it is safe to require" is true
+about *reporting* and false about *coverage* — the job reports on a root-lockfile
+PR while auditing the wrong tree. Tracked as **todo 356**, deliberately not
+fixed inside slice 3 (a gate fix needs a base commit that lacks it, and slice 3
+is the specimen).
