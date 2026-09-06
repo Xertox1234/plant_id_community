@@ -44,9 +44,33 @@ the root lockfile.
 - **Consequence: a false green, not a skip.** The gate does not report
   "skipped" — it reports a confident `0 new` while never reading the file the PR
   changed. A PR that *adds* an advisory to the root lockfile passes the gate.
-- Confirmed empirically on the slice 3 PR: local root `npm audit` went
-  `6 vulnerabilities (1 low, 5 high)` → `found 0 vulnerabilities`, a change the
-  gate was structurally unable to observe.
+- **Measured on PR #669**, the first PR to change the root lockfile. Job
+  `No new dependency advisories`, run 34006610283:
+
+  ```
+  changed files:
+    package-lock.json
+    package.json
+    todos/356-pending-p2-security-scan-root-manifest-blind.md
+  ...
+  NPM: true
+  pip-audit: skipped (no manifest change in this PR)
+  npm audit: 0 advisories on base, 0 on head, 0 new
+  No new dependency advisories introduced by this pull request.
+  ```
+
+  The scope step listed the root lockfile by name and set `npm=true`. The
+  comparison then reported **`0 advisories on base, 0 on head`** — the `web/`
+  tree, which slice 2 had already cleared to zero. Meanwhile the root tree that
+  the PR actually changed went from 15 distinct advisories to 0 locally
+  (`npm audit --audit-level=moderate`: `6 vulnerabilities (1 low, 5 high)` →
+  `found 0 vulnerabilities`). The gate reported confidently on a tree with no
+  relationship to the diff.
+- Note the shape of the false green: `pip-audit` printed an honest
+  `skipped (no manifest change in this PR)` on the same run. The npm half had
+  the same "skip" vocabulary available and did not use it, because its scope
+  predicate said the PR *was* relevant. Detection was right; the action was
+  pointed at the wrong tree.
 - `design_reference/package.json` also exists but has **no lockfile**, so it is
   out of scope for a lockfile-based audit.
 
