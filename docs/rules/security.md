@@ -199,3 +199,26 @@ Compact checklist auto-injected before edits. Long-form: `backend/docs/patterns/
   and unread counts (never the room itself), refuse sends with an explicit 403
   while both are in it, and reject adding a block-paired member with the same
   generic 400 as a missing user so membership is no oracle (todo 350).
+- **Never interpolate an HTTP-client exception — `str(e)` carries the request
+  URL, and the URL carries your key.** `requests.HTTPError.__str__` is
+  `"401 Client Error: ... for url: <prepared URL>"`, so
+  `logger.error(f"API failed: {e}")` writes every query-string secret to the
+  log; `logger.exception(...)` does the same, because the traceback ends with
+  that message. Three services leaked this way — OpenWeather (`appid`), Trefle
+  (`token`, set on `session.params` so it rides EVERY request) and PlantNet
+  (`api-key`) — and the worst site was a retry decorator, which leaked once per
+  attempt. Use `log_safe_api_error(exc)` from
+  `apps/core/utils/pii_safe_logging.py`; `exc.response.status_code` is fine,
+  the exception object is not. Header-authenticated clients are safe by
+  construction, which is a reason to prefer header auth. The same rule bans
+  `str(e)` in a response *body*: it reaches the client (todo 354).
+- **Log a connection URL's parts, never the URL.** `REDIS_URL`, `DATABASE_URL`,
+  `CELERY_BROKER_URL` and signed asset URLs carry the password in the userinfo
+  component. `validate_environment()` logged `REDIS_URL` verbatim on every
+  process start — gunicorn *and* the co-located Celery worker. Use
+  `urlsplit(u)` and emit `.hostname`/`.port`/`.path` (`.port` is `None` when the
+  URL omits one, so fall back rather than printing "None"). Sensitivity is a
+  property of what a value *contains*, not what it is named: URL-shaped and
+  exception-shaped values are exactly the class a taint scanner does not
+  follow, which is why CodeQL flagged 16 logging sites here and none of the
+  four that carried credentials (todo 354).

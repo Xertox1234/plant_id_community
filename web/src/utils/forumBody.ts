@@ -8,6 +8,36 @@
  * while persisting the block structure the backend validates and renders.
  */
 import type { StreamFieldBlock } from '@/types/blog';
+import { stripHtml } from './sanitize';
+
+/**
+ * Whether `html` is an effectively-empty rich-text body.
+ *
+ * Was duplicated verbatim in ThreadDetailPage and NewThreadPage as
+ * `html.replace(/<[^>]*>/g, '').trim() === ''`. That regex is not a sanitizer
+ * and never was one (the value is only ever compared, never rendered), but it
+ * mishandles a truncated tag and CodeQL flagged it as
+ * `js/incomplete-multi-character-sanitization` in both copies. `stripHtml` is
+ * DOMPurify with `ALLOWED_TAGS: []` and already trims.
+ *
+ * This is a BEHAVIOUR change, not a pure refactor. Measured against the old
+ * regex, five input classes now count as blank that did not before:
+ * numeric entities for ASCII whitespace (`<p>&#32;</p>`, `<p>&#9;</p>`), a
+ * malformed attribute (`<p title="x>hello</p>`), and the text inside
+ * `<script>`/`<style>`/`<title>`, which DOMPurify drops wholesale. Unchanged:
+ * `&nbsp;`/`&#160;`/`&amp;`/`&lt;` (DOMPurify re-serializes them), `<textarea>`
+ * content, comments, and a truncated tail like `<p>hello<`.
+ *
+ * All of that is unreachable from the current call sites — every producer
+ * feeding `isBlankHtml` is TipTap's own serializer or `bodyBlocksToHtml`, and
+ * ProseMirror emits a literal space, never `&#32;` — so this is documentation
+ * of the seam, not a live behaviour change. It matters if a call site is ever
+ * pointed at author-supplied or server-stored HTML, because every divergence
+ * points the same way: toward "blank", i.e. a silently disabled submit button.
+ */
+export function isBlankHtml(html: string): boolean {
+  return stripHtml(html) === '';
+}
 
 /** A forum body block as SENT to the API (an image references the wagtail id). */
 export type ForumBodyWriteBlock =
