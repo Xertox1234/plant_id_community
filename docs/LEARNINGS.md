@@ -4553,3 +4553,48 @@ scheduled run now opens and updates one GitHub issue and self-closes when green.
   todos still say `status: pending`, and archived files carry legacy statuses
   (`ready`, `resolved`, `closed`). `completing-todos` archives by `git mv`, so
   the directory is the reliable signal.
+
+## 2026-09-05 — A required check is required *of every author*, and CodeQL skips Dependabot
+
+Making the three CodeQL `Analyze (<lang>)` contexts required on `main`
+instantly deadlocked all five open Dependabot PRs. Applied and reverted the
+same hour; protection was confirmed byte-identical to its pre-change snapshot
+afterwards.
+
+**CodeQL default setup does not run on Dependabot pull requests.** The results
+check states it in its own body — *"Code scanning cannot determine the alerts
+introduced by this pull request, because 3 configurations present on
+`refs/heads/main` were not found"* — and the branch's run list contains no
+CodeQL workflow run at all. Classic branch protection has no author-based
+exclusion and `enforce_admins` is on, so a check one author never produces is a
+permanent block for that author, with nothing to override it.
+
+Measured on PR #650, every check that ran green in both states:
+
+| Configuration | `mergeStateStatus` | rollup |
+|---|---|---|
+| 3 `Analyze (…)` contexts required | `BLOCKED` | `SUCCESS` |
+| ruleset `code_scanning` rule only | `CLEAN` | `SUCCESS` |
+
+- **The pre-flight check that failed was the right question asked the wrong
+  way.** Before the POST I confirmed the contexts reported on the last five PRs,
+  including two docs-only ones and one in flight — 3/3 every time. All five were
+  human-authored. *How often* a check appears is not the discriminating
+  question; *which authoring identities produce it* is. Enumerate the
+  PR-producing identities on the repo (here: the maintainer and Dependabot) and
+  confirm the check reports for each before requiring it.
+- **`mergeStateStatus: BLOCKED` with `statusCheckRollup: SUCCESS` is the
+  signature of this failure** — everything that ran passed, and the PR is still
+  unmergeable because something required never ran. `gh pr checks` shows only
+  checks that exist, so it renders a deadlocked PR as entirely green. Query the
+  GraphQL `mergeStateStatus` instead.
+- **The ruleset `code_scanning` rule does not have this problem.** A `neutral`
+  results check satisfies it, so Dependabot PRs stay `CLEAN`. It is the correct
+  mechanism for gating on code scanning — but note it gates only on
+  `security_alerts_threshold`, which at `critical` against 0 critical alerts
+  enforces nothing observable. Weaker than a required check, and worth saying
+  out loud rather than absorbing.
+- **Save the before-state and diff field-by-field, not eyeball.** Both changes
+  here were reverted against a saved snapshot and proven identical by a flattened
+  key diff. Unlike classic protection's `PATCH`, a ruleset `PUT` replaces the
+  whole `rules` array — safe only with the full array in hand.

@@ -298,17 +298,58 @@ check that never reports deadlocks PRs, and this repo has hit that.
 1. Merge PR 1 and PR 2 first. PR 2's own check list demonstrates `new-vuln-gate`
    reporting — that is the file half.
 2. `gh api repos/:owner/:repo/branches/main/protection > before.json`.
-3. `POST .../branches/main/protection/required_status_checks/contexts` with a bare array:
-   `["Analyze (python)","Analyze (javascript-typescript)","Analyze (actions)"]`.
-   **Three contexts, not four** — `"No new dependency advisories"` was removed
-   because §2d never shipped (see the note there). Requiring a check no
-   workflow produces blocks every PR permanently.
-   **Never `PATCH .../protection`** — omitted fields reset to default and would clobber
-   `enforce_admins` and the existing 5 contexts.
-4. `GET` again, diff against `before.json`, confirm the original 5 survive.
-5. Ruleset 9138781 → **Require code scanning results**, tool `CodeQL`, Alerts threshold
-   **None**, Security alerts threshold **Critical**. **Do this in the UI** — the ruleset
-   API `PUT` replaces the entire rules array and has no additive sub-resource.
+3. ~~`POST .../branches/main/protection/required_status_checks/contexts` with
+   `["Analyze (python)","Analyze (javascript-typescript)","Analyze (actions)"]`.~~
+   **DO NOT DO THIS — applied and reverted 2026-09-05. It deadlocks every
+   Dependabot PR.** See "Correction: CodeQL contexts cannot be required" below.
+4. Ruleset 9138781 → **Require code scanning results**, tool `CodeQL`, Alerts
+   threshold **None**, Security alerts threshold **Critical**. **APPLIED
+   2026-09-05** — via `PUT /repos/:owner/:repo/rulesets/9138781` sending all
+   four rules (the existing `deletion`, `copilot_code_review`,
+   `non_fast_forward` plus the new one), after saving the before-state. A `PUT`
+   replaces the entire `rules` array, so the round-trip is only safe with the
+   full array in hand; the UI is the safer route if you do not have it.
+   Verified afterwards that `name`, `target`, `enforcement`, `conditions` and
+   `bypass_actors` were all unchanged.
+
+### Correction: CodeQL contexts cannot be required (2026-09-05)
+
+**`enforce_admins` is on and classic branch protection has no author-based
+exclusion, so a required check that one PR author never produces is a permanent
+block for that author.** CodeQL default setup does not run on Dependabot pull
+requests. The results check says so in its own body:
+
+> **Warning**: Code scanning cannot determine the alerts introduced by this pull
+> request, because 3 configurations present on `refs/heads/main` were not found:
+> `/language:actions`, `/language:javascript-typescript`, `/language:python`
+
+Measured on PR #650 (Dependabot, `web/postcss`), with every check that *did* run
+green:
+
+| Configuration | `mergeStateStatus` | rollup |
+|---|---|---|
+| 3 `Analyze (…)` contexts required | `BLOCKED` | `SUCCESS` |
+| ruleset `code_scanning` rule only | `CLEAN` | `SUCCESS` |
+
+All five open Dependabot PRs went `BLOCKED` on the POST and returned to `CLEAN`
+on the DELETE; protection was confirmed byte-identical to its pre-change
+snapshot afterwards.
+
+**The justification that made this look safe was wrong.** It read "they report
+on every PR, including docs-only #656" — true, but every PR checked was
+human-authored. The discriminating question is not *how often* a check appears,
+it is *which authoring identities produce it*. Before requiring any check,
+enumerate the PR-producing identities on the repo (here: the maintainer and
+Dependabot) and confirm the check reports for each.
+
+**What this leaves.** Prevention's CodeQL half is now only the ruleset rule at
+`security_alerts_threshold: critical`, and the repo has **0 critical** alerts
+(22 high, 21 medium), so it enforces nothing observable today. That is weaker
+than "make CodeQL required" and the gap should be stated, not absorbed. The only
+way to have an always-reporting required CodeQL check *and* keep Dependabot
+merging is to move required status checks out of classic protection into the
+ruleset, where `bypass_actors` can carry Dependabot — a restructure of a working
+setup, not recommended without a separate decision.
 
 **Note this narrows your literal ask, deliberately.** Requiring the `CodeQL` *results*
 check would fail on `high` severity — and 22 highs sit on `main` in hot forum files
@@ -318,6 +359,10 @@ fingerprint-shift hazard. So: require the three `Analyze (<lang>)` contexts (the
 on every PR, including docs-only #656, and fail only if analysis itself fails), and put
 the *blocking* half in the ruleset at `critical`, which is provably green against today's
 backlog. Tightening to `high_or_higher` is a one-field follow-up once todo 354 is done.
+
+**Superseded in part 2026-09-05:** the `Analyze (<lang>)` half of that sentence
+is withdrawn — see "Correction: CodeQL contexts cannot be required" above. Only
+the ruleset half shipped.
 
 ### Session 1 verification
 
