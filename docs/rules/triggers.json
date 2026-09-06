@@ -1536,5 +1536,21 @@
     "source": "todos 354",
     "added": "2026-09-06",
     "severity": "warn"
+  },
+  {
+    "id": "ci-artifact-step-swallows-failure",
+    "domains": [
+      "security"
+    ],
+    "path_glob": [
+      ".github/workflows/*.yml"
+    ],
+    "content_present": "(--output\\s+\\S+|>\\s*\\S*\\.json)[^\\n]*\\|\\|\\s*true",
+    "content_absent": "\\[\\s*!?\\s*-s\\s",
+    "message": "This step writes an artefact and swallows the exit code with `|| true`, so a CRASH is indistinguishable from a clean result — that is exactly how new-vuln-gate audited nothing for months. Assert the file in the SAME step: `[ -s \"$out\" ] || { echo \"::error::no report\"; exit 1; }`.",
+    "pattern_ref": "docs/rules/security.md",
+    "source": "codify: docs/codify-session-2026-09-06",
+    "added": "2026-09-06",
+    "severity": "warn"
   }
 ]

@@ -2741,7 +2741,7 @@ TTL. Todo 274 fixed exactly that.
 case that was already well-behaved*:
 
 | Provider state | Billable requests | Counted? | Capped? |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | Healthy | 1 per screened post | yes | yes |
 | Chronic timeout | 1 per screened post | **no** | **no** |
 | Garbage replies (never cached → every retry re-calls) | 1 per screened post | **no** | **no** |
@@ -4058,7 +4058,7 @@ data-loss question. Three checks were run and the first two were wrong:
 each answers a *different* question and none answers the one being asked:
 
 | check | actually answers | on merged-but-stale |
-|---|---|---|
+| --- | --- | --- |
 | `git diff main...b` | changes since merge base | non-empty (= unmerged) |
 | `git diff main b` | is the tree identical | non-empty (main moved on) |
 | `git branch -d` | is it an ancestor | refuses |
@@ -4572,7 +4572,7 @@ permanent block for that author, with nothing to override it.
 Measured on PR #650, every check that ran green in both states:
 
 | Configuration | `mergeStateStatus` | rollup |
-|---|---|---|
+| --- | --- | --- |
 | 3 `Analyze (…)` contexts required | `BLOCKED` | `SUCCESS` |
 | ruleset `code_scanning` rule only | `CLEAN` | `SUCCESS` |
 
@@ -4760,3 +4760,106 @@ Compare with `git rev-parse origin/<branch>:package-lock.json`, not by eye, and
 transplant with `git checkout <bot-branch> -- package-lock.json`; the result is
 provably the tree CI already went green on. Do **not** re-run `npm install` to
 "fix" the difference — that is the step that introduced it.
+
+## 2026-09-06 — A step that swallows its own failure reports nothing and blocks nothing (todo 354 follow-on, PR #678)
+
+`security-scan.yml`'s `new-vuln-gate` is the check that stops a PR introducing a
+new advisory. Its **pip half had never returned a result** — not since
+`-e ./packages/wagtail_forum` was added to `backend/requirements.txt` in
+`d66d30e`.
+
+The mechanism, in three parts:
+
+1. The gate ran `pip-audit -r backend/requirements.txt` **from the repo root**.
+   pip resolves a relative requirement path against the **current working
+   directory**, not against the requirements file, so `./packages/wagtail_forum`
+   did not exist and pip refused the whole file:
+   `ERROR: ./packages/wagtail_forum is not a valid editable requirement.`
+2. Both audits were wrapped in `|| true` — correct in intent (pip-audit exits
+   non-zero merely because advisories exist) but it makes **a crash
+   indistinguishable from a clean run**.
+3. The failure therefore surfaced two steps later as
+   `base-pip.json does not exist`, which reads like an infrastructure hiccup
+   rather than "this gate has never worked".
+
+The blocking `backend-security` job ten lines above got it right **by accident**:
+it happens to `cd backend` for unrelated reasons. So the weekly scan worked, the
+PR gate did not, and the difference was one missing `cd`.
+
+**The general rule: the step that produces an artefact must assert it produced
+it.** Not the step that consumes it three steps later — by then the failing
+command's output has scrolled away and the error names a missing file instead of
+a broken tool. `|| true` is the specific smell: any command whose non-zero exit
+is *expected* needs an explicit success check afterwards, or you have converted
+"it crashed" into "it found nothing".
+
+This is the sibling of the 2026-09-06 npm-scoping entry above. Same job, same
+day, two independent ways of confidently reporting on something never examined —
+one by auditing the wrong directory, one by not auditing at all.
+
+Immediate consequence: fixing it woke Dependabot, which opened six backend PRs
+for advisories that had been invisible. `djangorestframework==3.17.1` on `main`
+was carrying two CVEs the gate had been asked to watch for.
+
+## 2026-09-06 — A fix the scanner cannot model does not close the alert (todo 354)
+
+Todo 354's plan chose to *fix* rather than dismiss the 8 `py/url-redirection`
+alerts, on the explicit reasoning that a fix is durable and a dismissal returns
+the moment a fingerprint shifts. The fix shipped, was correct, and closed
+**zero** of the 8.
+
+CodeQL does not model `if provider not in SUPPORTED_PROVIDERS: return 400` as a
+sanitizer. The value is still tainted where the dispatch interpolates it, so the
+alert stands whether or not the guard is there.
+
+**"Make the taint unreachable" only closes an alert when the barrier is one the
+analysis recognises.** A membership test against a literal `frozenset` is not.
+Neither is a hand-rolled `escapeHtml` (todo 353 hit the same wall from the other
+side). What CodeQL *does* model is its own sanitizer list and structural
+impossibility — which is why todo 353's `structuredClone` across a test boundary
+worked and a comment did not.
+
+Practical consequence for planning a triage: decide fix-vs-dismiss on **whether
+the code should change**, not on which one you predict will clear the alert. The
+fix here was worth shipping on its own merits (an unknown provider can no longer
+reach any redirect); predicting it would also clear the backlog was the error,
+and it was only caught by re-counting after the merge instead of trusting the
+plan.
+
+## 2026-09-06 — A dependency bump can clear a suppression, and nothing tells you (todo 354 follow-on)
+
+`.github/security-suppressions.yml` carried a Twisted entry whose `clears_when`
+read *"Twisted >= 26.4.0 stable releases."* This session bumped Twisted to
+26.4.0 stable — and the entry would have sat there indefinitely, `pinned:
+"25.5.0"` now simply false, suppressing an advisory that no longer exists.
+
+That is the precise failure the file's own header was written to prevent, one
+layer up: the previous incident was a suppression outliving its fix because
+nobody watched; this is a suppression outliving its fix because **the person who
+shipped the fix never looked at the list**. The `expires` date would eventually
+have caught it, months later.
+
+**Rule: a bump that closes an advisory must check `security-suppressions.yml`
+for an entry it clears, and remove it in the same PR.** Grep the package name;
+it is one command.
+
+Two neighbouring lessons from the same six Dependabot PRs, both of which cost a
+red CI run before they were understood:
+
+- **When a single-package bump cannot resolve, find the constraint before
+  retrying a different version.** `cryptography` 50.0.0 failed; the obvious next
+  move is the other listed fix version, 49.0.0. It fails **identically**, because
+  `pyOpenSSL==26.2.0` requires `cryptography<49`. The fix was to bump pyOpenSSL,
+  which no amount of retrying cryptography would have found. Read the
+  `Requires-Dist` of the packages named in pip's conflict output.
+- **A green pipeline is not a reason to ship a release candidate.** Dependabot
+  proposed `Twisted==26.4.0rc2` and CI passed it. `26.4.0` stable was published
+  and fixes the same advisory — pip-audit listed both as `fix_versions`. Check
+  for a stable sibling before merging any `rc`/`b`/`a` version into production
+  requirements.
+
+Verification shape that made all of this cheap: `pip install --dry-run -r
+<file>` proves *resolution* in seconds without touching the venv, so candidate
+combinations can be tested before a single line is written. It does not prove
+*behaviour* — cryptography crossed two major versions here, and only CI's fresh
+install and full suite could speak to that.
