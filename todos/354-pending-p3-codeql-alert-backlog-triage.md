@@ -295,6 +295,59 @@ bot's lockfile blob verbatim; #666/#667 close as superseded.
 last, after `main` re-analyses. Widening the AST drift guard from the two
 query-string services to the whole service layer is **todo 358**.
 
+### 2026-09-06 - Post-merge census: 43 -> 20, and the allowlist did NOT close its cluster
+
+All four slices are on `main` (#670-#673) and CodeQL has re-analysed
+(`/language:python` at `2773877a`, the current tip). Measured, not predicted:
+
+| Rule | Before | After | Closed as `fixed` |
+| --- | --- | --- | --- |
+| `py/clear-text-logging-sensitive-data` | 16 | 6 | 10 |
+| `py/stack-trace-exposure` | 12 | 2 | 10 |
+| `js/incomplete-multi-character-sanitization` | 3 | **0** | 3 |
+| `py/url-redirection` | 8 | **8** | **0** |
+| test-only + `js/xss-through-dom` + `js/clear-text-cookie` | 4 | 4 | 0 |
+| **total** | **43** | **20** | **23** |
+
+**The plan's central claim about slice 3 was wrong.** It asserted the OAuth
+allowlist would close all 8 `py/url-redirection` alerts "durably, by making the
+taint unreachable", and preferred that over dismissal for exactly that reason.
+It closed **none**. CodeQL does not model a `frozenset` membership test as a
+sanitizer, so `provider` is still tainted where the dispatch builds
+`f"{frontend_base}/auth/{provider}/callback"`. The fix is still correct and
+still worth having — an unknown provider now cannot reach any redirect — but
+"make the taint unreachable to close the alert" only works when the barrier is
+one the scanner recognises. A membership test against a literal set is not.
+
+So the dismissal set is **19, not 11**, and the 8 url-redirection alerts move to
+the todo's own "acceptable alternative": dismissed as false positive, now with a
+stronger rationale than originally available (allowlist *plus* the
+`str`-converter reasoning, not just the latter).
+
+Two alerts also came back under **new numbers** after a fingerprint shift,
+exactly as todo 353 predicted: `#106 -> #126` (ratelimit.py) and a new `#125`
+in the url-redirection cluster. This is why the sweep runs by **rule + file**,
+never by remembered alert number.
+
+**The remaining 20, with disposition:**
+
+| Alert(s) | File | Disposition |
+| --- | --- | --- |
+| #8, #9, #10, #11, #13, #69, #103, #125 | `oauth_views.py` | false positive - allowlisted `provider`; `<str:>` cannot escape the path prefix and the host is `settings.FRONTEND_BASE_URL` |
+| #126 | `ratelimit.py:152` | false positive - the flagged value is `proxy_count` (an int); the addresses beside it now go through `log_safe_ip` |
+| #64, #65 | `settings.py:1702,1709` | false positive - only `key_name`, `len(key_value)`, `min_length` are interpolated |
+| #66 | `care_assistant_service.py:75` | false positive - hardcoded cache-key constant; logged value is species + climate zone |
+| #98, #99 | `security_tests.py` | used in tests - standalone manual script outside `pytest.ini` testpaths |
+| #115, #87, #82 | test files | used in tests |
+| #122 | `TipTapEditor.tsx:438` | false positive - blob URL into `<img src>`, pre-declared benign by todo 353 |
+| #123 | `wagtail_forum/api/serializers.py:1471` | false positive - `ValueError` subclass, hand-written literals only |
+| **#121** | `simple_views.py:146` | **needs triage** - not a clean dismissal. Slice 2 dropped the PIL text at `file_validation.py:98`, which was supposed to close the `#23`/`#121` pair. It did not. Read the SARIF `codeFlows` before dispositioning it. |
+
+**Dismissals are deliberately NOT applied here.** They are outward-facing
+statements on a public repository's security tab, and they are the one step of
+this todo that no test can undo. They need an explicit go-ahead, and #121 needs
+a real answer first.
+
 ## Notes
 
 p3, not p2: the two high-count clusters read as false positives and CodeQL is
