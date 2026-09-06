@@ -9,7 +9,6 @@ source venv/bin/activate
 
 # Development
 python manage.py runserver           # http://localhost:8000
-python simple_server.py              # runserver + Redis health check
 
 # Database
 python manage.py migrate

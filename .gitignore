@@ -57,6 +57,10 @@ db.sqlite3-journal
 plant_id.db
 plant_id.db-journal
 /staticfiles/
+# STATIC_ROOT = BASE_DIR / "staticfiles" resolves to backend/staticfiles/, which
+# the root-anchored pattern above does NOT match -- same reason backend/media/
+# is listed separately below.
+backend/staticfiles/
 /mediafiles/
 /media/
 backend/media/
