@@ -32,7 +32,7 @@ BACKEND_DIR = Path(__file__).resolve().parents[3]
 BASE_ENV = {
     "JWT_SECRET_KEY": "test-only-throwaway-value-not-a-real-key-00000000000000",  # pragma: allowlist secret
     "SECRET_KEY": "test-only-throwaway-value-not-a-real-key-0000000000000000000000000",  # pragma: allowlist secret
-    "DATABASE_URL": "sqlite:////tmp/r2_storage_test.sqlite3",
+    "DATABASE_URL": "postgres://u:p@localhost:5432/r2_storage_test",  # pragma: allowlist secret
 }
 
 
@@ -216,6 +216,32 @@ class ValidateEnvironmentR2Tests(SimpleTestCase):
         # file derives its expectations from that same tuple, so all of them
         # would shrink with it and stay green.
         self.assertIn("R2_CUSTOM_DOMAIN is required", result.stderr)
+
+    def test_sqlite_database_url_fails_fast_in_production(self):
+        result = _run_check(
+            DEBUG="False",
+            DATABASE_URL="sqlite:////tmp/r2_storage_test.sqlite3",
+            ALLOWED_HOSTS="example.com",
+            CSRF_TRUSTED_ORIGINS="https://example.com",
+            PLANT_ID_API_KEY="1" * 32,
+            CORS_ALLOWED_ORIGINS="https://example.com",
+            REDIS_URL="redis://localhost:6379/1",
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("SQLite database detected", result.stderr)
+        self.assertIn("DATABASE_URL", result.stderr)
+
+    def test_sqlite_database_url_warns_in_debug(self):
+        result = _run_check(
+            DEBUG="True",
+            DATABASE_URL="sqlite:////tmp/r2_storage_test.sqlite3",
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        output = result.stdout + result.stderr
+        self.assertIn("SQLite database detected", output)
+        self.assertIn("DATABASE_URL", output)
+        self.assertIn("Configuration warnings detected", output)
+        self.assertNotIn("CRITICAL ENVIRONMENT CONFIGURATION ERRORS", output)
 
     def test_configured_r2_vars_pass_in_production(self):
         result = _run_check(

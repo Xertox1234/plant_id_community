@@ -1636,11 +1636,15 @@ def validate_environment():
     # ========================================
     try:
         db_config = DATABASES["default"]
-        if "sqlite" in db_config["ENGINE"] and not DEBUG:
-            warnings.append(
-                "SQLite database detected in production - PostgreSQL strongly recommended for performance. "
-                "Set DATABASE_URL=postgresql://user:pass@localhost/dbname"
+        if "sqlite" in db_config["ENGINE"]:
+            message = (
+                "SQLite database detected; DATABASE_URL must point to PostgreSQL "
+                "when DEBUG=False."
             )
+            if not DEBUG:
+                critical_errors.append(message)
+            else:
+                warnings.append(message)
     except Exception:
         critical_errors.append("Database configuration is invalid")
 
