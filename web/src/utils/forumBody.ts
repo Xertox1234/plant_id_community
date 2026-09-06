@@ -8,6 +8,25 @@
  * while persisting the block structure the backend validates and renders.
  */
 import type { StreamFieldBlock } from '@/types/blog';
+import { stripHtml } from './sanitize';
+
+/**
+ * Whether `html` is an effectively-empty rich-text body.
+ *
+ * Was duplicated verbatim in ThreadDetailPage and NewThreadPage as
+ * `html.replace(/<[^>]*>/g, '').trim() === ''`. That regex is not a sanitizer
+ * and never was one (the value is only ever compared, never rendered), but it
+ * mishandles a truncated tag and CodeQL flagged it as
+ * `js/incomplete-multi-character-sanitization` in both copies. `stripHtml` is
+ * DOMPurify with `ALLOWED_TAGS: []` and already trims.
+ *
+ * One measured behavioural difference: a numeric entity for ASCII whitespace
+ * (`<p>&#32;</p>`, `<p>&#9;</p>`) now counts as blank, where the regex left it
+ * as literal characters. `&nbsp;` is unaffected — DOMPurify re-serializes it.
+ */
+export function isBlankHtml(html: string): boolean {
+  return stripHtml(html) === '';
+}
 
 /** A forum body block as SENT to the API (an image references the wagtail id). */
 export type ForumBodyWriteBlock =

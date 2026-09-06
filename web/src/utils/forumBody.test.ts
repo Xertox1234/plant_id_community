@@ -6,6 +6,7 @@ import {
   bodyBlocksToHtml,
   postQuoteHtml,
   postQuoteText,
+  isBlankHtml,
   QUOTE_TEXT_MAX_CHARS,
 } from './forumBody';
 import { ForumImage } from '../components/forum/forumImageNode';
@@ -468,5 +469,52 @@ describe('postQuoteText (todo 342)', () => {
     // The literal, not the binding: the cap itself is the guarantee — it must
     // stay under the server's 1000-char QUOTE_MAX_CHARS.
     expect(QUOTE_TEXT_MAX_CHARS).toBe(500);
+  });
+});
+
+describe('isBlankHtml', () => {
+  // The single definition replacing verbatim copies in ThreadDetailPage and
+  // NewThreadPage. It gates canSubmit and the reply/edit disabled states, so
+  // "blank" is a user-visible contract, not an internal detail.
+
+  it('treats structurally-empty rich text as blank', () => {
+    expect(isBlankHtml('')).toBe(true);
+    expect(isBlankHtml('<p></p>')).toBe(true);
+    expect(isBlankHtml('<p>   </p>')).toBe(true);
+    expect(isBlankHtml('<p><br></p>')).toBe(true);
+    expect(isBlankHtml('<div><p></p><p>  </p></div>')).toBe(true);
+  });
+
+  it('treats any real text as not blank', () => {
+    expect(isBlankHtml('<p>hi</p>')).toBe(false);
+    expect(isBlankHtml('<p><strong>a</strong></p>')).toBe(false);
+    expect(isBlankHtml('x')).toBe(false);
+  });
+
+  it('counts a numeric entity for ASCII whitespace as blank (behaviour change)', () => {
+    // The replaced implementation was `html.replace(/<[^>]*>/g, '').trim()`,
+    // which left "&#32;" as six literal characters and called it NOT blank.
+    // This is the ONLY behavioural difference, measured across the cases below.
+    expect(isBlankHtml('<p>&#32;</p>')).toBe(true); // encoded space
+    expect(isBlankHtml('<p>&#9;</p>')).toBe(true); // encoded tab
+  });
+
+  it('leaves every other entity exactly as the old regex had it', () => {
+    // DOMPurify re-serializes on output, so &nbsp; stays "&nbsp;" rather than
+    // decoding to U+00A0 — the non-breaking-space cases do NOT change.
+    expect(isBlankHtml('<p>&nbsp;</p>')).toBe(false);
+    expect(isBlankHtml('<p>&#160;</p>')).toBe(false);
+    expect(isBlankHtml('<p>&amp;</p>')).toBe(false);
+    expect(isBlankHtml('<p>&lt;</p>')).toBe(false);
+  });
+
+  it('is not fooled by a truncated tag, which the regex mishandled', () => {
+    // SearchPage's comment notes content_raw "may contain truncated HTML tags".
+    expect(isBlankHtml('<p>hello<')).toBe(false);
+  });
+
+  it('never returns the stripped text to a render sink', () => {
+    // Guards the reason this is not a sanitizer bug: the value is a boolean.
+    expect(typeof isBlankHtml('<script>alert(1)</script>')).toBe('boolean');
   });
 });

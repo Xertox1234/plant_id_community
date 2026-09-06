@@ -11,13 +11,9 @@ import { logger } from '../../utils/logger';
 import { useAnnounce } from '../../contexts/AnnouncerContext';
 import { sanitizeSearchQuery } from '../../utils/validation';
 import { threadPath } from '../../utils/forumUrls';
+import { stripHtml } from '../../utils/sanitize';
 import PageMeta from '../../components/PageMeta';
 import type { Category, SearchForumResponse } from '@/types';
-
-/** Strip HTML tags from a string, returning plain text. */
-function stripTags(html: string): string {
-  return html.replace(/<[^>]*>/g, '');
-}
 
 function highlightText(text: string | undefined, query: string) {
   if (!text || !query.trim()) return text || '';
@@ -402,7 +398,7 @@ export default function SearchPage() {
                 {searchResults.posts.map((post) => {
                   // content_raw holds the backend excerpt (may contain truncated HTML tags).
                   // Strip tags so we render plain text only — never dangerouslySetInnerHTML.
-                  const plainExcerpt = stripTags(post.content_raw);
+                  const plainExcerpt = stripHtml(post.content_raw);
                   // Build a real thread link from the board/topic identity carried by
                   // mapSearchPostToPost, deep-linked to the specific post.
                   const topicLink =
