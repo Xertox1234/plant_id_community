@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: p2
 issue_id: "356"
 tags: [security, ci, dependencies, prevention]
@@ -178,6 +178,17 @@ audit reads, which is safe only because `backend/requirements-dev.txt` is a
 pinless `-r requirements.txt` overlay. `test_requirements_dev_carries_no_pins`
 now guards that invariant, so the day it gains a pin the suite goes red instead
 of the gate going falsely green.
+
+### 2026-09-07 - MERGED
+
+PR #698 squash-merged as `49cc3fd`. 17/18 checks green (the skip is the Flutter
+build, correctly path-filtered). Codified in the same PR: two
+`docs/rules/security.md` rules, a `docs/LEARNINGS.md` entry, the write-time
+trigger `npm-audit-package-lock-only-misses-lockfile-skew` (four fixtures against
+the real index, mutation-checked both ways), four `cross-cutting-reviewer`
+checks, and a `docs/rules/routing.json` fix — every top-level `scripts/*.py` is a
+security scanner and all four routed to NO domain, so the rules naming
+`new_vuln_gate.py` could never reach whoever edits it.
 
 ### 2026-09-07 - Round 1 code review: three findings, all fixed
 
