@@ -132,21 +132,21 @@ export default defineConfig({
       name: 'chromium',
       use: { ...devices['Desktop Chrome'] },
       testIgnore:
-        /(auth\.setup|auth\.spec|forum-authenticated\.spec|canopy-areas-authenticated\.spec|forum-mention\.spec|blog-comments\.spec)\.js/,
+        /(auth\.setup|auth\.spec|forum-authenticated\.spec|canopy-areas-authenticated\.spec|forum-mention\.spec|forum-image-upload\.spec|blog-comments\.spec)\.js/,
     },
 
     {
       name: 'firefox',
       use: { ...devices['Desktop Firefox'] },
       testIgnore:
-        /(auth\.setup|auth\.spec|login\.spec|forum-authenticated\.spec|canopy-areas-authenticated\.spec|forum-mention\.spec|blog-comments\.spec)\.js/,
+        /(auth\.setup|auth\.spec|login\.spec|forum-authenticated\.spec|canopy-areas-authenticated\.spec|forum-mention\.spec|forum-image-upload\.spec|blog-comments\.spec)\.js/,
     },
 
     {
       name: 'webkit',
       use: { ...devices['Desktop Safari'] },
       testIgnore:
-        /(auth\.setup|auth\.spec|login\.spec|forum-authenticated\.spec|canopy-areas-authenticated\.spec|forum-mention\.spec|blog-comments\.spec)\.js/,
+        /(auth\.setup|auth\.spec|login\.spec|forum-authenticated\.spec|canopy-areas-authenticated\.spec|forum-mention\.spec|forum-image-upload\.spec|blog-comments\.spec)\.js/,
     },
 
     // Mobile viewports (unauthenticated)
@@ -154,13 +154,13 @@ export default defineConfig({
       name: 'Mobile Chrome',
       use: { ...devices['Pixel 5'] },
       testIgnore:
-        /(auth\.setup|auth\.spec|login\.spec|forum-authenticated\.spec|canopy-areas-authenticated\.spec|forum-mention\.spec|blog-comments\.spec)\.js/,
+        /(auth\.setup|auth\.spec|login\.spec|forum-authenticated\.spec|canopy-areas-authenticated\.spec|forum-mention\.spec|forum-image-upload\.spec|blog-comments\.spec)\.js/,
     },
     {
       name: 'Mobile Safari',
       use: { ...devices['iPhone 12'] },
       testIgnore:
-        /(auth\.setup|auth\.spec|login\.spec|forum-authenticated\.spec|canopy-areas-authenticated\.spec|forum-mention\.spec|blog-comments\.spec)\.js/,
+        /(auth\.setup|auth\.spec|login\.spec|forum-authenticated\.spec|canopy-areas-authenticated\.spec|forum-mention\.spec|forum-image-upload\.spec|blog-comments\.spec)\.js/,
     },
 
     // Authenticated tests (forum, protected routes). Each loads the state file
@@ -175,7 +175,7 @@ export default defineConfig({
       },
       dependencies: [SETUP_CHROMIUM],
       testMatch:
-        /(forum-authenticated|canopy-areas-authenticated|forum-mention|blog-comments|auth)\.spec\.js/,
+        /(forum-authenticated|canopy-areas-authenticated|forum-mention|forum-image-upload|blog-comments|auth)\.spec\.js/,
     },
 
     {
@@ -186,7 +186,7 @@ export default defineConfig({
       },
       dependencies: [SETUP_FIREFOX],
       testMatch:
-        /(forum-authenticated|canopy-areas-authenticated|forum-mention|blog-comments|auth)\.spec\.js/,
+        /(forum-authenticated|canopy-areas-authenticated|forum-mention|forum-image-upload|blog-comments|auth)\.spec\.js/,
     },
   ],
 });

@@ -4,15 +4,15 @@
 
 ### ✅ Prerequisites Verified
 
-- Backend: Running on http://localhost:8000 ✓
-- Frontend: Running on http://localhost:5174 ✓
+- Backend: Running on <http://localhost:8000> ✓
+- Frontend: Running on <http://localhost:5174> ✓
 - Branch: `feature/phase-6-search-and-image-upload`
 
 ### Test User Account
 
 You'll need a test account with forum posting permissions:
 
-- If you don't have one, create via Django admin: http://localhost:8000/admin/
+- If you don't have one, create via Django admin: <http://localhost:8000/admin/>
 - Or use existing credentials
 
 ---
@@ -21,7 +21,7 @@ You'll need a test account with forum posting permissions:
 
 ### 1.1 Basic Search
 
-**URL**: http://localhost:5174/forum/search
+**URL**: <http://localhost:5174/forum/search>
 
 **Steps**:
 
@@ -556,6 +556,10 @@ You'll need a test account with forum posting permissions:
 
 **Total**: **\_ / 26 passed (**%)
 
+<!-- markdownlint-disable MD035 -->
+<!-- The numbered blanks below are fill-in-the-blank placeholders for a
+     manual tester, not horizontal rules. Pre-dates todo 357. -->
+
 ### Critical Issues Found
 
 1. ***
@@ -585,6 +589,8 @@ You'll need a test account with forum posting permissions:
 
 ---
 
+<!-- markdownlint-enable MD035 -->
+
 ## Automated Test Coverage Verification
 
 Run these commands to verify automated tests still pass:
@@ -603,3 +609,94 @@ npm test -- src/pages/forum/ src/components/forum/ --run
 ```
 
 **Expected**: All tests passing (47/47)
+
+---
+
+## Test Suite 4: Forum Composer Inline Image Upload (todo 357)
+
+Distinct from Suite 2, which covers the plant-ID upload grid. This is the
+**forum composer**'s inline image path: the toolbar's Insert image control in
+`TipTapEditor`, uploading into the Wagtail "Forum Images" collection and
+embedding an `image` body block in the post.
+
+Automated as `e2e/forum-image-upload.spec.js`, which runs under the
+`*-authenticated` projects only (the endpoint is `IsAuthenticated` + CSRF).
+
+```bash
+cd web
+# Direct binary, not `npm run test:e2e` — RTK mangles Playwright's filter args
+# and the run reports "No tests found".
+./node_modules/.bin/playwright test e2e/forum-image-upload.spec.js \
+  --project=chromium-authenticated
+```
+
+Prerequisites (local): `cd backend && python manage.py create_test_user &&
+python manage.py seed_default_forum`.
+
+### 4.1 Upload a chosen image
+
+**Steps**:
+
+1. Sign in, go to `/forum/new-thread`
+2. Click **Insert image**, choose a real JPEG/PNG/GIF/WebP under 10 MB
+3. Type alt text in the prompt, click **Add image**
+
+**Expected Results**:
+
+- ✓ The alt prompt opens _before_ the upload (the value rides the request)
+- ✓ Exactly **one** POST to `/api/v1/forum/images/`, `multipart/form-data`
+- ✓ The request carries an `Idempotency-Key` header
+- ✓ Response 201; the inserted `<img>` has `data-image-id` = the returned id
+- ✓ The `<img>`'s `alt` is the text that was typed
+- ✓ Text typed before the upload is still in the draft
+
+**Pass/Fail**: **\*\***\_**\*\***
+
+### 4.2 Client-side rejection, then recovery
+
+**Steps**:
+
+1. Choose a non-image (e.g. a PDF)
+2. Then choose a valid image
+
+**Expected Results**:
+
+- ✓ "Unsupported image type" announced; **no** network request is made
+- ✓ No alt prompt for the rejected file
+- ✓ Selecting again afterwards works (the input's value is cleared each time,
+  so re-picking the _same_ file is not a silent no-op)
+
+**Pass/Fail**: **\*\***\_**\*\***
+
+### 4.3 Skip = decorative, and alt is editable afterwards
+
+**Steps**:
+
+1. Choose a valid image, click **Skip**
+2. Select the inserted image, click **Edit image alt text**, type alt, save
+
+**Expected Results**:
+
+- ✓ Skip stores `alt=""` **and** `data-decorative="true"` — `alt=""` is the
+  correct markup for a decorative image, not a missing alt
+- ✓ Re-authoring alt updates the node with **no second upload**
+- ✓ Still exactly one POST for the whole flow
+
+**Pass/Fail**: **\*\***\_**\*\***
+
+### 4.4 Accessible name and mobile width
+
+**Steps**:
+
+1. Narrow the viewport to 390 px
+2. Focus and activate the Insert image control by keyboard
+
+**Expected Results**:
+
+- ✓ The control is reachable by its accessible name "Insert image"
+  (`title` alone would not supply one — the button's only child is an
+  `aria-hidden` icon, so `ToolbarButton` mirrors `title` into `aria-label`)
+- ✓ The toolbar scrolls rather than clipping the control
+- ✓ Activating it opens the file picker
+
+**Pass/Fail**: **\*\***\_**\*\***

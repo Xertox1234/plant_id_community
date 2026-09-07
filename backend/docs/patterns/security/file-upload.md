@@ -2,7 +2,10 @@
 
 **Last Updated**: November 13, 2025
 **Consolidated From**:
-- `apps/forum/viewsets/post_viewset.py` (upload_image action)
+
+- `apps/forum/viewsets/post_viewset.py` (upload_image action) — RETIRED with the
+  django-machina forum; the live implementation is
+  `packages/wagtail_forum/wagtail_forum/api/upload_validation.py`
 - `PLANT_SAVE_PATTERNS_CODIFIED.md` (file handling sections)
 - Phase 6 Security Audit findings
 
@@ -14,10 +17,11 @@
 
 1. [Four-Layer Validation Pattern](#four-layer-validation-pattern)
 2. [Defense in Depth Strategy](#defense-in-depth-strategy)
-3. [Implementation Examples](#implementation-examples)
-4. [Attack Vectors & Mitigations](#attack-vectors--mitigations)
+3. [Attack Vectors & Mitigations](#attack-vectors--mitigations)
+4. [Configuration Constants](#configuration-constants)
 5. [Testing Patterns](#testing-patterns)
 6. [Common Pitfalls](#common-pitfalls)
+7. [Security Checklist](#security-checklist)
 
 ---
 
@@ -28,12 +32,14 @@
 **Why This Matters**: Single-layer validation can be bypassed. Four layers provide defense-in-depth against file upload attacks (RCE, XSS, DoS).
 
 **The Four Layers**:
+
 1. **File Extension** - Prevents obvious malicious files (.php, .exe, .sh)
 2. **MIME Type** - Catches content-type spoofing
 3. **File Size** - Prevents resource exhaustion
 4. **Magic Number (PIL)** - Validates actual file content
 
 **Anti-Pattern** ❌:
+
 ```python
 # ❌ CRITICAL VULNERABILITY - Only checks extension
 def upload_image(request):
@@ -49,14 +55,32 @@ def upload_image(request):
 ```
 
 **Problems**:
+
 - `.php.jpg` bypasses extension check
 - No MIME type validation (content-type spoofing)
 - No size limits (DoS via large files)
 - No magic number check (fake image with malicious payload)
 
 **Correct Pattern** ✅:
+
+> **Where this lives now.** The snippet below is illustrative; the LIVE
+> implementation is
+> `backend/packages/wagtail_forum/wagtail_forum/api/upload_validation.py`
+> (`validate_image_upload`), called from `PostImageUploadView` in
+> `.../api/views.py`. The old path named here,
+> `apps/forum/viewsets/post_viewset.py`, belonged to the retired django-machina
+> forum and no longer exists — the limits are now settings
+> (`WAGTAILFORUM_IMAGE_*` in `wagtail_forum/conf.py`), not module constants.
+>
+> Note the API path deliberately bypasses Wagtail's own image-form validation
+> (it writes via `get_image_model().objects.create()`), so
+> `WAGTAILIMAGES_MAX_UPLOAD_SIZE` / `_EXTENSIONS` / `_MAX_IMAGE_PIXELS` are
+> inert on it. That is intentional — the package must not depend on the host's
+> `apps.*` namespace (`tests/test_reusability.py`) — but it does mean the API
+> and CMS-admin ceilings can diverge.
+
 ```python
-# apps/forum/viewsets/post_viewset.py:547-721
+# Illustrative; see upload_validation.py for the live version.
 from rest_framework import status
 from rest_framework.response import Response
 from rest_framework.decorators import action
@@ -194,8 +218,10 @@ def upload_image(self, request, pk=None):
 ### Why Each Layer Matters
 
 #### Layer 1: File Extension
+
 **Purpose**: Block obvious malicious files
 **Attacks Prevented**:
+
 - `.php` - PHP shell uploads
 - `.exe` - Windows executables
 - `.sh` - Shell scripts
@@ -206,12 +232,15 @@ def upload_image(self, request, pk=None):
 ---
 
 #### Layer 2: MIME Type
+
 **Purpose**: Catch content-type spoofing
 **Attacks Prevented**:
+
 - Renamed executables disguised as images
 - Browser MIME sniffing exploits
 
 **Implementation**:
+
 ```python
 # constants.py
 ALLOWED_IMAGE_MIME_TYPES = [
@@ -227,6 +256,7 @@ if image_file.content_type not in ALLOWED_IMAGE_MIME_TYPES:
 ```
 
 **Why Both Extension AND MIME?**:
+
 - Extension check prevents `.php.jpg` attacks
 - MIME check prevents content-type header spoofing
 - Together: Defense in depth
@@ -234,13 +264,16 @@ if image_file.content_type not in ALLOWED_IMAGE_MIME_TYPES:
 ---
 
 #### Layer 3: File Size
+
 **Purpose**: Prevent resource exhaustion (DoS)
 **Attacks Prevented**:
+
 - Disk space exhaustion
 - Memory exhaustion during processing
 - Network bandwidth abuse
 
 **Implementation**:
+
 ```python
 # constants.py
 MAX_ATTACHMENT_SIZE_BYTES = 10 * 1024 * 1024  # 10MB
@@ -253,14 +286,17 @@ if image_file.size > MAX_ATTACHMENT_SIZE_BYTES:
 ---
 
 #### Layer 4: Magic Number (PIL)
+
 **Purpose**: Validate actual file content
 **Attacks Prevented**:
+
 - Fake images with embedded malicious payloads
 - Decompression bombs (zip bombs)
 - Fork bombs
 - Malformed files causing crashes
 
 **Implementation**:
+
 ```python
 from PIL import Image as PILImage
 
@@ -291,6 +327,7 @@ except Exception as e:
 ```
 
 **What PIL Validates**:
+
 1. **Magic Number**: File signature matches format (JPEG: `FFD8FF`, PNG: `89504E47`)
 2. **Header Integrity**: File header is valid for detected format
 3. **Parsability**: Image can be parsed without errors
@@ -303,6 +340,7 @@ except Exception as e:
 ### Attack 1: PHP Shell Upload
 
 **Attack**:
+
 ```bash
 # Attacker creates malicious PHP file
 echo "<?php system(\$_GET['cmd']); ?>" > shell.php
@@ -315,6 +353,7 @@ curl -F "image=@shell.php.jpg" http://example.com/upload
 ```
 
 **Mitigations**:
+
 1. Extension check catches `.php` extension
 2. MIME type check catches non-image content type
 3. PIL check fails on non-image file
@@ -326,6 +365,7 @@ curl -F "image=@shell.php.jpg" http://example.com/upload
 ### Attack 2: XSS via SVG
 
 **Attack**:
+
 ```xml
 <!-- malicious.svg -->
 <svg xmlns="http://www.w3.org/2000/svg">
@@ -335,12 +375,14 @@ curl -F "image=@shell.php.jpg" http://example.com/upload
 ```
 
 **Mitigations**:
+
 1. SVG not in `ALLOWED_IMAGE_EXTENSIONS`
 2. SVG MIME type (`image/svg+xml`) not in `ALLOWED_IMAGE_MIME_TYPES`
 
 **Result**: ✅ **Blocked at Layer 1 and 2**
 
 **Additional Protection**:
+
 ```python
 # If SVG support needed, sanitize with defusedxml
 from defusedxml.ElementTree import parse
@@ -359,6 +401,7 @@ def sanitize_svg(svg_file):
 ### Attack 3: Decompression Bomb
 
 **Attack**:
+
 ```python
 # Create 10,000 x 10,000 pixel white image
 # Compresses to ~10KB but expands to ~400MB in memory
@@ -368,6 +411,7 @@ img.save('bomb.jpg', quality=1)
 ```
 
 **Mitigations**:
+
 1. `PILImage.MAX_IMAGE_PIXELS` limits total pixels
 2. Dimension checks (MAX_IMAGE_WIDTH, MAX_IMAGE_HEIGHT)
 3. `DecompressionBombError` exception handling
@@ -379,6 +423,7 @@ img.save('bomb.jpg', quality=1)
 ### Attack 4: Content-Type Spoofing
 
 **Attack**:
+
 ```bash
 # Upload executable with fake content-type
 curl -F "image=@malware.exe" \
@@ -387,6 +432,7 @@ curl -F "image=@malware.exe" \
 ```
 
 **Mitigations**:
+
 1. Extension check validates filename
 2. PIL magic number check validates actual content
 
@@ -397,6 +443,7 @@ curl -F "image=@malware.exe" \
 ## Configuration Constants
 
 **File**: `apps/forum/constants.py`
+
 ```python
 # File Upload Security Configuration
 
@@ -554,6 +601,7 @@ class FileUploadSecurityTestCase(TestCase):
 ### Pitfall 1: Single Validation Layer
 
 **Problem**: Only checking extension
+
 ```python
 # ❌ Easily bypassed
 if not filename.endswith('.jpg'):
@@ -567,6 +615,7 @@ if not filename.endswith('.jpg'):
 ### Pitfall 2: Trusting Content-Type Header
 
 **Problem**: Content-Type is client-controlled
+
 ```python
 # ❌ Attacker can fake this
 if file.content_type == 'image/jpeg':
@@ -580,12 +629,14 @@ if file.content_type == 'image/jpeg':
 ### Pitfall 3: No Decompression Bomb Protection
 
 **Problem**: Not setting MAX_IMAGE_PIXELS
+
 ```python
 # ❌ Vulnerable to zip bombs
 img = Image.open(file)  # May consume 100s of MB
 ```
 
 **Solution**: Always set before opening
+
 ```python
 # ✅ Protected
 PILImage.MAX_IMAGE_PIXELS = 100_000_000
@@ -597,6 +648,7 @@ img = PILImage.open(file)
 ### Pitfall 4: Not Resetting File Pointer
 
 **Problem**: File pointer at end after reading
+
 ```python
 # ❌ Second read returns empty
 img.verify()
@@ -605,6 +657,7 @@ model.image = file  # Saves empty file
 ```
 
 **Solution**: Reset after PIL operations
+
 ```python
 # ✅ Reset pointer
 img.verify()
@@ -617,6 +670,7 @@ model.image = file
 ## Security Checklist
 
 ### Configuration
+
 - [ ] Extension whitelist defined (no blacklist)
 - [ ] MIME type whitelist defined
 - [ ] File size limit set (≤ 10MB recommended)
@@ -624,6 +678,7 @@ model.image = file
 - [ ] MAX_IMAGE_PIXELS configured
 
 ### Implementation
+
 - [ ] Layer 1: Extension validation
 - [ ] Layer 2: MIME type validation
 - [ ] Layer 3: File size validation
@@ -634,6 +689,7 @@ model.image = file
 - [ ] Security logging for rejected files
 
 ### Testing
+
 - [ ] Test invalid extension
 - [ ] Test invalid MIME type
 - [ ] Test oversized file
