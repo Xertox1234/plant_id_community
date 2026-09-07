@@ -16,6 +16,7 @@ export type {
   Category,
   Thread,
   Post,
+  LinkPreview,
   SearchForumResponse,
   ThreadIdentification,
   IdentificationCandidate,

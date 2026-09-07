@@ -1,8 +1,10 @@
 import { describe, it, expect } from 'vitest';
 import { Editor } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
+import Link from '@tiptap/extension-link';
 import {
   htmlToBodyBlocks,
+  previewUrlFromHtml,
   bodyBlocksToHtml,
   postQuoteHtml,
   postQuoteText,
@@ -19,6 +21,36 @@ import type { StreamFieldBlock } from '@/types/blog';
 // CodeQL js/xss-through-dom chained THROUGH this file to reach the DOMParser
 // sink (conflating the embed URL with paragraph HTML on the shared array).
 // Production never has that path — TipTap sits between the two functions.
+describe('previewUrlFromHtml', () => {
+  it('extracts a linked public URL from real TipTap output', () => {
+    const editor = new Editor({
+      extensions: [StarterKit.configure({ link: false }), Link],
+      content: '<p><a href="https://www.facebook.com/example/posts/1">Open Facebook</a></p>',
+    });
+    try {
+      expect(previewUrlFromHtml(editor.getHTML())).toBe('https://www.facebook.com/example/posts/1');
+    } finally {
+      editor.destroy();
+    }
+  });
+
+  it('extracts URLs from prose and list items but ignores non-http targets', () => {
+    expect(previewUrlFromHtml('<p>See https://example.com for details</p>')).toBe(
+      'https://example.com'
+    );
+    expect(previewUrlFromHtml('<ul><li>https://example.com/plant</li></ul>')).toBe(
+      'https://example.com/plant'
+    );
+    expect(
+      previewUrlFromHtml(
+        '<ul><li>https://example.com/one</li><li>https://example.org/two</li></ul>'
+      )
+    ).toBe('https://example.org/two');
+    expect(previewUrlFromHtml('<p>mailto:test@example.com</p>')).toBeNull();
+    expect(previewUrlFromHtml('<script>https://example.com/hidden</script>')).toBeNull();
+  });
+});
+
 describe('forumBody serialization', () => {
   it('never turns a link carrying HTML meta-characters into an embed (todo 353)', () => {
     const bad = htmlToBodyBlocks('<p>https://youtu.be/abc&lt;script&gt;x</p>');

@@ -1,3 +1,4 @@
+import { StrictMode } from 'react';
 import { describe, it, expect, vi, beforeAll, beforeEach } from 'vitest';
 import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
@@ -123,6 +124,66 @@ describe('TipTapEditor', () => {
     });
     expect(screen.getByRole('button', { name: 'Italic (Ctrl+I)' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Insert image' })).toBeInTheDocument();
+  });
+
+  it('exposes responsive toolbar semantics and history controls', async () => {
+    const { container } = render(<TipTapEditor onChange={vi.fn()} editable />);
+
+    await waitFor(() => {
+      expect(screen.getByRole('toolbar', { name: 'Formatting toolbar' })).toBeInTheDocument();
+    });
+
+    expect(screen.getByTitle('Undo (Ctrl+Z)')).toBeDisabled();
+    expect(screen.getByTitle('Redo (Ctrl+Shift+Z)')).toBeDisabled();
+    expect(container.querySelector('.forum-editor-content')).toBeInTheDocument();
+  });
+
+  it('shows a Facebook-style preview for a URL in the draft', async () => {
+    const url = 'https://www.facebook.com/example/posts/1';
+    const preview = {
+      url,
+      title: 'A community post',
+      description: 'A useful plant update.',
+      image_url: 'https://cdn.example.com/plant.jpg',
+      site_name: 'Facebook',
+      domain: 'www.facebook.com',
+      available: true,
+    };
+    const previewSpy = vi.spyOn(forumService, 'fetchLinkPreview').mockResolvedValue(preview);
+
+    const { container } = render(
+      <TipTapEditor content={`<p>Check this out: ${url}</p>`} onChange={vi.fn()} editable />
+    );
+
+    await waitFor(() => expect(previewSpy).toHaveBeenCalledWith(url, expect.any(AbortSignal)));
+    expect(await screen.findByTestId('forum-link-preview')).toHaveAttribute('href', url);
+    expect(screen.getByText('A community post')).toBeInTheDocument();
+    expect(screen.getByText('A useful plant update.')).toBeInTheDocument();
+    const image = container.querySelector('[data-testid="forum-link-preview"] img');
+    expect(image).toHaveAttribute('src', 'https://cdn.example.com/plant.jpg');
+    if (!image) throw new Error('Preview image was not rendered');
+    fireEvent.error(image);
+    expect(
+      container.querySelector('[data-testid="forum-link-preview"] img')
+    ).not.toBeInTheDocument();
+  });
+
+  it('does not render a link preview in readonly mode', async () => {
+    const url = 'https://www.facebook.com/example/posts/1';
+    const previewSpy = vi.spyOn(forumService, 'fetchLinkPreview').mockResolvedValue({
+      url,
+      title: 'A community post',
+      description: '',
+      image_url: null,
+      site_name: 'Facebook',
+      domain: 'www.facebook.com',
+      available: true,
+    });
+
+    render(<TipTapEditor content={`<p>${url}</p>`} onChange={vi.fn()} editable={false} />);
+
+    await waitFor(() => expect(screen.queryByTestId('forum-link-preview')).not.toBeInTheDocument());
+    expect(previewSpy).not.toHaveBeenCalled();
   });
 
   it('does not render toolbar when readonly', async () => {
@@ -1031,5 +1092,39 @@ describe('TipTapEditor alt prompt preview', () => {
     const preview = container.querySelector('img.h-14');
     expect(preview).not.toBeNull();
     expect(preview?.getAttribute('src')).toBe('https://cdn.example/x.jpg');
+  });
+});
+
+describe('TipTapEditor under StrictMode', () => {
+  it('survives the mount -> unmount -> mount cycle without touching a destroyed editor', () => {
+    // React StrictMode runs effects twice in development, and TipTap destroys
+    // the editor on the first cleanup. Any effect that calls editor.getHTML()
+    // guarded only by `if (!editor)` then runs against the SAME, destroyed
+    // instance: its schema is null, so DOMSerializer.fromSchema throws
+    // `Cannot read properties of null (reading 'cached')` and the composer
+    // drops into the error boundary. The whole page renders "Oops! Something
+    // went wrong" and no forum thread can be composed at all.
+    //
+    // A plain render() does NOT reproduce this — the double-invoke is what
+    // makes it fail — which is why the four e2e specs caught it while every
+    // jsdom test passed. The guard is `editor.isDestroyed` in TipTapEditor.
+    const errors: unknown[] = [];
+    const onError = (event: ErrorEvent) => errors.push(event.error ?? event.message);
+    window.addEventListener('error', onError);
+    try {
+      const { container } = render(
+        <StrictMode>
+          <TipTapEditor
+            content="<p>a draft with a link https://example.com in it</p>"
+            onChange={vi.fn()}
+            editable
+          />
+        </StrictMode>
+      );
+      expect(container.querySelector('.ProseMirror')).toBeTruthy();
+    } finally {
+      window.removeEventListener('error', onError);
+    }
+    expect(errors).toEqual([]);
   });
 });

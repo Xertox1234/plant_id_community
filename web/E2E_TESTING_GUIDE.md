@@ -546,6 +546,29 @@ You'll need a test account with forum posting permissions:
 
 ---
 
+## Test Suite 4: Live Link Preview
+
+### 4.1 Public URL in Composer
+
+**Setup**: Sign in and open a new thread, reply, or post-edit composer.
+
+**Steps**:
+
+1. Paste a public page URL such as a Facebook post or article URL into the editor.
+2. Wait briefly for the preview request to finish.
+3. Add explanatory text before or after the URL.
+
+**Expected**:
+
+- A Facebook-style card appears with the page image when available, source, title, description, and domain.
+- The card links to the original URL and opens in a new tab.
+- The card remains visible when the URL is included alongside explanatory text.
+- A failed or unavailable preview does not prevent the post from being submitted.
+
+**Pass/Fail**: **\*\***_**\*\***
+
+---
+
 ## Summary
 
 ### Overall Test Results
@@ -553,8 +576,9 @@ You'll need a test account with forum posting permissions:
 - Search Functionality: \_\_\_ / 10 passed
 - Image Upload: \_\_\_ / 12 passed
 - Integration Tests: \_\_\_ / 4 passed
+- Live Link Preview: \_\_\_ / 1 passed
 
-**Total**: **\_ / 26 passed (**%)
+**Total**: **\_ / 27 passed (**%)
 
 <!-- markdownlint-disable MD035 -->
 <!-- The numbered blanks below are fill-in-the-blank placeholders for a

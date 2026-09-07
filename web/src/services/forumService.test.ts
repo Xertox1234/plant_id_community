@@ -23,6 +23,7 @@ import {
   searchForum,
   searchForumUsers,
   improveDraft,
+  fetchLinkPreview,
   askPlantCare,
   reportPlantCareAnswer,
   RagError,
@@ -317,6 +318,36 @@ describe('forumService (wagtail_forum API contract)', () => {
     const result = await fetchPosts({ thread: 12 });
     expect(result.meta.next).toBe(nextUrl);
     expect(result.meta.previous).toBeNull();
+  });
+
+  it('fetchLinkPreview requests authenticated metadata for the pasted URL', async () => {
+    const preview = {
+      url: 'https://www.facebook.com/example/posts/1',
+      title: 'A post',
+      description: 'A description',
+      image_url: 'https://cdn.example.com/preview.jpg',
+      site_name: 'Facebook',
+      domain: 'www.facebook.com',
+      available: true,
+    };
+    fetchMock.mockResolvedValueOnce(okJson(preview));
+    const controller = new AbortController();
+
+    const result = await fetchLinkPreview(preview.url, controller.signal);
+
+    expect(result).toEqual(preview);
+    const [url, options] = fetchMock.mock.calls[0];
+    expect(url).toContain(
+      '/link-preview/?url=https%3A%2F%2Fwww.facebook.com%2Fexample%2Fposts%2F1'
+    );
+    expect(options.signal).toBe(controller.signal);
+  });
+
+  it('fetchLinkPreview rejects non-http URLs before making a request', async () => {
+    await expect(fetchLinkPreview('javascript:alert(1)')).rejects.toThrow(
+      'Link preview URL is invalid'
+    );
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   // --- Search ---------------------------------------------------------------
