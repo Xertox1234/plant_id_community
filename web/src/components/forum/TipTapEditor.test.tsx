@@ -51,6 +51,20 @@ beforeAll(() => {
   url.revokeObjectURL = revokeObjectURL;
 });
 
+/**
+ * jsdom has no layout, so `document.elementFromPoint` does not exist. ProseMirror's
+ * drop handler resolves a document position from the event coordinates BEFORE it
+ * consults `handleDrop`, and bails when that returns nothing — so without this
+ * shim the drop tests below would pass vacuously (no upload attempted, no error
+ * raised). Returning the editor element is enough for posAtCoords to resolve.
+ */
+beforeAll(() => {
+  const doc = document as unknown as Record<string, unknown>;
+  if (typeof doc.elementFromPoint !== 'function') {
+    doc.elementFromPoint = () => document.querySelector('.ProseMirror');
+  }
+});
+
 describe('TipTapEditor', () => {
   beforeEach(() => {
     // The compose-assist unavailability latch is session-scoped module state in
@@ -273,6 +287,7 @@ describe('TipTapEditor', () => {
       id: 1,
       url: 'https://cdn.example/x.jpg',
       alt: '',
+      decorative: false,
       width: 10,
       height: 10,
     });
@@ -286,7 +301,11 @@ describe('TipTapEditor', () => {
     // M7: selecting a file now opens the alt prompt; the upload happens on
     // confirm. Skip is the shortest path to "just upload it".
     await userEvent.click(await screen.findByRole('button', { name: 'Skip' }));
-    await waitFor(() => expect(uploadSpy).toHaveBeenCalledWith(file, ''));
+    await waitFor(() =>
+      // The 3rd arg is the Idempotency-Key: a double-submit of the same
+      // selection must replay server-side rather than store a 2nd image.
+      expect(uploadSpy).toHaveBeenCalledWith(file, '', expect.any(String))
+    );
   });
 
   it('surfaces an upload failure as an error message (L13)', async () => {
@@ -327,6 +346,7 @@ describe('TipTapEditor', () => {
       id: 1,
       url: 'https://cdn.example/x.jpg',
       alt: 'A monstera leaf with brown edges',
+      decorative: false,
       width: 10,
       height: 10,
     });
@@ -343,7 +363,11 @@ describe('TipTapEditor', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Add image' }));
 
     await waitFor(() =>
-      expect(uploadSpy).toHaveBeenCalledWith(file, 'A monstera leaf with brown edges')
+      expect(uploadSpy).toHaveBeenCalledWith(
+        file,
+        'A monstera leaf with brown edges',
+        expect.any(String)
+      )
     );
   });
 
@@ -352,6 +376,7 @@ describe('TipTapEditor', () => {
       id: 1,
       url: 'https://cdn.example/x.jpg',
       alt: '',
+      decorative: false,
       width: 10,
       height: 10,
     });
@@ -366,7 +391,11 @@ describe('TipTapEditor', () => {
 
     // Skip means "no description", not "submit whatever is in the box" — an
     // empty alt is correct for a decorative image and must not block posting.
-    await waitFor(() => expect(uploadSpy).toHaveBeenCalledWith(file, ''));
+    await waitFor(() =>
+      // The 3rd arg is the Idempotency-Key: a double-submit of the same
+      // selection must replay server-side rather than store a 2nd image.
+      expect(uploadSpy).toHaveBeenCalledWith(file, '', expect.any(String))
+    );
   });
 
   it('revokes the preview object URL when the prompt closes (M7)', async () => {
@@ -374,6 +403,7 @@ describe('TipTapEditor', () => {
       id: 1,
       url: 'https://cdn.example/x.jpg',
       alt: '',
+      decorative: false,
       width: 10,
       height: 10,
     });
@@ -648,5 +678,181 @@ describe('TipTapEditor', () => {
     await waitFor(() => expect(container.querySelector('.ProseMirror')).toBeInTheDocument());
 
     expect(container.querySelector('.ProseMirror blockquote[data-post-id="7"]')).not.toBeNull();
+  });
+});
+
+// --- todo 357: one request, more ways in, editable alt ----------------------
+
+describe('TipTapEditor image upload (todo 357)', () => {
+  const uploaded = {
+    id: 1,
+    url: 'https://cdn.example/x.jpg',
+    alt: '',
+    decorative: false,
+    width: 10,
+    height: 10,
+  };
+
+  async function mount() {
+    const { container } = render(<TipTapEditor onChange={vi.fn()} />);
+    await waitFor(() => expect(container.querySelector('.ProseMirror')).toBeInTheDocument());
+    return container;
+  }
+
+  function imageFile(name = 'ok.jpg') {
+    return new File(['x'], name, { type: 'image/jpeg' });
+  }
+
+  it('disables the Insert image button while an upload is in flight (AC 4)', async () => {
+    // Without this, a second activation reopens the picker mid-upload and
+    // starts a concurrent request — so "one multipart request" would not hold.
+    let release: (v: typeof uploaded) => void = () => {};
+    vi.spyOn(forumService, 'uploadPostImage').mockReturnValue(
+      new Promise((resolve) => {
+        release = resolve;
+      })
+    );
+    await mount();
+
+    const button = screen.getByRole('button', { name: 'Insert image' });
+    expect(button).not.toBeDisabled();
+
+    fireEvent.change(screen.getByTestId('forum-image-input'), {
+      target: { files: [imageFile()] },
+    });
+    await userEvent.click(await screen.findByRole('button', { name: 'Skip' }));
+
+    const uploading = await screen.findByRole('button', { name: 'Uploading image…' });
+    expect(uploading).toBeDisabled();
+
+    release(uploaded);
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Insert image' })).toBeEnabled());
+  });
+
+  it('reuses ONE idempotency key for a given file selection', async () => {
+    const uploadSpy = vi.spyOn(forumService, 'uploadPostImage').mockResolvedValue(uploaded);
+    await mount();
+
+    fireEvent.change(screen.getByTestId('forum-image-input'), {
+      target: { files: [imageFile('a.jpg')] },
+    });
+    await userEvent.click(await screen.findByRole('button', { name: 'Skip' }));
+    await waitFor(() => expect(uploadSpy).toHaveBeenCalledTimes(1));
+
+    fireEvent.change(screen.getByTestId('forum-image-input'), {
+      target: { files: [imageFile('b.jpg')] },
+    });
+    await userEvent.click(await screen.findByRole('button', { name: 'Skip' }));
+    await waitFor(() => expect(uploadSpy).toHaveBeenCalledTimes(2));
+
+    const firstKey = uploadSpy.mock.calls[0][2];
+    const secondKey = uploadSpy.mock.calls[1][2];
+    expect(firstKey).toBeTruthy();
+    // A DIFFERENT selection must not share a key, or the backend would replay
+    // the first image's response and the second upload would silently vanish.
+    expect(secondKey).not.toBe(firstKey);
+  });
+
+  it('routes a pasted image through the same validation gate', async () => {
+    const uploadSpy = vi.spyOn(forumService, 'uploadPostImage').mockResolvedValue(uploaded);
+    const container = await mount();
+    const editorEl = container.querySelector('.ProseMirror') as HTMLElement;
+
+    fireEvent.paste(editorEl, {
+      clipboardData: {
+        files: [imageFile('pasted.jpg')],
+        items: [],
+        types: ['Files'],
+        // ProseMirror reads text/plain + text/html before consulting
+        // handlePaste; without getData it throws before we are called.
+        getData: () => '',
+      },
+    });
+
+    // Same alt prompt as the toolbar path — not a second upload path.
+    await userEvent.click(await screen.findByRole('button', { name: 'Skip' }));
+    await waitFor(() => expect(uploadSpy).toHaveBeenCalledTimes(1));
+  });
+
+  it('rejects a pasted non-image by the same client-side rules', async () => {
+    const uploadSpy = vi.spyOn(forumService, 'uploadPostImage');
+    const container = await mount();
+    const editorEl = container.querySelector('.ProseMirror') as HTMLElement;
+
+    fireEvent.paste(editorEl, {
+      clipboardData: {
+        files: [new File(['x'], 'doc.pdf', { type: 'application/pdf' })],
+        items: [],
+        types: ['Files'],
+        getData: () => '',
+      },
+    });
+
+    // Not an image at all, so it is not even offered to the prompt — and
+    // crucially never uploaded.
+    await waitFor(() => expect(uploadSpy).not.toHaveBeenCalled());
+    expect(screen.queryByRole('button', { name: 'Skip' })).not.toBeInTheDocument();
+  });
+
+  it('routes a dropped image through the same validation gate', async () => {
+    const uploadSpy = vi.spyOn(forumService, 'uploadPostImage').mockResolvedValue(uploaded);
+    const container = await mount();
+    const editorEl = container.querySelector('.ProseMirror') as HTMLElement;
+
+    fireEvent.drop(editorEl, {
+      dataTransfer: {
+        files: [imageFile('dropped.jpg')],
+        items: [],
+        types: ['Files'],
+        // ProseMirror reads the drag payload as text before consulting
+        // handleDrop, exactly as it does for paste.
+        getData: () => '',
+      },
+    });
+
+    await userEvent.click(await screen.findByRole('button', { name: 'Skip' }));
+    await waitFor(() => expect(uploadSpy).toHaveBeenCalledTimes(1));
+  });
+
+  it('rejects an oversized dropped image before uploading', async () => {
+    const uploadSpy = vi.spyOn(forumService, 'uploadPostImage');
+    const container = await mount();
+    const editorEl = container.querySelector('.ProseMirror') as HTMLElement;
+
+    const big = imageFile('huge.jpg');
+    Object.defineProperty(big, 'size', { value: 11 * 1024 * 1024 });
+    fireEvent.drop(editorEl, {
+      dataTransfer: { files: [big], items: [], types: ['Files'], getData: () => '' },
+    });
+
+    expect(await screen.findByText(/too large/i)).toBeInTheDocument();
+    expect(uploadSpy).not.toHaveBeenCalled();
+  });
+
+  it('lets the author re-author alt text after insert, with no re-upload', async () => {
+    // The whole point of the ImageBlock migration: alt is per-usage, so fixing
+    // it is an attribute update rather than a second file upload.
+    const uploadSpy = vi.spyOn(forumService, 'uploadPostImage').mockResolvedValue(uploaded);
+    const container = await mount();
+
+    fireEvent.change(screen.getByTestId('forum-image-input'), {
+      target: { files: [imageFile()] },
+    });
+    await userEvent.click(await screen.findByRole('button', { name: 'Skip' }));
+    await waitFor(() => expect(uploadSpy).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(container.querySelector('img[data-image-id]')).toBeInTheDocument());
+
+    await userEvent.click(screen.getByRole('button', { name: 'Edit image alt text' }));
+    const input = await screen.findByLabelText(/describe this image/i);
+    await userEvent.type(input, 'A monstera leaf');
+    await userEvent.click(screen.getByRole('button', { name: 'Save alt text' }));
+
+    await waitFor(() =>
+      expect(container.querySelector('img[data-image-id]')?.getAttribute('alt')).toBe(
+        'A monstera leaf'
+      )
+    );
+    // No second upload — that is the improvement being pinned.
+    expect(uploadSpy).toHaveBeenCalledTimes(1);
   });
 });

@@ -2,8 +2,11 @@
  * Forum API Service — translation layer for the wagtail_forum REST API.
  *
  * READ and WRITE functions (create topic/reply, edit, delete, react) target the
- * wagtail_forum contract. The image functions remain on the legacy shape pending
- * PR-3 (inline-image upload + render); they are not wired into any compose UI.
+ * wagtail_forum contract, including the image functions: `uploadPostImage` is
+ * live in the forum composer (components/forum/TipTapEditor) and on
+ * pages/IdentifyPage. (This block used to claim the image functions were "not
+ * wired into any compose UI" — untrue since PR-3 shipped, and that stale
+ * sentence is what caused todo 357 to be filed as if the feature were missing.)
  *
  * Cookie-based JWT auth with CSRF on mutating requests.
  */
@@ -552,6 +555,8 @@ export interface UploadedImage {
   id: number;
   url: string;
   alt: string;
+  /** Server-normalised: an upload with no alt comes back decorative (todo 357). */
+  decorative: boolean;
   width: number;
   height: number;
 }
@@ -560,15 +565,23 @@ export interface UploadedImage {
  * Upload an inline image into the forum image collection. Topic-independent:
  * the returned id is referenced from an `image` body block (see utils/forumBody).
  * Multipart, so let the browser set Content-Type; CSRF + cookie auth as usual.
- */
-/**
- * Upload an inline post image, optionally with author-supplied alt text (M7).
  *
- * `alt` is sent only when non-empty — an omitted part and an empty one mean the
- * same thing to the backend (a decorative image, served as `alt: ""`), and not
- * sending it keeps the request identical to the pre-M7 shape.
+ * `alt` (M7) is sent only when non-empty — an omitted part and an empty one mean
+ * the same thing to the backend (a decorative image, served as `alt: ""`).
+ *
+ * `idempotencyKey` activates the backend's replay path (M36): the server
+ * fingerprints a sha256 of the FILE CONTENT, replays the original 201 for a
+ * repeat of the same key+bytes, 409s a concurrent twin, and 422s the same key
+ * with different bytes. Pass one key per file selection and reuse it across
+ * retries of that selection — a fresh key per attempt uploads a duplicate row
+ * and orphans a file. Omitted (as IdentifyPage does) the endpoint behaves
+ * exactly as before.
  */
-export async function uploadPostImage(imageFile: File, alt?: string): Promise<UploadedImage> {
+export async function uploadPostImage(
+  imageFile: File,
+  alt?: string,
+  idempotencyKey?: string
+): Promise<UploadedImage> {
   const csrfToken = await getCsrfToken();
   const formData = new FormData();
   formData.append('image', imageFile);
@@ -577,7 +590,11 @@ export async function uploadPostImage(imageFile: File, alt?: string): Promise<Up
   const response = await fetch(`${FORUM_BASE}/images/`, {
     method: 'POST',
     credentials: 'include',
-    headers: { Accept: 'application/json', ...(csrfToken && { 'X-CSRFToken': csrfToken }) },
+    headers: {
+      Accept: 'application/json',
+      ...(csrfToken && { 'X-CSRFToken': csrfToken }),
+      ...(idempotencyKey && { 'Idempotency-Key': idempotencyKey }),
+    },
     body: formData,
   });
   if (!response.ok) {

@@ -13,6 +13,7 @@ import {
   ListOrdered,
   LoaderCircle,
   Quote,
+  Type,
   Sparkles,
   Unlink,
 } from 'lucide-react';
@@ -34,6 +35,29 @@ import { ForumMention } from './forumMentionNode';
 const MAX_IMAGE_BYTES = 10 * 1024 * 1024; // 10 MB
 const ALLOWED_IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
 const IMAGE_LIMIT_HINT = 'JPEG, PNG, GIF or WebP, up to 10 MB';
+
+/**
+ * One key per file SELECTION, reused across retries of that selection, so the
+ * backend's M36 replay path collapses a double-submit into a single stored
+ * image instead of orphaning a duplicate row + file.
+ *
+ * `randomUUID` is unavailable on insecure origins and in some test DOMs, so
+ * fall back rather than throwing — a missing key only costs the replay
+ * guarantee, while an exception would break the upload outright.
+ */
+function newIdempotencyKey(): string {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID();
+  }
+  return `forum-img-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
+/** The first image file on a paste/drop payload, or null. */
+function imageFileFromTransfer(data: DataTransfer | null | undefined): File | null {
+  if (!data) return null;
+  const files = Array.from(data.files ?? []);
+  return files.find((f) => f.type.startsWith('image/')) ?? null;
+}
 
 /** Allow only http(s), mailto, or site-relative link targets (blocks javascript: etc.). */
 function isAllowedLinkHref(url: string): boolean {
@@ -71,7 +95,33 @@ export default function TipTapEditor({
   className = '',
   autoFocus = false,
 }: TipTapEditorProps) {
+  // Assigned on every render (below) so ProseMirror's paste/drop handlers —
+  // configured once, before `editor` exists — always invoke the CURRENT
+  // closure rather than the first render's, where `editor` was still null.
+  const handleImageFileRef = useRef<(file: File) => void>(() => {});
+
   const editor = useEditor({
+    editorProps: {
+      // Paste and drop route through the SAME validation gate as the toolbar
+      // button (handleImageFile) — deliberately not a second upload path.
+      // Returning true tells ProseMirror we handled it, which also stops it
+      // inserting the raw file as a base64 <img> that no body block could
+      // represent.
+      handlePaste: (_view, event) => {
+        const file = imageFileFromTransfer(event.clipboardData);
+        if (!file) return false;
+        event.preventDefault();
+        handleImageFileRef.current(file);
+        return true;
+      },
+      handleDrop: (_view, event) => {
+        const file = imageFileFromTransfer((event as DragEvent).dataTransfer);
+        if (!file) return false;
+        event.preventDefault();
+        handleImageFileRef.current(file);
+        return true;
+      },
+    },
     extensions: [
       StarterKit.configure({
         heading: {
@@ -123,16 +173,28 @@ export default function TipTapEditor({
   // that replaces the native window.prompt — M24).
   const [linkDraft, setLinkDraft] = useState<string | null>(null);
   const [linkError, setLinkError] = useState<string | null>(null);
-  // Alt-text prompt (M7): null = closed. Collected BEFORE upload so the authored
-  // value rides the one multipart request — there is no alt PATCH endpoint, and
-  // htmlToBodyBlocks drops the editor node's alt on write, so upload time is the
-  // only moment the value can be captured. `previewUrl` is an object URL that
-  // MUST be revoked (see closeAltPrompt) or every inserted image leaks a blob.
-  const [altPrompt, setAltPrompt] = useState<{
-    file: File;
-    previewUrl: string;
-    alt: string;
-  } | null>(null);
+  // Alt-text prompt: null = closed. Two modes since the ImageBlock migration
+  // (todo 357) made alt a PER-USAGE value stored in the body block:
+  //
+  //   'upload' — a new file. Alt is still collected before upload so the
+  //              authored value also lands on Image.description as the row's
+  //              default. `previewUrl` is an object URL that MUST be revoked
+  //              (see closeAltPrompt) or every inserted image leaks a blob.
+  //   'edit'   — an image already in the document. Re-authoring its alt is now
+  //              a plain attribute update: no re-upload, no new row. That was
+  //              impossible while alt lived only on the image row.
+  const [altPrompt, setAltPrompt] = useState<
+    | {
+        kind: 'upload';
+        file: File;
+        previewUrl: string;
+        alt: string;
+        /** One key per file SELECTION, reused across retries of it (M36). */
+        idempotencyKey: string;
+      }
+    | { kind: 'edit'; src: string; alt: string }
+    | null
+  >(null);
   // The live preview URL, mirrored in a ref because the unmount cleanup below
   // cannot read it from state: React DISCARDS a setState on an unmounting
   // component without ever invoking the updater, so revoking inside a
@@ -150,10 +212,11 @@ export default function TipTapEditor({
     setAltPrompt(null);
   };
 
-  const handleImageSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    event.target.value = ''; // allow re-selecting the same file after an error
-    if (!file || !editor) return;
+  // The ONE validation gate for every way an image can enter the composer:
+  // the toolbar's file picker, a paste, and a drop. Adding a route means
+  // calling this, never re-implementing the checks.
+  const handleImageFile = (file: File) => {
+    if (!editor) return;
     setImageError(null);
     // Client-side pre-check (M29) — fail fast on type/size before uploading.
     if (!ALLOWED_IMAGE_TYPES.includes(file.type)) {
@@ -164,31 +227,80 @@ export default function TipTapEditor({
       setImageError(`Image is too large — ${IMAGE_LIMIT_HINT}.`);
       return;
     }
-    // Ask for alt text BEFORE uploading (M7) — the value has to ride the upload
-    // request, so there is no second chance to collect it.
+    // Ask for alt text BEFORE uploading — the value rides the upload request so
+    // it also becomes the image row's default description.
     closeAltPrompt(); // revoke a previous preview if one was somehow still open
     const previewUrl = URL.createObjectURL(file);
     previewUrlRef.current = previewUrl;
-    setAltPrompt({ file, previewUrl, alt: '' });
+    setAltPrompt({
+      kind: 'upload',
+      file,
+      previewUrl,
+      alt: '',
+      idempotencyKey: newIdempotencyKey(),
+    });
   };
 
-  // Upload the pending image and insert it. `alt` is passed explicitly so the
-  // Skip path sends "" rather than whatever happens to be typed — an empty alt
-  // is a legitimate choice (decorative image) and must never block posting.
-  const uploadPendingImage = async (alt: string) => {
+  // Paste and drop reach the editor through ProseMirror's own handlers, which
+  // were configured before this function existed — so they call through a ref
+  // to always get the CURRENT closure (the one with a non-null `editor`).
+  // Assigned in an effect, not during render (react-hooks/refs): both events
+  // are user-driven and therefore always fire after an effect flush, so the
+  // ref is current by the time either handler reads it.
+  useEffect(() => {
+    handleImageFileRef.current = handleImageFile;
+  });
+
+  const handleImageSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = ''; // allow re-selecting the same file after an error
+    if (!file) return;
+    handleImageFile(file);
+  };
+
+  /** Re-author the alt of the image node the caret is on — no re-upload. */
+  const openAltEditor = () => {
+    if (!editor || !editor.isActive('image')) return;
+    setImageError(null);
+    closeAltPrompt();
+    const attrs = editor.getAttributes('image');
+    setAltPrompt({
+      kind: 'edit',
+      src: typeof attrs.src === 'string' ? attrs.src : '',
+      alt: typeof attrs.alt === 'string' ? attrs.alt : '',
+    });
+  };
+
+  // Commit the prompt. `alt` is passed explicitly so the Skip path sends "" no
+  // matter what is typed — a decorative image is correctly alt="", and empty
+  // must never block posting. A blank alt IS the decorative declaration.
+  const commitAltPrompt = async (alt: string) => {
     if (!altPrompt || !editor) return;
-    const { file } = altPrompt;
+    const trimmed = alt.trim();
+    const decorative = trimmed === '';
+
+    if (altPrompt.kind === 'edit') {
+      closeAltPrompt();
+      editor.chain().focus().updateAttributes('image', { alt: trimmed, decorative }).run();
+      return;
+    }
+
+    const { file, idempotencyKey } = altPrompt;
     closeAltPrompt();
     setUploadingImage(true);
     try {
-      const image = await uploadPostImage(file, alt);
-      // insertContent (not setImage) so the custom imageId attr rides along.
+      const image = await uploadPostImage(file, trimmed, idempotencyKey);
+      // insertContent (not setImage) so the custom attrs ride along.
       editor
         .chain()
         .focus()
         .insertContent({
           type: 'image',
-          attrs: { src: image.url, alt: image.alt, imageId: image.id },
+          // alt/decorative come from what the AUTHOR typed, not the response:
+          // an idempotent replay returns the ORIGINAL alt (the server excludes
+          // alt from the fingerprint on purpose), which would silently discard
+          // a correction made on the retry.
+          attrs: { src: image.url, alt: trimmed, decorative, imageId: image.id },
         })
         .run();
     } catch (err) {
@@ -386,12 +498,32 @@ export default function TipTapEditor({
 
           <div className="w-px bg-line-2 mx-1" aria-hidden="true" />
 
-          <ToolbarButton onClick={() => fileInputRef.current?.click()} title="Insert image">
+          <ToolbarButton
+            onClick={() => fileInputRef.current?.click()}
+            // Disabled while a upload is in flight: without this a second
+            // activation reopens the picker mid-upload and starts a concurrent
+            // request, so AC 4's "one multipart request" would not hold. Matches
+            // the AI button's shape below.
+            disabled={uploadingImage}
+            title={uploadingImage ? 'Uploading image…' : 'Insert image'}
+          >
             {uploadingImage ? (
               <LoaderCircle className="h-4 w-4 animate-spin" aria-hidden="true" />
             ) : (
               <ImageIcon className="h-4 w-4" aria-hidden="true" />
             )}
+          </ToolbarButton>
+
+          {/* Re-author an inserted image's alt (todo 357). Only reachable while
+              the caret is on an image — and only possible at all because
+              ImageBlock moved alt onto the USAGE; under ImageChooserBlock this
+              would have meant re-uploading the file. */}
+          <ToolbarButton
+            onClick={openAltEditor}
+            disabled={!editor.isActive('image')}
+            title="Edit image alt text"
+          >
+            <Type className="h-4 w-4" aria-hidden="true" />
           </ToolbarButton>
 
           {/* AI draft improvement (M14) — premium perk, server-gated. Once the
@@ -428,14 +560,15 @@ export default function TipTapEditor({
         </div>
       )}
 
-      {/* Alt-text prompt (M7) — collected before upload, because the value has
-          to ride the multipart request. "Skip" is a first-class choice: a
-          decorative image is correctly alt="", and empty must never block
-          posting. */}
+      {/* Alt-text prompt. On upload it is collected before the request so the
+          value also becomes the image row's default description; on edit it
+          rewrites the node's attribute with no upload at all (todo 357).
+          "Skip" is a first-class choice: a decorative image is correctly
+          alt="", and empty must never block posting. */}
       {editable && altPrompt !== null && (
         <div className="flex flex-wrap items-center gap-2 border-b border-line-2 bg-surface p-2">
           <img
-            src={altPrompt.previewUrl}
+            src={altPrompt.kind === 'upload' ? altPrompt.previewUrl : altPrompt.src}
             alt=""
             className="h-14 w-14 shrink-0 rounded-xs object-cover"
           />
@@ -455,11 +588,11 @@ export default function TipTapEditor({
               onKeyDown={(e) => {
                 if (e.key === 'Enter') {
                   e.preventDefault();
-                  void uploadPendingImage(altPrompt.alt);
+                  void commitAltPrompt(altPrompt.alt);
                 } else if (e.key === 'Escape') {
-                  // Escape SKIPS (uploads with no alt); it does not cancel the
-                  // insert — the user already chose to add this image.
-                  void uploadPendingImage('');
+                  // Escape SKIPS (commits with no alt, i.e. decorative); it
+                  // does not cancel — the user already chose this image.
+                  void commitAltPrompt('');
                 }
               }}
               placeholder="e.g. A monstera leaf with brown edges"
@@ -467,20 +600,20 @@ export default function TipTapEditor({
               className="min-h-11 w-full rounded-sm border border-line-2 bg-surface px-3 text-sm text-ink"
             />
             <span id="tiptap-image-alt-hint" className="text-xs text-ink-3">
-              Helps people using screen readers. Leave blank if the image is decorative. This can
-              only be set now — to change it later, remove the image and add it again.
+              Helps people using screen readers. Leave blank if the image is decorative — you can
+              change this later with the toolbar&apos;s alt-text button.
             </span>
           </div>
           <button
             type="button"
-            onClick={() => void uploadPendingImage(altPrompt.alt)}
+            onClick={() => void commitAltPrompt(altPrompt.alt)}
             className="min-h-11 rounded-xs bg-primary/20 px-3 text-sm font-medium text-ink"
           >
-            Add image
+            {altPrompt.kind === 'edit' ? 'Save alt text' : 'Add image'}
           </button>
           <button
             type="button"
-            onClick={() => void uploadPendingImage('')}
+            onClick={() => void commitAltPrompt('')}
             className="min-h-11 rounded-xs px-3 text-sm text-ink-2"
           >
             Skip

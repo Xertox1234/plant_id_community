@@ -702,6 +702,28 @@ describe('forumService (wagtail_forum API contract)', () => {
     expect((opts.body as FormData).has('alt')).toBe(false);
   });
 
+  it('uploadPostImage sends Idempotency-Key only when given one (M36)', async () => {
+    const file = new File(['x'], 'a.jpg', { type: 'image/jpeg' });
+    fetchMock.mockResolvedValueOnce(
+      okJson({ id: 7, url: 'http://x/a.jpg', alt: '', decorative: true, width: 8, height: 6 })
+    );
+    await uploadPostImage(file, '', 'key-abc-123');
+    const [, withKey] = fetchMock.mock.calls[0];
+    // The header is what activates the backend's replay path: a repeat of the
+    // same key + bytes replays the original 201 instead of storing a second
+    // image row and orphaning a file.
+    expect(withKey.headers['Idempotency-Key']).toBe('key-abc-123');
+
+    fetchMock.mockResolvedValueOnce(
+      okJson({ id: 8, url: 'http://x/b.jpg', alt: '', decorative: true, width: 8, height: 6 })
+    );
+    await uploadPostImage(file);
+    const [, withoutKey] = fetchMock.mock.calls[1];
+    // Omitted (IdentifyPage's call shape) the request stays byte-identical to
+    // the pre-M36 one — no empty header that the server would have to ignore.
+    expect('Idempotency-Key' in withoutKey.headers).toBe(false);
+  });
+
   // --- Error propagation ----------------------------------------------------
 
   it('propagates backend errors with detail', async () => {
