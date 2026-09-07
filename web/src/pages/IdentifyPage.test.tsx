@@ -120,6 +120,7 @@ describe('IdentifyPage', () => {
         id: 42,
         url: 'http://localhost:8000/media/images/plant.jpg',
         alt: 'plant.jpg',
+        decorative: false,
         width: 800,
         height: 600,
       });

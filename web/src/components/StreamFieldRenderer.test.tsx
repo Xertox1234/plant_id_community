@@ -145,6 +145,33 @@ describe('StreamFieldRenderer', () => {
       expect(img).toHaveAttribute('src', 'https://cdn.example/img.jpg');
     });
 
+    it('renders alt="" for a decorative block even when alt text is present (todo 357)', () => {
+      // `decorative` is the author saying "skip this", which outranks any alt
+      // still sitting on the block. The server already blanks alt for a
+      // decorative block, so this is the belt-and-braces half — it matters for
+      // a body written before the ImageBlock migration, where alt came from the
+      // image row rather than the usage.
+      const blocks: StreamFieldBlock[] = [
+        {
+          id: '1',
+          type: 'image',
+          value: {
+            id: 7,
+            url: 'https://cdn.example/leaf.jpg',
+            alt: 'left over from the image row',
+            decorative: true,
+          },
+        },
+      ];
+      render(<StreamFieldRenderer blocks={blocks} />);
+
+      const img = document.querySelector('img[src="https://cdn.example/leaf.jpg"]');
+      expect(img).toHaveAttribute('alt', '');
+      // alt="" removes it from the accessibility tree entirely, which is the
+      // whole point of marking it decorative.
+      expect(screen.queryByRole('img', { name: /left over/ })).not.toBeInTheDocument();
+    });
+
     it('renders the AUTHORED alt on a post image, and an empty alt stays empty (M7)', () => {
       // Two halves of the same contract. The backend now serves
       // Image.description (what the author typed) and deliberately does NOT

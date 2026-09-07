@@ -35,7 +35,7 @@ describe('forumBody serialization', () => {
     const html = '<p>before</p><img src="https://cdn/x.jpg" alt="a" data-image-id="5"><p>after</p>';
     expect(htmlToBodyBlocks(html)).toEqual([
       { type: 'paragraph', value: '<p>before</p>' },
-      { type: 'image', value: 5 },
+      { type: 'image', value: { image: 5, alt_text: 'a', decorative: false } },
       { type: 'paragraph', value: '<p>after</p>' },
     ]);
   });
@@ -75,7 +75,7 @@ describe('forumBody serialization', () => {
     ];
     expect(htmlToBodyBlocks(bodyBlocksToHtml(body))).toEqual([
       { type: 'paragraph', value: '<p>look</p>' },
-      { type: 'image', value: 42 },
+      { type: 'image', value: { image: 42, alt_text: '', decorative: true } },
       { type: 'paragraph', value: '<p>done</p>' },
     ]);
   });
@@ -92,7 +92,7 @@ describe('forumBody serialization', () => {
     try {
       expect(htmlToBodyBlocks(editor.getHTML())).toEqual([
         { type: 'paragraph', value: '<p>a</p>' },
-        { type: 'image', value: 5 },
+        { type: 'image', value: { image: 5, alt_text: '', decorative: true } },
         { type: 'paragraph', value: '<p>b</p>' },
       ]);
     } finally {
@@ -129,7 +129,7 @@ describe('forumBody quote blocks (audit M1)', () => {
       )
     ).toEqual([
       { type: 'quote', value: 'see' },
-      { type: 'image', value: 7 },
+      { type: 'image', value: { image: 7, alt_text: '', decorative: true } },
     ]);
   });
 
@@ -144,7 +144,7 @@ describe('forumBody quote blocks (audit M1)', () => {
       )
     ).toEqual([
       { type: 'quote', value: 'q' },
-      { type: 'image', value: 8 },
+      { type: 'image', value: { image: 8, alt_text: '', decorative: true } },
     ]);
   });
 
@@ -530,5 +530,82 @@ describe('isBlankHtml', () => {
     // boolean-returning implementation, including a broken one.
     expect(isBlankHtml('<p>real text</p>')).toBe(false);
     expect(isBlankHtml('<p></p>')).toBe(true);
+  });
+});
+
+describe('forumBody image blocks (todo 357 — ImageBlock)', () => {
+  it('carries authored alt text through htmlToBodyBlocks instead of dropping it', () => {
+    // Under ImageChooserBlock the editor's alt was discarded and re-derived
+    // server-side, which is why alt used to be uneditable after insert.
+    const html = '<img src="https://cdn/x.jpg" alt="  A monstera leaf  " data-image-id="5">';
+    expect(htmlToBodyBlocks(html)).toEqual([
+      { type: 'image', value: { image: 5, alt_text: 'A monstera leaf', decorative: false } },
+    ]);
+  });
+
+  it('treats a blank alt as decorative, never as alt_text="" + decorative:false', () => {
+    // That pair is the one ImageBlock.clean() refuses; storing it would make
+    // the post un-editable in the Wagtail admin.
+    const html = '<img src="https://cdn/x.jpg" alt="   " data-image-id="5">';
+    expect(htmlToBodyBlocks(html)).toEqual([
+      { type: 'image', value: { image: 5, alt_text: '', decorative: true } },
+    ]);
+  });
+
+  it('honours an explicit data-decorative even when alt text is present', () => {
+    const html =
+      '<img src="https://cdn/x.jpg" alt="ignored" data-image-id="5" data-decorative="true">';
+    expect(htmlToBodyBlocks(html)).toEqual([
+      { type: 'image', value: { image: 5, alt_text: '', decorative: true } },
+    ]);
+  });
+
+  it('round-trips alt and decorative through bodyBlocksToHtml and back', () => {
+    // The edit path: bodyBlocksToHtml seeds the composer, the author saves, and
+    // htmlToBodyBlocks must reproduce what the server sent — otherwise editing
+    // an untouched post silently rewrites its accessibility metadata.
+    const body: StreamFieldBlock[] = [
+      {
+        type: 'image',
+        value: { id: 42, url: 'https://cdn/p.jpg', alt: 'A fern frond', decorative: false },
+      },
+      { type: 'image', value: { id: 43, url: 'https://cdn/q.jpg', alt: '', decorative: true } },
+    ];
+    expect(htmlToBodyBlocks(bodyBlocksToHtml(body))).toEqual([
+      { type: 'image', value: { image: 42, alt_text: 'A fern frond', decorative: false } },
+      { type: 'image', value: { image: 43, alt_text: '', decorative: true } },
+    ]);
+  });
+
+  it('escapes a quote in alt text so the hand-built <img> cannot be broken out of', () => {
+    const body: StreamFieldBlock[] = [
+      {
+        type: 'image',
+        value: { id: 1, url: 'https://cdn/x.jpg', alt: 'a " onerror="alert(1)', decorative: false },
+      },
+    ];
+    const html = bodyBlocksToHtml(body);
+    expect(html).not.toContain('onerror="alert(1)"');
+    // And it still survives the round trip as literal text.
+    expect(htmlToBodyBlocks(html)).toEqual([
+      { type: 'image', value: { image: 1, alt_text: 'a " onerror="alert(1)', decorative: false } },
+    ]);
+  });
+});
+
+describe('forumBody image id guard (todo 357 review)', () => {
+  it('drops a non-numeric data-image-id instead of emitting NaN', () => {
+    // `!rawId` alone rejected the empty string but not "abc", which yielded
+    // {image: NaN} -> JSON null -> the server 400s the WHOLE post rather than
+    // one image being dropped.
+    expect(htmlToBodyBlocks('<img data-image-id="abc"><img data-image-id="9">')).toEqual([
+      { type: 'image', value: { image: 9, alt_text: '', decorative: true } },
+    ]);
+  });
+
+  it('drops a non-numeric nested id in a blockquote too', () => {
+    expect(
+      htmlToBodyBlocks('<blockquote><p>q</p><img data-image-id="12abc"></blockquote>')
+    ).toEqual([{ type: 'quote', value: 'q' }]);
   });
 });

@@ -177,14 +177,19 @@ function StreamFieldBlock({ block, mentionHighlight, currentTopicId }: StreamFie
       );
 
     case 'image': {
-      // Backend (forum PR-3): ImageChooserBlock → {id, url, alt, width, height}.
-      // url is relative (`/media/...`) — resolve against the API origin like
-      // every other blog image consumer (BlogCard, BlogDetailPage cover).
-      const { url, alt } = block.value;
+      // Backend (todo 357): ImageBlock → {id, url, alt, decorative, width, height}.
+      // url may be relative (`/media/...`) — resolve against the API origin
+      // like every other blog image consumer (BlogCard, BlogDetailPage cover).
+      const { url, alt, decorative } = block.value;
       return (
         <img
           src={mediaUrl(url)}
-          alt={alt || ''}
+          // alt="" is the CORRECT markup for a decorative image: it tells a
+          // screen reader to skip it, where a missing alt makes one announce
+          // the filename instead. The server already blanks alt for a
+          // decorative block; this is belt-and-braces for a body written
+          // before the migration.
+          alt={decorative ? '' : alt || ''}
           className="my-5 mx-auto h-auto max-w-full rounded-md"
         />
       );

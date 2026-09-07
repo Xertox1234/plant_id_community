@@ -48,7 +48,14 @@ export type ForumBodyWriteBlock =
    * quoted posts per body and the text length (QUOTE_MAX_CHARS, 1000) — none
    * of that is re-checked here; a 400 surfaces as the reply error. */
   | { type: 'post_quote'; value: { post: number; text: string } }
-  | { type: 'image'; value: number }
+  /** An inline image (todo 357). Wagtail's `ImageBlock`: the wagtail image id
+   * plus the PER-USAGE accessibility pair. A blank `alt_text` must ship with
+   * `decorative: true` — the server normalises it anyway, but sending the pair
+   * `ImageBlock.clean()` refuses would make the post un-editable in the CMS. */
+  | {
+      type: 'image';
+      value: { image: number; alt_text: string; decorative: boolean };
+    }
   | { type: 'embed'; value: string };
 
 /**
@@ -57,6 +64,34 @@ export type ForumBodyWriteBlock =
  * the reply that quotes it. Cut with an ellipsis, not silently.
  */
 export const QUOTE_TEXT_MAX_CHARS = 500;
+
+/**
+ * An `<img data-image-id>` -> an `image` body block, or null when the element
+ * carries no usable id.
+ *
+ * Shared by the top-level branch and the blockquote hoist so the two can never
+ * drift into emitting different shapes — the reason this exists is that they
+ * already had duplicated construction when the value went from a bare id to
+ * ImageBlock's `{image, alt_text, decorative}` (todo 357).
+ */
+function imageBlockFrom(el: Element): ForumBodyWriteBlock | null {
+  const rawId = el.getAttribute('data-image-id');
+  // Digits only. `!rawId` alone rejected the empty string but NOT a non-numeric
+  // one: `data-image-id="abc"` yielded `{image: NaN}`, which JSON.stringify
+  // emits as null and the server rejects — 400ing the WHOLE post rather than
+  // dropping one image. ForumImage.parseHTML returns the attribute verbatim, so
+  // any value that reaches the node survives to here. Matches quotedPostId.
+  if (!rawId || !/^\d+$/.test(rawId)) return null;
+  const altText = (el.getAttribute('alt') ?? '').trim();
+  // A blank alt IS a decorative declaration — that is what the composer's
+  // "Skip" means, and `alt_text: "" + decorative: false` is the one pair
+  // ImageBlock.clean() refuses (it would make the post un-editable in the CMS).
+  const decorative = el.getAttribute('data-decorative') === 'true' || altText === '';
+  return {
+    type: 'image',
+    value: { image: Number(rawId), alt_text: decorative ? '' : altText, decorative },
+  };
+}
 
 /** The quoted post id a composer blockquote carries, or null when absent/invalid. */
 function quotedPostId(el: Element): number | null {
@@ -139,14 +174,13 @@ function blockquoteText(el: Element): string {
 
 /**
  * Composer HTML -> forum body blocks. Runs of rich text become `paragraph`
- * blocks; each inline `<img data-image-id>` becomes its own `image` block (value
- * = the wagtail image id — the url/alt in the editor are display-only and are
- * re-derived by the backend, so they are intentionally dropped here).
+ * blocks; each inline `<img data-image-id>` becomes its own `image` block.
  *
- * What the backend re-derives `alt` FROM changed in M7: it is now the author's
- * own text, captured at upload time and stored on the image row, not the upload
- * filename. Dropping the editor's copy here is still correct — but it is also
- * why alt cannot be edited after insert without re-uploading the image.
+ * Since the ImageBlock migration (todo 357) the block carries the id AND the
+ * per-usage `alt_text`/`decorative`, so the editor's alt is now PERSISTED
+ * rather than dropped — which is what makes alt editable after insert without
+ * re-uploading. Only `src` is still display-only (the backend re-derives the
+ * rendition URL).
  */
 export function htmlToBodyBlocks(html: string): ForumBodyWriteBlock[] {
   // CodeQL alert #116 (js/xss-through-dom), triaged false positive in todo 353:
@@ -171,9 +205,10 @@ export function htmlToBodyBlocks(html: string): ForumBodyWriteBlock[] {
     const el = node.nodeType === Node.ELEMENT_NODE ? (node as Element) : null;
     const imageId = el?.tagName === 'IMG' ? el.getAttribute('data-image-id') : null;
     const embedUrl = el ? embedUrlOf(el) : null;
-    if (imageId) {
+    if (imageId && el) {
       flush();
-      blocks.push({ type: 'image', value: Number(imageId) });
+      const imageBlock = imageBlockFrom(el);
+      if (imageBlock) blocks.push(imageBlock);
     } else if (embedUrl) {
       // A paragraph that is just a video link → its own embed block; the
       // server unfurls it (todo 344). Re-editing round-trips through
@@ -200,14 +235,11 @@ export function htmlToBodyBlocks(html: string): ForumBodyWriteBlock[] {
       }
       // An image nested in the quote is invisible to `textContent` — hoist it
       // out as its own block rather than dropping the user's content silently.
-      // Gate on the attribute exactly like the top-level branch above: a pasted
-      // `<img data-image-id="">` would otherwise yield value 0, and a
-      // non-numeric one NaN (serialized as null). Both fail the server's
-      // validate_forum_body, so ONE unusable image would 400 the whole save
-      // instead of just being dropped.
+      // Same builder as the top-level branch, so the shape and the empty/NaN
+      // id guard cannot drift between the two.
       for (const img of Array.from(el.querySelectorAll('img[data-image-id]'))) {
-        const nestedId = img.getAttribute('data-image-id');
-        if (nestedId) blocks.push({ type: 'image', value: Number(nestedId) });
+        const nestedBlock = imageBlockFrom(img);
+        if (nestedBlock) blocks.push(nestedBlock);
       }
     } else if (el) {
       buffer.push(el.outerHTML);
@@ -234,9 +266,12 @@ export function bodyBlocksToHtml(body: StreamFieldBlock[] | null | undefined): s
   return body
     .map((block) => {
       if (block.type === 'image') {
-        const { id, url, alt } = block.value;
+        const { id, url, alt, decorative } = block.value;
         const safeAlt = (alt || '').replace(/"/g, '&quot;');
-        return `<img src="${url}" alt="${safeAlt}" data-image-id="${id}">`;
+        // data-decorative round-trips the flag so re-saving an untouched
+        // decorative image does not downgrade it to the pair the CMS refuses.
+        const decorativeAttr = decorative ? ' data-decorative="true"' : '';
+        return `<img src="${url}" alt="${safeAlt}" data-image-id="${id}"${decorativeAttr}>`;
       }
       if (block.type === 'paragraph') {
         return typeof block.value === 'string' ? block.value : '';

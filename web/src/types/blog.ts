@@ -97,19 +97,25 @@ export interface CallToActionBlock extends BaseStreamFieldBlock {
 
 /**
  * Image block value.
- * Backend (forum PR-3): an ImageChooserBlock serialized as a flat rendition dict.
+ * Backend (todo 357): a Wagtail `ImageBlock` serialized as a flat rendition dict.
+ * `alt` is the PER-USAGE text (the block's `alt_text`), falling back to the
+ * image row's description for bodies written before the ImageBlock migration.
+ * `decorative` must be round-tripped on edit: re-saving a decorative image
+ * without it would send `alt_text: "" + decorative: false`, the one pair
+ * `ImageBlock.clean()` refuses — a post the CMS admin can no longer open.
  */
 export interface ImageBlockValue {
   id: number;
   url: string;
   alt?: string;
+  decorative?: boolean;
   width?: number;
   height?: number;
 }
 
 /**
  * Image block
- * Backend: ImageChooserBlock (forum inline images) → {id, url, alt, width, height}.
+ * Backend: ImageBlock (forum inline images) → {id, url, alt, decorative, width, height}.
  */
 export interface ImageBlock extends BaseStreamFieldBlock {
   type: 'image';
