@@ -201,7 +201,7 @@ npm audit (.): 0 advisories on base, 5 on head, 5 new
 Compare with PR #669's pre-fix run 34006610283 on the *same* scope:
 `NPM: true` then `npm audit: 0 advisories on base, 0 on head, 0 new`. Same class
 of diff, opposite verdict — the gate is reading the tree the PR changed.
-Reverted in `9a13c3e`; the root manifests are byte-identical to `main` again.
+Reverted in `a40e7e1`; the root manifests are byte-identical to `main` again.
 
 **AC2 — the weekly hard-fail covers the root tree.** `workflow_dispatch` run
 [34136717865](https://github.com/Xertox1234/plant_id_community/actions/runs/34136717865),
