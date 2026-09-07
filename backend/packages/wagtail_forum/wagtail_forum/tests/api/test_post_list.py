@@ -132,7 +132,7 @@ def test_post_list_serializes_image_blocks_to_renditions():
     blocks = resp.data["results"][0]["body"]
     assert [b["type"] for b in blocks] == ["paragraph", "image"]
     image_value = blocks[1]["value"]
-    assert set(image_value) == {"id", "url", "alt", "width", "height"}
+    assert set(image_value) == {"id", "url", "alt", "decorative", "width", "height"}
     # M7: alt is the AUTHORED value (Image.description), never the filename
     # (Image.title). Both assertions matter — the second is what would catch a
     # regression back to filename-as-alt.
@@ -519,3 +519,127 @@ def test_post_list_moderator_own_blocks_add_no_per_post_queries():
     # one-time 2-query has_perm cost first; the block-check's has_perm call
     # then hits the warm per-request cache, adding nothing further.
     assert len(ctx.captured_queries) == 7
+
+
+# --- ImageBlock shapes on the read path (0037/0038) ------------------------
+#
+# _topic_with_image_posts above writes the PRE-0037 bare PK, so the tests using
+# it already pin legacy-shape reading (alt falls back to Image.description).
+# These cover the new dict shape and, critically, a body holding BOTH.
+
+
+def _image(description="", title="img"):
+    from wagtail.images import get_image_model
+    from wagtail.images.tests.utils import get_test_image_file
+    from wagtail_forum.collections import get_forum_image_collection
+
+    return get_image_model().objects.create(
+        title=title,
+        description=description,
+        file=get_test_image_file(),
+        collection=get_forum_image_collection(),
+    )
+
+
+def _topic_with_body(author_name, slug, body):
+    author = User.objects.create_user(username=author_name)
+    root = Page.objects.get(id=1)
+    index = root.add_child(instance=ForumIndex(title="Forum", slug="forum"))
+    board = index.add_child(instance=ForumBoard(title="General", slug="general"))
+    topic = Topic.objects.create(
+        board=board, title="T", slug=slug, author=author, live=True
+    )
+    Post.objects.create(
+        topic=topic, author=author, is_opening_post=True, live=True, body=body
+    )
+    return topic
+
+
+def _image_blocks(resp):
+    return [b for b in resp.data["results"][0]["body"] if b["type"] == "image"]
+
+
+@pytest.mark.django_db
+def test_per_usage_alt_text_wins_over_the_image_description():
+    """The whole point of ImageBlock: alt belongs to the usage.
+
+    The Image row says one thing, this usage says another — the usage must win,
+    or the migration bought nothing.
+    """
+    image = _image(description="what the uploader typed")
+    topic = _topic_with_body(
+        "usage-alt",
+        "usage-alt",
+        [
+            {
+                "type": "image",
+                "value": {
+                    "image": image.id,
+                    "alt_text": "what THIS post needs",
+                    "decorative": False,
+                },
+            }
+        ],
+    )
+    resp = APIClient().get(f"/forum/topics/{topic.id}/posts/")
+    assert resp.status_code == 200
+    value = _image_blocks(resp)[0]["value"]
+    assert value["alt"] == "what THIS post needs"
+    assert value["decorative"] is False
+
+
+@pytest.mark.django_db
+def test_decorative_block_serialises_an_empty_alt():
+    image = _image(description="not announced for a decorative usage")
+    topic = _topic_with_body(
+        "dec-alt",
+        "dec-alt",
+        [
+            {
+                "type": "image",
+                "value": {"image": image.id, "alt_text": "", "decorative": True},
+            }
+        ],
+    )
+    resp = APIClient().get(f"/forum/topics/{topic.id}/posts/")
+    value = _image_blocks(resp)[0]["value"]
+    # alt="" is the CORRECT markup for a decorative image — and it must not
+    # fall back to the description, or a screen reader announces it anyway.
+    assert value["alt"] == ""
+    assert value["decorative"] is True
+
+
+@pytest.mark.django_db
+def test_a_body_mixing_legacy_and_new_image_shapes_resolves_both():
+    """The state migration 0038 exists to prevent, read back through the API.
+
+    An un-migrated PK alongside a migrated dict is the case Wagtail's own
+    bulk_to_python cannot handle (its legacy branch requires ALL values be
+    ints). The forum read path walks raw_data instead, so it must cope — and
+    if build_forum_image_map ever regresses to matching only ints, the dict
+    image resolves to None and silently disappears.
+    """
+    legacy = _image(description="legacy alt", title="legacy")
+    modern = _image(description="ignored", title="modern")
+    topic = _topic_with_body(
+        "mixed",
+        "mixed",
+        [
+            {"type": "image", "value": legacy.id},
+            {
+                "type": "image",
+                "value": {
+                    "image": modern.id,
+                    "alt_text": "modern alt",
+                    "decorative": False,
+                },
+            },
+        ],
+    )
+    resp = APIClient().get(f"/forum/topics/{topic.id}/posts/")
+    values = [b["value"] for b in _image_blocks(resp)]
+    assert len(values) == 2, values
+    assert all(v is not None for v in values), values
+    assert [v["id"] for v in values] == [legacy.id, modern.id]
+    # Legacy falls back to the Image row; modern uses its own.
+    assert [v["alt"] for v in values] == ["legacy alt", "modern alt"]

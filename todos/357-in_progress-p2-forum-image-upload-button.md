@@ -1,5 +1,5 @@
 ---
-status: pending
+status: in_progress
 priority: p2
 issue_id: "357"
 tags: [forum, web, uploads, accessibility]

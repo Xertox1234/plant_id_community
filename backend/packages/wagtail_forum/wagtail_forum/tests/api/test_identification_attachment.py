@@ -436,7 +436,7 @@ def test_topic_detail_serializes_the_identification_card():
     assert set(card) == {"image", "provider", "candidates", "created_at"}
     assert card["provider"] == "plant_id"
     assert card["candidates"] == CANDIDATES
-    assert set(card["image"]) == {"id", "url", "alt", "width", "height"}
+    assert set(card["image"]) == {"id", "url", "alt", "decorative", "width", "height"}
     assert card["image"]["url"].startswith("http://testserver")
 
 

@@ -97,7 +97,7 @@ from .exceptions import Conflict, UnprocessableEntity
 from .idempotency import fingerprint, idempotency_cache_key, remember, replay, reserve
 from .pagination import PostCursorPagination, TopicCursorPagination
 from .presence import effective_online_window_seconds
-from .sanitize import serialize_forum_intro
+from .sanitize import image_block_pk, serialize_forum_intro
 from .serializers import (
     AUTHOR_SCHEMA,
     FORUM_BODY_SCHEMA,
@@ -1464,7 +1464,8 @@ class PostImageUploadView(UnversionedForumAPIMixin, APIView):
         description=(
             "Upload an inline post image (4-layer validated: extension, MIME, "
             "size, PIL decode) into the forum image collection. Returns "
-            "{id, url, alt, width, height} with a Location header; reference the "
+            "{id, url, alt, decorative, width, height} with a Location header; "
+            "reference the "
             "returned id from an `image` body block. Requires authentication. "
             "An optional `alt` part carries author-supplied alt text (M7); it is "
             "stored on the image and echoed back as `alt`. "
@@ -1950,8 +1951,11 @@ def plain_text_excerpt(stream_value, limit: int) -> str:
     the exact N+1 the ``serialize_forum_body`` raw_data path exists to avoid —
     and slicing rendered HTML can cut a tag mid-attribute. Text-bearing block
     values are strings (paragraph HTML, heading, quote) or a dict carrying a
-    ``code`` string or a ``post_quote``'s ``text`` (todo 342); image blocks
-    hold an int PK and are skipped.
+    ``code`` string or a ``post_quote``'s ``text`` (todo 342). Image blocks are
+    skipped: since 0037 their value is an ImageBlock dict, which carries neither
+    ``code`` nor ``text`` and so falls through — the alt text is deliberately
+    NOT excerpted, because an excerpt is a preview of what the author wrote in
+    prose, not a transcript of the accessibility metadata.
     """
     parts: list[str] = []
     total = 0
@@ -2058,8 +2062,17 @@ class RecentTopicsView(UnversionedForumAPIMixin, PublicForumReadCacheMixin, APIV
             topic_id__in=topic_ids, is_opening_post=True, live=True
         ).only("topic_id", "body"):
             for block in post.body.raw_data:
-                if block.get("type") == "image" and block.get("value"):
-                    image_id_by_topic[post.topic_id] = block["value"]
+                if block.get("type") != "image":
+                    continue
+                # image_block_pk, not the raw value: since 0037 the value is an
+                # ImageBlock dict, which is truthy — so a bare truthiness check
+                # put a DICT in this map and `set(...values())` below raised
+                # TypeError: unhashable type: 'dict', 500ing the whole rail. The
+                # attachment fallback right after seeds real ints into the same
+                # map, so this has to yield an int, not merely be hashable.
+                pk = image_block_pk(block.get("value"))
+                if pk is not None:
+                    image_id_by_topic[post.topic_id] = pk
                     break
         for att in ForumIdentificationAttachment.objects.filter(
             topic_id__in=topic_ids, image_id__isnull=False

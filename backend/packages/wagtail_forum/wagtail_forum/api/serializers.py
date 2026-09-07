@@ -31,7 +31,7 @@ from ..models.messages import (
     MESSAGE_BODY_MAX_CHARS,
     MESSAGE_PREVIEW_CHARS,
 )
-from .sanitize import validate_forum_body
+from .sanitize import image_block_pk, validate_forum_body
 
 try:  # Schema annotations are optional — hosts without drf-spectacular still work.
     from drf_spectacular.types import OpenApiTypes
@@ -597,29 +597,46 @@ class TopicDetailSerializer(serializers.ModelSerializer):
         return TopicBookmark.objects.filter(user=user, topic=obj).exists()
 
 
-def serialize_image_for_api(image, request=None):
-    """An image block's API value: {id, url, alt, width, height}.
+def serialize_image_for_api(image, request=None, alt=None, decorative=False):
+    """An image block's API value: {id, url, alt, decorative, width, height}.
 
     Serves a bounded `max-1200x1200` rendition (not the 5000px-capped original).
     The URL is made absolute against the request so the web client — served from
     a different origin than the media backend — resolves it correctly.
 
-    `alt` is the AUTHOR-SUPPLIED value on `Image.description` (M7), Wagtail's own
-    alt-text field. It deliberately does NOT fall back to `image.title`: title is
-    the upload filename, and filename-as-alt is an accessibility anti-pattern —
-    a screen reader announcing "IMG_2481.jpg" is worse than announcing nothing,
-    and `alt=""` is the correct markup for a decorative image. Rows uploaded
-    before M7 have `description=""`, so historic posts now serve `alt: ""`
-    instead of a filename. That is the intended improvement, not a regression.
+    `alt` is the AUTHOR-SUPPLIED text. Since the ImageBlock migration (0037) it
+    belongs to the USAGE — the block's `alt_text` — and callers pass it in;
+    `None` means "this usage has none", which falls back to `Image.description`
+    (where the upload endpoint still records the alt captured at upload time, and
+    where every pre-0037 body's alt lives).
+
+    It deliberately does NOT fall back to `image.title`: title is the upload
+    filename, and filename-as-alt is an accessibility anti-pattern — a screen
+    reader announcing "IMG_2481.jpg" is worse than announcing nothing, and
+    `alt=""` is the correct markup for a decorative image. Rows uploaded before
+    M7 have `description=""`, so historic posts serve `alt: ""` instead of a
+    filename. That is the intended improvement, not a regression.
+
+    `decorative` is carried through so the composer can round-trip the flag.
+    Without it, re-saving a decorative image would send `alt_text: ""` +
+    `decorative: false` — the one combination `ImageBlock.clean()` refuses, i.e.
+    a post the CMS admin can no longer open.
     """
     rendition = image.get_rendition("max-1200x1200")
     url = rendition.url
     if request is not None:
         url = request.build_absolute_uri(url)
+    if decorative:
+        resolved_alt = ""  # alt="" IS the correct markup; never fall back here
+    elif alt is not None:
+        resolved_alt = alt  # this usage authored its own (incl. a blank one)
+    else:
+        resolved_alt = image.description or ""  # pre-0037 body, or an alt-less usage
     return {
         "id": image.id,
         "url": url,
-        "alt": image.description or "",
+        "alt": resolved_alt,
+        "decorative": bool(decorative),
         "width": rendition.width,
         "height": rendition.height,
     }
@@ -657,8 +674,15 @@ def build_forum_image_map(posts):
     image_ids = set()
     for post in posts:
         for raw in post.body.raw_data:
-            if raw.get("type") == "image" and isinstance(raw.get("value"), int):
-                image_ids.add(raw["value"])
+            if raw.get("type") != "image":
+                continue
+            # Reads BOTH shapes via image_block_pk: the ImageBlock dict and the
+            # pre-0037 bare PK. Matching only ints here would collect nothing
+            # for a migrated body, and every image would then serialize as None
+            # — i.e. vanish from the post with no error anywhere.
+            pk = image_block_pk(raw.get("value"))
+            if pk is not None:
+                image_ids.add(pk)
     if not image_ids:
         return {}
     images = (
@@ -776,8 +800,22 @@ def serialize_forum_body(
         raw_value = raw.get("value")
         child = child_blocks.get(block_type)
         if block_type == "image":
-            image = image_map.get(raw_value)
-            value = serialize_image_for_api(image, request) if image else None
+            # Both shapes again (see build_forum_image_map): the ImageBlock dict
+            # carries alt per USAGE, a pre-0037 bare PK carries none and falls
+            # back to Image.description inside serialize_image_for_api.
+            pk = image_block_pk(raw_value)
+            image = image_map.get(pk) if pk is not None else None
+            if image is None:
+                value = None
+            elif isinstance(raw_value, dict):
+                value = serialize_image_for_api(
+                    image,
+                    request,
+                    alt=raw_value.get("alt_text") or None,
+                    decorative=bool(raw_value.get("decorative")),
+                )
+            else:
+                value = serialize_image_for_api(image, request)
         elif isinstance(child, EmbedBlock):
             # DB-only envelope (todo 344): never `child.to_python`, whose
             # EmbedValue.html would call the provider on a cache miss —

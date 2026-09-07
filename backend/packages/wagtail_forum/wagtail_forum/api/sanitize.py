@@ -20,7 +20,7 @@ from rest_framework import serializers
 from wagtail.blocks import ChooserBlock, IntegerBlock, RichTextBlock, StructBlock
 from wagtail.embeds.blocks import EmbedBlock
 from wagtail.images import get_image_model
-from wagtail.images.blocks import ImageChooserBlock
+from wagtail.images.blocks import ImageBlock, ImageChooserBlock
 from wagtail.rich_text import expand_db_html
 
 from ..blocks import ForumBodyBlock
@@ -113,6 +113,109 @@ def serialize_forum_intro(html: str) -> str:
     )
 
 
+# ImageBlock's stored keys. `image` is the PK; `alt_text`/`decorative` are the
+# per-usage accessibility pair that ImageChooserBlock could not express.
+_IMAGE_BLOCK_KEYS = {"image", "alt_text", "decorative"}
+# Alt is TRUNCATED to this on write, never rejected — matching the upload
+# endpoint's idiom for the same value ("a too-long alt is a UI slip, not a
+# malformed request"). Rejecting would also be unenforceable: Wagtail's
+# ImageBlock.alt_text is a bare CharBlock with no max_length, so a moderator can
+# save a longer one in /cms/ and the API must still serve that post.
+MAX_ALT_TEXT_LENGTH = 255
+
+
+def image_block_pk(block_value):
+    """The referenced image PK, or ``None`` if *block_value* holds no usable id.
+
+    DELIBERATELY PERMISSIVE, because this is the READ-side accessor
+    (build_forum_image_map, serialize_forum_body, the recent-topics thumbnail
+    extractor) and read has the opposite failure mode to write: a rejection here
+    does not surface as a 400, it makes the block serialise as
+    ``{"type": "image", "value": null}`` and the image disappears from the post
+    with no error anywhere. So this checks only what it needs to resolve the row.
+    Shape enforcement belongs on the write path — see _valid_image_block_value.
+
+    Accepts BOTH the ImageBlock dict and the pre-0037 bare PK: a body written
+    before migration 0037 — or restored from an older revision, or sent by a web
+    build deployed before the frontend switched shapes — still carries the int.
+    """
+    if isinstance(block_value, bool):  # bool is an int subclass
+        return None
+    if isinstance(block_value, int):
+        return block_value
+    if not isinstance(block_value, dict):
+        return None
+    pk = block_value.get("image")
+    if not isinstance(pk, int) or isinstance(pk, bool):
+        return None
+    return pk
+
+
+def _valid_image_block_value(block_value):
+    """Strict WRITE-side shape check for an image block value (-> 400 on False).
+
+    Unlike image_block_pk this rejects unknown keys and wrong sub-value types,
+    because on write a malformed body should fail loudly rather than be stored.
+    Length is not checked — _normalise_image_value truncates instead.
+    """
+    if image_block_pk(block_value) is None:
+        return False
+    if isinstance(block_value, int):
+        return True
+    if set(block_value) - _IMAGE_BLOCK_KEYS:
+        return False
+    # `alt_text`/`decorative` may be None, not just absent: Wagtail's own
+    # ImageBlock._image_to_struct_value writes
+    # `{"alt_text": image and image.contextual_alt_text, "decorative": ...}`,
+    # which is None whenever an Image INSTANCE is assigned to the block rather
+    # than a raw dict — the CMS admin, fixtures and `Post(body=[("image", img)])`
+    # all take that path.
+    alt = block_value.get("alt_text")
+    if alt is not None and not isinstance(alt, str):
+        return False
+    decorative = block_value.get("decorative")
+    if decorative is not None and not isinstance(decorative, bool):
+        return False
+    return True
+
+
+def _normalise_image_value(block_value, descriptions):
+    """Rewrite a validated image block value into the ImageBlock dict shape.
+
+    Two things this closes:
+
+    1. **Blank alt becomes ``decorative=True``, never ``alt_text=""``.**
+       ``ImageBlock.clean()`` rejects "no alt text and not decorative". The API
+       never reaches that clean() — block validation runs only through the admin
+       form's ``BlockField``, not model ``full_clean()`` — so without this the
+       API could mint posts a moderator cannot open in the CMS. A blank alt IS a
+       decorative declaration; it is exactly what the composer's "Skip" means.
+    2. **A legacy bare PK keeps its alt.** Pre-0037 bodies stored alt on
+       ``Image.description``; normalising them to a blank ``alt_text`` would
+       silently drop the author's words. *descriptions* carries the descriptions
+       already fetched by the ownership query below, so this costs no extra
+       query.
+    """
+    if isinstance(block_value, int):
+        pk = block_value
+        alt = descriptions.get(pk) or ""
+        decorative = None
+    else:
+        pk = block_value["image"]
+        # Both may be None — see image_block_pk on Wagtail writing that shape.
+        alt = block_value.get("alt_text") or ""
+        decorative = block_value.get("decorative")
+    alt = alt.strip()[:MAX_ALT_TEXT_LENGTH]
+    # A blank alt IS decorative, whatever flag the client sent: `alt_text=""`
+    # with `decorative=False` is exactly the pair ImageBlock.clean() refuses, so
+    # honouring an explicit False here would store the one state the CMS cannot
+    # open. An explicit True likewise wins, and blanks any supplied alt.
+    decorative = bool(decorative) or not alt
+    if decorative:
+        alt = ""
+    return {"image": pk, "alt_text": alt, "decorative": decorative}
+
+
 def validate_forum_body(value, allowed_uploader_ids, user=None, existing_quote_ids=()):
     """Validate + sanitize a forum post body (raw StreamField list-of-dicts).
 
@@ -150,10 +253,16 @@ def validate_forum_body(value, allowed_uploader_ids, user=None, existing_quote_i
     if len(json.dumps(value)) > MAX_BODY_CHARS:
         raise serializers.ValidationError(_("Post body is too large."))
     body_block = ForumBodyBlock()
+    # ImageBlock is a StructBlock, ImageChooserBlock is a ChooserBlock — both
+    # count as image blocks here, and BOTH must be recognised: bodies written
+    # before migration 0037 (and any revision reverted to) still carry the bare
+    # PK. Order matters below: `image` must be excluded from struct_types, or
+    # the generic StructBlock branch would demand str sub-values and reject
+    # every image (`image` is an int, `decorative` a bool).
     image_types = {
         name
         for name, block in body_block.child_blocks.items()
-        if isinstance(block, ImageChooserBlock)
+        if isinstance(block, (ImageChooserBlock, ImageBlock))
     }
 
     # Reject unknown block types explicitly: StreamBlock.to_python silently
@@ -164,7 +273,7 @@ def validate_forum_body(value, allowed_uploader_ids, user=None, existing_quote_i
     struct_types = {
         name
         for name, block in body_block.child_blocks.items()
-        if isinstance(block, StructBlock)
+        if isinstance(block, StructBlock) and name not in image_types
     }
     for block in value:
         if (
@@ -189,9 +298,9 @@ def validate_forum_body(value, allowed_uploader_ids, user=None, existing_quote_i
             ):
                 raise serializers.ValidationError(_("Invalid post body."))
         elif block["type"] in image_types:
-            # An image chooser value is the referenced image's integer PK; bool
-            # is an int subclass, so exclude it. Membership is verified below.
-            if not isinstance(block_value, int) or isinstance(block_value, bool):
+            # Either the ImageBlock dict or the pre-0037 bare PK. Membership and
+            # uploader identity are verified below; shape only, here.
+            if not _valid_image_block_value(block_value):
                 raise serializers.ValidationError(_("Invalid post body."))
         elif not isinstance(block_value, str):
             raise serializers.ValidationError(_("Invalid post body."))
@@ -296,11 +405,13 @@ def validate_forum_body(value, allowed_uploader_ids, user=None, existing_quote_i
     # dry-run never resolves chooser PKs, so an unchecked id is an IDOR-by-
     # reference (audit L5); collection membership alone is not enough to stop
     # cross-member reuse (audit L21). One bulk query.
+    # Shape validation above guarantees every one of these resolves to an int.
     image_ids = [
-        block["value"]
+        image_block_pk(block["value"])
         for block in value
         if isinstance(block, dict) and block.get("type") in image_types
     ]
+    image_descriptions = {}
     if image_ids:
         # `uploaded_by_user_id__in={..., None}` would silently match nothing for
         # the None member — SQL's `IN (NULL)` is never true, even for a NULL
@@ -309,15 +420,18 @@ def validate_forum_body(value, allowed_uploader_ids, user=None, existing_quote_i
         uploader_match = Q(uploaded_by_user_id__in=uploader_ids)
         if None in allowed_uploader_ids:
             uploader_match |= Q(uploaded_by_user_id__isnull=True)
-        valid_ids = set(
+        # `description` rides along so _normalise_image_value can recover the
+        # alt of a legacy bare-PK block without a second query.
+        image_descriptions = dict(
             get_image_model()
             .objects.filter(
                 uploader_match,
                 id__in=image_ids,
                 collection=get_forum_image_collection(),
             )
-            .values_list("id", flat=True)
+            .values_list("id", "description")
         )
+        valid_ids = set(image_descriptions)
         if any(image_id not in valid_ids for image_id in image_ids):
             raise serializers.ValidationError(
                 _(
@@ -342,5 +456,15 @@ def validate_forum_body(value, allowed_uploader_ids, user=None, existing_quote_i
     for block in value:
         if isinstance(block, dict) and block.get("type") in rich_text_types:
             block = {**block, "value": sanitize_rich_text(block.get("value") or "")}
+        elif isinstance(block, dict) and block.get("type") in image_types:
+            # Normalise to the ImageBlock dict on the way in, so a body written
+            # by a pre-0037 client never persists a bare PK. That keeps
+            # Wagtail's bulk_to_python off its mixed-shape path (its legacy
+            # branch needs EVERY value in a batch to be an int) — the same
+            # invariant migration 0037 establishes for existing rows.
+            block = {
+                **block,
+                "value": _normalise_image_value(block["value"], image_descriptions),
+            }
         cleaned.append(block)
     return cleaned
