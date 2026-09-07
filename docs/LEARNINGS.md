@@ -4667,6 +4667,42 @@ at?", the two predicates must be derived from the same value.** Here the scope
 step computed a boolean and threw away *which* path matched. Pass the paths
 forward, or the job will eventually answer about a file it never opened.
 
+**RESOLVED 2026-09-07 (todo 356, PR #698).** The manifest set and both scope
+predicates moved into `scripts/new_vuln_gate.py` — `NPM_MANIFEST_DIRS`,
+`npm_dirs_from_changes()`, `pip_changed()` — where the REQUIRED `harness-ci`
+tests them, and the workflow now loops over `--list-npm-dirs` / `--scope`. The
+scope step passes the *paths* forward (`npm_dirs=. web`), the audit step and the
+compare step iterate that same value, and a manifest the audit loop skipped
+shows up as a missing report and a loud `GateError` rather than a stand-in tree
+answering for it. A drift test fails if a third `package-lock.json` appears.
+
+Three things worth carrying to the next gate:
+
+1. **Prove the gate on a dirty specimen, not a clean tree.** Replaying PR #669's
+   exact scope through the fixed plumbing prints `npm audit (.): 15 advisories on
+   base, 0 on head, 0 new` where the pre-fix gate printed `0 on base`. Same diff,
+   same base, and the 15 is the only observable difference between "reads the
+   tree" and "reports on it".
+2. **`workflow_dispatch` exercises a weekly hard-fail today.** `gh workflow run
+   "<name>" --ref <branch>` runs the branch's version of the workflow on the
+   `event_name != 'pull_request'` BLOCKING path. On the specimen commit,
+   `frontend-security` did not merely visit the root tree — it *failed* on a
+   root-only advisory, which is the behaviour that had never once occurred.
+3. **An acceptance criterion can be literally unsatisfiable; say so rather than
+   satisfying it in appearance.** The todo asked for a unit test that fails
+   against the pre-fix plumbing. No test in `test_new_vuln_gate.py` can, because
+   the bug lived in workflow YAML. The new cases prove the *extracted* logic
+   (mutation-checked); the plumbing proof is the deliberately-red CI run. Left
+   unstated, a future reader would take a green `harness-ci` as proof the
+   workflow was fixed — the same "a mechanism that has never fired is not
+   verified" trap, one level up.
+
+Known residue, deliberately not fixed here:
+`backend/docs/development/CODE_AUDIT_PATTERNS_CODIFIED.md` still teaches
+`cd web && npm audit` (and `safety check`, removed in todo 355 slice 1). That
+file is stale in more ways than this one and is not in the pattern-library index;
+it wants its own pass, not a one-line patch.
+
 Same day, same repo, the sibling fact this compounds: the root manifest is the
 production deploy path. Workers Builds runs `npm clean-install` at the root and
 deploys with `npx wrangler versions upload` from the root `node_modules` (build
