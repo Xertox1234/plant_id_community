@@ -176,6 +176,16 @@ jobs:
             fi
             (cd "$dir" && npm audit --package-lock-only --json) \
               > "npm-audit-reports/$slug.json" || true
+            # `|| true` cannot tell "advisories found" (npm audit's normal
+            # non-zero) from "npm audit crashed", so an empty report would be
+            # uploaded as an artefact and read as "nothing found". The gate
+            # VERDICT is safe either way — the audit step below decides it — but
+            # the file a human opens to triage must not be a silent lie.
+            # docs/rules/security.md: the step that produces an artefact asserts
+            # it produced it.
+            if [ ! -s "npm-audit-reports/$slug.json" ]; then
+              echo "::error::npm audit --json produced no report for '$dir' - see its output above"
+            fi
           done
         continue-on-error: true
 
