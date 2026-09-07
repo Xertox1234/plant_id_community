@@ -5035,3 +5035,105 @@ that note the next reader re-opens a finished slice over a version number.
 Related: the "re-pointed, never checked off" convention in `CLAUDE.md` → Review
 Doc Tracking governs a finding that *moved*. This is the opposite case — work that
 *shipped*, elsewhere — and it does get the checkbox.
+
+## 2026-09-07 — The documented command could not see the thing it documented (todo 355 slice 6, todo 366)
+
+Todo 366's re-assessment procedure — the whole reason that todo exists — told a
+future operator to run:
+
+```bash
+cd backend && pip-audit -r requirements.txt \
+  ${=$(python3 ../scripts/check_suppressions.py --emit-flags)}
+```
+
+`--emit-flags` expands to `--ignore-vuln PYSEC-2026-89 --ignore-vuln
+PYSEC-2025-183` — **the exact two ids the todo exists to re-assess**. The command
+is structurally incapable of reporting them, whatever their real state, and the
+acceptance criterion directly below it ("record the command output that justified
+the choice") would have collected a clean result guaranteed by construction. On
+2026-11-16 an operator would have renewed or deleted two suppressions on evidence
+that proves nothing. Caught in code review, not by any test.
+
+**The interesting part is why it was written, because it was not carelessness.**
+`docs/rules/security.md` *already* carried the rule — "Verify with the
+UNSUPPRESSED pip-audit report … not with 'a newer release exists'" — and the
+unsuppressed audit is what actually ran during the session. The suppressed form
+still got written down, because it is the form the project canonizes:
+
+- `.github/security-suppressions.yml:22` shows it under a `RUN LOCALLY` heading,
+  in the header of the very file whose entries you would be re-assessing.
+- `scripts/sync_alarm_todo.py:111` templates that same command into **every**
+  alarm todo it generates.
+
+So the one command that cannot see the entries in that file is the one its own
+header hands you, and the one an auto-filed todo arrives carrying. Prose in a
+rules file lost to a copyable incantation sitting at the point of use.
+
+The two commands answer different questions and the docs never said so:
+
+| Question | Command |
+|---|---|
+| Is the gate green? | `pip-audit -r requirements.txt $(check_suppressions.py --emit-flags)` |
+| Is *this entry* still true? | `pip-audit … --format json --output <f>` then `check_suppressions.py --recheck --report <f>` |
+
+Fixed by documenting the second command in the suppressions file's own header,
+next to the first, with the distinction stated.
+
+`scripts/sync_alarm_todo.py` was the second site, and the new trigger found it
+rather than a human — good evidence the regex is signal, not noise. It turned out
+to be subtler than the first: its step 1 says *"Reproduce locally"*, and
+reproducing the **scan** legitimately uses the suppressed command, since that is
+what the scan runs. The gap is that `--recheck` failing is one of the ways the
+scan goes red, and in exactly that case the suppressed reproduce command returns
+"No known vulnerabilities found" while the gate stays red — the Twisted situation,
+handed to an operator with no explanation. The template now names that branch and
+gives the unsuppressed command for it.
+
+Generalisable: when a rule exists and is violated anyway, the bug is usually that
+a *wrong-but-copyable* artifact sits closer to the work than the right one. Fix
+the artifact at the point of use, not the prose. A trigger
+(`pip-audit-emit-flags-hides-the-entry-under-review`) now fires at write time,
+because this file already proved that prose alone did not hold.
+
+## 2026-09-07 — A tripwire that PASSES is worse than one that fails (todo 355 slice 6)
+
+Archiving todo 355 was known to be a tripwire: two live entries in
+`.github/security-suppressions.yml` carried `tracked_by: "355"`, and
+`todo_is_closed()` treats `todos/archive/` as decisive, so archiving the todo
+turns `--recheck` red. The todo itself documented this in "THREE places". It was
+four, and the fourth was the one nobody would have found:
+
+```python
+def test_resolves_a_live_todo(self):
+    self.assertIsNotNone(cs.resolve_todo("355"))    # :181
+```
+
+This does **not** break when 355 is archived. `resolve_todo` searches
+`todos/archive/` too — by design, so a `tracked_by` survives archival. So the
+test keeps passing, and quietly becomes a duplicate of the
+`test_resolves_an_archived_todo` two lines below it, with its own name still
+claiming to cover the live case. A red test gets fixed; a green test that lies
+about its coverage is load-bearing documentation that is simply false.
+
+Two fixes, both structural rather than a repoint:
+
+1. **Resolve the anchor at run time.** The fixture's `tracked_by` now comes from
+   `_open_todo_id()`, which globs `todos/[0-9]*.md` for the first non-closed
+   file. A run-time lookup *cannot* select an artifact that was just archived,
+   because the non-recursive glob no longer sees it. Repointing to another
+   hardcoded id (366) would only have moved the trap one todo along.
+2. **Move the schedule-only check onto the required one.**
+   `check_suppressions.py --recheck` already catches a closed `tracked_by`, but
+   it is schedule/dispatch-only — the documented reason a fixed-but-suppressed
+   Twisted advisory survived 16 green checks. The new
+   `test_real_file_tracked_by_todos_are_all_open` asserts it in `harness-ci.yml`,
+   which has no `paths:` filter on `pull_request`, so the failure now lands on
+   the PR that archives a tracking todo, naming the entry.
+
+Its coverage boundary, stated because it is not obvious: `harness-ci.yml`'s
+`push:` trigger *does* filter paths and omits `todos/**`, so the guard is exactly
+as strong as "no direct push to main" — not stronger.
+
+Proof the tripwire was real, rather than asserted: with 355 archived and the
+entries repointed, `--recheck` is green; forcing `tracked_by` back to `"355"`
+against the same report yields exactly 2 problems.

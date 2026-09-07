@@ -264,3 +264,16 @@ Compact checklist auto-injected before edits. Long-form: `backend/docs/patterns/
   credentials): build one `message`, then `critical_errors` if `not DEBUG` else
   `warnings`. Rate such a bug by RUNNING the real deploy command sequence
   against the broken config, never by predicting that it would crash (todo 359).
+- **Never assess a suppressed advisory with the suppressed audit.**
+  `check_suppressions.py --emit-flags` emits `--ignore-vuln` for *every* id in
+  `.github/security-suppressions.yml`, so the documented "RUN LOCALLY" command —
+  the one that file's own header shows, and the one `sync_alarm_todo.py:111`
+  templates into every generated alarm todo — cannot report the entries it is
+  meant to re-assess. It returns clean by construction. A re-assessment
+  procedure written that way shipped in todo 366 and was caught only in review;
+  `docs/rules/security.md` *already* said to verify against the unsuppressed
+  report, and the canonical incantation won anyway. Two commands, two questions:
+  suppressed asks "is the gate green?", unsuppressed
+  (`pip-audit … --format json --output <f>` then
+  `check_suppressions.py --recheck --report <f>`) asks "is this entry still
+  true?". Only the second can close a suppression (todo 355 slice 6).

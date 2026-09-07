@@ -876,5 +876,57 @@ class TestCiArtifactStepTrigger(unittest.TestCase):
         self.assertNotIn("ci-artifact-step-swallows-failure", ids(hits))
 
 
+class TestEmitFlagsSuppressedAuditTrigger(unittest.TestCase):
+    """Todo 355 slice 6 — asserted against the REAL docs/rules/triggers.json.
+
+    The positive fixture is the VERBATIM text that shipped the bug in todo 366
+    and was caught in code review, not a cleaned-up version of it: a --emit-flags
+    audit prescribed as the way to re-assess the very ids --emit-flags suppresses.
+    The negatives are the shipped files that legitimately contain --emit-flags, so
+    a future widening of the regex fails here instead of crying wolf on every one
+    of them.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.root = os.path.dirname(
+            os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        )
+        cls.real = mt.load_triggers(cls.root)
+
+    TRIGGER = "pip-audit-emit-flags-hides-the-entry-under-review"
+
+    def test_the_real_todo_366_text_fires(self):
+        tn, ti = write(
+            "todos/366-pending-p3-suppression-reassessment.md",
+            "1. Query OSV at the pinned version and run the local audit:\n\n"
+            "   ```bash\n"
+            "   cd backend && pip-audit -r requirements.txt \\\n"
+            "     ${=$(python3 ../scripts/check_suppressions.py --emit-flags)}\n"
+            "   ```\n",
+        )
+        self.assertIn(self.TRIGGER, ids(mt.find_matches(tn, ti, self.real, None)))
+
+    def test_shipped_files_that_use_emit_flags_do_not_self_fire(self):
+        """The already-correct files must stay silent on their own content.
+
+        Each mentions --emit-flags AND its unsuppressed counterpart, so
+        --content-absent gates them. Written as a whole-file Write, because that
+        is what makes `resulting_file` the real file: a fragment-only Write would
+        drop the counterpart and fire, which is correct behaviour, not a bug.
+        """
+        for rel in (
+            ".github/security-suppressions.yml",
+            ".github/workflows/security-scan.yml",
+            "docs/rules/security.md",
+            "scripts/sync_alarm_todo.py",
+        ):
+            with open(os.path.join(self.root, rel), encoding="utf-8") as fh:
+                body = fh.read()
+            self.assertIn("emit-flags", body, f"{rel} no longer mentions --emit-flags")
+            tn, ti = write(rel, body)
+            self.assertNotIn(self.TRIGGER, ids(mt.find_matches(tn, ti, self.real, body)), rel)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
