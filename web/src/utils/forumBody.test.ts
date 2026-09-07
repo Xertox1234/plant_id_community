@@ -592,3 +592,20 @@ describe('forumBody image blocks (todo 357 — ImageBlock)', () => {
     ]);
   });
 });
+
+describe('forumBody image id guard (todo 357 review)', () => {
+  it('drops a non-numeric data-image-id instead of emitting NaN', () => {
+    // `!rawId` alone rejected the empty string but not "abc", which yielded
+    // {image: NaN} -> JSON null -> the server 400s the WHOLE post rather than
+    // one image being dropped.
+    expect(htmlToBodyBlocks('<img data-image-id="abc"><img data-image-id="9">')).toEqual([
+      { type: 'image', value: { image: 9, alt_text: '', decorative: true } },
+    ]);
+  });
+
+  it('drops a non-numeric nested id in a blockquote too', () => {
+    expect(
+      htmlToBodyBlocks('<blockquote><p>q</p><img data-image-id="12abc"></blockquote>')
+    ).toEqual([{ type: 'quote', value: 'q' }]);
+  });
+});

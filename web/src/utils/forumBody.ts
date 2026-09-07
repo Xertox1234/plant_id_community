@@ -76,11 +76,12 @@ export const QUOTE_TEXT_MAX_CHARS = 500;
  */
 function imageBlockFrom(el: Element): ForumBodyWriteBlock | null {
   const rawId = el.getAttribute('data-image-id');
-  // Gate on the attribute being non-empty: a pasted `<img data-image-id="">`
-  // would otherwise yield 0, and a non-numeric one NaN (serialized as null).
-  // Both fail the server's validate_forum_body, so ONE unusable image would
-  // 400 the whole save instead of just being dropped.
-  if (!rawId) return null;
+  // Digits only. `!rawId` alone rejected the empty string but NOT a non-numeric
+  // one: `data-image-id="abc"` yielded `{image: NaN}`, which JSON.stringify
+  // emits as null and the server rejects — 400ing the WHOLE post rather than
+  // dropping one image. ForumImage.parseHTML returns the attribute verbatim, so
+  // any value that reaches the node survives to here. Matches quotedPostId.
+  if (!rawId || !/^\d+$/.test(rawId)) return null;
   const altText = (el.getAttribute('alt') ?? '').trim();
   // A blank alt IS a decorative declaration — that is what the composer's
   // "Skip" means, and `alt_text: "" + decorative: false` is the one pair

@@ -693,8 +693,12 @@ describe('TipTapEditor image upload (todo 357)', () => {
     height: 10,
   };
 
-  async function mount() {
-    const { container } = render(<TipTapEditor onChange={vi.fn()} />);
+  // Prior content BY DEFAULT. An empty document is the one shape where
+  // ProseMirror falls back to a NodeSelection after an insert, which is what
+  // made the original edit-alt test pass against a button that was disabled in
+  // every real post.
+  async function mount(content = '<p>hello there</p><p>second para</p>') {
+    const { container } = render(<TipTapEditor content={content} onChange={vi.fn()} />);
     await waitFor(() => expect(container.querySelector('.ProseMirror')).toBeInTheDocument());
     return container;
   }
@@ -854,5 +858,153 @@ describe('TipTapEditor image upload (todo 357)', () => {
     );
     // No second upload — that is the improvement being pinned.
     expect(uploadSpy).toHaveBeenCalledTimes(1);
+  });
+});
+
+// --- todo 357 review round 1: the four bugs that review measured ------------
+
+describe('TipTapEditor image upload — review fixes', () => {
+  const uploaded = {
+    id: 1,
+    url: 'https://cdn.example/x.jpg',
+    alt: '',
+    decorative: false,
+    width: 10,
+    height: 10,
+  };
+
+  async function mount(content = '<p>hello there</p><p>second para</p>') {
+    const { container } = render(<TipTapEditor content={content} onChange={vi.fn()} />);
+    await waitFor(() => expect(container.querySelector('.ProseMirror')).toBeInTheDocument());
+    return container;
+  }
+
+  const imageFile = (name = 'ok.jpg') => new File(['x'], name, { type: 'image/jpeg' });
+
+  it('keeps the alt-text button usable in a document that is not just the image', async () => {
+    // The regression: gating on editor.isActive('image') left this button
+    // permanently disabled, because ProseMirror only makes a NodeSelection
+    // after an insert when the image IS the whole document.
+    vi.spyOn(forumService, 'uploadPostImage').mockResolvedValue(uploaded);
+    const container = await mount();
+
+    fireEvent.change(screen.getByTestId('forum-image-input'), {
+      target: { files: [imageFile()] },
+    });
+    await userEvent.click(await screen.findByRole('button', { name: 'Skip' }));
+    await waitFor(() => expect(container.querySelector('img[data-image-id]')).toBeInTheDocument());
+
+    const button = screen.getByRole('button', { name: 'Edit image alt text' });
+    expect(button).toBeEnabled();
+    await userEvent.click(button);
+    await userEvent.type(await screen.findByLabelText(/describe this image/i), 'A monstera leaf');
+    await userEvent.click(screen.getByRole('button', { name: 'Save alt text' }));
+
+    await waitFor(() =>
+      expect(container.querySelector('img[data-image-id]')?.getAttribute('alt')).toBe(
+        'A monstera leaf'
+      )
+    );
+  });
+
+  it('refuses a second image while one is still uploading (AC 4, via paste too)', async () => {
+    // The toolbar button's `disabled` did not cover paste/drop, and a boolean
+    // flag was cleared by whichever upload settled first.
+    let release: (v: typeof uploaded) => void = () => {};
+    const uploadSpy = vi.spyOn(forumService, 'uploadPostImage').mockReturnValue(
+      new Promise((resolve) => {
+        release = resolve;
+      })
+    );
+    const container = await mount();
+    const editorEl = container.querySelector('.ProseMirror') as HTMLElement;
+
+    fireEvent.change(screen.getByTestId('forum-image-input'), {
+      target: { files: [imageFile('first.jpg')] },
+    });
+    await userEvent.click(await screen.findByRole('button', { name: 'Skip' }));
+    await waitFor(() => expect(uploadSpy).toHaveBeenCalledTimes(1));
+
+    // Paste a second one while the first is still in flight.
+    fireEvent.paste(editorEl, {
+      clipboardData: {
+        files: [imageFile('second.jpg')],
+        items: [],
+        types: ['Files'],
+        getData: () => '',
+      },
+    });
+
+    expect(await screen.findByText(/wait for the current image/i)).toBeInTheDocument();
+    expect(uploadSpy).toHaveBeenCalledTimes(1);
+    // No prompt for the refused file either.
+    expect(screen.queryByRole('button', { name: 'Skip' })).not.toBeInTheDocument();
+
+    release(uploaded);
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Insert image' })).toBeEnabled());
+  });
+
+  it('reuses the SAME idempotency key when the same file is retried after a failure', async () => {
+    // A fresh key per attempt is exactly what makes the server store a
+    // duplicate row and orphan a file — the thing M36 exists to prevent.
+    vi.spyOn(logger, 'error').mockImplementation(() => {});
+    const uploadSpy = vi
+      .spyOn(forumService, 'uploadPostImage')
+      .mockRejectedValueOnce(new Error('network flake'))
+      .mockResolvedValueOnce(uploaded);
+    await mount();
+
+    const file = imageFile('retry-me.jpg');
+    fireEvent.change(screen.getByTestId('forum-image-input'), { target: { files: [file] } });
+    await userEvent.click(await screen.findByRole('button', { name: 'Skip' }));
+    await waitFor(() => expect(screen.getByText('network flake')).toBeInTheDocument());
+
+    // Re-pick the SAME file.
+    fireEvent.change(screen.getByTestId('forum-image-input'), { target: { files: [file] } });
+    await userEvent.click(await screen.findByRole('button', { name: 'Skip' }));
+    await waitFor(() => expect(uploadSpy).toHaveBeenCalledTimes(2));
+
+    expect(uploadSpy.mock.calls[1][2]).toBe(uploadSpy.mock.calls[0][2]);
+  });
+
+  it('refuses to guess which image to edit when the document holds several', async () => {
+    // The old code ran updateAttributes('image', ...) against the LIVE
+    // selection at Save time, so it would happily rewrite whichever image the
+    // user had clicked while the prompt — still showing the first one's
+    // preview — was open. Ambiguity is now refused instead of guessed at.
+    vi.spyOn(forumService, 'uploadPostImage')
+      .mockResolvedValueOnce({ ...uploaded, id: 11, url: 'https://cdn.example/a.jpg' })
+      .mockResolvedValueOnce({ ...uploaded, id: 22, url: 'https://cdn.example/b.jpg' });
+    const container = await mount('<p>intro</p>');
+
+    for (const name of ['a.jpg', 'b.jpg']) {
+      fireEvent.change(screen.getByTestId('forum-image-input'), {
+        target: { files: [imageFile(name)] },
+      });
+      await userEvent.click(await screen.findByRole('button', { name: 'Skip' }));
+      await waitFor(() =>
+        expect(screen.getByRole('button', { name: 'Insert image' })).toBeEnabled()
+      );
+    }
+    await waitFor(() => expect(container.querySelectorAll('img[data-image-id]')).toHaveLength(2));
+
+    await userEvent.click(screen.getByRole('button', { name: 'Edit image alt text' }));
+
+    expect(await screen.findByText(/select an image first/i)).toBeInTheDocument();
+    // And nothing was silently rewritten.
+    const alts = [...container.querySelectorAll('img[data-image-id]')].map((i) =>
+      i.getAttribute('alt')
+    );
+    expect(alts).toEqual(['', '']);
+  });
+
+  it('tells the author to select an image when none is resolvable', async () => {
+    const container = await mount('<p>only text here</p>');
+    expect(container.querySelector('img[data-image-id]')).toBeNull();
+
+    await userEvent.click(screen.getByRole('button', { name: 'Edit image alt text' }));
+
+    // A message, not a permanently-disabled button.
+    expect(await screen.findByText(/select an image first/i)).toBeInTheDocument();
   });
 });

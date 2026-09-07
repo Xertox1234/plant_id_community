@@ -1,4 +1,4 @@
-import { useEditor, EditorContent } from '@tiptap/react';
+import { useEditor, EditorContent, type Editor } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
 import Link from '@tiptap/extension-link';
 import Placeholder from '@tiptap/extension-placeholder';
@@ -50,6 +50,32 @@ function newIdempotencyKey(): string {
     return crypto.randomUUID();
   }
   return `forum-img-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
+/**
+ * The position of the image node the user means, or null.
+ *
+ * `editor.isActive('image')` is NOT usable for this: it is only true for a
+ * NodeSelection, and ProseMirror only falls back to one after an insert when no
+ * text position exists nearby — i.e. only when the image is the entire
+ * document. In any real post it is false, which is why gating the alt-edit
+ * button on it made the button permanently disabled.
+ */
+function imagePosAt(editor: Editor): number | null {
+  const { selection, doc } = editor.state;
+  // Clicking a leaf node gives a NodeSelection.
+  const selected = (selection as { node?: { type: { name: string } } }).node;
+  if (selected?.type.name === 'image') return selection.from;
+  // Just-inserted / caret adjacent.
+  const { $from } = selection;
+  if ($from.nodeBefore?.type.name === 'image') return $from.pos - $from.nodeBefore.nodeSize;
+  if ($from.nodeAfter?.type.name === 'image') return $from.pos;
+  // Otherwise: unambiguous only when the document holds exactly one image.
+  const found: number[] = [];
+  doc.descendants((node, pos) => {
+    if (node.type.name === 'image') found.push(pos);
+  });
+  return found.length === 1 ? found[0] : null;
 }
 
 /** The first image file on a paste/drop payload, or null. */
@@ -114,10 +140,18 @@ export default function TipTapEditor({
         handleImageFileRef.current(file);
         return true;
       },
-      handleDrop: (_view, event) => {
+      handleDrop: (view, event) => {
         const file = imageFileFromTransfer((event as DragEvent).dataTransfer);
         if (!file) return false;
         event.preventDefault();
+        // Remember WHERE it was dropped. The upload resolves later, by which
+        // point the selection is wherever the caret was — so without this an
+        // image dropped at the end of a long unfocused post lands at the top.
+        const dropped = view.posAtCoords({
+          left: (event as DragEvent).clientX,
+          top: (event as DragEvent).clientY,
+        });
+        dropPosRef.current = dropped ? dropped.pos : null;
         handleImageFileRef.current(file);
         return true;
       },
@@ -160,6 +194,21 @@ export default function TipTapEditor({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [imageError, setImageError] = useState<string | null>(null);
   const [uploadingImage, setUploadingImage] = useState(false);
+  // A COUNT, not the boolean: `uploadingImage` is only what the spinner reads.
+  // With a boolean, the first upload to settle cleared the flag while a second
+  // was still in flight and re-opened the gate. A ref (not state) because
+  // handleImageFile is also called from ProseMirror's paste/drop handlers,
+  // which would otherwise read a stale closure.
+  const uploadsInFlightRef = useRef(0);
+  // The key of the last upload that FAILED, so re-picking that same file reuses
+  // its Idempotency-Key. Without this every retry got a fresh key, which is
+  // exactly what makes the server store a duplicate row and orphan a file —
+  // the thing M36 exists to prevent.
+  const failedUploadRef = useRef<{ signature: string; idempotencyKey: string } | null>(null);
+  // Where a dropped file landed, so the image is inserted THERE rather than at
+  // whatever the caret happened to be (dropping at the end of a long unfocused
+  // post otherwise puts the image at the top).
+  const dropPosRef = useRef<number | null>(null);
   // AI assist (M14). `aiUnavailable` latches on a 403/503 so a user who cannot
   // use the feature (non-premium, or a deployment with the flag off) is not left
   // clicking a permanently dead button. Seeded from the service's session-scoped
@@ -192,7 +241,16 @@ export default function TipTapEditor({
         /** One key per file SELECTION, reused across retries of it (M36). */
         idempotencyKey: string;
       }
-    | { kind: 'edit'; src: string; alt: string }
+    | {
+        kind: 'edit';
+        src: string;
+        alt: string;
+        /** The node this prompt was opened FOR. Committing against the live
+         *  selection instead would rewrite whichever image the user clicked
+         *  while the prompt was open, with the preview still showing the
+         *  original. */
+        pos: number;
+      }
     | null
   >(null);
   // The live preview URL, mirrored in a ref because the unmount cleanup below
@@ -215,8 +273,18 @@ export default function TipTapEditor({
   // The ONE validation gate for every way an image can enter the composer:
   // the toolbar's file picker, a paste, and a drop. Adding a route means
   // calling this, never re-implementing the checks.
+  /** Identifies a file well enough to know it is "the same one" on a retry. */
+  const fileSignature = (file: File) => `${file.name}:${file.size}:${file.lastModified}`;
+
   const handleImageFile = (file: File) => {
     if (!editor) return;
+    // Paste and drop reach this too, so the in-flight gate lives HERE rather
+    // than only on the toolbar button — otherwise pasting twice starts two
+    // concurrent uploads and AC 4's "one request" does not hold.
+    if (uploadsInFlightRef.current > 0) {
+      setImageError('Wait for the current image to finish uploading.');
+      return;
+    }
     setImageError(null);
     // Client-side pre-check (M29) — fail fast on type/size before uploading.
     if (!ALLOWED_IMAGE_TYPES.includes(file.type)) {
@@ -232,12 +300,19 @@ export default function TipTapEditor({
     closeAltPrompt(); // revoke a previous preview if one was somehow still open
     const previewUrl = URL.createObjectURL(file);
     previewUrlRef.current = previewUrl;
+    // Same file as the last failed attempt -> same key, so the server replays
+    // instead of storing a second row.
+    const signature = fileSignature(file);
+    const reuse =
+      failedUploadRef.current?.signature === signature
+        ? failedUploadRef.current.idempotencyKey
+        : null;
     setAltPrompt({
       kind: 'upload',
       file,
       previewUrl,
       alt: '',
-      idempotencyKey: newIdempotencyKey(),
+      idempotencyKey: reuse ?? newIdempotencyKey(),
     });
   };
 
@@ -258,14 +333,25 @@ export default function TipTapEditor({
     handleImageFile(file);
   };
 
-  /** Re-author the alt of the image node the caret is on — no re-upload. */
+  /** Re-author an image's alt — no re-upload. */
   const openAltEditor = () => {
-    if (!editor || !editor.isActive('image')) return;
+    if (!editor) return;
+    const pos = imagePosAt(editor);
+    if (pos === null) {
+      // Deliberately a message rather than a disabled button: `isActive('image')`
+      // is false in every document that is not JUST the image, and this
+      // component does not re-render on selection-only transactions, so a
+      // disabled gate would be both wrong and permanently stuck.
+      setImageError('Select an image first to edit its alt text.');
+      return;
+    }
     setImageError(null);
     closeAltPrompt();
-    const attrs = editor.getAttributes('image');
+    const node = editor.state.doc.nodeAt(pos);
+    const attrs = (node?.attrs ?? {}) as Record<string, unknown>;
     setAltPrompt({
       kind: 'edit',
+      pos,
       src: typeof attrs.src === 'string' ? attrs.src : '',
       alt: typeof attrs.alt === 'string' ? attrs.alt : '',
     });
@@ -280,34 +366,61 @@ export default function TipTapEditor({
     const decorative = trimmed === '';
 
     if (altPrompt.kind === 'edit') {
+      const { pos } = altPrompt;
       closeAltPrompt();
-      editor.chain().focus().updateAttributes('image', { alt: trimmed, decorative }).run();
+      // Target the node the prompt was OPENED for, via its captured position —
+      // not the live selection, which the user may have moved to another image
+      // while the prompt (still showing the first one's preview) was open.
+      editor
+        .chain()
+        .focus()
+        .command(({ tr }) => {
+          const node = tr.doc.nodeAt(pos);
+          if (!node || node.type.name !== 'image') return false;
+          tr.setNodeMarkup(pos, undefined, { ...node.attrs, alt: trimmed, decorative });
+          return true;
+        })
+        .run();
       return;
     }
 
     const { file, idempotencyKey } = altPrompt;
+    const signature = fileSignature(file);
+    const insertAt = dropPosRef.current;
+    dropPosRef.current = null;
     closeAltPrompt();
+    uploadsInFlightRef.current += 1;
     setUploadingImage(true);
     try {
       const image = await uploadPostImage(file, trimmed, idempotencyKey);
+      failedUploadRef.current = null;
+      const attrs = {
+        // alt/decorative come from what the AUTHOR typed, not the response:
+        // an idempotent replay returns the ORIGINAL alt (the server excludes
+        // alt from the fingerprint on purpose), which would silently discard
+        // a correction made on the retry.
+        src: image.url,
+        alt: trimmed,
+        decorative,
+        imageId: image.id,
+      };
       // insertContent (not setImage) so the custom attrs ride along.
-      editor
-        .chain()
-        .focus()
-        .insertContent({
-          type: 'image',
-          // alt/decorative come from what the AUTHOR typed, not the response:
-          // an idempotent replay returns the ORIGINAL alt (the server excludes
-          // alt from the fingerprint on purpose), which would silently discard
-          // a correction made on the retry.
-          attrs: { src: image.url, alt: trimmed, decorative, imageId: image.id },
-        })
-        .run();
+      const chain = editor.chain().focus();
+      if (insertAt !== null) {
+        chain.insertContentAt(insertAt, { type: 'image', attrs });
+      } else {
+        chain.insertContent({ type: 'image', attrs });
+      }
+      chain.run();
     } catch (err) {
       logger.error('[forum] image upload failed', err);
+      // Remember the key so re-picking THIS file retries under it rather than
+      // minting a new one (which would store a duplicate server-side).
+      failedUploadRef.current = { signature, idempotencyKey };
       setImageError(err instanceof Error ? err.message : 'Image upload failed');
     } finally {
-      setUploadingImage(false);
+      uploadsInFlightRef.current -= 1;
+      setUploadingImage(uploadsInFlightRef.current > 0);
     }
   };
 
@@ -518,11 +631,7 @@ export default function TipTapEditor({
               the caret is on an image — and only possible at all because
               ImageBlock moved alt onto the USAGE; under ImageChooserBlock this
               would have meant re-uploading the file. */}
-          <ToolbarButton
-            onClick={openAltEditor}
-            disabled={!editor.isActive('image')}
-            title="Edit image alt text"
-          >
+          <ToolbarButton onClick={openAltEditor} title="Edit image alt text">
             <Type className="h-4 w-4" aria-hidden="true" />
           </ToolbarButton>
 
