@@ -78,6 +78,26 @@ function imagePosAt(editor: Editor): number | null {
   return found.length === 1 ? found[0] : null;
 }
 
+/**
+ * An image `src` safe to render in the alt-text preview, or '' .
+ *
+ * The edit path reads `src` off a node in the live document, and a user can put
+ * arbitrary markup there by pasting — so this is attacker-influenced DOM text
+ * flowing into a rendered attribute (CodeQL js/xss-through-dom, high). React
+ * does not sanitize `src`. Allowlist the three schemes that can legitimately
+ * appear: http/https (a served rendition) and blob (our own createObjectURL
+ * preview). Structural on purpose — code scanning ignores in-code suppression
+ * comments, so an annotation would not have closed this.
+ */
+function safeImageSrc(src: string): string {
+  try {
+    const { protocol } = new URL(src, window.location.origin);
+    return protocol === 'http:' || protocol === 'https:' || protocol === 'blob:' ? src : '';
+  } catch {
+    return '';
+  }
+}
+
 /** The first image file on a paste/drop payload, or null. */
 function imageFileFromTransfer(data: DataTransfer | null | undefined): File | null {
   if (!data) return null;
@@ -352,7 +372,8 @@ export default function TipTapEditor({
     setAltPrompt({
       kind: 'edit',
       pos,
-      src: typeof attrs.src === 'string' ? attrs.src : '',
+      // Sanitised at the boundary, where it enters component state.
+      src: typeof attrs.src === 'string' ? safeImageSrc(attrs.src) : '',
       alt: typeof attrs.alt === 'string' ? attrs.alt : '',
     });
   };
@@ -677,7 +698,7 @@ export default function TipTapEditor({
       {editable && altPrompt !== null && (
         <div className="flex flex-wrap items-center gap-2 border-b border-line-2 bg-surface p-2">
           <img
-            src={altPrompt.kind === 'upload' ? altPrompt.previewUrl : altPrompt.src}
+            src={altPrompt.kind === 'upload' ? altPrompt.previewUrl : safeImageSrc(altPrompt.src)}
             alt=""
             className="h-14 w-14 shrink-0 rounded-xs object-cover"
           />

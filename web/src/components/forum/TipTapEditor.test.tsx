@@ -1008,3 +1008,30 @@ describe('TipTapEditor image upload — review fixes', () => {
     expect(await screen.findByText(/select an image first/i)).toBeInTheDocument();
   });
 });
+
+describe('TipTapEditor alt preview src safety', () => {
+  it('refuses a non-http(s)/blob src on the edit preview (CodeQL js/xss-through-dom)', async () => {
+    // A user can put arbitrary markup in the document by pasting, so the src
+    // read back off a node is attacker-influenced. React does not sanitize it.
+    const { container } = render(
+      <TipTapEditor
+        content='<img src="javascript:alert(1)" data-image-id="5" alt="x">'
+        onChange={vi.fn()}
+      />
+    );
+    await waitFor(() => expect(container.querySelector('.ProseMirror')).toBeInTheDocument());
+
+    await userEvent.click(screen.getByRole('button', { name: 'Edit image alt text' }));
+
+    const preview = await screen.findByLabelText(/describe this image/i);
+    expect(preview).toBeInTheDocument();
+    // The preview <img> is the one with an empty alt next to the label.
+    const previewImg = container.querySelector('img.h-14');
+    expect(previewImg).not.toBeNull();
+    // Blanked -> React omits the attribute entirely. The property that matters
+    // is that the hostile scheme never reaches the DOM.
+    const src = previewImg?.getAttribute('src') ?? '';
+    expect(src).not.toContain('javascript:');
+    expect(src).toBe('');
+  });
+});
