@@ -60,15 +60,25 @@ The two entries, verbatim from `.github/security-suppressions.yml`:
 
 On or before **2026-11-16**, for each of the two entries:
 
-1. Query OSV at the pinned version and run the local audit:
+1. Query OSV at the pinned version, and run the audit **UNSUPPRESSED**:
 
    ```bash
    cd backend && pip-audit -r requirements.txt \
-     ${=$(python3 ../scripts/check_suppressions.py --emit-flags)}
+     --format json --output /tmp/pip-audit-unsuppressed.json
+   python3 -c "import json,sys; r=json.load(open('/tmp/pip-audit-unsuppressed.json')); \
+     ids={v['id'] for d in r['dependencies'] for v in d.get('vulns',[])}; \
+     print({x: (x in ids) for x in ('PYSEC-2026-89','PYSEC-2025-183')})"
    ```
 
-   (The `${=...}` is required — zsh does not word-split an unquoted `$VAR`, and
-   without it pip-audit gets one argument and silently audits nothing.)
+   **Do NOT add `--emit-flags` to this command.** It emits
+   `--ignore-vuln PYSEC-2026-89 --ignore-vuln PYSEC-2025-183` — the exact two
+   ids under re-assessment — so a suppressed audit cannot report them whatever
+   their real state, and would hand you a clean result guaranteed by
+   construction. This is the unsuppressed shape
+   `.github/workflows/security-scan.yml:40` uses, and for the same stated
+   reason: `--recheck` must "see advisories the `--ignore-vuln` flags hide".
+   (An audit that reports nothing because it was told to look at nothing is the
+   failure mode todo 355 hit five times. Check what the command actually ran.)
 2. Decide one of three outcomes and record which, with evidence:
    - **A fix shipped** → bump the pin, delete the entry.
    - **Still no fix and still unreachable** → renew, moving **both** `added` and
@@ -90,6 +100,13 @@ On or before **2026-11-16**, for each of the two entries:
   filter on `pull_request`.
 - The guard that makes archiving loud rather than silent:
   `test_real_file_tracked_by_todos_are_all_open`.
+- **The guard's coverage equals branch protection, not more.**
+  `harness-ci.yml`'s `pull_request:` trigger has no `paths:` filter, so the
+  guard fires on every PR — but its `push:` trigger does filter, and the list
+  has no `todos/**`. A commit landing directly on `main` that archives a
+  tracking todo without touching a listed path runs no `Harness CI` at all.
+  Fine while "no direct push to main" holds, which is why the list was not
+  widened; worth knowing if that ever changes.
 
 ## Acceptance Criteria
 
