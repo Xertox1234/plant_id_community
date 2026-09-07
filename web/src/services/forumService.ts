@@ -52,6 +52,7 @@ import type {
   ForumMyProfilePatch,
   ThreadPoll,
   PlantCareAnswer,
+  LinkPreview,
 } from '../types/forum';
 import { slugifyTitle } from '../utils/forumUrls';
 import { htmlToBodyBlocks } from '../utils/forumBody';
@@ -452,6 +453,25 @@ export async function fetchPosts(options: {
     // want a real total seed it from board.topic_count / thread.post_count (M30).
     meta: { count: data.count ?? 0, next: data.next, previous: data.previous },
   };
+}
+
+export async function fetchLinkPreview(url: string, signal?: AbortSignal): Promise<LinkPreview> {
+  const trimmed = url.trim();
+  try {
+    const parsed = new URL(trimmed);
+    if (
+      !['http:', 'https:'].includes(parsed.protocol) ||
+      !parsed.hostname ||
+      parsed.username ||
+      parsed.password
+    ) {
+      throw new Error('Link preview URL is invalid');
+    }
+  } catch {
+    throw new Error('Link preview URL is invalid');
+  }
+  const params = new URLSearchParams({ url: trimmed });
+  return authenticatedFetch<LinkPreview>(`${FORUM_BASE}/link-preview/?${params}`, { signal });
 }
 
 export async function createPost(data: CreateReplyInput): Promise<CreateReplyResult> {

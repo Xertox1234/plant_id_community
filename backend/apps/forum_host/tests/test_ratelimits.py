@@ -30,14 +30,14 @@ def _board():
     return index.add_child(instance=ForumBoard(title="General", slug="general"))
 
 
-# Host-only routes with no package counterpart — AI features whose logic reuses
-# host-side helpers the package may not import (todo 255). Each must still be a
-# real, mounted, throttled host view; they are allow-listed out of the drift
-# guard so they do not read as package drift.
+# Host-only routes with no package counterpart — AI features and link preview.
+# Each must still be a real, mounted, throttled host view; they are allow-listed
+# out of the drift guard so they do not read as package drift.
 HOST_ONLY_ROUTES = {
     ("topics/<int:topic_id>/summary/", "topic-summary"),  # H14 AI thread summary
     ("topics/similar/", "topic-similar"),  # H15 semantic similar topics
     ("compose/assist/", "compose-assist"),  # M14 AI composer assist (todo 275)
+    ("link-preview/", "link-preview"),
     ("care/ask/", "care-ask"),  # M13 RAG plant-care answers (todo 289)
     (
         "care/answers/<int:answer_id>/report/",
@@ -54,8 +54,9 @@ def test_host_api_routes_match_package():
     HOST_ONLY_ROUTES allow-list, so intentional host-only AI routes are
     permitted while the real invariant (no package route left unmounted, no
     stray host route) is preserved."""
-    from apps.forum_host import api_urls as host
     from wagtail_forum.api import urls as pkg
+
+    from apps.forum_host import api_urls as host
 
     pkg_routes = {(str(p.pattern), p.name) for p in pkg.urlpatterns}
     host_routes = {(str(p.pattern), p.name) for p in host.urlpatterns}
@@ -184,7 +185,7 @@ def test_wrapped_routes_use_the_throttled_views():
     unthrottled package view — pin the callbacks (review finding 21)."""
     from apps.forum_host import api as throttled
     from apps.forum_host import api_urls as host
-    from apps.forum_host import rag
+    from apps.forum_host import link_preview, rag
 
     wrapped = {
         "topic-list": throttled.TopicListView,
@@ -208,9 +209,10 @@ def test_wrapped_routes_use_the_throttled_views():
         "conversation-participant": throttled.ConversationParticipantView,
         "message-report": throttled.MessageReportView,
         "topic-poll-vote": throttled.PollVoteView,
-        # Host-only AI routes (todo 289) — throttled at definition, not wrapped.
+        # Host-only routes — throttled at definition, not wrapped.
         "care-ask": rag.PlantCareAskView,
         "care-answer-report": rag.PlantCareAnswerReportView,
+        "link-preview": link_preview.LinkPreviewView,
     }
     by_name = {p.name: p.callback.view_class for p in host.urlpatterns}
     for name, view_class in wrapped.items():
@@ -224,10 +226,11 @@ def test_every_unsafe_handler_is_throttled():
     marker). search/sync throttle a safe method (GET) and have no unsafe handler,
     so they satisfy this trivially — but gain protection if one is ever added."""
     from apps.forum_host import api as throttled
-    from apps.forum_host import rag
+    from apps.forum_host import link_preview, rag
 
     safe = {"GET", "HEAD", "OPTIONS", "TRACE"}
     wrappers = [
+        link_preview.LinkPreviewView,
         rag.PlantCareAskView,
         rag.PlantCareAnswerReportView,
         throttled.TopicListView,

@@ -436,3 +436,160 @@
     animation: none !important;
   }
 }
+
+.forum-editor-toolbar {
+  scrollbar-color: var(--gt-line-2) transparent;
+  scrollbar-width: thin;
+}
+
+.forum-editor-toolbar::-webkit-scrollbar {
+  height: 6px;
+}
+
+.forum-editor-toolbar::-webkit-scrollbar-thumb {
+  background: var(--gt-line-2);
+  border-radius: 999px;
+}
+
+.forum-editor-content {
+  background: var(--gt-surface);
+}
+
+.forum-editor-content .ProseMirror {
+  min-height: 13rem;
+  padding: 1.25rem;
+  color: var(--gt-ink);
+  font-size: 0.9375rem;
+  line-height: 1.65;
+  outline: none;
+  overflow-wrap: anywhere;
+}
+
+.forum-editor-content .ProseMirror:focus {
+  box-shadow: inset 0 0 0 2px color-mix(in oklab, var(--gt-secondary) 42%, transparent);
+}
+
+.forum-editor-content .ProseMirror::selection {
+  background: color-mix(in oklab, var(--gt-secondary) 35%, transparent);
+}
+
+.forum-editor-content .ProseMirror > * {
+  max-width: 70ch;
+}
+
+.forum-editor-content .ProseMirror > * + * {
+  margin-top: 0.875rem;
+}
+
+.forum-editor-content .ProseMirror > :first-child {
+  margin-top: 0;
+}
+
+.forum-editor-content .ProseMirror p {
+  margin-bottom: 0;
+}
+
+.forum-editor-content .ProseMirror h2,
+.forum-editor-content .ProseMirror h3 {
+  color: var(--gt-ink);
+  font-family: var(--font-display);
+  font-weight: 600;
+  line-height: 1.2;
+}
+
+.forum-editor-content .ProseMirror h2 {
+  font-size: 1.375rem;
+}
+
+.forum-editor-content .ProseMirror h3 {
+  font-size: 1.125rem;
+}
+
+.forum-editor-content .ProseMirror ul,
+.forum-editor-content .ProseMirror ol {
+  padding-inline-start: 1.5rem;
+}
+
+.forum-editor-content .ProseMirror ul {
+  list-style: disc;
+}
+
+.forum-editor-content .ProseMirror ol {
+  list-style: decimal;
+}
+
+.forum-editor-content .ProseMirror li + li {
+  margin-top: 0.35rem;
+}
+
+.forum-editor-content .ProseMirror blockquote {
+  border-left: 2px solid var(--gt-secondary);
+  background: color-mix(in oklab, var(--gt-surface-2) 78%, transparent);
+  color: var(--gt-ink-2);
+  padding: 0.75rem 1rem;
+  font-style: italic;
+}
+
+.forum-editor-content .ProseMirror code {
+  border: 1px solid var(--gt-line);
+  border-radius: 0.35rem;
+  background: color-mix(in oklab, var(--gt-surface-2) 85%, transparent);
+  padding: 0.1rem 0.3rem;
+  font-family: var(--font-mono);
+  font-size: 0.875em;
+}
+
+.forum-editor-content .ProseMirror pre {
+  max-width: none;
+  overflow-x: auto;
+  border: 1px solid var(--gt-line);
+  border-radius: var(--radius-sm);
+  background: color-mix(in oklab, var(--gt-surface-2) 82%, transparent);
+  padding: 0.875rem 1rem;
+  font-family: var(--font-mono);
+  font-size: 0.875rem;
+  line-height: 1.55;
+  white-space: pre;
+}
+
+.forum-editor-content .ProseMirror pre code {
+  border: 0;
+  background: transparent;
+  padding: 0;
+}
+
+.forum-editor-content .ProseMirror a {
+  color: var(--gt-primary);
+  text-decoration: underline;
+  text-decoration-thickness: 0.08em;
+  text-underline-offset: 0.16em;
+}
+
+.forum-editor-content .ProseMirror a:focus-visible {
+  outline: 2px solid var(--gt-secondary);
+  outline-offset: 2px;
+}
+
+.forum-editor-content .ProseMirror img {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  border: 1px solid var(--gt-line);
+  border-radius: var(--radius-sm);
+}
+
+.forum-editor-content .ProseMirror p.is-editor-empty:first-child::before {
+  float: left;
+  height: 0;
+  color: var(--gt-ink-3);
+  content: attr(data-placeholder);
+  pointer-events: none;
+}
+
+@media (max-width: 639px) {
+  .forum-editor-content .ProseMirror {
+    min-height: 10rem;
+    padding: 1rem;
+    font-size: 0.875rem;
+  }
+}

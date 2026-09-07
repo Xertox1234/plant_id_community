@@ -120,6 +120,79 @@ function embedUrlOf(el: Element): string | null {
   return PROVIDER_VIDEO_URL.test(text) ? text : null;
 }
 
+const PREVIEW_BLOCK_TAGS = new Set([
+  'ADDRESS',
+  'ARTICLE',
+  'ASIDE',
+  'BLOCKQUOTE',
+  'BR',
+  'DIV',
+  'FOOTER',
+  'H1',
+  'H2',
+  'H3',
+  'H4',
+  'H5',
+  'H6',
+  'HEADER',
+  'HR',
+  'LI',
+  'MAIN',
+  'NAV',
+  'OL',
+  'P',
+  'PRE',
+  'SECTION',
+  'TABLE',
+  'TR',
+  'UL',
+]);
+
+function previewTextWithBlockBreaks(node: Node): string {
+  if (node.nodeType === Node.TEXT_NODE) return node.textContent ?? '';
+  if (node.nodeType !== Node.ELEMENT_NODE) return '';
+  const element = node as Element;
+  const content = Array.from(element.childNodes).map(previewTextWithBlockBreaks).join('');
+  return PREVIEW_BLOCK_TAGS.has(element.tagName) ? `${content}\n` : content;
+}
+
+function validPreviewUrl(value: string | null): string | null {
+  const trimmed = value?.trim() ?? '';
+  if (!trimmed || /[<>"']/.test(trimmed) || /\s/.test(trimmed)) return null;
+  try {
+    const parsed = new URL(trimmed);
+    if (
+      !['http:', 'https:'].includes(parsed.protocol) ||
+      !parsed.hostname ||
+      parsed.username ||
+      parsed.password
+    ) {
+      return null;
+    }
+  } catch {
+    return null;
+  }
+  return trimmed;
+}
+
+export function previewUrlFromHtml(html: string): string | null {
+  const doc = new DOMParser().parseFromString(html, 'text/html');
+  for (const element of Array.from(doc.querySelectorAll('script, style, noscript, template'))) {
+    element.remove();
+  }
+  const links = Array.from(doc.querySelectorAll('a[href]')).reverse();
+  for (const link of links) {
+    const url = validPreviewUrl(link.getAttribute('href'));
+    if (url) return url;
+  }
+  const urls = previewTextWithBlockBreaks(doc.body).match(/https?:\/\/[^\s<>"']+/gi) ?? [];
+  for (const candidate of urls.reverse()) {
+    const url = validPreviewUrl(candidate.replace(/[),.!?]+$/, ''));
+    if (url) return url;
+  }
+  return null;
+}
+
 /**
  * Escape text destined for composer HTML. `quote` is a Wagtail `BlockQuoteBlock`
  * (a `TextBlock`) — its value is PLAIN TEXT, never markup, and the server

@@ -90,6 +90,7 @@ DEFAULT_FORUM_RATELIMITS = {
     # Semantic similar-topics GET (todo 255 slice 4 / H15). Per-IP, same tier as
     # `search` — a debounced compose-time box; a cache miss embeds the query.
     "similar_topics": "30/m",
+    "link_preview": "30/m",
     # AI composer assist POST (todo 275 / M14). Per-USER (not per-IP): the
     # endpoint is premium-only, so there is an account behind every call, and the
     # audit flags this as the least favorable cost profile of the AI features —
@@ -102,6 +103,22 @@ DEFAULT_FORUM_RATELIMITS = {
     # AI call in the forum per hit.
     "care_ask": "10/h",
 }
+
+LINK_PREVIEW_CACHE_KEY_PREFIX = "forum_link_preview"
+LINK_PREVIEW_CACHE_TTL_SECONDS = 60 * 60
+LINK_PREVIEW_FAILURE_CACHE_TTL_SECONDS = 60
+LINK_PREVIEW_MAX_URL_LENGTH = 2048
+LINK_PREVIEW_MAX_REDIRECTS = 3
+LINK_PREVIEW_TIMEOUT_SECONDS = 4
+LINK_PREVIEW_DNS_TIMEOUT_SECONDS = 2
+LINK_PREVIEW_DNS_WORKERS = 4
+LINK_PREVIEW_ALLOWED_PORTS = (80, 443)
+LINK_PREVIEW_MAX_BODY_BYTES = 512 * 1024
+LINK_PREVIEW_READ_CHUNK_BYTES = 8192
+LINK_PREVIEW_MAX_TITLE_CHARS = 200
+LINK_PREVIEW_MAX_DESCRIPTION_CHARS = 500
+LINK_PREVIEW_MAX_SITE_NAME_CHARS = 100
+LINK_PREVIEW_MAX_IMAGE_URL_LENGTH = 2048
 
 # Reply-notification email body excerpt length (todo 253 slice 2, H1).
 # Matches the package's own MAX_EXCERPT_CHARS precedent

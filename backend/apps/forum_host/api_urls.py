@@ -68,11 +68,11 @@ from .api import (
     UserMuteView,
 )
 
-# Host-only AI routes (todo 255 slice 3 / H14, slice 4 / H15; todo 275 / M14) —
-# no package counterpart; their logic reuses the blog app's AI helpers, which the
-# package may not import. The route-drift guard allow-lists these host-only
-# additions (see HOST_ONLY_ROUTES in tests/test_ratelimits.py).
+# Host-only routes — AI features and link preview have no package counterpart.
+# The route-drift guard allow-lists these host-only additions (see
+# HOST_ONLY_ROUTES in tests/test_ratelimits.py).
 from .compose_assist import ComposeAssistView
+from .link_preview import LinkPreviewView
 from .rag import PlantCareAnswerReportView, PlantCareAskView
 from .similar import SimilarTopicsView
 from .summary import TopicSummaryView
@@ -80,6 +80,7 @@ from .summary import TopicSummaryView
 app_name = "wagtail_forum_api"
 
 urlpatterns = [
+    path("link-preview/", LinkPreviewView.as_view(), name="link-preview"),
     path(
         "compose/assist/",
         ComposeAssistView.as_view(),

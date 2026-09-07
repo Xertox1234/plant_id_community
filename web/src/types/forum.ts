@@ -224,6 +224,16 @@ export interface Post {
   can_mute?: boolean;
 }
 
+export interface LinkPreview {
+  url: string;
+  title: string;
+  description: string;
+  image_url: string | null;
+  site_name: string;
+  domain: string;
+  available: boolean;
+}
+
 /**
  * Paginated list response
  */
