@@ -109,13 +109,13 @@ the root lockfile.
 
 ## Acceptance Criteria
 
-- [ ] A PR that adds a known-vulnerable package to the **root** lockfile fails
-      `new-vuln-gate` (demonstrated on a throwaway branch, then reverted).
-- [ ] `frontend-security` on a `workflow_dispatch` run audits the root manifest;
+- [x] A PR that adds a known-vulnerable package to the **root** lockfile fails
+      `new-vuln-gate` (demonstrated on a throwaway commit, then reverted).
+- [x] `frontend-security` on a `workflow_dispatch` run audits the root manifest;
       its log shows an `npm audit` invocation whose cwd is the repo root.
-- [ ] `scripts/test_new_vuln_gate.py` gains a case that fails against the
-      pre-fix plumbing.
-- [ ] `docs/rules/security.md` names both manifests.
+- [x] `scripts/test_new_vuln_gate.py` gains a case that fails against the
+      pre-fix plumbing — as far as a unit test can, see the caveat in the work log.
+- [x] `docs/rules/security.md` names both manifests.
 
 ## Work Log
 
@@ -178,6 +178,54 @@ audit reads, which is safe only because `backend/requirements-dev.txt` is a
 pinless `-r requirements.txt` overlay. `test_requirements_dev_carries_no_pins`
 now guards that invariant, so the day it gains a pin the suite goes red instead
 of the gate going falsely green.
+
+### 2026-09-07 - CI evidence (PR #698)
+
+**AC1 — the gate now reads the ROOT lockfile.** Commit `6df3fe9` added
+`lodash@4.17.20` to the root manifest only. Run
+[34136713877](https://github.com/Xertox1234/plant_id_community/actions/runs/34136713877),
+job `No new dependency advisories`:
+
+```
+changed files:
+  package.json
+  package-lock.json
+pip=false
+npm_dirs=.
+pip-audit: skipped (no manifest change in this PR)
+npm audit (.): 0 advisories on base, 5 on head, 5 new
+  - .: GHSA-35jh-r3h4-6jhm (lodash, high)          [+4 more]
+##[error]Process completed with exit code 1.
+```
+
+Compare with PR #669's pre-fix run 34006610283 on the *same* scope:
+`NPM: true` then `npm audit: 0 advisories on base, 0 on head, 0 new`. Same class
+of diff, opposite verdict — the gate is reading the tree the PR changed.
+Reverted in `9a13c3e`; the root manifests are byte-identical to `main` again.
+
+**AC2 — the weekly hard-fail covers the root tree.** `workflow_dispatch` run
+[34136717865](https://github.com/Xertox1234/plant_id_community/actions/runs/34136717865),
+job `Frontend npm Security Scan`, on the same specimen commit:
+
+```
+manifests to audit: . web
+##[group]npm audit --audit-level=moderate (cwd: .)
+1 high severity vulnerability
+##[group]npm audit --audit-level=moderate (cwd: web)
+found 0 vulnerabilities
+clean: web
+npm audit found moderate+ vulnerabilities on a workflow_dispatch run — failing the gate.
+```
+
+Stronger than the AC asked for: it does not merely *visit* the root tree, it
+BLOCKS on a root-only advisory — the exact thing that could not happen while the
+job hardcoded `web/`, and the reason 14 root advisories sat unseen. The
+`pull_request` run of the same job on the same commit passed, correctly, because
+PR runs stay advisory-only by design.
+
+**Regression.** With the specimen reverted, `new-vuln-gate` on this PR reports
+`npm audit: skipped (no manifest change in this PR)` — the honest skip, not a
+bare `0 new`.
 
 ### 2026-09-06 - Filed from todo 355 slice 3
 
