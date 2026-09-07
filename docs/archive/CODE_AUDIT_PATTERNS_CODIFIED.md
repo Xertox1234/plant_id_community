@@ -20,7 +20,8 @@
 > - **Pattern 2 (`REQUIRED__*` placeholders)** — the one genuinely live, undocumented
 >   pattern here. Rescued into
 >   [`backend/docs/patterns/security/secret-management.md`](../../backend/docs/patterns/security/secret-management.md),
->   with the enforcement question answered honestly (nothing validates it).
+>   with the enforcement question answered honestly — nothing validates it, and
+>   four of the five placeholders would boot clean in production (todo 367).
 > - **Pattern 3 (CORS documentation)** — already covered by `secret-management.md`
 >   and `security/csrf-protection.md`.
 > - **Patterns 1, 4, 5 (audit workflow, TODO resolution, TODO lifecycle)** —

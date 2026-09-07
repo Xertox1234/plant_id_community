@@ -343,21 +343,30 @@ JWT_SECRET_KEY=REQUIRED__GENERATE_WITH__python_-c_import_secrets_token_urlsafe_6
 Two suffixes carry the whole convention: `REQUIRED__GENERATE_WITH__<command>`
 for values you create, `REQUIRED__GET_FROM__<url>` for values you fetch.
 
-**Enforcement: NONE. This is a convention, not a validated one.** Verified
-2026-09-07 — `REQUIRED__` appears in `backend/.env.example` and nowhere else in
-the codebase; no validator looks for it. What happens if a placeholder is used
-verbatim in production is therefore accidental, and differs per key:
+**Enforcement: NONE, and the one case that IS caught is caught by accident.**
+Verified 2026-09-07 against `backend/plant_community_backend/settings.py`:
+`REQUIRED__` appears in `backend/.env.example`, in this doc, and in two archived
+todos — **no validator anywhere looks for it.** So the outcome of shipping a
+placeholder verbatim is per-key accident, and only one of the five is stopped:
 
-| Placeholder | Outcome | Why |
+| Placeholder | Outcome if used verbatim in production | Why |
 |---|---|---|
-| `SECRET_KEY`, `JWT_SECRET_KEY` | rejected at boot | **coincidence** — `INSECURE_PATTERNS` in `settings.py` contains `"secret"`, and the *generation hint text* happens to include the word |
-| `FIELD_ENCRYPTION_KEY` | rejected at first use | `Fernet()` raises `ValueError` on the malformed key, not at boot |
-| `PLANT_ID_API_KEY`, `PLANTNET_API_KEY` | **not rejected at all** | it is simply a bad API key; the upstream call fails at runtime |
+| `SECRET_KEY` | **rejected at boot** | **coincidence** — `INSECURE_PATTERNS` (settings.py:84) contains `"secret"`, and this key's *generation hint text* happens to include that word |
+| `JWT_SECRET_KEY` | **accepted — and used as the JWT signing key** | `INSECURE_PATTERNS` is applied to `SECRET_KEY` only (settings.py:94). JWT's own checks are just: set, `!= SECRET_KEY`, `len >= 50`. The placeholder is 66 chars and differs, so it clears all three and lands in `SIMPLE_JWT["SIGNING_KEY"]` |
+| `FIELD_ENCRYPTION_KEY` | **accepted — nothing ever reads it** | no `.py` references it; `encrypted_model_fields` is not in `INSTALLED_APPS`, so `django-encrypted-model-fields` is an unused dependency |
+| `PLANT_ID_API_KEY` | accepted | `validate_environment()` only enforces a length floor of 32; the placeholder is 41 |
+| `PLANTNET_API_KEY` | accepted | floor is 20; the placeholder is 44 |
 
-So do not cite `REQUIRED__` as a security control. If you want it enforced,
-add `"required__"` to `INSECURE_PATTERNS` and extend the check beyond
-`SECRET_KEY` — the two keys that are caught today would still be caught if
-someone reworded their hint text, which is the fragile part.
+**The `JWT_SECRET_KEY` row is the dangerous one.** An operator who deploys from
+`.env.example` hits the `SECRET_KEY` error — which helpfully prints the generate
+command — fixes that one line, and boots clean, now signing every JWT with a
+value published in a committed file. Anyone who can read the repo can forge
+tokens. Nothing in the current code catches it.
+
+So do not cite `REQUIRED__` as a security control. Making it one takes two
+changes, not one: add `"required__"` to `INSECURE_PATTERNS`, **and apply that
+loop to `JWT_SECRET_KEY` as well** — adding the pattern alone only hardens the
+key that is already caught. Tracked in todo 367.
 
 ---
 
