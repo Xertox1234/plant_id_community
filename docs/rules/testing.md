@@ -537,3 +537,25 @@ Compact checklist auto-injected before edits.
   that went *down* is not self-evidently an optimization — it is equally the
   shape of a dropped `live`/visibility filter or a skipped permission read, and
   only the SQL diff distinguishes them (Django 6.1 upgrade, PR #695).
+- **A test fixture must not hardcode an identifier whose lifecycle the test does
+  not control.** `test_check_suppressions.py` pinned `tracked_by: "355"`; todo 355
+  was itself the artifact under test, so archiving it flipped `todo_is_closed()`
+  and turned every `recheck(...) == []` assertion red — on a REQUIRED check with
+  no path filter, i.e. on every open PR, not just the archiving one. Resolve the
+  anchor at run time instead (`_open_todo_id()` globs `todos/[0-9]*.md` for the
+  first non-closed file): a run-time lookup structurally *cannot* select an
+  artifact that was just archived, because the glob no longer sees it. Repointing
+  to a different hardcoded id only moves the trap. **The dangerous half is the
+  reference that keeps PASSING:** the same file's `resolve_todo("355")` would not
+  have failed, because the resolver searches `archive/` too — so
+  `test_resolves_a_live_todo` would have silently become a duplicate of
+  `test_resolves_an_archived_todo`, with its name still asserting otherwise
+  (todo 355 slice 6).
+- **A correctness check that runs only on a schedule reports nothing on the PR
+  that breaks it.** `check_suppressions.py --recheck` is schedule/dispatch-only,
+  which is how a fixed-but-suppressed Twisted advisory survived 16 green checks.
+  When such a check is cheap and deterministic, assert it *also* in the
+  always-running required job (`test_real_file_tracked_by_todos_are_all_open` in
+  `harness-ci.yml`) so the failure lands on the PR that causes it, naming the
+  offending entry, instead of a week later on a cron with no author attached
+  (todo 355 slice 6).

@@ -112,6 +112,12 @@ Filed from GitHub issue #{issue['number']} (opened {issue['createdAt'][:10]}) by
    and `cd web && npm audit --audit-level=moderate`.
    The `${{=...}}` matters — this project's shell is zsh, which does not
    word-split an unquoted `$VAR`, so without it pip-audit audits nothing.
+   That reproduces the GATE. If it comes back clean while the scan is red,
+   the failure is `--recheck`, not a new advisory: a fix has shipped for an
+   advisory the gate is suppressing, and the suppressed command above cannot
+   see it by construction. Re-run UNSUPPRESSED to find it:
+   `cd backend && pip-audit -r requirements.txt --format json --output /tmp/a.json`
+   then `python3 scripts/check_suppressions.py --recheck --report /tmp/a.json`.
 2. For each advisory, **try a bump before suppressing** — an empty "Fix
    Versions" column does not mean unfixable (`docs/rules/security.md`).
 3. Only if no bump clears it, add an entry to

@@ -23,6 +23,18 @@
 # NOTE the ${=...}: this project's shell is zsh, which does NOT word-split an
 # unquoted $VAR. Without it pip-audit receives ONE argument and silently audits
 # nothing — a check that reports "nothing to do" did not run.
+#
+# ...BUT NEVER USE THAT COMMAND TO RE-ASSESS AN ENTRY IN THIS FILE.
+# --emit-flags emits `--ignore-vuln` for every id below, so a suppressed audit is
+# structurally incapable of reporting the entries it is meant to re-assess: it
+# hands you a clean result guaranteed by construction. That trap was written into
+# a real re-assessment procedure (todo 366) and caught only in review. To assess
+# an entry, audit UNSUPPRESSED:
+#   cd backend && pip-audit -r requirements.txt --format json --output /tmp/audit.json
+#   python3 ../scripts/check_suppressions.py --recheck --report /tmp/audit.json
+# Same reason security-scan.yml:40 writes an unsuppressed report for --recheck to
+# read. The two commands answer different questions: the suppressed one asks "is
+# the gate green?", the unsuppressed one asks "is this entry still true?".
 
 version: 1
 
@@ -44,7 +56,7 @@ pip_audit:
     added: "2026-05-20"
     expires: "2026-11-16"
     owner: "@Xertox1234"
-    tracked_by: "355"
+    tracked_by: "366"
 
   - id: PYSEC-2025-183
     package: PyJWT
@@ -60,4 +72,4 @@ pip_audit:
     added: "2026-05-20"
     expires: "2026-11-16"
     owner: "@Xertox1234"
-    tracked_by: "355"
+    tracked_by: "366"

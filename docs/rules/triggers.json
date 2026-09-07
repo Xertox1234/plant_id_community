@@ -1567,5 +1567,24 @@
     "source": "codify: chore/django-6.1-upgrade",
     "added": "2026-09-06",
     "severity": "warn"
+  },
+  {
+    "id": "pip-audit-emit-flags-hides-the-entry-under-review",
+    "domains": [
+      "security"
+    ],
+    "path_glob": [
+      "todos/*.md",
+      "docs/**/*.md",
+      ".github/**",
+      "scripts/*.py"
+    ],
+    "content_present": "\\-\\-emit-flags",
+    "content_absent": "(?i)UNSUPPRESSED|--recheck --report|--format json",
+    "message": "pip-audit with --emit-flags is the SUPPRESSED audit: it emits --ignore-vuln for every id in .github/security-suppressions.yml, so it cannot report those advisories at all. Correct for \"is the gate green?\"; guaranteed-clean nonsense for \"is this suppression still true?\" — that needs the UNSUPPRESSED report (pip-audit --format json --output <f>, then check_suppressions.py --recheck --report <f>). Shipped as a real re-assessment procedure in todo 366; caught in review, not by any test.",
+    "pattern_ref": "docs/rules/security.md",
+    "source": "codify: chore/deps-slice6-closeout",
+    "added": "2026-09-07",
+    "severity": "warn"
   }
 ]
