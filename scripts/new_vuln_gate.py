@@ -129,9 +129,25 @@ def _load(path: pathlib.Path) -> dict:
             "an advisory, so it is failing rather than passing silently"
         )
     try:
-        return json.loads(path.read_text() or "{}")
+        report = json.loads(path.read_text() or "{}")
     except json.JSONDecodeError as exc:
         raise GateError(f"{path} is not valid JSON: {exc}") from exc
+    # A FAILED `npm audit --json` writes {"message": ..., "error": {...}} to
+    # stdout and exits 1 — and exit 1 is also what it returns when advisories
+    # merely exist, so the workflow's `|| true` cannot tell the two apart and the
+    # `[ -s "$f" ]` size assertion passes on a 186-byte error object. Parsed
+    # naively it yields ZERO advisories, so a transient registry failure on the
+    # HEAD audit would print "N on base, 0 on head, 0 new" and pass: the exact
+    # false green this gate exists to prevent, one layer down. Neither a real
+    # npm audit report nor a pip-audit one carries a top-level `error`.
+    if isinstance(report, dict) and "error" in report:
+        detail = report.get("message") or report.get("error") or "no detail"
+        raise GateError(
+            f"{path} is an audit ERROR report, not a result ({detail}). The tool "
+            "failed rather than finding nothing, and zero advisories from a "
+            "failed audit would pass this gate silently."
+        )
+    return report
 
 
 def pip_advisories(report: dict) -> dict[str, set[str]]:

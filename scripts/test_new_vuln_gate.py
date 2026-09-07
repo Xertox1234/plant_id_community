@@ -14,6 +14,8 @@ broken, because a gate that passes when it should not is invisible:
     (the gate audited web/ against web/ and printed a confident `0 new` — todo 356)
   - each npm manifest is compared against ITS OWN base, so an advisory sitting
     in web/'s base cannot cancel the same advisory arriving in the root tree
+  - a FAILED audit writes a non-empty {"error": ...} report; parsed naively it
+    yields zero advisories and passes the gate. It must fail instead.
 """
 
 from __future__ import annotations
@@ -349,6 +351,46 @@ class MultiManifestCompareTests(unittest.TestCase):
         ])
         self.assertEqual(rc, 1, "web/'s pre-existing copy must not cancel root's new one")
         self.assertIn(f".: {shared}", out)
+
+    def test_an_audit_error_report_fails_rather_than_reading_as_clean(self):
+        """A failed `npm audit --json` is 186 bytes of {"message", "error"}.
+
+        It survives the workflow's `[ -s "$f" ]` size assertion (non-empty) and
+        the `|| true` cannot see its exit code, because npm audit also exits 1
+        when advisories merely exist. Parsed naively it yields ZERO advisories,
+        so a transient registry failure on the HEAD audit would print
+        "15 on base, 0 on head, 0 new" and pass — the same false green this gate
+        exists to prevent, one layer down.
+        """
+        err = {
+            "message": "request to https://registry.npmjs.org/-/npm/v1/security/"
+                       "advisories/bulk failed, reason: connect ECONNREFUSED",
+            "error": {"summary": "", "detail": ""},
+        }
+        rc, _ = self._run([
+            "--npm-pair", ".",
+            self._write("br.json", npm_report(("undici", "GHSA-aaaa-bbbb-cccc", "high"))),
+            self._write("hr.json", err),
+        ])
+        self.assertEqual(rc, 1, "a failed audit must not read as zero advisories")
+
+    def test_an_audit_error_on_the_BASE_side_also_fails(self):
+        """The loud direction. Still an error, not 'every head advisory is new'."""
+        rc, _ = self._run([
+            "--npm-pair", "web",
+            self._write("bw.json", {"error": {"summary": "boom"}}),
+            self._write("hw.json", npm_report(("vite", "GHSA-dddd-eeee-ffff", "moderate"))),
+        ])
+        self.assertEqual(rc, 1)
+
+    def test_a_real_report_with_no_error_key_still_loads(self):
+        """Guard the guard: the sentinel must not reject a normal clean report."""
+        clean = npm_report()
+        rc, out = self._run([
+            "--npm-pair", ".", self._write("br.json", clean), self._write("hr.json", clean),
+        ])
+        self.assertEqual(rc, 0)
+        self.assertIn("npm audit (.): 0 advisories on base, 0 on head, 0 new", out)
 
     def test_a_scoped_manifest_with_no_report_fails(self):
         """If the audit loop skipped a dir the compare loop names, that must be loud."""
