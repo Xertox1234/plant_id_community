@@ -4960,3 +4960,78 @@ about what the pins would actually resolve to.
 The seven query-count pins this upgrade moved are covered separately —
 `backend/docs/patterns/performance/query-optimization.md` Pattern 34 — including
 why a count that *drops* still needs the SQL diff before you believe it.
+
+## 2026-09-06 — An alarm gated on `event_name != 'pull_request'` cannot observe its own fix (todo 362)
+
+`security-scan.yml`'s alarm step (`:435`) is gated
+`if: always() && github.event_name != 'pull_request'`, and correctly so — PR runs
+are advisory-only and must not file issues. The consequence nobody had hit yet:
+**a fix always arrives on a `pull_request` run, which is exactly the event the
+alarm skips.**
+
+PR #695 (`Django 6.0.7 → 6.1.1`) cleared `PYSEC-2026-3717` at 23:15 UTC. Alarm
+issue #663 kept asserting "Backend Python Security Scan: `failure`" against a tree
+where the advisory no longer existed, and would have kept asserting it until the
+Monday 09:00 UTC cron — up to a week of an open, red, factually-wrong tracking
+issue. The scan was not broken and the gating is not a bug; the alarm had simply
+not been handed an event it was permitted to act on.
+
+**Rule: after merging a security fix, dispatch the scan rather than waiting for
+the cron.** `gh workflow run security-scan.yml --ref main`. A `workflow_dispatch`
+run is a faithful proxy for `schedule` — it takes the identical non-PR branch at
+every decision point (pip enforcement `:69`, suppression `--recheck` `:84`, the
+alarm `:435`, the gate `:446`), and `new-vuln-gate` is PR-only (`:263`) so it is
+skipped and cannot colour the result. Run 34068576160 did exactly this and logged
+`closed alarm issue #663`.
+
+**Second-order finding: the close branch had never run.** `security_alarm.sh`
+shipped 2026-09-05, and every run after it was a failure (8 scheduled, 4 dispatch),
+so only the open/update branch (`:69-83`) had ever executed. Lines `:84-92` — the
+`gh issue comment` + `gh issue close --reason completed` path — first executed on
+2026-09-07 and worked. **When a script's branches are selected by a condition that
+has only ever been true, half of it is unexecuted code no matter how long it has
+been deployed.** Plan the response before running it: if the scan had gone green
+and #663 had stayed open, the fix would have been the script, never a hand-close —
+hand-closing satisfies the acceptance criterion's letter while leaving the alarm
+permanently unable to close itself, which is the exact failure the alarm exists to
+eliminate.
+
+Note the direction. The already-documented GHSA-vs-OSV split (`docs/rules/security.md`,
+"two advisory databases, two answers") is Dependabot reading **0 while the gate is
+red**. This is the mirror image: the gate's own issue reading **red while every
+scanner reads clean**. Neither dashboard is self-checking, and they fail in both
+directions.
+
+## 2026-09-06 — An epic's slice checkboxes drift when its pins land through unrelated PRs (todo 355)
+
+Todo 355's ledger showed Slice 4 (Wagtail + DRF) and Slice 5 (backend transitive
+re-freeze) as `[ ]`. Every pin either slice named was already on `main`. They had
+landed piecemeal through eight mostly-Dependabot PRs
+(#675, #676, #677, #681, #683, #684, #686, #695), and a ninth — #687 — had
+already deleted the suppression Slice 5 was supposed to clear. None of the
+nine opened the todo file.
+
+An epic that ships as "one PR per slice" silently assumes nothing else touches its
+scope. Dependabot violates that assumption by construction: it opens one PR per
+package, on its own schedule, against the same manifest. The ledger is a claim
+about the tree written at planning time; the pin is the fact.
+
+**Verify an epic's slices against the tree, never against its own checkboxes**, at
+the *start* of a session, not the end:
+
+```bash
+grep -nE '^(Django|Twisted|cryptography|pyOpenSSL|wagtail|djangorestframework)==' \
+  backend/requirements.txt
+```
+
+Two corollaries. **A slice can be done without its PR existing** — tick `[x]` and
+name the PRs that actually landed it, since `[x]` means *shipped*, not *shipped by
+the PR we predicted*. And **record deviations rather than chasing them**: the
+ledger named `cryptography 50.0.1`, `main` carries 50.0.0. OSV clean,
+full-manifest `pip-audit` clean, 0 Dependabot alerts — no advisory motivates the
+extra patch bump, so the deviation is written down and the slice closes. Without
+that note the next reader re-opens a finished slice over a version number.
+
+Related: the "re-pointed, never checked off" convention in `CLAUDE.md` → Review
+Doc Tracking governs a finding that *moved*. This is the opposite case — work that
+*shipped*, elsewhere — and it does get the checkbox.
