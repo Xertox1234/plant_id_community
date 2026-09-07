@@ -1,6 +1,6 @@
 from wagtail import blocks
 from wagtail.embeds.blocks import EmbedBlock
-from wagtail.images.blocks import ImageChooserBlock
+from wagtail.images.blocks import ImageBlock
 
 
 class CodeBlock(blocks.StructBlock):
@@ -42,7 +42,23 @@ class ForumBodyBlock(blocks.StreamBlock):
     quote = blocks.BlockQuoteBlock()
     post_quote = PostQuoteBlock()
     code = CodeBlock()
-    image = ImageChooserBlock()
+    # ImageBlock (Wagtail 6.3+), not ImageChooserBlock: alt text belongs to the
+    # USAGE, not the Image row. A chooser stores a bare PK and leaves alt on
+    # Image.description, so one photo carries identical alt everywhere it
+    # appears, cannot be re-worded without re-uploading, and has no way to say
+    # "decorative" as distinct from "nobody filled this in". ImageBlock stores
+    # {image, alt_text, decorative} per usage and fixes all three.
+    #
+    # Wagtail reads the OLD bare-PK shape transparently (ImageBlock.to_python /
+    # bulk_to_python special-case an int), so this swap stays readable with no
+    # data migration — but 0037 normalises anyway, because bulk_to_python's
+    # legacy path requires EVERY value in a batch to be an int: one stale PK
+    # sharing a batch with a new dict falls through to StructBlock.
+    # bulk_to_python and raises on int.get(). That batch is Wagtail's own
+    # (admin listings, search indexing, ReferenceIndex) — the forum's read path
+    # walks raw_data and never resolves the StreamValue, so an unmigrated row
+    # would break the CMS while every API test stayed green.
+    image = ImageBlock(required=True)
     # Video/oEmbed (todo 344). Declared unconditionally — a StreamField's
     # block list is schema (migration 0031) and must not vary per host —
     # but INERT unless the host sets WAGTAILFORUM_ALLOW_EMBED_BLOCKS: the API

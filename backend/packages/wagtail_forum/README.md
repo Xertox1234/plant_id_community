@@ -325,29 +325,52 @@ alone is not sufficient.
 | `WAGTAILFORUM_IMAGE_MAX_HEIGHT` | `5000` | Layer 4: max pixel height. |
 | `WAGTAILFORUM_IMAGE_COLLECTION_NAME` | `"Forum Images"` | Collection name, created lazily and idempotently under root. |
 
-#### Alt text (M7)
+#### Alt text (M7, per-usage since todo 357)
 
 `POST /forum/images/` accepts an optional **`alt`** multipart part alongside
 `image`. It is stripped, truncated to 255 chars, and stored on Wagtail's own
-`Image.description` field; `serialize_image_for_api` returns it as `alt`.
+`Image.description` field — the upload-time default.
 
-Three consequences worth knowing before changing this:
+The body block is a Wagtail **`ImageBlock`** (6.3+), not an `ImageChooserBlock`,
+so alt belongs to the **usage**:
+
+```json
+{"type": "image", "value": {"image": 42, "alt_text": "A monstera leaf", "decorative": false}}
+```
+
+The read envelope stays flat and gains `decorative`:
+`{id, url, alt, decorative, width, height}`. `alt` is the block's `alt_text`,
+falling back to `Image.description` when the usage has none (which is how every
+pre-migration body still reads correctly).
+
+Things worth knowing before changing this:
 
 - **`alt` never falls back to `title`.** `title` is the upload filename, and
   filename-as-alt is an accessibility anti-pattern — a screen reader announcing
-  `IMG_2481.jpg` is worse than announcing nothing. An image uploaded without
-  `alt` serves `alt: ""`, which is the correct markup for a decorative image.
-  Images uploaded before M7 therefore serve `""` rather than their filename.
-- **Alt is per-image, not per-usage.** The body block value stays a bare image
-  `int`, so re-embedding one upload in a second post reuses the first post's alt.
-  Accepted: forum uploads are effectively single-use, and per-usage alt would
-  mean a StreamField `int` → `dict` data migration across every post *and*
-  revision.
-- **There is no alt PATCH endpoint.** Alt is captured at upload time only;
-  correcting it means uploading the image again. `alt` is also deliberately
-  excluded from the idempotency fingerprint, so a same-key retry carrying
-  corrected alt replays the original response (including the original alt)
-  rather than 422-ing.
+  `IMG_2481.jpg` is worse than announcing nothing. This matches Wagtail's own
+  guidance for `default_alt_text`.
+- **A blank alt is stored as `decorative: true`, never `alt_text: ""`.**
+  `ImageBlock.clean()` rejects "no alt text and not decorative". That `clean()`
+  runs only through the admin form's `BlockField` — model `full_clean()` (and
+  therefore `save_revision()`) never reaches block validation — so the API
+  *could* store the refused pair and mint posts a moderator cannot open in
+  `/cms/`. `api/sanitize.py` normalises instead. Blank alt genuinely is a
+  decorative declaration.
+- **Both value shapes are readable, forever.** Migration `0038` rewrites every
+  live body and every Post revision, and `image_block_pk()` still accepts a bare
+  `int` — revisions predate the change and a web build deployed before the
+  frontend switch still POSTs the old shape. This matters more than it looks:
+  `ImageBlock.bulk_to_python` only takes its legacy branch when *every* value in
+  a batch is an int, so a lone survivor beside a migrated dict raises inside
+  Wagtail's own batching (admin listings, search indexing, ReferenceIndex) while
+  the forum's `raw_data`-walking read path stays green.
+- **Alt is now searchable.** `Post.search_fields` declares `SearchField("body")`;
+  `ImageChooserBlock.get_searchable_content` returned nothing, `ImageBlock`'s
+  returns the alt text.
+- **There is still no alt PATCH endpoint** on the upload API — but alt is now
+  editable by rewriting the post body, since it lives in the block. `alt` remains
+  deliberately excluded from the idempotency fingerprint, so a same-key retry
+  carrying corrected alt replays the original response rather than 422-ing.
 
 ### Reads, caching, and sync
 

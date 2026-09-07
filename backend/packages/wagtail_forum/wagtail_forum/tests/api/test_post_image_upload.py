@@ -62,7 +62,7 @@ def test_upload_requires_authentication():
 def test_valid_image_uploads_into_forum_collection_and_returns_shape():
     resp = _auth_client().post(URL, {"image": _upload()}, format="multipart")
     assert resp.status_code == 201
-    assert set(resp.data) == {"id", "url", "alt", "width", "height"}
+    assert set(resp.data) == {"id", "url", "alt", "decorative", "width", "height"}
     assert resp.data["url"].startswith("http://testserver")
     assert resp["Location"] == resp.data["url"]  # L19: 201 carries a Location header
     image = get_image_model().objects.get(id=resp.data["id"])
