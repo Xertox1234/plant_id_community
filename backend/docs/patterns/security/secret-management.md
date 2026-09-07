@@ -17,7 +17,7 @@
 
 1. [Django SECRET_KEY Patterns](#django-secret_key-patterns)
 2. [API Key Management](#api-key-management)
-3. [Environment Variable Patterns](#environment-variable-patterns)
+3. [Environment Variable Patterns](#environment-variable-patterns) — incl. `REQUIRED__*` placeholders
 4. [GitIgnore Patterns](#gitignore-patterns)
 5. [Secret Detection Regex](#secret-detection-regex)
 6. [Key Rotation Procedures](#key-rotation-procedures)
@@ -318,6 +318,48 @@ if not SECRET_KEY:
 ---
 
 ## Environment Variable Patterns
+
+### Pattern: `REQUIRED__*` placeholders in `.env.example`
+
+**Rescued from `CODE_AUDIT_PATTERNS_CODIFIED.md` (archived 2026-09-07) — it was
+the only place this live convention was written down.**
+
+`.env.example` is committed, so every value in it is public and must be
+unusable. A blank or plausible-looking placeholder gets copied into a real
+`.env` and silently becomes the running config. Instead, encode "you must
+replace this" *and* how to generate it, into the value itself:
+
+```bash
+# ❌ BEFORE — copies into .env and boots
+SECRET_KEY=
+PLANT_ID_API_KEY=your-api-key-here
+
+# ✅ AFTER — self-documenting and obviously not a real value
+SECRET_KEY=REQUIRED__GENERATE_WITH__python_-c_from_django_get_random_secret_key
+PLANT_ID_API_KEY=REQUIRED__GET_FROM__https://web.plant.id/
+JWT_SECRET_KEY=REQUIRED__GENERATE_WITH__python_-c_import_secrets_token_urlsafe_64
+```
+
+Two suffixes carry the whole convention: `REQUIRED__GENERATE_WITH__<command>`
+for values you create, `REQUIRED__GET_FROM__<url>` for values you fetch.
+
+**Enforcement: NONE. This is a convention, not a validated one.** Verified
+2026-09-07 — `REQUIRED__` appears in `backend/.env.example` and nowhere else in
+the codebase; no validator looks for it. What happens if a placeholder is used
+verbatim in production is therefore accidental, and differs per key:
+
+| Placeholder | Outcome | Why |
+|---|---|---|
+| `SECRET_KEY`, `JWT_SECRET_KEY` | rejected at boot | **coincidence** — `INSECURE_PATTERNS` in `settings.py` contains `"secret"`, and the *generation hint text* happens to include the word |
+| `FIELD_ENCRYPTION_KEY` | rejected at first use | `Fernet()` raises `ValueError` on the malformed key, not at boot |
+| `PLANT_ID_API_KEY`, `PLANTNET_API_KEY` | **not rejected at all** | it is simply a bad API key; the upstream call fails at runtime |
+
+So do not cite `REQUIRED__` as a security control. If you want it enforced,
+add `"required__"` to `INSECURE_PATTERNS` and extend the check beyond
+`SECRET_KEY` — the two keys that are caught today would still be caught if
+someone reworded their hint text, which is the fragile part.
+
+---
 
 ### Pattern: Environment Variable Naming
 

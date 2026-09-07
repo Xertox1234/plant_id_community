@@ -1,5 +1,38 @@
 # Code Audit and TODO Resolution Patterns
 
+> **ARCHIVED 2026-09-07 — historical reference only. Do not follow the commands
+> in this file.** Written 2025-11-01; every operational instruction in it is now
+> wrong, and several point at things that no longer exist:
+>
+> | This file says | Reality |
+> |---|---|
+> | write todos into `backend/todos/` | that location was **closed 2026-07-16**; active todos live in the repo-root `todos/` |
+> | archive as `YYYY-MM-DD-NNN-resolved-pN-*.md` | the convention is `NNN-completed-pN-*.md` under `todos/archive/`, no date prefix |
+> | priorities are `p1`–`p3` | `p4` is in active use |
+> | launch `pr-comment-resolver` agents | that agent no longer exists (the fleet is 8 reviewers + 3 non-review agents) |
+> | `safety check --json` | **removed 2026-09-05** (todo 355 slice 1) — it was invoked by nothing and dragged in `nltk`, carrying 18 advisories |
+> | `cd web && npm audit` | audits ONE of two manifests; the repo ROOT is the Cloudflare Workers deploy tree (todo 356) |
+> | `vite.config.js` | it is `vite.config.ts` |
+> | `backend/plant_community/settings.py` | it is `backend/plant_community_backend/settings.py` |
+>
+> **Where its content went:**
+>
+> - **Pattern 2 (`REQUIRED__*` placeholders)** — the one genuinely live, undocumented
+>   pattern here. Rescued into
+>   [`backend/docs/patterns/security/secret-management.md`](../../backend/docs/patterns/security/secret-management.md),
+>   with the enforcement question answered honestly (nothing validates it).
+> - **Pattern 3 (CORS documentation)** — already covered by `secret-management.md`
+>   and `security/csrf-protection.md`.
+> - **Patterns 1, 4, 5 (audit workflow, TODO resolution, TODO lifecycle)** —
+>   superseded by the `/audit`, `completing-todos`, `todo-next`, `todo-batch` and
+>   `todo-sweep` skills in `.claude/skills/`, and by the Review Doc Tracking
+>   section of the root `CLAUDE.md`.
+> - **Pattern 6 (mermaid diagrams)** — generic; nothing depends on it.
+>
+> Kept rather than deleted because the finding-writeup and todo-template shapes
+> below are still a readable record of how this repo's todo system started.
+
+
 **Created**: November 1, 2025
 **Context**: Patterns codified from comprehensive codebase audit and parallel TODO resolution workflow
 
