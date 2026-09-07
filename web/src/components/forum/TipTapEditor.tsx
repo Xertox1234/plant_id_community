@@ -78,26 +78,6 @@ function imagePosAt(editor: Editor): number | null {
   return found.length === 1 ? found[0] : null;
 }
 
-/**
- * An image `src` safe to render in the alt-text preview, or '' .
- *
- * The edit path reads `src` off a node in the live document, and a user can put
- * arbitrary markup there by pasting — so this is attacker-influenced DOM text
- * flowing into a rendered attribute (CodeQL js/xss-through-dom, high). React
- * does not sanitize `src`. Allowlist the three schemes that can legitimately
- * appear: http/https (a served rendition) and blob (our own createObjectURL
- * preview). Structural on purpose — code scanning ignores in-code suppression
- * comments, so an annotation would not have closed this.
- */
-function safeImageSrc(src: string): string {
-  try {
-    const { protocol } = new URL(src, window.location.origin);
-    return protocol === 'http:' || protocol === 'https:' || protocol === 'blob:' ? src : '';
-  } catch {
-    return '';
-  }
-}
-
 /** The first image file on a paste/drop payload, or null. */
 function imageFileFromTransfer(data: DataTransfer | null | undefined): File | null {
   if (!data) return null;
@@ -263,7 +243,6 @@ export default function TipTapEditor({
       }
     | {
         kind: 'edit';
-        src: string;
         alt: string;
         /** The node this prompt was opened FOR. Committing against the live
          *  selection instead would rewrite whichever image the user clicked
@@ -372,8 +351,6 @@ export default function TipTapEditor({
     setAltPrompt({
       kind: 'edit',
       pos,
-      // Sanitised at the boundary, where it enters component state.
-      src: typeof attrs.src === 'string' ? safeImageSrc(attrs.src) : '',
       alt: typeof attrs.alt === 'string' ? attrs.alt : '',
     });
   };
@@ -697,11 +674,21 @@ export default function TipTapEditor({
           alt="", and empty must never block posting. */}
       {editable && altPrompt !== null && (
         <div className="flex flex-wrap items-center gap-2 border-b border-line-2 bg-surface p-2">
-          <img
-            src={altPrompt.kind === 'upload' ? altPrompt.previewUrl : safeImageSrc(altPrompt.src)}
-            alt=""
-            className="h-14 w-14 shrink-0 rounded-xs object-cover"
-          />
+          {altPrompt.kind === 'upload' ? (
+            // Only the upload preview renders an <img>, and its src is our own
+            // createObjectURL blob. The edit path deliberately shows NO
+            // thumbnail: its src would have to be read back off a node in the
+            // live document, which a user can populate by pasting — i.e.
+            // attacker-influenced DOM text flowing into a rendered attribute
+            // (CodeQL js/xss-through-dom, high). The image being edited is
+            // already visible in the editor a few pixels away, so duplicating
+            // it is not worth re-opening that flow.
+            <img
+              src={altPrompt.previewUrl}
+              alt=""
+              className="h-14 w-14 shrink-0 rounded-xs object-cover"
+            />
+          ) : null}
           <div className="flex min-w-0 flex-1 flex-col gap-1">
             <label htmlFor="tiptap-image-alt" className="text-sm font-medium text-ink">
               Describe this image

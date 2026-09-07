@@ -1010,28 +1010,25 @@ describe('TipTapEditor image upload — review fixes', () => {
 });
 
 describe('TipTapEditor alt preview src safety', () => {
-  it('refuses a non-http(s)/blob src on the edit preview (CodeQL js/xss-through-dom)', async () => {
-    // A user can put arbitrary markup in the document by pasting, so the src
-    // read back off a node is attacker-influenced. React does not sanitize it.
+  it('renders NO thumbnail in edit mode, so a document src never reaches an attribute', async () => {
+    // The structural close for CodeQL js/xss-through-dom (high). A user can put
+    // arbitrary markup in the document by pasting, so a src read back off a node
+    // is attacker-influenced DOM text, and React does not sanitize src.
+    // Guarding the value was not enough: the guard returned the ORIGINAL string,
+    // so the taint survived it and the alert stayed. The edit prompt now renders
+    // no <img> at all — the image is already visible in the editor beside it.
     const { container } = render(
       <TipTapEditor
-        content='<img src="javascript:alert(1)" data-image-id="5" alt="x">'
+        content='<img src="https://cdn.example/x.jpg" data-image-id="5" alt="x">'
         onChange={vi.fn()}
       />
     );
     await waitFor(() => expect(container.querySelector('.ProseMirror')).toBeInTheDocument());
 
     await userEvent.click(screen.getByRole('button', { name: 'Edit image alt text' }));
+    expect(await screen.findByLabelText(/describe this image/i)).toBeInTheDocument();
 
-    const preview = await screen.findByLabelText(/describe this image/i);
-    expect(preview).toBeInTheDocument();
-    // The preview <img> is the one with an empty alt next to the label.
-    const previewImg = container.querySelector('img.h-14');
-    expect(previewImg).not.toBeNull();
-    // Blanked -> React omits the attribute entirely. The property that matters
-    // is that the hostile scheme never reaches the DOM.
-    const src = previewImg?.getAttribute('src') ?? '';
-    expect(src).not.toContain('javascript:');
-    expect(src).toBe('');
+    // The upload path still previews (its src is our own blob); edit does not.
+    expect(container.querySelector('img.h-14')).toBeNull();
   });
 });
