@@ -16,6 +16,21 @@ Comparing against a stored baseline instead would re-create the "blocked every
 open branch at once" incidents (bleach, PyJWT, pillow) that made the PR half of
 security-scan.yml advisory-only in the first place.
 
+Which trees get audited
+-----------------------
+The repo carries TWO lockfile-bearing npm manifests: the root one — the
+Cloudflare Workers deploy artifact, installed with `npm clean-install` and
+shipped with `npx wrangler versions upload` — and `web/`. Every npm step in
+security-scan.yml used to hardcode `web/`, so a PR that changed only the ROOT
+lockfile audited `web/` against `web/` and printed a confident `0 advisories on
+base, 0 on head, 0 new` about a tree it had never read (measured on PR #669).
+A scope predicate that says "this PR is relevant" plus an action pointed at a
+different tree yields a false green, not a skip.
+
+So the manifest set lives HERE, in NPM_MANIFEST_DIRS, guarded by a drift test,
+and the workflow loops over what `--list-npm-dirs` / `--scope` report rather
+than over a directory name written into YAML. See todo 356.
+
 Alias handling
 --------------
 An advisory is one record with several names — GHSA-g76p-4vg5-f4qh,
@@ -26,13 +41,22 @@ ids/aliases appears anywhere in the base key set. Comparing bare `id` strings
 would report a rename as a new vulnerability.
 
 Usage:
+    # what the workflow asks first
+    new_vuln_gate.py --list-npm-dirs
+    new_vuln_gate.py --scope --changed-files <path|->
+
+    # the gate itself
     new_vuln_gate.py --base-pip base.json --head-pip head.json
-                     --base-npm base.json --head-npm head.json
+                     --npm-pair .   base-npm-root.json head-npm-root.json
+                     --npm-pair web base-npm-web.json  head-npm-web.json
                      [--warn-only] [--format github]
 
-Either ecosystem pair may be omitted; that ecosystem is reported as skipped.
-Passing only one half of a pair is an error rather than a silent skip — a
-half-configured gate that always passes is worse than no gate at all.
+Either ecosystem may be omitted; that ecosystem is reported as skipped. Passing
+only one half of the pip pair is an error rather than a silent skip — a
+half-configured gate that always passes is worse than no gate at all. Each npm
+manifest is compared against ITS OWN base: merging the reports into one set
+would let an advisory already present in `web/`'s base cancel the same advisory
+newly appearing in the root tree.
 """
 
 from __future__ import annotations
@@ -40,11 +64,62 @@ from __future__ import annotations
 import argparse
 import json
 import pathlib
+import re
 import sys
+from collections.abc import Iterable
+
+# Every directory in this repo that carries a package-lock.json, in the order
+# they are reported. "." is the Cloudflare Workers deploy artifact.
+# ManifestDriftTests in scripts/test_new_vuln_gate.py fails if a third lockfile
+# appears without being added here, so no manifest can go unscanned the way the
+# root one did for the whole life of security-scan.yml.
+NPM_MANIFEST_DIRS: tuple[str, ...] = (".", "web")
+
+_NPM_FILENAMES = ("package.json", "package-lock.json")
+
+# Kept identical to the predicate this replaced in security-scan.yml.
+_PIP_MANIFEST_RE = re.compile(r"^backend/requirements.*\.txt$")
 
 
 class GateError(Exception):
     """The gate cannot answer the question it was asked."""
+
+
+def npm_dirs_from_changes(changed: Iterable[str]) -> list[str]:
+    """The NPM_MANIFEST_DIRS whose manifest appears in this diff, in constant order.
+
+    Anchored to the constant rather than to a path regex. A `package.json` with
+    no lockfile beside it (`design_reference/`) cannot be audited from a
+    lockfile at all, and a regex like `(^|/)package\\.json$` would scope it in
+    and then crash the audit step on the missing lockfile.
+    """
+    paths = {p.strip() for p in changed if p.strip()}
+    hit = []
+    for directory in NPM_MANIFEST_DIRS:
+        prefix = "" if directory == "." else f"{directory}/"
+        if any(f"{prefix}{name}" in paths for name in _NPM_FILENAMES):
+            hit.append(directory)
+    return hit
+
+
+def pip_changed(changed: Iterable[str]) -> bool:
+    """Whether this diff touches a backend requirements file.
+
+    Deliberately broader than the file the audit actually reads
+    (`backend/requirements.txt`): `backend/requirements-dev.txt` is a pinless
+    `-r requirements.txt` overlay, so it has the same answer by construction.
+    Scoping IN a file with the same answer is harmless; scoping one OUT would be
+    a silent hole. `test_requirements_dev_carries_no_pins` guards the "by
+    construction" half — the day that file gains a pin of its own, it goes red
+    here rather than going falsely green in CI.
+    """
+    return any(_PIP_MANIFEST_RE.match(p.strip()) for p in changed)
+
+
+def _read_changed(source: str) -> list[str]:
+    """Read a `git diff --name-only` listing from a path, or from stdin for '-'."""
+    text = sys.stdin.read() if source == "-" else pathlib.Path(source).read_text()
+    return [line.strip() for line in text.splitlines() if line.strip()]
 
 
 def _load(path: pathlib.Path) -> dict:
@@ -134,8 +209,35 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--base-pip", type=pathlib.Path)
     parser.add_argument("--head-pip", type=pathlib.Path)
-    parser.add_argument("--base-npm", type=pathlib.Path)
-    parser.add_argument("--head-npm", type=pathlib.Path)
+    # nargs=3 rather than separate --base-npm/--head-npm: it makes "half a pair"
+    # structurally impossible for npm, and it is the only shape that can carry
+    # WHICH manifest a pair belongs to. Repeat it once per changed manifest.
+    parser.add_argument(
+        "--npm-pair",
+        nargs=3,
+        action="append",
+        default=[],
+        metavar=("DIR", "BASE", "HEAD"),
+        help="An npm manifest directory and its base/head audit reports. "
+        "Repeatable; each manifest is compared against its own base.",
+    )
+    parser.add_argument(
+        "--list-npm-dirs",
+        action="store_true",
+        help="Print NPM_MANIFEST_DIRS space-separated and exit. The workflow "
+        "loops over this instead of hardcoding a directory name.",
+    )
+    parser.add_argument(
+        "--scope",
+        action="store_true",
+        help="Print `pip=` and `npm_dirs=` for the given diff and exit. Written "
+        "straight into $GITHUB_OUTPUT by security-scan.yml.",
+    )
+    parser.add_argument(
+        "--changed-files",
+        help="Path to `git diff --name-only` output, or - for stdin. "
+        "Required by --scope.",
+    )
     parser.add_argument(
         "--warn-only",
         action="store_true",
@@ -150,13 +252,38 @@ def main(argv: list[str] | None = None) -> int:
     )
     args = parser.parse_args(argv)
 
+    if args.list_npm_dirs:
+        print(" ".join(NPM_MANIFEST_DIRS))
+        return 0
+
+    if args.scope:
+        if not args.changed_files:
+            parser.error("--scope requires --changed-files")
+        changed = _read_changed(args.changed_files)
+        print(f"pip={'true' if pip_changed(changed) else 'false'}")
+        print(f"npm_dirs={' '.join(npm_dirs_from_changes(changed))}")
+        return 0
+
     try:
         pip_new, pip_status = compare(
             args.base_pip, args.head_pip, pip_advisories, "pip-audit"
         )
-        npm_new, npm_status = compare(
-            args.base_npm, args.head_npm, npm_advisories, "npm audit"
-        )
+        npm_new: list[str] = []
+        npm_statuses: list[str] = []
+        if not args.npm_pair:
+            _, status = compare(None, None, npm_advisories, "npm audit")
+            npm_statuses.append(status)
+        for directory, base, head in args.npm_pair:
+            added, status = compare(
+                pathlib.Path(base),
+                pathlib.Path(head),
+                npm_advisories,
+                f"npm audit ({directory})",
+            )
+            # The directory rides on the label so a root advisory and a web one
+            # can never be read as the same finding.
+            npm_new.extend(f"{directory}: {label}" for label in added)
+            npm_statuses.append(status)
     except GateError as exc:
         print(f"error: {exc}", file=sys.stderr)
         if args.format == "github":
@@ -164,7 +291,8 @@ def main(argv: list[str] | None = None) -> int:
         return 1
 
     print(pip_status)
-    print(npm_status)
+    for status in npm_statuses:
+        print(status)
 
     added = pip_new + npm_new
     if not added:

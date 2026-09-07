@@ -119,6 +119,66 @@ the root lockfile.
 
 ## Work Log
 
+### 2026-09-07 - Fixed: the manifest set moved into the tested gate script
+
+**What changed.** The manifest set and both scope predicates now live in
+`scripts/new_vuln_gate.py` — `NPM_MANIFEST_DIRS = (".", "web")`,
+`npm_dirs_from_changes()`, `pip_changed()` — where `harness-ci` (a REQUIRED check)
+already tests them. `security-scan.yml` loops over what `--list-npm-dirs` and
+`--scope` report instead of over a directory name written into YAML. There is no
+workflow string left to get wrong.
+
+- `frontend-security` audits every manifest, grouped per cwd in the log. Dropped
+  `npm ci` entirely for `--package-lock-only` — **verified equivalent**, not
+  assumed: PR #669's base root lockfile (15 advisories) yields identical GHSA id
+  sets with and without the install. Added an assertion that the manifest list is
+  non-empty, since an empty list would be a silent green scan of zero trees.
+- `new-vuln-gate` audits one base/head pair per CHANGED manifest, each against
+  its own base. Per-manifest comparison is load-bearing: merging the reports
+  would let an advisory already sitting in `web/`'s base cancel the same advisory
+  arriving in the root tree (there is a test for exactly that).
+- The audit loop and the compare loop read the same `$NPM_DIRS`. If the audit
+  loop skips a manifest the compare loop names, the report is absent and
+  `_load()` raises `GateError` — the gate fails loudly rather than answering from
+  a stand-in tree. No cross-check flag needed.
+
+**AC3 cannot be satisfied literally, and this is the honest version.** No unit
+test in `scripts/test_new_vuln_gate.py` can fail against a bug that lives in
+workflow YAML. What the 12 new cases prove is that the *extracted* logic is right
+(mutation-checked: pinning `NPM_MANIFEST_DIRS` to `("web",)` reddens 3 tests;
+adding a pin to `requirements-dev.txt` reddens 1). The proof that the plumbing
+now reaches the root tree is the AC1 run below. A green `harness-ci` is NOT that
+proof — reading it as such would be this todo's own "a mechanism that has never
+fired is not verified", one level up.
+
+**Local evidence before CI.** Replaying PR #669's exact scope
+(`package.json` + `package-lock.json`, base `2f6cbc8^`) through the fixed
+plumbing prints:
+
+```
+npm audit (.): 15 advisories on base, 0 on head, 0 new
+```
+
+The pre-fix gate printed `0 advisories on base, 0 on head` for the same PR. Same
+diff, same base — the 15 is the root tree finally being read.
+
+Adding `lodash@4.17.20` to the root lockfile and re-running against a clean base:
+
+```
+npm audit (.): 0 advisories on base, 5 on head, 5 new
+  - .: GHSA-35jh-r3h4-6jhm (lodash, high)   [+4 more]
+GATE EXIT=1
+```
+
+**Also fixed:** the PR-comment body said `Run locally: cd web && npm audit`,
+which taught humans the same blind spot the workflow had. It now names both trees.
+
+**Also, small:** `pip_changed()` is deliberately broader than the file the pip
+audit reads, which is safe only because `backend/requirements-dev.txt` is a
+pinless `-r requirements.txt` overlay. `test_requirements_dev_carries_no_pins`
+now guards that invariant, so the day it gains a pin the suite goes red instead
+of the gate going falsely green.
+
 ### 2026-09-06 - Filed from todo 355 slice 3
 
 - Found while verifying the root `wrangler` bump: the stanza's prescribed

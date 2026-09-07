@@ -126,25 +126,77 @@ jobs:
         uses: actions/setup-node@v6
         with:
           node-version: '24'
-          cache: 'npm'
-          cache-dependency-path: web/package-lock.json
 
-      - name: Install dependencies
+      # BOTH manifests, not just web/. The ROOT package.json is the Cloudflare
+      # Workers deploy artifact — Workers Builds runs `npm clean-install` there
+      # and ships `npx wrangler versions upload` from it — and hardcoding `web/`
+      # in every npm step of this job is what kept 14 root advisories invisible
+      # to the repo's own scanner for the whole life of this workflow. The
+      # weekly hard-fail could not have caught them, and did not; only
+      # Dependabot ever surfaced them.
+      #
+      # The set comes from NPM_MANIFEST_DIRS in the gate script, which carries a
+      # drift test, so a third lockfile cannot appear unscanned. Never write a
+      # directory name into this job again. See docs/rules/security.md, todo 356.
+      # (`python3` is the runner's preinstalled interpreter; the script is
+      # stdlib-only and needs no setup-python.)
+      - name: Resolve the npm manifests to audit
+        id: manifests
         run: |
-          cd web
-          npm ci
+          set -euo pipefail
+          DIRS="$(python3 scripts/new_vuln_gate.py --list-npm-dirs)"
+          # An empty list would turn every loop below into a no-op and this job
+          # into a silent green scan of zero manifests — the same shape as the
+          # bug being fixed. Assert the list HERE, where the failing command's
+          # output is directly above (docs/rules/security.md).
+          if [ -z "$DIRS" ]; then
+            echo "::error::--list-npm-dirs returned nothing; refusing to report a clean scan of zero manifests"
+            exit 1
+          fi
+          echo "manifests to audit: $DIRS"
+          echo "dirs=$DIRS" >> "$GITHUB_OUTPUT"
 
+      # --package-lock-only resolves straight from the lockfile, so there is no
+      # `npm ci` step at all. Verified equivalent against PR #669's base root
+      # lockfile (15 advisories; identical id sets with and without the
+      # install), and it is already the flag new-vuln-gate uses. It also avoids
+      # running the root tree's native install scripts (workerd, esbuild) for a
+      # scan that never executes the code.
       - name: Run npm audit (JSON report)
+        env:
+          DIRS: ${{ steps.manifests.outputs.dirs }}
         run: |
-          cd web
-          npm audit --json > npm-audit-report.json || true
+          read -ra MANIFEST_DIRS <<< "$DIRS"
+          mkdir -p npm-audit-reports
+          for dir in "${MANIFEST_DIRS[@]}"; do
+            if [ "$dir" = "." ]; then
+              slug=root
+            else
+              slug="$dir"
+            fi
+            (cd "$dir" && npm audit --package-lock-only --json) \
+              > "npm-audit-reports/$slug.json" || true
+          done
         continue-on-error: true
 
       - name: Run npm audit (advisory on PR, blocking on schedule/main)
         id: audit
+        env:
+          DIRS: ${{ steps.manifests.outputs.dirs }}
         run: |
-          cd web
-          npm audit --audit-level=moderate
+          read -ra MANIFEST_DIRS <<< "$DIRS"
+          rc=0
+          for dir in "${MANIFEST_DIRS[@]}"; do
+            echo "::group::npm audit --audit-level=moderate (cwd: $dir)"
+            if (cd "$dir" && npm audit --package-lock-only --audit-level=moderate); then
+              echo "clean: $dir"
+            else
+              echo "::warning::npm audit found moderate+ vulnerabilities in '$dir'"
+              rc=1
+            fi
+            echo "::endgroup::"
+          done
+          exit "$rc"
         continue-on-error: true
 
       # PR runs are advisory-only: a fixable CVE with no code change yet shouldn't block
@@ -166,7 +218,7 @@ jobs:
         uses: actions/upload-artifact@v5
         with:
           name: npm-audit-report
-          path: web/npm-audit-report.json
+          path: npm-audit-reports/
           retention-days: 30
 
       - name: Comment PR with vulnerabilities (if any)
@@ -178,7 +230,7 @@ jobs:
               issue_number: context.issue.number,
               owner: context.repo.owner,
               repo: context.repo.repo,
-              body: '⚠️ **Security vulnerabilities detected in npm dependencies (advisory only — not blocking this PR)**\n\nA dependency has a known vulnerability at moderate+ severity. This does not block merge, but will start failing the weekly scheduled scan until resolved.\n\nPlease check the npm audit report in the workflow artifacts for details.\n\nRun locally: `cd web && npm audit`'
+              body: '⚠️ **Security vulnerabilities detected in npm dependencies (advisory only — not blocking this PR)**\n\nA dependency has a known vulnerability at moderate+ severity. This does not block merge, but will start failing the weekly scheduled scan until resolved.\n\nPlease check the npm audit report in the workflow artifacts for details — it names the manifest.\n\nRun locally, in **both** trees (the repo root is the Cloudflare Workers deploy tree, `web/` is the React app):\n\n```\nnpm audit --package-lock-only\ncd web && npm audit --package-lock-only\n```'
             })
 
   mobile-security:
@@ -282,18 +334,20 @@ jobs:
             echo "::error::base commit $BASE_SHA is not present — refusing to pass a gate that cannot read its baseline"
             exit 1
           fi
-          CHANGED="$(git diff --name-only "$BASE_SHA" HEAD)"
-          echo "changed files:"; echo "$CHANGED" | sed 's/^/  /'
-          if echo "$CHANGED" | grep -qE '^backend/requirements.*\.txt$'; then
-            echo "pip=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "pip=false" >> "$GITHUB_OUTPUT"
-          fi
-          if echo "$CHANGED" | grep -qE '(^|/)package-lock\.json$|(^|/)package\.json$'; then
-            echo "npm=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "npm=false" >> "$GITHUB_OUTPUT"
-          fi
+          mkdir -p /tmp/gate
+          git diff --name-only "$BASE_SHA" HEAD > /tmp/gate/changed.txt
+          echo "changed files:"; sed 's/^/  /' /tmp/gate/changed.txt
+          # The scope predicates live in the gate script (NPM_MANIFEST_DIRS,
+          # npm_dirs_from_changes, pip_changed), where harness-ci tests them.
+          # They used to be two `grep -qE` patterns right here, and the npm one
+          # answered `npm=true` for a ROOT lockfile change while the audit step
+          # below read `web/` regardless — so the gate printed a confident
+          # `0 advisories on base, 0 on head, 0 new` about a tree the PR had
+          # never touched. A false green, not a skip. Detection was right; the
+          # action was pointed at the wrong tree, so BOTH now come from the same
+          # tested function. See docs/rules/security.md, todo 356.
+          python3 scripts/new_vuln_gate.py --scope --changed-files /tmp/gate/changed.txt \
+            | tee -a "$GITHUB_OUTPUT"
 
       - name: Set up Python
         if: steps.scope.outputs.pip == 'true'
@@ -338,30 +392,47 @@ jobs:
           done
 
       - name: Set up Node.js
-        if: steps.scope.outputs.npm == 'true'
+        if: steps.scope.outputs.npm_dirs != ''
         uses: actions/setup-node@v6
         with:
           node-version: '24'
 
-      - name: Audit web base and head
-        if: steps.scope.outputs.npm == 'true'
+      # One base/head pair per CHANGED manifest, each against its own base. This
+      # step used to read `web/` unconditionally, which is the todo-356 bug: a
+      # PR that changed only the root lockfile compared web/ to web/, got an
+      # identical pair, and passed. The loop reads the same $NPM_DIRS the
+      # compare step below reads, so the two cannot disagree silently.
+      - name: Audit npm base and head (every changed manifest)
+        if: steps.scope.outputs.npm_dirs != ''
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          NPM_DIRS: ${{ steps.scope.outputs.npm_dirs }}
         run: |
           set -euo pipefail
-          mkdir -p /tmp/gate/base-web
-          git show "$BASE_SHA:web/package.json"      > /tmp/gate/base-web/package.json
-          git show "$BASE_SHA:web/package-lock.json" > /tmp/gate/base-web/package-lock.json
-          # --package-lock-only: resolve from the lockfile, no install.
-          (cd /tmp/gate/base-web && npm audit --package-lock-only --json > /tmp/gate/base-npm.json || true)
-          (cd web && npm audit --package-lock-only --json > /tmp/gate/head-npm.json || true)
-          # Same assertion as the pip side: a crashed audit and a clean audit are
-          # indistinguishable through `|| true`, and silence must not read as pass.
-          for f in /tmp/gate/base-npm.json /tmp/gate/head-npm.json; do
-            if [ ! -s "$f" ]; then
-              echo "::error::npm audit produced no report at $f - see its output above"
-              exit 1
+          read -ra NPM_DIR_LIST <<< "$NPM_DIRS"
+          for dir in "${NPM_DIR_LIST[@]}"; do
+            if [ "$dir" = "." ]; then
+              slug=root
+              prefix=""
+            else
+              slug="$dir"
+              prefix="$dir/"
             fi
+            basetree="/tmp/gate/base-npm-$slug"
+            mkdir -p "$basetree"
+            git show "$BASE_SHA:${prefix}package.json"      > "$basetree/package.json"
+            git show "$BASE_SHA:${prefix}package-lock.json" > "$basetree/package-lock.json"
+            # --package-lock-only: resolve from the lockfile, no install.
+            (cd "$basetree" && npm audit --package-lock-only --json > "/tmp/gate/base-npm-$slug.json" || true)
+            (cd "$dir"      && npm audit --package-lock-only --json > "/tmp/gate/head-npm-$slug.json" || true)
+            # Same assertion as the pip side: a crashed audit and a clean audit are
+            # indistinguishable through `|| true`, and silence must not read as pass.
+            for f in "/tmp/gate/base-npm-$slug.json" "/tmp/gate/head-npm-$slug.json"; do
+              if [ ! -s "$f" ]; then
+                echo "::error::npm audit produced no report at $f (manifest '$dir') - see its output above"
+                exit 1
+              fi
+            done
           done
 
       # Dependabot is exempt from BLOCKING, not from reporting. Every Dependabot
@@ -373,7 +444,7 @@ jobs:
         env:
           IS_BOT: ${{ github.actor == 'dependabot[bot]' }}
           PIP: ${{ steps.scope.outputs.pip }}
-          NPM: ${{ steps.scope.outputs.npm }}
+          NPM_DIRS: ${{ steps.scope.outputs.npm_dirs }}
         run: |
           set -euo pipefail
           # `if` blocks rather than `[ x ] && ARGS+=(...)`: the AND form is
@@ -384,8 +455,19 @@ jobs:
           if [ "$PIP" = "true" ]; then
             ARGS+=(--base-pip /tmp/gate/base-pip.json --head-pip /tmp/gate/head-pip.json)
           fi
-          if [ "$NPM" = "true" ]; then
-            ARGS+=(--base-npm /tmp/gate/base-npm.json --head-npm /tmp/gate/head-npm.json)
+          # The same list the audit step looped over. If that loop skipped a
+          # manifest this one names, the report file is absent and the gate
+          # fails loudly rather than reporting on a tree it never read.
+          if [ -n "$NPM_DIRS" ]; then
+            read -ra NPM_DIR_LIST <<< "$NPM_DIRS"
+            for dir in "${NPM_DIR_LIST[@]}"; do
+              if [ "$dir" = "." ]; then
+                slug=root
+              else
+                slug="$dir"
+              fi
+              ARGS+=(--npm-pair "$dir" "/tmp/gate/base-npm-$slug.json" "/tmp/gate/head-npm-$slug.json")
+            done
           fi
           if [ "$IS_BOT" = "true" ]; then
             ARGS+=(--warn-only)

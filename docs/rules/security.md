@@ -53,6 +53,28 @@ Compact checklist auto-injected before edits. Long-form: `backend/docs/patterns/
   OSV/PyPI; Dependabot reads the GitHub Advisory Database. Dependabot surfaced 71
   advisories pip-audit's ignore list hid, and pip-audit reports a Django advisory
   (fix 6.0.8) that Dependabot does not report at all. Neither is a superset.
+- **This repo has TWO npm manifests; a scanner that names one is blind to the
+  other.** `package.json` at the ROOT is the Cloudflare Workers deploy artifact —
+  Workers Builds runs `npm clean-install` there and ships `npx wrangler versions
+  upload` from it — and `web/package.json` is the React app. Every npm step in
+  `security-scan.yml` hardcoded `web/`, so the weekly hard-fail never read the
+  root tree, and 14 root advisories (11 x undici, sharp, ws, esbuild) sat visible
+  only to Dependabot. Name BOTH wherever you name one — including the
+  "Run locally:" line in a PR comment, which taught humans the same blind spot.
+  The set is `NPM_MANIFEST_DIRS` in `scripts/new_vuln_gate.py`, with a drift test
+  that fails if a third lockfile appears; loop over it, never write a directory
+  name into the workflow (todo 356).
+- **A scope predicate that says "relevant" plus an action pointed at a different
+  tree is a FALSE GREEN, not a skip.** `new-vuln-gate`'s scope step matched the
+  root lockfile and set `npm=true`; its audit step then read `web/` regardless,
+  compared `web/` to `web/`, and printed a confident `0 advisories on base, 0 on
+  head, 0 new` about a tree the PR never touched (PR #669). The `pip-audit` half
+  printed an honest `skipped (no manifest change in this PR)` on the same run —
+  the vocabulary was there and went unused, because detection was right and only
+  the action was wrong. When a gate reports a *number*, prove the number came
+  from the file the diff changed: derive the scope and the work from ONE tested
+  function, and let a missing artefact fail loudly rather than letting a
+  stand-in tree answer (todo 356).
 - **A top-level workflow `permissions:` block REPLACES the repo default, it does
   not narrow it.** With `default_workflow_permissions: read`, adding
   `permissions: contents: read` REVOKES every other read scope. Enumerate what the
