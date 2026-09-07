@@ -236,7 +236,7 @@ When ready to implement, follow this sequence:
 ## References
 
 - **TODO 005 Audit**: `/backend/todos/completed/005-complete-p3-audit-todo-comments.md`
-- **Code Audit Patterns**: `/backend/docs/development/CODE_AUDIT_PATTERNS_CODIFIED.md`
+- **Code Audit Patterns**: archived 2026-09-07 to `/docs/archive/CODE_AUDIT_PATTERNS_CODIFIED.md` (historical only — its commands point at a todo location closed 2026-07-16 and a removed scanner). Use the `/audit` and `completing-todos` skills, and `backend/docs/patterns/` for the live patterns.
 - **Plant Identification Service**: `/backend/apps/plant_identification/views.py`
 - **Notification Service**: `/backend/apps/core/services/notification_service.py`
 

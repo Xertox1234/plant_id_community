@@ -4703,6 +4703,42 @@ Known residue, deliberately not fixed here:
 file is stale in more ways than this one and is not in the pattern-library index;
 it wants its own pass, not a one-line patch.
 
+**Residue cleared the same day.** The pass confirmed the "more ways" guess and
+then some: the file also routed new todos into `backend/todos/` (closed
+2026-07-16), taught an archive naming convention that no longer exists, capped
+priority at p3, invoked a deleted `pr-comment-resolver` agent, and named two
+paths that do not exist. Archived to `docs/archive/` with a banner mapping each
+pattern to what superseded it, rather than patched — a doc whose every command is
+wrong is not repaired by fixing the two lines you happened to notice.
+
+The part worth keeping was one pattern nobody had written down anywhere else:
+`.env.example`'s `REQUIRED__GENERATE_WITH__<cmd>` / `REQUIRED__GET_FROM__<url>`
+placeholders, live in the file today. Rescued into
+`backend/docs/patterns/security/secret-management.md` — **and the rescue changed
+the claim.** The stale doc paired it with a "Validation Pattern" at a settings
+path that does not exist; the truth is that no validator anywhere looks for
+`REQUIRED__`, so **four of the five placeholders would be accepted in
+production** and the fifth is stopped only by coincidence. `SECRET_KEY` trips
+`INSECURE_PATTERNS` because that list contains the matching word and this key's
+*generation hint text* happens to include it. `JWT_SECRET_KEY` does not —
+`INSECURE_PATTERNS` is applied to `SECRET_KEY` alone (settings.py:94), and JWT's
+own checks are just set / `!= SECRET_KEY` / `len >= 50`, all three of which the
+66-character placeholder clears, so it becomes `SIMPLE_JWT["SIGNING_KEY"]`. An
+operator who deploys from `.env.example` hits the `SECRET_KEY` error, fixes that
+one line, and boots clean signing every JWT with a value published in a committed
+file. `FIELD_ENCRYPTION_KEY` is read by no Python at all. The two plant API keys
+clear their length floors (41 and 44 against 32 and 20). Filed as todo 367.
+
+**And that correction is the actual lesson, because the first version of this
+entry got it wrong.** The draft asserted `JWT_SECRET_KEY` was caught and that
+`FIELD_ENCRYPTION_KEY` failed inside `Fernet()`; code review checked both against
+`settings.py` and neither was true. So: **copying a pattern into the trusted
+library without re-checking its enforcement claim upgrades a stale doc's wishful
+sentence into a load-bearing one** — and *writing the warning about that hazard
+is not the same as being immune to it.* Verify what enforces a pattern by reading
+the enforcing code, not by reasoning about the value's shape; promotion into a
+trusted library is exactly what makes the next reader stop checking.
+
 Same day, same repo, the sibling fact this compounds: the root manifest is the
 production deploy path. Workers Builds runs `npm clean-install` at the root and
 deploys with `npx wrangler versions upload` from the root `node_modules` (build

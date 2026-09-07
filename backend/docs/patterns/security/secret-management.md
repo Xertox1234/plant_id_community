@@ -17,7 +17,7 @@
 
 1. [Django SECRET_KEY Patterns](#django-secret_key-patterns)
 2. [API Key Management](#api-key-management)
-3. [Environment Variable Patterns](#environment-variable-patterns)
+3. [Environment Variable Patterns](#environment-variable-patterns) — incl. `REQUIRED__*` placeholders
 4. [GitIgnore Patterns](#gitignore-patterns)
 5. [Secret Detection Regex](#secret-detection-regex)
 6. [Key Rotation Procedures](#key-rotation-procedures)
@@ -318,6 +318,57 @@ if not SECRET_KEY:
 ---
 
 ## Environment Variable Patterns
+
+### Pattern: `REQUIRED__*` placeholders in `.env.example`
+
+**Rescued from `CODE_AUDIT_PATTERNS_CODIFIED.md` (archived 2026-09-07) — it was
+the only place this live convention was written down.**
+
+`.env.example` is committed, so every value in it is public and must be
+unusable. A blank or plausible-looking placeholder gets copied into a real
+`.env` and silently becomes the running config. Instead, encode "you must
+replace this" *and* how to generate it, into the value itself:
+
+```bash
+# ❌ BEFORE — copies into .env and boots
+SECRET_KEY=
+PLANT_ID_API_KEY=your-api-key-here
+
+# ✅ AFTER — self-documenting and obviously not a real value
+SECRET_KEY=REQUIRED__GENERATE_WITH__python_-c_from_django_get_random_secret_key
+PLANT_ID_API_KEY=REQUIRED__GET_FROM__https://web.plant.id/
+JWT_SECRET_KEY=REQUIRED__GENERATE_WITH__python_-c_import_secrets_token_urlsafe_64
+```
+
+Two suffixes carry the whole convention: `REQUIRED__GENERATE_WITH__<command>`
+for values you create, `REQUIRED__GET_FROM__<url>` for values you fetch.
+
+**Enforcement: NONE, and the one case that IS caught is caught by accident.**
+Verified 2026-09-07 against `backend/plant_community_backend/settings.py`:
+`REQUIRED__` appears in `backend/.env.example`, in this doc, and in two archived
+todos — **no validator anywhere looks for it.** So the outcome of shipping a
+placeholder verbatim is per-key accident, and only one of the five is stopped:
+
+| Placeholder | Outcome if used verbatim in production | Why |
+|---|---|---|
+| `SECRET_KEY` | **rejected at boot** | **coincidence** — `INSECURE_PATTERNS` (settings.py:84) contains `"secret"`, and this key's *generation hint text* happens to include that word |
+| `JWT_SECRET_KEY` | **accepted — and used as the JWT signing key** | `INSECURE_PATTERNS` is applied to `SECRET_KEY` only (settings.py:94). JWT's own checks are just: set, `!= SECRET_KEY`, `len >= 50`. The placeholder is 66 chars and differs, so it clears all three and lands in `SIMPLE_JWT["SIGNING_KEY"]` |
+| `FIELD_ENCRYPTION_KEY` | **accepted — nothing ever reads it** | no `.py` references it; `encrypted_model_fields` is not in `INSTALLED_APPS`, so `django-encrypted-model-fields` is an unused dependency |
+| `PLANT_ID_API_KEY` | accepted | `validate_environment()` only enforces a length floor of 32; the placeholder is 41 |
+| `PLANTNET_API_KEY` | accepted | floor is 20; the placeholder is 44 |
+
+**The `JWT_SECRET_KEY` row is the dangerous one.** An operator who deploys from
+`.env.example` hits the `SECRET_KEY` error — which helpfully prints the generate
+command — fixes that one line, and boots clean, now signing every JWT with a
+value published in a committed file. Anyone who can read the repo can forge
+tokens. Nothing in the current code catches it.
+
+So do not cite `REQUIRED__` as a security control. Making it one takes two
+changes, not one: add `"required__"` to `INSECURE_PATTERNS`, **and apply that
+loop to `JWT_SECRET_KEY` as well** — adding the pattern alone only hardens the
+key that is already caught. Tracked in todo 367.
+
+---
 
 ### Pattern: Environment Variable Naming
 

@@ -93,6 +93,22 @@ Compact checklist auto-injected before edits. Long-form: `backend/docs/patterns/
   `ELSPROBLEMS`). `web/` gets this from `web-ci.yml`'s `npm ci`; the ROOT tree
   had no install anywhere in CI, only Cloudflare Workers Builds after merge
   (todo 356).
+- **Never promote a pattern into `*/docs/patterns/` without reading the code
+  that enforces it.** The pattern library is trusted, so promotion is exactly
+  what makes the next reader stop checking — a wishful sentence copied in
+  becomes load-bearing. Rescuing `.env.example`'s `REQUIRED__*` placeholders
+  from an archived doc, the enforcement table asserted `JWT_SECRET_KEY` was
+  rejected at boot and `FIELD_ENCRYPTION_KEY` failed inside `Fernet()`; review
+  found `INSECURE_PATTERNS` is applied to `SECRET_KEY` ALONE
+  (`settings.py:94`), JWT's own checks (set / `!= SECRET_KEY` / `len >= 50`) all
+  pass on the 66-char placeholder, and nothing reads `FIELD_ENCRYPTION_KEY` at
+  all. Reason from the enforcing code, never from the value's shape (todo 367).
+- **A guard that works by coincidence is not a guard.** The only `.env.example`
+  placeholder production rejects is `SECRET_KEY`, and only because
+  `INSECURE_PATTERNS` contains a word its *generation hint text* happens to
+  include — reword the hint and the check silently stops firing. When you find
+  a check passing, confirm it matches on the property you meant, not on
+  incidental text (todo 367).
 - **A top-level workflow `permissions:` block REPLACES the repo default, it does
   not narrow it.** With `default_workflow_permissions: read`, adding
   `permissions: contents: read` REVOKES every other read scope. Enumerate what the
