@@ -167,7 +167,25 @@ class Command(BaseCommand):
             def publish_post(author, paragraphs, image_name, opening, age_hours):
                 body = [("paragraph", RichText(f"<p>{p}</p>")) for p in paragraphs]
                 if image_name:
-                    body.append(("image", self._get_image(image_name)))
+                    # An explicit ImageBlock dict, not the bare Image instance:
+                    # assigning an instance makes Wagtail's
+                    # _image_to_struct_value store alt_text=None +
+                    # decorative=False — the "no alt text and not decorative"
+                    # pair ImageBlock.clean() refuses, so a moderator could not
+                    # save an edit to the seeded post in /cms/. Seed data should
+                    # model what the API produces.
+                    image = self._get_image(image_name)
+                    alt = (image.description or "").strip()
+                    body.append(
+                        (
+                            "image",
+                            {
+                                "image": image,
+                                "alt_text": alt,
+                                "decorative": not alt,
+                            },
+                        )
+                    )
                 post = Post.objects.create(
                     topic=topic,
                     author=author,

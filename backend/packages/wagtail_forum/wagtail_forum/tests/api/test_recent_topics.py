@@ -540,3 +540,59 @@ def test_recent_topics_rendition_prefetch_is_flat_when_cache_cold():
     # topics costs the same total. Without this fix, the per-topic
     # get_rendition() cache-miss path would add 2 more queries here.
     assert len(ctx_3.captured_queries) == len(ctx_1.captured_queries)
+
+
+@pytest.mark.django_db
+def test_recent_topics_thumbnail_reads_the_imageblock_dict_shape():
+    """Regression: the rail's thumbnail extractor must read the ImageBlock dict.
+
+    Every other test in this file seeds `body=[{"type": "image", "value": <pk>}]`,
+    and a lazy StreamValue writes that raw int straight back to the column — so
+    they all keep exercising the PRE-0037 shape and cannot see this break. With
+    the migrated shape the value is a dict, which is truthy (so it passes the
+    extractor's guard), lands in `image_id_by_topic`, and then makes
+    `set(...values())` raise `TypeError: unhashable type: 'dict'` — a 500 on the
+    home "Active now" rail for any listed topic whose opening post has an image.
+    """
+    root = Page.objects.get(id=1)
+    index = root.add_child(instance=ForumIndex(title="Forum", slug="forum"))
+    board = index.add_child(instance=ForumBoard(title="General", slug="general"))
+    author = get_user_model().objects.create_user(username="rail-imageblock")
+    image = get_image_model().objects.create(
+        title="body.jpg",
+        description="A monstera leaf",
+        file=get_test_image_file(),
+        collection=get_forum_image_collection(),
+    )
+    topic = Topic.objects.create(
+        board=board,
+        title="Body image",
+        slug="body-image-dict",
+        author=author,
+        live=True,
+        last_post_at=timezone.now(),
+    )
+    Post.objects.create(
+        topic=topic,
+        author=author,
+        is_opening_post=True,
+        live=True,
+        body=[
+            {
+                "type": "image",
+                "value": {
+                    "image": image.id,
+                    "alt_text": "A monstera leaf",
+                    "decorative": False,
+                },
+            }
+        ],
+    )
+
+    resp = APIClient().get("/forum/topics/recent/")
+
+    assert resp.status_code == 200, resp.data
+    row = next(r for r in resp.data["results"] if r["id"] == topic.id)
+    thumb = row["thumbnail_url"]
+    assert thumb is not None, "the body image should still produce a thumbnail"
+    assert thumb.startswith("http://testserver")  # absolute, like the legacy path

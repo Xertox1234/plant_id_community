@@ -31,6 +31,7 @@ the composer's "Skip" button has always meant.
 
 import json
 
+from django.conf import settings
 from django.db import migrations
 
 CHUNK = 500
@@ -163,8 +164,6 @@ def _rewrite(apps, schema_editor, convert, needs_descriptions):
 
 def _image_model_label(apps):
     """Resolve WAGTAILIMAGES_IMAGE_MODEL to (app_label, model_name)."""
-    from django.conf import settings
-
     label = getattr(settings, "WAGTAILIMAGES_IMAGE_MODEL", "wagtailimages.Image")
     app_label, _, model_name = label.partition(".")
     return app_label, model_name
@@ -188,6 +187,14 @@ class Migration(migrations.Migration):
         ("wagtail_forum", "0037_alter_post_body"),
         ("wagtailcore", "0001_initial"),
         ("contenttypes", "0001_initial"),
+        # This migration READS Image.description, so the image model's table
+        # must exist first. With the default model that happens to hold via
+        # 0002/0019, but the package is reusable and a host may swap in a custom
+        # WAGTAILIMAGES_IMAGE_MODEL, which has no such ordering guarantee on a
+        # fresh migrate.
+        migrations.swappable_dependency(
+            getattr(settings, "WAGTAILIMAGES_IMAGE_MODEL", "wagtailimages.Image")
+        ),
     ]
 
     operations = [

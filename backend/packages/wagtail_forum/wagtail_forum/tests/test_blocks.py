@@ -324,7 +324,6 @@ def test_image_block_ownership_is_still_enforced_through_the_dict_shape():
         {"image": True, "alt_text": "", "decorative": False},  # bool is an int
         {"image": 1, "alt_text": 5, "decorative": False},  # alt not a string
         {"image": 1, "alt_text": "", "decorative": "yes"},  # decorative not bool
-        {"image": 1, "alt_text": "x" * 256, "decorative": False},  # over the column
         {"image": 1, "unexpected": "key"},  # unknown sub-key
         {"alt_text": "no image key"},
         "not-a-dict-or-int",
@@ -382,3 +381,53 @@ def test_image_block_searchable_content_now_includes_alt_text():
     image.contextual_alt_text = "A monstera leaf with brown edges"
     image.decorative = False
     assert block.get_searchable_content(image) == ["A monstera leaf with brown edges"]
+
+
+@pytest.mark.django_db
+def test_over_long_alt_is_truncated_not_rejected():
+    """Matches the upload endpoint's idiom for the same value.
+
+    Rejecting would also be unenforceable: ImageBlock.alt_text is a bare
+    CharBlock with no max_length, so a moderator can save a longer one in /cms/
+    and the API still has to serve that post.
+    """
+    from wagtail_forum.api.sanitize import MAX_ALT_TEXT_LENGTH, validate_forum_body
+
+    uploader, image = _forum_image("ib-long")
+    cleaned = validate_forum_body(
+        [
+            {
+                "type": "image",
+                "value": {
+                    "image": image.id,
+                    "alt_text": "x" * 400,
+                    "decorative": False,
+                },
+            }
+        ],
+        {uploader.pk},
+    )
+    assert cleaned[0]["value"]["alt_text"] == "x" * MAX_ALT_TEXT_LENGTH
+
+
+@pytest.mark.django_db
+def test_read_accessor_still_resolves_a_block_the_writer_would_reject():
+    """The read path must NEVER be stricter than storage.
+
+    image_block_pk is used by build_forum_image_map, serialize_forum_body and
+    the recent-topics thumbnail extractor. A rejection there does not become a
+    400 — it makes the block serialise as null and the image vanish from the
+    post with no error anywhere. So values a moderator could put in the column
+    via /cms/ (a longer alt, or a key this package does not know) must still
+    resolve to their PK.
+    """
+    from wagtail_forum.api.sanitize import _valid_image_block_value, image_block_pk
+
+    long_alt = {"image": 7, "alt_text": "x" * 400, "decorative": False}
+    unknown_key = {"image": 7, "alt_text": "a", "decorative": False, "caption": "?"}
+    for value in (long_alt, unknown_key):
+        assert image_block_pk(value) == 7, value
+
+    # ...while the writer still refuses the unknown key outright.
+    assert _valid_image_block_value(unknown_key) is False
+    assert _valid_image_block_value(long_alt) is True  # truncated, not rejected

@@ -116,13 +116,24 @@ def serialize_forum_intro(html: str) -> str:
 # ImageBlock's stored keys. `image` is the PK; `alt_text`/`decorative` are the
 # per-usage accessibility pair that ImageChooserBlock could not express.
 _IMAGE_BLOCK_KEYS = {"image", "alt_text", "decorative"}
-# Image.description is CharField(max_length=255); alt longer than the column
-# would raise DataError on the read-side fallback.
+# Alt is TRUNCATED to this on write, never rejected — matching the upload
+# endpoint's idiom for the same value ("a too-long alt is a UI slip, not a
+# malformed request"). Rejecting would also be unenforceable: Wagtail's
+# ImageBlock.alt_text is a bare CharBlock with no max_length, so a moderator can
+# save a longer one in /cms/ and the API must still serve that post.
 MAX_ALT_TEXT_LENGTH = 255
 
 
 def image_block_pk(block_value):
-    """Return the referenced image PK, or ``None`` if *block_value* is malformed.
+    """The referenced image PK, or ``None`` if *block_value* holds no usable id.
+
+    DELIBERATELY PERMISSIVE, because this is the READ-side accessor
+    (build_forum_image_map, serialize_forum_body, the recent-topics thumbnail
+    extractor) and read has the opposite failure mode to write: a rejection here
+    does not surface as a 400, it makes the block serialise as
+    ``{"type": "image", "value": null}`` and the image disappears from the post
+    with no error anywhere. So this checks only what it needs to resolve the row.
+    Shape enforcement belongs on the write path — see _valid_image_block_value.
 
     Accepts BOTH the ImageBlock dict and the pre-0037 bare PK: a body written
     before migration 0037 — or restored from an older revision, or sent by a web
@@ -132,25 +143,40 @@ def image_block_pk(block_value):
         return None
     if isinstance(block_value, int):
         return block_value
-    if not isinstance(block_value, dict) or set(block_value) - _IMAGE_BLOCK_KEYS:
+    if not isinstance(block_value, dict):
         return None
     pk = block_value.get("image")
     if not isinstance(pk, int) or isinstance(pk, bool):
         return None
+    return pk
+
+
+def _valid_image_block_value(block_value):
+    """Strict WRITE-side shape check for an image block value (-> 400 on False).
+
+    Unlike image_block_pk this rejects unknown keys and wrong sub-value types,
+    because on write a malformed body should fail loudly rather than be stored.
+    Length is not checked — _normalise_image_value truncates instead.
+    """
+    if image_block_pk(block_value) is None:
+        return False
+    if isinstance(block_value, int):
+        return True
+    if set(block_value) - _IMAGE_BLOCK_KEYS:
+        return False
     # `alt_text`/`decorative` may be None, not just absent: Wagtail's own
     # ImageBlock._image_to_struct_value writes
     # `{"alt_text": image and image.contextual_alt_text, "decorative": ...}`,
     # which is None whenever an Image INSTANCE is assigned to the block rather
     # than a raw dict — the CMS admin, fixtures and `Post(body=[("image", img)])`
-    # all take that path. Treating None as malformed made those images resolve
-    # to None and silently disappear from the post.
+    # all take that path.
     alt = block_value.get("alt_text")
-    if alt is not None and (not isinstance(alt, str) or len(alt) > MAX_ALT_TEXT_LENGTH):
-        return None
+    if alt is not None and not isinstance(alt, str):
+        return False
     decorative = block_value.get("decorative")
     if decorative is not None and not isinstance(decorative, bool):
-        return None
-    return pk
+        return False
+    return True
 
 
 def _normalise_image_value(block_value, descriptions):
@@ -179,7 +205,7 @@ def _normalise_image_value(block_value, descriptions):
         # Both may be None — see image_block_pk on Wagtail writing that shape.
         alt = block_value.get("alt_text") or ""
         decorative = block_value.get("decorative")
-    alt = alt.strip()
+    alt = alt.strip()[:MAX_ALT_TEXT_LENGTH]
     # A blank alt IS decorative, whatever flag the client sent: `alt_text=""`
     # with `decorative=False` is exactly the pair ImageBlock.clean() refuses, so
     # honouring an explicit False here would store the one state the CMS cannot
@@ -274,7 +300,7 @@ def validate_forum_body(value, allowed_uploader_ids, user=None, existing_quote_i
         elif block["type"] in image_types:
             # Either the ImageBlock dict or the pre-0037 bare PK. Membership and
             # uploader identity are verified below; shape only, here.
-            if image_block_pk(block_value) is None:
+            if not _valid_image_block_value(block_value):
                 raise serializers.ValidationError(_("Invalid post body."))
         elif not isinstance(block_value, str):
             raise serializers.ValidationError(_("Invalid post body."))
