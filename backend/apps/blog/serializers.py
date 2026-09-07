@@ -156,6 +156,11 @@ class BlogAuthorSerializer(serializers.ModelSerializer):
         return BlogPostPage.objects.live().public().filter(author=obj.author).count()
 
 
+class BlogCommentCreateSerializer(serializers.Serializer):
+    content = serializers.CharField()
+    parent = serializers.IntegerField(required=False, allow_null=True)
+
+
 class BlogCommentSerializer(serializers.ModelSerializer):
     """Serializer for blog comments."""
 

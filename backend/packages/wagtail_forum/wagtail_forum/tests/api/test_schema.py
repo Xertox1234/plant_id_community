@@ -151,6 +151,48 @@ def test_notification_list_view_guards_schema_generation():
 
 
 @pytest.mark.django_db
+def test_notification_mark_read_request_documents_integer_id_array():
+    from drf_spectacular.generators import SchemaGenerator
+
+    schema = SchemaGenerator().get_schema(request=None, public=True)
+    request_schema = schema["paths"]["/forum/notifications/mark-read/"]["post"][
+        "requestBody"
+    ]["content"]["application/json"]["schema"]
+    if "$ref" in request_schema:
+        component_name = request_schema["$ref"].rsplit("/", 1)[-1]
+        request_schema = schema["components"]["schemas"][component_name]
+
+    assert request_schema["type"] == "object"
+    assert request_schema["properties"]["ids"] == {
+        "type": "array",
+        "items": {"type": "integer"},
+    }
+    assert "ids" not in request_schema.get("required", [])
+
+
+@pytest.mark.django_db
+def test_blog_comment_request_documents_content_and_nullable_parent():
+    from drf_spectacular.generators import SchemaGenerator
+
+    schema = SchemaGenerator().get_schema(request=None, public=True)
+    request_schema = schema["paths"]["/blog/posts/{id}/add_comment/"]["post"][
+        "requestBody"
+    ]["content"]["application/json"]["schema"]
+    component_name = request_schema["$ref"].rsplit("/", 1)[-1]
+    request_schema = schema["components"]["schemas"][component_name]
+
+    assert request_schema["properties"]["content"] == {
+        "type": "string",
+        "minLength": 1,
+    }
+    assert request_schema["properties"]["parent"] == {
+        "type": "integer",
+        "nullable": True,
+    }
+    assert request_schema["required"] == ["content"]
+
+
+@pytest.mark.django_db
 def test_bookmark_list_view_guards_schema_generation():
     """TopicBookmarkListView.get_queryset returns an empty queryset under
     `swagger_fake_view` instead of touching `self.request.user` — same

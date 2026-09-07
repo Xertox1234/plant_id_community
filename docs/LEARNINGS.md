@@ -5108,6 +5108,17 @@ Related: the "re-pointed, never checked off" convention in `CLAUDE.md` → Revie
 Doc Tracking governs a finding that *moved*. This is the opposite case — work that
 *shipped*, elsewhere — and it does get the checkbox.
 
+## 2026-09-06 — Pytest must exercise PostgreSQL/pgvector and OpenAPI validation must be structural (todo 358)
+
+**What broke:** `pytest -q apps/forum_host` imported the default SQLite database because settings only switched to PostgreSQL when the literal `test` command appeared in `sys.argv`. Seven real pgvector end-to-end tests then failed with SQLite syntax errors. In the same verification pass, a raw object dictionary passed to `extend_schema(request=...)` generated an invalid OpenAPI request body for `POST /forum/notifications/mark-read/`.
+
+**Root cause:** pytest-django loads Django settings while pytest is already running, but it does not use Django's `manage.py test` argv. The raw drf-spectacular dictionary was shaped like a schema but was interpreted as a request-body content mapping, putting `type` and `properties` in the wrong place.
+
+**Fix:** pytest now honors an explicit PostgreSQL `DATABASE_URL` (or the existing `TEST_DB_*` PostgreSQL defaults when absent) and rejects SQLite during test settings initialization; Django's runner retains `TEST_DB_*` precedence. A contract test asserts the active PostgreSQL vendor and installed `vector` extension. Notification and blog comment request bodies now use DRF serializers, with generated-schema regression assertions. CI runs `spectacular --validate` while intentionally leaving pre-existing non-structural serializer diagnostics outside `--fail-on-warn`.
+
+**Rule:** `docs/rules/testing.md` and `docs/rules/api.md`.
+**Trigger:** none — both failures require runtime/context-aware validation rather than a safe text-only signature.
+
 ## 2026-09-07 — The documented command could not see the thing it documented (todo 355 slice 6, todo 366)
 
 Todo 366's re-assessment procedure — the whole reason that todo exists — told a

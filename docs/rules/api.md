@@ -220,3 +220,8 @@ Compact checklist auto-injected before edits. Long-form:
   same as permitting it: `Idempotency-Key` was honoured from M35 but stayed out
   of the allowlist until a browser client first sent one and broke forum image
   upload outright (todo 357). Guard: `apps/forum_host/tests/test_cors_preflight.py`.
+- **Declare drf-spectacular request bodies with DRF serializers, not raw object
+  dictionaries.** A bare `{"type": "object", "properties": ...}` passed as
+  `extend_schema(request=...)` can be interpreted as a content map and produce
+  an invalid OpenAPI document; add a generated-schema regression assertion and
+  run `spectacular --validate` in CI.
