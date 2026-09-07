@@ -179,6 +179,38 @@ pinless `-r requirements.txt` overlay. `test_requirements_dev_carries_no_pins`
 now guards that invariant, so the day it gains a pin the suite goes red instead
 of the gate going falsely green.
 
+### 2026-09-07 - Round 1 code review: three findings, all fixed
+
+The review found the same false-green shape **one layer down**, plus two silent
+omissions the `npm ci` removal opened. All three confirmed by experiment, not
+by reading.
+
+1. **A FAILED `npm audit --json` reads as zero advisories.** Against an
+   unreachable registry it writes 186 bytes of
+   `{"message": "... ECONNREFUSED", "error": {...}}` to stdout and exits 1. That
+   survives the `[ -s "$f" ]` size assertion (non-empty), and the `|| true`
+   cannot use the exit code because npm audit exits 1 for ordinary advisories
+   too. `npm_advisories()` returns `{}`. A transient failure on the HEAD audit
+   would print `15 on base, 0 on head, 0 new` and pass. `_load()` now raises
+   `GateError` on a top-level `error` key; mutation-checked. Only the head side
+   was silent — a base-side failure inverts into a loud false red.
+2. **The root package.json ↔ lockfile sync was left unguarded.**
+   `--package-lock-only` audits the LOCKFILE, so a dependency declared in
+   `package.json` but absent from the lockfile is never looked at and the audit
+   still exits 0 with `found 0 vulnerabilities` (verified). `npm ci` used to
+   hard-fail on that skew and is now gone from this job; `web/` is still covered
+   by `web-ci.yml`, the ROOT was not covered anywhere in CI. Added
+   `npm ls --package-lock-only` at the same severity as the audit.
+3. **`slug="$dir"` breaks for a nested manifest**, which the drift test actively
+   invites someone to add. A slug with a slash makes the report redirect fail on
+   the missing parent, swallowed by `|| true` — the manifest silently drops out
+   of the artifact. Now `${dir//\//-}` in all three places.
+
+Cleared and not changed: the two-dot `git diff` (checkout gives
+`refs/pull/N/merge`, so HEAD already carries base), argparse `action="append"`
+default mutation (Python 3.8+ copies), drift-test reachability
+(`harness-ci.yml`'s `paths:` filter applies to `push` only).
+
 ### 2026-09-07 - CI evidence (PR #698)
 
 **AC1 — the gate now reads the ROOT lockfile.** Commit `6df3fe9` added
