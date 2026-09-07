@@ -210,3 +210,13 @@ Compact checklist auto-injected before edits. Long-form:
   that the defaults equal the pre-existing behaviour. Offer ONLY cells that
   have a delivery path (an accepted-but-inert preference is a lie) and fall
   back to the package default per cell, never a literal (todo 343).
+- **CORS is an allowlist that fails silently — every custom request header a
+  browser sends must be in `CORS_ALLOW_HEADERS`.** A header that is missing
+  still gets a **200** preflight; the response simply omits it from
+  `Access-Control-Allow-Headers` and the browser declines to send the real
+  request, so Django sees nothing at all and `CORS_PREFLIGHT_MAX_AGE` caches
+  the refusal for 24h. Neither the DRF test client nor jsdom enforces CORS, so
+  only a real browser catches it. Supporting a header server-side is NOT the
+  same as permitting it: `Idempotency-Key` was honoured from M35 but stayed out
+  of the allowlist until a browser client first sent one and broke forum image
+  upload outright (todo 357). Guard: `apps/forum_host/tests/test_cors_preflight.py`.

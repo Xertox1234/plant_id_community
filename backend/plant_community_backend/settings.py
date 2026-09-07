@@ -776,6 +776,16 @@ CORS_ALLOW_HEADERS = [
     "origin",
     "user-agent",
     "x-csrftoken",
+    # Retry-safe writes (M35/M36). The forum composer's image upload sends this
+    # on every attempt; the backend has honoured it since M35 but no BROWSER
+    # client sent one until then, so its absence here was invisible. CORS is an
+    # allowlist: a preflight naming an unlisted header still returns 200, the
+    # response simply omits it from Access-Control-Allow-Headers and the browser
+    # then refuses to send the real request. The POST never leaves the tab —
+    # no error reaches Django, and Access-Control-Max-Age caches the refusal for
+    # 24h. Caught by web/e2e/forum-image-upload.spec.js (todo 357); jsdom cannot
+    # see it because it does not enforce CORS.
+    "idempotency-key",
     "x-request-id",  # For distributed tracing (httpClient)
     "x-requested-with",
 ]
