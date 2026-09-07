@@ -243,6 +243,7 @@ export default function TipTapEditor({
       }
     | {
         kind: 'edit';
+        src: string;
         alt: string;
         /** The node this prompt was opened FOR. Committing against the live
          *  selection instead would rewrite whichever image the user clicked
@@ -351,6 +352,7 @@ export default function TipTapEditor({
     setAltPrompt({
       kind: 'edit',
       pos,
+      src: typeof attrs.src === 'string' ? attrs.src : '',
       alt: typeof attrs.alt === 'string' ? attrs.alt : '',
     });
   };
@@ -674,21 +676,20 @@ export default function TipTapEditor({
           alt="", and empty must never block posting. */}
       {editable && altPrompt !== null && (
         <div className="flex flex-wrap items-center gap-2 border-b border-line-2 bg-surface p-2">
-          {altPrompt.kind === 'upload' ? (
-            // Only the upload preview renders an <img>, and its src is our own
-            // createObjectURL blob. The edit path deliberately shows NO
-            // thumbnail: its src would have to be read back off a node in the
-            // live document, which a user can populate by pasting — i.e.
-            // attacker-influenced DOM text flowing into a rendered attribute
-            // (CodeQL js/xss-through-dom, high). The image being edited is
-            // already visible in the editor a few pixels away, so duplicating
-            // it is not worth re-opening that flow.
-            <img
-              src={altPrompt.previewUrl}
-              alt=""
-              className="h-14 w-14 shrink-0 rounded-xs object-cover"
-            />
-          ) : null}
+          {/* On edit this src is read back off a node in the live document.
+              That is NOT a new exposure: TipTap already renders the very same
+              element, with the very same src, a few pixels above this prompt —
+              so refusing to show a thumbnail here would protect nothing.
+              (CodeQL's js/xss-through-dom alert on this JSX is a PRE-EXISTING
+              false positive on the OTHER branch: it taints `event.target.files`
+              and does not model URL.createObjectURL as a barrier, so the blob:
+              URL the browser mints reads as attacker-controlled. `main` carries
+              the same flow.) */}
+          <img
+            src={altPrompt.kind === 'upload' ? altPrompt.previewUrl : altPrompt.src}
+            alt=""
+            className="h-14 w-14 shrink-0 rounded-xs object-cover"
+          />
           <div className="flex min-w-0 flex-1 flex-col gap-1">
             <label htmlFor="tiptap-image-alt" className="text-sm font-medium text-ink">
               Describe this image

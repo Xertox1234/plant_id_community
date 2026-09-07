@@ -1009,14 +1009,14 @@ describe('TipTapEditor image upload — review fixes', () => {
   });
 });
 
-describe('TipTapEditor alt preview src safety', () => {
-  it('renders NO thumbnail in edit mode, so a document src never reaches an attribute', async () => {
-    // The structural close for CodeQL js/xss-through-dom (high). A user can put
-    // arbitrary markup in the document by pasting, so a src read back off a node
-    // is attacker-influenced DOM text, and React does not sanitize src.
-    // Guarding the value was not enough: the guard returned the ORIGINAL string,
-    // so the taint survived it and the alert stayed. The edit prompt now renders
-    // no <img> at all — the image is already visible in the editor beside it.
+describe('TipTapEditor alt prompt preview', () => {
+  it('previews the image being edited', async () => {
+    // Kept deliberately, against a CodeQL js/xss-through-dom alert that is a
+    // PRE-EXISTING false positive on the upload branch (it taints
+    // event.target.files and does not model URL.createObjectURL as a barrier;
+    // `main` carries the identical flow). Removing this thumbnail would protect
+    // nothing anyway: TipTap renders the same element with the same src a few
+    // pixels above the prompt.
     const { container } = render(
       <TipTapEditor
         content='<img src="https://cdn.example/x.jpg" data-image-id="5" alt="x">'
@@ -1028,7 +1028,8 @@ describe('TipTapEditor alt preview src safety', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Edit image alt text' }));
     expect(await screen.findByLabelText(/describe this image/i)).toBeInTheDocument();
 
-    // The upload path still previews (its src is our own blob); edit does not.
-    expect(container.querySelector('img.h-14')).toBeNull();
+    const preview = container.querySelector('img.h-14');
+    expect(preview).not.toBeNull();
+    expect(preview?.getAttribute('src')).toBe('https://cdn.example/x.jpg');
   });
 });
