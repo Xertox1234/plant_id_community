@@ -5173,3 +5173,66 @@ as strong as "no direct push to main" — not stronger.
 Proof the tripwire was real, rather than asserted: with 355 archived and the
 entries repointed, `--recheck` is green; forcing `tracked_by` back to `"355"`
 against the same report yields exactly 2 problems.
+
+## 2026-09-07 — A failed `npm audit --json` is a non-empty report worth zero advisories (todo 356)
+
+Found by `/code-review high` on the PR that fixed todo 356 — the same false
+green the PR exists to kill, one layer down, inside the tool rather than the
+workflow.
+
+`npm audit --package-lock-only --json` against an unreachable registry:
+
+```
+$ npm audit --package-lock-only --json --registry=http://127.0.0.1:9
+exit 1
+{
+  "message": "request to http://127.0.0.1:9/-/npm/v1/security/advisories/bulk failed, reason: connect ECONNREFUSED 127.0.0.1:9",
+  "error": { "summary": "", "detail": "" }
+}
+```
+
+186 bytes. Three defences in a row let it through:
+
+1. **The exit code is unusable.** `npm audit` exits 1 when advisories merely
+   exist, so every caller wraps it in `|| true`. Crash and clean result are the
+   same status.
+2. **The size assertion passes.** `docs/rules/security.md` already required
+   `[ -s "$f" ]` after any `|| true` (todo 354). An error object is non-empty,
+   so the rule fired and proved nothing. *A guard written against "the tool
+   produced nothing" does not cover "the tool produced an apology."*
+3. **It parses.** `json.loads` succeeds and `npm_advisories()` returns `{}` —
+   zero advisories, indistinguishable from a clean tree.
+
+So a transient 5xx on the HEAD audit would have printed
+`npm audit (.): 15 advisories on base, 0 on head, 0 new` and passed. Direction
+decides the blast radius: a BASE-side failure inverts into a loud false red
+(every head advisory reads as new), so only the head side is silent.
+
+**Fix:** reject a top-level `error` key in `_load()` (`scripts/new_vuln_gate.py`)
+— one place, covering both ecosystems, both sides and both jobs. Neither a real
+npm audit report nor a pip-audit one carries that key.
+
+**Second finding, same PR: `--package-lock-only` cannot see a lockfile skew.** It
+resolves from the lockfile, so a dependency declared in `package.json` but absent
+from `package-lock.json` is never audited — and the audit still exits 0 with
+`found 0 vulnerabilities` (verified). `npm ci` used to hard-fail on exactly that,
+so replacing an install with `--package-lock-only` silently removes the guard.
+`web/` is still covered by `web-ci.yml`'s `npm ci`; the root tree had no install
+anywhere in CI, only Cloudflare Workers Builds after merge. Now paired with
+`npm ls --package-lock-only` (exit 1, `ELSPROBLEMS`) at the same severity as the
+audit. Trigger: `npm-audit-package-lock-only-misses-lockfile-skew`.
+
+**Third, and the reason this entry exists at all: the rule that names a file was
+invisible to whoever edits that file.** Every top-level `scripts/*.py` is a
+security scanner — `new_vuln_gate.py`, `check_suppressions.py`,
+`check_flutter_security.py`, `sync_alarm_todo.py` — and all four routed to **no
+domain** in `docs/rules/routing.json`, so editing the security tooling injected
+no security rules. This is the `.github/*` gap from todo 355 one directory over,
+and it had the same shape: the rules were written, correct, and undeliverable.
+`scripts/*.py → security` added; `test-inject-patterns.sh` still 22/22, with the
+firebase stacking regression (`api,security,database,firebase`) intact.
+
+**The generalisation worth keeping:** when you add a guard, name the failure it
+does *not* cover. "Assert the artefact is non-empty" and "assert the artefact is
+a RESULT" are different assertions, and the first one reads like the second
+until a tool hands you a well-formed apology.

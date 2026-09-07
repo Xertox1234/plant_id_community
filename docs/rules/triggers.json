@@ -1586,5 +1586,21 @@
     "source": "codify: chore/deps-slice6-closeout",
     "added": "2026-09-07",
     "severity": "warn"
+  },
+  {
+    "id": "npm-audit-package-lock-only-misses-lockfile-skew",
+    "domains": [
+      "security"
+    ],
+    "path_glob": [
+      ".github/workflows/*.yml"
+    ],
+    "content_present": "npm audit[^\\n]*--package-lock-only",
+    "content_absent": "npm ls[^\\n]*--package-lock-only",
+    "message": "npm audit --package-lock-only audits the LOCKFILE only: a dependency declared in package.json but missing from the lock is never looked at, and the audit still exits 0 with \"found 0 vulnerabilities\". npm ci used to hard-fail on that skew. Pair it with `npm ls --package-lock-only` (exit 1, ELSPROBLEMS) in the same step.",
+    "pattern_ref": "docs/rules/security.md",
+    "source": "codify: fix/todo-356-root-npm-manifest-audit",
+    "added": "2026-09-07",
+    "severity": "warn"
   }
 ]

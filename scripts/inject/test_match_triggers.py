@@ -928,5 +928,69 @@ class TestEmitFlagsSuppressedAuditTrigger(unittest.TestCase):
             self.assertNotIn(self.TRIGGER, ids(mt.find_matches(tn, ti, self.real, body)), rel)
 
 
+class TestPackageLockOnlySkewTrigger(unittest.TestCase):
+    """Todo 356 — asserted against the REAL docs/rules/triggers.json.
+
+    The positive fixture is the VERBATIM step this PR shipped BEFORE code review
+    caught the gap — `--package-lock-only` with no lockfile-sync check — not a
+    cleaned-up version of it. The negative is the shipped file after the fix, so
+    a future widening of the regex fails here instead of crying wolf on the very
+    workflow that motivated it.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.root = os.path.dirname(
+            os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        )
+        cls.real = mt.load_triggers(cls.root)
+
+    TRIGGER = "npm-audit-package-lock-only-misses-lockfile-skew"
+
+    def test_the_pre_review_step_fires(self):
+        tn, ti = write(
+            ".github/workflows/security-scan.yml",
+            "          for dir in \"${MANIFEST_DIRS[@]}\"; do\n"
+            "            echo \"::group::npm audit --audit-level=moderate (cwd: $dir)\"\n"
+            "            if (cd \"$dir\" && npm audit --package-lock-only --audit-level=moderate); then\n"
+            "              echo \"clean: $dir\"\n"
+            "            fi\n"
+            "          done\n",
+        )
+        self.assertIn(self.TRIGGER, ids(mt.find_matches(tn, ti, self.real, None)))
+
+    def test_the_json_report_form_also_fires(self):
+        """The other shape in this repo: capturing the report rather than gating."""
+        tn, ti = write(
+            ".github/workflows/security-scan.yml",
+            '            (cd "$dir" && npm audit --package-lock-only --json) '
+            '> "npm-audit-reports/$slug.json" || true\n',
+        )
+        self.assertIn(self.TRIGGER, ids(mt.find_matches(tn, ti, self.real, None)))
+
+    def test_the_shipped_fixed_workflow_does_not_self_fire(self):
+        """The file carries BOTH the audit and the `npm ls` guard, so it stays silent.
+
+        Whole-file Write, because that is what makes `resulting_file` the real
+        file: a fragment-only Write would drop the guard and fire, which is the
+        correct behaviour rather than a bug.
+        """
+        rel = ".github/workflows/security-scan.yml"
+        with open(os.path.join(self.root, rel), encoding="utf-8") as fh:
+            body = fh.read()
+        self.assertIn("npm audit --package-lock-only", body)
+        self.assertIn("npm ls --package-lock-only", body, "the guard was removed")
+        tn, ti = write(rel, body)
+        self.assertNotIn(self.TRIGGER, ids(mt.find_matches(tn, ti, self.real, body)))
+
+    def test_a_plain_npm_audit_is_not_flagged(self):
+        """`npm audit` after a real `npm ci` reads node_modules; the rule does not apply."""
+        tn, ti = write(
+            ".github/workflows/web-ci.yml",
+            "          npm ci\n          npm audit --audit-level=moderate\n",
+        )
+        self.assertNotIn(self.TRIGGER, ids(mt.find_matches(tn, ti, self.real, None)))
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

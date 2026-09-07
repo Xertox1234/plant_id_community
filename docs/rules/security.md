@@ -75,6 +75,24 @@ Compact checklist auto-injected before edits. Long-form: `backend/docs/patterns/
   from the file the diff changed: derive the scope and the work from ONE tested
   function, and let a missing artefact fail loudly rather than letting a
   stand-in tree answer (todo 356).
+- **A FAILED `npm audit --json` is a NON-EMPTY report that parses to zero
+  advisories.** It writes `{"message": "...", "error": {...}}` to stdout and
+  exits 1 — and exit 1 is also what it returns when advisories merely exist, so
+  the `|| true` every caller needs cannot tell them apart, and an `[ -s "$f" ]`
+  size assertion passes on the 186-byte error object. A transient registry
+  failure on the HEAD side then prints `15 on base, 0 on head, 0 new` and passes.
+  Guard by REJECTING a top-level `error` key when loading the report
+  (`new_vuln_gate.py:_load`), not by checking the file's size. Direction matters:
+  a BASE-side failure inverts into a loud false red, so only the head side is
+  silent (todo 356).
+- **`npm audit --package-lock-only` audits the LOCKFILE, so it cannot see a
+  dependency declared in `package.json` and missing from the lock** — it exits 0
+  with `found 0 vulnerabilities` for a package it never looked at. `npm ci` used
+  to hard-fail on that skew, so removing an install removes the guard: pair
+  `--package-lock-only` with `npm ls --package-lock-only` (exit 1,
+  `ELSPROBLEMS`). `web/` gets this from `web-ci.yml`'s `npm ci`; the ROOT tree
+  had no install anywhere in CI, only Cloudflare Workers Builds after merge
+  (todo 356).
 - **A top-level workflow `permissions:` block REPLACES the repo default, it does
   not narrow it.** With `default_workflow_permissions: read`, adding
   `permissions: contents: read` REVOKES every other read scope. Enumerate what the

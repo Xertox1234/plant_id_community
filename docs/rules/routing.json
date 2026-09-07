@@ -2,7 +2,7 @@
   "_comment": [
     "Single source of truth for path -> docs/rules/<domain> routing.",
     "Consumers: .claude/hooks/inject-patterns.sh (edit-time), .claude/hooks/kimi-review.sh",
-    "(commit gate), and .claude/skills/codify/SKILL.md Step 1 — all via",
+    "(commit gate), and .claude/skills/codify/SKILL.md Step 1 \u2014 all via",
     "scripts/inject/route_domains.py. Adding/renaming a domain = edit THIS file only.",
     "",
     "ORDER IS LOAD-BEARING. Rules are evaluated top-to-bottom per path:",
@@ -12,13 +12,13 @@
     "    additive rules placed AFTER a fallback still stack on top of it. This is why",
     "    e.g. backend/apps/garden/firebase_config.py resolves to",
     "    api,security,database (backend/*.py fallback) + firebase,security (stacked).",
-    "    Reordering changes behavior — see test-inject-patterns.sh firebase regression.",
+    "    Reordering changes behavior \u2014 see test-inject-patterns.sh firebase regression.",
     "",
     "Globs use fnmatch semantics (matched case-sensitively, '*' spans '/'), matching",
-    "bash [[ == ]] in the original hooks. Todo 244 (2026-07-02) resolved the deferred 'agents'/'exclusions' question: agent routing stays in the two orchestrator files (.claude/agents/*-orchestrator.md), NOT here — the fleet shrank to 8 reviewers (4 generics consolidated into cross-cutting-reviewer) and the orchestrators' tables carry primary/secondary semantics this flat path->domain format can't express.",
+    "bash [[ == ]] in the original hooks. Todo 244 (2026-07-02) resolved the deferred 'agents'/'exclusions' question: agent routing stays in the two orchestrator files (.claude/agents/*-orchestrator.md), NOT here \u2014 the fleet shrank to 8 reviewers (4 generics consolidated into cross-cutting-reviewer) and the orchestrators' tables carry primary/secondary semantics this flat path->domain format can't express.",
     "",
     "Consequence of the testing-rule-before-ts-fallback order: a web non-.tsx test",
-    "file (e.g. web/src/App.spec.ts) resolves to 'testing' only — the *.ts fallback",
+    "file (e.g. web/src/App.spec.ts) resolves to 'testing' only \u2014 the *.ts fallback",
     "is suppressed by the earlier testing match. This matches the old inject hook;",
     "the old kimi/codify tables gave typescript+testing. Blessed (fail-safe: drops a",
     "checklist hint, never blocks). .tsx web specs keep typescript via web/src/*.tsx."
@@ -136,7 +136,17 @@
         "security"
       ],
       "mode": "additive",
-      "_why": "Editing a dependency manifest or a workflow used to inject only _discipline.md — never security.md — so the 'try a bump before suppressing a vuln' rule was invisible at exactly the moment it mattered. Order is load-bearing: this sits after the backend/*.py fallback and before firebase, and no .github/ or manifest path matches any other rule, so there is no fallback interaction."
+      "_why": "Editing a dependency manifest or a workflow used to inject only _discipline.md \u2014 never security.md \u2014 so the 'try a bump before suppressing a vuln' rule was invisible at exactly the moment it mattered. Order is load-bearing: this sits after the backend/*.py fallback and before firebase, and no .github/ or manifest path matches any other rule, so there is no fallback interaction."
+    },
+    {
+      "globs": [
+        "scripts/*.py"
+      ],
+      "domains": [
+        "security"
+      ],
+      "mode": "additive",
+      "_why": "Every top-level scripts/*.py IS a security scanner \u2014 new_vuln_gate.py (the new-advisory gate), check_suppressions.py (the suppression validator), check_flutter_security.py, sync_alarm_todo.py \u2014 and all four routed to NO domain, so editing the security tooling injected no security rules. Same failure as the .github/* rule above, one directory over: the rule that names a file was invisible to whoever edits that file. Additive and placed here so the testing rule below still stacks (test_*.py in this directory resolves to security,testing). Added by codify from fix/todo-356-root-npm-manifest-audit."
     },
     {
       "globs": [
