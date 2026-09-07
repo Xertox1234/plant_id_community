@@ -44,7 +44,7 @@ pip_audit:
     added: "2026-05-20"
     expires: "2026-11-16"
     owner: "@Xertox1234"
-    tracked_by: "355"
+    tracked_by: "366"
 
   - id: PYSEC-2025-183
     package: PyJWT
@@ -60,4 +60,4 @@ pip_audit:
     added: "2026-05-20"
     expires: "2026-11-16"
     owner: "@Xertox1234"
-    tracked_by: "355"
+    tracked_by: "366"

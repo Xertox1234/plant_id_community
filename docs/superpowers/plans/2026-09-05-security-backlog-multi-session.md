@@ -448,6 +448,23 @@ Session 1 already took the 8 `actions/missing-workflow-permissions` alerts.
 | 9 | Web cluster + dedup | `js/xss-through-dom` #122 — **353's lesson is binding: a suppression comment is not a fix**; break the path structurally or dismiss via API. 3 sanitization dismissals citing 354. Dedup `isBlankHtml`, duplicated verbatim across two pages. | 4 |
 | 10 | Closeout | Final counts; document any residue; flip both epics to `completed` and archive. | — |
 
+**Closeout, as it actually happened.** Not one session, and not both epics at once:
+
+- **Todo 354 (CodeQL) closed early**, archived in PR #694, ahead of this row.
+- **Dependency slices 4 and 5 never ran as slices.** Their pins landed piecemeal
+  through eight unrelated PRs (#675–#695), so todo 355's checkboxes read `[ ]`
+  while the work was fully merged. Reconciled 2026-09-06 from todo 362. Verify an
+  epic's slices against the **tree**, not its checkboxes.
+- **Todo 355 (dependency) closed 2026-09-07** at 0 open / 0 dismissed Dependabot
+  alerts. Its archive was a **four**-place edit, not the three the todo predicted:
+  two `tracked_by` entries in `.github/security-suppressions.yml` (repointed to a
+  new todo 366), the hardcoded fixture at `scripts/test_check_suppressions.py:38`,
+  **and** `:181`'s `resolve_todo("355")` — which would not have failed, because
+  `resolve_todo` searches `archive/` too. The fixture is now resolved at run time
+  so the trap cannot recur, and a new guard test asserts every live suppression's
+  `tracked_by` is open on the always-running required check, rather than only in
+  schedule-only `--recheck`.
+
 ---
 
 ## Tracking artifact

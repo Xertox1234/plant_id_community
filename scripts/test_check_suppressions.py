@@ -25,6 +25,28 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 import check_suppressions as cs  # noqa: E402
 
 
+def _open_todo_id() -> str | None:
+    """Id of an OPEN todo, resolved at run time.
+
+    Hardcoding one made this file a tripwire. It held `tracked_by: "355"`, and
+    355 was itself a suppression's tracking todo — so archiving 355 fired
+    todo_is_closed() and every `recheck(...) == []` assertion below went red, on
+    a REQUIRED check with no path filter, i.e. on EVERY open PR rather than only
+    the one doing the archiving. Resolving at run time cannot select a todo that
+    was just archived, because the glob no longer sees it.
+
+    The glob excludes README.md/TEMPLATE.md and, being non-recursive, never
+    reaches todos/archive/.
+    """
+    for path in sorted(cs.TODOS.glob("[0-9]*.md")):
+        if not cs.todo_is_closed(path):
+            return path.name.split("-")[0]
+    return None
+
+
+OPEN_TODO_ID = _open_todo_id()
+
+
 def entry(**overrides):
     base = {
         "id": "CVE-2026-0001",
@@ -35,7 +57,7 @@ def entry(**overrides):
         "added": "2026-01-01",
         "expires": "2026-06-01",
         "owner": "@someone",
-        "tracked_by": "355",
+        "tracked_by": OPEN_TODO_ID,
     }
     base.update(overrides)
     return base
@@ -177,14 +199,43 @@ class RecheckTests(unittest.TestCase):
 
 
 class TodoResolutionTests(unittest.TestCase):
+    def test_fixture_anchor_is_an_open_todo(self):
+        """Guards the guard: if this fails, every `recheck(...) == []` lies."""
+        self.assertIsNotNone(
+            OPEN_TODO_ID, "no open todo in todos/ to anchor the shared fixture"
+        )
+
     def test_resolves_a_live_todo(self):
-        self.assertIsNotNone(cs.resolve_todo("355"))
+        # Not a hardcoded id: one left here would still PASS after being
+        # archived (resolve_todo searches archive/ too), silently making this a
+        # duplicate of test_resolves_an_archived_todo.
+        self.assertIsNotNone(cs.resolve_todo(OPEN_TODO_ID))
 
     def test_resolves_an_archived_todo(self):
         self.assertIsNotNone(cs.resolve_todo("089"))
 
     def test_unknown_id_resolves_to_none(self):
         self.assertIsNone(cs.resolve_todo("999999"))
+
+    def test_real_file_tracked_by_todos_are_all_open(self):
+        """Every live suppression must point at a todo that is still OPEN.
+
+        --recheck already checks this, but it is schedule/dispatch-only — the
+        documented reason Twisted's fixed-but-suppressed advisory survived 16
+        green checks. Asserting it here puts the check on the always-running
+        REQUIRED harness job, so archiving a tracking todo fails the PR that
+        archives it, naming the entry, instead of next week's cron.
+        """
+        for item in cs.entries(cs.load()):
+            todo = cs.resolve_todo(str(item.get("tracked_by")))
+            self.assertIsNotNone(
+                todo, f"{item['id']}: `tracked_by` resolves to no todo"
+            )
+            self.assertFalse(
+                cs.todo_is_closed(todo),
+                f"{item['id']}: `tracked_by` points at {todo.name}, which is "
+                "CLOSED. Repoint it at an open todo or drop the suppression.",
+            )
 
 
 if __name__ == "__main__":
