@@ -211,6 +211,33 @@ one session pinned nothing)
   must fail if the poll is removed (assert the call count after advancing
   fake timers, not just the pill's presence).
 
+### CI-gate additions (2026-09-07, todo 356)
+
+- **A gate that reports a NUMBER must read the file the diff changed.** When a
+  job decides "is this relevant?" separately from "what do I look at?", the two
+  predicates must derive from the SAME value — a boolean thrown away by the
+  scope step lets the job take the detection branch and then do the wrong work,
+  printing the exact string a reviewer looks for. Check that the scope step
+  passes PATHS forward, not a flag, and that the work loop and the compare loop
+  iterate the same variable.
+- **"Assert the artefact is non-empty" ≠ "assert the artefact is a RESULT."**
+  For any tool wrapped in `|| true`, ask what it writes when it FAILS.
+  `npm audit --json` writes a well-formed `{"message", "error"}` object and
+  exits 1 — the same status as "advisories exist" — so both the exit code and a
+  `[ -s "$f" ]` check pass, and it parses to zero findings. Require the loader
+  to reject an error-shaped report, not just an empty file.
+- **Removing an install removes its guards.** Swapping `npm ci` for
+  `npm audit --package-lock-only` also drops the package.json↔lockfile sync
+  check: a dependency declared but absent from the lock is never audited and the
+  audit exits 0. Flag a `--package-lock-only` audit with no
+  `npm ls --package-lock-only` beside it.
+- **A rule is inert unless `docs/rules/routing.json` routes its target paths to
+  that domain.** When a finding names a specific file, verify with
+  `printf '%s\n' <path> | python3 scripts/inject/route_domains.py` that the file
+  actually resolves to the domain the rule lives in. Empty output = the rule can
+  never reach the person editing it (all four `scripts/*.py` security scanners
+  routed to nothing until todo 356).
+
 ## Output Format (Review Mode)
 
 Return ONLY this JSON structure (no surrounding prose, no markdown fences in the actual response — the example fences below show the schema):

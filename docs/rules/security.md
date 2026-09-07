@@ -53,6 +53,46 @@ Compact checklist auto-injected before edits. Long-form: `backend/docs/patterns/
   OSV/PyPI; Dependabot reads the GitHub Advisory Database. Dependabot surfaced 71
   advisories pip-audit's ignore list hid, and pip-audit reports a Django advisory
   (fix 6.0.8) that Dependabot does not report at all. Neither is a superset.
+- **This repo has TWO npm manifests; a scanner that names one is blind to the
+  other.** `package.json` at the ROOT is the Cloudflare Workers deploy artifact —
+  Workers Builds runs `npm clean-install` there and ships `npx wrangler versions
+  upload` from it — and `web/package.json` is the React app. Every npm step in
+  `security-scan.yml` hardcoded `web/`, so the weekly hard-fail never read the
+  root tree, and 14 root advisories (11 x undici, sharp, ws, esbuild) sat visible
+  only to Dependabot. Name BOTH wherever you name one — including the
+  "Run locally:" line in a PR comment, which taught humans the same blind spot.
+  The set is `NPM_MANIFEST_DIRS` in `scripts/new_vuln_gate.py`, with a drift test
+  that fails if a third lockfile appears; loop over it, never write a directory
+  name into the workflow (todo 356).
+- **A scope predicate that says "relevant" plus an action pointed at a different
+  tree is a FALSE GREEN, not a skip.** `new-vuln-gate`'s scope step matched the
+  root lockfile and set `npm=true`; its audit step then read `web/` regardless,
+  compared `web/` to `web/`, and printed a confident `0 advisories on base, 0 on
+  head, 0 new` about a tree the PR never touched (PR #669). The `pip-audit` half
+  printed an honest `skipped (no manifest change in this PR)` on the same run —
+  the vocabulary was there and went unused, because detection was right and only
+  the action was wrong. When a gate reports a *number*, prove the number came
+  from the file the diff changed: derive the scope and the work from ONE tested
+  function, and let a missing artefact fail loudly rather than letting a
+  stand-in tree answer (todo 356).
+- **A FAILED `npm audit --json` is a NON-EMPTY report that parses to zero
+  advisories.** It writes `{"message": "...", "error": {...}}` to stdout and
+  exits 1 — and exit 1 is also what it returns when advisories merely exist, so
+  the `|| true` every caller needs cannot tell them apart, and an `[ -s "$f" ]`
+  size assertion passes on the 186-byte error object. A transient registry
+  failure on the HEAD side then prints `15 on base, 0 on head, 0 new` and passes.
+  Guard by REJECTING a top-level `error` key when loading the report
+  (`new_vuln_gate.py:_load`), not by checking the file's size. Direction matters:
+  a BASE-side failure inverts into a loud false red, so only the head side is
+  silent (todo 356).
+- **`npm audit --package-lock-only` audits the LOCKFILE, so it cannot see a
+  dependency declared in `package.json` and missing from the lock** — it exits 0
+  with `found 0 vulnerabilities` for a package it never looked at. `npm ci` used
+  to hard-fail on that skew, so removing an install removes the guard: pair
+  `--package-lock-only` with `npm ls --package-lock-only` (exit 1,
+  `ELSPROBLEMS`). `web/` gets this from `web-ci.yml`'s `npm ci`; the ROOT tree
+  had no install anywhere in CI, only Cloudflare Workers Builds after merge
+  (todo 356).
 - **A top-level workflow `permissions:` block REPLACES the repo default, it does
   not narrow it.** With `default_workflow_permissions: read`, adding
   `permissions: contents: read` REVOKES every other read scope. Enumerate what the

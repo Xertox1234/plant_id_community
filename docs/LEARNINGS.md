@@ -4667,6 +4667,42 @@ at?", the two predicates must be derived from the same value.** Here the scope
 step computed a boolean and threw away *which* path matched. Pass the paths
 forward, or the job will eventually answer about a file it never opened.
 
+**RESOLVED 2026-09-07 (todo 356, PR #698).** The manifest set and both scope
+predicates moved into `scripts/new_vuln_gate.py` — `NPM_MANIFEST_DIRS`,
+`npm_dirs_from_changes()`, `pip_changed()` — where the REQUIRED `harness-ci`
+tests them, and the workflow now loops over `--list-npm-dirs` / `--scope`. The
+scope step passes the *paths* forward (`npm_dirs=. web`), the audit step and the
+compare step iterate that same value, and a manifest the audit loop skipped
+shows up as a missing report and a loud `GateError` rather than a stand-in tree
+answering for it. A drift test fails if a third `package-lock.json` appears.
+
+Three things worth carrying to the next gate:
+
+1. **Prove the gate on a dirty specimen, not a clean tree.** Replaying PR #669's
+   exact scope through the fixed plumbing prints `npm audit (.): 15 advisories on
+   base, 0 on head, 0 new` where the pre-fix gate printed `0 on base`. Same diff,
+   same base, and the 15 is the only observable difference between "reads the
+   tree" and "reports on it".
+2. **`workflow_dispatch` exercises a weekly hard-fail today.** `gh workflow run
+   "<name>" --ref <branch>` runs the branch's version of the workflow on the
+   `event_name != 'pull_request'` BLOCKING path. On the specimen commit,
+   `frontend-security` did not merely visit the root tree — it *failed* on a
+   root-only advisory, which is the behaviour that had never once occurred.
+3. **An acceptance criterion can be literally unsatisfiable; say so rather than
+   satisfying it in appearance.** The todo asked for a unit test that fails
+   against the pre-fix plumbing. No test in `test_new_vuln_gate.py` can, because
+   the bug lived in workflow YAML. The new cases prove the *extracted* logic
+   (mutation-checked); the plumbing proof is the deliberately-red CI run. Left
+   unstated, a future reader would take a green `harness-ci` as proof the
+   workflow was fixed — the same "a mechanism that has never fired is not
+   verified" trap, one level up.
+
+Known residue, deliberately not fixed here:
+`backend/docs/development/CODE_AUDIT_PATTERNS_CODIFIED.md` still teaches
+`cd web && npm audit` (and `safety check`, removed in todo 355 slice 1). That
+file is stale in more ways than this one and is not in the pattern-library index;
+it wants its own pass, not a one-line patch.
+
 Same day, same repo, the sibling fact this compounds: the root manifest is the
 production deploy path. Workers Builds runs `npm clean-install` at the root and
 deploys with `npx wrangler versions upload` from the root `node_modules` (build
@@ -5137,3 +5173,66 @@ as strong as "no direct push to main" — not stronger.
 Proof the tripwire was real, rather than asserted: with 355 archived and the
 entries repointed, `--recheck` is green; forcing `tracked_by` back to `"355"`
 against the same report yields exactly 2 problems.
+
+## 2026-09-07 — A failed `npm audit --json` is a non-empty report worth zero advisories (todo 356)
+
+Found by `/code-review high` on the PR that fixed todo 356 — the same false
+green the PR exists to kill, one layer down, inside the tool rather than the
+workflow.
+
+`npm audit --package-lock-only --json` against an unreachable registry:
+
+```
+$ npm audit --package-lock-only --json --registry=http://127.0.0.1:9
+exit 1
+{
+  "message": "request to http://127.0.0.1:9/-/npm/v1/security/advisories/bulk failed, reason: connect ECONNREFUSED 127.0.0.1:9",
+  "error": { "summary": "", "detail": "" }
+}
+```
+
+186 bytes. Three defences in a row let it through:
+
+1. **The exit code is unusable.** `npm audit` exits 1 when advisories merely
+   exist, so every caller wraps it in `|| true`. Crash and clean result are the
+   same status.
+2. **The size assertion passes.** `docs/rules/security.md` already required
+   `[ -s "$f" ]` after any `|| true` (todo 354). An error object is non-empty,
+   so the rule fired and proved nothing. *A guard written against "the tool
+   produced nothing" does not cover "the tool produced an apology."*
+3. **It parses.** `json.loads` succeeds and `npm_advisories()` returns `{}` —
+   zero advisories, indistinguishable from a clean tree.
+
+So a transient 5xx on the HEAD audit would have printed
+`npm audit (.): 15 advisories on base, 0 on head, 0 new` and passed. Direction
+decides the blast radius: a BASE-side failure inverts into a loud false red
+(every head advisory reads as new), so only the head side is silent.
+
+**Fix:** reject a top-level `error` key in `_load()` (`scripts/new_vuln_gate.py`)
+— one place, covering both ecosystems, both sides and both jobs. Neither a real
+npm audit report nor a pip-audit one carries that key.
+
+**Second finding, same PR: `--package-lock-only` cannot see a lockfile skew.** It
+resolves from the lockfile, so a dependency declared in `package.json` but absent
+from `package-lock.json` is never audited — and the audit still exits 0 with
+`found 0 vulnerabilities` (verified). `npm ci` used to hard-fail on exactly that,
+so replacing an install with `--package-lock-only` silently removes the guard.
+`web/` is still covered by `web-ci.yml`'s `npm ci`; the root tree had no install
+anywhere in CI, only Cloudflare Workers Builds after merge. Now paired with
+`npm ls --package-lock-only` (exit 1, `ELSPROBLEMS`) at the same severity as the
+audit. Trigger: `npm-audit-package-lock-only-misses-lockfile-skew`.
+
+**Third, and the reason this entry exists at all: the rule that names a file was
+invisible to whoever edits that file.** Every top-level `scripts/*.py` is a
+security scanner — `new_vuln_gate.py`, `check_suppressions.py`,
+`check_flutter_security.py`, `sync_alarm_todo.py` — and all four routed to **no
+domain** in `docs/rules/routing.json`, so editing the security tooling injected
+no security rules. This is the `.github/*` gap from todo 355 one directory over,
+and it had the same shape: the rules were written, correct, and undeliverable.
+`scripts/*.py → security` added; `test-inject-patterns.sh` still 22/22, with the
+firebase stacking regression (`api,security,database,firebase`) intact.
+
+**The generalisation worth keeping:** when you add a guard, name the failure it
+does *not* cover. "Assert the artefact is non-empty" and "assert the artefact is
+a RESULT" are different assertions, and the first one reads like the second
+until a tool hands you a well-formed apology.

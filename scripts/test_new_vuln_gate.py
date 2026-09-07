@@ -10,12 +10,21 @@ broken, because a gate that passes when it should not is invisible:
   - one side of a pair missing must FAIL (a half-configured gate always passes)
   - an advisory renamed between two audits must not read as new
   - npm `via` strings are transitive edges, not advisories
+  - a ROOT-only lockfile change must scope to the root tree, never to web/
+    (the gate audited web/ against web/ and printed a confident `0 new` — todo 356)
+  - each npm manifest is compared against ITS OWN base, so an advisory sitting
+    in web/'s base cannot cancel the same advisory arriving in the root tree
+  - a FAILED audit writes a non-empty {"error": ...} report; parsed naively it
+    yields zero advisories and passes the gate. It must fail instead.
 """
 
 from __future__ import annotations
 
+import contextlib
+import io
 import json
 import pathlib
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -181,8 +190,9 @@ class MainTests(unittest.TestCase):
 
     def test_npm_pair_is_compared(self):
         rc = gate.main([
-            "--base-npm", self._write("bn.json", npm_report()),
-            "--head-npm", self._write("hn.json", npm_report(
+            "--npm-pair", "web",
+            self._write("bn.json", npm_report()),
+            self._write("hn.json", npm_report(
                 ("dompurify", "GHSA-xxxx-yyyy-zzzz", "high"))),
         ])
         self.assertEqual(rc, 1)
@@ -193,10 +203,217 @@ class MainTests(unittest.TestCase):
         rc = gate.main([
             "--base-pip", self._write("b.json", same_pip),
             "--head-pip", self._write("h.json", same_pip),
-            "--base-npm", self._write("bn.json", same_npm),
-            "--head-npm", self._write("hn.json", same_npm),
+            "--npm-pair", "web",
+            self._write("bn.json", same_npm),
+            self._write("hn.json", same_npm),
         ])
         self.assertEqual(rc, 0)
+
+
+REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
+
+
+class ScopeTests(unittest.TestCase):
+    """Which trees a diff sends the gate to.
+
+    This is where the todo-356 bug lived. The old predicate was a path regex in
+    security-scan.yml's bash (`(^|/)package-lock\\.json$`); it correctly said
+    "npm=true" for a root lockfile change and the audit step then read `web/`
+    regardless, so the gate reported `0 advisories on base, 0 on head, 0 new`
+    about a tree the PR had never touched.
+    """
+
+    def test_root_only_lockfile_change_scopes_to_root(self):
+        """PR #669's diff verbatim — the specimen that exposed the false green."""
+        dirs = gate.npm_dirs_from_changes([
+            "package-lock.json",
+            "package.json",
+            "todos/356-pending-p2-security-scan-root-manifest-blind.md",
+        ])
+        self.assertEqual(dirs, ["."])
+        self.assertNotIn("web", dirs)
+
+    def test_web_only_change_scopes_to_web(self):
+        self.assertEqual(gate.npm_dirs_from_changes(["web/package-lock.json"]), ["web"])
+
+    def test_both_manifests_change_scopes_to_both(self):
+        self.assertEqual(
+            gate.npm_dirs_from_changes(["package-lock.json", "web/package.json"]),
+            [".", "web"],
+        )
+
+    def test_unrelated_change_scopes_to_nothing(self):
+        self.assertEqual(gate.npm_dirs_from_changes(["docs/rules/security.md"]), [])
+
+    def test_manifest_without_a_lockfile_is_not_scoped_in(self):
+        """design_reference/package.json has no lockfile, so it cannot be audited.
+
+        A `(^|/)package\\.json$` regex would scope it in and then crash the audit
+        step on the missing lockfile.
+        """
+        self.assertEqual(gate.npm_dirs_from_changes(["design_reference/package.json"]), [])
+
+    def test_pip_predicate(self):
+        self.assertTrue(gate.pip_changed(["backend/requirements.txt"]))
+        self.assertTrue(gate.pip_changed(["backend/requirements-dev.txt"]))
+        self.assertFalse(gate.pip_changed(["web/package.json"]))
+        self.assertFalse(gate.pip_changed([]))
+
+
+class ManifestDriftTests(unittest.TestCase):
+    """The constant must keep describing the repo, or a manifest goes unscanned."""
+
+    def _tracked(self, *patterns):
+        out = subprocess.run(
+            ["git", "ls-files", "-z", *patterns],
+            cwd=REPO_ROOT, capture_output=True, text=True, check=True,
+        ).stdout
+        return [p for p in out.split("\0") if p]
+
+    def test_constant_covers_every_tracked_lockfile(self):
+        """A third package-lock.json must not be able to appear unnoticed.
+
+        `git ls-files` rather than a glob: rglob would walk web/node_modules and
+        backend/venv.
+        """
+        found = {
+            str(pathlib.PurePosixPath(path).parent)
+            for path in self._tracked("package-lock.json", "*/package-lock.json")
+        }
+        self.assertEqual(
+            found,
+            set(gate.NPM_MANIFEST_DIRS),
+            "a tracked package-lock.json is missing from NPM_MANIFEST_DIRS (or vice "
+            "versa) — every scanner that loops over that constant is now blind to it",
+        )
+
+    def test_requirements_dev_carries_no_pins(self):
+        """`pip_changed` is broader than the file the audit reads; this is why that is safe.
+
+        backend/requirements-dev.txt is a pinless `-r requirements.txt` overlay,
+        so a dev-only change has the same answer as requirements.txt by
+        construction. The day it gains a pin of its own, that stops being true
+        and the gate would report on the wrong tree — the todo-356 shape.
+        """
+        lines = [
+            line.strip()
+            for line in (REPO_ROOT / "backend" / "requirements-dev.txt").read_text().splitlines()
+            if line.strip() and not line.strip().startswith("#")
+        ]
+        self.assertEqual(
+            lines,
+            ["-r requirements.txt"],
+            "requirements-dev.txt is no longer a pure overlay — either audit it "
+            "directly in new-vuln-gate or narrow pip_changed()",
+        )
+
+
+class MultiManifestCompareTests(unittest.TestCase):
+    """Each manifest against its own base. Merging the reports hides real advisories."""
+
+    def setUp(self):
+        self.tmp = pathlib.Path(tempfile.mkdtemp())
+
+    def _write(self, name, data):
+        path = self.tmp / name
+        path.write_text(json.dumps(data))
+        return str(path)
+
+    def _run(self, argv):
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            rc = gate.main(argv)
+        return rc, buf.getvalue()
+
+    def test_root_advisory_is_reported_and_named(self):
+        clean = npm_report()
+        dirty = npm_report(("undici", "GHSA-root-aaaa-bbbb", "high"))
+        same_web = npm_report(("vite", "GHSA-webw-cccc-dddd", "moderate"))
+        rc, out = self._run([
+            "--npm-pair", ".", self._write("br.json", clean), self._write("hr.json", dirty),
+            "--npm-pair", "web", self._write("bw.json", same_web), self._write("hw.json", same_web),
+        ])
+        self.assertEqual(rc, 1)
+        self.assertIn("npm audit (.): 0 advisories on base, 1 on head, 1 new", out)
+        self.assertIn("npm audit (web): 1 advisories on base, 1 on head, 0 new", out)
+        self.assertIn(".: GHSA-root-aaaa-bbbb", out)
+
+    def test_an_advisory_in_webs_base_cannot_cancel_it_in_root(self):
+        """The merge-all-reports failure mode: one id, two trees, opposite meanings."""
+        shared = "GHSA-shar-eeee-ffff"
+        rc, out = self._run([
+            "--npm-pair", ".",
+            self._write("br.json", npm_report()),
+            self._write("hr.json", npm_report(("undici", shared, "high"))),
+            "--npm-pair", "web",
+            self._write("bw.json", npm_report(("undici", shared, "high"))),
+            self._write("hw.json", npm_report(("undici", shared, "high"))),
+        ])
+        self.assertEqual(rc, 1, "web/'s pre-existing copy must not cancel root's new one")
+        self.assertIn(f".: {shared}", out)
+
+    def test_an_audit_error_report_fails_rather_than_reading_as_clean(self):
+        """A failed `npm audit --json` is 186 bytes of {"message", "error"}.
+
+        It survives the workflow's `[ -s "$f" ]` size assertion (non-empty) and
+        the `|| true` cannot see its exit code, because npm audit also exits 1
+        when advisories merely exist. Parsed naively it yields ZERO advisories,
+        so a transient registry failure on the HEAD audit would print
+        "15 on base, 0 on head, 0 new" and pass — the same false green this gate
+        exists to prevent, one layer down.
+        """
+        err = {
+            "message": "request to https://registry.npmjs.org/-/npm/v1/security/"
+                       "advisories/bulk failed, reason: connect ECONNREFUSED",
+            "error": {"summary": "", "detail": ""},
+        }
+        rc, _ = self._run([
+            "--npm-pair", ".",
+            self._write("br.json", npm_report(("undici", "GHSA-aaaa-bbbb-cccc", "high"))),
+            self._write("hr.json", err),
+        ])
+        self.assertEqual(rc, 1, "a failed audit must not read as zero advisories")
+
+    def test_an_audit_error_on_the_BASE_side_also_fails(self):
+        """The loud direction. Still an error, not 'every head advisory is new'."""
+        rc, _ = self._run([
+            "--npm-pair", "web",
+            self._write("bw.json", {"error": {"summary": "boom"}}),
+            self._write("hw.json", npm_report(("vite", "GHSA-dddd-eeee-ffff", "moderate"))),
+        ])
+        self.assertEqual(rc, 1)
+
+    def test_a_real_report_with_no_error_key_still_loads(self):
+        """Guard the guard: the sentinel must not reject a normal clean report."""
+        clean = npm_report()
+        rc, out = self._run([
+            "--npm-pair", ".", self._write("br.json", clean), self._write("hr.json", clean),
+        ])
+        self.assertEqual(rc, 0)
+        self.assertIn("npm audit (.): 0 advisories on base, 0 on head, 0 new", out)
+
+    def test_a_scoped_manifest_with_no_report_fails(self):
+        """If the audit loop skipped a dir the compare loop names, that must be loud."""
+        rc, _ = self._run([
+            "--npm-pair", ".", str(self.tmp / "never-written.json"),
+            self._write("hr.json", npm_report()),
+        ])
+        self.assertEqual(rc, 1)
+
+    def test_no_pairs_reports_skipped_not_zero_new(self):
+        """A docs-only PR must say `skipped`, never a confident `0 new`."""
+        rc, out = self._run([])
+        self.assertEqual(rc, 0)
+        self.assertIn("npm audit: skipped (no manifest change in this PR)", out)
+
+    def test_clean_pair_on_every_manifest_passes(self):
+        same = npm_report(("x", "GHSA-aaaa-bbbb-cccc", "low"))
+        rc, out = self._run([
+            "--npm-pair", ".", self._write("br.json", same), self._write("hr.json", same),
+            "--npm-pair", "web", self._write("bw.json", same), self._write("hw.json", same),
+        ])
+        self.assertEqual(rc, 0)
+        self.assertIn("No new dependency advisories", out)
 
 
 class RealReportShapeTests(unittest.TestCase):
