@@ -75,8 +75,11 @@ def test_preflight_permits_every_header_a_browser_client_sends(client, header):
 def test_preflight_returns_200_even_for_a_header_it_refuses(client):
     """Pin the failure mode itself, so the docstring above cannot go stale.
 
-    If this ever starts returning 4xx, the header-missing bug becomes loud and
-    the elaborate reasoning in this module is no longer warranted.
+    If this ever starts returning 4xx (a django-cors-headers change, say), the
+    header-missing bug has become LOUD and this module's reasoning is obsolete.
+    That is a documentation fix, not a test bug: rewrite the module docstring
+    and the two `docs/rules` entries it is cited from, and update this test to
+    assert the new status. Do not "repair" it back to 200.
     """
     response = _preflight(
         client, "/api/v1/forum/images/", "x-totally-unregistered-header"
