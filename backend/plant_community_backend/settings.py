@@ -308,20 +308,42 @@ DATABASES = {
 
 # Use PostgreSQL for tests to match production environment
 # This ensures PostgreSQL-specific features (GIN indexes, trigrams, etc.) work correctly
-if "test" in sys.argv:
-    import getpass
+# pytest-django imports this settings module after pytest itself is loaded, while
+# Django's runner exposes the literal `test` command in sys.argv. Both paths must
+# use PostgreSQL so pgvector queries are never silently sent to SQLite. An
+# explicit DATABASE_URL is the pytest contract; Django's runner keeps the
+# TEST_DB_* settings contract for compatibility.
+_IS_PYTEST_RUN = "pytest" in sys.modules
+_IS_DJANGO_TEST_RUN = "test" in sys.argv
+_IS_TEST_RUN = _IS_PYTEST_RUN or _IS_DJANGO_TEST_RUN
+if _IS_TEST_RUN:
+    configured_database_url = config("DATABASE_URL", default="").strip()
+    if _IS_PYTEST_RUN and configured_database_url:
+        DATABASES["default"] = dj_database_url.parse(
+            configured_database_url,
+            conn_max_age=DB_CONN_MAX_AGE,
+            conn_health_checks=True,
+        )
+    else:
+        import getpass
 
-    DATABASES["default"] = {
-        "ENGINE": "django.db.backends.postgresql",
-        "NAME": config("TEST_DB_NAME", default="plant_community_test"),
-        "USER": config("TEST_DB_USER", default=getpass.getuser()),
-        "PASSWORD": config("TEST_DB_PASSWORD", default=""),
-        "HOST": config("TEST_DB_HOST", default="localhost"),
-        "PORT": config("TEST_DB_PORT", default="5432"),
-        "TEST": {
-            "NAME": "test_plant_community",
-        },
-    }
+        DATABASES["default"] = {
+            "ENGINE": "django.db.backends.postgresql",
+            "NAME": config("TEST_DB_NAME", default="plant_community_test"),
+            "USER": config("TEST_DB_USER", default=getpass.getuser()),
+            "PASSWORD": config("TEST_DB_PASSWORD", default=""),
+            "HOST": config("TEST_DB_HOST", default="localhost"),
+            "PORT": config("TEST_DB_PORT", default="5432"),
+            "TEST": {
+                "NAME": "test_plant_community",
+            },
+        }
+
+    if DATABASES["default"]["ENGINE"] != "django.db.backends.postgresql":
+        raise ImproperlyConfigured(
+            "Django test runs require PostgreSQL with the vector extension; "
+            "configure DATABASE_URL or TEST_DB_* instead of SQLite."
+        )
 
 
 # Cache configuration with Redis fallback to dummy cache

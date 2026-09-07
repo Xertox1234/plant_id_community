@@ -559,3 +559,7 @@ Compact checklist auto-injected before edits.
   `harness-ci.yml`) so the failure lands on the PR that causes it, naming the
   offending entry, instead of a week later on a cron with no author attached
   (todo 355 slice 6).
+- **Forum pgvector tests must run on PostgreSQL with the `vector` extension, never
+  SQLite.** Pytest settings must select PostgreSQL even when `DATABASE_URL` is
+  absent and reject an explicit non-PostgreSQL URL; keep a contract test that
+  asserts both `connection.vendor` and the installed extension.

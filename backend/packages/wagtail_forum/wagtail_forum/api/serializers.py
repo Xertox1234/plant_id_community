@@ -1048,6 +1048,14 @@ class NotificationSerializer(serializers.ModelSerializer):
         }
 
 
+class NotificationMarkReadRequestSerializer(serializers.Serializer):
+    ids = serializers.ListField(
+        child=serializers.IntegerField(),
+        required=False,
+        allow_empty=True,
+    )
+
+
 class _ForumBodyContract(serializers.Serializer):
     """Shared write-body field + validation, so the body contract
     (`validate_forum_body`) is declared ONCE across the create/edit serializers

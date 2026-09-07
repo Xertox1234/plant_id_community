@@ -35,6 +35,7 @@ from .models import (
 from .serializers import (
     BlogAuthorSerializer,
     BlogCategorySerializer,
+    BlogCommentCreateSerializer,
     BlogCommentSerializer,
     BlogNewsletterSerializer,
     BlogPostListSerializer,
@@ -213,13 +214,7 @@ class BlogPostPageViewSet(viewsets.ReadOnlyModelViewSet):
         return Response(serializer.data)
 
     @extend_schema(
-        request={
-            "type": "object",
-            "properties": {
-                "content": {"type": "string"},
-                "parent": {"type": "integer"},
-            },
-        },
+        request=BlogCommentCreateSerializer,
         responses={
             201: BlogCommentSerializer,
             400: dict,

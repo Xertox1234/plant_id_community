@@ -93,11 +93,11 @@ jobs:
         # Catches serializer<->model field drift: a serializer referencing a
         # non-existent model field raises ImproperlyConfigured during generation,
         # which silently breaks /api/schema, /api/docs and /api/redoc AND crashes
-        # the affected endpoint at runtime. Schema generation aborts (non-zero
-        # exit) on such errors, failing the job. No --fail-on-warn yet: the
-        # pre-existing "unable to guess serializer" warnings on auth APIViews are
-        # warnings, not errors, and must not fail the build.
-        run: python manage.py spectacular --file /dev/null
+        # the affected endpoint at runtime. --validate also rejects malformed
+        # generated OpenAPI documents. No --fail-on-warn yet: the pre-existing
+        # "unable to guess serializer" diagnostics on auth APIViews are intentional
+        # non-structural fallbacks and must not fail the build.
+        run: python manage.py spectacular --file /dev/null --validate
 
   backend-tests:
     name: Run backend test suite (pytest, postgres + redis)
@@ -116,10 +116,9 @@ jobs:
 
     services:
       postgres:
-        # settings.py uses DATABASE_URL for the test DB under pytest (the
-        # `"test" in sys.argv` Postgres branch at settings.py:303 only fires for
-        # `manage.py test`, NOT pytest). Django's test runner then creates
-        # `test_plant_community` from this service.
+        # settings.py accepts DATABASE_URL for pytest and validates that it is
+        # PostgreSQL; local pytest without a URL uses the TEST_DB_* PostgreSQL
+        # defaults. pytest-django creates `test_plant_community` from this service.
         # pgvector image (Postgres 16 + the `vector` extension preinstalled) so
         # the forum similar-topics `CREATE EXTENSION vector` migration applies in
         # CI (todo 255 slice 4 / H15). Stock postgres:16 lacks the extension.
@@ -148,9 +147,8 @@ jobs:
     env:
       DEBUG: 'True'
       ENABLE_FILE_LOGGING: 'False'
-      # MUST be set explicitly: under pytest, "test" is not in sys.argv, so the
-      # Postgres test branch never fires and pytest-django reads DATABASE_URL.
-      # TEST_DB_* would have no effect here.
+      # Set explicitly so pytest uses the CI service credentials and database;
+      # settings.py validates this is PostgreSQL before the suite starts.
       DATABASE_URL: 'postgres://postgres:postgres@localhost:5432/plant_community'  # pragma: allowlist secret
       REDIS_URL: 'redis://localhost:6379/1'
       SECRET_KEY: 'ci-django-key-for-backend-checks-abcdefghijklmnopqrstuvwxyz1234567890'

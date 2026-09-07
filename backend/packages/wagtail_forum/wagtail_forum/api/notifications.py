@@ -22,7 +22,7 @@ except ImportError:  # pragma: no cover
 
 from ..models import Notification
 from .pagination import ForumCursorPagination
-from .serializers import NotificationSerializer
+from .serializers import NotificationMarkReadRequestSerializer, NotificationSerializer
 from .versioning import UnversionedForumAPIMixin
 from .views import PrivateForumReadCacheMixin, _exclude_blocked_authors, _visible_boards
 
@@ -111,12 +111,7 @@ class NotificationMarkReadView(UnversionedForumAPIMixin, APIView):
     permission_classes = [IsAuthenticated]
 
     @extend_schema(
-        request={
-            "type": "object",
-            "properties": {
-                "ids": {"type": "array", "items": {"type": "integer"}},
-            },
-        },
+        request=NotificationMarkReadRequestSerializer,
         responses={200: MARK_READ_SCHEMA, 400: dict},
         description=(
             'Mark notifications read. Body {"ids": [...]} marks only those '
