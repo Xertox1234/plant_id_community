@@ -12,6 +12,7 @@ from django.conf import settings
 from django.utils.decorators import method_decorator
 from wagtail_forum.api import bookmarks as forum_bookmark_views
 from wagtail_forum.api import direct_messages as forum_direct_message_views
+from wagtail_forum.api import image_management as forum_image_management_views
 from wagtail_forum.api import notifications as forum_notification_views
 from wagtail_forum.api import polls as forum_poll_views
 from wagtail_forum.api import solutions as forum_solution_views
@@ -79,6 +80,11 @@ class PostWriteView(forum_views.PostWriteView):
 
 @_throttled("image_upload", "POST")
 class PostImageUploadView(forum_views.PostImageUploadView):
+    pass
+
+
+@_throttled("image_delete", "DELETE")
+class ForumImageDetailView(forum_image_management_views.ForumImageDetailView):
     pass
 
 

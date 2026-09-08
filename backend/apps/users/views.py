@@ -32,7 +32,7 @@ from .serializers import (
     UserRegistrationSerializer,
     UserSerializer,
 )
-from .signup import create_default_plant_collection
+from .signup import create_default_plant_collection, join_forum_members_group
 
 logger = logging.getLogger(__name__)
 
@@ -115,8 +115,9 @@ def register(request: Request) -> Response:
                 # Create user
                 user = serializer.save()
 
-                # Create default plant collection (shared signup side-effect)
+                # Shared signup side-effects
                 create_default_plant_collection(user)
+                join_forum_members_group(user)
 
                 # Create response with user data
                 response = Response(

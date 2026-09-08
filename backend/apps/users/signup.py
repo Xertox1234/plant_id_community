@@ -16,6 +16,8 @@ suffix, and Firebase uses a UUID suffix whose format is pinned by
 
 import logging
 
+from django.contrib.auth.models import Group
+
 from .models import UserPlantCollection
 
 logger = logging.getLogger(__name__)
@@ -41,3 +43,26 @@ def create_default_plant_collection(user) -> UserPlantCollection:
     if created:
         logger.info("[SIGNUP] Created default plant collection for user id=%s", user.id)
     return collection
+
+
+def join_forum_members_group(user) -> None:
+    """Add the user to the "Forum Members" Wagtail permission group.
+
+    This is what makes ``wagtail.permission_policies.collections.
+    CollectionOwnershipPermissionPolicy`` treat the user as able to upload to
+    the forum's image collection and, per that policy's ownership rule, to
+    edit/delete images they personally uploaded there (see
+    ``apps.forum_host.bootstrap._ensure_forum_image_permissions``, which
+    grants the group ``add_image``/``choose_image`` on that collection).
+
+    ``group.user_set.add()`` is a no-op if the user is already a member, so
+    this is safe to call unconditionally on every signup path. The group
+    itself is normally created by that same post_migrate bootstrap, but
+    ``get_or_create`` here is a defensive fallback in case a request reaches
+    this before that signal has run (e.g. a fresh test database signing up a
+    user ahead of post_migrate) — mirrors why ``create_default_plant_
+    collection`` above uses ``get_or_create`` rather than assuming its target
+    already exists.
+    """
+    group, _ = Group.objects.get_or_create(name="Forum Members")
+    group.user_set.add(user)
