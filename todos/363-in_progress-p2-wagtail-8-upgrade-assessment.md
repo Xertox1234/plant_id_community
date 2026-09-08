@@ -56,7 +56,7 @@ untested upstream. Wagtail 8.0 is the first release classifying Django 6.1.
 ## Acceptance Criteria
 
 - [x] `wagtail==8.0` in `backend/requirements.txt`, `pip check` clean
-- [ ] Full backend suite green, CI green — suite green locally (2328 passed); CI pending PR
+- [x] Full backend suite green, CI green — 2328 passed locally; CI 17/17 on PR #710
 - [x] `/cms/` login, dashboard, explorer listing and page-edit smoke tests all pass
 - [ ] Forum admin views and the `USE_R2` rendition path manually exercised once —
       forum admin done; **real-R2 round trip NOT exercised** (no credentials
@@ -287,3 +287,15 @@ worktree's gitignored `media/`.
 Both info findings were confirmations, no action: the flat freeze is internally
 consistent, and `wagtailcore.0098_apitoken` will apply via `railway.json`'s
 `preDeployCommand: python manage.py migrate --noinput` on the next deploy.
+
+### 2026-09-07 - CI green on PR #710
+
+All 17 required checks pass. The decisive one is the backend suite job
+(`Run backend test suite`), which runs the same 2336 tests against the
+PostgreSQL 16 + Redis 7 service containers rather than this worktree's local
+Postgres. Also green: `No new dependency advisories`, `Backend Python Security
+Scan` and `CodeQL`, which together cover the four new/bumped pins.
+
+Remaining before archive: acceptance criterion 4's real-R2 half, tracked as
+todo 371. This todo stays `in_progress` until that is either verified or
+explicitly retired — an operator decision, not an automated one.
