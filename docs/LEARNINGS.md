@@ -5357,3 +5357,70 @@ pin took effect, so it fails loudly instead of quietly no-opping.
   Wagtail 8.0's declared requirements against our pins with `packaging`
   specifiers found every conflict in one pass, and also showed that three of the
   "new" dependencies the todo predicted were already pinned and in range.
+
+## 2026-09-07 — A sourceless deploy does not age, it rebuilds the old tree (todos 372/373)
+
+`forum-prune-cron` is a Railway service with **no repo source** — its config has
+no `source` block at all, where the web service carries
+`repo/branch/rootDirectory`. It was known that merges to `main` never reach it;
+that tradeoff is written down in `backend/docs/deployment/railway.md`.
+
+What was not understood is the mechanism. A Railway **`reason: "redeploy"` of a
+sourceless service re-runs the build from the retained upload context.** It is
+not serving a frozen image that quietly ages — it actively rebuilds the old
+tree, resolving that old `requirements.txt` from scratch, every time. Its
+2026-09-06 redeploy therefore installed `wagtail-7.4.2`, `Django-6.0.7`, and
+`nltk-3.9.4 safety-3.6.2 bandit-1.9.4 llm-0.27.1` — the exact packages #659
+(`07a27c0`, todo 355 slice 1) had removed from `main` **the day before**, the
+subtree carrying the 71-advisory epic's only unpatched critical.
+
+*Root cause of the blind spot:* Dependabot reads the **repo**, and the repo was
+clean. Nothing in CI, Dependabot, or the security epic's own tripwires can see a
+container built from an upload. "71 advisories → 0" was true of `main` and of
+the web container, and was never true of this one — the same shape as todo 356's
+false green, one layer further out: a check whose scope silently excluded the
+thing it was believed to cover.
+
+*How to read what a snapshot actually contains:* `get-logs` with
+`types: ["build"]` on the deployment id — because a redeploy re-runs the build,
+pip's resolved versions are right there (`Successfully installed …`). Better,
+pip prints `(from -r requirements.txt (line N))`, and **those line numbers
+identify the exact commit**: `wagtail==7.4.2` at line 219 with the editable at
+229 matched `77287e3` (2026-07-26) and nothing else. Provenance without shell
+access to the container.
+
+### Quote "current" versions from `origin/main`, never the working tree
+
+The first report of this said the cron was one *patch* behind (7.4.2 vs 7.4.3).
+It was a *major* version behind (8.0), because the local checkout was one commit
+short of #710 and `grep wagtail== backend/requirements.txt` answered for a tree
+that no longer existed. The same stale read then put a wrong line number (209
+instead of 211) into the todo — inside the bullet whose own framing was
+"provenance is exact, not inferred" — where code review caught it.
+
+*Rule:* any claim about what `main` currently pins comes from `git show
+origin/main:<file>` after a `git fetch`, not from the checkout. A working tree
+is a claim about the past.
+
+### Railway CLI mechanics for a snapshot re-upload
+
+- `railway up <absolute path outside the linked repo>` fails with a bare
+  **`prefix not found`**. Run from *inside* the context directory instead; `up`
+  accepts `-p/--project`, so a temp directory needs no `railway link`.
+- Build that context with `git archive origin/main backend | tar -x -C <tmp>`
+  rather than swapping `railway.json` inside the working checkout. It guarantees
+  the upload is exactly `origin/main` (see the stale-tree lesson above), and it
+  leaves a shared checkout untouched — this repo's main checkout usually has a
+  peer agent's uncommitted work in it.
+- macOS has no `timeout`; don't wrap the command in one.
+
+### `dependencies:` cannot express "must happen before"
+
+Todo 373 must be actioned *before* 372, because 372 attaches a repo source,
+which supersedes the deployment whose log is 373's only evidence — and Railway
+returns nothing for a superseded deployment. Review proposed
+`dependencies: ["372"]`, which means *blocked by* and would have forced exactly
+the destructive order (and, per the todo 371 entry above, silently hidden 373
+from `todo-batch`). A "must precede" constraint has no frontmatter field: state
+it as a numbered step in the *other* todo, at the point where the destructive
+action happens.
