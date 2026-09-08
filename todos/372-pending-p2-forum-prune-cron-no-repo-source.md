@@ -39,7 +39,7 @@ Discovered 2026-09-07 by direct inspection of the Railway API (not an audit run)
 - Provenance is exact, not inferred: that same log reads
   `wagtail==7.4.2 (from -r requirements.txt (line 219))` with the editable
   `packages/wagtail_forum` at line 229, which matches commit `77287e3`
-  (2026-07-26) and **not** `origin/main` (lines 201 / 209).
+  (2026-07-26) and **not** `origin/main` (lines 201 / 211).
 - `nltk`, `safety` and `bandit` were removed from `backend/requirements.txt` —
   and `llm` bumped to 0.31.1 — by **#659 (`07a27c0`, todo 355 slice 1,
   2026-09-05)**, one day *before* that rebuild reinstalled them. That subtree
@@ -63,7 +63,8 @@ Discovered 2026-09-07 by direct inspection of the Railway API (not an audit run)
 - **Pros:** the cron follows `main` like everything else; dependency bumps stop
   shipping half; Dependabot's view becomes true for this service too.
 - **Cons:** every merge to `main` redeploys the cron, not just backend changes
-  (harmless — it exits immediately and only the schedule fires a run).
+  (harmless — a deploy does **not** run the command at all; only the 03:00
+  UTC schedule fires a run).
 - **Effort:** ~10 minutes in the dashboard.
 - **Risk:** low, but not zero — a wrong config-as-code setting makes the service
   inherit the web `railway.json` and try to serve gunicorn (see step 3).
@@ -81,6 +82,10 @@ Discovered 2026-09-07 by direct inspection of the Railway API (not an audit run)
 
 ## Recommended Action
 
+0. **Do todo 373 first, or capture its evidence before starting.** Attaching a
+   source triggers a new deployment, which supersedes `d467efc6` — and Railway
+   returns nothing for a superseded deployment's log, so 373's acceptance
+   criteria become permanently unverifiable the moment this step runs.
 1. Railway dashboard → `forum-prune-cron` → **Settings → Source** → connect
    GitHub repo `Xertox1234/plant_id_community`, branch `main`.
 2. **Settings → Root Directory** = `backend`.

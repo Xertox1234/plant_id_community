@@ -83,6 +83,16 @@ code that last ran successfully.
 
 ## Notes
 
+**Do this before todo 372, despite the lower priority.** Actioning 372 attaches
+a repo source, which triggers a deployment that supersedes `d467efc6`; Railway
+returns nothing for a superseded deployment's log, so this todo's evidence would
+be destroyed rather than merely aged. This is deliberately *not* expressed as
+`dependencies: ["372"]` — in this repo that field means *blocked by*, which
+would force exactly the wrong order, and it would additionally make this todo
+invisible to `todo-batch` as blocked by an out-of-batch dependency (the failure
+mode already recorded on todo 371). The ordering is stated as step 0 of 372's
+Recommended Action instead, where the destructive step actually happens.
+
 p3 because the prune job is low-stakes maintenance and `restartPolicyType:
 NEVER` means a failure cannot cascade. It becomes p2 if the run did **not**
 fire, because the previous snapshot's schedule had been live and firing since
