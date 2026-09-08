@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: p3
 issue_id: "373"
 tags: [railway, deployment, forum, verification, wagtail]
@@ -65,15 +65,44 @@ code that last ran successfully.
 
 ## Acceptance Criteria
 
-- [ ] The live cron deployment's log shows a `prune_forum_tombstones` run dated
-      on or after 2026-09-08T03:00Z
-- [ ] That run completed with no traceback (specifically no Wagtail 8 import or
+- [x] The live cron deployment's log shows a `prune_forum_tombstones` run dated
+      on or after 2026-09-08T03:00Z — fired 2026-09-08T03:01:47Z
+- [x] That run completed with no traceback (specifically no Wagtail 8 import or
       removed-API error)
-- [ ] The container exited rather than hanging
-- [ ] If it did not fire: the `cronSchedule` is confirmed on the service and
-      re-applied, and this todo is re-raised to p2
+- [x] The container exited rather than hanging — deployment reports `SUCCESS`
+- [~] If it did not fire: the `cronSchedule` is confirmed on the service and
+      re-applied, and this todo is re-raised to p2 — **not applicable**, it
+      fired. Left unchecked rather than ticked: `[x]` means shipped, and this
+      branch was never taken.
 
 ## Work Log
+
+### 2026-09-08 - Verified and completed
+
+The 03:00 UTC schedule fired at **03:01:47Z** (the documented 1–2 minute lag)
+under the new snapshot and completed cleanly:
+
+```
+Starting Container
+[settings] ENABLE_FILE_LOGGING=True (argv=['manage.py', 'prune_forum_tombstones'])
+Pruned 0 tombstone row(s) older than 30 day(s).
+```
+
+- `argv` confirms the config-as-code `startCommand` survived the re-upload, so
+  `railway.cron.json` is still the effective config and the service did not
+  inherit the web `railway.json`.
+- `Pruned 0 …` is a successful no-op, not a failure — nothing was older than the
+  30-day retention. The command reached the database and returned.
+- No traceback: the first execution of Wagtail 8.0 code in this container,
+  against a database the web service migrated to 8.0
+  (`wagtailcore.0098_apitoken`), raised nothing. That was the untested pairing.
+- The `[ENV VALIDATION]` warnings above the run are pre-existing and expected —
+  the cron carries a deliberately reduced env set (no Trefle / OpenAI /
+  PlantHealth keys, which `prune_forum_tombstones` does not need) — and the log
+  stream tags ordinary INFO as `[ERRO]`, as the deployment doc records.
+
+Read with `get-logs types: ["deploy"]` on deployment
+`d467efc6-7a1f-4a74-888c-78634c12746d`.
 
 ### 2026-09-07 - Filed
 

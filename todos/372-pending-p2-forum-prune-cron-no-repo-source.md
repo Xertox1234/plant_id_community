@@ -82,10 +82,15 @@ Discovered 2026-09-07 by direct inspection of the Railway API (not an audit run)
 
 ## Recommended Action
 
-0. **Do todo 373 first, or capture its evidence before starting.** Attaching a
-   source triggers a new deployment, which supersedes `d467efc6` — and Railway
-   returns nothing for a superseded deployment's log, so 373's acceptance
-   criteria become permanently unverifiable the moment this step runs.
+0. ~~**Do todo 373 first, or capture its evidence before starting.**~~
+   **Resolved 2026-09-08 — no longer blocking.** The hazard was that attaching a
+   source supersedes deployment `d467efc6`, and Railway returns nothing for a
+   superseded deployment's log. Todo 373's evidence is now captured and archived
+   (the 03:00 UTC prune fired at 03:01:47Z under the new snapshot and returned
+   `Pruned 0 tombstone row(s) older than 30 day(s).`), so this step is free to
+   proceed. Kept visible rather than deleted, because the same hazard applies to
+   *any* future attempt to verify a run from a snapshot deployment: capture the
+   log before you replace the deployment.
 1. Railway dashboard → `forum-prune-cron` → **Settings → Source** → connect
    GitHub repo `Xertox1234/plant_id_community`, branch `main`.
 2. **Settings → Root Directory** = `backend`.
