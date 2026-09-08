@@ -67,6 +67,18 @@ Compact checklist auto-injected before edits. Long-form:
   → `MultipleObjectsReturned`/409. Seed via an idempotent management command and
   wire it into the deploy `startCommand` (`railway.json`) — a documented-but-unwired
   seed command ships an empty forum to prod.
+- **A `post_migrate` receiver must tolerate a TRUNCATED database, and must never
+  raise.** `post_migrate` does not only fire after `migrate`: Django's `flush`
+  re-emits it, and `flush` is what `TransactionTestCase._fixture_teardown` runs.
+  Wagtail's root `Page` and root `Collection` come from **data migrations**,
+  which do not re-run after a flush — so `Collection.get_first_root_node()`
+  returns `None` and any `root.get_children()` explodes. Because it happens
+  inside `flush`, the exception fails the TEARDOWN of every
+  `TransactionTestCase` in the suite: one forum receiver took out 12
+  blog-analytics tests and a migration test, none of which touch the forum.
+  Guard the tree lookup and `return` (the next real `migrate` recreates it),
+  index permission dicts with `.get()` not `[...]`, and treat "this receiver
+  raised" as a deploy-breaker — `manage.py migrate` fails, not warns. Todo 374.
 - **Serialize a StreamField body from `stream_value.raw_data`, never by iterating
   the resolved StreamValue.** Plain `for bound in stream_value` makes Wagtail
   bulk-resolve each block type — and for a `ChooserBlock` (image/document/page)

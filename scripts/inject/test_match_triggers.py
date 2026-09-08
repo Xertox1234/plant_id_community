@@ -166,6 +166,51 @@ class TestRouterImport(unittest.TestCase):
         self.assertNotIn("react-router-import", ids(hits))
 
 
+class TestPostMigrateReceiverTrigger(unittest.TestCase):
+    """Todo 374 — asserted against the REAL docs/rules/triggers.json.
+
+    The motivating bug: a `post_migrate` receiver called
+    `Collection.get_first_root_node().get_children()`. `flush` re-emits
+    `post_migrate` after truncating everything, and Wagtail's root collection
+    comes from a data migration that does not re-run — so the receiver raised
+    inside `TransactionTestCase` teardown and failed 12 unrelated blog tests.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        root = os.path.dirname(
+            os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        )
+        cls.real = mt.load_triggers(root)
+
+    def test_new_post_migrate_receiver_fires(self):
+        tn, ti = write(
+            "backend/apps/garden/bootstrap.py",
+            "from django.db.models.signals import post_migrate\n\n"
+            "def seed(sender, **kwargs):\n    pass\n\n"
+            "post_migrate.connect(seed)\n",
+        )
+        hits = mt.find_matches(tn, ti, self.real, None)
+        self.assertIn("post-migrate-receiver-must-not-raise", ids(hits))
+
+    def test_guarded_receiver_is_silent(self):
+        """The shipped fix must not fire on itself.
+
+        The negative exercises the pattern rather than avoiding it: this file
+        DOES contain `post_migrate`, so only the guard suppresses it.
+        """
+        tn, ti = write(
+            "backend/apps/forum_host/bootstrap.py",
+            "from django.db.models.signals import post_migrate\n\n"
+            "def _ensure(sender, **kwargs):\n"
+            "    if Collection.get_first_root_node() is None:\n"
+            "        return\n\n"
+            "post_migrate.connect(_ensure)\n",
+        )
+        hits = mt.find_matches(tn, ti, self.real, None)
+        self.assertNotIn("post-migrate-receiver-must-not-raise", ids(hits))
+
+
 class TestRequestsExceptionUrlAttribute(unittest.TestCase):
     """Todo 358 review — asserted against the REAL docs/rules/triggers.json.
 
