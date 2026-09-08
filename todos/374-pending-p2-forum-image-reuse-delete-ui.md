@@ -184,6 +184,41 @@ found nine issues; all are fixed in the backend PR:
   `image_block_pk`. Added the `ImageBlock` dict shape production actually
   writes.
 
+### 2026-09-08 - A tenth finding, caught by CI rather than review
+
+`_ensure_forum_image_permissions` is a `post_migrate` receiver, and
+`post_migrate` does **not** only fire after `migrate`. Django's `flush` —
+which `TransactionTestCase._fixture_teardown` runs — truncates every table and
+then re-emits it. Wagtail's root Collection comes from a **data migration**,
+which does not re-run, so the receiver ran against an empty collection tree and
+`get_forum_image_collection()` called `.get_children()` on the `None` that
+`Collection.get_first_root_node()` returns.
+
+Because that happens inside `flush`, it failed the *teardown* of every
+`TransactionTestCase` in the suite: **12 blog-analytics tests plus a forum
+migration test**, none of which touch forum images. Guarded now — the receiver
+skips with a debug log when there is no root, since Wagtail recreates it on the
+next real `migrate` and there is nothing to grant permissions on until then.
+
+This is the same defect class as the `image_perms[codename]` KeyError above:
+this receiver runs in contexts where the database is not in the shape it
+assumes, and raising there breaks things far away from the forum.
+
+**Two process notes, both mistakes worth not repeating:**
+
+- I had reported those 14 failures as "pre-existing and unrelated", on the
+  strength of a revert check. The check was wrong: it reverted only *my* todo
+  358 files and left the peer's uncommitted `bootstrap.py` active in **both**
+  arms, so the control and the treatment shared the actual cause. A revert
+  check only isolates what it actually reverts. CI caught it because CI runs a
+  tree with nothing uncommitted.
+- The first regression test written for this was **decorative**: a
+  `transaction=True` test asserting only that teardown did not explode passed
+  with the guard REMOVED. Replaced with one that empties the collection tree
+  directly and calls the receiver, mutation-checked to fail without the guard.
+  This is exactly the rule codified from todo 358's review an hour earlier —
+  write the case that DISCRIMINATES, then prove it by mutation.
+
 **Still open, and the reason this todo stays pending:** every acceptance
 criterion below is client-side. `web/src` and `plant_community_mobile/lib`
 still have no call to either endpoint. The difference now is that the backend

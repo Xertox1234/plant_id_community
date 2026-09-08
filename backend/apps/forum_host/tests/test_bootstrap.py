@@ -117,3 +117,30 @@ def test_image_permission_bootstrap_is_idempotent():
         ).count()
         == 1
     )
+
+
+@pytest.mark.django_db
+def test_image_permissions_skip_an_empty_collection_tree():
+    """`post_migrate` fires from `flush`, not only from `migrate`.
+
+    Django's `flush` — what `TransactionTestCase._fixture_teardown` runs —
+    TRUNCATES every table and then re-emits `post_migrate`. Wagtail's root
+    Collection comes from a data migration, which does not re-run, so the
+    receiver can legitimately see an empty collection tree and
+    `Collection.get_first_root_node()` returns None.
+
+    Raising there fails the teardown of every TransactionTestCase in the
+    suite: it cost 12 blog-analytics tests and a forum migration test, none of
+    which touch forum images.
+
+    The tree is emptied directly rather than by relying on a
+    `transaction=True` teardown — a test that only asserted "teardown did not
+    explode" passed with the guard REMOVED, so it discriminated nothing.
+    """
+    from apps.forum_host.bootstrap import _ensure_forum_image_permissions
+    from wagtail.models import Collection
+
+    Collection.objects.all().delete()
+    assert Collection.get_first_root_node() is None
+
+    _ensure_forum_image_permissions()  # must not raise

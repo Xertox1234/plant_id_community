@@ -91,8 +91,28 @@ def _ensure_forum_image_permissions():
     needed here.
     """
     from django.contrib.auth.models import Group, Permission
-    from wagtail.models import GroupCollectionPermission
+    from wagtail.models import Collection, GroupCollectionPermission
     from wagtail_forum.collections import get_forum_image_collection
+
+    # `post_migrate` does not only fire after `migrate`. Django's `flush`
+    # TRUNCATES every table and then re-emits it, which is exactly what
+    # `TransactionTestCase._fixture_teardown` does — and Wagtail's root
+    # Collection is created by a DATA MIGRATION, which does not re-run. So at
+    # this point the collection tree can legitimately be empty, and
+    # `get_forum_image_collection()` would call `.get_children()` on the None
+    # that `Collection.get_first_root_node()` returns.
+    #
+    # Raising here is not an option: this receiver runs inside `flush`, so an
+    # exception fails the TEARDOWN of every TransactionTestCase in the suite
+    # (12 blog-analytics tests plus a migration test, none of them related to
+    # the forum). Wagtail recreates the root on the next real `migrate`; there
+    # is nothing to grant permissions on until it does.
+    if Collection.get_first_root_node() is None:
+        logger.debug(
+            "[FORUM] No root collection yet — skipping forum image "
+            "permissions. Expected during a post-flush post_migrate."
+        )
+        return
 
     collection = get_forum_image_collection()
     image_perms = {
