@@ -992,5 +992,63 @@ class TestPackageLockOnlySkewTrigger(unittest.TestCase):
         self.assertNotIn(self.TRIGGER, ids(mt.find_matches(tn, ti, self.real, None)))
 
 
+class TestMediaRootIsolationTrigger(unittest.TestCase):
+    """Todo 363 codification — asserted against the REAL docs/rules/triggers.json.
+
+    The motivating bug: a fixture pinned `settings.MEDIA_ROOT` to isolate probe
+    image writes, which is correct with local storage and a silent no-op under
+    `USE_R2=True` — settings.py swaps `STORAGES["default"]` to `S3Storage`,
+    which ignores MEDIA_ROOT, so the probe files would have gone to the real R2
+    bucket. The positive fixture below is the real pre-fix fixture body, not an
+    idealised version of it.
+    """
+
+    TRIGGER_ID = "media-root-isolation-needs-storages"
+    PATH = "backend/apps/core/tests/test_image_rendition_formats.py"
+
+    @classmethod
+    def setUpClass(cls):
+        root = os.path.dirname(
+            os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        )
+        cls.real = mt.load_triggers(root)
+
+    def test_media_root_only_fixture_fires(self):
+        tn, ti = write(
+            self.PATH,
+            '@pytest.fixture(autouse=True)\n'
+            'def _isolated_media_root(settings, tmp_path):\n'
+            '    """Keep probe uploads out of the real MEDIA_ROOT."""\n'
+            "    settings.MEDIA_ROOT = str(tmp_path)\n",
+        )
+        hits = mt.find_matches(tn, ti, self.real, None)
+        self.assertIn(self.TRIGGER_ID, ids(hits))
+
+    def test_pinning_storages_as_well_stays_silent(self):
+        tn, ti = write(
+            self.PATH,
+            '@pytest.fixture(autouse=True)\n'
+            'def _isolated_media_root(settings, tmp_path):\n'
+            "    settings.MEDIA_ROOT = str(tmp_path)\n"
+            "    settings.STORAGES = {\n"
+            "        **settings.STORAGES,\n"
+            '        "default": {\n'
+            '            "BACKEND": "django.core.files.storage.FileSystemStorage",\n'
+            '            "OPTIONS": {"location": str(tmp_path)},\n'
+            "        },\n"
+            "    }\n",
+        )
+        hits = mt.find_matches(tn, ti, self.real, None)
+        self.assertNotIn(self.TRIGGER_ID, ids(hits))
+
+    def test_unrelated_backend_test_file_stays_silent(self):
+        tn, ti = write(
+            "backend/apps/core/tests/test_something_else.py",
+            "def test_nothing_to_do_with_storage():\n    assert True\n",
+        )
+        hits = mt.find_matches(tn, ti, self.real, None)
+        self.assertNotIn(self.TRIGGER_ID, ids(hits))
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

@@ -1602,5 +1602,21 @@
     "source": "codify: fix/todo-356-root-npm-manifest-audit",
     "added": "2026-09-07",
     "severity": "warn"
+  },
+  {
+    "id": "media-root-isolation-needs-storages",
+    "domains": [
+      "testing"
+    ],
+    "path_glob": [
+      "backend/**/test_*.py"
+    ],
+    "content_present": "settings\\.MEDIA_ROOT\\s*=",
+    "content_absent": "settings\\.STORAGES",
+    "message": "Pinning settings.MEDIA_ROOT alone does not isolate file writes: under USE_R2=True the default storage is S3Storage, which ignores MEDIA_ROOT, so probe files land in the real R2 bucket. Also pin settings.STORAGES[\"default\"] to FileSystemStorage with OPTIONS {\"location\": str(tmp_path)}, and assert default_storage.location == str(tmp_path).",
+    "pattern_ref": "docs/rules/testing.md",
+    "source": "codify: chore/todo-363-wagtail-8",
+    "added": "2026-09-07",
+    "severity": "warn"
   }
 ]
