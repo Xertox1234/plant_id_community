@@ -5527,3 +5527,54 @@ assertion, add X's nearest disallowed neighbour. Then verify by mutation —
 revert the implementation to the naive version and confirm the test goes red.
 Ours now does (restoring the blanket whitelist fails on `resp url`); before the
 review it would not have.
+
+## 2026-09-08 — `post_migrate` fires from `flush`, and a receiver that raises there breaks unrelated suites (todo 374)
+
+`apps/forum_host/bootstrap.py`'s `_ensure_forum_image_permissions` did:
+
+```python
+collection = get_forum_image_collection()   # -> root.get_children()...
+```
+
+`post_migrate` is not only "after `migrate`". Django's `flush` re-emits it, and
+`flush` is exactly what `TransactionTestCase._fixture_teardown` runs. Wagtail's
+root `Collection` is created by a **data migration**, which does not re-run — so
+after the truncation `Collection.get_first_root_node()` is `None` and
+`.get_children()` raises.
+
+The blast radius is the interesting part: because it raises *inside* `flush`, it
+failed the **teardown of every `TransactionTestCase` in the suite** — 12
+`apps/blog` analytics tests and a `wagtail_forum` migration test, none of which
+touch forum images. The stack trace points at `flush.py`, not at the forum, so
+the failures read as unrelated flakes.
+
+*Rules:*
+
+- A `post_migrate` receiver must tolerate a database that is empty or
+  mid-truncation, and must never raise: `manage.py migrate` fails rather than
+  warns, and a test-suite `flush` takes unrelated tests with it. Guard tree
+  lookups, use `.get()` over `[...]`, log and return.
+- This was the SECOND fix to the same receiver in one PR for the same reason —
+  a `KeyError` on `image_perms[codename]` had already been hardened. When a
+  function turns out to run in a context you did not design for, re-audit the
+  whole function for that context, not just the line that failed.
+
+### Two process failures worth more than the bug
+
+**A revert check only isolates what it actually reverts.** These 14 failures
+were reported as "pre-existing and unrelated" on the strength of re-running the
+suites with my own changes restored to HEAD — 24 failed either way. But the
+control and the treatment both still had the peer's *uncommitted* `bootstrap.py`
+active in the working tree, so both arms shared the real cause. "Not caused by
+my diff" was generalized into "not caused by anything." CI caught it, because
+CI runs a tree with nothing uncommitted. When a shared checkout holds another
+session's uncommitted work, the working tree is not a control.
+
+**The first regression test was decorative — one hour after codifying the rule
+against exactly that.** A `@pytest.mark.django_db(transaction=True)` test whose
+body asserted something trivial, on the theory that its teardown flush would
+reproduce the crash, **passed with the guard removed**. Replaced with one that
+empties the collection tree directly and calls the receiver, which fails at
+`collections.py:26` without the guard. Writing the reassuring test instead of
+the discriminating one is the default failure mode, and knowing the rule is not
+the same as applying it — run the mutation, every time.

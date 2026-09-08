@@ -1634,5 +1634,22 @@
     "source": "codify: chore/todo-358-widen-requests-drift-guard",
     "added": "2026-09-08",
     "severity": "warn"
+  },
+  {
+    "id": "post-migrate-receiver-must-not-raise",
+    "domains": [
+      "wagtail",
+      "database"
+    ],
+    "path_glob": [
+      "backend/**/*.py"
+    ],
+    "content_present": "post_migrate",
+    "content_absent": "get_first_root_node\\(\\) is None",
+    "message": "post_migrate does NOT only fire after migrate — Django flush re-emits it, and flush is what TransactionTestCase teardown runs. Wagtail root Page/Collection come from DATA migrations that do not re-run, so get_first_root_node() returns None and root.get_children() explodes. Raising here fails the teardown of EVERY TransactionTestCase in the suite (one forum receiver took out 12 blog tests) and turns manage.py migrate into a failed deploy. Guard the tree lookup and return; index permission dicts with .get(), not [...]. Todo 374.",
+    "pattern_ref": "docs/rules/wagtail.md",
+    "source": "codify: chore/codify-post-migrate-flush",
+    "added": "2026-09-08",
+    "severity": "warn"
   }
 ]
