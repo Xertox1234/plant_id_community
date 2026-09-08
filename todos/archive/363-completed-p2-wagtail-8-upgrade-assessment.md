@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: p2
 issue_id: "363"
 tags: [dependencies, wagtail, django]
@@ -58,9 +58,11 @@ untested upstream. Wagtail 8.0 is the first release classifying Django 6.1.
 - [x] `wagtail==8.0` in `backend/requirements.txt`, `pip check` clean
 - [x] Full backend suite green, CI green — 2328 passed locally; CI 17/17 on PR #710
 - [x] `/cms/` login, dashboard, explorer listing and page-edit smoke tests all pass
-- [ ] Forum admin views and the `USE_R2` rendition path manually exercised once —
-      forum admin done; **real-R2 round trip NOT exercised** (no credentials
-      locally) → split out as **todo 371**, see Work Log
+- [x] Forum admin views exercised — 24 admin tests + `test_moderation_queue.py`,
+      plus the menu-order render checked empirically
+- [~] `USE_R2` rendition path manually exercised once — **retired from this todo,
+      re-pointed to [todo 371]**. Not done here and not claimed as done: no R2
+      credentials exist locally. `[~]` means moved, not shipped.
 - [x] Any new deprecation warnings triaged, not merely observed
 
 ## Work Log
@@ -350,3 +352,44 @@ discoverable.
 performing 371* — a deadlock, and `todo-batch:112` would have *silently* excluded
 371 as blocked by an out-of-batch dependency. 371 needs only the merged code, not
 this todo file's status, so its `dependencies` are now empty.
+
+### 2026-09-07 - Completed and archived
+
+Archived on the operator's call, with the upgrade verified working and the one
+residual re-pointed rather than checked off.
+
+**Why this archives with a `[~]` and not a fifth `[x]`.** Acceptance criterion 4
+bundled two unrelated things. The forum-admin half is done and is now its own
+checked line. The `USE_R2` rendition round trip is **not** done — there are no R2
+credentials in a local checkout — so it is marked `[~]` (moved) and carried by
+**todo 371**, following this repo's rule that a finding which *moved* is
+re-pointed, never checked off, because `[x]` means shipped and nobody re-audits
+a checked box. Todo 371 is `status: pending` with empty `dependencies`, so every
+sweep can see it.
+
+**Evidence the upgrade is working:**
+
+| Gate | Result |
+|---|---|
+| `pip install -r requirements.txt` | `INSTALL_RC=0` |
+| `pip check` | `PIPCHECK_RC=0` |
+| `manage.py check` | "System check identified no issues (0 silenced)." |
+| `makemigrations --check --dry-run` | "No changes detected" |
+| Full suite, PostgreSQL | 2328 passed, 8 skipped, 0 failed (26m03s) |
+| CI on PR #710 | 17/17 at `c510cbb`; only tests/docs changed after |
+| `RemovedInWagtail*` warnings | 0 — and none from inside `site-packages/wagtail/` |
+| OSV on all four new/bumped pins | clean |
+
+**What shipped beyond the version bump:** `draftjs_exporter` 5.2.0→7.1.0 and
+`modelsearch` 1.3.1→1.3.2 (both forced by hard resolution conflicts this todo
+did not anticipate), new pins `django-ninja==1.7.0` and `swapper==1.5.0`, a
+mutation-checked guardrail test for the deliberate AVIF/WebP rendition-format
+change, and codification into `docs/LEARNINGS.md`,
+`backend/docs/patterns/domain/wagtail.md`, `docs/rules/testing.md` and a
+write-time trigger.
+
+**Review:** bundled deep pass returned 0 critical / 0 high and 2 medium, both
+introduced by this branch and both repaired (`c8615c3`) — a storage-isolation
+fixture that no-opped under `USE_R2=True`, and this todo's own `in_progress`
+status hiding it from every sweep. The checklist pass (`code-review-orchestrator`)
+returned 0 critical / 0 high, 3 medium, all addressed.
