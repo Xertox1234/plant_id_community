@@ -166,6 +166,78 @@ class TestRouterImport(unittest.TestCase):
         self.assertNotIn("react-router-import", ids(hits))
 
 
+class TestRequestsExceptionUrlAttribute(unittest.TestCase):
+    """Todo 358 review — asserted against the REAL docs/rules/triggers.json.
+
+    The motivating bug: the drift guard's safe-set marked every name under any
+    attribute access as safe, so ``e.response.url`` / ``e.request.url`` /
+    ``e.args[0]`` -- each of which rebuilds the prepared URL the guard exists to
+    keep out of logs -- passed unflagged. Fixtures below are the exact lines
+    from that guard's planted specimen, not idealised ones.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        root = os.path.dirname(
+            os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        )
+        cls.real = mt.load_triggers(root)
+
+    def test_response_url_fires(self):
+        tn, ti = write(
+            "backend/apps/plant_identification/services/some_service.py",
+            '        logger.error(f"resp url: {e.response.url}")\n',
+        )
+        hits = mt.find_matches(tn, ti, self.real, None)
+        self.assertIn("requests-exception-url-attribute", ids(hits))
+
+    def test_request_url_fires(self):
+        tn, ti = write(
+            "backend/apps/plant_identification/services/some_service.py",
+            '        logger.error(f"req url: {e.request.url}")\n',
+        )
+        hits = mt.find_matches(tn, ti, self.real, None)
+        self.assertIn("requests-exception-url-attribute", ids(hits))
+
+    def test_args_index_fires(self):
+        tn, ti = write(
+            "backend/apps/plant_identification/services/some_service.py",
+            '        logger.error(f"args: {e.args[0]}")\n',
+        )
+        hits = mt.find_matches(tn, ti, self.real, None)
+        self.assertIn("requests-exception-url-attribute", ids(hits))
+
+    def test_approved_status_code_shape_is_silent(self):
+        """The nearest APPROVED neighbour must not fire.
+
+        This is the negative that actually exercises the regex: it is an
+        attribute chain on the same bound name, differing only in the final
+        attribute. A negative with no attribute access at all would prove
+        nothing.
+        """
+        tn, ti = write(
+            "backend/apps/plant_identification/services/some_service.py",
+            '        logger.error(f"{type(e).__name__} {e.response.status_code}")\n',
+        )
+        hits = mt.find_matches(tn, ti, self.real, None)
+        self.assertNotIn("requests-exception-url-attribute", ids(hits))
+
+    def test_unrelated_exception_attribute_is_silent(self):
+        """The one pre-existing repo occurrence, verbatim, must stay silent.
+
+        ``apps/users/tests/test_oauth_google.py:158`` reads
+        ``ctx.exception.response.url`` -- a Django redirect, not a requests
+        exception. The bound-name prefix in the regex is what excludes it.
+        """
+        tn, ti = write(
+            "backend/apps/users/tests/test_oauth_google.py",
+            '        self.assertIn("error=unverified_email", '
+            "ctx.exception.response.url)\n",
+        )
+        hits = mt.find_matches(tn, ti, self.real, None)
+        self.assertNotIn("requests-exception-url-attribute", ids(hits))
+
+
 class TestE2ESelectorAndStateTriggers(unittest.TestCase):
     """Todo 331 codification — asserted against the REAL docs/rules/triggers.json.
 

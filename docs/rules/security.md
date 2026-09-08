@@ -268,6 +268,30 @@ Compact checklist auto-injected before edits. Long-form: `backend/docs/patterns/
   the exception object is not. Header-authenticated clients are safe by
   construction, which is a reason to prefer header auth. The same rule bans
   `str(e)` in a response *body*: it reaches the client (todo 354).
+  The drift guard is `apps/core/tests/test_requests_exception_drift.py`,
+  and since todo 358 it sweeps every `.py` under `apps/`, `packages/` and
+  `plant_community_backend/` — not just the service layer — so a handler
+  written in a view or a Celery task is covered too. Know what it cannot
+  see before reading green as safe: only calls prefixed `logger.` (a
+  `self.logger.` wrapper is invisible), and never a `raise SomeError(f"{e}")`
+  or a `return {"error": str(e)}` — neither is a logger call (todo 377). It
+  DOES now catch `logger.exception` inside a `requests` handler, bound name or
+  not, because the traceback's last line is the exception message; the legal
+  shape is an `isinstance(exc, requests.RequestException)` branch inside an
+  `except Exception` handler, which both `get_service_status` methods use. It
+  also resolves `from requests.exceptions import HTTPError`, so a handler that
+  names the class without the module is not a one-line bypass.
+- **"Not `str(e)`" is not the same as "any attribute of `e`".**
+  `e.response.url` and `e.request.url` ARE the prepared URL, and
+  `e.args[0]` IS the string `str(e)` returns — all three rebuild the leak
+  while looking like the approved `e.response.status_code` shape. The guard's
+  first version marked safe every name under any attribute access and let all
+  three through; it now matches an explicit `APPROVED_SHAPES` allowlist
+  (`type(e).__name__`, `e.response.status_code`, `e.response.text`,
+  `log_safe_api_error(e)`) and reports everything else. Sensitivity is a
+  property of the *value*, not of the syntax that reaches it — an allowlist
+  fails closed on the shape nobody thought of, a denylist does not (todo 358
+  review).
 - **Log a connection URL's parts, never the URL.** `REDIS_URL`, `DATABASE_URL`,
   `CELERY_BROKER_URL` and signed asset URLs carry the password in the userinfo
   component. `validate_environment()` logged `REDIS_URL` verbatim on every

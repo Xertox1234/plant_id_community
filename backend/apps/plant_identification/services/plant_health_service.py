@@ -12,8 +12,8 @@ import logging
 from typing import Dict, List, Optional, Union
 
 import requests
+from apps.core.utils.pii_safe_logging import log_safe_api_error
 from django.conf import settings
-from django.core.cache import cache
 from django.core.files.base import ContentFile
 from PIL import Image
 
@@ -163,7 +163,11 @@ class PlantHealthAPIService:
             return result
 
         except requests.exceptions.RequestException as e:
-            logger.error(f"plant.health API request failed: {str(e)}")
+            # NOT str(e): requests builds its message from the prepared URL.
+            # plant.health authenticates with an `Api-Key` HEADER today, so
+            # nothing in that URL is secret -- but this is one query
+            # parameter away from leaking, so the log stays URL-free.
+            logger.error(f"plant.health API request failed: {log_safe_api_error(e)}")
             if hasattr(e, "response") and e.response is not None:
                 logger.error(f"Response status: {e.response.status_code}")
                 logger.error(f"Response body: {e.response.text[:500]}")

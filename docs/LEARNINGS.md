@@ -5424,3 +5424,106 @@ the destructive order (and, per the todo 371 entry above, silently hidden 373
 from `todo-batch`). A "must precede" constraint has no frontmatter field: state
 it as a numbered step in the *other* todo, at the point where the destructive
 action happens.
+
+## 2026-09-08 — A sweep that finds no files reports green (todo 358)
+
+Todo 358's own Recommended Action prescribed the fix that would have broken it:
+
+```python
+sorted(pathlib.Path("apps").glob("*/services/*.py"))
+```
+
+That path is **CWD-relative**, and pytest never chdirs — `rootdir` is `backend/`
+only because `pytest.ini` sits there. Run the suite from the repo root and the
+glob returns `[]`, `@pytest.mark.parametrize` over an empty list collects **one
+skipped test**, and a security drift guard reports green having read no files at
+all. The hardcoded list it replaced would have raised `FileNotFoundError` — a
+loud failure traded for a silent pass in the name of making the property
+"structural".
+
+Same shape as the `npm audit` `[ -s ]` check (2026-09-07) and the archive
+tripwire (todo 355): the scope predicate was right, the enumeration it drove was
+empty, and nothing asserted the difference.
+
+*Rules:*
+
+- Anchor a file sweep on `Path(__file__).resolve().parents[N]`, never the CWD.
+- A sweep must assert it swept something. `assert len(files) > 400` costs one
+  line; without it the sweep's own failure mode is invisible.
+- Make the collapse case a permanent test, not a one-off manual check: have the
+  enumerator take its roots as a parameter, then assert
+  `_backend_python_files(roots=("no-such-directory",)) == []`. No source to
+  mutate, nothing to restore.
+
+### The tree you scan is not the tree git tracks
+
+Widening the same guard to `packages/` pulled in **120 stale `.py` files** from
+`packages/wagtail_forum/build/`, a gitignored build artefact holding a complete
+shadow copy of the package. It never appears in a fresh CI checkout, so the
+sweep silently covered a different file set locally than in CI — and a violation
+already fixed in the real source would fail from its stale twin.
+
+*Rule:* a filesystem sweep of a repo needs an artefact filter (`build`, `dist`,
+`__pycache__`, `*.egg-info`, `node_modules`, `venv`, `site-packages`), and the
+filter needs its own test. Assert against `git check-ignore --stdin` rather than
+against the list itself — that catches the artefact directory nobody thought of
+(`.tox/`, a second package's `build/`) instead of only the ones already named.
+Untracked-but-not-ignored must stay legal: it is new source someone has not
+committed yet, and a peer agent's work-in-progress lives in this checkout.
+
+## 2026-09-08 — A safe-list built from syntax, not values, permitted the leak it guarded (todo 358 review)
+
+The drift guard from todo 354 decides whether a `logger.*` call interpolates a
+`requests` exception. Its safe-set rule was:
+
+```python
+if isinstance(sub, ast.Attribute):
+    safe |= {n for n in ast.walk(sub.value) if isinstance(n, ast.Name)}
+```
+
+Read as English that is "an attribute access like `e.response.status_code` is
+fine". Read as code it is "**any** attribute access rooted at `e` is fine",
+which silently approves:
+
+- `e.response.url` — the prepared URL, query-string key included
+- `e.request.url` — same URL, other side of the exchange
+- `e.args[0]` — byte-for-byte the string `str(e)` returns
+
+All three were confirmed empirically against the shipped guard, not inferred.
+So a guard whose entire purpose is "never let the prepared URL reach a log"
+permitted three ways of writing exactly that, each looking like the one
+approved shape.
+
+Two independent reviewers found it. The fix is an explicit `APPROVED_SHAPES`
+allowlist matched against `ast.unparse(node)`.
+
+*Rules:*
+
+- **A security predicate must be an allowlist of the shapes you have reasoned
+  about, not a denylist of the ones you happened to think of.** An allowlist
+  fails closed on the shape nobody has imagined yet; the denylist here failed
+  open on three that already existed. This is the same lesson as the 2026-09-06
+  entry on `str(e)`: sensitivity is a property of the *value*, and any syntax
+  that reaches the value reaches the leak.
+- **Whitelisting by node type whitelists the whole subtree.** `ast.walk(sub.value)`
+  marks every `Name` beneath the node safe. Match the full unparsed expression
+  against the shape you mean to approve instead.
+- **"Not `str(e)`" is a much weaker claim than it reads as.** A reviewer, a rule
+  doc and a JIT trigger all stated the narrow policy; only the code stated the
+  broad one, and the code is what runs.
+
+### The anti-vacuity test was itself vacuous
+
+The guard shipped with a planted-violation self-test — the thing that is
+supposed to prove a guard can fail. It asserted a bare `{e}` *is* flagged and
+that `log_safe_api_error(e)` / `type(e).__name__` / `e.response.status_code` are
+*not*. Every one of those four assertions passes identically under the correct
+implementation and under the buggy one, because the specimen never contained a
+case the two implementations disagree about.
+
+*Rule:* a test that pins behaviour must contain the input that **separates** the
+implementation you wrote from the one you meant. For each "X is allowed"
+assertion, add X's nearest disallowed neighbour. Then verify by mutation —
+revert the implementation to the naive version and confirm the test goes red.
+Ours now does (restoring the blanket whitelist fails on `resp url`); before the
+review it would not have.

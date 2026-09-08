@@ -11,10 +11,10 @@ from typing import Dict, List, Optional, Tuple
 from urllib.parse import urlencode
 
 import requests
+from apps.core.utils.pii_safe_logging import log_safe_api_error
 from django.conf import settings
 from django.core.cache import cache
 from django.core.files.images import ImageFile
-from django.core.files.storage import default_storage
 from wagtail.images.models import Image
 
 logger = logging.getLogger(__name__)
@@ -89,7 +89,12 @@ class UnsplashImageService:
             return response.json()
 
         except requests.exceptions.RequestException as e:
-            logger.error(f"Unsplash API request failed: {url} - {str(e)}")
+            # NOT str(e): requests builds its message from the prepared URL,
+            # which carries every query parameter. `url` itself is the bare
+            # endpoint (params ride in `params=`), so it stays.
+            logger.error(
+                f"Unsplash API request failed: {url} - {log_safe_api_error(e)}"
+            )
             return None
 
     def search_plant_images(
@@ -220,9 +225,7 @@ class UnsplashImageService:
                 ]
             )
 
-            # Build attribution text
             photographer = image_data.get("photographer", {})
-            attribution = f"Photo by {photographer.get('name', 'Unknown')} on Unsplash"
 
             wagtail_image = Image(title=title, file=image_file)
             wagtail_image.save()
