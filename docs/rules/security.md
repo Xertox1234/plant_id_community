@@ -273,11 +273,14 @@ Compact checklist auto-injected before edits. Long-form: `backend/docs/patterns/
   `plant_community_backend/` — not just the service layer — so a handler
   written in a view or a Celery task is covered too. Know what it cannot
   see before reading green as safe: only calls prefixed `logger.` (a
-  `self.logger.` wrapper is invisible), never a `raise SomeError(f"{e}")`,
-  and never `logger.exception` with a constant message — that one still
-  emits the exception text through the traceback, which is why both
-  `get_service_status` methods branch on `isinstance(exc,
-  requests.RequestException)` instead.
+  `self.logger.` wrapper is invisible), and never a `raise SomeError(f"{e}")`
+  or a `return {"error": str(e)}` — neither is a logger call (todo 377). It
+  DOES now catch `logger.exception` inside a `requests` handler, bound name or
+  not, because the traceback's last line is the exception message; the legal
+  shape is an `isinstance(exc, requests.RequestException)` branch inside an
+  `except Exception` handler, which both `get_service_status` methods use. It
+  also resolves `from requests.exceptions import HTTPError`, so a handler that
+  names the class without the module is not a one-line bypass.
 - **"Not `str(e)`" is not the same as "any attribute of `e`".**
   `e.response.url` and `e.request.url` ARE the prepared URL, and
   `e.args[0]` IS the string `str(e)` returns — all three rebuild the leak

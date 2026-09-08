@@ -20,9 +20,6 @@ What the guard does NOT see -- so a green run is not misread:
   through ``self.logger.`` or ``log.`` is invisible. ``apps/core/utils/
   structured_logger.py`` is the only code in that shape and is imported
   nowhere.
-* ``logger.exception("constant message")`` passes, yet still writes the
-  exception message via the traceback. That is why both ``get_service_status``
-  methods branch on ``isinstance(exc, requests.RequestException)`` instead.
 * ``raise SomeError(f"...{e}")`` is not a logger call and is never inspected.
   ``packages/wagtail_forum/wagtail_forum/embeds.py:89`` does exactly this and
   is deliberately out of scope: its oEmbed request carries no credential (the
@@ -35,10 +32,13 @@ What the guard does NOT see -- so a green run is not misread:
   rather than a message. Five such sites survive in the service layer (todo
   377); the two that an anonymous endpoint actually reaches, PlantNet's and
   Trefle's ``get_service_status``, were fixed in todo 354.
-* The handler type is matched on the literal string ``requests``, so
-  ``from requests.exceptions import ConnectionError`` would slip past. No file
-  imports that way today, and ``docs/rules/triggers.json``'s
-  ``requests-exception-interpolated`` has the identical limitation.
+Two shapes that need no interpolation are caught rather than documented, since
+both bypass the guard entirely: ``logger.exception`` inside a ``requests``
+handler (the traceback's last line IS the exception message -- the legal shape
+is an ``isinstance`` branch in an ``except Exception`` handler, which this rule
+never reaches), and a handler naming a class bound by ``from requests... import
+X``, which a text match on "requests" cannot see. ``docs/rules/triggers.json``'s
+``requests-exception-interpolated`` still has the latter limitation.
 """
 
 import ast
@@ -122,13 +122,46 @@ def _files_with_requests_handlers(roots=ROOTS):
     found = []
     for path in _backend_python_files(roots):
         tree = ast.parse(path.read_text(encoding="utf-8"))
+        imported = _requests_exception_names(tree)
         if any(
-            isinstance(node, ast.ExceptHandler)
-            and "requests" in ast.unparse(node.type or ast.Constant(None))
+            isinstance(node, ast.ExceptHandler) and _handles_requests(node, imported)
             for node in ast.walk(tree)
         ):
             found.append(str(path.relative_to(BACKEND)))
     return found
+
+
+def _handles_requests(handler, imported):
+    """Does this ``except`` clause catch a ``requests`` exception?
+
+    Either spelled qualified (``requests.exceptions.HTTPError``) or bound by a
+    ``from requests...`` import in the same module.
+    """
+    if handler.type is None:
+        return False
+    if "requests" in ast.unparse(handler.type):
+        return True
+    return any(
+        isinstance(node, ast.Name) and node.id in imported
+        for node in ast.walk(handler.type)
+    )
+
+
+def _requests_exception_names(tree):
+    """Names bound by ``from requests[...] import X [as Y]`` in this module.
+
+    Without this the handler test is pure text matching on the literal string
+    ``requests``, so ``from requests.exceptions import HTTPError`` followed by
+    ``except HTTPError as e`` is invisible -- a one-line bypass of the whole
+    guard.
+    """
+    return {
+        alias.asname or alias.name
+        for node in ast.walk(tree)
+        if isinstance(node, ast.ImportFrom)
+        and (node.module or "").split(".")[0] == "requests"
+        for alias in node.names
+    }
 
 
 def _requests_handlers_interpolating_the_exception(path):
@@ -170,16 +203,26 @@ def _requests_handlers_interpolating_the_exception(path):
         return False
 
     tree = ast.parse(pathlib.Path(path).read_text(encoding="utf-8"))
+    imported = _requests_exception_names(tree)
     for func in ast.walk(tree):
         if not isinstance(func, (ast.FunctionDef, ast.AsyncFunctionDef)):
             continue
         for handler in (n for n in ast.walk(func) if isinstance(n, ast.ExceptHandler)):
-            if not handler.name:
+            if not _handles_requests(handler, imported):
                 continue
-            if "requests" not in ast.unparse(handler.type or ast.Constant(None)):
+            # `logger.exception` needs no interpolation, and no bound name, to
+            # leak: it formats the traceback, whose last line IS the exception
+            # message. The legal shape is an isinstance branch inside an
+            # `except Exception` handler, which this clause never reaches.
+            for call in logger_calls(handler):
+                if ast.unparse(call.func) == "logger.exception":
+                    yield call.lineno, ast.unparse(call)
+            if not handler.name:
                 continue
             # The bound name, inside its own handler only.
             for call in logger_calls(handler):
+                if ast.unparse(call.func) == "logger.exception":
+                    continue  # already reported above
                 if interpolates(call, {handler.name}):
                     yield call.lineno, ast.unparse(call)
             # Aliases assigned in the handler outlive it -- check the function.
@@ -269,6 +312,7 @@ def test_the_sweep_scans_no_build_artefact():
 PLANTED = """
 import logging
 import requests
+from requests.exceptions import HTTPError
 
 logger = logging.getLogger(__name__)
 
@@ -294,6 +338,33 @@ def aliased():
     except requests.exceptions.RequestException as e:
         last = e
     logger.error(f"after the loop: {last}")
+
+
+def aliased_import_handler():
+    # `except HTTPError` names no module, so a text match on "requests" misses
+    # it entirely. Resolved through the module's `from requests...` imports.
+    try:
+        pass
+    except HTTPError as e:
+        logger.error(f"aliased: {e}")
+
+
+def traceback_leak():
+    # No interpolation at all, and it still leaks: logger.exception formats the
+    # traceback, and its last line is the exception message.
+    try:
+        pass
+    except requests.exceptions.RequestException:
+        logger.exception("a constant message")
+
+
+def unrelated_exception_handler():
+    # NOT a requests handler, so logger.exception stays legal here -- this is
+    # the shape plantnet/trefle get_service_status deliberately use.
+    try:
+        pass
+    except Exception:
+        logger.exception("ok: not a requests handler")
 
 
 def attribute_leaks():
@@ -341,4 +412,7 @@ def test_the_guard_flags_a_planted_violation(tmp_path):
     # than as one "any of these" assertion.
     for leak in ("resp url", "req url", "args"):
         assert any(leak in src for src in flagged), (leak, flagged)
+    # Two bypasses that need no interpolation at all.
+    assert any("aliased" in src for src in flagged), flagged
+    assert any("a constant message" in src for src in flagged), flagged
     assert not [src for src in flagged if "ok:" in src], flagged
