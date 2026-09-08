@@ -231,15 +231,39 @@ crash-loop).
 **Status: LIVE in `production` since 2026-07-26** as service
 `forum-prune-cron`, verified pruning on schedule (evidence below).
 
-#### How it was actually deployed — snapshot upload, not a GitHub source
+#### Current source: the GitHub repo (since 2026-09-08, todo 372)
 
-Root Directory and config-as-code file are **dashboard-only** settings: no CLI
-flag exists (`railway add --help`, `railway service source connect --help`),
-and the public GraphQL API rejects the CLI's stored token (see todo 261 —
-introspection succeeds because Railway's schema is public, which is a false
-positive; every authenticated call returns `Not Authorized`).
+The service deploys from `Xertox1234/plant_id_community` on `main`, Root
+Directory `backend`, config-as-code **`backend/railway.cron.json`**. A merge to
+`main` redeploys it like every other service. Verified end-to-end: merging #711
+produced deployment `07c9ed09` carrying `commitHash`/`branch: main`, building
+`wagtail==8.0` with none of the purged packages.
 
-Both settings become unnecessary if you deploy the snapshot directly, because
+**The config-as-code path is relative to the REPOSITORY ROOT, not to Root
+Directory.** Setting it to `railway.cron.json` — as the original instructions
+below said — fails the deployment in four seconds with
+`failureStage: SNAPSHOT_CODE`, `failureError: "service config at
+'railway.cron.json' not found"`, and *no build log beyond "scheduling build"*.
+Those instructions were written in 2026-07 but never executed (the snapshot
+route was taken instead), so the error was only discovered when todo 372 finally
+ran them. Use `get-deployment-diagnosis` for a failure this early — the build
+logs are empty, but the diagnosis carries the exact `failureError`.
+
+**Correction to the old "dashboard-only" claim** (kept because it is still true
+of the CLI): there is no CLI flag, and the public GraphQL API rejects the CLI's
+stored token (todo 261 — introspection succeeds because Railway's schema is
+public, a false positive; every authenticated call returns `Not Authorized`).
+But the **Railway MCP is a different auth path and can do it**:
+`update-service` sets `rootDirectory` and `railwayConfigFile`, and
+`connect-service-source` attaches the repo. Order matters —
+`connect-service-source` builds immediately, so set the config file and root
+directory *first* or the deploy inherits the web `railway.json` (gunicorn plus a
+healthcheck the cron can never pass).
+
+#### Historical: how it was deployed 2026-07-26 → 2026-09-08 (snapshot upload)
+
+Kept as the fallback if the repo source is ever detached. Both settings above
+become unnecessary when deploying a snapshot directly, because
 **Railway reads config-as-code from the root of the uploaded build context**:
 
 ```bash
@@ -255,10 +279,9 @@ Upload root *is* `backend/`, so Root Directory is moot; the snapshot's
 Always guard the swap with `trap '…' EXIT` so a failed upload cannot leave the
 web service's `railway.json` overwritten in the working tree.
 
-**Tradeoff:** the service's source is an uploaded snapshot, so pushes to `main`
-do **not** redeploy the cron. Re-run the command above to ship changes, or
-attach the GitHub repo in the dashboard (Root Directory + config-as-code must
-then be set as in the original steps 2–3).
+**Tradeoff (why this was abandoned):** a snapshot source means pushes to `main`
+do **not** redeploy the cron. That is what todo 372 fixed by attaching the repo;
+this tradeoff applies only if you deliberately go back to snapshot uploads.
 
 **This is worse than it sounds, and it bit us — 2026-09-07 (todo 372).** A
 Railway `reason: "redeploy"` of a sourceless service **re-runs the build from
@@ -267,8 +290,10 @@ quietly ages; it rebuilds the *old tree* from scratch each time. This cron's
 2026-09-06 redeploy therefore reinstalled `wagtail-7.4.2`, `Django-6.0.7` and
 the `nltk`/`safety`/`bandit`/`llm-0.27.1` subtree that #659 had removed from
 `main` the day before. Dependabot reads the repo, and the repo was clean, so
-nothing flagged it. **Treat "0 open advisories" as a claim about `main` and the
-web container only, until this service has a repo source.**
+nothing flagged it. **Resolved 2026-09-08** by attaching the repo source above;
+before that date, treat any "0 open advisories" claim as covering `main` and the
+web container only. The general lesson outlives this service: a container built
+from an upload is invisible to every repo-reading scanner.
 
 **Reading what a snapshot actually contains** (no container shell needed):
 `get-logs` with `types: ["build"]` on the deployment id, filtered to
