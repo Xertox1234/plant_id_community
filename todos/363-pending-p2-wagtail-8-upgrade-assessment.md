@@ -1,5 +1,5 @@
 ---
-status: in_progress
+status: pending
 priority: p2
 issue_id: "363"
 tags: [dependencies, wagtail, django]
@@ -299,3 +299,54 @@ Scan` and `CodeQL`, which together cover the four new/bumped pins.
 Remaining before archive: acceptance criterion 4's real-R2 half, tracked as
 todo 371. This todo stays `in_progress` until that is either verified or
 explicitly retired — an operator decision, not an automated one.
+
+### 2026-09-07 - Round-1 review repairs (bundled deep pass on PR #710)
+
+The bundled `/code-review` pass independently re-verified the dependency,
+migration and deprecation claims (all held) and chased two hypotheses to
+ground before finding anything: `?rich_text_format=markdown` cannot poison
+`BlogPostPageViewSet`'s 24h slug-keyed cache, because `get_serializer_class()`
+returns the hand-written `BlogPostPageSerializer` and so never builds Wagtail's
+dynamic `api_fields` — `APIRichText` never touches `introduction`. And the AVIF
+encoder is present in CI, since `ubuntu-latest` + `setup-python` pulls Pillow
+manylinux wheels, which bundle libavif from 11.3 on.
+
+It then found two real defects, both introduced by the previous commit on this
+branch. Both are fixed.
+
+**1. The `MEDIA_ROOT` isolation fixture silently no-opped under `USE_R2=True`.**
+`settings.py:481` swaps `STORAGES["default"]` to `storages.backends.s3.S3Storage`
+when the flag is on, and S3Storage ignores `MEDIA_ROOT` entirely. The trigger is
+this very branch: todo 371 asks an operator to exercise the rendition path with
+`USE_R2=True`, and the obvious way to do that is to point that run at this test
+file — which would have written four probe originals plus their renditions into
+the **real R2 bucket**, under `file_overwrite=False` and
+`Cache-Control: public, max-age=31536000, immutable`, with nothing to clean them
+up.
+
+Verified rather than reasoned about, by forcing the S3 config and re-resolving
+`default_storage`:
+
+```
+OLD-FIXTURE storage: S3Storage        | location: (empty)
+NEW-FIXTURE storage: FileSystemStorage | location: /…/pytest-34/test_hardened…
+```
+
+The fixture now pins `STORAGES["default"]` alongside `MEDIA_ROOT` **and asserts
+the pin took effect** — a fixture whose only job is isolation should fail loudly
+rather than quietly stop isolating.
+
+**2. `status: in_progress` made this todo invisible to every sweep.** All four
+entrypoints discover candidates with `grep -l "^status: pending" todos/*.md`
+(`todo-sweep:51`, `todo-next:25`, `todo-batch:39`, `completing-todos:56`), so
+`in_progress` is unreachable — the same failure already recorded for
+`status: blocked`. That is the exact opposite of this PR's stated intent of
+keeping the residual visible. Set back to `pending`; the unchecked AC 4 and this
+work log carry what remains, matching how todo 330 keeps an operator gate
+discoverable.
+
+**3. A circular dependency I created, found while fixing #2.** Todo 371 declared
+`dependencies: ["363"]` while 363's sole remaining criterion is satisfied *by
+performing 371* — a deadlock, and `todo-batch:112` would have *silently* excluded
+371 as blocked by an out-of-batch dependency. 371 needs only the merged code, not
+this todo file's status, so its `dependencies` are now empty.

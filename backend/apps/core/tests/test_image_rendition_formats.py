@@ -24,18 +24,43 @@ import io
 
 import pytest
 from django.core.files.images import ImageFile
+from django.core.files.storage import default_storage
 from PIL import Image as PILImage
 from wagtail.images import get_image_model
 
 
 @pytest.fixture(autouse=True)
 def _isolated_media_root(settings, tmp_path):
-    """Keep probe uploads and their renditions out of the real MEDIA_ROOT.
+    """Keep probe uploads and their renditions out of whatever storage is live.
 
     The DB rows roll back with the transaction but the written files do not,
     so without this every run leaves orphans behind.
+
+    Pinning `MEDIA_ROOT` alone is not enough. When `USE_R2=True`, settings.py
+    swaps `STORAGES["default"]` to `storages.backends.s3.S3Storage`, which
+    ignores `MEDIA_ROOT` outright — the isolation would silently no-op and
+    these four probe images plus their renditions would be written to the real
+    R2 bucket, under `file_overwrite=False` and an immutable `Cache-Control`,
+    with nothing to clean them up. That is not hypothetical: todo 371 asks an
+    operator to exercise the rendition path with `USE_R2=True`, and pointing
+    that run at this file is the obvious way to do it.
+
+    So pin the storage backend too, and assert the pin took effect rather than
+    trusting it — a fixture whose whole job is isolation must fail loudly if it
+    ever stops isolating.
     """
     settings.MEDIA_ROOT = str(tmp_path)
+    settings.STORAGES = {
+        **settings.STORAGES,
+        "default": {
+            "BACKEND": "django.core.files.storage.FileSystemStorage",
+            "OPTIONS": {"location": str(tmp_path)},
+        },
+    }
+    assert getattr(default_storage, "location", None) == str(tmp_path), (
+        "MEDIA_ROOT/STORAGES isolation did not take effect; refusing to write "
+        f"probe images to {default_storage!r}"
+    )
 
 
 def _upload(pil_format, filename):

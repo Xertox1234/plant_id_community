@@ -3,7 +3,7 @@ status: pending
 priority: p3
 issue_id: "371"
 tags: [r2, wagtail, media, verification]
-dependencies: ["363"]
+dependencies: []
 ---
 
 # Verify the `USE_R2` rendition round trip against real R2 after the Wagtail 8 bump
@@ -85,6 +85,19 @@ This todo exists so that unchecked box does not become invisible debt.
 - p3, not p2: the local evidence says this path is unaffected by the upgrade
   (the format decision is storage-agnostic and the config path is tested), so
   this is confirmation of a low-risk expectation rather than an open question.
+
+### 2026-09-07 - Dependency on 363 removed
+
+- Filed with `dependencies: ["363"]`, which was circular: 363's only remaining
+  acceptance criterion is satisfied by performing *this* todo, so neither could
+  ever complete. `todo-batch` would additionally have excluded this one
+  *silently* as blocked by an out-of-batch dependency. This todo needs only the
+  merged Wagtail 8 code, not 363's file status, so the dependency is dropped.
+- **Do not** run this verification by pointing a `USE_R2=True` pytest at
+  `backend/apps/core/tests/test_image_rendition_formats.py`. That test now pins
+  `STORAGES["default"]` to local filesystem storage precisely so it cannot write
+  probe images into the real bucket, so it would prove nothing about R2. Exercise
+  the path through the Wagtail admin as described in Recommended Action instead.
 
 ## Notes
 
