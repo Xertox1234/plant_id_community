@@ -257,7 +257,7 @@ The same applies to `.add()` and `.remove()` when called on a page that was save
 
 Dev and prod run the **same** Wagtail version. `requirements-dev.txt` is now a
 thin overlay (`-r requirements.txt`) with no pins of its own, so the authoritative
-version lives only in `requirements.txt` (`wagtail==7.4`).
+version lives only in `requirements.txt` (`wagtail==8.0`, todo 363).
 
 This used to be a dev/prod split (`requirements-dev.txt: wagtail==7.1.2` vs
 `requirements.txt: wagtail==7.4`) that papered over version-specific breakage —
@@ -356,3 +356,53 @@ race (READ COMMITTED re-reads committed rows post-lock); and `add_child()`s
 treebeard path/numchild math happens safely under the held parent lock. Test
 the race branch deterministically (monkeypatch the fast path to miss once) —
 NOT with threads + `transaction=True` (see docs/rules/testing.md).
+
+## Wagtail 8.0 Stopped Converting AVIF/WebP Renditions to PNG (2026-09-07, todo 363)
+
+`Filter.run()`'s `default_conversions` shrank in 8.0:
+
+```python
+# wagtail 7.4.3 — wagtail/images/models.py
+default_conversions = {"avif": "png", "bmp": "png", "webp": "png", "heic": "jpeg"}
+
+# wagtail 8.0
+default_conversions = {"bmp": "png", "heic": "jpeg"}
+```
+
+`avif` and `webp` now fall through to `output_format = original_format`. We set
+no `WAGTAILIMAGES_FORMAT_CONVERSIONS`, so **we take the new default
+deliberately** — a WebP original renders a `.webp` rendition.
+`backend/apps/core/tests/test_image_rendition_formats.py` is that decision's
+guardrail; change it only with a decision, never to make a red test pass.
+
+Two things that trip people up:
+
+- **The change is invisible on already-rendered images.** Renditions are cached
+  on `(image, filter_spec, focal_point_key)` — *not* on output format — so an
+  existing WebP original keeps serving its previously-cached PNG rendition
+  indefinitely while new renditions come out WebP. Mixed formats coexisting in
+  the bucket is expected, not a bug worth chasing.
+- **AVIF needs an encoder, not just a decoder.** Accepting an `.avif` upload
+  proves nothing about rendering one; the encoder is a *rendition*-time
+  requirement. Pillow bundles libavif in its manylinux wheels from 11.3 on
+  (we pin 12.3.0), so CI is fine — but assert it (`PIL.features.check("avif")`)
+  rather than assuming, if the base image ever changes.
+
+## Wagtail 8.0 Routes API v2 Rich Text Through `APIRichText` (2026-09-07, todo 363)
+
+8.0 adds `wagtail/api/rich_text.py` and wires **API v2** — not just the new v3
+API — through it (`wagtail/api/v2/serializers.py`). A new
+`?rich_text_format=` query parameter accepts `db_html` (default), `html`,
+`db_markdown` and `markdown`.
+
+Existing output is unchanged, for a specific reason worth knowing before anyone
+"fixes" a nonexistent regression: `APIRichText.DEFAULT_FORMAT` is `db_html` and
+`_serialize_db_html()` is a literal `return value`. Set
+`WAGTAILAPI_RICH_TEXT_FORMAT` only if you intend to change every consumer.
+
+Note this also means a `draftjs_exporter` bump can, in principle, reach API
+responses — 7.0.0 changed Markdown escaping. It does not reach *ours*, because
+our hand-written serializers (e.g. `BlogPostPageSerializer` via
+`get_serializer_class()`) bypass Wagtail's dynamic `api_fields` build entirely,
+so `APIRichText` never sees those fields. A viewset that *does* rely on
+`api_fields` would be exposed.

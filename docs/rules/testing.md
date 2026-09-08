@@ -563,3 +563,17 @@ Compact checklist auto-injected before edits.
   SQLite.** Pytest settings must select PostgreSQL even when `DATABASE_URL` is
   absent and reject an explicit non-PostgreSQL URL; keep a contract test that
   asserts both `connection.vendor` and the installed extension.
+- **Isolating test file writes means pinning `STORAGES["default"]`, not just
+  `settings.MEDIA_ROOT`.** When `USE_R2=True`, `settings.py` swaps the default
+  storage to `storages.backends.s3.S3Storage`, which ignores `MEDIA_ROOT`
+  outright — so a `MEDIA_ROOT`-only fixture silently no-ops and writes probe
+  files to the **real R2 bucket** (`file_overwrite=False`, immutable
+  `Cache-Control`, no cleanup). Pin `STORAGES["default"]` to
+  `FileSystemStorage` with `OPTIONS: {"location": str(tmp_path)}` *and* assert
+  `default_storage.location == str(tmp_path)`: a fixture whose only job is
+  isolation must fail loudly rather than quietly stop isolating (todo 363).
+- **Gate a dependency upgrade on the installer's exit code *and* `pip check`.**
+  `pip check` inspects the environment, not the install: after a failed
+  `pip install`, it reports `No broken requirements found.` against a venv
+  holding only pip/setuptools. An acceptance criterion of "`pip check` clean" is
+  satisfied by an install that never happened (todo 363).

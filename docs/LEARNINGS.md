@@ -5283,3 +5283,77 @@ firebase stacking regression (`api,security,database,firebase`) intact.
 does *not* cover. "Assert the artefact is non-empty" and "assert the artefact is
 a RESULT" are different assertions, and the first one reads like the second
 until a tool hands you a well-formed apology.
+
+## 2026-09-07 — Three green signals computed over the wrong subset (todo 363, Wagtail 8.0)
+
+Upgrading Wagtail 7.4.3 → 8.0 produced three separate "pass" results that were
+each measuring something other than what they appeared to measure. None of them
+failed; that is the point.
+
+**1. `pip check` passes against a venv where the install failed.** Two
+`pip install -r requirements.txt` runs died with `ResolutionImpossible`, and the
+very next command printed `No broken requirements found.` — because it was
+inspecting a venv containing only pip, setuptools and wheel. Nothing was
+installed, so nothing was broken. Todo 363's acceptance criterion was literally
+*"`pip check` clean"*, which a completely failed install satisfies.
+
+*Rule:* gate a dependency upgrade on the installer's exit code **and**
+`pip check`, never `pip check` alone. `INSTALL_RC=0 && PIPCHECK_RC=0`.
+
+**2. `pre-commit` passed while linting a subset that excluded the actual
+change.** The first commit landed the new test and the todo rename but **not**
+`requirements.txt` — an earlier `git add` had included a stale path
+(`todos/363-pending-…`, already renamed), so the whole call failed, and its
+stderr was redirected. Pre-commit then printed
+`[WARNING] Unstaged files detected. [INFO] Stashing unstaged files`, linted only
+the staged remainder, and passed everything. The commit message described a
+Wagtail 8 upgrade while `git show HEAD:backend/requirements.txt` still read
+`wagtail==7.4.3`.
+
+*Rule:* `git add` is not all-or-nothing-safe — one bad pathspec fails the whole
+call. Never redirect its stderr, and verify commit *contents* with
+`git show HEAD:<file>`, not the hook transcript. Pre-commit's "stashing unstaged
+files" line is a signal you may be linting the wrong tree.
+
+**3. A test-isolation fixture that silently stopped isolating.** A new test
+pinned `settings.MEDIA_ROOT` to `tmp_path` to keep probe images out of the repo.
+Correct with local storage — and a no-op under `USE_R2=True`, where
+`settings.py` swaps `STORAGES["default"]` to `storages.backends.s3.S3Storage`,
+which ignores `MEDIA_ROOT` entirely. The trigger was in the same PR: the
+follow-up todo asks an operator to exercise the rendition path with
+`USE_R2=True`, and the obvious way to do that would have written four probe
+originals plus their renditions into the **real R2 bucket**, under
+`file_overwrite=False` and `Cache-Control: …immutable`, with no cleanup.
+
+Proven rather than argued, by forcing the S3 config and re-resolving
+`default_storage`:
+
+```
+old fixture (MEDIA_ROOT only) -> S3Storage,        location ""
+new fixture (+ STORAGES)      -> FileSystemStorage, location <tmp_path>
+```
+
+*Rule:* isolating file writes means pinning `STORAGES["default"]`, not just
+`MEDIA_ROOT` — and a fixture whose only job is isolation should **assert** the
+pin took effect, so it fails loudly instead of quietly no-opping.
+
+### Also from this upgrade
+
+- **`status: in_progress` hides a todo from every sweep.** All four entrypoints
+  discover candidates with `grep -l "^status: pending" todos/*.md`
+  (`todo-sweep:51`, `todo-next:25`, `todo-batch:39`, `completing-todos:56`).
+  Leaving 363 `in_progress` to signal "one criterion outstanding" achieved the
+  exact opposite of visibility — the same trap already recorded for
+  `status: blocked`. Use `pending` plus an unchecked criterion, the way todo 330
+  keeps an operator gate discoverable.
+- **A follow-up todo must not depend on the todo it was split out of.** 371 was
+  filed with `dependencies: ["363"]` while 363's only remaining criterion is
+  satisfied *by performing 371* — an unbreakable cycle, and `todo-batch:112`
+  would have excluded 371 *silently* as blocked by an out-of-batch dependency. A
+  split-out todo depends on the merged *code*, not on its parent's file status.
+- **Check a flat freeze against the new major's whole `requires_dist` at once.**
+  Discovering conflicts one failed install at a time found `draftjs_exporter`
+  and would have taken another round for `modelsearch`; comparing all 21 of
+  Wagtail 8.0's declared requirements against our pins with `packaging`
+  specifiers found every conflict in one pass, and also showed that three of the
+  "new" dependencies the todo predicted were already pinned and in range.
