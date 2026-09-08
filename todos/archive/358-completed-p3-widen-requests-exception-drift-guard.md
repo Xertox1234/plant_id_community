@@ -199,6 +199,62 @@ this guard at all. The tests are module-level `def test_*` with no `TestCase`,
 so Django's runner collects none of them. CI's `python -m pytest` from
 `backend/` is the only thing that executes it.
 
+### 2026-09-08 - Review round 1
+
+Two independent reviewers found the same HIGH, and it was the guard's own
+predicate — the thing this PR promotes to a repo-wide guarantee.
+
+`interpolates()` marked as safe **every** `Name` under **any** attribute
+access, not just the approved `e.response.status_code`. Confirmed empirically,
+not just traced: `e.response.url`, `e.request.url` and `e.args[0]` all passed
+the guard unflagged. The first two *are* the prepared URL; the third *is* the
+string `str(e)` returns. So the guard permitted the exact leak it exists to
+stop, in three shapes that look like the approved one.
+
+Fixed by replacing the blanket rule with an explicit `APPROVED_SHAPES`
+allowlist (`type(e).__name__`, `e.response.status_code`, `e.response.text`,
+`log_safe_api_error(e)`); everything else is reported. Verified both
+directions: no regression across all 589 files, and all three leak shapes now
+flagged. The allowlist matters beyond these three — it fails closed on the
+shape nobody has thought of yet, which a denylist cannot.
+
+The second HIGH was the reason the first shipped: the planted specimen only
+exercised shapes the buggy code also passed, so the self-test could not
+discriminate the intended policy from the implemented one. The specimen now
+carries all three leak shapes, each pinned by its own assertion, and a mutation
+check confirms it: restoring the old blanket whitelist fails
+`test_the_guard_flags_a_planted_violation` on `resp url`. An anti-vacuity test
+that only tests the shapes you thought of is itself vacuous.
+
+`docs/rules/security.md` gained the corrected rule — "not `str(e)`" is not the
+same as "any attribute of `e`" — since the blind-spot list this PR wrote was
+narrower than what the code allowed.
+
+Also fixed: the `git check-ignore` skip guard claimed to cover "git
+unavailable", but a missing binary raises `OSError` and never reaches the
+`returncode > 1` branch. Now caught explicitly.
+
+Deferred, with reasons:
+
+- **Response-body `str(e)`** (MEDIUM). Five sites return `str(e)` in a result
+  dict, which the guard structurally cannot see. Traced the live anonymous
+  `/status/` endpoint: it merges only trefle and plantnet, both closed by todo
+  354, and `plant_health`'s is reachable from no view. Fixing one of five
+  arbitrarily is worse than tracking all five, so this is **todo 377** with the
+  reachability trace attached. Recorded as a fifth blind spot in the guard's
+  docstring.
+- **git-unavailable still skips rather than fails** (LOW). CI always runs
+  against a full checkout, proven by the job log.
+- **Membership floor rather than a count floor** (INFO). Deliberate, already
+  explained in the code.
+
+The bundled deep pass returned **no findings on this branch**. Every finding it
+did report belongs to a peer agent's uncommitted forum-image work in this
+shared checkout and was left alone.
+
+Residue swept after the reviews: no `MUTANT` markers, working tree unchanged
+apart from this PR's own files.
+
 ### 2026-09-06 - Filed
 
 Split out of todo 354, which narrowed the guard to two files mid-PR because

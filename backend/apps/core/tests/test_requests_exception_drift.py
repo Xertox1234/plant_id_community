@@ -30,6 +30,11 @@ What the guard does NOT see -- so a green run is not misread:
   swallows ``EmbedNotFoundException`` into a plain link card, so the message
   reaches no response body. Widening the sweep to ``packages/`` covers that
   file's *logger* calls only.
+* ``return {"error": str(e)}`` is not a logger call either, and is likewise
+  never inspected -- the same gap as ``raise``, but reaching a response body
+  rather than a message. Five such sites survive in the service layer (todo
+  377); the two that an anonymous endpoint actually reaches, PlantNet's and
+  Trefle's ``get_service_status``, were fixed in todo 354.
 * The handler type is matched on the literal string ``requests``, so
   ``from requests.exceptions import ConnectionError`` would slip past. No file
   imports that way today, and ``docs/rules/triggers.json``'s
@@ -38,6 +43,7 @@ What the guard does NOT see -- so a green run is not misread:
 
 import ast
 import pathlib
+import re
 import subprocess
 
 import pytest
@@ -64,6 +70,24 @@ SKIP_DIRS = {
     ".venv",
     "site-packages",
 }
+
+# The ONLY shapes that may carry the exception into a log. Anything else --
+# `e`, `str(e)`, `e.args[0]`, `e.response.url`, `e.request.url` -- reproduces
+# the prepared URL and is reported. An allowlist on purpose: the first version
+# of this guard marked safe every name under ANY attribute access, which let
+# `e.response.url` and `e.request.url` (literally the prepared URL) and
+# `e.args[0]` (literally the string `str(e)` returns) through unflagged.
+APPROVED_SHAPES = tuple(
+    re.compile(pattern)
+    for pattern in (
+        r"^type\(\w+\)\.__name__$",
+        r"^\w+\.response\.status_code$",
+        # The provider's error BODY, not its URL. Pre-dates this guard;
+        # PlantNet and plant.health both log it beneath their status line.
+        r"^\w+\.response\.text(\[[^\]]*\])?$",
+        r"^(\w+\.)*log_safe_api_error\(\w+\)$",
+    )
+)
 
 
 def _backend_python_files(roots=ROOTS):
@@ -121,8 +145,10 @@ def _requests_handlers_interpolating_the_exception(path):
     Keyword arguments are inspected as well as positional ones:
     ``logger.error("failed", extra={"err": str(e)})`` is the same leak.
 
-    ``e.response.status_code`` and ``log_safe_api_error(e)`` are the approved
-    shapes and are not reported.
+    Only the shapes in ``APPROVED_SHAPES`` may carry the exception; everything
+    else is reported. That is an allowlist rather than "any attribute access is
+    fine", because ``e.response.url``, ``e.request.url`` and ``e.args[0]`` are
+    all attribute accesses and all reproduce the prepared URL.
     """
 
     def logger_calls(scope):
@@ -134,10 +160,8 @@ def _requests_handlers_interpolating_the_exception(path):
         for arg in [*call.args, *[kw.value for kw in call.keywords]]:
             safe = set()
             for sub in ast.walk(arg):
-                if isinstance(sub, ast.Attribute):
-                    safe |= {n for n in ast.walk(sub.value) if isinstance(n, ast.Name)}
-                if isinstance(sub, ast.Call) and ast.unparse(sub.func).endswith(
-                    "log_safe_api_error"
+                if isinstance(sub, (ast.Attribute, ast.Call, ast.Subscript)) and any(
+                    shape.match(ast.unparse(sub)) for shape in APPROVED_SHAPES
                 ):
                     safe |= {n for n in ast.walk(sub) if isinstance(n, ast.Name)}
             for sub in ast.walk(arg):
@@ -223,14 +247,19 @@ def test_the_sweep_scans_no_build_artefact():
     fine -- that is new source someone has not committed yet.
     """
     scanned = [str(p.relative_to(BACKEND)) for p in _backend_python_files()]
-    result = subprocess.run(
-        ["git", "check-ignore", "--stdin"],
-        input="\n".join(scanned),
-        capture_output=True,
-        text=True,
-        cwd=BACKEND,
-    )
-    if result.returncode > 1:  # git unavailable or not a checkout
+    try:
+        result = subprocess.run(
+            ["git", "check-ignore", "--stdin"],
+            input="\n".join(scanned),
+            capture_output=True,
+            text=True,
+            cwd=BACKEND,
+        )
+    except OSError as exc:  # no git binary at all
+        pytest.skip(f"git unavailable: {exc}")
+    # 0 = some path is ignored, 1 = none is. Anything higher is git refusing
+    # to answer (not a checkout, dubious ownership), which is not a verdict.
+    if result.returncode > 1:
         pytest.skip(f"git check-ignore unusable: {result.stderr.strip()}")
     assert not result.stdout.split(), (
         "gitignored files reached the sweep; extend SKIP_DIRS:\n" + result.stdout
@@ -267,12 +296,24 @@ def aliased():
     logger.error(f"after the loop: {last}")
 
 
+def attribute_leaks():
+    # Every one of these is an attribute access that rebuilds the prepared
+    # URL, and every one passed before the APPROVED_SHAPES allowlist.
+    try:
+        pass
+    except requests.exceptions.RequestException as e:
+        logger.error(f"resp url: {e.response.url}")
+        logger.error(f"req url: {e.request.url}")
+        logger.error(f"args: {e.args[0]}")
+
+
 def approved():
     try:
         pass
     except requests.exceptions.RequestException as e:
         logger.error(f"ok: {log_safe_api_error(e)}")
         logger.error(f"ok: {type(e).__name__} {e.response.status_code}")
+        logger.error(f"ok: {e.response.text[:500]}")
     except Exception as e:
         # A RequestException can never reach here; the clause above shadows it.
         logger.error(f"ok: {e}")
@@ -295,4 +336,9 @@ def test_the_guard_flags_a_planted_violation(tmp_path):
     assert any("boom: {e}" in src for src in flagged), flagged
     assert any("extra=" in src for src in flagged), flagged
     assert any("after the loop" in src for src in flagged), flagged
+    # The attribute shapes that rebuild the prepared URL. These are the ones
+    # the pre-allowlist guard let through, so each is pinned separately rather
+    # than as one "any of these" assertion.
+    for leak in ("resp url", "req url", "args"):
+        assert any(leak in src for src in flagged), (leak, flagged)
     assert not [src for src in flagged if "ok:" in src], flagged
