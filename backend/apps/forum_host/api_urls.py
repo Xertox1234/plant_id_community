@@ -20,6 +20,9 @@ from wagtail_forum.api.direct_messages import (
 
 # The notification list is auth-gated but not a polling target — mounted
 # straight from the package like BoardListView above.
+# GET-only personal-library list — mounted straight from the package like the
+# other read views; the DELETE sibling comes from .api with its throttle.
+from wagtail_forum.api.image_management import MyForumImagesView
 from wagtail_forum.api.notifications import NotificationListView
 
 # Same treatment as TopicBookmarkListView — a page load, not a polling target.
@@ -45,6 +48,7 @@ from .api import (
     ConversationParticipantsView,
     ConversationParticipantView,
     ConversationUnreadCountView,
+    ForumImageDetailView,
     MeProfileView,
     MessageReportView,
     MessageSendView,
@@ -134,7 +138,14 @@ urlpatterns = [
         SimilarTopicsView.as_view(),
         name="topic-similar",
     ),
+    # "mine" before <int:image_id>/ — mirrors the package ordering.
+    path("images/mine/", MyForumImagesView.as_view(), name="image-list-mine"),
     path("images/", PostImageUploadView.as_view(), name="image-upload"),
+    path(
+        "images/<int:image_id>/",
+        ForumImageDetailView.as_view(),
+        name="image-detail",
+    ),
     path("posts/<int:post_id>/", PostWriteView.as_view(), name="post-detail"),
     # GET-only, so mounted straight from the package (no throttled wrapper) —
     # same treatment as the other read views here.

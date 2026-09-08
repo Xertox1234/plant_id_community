@@ -43,6 +43,10 @@ DEFAULT_FORUM_RATELIMITS = {
     # apply later. REVISIT TRIGGER: profile_update 429s appearing in logs.
     "profile_update": "10/h",
     "image_upload": "30/h",
+    # Deleting your own image is destructive and irreversible, so it is rated
+    # below upload and in line with post_delete — a legitimate client empties a
+    # personal library a few images at a time, never in bulk.
+    "image_delete": "20/h",
     "search": "30/m",
     "sync": "60/m",
     # Generous — the bell polls this on an interval; the limit exists only to

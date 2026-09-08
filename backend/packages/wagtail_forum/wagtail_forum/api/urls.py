@@ -12,6 +12,7 @@ from .direct_messages import (
     MessageReportView,
     MessageSendView,
 )
+from .image_management import ForumImageDetailView, MyForumImagesView
 from .notifications import (
     NotificationListView,
     NotificationMarkReadView,
@@ -74,7 +75,16 @@ urlpatterns = [
         name="topic-solution",
     ),
     path("topics/<int:topic_id>/posts/", PostListView.as_view(), name="post-list"),
+    # "mine" before <int:image_id>/ for the same literal-over-capture
+    # reason as topics/recent/ above — harmless here since the int
+    # converter already refuses "mine", but kept consistent with that rule.
+    path("images/mine/", MyForumImagesView.as_view(), name="image-list-mine"),
     path("images/", PostImageUploadView.as_view(), name="image-upload"),
+    path(
+        "images/<int:image_id>/",
+        ForumImageDetailView.as_view(),
+        name="image-detail",
+    ),
     path("posts/<int:post_id>/", PostWriteView.as_view(), name="post-detail"),
     path(
         "posts/<int:post_id>/revisions/",

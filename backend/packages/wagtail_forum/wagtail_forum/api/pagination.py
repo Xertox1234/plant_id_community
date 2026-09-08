@@ -8,6 +8,13 @@ class ForumCursorPagination(CursorPagination):
     ordering = "-id"  # stable, unique cursor ordering
 
 
+class ForumImageCursorPagination(ForumCursorPagination):
+    # "My forum images" reuse list (personal-library view onto the forum's
+    # image collection) reads as a thumbnail grid, not a feed — a slightly
+    # larger page than the ForumCursorPagination default (20) suits that.
+    page_size = 24
+
+
 class TopicCursorPagination(ForumCursorPagination):
     # Pinned-first, then activity; -id is the unique tiebreak that keeps the
     # cursor deterministic when last_post_at ties. The list filters live=True,

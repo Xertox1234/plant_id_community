@@ -17,7 +17,7 @@ from apps.core.ratelimit import (  # rate-preserving wrapper (Retry-After)
     ratelimit,
 )
 from apps.plant_identification.constants import RATE_LIMITS
-from apps.users.signup import create_default_plant_collection
+from apps.users.signup import create_default_plant_collection, join_forum_members_group
 from django.contrib.auth import get_user_model
 from django.db import IntegrityError
 from firebase_admin import auth as firebase_auth
@@ -447,9 +447,10 @@ def get_or_create_user_from_firebase(
             is_active=True,
             firebase_uid=firebase_uid,
         )
-        # Shared signup side-effect — Firebase users previously did NOT get the
+        # Shared signup side-effects — Firebase users previously did NOT get the
         # default "My Plants" collection that registration/OAuth create (M7).
         create_default_plant_collection(user)
+        join_forum_members_group(user)
         logger.info(
             f"[FIREBASE AUTH] Created user '{user.username}' for {redact_email(firebase_email)}"
         )

@@ -1,6 +1,7 @@
 import pytest
 from django.contrib.auth.models import Group
-from wagtail.models import Page, Workflow
+from wagtail.models import GroupCollectionPermission, Page, Workflow
+from wagtail_forum.collections import get_forum_image_collection
 from wagtail_forum.models import ForumBoard, ForumIndex, Post, Topic
 from wagtail_forum.workflow import DEFAULT_WORKFLOW_NAME
 
@@ -66,3 +67,80 @@ def test_post_resolves_the_default_workflow():
     post = Post.objects.create(topic=topic, is_opening_post=True)
 
     assert post.get_workflow() is not None
+
+
+@pytest.mark.django_db
+def test_forum_members_group_can_add_and_choose_forum_images():
+    """New members must be able to upload to the forum's own image
+    collection AND browse their own past uploads there (audit: image
+    permissions were previously never wired to non-moderator users at all)."""
+    group = Group.objects.filter(name="Forum Members").first()
+    assert group is not None
+
+    collection = get_forum_image_collection()
+    codenames = set(
+        GroupCollectionPermission.objects.filter(
+            group=group, collection=collection
+        ).values_list("permission__codename", flat=True)
+    )
+    assert {"add_image", "choose_image"} <= codenames
+
+
+@pytest.mark.django_db
+def test_forum_moderators_group_can_change_forum_images():
+    """Moderators get change_image on the forum collection —
+    CollectionOwnershipPermissionPolicy treats "delete" as equivalent to
+    "change", so this alone covers removing ANY forum image, not just ones
+    a moderator personally uploaded."""
+    group = Group.objects.get(name="Forum Moderators")
+    collection = get_forum_image_collection()
+    assert GroupCollectionPermission.objects.filter(
+        group=group, collection=collection, permission__codename="change_image"
+    ).exists()
+
+
+@pytest.mark.django_db
+def test_image_permission_bootstrap_is_idempotent():
+    """Re-running bootstrap (every deploy's migrate) must not raise or
+    duplicate GroupCollectionPermission rows (unique_together enforces this;
+    this test is the regression guard if that constraint is ever loosened)."""
+    from apps.forum_host.bootstrap import ensure_forum_bootstrap
+
+    ensure_forum_bootstrap(sender=type("S", (), {"label": "forum_host"}))
+    ensure_forum_bootstrap(sender=type("S", (), {"label": "forum_host"}))
+
+    group = Group.objects.get(name="Forum Members")
+    collection = get_forum_image_collection()
+    assert (
+        GroupCollectionPermission.objects.filter(
+            group=group, collection=collection, permission__codename="add_image"
+        ).count()
+        == 1
+    )
+
+
+@pytest.mark.django_db
+def test_image_permissions_skip_an_empty_collection_tree():
+    """`post_migrate` fires from `flush`, not only from `migrate`.
+
+    Django's `flush` — what `TransactionTestCase._fixture_teardown` runs —
+    TRUNCATES every table and then re-emits `post_migrate`. Wagtail's root
+    Collection comes from a data migration, which does not re-run, so the
+    receiver can legitimately see an empty collection tree and
+    `Collection.get_first_root_node()` returns None.
+
+    Raising there fails the teardown of every TransactionTestCase in the
+    suite: it cost 12 blog-analytics tests and a forum migration test, none of
+    which touch forum images.
+
+    The tree is emptied directly rather than by relying on a
+    `transaction=True` teardown — a test that only asserted "teardown did not
+    explode" passed with the guard REMOVED, so it discriminated nothing.
+    """
+    from apps.forum_host.bootstrap import _ensure_forum_image_permissions
+    from wagtail.models import Collection
+
+    Collection.objects.all().delete()
+    assert Collection.get_first_root_node() is None
+
+    _ensure_forum_image_permissions()  # must not raise
