@@ -57,6 +57,20 @@ sharpens a rule already there, cite that rule rather than re-flagging it.
       `transaction.on_commit`, and is there a
       `django_capture_on_commit_callbacks(execute=False)` test proving it does
       NOT fire before commit? pytest-django never runs `on_commit` on its own
+- [ ] A test that pins a SAFE/UNSAFE classification (a lint guard, an AST check,
+      a permission predicate): does the specimen contain the case that
+      DISCRIMINATES the intended rule from a naive implementation? For every
+      "X is allowed" assertion, the nearest disallowed neighbour must be
+      present. Todo 358's guard asserted `e.response.status_code` is safe and a
+      bare `{e}` is not — both true under the correct rule AND under the buggy
+      "any attribute is safe" one that shipped, so the self-test stayed green
+      while `e.response.url` leaked. Ask: would this test fail if the
+      implementation were replaced by the obvious wrong version?
+- [ ] A security predicate that decides "this shape is fine": is it an
+      ALLOWLIST of reasoned-about shapes, or a denylist of remembered ones? A
+      denylist fails open on the shape nobody imagined. Whitelisting by AST node
+      type (`isinstance(sub, ast.Attribute)`) whitelists the entire subtree —
+      match the full unparsed expression instead (todo 358 review)
 - [ ] Test naming `test_{feature}_{condition}_{expected_result}`; one assertion
       concept per test; setup in `setUp()`/fixtures
 - [ ] Assertion failure messages cite the issue/PR number; a query-count

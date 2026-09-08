@@ -1618,5 +1618,21 @@
     "source": "codify: chore/todo-363-wagtail-8",
     "added": "2026-09-07",
     "severity": "warn"
+  },
+  {
+    "id": "requests-exception-url-attribute",
+    "domains": [
+      "security"
+    ],
+    "path_glob": [
+      "backend/**/*.py"
+    ],
+    "content_present": "\\b(?:e|exc|err|ex|last_exception)\\.(?:response\\.url|request\\.url|args\\[)",
+    "content_absent": "APPROVED_SHAPES",
+    "message": "That attribute IS the prepared URL. e.response.url and e.request.url rebuild the URL requests put in its exception message, and e.args[0] is byte-for-byte what str(e) returns — so all three leak a query-string API key exactly like the str(e) you avoided. Only type(e).__name__, e.response.status_code, e.response.text and log_safe_api_error(e) are approved (todo 358 review).",
+    "pattern_ref": "docs/rules/security.md",
+    "source": "codify: chore/todo-358-widen-requests-drift-guard",
+    "added": "2026-09-08",
+    "severity": "warn"
   }
 ]

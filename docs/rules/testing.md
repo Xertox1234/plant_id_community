@@ -577,3 +577,16 @@ Compact checklist auto-injected before edits.
   `pip install`, it reports `No broken requirements found.` against a venv
   holding only pip/setuptools. An acceptance criterion of "`pip check` clean" is
   satisfied by an install that never happened (todo 363).
+- **A self-test that only exercises the shapes you already thought of cannot
+  discriminate the policy you intended from the one you implemented.** Todo
+  358's drift guard shipped with a planted-violation test asserting that
+  `log_safe_api_error(e)`, `type(e).__name__` and `e.response.status_code` were
+  *not* flagged and a bare `{e}` was. Both the intended narrow rule and the
+  actual over-broad implementation pass all four assertions identically, so the
+  test went green while the guard silently permitted `e.response.url`,
+  `e.request.url` and `e.args[0]` — the exact leak it existed to catch. The
+  test's job is to separate the two implementations, so write the case that
+  *distinguishes* them: for every "X is safe" assertion, add the nearest
+  neighbour that must NOT be safe, then mutate the implementation back to the
+  naive version and confirm the test fails. If it still passes, the test is
+  decorative (todo 358 review).
