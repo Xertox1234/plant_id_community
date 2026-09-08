@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: p2
 issue_id: "372"
 tags: [railway, deployment, dependencies, security, forum]
@@ -115,11 +115,14 @@ Discovered 2026-09-07 by direct inspection of the Railway API (not an audit run)
 - Config lives in [`backend/railway.cron.json`](../backend/railway.cron.json):
   `python manage.py prune_forum_tombstones`, `cronSchedule: "0 3 * * *"` (UTC),
   `restartPolicyType: NEVER`, no healthcheck.
-- **Root Directory and config-as-code are dashboard-only.** Per todo 261 there
-  is no CLI flag (`railway add --help`, `railway service source connect --help`)
-  and the public GraphQL API rejects the CLI's stored token — introspection
-  succeeding is a false positive, every authenticated call returns
-  `Not Authorized`. So this cannot be automated from here.
+- ~~**Root Directory and config-as-code are dashboard-only.**~~ **Wrong — this
+  was the todo's central premise and it was stale.** Todo 261's finding is true
+  of the Railway *CLI* (no flag exists, and the public GraphQL API rejects the
+  CLI's stored token — introspection succeeding is a false positive). The
+  **Railway MCP is a different auth path**: `update-service` sets
+  `rootDirectory` and `railwayConfigFile`, `connect-service-source` attaches the
+  repo. The whole fix ran from here in two calls. Lesson: a constraint recorded
+  against one client is not a constraint on every client.
 - The cron carries its own copy of the prod env set because it imports the same
   settings — including `USE_R2` and all five `R2_*` vars, per the root
   `CLAUDE.md` environment table. Attaching a source does not change variables.
@@ -136,21 +139,58 @@ Discovered 2026-09-07 by direct inspection of the Railway API (not an audit run)
 
 ## Acceptance Criteria
 
-- [ ] `get-service-config` for `forum-prune-cron` returns a `source` block with
+- [x] `get-service-config` for `forum-prune-cron` returns a `source` block with
       `repo`, `branch: main`, and `rootDirectory: backend`
-- [ ] A deployment triggered by a merge to `main` shows `commitHash` and
-      `branch` in its metadata (not only a `snapshotId`)
-- [ ] That deployment's build log shows the pins then current on `main`, and
-      none of `nltk`, `safety`, `bandit`
-- [ ] The effective config is still `railway.cron.json`: start command
+- [x] A deployment triggered by a merge to `main` shows `commitHash` and
+      `branch` in its metadata (not only a `snapshotId`) — merging #711 produced
+      `07c9ed09`, `commitHash: b36e9b9`, `branch: main`, `SUCCESS`
+- [x] That deployment's build log shows the pins then current on `main`, and
+      none of `nltk`, `safety`, `bandit` — `Collecting wagtail==8.0 (from -r
+      requirements.txt (line 201))`; a `nltk` filter returns zero build lines
+- [x] The effective config is still the cron config: start command
       `prune_forum_tombstones`, `cronSchedule: "0 3 * * *"`, restart policy
       `NEVER`, no healthcheck — i.e. the service did not inherit gunicorn
-- [ ] A scheduled run fires at 03:00 UTC after the change and completes, with
-      log evidence (`railway logs <deployment-id> --service forum-prune-cron
-      --deployment`)
-- [ ] `backend/docs/deployment/railway.md` reflects the new topology
+- [~] A scheduled run fires at 03:00 UTC after the change and completes —
+      **moved to todo 375, not shipped.** A deploy does not trigger a run, so
+      this cannot be checked before 2026-09-09T03:00Z. Left unchecked
+      deliberately: `[x]` means shipped
+- [x] `backend/docs/deployment/railway.md` reflects the new topology
 
 ## Work Log
+
+### 2026-09-08 - Done: repo source attached, verified, archived
+
+Executed through the Railway MCP, not the dashboard — see the corrected
+premise in Technical Details.
+
+1. `update-service`: `rootDirectory: backend`, `railwayConfigFile`,
+   `startCommand`, `cronSchedule: "0 3 * * *"`, `restartPolicyType: NEVER`.
+   Settings first, because `connect-service-source` builds immediately and a
+   source attached before the config file is set inherits the web
+   `railway.json` — gunicorn plus a healthcheck the cron can never pass.
+2. `connect-service-source`: `Xertox1234/plant_id_community`, branch `main`.
+
+**The first attempt FAILED, and the reason is worth keeping.** With
+`railwayConfigFile: "railway.cron.json"` — the value the deployment doc's
+struck-through step 3 prescribed — the deploy died in four seconds:
+
+```
+failureStage: SNAPSHOT_CODE
+failureError: "service config at 'railway.cron.json' not found"
+```
+
+The path is resolved from the **repository root**, not from Root Directory, so
+it must be `backend/railway.cron.json`. Those instructions were written in
+2026-07 but never executed (the snapshot route was taken instead), so the error
+sat undiscovered until this todo ran them. Note the build logs held only
+`scheduling build on Metal builder` — `get-deployment-diagnosis` was the only
+thing that surfaced the actual error.
+
+`redeploy` could not retry it ("that deployment has no build to copy"), so the
+recovery was simply the next push to `main`: merging #711 auto-deployed the
+service, which is both the fix and the proof that the source attachment works.
+
+Residual: the scheduled-run criterion moved to **todo 375**.
 
 ### 2026-09-07 - Filed
 
