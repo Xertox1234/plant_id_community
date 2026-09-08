@@ -5424,3 +5424,49 @@ the destructive order (and, per the todo 371 entry above, silently hidden 373
 from `todo-batch`). A "must precede" constraint has no frontmatter field: state
 it as a numbered step in the *other* todo, at the point where the destructive
 action happens.
+
+## 2026-09-08 — A sweep that finds no files reports green (todo 358)
+
+Todo 358's own Recommended Action prescribed the fix that would have broken it:
+
+```python
+sorted(pathlib.Path("apps").glob("*/services/*.py"))
+```
+
+That path is **CWD-relative**, and pytest never chdirs — `rootdir` is `backend/`
+only because `pytest.ini` sits there. Run the suite from the repo root and the
+glob returns `[]`, `@pytest.mark.parametrize` over an empty list collects **one
+skipped test**, and a security drift guard reports green having read no files at
+all. The hardcoded list it replaced would have raised `FileNotFoundError` — a
+loud failure traded for a silent pass in the name of making the property
+"structural".
+
+Same shape as the `npm audit` `[ -s ]` check (2026-09-07) and the archive
+tripwire (todo 355): the scope predicate was right, the enumeration it drove was
+empty, and nothing asserted the difference.
+
+*Rules:*
+
+- Anchor a file sweep on `Path(__file__).resolve().parents[N]`, never the CWD.
+- A sweep must assert it swept something. `assert len(files) > 400` costs one
+  line; without it the sweep's own failure mode is invisible.
+- Make the collapse case a permanent test, not a one-off manual check: have the
+  enumerator take its roots as a parameter, then assert
+  `_backend_python_files(roots=("no-such-directory",)) == []`. No source to
+  mutate, nothing to restore.
+
+### The tree you scan is not the tree git tracks
+
+Widening the same guard to `packages/` pulled in **120 stale `.py` files** from
+`packages/wagtail_forum/build/`, a gitignored build artefact holding a complete
+shadow copy of the package. It never appears in a fresh CI checkout, so the
+sweep silently covered a different file set locally than in CI — and a violation
+already fixed in the real source would fail from its stale twin.
+
+*Rule:* a filesystem sweep of a repo needs an artefact filter (`build`, `dist`,
+`__pycache__`, `*.egg-info`, `node_modules`, `venv`, `site-packages`), and the
+filter needs its own test. Assert against `git check-ignore --stdin` rather than
+against the list itself — that catches the artefact directory nobody thought of
+(`.tox/`, a second package's `build/`) instead of only the ones already named.
+Untracked-but-not-ignored must stay legal: it is new source someone has not
+committed yet, and a peer agent's work-in-progress lives in this checkout.

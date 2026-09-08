@@ -12,7 +12,6 @@ response body while the log still gets it.
 
 import io
 import logging
-import pathlib
 from contextlib import contextmanager
 from unittest.mock import Mock, patch
 
@@ -149,93 +148,7 @@ def test_corrupt_image_message_carries_no_pil_text():
     assert "cannot identify image file" not in message, message
 
 
-def _requests_handlers_interpolating_the_exception(path):
-    """Yield (lineno, source) for every logger call that interpolates a
-    ``requests`` exception.
-
-    Scoping is deliberate. The exception name is checked only INSIDE its own
-    ``except requests...`` block — a later ``except Exception as e`` rebinds the
-    same name and can never receive a ``RequestException``, so flagging it
-    would be a false positive. Aliases assigned inside the handler
-    (``last_exception = e``) are followed across the whole function, because
-    the retry decorator logs one after the loop has ended.
-
-    ``e.response.status_code`` and ``log_safe_api_error(e)`` are the approved
-    shapes and are not reported.
-    """
-    import ast
-
-    def logger_calls(scope):
-        for call in (n for n in ast.walk(scope) if isinstance(n, ast.Call)):
-            if ast.unparse(call.func).startswith("logger."):
-                yield call
-
-    def interpolates(call, names):
-        for arg in call.args:
-            safe = set()
-            for sub in ast.walk(arg):
-                if isinstance(sub, ast.Attribute):
-                    safe |= {n for n in ast.walk(sub.value) if isinstance(n, ast.Name)}
-                if isinstance(sub, ast.Call) and ast.unparse(sub.func).endswith(
-                    "log_safe_api_error"
-                ):
-                    safe |= {n for n in ast.walk(sub) if isinstance(n, ast.Name)}
-            for sub in ast.walk(arg):
-                if isinstance(sub, ast.Name) and sub.id in names and sub not in safe:
-                    return True
-        return False
-
-    tree = ast.parse(pathlib.Path(path).read_text(encoding="utf-8"))
-    for func in ast.walk(tree):
-        if not isinstance(func, (ast.FunctionDef, ast.AsyncFunctionDef)):
-            continue
-        for handler in (n for n in ast.walk(func) if isinstance(n, ast.ExceptHandler)):
-            if not handler.name:
-                continue
-            if "requests" not in ast.unparse(handler.type or ast.Constant(None)):
-                continue
-            # The bound name, inside its own handler only.
-            for call in logger_calls(handler):
-                if interpolates(call, {handler.name}):
-                    yield call.lineno, ast.unparse(call)
-            # Aliases assigned in the handler outlive it — check the function.
-            aliases = {
-                t.id
-                for n in ast.walk(handler)
-                if isinstance(n, ast.Assign)
-                and isinstance(n.value, ast.Name)
-                and n.value.id == handler.name
-                for t in n.targets
-                if isinstance(t, ast.Name)
-            }
-            if aliases:
-                for call in logger_calls(func):
-                    if interpolates(call, aliases):
-                        yield call.lineno, ast.unparse(call)
-
-
-# Only the services that authenticate with a QUERY PARAMETER, where the
-# prepared URL in the exception message carries the key. Header-authenticated
-# clients (plant_id, plant_health, unsplash, pexels) are safe by construction;
-# the weather services are fixed on the slice-1 branch. Widening this sweep to
-# the whole service layer is todo 358.
-KEYED_IN_QUERY_STRING = [
-    "apps/plant_identification/services/plantnet_service.py",
-    "apps/plant_identification/services/trefle_service.py",
-]
-
-
-@pytest.mark.parametrize("service", KEYED_IN_QUERY_STRING)
-def test_no_requests_handler_interpolates_its_exception(service):
-    """Drift guard (todo 354).
-
-    ``requests`` puts the prepared URL in its exception message, so a service
-    that authenticates with a query parameter leaks its key the moment a
-    handler interpolates the exception. Trefle (``token``) and PlantNet
-    (``api-key``) both did. The surviving ``{str(e)}`` calls in these files sit
-    in ``except Exception`` blocks that a ``RequestException`` clause already
-    shadows — this fails if anyone reorders those, or writes a new handler the
-    same way. Use ``log_safe_api_error(exc)``.
-    """
-    offenders = list(_requests_handlers_interpolating_the_exception(service))
-    assert not offenders, "\n".join(f"  line {n}: {src}" for n, src in offenders)
+# The AST drift guard that used to live here -- no `except requests... as e`
+# handler may interpolate its own exception into a log -- moved to
+# apps/core/tests/test_requests_exception_drift.py when todo 358 widened it
+# from these two services to the whole backend code tree.

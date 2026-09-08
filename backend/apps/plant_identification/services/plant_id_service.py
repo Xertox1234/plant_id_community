@@ -16,11 +16,11 @@ import logging
 import os
 import socket
 import threading
-import time
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Optional
 
 import requests
 from apps.core.exceptions import ExternalAPIError
+from apps.core.utils.pii_safe_logging import log_safe_api_error
 from django.conf import settings
 from django.core.cache import cache
 from pybreaker import CircuitBreakerError
@@ -186,7 +186,7 @@ class PlantIDAPIService:
                 )
 
             # Quota available - acquire distributed lock to prevent cache stampede
-            logger.info(f"[QUOTA] Plant.id quota available (acquiring lock)")
+            logger.info("[QUOTA] Plant.id quota available (acquiring lock)")
 
             # Use distributed lock if Redis is available
             if self.redis_client:
@@ -296,9 +296,9 @@ class PlantIDAPIService:
 
             return result
 
-        except CircuitBreakerError as e:
+        except CircuitBreakerError:
             logger.error(
-                f"[CIRCUIT] Plant.id circuit is OPEN - fast failing without API call"
+                "[CIRCUIT] Plant.id circuit is OPEN - fast failing without API call"
             )
             raise ExternalAPIError(
                 "Plant.id service is temporarily unavailable. Please try again in a few moments.",
@@ -308,7 +308,10 @@ class PlantIDAPIService:
             logger.error("Plant.id API request timed out")
             raise
         except requests.exceptions.RequestException as e:
-            logger.error(f"Plant.id API error: {e}")
+            # NOT `e`: requests builds its message from the prepared URL.
+            # Plant.id uses an `Api-Key` HEADER, so no credential is in that
+            # URL today -- keep it that way structurally.
+            logger.error(f"Plant.id API error: {log_safe_api_error(e)}")
             raise
         except Exception as e:
             logger.error(f"Unexpected error in Plant.id identification: {e}")

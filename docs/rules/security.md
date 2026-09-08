@@ -268,6 +268,16 @@ Compact checklist auto-injected before edits. Long-form: `backend/docs/patterns/
   the exception object is not. Header-authenticated clients are safe by
   construction, which is a reason to prefer header auth. The same rule bans
   `str(e)` in a response *body*: it reaches the client (todo 354).
+  The drift guard is `apps/core/tests/test_requests_exception_drift.py`,
+  and since todo 358 it sweeps every `.py` under `apps/`, `packages/` and
+  `plant_community_backend/` — not just the service layer — so a handler
+  written in a view or a Celery task is covered too. Know what it cannot
+  see before reading green as safe: only calls prefixed `logger.` (a
+  `self.logger.` wrapper is invisible), never a `raise SomeError(f"{e}")`,
+  and never `logger.exception` with a constant message — that one still
+  emits the exception text through the traceback, which is why both
+  `get_service_status` methods branch on `isinstance(exc,
+  requests.RequestException)` instead.
 - **Log a connection URL's parts, never the URL.** `REDIS_URL`, `DATABASE_URL`,
   `CELERY_BROKER_URL` and signed asset URLs carry the password in the userinfo
   component. `validate_environment()` logged `REDIS_URL` verbatim on every
