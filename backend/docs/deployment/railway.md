@@ -260,6 +260,42 @@ do **not** redeploy the cron. Re-run the command above to ship changes, or
 attach the GitHub repo in the dashboard (Root Directory + config-as-code must
 then be set as in the original steps 2–3).
 
+**This is worse than it sounds, and it bit us — 2026-09-07 (todo 372).** A
+Railway `reason: "redeploy"` of a sourceless service **re-runs the build from
+the retained upload context**. The service does not serve a frozen image that
+quietly ages; it rebuilds the *old tree* from scratch each time. This cron's
+2026-09-06 redeploy therefore reinstalled `wagtail-7.4.2`, `Django-6.0.7` and
+the `nltk`/`safety`/`bandit`/`llm-0.27.1` subtree that #659 had removed from
+`main` the day before. Dependabot reads the repo, and the repo was clean, so
+nothing flagged it. **Treat "0 open advisories" as a claim about `main` and the
+web container only, until this service has a repo source.**
+
+**Reading what a snapshot actually contains** (no container shell needed):
+`get-logs` with `types: ["build"]` on the deployment id, filtered to
+`Successfully installed` — a redeploy re-runs the build, so pip's resolved
+versions are in the log. pip also prints `(from -r requirements.txt (line N))`,
+and those line numbers pin the exact commit the context came from.
+
+**Preferred re-upload recipe** (supersedes the in-place swap above, which is
+kept for reference): build the context from git rather than mutating the
+checkout — the main checkout usually holds a peer agent's uncommitted work, and
+a local tree can be behind `origin/main`.
+
+```bash
+CTX=$(mktemp -d)
+git archive origin/main backend | tar -x -C "$CTX"
+cd "$CTX/backend"
+cp railway.cron.json railway.json                  # cron config becomes THE config
+railway up -p <projectId> -e production -s forum-prune-cron -d
+```
+
+Run it from *inside* the context directory: `railway up <absolute path outside
+the linked repo>` fails with a bare `prefix not found`, and `up` takes
+`-p/--project`, so the temp directory needs no `railway link`. (macOS has no
+`timeout` — don't wrap it.) Verified 2026-09-07: deployment `d467efc6`,
+`reason: "deploy"`, build log `Collecting wagtail==8.0 (from -r
+requirements.txt (line 201))`.
+
 1. **New → Empty Service** in the same project. *(done — `forum-prune-cron`,
    created with `railway add --service forum-prune-cron`)*
 2. ~~**Settings → Root Directory** = `backend`~~ — not needed with the snapshot
