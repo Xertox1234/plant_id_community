@@ -255,6 +255,39 @@ shared checkout and was left alone.
 Residue swept after the reviews: no `MUTANT` markers, working tree unchanged
 apart from this PR's own files.
 
+### 2026-09-08 - Review round 2
+
+`kimi-review` flagged two shapes the guard *documented* as blind spots instead
+of catching. Both are outright bypasses, and both had **zero** occurrences in
+the tree — so closing them cost no existing code and risked no false positive,
+which is what tipped them from "documented limitation" to "fix now".
+
+- `from requests.exceptions import HTTPError` then `except HTTPError as e` was
+  a one-line bypass: the handler test was a text match on the literal string
+  `"requests"`, which an unqualified class name does not contain. The guard now
+  resolves names bound by any `from requests...` import in the same module.
+  (The advisor had recommended exactly this earlier, as the alternative to a
+  repo-wide ban on that import style; I had chosen to document it instead.
+  Two independent sources pointing at the same fix was the signal.)
+- `logger.exception` inside a `requests` handler leaks with no interpolation at
+  all — it formats the traceback, whose last line IS the exception message.
+  Now reported whether or not the handler binds a name. The legal shape, an
+  `isinstance` branch inside `except Exception`, is untouched because that
+  clause is not a requests handler.
+
+Writing the specimen caught a bug in this very fix: `logger.exception` was
+initially checked only for handlers that bind a name, so
+`except requests.exceptions.RequestException:` with no `as e` slipped through.
+The test went red, which is the whole point of writing the discriminating case
+first — the round-1 lesson applied immediately.
+
+Mutation-checked again: reverting the import resolution fails the
+planted-violation test. No regression across all 589 files.
+
+Remaining `self.logger.` blind spot (kimi SUGGESTION) left documented —
+`structured_logger.py` is the only code in that shape and is imported nowhere.
+Review budget closed at two rounds per the project convention.
+
 ### 2026-09-06 - Filed
 
 Split out of todo 354, which narrowed the guard to two files mid-PR because
