@@ -195,4 +195,12 @@ jobs:
         # skipped") is the recorded pass count for drift tracking. Baseline on
         # main at wiring time: 609 passed, 8 skipped (617 collected). A failing
         # test exits non-zero and fails this job.
+        #
+        # Keep this invocation BARE. backend/conftest.py prints the environment
+        # stamp (interpreter, HEAD, dirty count, dependency drift counts) via
+        # pytest_report_header, which _pytest gates on `verbosity >= 0` — adding
+        # -qq or --no-header to quieten the log silently deletes it. This job is
+        # the control that proves the stamp reads clean on a correct
+        # environment, so losing it here would go unnoticed: the companion drift
+        # warning only prints when there IS drift, and CI has none. See todo 379.
         run: python -m pytest

@@ -1,5 +1,5 @@
 ---
-status: pending
+status: in_progress
 priority: p2
 issue_id: "379"
 tags: [harness, hooks, testing, tooling]
