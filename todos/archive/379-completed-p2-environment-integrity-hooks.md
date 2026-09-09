@@ -1,5 +1,5 @@
 ---
-status: in_progress
+status: completed
 priority: p2
 issue_id: "379"
 tags: [harness, hooks, testing, tooling]
@@ -112,6 +112,14 @@ Gotchas this repo has already paid for:
       removing the checker invocation turned 5 assertions red by name
       (22 passed / 5 failed), restored from a `cp` backup, `diff` byte-identical
 - [x] Proven by a synthesized payload on stdin AND by real pytest runs
+
+## Completed
+
+**Merged 2026-09-09 as PR #716, squash `ff16b91`.** Verified on merged `main`:
+33 pytest tests, 28 hook assertions, banner rendering `210 pinned, 0
+mismatched, 0 not installed, 43 unpinned`, and no drift warning on a clean
+environment. CI's own run prints the same stamp with `1 unpinned`, which is the
+control proving the check reads honestly on a correct environment.
 
 ## What actually shipped (2026-09-08)
 
