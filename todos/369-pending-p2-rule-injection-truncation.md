@@ -171,3 +171,26 @@ self-modification block first.
   made "the mechanism ran" versus "the mechanism covered this" a live
   distinction.
 - All byte counts and character offsets above were measured, not estimated.
+
+## Concrete instance: todo 379's rule never ships (measured 2026-09-08)
+
+A rule appended to `docs/rules/testing.md` by todo 379 — "a revert control is
+not a control while both arms share uncommitted files" — **does not reach the
+model at all.** Measured by running the hook, not by reading `route_domains.py`:
+
+```
+$ jq -n --arg fp "$PWD/backend/conftest.py" '{tool_name:"Write",session_id:"probe",
+    tool_input:{file_path:$fp,content:"x"}}' | bash .claude/hooks/inject-patterns.sh
+injected bytes: 8898        (of 111,822 assembled)
+TRUNCATED marker: True
+[RULES — testing] section reached at all: False
+```
+
+`testing.md` is 44.6 KB and the rule is at line ~593 of 603. The cut lands
+inside the *api* rules, so the testing section never starts. An independent
+review pass reproduced this (`grep -c 'revert'` on the emitted context → 0).
+
+This is the append-only trap this todo already names, with a price attached: a
+rule written specifically to prevent a repeat of a wrong report to the user is
+documentation only until this todo lands. Hoisting it to the top of
+`testing.md` would only evict a different rule — the fix has to be structural.

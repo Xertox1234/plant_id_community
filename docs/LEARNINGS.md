@@ -5578,3 +5578,61 @@ empties the collection tree directly and calls the receiver, which fails at
 `collections.py:26` without the guard. Writing the reassuring test instead of
 the discriminating one is the default failure mode, and knowing the rule is not
 the same as applying it — run the mutation, every time.
+
+## 2026-09-08 — Testing / Tooling (todos 378/379, PR #716)
+
+Building the environment-integrity stamp produced five lessons, four of them
+about the tests rather than the code.
+
+**A rootdir `conftest.py` that raises at import takes down the entire suite.**
+`backend/conftest.py` loaded its checker with an unguarded
+`importlib.util.spec_from_file_location` + `exec_module`, in a file whose own
+docstring promised "everything here fails open". Appending a syntax error to
+the checker produced `ImportError while loading conftest`, **pytest exit 4,
+zero of 2386 tests run** — not a degraded stamp, no tests at all. The shell
+hook consuming the same module already guarded this (`[ -f "$CHECKER" ] ||
+exit 0`); the "primary" surface did not. Any import a conftest performs for a
+non-essential feature belongs in a `try/except` that yields `None`, with every
+consumer treating `None` as "feature unavailable".
+
+**A module constant used as a default argument can never be overridden.**
+`def read_pins(path: Path = REQUIREMENTS)` binds `REQUIREMENTS` once at
+definition, so monkeypatching `env_integrity.REQUIREMENTS` had no effect and
+the CLI could not be pointed at a fixture. Use `path: Path | None = None` and
+resolve `path if path is not None else REQUIREMENTS` in the body. Found only
+because a new test needed to override it — the value was otherwise correct and
+nothing else would ever have noticed.
+
+**`pytest_report_header` is verbosity-gated; `pytest_terminal_summary` is not.**
+`_pytest/terminal.py` computes `showheader = verbosity >= 0`, so `-qq` and
+`--no-header` skip the header block and the hook is never called. Anything that
+must survive a quiet run belongs in the terminal summary — which also lands
+next to the pass/fail counts, where a reader is actually looking. (A single
+`-q` does *not* suppress it here, because `backend/pytest.ini` sets
+`addopts = --verbose`; the two flags cancel to verbosity 0.)
+
+**A mutation that changes the file's syntax is not a mutation test.** Deleting
+an `except:` clause to "remove the guard" leaves a `try` with no handler — a
+`SyntaxError`. The run then errors out with zero tests, and a harness grepping
+for "N failed" reports *0 failed* and concludes the test is not discriminating,
+when in fact nothing was ever executed. `ast.parse` the mutant before believing
+any mutation result. This produced a false "NOT DISCRIMINATING" verdict on a
+guard whose tests were in fact fine.
+
+**Two more ways a mutation check lies, both hit in one session.** (1) *Identical
+fixture values hide a swap*: the header renders
+`deps: N pinned, …, M unpinned`, and with a fixture of 1 pin and 1 extra,
+swapping the two labels produced a byte-identical string — the test could not
+fail. Give each interchangeable slot a distinct value. (2) *Monkeypatching the
+helper under test proves nothing about it*: patching `_git` wholesale to return
+`None` exercised the caller's handling of `None`, not whether `_git` produces
+it, so deleting `_git`'s return-code check stayed green. Patch one level lower
+(`subprocess.run`) so the branch you care about actually runs.
+
+**Dependency housekeeping.** `pip install -r requirements.txt` installs and
+upgrades but never *uninstalls*: packages dropped from the file stay in every
+venv that already had them (`safety`/`bandit`/`nltk` survived their 2026-09-05
+removal — todo 380). And an editable line (`-e ./packages/wagtail_forum`) is not
+a `name==version` pin, so a naive parser reports it as installed-but-unpinned
+forever; detect editables via each distribution's `direct_url.json`
+(`dir_info.editable`) rather than special-casing the name.

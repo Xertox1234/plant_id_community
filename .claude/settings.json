@@ -32,6 +32,12 @@
             "command": "cd \"$(git rev-parse --show-toplevel 2>/dev/null || echo '.')\" && bash .claude/hooks/kimi-review.sh",
             "timeout": 180,
             "statusMessage": "Running kimi-review on staged changes..."
+          },
+          {
+            "type": "command",
+            "command": "cd \"$(git rev-parse --show-toplevel 2>/dev/null || echo '.')\" && bash .claude/hooks/check-test-env.sh",
+            "timeout": 10,
+            "statusMessage": "Checking test environment integrity..."
           }
         ]
       }

@@ -1651,5 +1651,20 @@
     "source": "codify: chore/codify-post-migrate-flush",
     "added": "2026-09-08",
     "severity": "warn"
+  },
+  {
+    "id": "pytest-report-header-is-verbosity-gated",
+    "domains": [
+      "testing"
+    ],
+    "path_glob": [
+      "**/conftest.py"
+    ],
+    "content_present": "def pytest_report_header",
+    "content_absent": "def pytest_terminal_summary",
+    "message": "pytest_report_header is gated on `verbosity >= 0` (_pytest/terminal.py), so -qq and --no-header skip it entirely and the hook never runs. If this output must survive a quiet run, also implement pytest_terminal_summary — it has no such gate and lands next to the pass/fail counts. See docs/LEARNINGS.md 2026-09-08 (todo 379).",
+    "source": "codify: chore/todo-378-venv-drift-guard",
+    "added": "2026-09-08",
+    "severity": "warn"
   }
 ]
