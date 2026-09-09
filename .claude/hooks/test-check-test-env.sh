@@ -149,6 +149,31 @@ rm -rf "$EMPTY_DIR"
 assert_empty "missing jq skips" "$OUT"
 rm -rf "$ROOT"
 
+# ---------- The CI stamp must stay observable ----------
+# backend-ci.yml carries a comment saying its pytest invocation must stay bare,
+# because pytest_report_header is gated on `verbosity >= 0` and a routine
+# "quieten the logs" edit would silently delete the environment stamp from the
+# one job that proves it reads clean. A comment is documentation, not a guard —
+# this assertion is the guard. Runs in harness-ci.yml, a required check.
+CI_YML="$(cd "$DIR/../.." && pwd)/.github/workflows/backend-ci.yml"
+if [ -f "$CI_YML" ]; then
+  PYTEST_STEP=$(grep -E '^\s*run: python -m pytest' "$CI_YML" || true)
+  if [ -z "$PYTEST_STEP" ]; then
+    echo "FAIL: backend-ci.yml has no bare 'run: python -m pytest' step"
+    echo "  (if the runner changed, update this assertion deliberately)"
+    FAIL=$((FAIL+1))
+  elif grep -qE '\-q|--no-header|--quiet' <<< "$PYTEST_STEP"; then
+    echo "FAIL: backend-ci.yml pytest step suppresses the environment stamp"
+    echo "  got: $PYTEST_STEP"
+    FAIL=$((FAIL+1))
+  else
+    echo "PASS: backend-ci.yml pytest step keeps the environment stamp visible"
+    PASS=$((PASS+1))
+  fi
+else
+  echo "SKIP: backend-ci.yml not found — CI stamp assertion"
+fi
+
 echo ""
 echo "Results: $PASS passed, $FAIL failed"
 [ $FAIL -eq 0 ]

@@ -124,8 +124,9 @@ That was treated as a one-off. It is not.
       `pip install -r requirements.txt` installed wagtail 8.0, draftjs-exporter
       7.1.0, modelsearch 1.3.2, django-ninja 1.7.0, swapper 1.5.0; the
       comparison now reports `210 pinned, 0 mismatched, 0 not installed`)
-- [ ] `test_image_rendition_formats.py` passes 4/4 locally — **still 2/4 after
-      the install; see "The install did not fix the rendition tests" below**
+- [x] `test_image_rendition_formats.py` passes 4/4 locally — verified across
+      three consecutive runs on the healed venv (wagtail 8.0), and with
+      `backend/conftest.py` removed entirely to rule it out as a factor
 - [ ] Decide whether the 43 unpinned-but-installed packages matter → todo 380
 
 The guard itself is **todo 379's**, not this todo's. The three hook criteria
@@ -134,25 +135,33 @@ second would have looked already-done. Shipped 2026-09-08 as
 `backend/conftest.py`, `backend/apps/core/env_integrity.py` and
 `.claude/hooks/check-test-env.sh`.
 
-## The install did not fix the rendition tests
+## Correction: this todo's diagnosis was right after all
 
-This todo's stated root cause — "those tests assert Wagtail 8.0 behaviour
-against an installed Wagtail 7.4.3" — is **not sufficient**. With the venv now
-provably matching `requirements.txt`, both parameterisations still fail
-`assert 'png' == 'webp'`. Ruled out on 2026-09-08:
+An earlier revision of this file claimed the install did **not** fix the
+rendition tests and that the stated root cause was insufficient. **That was
+wrong, and it is worth recording why**, because the mistake is the exact one
+this todo exists to prevent.
 
-- `wagtail.__version__` is `8.0`, and its `Filter.run()` `default_conversions`
-  is `{"bmp": "png", "heic": "jpeg"}` — webp/avif are genuinely absent, so
-  `output_format` should fall back to `original_format`.
-- `WAGTAILIMAGES_FORMAT_CONVERSIONS` is unset, so nothing re-adds them.
-- Willow reports `format_name == "webp"` for the exact buffer the test uploads.
-- The image model is stock `wagtail.images.models.Image` with no custom
-  `get_rendition`.
+The claim came from a single `pytest` run taken immediately after
+`pip install -r requirements.txt` finished, which reported 2/4. It has not
+reproduced since. On the same unchanged venv the file now passes 4/4 across
+three consecutive runs, and also passes with the new `conftest.py` reverted to
+its earlier form and with no `conftest.py` at all — so neither the new tooling
+nor the interpreter state explains it. The most likely reading is a transient
+immediately after pip replaced `wagtail`, `modelsearch`, `draftjs-exporter` and
+re-linked the editable `wagtail-forum`.
 
-So something *after* format selection is rewriting the extension. That is a
-real local/CI divergence, not environment drift, and it is now safe to say so:
-the environment stamp proves the tree is clean. Likely related to todo 371
-(R2 rendition verification after Wagtail 8).
+One run is not evidence. A single observation was written up as a settled
+finding — "the venv is clean and it still fails, therefore the cause is
+elsewhere" — and it produced a confident, wrong claim in a document other
+people would act on. The environment stamp answered the question it was built
+for (the venv really was clean) and that made the *other* half of the inference
+feel safe when it had not been checked at all.
+
+Ruled out along the way, and still true: `wagtail.__version__` is `8.0`, its
+`Filter.run()` `default_conversions` is `{"bmp": "png", "heic": "jpeg"}`,
+`WAGTAILIMAGES_FORMAT_CONVERSIONS` is unset, Willow reports `webp` for the test
+buffer, and the image model is stock. All consistent with 4/4 passing.
 
 ## Notes
 

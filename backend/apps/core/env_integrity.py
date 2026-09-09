@@ -28,7 +28,11 @@ from pathlib import Path
 # `name==version`, tolerating extras (`celery[redis]==5.4.0`) and trailing
 # environment markers. Anything else in requirements.txt (`-e ./packages/...`,
 # `-r other.txt`, bare names) is deliberately not a pin and is skipped here.
-PIN_RE = re.compile(r"^([A-Za-z0-9_.\-]+)(?:\[[^\]]*\])?==([^\s;]+)")
+# `\s*==\s*` because a spaced pin (`wagtail == 8.0`) is pip-legal. Without it
+# such a line parses as "not a pin" and the package silently drops out of the
+# comparison — a false negative, which is the worse direction for a detector
+# whose whole value is being believed.
+PIN_RE = re.compile(r"^([A-Za-z0-9_.\-]+)(?:\[[^\]]*\])?\s*==\s*([^\s;]+)")
 
 REQUIREMENTS = Path(__file__).resolve().parents[2] / "requirements.txt"
 
@@ -42,8 +46,15 @@ def normalize(name: str) -> str:
     return re.sub(r"[-_.]+", "-", name).lower()
 
 
-def read_pins(path: Path = REQUIREMENTS) -> dict[str, str]:
-    """Parse `name==version` lines. Non-pin lines are skipped, not errors."""
+def read_pins(path: Path | None = None) -> dict[str, str]:
+    """Parse `name==version` lines. Non-pin lines are skipped, not errors.
+
+    `path` defaults to None and resolves `REQUIREMENTS` at call time rather
+    than binding it as a default argument. A default is evaluated once at
+    definition, so `REQUIREMENTS` could never be pointed elsewhere — including
+    by a test, which is how this was found.
+    """
+    path = path if path is not None else REQUIREMENTS
     pins: dict[str, str] = {}
     for raw in path.read_text().splitlines():
         line = raw.split("#", 1)[0].strip()

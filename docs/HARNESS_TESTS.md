@@ -28,7 +28,7 @@ No package installs needed — all tests use the stdlib and the vendored scripts
 | `.claude/hooks/test-inject-patterns.sh` | Rule injection (16 assertions) |
 | `.claude/hooks/test-kimi-review.sh` | Commit-gate hook + engine unit tests (20 assertions) |
 | `.claude/hooks/test-guard-worktree-isolation.sh` | Worktree isolation guard (10 assertions) |
-| `.claude/hooks/test-check-test-env.sh` | Test-environment drift hook (27 assertions) |
+| `.claude/hooks/test-check-test-env.sh` | Test-environment drift hook (28 assertions) |
 | `scripts/inject/test_match_triggers.py` | Trigger matching (34 cases) |
 | `scripts/inject/test_capture_trigger.py` | Trigger capture from history |
 | `scripts/inject/test_capture_from_review.py` | Trigger capture from review output |
