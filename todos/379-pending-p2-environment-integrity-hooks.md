@@ -98,31 +98,77 @@ Gotchas this repo has already paid for:
 
 ## Acceptance Criteria
 
-- [ ] `.claude/hooks/check-test-env.sh` exists, with
-      `.claude/hooks/test-check-test-env.sh` beside it, matching the convention
-      every other hook here follows
-- [ ] Registered in `.claude/settings.json` **alongside** the existing
-      `kimi-review.sh` Bash entry, not replacing it — verified by reading the
-      file back
-- [ ] Fires on `python -m pytest`, `pytest`, and `venv/bin/python -m pytest`;
-      silent on `echo python -m pytest`, on non-pytest commands, and when
-      `backend/venv` is absent
-- [ ] Names the specific drifted packages, distinguishing mismatched from
+- [x] `.claude/hooks/check-test-env.sh` exists, with
+      `.claude/hooks/test-check-test-env.sh` beside it
+- [x] Registered in `.claude/settings.json` **alongside** the existing
+      `kimi-review.sh` Bash entry — asserted programmatically, not by eye
+- [x] Fires on `python -m pytest`, `pytest`, `venv/bin/python -m pytest`,
+      `cd backend && …` and `manage.py test`; silent on `echo python -m pytest`,
+      `manage.py runserver`, `manage.py testfoo`, `cat pytest.ini`, non-pytest
+      commands, and when `backend/venv` is absent
+- [x] Names the specific drifted packages, distinguishing mismatched from
       not-installed
-- [ ] **The self-test fails when the drift comparison is removed from the
-      script.** Not a test that only asserts the hook ran — this repo shipped
-      two decorative tests in a single day, both of which passed with the fix
-      taken out (`docs/rules/testing.md`)
-- [ ] Proven by running `.claude/hooks/check-test-env.sh` with a synthesized
-      hook payload on stdin, AND by a real pytest invocation in a session that
-      has the hook loaded — a hook that validates but never fires is the exact
-      false-green this todo exists to prevent
+- [x] **The self-test fails when the drift comparison is removed.** Proven:
+      removing the checker invocation turned 5 assertions red by name
+      (22 passed / 5 failed), restored from a `cp` backup, `diff` byte-identical
+- [x] Proven by a synthesized payload on stdin AND by real pytest runs
+
+## What actually shipped (2026-09-08)
+
+The hook was kept but **demoted to the second surface.** The primary check
+lives inside pytest, because a `.claude/` hook cannot satisfy this todo's own
+criteria: `.claude/` reaches only new worktrees (six exist, all siblings at
+`~/projects/plant_id_community-*`), and it covers Claude Code alone — not CI,
+not a human at a terminal, not the peer agent sharing this checkout.
+
+| File | Role |
+| --- | --- |
+| `backend/apps/core/env_integrity.py` | pure `compare(pins, installed, editable)`; both surfaces call it |
+| `backend/conftest.py` | `pytest_report_header` stamp + `pytest_terminal_summary` drift warning |
+| `backend/apps/core/tests/test_env_integrity.py` | 17 tests, incl. call-site wiring tests |
+| `.claude/hooks/check-test-env.sh` | PreToolUse/Bash, additionalContext only, never blocks |
+| `.claude/hooks/test-check-test-env.sh` | 27 assertions, hermetic via `$CHECK_TEST_ENV_ROOT` |
+
+Registered on all three surfaces (`settings.json`, `harness-ci.yml`,
+`docs/HARNESS_TESTS.md`) — `test-guard-main-branch-edit.sh` is in none of them
+and is currently run by nobody, which is how a self-test silently joins the
+unrun set.
+
+### Decisions that changed from the original plan
+
+- **Check 2 (dirty tree) became an unconditional stamp, not an alert.** The
+  header always prints `tree: HEAD <sha>, N uncommitted file(s)`. It makes no
+  claim, so it has no false-positive budget to blow in a shared checkout, and
+  it gives a revert-control experiment the thing it lacked: two runs whose
+  environment lines can be compared.
+- **`pytest_terminal_summary` is load-bearing, not decoration.** `_pytest`
+  gates the header on `verbosity >= 0`, so `-qq` and `--no-header` suppress it;
+  the summary has no such gate and lands next to the failure count anyway.
+- **Shipped without the `if` field.** It is real — verified verbatim in the
+  2.1.265 binary — but every Bash permission rule in this repo is
+  prefix-shaped, and a leading-wildcard `Bash(*pytest*)` that silently never
+  matches would be exactly the false green this todo exists to prevent. The
+  anchored in-script regex is the only matcher. Adding `if` is a follow-up.
+- **Editable installs needed special handling.** `requirements.txt` line 211 is
+  `-e ./packages/wagtail_forum`, not a `name==version` pin, so a naive parser
+  reports `wagtail-forum` as unpinned on every run forever. Detected via
+  `direct_url.json` → `dir_info.editable`.
+
+### Known gap
+
+The discipline rule appended to `docs/rules/testing.md` (a revert control is
+invalid while both arms share uncommitted files) **does not currently reach the
+model.** Proven by running `inject-patterns.sh`: the injection truncates at
+8898 bytes and testing.md's section never starts. That is todo 369's open
+problem, not a defect in this work — the rule is documentation until 369 lands.
 
 ## Notes
 
 p2 for the same reason as todo 378: this corrupts the evidence every other task
 depends on. 378 fixes the current drift; this stops the class recurring.
 
-Do 378's step 1 first (`pip install -r backend/requirements.txt`), or the new
-hook's first real run will fire on a genuinely drifted venv and there will be
-nothing to distinguish "the hook works" from "the hook always fires".
+The original ordering advice ("do 378's step 1 first") was inverted on purpose.
+The drifted venv was the only live specimen; the check was built and proven
+against it naming all five real packages, and only then was the venv healed to
+prove the banner goes clean. Healing first would have left the positive case
+provable only against synthesized fixtures.

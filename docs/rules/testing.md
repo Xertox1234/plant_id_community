@@ -590,3 +590,14 @@ Compact checklist auto-injected before edits.
   neighbour that must NOT be safe, then mutate the implementation back to the
   naive version and confirm the test fails. If it still passes, the test is
   decorative (todo 358 review).
+- **A revert "control" is not a control while both arms share uncommitted
+  files.** Asked whether 14 failures were his, an agent re-ran the suite with
+  his own files restored to HEAD, got 24 failures both ways, and reported them
+  "pre-existing and unrelated". Both arms still carried a peer agent's
+  uncommitted `bootstrap.py`, so control and treatment shared the actual cause;
+  12 of the 14 were a real `post_migrate` bug that only CI caught. Identical
+  results across two arms prove independence *only* when the arms differ solely
+  in the variable under test. Before believing a revert experiment on a shared
+  checkout, compare the environment stamp `backend/conftest.py` prints for each
+  run (`tree: HEAD <sha>, N uncommitted file(s)`) — if both arms report the same
+  dirty count, you changed nothing that matters. See todos 378/379.

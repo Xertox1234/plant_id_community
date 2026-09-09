@@ -119,18 +119,51 @@ That was treated as a one-off. It is not.
 
 ## Acceptance Criteria
 
-- [ ] `backend/venv` matches `requirements.txt`: zero version mismatches and
-      zero not-installed, proven by re-running the comparison
-- [ ] `test_image_rendition_formats.py` passes 4/4 locally
-- [ ] A hook detects a drifted venv before or during a test run, and its
-      message names the specific packages
-- [ ] The hook has a self-test that **fails when the drift check is removed** —
-      not merely one asserting the hook runs (see `docs/rules/testing.md` on
-      tests that discriminate; this repo has shipped two decorative ones)
-- [ ] Verified by running the hook itself, not just the script it calls
+- [x] `backend/venv` matches `requirements.txt`: zero version mismatches and
+      zero not-installed, proven by re-running the comparison (2026-09-08:
+      `pip install -r requirements.txt` installed wagtail 8.0, draftjs-exporter
+      7.1.0, modelsearch 1.3.2, django-ninja 1.7.0, swapper 1.5.0; the
+      comparison now reports `210 pinned, 0 mismatched, 0 not installed`)
+- [ ] `test_image_rendition_formats.py` passes 4/4 locally — **still 2/4 after
+      the install; see "The install did not fix the rendition tests" below**
+- [ ] Decide whether the 43 unpinned-but-installed packages matter → todo 380
+
+The guard itself is **todo 379's**, not this todo's. The three hook criteria
+that used to live here were duplicated verbatim there, and whichever todo closed
+second would have looked already-done. Shipped 2026-09-08 as
+`backend/conftest.py`, `backend/apps/core/env_integrity.py` and
+`.claude/hooks/check-test-env.sh`.
+
+## The install did not fix the rendition tests
+
+This todo's stated root cause — "those tests assert Wagtail 8.0 behaviour
+against an installed Wagtail 7.4.3" — is **not sufficient**. With the venv now
+provably matching `requirements.txt`, both parameterisations still fail
+`assert 'png' == 'webp'`. Ruled out on 2026-09-08:
+
+- `wagtail.__version__` is `8.0`, and its `Filter.run()` `default_conversions`
+  is `{"bmp": "png", "heic": "jpeg"}` — webp/avif are genuinely absent, so
+  `output_format` should fall back to `original_format`.
+- `WAGTAILIMAGES_FORMAT_CONVERSIONS` is unset, so nothing re-adds them.
+- Willow reports `format_name == "webp"` for the exact buffer the test uploads.
+- The image model is stock `wagtail.images.models.Image` with no custom
+  `get_rendition`.
+
+So something *after* format selection is rewriting the extension. That is a
+real local/CI divergence, not environment drift, and it is now safe to say so:
+the environment stamp proves the tree is clean. Likely related to todo 371
+(R2 rendition verification after Wagtail 8).
 
 ## Notes
 
 p2 because it corrupts the evidence every other task depends on, and because it
 already caused two wrong reports to the user in a single day. The fix in step 1
 is a one-line install; steps 2–3 are what stop it recurring.
+
+**`pip install -r` does not evict removed pins.** After the install, 43
+packages are installed that `requirements.txt` does not pin — including
+`safety` 3.6.2, `bandit` 1.9.4 and `nltk` 3.9.2, the subtree deliberately
+removed on 2026-09-05 (todo 355 slice 1) because nltk carried 18 advisories.
+The original AC above ("zero mismatches and zero not-installed") is blind to
+that bucket and would have passed with the advisory-bearing packages still
+present. Tracked in todo 380.
