@@ -17,6 +17,7 @@ silently fail to affect the code under test, so these tests reach the exact
 object the hooks call by going through ``conftest``.
 """
 
+import subprocess
 import sys
 
 import conftest
@@ -348,14 +349,42 @@ def test_main_fails_open_when_the_comparison_raises(monkeypatch, capsys):
 # --------------------------------------------------------------------------
 
 
-def test_git_helper_returns_none_on_a_failing_command():
+def _completed(returncode, stdout=""):
+    return subprocess.CompletedProcess(["git"], returncode, stdout=stdout, stderr="")
+
+
+def test_git_helper_returns_none_when_the_command_fails(monkeypatch):
     """Drives `_git` itself, not `_tree_state`'s handling of None.
 
     The sibling test monkeypatches `_git` wholesale, so it cannot tell whether
     `_git` actually checks the return code — deleting that check left it green.
+
+    `subprocess.run` is stubbed rather than shelling out to a real failing git:
+    a live invocation would tie this to the host's git version and to the tests
+    running inside a checkout at all, and `stdout` is deliberately non-empty so
+    dropping the return-code check yields "junk", not the falsy "" that would
+    mask the regression.
     """
-    assert conftest._git("rev-parse", "--short", "HEAD")  # sanity: git works here
-    assert conftest._git("definitely-not-a-git-subcommand") is None
+    monkeypatch.setattr(
+        conftest.subprocess, "run", lambda *a, **k: _completed(1, "junk")
+    )
+    assert conftest._git("status", "--porcelain") is None
+
+
+def test_git_helper_returns_none_when_git_is_unavailable(monkeypatch):
+    def boom(*a, **k):
+        raise FileNotFoundError("git")
+
+    monkeypatch.setattr(conftest.subprocess, "run", boom)
+    assert conftest._git("rev-parse", "--short", "HEAD") is None
+
+
+def test_git_helper_distinguishes_a_clean_tree_from_a_failure(monkeypatch):
+    """ "" is a clean tree; None is "could not tell". Collapsing them lies."""
+    monkeypatch.setattr(
+        conftest.subprocess, "run", lambda *a, **k: _completed(0, "  \n")
+    )
+    assert conftest._git("status", "--porcelain") == ""
 
 
 def test_a_failing_tree_stamp_does_not_delete_the_dependency_line(monkeypatch):

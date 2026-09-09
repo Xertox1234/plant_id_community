@@ -601,3 +601,25 @@ Compact checklist auto-injected before edits.
   checkout, compare the environment stamp `backend/conftest.py` prints for each
   run (`tree: HEAD <sha>, N uncommitted file(s)`) — if both arms report the same
   dirty count, you changed nothing that matters. See todos 378/379.
+- **`ast.parse` a mutant before believing a mutation result.** Deleting an
+  `except:` clause to "remove the guard" leaves a `try` with no handler — a
+  `SyntaxError`, not a behaviour change. The run then errors out with zero
+  tests collected, and a harness grepping for "N failed" reports *0 failed* and
+  declares the test non-discriminating when nothing was executed at all. This
+  produced a false "not discriminating" verdict on a guard whose tests were
+  fine (todo 379).
+- **Give each interchangeable slot a distinct fixture value.** A header
+  rendering `N pinned, … M unpinned` was asserted with a fixture of 1 pin and
+  1 extra, so swapping the two labels produced a byte-identical string and the
+  mutation could not fail. Equal values in adjacent slots make a swap
+  invisible (todo 379).
+- **Monkeypatching the helper under test proves nothing about the helper.**
+  Patching `_git` wholesale to return `None` pinned the *caller's* handling of
+  `None`, not whether `_git` produces it — deleting `_git`'s return-code check
+  stayed green. Patch one level lower (`subprocess.run`) so the branch under
+  test actually executes (todo 379).
+- **Anything that must survive a quiet pytest run belongs in
+  `pytest_terminal_summary`, not `pytest_report_header`.** `_pytest` computes
+  `showheader = verbosity >= 0`, so `-qq`/`--no-header` skip the header hook
+  entirely; the summary has no such gate and lands next to the pass/fail counts
+  where a reader is looking (todo 379).
