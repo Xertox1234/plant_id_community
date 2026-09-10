@@ -61,12 +61,20 @@ old strings from history. Only a decision on disposition closes the alerts.
    Credentials, for both the Android and iOS keys. Record whether an
    Application restriction (package + SHA-1 / bundle ID) and an API restriction
    are set. Everything below branches on this.
-2. **If restricted:** dismiss both alerts as `used_in_tests` / won't-fix with a
-   comment naming the restriction and linking `firebase/firestore.rules`. Then
-   close todo 011 properly rather than leaving it `code-complete`.
+2. **If restricted:** dismiss both alerts as **`wont_fix`** with a comment naming
+   the restriction and linking `firebase/firestore.rules`. Not `used_in_tests`
+   (these are production keys, not fixtures) and not `false_positive` (they are
+   genuine API keys — the point is that a Firebase client key is not a *secret*,
+   and `false_positive` would misrepresent that to whoever reads the alert next).
+   Then close todo 011 properly rather than leaving it `code-complete`.
 3. **If unrestricted:** apply the restrictions, confirm the mobile app still
-   builds and authenticates, then dismiss as above. Rotate only if the Firebase
-   usage audit (AC 8 of todo 011, never run) shows unexplained traffic.
+   builds and authenticates, then dismiss as above. **Do not rotate** — owner
+   decision, 2026-09-10. Rotation is not a remediation here: the keys are in git
+   history across five paths, so it changes which key is live without removing
+   anything from history, and it forces a mobile release for no gain in the
+   threat model that actually applies. This rules rotation out as *remediation*;
+   it does not pre-empt incident response if a usage audit ever shows real
+   abuse, which is a different trigger and a different decision.
 4. **Either way**, reconcile todo 011: its 12 unchecked ACs describe work that
    is partly done, partly obsolete, and partly never needed. Rewrite them to
    match the decision instead of leaving a p0 todo permanently half-open.
@@ -111,3 +119,59 @@ is itself a signal-quality problem: it trains everyone to ignore the alert list.
   0 CodeQL alerts, but 2 secret-scanning alerts open since 2025-10-22.
 - Verified the split state of the three config files against HEAD (counts above)
   rather than trusting todo 011's completion claim.
+
+### 2026-09-10 - Re-verified; rotation ruled out; false premise corrected
+
+Re-measured against `origin/main` rather than trusting the 2026-09-06 findings.
+They held, with two additions.
+
+**State confirmed.** Exactly **two** real keys, both 39 chars, one per shipped
+mobile config (values never printed — compared by SHA-256 prefix):
+
+| File | Keys | Alert |
+| --- | --- | --- |
+| `lib/firebase_options.dart` | **0** (env-driven — todo 011's fix held) | — |
+| `android/app/google-services.json` | 1 (`ef0dbb8e17`) | **#1** |
+| `ios/Runner/GoogleService-Info.plist` | 1 (`0fe0dd78a1`) | **#2** |
+
+The same two keys appear in three archived docs
+(`docs/archive/2025-11/{FIREBASE_SECURITY_REMEDIATION_PLAN,P0_FIREBASE_SECURITY_FIX_REPORT}.md`,
+`todos/archive/011-*`). No third key exists.
+`google-services.json.example` is a genuine placeholder (`YOUR_PROJECT_NUMBER`,
+dummy `AIzaSy…CHARACTERS`) — **not** a finding, contrary to what a bare
+`grep AIza` count suggests.
+
+**Control #2 verified by reading it, not by citing todo 011.**
+`firebase/firestore.rules` and `firebase/storage.rules` are auth-required and
+owner-scoped on every path (`isOwner(userId)`, `allow delete: if false` on user
+docs). That control is real.
+
+**New finding — the disposition was already made, on a false premise.**
+`plant_community_mobile/.gitignore` already said these files "are intentionally
+tracked … contain public project identifiers, **not API keys**." They *do* each
+contain an API key (`current_key` / `API_KEY`). So someone decided to keep them
+tracked for a reason that is factually wrong, and nobody closed the alerts —
+which is how they aged 10+ months. Corrected in this branch: the comment now
+states the real reason (a Firebase client key ships in every APK/IPA, so
+confidentiality was never the control) and names the two controls that are.
+
+**Rotation ruled out (owner decision).** Not a remediation for these alerts:
+the keys are in git history across five paths, so rotating changes which key is
+live without removing anything from history, and it forces a mobile release for
+no gain. Does not pre-empt incident response if a usage audit ever shows abuse.
+
+**Still blocked on the same single fact** — are the two keys application-
+restricted? `gcloud` is not installed on this machine and the `firebase` CLI
+does not expose key restrictions, so this cannot be answered from a session.
+Public identifiers needed for the check, so nobody has to dig them out again:
+
+- project: `plant-community-prod` (number `190351417275`)
+- Android package: `com.plantcommunity.plant_community_mobile`
+- iOS bundle: `com.plantcommunity.plantCommunityMobile`
+- Console: <https://console.cloud.google.com/apis/credentials?project=plant-community-prod>
+- CLI: `gcloud services api-keys list --project=plant-community-prod --format=json`
+
+Dismissal, once restrictions are confirmed or applied, is `wont_fix` — **not**
+`false_positive`. These are real API keys; the point is that they are not
+secrets, and `false_positive` would misrepresent that for whoever reads the
+alert next.
