@@ -1666,5 +1666,21 @@
     "source": "codify: chore/todo-378-venv-drift-guard",
     "added": "2026-09-08",
     "severity": "warn"
+  },
+  {
+    "id": "npm-lockfile-regen-drops-libc",
+    "domains": [
+      "security"
+    ],
+    "path_glob": [
+      "package.json",
+      "*/package.json"
+    ],
+    "content_present": "\"(?:overrides|dependencies|devDependencies)\"\\s*:",
+    "message": "Changing deps means regenerating package-lock.json — do it with npm >=12 (`npx npm@12 install --package-lock-only`). npm 11.6 SILENTLY strips the 16 `libc` fields from @img/sharp-*; that is the musl/glibc discriminator, so Alpine fails at RUNTIME with \"cannot load shared library\" and it is invisible to npm audit, to CI, and to a normal diff read. Verify by FIELD not version: `grep -c \"\\\"libc\\\"\" package-lock.json` must not drop, and no package may lose a field. Comparing versions is not comparing lockfiles.",
+    "pattern_ref": "docs/LEARNINGS.md",
+    "source": "codify: chore/pin-sharp-override",
+    "added": "2026-09-09",
+    "severity": "warn"
   }
 ]

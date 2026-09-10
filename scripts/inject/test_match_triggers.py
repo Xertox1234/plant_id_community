@@ -1167,5 +1167,83 @@ class TestMediaRootIsolationTrigger(unittest.TestCase):
         self.assertNotIn(self.TRIGGER_ID, ids(hits))
 
 
+class TestNpmLockfileLibcTrigger(unittest.TestCase):
+    """PR #718 codification — asserted against the REAL docs/rules/triggers.json.
+
+    The motivating bug: regenerating package-lock.json with npm 11.6.0 silently
+    stripped all 16 `libc` fields from the @img/sharp-* entries. That is the
+    musl/glibc discriminator, so Alpine fails at RUNTIME ("cannot load shared
+    library") — and it is invisible to `npm audit`, to CI (all 17 checks passed
+    on the broken lockfile), and to a normal diff read.
+
+    Fixtures use the SHIPPED shapes: the positive is the literal fragment the PR
+    added to the root package.json, not an idealised one.
+    """
+
+    TRIGGER_ID = "npm-lockfile-regen-drops-libc"
+
+    @classmethod
+    def setUpClass(cls):
+        root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+        cls.real = mt.load_triggers(root)
+
+    def test_real_overrides_fragment_fires(self):
+        # Verbatim from PR #718's package.json edit.
+        tn, ti = edit(
+            "package.json",
+            '  "scripts": {',
+            '  "//sharp-override": "Pins sharp above miniflare...",\n'
+            '  "overrides": {\n'
+            '    "sharp": "^0.35.4"\n'
+            '  },\n'
+            '  "scripts": {',
+        )
+        hits = mt.find_matches(tn, ti, self.real, None)
+        self.assertIn(self.TRIGGER_ID, ids(hits))
+
+    def test_devdependencies_bump_fires(self):
+        tn, ti = edit(
+            "package.json",
+            '  "devDependencies": {\n    "wrangler": "^4.129.0"\n  },',
+            '  "devDependencies": {\n    "wrangler": "^4.130.0"\n  },',
+        )
+        hits = mt.find_matches(tn, ti, self.real, None)
+        self.assertIn(self.TRIGGER_ID, ids(hits))
+
+    def test_nested_manifest_fires(self):
+        tn, ti = edit(
+            "web/package.json",
+            '  "dependencies": {\n    "react": "^19.0.0"\n  },',
+            '  "dependencies": {\n    "react": "^19.1.0"\n  },',
+        )
+        hits = mt.find_matches(tn, ti, self.real, None)
+        self.assertIn(self.TRIGGER_ID, ids(hits))
+
+    def test_scripts_only_edit_stays_silent(self):
+        # Exercises the regex: a real package.json edit, full of `"key":` shapes
+        # and quoted values, that touches no dependency key.
+        tn, ti = edit(
+            "package.json",
+            '  "scripts": {',
+            '  "scripts": {\n'
+            '    "deploy": "wrangler deploy",\n'
+            '    "preview": "wrangler dev",\n'
+            '    "typecheck": "tsc --noEmit"',
+        )
+        hits = mt.find_matches(tn, ti, self.real, None)
+        self.assertNotIn(self.TRIGGER_ID, ids(hits))
+
+    def test_unrelated_json_file_stays_silent(self):
+        # Same content, wrong path — proves the path glob is doing work.
+        tn, ti = edit(
+            "web/tsconfig.json",
+            '  "compilerOptions": {',
+            '  "dependencies": { "nope": "1.0.0" },\n  "compilerOptions": {',
+        )
+        hits = mt.find_matches(tn, ti, self.real, None)
+        self.assertNotIn(self.TRIGGER_ID, ids(hits))
+
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
