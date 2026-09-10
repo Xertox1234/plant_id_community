@@ -27,11 +27,24 @@ flutter-outdated.json
 lib/firebase_options_*.dart
 
 # Firebase native config files (google-services.json, GoogleService-Info.plist)
-# are intentionally tracked. Firebase client config is not secret — these files
-# contain public project identifiers, not API keys. The iOS plist is bundled into
-# the app via Xcode Resources; removing it would break the iOS build. The Android
-# json is kept for consistency (the Gradle plugin is disabled, so it is not used
-# at build time, but it is the canonical record of the Firebase project IDs).
+# are intentionally tracked. They DO each contain an API key (`current_key` /
+# `API_KEY`) — an earlier version of this comment said they did not, which is
+# false and is the premise that left two secret-scanning alerts open for 10+
+# months. The correct reason to track them: a Firebase client key is not a
+# secret in Google's model. It is compiled into every shipped APK/IPA and can be
+# extracted from any install, so confidentiality was never the control. The two
+# controls that are real:
+#   1. API key restrictions in the Google Cloud Console (Android: package name +
+#      SHA-1; iOS: bundle ID) — this is what actually bounds abuse.
+#   2. firebase/firestore.rules + firebase/storage.rules, both auth-required and
+#      owner-scoped on every path.
+# Rotation is deliberately NOT the remediation (owner decision, 2026-09-10): the
+# keys are in git history across five paths, so rotating changes which key is
+# live without removing anything from history. See todos/360.
+# The iOS plist is bundled into the app via Xcode Resources; removing it would
+# break the iOS build. The Android json is kept for consistency (the Gradle
+# plugin is disabled, so it is not used at build time, but it is the canonical
+# record of the Firebase project IDs).
 
 # IntelliJ related
 *.iml
