@@ -7,6 +7,7 @@
   "devDependencies": {
     "wrangler": "^4.129.0"
   },
+  "//sharp-override": "Pins sharp above miniflare, which pins it at exactly 0.35.2 while the libheif patch (GHSA-rgj7-g3m4-5g8c) is 0.35.4. Dev-only transitive: wrangler > miniflare > sharp, never shipped. REMOVE once miniflare requests >=0.35.4 -- tracked by todos/381. Regenerate the lockfile with npm >=12: npm 11.6 silently strips the 16 libc fields (Alpine runtime failure, invisible to CI).",
   "overrides": {
     "sharp": "^0.35.4"
   },
