@@ -237,12 +237,38 @@ be closed before the first real distribution.
       whose endpoints actually evaluate an API key — `identitytoolkit`,
       `securetoken`, `firebaseinstallations` — still answer on both keys; the other
       seven rest on the read-back of the key resource, which is the authoritative
-      statement of what is permitted. The pending TestFlight build (item 7) is the
-      first real execution and the place to confirm sign-in. Restrictions are
-      server-side, so a revert needs no rebuild)
+      statement of what is permitted. The TestFlight build was expected to be the
+      first real execution and the place to confirm sign-in; it is not, because
+      build `1.0.0+2` has no Firebase configuration compiled in and never calls a
+      key at all (item 8). Restrictions are server-side, so a revert needs no
+      rebuild)
 - [ ] Release-cert SHA-1 registered before any distribution (or explicitly
-      deferred again, in writing, with the reason)
-- [ ] Sign-in verified on a physical Android device and a physical iOS device
+      deferred again, in writing, with the reason) — **deferred again 2026-09-12,
+      reason: there is nothing to register.** Re-verified rather than copied from
+      the earlier text: `android/app/build.gradle.kts:40-44` still reads
+      `signingConfig = signingConfigs.getByName("debug")` under `buildTypes {
+      release { ... } }`, there is no `android/key.properties`, no `.jks` anywhere
+      in the tree, and no `.aab`/`.apk` artifact has been produced. A release
+      certificate is a prerequisite of this AC, not a step within it. **Left
+      unchecked on purpose:** `- [x]` in this repo means shipped, and a box that
+      is checked because it was deferred is one nobody re-audits — the exact
+      failure the Review Doc Tracking convention exists to prevent. The trigger to
+      revisit is the creation of a release keystore, or the first Play upload
+      (Play re-signs with its own App Signing certificate, which is a *third*
+      SHA-1, matching neither the debug key nor a local release keystore).
+      Today's iOS distribution does not move this: iOS keys restrict by bundle
+      id, not by certificate
+- [ ] Sign-in verified on a physical Android device and a physical iOS device —
+      **iOS is now blocked on a rebuild, not on distribution.** The premise this
+      was deferred under ("the app is distributed to nobody") expired 2026-09-12
+      when two uploads of `com.plantcommunity.plantCommunityMobile` succeeded to
+      App Store Connect, so the deferral no longer holds. But the build that got
+      there cannot discharge it either: `1.0.0+2` was archived without any
+      `--dart-define`, so it shows the configuration-error screen and never
+      reaches a sign-in screen (item 8). Discharging this needs an archive built
+      through Flutter with the defines, re-uploaded, then an actual sign-in on the
+      installed build. Android remains deferred with the original reason — still
+      no release keystore, still nothing installed anywhere
 - [x] Dead `isAuthenticated()` helper removed from `firebase/storage.rules`
       **and deployed in the same motion** (see item 5) — 2026-09-12, deployed
       from the todo-383 branch before merge, so the repo never went ahead of
@@ -329,12 +355,23 @@ new browser key with the same wide-open default. `scripts/check_firebase_key_res
 prints a NOTE line for any key that is neither the iOS nor the Android key, so a
 re-created one will show up rather than blend in.
 
-### 7. NEW — the "distributed to nobody" premise is about to expire
+### 7. NEW — the "distributed to nobody" premise has EXPIRED
 
 Found 2026-09-12 in the working tree, not in a document: `pubspec.yaml` is bumped
 to `1.0.0+2`, and two new untracked scripts stage an App Store Connect upload —
 `run_archive.sh` (`xcodebuild archive`) and `run_upload.sh`
 (`xcrun altool --upload-app`).
+
+**They already ran, and the upload succeeded — twice.** This is no longer a
+pending event to prepare for. `~/Library/Logs/ContentDelivery/com.apple.itunes.altool/`
+records `UPLOAD SUCCEEDED` / `No errors uploading archive at
+'build/ios/ipa/plant_community_mobile.ipa'` for bundle id
+`com.plantcommunity.plantCommunityMobile` at **14:37** and again at **14:56** on
+2026-09-12. Chain of custody for the second one is unbroken:
+`ios/Flutter/Generated.xcconfig` written 14:48:51, `Runner.xcarchive` 14:52:33,
+the `.ipa` 14:54:46, upload 14:56 — so the artifact still on disk *is* the one
+Apple received. (The 14:37 upload used an earlier `.ipa` that has since been
+overwritten and cannot be inspected; it came from the same script.)
 
 Items 3 and 4 above, and acceptance criteria 4 and 5, all trade on the app being
 installed by nobody. A TestFlight build ends that. Before the first build reaches
@@ -342,7 +379,8 @@ a tester:
 
 - **AC 5 (device sign-in) stops being deferrable for iOS.** The TestFlight build
   is itself the physical-device test — sign in on it and the AC is discharged
-  honestly rather than traded away.
+  honestly rather than traded away. **But not with build `1.0.0+2`**, which
+  cannot reach a sign-in screen at all — see item 8.
 - **Item 3 (release-cert SHA-1) stays Android-only and stays open.** iOS keys are
   restricted by bundle id, which a TestFlight build carries unchanged, so the iOS
   key needs nothing here. Android is still signing release with the debug key.
@@ -352,15 +390,70 @@ is baked into the build but the allowlist is server-side and can be changed or
 reverted at any time without rebuilding. So item 2 is safe to land before or after
 an upload — but if sign-in breaks in TestFlight, this is the first thing to check.
 
+### 8. NEW — the uploaded build has no Firebase configuration compiled into it
+
+**Build `1.0.0+2`, now in App Store Connect, shows the configuration-error screen
+instead of the app.** It cannot sign in, and the reason is not any item above —
+it never reaches Firebase at all.
+
+`lib/firebase_options.dart` resolves every value from `String.fromEnvironment`
+(the `_dartDefines` map), which is a **compile-time** constant supplied by
+`--dart-define`. `run_archive.sh` invokes `xcodebuild archive` directly instead of
+`flutter build ipa --dart-define-from-file=...`, so no define ever reaches the
+Dart compiler. `_optional` treats the resulting empty string as absent,
+`_required('FIREBASE_IOS_API_KEY', fallbackKey: 'FIREBASE_API_KEY')` throws
+`StateError`, `main()` catches it and calls `runApp(ConfigurationErrorApp(...))`
+and returns. `plant_community_mobile/README.md:100` already lists this exact
+behaviour as an expected smoke-test outcome: *"Missing Firebase `--dart-define`
+values show the configuration error screen."*
+
+**Proven from the shipped artifact, not inferred from the script.** Unpacking the
+uploaded `.ipa` and running `strings` over the AOT snapshot
+(`Payload/Runner.app/Frameworks/App.framework/App`) finds **zero** `AIzaSy`-shaped
+strings, while the same `strings | grep` finds the key in the bundle's own
+`GoogleService-Info.plist` — the positive control that makes the zero meaningful,
+without which "no hits" would only have proven the method was blind. The same
+snapshot *does* contain the literal `Missing Firebase configuration value` and
+`Firebase configuration is required`: one Dart string from that file survived
+compilation and the key never existed. `ios/Flutter/Generated.xcconfig` carries no
+`DART_DEFINES` line, and `grep 'DART_DEFINES\|FIREBASE_'` over `project.pbxproj`
+and every `ios/Flutter/*.xcconfig` returns nothing, so there was no other route.
+
+**This is not caused by the API-key restrictions of item 2, and reverting them
+would not fix it.** The restriction is keyed on bundle id; the shipped
+`CFBundleIdentifier` is `com.plantcommunity.plantCommunityMobile`, matching the
+iOS key exactly; and the app never gets far enough to call a Google endpoint. An
+identical archive built the day before PR #726 would have failed identically.
+Worth stating explicitly because a key-hardening change landing hours before a
+broken build invites exactly that misattribution.
+
+**The fix is the owner's and the repo already documents it.** `.env.local` (git-
+ignored) already holds every needed `FIREBASE_IOS_*` value, and
+`FIREBASE_KEY_ROTATION.md:529` shows the form: build through Flutter with
+`--dart-define-from-file`, so the defines land in `Generated.xcconfig` *before*
+`xcodebuild archive` runs. Then re-upload with an incremented build number —
+`ExportOptions.plist` sets `manageAppVersionAndBuildNumber: true`, so check App
+Store Connect for which build numbers the two uploads actually became. Not done
+here: `run_archive.sh` / `run_upload.sh` are another session's untracked files,
+and re-uploading to Apple is an outward-facing action.
+
+**Standing consequence:** a green `xcodebuild archive` and a successful
+`altool --upload-app` say nothing about whether the app can start. Both succeeded
+here on a build that shows an error screen. That is the same shape as this todo's
+item 1 — a green deploy log is compatible with production serving something else.
+
 ## Notes
 
 p2, not p1: nothing here is a live exposure. Item 1 is empty-bucket latent, items
 2-5 are hardening and pre-distribution gates. It becomes p1 the moment the app is
 distributed or anything writes to the Storage prefixes.
 
-**That moment now looks imminent** — see item 7. An iOS TestFlight upload is being
-prepared in the working tree, which retires the zero-blast-radius assumption that
-items 3/4 and ACs 4/5 were deferred on.
+**That moment has arrived** — see item 7. The iOS upload to App Store Connect
+succeeded twice on 2026-09-12, which retires the zero-blast-radius assumption that
+items 3/4 and ACs 4/5 were deferred on. It does not make this todo p1 today, for
+one reason only: the uploaded build has no Firebase configuration compiled in and
+therefore touches nothing (item 8). It becomes p1 with the first build that
+actually runs.
 
 ## Work Log
 
@@ -434,3 +527,55 @@ missing from the expected set, and the neutered self-check all exit 1.
 Still open here: the release-cert SHA-1 (item 3, Android-only, still signing release
 with the debug key), the physical-device sign-in (item 4 / AC 5, now reachable via
 the pending TestFlight build), and the Browser-key decision (item 6).
+
+### 2026-09-12 - The TestFlight upload happened, and the build it shipped is inert
+
+Went looking for whether the staged upload had run, on the assumption that if it
+had, AC 5 could finally be discharged by signing in on the installed build. It had
+run — twice, both `UPLOAD SUCCEEDED` — and the build cannot sign in. Recorded as
+items 7 (rewritten) and 8 (new). No code changed; this entry and those items are
+the deliverable.
+
+**The check that mattered was of the artifact, not of the script.** Reading
+`run_archive.sh` and noticing it calls `xcodebuild archive` rather than
+`flutter build ipa` predicts the bug but does not establish it — plenty of routes
+could have supplied the defines anyway (a prior `flutter build` leaving them in
+`Generated.xcconfig`, an xcconfig override, a scheme setting). The uploaded `.ipa`
+is on disk, so the question is directly answerable: unzip it and look in the AOT
+snapshot for the key. Zero `AIzaSy` strings.
+
+**That zero only counts because of the positive control.** `strings` over a
+compiled Dart snapshot could easily have been blind to const strings, in which
+case "no hits" would have meant nothing while looking exactly like a finding —
+the same false-green shape as the API probes earlier today, where three of seven
+targets never evaluated a key and all three read as passes. So the same
+`strings | grep` was run against the bundle's `GoogleService-Info.plist`, which
+provably contains the key: one hit. Method sighted, result trustworthy. The
+snapshot also carries `Missing Firebase configuration value` — a Dart literal
+from the very file whose key came back absent, so the compilation unit is
+readable and the key genuinely was never in it.
+
+**A green build and a green upload prove nothing about whether the app starts.**
+`xcodebuild archive` succeeded, `xcrun altool --upload-app` reported *"No errors
+uploading archive"*, Apple accepted it. All true of a build that opens to an error
+screen. This is item 1's lesson in a second costume: a file in git, a green deploy
+log and a successful upload are each compatible with the thing that actually runs
+being wrong. The only statements worth anything are about the artifact and the
+live system.
+
+**Watch for the misattribution.** Item 2 narrowed both API keys hours before this
+build was uploaded, so "sign-in is broken in TestFlight" will read as key
+restrictions until someone checks. It is not: the shipped bundle id matches the
+iOS key's restriction exactly, restrictions are server-side and were verified by
+read-back, and the app never reaches a Google endpoint. Item 8 states this so the
+next person does not spend the afternoon reverting the wrong change. If sign-in
+ever does misbehave in a build that *starts*, the order is still:
+`python3 scripts/check_firebase_key_restrictions.py` first.
+
+**AC 4 re-deferred in writing rather than checked off.** The AC permits discharge
+by written deferral, and the reason is solid — no release keystore exists, so
+there is no certificate to register. It stays `- [ ]` anyway: in this repo `- [x]`
+means shipped, and a box checked for a deferral is a box nobody re-audits. The
+facts behind it were re-verified in the tree, not copied forward from the earlier
+entry, because this todo has already carried a confidently-wrong finding once
+(item 2's "no API restrictions", which were 24 all along).
