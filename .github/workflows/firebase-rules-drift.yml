@@ -1,0 +1,91 @@
+name: Firebase rules drift
+
+# Compares the rules DEPLOYED to Firebase against the ones committed here.
+#
+# Why: twice a rules change was committed and never deployed — todo 224
+# (firestore:rules) and the 2026-05-23 Storage tightening, which sat undeployed
+# for 3.5 months and was found by accident while checking an unrelated todo's
+# acceptance criterion. Nothing in the repo can reveal this: the file, the
+# firebase.json entry and an old green deploy log are all consistent with
+# production serving something else. Only the Rules API knows.
+#
+# NOT a required status check, deliberately:
+#   - it depends on a repo secret, and a required check that cannot run
+#     deadlocks every PR (see the note at the top of harness-ci.yml);
+#   - it reports on production state, which a PR author cannot fix by editing
+#     their branch.
+# Its offline unit tests DO run on every PR, inside Harness CI.
+#
+# SETUP (one-time, owner): add a repo secret FIREBASE_RULES_SA containing the
+# JSON key of a service account with roles/firebaserules.viewer on
+# plant-community-prod. Create a DEDICATED read-only account — do not paste the
+# firebase-adminsdk key here; that is the backend's production runtime
+# credential and this would widen it to anyone who can edit a workflow.
+# Until the secret exists this job FAILS rather than skipping, because a drift
+# check that quietly passes when it cannot look is worse than no check at all.
+
+'on':
+  schedule:
+    # 07:20 UTC daily. Drift is silent and open-ended, so time-to-detection is
+    # the whole value; a weekly cadence would have cut 15 weeks to 14.
+    - cron: '20 7 * * *'
+  push:
+    branches: [main]
+    paths:
+      - 'firebase/**.rules'
+      - 'firebase.json'
+      - '.firebaserc'
+      - 'scripts/check_rules_drift.py'
+      - '.github/workflows/firebase-rules-drift.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: firebase-rules-drift
+  cancel-in-progress: false
+
+jobs:
+  drift:
+    name: Deployed rules match committed rules
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          # Full history: the drift report dates the last commit touching each
+          # rules file to say WHICH side is stale, and only prod-behind-repo is
+          # the incident shape. A shallow clone reports "direction unknown".
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: pip install 'google-auth==2.50.0' 'requests==2.32.5'
+
+      - name: Require the service-account secret
+        env:
+          SA: ${{ secrets.FIREBASE_RULES_SA }}
+        run: |
+          if [ -z "$SA" ]; then
+            echo "::error::FIREBASE_RULES_SA is not set, so deployed rules cannot be read."
+            echo "Add a repo secret holding the JSON key of a service account with"
+            echo "roles/firebaserules.viewer on plant-community-prod. Use a dedicated"
+            echo "read-only account, NOT the firebase-adminsdk runtime credential."
+            exit 1
+          fi
+
+      - name: Compare deployed rules with committed rules
+        env:
+          SA: ${{ secrets.FIREBASE_RULES_SA }}
+        run: |
+          # Written outside the workspace so a later step or artifact upload
+          # cannot pick it up; removed even if the check fails.
+          key="$(mktemp)"
+          trap 'rm -f "$key"' EXIT
+          printf '%s' "$SA" > "$key"
+          python3 scripts/check_rules_drift.py --credentials "$key"
