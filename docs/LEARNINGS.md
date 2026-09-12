@@ -5856,3 +5856,60 @@ tempting move is to grant the runtime SA `apiKeysAdmin` so the whole thing can b
 scripted. Don't — that permanently widens a production runtime credential to save
 one manual step, and `docs/rules/firebase.md` already forbids it. A task that
 needs project-admin rights is a task for a human with project-admin rights.
+
+---
+
+## 2026-09-11 — A `--dart-define` var wired into code but missing from the defines map is invisible to four separate green signals (todo 382)
+
+`plant_community_mobile/lib/firebase_options.dart` resolves config through a
+`_dartDefines` map whose values come from `String.fromEnvironment`. Todo 382 added
+per-platform api keys (`FIREBASE_ANDROID_API_KEY` etc.) read via
+`_required('FIREBASE_ANDROID_API_KEY', fallbackKey: 'FIREBASE_API_KEY')`.
+
+**The failure mode.** Wire the new var into a getter and forget the matching
+`'FIREBASE_ANDROID_API_KEY': String.fromEnvironment('FIREBASE_ANDROID_API_KEY'),`
+entry in the map. The var is then *never read*. Every platform silently falls back
+to the shared key — the exact bug the work existed to fix — and it ships green.
+
+Verified by mutation (removed the map entry, re-ran everything), not assumed:
+
+| signal | under the mutant |
+|---|---|
+| `flutter analyze` | clean |
+| `flutter test` (bare) | all 692 passed |
+| unit tests driving an injected value map | all passed — they bypass `_dartDefines` entirely |
+| the acceptance criterion `grep -cE "FIREBASE_(ANDROID\|IOS\|WEB)_API_KEY" lib/firebase_options.dart` | non-zero, **AC satisfied** |
+| `flutter test` with real `--dart-define` values | **FAILED** — `Expected 'ci-android-api-key' / Actual 'ci-shared-api-key'` |
+
+**Root cause.** `String.fromEnvironment` is a compile-time constant. A test seam
+that injects a map is the only way to assert resolution by value in one run, but
+that seam is *below* the layer where the bug lives, so it cannot see it. The map
+itself is only exercised by compiling with real defines.
+
+**The fix is a CI step, not a test.** `mobile-ci.yml` now runs `flutter test` a
+second time with distinct per-platform placeholder values, and deliberately leaves
+`FIREBASE_WEB_API_KEY` unset so the same run also proves the fallback. A
+skip-guarded test that only fires when someone remembers to pass defines is the
+same blind spot in a different shape. The APK build step keeps passing *only* the
+legacy shared var — that is the standing guard that the fallback still resolves.
+
+**Generalisable.** Two rules worth carrying:
+
+1. When a test needs a seam to reach the logic, ask what the seam now hides. Here
+   the seam bypassed the one map the change was actually about.
+2. A grep-shaped acceptance criterion ("the identifier appears in the file")
+   verifies authorship, not behaviour. It passed under a mutant that reintroduced
+   the original bug. If an AC can be satisfied by text that is never executed,
+   it is not an AC.
+
+Write-time guard: `docs/rules/triggers.json` → `dart-define-missing-from-defines-map`,
+with positive and negative fixtures in `scripts/inject/test_match_triggers.py`
+(`TestDartDefineMapTrigger`), verified by running `inject-patterns.sh` — it lands at
+byte 4687, inside the injection cap.
+
+**Also, separately:** merging todo 382's code changed no behaviour (everything
+falls back), but *setting* `FIREBASE_ANDROID_API_KEY` is what first puts the
+already-restricted Android key on a live auth path. Those are two different risk
+events and the todo ledger has to say so, or "382 merged" reads as "iOS key is now
+safe to restrict" — which would sign out every Android user. See
+`todos/360` step 2a/2b.

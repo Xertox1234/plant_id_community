@@ -105,7 +105,12 @@ old strings from history. Only a decision on disposition closes the alerts.
       the attack shape that previously succeeded now returns
       `API_KEY_ANDROID_APP_BLOCKED`)
 - [ ] todo 382 shipped: `FIREBASE_API_KEY` split per platform, each platform
-      pointed at its own key (BLOCKS every step below)
+      pointed at its own key (BLOCKS every step below). **Code merged
+      2026-09-11 — but that is not "shipped" for this purpose.** The code is a
+      pure fallback and changes nothing until `FIREBASE_ANDROID_API_KEY` is
+      actually set AND Android auth is proven on a real device with the Android
+      key. Until then the Android app is still authenticating with the
+      unrestricted iOS key, and step 3 below would take that key away.
 - [ ] iOS key restricted to bundle id `com.plantcommunity.plantCommunityMobile`
 - [ ] SHA-1 re-checked against the real release signing cert once one exists
       (today, release signs with the DEBUG key — build.gradle.kts:40-44)
@@ -319,8 +324,20 @@ order in the previous Work Log entry):
 2. **Ship todo 382** — split `FIREBASE_API_KEY` into per-platform vars following
    the existing `appId` pattern, and point each platform at its own key. Both
    keys already exist, one per platform. **Nothing below this line is possible
-   until 382 lands.**
+   until 382 lands.** Split into two events, because only the second one carries
+   risk:
+   - **2a. Merge the code** — done 2026-09-11. Zero behavior change: every
+     platform var falls back to `FIREBASE_API_KEY`.
+   - **2b. Set `FIREBASE_ANDROID_API_KEY` to the Android key and prove Android
+     auth on a real device.** This is the first time the Android key's
+     restriction (step 1) is on a live auth path. Set
+     `FIREBASE_ANDROID_APP_ID` in the same change — `.env.local` currently has
+     only the generic `FIREBASE_APP_ID`, set to the **iOS** app id, so Android
+     would otherwise pair an Android key with an iOS `appId`.
 3. Restrict the iOS key to bundle id `com.plantcommunity.plantCommunityMobile`.
+   **Do not start this until 2b is proven on a device.** Android falls back to the
+   iOS key today; restricting it before Android is verified on its own key signs
+   out every Android user.
 4. Add API restrictions so each key can only call the Firebase APIs actually used.
 5. Re-run the probe: both keys must return a `*_BLOCKED` reason instead of
    `MISSING_ID_TOKEN`. That is the acceptance test — the same command that found
