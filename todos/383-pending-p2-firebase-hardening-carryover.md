@@ -119,8 +119,16 @@ be closed before the first real distribution.
 - [ ] Release-cert SHA-1 registered before any distribution (or explicitly
       deferred again, in writing, with the reason)
 - [ ] Sign-in verified on a physical Android device and a physical iOS device
-- [ ] Dead `isAuthenticated()` helper removed from `firebase/storage.rules`
-      **and deployed in the same motion** (see item 5)
+- [x] Dead `isAuthenticated()` helper removed from `firebase/storage.rules`
+      **and deployed in the same motion** (see item 5) — 2026-09-12, deployed
+      from the todo-383 branch before merge, so the repo never went ahead of
+      prod. Ruleset `ade11cca` -> `90fc82d6`, release updated 20:47:05Z, 66 ->
+      62 lines. Verified through the Rules API, not the CLI exit code: the diff
+      against the previous ruleset is exactly the four helper lines, and the
+      set of `match` / `allow` clauses is byte-identical before and after, so
+      no access rule changed. The two compiler warnings the deploy used to emit
+      (`Unused function: isAuthenticated`, `Invalid variable name: request`) are
+      gone. `check_firebase_rules_drift.py` returns 0 for both releases.
 
 ### 5. NEW — dead `isAuthenticated()` helper in storage.rules
 
