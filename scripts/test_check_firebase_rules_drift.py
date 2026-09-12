@@ -30,6 +30,8 @@ import os
 import pathlib
 import subprocess
 import sys
+import types
+import unittest.mock
 import tempfile
 import unittest
 
@@ -247,6 +249,103 @@ class DirectionTests(unittest.TestCase):
             dirty=False,
         )
         self.assertIn("repo is behind production", text)
+
+
+class CredentialTypeTests(unittest.TestCase):
+    """CI federates with WIF, which is NOT a service-account key.
+
+    google-github-actions/auth points GOOGLE_APPLICATION_CREDENTIALS at an
+    "external_account" config. from_service_account_file() cannot parse one, so
+    the loader must dispatch on the declared type or every CI run exits 2.
+    """
+
+    def _write(self, tmp, payload):
+        f = pathlib.Path(tmp) / "creds.json"
+        f.write_text(payload if isinstance(payload, str) else json.dumps(payload))
+        return str(f)
+
+    def test_service_account_key_is_identified(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = self._write(tmp, {"type": "service_account", "client_email": "x@y.iam"})
+            self.assertEqual(drift.credential_type(path), "service_account")
+
+    def test_workload_identity_config_is_identified(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = self._write(tmp, {"type": "external_account", "audience": "//iam..."})
+            self.assertEqual(drift.credential_type(path), "external_account")
+
+    def test_missing_type_field_is_empty_not_an_error(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            self.assertEqual(drift.credential_type(self._write(tmp, {"client_email": "x"})), "")
+
+    def test_non_json_credentials_file_is_indeterminate(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = self._write(tmp, "definitely not json {{{\nnot json\n")
+            with self.assertRaises(drift.Indeterminate) as ctx:
+                drift.credential_type(path)
+            self.assertIn("not readable JSON", str(ctx.exception))
+
+    def test_json_array_is_indeterminate_not_a_type_lookup_crash(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            with self.assertRaises(drift.Indeterminate):
+                drift.credential_type(self._write(tmp, ["not", "an", "object"]))
+
+    def _fake_google(self, calls):
+        """Minimal stand-ins for google-auth, which CI deliberately does not install.
+
+        build_session imports google-auth lazily so these tests stay dependency-free;
+        that also means a test calling it for real just hits the ImportError guard and
+        passes vacuously. Stubbing is what makes the dispatch actually observable.
+        """
+        def from_key_file(path, scopes=None):
+            calls.append("from_service_account_file")
+            return "key-creds"
+
+        def default(scopes=None):
+            calls.append("default")
+            return "adc-creds", None
+
+        sa = types.ModuleType("google.oauth2.service_account")
+        sa.Credentials = types.SimpleNamespace(from_service_account_file=from_key_file)
+        oauth2 = types.ModuleType("google.oauth2")
+        oauth2.service_account = sa
+        requests_mod = types.ModuleType("google.auth.transport.requests")
+        requests_mod.AuthorizedSession = lambda creds: ("session", creds)
+        transport = types.ModuleType("google.auth.transport")
+        transport.requests = requests_mod
+        auth = types.ModuleType("google.auth")
+        auth.default = default
+        auth.transport = transport
+        google = types.ModuleType("google")
+        google.auth = auth
+        google.oauth2 = oauth2
+        return {
+            "google": google,
+            "google.auth": auth,
+            "google.auth.transport": transport,
+            "google.auth.transport.requests": requests_mod,
+            "google.oauth2": oauth2,
+            "google.oauth2.service_account": sa,
+        }
+
+    def test_external_account_goes_to_adc_not_the_key_loader(self):
+        """The regression: a WIF config must never reach from_service_account_file."""
+        calls = []
+        with tempfile.TemporaryDirectory() as tmp:
+            path = self._write(tmp, {"type": "external_account", "audience": "//iam..."})
+            with unittest.mock.patch.dict(sys.modules, self._fake_google(calls)):
+                _, creds = drift.build_session(path)
+        self.assertEqual(calls, ["default"])
+        self.assertEqual(creds, "adc-creds")
+
+    def test_service_account_key_still_goes_to_the_key_loader(self):
+        calls = []
+        with tempfile.TemporaryDirectory() as tmp:
+            path = self._write(tmp, {"type": "service_account", "client_email": "x@y.iam"})
+            with unittest.mock.patch.dict(sys.modules, self._fake_google(calls)):
+                _, creds = drift.build_session(path)
+        self.assertEqual(calls, ["from_service_account_file"])
+        self.assertEqual(creds, "key-creds")
 
 
 class UncommittedChangeTests(unittest.TestCase):

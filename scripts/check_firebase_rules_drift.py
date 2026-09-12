@@ -106,7 +106,18 @@ def build_session(credentials_path: str | None):
         if path:
             if not Path(path).is_file():
                 raise Indeterminate(f"credentials file does not exist: {path}")
-            creds = service_account.Credentials.from_service_account_file(path, scopes=scopes)
+            # Not every credentials file is a service-account key. Workload Identity
+            # Federation — what CI uses, so that no key material exists anywhere —
+            # points GOOGLE_APPLICATION_CREDENTIALS at an "external_account" config,
+            # and from_service_account_file() cannot parse one. Dispatch on the
+            # declared type and hand every other flavour (external_account,
+            # authorized_user, impersonated_service_account) to google.auth.default(),
+            # which understands them all.
+            if credential_type(path) == "service_account":
+                creds = service_account.Credentials.from_service_account_file(path, scopes=scopes)
+            else:
+                os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = path
+                creds, _ = google.auth.default(scopes=scopes)
         else:
             creds, _ = google.auth.default(scopes=scopes)
     except Indeterminate:
@@ -114,6 +125,25 @@ def build_session(credentials_path: str | None):
     except Exception as exc:
         raise Indeterminate(f"could not load credentials: {type(exc).__name__}: {exc}") from exc
     return google.auth.transport.requests.AuthorizedSession(creds)
+
+
+def credential_type(path: str) -> str:
+    """The `type` field of a Google credentials file ("service_account", "external_account", ...).
+
+    Returns "" when the file has no type field. Raises Indeterminate — never
+    silently defaults — when the file cannot be read or is not JSON: guessing
+    here would mean picking the wrong loader and reporting a credentials bug as
+    a rules problem.
+    """
+    try:
+        data = json.loads(Path(path).read_text())
+    except (OSError, ValueError) as exc:
+        raise Indeterminate(
+            f"credentials file is not readable JSON: {path} ({type(exc).__name__}: {exc})"
+        ) from exc
+    if not isinstance(data, dict):
+        raise Indeterminate(f"credentials file is not a JSON object: {path}")
+    return data.get("type", "")
 
 
 def api_get(session, url: str) -> dict:
