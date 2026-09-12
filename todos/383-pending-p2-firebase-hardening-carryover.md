@@ -209,8 +209,37 @@ be closed before the first real distribution.
       **Residual:** the OIDC exchange itself is unproven until the workflow is on
       `main` — GitHub refuses to dispatch a workflow absent from the default
       branch — but the merge touches a rules file and so runs it immediately)
-- [ ] Each key restricted to the APIs the app actually calls, with the app still
-      working afterwards
+- [x] Each key restricted to the APIs the app actually calls, with the app still
+      working afterwards (2026-09-12 — both mobile keys narrowed **24 -> 10
+      `apiTargets`**: Firebase's own documented product-to-API set for
+      Authentication + Firestore + Storage + Messaging. Dropped `sqladmin`,
+      `firebasevertexai`, `firebaseml`, `mlkit`, `firebasedataconnect`,
+      `firebaseapphosting`, `firebasedatabase`, `firebasehosting`,
+      `firebaseappcheck`, `firebaseappdistribution`, `firebaseapptesters`,
+      `firebaseinappmessaging` and both remoteconfig services.
+      **Both halves restated deliberately**, because `--api-target` *replaces* the
+      whole `restrictions` object and passing it alone would have silently deleted
+      the application restriction todos 360/382 exist to provide: the read-back
+      shows 10 targets **and** `iosKeyRestrictions` / `androidKeyRestrictions`
+      still present, and an 8/8 live probe confirms each key still admits only its
+      own platform's headers while rejecting no-header, wrong-bundle-id and
+      other-platform shapes.
+      **Enforcement proven live, not inferred:** `firebaseremoteconfig` — enabled
+      project-wide, so a block there can only come from the key — returned
+      `API_KEY_SERVICE_BLOCKED` on both keys after the change, having returned a
+      plain `PERMISSION_DENIED` before it; and while only the iOS key was narrowed,
+      the untouched Android key still returned the old response to the identical
+      call, which is the control that rules out "the service just became
+      unreachable". Re-runnable: `python3 scripts/check_firebase_key_restrictions.py`.
+      **Residual, stated rather than implied:** "the app still working" is *not*
+      proven by execution — nothing runs the app, the same condition that produced
+      zero usable traffic (item 2). What is proven is that the three kept services
+      whose endpoints actually evaluate an API key — `identitytoolkit`,
+      `securetoken`, `firebaseinstallations` — still answer on both keys; the other
+      seven rest on the read-back of the key resource, which is the authoritative
+      statement of what is permitted. The pending TestFlight build (item 7) is the
+      first real execution and the place to confirm sign-in. Restrictions are
+      server-side, so a revert needs no rebuild)
 - [ ] Release-cert SHA-1 registered before any distribution (or explicitly
       deferred again, in writing, with the reason)
 - [ ] Sign-in verified on a physical Android device and a physical iOS device
@@ -344,3 +373,47 @@ it — the bucket held 0 objects throughout.
 Still open here: the drift check (item 1's second AC — nothing yet prevents this
 recurring), API restrictions, the release-cert SHA-1, the device check, and the new
 item 5.
+
+### 2026-09-12 - Item 2 DONE: both mobile keys narrowed 24 -> 10 APIs
+
+Detail in the acceptance criterion above and in the rewritten item 2. Three things
+are worth carrying forward as method, not just as result.
+
+**The probe was lying, and only a self-check caught it.** The first pass reported
+seven services ALLOWED on both keys. Three of those seven never evaluated the API
+key at all, so they would have read ALLOWED no matter what the restriction said:
+`firebaseappdistribution` is OAuth-only and answers *"API keys are not supported by
+this API"*; `firestore` REST and `firebasestorage` v0 both deny on **security
+rules** before the key is considered. Sending a *syntactically valid but fabricated*
+key to each endpoint and requiring `API_KEY_INVALID` back is what separates "the key
+may call this" from "nobody was checking". Targets that fail that screen are now
+reported INCONCLUSIVE instead of counted as evidence. Same family as the vacuous
+test in PR #725 that passed because the dependency was absent — and it also flushed
+out two bugs in the probe itself (an unencoded `(default)`, and a `__probe__`
+collection id that Firestore reserves).
+
+**A verification script can fail the wrong way too.** The application-restriction
+check first reported 6 of 8 cases FAILING. All six were correct blocks: the matcher
+looked for the token `BLOCKED` while the API's prose says *"...are blocked."* in
+lower case. A checker that reads prose instead of the machine-readable reason
+manufactures both false alarms and, in the other direction, false greens.
+
+**`--check-existing-usage` protects the attacker.** It refused the first update
+because the daily Maps probing counted as "active usage in the last 7 days" — all of
+it 403. Overriding it is correct here but only because every removed service was
+first confirmed to have **zero 2xx** responses across 30 days. That confirmation is
+the precondition for the override, not paperwork.
+
+**The probe is now a committed artifact**, `scripts/check_firebase_key_restrictions.py`,
+because items 3 and 4 both say "re-run the probe" and todo 360's probe lived only in
+a scratchpad that no longer exists — an instruction pointing at a vanished script is
+not tracking. It checks all three halves (config read-back, application restriction,
+API targets), exits 2 rather than 0 when it cannot look, and carries a deliberate
+**canary**: an OAuth-only endpoint that must report INCONCLUSIVE. Without the canary,
+deleting the fake-key screen entirely changed nothing and the run still passed —
+the guard was dormant. Mutation-checked three ways: wrong expectation, a service
+missing from the expected set, and the neutered self-check all exit 1.
+
+Still open here: the release-cert SHA-1 (item 3, Android-only, still signing release
+with the debug key), the physical-device sign-in (item 4 / AC 5, now reachable via
+the pending TestFlight build), and the Browser-key decision (item 6).
