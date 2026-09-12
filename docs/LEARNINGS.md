@@ -5775,3 +5775,45 @@ answered — and answered in the direction that changed the priority to p1.
 Operational note: scripts read key values from disk, never printed them, scrubbed
 `AIza`-shaped strings from every output path, and never called `getKeyString`.
 The finding is reportable without the secret appearing anywhere.
+
+### Addendum, same day — "unrestricted" was the symptom; one key for every platform was the cause
+
+The entry above reported both keys unrestricted and prescribed "restrict the
+Android key, restrict the iOS key." **That prescription breaks Android auth.** It
+survived a self-review and a PR body, and was caught only because the next
+question asked was "how do I get the SHA-1" — which forced a read of the Gradle
+and `firebase_options.dart` wiring that the finding itself never opened.
+
+- `firebase_options.dart` gives every platform the same `_required('FIREBASE_API_KEY')`
+  (`android`, `ios`, `web`, `desktop`). `FIREBASE_(ANDROID|IOS|WEB)_API_KEY` has
+  **0** occurrences anywhere. `.env.local` sets it to the **iOS** key, so the
+  Android app authenticates with the iOS key.
+- **Google permits exactly one application restriction per key** — None / HTTP
+  referrers / IP / Android apps / iOS apps is a radio button, not a set. A key
+  shared by two app platforms is therefore *unrestrictable*, not merely
+  unrestricted.
+
+So the box nobody ticked could not have been ticked. **A missing control is not
+automatically a missing action** — check whether the control was even reachable
+before writing "apply it" into a remediation plan. Filed the split as todo 382 and
+made 360 depend on it.
+
+Two smaller things the same read turned up, both of which change what "apply the
+restriction" means:
+
+- **The Android key is not used at runtime at all.** `com.google.gms.google-services`
+  is applied nowhere in the Gradle build, so `google-services.json` is inert.
+  That makes restricting the Android key a **zero-risk** first step — the only one
+  available before the code change — and it is also why the earlier reasoning
+  about "restrict each key to its platform" felt symmetric when it was not.
+- **There is no release keystore.** `build.gradle.kts:40-44` signs release with the
+  *debug* key behind a `// TODO`. So the Play-App-Signing footgun the earlier entry
+  warned about is real but inapplicable, and the app cannot ship to Play at all
+  today. A warning that is correct in general can still be irrelevant here —
+  verify it applies before handing it over as an instruction.
+
+Process note: the correction cost nothing because the PR was still open. The
+generalisable habit is that a finding and its remediation are different claims
+with different evidence. The finding here was probed with a positive control; the
+remediation was not checked against the code it would run against, and that is
+exactly where it was wrong.

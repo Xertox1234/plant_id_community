@@ -3,7 +3,7 @@ status: pending
 priority: p1
 issue_id: "360"
 tags: [security, firebase, mobile, github, gcp]
-dependencies: []
+dependencies: ["382"]
 ---
 
 # Resolve the two open Firebase secret-scanning alerts (todo 011's unfinished half)
@@ -101,10 +101,13 @@ old strings from history. Only a decision on disposition closes the alerts.
 
 - [x] Console restriction state recorded for both the Android and iOS keys
       (2026-09-11: BOTH UNRESTRICTED, measured by black-box probe + control)
-- [ ] `apikeys.googleapis.com` enabled on project 190351417275
-- [ ] Android key restricted to package + the SHA-1 that signs the SHIPPED
-      artifact (Play App Signing cert if enabled, not the upload cert)
+- [ ] Android key restricted to package + SHA-1 (safe to do FIRST — nothing reads
+      this key at runtime; the google-services Gradle plugin is not applied)
+- [ ] todo 382 shipped: `FIREBASE_API_KEY` split per platform, each platform
+      pointed at its own key (BLOCKS every step below)
 - [ ] iOS key restricted to bundle id `com.plantcommunity.plantCommunityMobile`
+- [ ] SHA-1 re-checked against the real release signing cert once one exists
+      (today, release signs with the DEBUG key — build.gradle.kts:40-44)
 - [ ] Probe re-run: both keys return a `*_BLOCKED` reason, not `MISSING_ID_TOKEN`
 - [ ] App still authenticates on a real Android device AND a real iOS device
 - [ ] Both secret-scanning alerts closed with a written resolution comment
@@ -248,17 +251,83 @@ Release → Setup → App signing (both "App signing key certificate" and "Uploa
 key certificate"), and add the local debug cert too or debug builds stop
 authenticating. Verify on a real device build before closing this out.
 
-**Revised order of work** (supersedes Recommended Action steps 1-2, which assumed
-the restriction state was unknown):
+### 2026-09-11 (later) - ROOT CAUSE: one key serves every platform, so it CANNOT be restricted
 
-1. Enable `apikeys.googleapis.com` on the project (needed to read or set
-   restrictions via API; the Console UI does not require it).
-2. Restrict the Android key to `com.plantcommunity.plant_community_mobile` +
-   the correct signing SHA-1(s) per the footgun above.
+The order of work in the previous entry said "restrict the Android key, restrict
+the iOS key." Following it literally **breaks Android authentication.** Found
+while fetching the signing SHA-1, which sent me into the Gradle and
+`firebase_options.dart` wiring that the earlier entry never opened.
+
+**`firebase_options.dart` uses ONE api key for every platform.** The `android`,
+`ios`, `web` and `desktop` getters all read the same
+`_required('FIREBASE_API_KEY')` — grep for `FIREBASE_(ANDROID|IOS|WEB)_API_KEY`
+returns **0** hits in both `firebase_options.dart` and `.env.example`. And
+`plant_community_mobile/.env.local` sets `FIREBASE_API_KEY` to the **iOS** key.
+So the Android app authenticates with the iOS key at runtime.
+
+**Google permits exactly ONE application-restriction type per key** — None /
+HTTP referrers / IP addresses / Android apps / iOS apps is a single choice, not a
+set. A key shared by Android *and* iOS therefore **cannot be restricted at all**
+without breaking one of them.
+
+That is the root cause of the unrestricted state. Not an ops oversight where
+somebody forgot to tick a box — it is forced by the shared key, and the fix is a
+**code** change that must land before any Console change. Filed as **todo 382**,
+which this todo now depends on for step 3 onward.
+
+The asymmetry shows it was an oversight in one field only: `appId` **is** already
+split per platform (`FIREBASE_ANDROID_APP_ID` / `FIREBASE_IOS_APP_ID` /
+`FIREBASE_WEB_APP_ID`). The api key is the single field that was not.
+
+**There is also no release keystore.** `android/app/build.gradle.kts:40-44`:
+
+```kotlin
+release {
+    // TODO: Add your own signing config for the release build.
+    // Signing with the debug keys for now, so `flutter run --release` works.
+    signingConfig = signingConfigs.getByName("debug")
+}
+```
+
+No `key.properties` either. So there is no upload cert and no Play App Signing
+cert yet — the Play-re-signing footgun in the previous entry is real but **does
+not apply today**, because nothing has ever been signed for release. It also
+means the app cannot currently ship to Play at all (Play rejects debug-signed
+uploads). The debug cert SHA-1 on the maintainer's machine is
+
+```
+06:8A:6F:6A:4F:F9:15:59:A9:D0:3B:5B:BD:8F:9F:0E:3B:2A:7D:C2
+```
+
+read with `keytool -list -v -alias androiddebugkey -keystore
+~/.android/debug.keystore -storepass android -keypass android`. A cert
+fingerprint ships in every APK, so it is not a secret — but it is **per-machine**,
+so re-read it rather than trusting this value, and redo step 1 against the real
+signing cert once one exists.
+
+**Corrected order of work** (supersedes both Recommended Action steps 1-2 and the
+order in the previous Work Log entry):
+
+1. **Restrict the ANDROID key now — zero breakage risk, do it first.** Package
+   `com.plantcommunity.plant_community_mobile` + the debug SHA-1 above. Nothing
+   reads this key at runtime: the `com.google.gms.google-services` plugin is
+   **not applied anywhere** in the Gradle build, so `google-services.json` is
+   inert and the app takes its key from `--dart-define` instead. This closes the
+   abuse path on one of the two published keys for free, and it is the only step
+   available before the code change.
+2. **Ship todo 382** — split `FIREBASE_API_KEY` into per-platform vars following
+   the existing `appId` pattern, and point each platform at its own key. Both
+   keys already exist, one per platform. **Nothing below this line is possible
+   until 382 lands.**
 3. Restrict the iOS key to bundle id `com.plantcommunity.plantCommunityMobile`.
 4. Add API restrictions so each key can only call the Firebase APIs actually used.
-5. Re-run the probe: both keys must now return a `*_BLOCKED` reason instead of
-   `MISSING_ID_TOKEN`. That is the acceptance test — it is the same command that
-   found the problem.
-6. Rebuild and authenticate on a real Android device and a real iOS device.
+5. Re-run the probe: both keys must return a `*_BLOCKED` reason instead of
+   `MISSING_ID_TOKEN`. That is the acceptance test — the same command that found
+   the problem.
+6. Rebuild and authenticate on a real Android device **and** a real iOS device.
+   Step 3 is the step that breaks Android if 382 was done wrong, so test both.
 7. Only then dismiss alerts #1 and #2 as `wont_fix`, citing the restrictions.
+
+`apikeys.googleapis.com` returning 403 `SERVICE_DISABLED` only matters if you want
+to set restrictions **via API**; the Console UI does not require it. It is not a
+prerequisite for step 1.
