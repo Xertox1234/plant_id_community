@@ -1,7 +1,9 @@
 ---
-status: pending
+status: completed
 priority: p1
 issue_id: "360"
+completion_date: 2026-09-12
+carried_to: ["383"]
 tags: [security, firebase, mobile, github, gcp]
 dependencies: ["382"]
 ---
@@ -104,22 +106,44 @@ old strings from history. Only a decision on disposition closes the alerts.
 - [x] Android key restricted to package + SHA-1 (2026-09-12 — verified by probe;
       the attack shape that previously succeeded now returns
       `API_KEY_ANDROID_APP_BLOCKED`)
-- [ ] todo 382 shipped: `FIREBASE_API_KEY` split per platform, each platform
-      pointed at its own key (BLOCKS every step below). **Code merged
-      2026-09-11 — but that is not "shipped" for this purpose.** The code is a
+- [x] todo 382 shipped: `FIREBASE_API_KEY` split per platform, each platform
+      pointed at its own key (2026-09-12: code merged in PR #722 AND
+      `.env.local` now sets `FIREBASE_ANDROID_API_KEY` + `FIREBASE_ANDROID_APP_ID`,
+      so Android resolves the Android key — verified 7/7 by running the resolution
+      suite with `--dart-define-from-file=` pointed at the real `.env.local`).
+      **Note the distinction that mattered:** The code is a
       pure fallback and changes nothing until `FIREBASE_ANDROID_API_KEY` is
       actually set AND Android auth is proven on a real device with the Android
       key. Until then the Android app is still authenticating with the
       unrestricted iOS key, and step 3 below would take that key away.
-- [ ] iOS key restricted to bundle id `com.plantcommunity.plantCommunityMobile`
+- [x] iOS key restricted to bundle id `com.plantcommunity.plantCommunityMobile`
+      (2026-09-12, applied by the owner in the Console)
 - [ ] SHA-1 re-checked against the real release signing cert once one exists
-      (today, release signs with the DEBUG key — build.gradle.kts:40-44)
-- [ ] Probe re-run: both keys return a `*_BLOCKED` reason, not `MISSING_ID_TOKEN`
-- [ ] App still authenticates on a real Android device AND a real iOS device
-- [ ] Both secret-scanning alerts closed with a written resolution comment
-- [ ] `gh api .../secret-scanning/alerts?state=open` returns an empty list
-- [ ] Todo 011's acceptance criteria rewritten to match reality and the todo
-      moved off `code-complete`
+      (today, release signs with the DEBUG key — build.gradle.kts:40-44).
+      **Not satisfiable: there is no release keystore and no `key.properties`, so
+      no release cert exists to check against. Carried to todo 383, not dropped.**
+- [x] Probe re-run: both keys return a `*_BLOCKED` reason, not `MISSING_ID_TOKEN`
+      (2026-09-12, 8/8 rows — each key ADMITS its own platform's legitimate client
+      and BLOCKS wrong-id, no-headers, and the other platform's headers)
+- [ ] App still authenticates on a real Android device AND a real iOS device.
+      **Deliberately not met — carried to todo 383.** The owner confirmed
+      2026-09-12 the app is distributed to no one (no Play track, no TestFlight,
+      no sideloads; corroborated by the absent release keystore and, on iOS, no
+      distribution cert). With zero installs the restriction had no user-facing
+      blast radius, and the risk this AC was gating was retired by the probe
+      instead. The residue — that the Firebase SDK really sends the client headers
+      — must be closed before the first distribution.
+- [x] Both secret-scanning alerts closed with a written resolution comment
+      (2026-09-12, #1 Android / #2 iOS, both `wont_fix`). Note for next time:
+      `resolution_comment` is capped at **280 characters** — over that, the API
+      returns a misleading `422 "Can't set a resolution_comment without a new
+      resolution"` rather than naming the length, and `gh api` reports the failure
+      on stderr while still printing an unchanged-alert body to stdout.
+- [x] `gh api .../secret-scanning/alerts?state=open` returns an empty list
+      (2026-09-12: `open alerts: 0`)
+- [x] Todo 011's acceptance criteria rewritten to match reality and the todo
+      moved off `code-complete` (2026-09-12 — rewritten against the LIVE project,
+      which is how the undeployed Storage rules in todo 383 were found)
 
 ## Notes
 
@@ -395,3 +419,45 @@ No propagation delay was observed; the change was live on the first probe.
 unrestricted deliberately, because the Android app authenticates with it, and
 restricting it before 382 breaks Android sign-in for every user. Alerts #1 and #2
 stay open until then.
+
+### 2026-09-12 - CLOSED. Both keys restricted and verified; alerts resolved
+
+**iOS key restricted** by the owner in the Console (iOS apps → bundle id
+`com.plantcommunity.plantCommunityMobile`), which only became possible once todo
+382 split the shared key. Probe re-run over both keys, 8/8 rows as expected:
+
+| key | legitimate client | wrong id | no headers | other platform's headers |
+|---|---|---|---|---|
+| iOS | ADMITTED (`MISSING_ID_TOKEN`) | `API_KEY_IOS_APP_BLOCKED` | blocked | blocked |
+| Android | ADMITTED | `API_KEY_ANDROID_APP_BLOCKED` | blocked | blocked |
+
+Both fields of each restriction are load-bearing, and neither key works for the
+other platform. The abuse path on both published keys is closed.
+
+**Alerts #1 (Android) and #2 (iOS) resolved `wont_fix`** with per-key comments
+naming the control and its verification. `open alerts: 0`.
+
+**The device AC was consciously traded away, not forgotten.** The owner confirmed
+nothing is distributed, so restricting the iOS key could at worst break a local
+build (revertible by one `.env.local` line). See todo 383 for the residue.
+
+**Found while verifying todo 011 against the live project:** the deployed Storage
+security rules are **3.5 months behind the repo**. `firebase/storage.rules`
+tightened three read rules from `isAuthenticated()` to `isOwner(userId)` on
+2026-05-23 (PR #285) and was never deployed; prod still serves the 2025-11-14
+ruleset. Nothing is exposed — the bucket holds **0 objects** and no code writes to
+those prefixes — but a todo was closed on a commit that never reached production.
+Filed as todo 383 item 1.
+
+**Method note worth keeping.** Every real finding in this todo came from probing
+the live system, and every wrong belief came from reading a file:
+
+- "both keys unrestricted" — found by probe, not by the Console.
+- "the iOS key cannot be restricted at all" — found by asking why a SHA-1 was
+  needed, after a remediation plan that would have broken Android had already
+  passed my own review and a PR body.
+- "the Storage rules are deployed" — a repo file said yes; the Rules API said the
+  repo is three months ahead.
+
+A green checkbox describing production is worth exactly as much as the last time
+someone asked production.

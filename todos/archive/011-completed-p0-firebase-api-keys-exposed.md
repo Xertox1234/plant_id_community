@@ -1,10 +1,11 @@
 ---
-status: code-complete
+status: completed
 priority: p0
 issue_id: "011"
 tags: [security, critical, firebase, mobile, api-keys]
 dependencies: []
-completion_date: 2025-11-11
+completion_date: 2026-09-12  # reconciled; see the 2026-09-12 entry
+superseded_by: ["360", "382", "383"]
 ---
 
 # Firebase API Keys Exposed in Git Repository
@@ -228,18 +229,50 @@ lib/firebase_options_*.dart
 
 ## Acceptance Criteria
 
-- [ ] Firebase API keys rotated in console
-- [ ] Firestore security rules deployed (deny by default)
-- [ ] Storage security rules deployed (authenticated only)
-- [ ] firebase_options.dart removed from git tracking
-- [ ] .env file created with new keys (gitignored)
-- [ ] .env.example created with placeholders
-- [ ] CI/CD updated to inject keys at build time
-- [ ] Firebase logs audited for past 30 days
-- [ ] No unauthorized access detected
-- [ ] Monitoring alerts configured
-- [ ] Key rotation procedure documented
-- [ ] All tests pass with new configuration
+**Rewritten 2026-09-12** against the live project, not the repo. This todo was
+archived as `code-complete` with all twelve boxes unchecked, which read as "done"
+in every summary while describing nothing that had actually happened. Three of the
+twelve were premised on a wrong threat model and can never be checked; the rest are
+now recorded with evidence or re-pointed at the todo that owns them.
+
+- [~] ~~Firebase API keys rotated in console~~ — **SUPERSEDED, will not be done.**
+      These are public client identifiers compiled into every APK/IPA, not secret
+      credentials; confidentiality was never the control and a replacement would be
+      equally public. Rotation ruled out by the owner (todo 360, 2026-09-11). The
+      real control is a Google Cloud application restriction per key — applied and
+      probe-verified 2026-09-12.
+- [x] Firestore security rules deployed (deny by default) — verified 2026-09-12
+      through the Firebase Rules API: release `cloud.firestore`, ruleset from
+      `firebase/firestore.rules`, **byte-matching the committed file**, with an
+      explicit deny. Not inferred from the file's existence.
+- [~] Storage security rules deployed (authenticated only) — deployed, but the
+      deployed ruleset is **3.5 months behind the repo**: the tightening from
+      `isAuthenticated()` to `isOwner(userId)` on three read rules was committed
+      2026-05-23 (PR #285) and never released. Nothing is exposed (bucket holds 0
+      objects, no code writes those prefixes). **Re-pointed to todo 383 item 1.**
+- [~] ~~firebase_options.dart removed from git tracking~~ — **SUPERSEDED, will not
+      be done.** The file is committed deliberately so a fresh checkout compiles;
+      it holds no key values, only `String.fromEnvironment` lookups. Todo 382 (PR
+      #722) extended it to resolve the api key per platform.
+- [x] .env file created with new keys (gitignored) — `plant_community_mobile/.env.local`
+      exists and is gitignored (`.gitignore:21`, `.env.*`). "New keys" does not
+      apply: no rotation, per the superseded item above.
+- [x] .env.example created with placeholders — `plant_community_mobile/.env.example`,
+      now including the per-platform api key vars.
+- [x] CI/CD updated to inject keys at build time — `.github/workflows/mobile-ci.yml`
+      passes every value with `--dart-define`.
+- [~] Firebase logs audited for past 30 days — **not done and no longer
+      actionable.** The window opened 2025-10-22 and closed long before anyone
+      looked; there is no 30-day retention left to audit. Recorded as a miss rather
+      than checked off.
+- [~] No unauthorized access detected — **never verified**, and now unverifiable
+      for the period that mattered. Do not read this as "no abuse occurred".
+- [~] Monitoring alerts configured — **not done.** No usage or anomaly alerting
+      exists on these keys.
+- [x] Key rotation procedure documented — `plant_community_mobile/rotate_firebase_keys.sh`
+      exists, though rotation is no longer the control for this class of key.
+- [x] All tests pass with new configuration — `flutter analyze` clean and 692 tests
+      passing as of 2026-09-12 (PR #722).
 
 ## Work Log
 
@@ -334,3 +367,32 @@ Firebase client API keys are **not secret** - they're meant to be included in cl
 Source: Comprehensive security audit performed on November 9, 2025
 Review command: /compounding-engineering:review audit codebase
 Agent: Security Sentinel
+
+### 2026-09-12 - Reconciled and superseded (todo 360 final AC)
+
+This todo sat in `todos/archive/` as `status: code-complete` — a value used by no
+other todo in the repo — with **all twelve acceptance criteria unchecked**, since
+2025-11-11. Archived location plus a "complete"-shaped status made it read as
+finished; nothing in it had been verified, and the two API keys it was filed about
+were still completely unrestricted ten months later. Todo 360 found that, and its
+last AC was to fix this record.
+
+What the reconciliation changed:
+
+- Status `code-complete` → `completed`, with `superseded_by: [360, 382, 383]`.
+- Three criteria marked **superseded, will not be done** — key rotation and
+  untracking `firebase_options.dart` were premised on treating a public client
+  identifier as a secret. That premise was wrong, so the work was never going to
+  happen and the boxes were never going to be ticked.
+- Four marked `[~]` as honest misses: the log audit (window expired unexamined),
+  "no unauthorized access detected" (never verified — not the same as "no abuse"),
+  monitoring alerts (absent), and the drifted Storage rules (re-pointed to 383).
+- Five checked off **with the evidence that justifies each**, including the
+  Firestore rules, which were confirmed through the Rules API as byte-matching the
+  committed file rather than inferred from that file existing.
+
+The lesson is the shape, not the Firebase specifics: this record was wrong in the
+direction that makes it invisible. Unchecked boxes under a "complete" status in an
+archive directory do not get re-read. Verifying the *first* one against production
+is what surfaced a second undeployed fix (todo 383 item 1) that nobody was looking
+for.

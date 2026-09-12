@@ -1,7 +1,9 @@
 ---
-status: pending
+status: completed
 priority: p1
 issue_id: "382"
+completion_date: 2026-09-12
+carried_to: ["383"]
 tags: [security, firebase, mobile, gcp]
 dependencies: []
 ---
@@ -80,10 +82,16 @@ Measured 2026-09-11 while fetching the Android signing SHA-1 for todo 360.
       proves the fallback
 - [x] A build with the new vars set resolves a DIFFERENT key per platform —
       asserted by value, not by the var name being present
-- [ ] **Auth works on a real Android device and a real iOS device** — NOT done;
-      this is what still blocks closing 382, and it cannot be closed from CI
-- [ ] todo 360 step 3 unblocked — **still blocked.** Merging the code does not
-      unblock it; see "Ordering" below
+- [ ] **Auth works on a real Android device and a real iOS device** —
+      **consciously traded away 2026-09-12, carried to todo 383.** The owner
+      confirmed the app is distributed to no one, so the risk this AC gated had no
+      blast radius, and it was retired another way: a probe proved each key admits
+      only its own platform's legitimate client headers. The residue — that the
+      Firebase SDK actually sends those headers — must close before the first
+      distribution. Recorded rather than checked off.
+- [x] todo 360 step 3 unblocked — **done 2026-09-12.** `.env.local` now sets
+      `FIREBASE_ANDROID_API_KEY` + `FIREBASE_ANDROID_APP_ID` (2b), the iOS key was
+      then restricted to its bundle id, and the probe passed 8/8 over both keys.
 
 ## Ordering — merging this is safe, the env flip is the risky step
 
@@ -199,3 +207,34 @@ and not a skip-guarded test someone is supposed to remember to run.
 AC #5 — real-device auth on Android and iOS. It cannot be done from CI and it is
 the AC that matters most here, because it is the only thing that proves the
 restricted Android key works on a live auth path. 382 stays `pending` until then.
+
+### 2026-09-12 - Step 2b done; todo 360 closed on the back of it
+
+`.env.local` (untracked, developer machine) now sets `FIREBASE_ANDROID_API_KEY`
+and `FIREBASE_ANDROID_APP_ID` from `android/app/google-services.json`, and
+`FIREBASE_IOS_API_KEY` explicitly from the plist. `FIREBASE_API_KEY` /
+`FIREBASE_APP_ID` were left untouched so desktop, web and anything unnoticed keep
+resolving exactly as before.
+
+**Proven against the real file, not placeholders:** the resolution suite run with
+`--dart-define-from-file=` pointed at the actual `.env.local` passes 7/7,
+including "android and ios differ when both platform defines are set". That is the
+first time that assertion ran on the real keys rather than CI sentinels.
+
+Two things worth knowing for whoever sets this up next:
+
+- The file is consumed **only** on the command line —
+  `flutter run --dart-define-from-file=.env.local`. Nothing imports it;
+  `flutter_dotenv` is in `pubspec.yaml` but is legacy tests/docs only. It is easy
+  to assume a `.env` file is read by the app. It is not.
+- Its Firebase block was labelled "Firebase (iOS)" and held only iOS values, which
+  is precisely why Android inherited the iOS key *and* the iOS `appId`. Setting
+  the api key without the appId pairs an Android key with an iOS app.
+
+Consequence of restricting the iOS key, accepted deliberately: that key is also
+the fallback for Flutter **web** and **macOS** (`currentPlatform` routes macOS to
+the `ios` getter, and `FIREBASE_WEB_API_KEY` is unset), so `flutter run -d chrome`
+and `-d macos` now fail Firebase init. Local-only, and the clean fix — a separate
+browser key in `FIREBASE_WEB_API_KEY` — is already supported by this change.
+
+382 is complete except for the carried-over device check in todo 383.
