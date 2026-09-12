@@ -1313,5 +1313,73 @@ class TestDartDefineMapTrigger(unittest.TestCase):
         self.assertNotIn(self.TRIGGER_ID, ids(hits))
 
 
+class TestFirebaseRulesDeployTrigger(unittest.TestCase):
+    """`firebase-rules-edit-needs-deploy` — todo 383.
+
+    A rules edit is inert until `firebase deploy` runs, and nothing in the repo
+    can reveal that it did not: the file, the `firebase.json` entry and an old
+    green deploy log are all consistent with production serving the previous
+    ruleset. That gap ran 3.5 months for the 2026-05-23 Storage tightening and
+    hit todo 224 before it, both found by accident.
+
+    Positive fixtures are the real edit shapes — the todo-383 helper removal and
+    an `allow` change — not idealised ones.
+    """
+
+    TRIGGER_ID = "firebase-rules-edit-needs-deploy"
+
+    @classmethod
+    def setUpClass(cls):
+        root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+        cls.real = mt.load_triggers(root)
+
+    def test_allow_rule_change_fires(self):
+        tn, ti = edit(
+            "firebase/storage.rules",
+            "      allow read: if isOwner(userId);",
+            "      allow read: if isOwner(userId) || isAdmin();",
+        )
+        self.assertIn(self.TRIGGER_ID, ids(mt.find_matches(tn, ti, self.real, None)))
+
+    def test_helper_function_edit_fires(self):
+        # The literal todo-383 removal: the new fragment is the surrounding
+        # function, which is what a helper edit actually looks like.
+        tn, ti = edit(
+            "firebase/firestore.rules",
+            "    function isAuthenticated() {\n      return request.auth != null;\n    }",
+            "    function isOwner(userId) {\n      return request.auth.uid == userId;\n    }",
+        )
+        self.assertIn(self.TRIGGER_ID, ids(mt.find_matches(tn, ti, self.real, None)))
+
+    def test_new_match_block_fires(self):
+        tn, ti = edit(
+            "firebase/storage.rules",
+            "    match /avatars/{userId}/{imageId} {",
+            "    match /exports/{userId}/{fileId} {",
+        )
+        self.assertIn(self.TRIGGER_ID, ids(mt.find_matches(tn, ti, self.real, None)))
+
+    def test_comment_only_edit_in_a_rules_file_stays_silent(self):
+        # Exercises the regex rather than a blank: right file, right glob, but no
+        # allow/function/match line, so no policy actually changed and there is
+        # nothing to deploy. A comment reflow must not nag.
+        tn, ti = edit(
+            "firebase/storage.rules",
+            "    // Helper functions",
+            "    // Helper functions (shared by every match block below)",
+        )
+        self.assertNotIn(self.TRIGGER_ID, ids(mt.find_matches(tn, ti, self.real, None)))
+
+    def test_same_content_outside_a_rules_file_stays_silent(self):
+        # Wrong path, identical content — proves the glob is doing work. The
+        # emulator fixtures and docs quote rule bodies verbatim.
+        tn, ti = edit(
+            "firebase/docs/patterns/firestore-rules.md",
+            "Example:",
+            "Example:\n\n    allow read: if isOwner(userId);",
+        )
+        self.assertNotIn(self.TRIGGER_ID, ids(mt.find_matches(tn, ti, self.real, None)))
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

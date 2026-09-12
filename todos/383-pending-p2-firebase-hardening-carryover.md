@@ -107,14 +107,37 @@ be closed before the first real distribution.
       Rules API fetch confirms `deployed == committed` for **both** rulesets, with
       all three reads now `allow read: if isOwner(userId)` and `/avatars/` still
       deliberately `if true`)
-- [ ] A drift check exists that fails when deployed rules differ from committed
+- [x] A drift check exists that fails when deployed rules differ from committed
+      (2026-09-12 — `scripts/check_firebase_rules_drift.py`, 29 offline tests in
+      Harness CI, plus `.github/workflows/firebase-rules-drift.yml` daily at 07:20
+      UTC and on every push to `main` touching a rules file. Exit codes are
+      0 match / 1 drift / 2 INDETERMINATE, so "could not look" can never read as
+      clean. Authenticated by **Workload Identity Federation, no key file
+      anywhere** — SA `firebase-rules-reader` with `roles/firebaserules.viewer`
+      only, pool `github-actions`, provider `github` whose attribute-condition
+      pins `assertion.repository` to this repo; the SA's `workloadIdentityUser`
+      binding is scoped to the matching principalSet. Both halves asserted, not
+      assumed — without the condition any GitHub repo could mint tokens for the
+      pool. Credentials are two repo *variables*, `GCP_WIF_PROVIDER` and
+      `GCP_RULES_READER_SA`; neither is sensitive and no owner step remains.
+      **Residual:** the OIDC exchange itself is unproven until the workflow is on
+      `main` — GitHub refuses to dispatch a workflow absent from the default
+      branch — but the merge touches a rules file and so runs it immediately)
 - [ ] Each key restricted to the APIs the app actually calls, with the app still
       working afterwards
 - [ ] Release-cert SHA-1 registered before any distribution (or explicitly
       deferred again, in writing, with the reason)
 - [ ] Sign-in verified on a physical Android device and a physical iOS device
-- [ ] Dead `isAuthenticated()` helper removed from `firebase/storage.rules`
-      **and deployed in the same motion** (see item 5)
+- [x] Dead `isAuthenticated()` helper removed from `firebase/storage.rules`
+      **and deployed in the same motion** (see item 5) — 2026-09-12, deployed
+      from the todo-383 branch before merge, so the repo never went ahead of
+      prod. Ruleset `ade11cca` -> `90fc82d6`, release updated 20:47:05Z, 66 ->
+      62 lines. Verified through the Rules API, not the CLI exit code: the diff
+      against the previous ruleset is exactly the four helper lines, and the
+      set of `match` / `allow` clauses is byte-identical before and after, so
+      no access rule changed. The two compiler warnings the deploy used to emit
+      (`Unused function: isAuthenticated`, `Invalid variable name: request`) are
+      gone. `check_firebase_rules_drift.py` returns 0 for both releases.
 
 ### 5. NEW — dead `isAuthenticated()` helper in storage.rules
 
