@@ -108,12 +108,21 @@ be closed before the first real distribution.
       all three reads now `allow read: if isOwner(userId)` and `/avatars/` still
       deliberately `if true`)
 - [x] A drift check exists that fails when deployed rules differ from committed
-      (2026-09-12 — `scripts/check_firebase_rules_drift.py`, 22 offline tests in Harness CI,
-      plus `.github/workflows/firebase-rules-drift.yml` daily + on every push to
-      `main` touching a rules file. **The scheduled job needs one owner step:** add
-      the `FIREBASE_RULES_SA` repository credential; until then that job fails
-      loudly rather than skipping. The script itself works today from any checkout
-      that has credentials)
+      (2026-09-12 — `scripts/check_firebase_rules_drift.py`, 29 offline tests in
+      Harness CI, plus `.github/workflows/firebase-rules-drift.yml` daily at 07:20
+      UTC and on every push to `main` touching a rules file. Exit codes are
+      0 match / 1 drift / 2 INDETERMINATE, so "could not look" can never read as
+      clean. Authenticated by **Workload Identity Federation, no key file
+      anywhere** — SA `firebase-rules-reader` with `roles/firebaserules.viewer`
+      only, pool `github-actions`, provider `github` whose attribute-condition
+      pins `assertion.repository` to this repo; the SA's `workloadIdentityUser`
+      binding is scoped to the matching principalSet. Both halves asserted, not
+      assumed — without the condition any GitHub repo could mint tokens for the
+      pool. Credentials are two repo *variables*, `GCP_WIF_PROVIDER` and
+      `GCP_RULES_READER_SA`; neither is sensitive and no owner step remains.
+      **Residual:** the OIDC exchange itself is unproven until the workflow is on
+      `main` — GitHub refuses to dispatch a workflow absent from the default
+      branch — but the merge touches a rules file and so runs it immediately)
 - [ ] Each key restricted to the APIs the app actually calls, with the app still
       working afterwards
 - [ ] Release-cert SHA-1 registered before any distribution (or explicitly
