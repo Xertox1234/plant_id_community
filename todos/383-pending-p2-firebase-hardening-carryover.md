@@ -101,14 +101,44 @@ be closed before the first real distribution.
 
 ## Acceptance Criteria
 
-- [ ] Deployed Storage rules byte-match `firebase/storage.rules`, verified through
-      the Rules API and not by "the deploy command exited 0"
+- [x] Deployed Storage rules byte-match `firebase/storage.rules`, verified through
+      the Rules API and not by "the deploy command exited 0" (2026-09-12 — owner ran
+      `firebase deploy --only storage`; release updated 14:03:15Z, and a fresh
+      Rules API fetch confirms `deployed == committed` for **both** rulesets, with
+      all three reads now `allow read: if isOwner(userId)` and `/avatars/` still
+      deliberately `if true`)
 - [ ] A drift check exists that fails when deployed rules differ from committed
 - [ ] Each key restricted to the APIs the app actually calls, with the app still
       working afterwards
 - [ ] Release-cert SHA-1 registered before any distribution (or explicitly
       deferred again, in writing, with the reason)
 - [ ] Sign-in verified on a physical Android device and a physical iOS device
+- [ ] Dead `isAuthenticated()` helper removed from `firebase/storage.rules`
+      **and deployed in the same motion** (see item 5)
+
+### 5. NEW — dead `isAuthenticated()` helper in storage.rules
+
+The 2026-09-12 deploy surfaced two compiler warnings:
+
+```
+[W] 6:14 - Unused function: isAuthenticated.
+[W] 7:14 - Invalid variable name: request.
+```
+
+Both come from the same three lines. `grep -n isAuthenticated firebase/storage.rules`
+returns exactly **one** hit — the definition, with zero call sites — because the
+2026-05-23 tightening replaced every use with `isOwner(userId)`. The second warning
+is the linter objecting to `request` inside a function nothing calls.
+
+Worth deleting, and not merely for tidiness: this is the precise loose predicate
+(`request.auth != null`, i.e. any signed-in user) whose presence is what the drift
+re-exposed for 3.5 months. Leaving it sitting there invites its reuse. It is still
+used 7× in `firestore.rules` — leave that one alone.
+
+**Deliberately not changed on 2026-09-12.** Repo and prod match for the first time
+since May; editing the file without deploying would put the repo ahead again, which
+is exactly the drift state item 1 just closed. Do the edit and the deploy together,
+then re-verify through the Rules API.
 
 ## Notes
 
@@ -124,3 +154,23 @@ Split out of todos 360 and 382 on close-out, so their open items stay visible
 instead of being checked off or silently dropped. Item 1 was found by verifying a
 todo's claim against the live project rather than the repo — the same failure mode
 as the rest of that pair.
+
+### 2026-09-12 - Item 1 DONE: storage rules deployed and verified
+
+Owner ran `firebase deploy --only storage`. Verified the way the AC demands —
+through the Rules API, not from the command's exit code:
+
+| release | deployed == committed | updated |
+|---|---|---|
+| `cloud.firestore` | yes | 2026-06-22T23:04:38Z |
+| `plant-community-prod.firebasestorage.app` | yes | **2026-09-12T14:03:15Z** |
+
+`/plant-identifications/`, `/disease-diagnoses/` and `/user-plants/` now read
+`allow read: if isOwner(userId)` in production; `/avatars/` remains `if true` by
+design (audit L16). The 3.5-month window in which any signed-in user could read any
+other user's images under those prefixes is closed. Nothing was ever exposed through
+it — the bucket held 0 objects throughout.
+
+Still open here: the drift check (item 1's second AC — nothing yet prevents this
+recurring), API restrictions, the release-cert SHA-1, the device check, and the new
+item 5.
