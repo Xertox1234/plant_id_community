@@ -309,8 +309,25 @@ Evidence that nothing uses it, gathered 2026-09-12:
 So it is an orphan created by Firebase at project setup on 2025-10-21 and never
 wired to anything. There is no referrer to restrict it *to* — an allowlist of
 referrers for a client nobody ships is a guess, not a control — so the honest
-options are delete it or knowingly leave it. **Deletion is reversible for 30 days**
-via `gcloud services api-keys undelete`. Owner decision.
+options were delete it or knowingly leave it.
+
+**RESOLVED 2026-09-12: deleted by the owner.** `deleteTime`
+`2026-09-12T22:14:51Z`; it remains visible under `--show-deleted` and is
+recoverable for 30 days with
+`gcloud services api-keys undelete 289f8af0-7f29-49be-b58d-f57312930011 --project=plant-community-prod`.
+The project now holds exactly two keys, one per registered Firebase app.
+
+Re-checked immediately before deleting, because the owner chose on evidence
+gathered *before* item 7 surfaced and an in-flight build meant something in the
+checkout had recently changed: a tree-wide scan for `AIzaSy[A-Za-z0-9_-]{33}`
+returned only the two mobile keys, this script's own fake-key constant, and a
+placeholder in `google-services.json.example`. The browser key string appeared
+nowhere, so nothing could break.
+
+Note for whoever registers a Firebase **web** app later: doing so auto-creates a
+new browser key with the same wide-open default. `scripts/check_firebase_key_restrictions.py`
+prints a NOTE line for any key that is neither the iOS nor the Android key, so a
+re-created one will show up rather than blend in.
 
 ### 7. NEW — the "distributed to nobody" premise is about to expire
 
