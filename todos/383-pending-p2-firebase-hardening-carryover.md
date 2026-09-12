@@ -407,6 +407,13 @@ and returns. `plant_community_mobile/README.md:100` already lists this exact
 behaviour as an expected smoke-test outcome: *"Missing Firebase `--dart-define`
 values show the configuration error screen."*
 
+**The mechanism is not inferred — the repo's own suite asserts it.**
+`test/firebase_options_test.dart:97-114` is a green test in `mobile-ci.yml`
+named *"a missing key throws and names both the platform var and the fallback"*,
+asserting `throwsA(isA<StateError>())` for exactly this input. So the only thing
+that needed establishing was whether the defines were absent from the shipped
+build, which is what the snapshot check below settles.
+
 **Proven from the shipped artifact, not inferred from the script.** Unpacking the
 uploaded `.ipa` and running `strings` over the AOT snapshot
 (`Payload/Runner.app/Frameworks/App.framework/App`) finds **zero** `AIzaSy`-shaped
