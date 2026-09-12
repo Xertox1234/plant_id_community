@@ -51,13 +51,99 @@ true` is deliberate (audit L16).
 
 ### 2. API restrictions per key (was todo 360 step 4)
 
-Both keys have **application** restrictions but no **API** restrictions, so each
-can still call any enabled API in the project. The plugins actually in use are
-`firebase_auth`, `cloud_firestore`, `firebase_storage`, `firebase_messaging`
-(`plant_community_mobile/pubspec.yaml:39-43`), so the allowlist is approximately:
-Identity Toolkit, Token Service, Cloud Firestore, Firebase Installations, FCM
-Registration, Cloud Storage for Firebase. Verify against real traffic before
-applying — an omitted API fails at runtime, not at configuration time.
+**This finding was filed on a false premise. Correcting it in place rather than
+working from it.** The original text read: *"Both keys have application
+restrictions but no API restrictions, so each can still call any enabled API in
+the project."*
+
+Measured 2026-09-12 with `gcloud services api-keys list --project=plant-community-prod`
+— possible only now that `gcloud` is installed and authenticated as Owner — **both
+mobile keys already carried 24 `apiTargets`**. That is Firebase's auto-generated
+default breadth, not an absence of restriction. The premise was inferred from the
+Console, which hides the *API restrictions* section entirely until
+`apikeys.googleapis.com` is enabled, and it was never checked against the project.
+
+So the work is to **narrow** an over-broad allowlist, not to create one. That is a
+smaller security win than the todo implied, and it changes the failure mode: the
+risk is no longer "forgot to restrict", it is "cut something the SDK needs", which
+surfaces at runtime as a broken sign-in rather than as a configuration error.
+
+#### The keep-list comes from Firebase's documented table, not from inference
+
+The obvious inference — map the four plugins in use to six services — is **wrong**,
+and would have broken things. `https://firebase.google.com/docs/projects/api-keys`
+publishes the product-to-API mapping, and it requires four services that no plugin
+name suggests:
+
+| service | required by | inference would have… |
+|---|---|---|
+| `firebase.googleapis.com` | all products | **dropped it** |
+| `logging.googleapis.com` | all products | **dropped it** |
+| `identitytoolkit.googleapis.com` | Authentication | kept |
+| `securetoken.googleapis.com` | Authentication | kept |
+| `firebaserules.googleapis.com` | Firestore **and** Storage | **dropped it** |
+| `datastore.googleapis.com` | Cloud Firestore | **dropped it** |
+| `firestore.googleapis.com` | Cloud Firestore | kept |
+| `firebasestorage.googleapis.com` | Cloud Storage | kept |
+| `firebaseinstallations.googleapis.com` | Cloud Messaging | kept |
+| `fcmregistrations.googleapis.com` | Cloud Messaging | kept |
+
+Ten services, down from 24. Dropped: `sqladmin` (Cloud SQL Admin),
+`firebasevertexai`, `firebaseml`, `mlkit`, `firebasedataconnect`,
+`firebaseapphosting`, `firebasedatabase` (RTDB — this project uses Firestore),
+`firebasehosting`, `firebaseappcheck`, `firebaseappdistribution`,
+`firebaseapptesters`, `firebaseinappmessaging`, `firebaseremoteconfig`,
+`firebaseremoteconfigrealtime`.
+
+#### Traffic could not validate the keep-list, and saying so matters
+
+The instruction carried into this work was "confirm against real traffic before
+cutting." That was run and it came back **empty**: in 30 days of
+`serviceruntime.googleapis.com/api/request_count`, the only API-key traffic on
+either mobile key is `identitytoolkit`, and the 2026-09-12 spike there is *this
+project's own verification probes* from todos 360/382. `securetoken`, `firestore`,
+`firebaseinstallations` and `fcmregistrations` show **zero**. (The 128 Firestore
+200s belong to a service account — the Django admin SDK — not to a key.)
+
+That is what "distributed to nobody" looks like in the metrics, and the trap is
+reading zero traffic as "not needed." Cutting `securetoken` on that reasoning
+would leave sign-in working for exactly one hour, until the first token refresh.
+**Traffic was therefore used in one direction only: it may add a service to the
+keep-list, never remove one.**
+
+#### Found while measuring: both keys are being probed daily from outside
+
+The traffic query surfaced something not previously known. Every single day, both
+mobile keys receive Google **Maps** API calls — `geocoding-backend` once a day on
+each key in lockstep, with full-suite bursts across `directions`, `places`,
+`static-maps`, `street-view`, `timezone`, `elevation` and `distance-matrix` on
+2026-08-16, 09-09 and 09-10.
+
+This cannot be the app: it uses no Maps API, and the Flutter `geocoding` plugin
+calls platform-native geocoders with no key. The counts are symmetric across two
+keys, which no single client would produce. It is an automated scanner exercising
+the keys that were committed to this public repo — the same exposure that raised
+secret-scanning alerts #1/#2. All of it returns **403**, so nothing is being
+spent or read.
+
+Two consequences worth keeping:
+
+1. **Never enable a Maps API on this project** while a client key carries a broad
+   allowlist. The probing is already in place and would start succeeding the day
+   the service is turned on.
+2. `gcloud services api-keys update` defaults to `--check-existing-usage`, which
+   **counts those blocked 403s as "active usage" and refuses the tightening**:
+
+   ```
+   FAILED_PRECONDITION: Unable to update key restrictions. Active usage in the
+   last 7 days was detected for service(s): directions-backend…, geocoding-backend…
+   ```
+
+   The guard is inverted for a leaked key — the more an attacker probes it, the
+   harder it is to lock down. `--no-check-existing-usage` is required, and is only
+   safe because every removed service was verified to have **zero 2xx responses**
+   across 30 days. That check is the precondition for the override, not a
+   formality.
 
 ### 3. SHA-1 must be re-checked against a real release signing cert
 
@@ -123,8 +209,37 @@ be closed before the first real distribution.
       **Residual:** the OIDC exchange itself is unproven until the workflow is on
       `main` — GitHub refuses to dispatch a workflow absent from the default
       branch — but the merge touches a rules file and so runs it immediately)
-- [ ] Each key restricted to the APIs the app actually calls, with the app still
-      working afterwards
+- [x] Each key restricted to the APIs the app actually calls, with the app still
+      working afterwards (2026-09-12 — both mobile keys narrowed **24 -> 10
+      `apiTargets`**: Firebase's own documented product-to-API set for
+      Authentication + Firestore + Storage + Messaging. Dropped `sqladmin`,
+      `firebasevertexai`, `firebaseml`, `mlkit`, `firebasedataconnect`,
+      `firebaseapphosting`, `firebasedatabase`, `firebasehosting`,
+      `firebaseappcheck`, `firebaseappdistribution`, `firebaseapptesters`,
+      `firebaseinappmessaging` and both remoteconfig services.
+      **Both halves restated deliberately**, because `--api-target` *replaces* the
+      whole `restrictions` object and passing it alone would have silently deleted
+      the application restriction todos 360/382 exist to provide: the read-back
+      shows 10 targets **and** `iosKeyRestrictions` / `androidKeyRestrictions`
+      still present, and an 8/8 live probe confirms each key still admits only its
+      own platform's headers while rejecting no-header, wrong-bundle-id and
+      other-platform shapes.
+      **Enforcement proven live, not inferred:** `firebaseremoteconfig` — enabled
+      project-wide, so a block there can only come from the key — returned
+      `API_KEY_SERVICE_BLOCKED` on both keys after the change, having returned a
+      plain `PERMISSION_DENIED` before it; and while only the iOS key was narrowed,
+      the untouched Android key still returned the old response to the identical
+      call, which is the control that rules out "the service just became
+      unreachable". Re-runnable: `python3 scripts/check_firebase_key_restrictions.py`.
+      **Residual, stated rather than implied:** "the app still working" is *not*
+      proven by execution — nothing runs the app, the same condition that produced
+      zero usable traffic (item 2). What is proven is that the three kept services
+      whose endpoints actually evaluate an API key — `identitytoolkit`,
+      `securetoken`, `firebaseinstallations` — still answer on both keys; the other
+      seven rest on the read-back of the key resource, which is the authoritative
+      statement of what is permitted. The pending TestFlight build (item 7) is the
+      first real execution and the place to confirm sign-in. Restrictions are
+      server-side, so a revert needs no rebuild)
 - [ ] Release-cert SHA-1 registered before any distribution (or explicitly
       deferred again, in writing, with the reason)
 - [ ] Sign-in verified on a physical Android device and a physical iOS device
@@ -163,11 +278,89 @@ since May; editing the file without deploying would put the repo ahead again, wh
 is exactly the drift state item 1 just closed. Do the edit and the deploy together,
 then re-verify through the Rules API.
 
+### 6. NEW — a THIRD API key exists, and it is application-unrestricted
+
+The "both keys" framing throughout todos 360/382/383 counted **shipped configs**,
+not keys on the project. `gcloud services api-keys list` returns three:
+
+| key | uid | application restriction |
+|---|---|---|
+| iOS key | `86cc165f-8927-4b9f-a2ef-b242fd96ba35` | bundle id |
+| Android key | `9f90a089-47a4-4098-bc3c-0eac12ebc673` | package + SHA-1 |
+| **Browser key** | `289f8af0-7f29-49be-b58d-f57312930011` | **`browserKeyRestrictions: {}` — none** |
+
+It never raised a secret-scanning alert because it is committed nowhere, which is
+exactly why it stayed invisible: every previous check looked at tracked config
+files, and this key is in none of them.
+
+Evidence that nothing uses it, gathered 2026-09-12:
+
+- **No Web app is registered on the Firebase project at all** —
+  `firebase.googleapis.com/v1beta1/projects/plant-community-prod/webApps` returns
+  empty, while `androidApps` and `iosApps` each return one app bound to its own key.
+- `web/package.json` has no `firebase` dependency, and `web/src` contains no
+  `firebase` import. The React app authenticates against the Django backend.
+- `FIREBASE_WEB_API_KEY` is set **nowhere** — not in `.env.local`, not in
+  `mobile-ci.yml` (where it is deliberately unset to prove the fallback path),
+  only as a placeholder in `.env.example`.
+- `firebase.json` declares no `hosting` block; the web app deploys to Cloudflare.
+- Zero attributed traffic in 30 days.
+
+So it is an orphan created by Firebase at project setup on 2025-10-21 and never
+wired to anything. There is no referrer to restrict it *to* — an allowlist of
+referrers for a client nobody ships is a guess, not a control — so the honest
+options were delete it or knowingly leave it.
+
+**RESOLVED 2026-09-12: deleted by the owner.** `deleteTime`
+`2026-09-12T22:14:51Z`; it remains visible under `--show-deleted` and is
+recoverable for 30 days with
+`gcloud services api-keys undelete 289f8af0-7f29-49be-b58d-f57312930011 --project=plant-community-prod`.
+The project now holds exactly two keys, one per registered Firebase app.
+
+Re-checked immediately before deleting, because the owner chose on evidence
+gathered *before* item 7 surfaced and an in-flight build meant something in the
+checkout had recently changed: a tree-wide scan for `AIzaSy[A-Za-z0-9_-]{33}`
+returned only the two mobile keys, this script's own fake-key constant, and a
+placeholder in `google-services.json.example`. The browser key string appeared
+nowhere, so nothing could break.
+
+Note for whoever registers a Firebase **web** app later: doing so auto-creates a
+new browser key with the same wide-open default. `scripts/check_firebase_key_restrictions.py`
+prints a NOTE line for any key that is neither the iOS nor the Android key, so a
+re-created one will show up rather than blend in.
+
+### 7. NEW — the "distributed to nobody" premise is about to expire
+
+Found 2026-09-12 in the working tree, not in a document: `pubspec.yaml` is bumped
+to `1.0.0+2`, and two new untracked scripts stage an App Store Connect upload —
+`run_archive.sh` (`xcodebuild archive`) and `run_upload.sh`
+(`xcrun altool --upload-app`).
+
+Items 3 and 4 above, and acceptance criteria 4 and 5, all trade on the app being
+installed by nobody. A TestFlight build ends that. Before the first build reaches
+a tester:
+
+- **AC 5 (device sign-in) stops being deferrable for iOS.** The TestFlight build
+  is itself the physical-device test — sign in on it and the AC is discharged
+  honestly rather than traded away.
+- **Item 3 (release-cert SHA-1) stays Android-only and stays open.** iOS keys are
+  restricted by bundle id, which a TestFlight build carries unchanged, so the iOS
+  key needs nothing here. Android is still signing release with the debug key.
+
+Note that an API key's restrictions live in GCP, not in the binary: the key string
+is baked into the build but the allowlist is server-side and can be changed or
+reverted at any time without rebuilding. So item 2 is safe to land before or after
+an upload — but if sign-in breaks in TestFlight, this is the first thing to check.
+
 ## Notes
 
 p2, not p1: nothing here is a live exposure. Item 1 is empty-bucket latent, items
 2-5 are hardening and pre-distribution gates. It becomes p1 the moment the app is
 distributed or anything writes to the Storage prefixes.
+
+**That moment now looks imminent** — see item 7. An iOS TestFlight upload is being
+prepared in the working tree, which retires the zero-blast-radius assumption that
+items 3/4 and ACs 4/5 were deferred on.
 
 ## Work Log
 
@@ -197,3 +390,47 @@ it — the bucket held 0 objects throughout.
 Still open here: the drift check (item 1's second AC — nothing yet prevents this
 recurring), API restrictions, the release-cert SHA-1, the device check, and the new
 item 5.
+
+### 2026-09-12 - Item 2 DONE: both mobile keys narrowed 24 -> 10 APIs
+
+Detail in the acceptance criterion above and in the rewritten item 2. Three things
+are worth carrying forward as method, not just as result.
+
+**The probe was lying, and only a self-check caught it.** The first pass reported
+seven services ALLOWED on both keys. Three of those seven never evaluated the API
+key at all, so they would have read ALLOWED no matter what the restriction said:
+`firebaseappdistribution` is OAuth-only and answers *"API keys are not supported by
+this API"*; `firestore` REST and `firebasestorage` v0 both deny on **security
+rules** before the key is considered. Sending a *syntactically valid but fabricated*
+key to each endpoint and requiring `API_KEY_INVALID` back is what separates "the key
+may call this" from "nobody was checking". Targets that fail that screen are now
+reported INCONCLUSIVE instead of counted as evidence. Same family as the vacuous
+test in PR #725 that passed because the dependency was absent — and it also flushed
+out two bugs in the probe itself (an unencoded `(default)`, and a `__probe__`
+collection id that Firestore reserves).
+
+**A verification script can fail the wrong way too.** The application-restriction
+check first reported 6 of 8 cases FAILING. All six were correct blocks: the matcher
+looked for the token `BLOCKED` while the API's prose says *"...are blocked."* in
+lower case. A checker that reads prose instead of the machine-readable reason
+manufactures both false alarms and, in the other direction, false greens.
+
+**`--check-existing-usage` protects the attacker.** It refused the first update
+because the daily Maps probing counted as "active usage in the last 7 days" — all of
+it 403. Overriding it is correct here but only because every removed service was
+first confirmed to have **zero 2xx** responses across 30 days. That confirmation is
+the precondition for the override, not paperwork.
+
+**The probe is now a committed artifact**, `scripts/check_firebase_key_restrictions.py`,
+because items 3 and 4 both say "re-run the probe" and todo 360's probe lived only in
+a scratchpad that no longer exists — an instruction pointing at a vanished script is
+not tracking. It checks all three halves (config read-back, application restriction,
+API targets), exits 2 rather than 0 when it cannot look, and carries a deliberate
+**canary**: an OAuth-only endpoint that must report INCONCLUSIVE. Without the canary,
+deleting the fake-key screen entirely changed nothing and the run still passed —
+the guard was dormant. Mutation-checked three ways: wrong expectation, a service
+missing from the expected set, and the neutered self-check all exit 1.
+
+Still open here: the release-cert SHA-1 (item 3, Android-only, still signing release
+with the debug key), the physical-device sign-in (item 4 / AC 5, now reachable via
+the pending TestFlight build), and the Browser-key decision (item 6).
