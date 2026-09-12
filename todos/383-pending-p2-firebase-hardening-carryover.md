@@ -534,6 +534,56 @@ rule this item exists to enforce:
 | 2 | **true** | define-less, error screen |
 | 3 | **false** | the working build, deliberately untouched |
 
+### 9. NEW — the release script reproduced the bug by construction
+
+`run_archive.sh` did not merely happen to omit the defines; it could not supply
+them. It called `xcodebuild archive` directly, and xcodebuild has no concept of a
+Flutter `--dart-define`. Every future run would have produced another inert
+build. It also only ever produced the `.xcarchive` — nothing created the `.ipa`
+that its sibling `run_upload.sh` reads, so the pair was internally inconsistent
+as well.
+
+**FIXED 2026-09-12** at the owner's instruction. `run_archive.sh` now calls
+`flutter build ipa --release --dart-define-from-file=.env.production
+--export-options-plist=ios/ExportOptions.plist`, which supplies the defines *and*
+exports the IPA in one step. Three supporting pieces:
+
+- **`.env.production`** (gitignored via `.env.*`, and the convention this repo
+  already documents at `FIREBASE_KEY_ROTATION.md:529`) holds the release values.
+  `API_BASE_URL` is **production**, deliberately not copied from `.env.local`,
+  whose value is a dead `*.trycloudflare.com` dev tunnel.
+- **`ios/ExportOptions.plist`** pins `manageAppVersionAndBuildNumber: false`, so
+  Xcode cannot silently renumber a build between verification and upload.
+- **A verification gate inside the script.** After the build it unzips the IPA and
+  asserts the Dart snapshot actually contains an API key, contains the production
+  API base, and contains no dev-tunnel host — refusing to report success
+  otherwise. This is the point: a green `flutter build` is no more proof than the
+  green `xcodebuild` was. The script also fails *before* the five-minute build on
+  a missing/incomplete defines file, a non-https base URL, or a dev-tunnel URL.
+
+**Tested rather than asserted**, because an unexercised release script is how
+this happened:
+
+| case | result |
+|---|---|
+| gate vs. the good build-3 IPA | exit 0 |
+| gate vs. the **actual broken build-2 IPA** | exit 1, "NO Firebase key in the snapshot" |
+| six preflight guards (missing/empty/absent key, http://, tunnel URL, missing export options) | all exit 1 |
+| specimen whose control reference is missing | exit 1, "self-check failed" |
+| **mutation:** neuter that self-check, same specimen | **exit 0** — so the guard is load-bearing, not dormant |
+| full end-to-end run, `BUILD_NUMBER=4` | exit 0; artifact is build 4 with key + prod API compiled in |
+
+The mutation row is the one that matters. Earlier today the API-key probe's
+fake-key screen turned out to be dormant — deleting it changed nothing — so a
+guard is not credible here until neutering it has been shown to change the
+verdict.
+
+Not done, and a live decision: **these scripts are untracked**, which is part of
+why a release procedure could silently be wrong. `run_archive.sh`,
+`run_upload.sh` and the new `ios/ExportOptions.plist` are not in git;
+`.env.production` is deliberately gitignored. The build-4 IPA the test run
+produced was **not** uploaded.
+
 ## Notes
 
 p2, not p1: nothing here is a live exposure. Item 1 is empty-bucket latent, items
