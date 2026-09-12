@@ -132,9 +132,15 @@ def api_probes(key: str) -> list[tuple[str, str, str | None, str]]:
 def check_api_targets(name: str, key: str, headers: list[str]) -> int:
     print(f"  API restriction -- {name}")
     failures = 0
-    for svc, url, body, expect in api_probes(key):
+    # Build the fake-key URLs from api_probes(FAKE_KEY) rather than by substituting
+    # into the real URL. A string replace would also rewrite any other occurrence of
+    # the key text, and if a future target ever embedded a colliding value the
+    # "fake" call would silently become a real one -- inverting the self-check into
+    # a rubber stamp.
+    for (svc, url, body, expect), (_, fake_url, _, _) in zip(
+            api_probes(key), api_probes(FAKE_KEY)):
         real = post(url, headers, body)
-        fake = post(url.replace(key, FAKE_KEY), headers, body)
+        fake = post(fake_url, headers, body)
 
         if "API_KEY_INVALID" not in fake:
             got, verdict = "inconclusive", "endpoint ignores API keys; proves nothing"
