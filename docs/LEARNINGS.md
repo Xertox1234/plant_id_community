@@ -5725,3 +5725,95 @@ it.
 - **A squash-merged branch is provably deletable only via the PR record.** All
   13 stale locals reported "unmerged" to an ancestry check; each was confirmed by
   `tip SHA == PR headRefOid` before `git branch -D`. 13 deleted, 0 skipped.
+
+## 2026-09-11 — An API key's restriction state is black-box testable; the control is what makes the answer trustworthy (todo 360)
+
+Todo 360 sat p2 for five days behind one fact nobody could get: are the two
+Firebase client keys application-restricted? The todo said only the Cloud Console
+could answer it. That was wrong twice over.
+
+**The metadata route is blocked for a reason worth recognising.** With the
+project's own `firebase-adminsdk` service account, `GET apikeys.googleapis.com/v2/
+projects/plant-community-prod/locations/global/keys` returns **403
+`SERVICE_DISABLED`** — the API Keys API has never been enabled on the project.
+That is *not* an IAM failure, and reading it as one sends you to ask for
+permissions you already have. Enabling the API is a GCP config change, so it is
+the user's call, not a workaround to reach for.
+
+**The control is testable without any console.** Google enforces a key's
+*application* restriction **before** validating the request body, so a
+deliberately invalid call discriminates with no side effect:
+
+```
+POST https://identitytoolkit.googleapis.com/v1/accounts:lookup?key=<KEY>
+body: {}
+  restricted   -> 403, reason API_KEY_ANDROID_APP_BLOCKED / API_KEY_IOS_APP_BLOCKED
+  unrestricted -> 400, MISSING_ID_TOKEN   (body validation was reached)
+```
+
+`accounts:lookup` with `{}` cannot succeed, so nothing is created or mutated.
+
+**The result: both keys were UNRESTRICTED.** The decisive probe was not the bare
+call — it was sending the real Android key while claiming
+`X-Android-Package: com.attacker.not.our.app`. That is the actual attack shape,
+and it returned `MISSING_ID_TOKEN` rather than a block.
+
+**The lesson that generalises past Firebase.** A probe whose "pass" is an error
+message is worthless until you show the probe can also *fail*. `400
+MISSING_ID_TOKEN` is equally consistent with "no restriction" and with "this
+endpoint never checks key policy at all" — two readings, opposite conclusions,
+same bytes. Two controls separated them: a bogus key returns `API_KEY_INVALID`
+(so key policy IS evaluated before the body) and an absent key returns 403
+"unregistered callers". Same discipline as the mutation checks elsewhere in this
+file: **establish that the check can go red before believing it went green.**
+
+Corollary for triage: "only a human with console access can answer this" deserves
+one attempt at an empirical equivalent before it is written into a todo as a
+blocker. Five days of p2 rested on a question a side-effect-free HTTP call
+answered — and answered in the direction that changed the priority to p1.
+
+Operational note: scripts read key values from disk, never printed them, scrubbed
+`AIza`-shaped strings from every output path, and never called `getKeyString`.
+The finding is reportable without the secret appearing anywhere.
+
+### Addendum, same day — "unrestricted" was the symptom; one key for every platform was the cause
+
+The entry above reported both keys unrestricted and prescribed "restrict the
+Android key, restrict the iOS key." **That prescription breaks Android auth.** It
+survived a self-review and a PR body, and was caught only because the next
+question asked was "how do I get the SHA-1" — which forced a read of the Gradle
+and `firebase_options.dart` wiring that the finding itself never opened.
+
+- `firebase_options.dart` gives every platform the same `_required('FIREBASE_API_KEY')`
+  (`android`, `ios`, `web`, `desktop`). `FIREBASE_(ANDROID|IOS|WEB)_API_KEY` has
+  **0** occurrences anywhere. `.env.local` sets it to the **iOS** key, so the
+  Android app authenticates with the iOS key.
+- **Google permits exactly one application restriction per key** — None / HTTP
+  referrers / IP / Android apps / iOS apps is a radio button, not a set. A key
+  shared by two app platforms is therefore *unrestrictable*, not merely
+  unrestricted.
+
+So the box nobody ticked could not have been ticked. **A missing control is not
+automatically a missing action** — check whether the control was even reachable
+before writing "apply it" into a remediation plan. Filed the split as todo 382 and
+made 360 depend on it.
+
+Two smaller things the same read turned up, both of which change what "apply the
+restriction" means:
+
+- **The Android key is not used at runtime at all.** `com.google.gms.google-services`
+  is applied nowhere in the Gradle build, so `google-services.json` is inert.
+  That makes restricting the Android key a **zero-risk** first step — the only one
+  available before the code change — and it is also why the earlier reasoning
+  about "restrict each key to its platform" felt symmetric when it was not.
+- **There is no release keystore.** `build.gradle.kts:40-44` signs release with the
+  *debug* key behind a `// TODO`. So the Play-App-Signing footgun the earlier entry
+  warned about is real but inapplicable, and the app cannot ship to Play at all
+  today. A warning that is correct in general can still be irrelevant here —
+  verify it applies before handing it over as an instruction.
+
+Process note: the correction cost nothing because the PR was still open. The
+generalisable habit is that a finding and its remediation are different claims
+with different evidence. The finding here was probed with a positive control; the
+remediation was not checked against the code it would run against, and that is
+exactly where it was wrong.
