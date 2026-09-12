@@ -5913,3 +5913,74 @@ already-restricted Android key on a live auth path. Those are two different risk
 events and the todo ledger has to say so, or "382 merged" reads as "iOS key is now
 safe to restrict" — which would sign out every Android user. See
 `todos/360` step 2a/2b.
+
+---
+
+## 2026-09-12 — A committed config file is not deployment evidence; the deployed Storage rules were 3.5 months behind (todos 360/011/383)
+
+Todo 011 carried the criterion "Storage security rules deployed (authenticated
+only)". `firebase/storage.rules` exists in the repo and `firebase.json` points at
+it, so every previous reading of that criterion looked satisfiable. Checking it
+against the **Firebase Rules API** instead of the repo:
+
+```
+GET https://firebaserules.googleapis.com/v1/projects/<project>/releases
+GET https://firebaserules.googleapis.com/v1/<rulesetName>       # returns source.files[].content
+```
+
+- `cloud.firestore` — deployed ruleset **byte-matches** the committed file. Fine.
+- `…firebasestorage.app` — deployed 63 lines, committed 66. The committed file
+  **tightens** three read rules from `isAuthenticated()` (any signed-in user) to
+  `isOwner(userId)`, committed 2026-05-23 in a PR titled "resolve deferred audit
+  findings" — and never deployed. Production had served the 2025-11-14 ruleset for
+  3.5 months.
+
+**Direction is the whole finding.** Drift that makes prod *stricter* is a
+cosmetic annoyance; drift that makes prod *looser* is the vulnerability the audit
+thought it had closed. Always diff with prod on the left.
+
+Nothing was exposed, and that took a second live check to establish rather than
+assume: the bucket held **0 objects**, and no code path writes to any governed
+prefix (`FirebaseStorageService` writes `plant_images/<id>` only; forum uploads go
+to the Django backend). So it was latent, not a leak — which is also what made
+deploying the fix zero-risk, since it tightens prefixes nothing uses.
+
+**Generalisable rules:**
+
+1. "Deployed" is a property of the running system. A file in git, a `firebase.json`
+   entry, and a green deploy command in some old CI log are all compatible with
+   production running something else. Verify through the API that serves it.
+2. A deploy step that is *assumed* to have run is a class of bug, not a one-off —
+   this is the second rules-deploy gap here (see also todo 224,
+   `firebase deploy --only firestore:rules`). It wants a drift check in CI, not
+   another manual re-check.
+3. The bug was found by verifying the **first** criterion of an unrelated archived
+   todo. Reconciling a stale ledger is not bookkeeping; it is where undeployed
+   fixes surface.
+
+## 2026-09-12 — An archived todo with a "complete"-shaped status and every box unchecked is invisible (todo 011)
+
+`todos/archive/011-completed-p0-firebase-api-keys-exposed.md` sat as
+`status: code-complete` — a value **no other todo in the repo uses** — with all
+twelve acceptance criteria unchecked, from 2025-11-11 to 2026-09-12. Filename said
+`completed`, directory said archived, status said code-complete. Ten months later
+the two production API keys it was filed about were still entirely unrestricted.
+
+Three of its twelve criteria ("rotate the keys", "remove firebase_options.dart from
+git tracking") were premised on treating a public client identifier — compiled into
+every APK and IPA — as a secret credential. Work premised on a wrong threat model
+never gets done and never gets closed; it just sits there looking pending-ish
+inside something labelled complete.
+
+**Rules:**
+
+1. An archived todo must have **no unchecked boxes**. Each one is `[x]` with
+   evidence, or struck through as superseded with the reason, or re-pointed at the
+   todo that now owns it. Never left bare.
+2. If a criterion can never be satisfied because its premise was wrong, say that in
+   the criterion. "Unchecked" and "will never be checked" look identical otherwise.
+3. Distinguish "verified absent" from "never looked". 011 claimed "No unauthorized
+   access detected"; nobody ever checked, and the log-retention window has since
+   expired. Those must not read the same way.
+4. A one-off status value is a smell worth grepping for:
+   `grep -h "^status:" todos/**/*.md | sort | uniq -c` surfaced it immediately.
