@@ -509,10 +509,30 @@ Also worth knowing: the iOS binary now carries the **Android** key too, because
 acting on — the Android key is restricted to package + SHA-1 headers, so it is
 inert inside an iOS app — but it is why the snapshot shows 2 keys and not 1.
 
-**Still open, and it is the owner's call:** builds **1 and 2 remain `VALID` and
-un-expired** in App Store Connect. Both are the define-less build that opens to
-the configuration-error screen. Nothing stops a tester being handed one. Expiring
-them is a one-click action in App Store Connect and was not done here.
+**Builds 1 and 2 EXPIRED 2026-09-12**, at the owner's instruction, so the only
+installable build is the one that works. Both were the define-less build that
+opens to the configuration-error screen, both were still `VALID` and
+un-expired, and nothing would have stopped a tester being handed one.
+
+Done through the App Store Connect API (`PATCH /v1/builds/{id}` with
+`attributes.expired = true`), because expiring is **irreversible** and the API
+makes the target explicit where a click does not. Two guards, since an
+irreversible write aimed at the wrong id is unrecoverable: an allowlist of build
+numbers `{1, 2}` with `{3}` explicitly protected, and a re-`GET` of each id
+*immediately before* its `PATCH` asserting the build number it reports is the one
+intended — a drifted or mis-transcribed id aborts the run instead of being
+written to. Ids came from a lookup, never from assumption; build 3's
+`a8d33af4-47b9-4c63-ba74-55cbf19f969e` matches the delivery UUID `altool`
+returned on upload.
+
+Verified by re-reading from Apple rather than trusting the two `200`s — the same
+rule this item exists to enforce:
+
+| build | expired | note |
+|---|---|---|
+| 1 | **true** | define-less, error screen |
+| 2 | **true** | define-less, error screen |
+| 3 | **false** | the working build, deliberately untouched |
 
 ## Notes
 
