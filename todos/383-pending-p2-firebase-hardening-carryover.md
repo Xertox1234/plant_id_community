@@ -267,8 +267,12 @@ be closed before the first real distribution.
       `--dart-define`, so it shows the configuration-error screen and never
       reaches a sign-in screen (item 8). Discharging this needs an archive built
       through Flutter with the defines, re-uploaded, then an actual sign-in on the
-      installed build. Android remains deferred with the original reason — still
-      no release keystore, still nothing installed anywhere
+      installed build. **The first two of those three are now done** — build 3 was
+      built with the defines, verified against the artifact and uploaded
+      2026-09-12 (item 8, RESOLVED). What remains is the part no tooling can do
+      from here: install build 3 from TestFlight on a physical iPhone and sign in.
+      That single act discharges the iOS half. Android remains deferred with the
+      original reason — still no release keystore, still nothing installed anywhere
 - [x] Dead `isAuthenticated()` helper removed from `firebase/storage.rules`
       **and deployed in the same motion** (see item 5) — 2026-09-12, deployed
       from the todo-383 branch before merge, so the repo never went ahead of
@@ -448,6 +452,137 @@ and re-uploading to Apple is an outward-facing action.
 `altool --upload-app` say nothing about whether the app can start. Both succeeded
 here on a build that shows an error screen. That is the same shape as this todo's
 item 1 — a green deploy log is compatible with production serving something else.
+
+**RESOLVED 2026-09-12 — rebuilt and re-uploaded as build 3, at the owner's
+instruction.** Built through Flutter so the defines actually reach the compiler:
+
+```text
+flutter build ipa --release --build-number=3 \
+  --dart-define-from-file=<scratch>/ios_release_defines.json \
+  --export-options-plist=<scratch>/ExportOptions-build3.plist
+```
+
+Verified **before** upload, on the artifact, with the same method that found the
+problem — and the contrast is the evidence, not the absolute count:
+
+| check on the AOT snapshot | build 2 | build 3 |
+|---|---|---|
+| `AIzaSy`-shaped strings | **0** | **2** |
+| the iOS key `AIzaSy…4oQM` | 0 | 1 |
+| `https://api.houseplant-md.com/api/v1` | 0 | 1 |
+| the dead dev tunnel host | 0 | **0** |
+| control: key in the bundled `GoogleService-Info.plist` | 1 | 1 |
+
+Then `altool --validate-app` -> `VERIFY SUCCEEDED`, and `--upload-app` ->
+`UPLOAD SUCCEEDED`, delivery UUID `a8d33af4-47b9-4c63-ba74-55cbf19f969e`.
+
+**Confirmed at Apple's end, not at altool's** — the whole point of this item is
+that a green upload is not a result. The App Store Connect API now lists build
+**3**, `processingState: VALID`, `expired: false`, uploaded 15:58:27 -07:00,
+alongside the two earlier builds. Queried with an ES256 JWT against
+`/v1/builds?filter[app]=6811429591`; the same query is what established that the
+next free build number was 3 rather than guessing it from `pubspec`.
+
+Two deliberate departures from the scripts that produced builds 1 and 2, each
+because the evidence pointed at it:
+
+- **`API_BASE_URL` was NOT taken from `.env.local`.** That file points at
+  `https://gasoline-resistant-reserve-reducing.trycloudflare.com/api/v1` — an
+  ephemeral Cloudflare quick-tunnel, and `curl` returns **HTTP 000**: it is
+  already dead. Feeding the dev file in wholesale would have swapped a build that
+  cannot reach Firebase for one that cannot reach the backend, which is harder to
+  diagnose because the app would start. Production is
+  `https://api.houseplant-md.com/api/v1`, confirmed live against the endpoints the
+  app actually calls — `/plant-identification/species/` 200,
+  `/auth/firebase-token-exchange/` 405 (exists, wants POST), and a deliberately
+  bogus path 404 as the control that distinguishes "alive" from "answers anything".
+- **`manageAppVersionAndBuildNumber` set to `false`** in a scratch copy of the
+  export options (the owner's file in `build/` was not edited). Left `true`, Xcode
+  rewrites `CFBundleVersion` during export — which is exactly why a `pubspec` at
+  `1.0.0+2` produced builds numbered **1** and **2** in App Store Connect, and why
+  the number had to be read back from Apple rather than known. With it off, the
+  artifact that was verified is the artifact Apple received. The build number came
+  from the App Store Connect API, not from a guess.
+
+Also worth knowing: the iOS binary now carries the **Android** key too, because
+`_dartDefines` is one const map shared by all platforms. That is not a leak worth
+acting on — the Android key is restricted to package + SHA-1 headers, so it is
+inert inside an iOS app — but it is why the snapshot shows 2 keys and not 1.
+
+**Builds 1 and 2 EXPIRED 2026-09-12**, at the owner's instruction, so the only
+installable build is the one that works. Both were the define-less build that
+opens to the configuration-error screen, both were still `VALID` and
+un-expired, and nothing would have stopped a tester being handed one.
+
+Done through the App Store Connect API (`PATCH /v1/builds/{id}` with
+`attributes.expired = true`), because expiring is **irreversible** and the API
+makes the target explicit where a click does not. Two guards, since an
+irreversible write aimed at the wrong id is unrecoverable: an allowlist of build
+numbers `{1, 2}` with `{3}` explicitly protected, and a re-`GET` of each id
+*immediately before* its `PATCH` asserting the build number it reports is the one
+intended — a drifted or mis-transcribed id aborts the run instead of being
+written to. Ids came from a lookup, never from assumption; build 3's
+`a8d33af4-47b9-4c63-ba74-55cbf19f969e` matches the delivery UUID `altool`
+returned on upload.
+
+Verified by re-reading from Apple rather than trusting the two `200`s — the same
+rule this item exists to enforce:
+
+| build | expired | note |
+|---|---|---|
+| 1 | **true** | define-less, error screen |
+| 2 | **true** | define-less, error screen |
+| 3 | **false** | the working build, deliberately untouched |
+
+### 9. NEW — the release script reproduced the bug by construction
+
+`run_archive.sh` did not merely happen to omit the defines; it could not supply
+them. It called `xcodebuild archive` directly, and xcodebuild has no concept of a
+Flutter `--dart-define`. Every future run would have produced another inert
+build. It also only ever produced the `.xcarchive` — nothing created the `.ipa`
+that its sibling `run_upload.sh` reads, so the pair was internally inconsistent
+as well.
+
+**FIXED 2026-09-12** at the owner's instruction. `run_archive.sh` now calls
+`flutter build ipa --release --dart-define-from-file=.env.production
+--export-options-plist=ios/ExportOptions.plist`, which supplies the defines *and*
+exports the IPA in one step. Three supporting pieces:
+
+- **`.env.production`** (gitignored via `.env.*`, and the convention this repo
+  already documents at `FIREBASE_KEY_ROTATION.md:529`) holds the release values.
+  `API_BASE_URL` is **production**, deliberately not copied from `.env.local`,
+  whose value is a dead `*.trycloudflare.com` dev tunnel.
+- **`ios/ExportOptions.plist`** pins `manageAppVersionAndBuildNumber: false`, so
+  Xcode cannot silently renumber a build between verification and upload.
+- **A verification gate inside the script.** After the build it unzips the IPA and
+  asserts the Dart snapshot actually contains an API key, contains the production
+  API base, and contains no dev-tunnel host — refusing to report success
+  otherwise. This is the point: a green `flutter build` is no more proof than the
+  green `xcodebuild` was. The script also fails *before* the five-minute build on
+  a missing/incomplete defines file, a non-https base URL, or a dev-tunnel URL.
+
+**Tested rather than asserted**, because an unexercised release script is how
+this happened:
+
+| case | result |
+|---|---|
+| gate vs. the good build-3 IPA | exit 0 |
+| gate vs. the **actual broken build-2 IPA** | exit 1, "NO Firebase key in the snapshot" |
+| six preflight guards (missing/empty/absent key, http://, tunnel URL, missing export options) | all exit 1 |
+| specimen whose control reference is missing | exit 1, "self-check failed" |
+| **mutation:** neuter that self-check, same specimen | **exit 0** — so the guard is load-bearing, not dormant |
+| full end-to-end run, `BUILD_NUMBER=4` | exit 0; artifact is build 4 with key + prod API compiled in |
+
+The mutation row is the one that matters. Earlier today the API-key probe's
+fake-key screen turned out to be dormant — deleting it changed nothing — so a
+guard is not credible here until neutering it has been shown to change the
+verdict.
+
+Not done, and a live decision: **these scripts are untracked**, which is part of
+why a release procedure could silently be wrong. `run_archive.sh`,
+`run_upload.sh` and the new `ios/ExportOptions.plist` are not in git;
+`.env.production` is deliberately gitignored. The build-4 IPA the test run
+produced was **not** uploaded.
 
 ## Notes
 
