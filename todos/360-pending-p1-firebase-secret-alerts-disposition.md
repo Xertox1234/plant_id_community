@@ -101,8 +101,9 @@ old strings from history. Only a decision on disposition closes the alerts.
 
 - [x] Console restriction state recorded for both the Android and iOS keys
       (2026-09-11: BOTH UNRESTRICTED, measured by black-box probe + control)
-- [ ] Android key restricted to package + SHA-1 (safe to do FIRST — nothing reads
-      this key at runtime; the google-services Gradle plugin is not applied)
+- [x] Android key restricted to package + SHA-1 (2026-09-12 — verified by probe;
+      the attack shape that previously succeeded now returns
+      `API_KEY_ANDROID_APP_BLOCKED`)
 - [ ] todo 382 shipped: `FIREBASE_API_KEY` split per platform, each platform
       pointed at its own key (BLOCKS every step below)
 - [ ] iOS key restricted to bundle id `com.plantcommunity.plantCommunityMobile`
@@ -328,6 +329,52 @@ order in the previous Work Log entry):
    Step 3 is the step that breaks Android if 382 was done wrong, so test both.
 7. Only then dismiss alerts #1 and #2 as `wont_fix`, citing the restrictions.
 
-`apikeys.googleapis.com` returning 403 `SERVICE_DISABLED` only matters if you want
-to set restrictions **via API**; the Console UI does not require it. It is not a
-prerequisite for step 1.
+~~`apikeys.googleapis.com` returning 403 `SERVICE_DISABLED` only matters if you
+want to set restrictions via API; the Console UI does not require it.~~
+**WRONG — corrected 2026-09-12.** The Console UI *does* require it: without the
+API enabled the key's edit page renders with **no Application restrictions section
+at all**, while the Credentials list still shows the key and its "unrestricted"
+warning. Enabling `apikeys.googleapis.com` is a prerequisite for step 1 by either
+route. See the 2026-09-12 Work Log entry.
+
+### 2026-09-12 - STEP 1 DONE: Android key restricted and verified
+
+Applied by the maintainer in the Cloud Console (Application restrictions → Android
+apps → package `com.plantcommunity.plant_community_mobile` + the debug SHA-1
+`06:8A:...:7D:C2`). Verified with the same probe that found the problem — the
+acceptance test, not a fresh one:
+
+| Request | Before (2026-09-11) | After (2026-09-12) |
+| --- | --- | --- |
+| android key, no headers | 400 `MISSING_ID_TOKEN` | **403 `API_KEY_ANDROID_APP_BLOCKED`** |
+| android key + `X-Android-Package: com.attacker.not.our.app` | 400 `MISSING_ID_TOKEN` | **403 "Requests from this Android client application com.attacker.not.our.app are blocked."** |
+| ios key, no bundle header | 400 `MISSING_ID_TOKEN` | 400 `MISSING_ID_TOKEN` (unchanged, intended) |
+
+The second row is the proof. An identical request — another app claiming our
+package name — succeeded before and is now rejected *by name*, so the restriction
+is real rather than the endpoint failing for an unrelated reason. The third row is
+the proof the app is unaffected: the iOS key is what both builds actually
+authenticate with, and it is untouched.
+
+No propagation delay was observed; the change was live on the first probe.
+
+**Two operational facts for whoever does step 3, so they are not rediscovered:**
+
+- **The `firebase-adminsdk` service account cannot do any of this.** It has no
+  `apikeys.keys.*` permission at all: `apikeys.keys.list` and `apikeys.keys.lookup`
+  both return `403 PERMISSION_DENIED` even with the API enabled. That is correct
+  least-privilege (`docs/rules/firebase.md`: "no broad Editor/Owner service
+  accounts") — do **not** widen the runtime SA to script this. It needs a human
+  with Owner, or `roles/serviceusage.apiKeysAdmin`.
+- **`apikeys.googleapis.com` must be enabled for the Console UI to render the
+  restriction editor.** An earlier note in this todo claimed the UI did not need
+  it; that was wrong. Symptom: the Credentials page lists the key and shows the
+  "unrestricted" warning triangle, but the key's edit page has no *Application
+  restrictions* section at all. Enabling the API makes it appear. The tell that
+  you have the right diagnosis: the API error changes from
+  `403 SERVICE_DISABLED` to `403 PERMISSION_DENIED` on a *named* permission.
+
+**Remaining on this todo — all blocked on todo 382:** steps 3-7. The iOS key stays
+unrestricted deliberately, because the Android app authenticates with it, and
+restricting it before 382 breaks Android sign-in for every user. Alerts #1 and #2
+stay open until then.

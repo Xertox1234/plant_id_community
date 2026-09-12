@@ -5817,3 +5817,42 @@ generalisable habit is that a finding and its remediation are different claims
 with different evidence. The finding here was probed with a positive control; the
 remediation was not checked against the code it would run against, and that is
 exactly where it was wrong.
+
+### Closing the loop — the probe that found it is the probe that proves it fixed
+
+Step 1 landed 2026-09-12. Worth recording what made the verification trustworthy,
+and one more thing I asserted wrongly along the way.
+
+**The acceptance test was the discovery command, unchanged.** The decisive row is
+not "the key now errors" — it is the *same* attacker-shaped request producing
+opposite results:
+
+```
+X-Android-Package: com.attacker.not.our.app
+  before -> 400 MISSING_ID_TOKEN                          (accepted)
+  after  -> 403 "Requests from this Android client application
+                 com.attacker.not.our.app are blocked."   (rejected BY NAME)
+```
+
+A fix verified by a *different* check than the one that found the problem leaves
+open the possibility that the original path was never closed. Reusing the exact
+probe removes that gap, and the untouched third key (iOS, still
+`MISSING_ID_TOKEN`) doubles as the blast-radius check: the key the app actually
+authenticates with is provably unchanged.
+
+**Cloud Console key management requires `apikeys.googleapis.com` enabled.** I told
+the maintainer it did not — assumption, not verified — and it cost a round trip.
+The symptom is specific and misleading: the Credentials page **lists** the key and
+shows its "unrestricted" warning triangle, but the key's edit page has **no
+Application restrictions section at all**, so it reads as a UI bug or a missing
+feature rather than a disabled API. The confirming tell is that the API error
+changes shape once enabled — `403 SERVICE_DISABLED` becomes `403
+PERMISSION_DENIED` on a *named* permission (`apikeys.keys.list`). Different
+denials mean different fixes; read which one you got.
+
+**And a least-privilege boundary worth not crossing.** The `firebase-adminsdk`
+service account has no `apikeys.keys.*` permission even with the API enabled. The
+tempting move is to grant the runtime SA `apiKeysAdmin` so the whole thing can be
+scripted. Don't — that permanently widens a production runtime credential to save
+one manual step, and `docs/rules/firebase.md` already forbids it. A task that
+needs project-admin rights is a task for a human with project-admin rights.
