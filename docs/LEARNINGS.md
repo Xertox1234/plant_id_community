@@ -5725,3 +5725,53 @@ it.
 - **A squash-merged branch is provably deletable only via the PR record.** All
   13 stale locals reported "unmerged" to an ancestry check; each was confirmed by
   `tip SHA == PR headRefOid` before `git branch -D`. 13 deleted, 0 skipped.
+
+## 2026-09-11 — An API key's restriction state is black-box testable; the control is what makes the answer trustworthy (todo 360)
+
+Todo 360 sat p2 for five days behind one fact nobody could get: are the two
+Firebase client keys application-restricted? The todo said only the Cloud Console
+could answer it. That was wrong twice over.
+
+**The metadata route is blocked for a reason worth recognising.** With the
+project's own `firebase-adminsdk` service account, `GET apikeys.googleapis.com/v2/
+projects/plant-community-prod/locations/global/keys` returns **403
+`SERVICE_DISABLED`** — the API Keys API has never been enabled on the project.
+That is *not* an IAM failure, and reading it as one sends you to ask for
+permissions you already have. Enabling the API is a GCP config change, so it is
+the user's call, not a workaround to reach for.
+
+**The control is testable without any console.** Google enforces a key's
+*application* restriction **before** validating the request body, so a
+deliberately invalid call discriminates with no side effect:
+
+```
+POST https://identitytoolkit.googleapis.com/v1/accounts:lookup?key=<KEY>
+body: {}
+  restricted   -> 403, reason API_KEY_ANDROID_APP_BLOCKED / API_KEY_IOS_APP_BLOCKED
+  unrestricted -> 400, MISSING_ID_TOKEN   (body validation was reached)
+```
+
+`accounts:lookup` with `{}` cannot succeed, so nothing is created or mutated.
+
+**The result: both keys were UNRESTRICTED.** The decisive probe was not the bare
+call — it was sending the real Android key while claiming
+`X-Android-Package: com.attacker.not.our.app`. That is the actual attack shape,
+and it returned `MISSING_ID_TOKEN` rather than a block.
+
+**The lesson that generalises past Firebase.** A probe whose "pass" is an error
+message is worthless until you show the probe can also *fail*. `400
+MISSING_ID_TOKEN` is equally consistent with "no restriction" and with "this
+endpoint never checks key policy at all" — two readings, opposite conclusions,
+same bytes. Two controls separated them: a bogus key returns `API_KEY_INVALID`
+(so key policy IS evaluated before the body) and an absent key returns 403
+"unregistered callers". Same discipline as the mutation checks elsewhere in this
+file: **establish that the check can go red before believing it went green.**
+
+Corollary for triage: "only a human with console access can answer this" deserves
+one attempt at an empirical equivalent before it is written into a todo as a
+blocker. Five days of p2 rested on a question a side-effect-free HTTP call
+answered — and answered in the direction that changed the priority to p1.
+
+Operational note: scripts read key values from disk, never printed them, scrubbed
+`AIza`-shaped strings from every output path, and never called `getKeyString`.
+The finding is reportable without the secret appearing anywhere.

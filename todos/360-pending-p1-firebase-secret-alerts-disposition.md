@@ -1,8 +1,8 @@
 ---
 status: pending
-priority: p2
+priority: p1
 issue_id: "360"
-tags: [security, firebase, mobile, github]
+tags: [security, firebase, mobile, github, gcp]
 dependencies: []
 ---
 
@@ -16,8 +16,11 @@ stalled: it sits at `status: code-complete` with **all 12 acceptance criteria
 unchecked**, its Work Log ending "Code changes complete, deployment actions
 required." Nobody re-opened it, so the alerts have simply aged.
 
-The alerts cannot be closed by more code. They need a **disposition decision**
-that depends on a fact only the Google Cloud Console can supply.
+The alerts cannot be closed by more code. **Answered 2026-09-11: both keys are
+UNRESTRICTED** (see the Work Log). That resolves the disposition question in the
+*bad* direction — the one control the whole assessment rested on is absent — so
+this is now remediation work, not a triage decision, and the alerts stay open
+until the restrictions are applied.
 
 ## Findings
 
@@ -39,16 +42,18 @@ not secrets in Google's model — they are client identifiers. The controls that
 actually matter are:
 
 1. **API key restrictions** in the Google Cloud Console (Android package name +
-   SHA-1 certificate fingerprint; iOS bundle ID). **Unverified — this is the
-   open question.**
+   SHA-1 certificate fingerprint; iOS bundle ID). **ABSENT — measured
+   2026-09-11.** Both keys accept a plain REST call, and the Android key accepts
+   a deliberately wrong `X-Android-Package`. See the Work Log for the probe and
+   its positive control.
 2. **Firebase Security Rules** — `firebase/firestore.rules` and
    `firebase/storage.rules` both exist, and todo 011 confirmed they are
    deny-by-default with authenticated-only access.
 
-If (1) is in place, the alerts are false positives and should be dismissed with
-a written reason. If (1) is absent, an unrestricted key is genuinely abusable
-for quota/billing exhaustion against the project, and restriction — not
-rotation — is the fix.
+(1) is absent, so the second branch is the live one: these keys are genuinely
+abusable for quota/billing exhaustion against the project, and **restriction —
+not rotation — is the fix**. The "dismiss as a false positive" branch is dead;
+do not take it.
 
 **Rotation does not clear the alerts on its own.** The keys are in git history
 across at least five paths (including two archived todo files and two historical
@@ -94,9 +99,14 @@ old strings from history. Only a decision on disposition closes the alerts.
 
 ## Acceptance Criteria
 
-- [ ] Console restriction state recorded for both the Android and iOS keys
-- [ ] Restrictions applied if they were missing, with the app still building
-      and authenticating afterwards
+- [x] Console restriction state recorded for both the Android and iOS keys
+      (2026-09-11: BOTH UNRESTRICTED, measured by black-box probe + control)
+- [ ] `apikeys.googleapis.com` enabled on project 190351417275
+- [ ] Android key restricted to package + the SHA-1 that signs the SHIPPED
+      artifact (Play App Signing cert if enabled, not the upload cert)
+- [ ] iOS key restricted to bundle id `com.plantcommunity.plantCommunityMobile`
+- [ ] Probe re-run: both keys return a `*_BLOCKED` reason, not `MISSING_ID_TOKEN`
+- [ ] App still authenticates on a real Android device AND a real iOS device
 - [ ] Both secret-scanning alerts closed with a written resolution comment
 - [ ] `gh api .../secret-scanning/alerts?state=open` returns an empty list
 - [ ] Todo 011's acceptance criteria rewritten to match reality and the todo
@@ -104,12 +114,21 @@ old strings from history. Only a decision on disposition closes the alerts.
 
 ## Notes
 
-p2, not p0 as todo 011 was rated. The original p0 assumed these were live
-credentials. They are client identifiers shipped in every install of the app,
-behind existing deny-by-default security rules — real exposure depends entirely
-on the unverified restriction state, which is why step 1 gates everything else.
-Not p3 because an open, un-triaged secret alert on a public repo for 10+ months
-is itself a signal-quality problem: it trains everyone to ignore the alert list.
+**p1 as of 2026-09-11** (was p2; originally p0 on todo 011). The rating tracked
+what was known at the time, and the restriction state was the whole variable:
+
+- p0 (todo 011) assumed these were live secret credentials. They are not — they
+  are client identifiers shipped in every install, and confidentiality was never
+  the control.
+- p2 was correct while the restriction state was *unknown*: a restricted key
+  would have made the alerts dismissible paperwork.
+- p1 now that it is measured **absent**. The key values are published on a public
+  repo and nothing bounds their use, so the quota/billing abuse path is open to
+  any reader. Data is still protected by the rules, so this is spend exposure,
+  not a data leak — which is why p1 and not a p0 incident.
+
+Also still a signal-quality problem: an un-triaged secret alert open for 10+
+months trains everyone to ignore the alert list.
 
 ## Work Log
 
@@ -175,3 +194,71 @@ Dismissal, once restrictions are confirmed or applied, is `wont_fix` — **not**
 `false_positive`. These are real API keys; the point is that they are not
 secrets, and `false_positive` would misrepresent that for whoever reads the
 alert next.
+
+### 2026-09-11 - ANSWERED: both keys are UNRESTRICTED. Escalated p2 -> p1
+
+The fact this todo was blocked on is now measured, not unknown. **Neither key
+carries an application restriction.** Control (1) above is absent, so the "if
+restricted, dismiss" branch does not apply and the alerts must **not** be
+dismissed until restrictions are in place.
+
+**How it was measured, without Console access.** The API Keys API
+(`apikeys.googleapis.com`) is **not enabled** on project `190351417275`, so the
+metadata route returns `403 SERVICE_DISABLED` even with valid credentials —
+enabling it is a GCP config change and was deliberately not done. Instead the
+restriction was tested black-box: Google enforces a key's application
+restriction **before** validating the request body, so
+`POST identitytoolkit.googleapis.com/v1/accounts:lookup` with an **empty** body
+discriminates cleanly and mutates nothing (it cannot succeed).
+
+| Probe | Result | Reading |
+| --- | --- | --- |
+| bogus key `AIzaB…` | 400 `API_KEY_INVALID` | key policy IS evaluated before the body — the detector can fail |
+| no `key=` param | 403 "unregistered callers" | key presence enforced |
+| android key, no headers | 400 `MISSING_ID_TOKEN` | no app restriction |
+| **android key + `X-Android-Package: com.attacker.not.our.app`** | **400 `MISSING_ID_TOKEN`** | **a wrong package is accepted — this is the attack shape** |
+| ios key, no bundle header | 400 `MISSING_ID_TOKEN` | no app restriction |
+
+The first two rows are the positive control and they matter: without them, a 400
+`MISSING_ID_TOKEN` would be consistent with "this endpoint never checks key
+policy at all", and the probe would be a check that cannot fail. It can.
+Scripts: `probe_key_restriction.py` / `probe_control.py` (session scratchpad);
+both scrub key-shaped strings from all output, and `getKeyString` was never called.
+
+**Why p1 now.** Not because the keys are exposed — that was always true and is
+by design. Because the one control that the whole disposition rests on is
+confirmed **absent**, on a **public** repo where the key values are published, so
+the abuse path is open to anyone who reads the tree: unmetered calls to
+Identity Toolkit and any other API the key can reach, i.e. quota and **billing**
+exhaustion against `plant-community-prod`. If email/password sign-up is enabled,
+unsolicited account creation and password-reset email/SMS spend are also reachable.
+That was NOT probed — it would create data — so treat it as an unverified
+risk, not a demonstrated one.
+
+Data confidentiality is still protected by `firestore.rules` / `storage.rules`
+(auth-required, owner-scoped, verified 2026-09-10). This is a spend/abuse
+exposure, not a data-leak exposure. Proportionate, but no longer speculative.
+
+**The footgun to avoid when applying the Android restriction.** The SHA-1 must be
+the certificate that actually signs the shipped artifact. If Play App Signing is
+enabled, Google re-signs the upload, so the *upload* cert SHA-1 is the wrong
+value and restricting to it breaks auth for **every installed user** while
+working perfectly in local debug builds. Take the SHA-1 from Play Console →
+Release → Setup → App signing (both "App signing key certificate" and "Upload
+key certificate"), and add the local debug cert too or debug builds stop
+authenticating. Verify on a real device build before closing this out.
+
+**Revised order of work** (supersedes Recommended Action steps 1-2, which assumed
+the restriction state was unknown):
+
+1. Enable `apikeys.googleapis.com` on the project (needed to read or set
+   restrictions via API; the Console UI does not require it).
+2. Restrict the Android key to `com.plantcommunity.plant_community_mobile` +
+   the correct signing SHA-1(s) per the footgun above.
+3. Restrict the iOS key to bundle id `com.plantcommunity.plantCommunityMobile`.
+4. Add API restrictions so each key can only call the Firebase APIs actually used.
+5. Re-run the probe: both keys must now return a `*_BLOCKED` reason instead of
+   `MISSING_ID_TOKEN`. That is the acceptance test — it is the same command that
+   found the problem.
+6. Rebuild and authenticate on a real Android device and a real iOS device.
+7. Only then dismiss alerts #1 and #2 as `wont_fix`, citing the restrictions.
