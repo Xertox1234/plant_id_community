@@ -27,6 +27,6 @@ Compact checklist auto-injected before edits. Long-form:
   deploy log are all consistent with production serving something else — the
   2026-05-23 Storage tightening sat undeployed for 3.5 months, and todo 224 was
   the same shape. Deploy, then verify through the **Rules API**, never from the
-  CLI's exit code: `python3 scripts/check_rules_drift.py` (exit 0 match, 1 drift,
+  CLI's exit code: `python3 scripts/check_firebase_rules_drift.py` (exit 0 match, 1 drift,
   2 could-not-determine). Deploy from the checkout that holds the edit — in a
   worktree that is the worktree path, not the main checkout.

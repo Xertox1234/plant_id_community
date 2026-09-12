@@ -35,7 +35,7 @@ name: Firebase rules drift
       - 'firebase/**.rules'
       - 'firebase.json'
       - '.firebaserc'
-      - 'scripts/check_rules_drift.py'
+      - 'scripts/check_firebase_rules_drift.py'
       - '.github/workflows/firebase-rules-drift.yml'
   workflow_dispatch:
 
@@ -88,4 +88,4 @@ jobs:
           key="$(mktemp)"
           trap 'rm -f "$key"' EXIT
           printf '%s' "$SA" > "$key"
-          python3 scripts/check_rules_drift.py --credentials "$key"
+          python3 scripts/check_firebase_rules_drift.py --credentials "$key"

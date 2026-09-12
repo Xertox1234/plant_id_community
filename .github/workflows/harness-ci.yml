@@ -23,7 +23,7 @@ name: Harness CI
 #   python3 scripts/inject/test_match_triggers.py && \
 #   python3 scripts/inject/test_capture_trigger.py && \
 #   python3 scripts/inject/test_capture_from_review.py && \
-#   python3 scripts/test_check_rules_drift.py
+#   python3 scripts/test_check_firebase_rules_drift.py
 
 'on':
   push:
@@ -36,8 +36,8 @@ name: Harness CI
       - 'scripts/test_check_suppressions.py'
       - 'scripts/new_vuln_gate.py'
       - 'scripts/test_new_vuln_gate.py'
-      - 'scripts/check_rules_drift.py'
-      - 'scripts/test_check_rules_drift.py'
+      - 'scripts/check_firebase_rules_drift.py'
+      - 'scripts/test_check_firebase_rules_drift.py'
       - '.github/security-suppressions.yml'
       - '.github/workflows/harness-ci.yml'
   pull_request:
@@ -93,4 +93,4 @@ jobs:
       # The live comparison it backs runs in firebase-rules-drift.yml, which is not
       # a required check because it needs a secret and reports on production state.
       - name: Firebase rules drift checker tests
-        run: python3 scripts/test_check_rules_drift.py
+        run: python3 scripts/test_check_firebase_rules_drift.py

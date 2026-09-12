@@ -1709,7 +1709,7 @@
       "firebase/*.rules"
     ],
     "content_present": "(?m)^\\s*(allow\\s+(read|write|create|update|delete)|function\\s+\\w+\\(|match\\s+/)",
-    "message": "Editing security rules: they take effect only when DEPLOYED. Merging this without `firebase deploy` leaves production on the old ruleset (2026-05-23 Storage drift: 3.5 months; todo 224 before it). Deploy from THIS checkout, then verify with `python3 scripts/check_rules_drift.py` — the Rules API, not the CLI exit code.",
+    "message": "Editing security rules: they take effect only when DEPLOYED. Merging this without `firebase deploy` leaves production on the old ruleset (2026-05-23 Storage drift: 3.5 months; todo 224 before it). Deploy from THIS checkout, then verify with `python3 scripts/check_firebase_rules_drift.py` — the Rules API, not the CLI exit code.",
     "pattern_ref": "docs/rules/firebase.md",
     "source": "todo 383 item 1",
     "added": "2026-09-12",

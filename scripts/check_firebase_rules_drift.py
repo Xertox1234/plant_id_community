@@ -14,7 +14,7 @@ Three outcomes, never two — a check that cannot tell must not report "clean":
     2  INDETERMINATE credentials missing, API unreachable, config unreadable
 
 Usage:
-    python3 scripts/check_rules_drift.py [--credentials path/to/sa.json] [--quiet]
+    python3 scripts/check_firebase_rules_drift.py [--credentials path/to/sa.json] [--quiet]
 
 Credentials resolve in this order: --credentials, GOOGLE_APPLICATION_CREDENTIALS,
 google.auth.default(). The service account needs only `roles/firebaserules.viewer`.
@@ -174,6 +174,29 @@ def last_commit_time(root: Path, path: Path) -> datetime | None:
         return None
 
 
+def has_uncommitted_changes(root: Path, path: Path) -> bool:
+    """Does the working tree hold edits to this file that no commit contains yet?
+
+    Load-bearing for direction reporting: last_commit_time() describes the last
+    COMMITTED version, so an uncommitted edit makes the repo look stale when it is
+    actually ahead. Unknown (git unavailable) is treated as clean, which only
+    degrades the hint back to the timestamp comparison.
+    """
+    try:
+        out = subprocess.run(
+            ["git", "status", "--porcelain", "--", str(path.relative_to(root))],
+            cwd=root,
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return False
+    if out.returncode != 0:
+        return False
+    return bool(out.stdout.strip())
+
+
 def parse_time(value: str | None) -> datetime | None:
     if not value:
         return None
@@ -183,8 +206,18 @@ def parse_time(value: str | None) -> datetime | None:
         return None
 
 
-def describe_direction(deployed_at: datetime | None, committed_at: datetime | None) -> str:
+def describe_direction(
+    deployed_at: datetime | None, committed_at: datetime | None, dirty: bool = False
+) -> str:
     """Which side leads? Only prod-behind-repo is the incident shape."""
+    if dirty:
+        return (
+            "PRODUCTION IS BEHIND THE WORKING TREE — this file has uncommitted changes, so "
+            "the last-commit timestamp describes a different version than the one compared "
+            "here. The deployed ruleset does not contain your local edit. Commit and deploy "
+            "it, or discard the edit — do NOT resolve this by copying production over your "
+            "work."
+        )
     if deployed_at is None or committed_at is None:
         return "direction unknown (could not read both timestamps)"
     if committed_at > deployed_at:
@@ -236,7 +269,9 @@ def run(root: Path, session, quiet: bool) -> int:
             continue
 
         direction = describe_direction(
-            parse_time(release.get("updateTime")), last_commit_time(root, path)
+            parse_time(release.get("updateTime")),
+            last_commit_time(root, path),
+            has_uncommitted_changes(root, path),
         )
         diff = "\n".join(
             difflib.unified_diff(

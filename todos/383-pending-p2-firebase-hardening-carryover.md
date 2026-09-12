@@ -108,12 +108,12 @@ be closed before the first real distribution.
       all three reads now `allow read: if isOwner(userId)` and `/avatars/` still
       deliberately `if true`)
 - [x] A drift check exists that fails when deployed rules differ from committed
-      (2026-09-12 — `scripts/check_rules_drift.py`, 17 offline tests in Harness CI,
+      (2026-09-12 — `scripts/check_firebase_rules_drift.py`, 22 offline tests in Harness CI,
       plus `.github/workflows/firebase-rules-drift.yml` daily + on every push to
       `main` touching a rules file. **The scheduled job needs one owner step:** add
       the `FIREBASE_RULES_SA` repository credential; until then that job fails
-      loudly rather than
-      skipping. The script itself works today from any checkout with credentials)
+      loudly rather than skipping. The script itself works today from any checkout
+      that has credentials)
 - [ ] Each key restricted to the APIs the app actually calls, with the app still
       working afterwards
 - [ ] Release-cert SHA-1 registered before any distribution (or explicitly

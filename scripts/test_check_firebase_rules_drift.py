@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Tests for scripts/check_rules_drift.py.
+"""Tests for scripts/check_firebase_rules_drift.py.
 
-Run: python3 scripts/test_check_rules_drift.py
+Run: python3 scripts/test_check_firebase_rules_drift.py
 Also run by .github/workflows/harness-ci.yml (a required status check).
 
 The point of this check is to notice a rules file that was committed and never
@@ -26,14 +26,16 @@ from __future__ import annotations
 import contextlib
 import io
 import json
+import os
 import pathlib
+import subprocess
 import sys
 import tempfile
 import unittest
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 
-import check_rules_drift as drift  # noqa: E402
+import check_firebase_rules_drift as drift  # noqa: E402
 
 FIRESTORE_SRC = "rules_version = '2';\nservice cloud.firestore {\n}\n"
 STORAGE_SRC = "rules_version = '2';\nservice firebase.storage {\n}\n"
@@ -219,6 +221,69 @@ class DirectionTests(unittest.TestCase):
     def test_unreadable_timestamp_does_not_assert_a_direction(self):
         text = drift.describe_direction(drift.parse_time("not-a-date"), None)
         self.assertIn("direction unknown", text)
+
+    def test_uncommitted_edit_is_not_reported_as_a_stale_repo(self):
+        """Regression: the exact timestamps that produced a backwards hint.
+
+        The deployed release (2026-09-12) really is newer than the last commit
+        touching storage.rules (2026-06-05), but the working tree held the
+        uncommitted helper deletion — so the repo was AHEAD, not behind. The
+        old message told the reader prod was ahead, whose remedy (copy prod
+        over the repo) would have destroyed the edit.
+        """
+        text = drift.describe_direction(
+            drift.parse_time("2026-09-12T14:03:15Z"),
+            drift.parse_time("2026-06-05T00:00:00Z"),
+            dirty=True,
+        )
+        self.assertIn("PRODUCTION IS BEHIND THE WORKING TREE", text)
+        self.assertNotIn("repo is behind production", text)
+        self.assertIn("do NOT resolve", text)
+
+    def test_clean_tree_still_uses_the_timestamp_comparison(self):
+        text = drift.describe_direction(
+            drift.parse_time("2026-09-12T00:00:00Z"),
+            drift.parse_time("2026-06-05T00:00:00Z"),
+            dirty=False,
+        )
+        self.assertIn("repo is behind production", text)
+
+
+class UncommittedChangeTests(unittest.TestCase):
+    """has_uncommitted_changes() must read the working tree, not the log."""
+
+    def _repo(self, tmp: str) -> pathlib.Path:
+        root = pathlib.Path(tmp)
+        env = {"GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@e",
+               "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@e"}
+        run = lambda *a: subprocess.run(a, cwd=root, check=True,
+                                        capture_output=True, env={**os.environ, **env})
+        run("git", "init", "-q")
+        (root / "firebase").mkdir()
+        (root / "firebase" / "storage.rules").write_text("rules_version = '2';\n")
+        run("git", "add", "-A")
+        run("git", "commit", "-qm", "seed")
+        return root
+
+    def test_clean_file_reports_false(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = self._repo(tmp)
+            self.assertFalse(
+                drift.has_uncommitted_changes(root, root / "firebase" / "storage.rules")
+            )
+
+    def test_edited_file_reports_true(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = self._repo(tmp)
+            target = root / "firebase" / "storage.rules"
+            target.write_text("rules_version = '2';\n// edited\n")
+            self.assertTrue(drift.has_uncommitted_changes(root, target))
+
+    def test_non_git_directory_degrades_to_false_rather_than_raising(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            (root / "f.rules").write_text("x")
+            self.assertFalse(drift.has_uncommitted_changes(root, root / "f.rules"))
 
 
 class MainExitTests(unittest.TestCase):
