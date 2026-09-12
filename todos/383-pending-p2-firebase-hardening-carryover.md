@@ -267,8 +267,12 @@ be closed before the first real distribution.
       `--dart-define`, so it shows the configuration-error screen and never
       reaches a sign-in screen (item 8). Discharging this needs an archive built
       through Flutter with the defines, re-uploaded, then an actual sign-in on the
-      installed build. Android remains deferred with the original reason — still
-      no release keystore, still nothing installed anywhere
+      installed build. **The first two of those three are now done** — build 3 was
+      built with the defines, verified against the artifact and uploaded
+      2026-09-12 (item 8, RESOLVED). What remains is the part no tooling can do
+      from here: install build 3 from TestFlight on a physical iPhone and sign in.
+      That single act discharges the iOS half. Android remains deferred with the
+      original reason — still no release keystore, still nothing installed anywhere
 - [x] Dead `isAuthenticated()` helper removed from `firebase/storage.rules`
       **and deployed in the same motion** (see item 5) — 2026-09-12, deployed
       from the todo-383 branch before merge, so the repo never went ahead of
@@ -448,6 +452,67 @@ and re-uploading to Apple is an outward-facing action.
 `altool --upload-app` say nothing about whether the app can start. Both succeeded
 here on a build that shows an error screen. That is the same shape as this todo's
 item 1 — a green deploy log is compatible with production serving something else.
+
+**RESOLVED 2026-09-12 — rebuilt and re-uploaded as build 3, at the owner's
+instruction.** Built through Flutter so the defines actually reach the compiler:
+
+```text
+flutter build ipa --release --build-number=3 \
+  --dart-define-from-file=<scratch>/ios_release_defines.json \
+  --export-options-plist=<scratch>/ExportOptions-build3.plist
+```
+
+Verified **before** upload, on the artifact, with the same method that found the
+problem — and the contrast is the evidence, not the absolute count:
+
+| check on the AOT snapshot | build 2 | build 3 |
+|---|---|---|
+| `AIzaSy`-shaped strings | **0** | **2** |
+| the iOS key `AIzaSy…4oQM` | 0 | 1 |
+| `https://api.houseplant-md.com/api/v1` | 0 | 1 |
+| the dead dev tunnel host | 0 | **0** |
+| control: key in the bundled `GoogleService-Info.plist` | 1 | 1 |
+
+Then `altool --validate-app` -> `VERIFY SUCCEEDED`, and `--upload-app` ->
+`UPLOAD SUCCEEDED`, delivery UUID `a8d33af4-47b9-4c63-ba74-55cbf19f969e`.
+
+**Confirmed at Apple's end, not at altool's** — the whole point of this item is
+that a green upload is not a result. The App Store Connect API now lists build
+**3**, `processingState: VALID`, `expired: false`, uploaded 15:58:27 -07:00,
+alongside the two earlier builds. Queried with an ES256 JWT against
+`/v1/builds?filter[app]=6811429591`; the same query is what established that the
+next free build number was 3 rather than guessing it from `pubspec`.
+
+Two deliberate departures from the scripts that produced builds 1 and 2, each
+because the evidence pointed at it:
+
+- **`API_BASE_URL` was NOT taken from `.env.local`.** That file points at
+  `https://gasoline-resistant-reserve-reducing.trycloudflare.com/api/v1` — an
+  ephemeral Cloudflare quick-tunnel, and `curl` returns **HTTP 000**: it is
+  already dead. Feeding the dev file in wholesale would have swapped a build that
+  cannot reach Firebase for one that cannot reach the backend, which is harder to
+  diagnose because the app would start. Production is
+  `https://api.houseplant-md.com/api/v1`, confirmed live against the endpoints the
+  app actually calls — `/plant-identification/species/` 200,
+  `/auth/firebase-token-exchange/` 405 (exists, wants POST), and a deliberately
+  bogus path 404 as the control that distinguishes "alive" from "answers anything".
+- **`manageAppVersionAndBuildNumber` set to `false`** in a scratch copy of the
+  export options (the owner's file in `build/` was not edited). Left `true`, Xcode
+  rewrites `CFBundleVersion` during export — which is exactly why a `pubspec` at
+  `1.0.0+2` produced builds numbered **1** and **2** in App Store Connect, and why
+  the number had to be read back from Apple rather than known. With it off, the
+  artifact that was verified is the artifact Apple received. The build number came
+  from the App Store Connect API, not from a guess.
+
+Also worth knowing: the iOS binary now carries the **Android** key too, because
+`_dartDefines` is one const map shared by all platforms. That is not a leak worth
+acting on — the Android key is restricted to package + SHA-1 headers, so it is
+inert inside an iOS app — but it is why the snapshot shows 2 keys and not 1.
+
+**Still open, and it is the owner's call:** builds **1 and 2 remain `VALID` and
+un-expired** in App Store Connect. Both are the define-less build that opens to
+the configuration-error screen. Nothing stops a tester being handed one. Expiring
+them is a one-click action in App Store Connect and was not done here.
 
 ## Notes
 
