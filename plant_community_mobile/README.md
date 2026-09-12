@@ -28,7 +28,7 @@ flutter pub run build_runner build --delete-conflicting-outputs
 # Run on iOS with local configuration values
 flutter run -d ios \
   --dart-define=API_BASE_URL=http://localhost:8000/api/v1 \
-  --dart-define=FIREBASE_API_KEY=your-firebase-api-key \
+  --dart-define=FIREBASE_IOS_API_KEY=your-ios-api-key \
   --dart-define=FIREBASE_IOS_APP_ID=your-ios-app-id \
   --dart-define=FIREBASE_MESSAGING_SENDER_ID=your-sender-id \
   --dart-define=FIREBASE_PROJECT_ID=your-project-id \
@@ -37,7 +37,7 @@ flutter run -d ios \
 # Run on Android with local configuration values
 flutter run -d android \
   --dart-define=API_BASE_URL=http://10.0.2.2:8000/api/v1 \
-  --dart-define=FIREBASE_API_KEY=your-firebase-api-key \
+  --dart-define=FIREBASE_ANDROID_API_KEY=your-android-api-key \
   --dart-define=FIREBASE_ANDROID_APP_ID=your-android-app-id \
   --dart-define=FIREBASE_MESSAGING_SENDER_ID=your-sender-id \
   --dart-define=FIREBASE_PROJECT_ID=your-project-id \
@@ -45,6 +45,16 @@ flutter run -d android \
 
 # Or pass the same values in CI/release builds with --dart-define.
 ```
+
+Pass the **per-platform** api key (`FIREBASE_ANDROID_API_KEY`,
+`FIREBASE_IOS_API_KEY`, `FIREBASE_WEB_API_KEY`) rather than the shared
+`FIREBASE_API_KEY`. Google permits exactly one application restriction per API
+key, so a key used by both Android and iOS cannot be restricted at all. Each
+platform var falls back to `FIREBASE_API_KEY` when unset, so older command lines
+still work — the validation-checklist build below deliberately passes only the
+shared var to keep that fallback exercised. Android needs
+`FIREBASE_ANDROID_APP_ID` set alongside its key: an Android api key paired with
+the iOS `appId` is rejected at sign-in.
 
 Use `http://10.0.2.2:8000` for the Android emulator to reach a backend running
 on the host machine. Use the host LAN IP for physical Android devices. iOS

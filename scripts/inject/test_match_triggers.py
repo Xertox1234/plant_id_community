@@ -1244,6 +1244,74 @@ class TestNpmLockfileLibcTrigger(unittest.TestCase):
         self.assertNotIn(self.TRIGGER_ID, ids(hits))
 
 
+class TestDartDefineMapTrigger(unittest.TestCase):
+    """`dart-define-missing-from-defines-map` — todo 382.
+
+    A per-platform var can be wired into a getter and left out of the
+    `_dartDefines` map. `String.fromEnvironment` is a compile-time constant, so
+    the missing entry is never read: the value silently falls back to the shared
+    key and four separate signals stay green — `flutter analyze`, the bare
+    `flutter test` run, every injected-map unit test, and the grep-based
+    acceptance criterion. Verified by mutation, not assumed.
+
+    The positive fixture is the literal line the PR added, not an idealised one.
+    """
+
+    TRIGGER_ID = "dart-define-missing-from-defines-map"
+
+    @classmethod
+    def setUpClass(cls):
+        root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+        cls.real = mt.load_triggers(root)
+
+    def test_real_per_platform_api_key_line_fires(self):
+        # Verbatim from the todo-382 edit to firebase_options.dart.
+        tn, ti = edit(
+            "plant_community_mobile/lib/firebase_options.dart",
+            "    apiKey: _required('FIREBASE_API_KEY'),",
+            "    apiKey: _required(\n"
+            "      'FIREBASE_ANDROID_API_KEY',\n"
+            "      fallbackKey: 'FIREBASE_API_KEY',\n"
+            "    ),",
+        )
+        hits = mt.find_matches(tn, ti, self.real, None)
+        self.assertIn(self.TRIGGER_ID, ids(hits))
+
+    def test_single_line_required_fires(self):
+        tn, ti = edit(
+            "plant_community_mobile/lib/firebase_options.dart",
+            "    projectId: _required('FIREBASE_PROJECT_ID'),",
+            "    projectId: _required('FIREBASE_PROJECT_ID'),\n"
+            "    apiKey: _required('FIREBASE_IOS_API_KEY'),",
+        )
+        hits = mt.find_matches(tn, ti, self.real, None)
+        self.assertIn(self.TRIGGER_ID, ids(hits))
+
+    def test_non_firebase_required_call_stays_silent(self):
+        # Exercises the regex, not a blank: same `_required('...')` shape, same
+        # file, a var that is not a FIREBASE_ one. A negative fixture that
+        # contained no `_required(` at all would prove nothing.
+        tn, ti = edit(
+            "plant_community_mobile/lib/firebase_options.dart",
+            "  static const _dartDefines = <String, String>{",
+            "  static const _dartDefines = <String, String>{\n"
+            "    // apiBaseUrl: _required('API_BASE_URL'),",
+        )
+        hits = mt.find_matches(tn, ti, self.real, None)
+        self.assertNotIn(self.TRIGGER_ID, ids(hits))
+
+    def test_same_line_in_a_test_file_stays_silent(self):
+        # Same content, wrong path — proves the path glob is doing work. Tests
+        # legitimately hard-code these names against an injected map.
+        tn, ti = edit(
+            "plant_community_mobile/test/firebase_options_test.dart",
+            "void main() {",
+            "void main() {\n"
+            "  // _required('FIREBASE_ANDROID_API_KEY') is asserted below",
+        )
+        hits = mt.find_matches(tn, ti, self.real, None)
+        self.assertNotIn(self.TRIGGER_ID, ids(hits))
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

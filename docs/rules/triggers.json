@@ -1682,5 +1682,21 @@
     "source": "codify: chore/pin-sharp-override",
     "added": "2026-09-09",
     "severity": "warn"
+  },
+  {
+    "id": "dart-define-missing-from-defines-map",
+    "domains": [
+      "flutter",
+      "firebase"
+    ],
+    "path_glob": [
+      "plant_community_mobile/lib/*.dart"
+    ],
+    "content_present": "_required\\(\\s*'FIREBASE_[A-Z_]+'",
+    "message": "Every var name passed to _required/_optional must ALSO have a String.fromEnvironment entry in the _dartDefines map in the same file. String.fromEnvironment is compile-time, so a missing entry is never read: the value silently falls back (or throws) and NOTHING catches it — flutter analyze, the bare flutter test run, and any injected-map unit test all stay green (verified by mutation, todo 382). The only check that sees it is a 'flutter test' run with real --dart-define values, which mobile-ci.yml does in its own step.",
+    "pattern_ref": "plant_community_mobile/docs/patterns/firebase-auth.md",
+    "source": "codify: feat/todo-382-per-platform-firebase-api-key",
+    "added": "2026-09-11",
+    "severity": "warn"
   }
 ]

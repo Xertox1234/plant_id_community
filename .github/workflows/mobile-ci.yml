@@ -96,6 +96,28 @@ jobs:
       - name: Test
         run: flutter test
 
+      # Second run with real --dart-define values. The per-platform api key
+      # resolution in lib/firebase_options.dart is driven by String.fromEnvironment,
+      # a compile-time constant, so the bare run above cannot see it: a variable
+      # wired into a getter but missing from the _dartDefines map would silently
+      # fall back to the shared key -- the exact bug todo 382 fixed -- while every
+      # injected-map test still passed. Distinct placeholder values per platform
+      # are what makes the assertion discriminating; do not collapse them.
+      # FIREBASE_WEB_API_KEY is deliberately NOT set, so the same run also proves
+      # an unset platform key falls back to the shared one.
+      - name: Test Firebase option resolution with real --dart-define values
+        run: >-
+          flutter test test/firebase_options_test.dart
+          --dart-define=FIREBASE_API_KEY=ci-shared-api-key
+          --dart-define=FIREBASE_ANDROID_API_KEY=ci-android-api-key
+          --dart-define=FIREBASE_IOS_API_KEY=ci-ios-api-key
+          --dart-define=FIREBASE_APP_ID=1:000000000000:android:0000000000000000000000
+          --dart-define=FIREBASE_MESSAGING_SENDER_ID=000000000000
+          --dart-define=FIREBASE_PROJECT_ID=ci-placeholder-project
+
+      # Deliberately passes ONLY the shared FIREBASE_API_KEY: this is the standing
+      # regression guard that a build which has not adopted the per-platform vars
+      # still compiles and resolves (todo 382 shipped the fallback, not a break).
       - name: Build Android debug APK
         run: >-
           flutter build apk --debug
