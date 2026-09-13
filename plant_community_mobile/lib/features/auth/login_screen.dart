@@ -14,10 +14,13 @@ import '../../services/auth_service.dart';
 /// finished; only this was missing, which is why the app shipped to TestFlight
 /// with no way to sign in at all (todo 384).
 ///
-/// **On success this screen navigates nowhere, on purpose.** `appRouter` wires
-/// `refreshListenable: authChanged`, and its redirect sends an authenticated
-/// user off `authOnlyRoutes` to `/home`. Adding a `context.go` here would race
-/// that redirect.
+/// **On success this screen dismisses itself** via [dismissAfterAuth]. It used
+/// to rely on `appRouter`'s redirect instead, on the reasoning that
+/// `refreshListenable: authChanged` would bounce an authenticated user off
+/// `authOnlyRoutes`. That is only true for a route reached with `go`: the
+/// redirect matches on `state.uri.path`, which stays `/profile` when this
+/// screen is PUSHED from the Profile tab, so it never fired and a signed-in
+/// user was left looking at the sign-in form.
 ///
 /// Note `AuthState.isAuthenticated` means *the Django JWT has been exchanged*,
 /// not merely that Firebase accepted the password — the exchange happens on the
@@ -62,7 +65,8 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
             _emailController.text.trim(),
             _passwordController.text,
           );
-      // Deliberately no navigation here -- see the class doc.
+      if (!mounted) return;
+      dismissAfterAuth(context);
     } on AuthException catch (e) {
       if (!mounted) return;
       setState(() => _error = e.message);
@@ -203,8 +207,8 @@ class _GoogleSignInButtonState extends ConsumerState<GoogleSignInButton> {
     });
     try {
       await ref.read(authServiceProvider.notifier).signInWithGoogle();
-      // No navigation: appRouter's redirect moves an authenticated user off
-      // authOnlyRoutes, exactly as for email/password.
+      if (!mounted) return;
+      dismissAfterAuth(context);
     } on AuthException catch (e) {
       if (!mounted) return;
       setState(() => _error = e.message);
@@ -240,6 +244,40 @@ class _GoogleSignInButtonState extends ConsumerState<GoogleSignInButton> {
       ],
     );
   }
+}
+
+/// Leave an auth screen once sign-in has actually succeeded.
+///
+/// **The router's redirect cannot do this, and `context.pop()` does not work
+/// either.** Both were tried against the production router and observed:
+///
+/// `appRouter` matches `authOnlyRoutes.contains(state.uri.path)`, but when this
+/// screen is PUSHED from the Profile tab the location stays `/profile` — on the
+/// auth-change refresh the redirect is handed `uri.path`, `matchedLocation` AND
+/// `fullPath` all equal to `/profile`, with nothing anywhere exposing the
+/// pushed `/login`. No redirect rule can see it.
+///
+/// `context.pop()` reports `canPop() == true` and then changes nothing: the
+/// refresh triggered by the auth flip re-parses the route information first,
+/// and the pop that follows leaves the match list at length 2 with `/login`
+/// still on top. Measured, not assumed.
+///
+/// Re-navigating to the UNDERLYING location collapses the imperative push
+/// deterministically (match list 2 -> 1), and returns the user to whichever
+/// screen sent them here — normally the Profile tab, now rendering signed-in.
+///
+/// When they arrived by REDIRECT from a protected route the underlying location
+/// IS an auth route, so there is nothing to go back to and home is correct.
+///
+/// Before this, signing in left a fully authenticated user staring at the
+/// sign-in form; the owner only discovered it had worked by tapping the back
+/// arrow. Regression test: `test/routing/auth_dismiss_test.dart`.
+void dismissAfterAuth(BuildContext context) {
+  final router = GoRouter.of(context);
+  final uri = router.routerDelegate.currentConfiguration.uri;
+  final cameFromAnAuthRoute =
+      uri.path == AppRoutes.login || uri.path == AppRoutes.register;
+  router.go(cameFromAnAuthRoute ? AppRoutes.home : uri.toString());
 }
 
 /// Inline validation shared by the sign-in and register forms.
