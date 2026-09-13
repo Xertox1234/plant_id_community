@@ -155,6 +155,8 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                           : const Text('Sign in'),
                     ),
                     SizedBox(height: ext.gapY),
+                    GoogleSignInButton(enabled: !_submitting),
+                    SizedBox(height: ext.gapY),
                     TextButton(
                       // pushReplacement, not push: bouncing between sign-in and
                       // register would otherwise stack a page per tap.
@@ -170,6 +172,72 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
           ),
         ),
       ),
+    );
+  }
+}
+
+/// "Continue with Google" -- shared by the sign-in and register screens.
+///
+/// Prominent rather than tucked below the form, because it is currently the
+/// ONLY path that reaches a signed-in state: the backend 403s an unverified
+/// email/password token and this app sends no verification mail. See
+/// [AuthService.signInWithGoogle].
+class GoogleSignInButton extends ConsumerStatefulWidget {
+  const GoogleSignInButton({super.key, this.enabled = true});
+
+  final bool enabled;
+
+  @override
+  ConsumerState<GoogleSignInButton> createState() => _GoogleSignInButtonState();
+}
+
+class _GoogleSignInButtonState extends ConsumerState<GoogleSignInButton> {
+  bool _busy = false;
+  String? _error;
+
+  Future<void> _submit() async {
+    if (_busy) return;
+    setState(() {
+      _busy = true;
+      _error = null;
+    });
+    try {
+      await ref.read(authServiceProvider.notifier).signInWithGoogle();
+      // No navigation: appRouter's redirect moves an authenticated user off
+      // authOnlyRoutes, exactly as for email/password.
+    } on AuthException catch (e) {
+      if (!mounted) return;
+      setState(() => _error = e.message);
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final ext =
+        Theme.of(context).extension<GreenThumbExtension>() ??
+        GreenThumbExtension.fallback;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        if (_error != null) ...[
+          _AuthErrorBanner(message: _error!),
+          SizedBox(height: ext.gapY),
+        ],
+        OutlinedButton.icon(
+          onPressed: (!widget.enabled || _busy) ? null : _submit,
+          icon: _busy
+              ? const SizedBox(
+                  height: 18,
+                  width: 18,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+              : const Icon(Icons.account_circle_outlined),
+          label: Text(_busy ? 'Signing in...' : 'Continue with Google'),
+        ),
+      ],
     );
   }
 }

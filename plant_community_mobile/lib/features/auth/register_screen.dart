@@ -5,7 +5,8 @@ import 'package:go_router/go_router.dart';
 import '../../core/routing/app_router.dart';
 import '../../core/theme/green_thumb_extension.dart';
 import '../../services/auth_service.dart';
-import 'login_screen.dart' show validateEmail, validatePassword;
+import 'login_screen.dart'
+    show GoogleSignInButton, validateEmail, validatePassword;
 
 /// Email/password account creation.
 ///
@@ -174,6 +175,12 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
                             )
                           : const Text('Create account'),
                     ),
+                    SizedBox(height: ext.gapY),
+                    // Offered here too: creating an email/password account
+                    // currently dead-ends at the backend's 403 for unverified
+                    // email, so a user who lands on this screen still needs a
+                    // path that works. See AuthService.signInWithGoogle.
+                    GoogleSignInButton(enabled: !_submitting),
                     SizedBox(height: ext.gapY),
                     TextButton(
                       onPressed: _submitting

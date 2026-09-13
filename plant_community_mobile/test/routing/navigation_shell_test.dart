@@ -277,9 +277,40 @@ void main() {
       await settle(tester);
       expect(h.path, AppRoutes.register);
 
-      await tester.tap(find.textContaining('Already have an account'));
+      // ensureVisible, not a bare tap: flutter_test's default surface is
+      // 800x600, SHORTER than any phone it ships to, and the register form is
+      // tall enough that this link sits at y=632 -- off the test viewport but
+      // perfectly visible on a 667pt iPhone SE. Both screens are
+      // SingleChildScrollViews, so scrolling to it is what a real thumb does.
+      // Without this the test fails as "still on /register", which reads as a
+      // broken link rather than an unscrolled one.
+      final signInLink = find.textContaining('Already have an account');
+      await tester.ensureVisible(signInLink);
+      await tester.pump();
+      await tester.tap(signInLink);
       await settle(tester);
       expect(h.path, AppRoutes.login);
+
+      await tester.pump(const Duration(seconds: 4));
+    });
+
+    testWidgets('both auth screens offer the Google path', (tester) async {
+      // Google is not a convenience here, it is the only path that reaches a
+      // signed-in state: the backend 403s an unverified email/password token
+      // and this app sends no verification mail. If either screen loses this
+      // button, that screen becomes a dead end.
+      final h = await pumpShell(tester, loggedIn: false);
+
+      await tapTab(tester, Icons.person_outline);
+      await tester.tap(find.widgetWithText(FilledButton, 'Sign in'));
+      await settle(tester);
+      expect(h.path, AppRoutes.login);
+      expect(find.text('Continue with Google'), findsOneWidget);
+
+      await tester.tap(find.textContaining("Don't have an account"));
+      await settle(tester);
+      expect(h.path, AppRoutes.register);
+      expect(find.text('Continue with Google'), findsOneWidget);
 
       await tester.pump(const Duration(seconds: 4));
     });
