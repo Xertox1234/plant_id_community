@@ -24,11 +24,9 @@ class HomePage extends StatelessWidget {
         GreenThumbExtension.fallback;
 
     return Scaffold(
-      floatingActionButton: FloatingActionButton.small(
-        tooltip: 'Settings',
-        onPressed: () => context.push(AppRoutes.settings),
-        child: const Icon(Icons.settings),
-      ),
+      // No Settings FAB: MainShell renders the Identify FAB over every tab, and
+      // two FABs on one screen both collide as Heroes and read as clutter.
+      // Settings moved under the Profile tab (todo 384).
       body: SafeArea(
         child: SingleChildScrollView(
           child: GrainOverlay(
@@ -142,6 +140,7 @@ class HomePage extends StatelessWidget {
             'Snap a photo and instantly identify any plant with AI-powered recognition',
         type: FeatureType.camera,
         route: AppRoutes.camera,
+        isTab: false,
       ),
       _FeatureData(
         icon: Icons.book,
@@ -150,6 +149,7 @@ class HomePage extends StatelessWidget {
             'Get personalized care tips for watering, sunlight, and maintenance',
         type: FeatureType.care,
         route: AppRoutes.care,
+        isTab: false,
       ),
       _FeatureData(
         icon: Icons.people,
@@ -158,6 +158,7 @@ class HomePage extends StatelessWidget {
             'Connect with plant lovers, share experiences, and get expert advice',
         type: FeatureType.community,
         route: AppRoutes.forum,
+        isTab: true,
       ),
       _FeatureData(
         icon: Icons.auto_awesome,
@@ -166,6 +167,7 @@ class HomePage extends StatelessWidget {
             'Build your personal plant library and track identification history',
         type: FeatureType.collection,
         route: AppRoutes.collection,
+        isTab: true,
       ),
     ];
 
@@ -180,7 +182,9 @@ class HomePage extends StatelessWidget {
               title: feature.title,
               description: feature.description,
               type: feature.type,
-              onTap: () => context.go(feature.route),
+              onTap: () => feature.isTab
+                  ? context.go(feature.route)
+                  : context.push(feature.route),
             ),
           );
         }).toList(),
@@ -196,7 +200,7 @@ class HomePage extends StatelessWidget {
         label: 'Get Started',
         icon: Icons.arrow_forward,
         fullWidth: true,
-        onPressed: () => context.go(AppRoutes.camera),
+        onPressed: () => context.push(AppRoutes.camera),
       ),
     );
   }
@@ -210,11 +214,21 @@ class _FeatureData {
   final FeatureType type;
   final String route;
 
+  /// Whether [route] is a top-level shell tab.
+  ///
+  /// A card for a tab should SWITCH to it -- `context.go` to a branch location
+  /// activates that branch and keeps its own stack. A card for a screen that
+  /// lives *inside* a tab must `push`, or `go` replaces the stack and strands
+  /// the user on a screen whose AppBar draws no back button (todo 384
+  /// finding 5; every one of these four cards used `go`).
+  final bool isTab;
+
   _FeatureData({
     required this.icon,
     required this.title,
     required this.description,
     required this.type,
     required this.route,
+    required this.isTab,
   });
 }

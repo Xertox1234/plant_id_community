@@ -112,7 +112,7 @@ class _CameraScreenState extends ConsumerState<CameraScreen> {
       if (!mounted) return;
 
       // Navigate to results screen with plant data (passed as extra)
-      context.go(AppRoutes.results, extra: plant);
+      context.pushReplacement(AppRoutes.results, extra: plant);
     } on ApiException catch (e) {
       // Handle API-specific errors (network, auth, etc.)
       if (!mounted) return;

@@ -5,6 +5,48 @@ import 'package:plant_community_mobile/core/theme/app_palettes.dart';
 import 'package:plant_community_mobile/core/theme/green_thumb_extension.dart';
 
 void main() {
+  group('Material 3 NavigationBar theme (todo 384)', () {
+    // MainShell renders a NavigationBar. The pre-existing
+    // `bottomNavigationBarTheme` styles BottomNavigationBar -- a different,
+    // Material 2 widget -- and todo 384 read its presence as proof the nav bar
+    // was already themed. It was not: without `navigationBarTheme` the shell
+    // renders in stock M3 purple. These assert against the PALETTE, so they
+    // track a palette change rather than pinning today's values.
+    test('navigationBarTheme is defined, not just the legacy M2 one', () {
+      final theme = AppTheme.build(
+        AppPaletteChoice.garden,
+        Brightness.light,
+        AppDensity.cozy,
+      );
+      expect(
+        theme.navigationBarTheme.backgroundColor,
+        AppPalettes.garden.light.bg2,
+        reason:
+            'the shell nav bar must use the Green Thumb surface, not the '
+            'M3 default',
+      );
+    });
+
+    test('selected and unselected destinations resolve to palette colours', () {
+      final theme = AppTheme.build(
+        AppPaletteChoice.garden,
+        Brightness.dark,
+        AppDensity.cozy,
+      );
+      final icons = theme.navigationBarTheme.iconTheme;
+      expect(icons, isNotNull);
+
+      final selected = icons!.resolve({WidgetState.selected})?.color;
+      final unselected = icons.resolve(<WidgetState>{})?.color;
+
+      expect(selected, AppPalettes.garden.dark.moss);
+      expect(unselected, AppPalettes.garden.dark.ink3);
+      // A theme that resolved both states the same would leave the user unable
+      // to tell which tab they are on.
+      expect(selected, isNot(unselected));
+    });
+  });
+
   group('AppTheme.build', () {
     test('Garden light primary equals moss light', () {
       final theme = AppTheme.build(

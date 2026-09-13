@@ -1102,14 +1102,60 @@ void main() {
             ),
           );
 
-          // Try to navigate to protected route (profile)
-          router.go(AppRoutes.profile);
+          // Try to navigate to a protected route.
+          //
+          // This used to assert on AppRoutes.profile. It no longer can:
+          // /profile is a shell branch root, and redirecting out of a branch
+          // root desyncs StatefulShellRoute's branch index, so ProfileScreen
+          // gates itself instead (todo 384). Re-pointed at bookmarks rather
+          // than deleted -- the redirect still guards five routes and dropping
+          // the only test of it would leave that unguarded.
+          router.go(AppRoutes.forumBookmarks);
           await tester.pump(const Duration(milliseconds: 100));
 
           // Should be redirected to login
           expect(
             router.routerDelegate.currentConfiguration.uri.path,
             equals(AppRoutes.login),
+          );
+
+          await tester.pump(const Duration(seconds: 4));
+        },
+      );
+
+      testWidgets(
+        'the profile tab is reachable signed out and gates itself (todo 384)',
+        (WidgetTester tester) async {
+          final container = ProviderContainer(
+            overrides: [
+              authServiceProvider.overrideWith(
+                _MockUnauthenticatedAuthNotifier.new,
+              ),
+            ],
+          );
+          addTearDown(container.dispose);
+          container.listen(appRouterProvider, (_, _) {});
+          final router = container.read(appRouterProvider);
+
+          await tester.pumpWidget(
+            UncontrolledProviderScope(
+              container: container,
+              child: MaterialApp.router(routerConfig: router),
+            ),
+          );
+
+          // A signed-out user must be able to OPEN the profile tab -- it is
+          // the only entry point to sign-in. Bouncing them to /login from the
+          // tab itself is what this asserts against.
+          router.go(AppRoutes.profile);
+          await tester.pump(const Duration(milliseconds: 100));
+
+          expect(
+            router.routerDelegate.currentConfiguration.uri.path,
+            equals(AppRoutes.profile),
+            reason:
+                'signed-out users must reach the profile tab, not bounce '
+                'to /login; ProfileScreen renders the sign-in CTA itself',
           );
 
           await tester.pump(const Duration(seconds: 4));

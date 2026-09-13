@@ -267,7 +267,7 @@ class _AddCard extends StatelessWidget {
       color: cs.surfaceContainerLow,
       borderRadius: radius,
       child: InkWell(
-        onTap: () => context.go(AppRoutes.camera),
+        onTap: () => context.push(AppRoutes.camera),
         borderRadius: radius,
         child: Container(
           decoration: BoxDecoration(
@@ -321,7 +321,7 @@ class _EmptyState extends StatelessWidget {
           ),
           SizedBox(height: ext.gapY),
           FilledButton.icon(
-            onPressed: () => context.go(AppRoutes.camera),
+            onPressed: () => context.push(AppRoutes.camera),
             icon: const Icon(Icons.add_a_photo_outlined),
             label: const Text('Identify a plant'),
           ),
