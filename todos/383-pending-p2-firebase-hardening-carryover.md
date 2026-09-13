@@ -578,11 +578,43 @@ fake-key screen turned out to be dormant — deleting it changed nothing — so 
 guard is not credible here until neutering it has been shown to change the
 verdict.
 
-Not done, and a live decision: **these scripts are untracked**, which is part of
-why a release procedure could silently be wrong. `run_archive.sh`,
-`run_upload.sh` and the new `ios/ExportOptions.plist` are not in git;
-`.env.production` is deliberately gitignored. The build-4 IPA the test run
-produced was **not** uploaded.
+**`run_upload.sh` hardened in the same motion, and both scripts are now TRACKED.**
+An untracked release procedure is a large part of why this could be silently
+wrong for two uploads: no diff, no review, no history. `run_archive.sh`,
+`run_upload.sh` and `ios/ExportOptions.plist` are committed;
+`.env.production` and `.env.appstore` stay gitignored.
+
+`run_upload.sh` changed in two ways:
+
+- **It refuses to upload an IPA that has not passed the gate.** It shells out to
+  `SKIP_BUILD=1 ./run_archive.sh` rather than duplicating the checks, so there is
+  one implementation and it is the one that was mutation-tested. Verified against
+  the real broken build-2 artifact: the upload is refused before any network
+  call.
+- **The App Store Connect key and issuer IDs are no longer literals in the
+  script.** This repo is **public** and is already scanned daily for the Firebase
+  keys it once committed. Those two values are identifiers rather than the
+  credential — the secret is `~/.appstoreconnect/private_keys/AuthKey_<id>.p8`,
+  which `altool` reads itself — but they do not belong in a public repo, so they
+  moved to a gitignored `.env.appstore`. It is **parsed, not sourced**: `. file`
+  would execute whatever the file contains.
+
+| `run_upload.sh` case | result |
+|---|---|
+| missing creds file / absent `ASC_KEY_ID` / absent `ASC_ISSUER_ID` | exit 1, each naming what is missing |
+| `ASC_KEY_ID` with no matching `.p8` | exit 1 |
+| no IPA present | exit 1 |
+| **the real broken build-2 IPA in place** | exit 1, refused before any network call |
+| `VALIDATE_ONLY=1` on the good IPA | exit 0 — gate passed, then Apple's `VERIFY SUCCEEDED` |
+
+One bug found by that testing and fixed: two guards were exiting 1 **silently**,
+because under `set -e` the script aborted at the credential assignment before
+reaching the line that says which key is missing. A release script that fails
+without saying why is the same category of problem as the one this item is
+about.
+
+The build-4 IPA the test run produced was **not** uploaded; build 3 remains the
+build at Apple.
 
 ## Notes
 
