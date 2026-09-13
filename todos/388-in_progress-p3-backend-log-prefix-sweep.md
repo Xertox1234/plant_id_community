@@ -1,5 +1,5 @@
 ---
-status: pending
+status: in_progress
 priority: p3
 issue_id: "388"
 tags: [code-quality, logging, backend, tech-debt]
@@ -168,13 +168,15 @@ logging config. Delete it as a drive-by in whichever slice touches settings.
 
 ## Acceptance Criteria
 
-- [ ] A `docs/rules/triggers.json` trigger flags an unprefixed `logger.*` call
+- [x] A `docs/rules/triggers.json` trigger flags an unprefixed `logger.*` call
       in `backend/**/*.py`, and its target path is confirmed to route by running
       it through `scripts/inject/route_domains.py`
 - [ ] `plant_identification`, `users`, `core` and `blog` unprefixed counts all
       reach 0, verified by
       `python3 scripts/check_log_prefixes.py --app <name> --fail-over 0`
       exiting 0 for each of the four
+      — **`core` DONE** (44 -> 0); `plant_identification` 182, `users` 84,
+      `blog` 22 remain, one slice each
 - [ ] No log message was **reworded** during prefixing (only prefixed) — the 17
       content assertions above still pass
 - [ ] Backend suite green on each slice
@@ -209,3 +211,78 @@ ever becomes one.
 - Carried forward: corrected counts, per-app breakdown, both falsified claims,
   the rejected structural fix, the test-assertion constraint, and the `caplog`
   trap — so none of it has to be re-derived.
+
+### 2026-09-13 - Trigger + the `core` slice (PR pending review)
+
+Scoped per Recommended Action 1 ("sweep app by app, one PR per slice") and
+Action 2 ("add the trigger first"). This PR is the trigger plus one slice; three
+app slices remain.
+
+**The 357 baseline was 18 too high.** Corrected to **339 of 769 (44.1%)**, 39
+files. Every correction is in `core`, which read as 92.5% non-compliant and is
+really 65.7% — 44 real violations, not 62. Three checker blind spots, each found
+by doing the work rather than by re-reading the script:
+
+| Shape | Count | Why it was miscounted |
+| --- | --- | --- |
+| `f"{LOG_PREFIX_RATELIMIT} ..."` | 15 | `apps/core/constants.py:74-83` defines ten `LOG_PREFIX_*` constants holding real bracketed values; the checker treated "f-string opens with an interpolation" as unprefixed |
+| `[RATELIMIT-RESOLVE]` | 1 | the token pattern was `[A-Z0-9_]+`, so a hyphen disqualified a real prefix |
+| `logger.debug("%s ...", LOG_PREFIX_SECURITY, exc)` | 2 | the prefix arrives as the first **%-format argument**; the rendered line was always compliant |
+
+"Fixing" those 18 would have edited correct code, and the third shape would have
+produced `[SECURITY] [SECURITY] username extraction failed`. Both scripts now
+recognise all three.
+
+**Two process lessons, both from output rather than from counters.**
+
+1. The first `--apply` printed **"prefixed 46" and wrote 9.** An f-string *chunk*
+   reports the `col_offset` of its own text, not of the enclosing quote — unlike
+   every other shape — so the splice hit a `continue` that skipped silently while
+   still counting the edit. That branch now **raises**. The shortfall was caught
+   by `--fail-over 0`, which is the argument for writing an acceptance criterion
+   as a command rather than as a description.
+2. The double-prefix was caught by **spot-reading the diff**. Both counters
+   agreed at 46 and both were wrong, so no amount of re-running them would have
+   surfaced it.
+
+Delivered:
+
+- `docs/rules/triggers.json` — `unprefixed-logger-call`, appended as text (a
+  `json.dumps` of the whole document reflows all 106 existing entries). Verified
+  by **running the hook**, not `route_domains.py`: positive on an unprefixed call
+  in `backend/apps`, positive on `backend/packages`, silent on a prefixed call,
+  silent outside `backend`, silent on a non-literal first argument. End-to-end
+  through `inject-patterns.sh` it lands in a 9411-byte payload — it survives the
+  8800-byte cap — and the fire is recorded in `~/.claude/inject-fires.log`. The
+  regex was unit-checked against 13 shapes, 0 mismatches.
+- `scripts/check_log_prefixes.py` — all three shapes, corrected baseline.
+- `scripts/add_log_prefixes.py` — the mechanical half, driven by an explicit
+  per-file token table. Prefix only: no rewording, no f-string→`%s`, no
+  `exception`/`error` changes, no reflowing.
+- 18 pre-existing flake8 violations in `core`'s files, cleaned as their own
+  commit (pre-commit lints whole staged files, so they would have blocked the
+  sweep). Measured at 18 first, which is what made cleaning them the right call
+  rather than `SKIP=flake8`.
+- The `core` slice: **44 calls, count now 0.**
+
+Verification (all re-run after black re-wrapped 5 files):
+
+| Check | Result |
+| --- | --- |
+| `check_log_prefixes.py --app core --fail-over 0` | **exit 0** (was 44) |
+| repo-wide | 339 -> **295** unprefixed, 39 -> **32** files |
+| `logger.*` calls in the 7 files | 59 before, **59** after |
+| second `--check` run | "would prefix 0" (idempotent) |
+| double-prefix grep | none |
+| `compileall apps/core` | OK |
+| flake8 on the 7 swept files | clean |
+| `pytest apps/core apps/users` | **357 passed** |
+
+Deliberately not changed: `core/security.py` now reads
+`"[SECURITY] SECURITY ALERT [...]"`, which is redundant. Rewording is unsafe
+during a prefix sweep, so the prefix went on and the wording stayed.
+
+Also not done here, and still open: the `blog` drive-bys (7 stale `BLOCKER`/
+`TODO 037` markers) belong with the `blog` slice, and the duplicate
+`ENABLE_FILE_LOGGING` block in `settings.py:839-851` belongs with whichever
+slice touches settings — no slice here did.
