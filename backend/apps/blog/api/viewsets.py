@@ -351,9 +351,9 @@ class BlogPostPageViewSet(PagesAPIViewSet):
 
         Example: /api/v2/blog-posts/popular/?limit=10&days=7
 
-        BLOCKER 3 fix: Uses constants instead of magic numbers.
-        TODO 037 fix: Optimized with prefetch_related to eliminate N+1 queries.
-        TODO 040 fix: Added caching to reduce database load (30min TTL).
+        Uses constants instead of magic numbers.
+        Optimized with prefetch_related to eliminate N+1 queries.
+        Cached for 30min to reduce database load.
         Uses self.get_queryset() to inherit list view prefetching (author, categories, tags).
 
         Performance:
@@ -376,7 +376,7 @@ class BlogPostPageViewSet(PagesAPIViewSet):
         if days < 0:
             return Response({"error": "days must be >= 0 (0 = all time)"}, status=400)
 
-        # Check cache first (TODO 040 fix)
+        # Check cache first
         cached_response = BlogCacheService.get_popular_posts(limit, days)
         if cached_response:
             elapsed = (time.time() - start_time) * 1000
@@ -427,7 +427,7 @@ class BlogPostPageViewSet(PagesAPIViewSet):
             popular_posts, many=True, context={"request": request}
         )
 
-        # Cache the response for future requests (TODO 040 fix)
+        # Cache the response for future requests
         BlogCacheService.set_popular_posts(limit, days, serializer.data)
 
         elapsed = (time.time() - start_time) * 1000
