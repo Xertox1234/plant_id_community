@@ -1,5 +1,5 @@
 ---
-status: pending
+status: in_progress
 priority: p2
 issue_id: "367"
 tags: [security, configuration, settings, prevention]
@@ -59,12 +59,12 @@ Measured 2026-09-07 against `backend/plant_community_backend/settings.py`:
 
 ## Acceptance Criteria
 
-- [ ] Settings refuse to boot (`not DEBUG`) with ANY verbatim `REQUIRED__` value,
+- [x] Settings refuse to boot (`not DEBUG`) with ANY verbatim `REQUIRED__` value,
       `JWT_SECRET_KEY` included — demonstrated by a failing-then-passing test.
-- [ ] The test enumerates `.env.example` rather than hardcoding key names.
-- [ ] `FIELD_ENCRYPTION_KEY` is either wired up or removed along with
+- [x] The test enumerates `.env.example` rather than hardcoding key names.
+- [x] `FIELD_ENCRYPTION_KEY` is either wired up or removed along with
       `django-encrypted-model-fields`.
-- [ ] `backend/docs/patterns/security/secret-management.md`'s enforcement table
+- [x] `backend/docs/patterns/security/secret-management.md`'s enforcement table
       is updated to say the convention is enforced, with the mechanism named.
 
 ## Technical Details
@@ -89,3 +89,83 @@ review — see `docs/LEARNINGS.md` 2026-09-07.
 p2 not p1: exploiting it requires an operator to actually deploy `.env.example`
 values, which has not happened — prod runs real keys. But the repo is public, the
 failure is silent, and the one guard that exists is an accident of wording.
+
+### 2026-09-13 - Enforced (PR pending review)
+
+`reject_insecure_value(name, value)` in `settings.py` raises
+`ImproperlyConfigured` for a value starting with `REQUIRED_PLACEHOLDER_PREFIX`
+(`"REQUIRED__"`), or containing any `INSECURE_PATTERNS` substring. The prefix is
+reported separately, because its remedy differs: "you copied `.env.example` and
+did not fill this in" is a different mistake from "you chose a weak value".
+
+Applied at three sites, per Recommended Action 1 and 2 -- one helper rather than
+a loop copied per key, since the copied loop is exactly why `JWT_SECRET_KEY` had
+no check at all:
+
+- `SECRET_KEY`, replacing the inline loop (production branch)
+- `JWT_SECRET_KEY`, guarded on `not DEBUG` to match, and placed **before**
+  `SIMPLE_JWT["SIGNING_KEY"]` is assigned
+- both API keys, as a prefix branch **ahead of** the length floor in
+  `validate_environment()`'s `api_key_checks` loop
+
+`FIELD_ENCRYPTION_KEY`: **removed**, with `django-encrypted-model-fields` from
+`requirements.txt`. Re-confirmed unreferenced first --
+`grep -rn "encrypted_model_fields|EncryptedCharField|EncryptedTextField|FIELD_ENCRYPTION_KEY"`
+over all `.py` returned nothing. An unused crypto dependency is attack surface
+and audit noise.
+
+**The test drives itself off `.env.example`**
+(`apps/core/tests/test_env_example_placeholders.py`): it parses the file,
+parametrises over every `REQUIRED__` line, and boots settings in a **clean
+subprocess** per case. A subprocess because "refuses to boot" is an
+import-time property -- re-importing settings in-process returns the cached
+module and proves nothing, and the checks are gated on `not DEBUG` while the
+suite runs otherwise.
+
+Three anti-false-green guards in the test itself: a `test_env_example_still_has_placeholders`
+floor so the parametrisation cannot silently collapse to zero cases; a
+`test_the_baseline_environment_boots` **control**, without which a baseline
+broken for an unrelated reason makes every rejection pass for the wrong cause;
+and an assertion that the failure message actually **names the key**, since an
+operator who cannot tell which value is wrong is not helped.
+
+**Failing-then-passing, demonstrated by mutation.** With the JWT and API-key
+guards disabled:
+
+```
+FAILED …[PLANT_ID_API_KEY-REQUIRED__GET_FROM__https://we]
+FAILED …[PLANTNET_API_KEY-REQUIRED__GET_FROM__https://my]
+FAILED …[JWT_SECRET_KEY-REQUIRED__GENERATE_WITH__pytho]
+3 failed, 4 passed
+```
+
+Exactly the three predicted -- and `SECRET_KEY` still passed while mutated,
+which **confirms the todo's claim that its guard is a coincidence.** Proven
+directly as well: running the old `INSECURE_PATTERNS`-only logic against a
+reworded hint of identical meaning
+(`REQUIRED__GENERATE_WITH__django_core_management_utils_make_random_signing_value`)
+returns `False` -- the only thing catching `SECRET_KEY` was the word "secret"
+in the hint text.
+
+`settings.py` was restored from a copy and the restoration verified by grep
+(0 `MUTATED` markers, both guards present), not assumed.
+
+Also worth recording: **a length floor is not a placeholder check.** Both API
+placeholders are *longer* than their minimums (41 and 44 against 32 and 20), and
+the JWT placeholder's 66 characters cleared all three of that key's own checks.
+
+Verification:
+
+| Check | Result |
+| --- | --- |
+| `pytest test_env_example_placeholders.py` | **7 passed** |
+| same, with the guards mutated off | **3 failed, 4 passed** (the predicted three) |
+| `pytest apps/core apps/users` | **364 passed** |
+| baseline production env boots | yes (the control) |
+| `FIELD_ENCRYPTION_KEY` / `django-encrypted-model-fields` remaining | **0 / 0** |
+
+`backend/docs/patterns/security/secret-management.md`'s enforcement section is
+rewritten from "NONE, and the one case that IS caught is caught by accident" to
+the enforced table, naming the mechanism per key, and keeping both lessons (the
+accidental guard; the wrong-property validation) rather than deleting the
+history.

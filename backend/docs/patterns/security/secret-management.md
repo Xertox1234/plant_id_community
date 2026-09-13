@@ -343,30 +343,47 @@ JWT_SECRET_KEY=REQUIRED__GENERATE_WITH__python_-c_import_secrets_token_urlsafe_6
 Two suffixes carry the whole convention: `REQUIRED__GENERATE_WITH__<command>`
 for values you create, `REQUIRED__GET_FROM__<url>` for values you fetch.
 
-**Enforcement: NONE, and the one case that IS caught is caught by accident.**
-Verified 2026-09-07 against `backend/plant_community_backend/settings.py`:
-`REQUIRED__` appears in `backend/.env.example`, in this doc, and in two archived
-todos — **no validator anywhere looks for it.** So the outcome of shipping a
-placeholder verbatim is per-key accident, and only one of the five is stopped:
+**Enforcement: ENFORCED since todo 367.** Production settings refuse to boot on
+any verbatim `REQUIRED__` value. Before todo 367 nothing looked for the prefix
+at all, and four of the five placeholders booted clean.
 
-| Placeholder | Outcome if used verbatim in production | Why |
+The mechanism, in one place:
+`reject_insecure_value(name, value)` in
+`backend/plant_community_backend/settings.py` raises `ImproperlyConfigured` when
+a value starts with `REQUIRED_PLACEHOLDER_PREFIX` (`"REQUIRED__"`), or contains
+any `INSECURE_PATTERNS` substring. The prefix is reported separately because its
+remedy differs — "you copied `.env.example` and did not fill this in" is a
+different mistake from "you chose a weak value".
+
+| Placeholder | Outcome if used verbatim in production | Enforced by |
 |---|---|---|
-| `SECRET_KEY` | **rejected at boot** | **coincidence** — `INSECURE_PATTERNS` (settings.py:84) contains `"secret"`, and this key's *generation hint text* happens to include that word |
-| `JWT_SECRET_KEY` | **accepted — and used as the JWT signing key** | `INSECURE_PATTERNS` is applied to `SECRET_KEY` only (settings.py:94). JWT's own checks are just: set, `!= SECRET_KEY`, `len >= 50`. The placeholder is 66 chars and differs, so it clears all three and lands in `SIMPLE_JWT["SIGNING_KEY"]` |
-| `FIELD_ENCRYPTION_KEY` | **accepted — nothing ever reads it** | no `.py` references it; `encrypted_model_fields` is not in `INSTALLED_APPS`, so `django-encrypted-model-fields` is an unused dependency |
-| `PLANT_ID_API_KEY` | accepted | `validate_environment()` only enforces a length floor of 32; the placeholder is 41 |
-| `PLANTNET_API_KEY` | accepted | floor is 20; the placeholder is 44 |
+| `SECRET_KEY` | rejected at boot | `reject_insecure_value("SECRET_KEY", …)` in the production branch |
+| `JWT_SECRET_KEY` | rejected at boot | `reject_insecure_value("JWT_SECRET_KEY", …)`, guarded on `not DEBUG`, placed **before** `SIMPLE_JWT["SIGNING_KEY"]` is assigned |
+| `PLANT_ID_API_KEY` | rejected at boot | prefix check in `validate_environment()`'s `api_key_checks` loop, ahead of the length floor |
+| `PLANTNET_API_KEY` | rejected at boot | same loop |
+| `FIELD_ENCRYPTION_KEY` | n/a — **removed** | it was accepted and never read; `django-encrypted-model-fields` was dropped from `requirements.txt` with it |
 
-**The `JWT_SECRET_KEY` row is the dangerous one.** An operator who deploys from
-`.env.example` hits the `SECRET_KEY` error — which helpfully prints the generate
-command — fixes that one line, and boots clean, now signing every JWT with a
-value published in a committed file. Anyone who can read the repo can forge
-tokens. Nothing in the current code catches it.
+**Two things are worth remembering about how this looked before.**
 
-So do not cite `REQUIRED__` as a security control. Making it one takes two
-changes, not one: add `"required__"` to `INSECURE_PATTERNS`, **and apply that
-loop to `JWT_SECRET_KEY` as well** — adding the pattern alone only hardens the
-key that is already caught. Tracked in todo 367.
+*The one guard that existed was an accident.* `SECRET_KEY` was rejected only
+because `INSECURE_PATTERNS` contains `"secret"` and that key's **generation hint
+text** happens to include the word. Reword the hint to mean the same thing —
+`REQUIRED__GENERATE_WITH__django_core_management_utils_make_random_signing_value`
+— and the old logic accepts it. A guard that works by coincidence is not a
+guard, and it reads exactly like one that does.
+
+*A length floor is not a placeholder check.* Both API-key placeholders are
+**longer** than their minimums (41 and 44 chars against floors of 32 and 20), and
+the JWT placeholder's 66 characters cleared all three of that key's own checks —
+set, `!= SECRET_KEY`, `len >= 50`. Validation that measures the wrong property
+passes confidently.
+
+**The test drives itself off `.env.example`.**
+`backend/apps/core/tests/test_env_example_placeholders.py` parses the file,
+parametrises over every `REQUIRED__` line, and boots settings in a clean
+subprocess per case, so a placeholder added tomorrow is covered without anyone
+remembering to add a case. It carries a baseline-boots control, so a broken
+baseline cannot make every rejection pass for the wrong reason.
 
 ---
 
