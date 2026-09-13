@@ -64,7 +64,19 @@ BASELINE = {
     "PLANT_ID_API_KEY": "0123456789abcdef0123456789abcdef0123",  # pragma: allowlist secret
     "PLANTNET_API_KEY": "2b10abcdefghijklmnopqrstuv",  # pragma: allowlist secret
     "REDIS_URL": "redis://localhost:6379/0",
+    # Production-only requirements in validate_environment(): without these the
+    # baseline fails for reasons that have nothing to do with placeholders.
+    "CSRF_TRUSTED_ORIGINS": "https://example.com",
+    "CORS_ALLOWED_ORIGINS": "https://example.com",
 }
+
+# The wording reject_insecure_value() and the api_key_checks loop use for a
+# placeholder specifically. Asserting on THIS rather than on the exit code is
+# what keeps these tests independent of the environment: `validate_environment()`
+# also pings Redis and demands production CSRF/CORS origins, none of which a
+# developer machine reliably has. A boot that fails for a missing Redis is not
+# evidence about placeholder handling in either direction.
+PLACEHOLDER_MARKERS = ("unmodified .env.example placeholder", "REQUIRED__")
 
 PIN_RE = re.compile(rf"^([A-Z0-9_]+)=({re.escape(PLACEHOLDER_PREFIX)}\S*)")
 
@@ -77,6 +89,12 @@ def _placeholders():
         if match:
             found.append((match.group(1), match.group(2)))
     return found
+
+
+def _boot_output(overrides):
+    """`_boot` output as one string -- settings writes to both streams."""
+    result = _boot(overrides)
+    return result.stdout + result.stderr
 
 
 def _boot(overrides):
@@ -110,36 +128,50 @@ def test_env_example_still_has_placeholders():
     assert {"SECRET_KEY", "JWT_SECRET_KEY"} <= names, names
 
 
-def test_the_baseline_environment_boots():
+def test_the_baseline_environment_raises_no_placeholder_error():
     """The control.
 
-    Without it, a baseline that is broken for an unrelated reason makes every
-    rejection test below pass for the wrong cause -- the false-green shape this
-    repo keeps rediscovering.
+    Without it, an environment that rejects EVERYTHING makes every rejection
+    test below pass for the wrong cause -- the false-green shape this repo keeps
+    rediscovering.
+
+    It asserts the absence of a *placeholder* complaint rather than a clean exit.
+    An earlier version asserted `returncode == 0` and failed in CI: the baseline
+    booted locally only because a developer `.env` supplied CSRF_TRUSTED_ORIGINS
+    and a live Redis, neither of which this test should depend on. The control
+    caught that itself, which is the argument for having one.
     """
-    result = _boot({})
-    assert result.returncode == 0, (
-        "the baseline production environment does not boot, so the rejection "
-        f"tests below prove nothing:\n{result.stderr[-3000:]}"
-    )
+    combined = _boot_output({})
+    for marker in PLACEHOLDER_MARKERS:
+        assert marker not in combined, (
+            f"the baseline environment is itself rejected as a placeholder "
+            f"({marker!r}), so the rejection tests below prove nothing:"
+            f"\n{combined[-2000:]}"
+        )
 
 
 @pytest.mark.parametrize("key,value", _placeholders(), ids=lambda v: str(v)[:30])
 def test_a_verbatim_placeholder_refuses_to_boot(key, value):
     """Production settings must reject the unmodified `.env.example` value."""
     result = _boot({key: value})
+    combined = result.stdout + result.stderr
 
     assert result.returncode != 0, (
         f"{key} booted cleanly with its verbatim .env.example placeholder -- "
         "that value is committed to a PUBLIC repository.\n"
         f"stdout tail:\n{result.stdout[-2000:]}"
     )
-    combined = result.stdout + result.stderr
+    # Rejected *as a placeholder*, not merely rejected. Without this a missing
+    # Redis would make every case pass while proving nothing.
+    assert any(m in combined for m in PLACEHOLDER_MARKERS), (
+        f"{key} was rejected, but not as a placeholder -- the failure is "
+        f"something else and this test would pass without the fix:"
+        f"\n{combined[-2500:]}"
+    )
     assert key in combined, (
         f"boot failed but the message never names {key}, so an operator cannot "
         f"tell which value is wrong:\n{combined[-3000:]}"
     )
-    assert "ImproperlyConfigured" in combined, combined[-3000:]
 
 
 def test_the_removed_encryption_setting_is_gone():

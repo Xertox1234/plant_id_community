@@ -169,3 +169,50 @@ rewritten from "NONE, and the one case that IS caught is caught by accident" to
 the enforced table, naming the mechanism per key, and keeping both lessons (the
 accidental guard; the wrong-property validation) rather than deleting the
 history.
+
+### 2026-09-13 - CI caught the control; test hardened
+
+The first CI run **failed on `test_the_baseline_environment_boots`** — the very
+control the test carries. It passed locally and failed in CI because the local
+baseline booted only with help this test should never have depended on:
+
+- `validate_environment()` requires `CSRF_TRUSTED_ORIGINS` and
+  `CORS_ALLOWED_ORIGINS` in production, and the developer `.env` supplied both
+  (`python-decouple` consults `os.environ` first, then falls back to `.env` —
+  so a "clean" subprocess environment was still not clean);
+- it also **pings Redis**, which CI's pytest job has and a developer machine may
+  not.
+
+Asserting `returncode == 0` therefore asserted "this machine has a dev `.env`
+and a running Redis", not "the baseline is a valid production config".
+
+Fixed by asserting on **what the message says**, not on the exit code:
+
+- `PLACEHOLDER_MARKERS` names the wording `reject_insecure_value()` and the
+  `api_key_checks` loop use for a placeholder specifically.
+- The control now asserts the baseline produces **no placeholder complaint**.
+- Each case now asserts it was rejected **as a placeholder**, not merely
+  rejected — without that, a missing Redis would make all four pass while
+  proving nothing.
+
+The two missing env vars were added to `BASELINE` as well, so the baseline is a
+genuinely valid production config rather than one propped up by `.env`.
+
+Proven environment-independent by pointing `REDIS_URL` at a dead port:
+
+```
+baseline boots?           False
+baseline mentions redis?  True
+CONTROL passes:           True
+  SECRET_KEY        rejected AS A PLACEHOLDER: True
+  PLANT_ID_API_KEY  rejected AS A PLACEHOLDER: True
+  PLANTNET_API_KEY  rejected AS A PLACEHOLDER: True
+  JWT_SECRET_KEY    rejected AS A PLACEHOLDER: True
+```
+
+Mutation re-run after hardening: with the JWT and API-key guards disabled, the
+same three cases fail. The assertions got stricter, not looser.
+
+**The lesson is the control's, though.** A test that asserts a whole environment
+boots is asserting far more than it means to, and every extra requirement is a
+way for it to fail for the wrong reason. Assert the specific behaviour.
