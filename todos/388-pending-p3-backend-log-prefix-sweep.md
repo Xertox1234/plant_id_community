@@ -26,10 +26,21 @@ code; it was never retrofitted to the older apps.
 
 ## Measured scope (2026-09-13, todo 361)
 
-AST parse of every non-test `.py` under `backend/apps/`, testing each
+Produced by **`scripts/check_log_prefixes.py`** (committed with this todo, so
+every later count is comparable to this baseline):
+
+```
+python3 scripts/check_log_prefixes.py
+357 unprefixed of 769 judgeable (46.4%), 41 files
+```
+
+It AST-parses every non-test `.py` under `backend/apps/`, testing each
 `logger.*` call's first-argument literal against `^\s*\[[A-Z0-9_]+\]`.
-Multi-line calls, f-strings and `%`-format strings handled. Detector was
-positive-controlled against a known-prefixed call, not only negative-controlled.
+Multi-line calls, f-strings and `%`-format strings are handled; a first
+argument that is not a literal is reported as undeterminable and excluded from
+the ratio rather than guessed at. The script's docstring states each rule and
+its limitation. It was positive-controlled against a known-prefixed call, not
+only negative-controlled.
 
 | App | Unprefixed | Prefixed | Suggested slice |
 | --- | --- | --- | --- |
@@ -74,7 +85,14 @@ would be the first.)
 2. **Add a `docs/rules/triggers.json` entry** for the unprefixed-logger rule —
    see the gap below. Do this *first* so new code stops adding to the debt while
    the sweep runs.
-3. Re-run the todo-361 detector after each slice to show the count dropping.
+3. After each slice, prove the count dropped:
+
+   ```
+   python3 scripts/check_log_prefixes.py --app <name> --fail-over 0
+   ```
+
+   Exits 1 while any unprefixed call remains in that app, so it can gate CI.
+   `--list` prints every remaining call site with its level and message head.
 
 ## Technical Details
 
@@ -154,7 +172,9 @@ logging config. Delete it as a drive-by in whichever slice touches settings.
       in `backend/**/*.py`, and its target path is confirmed to route by running
       it through `scripts/inject/route_domains.py`
 - [ ] `plant_identification`, `users`, `core` and `blog` unprefixed counts all
-      reach 0, verified by re-running the todo-361 detector
+      reach 0, verified by
+      `python3 scripts/check_log_prefixes.py --app <name> --fail-over 0`
+      exiting 0 for each of the four
 - [ ] No log message was **reworded** during prefixing (only prefixed) — the 17
       content assertions above still pass
 - [ ] Backend suite green on each slice

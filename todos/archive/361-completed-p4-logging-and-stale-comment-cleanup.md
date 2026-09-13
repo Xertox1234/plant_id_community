@@ -52,7 +52,17 @@ So two of the four original items are closed by time, and two survive.
 
 ## Measurement (2026-09-13) — AC 2
 
-AST parse of every non-test `.py` under `backend/apps/` (316 files), matching
+Produced by **`scripts/check_log_prefixes.py`**, committed as part of this todo
+so todo 388's per-slice counts stay comparable to this baseline (code review
+caught that the original detector lived only in a session scratchpad, which
+would have left todo 388's AC 2 unsatisfiable as written):
+
+```
+python3 scripts/check_log_prefixes.py
+357 unprefixed of 769 judgeable (46.4%), 41 files
+```
+
+It AST-parses every non-test `.py` under `backend/apps/` (316 files), matching
 `logger|log|_logger . debug|info|warning|error|exception|critical` and testing
 the first argument's literal leading text against `^\s*\[[A-Z0-9_]+\]`.
 Multi-line calls, f-strings and `%`-format strings are all handled.
