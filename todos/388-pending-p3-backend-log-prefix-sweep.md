@@ -92,15 +92,15 @@ Note the 8800-byte injection cap: `api.md` must stay under it for the rule to
 actually reach an edit, so prefer a `triggers.json` entry over lengthening the
 rule file.
 
-### Tests that read log content — 17 assertions across 11 files
+### Tests that read log content — 17 assertions across 12 files
 
 **Adding a prefix to a currently-unprefixed call is safe for all 17. Rewording
 the message is not.** Do not reword while prefixing.
 
 *Prefix-sensitive (6)* — assert a bracket token is present:
 `apps/forum_host/tests/test_rag_index_tasks.py:126,308` (`[CELERY]`),
-`apps/blog/tests/test_blog_viewsets_caching.py:146,191` (`[PERF]` + "cached response"),
-`apps/blog/tests/test_ai_cache_service.py:191` (`[CACHE]`),
+`apps/blog/tests/test_blog_viewsets_caching.py:147,195` (`[PERF]` + "cached response"),
+`apps/blog/tests/test_ai_cache_service.py:193` (`[CACHE]`),
 `packages/wagtail_forum/.../test_digest.py:428` (`[EMAIL] forum digest failed` — prefix *and* prose).
 
 *Prose-sensitive (11)*: `forum_host/tests/test_signals.py:722,827,854`,
@@ -140,6 +140,19 @@ logging config. Delete it as a drive-by in whichever slice touches settings.
 - [ ] No log message was **reworded** during prefixing (only prefixed) — the 17
       content assertions above still pass
 - [ ] Backend suite green on each slice
+
+Left in place, out of scope: **7 stale fix-attribution markers** of the same
+family survive in `backend/apps/blog/`, verified 2026-09-13:
+
+| Marker | Location |
+| --- | --- |
+| `BLOCKER 3` | `blog/constants.py:36`, `blog/middleware.py:109,144,153` |
+| `BLOCKER 1` | `blog/middleware.py:98` |
+| `BLOCKER 2` | `blog/tests/test_analytics.py:15` |
+| `TODO 037` | `blog/tests/test_analytics.py:487` |
+
+Todo 361 deliberately scoped itself to `TODO 040` (its AC), so these were not
+swept. Clear them as a drive-by in whichever slice touches `blog`.
 
 ## Notes
 

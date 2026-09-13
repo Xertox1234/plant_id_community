@@ -159,12 +159,15 @@ exit=1 (no matches)
 
 The `[CACHE]` logs at `signals.py:70,100,130` and the `[PERF]` logs at
 `viewsets.py:384,435` were deliberately left untouched — they are asserted on by
-`test_blog_viewsets_caching.py:146,191`.
+`test_blog_viewsets_caching.py:147,195`.
 
-**Left in place, out of scope:** 5 further `BLOCKER 3 fix` markers in
-`blog/middleware.py:109,144,153`, `blog/constants.py:36` and
-`blog/tests/test_analytics.py:487` — different files, no AC coverage, carried to
-todo 388. `backend/todos/archive/005-...md` untouched (historical record).
+**Left in place, out of scope:** 7 further stale fix-attribution markers of the
+same family survive in `backend/apps/blog/` — `BLOCKER 3` x4
+(`constants.py:36`, `middleware.py:109,144,153`), `BLOCKER 1`
+(`middleware.py:98`), `BLOCKER 2` (`tests/test_analytics.py:15`) and `TODO 037`
+(`tests/test_analytics.py:487`). This todo's AC scopes it to `TODO 040`, so they
+are carried to todo 388 rather than swept here.
+`backend/todos/archive/005-...md` is untouched (historical record).
 
 **AC 2 / AC 3 — see the Measurement section above.** 357 unprefixed (46.4%),
 not 5%. Re-scoped to todo 388 rather than swept.
