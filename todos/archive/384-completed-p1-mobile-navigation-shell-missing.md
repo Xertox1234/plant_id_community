@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: p1
 issue_id: "384"
 tags: [mobile, flutter, navigation, ux]
@@ -207,22 +207,62 @@ Rationale, so it can be argued with:
 - [x] Zero routes in `AppRoutes` are reachable from nothing, or each remaining
       orphan is deliberately documented as intentionally unreachable
       (#734/#735 — checker exits 0; `garden` documented in `ALLOWED_ORPHANS`)
-- [ ] `forumGroups` is registered as a route, or removed from `AppRoutes` and
+- [x] `forumGroups` is registered as a route, or removed from `AppRoutes` and
       from the router's protected-prefix set
-      → **NOT checked off: the premise is false and neither branch is correct.**
-      Resolved instead by reporting it as a guard prefix (#734). Left open
-      deliberately rather than falsified — see the correction above.
-- [ ] A signed-out user can reach sign-in and register from a cold launch, and
-      sign-in succeeds against production (this also discharges todo 383 AC 5)
-      → half done: LoginScreen and RegisterScreen built and reachable from the
-      Profile tab, asserted by `navigation_shell_test.dart` (#735). The
-      **against production** half needs TestFlight build 6 on a device.
+      → **The premise was false and neither branch was correct.** Discharged by
+      the third answer the AC did not anticipate: `forumGroups` is a guard
+      PREFIX, and the checker now says so in its own output rather than leaving
+      a reader to rediscover it (#734). Checked off on the evidence below, not
+      on the original wording — both children are registered and the prefix is
+      reported separately from destinations:
+      ```
+      PREFIX (not a destination): forumGroups = '/forum/groups'
+          guard prefix for /forum/groups/:id (todo 350); not a destination --
+          both children (/new, /:id) are registered, and no group-list screen
+          exists (groups are folded into ForumConversationsScreen)
+      ```
+- [x] A signed-out user can reach sign-in and register from a cold launch, and
+      sign-in succeeds against production (this also discharges the iOS half of
+      todo 383 AC 5)
+      → **DONE 2026-09-13.** The owner signed in on TestFlight build 7 on a
+      physical iPhone, against production. Confirmed server-side rather than
+      from the UI — Railway `plant_id_community` production logs:
+      ```
+      [FIREBASE AUTH] Token validated for uid=QY7lYq7ne..., email=wi***@gmail.com
+      [FIREBASE AUTH] Bound Firebase UID for wi***@gmail.com
+      [FIREBASE AUTH] Existing user authenticated: wi***@gmail.com
+      ```
+      "Existing user authenticated", not "New user created": it LINKED to the
+      Django account created by the web app's Google OAuth button, and the
+      owner's forum history and bookmarks survived.
+
+      Reaching a signed-in state needed four things nobody had listed here,
+      each hidden behind the last: Login/Register screens that existed at all
+      (#735), a Google path (#736 — the backend 403s every unverified
+      email/password token and the app sends no verification mail, so
+      email/password could never complete), `FIREBASE_PROJECT_ID` set in
+      production, and `_VerifyOnlyCredential` so `firebase_admin` stops
+      demanding Application Default Credentials to verify a token signed with
+      Google's public certs (#737).
 - [x] Identify no longer strands the user: it can be left without force-quitting
       (#735 — `canPop()` asserted in `navigation_shell_test.dart`)
-- [ ] A test asserts reachability rather than existence — the route inventory in
+- [x] A test asserts reachability rather than existence — the route inventory in
       finding 1 is re-runnable and fails when a destination becomes orphaned.
-      Note the lesson from todo 383 item 11: `find.text` proves a widget is in
-      the TREE, not that a user can get to it or see it
+      → **DONE**, in both halves, static and dynamic:
+      ```
+      $ python3 scripts/check_flutter_route_reachability.py
+      All 17 routes are reachable.
+      checker exit = 0
+      ```
+      ```
+      $ flutter test test/routing/navigation_shell_test.dart \
+                     test/routing/auth_dismiss_test.dart
+      00:03 +16: All tests passed!
+      ```
+      The dynamic half matters because of exactly the todo-383 item-11 lesson
+      cited here: `find.text` proves a widget is in the TREE. Every assertion in
+      `navigation_shell_test.dart` instead drives a real tap through the
+      PRODUCTION router and checks where it landed.
 
 ## Notes
 
@@ -241,3 +281,24 @@ Routing note: `python3 scripts/inject/route_domains.py` puts the script in
 `security` only. There is no `*flutter*` filename glob the way there is a
 `*firebase*` one, so write-time injection will not surface `docs/rules/flutter.md`
 when editing it. Checked rather than assumed.
+
+### 2026-09-13 - Started by completing-todos skill (run 2026-09-13-1516)
+
+- Picked up by automated workflow.
+
+### 2026-09-13 - Completed by completing-todos skill (run 2026-09-13-1516)
+
+- Verification: all 6 acceptance criteria pass. The three that were open are
+  discharged above with quoted output — reachability checker exit 0 ("All 17
+  routes are reachable"), 16 routing tests green, and the production Railway
+  log line `Existing user authenticated` for a real sign-in on a physical
+  iPhone (TestFlight build 7).
+- Review: no code review dispatched. This archival diff is documentation only
+  (todo files); there is no changed source for `code-review-orchestrator` to
+  route. The code that discharged these criteria was reviewed in its own PRs —
+  #734, #735, #736, #737, #738.
+- Shipped across #733 (filing), #734 (checker correction), #735 (nav shell +
+  auth screens), #736 (Google sign-in), #737 (backend token verification),
+  #738 (post-sign-in navigation).
+- Follow-ups already split out and left open: 385 (Blog/Diagnose), 386
+  (Garden/Care are hollow).
