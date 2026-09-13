@@ -300,6 +300,53 @@ void main() {
       await tester.pump(const Duration(seconds: 4));
     });
   });
+
+  group('the Identify FAB does not sit on the nav bar', () {
+    // The FAB is a fixed 56px and each destination cell is width/4, so the
+    // NARROWER the phone the more of its neighbours the FAB covers. 320pt is
+    // the narrowest width iOS ships. Under the `centerDocked` this shell was
+    // written with, these failed by 11.3px at 390pt and 20px at 320pt, on two
+    // of the four tabs -- with an even number of destinations the centre of
+    // the screen is a boundary between two of them, not a gap.
+    //
+    // Geometry only, no text: the M3 selection pill is a fixed 64x32, so this
+    // assertion is font-independent. That matters, because flutter_test's
+    // default font is MONOSPACE at 12.25px per character and inflates every
+    // label -- measuring anything text-shaped here without first loading the
+    // real Geist face via FontLoader produces confident, wrong numbers.
+    for (final width in <double>[320.0, 390.0, 428.0]) {
+      testWidgets(
+        'the Identify FAB never covers a tab selection indicator '
+        '@${width.toInt()}pt',
+        (tester) async {
+          tester.view.physicalSize = Size(width, 844) * 3;
+          tester.view.devicePixelRatio = 3.0;
+          addTearDown(tester.view.resetPhysicalSize);
+          addTearDown(tester.view.resetDevicePixelRatio);
+
+          await pumpShell(tester, loggedIn: false);
+
+          final fab = tester.getRect(find.byType(FloatingActionButton));
+          final indicators = find.byType(NavigationIndicator);
+          // A missing indicator would make the loop below vacuously pass.
+          expect(indicators, findsNWidgets(MainShell.destinations.length));
+
+          for (var i = 0; i < MainShell.destinations.length; i++) {
+            expect(
+              tester.getRect(indicators.at(i)).overlaps(fab),
+              isFalse,
+              reason:
+                  'at ${width.toInt()}pt the Identify FAB covers part of the '
+                  '"${MainShell.destinations[i].label}" tab selection '
+                  'indicator, so that tab looks clipped when selected',
+            );
+          }
+
+          await tester.pump(const Duration(seconds: 4));
+        },
+      );
+    }
+  });
 }
 
 /// Thin holder so assertions read as `h.path` rather than a four-property chain.

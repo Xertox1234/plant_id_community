@@ -107,7 +107,18 @@ class MainShell extends StatelessWidget {
         onPressed: () => context.push(AppRoutes.camera),
         child: const Icon(Icons.camera_alt),
       ),
-      floatingActionButtonLocation: FloatingActionButtonLocation.centerDocked,
+      // centerFloat, NOT centerDocked. `centerDocked` sinks the FAB halfway
+      // into the bar, and with FOUR destinations the centre of the screen is
+      // the boundary between destinations 1 and 2 -- so the 56px FAB lands on
+      // top of both. Measured at 390pt: the M3 selection pill is a fixed 64x32
+      // (font-independent), pill[1] spans x 114.4-178.4 and pill[2] 211.9-275.9
+      // against a FAB at 167.1-223.1, vertically 736-792 against pills at
+      // 777.5-809.5. That is 11.3px of "My Plants" and 11.2px of "Forum"
+      // covered whenever either is selected, and 20px each at 320pt.
+      // `centerFloat` lifts the FAB clear (bottom 748 vs bar top 764) and keeps
+      // the centre placement. Asserted by
+      // 'the Identify FAB never covers a tab selection indicator' below.
+      floatingActionButtonLocation: FloatingActionButtonLocation.centerFloat,
       bottomNavigationBar: NavigationBar(
         selectedIndex: navigationShell.currentIndex,
         onDestinationSelected: _onDestinationSelected,
