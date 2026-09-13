@@ -7,7 +7,7 @@ information disclosure vulnerabilities.
 
 import logging
 import re
-from typing import Any, Dict, List, Union
+from typing import Any, Dict
 
 from django.conf import settings
 from django.http import JsonResponse
@@ -152,7 +152,7 @@ class ResponseSanitizer:
             )
 
         if original_value != value and is_debug:
-            logger.warning(f"XSS pattern sanitized in response")
+            logger.warning("XSS pattern sanitized in response")
 
         return value
 

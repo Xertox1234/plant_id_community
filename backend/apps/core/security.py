@@ -8,7 +8,7 @@ response utilities to help maintain application security.
 import json
 import logging
 import time
-from datetime import datetime, timedelta
+from datetime import timedelta
 from typing import Any, Dict, Optional, Tuple
 
 from apps.core.utils.pii_safe_logging import (

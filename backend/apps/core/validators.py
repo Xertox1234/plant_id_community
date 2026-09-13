@@ -9,9 +9,8 @@ and input handling across the application.
 import logging
 import mimetypes
 import os
-from typing import List, Optional
+from typing import Optional
 
-from django.conf import settings
 from django.core.exceptions import ValidationError
 from PIL import Image
 

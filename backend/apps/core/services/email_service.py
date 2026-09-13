@@ -336,17 +336,24 @@ class EmailService:
 
     def _generate_unsubscribe_url(self, user: User, email_type: str) -> str:
         """Generate unsubscribe URL for user and email type."""
+        site_url = getattr(settings, "SITE_URL", "https://plantcommunity.com")
         try:
             unsubscribe_path = reverse("users:unsubscribe")
-            return f"{getattr(settings, 'SITE_URL', 'https://plantcommunity.com')}{unsubscribe_path}?user={user.uuid}&type={email_type}"
+            return f"{site_url}{unsubscribe_path}?user={user.uuid}&type={email_type}"
         except Exception:
             # Fallback if reverse fails
-            return f"{getattr(settings, 'SITE_URL', 'https://plantcommunity.com')}/api/auth/unsubscribe/?user={user.uuid}&type={email_type}"
+            return (
+                f"{site_url}/api/auth/unsubscribe/"
+                f"?user={user.uuid}&type={email_type}"
+            )
 
     def _generate_preferences_url(self, user: User) -> str:
         """Generate email preferences URL for user."""
         try:
-            preferences_path = reverse("users:email_preferences")
+            # Called for its side effect: raises NoReverseMatch when the route
+            # is absent, which is what the `except` below handles. The resolved
+            # path is not used -- the PWA route is a fragment, not the Django one.
+            reverse("users:email_preferences")
             site_url = getattr(settings, "SITE_URL", "https://plantcommunity.com")
             return f"{site_url}#!/settings/email-preferences"  # PWA route
         except Exception:

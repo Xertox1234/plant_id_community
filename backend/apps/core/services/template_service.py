@@ -6,14 +6,11 @@ responsive email design and dynamic content.
 """
 
 import logging
-import os
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict
 
 from django.conf import settings
-from django.contrib.staticfiles.finders import find
-from django.template import Context, Template, TemplateDoesNotExist
+from django.template import TemplateDoesNotExist
 from django.template.loader import get_template, render_to_string
-from django.utils.safestring import mark_safe
 
 logger = logging.getLogger(__name__)
 
@@ -122,6 +119,13 @@ class TemplateService:
         title = context.get("notification_title", "Notification")
         message = context.get("notification_message", "")
         site_name = context.get("site_name", "Plant Community")
+        # Extracted only to get the source line under 120 chars. Splitting the
+        # attribute inside the template would inject a newline into the rendered
+        # HTML; interpolating it leaves the output byte-identical.
+        body_style = (
+            "font-family: Arial, sans-serif; line-height: 1.6; color: #333; "
+            "max-width: 600px; margin: 0 auto; padding: 20px;"
+        )
 
         return f"""
         <!DOCTYPE html>
@@ -131,7 +135,7 @@ class TemplateService:
             <meta name="viewport" content="width=device-width, initial-scale=1.0">
             <title>{title}</title>
         </head>
-        <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px;">
+        <body style="{body_style}">
             <div style="background-color: #f8f9fa; padding: 20px; border-radius: 8px;">
                 <h1 style="color: #2c5f41; margin-bottom: 20px;">{title}</h1>
                 <div style="background-color: white; padding: 20px; border-radius: 4px;">
