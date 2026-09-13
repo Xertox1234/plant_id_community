@@ -286,3 +286,43 @@ Also not done here, and still open: the `blog` drive-bys (7 stale `BLOCKER`/
 `TODO 037` markers) belong with the `blog` slice, and the duplicate
 `ENABLE_FILE_LOGGING` block in `settings.py:839-851` belongs with whichever
 slice touches settings — no slice here did.
+
+### 2026-09-13 - A fourth checker blind spot, found while scoping the next slice
+
+`forum_host/tasks.py:71` is `logger.info("%s (task=%s)", line, self.request.id)`
+— it **relays a line from a management command's stdout**, and that line already
+carries its own prefix (`test_tasks.py:857`'s fake writes
+`"[EMAIL] digest frequency=..."`). Prefixing the literal would render
+`[FORUM] [EMAIL] digest ...`.
+
+This one is **not fixable by the checker**: the prefix lives in a runtime value,
+so no static rule can see it, and a rule like "first argument is exactly `%s …`"
+would suppress real violations. It is also not fixable by prefixing. The call is
+correct as written.
+
+Consequence: **`forum_host` cannot reach 0** — it stays at 1 of 75. That is fine;
+`forum_host` is a fold-in, not one of the four apps the acceptance criteria name.
+Recorded so the next person does not "fix" a working relay, and so a future
+`--fail-over 0` on `forum_host` is known to be unsatisfiable.
+
+Running total of checker corrections: 15 constant-prefix + 1 hyphen + 2
+format-arg (all fixed) + 1 runtime relay (unfixable, documented).
+
+### Next slice is blocked on this PR merging
+
+`blog` (22 calls in `api_views.py`, `services/plant_data_lookup_service.py`,
+`management/commands/populate_plant_images.py`) was scoped and is ready:
+7 pre-existing flake8 violations, no overlap with PR #747 (which touches
+`blog/ai_integration.py`, already at 0), and `[PLANT_DATA]` is the right token —
+blog's existing vocabulary (`[CACHE]` 44, `[PERF]` 15, `[AI]` 4, …) has none for
+this path, and `[AI]` would be wrong since it queries Trefle/Unsplash/Pexels
+rather than a model.
+
+It is **not** opened as a stacked PR on purpose: `scripts/add_log_prefixes.py`
+exists only on this branch, and in this repo a stacked PR runs 1 CI check instead
+of 17 and goes dirty the moment the parent squash-merges.
+
+`garden_calendar` (4 calls) is deliberately **deferred**, not folded in: its only
+lint blocker is an `E402` at `signals.py:156`, where a management `Command` class
+and its `BaseCommand` import sit in the middle of a signals module. That is a
+real structural oddity and not something to resolve inside a log-prefix sweep.
