@@ -5984,3 +5984,63 @@ inside something labelled complete.
    expired. Those must not read the same way.
 4. A one-off status value is a smell worth grepping for:
    `grep -h "^status:" todos/**/*.md | sort | uniq -c` surfaced it immediately.
+
+## 2026-09-13 — An injected rule that reaches the edit site is still violated 46.4% of the time (todo 361)
+
+`docs/rules/api.md:13-14` has mandated bracketed log prefixes
+(`logger.info("[CACHE] ...")`) for a long time. Todo 361 inherited a claim from
+GitHub issue #186 that 5% of log statements were unprefixed — a figure nobody
+ever re-measured. An AST parse of every non-test `.py` under `backend/apps/`
+(316 files, handling multi-line calls, f-strings and `%`-format strings) put the
+real number at **357 unprefixed of 769 judgeable calls — 46.4%**, across 41
+files. The inherited figure was off by roughly 9x.
+
+The obvious explanation was the 8800-byte injection cap: `api.md` is 16640 B and
+`_discipline.md` (4426 B) is always prepended, so most of the file is cut. That
+explanation is **wrong**, and it was wrong in the reassuring direction. Running
+the hook — not reading `route_domains.py`, not computing byte offsets — showed
+the rule sits at byte 677, survives the cut, and is injected on every edit to
+`apps/users/services.py`, the second-worst offender at 84 unprefixed calls:
+
+```
+route_domains.py backend/apps/users/services.py      -> api,security,database
+inject-patterns.sh < edit-to-users-services.json     -> 9192 B payload
+grep -c "Bracketed log prefixes"                     -> 1
+```
+
+So the rule is delivered, read, and ignored at scale. Prose injection tells you
+the convention exists; it does not fire at the line where you are breaking it.
+That gap is what `docs/rules/triggers.json` exists to close, and there was no
+trigger for this rule — only two logging-adjacent entries, neither about
+prefixes. Newer code proves the convention is workable when enforced by habit:
+`backend/packages/wagtail_forum` is 26 prefixed / 1 unprefixed.
+
+A second failure showed up in the same session, in the documents written *about*
+the first. Both todo files repeated `file:line` citations taken from a subagent's
+report without resolving any of them. Mechanically checking every citation
+against the tree found four wrong: two pointed at a setup line and a comment
+rather than the assertions they claimed, an aggregate file count was off by one,
+and a stale-marker inventory was wrong in both count and kind (claimed "5
+`BLOCKER 3` markers"; really 7 markers across 4 families, one of them a
+`TODO 037`). None of these would ever have been re-checked — a precise-looking
+`path.py:146` reads as verified.
+
+**Rules:**
+
+1. Prove a rule actually reaches an edit by **running `inject-patterns.sh`** on a
+   representative file and grepping the payload. `route_domains.py` tells you the
+   domain, not whether the bytes survived the cap; a byte-offset calculation
+   ignores that multiple domains share one budget.
+2. An injected prose rule is documentation, not enforcement. If compliance
+   actually matters, it needs a `triggers.json` entry that fires at the offending
+   line. Measure compliance before assuming the prose worked.
+3. Re-measure an inherited metric before scoping work off it. A number that was
+   never re-derived is a guess with a citation.
+4. A prior finding table that says "verified against the tree" is evidence about
+   the scope its author happened to grep, not a guarantee of completeness. Todo
+   361's table listed 3 stale markers in one file; a repo-wide grep found 6 across
+   two, and its own spot-check ("3 unprefixed / 1 prefixed") was really 7 / 20.
+5. Mechanically resolve every `path:line` citation before committing a document
+   that makes them load-bearing — read the cited line back and confirm it says
+   what the doc claims. Citations copied from an agent report are unverified by
+   default.
