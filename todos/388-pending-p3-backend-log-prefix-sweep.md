@@ -88,9 +88,27 @@ prose, and both are auto-injected by `inject-patterns.sh`. But **no
 - index 93 `connection-url-in-log` (domain `security`)
 
 Per this repo's convention, a recurring mistake gets a trigger, not just prose.
-Note the 8800-byte injection cap: `api.md` must stay under it for the rule to
-actually reach an edit, so prefer a `triggers.json` entry over lengthening the
-rule file.
+
+**The prose is demonstrably not enough here — proven, not assumed.** The
+obvious hypothesis was that the 8800-byte injection cap truncates the rule away
+(`api.md` is 16640 B, and `_discipline.md` takes 4426 B of the budget). It does
+not. Verified 2026-09-13 by *running the hook*, not by reading
+`route_domains.py`:
+
+```
+$ route_domains.py backend/apps/users/services.py
+api,security,database
+
+$ inject-patterns.sh <<< '{"tool_name":"Edit","tool_input":{"file_path":"backend/apps/users/services.py",...}}'
+injected payload: 9192 bytes
+occurrences of "Bracketed log prefixes": 1
+```
+
+The rule sits at byte offset 677 of `api.md`, survives the cut, and **is
+injected on every edit to `users/services.py`** — the second-worst offender at
+84 unprefixed calls. So the rule reaches the developer and is ignored anyway.
+That is the argument for a `triggers.json` entry, which fires a targeted
+message at the specific offending line, rather than for more prose.
 
 ### Tests that read log content — 17 assertions across 12 files
 
