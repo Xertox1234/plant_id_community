@@ -32,7 +32,37 @@ fixed defect exposed the next.
 
 ## Findings
 
-### 1. 12 of 17 routes have no inbound navigation
+### CORRECTION (2026-09-12, during implementation)
+
+**Findings 1 and 2 below are WRONG and are kept only for the record.** Findings
+3, 4 and 5 survive as written. What was actually true:
+
+- **forum, care and collection were already reachable.** `home_page.dart:183`
+  dispatches `context.go(feature.route)` for four feature cards, with `route:`
+  set at `:144/:152/:160/:168`. The forum's 14.7k lines were never stranded.
+  The checker could not see it: it matched only a literal
+  `context.<verb>(AppRoutes.X)`, so a route passed through a variable — or
+  reached by `pushNamed('forumBookmarks')`, as the whole forum sub-tree is —
+  was invisible. It reported **7 false orphans**. Fixed in PR #734.
+- **The genuinely unreachable set was `garden`, `profile`, `register`** (and
+  `login` transitively, reachable only from the orphaned profile screen).
+- **`app_theme.dart:144` does NOT theme the shell's nav bar.** It is
+  `BottomNavigationBarThemeData` — the Material 2 widget. There was no
+  `navigationBarTheme`. The claim in Recommended Action #2 was false.
+- **`login`, `register` and `garden` had no screens at all**, only
+  `PlaceholderScreen`. So "make login reachable" required *building* it. That,
+  not the shell, is what answered the owner's actual complaint.
+- **AC 3's premise is false.** `forumGroups` is a redirect guard prefix for
+  `/forum/groups/:id` (todo 350), not a destination; both its children are
+  registered and no group-list screen exists. Registering it would point at
+  nothing, and removing it from `protectedPrefixes` would un-protect group DM
+  threads. Resolved a third way: the checker now reports it as a prefix via
+  `PREFIX_CONSTANTS`, with a reason.
+
+Shipped as **#734** (checker) and **#735** (shell + auth screens). Device
+verification is the remaining step.
+
+### 1. 12 of 17 routes have no inbound navigation — SUPERSEDED, see correction above
 
 **Re-run this rather than trusting the table below:**
 `python3 scripts/check_flutter_route_reachability.py`
@@ -78,6 +108,8 @@ would fail.
 | care | 1 | 139 |
 
 **~16,776 lines** of built UI with no way to open it.
+
+> SUPERSEDED: most of this was reachable from the Home feature grid. Only `profile` (612 lines) was genuinely orphaned. See the correction above.
 
 ### 3. No navigation shell exists anywhere
 
@@ -170,15 +202,23 @@ Rationale, so it can be argued with:
 
 ## Acceptance Criteria
 
-- [ ] A primary navigation shell exists and every top-level destination in the
-      agreed IA is reachable from a cold launch
-- [ ] Zero routes in `AppRoutes` are reachable from nothing, or each remaining
+- [x] A primary navigation shell exists and every top-level destination in the
+      agreed IA is reachable from a cold launch (#735)
+- [x] Zero routes in `AppRoutes` are reachable from nothing, or each remaining
       orphan is deliberately documented as intentionally unreachable
+      (#734/#735 — checker exits 0; `garden` documented in `ALLOWED_ORPHANS`)
 - [ ] `forumGroups` is registered as a route, or removed from `AppRoutes` and
       from the router's protected-prefix set
+      → **NOT checked off: the premise is false and neither branch is correct.**
+      Resolved instead by reporting it as a guard prefix (#734). Left open
+      deliberately rather than falsified — see the correction above.
 - [ ] A signed-out user can reach sign-in and register from a cold launch, and
       sign-in succeeds against production (this also discharges todo 383 AC 5)
-- [ ] Identify no longer strands the user: it can be left without force-quitting
+      → half done: LoginScreen and RegisterScreen built and reachable from the
+      Profile tab, asserted by `navigation_shell_test.dart` (#735). The
+      **against production** half needs TestFlight build 6 on a device.
+- [x] Identify no longer strands the user: it can be left without force-quitting
+      (#735 — `canPop()` asserted in `navigation_shell_test.dart`)
 - [ ] A test asserts reachability rather than existence — the route inventory in
       finding 1 is re-runnable and fails when a destination becomes orphaned.
       Note the lesson from todo 383 item 11: `find.text` proves a widget is in

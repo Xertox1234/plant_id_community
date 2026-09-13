@@ -148,6 +148,37 @@ class AppTheme {
         type: BottomNavigationBarType.fixed,
         elevation: 0,
       ),
+      // Material 3 NavigationBar -- what MainShell actually renders.
+      // `bottomNavigationBarTheme` above styles BottomNavigationBar, a
+      // DIFFERENT, Material 2 widget: it has never applied to NavigationBar.
+      // Todo 384 read that entry as proof the nav bar was "already themed";
+      // without this block the shell renders in stock M3 purple and ignores
+      // the Green Thumb palette entirely.
+      navigationBarTheme: NavigationBarThemeData(
+        backgroundColor: colors.bg2,
+        surfaceTintColor: Colors.transparent,
+        indicatorColor: colors.moss.withValues(alpha: 0.16),
+        elevation: 0,
+        labelBehavior: NavigationDestinationLabelBehavior.alwaysShow,
+        iconTheme: WidgetStateProperty.resolveWith(
+          (states) => IconThemeData(
+            size: AppSpacing.iconMD,
+            color: states.contains(WidgetState.selected)
+                ? colors.moss
+                : colors.ink3,
+          ),
+        ),
+        labelTextStyle: WidgetStateProperty.resolveWith(
+          (states) => AppTypography.caption.copyWith(
+            color: states.contains(WidgetState.selected)
+                ? colors.moss
+                : colors.ink3,
+            fontWeight: states.contains(WidgetState.selected)
+                ? FontWeight.w600
+                : FontWeight.w500,
+          ),
+        ),
+      ),
       dividerTheme: DividerThemeData(
         color: colors.line,
         thickness: 1,

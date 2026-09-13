@@ -1714,5 +1714,20 @@
     "source": "todo 383 item 1",
     "added": "2026-09-12",
     "severity": "warn"
+  },
+  {
+    "id": "gorouter-uripath-blind-to-push",
+    "domains": [
+      "flutter"
+    ],
+    "path_glob": [
+      "plant_community_mobile/test/**/*.dart"
+    ],
+    "content_present": "currentConfiguration\\.uri\\.path",
+    "message": "`routerDelegate.currentConfiguration.uri.path` reports the underlying LOCATION and is blind to an imperative push. Verified against go_router 17.2.3: after go('/forum') then push('/login') it still reads '/forum' while LoginScreen is on screen and canPop() is true. Correct for a `go` assertion; a silent false negative for `push`/`pushReplacement` -- the assertion passes or fails for the wrong reason. Use `currentConfiguration.last.matchedLocation`, which tracks go, push AND pop. Example: test/routing/navigation_shell_test.dart GoRouterHarness.",
+    "pattern_ref": "plant_community_mobile/test/routing/navigation_shell_test.dart",
+    "source": "todo 384 / PR #735",
+    "added": "2026-09-12",
+    "severity": "warn"
   }
 ]

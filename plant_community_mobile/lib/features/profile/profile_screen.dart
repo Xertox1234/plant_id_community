@@ -21,6 +21,20 @@ class ProfileScreen extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    // Auth is checked BEFORE userProfileServiceProvider is watched, and that
+    // order is load-bearing. That provider auto-fetches GET /auth/user/ in
+    // build(); signed out it 401s, Riverpod 3.x reschedules the failed fetch on
+    // a backoff timer forever, and the screen rendered "Failed to load profile"
+    // over the raw exception string with a Retry that could never succeed --
+    // on the one tab that is supposed to offer sign-in. Watching it first would
+    // reinstate exactly that (todo 384).
+    final isAuthenticated = ref.watch(
+      authServiceProvider.select((s) => s.isAuthenticated),
+    );
+    if (!isAuthenticated) {
+      return const _SignedOutProfile();
+    }
+
     final profileAsync = ref.watch(userProfileServiceProvider);
     final ext =
         Theme.of(context).extension<GreenThumbExtension>() ??
@@ -30,6 +44,11 @@ class ProfileScreen extends ConsumerWidget {
       appBar: AppBar(
         title: const Text('Profile'),
         actions: [
+          IconButton(
+            icon: const Icon(Icons.settings),
+            tooltip: 'Settings',
+            onPressed: () => context.push(AppRoutes.settings),
+          ),
           // Edit button (navigate to edit screen - not implemented yet)
           IconButton(
             icon: const Icon(Icons.edit),
@@ -606,6 +625,95 @@ class _LogoutButton extends ConsumerWidget {
       style: OutlinedButton.styleFrom(
         foregroundColor: Theme.of(context).colorScheme.error,
         side: BorderSide(color: Theme.of(context).colorScheme.error),
+      ),
+    );
+  }
+}
+
+/// What the Profile tab shows when nobody is signed in.
+///
+/// This is the app's ONLY entry point to authentication. Before todo 384 there
+/// was none at all: `/login` was linked from exactly one place — the logout
+/// button on this screen — and nothing anywhere navigated to `/profile`, so
+/// there was no path from launch to sign-in. The owner's report on TestFlight
+/// build 5 was literally *"I do not see any way to log in"*.
+///
+/// Deliberately NOT a router redirect to `/login`. This is a shell branch root;
+/// redirecting out of one desyncs `StatefulShellRoute`'s branch index, and a
+/// tab that bounces you elsewhere the moment you tap it reads as broken. Same
+/// shape `CollectionScreen` already uses for its null-uid case.
+class _SignedOutProfile extends StatelessWidget {
+  const _SignedOutProfile();
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final ext =
+        Theme.of(context).extension<GreenThumbExtension>() ??
+        GreenThumbExtension.fallback;
+
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Profile'),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.settings),
+            tooltip: 'Settings',
+            onPressed: () => context.push(AppRoutes.settings),
+          ),
+        ],
+      ),
+      body: SafeArea(
+        child: Center(
+          child: SingleChildScrollView(
+            padding: EdgeInsets.all(ext.padScreen),
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 420),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(
+                    Icons.person_outline,
+                    size: 64,
+                    color: cs.primary,
+                    semanticLabel: null,
+                  ),
+                  SizedBox(height: ext.gapY),
+                  Text(
+                    'Sign in to Houseplant MD',
+                    style: Theme.of(context).textTheme.headlineSmall,
+                    textAlign: TextAlign.center,
+                  ),
+                  SizedBox(height: ext.gapY),
+                  Text(
+                    'Save the plants you identify, track their care, and join '
+                    'the community forum.',
+                    style: Theme.of(
+                      context,
+                    ).textTheme.bodyMedium?.copyWith(color: ext.ink2),
+                    textAlign: TextAlign.center,
+                  ),
+                  SizedBox(height: ext.gapY * 2),
+                  SizedBox(
+                    width: double.infinity,
+                    child: FilledButton(
+                      onPressed: () => context.push(AppRoutes.login),
+                      child: const Text('Sign in'),
+                    ),
+                  ),
+                  SizedBox(height: ext.gapY),
+                  SizedBox(
+                    width: double.infinity,
+                    child: OutlinedButton(
+                      onPressed: () => context.push(AppRoutes.register),
+                      child: const Text('Create an account'),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
       ),
     );
   }
