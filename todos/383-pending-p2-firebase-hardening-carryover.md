@@ -701,6 +701,53 @@ and are untouched.
 member's state reads `NOT_INVITED`. Internal testing needs no Beta App Review, so
 once the invite is accepted the build should appear within minutes.
 
+### 11. NEW — build 5: the first build that actually shows the app
+
+Build 4 ran, reached the Home screen, and rendered as **full-screen static with
+only a settings icon visible**. Not a Firebase problem and not caused by any item
+above: `GrainOverlay` painted `assets/images/grain.png` — an 8-bit **grayscale**
+PNG (colour type 0, no `tRNS`, therefore fully opaque) — `Positioned.fill` over
+the page, softened with `color:` + `colorBlendMode:`, which tint the image's
+*own* pixels and never blend it with the backdrop. A solid sheet. Fixed in
+**PR #731** with real `Opacity` (0.05) and `ImageRepeat.repeat` at native size.
+
+The settings icon was the diagnostic key: it is `Scaffold.floatingActionButton`,
+the one widget on `HomePage` drawn **outside** `body`, hence the only thing not
+covered. A screenshot from the device confirmed it before any fix was written.
+
+**This bug was always there.** Builds 1-3 never got past Firebase init, so they
+never drew a real screen. Build 4 — the first build that *runs* — is simply the
+first that could expose it. Fixing one class of defect reveals the next.
+
+**The test suite passed throughout, and that is the transferable part.**
+`test/core/theme/grain_overlay_test.dart` already existed with a test named
+*"renders child regardless of showGrain"* asserting
+`expect(find.text('hello'), findsOneWidget)`. **`find.text` searches the widget
+TREE, not the screen** — the `Text` was present and completely invisible. Three
+green tests, none looking at the thing that was broken. The added test asserts
+the overlay is genuinely translucent and was **mutation-checked**: against the
+original widget it fails while the other three still pass. Same family as this
+todo's other false greens — the API probes that never evaluated a key, and the
+upload that succeeded on an app that could not start.
+
+**Build 5 uploaded and `VALID`** (delivery UUID
+`4ccc044b-3d6c-4609-88fd-f41d41989440`), carrying the fix. Verified before upload
+by the script's own gate: 2 keys in the snapshot, production API base present,
+no dev-tunnel host.
+
+**Export compliance now answers itself — proven, not asserted.** Build 5 is the
+first build carrying `ITSAppUsesNonExemptEncryption` (item 10) and it arrived
+with compliance already answered, needing no manual step. The controlled
+comparison is in the build list: build 3, same project and pipeline but built
+before the key existed, still reads **MISSING (blocked)**; build 5 reads
+answered. The only difference is the `Info.plist` key.
+
+Incidental but worth recording: the simulator build used to diagnose this failed
+first with `No space left on device` — the machine was at **100%, 118 MB free of
+228 GB**. Cleared 858 MB of session scratch plus 13 GB of Xcode DerivedData (with
+the owner's approval) to proceed. A release build cannot be produced on a full
+disk, so this is a real release-path dependency, not a footnote.
+
 ## Notes
 
 p2, not p1: nothing here is a live exposure. Item 1 is empty-bucket latent, items
