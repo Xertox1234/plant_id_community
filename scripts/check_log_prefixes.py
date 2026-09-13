@@ -9,8 +9,10 @@ nobody ever re-measured it. On 2026-09-13 (todo 361) the real figure across
 
 That 357 was itself 16 too high, corrected 2026-09-13 (todo 388) when the first
 sweep slice found the misses: 15 calls prefixed via a `LOG_PREFIX_*` constant and
-1 using a hyphenated token. The corrected baseline is **341 of 769 (44.3%)**, and
-all 16 corrections land in `core`. Both shapes are recognised below.
+1 using a hyphenated token -- then 2 more, found by spot-reading the sweep's own
+diff, where the prefix arrives as the first %-format ARGUMENT. The corrected
+baseline is **339 of 769 (44.1%)**, and all 18 corrections land in `core`. All
+three shapes are recognised below.
 
 Todo 388 sweeps that debt app by app, and its acceptance criteria are stated in
 terms of counts produced by THIS script. That is the whole point of committing
@@ -73,13 +75,33 @@ PREFIX_RE = re.compile(r"^\s*\[[A-Z0-9_-]+\]")
 # compliant calls as violations -- every one of them in `core`, which is why that
 # app read as 92.5% non-compliant instead of its true 68.7%.
 PREFIX_CONST_RE = re.compile(r"^LOG_PREFIX_[A-Z0-9_]+$")
+# A third shape: the prefix arrives as the first %-format ARGUMENT rather than in
+# the literal -- `logger.debug("%s extraction failed: %s", LOG_PREFIX_SECURITY, e)`.
+# The RENDERED line is prefixed, so the call is compliant. Two such calls exist
+# (apps/core/security.py:646,653); counting them as violations would have made a
+# sweep double-prefix them to "[SECURITY] [SECURITY] ...".
+LEADING_FMT_RE = re.compile(r"^\s*%s")
 SKIP_DIRS = {"venv", ".venv", "node_modules", "migrations", "__pycache__", ".git"}
+
+
+def prefix_comes_from_a_format_arg(call: ast.Call) -> bool:
+    """True when the literal opens with `%s` and that arg is a LOG_PREFIX_*."""
+    if len(call.args) < 2:
+        return False
+    first = call.args[0]
+    if not (isinstance(first, ast.Constant) and isinstance(first.value, str)):
+        return False
+    if not LEADING_FMT_RE.match(first.value):
+        return False
+    return bool(PREFIX_CONST_RE.match(ast.unparse(call.args[1])))
 
 
 def leading_literal(call: ast.Call) -> "str | None":
     """The first argument's literal leading text, or None if undeterminable."""
     if not call.args:
         return None
+    if prefix_comes_from_a_format_arg(call):
+        return "[ARG_PREFIX]"
     arg = call.args[0]
     if isinstance(arg, ast.Constant) and isinstance(arg.value, str):
         return arg.value

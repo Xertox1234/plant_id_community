@@ -133,7 +133,7 @@ class ResponseSanitizer:
             if re.search(pattern, value, re.IGNORECASE):
                 if is_debug:
                     logger.warning(
-                        f"Suspicious SQL pattern detected in response: {pattern}"
+                        f"[SECURITY] Suspicious SQL pattern detected in response: {pattern}"
                     )
                 return "[SANITIZED]"
 
@@ -152,7 +152,7 @@ class ResponseSanitizer:
             )
 
         if original_value != value and is_debug:
-            logger.warning("XSS pattern sanitized in response")
+            logger.warning("[SECURITY] XSS pattern sanitized in response")
 
         return value
 

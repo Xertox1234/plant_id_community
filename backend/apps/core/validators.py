@@ -79,10 +79,12 @@ class SecureFileValidator:
                     )
             except ImportError:
                 # Fallback to basic validation using file extension and PIL
-                logger.info("python-magic not available, using basic file validation")
+                logger.info(
+                    "[VALIDATION] python-magic not available, using basic file validation"
+                )
                 pass
         except Exception as e:
-            logger.warning(f"Could not detect file type: {e}")
+            logger.warning(f"[VALIDATION] Could not detect file type: {e}")
             # Fallback to Django's mime type detection
             guessed_type = mimetypes.guess_type(name)[0]
             if guessed_type not in ALLOWED_IMAGE_MIMETYPES:
@@ -302,11 +304,11 @@ class SecurityLogger:
 
         if success:
             logger.info(
-                f"File upload successful: user={user_id}, file={filename}, size={file_size}"
+                f"[VALIDATION] File upload successful: user={user_id}, file={filename}, size={file_size}"
             )
         else:
             logger.warning(
-                f"File upload failed: user={user_id}, file={filename}, size={file_size}, error={error}"
+                f"[VALIDATION] File upload failed: user={user_id}, file={filename}, size={file_size}, error={error}"
             )
 
     @staticmethod
@@ -314,7 +316,7 @@ class SecurityLogger:
         """Log suspicious activities for security monitoring."""
         user_id = user.id if user and hasattr(user, "id") else "anonymous"
         logger.warning(
-            f"Suspicious activity: user={user_id}, activity={activity}, details={details or {}}"
+            f"[VALIDATION] Suspicious activity: user={user_id}, activity={activity}, details={details or {}}"
         )
 
     @staticmethod
@@ -322,5 +324,5 @@ class SecurityLogger:
         """Log validation failures that might indicate attacks."""
         user_id = user.id if user and hasattr(user, "id") else "anonymous"
         logger.warning(
-            f"Validation failure: user={user_id}, field={field}, type={value_type}, error={error}"
+            f"[VALIDATION] Validation failure: user={user_id}, field={field}, type={value_type}, error={error}"
         )

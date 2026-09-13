@@ -111,7 +111,7 @@ class EmailService:
             and not self._should_send_email(user, email_type)
         ):
             logger.info(
-                f"Email {email_type} skipped for {log_safe_email(recipient_email)} due to user preferences"
+                f"[EMAIL] Email {email_type} skipped for {log_safe_email(recipient_email)} due to user preferences"
             )
             return False
 
@@ -129,10 +129,14 @@ class EmailService:
         try:
             html_content = render_to_string(f"emails/{template_name}.html", context)
         except TemplateDoesNotExist as e:
-            logger.error(f"Email template not found: {template_name}.html - {e}")
+            logger.error(
+                f"[EMAIL] Email template not found: {template_name}.html - {e}"
+            )
             return False
         except Exception as e:
-            logger.error(f"Failed to render email template {template_name}.html: {e}")
+            logger.error(
+                f"[EMAIL] Failed to render email template {template_name}.html: {e}"
+            )
             return False
 
         try:
@@ -145,7 +149,7 @@ class EmailService:
             # A genuine .txt render bug shouldn't drop an email whose .html is
             # fine; fall back to the stripped HTML but surface the bug in logs.
             logger.warning(
-                f"Failed to render email template {template_name}.txt "
+                f"[EMAIL] Failed to render email template {template_name}.txt "
                 f"(falling back to stripped HTML): {e}"
             )
             text_content = strip_tags(html_content)
@@ -177,7 +181,7 @@ class EmailService:
             # on a True, silently consuming a reminder a user never received.
             if not sent_count:
                 logger.warning(
-                    f"Email {email_type} to {log_safe_email(recipient_email)} "
+                    f"[EMAIL] Email {email_type} to {log_safe_email(recipient_email)} "
                     "reached 0 recipients — not marking as sent"
                 )
                 return False
@@ -193,18 +197,18 @@ class EmailService:
             )
 
             logger.info(
-                f"Email {email_type} sent successfully to {log_safe_email(recipient_email)}"
+                f"[EMAIL] Email {email_type} sent successfully to {log_safe_email(recipient_email)}"
             )
             return True
 
         except ConnectionError as e:
             logger.error(
-                f"Email connection failed for {email_type} to {log_safe_email(recipient_email)}: {e}"
+                f"[EMAIL] Email connection failed for {email_type} to {log_safe_email(recipient_email)}: {e}"
             )
             return False
         except Exception as e:
             logger.error(
-                f"Failed to send email {email_type} to {log_safe_email(recipient_email)}: {e}"
+                f"[EMAIL] Failed to send email {email_type} to {log_safe_email(recipient_email)}: {e}"
             )
             return False
 
@@ -254,11 +258,13 @@ class EmailService:
                     if isinstance(recipient, str)
                     else log_safe_user_context(recipient)
                 )
-                logger.error(f"Bulk email failed for recipient {safe_recipient}: {e}")
+                logger.error(
+                    f"[EMAIL] Bulk email failed for recipient {safe_recipient}: {e}"
+                )
                 results["failed"] += 1
 
         logger.info(
-            f"Bulk email {email_type} completed: {results['sent']} sent, {results['failed']} failed"
+            f"[EMAIL] Bulk email {email_type} completed: {results['sent']} sent, {results['failed']} failed"
         )
         return results
 
@@ -389,7 +395,7 @@ class EmailService:
             )
         except (ImportError, Exception) as e:
             # Log but don't fail email sending if tracking fails
-            logger.warning(f"Failed to track email: {e}")
+            logger.warning(f"[EMAIL] Failed to track email: {e}")
 
     def send_transactional_email(
         self,
@@ -424,12 +430,12 @@ class EmailService:
                 html_message=html_message,
             )
             logger.info(
-                f"Transactional email sent to {log_safe_email(recipient_email)}"
+                f"[EMAIL] Transactional email sent to {log_safe_email(recipient_email)}"
             )
             return True
         except Exception as e:
             logger.error(
-                f"Failed to send transactional email to {log_safe_email(recipient_email)}: {e}"
+                f"[EMAIL] Failed to send transactional email to {log_safe_email(recipient_email)}: {e}"
             )
             return False
 

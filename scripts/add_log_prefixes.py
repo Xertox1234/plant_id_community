@@ -43,6 +43,7 @@ LEVELS = {"debug", "info", "warning", "warn", "error", "exception", "critical"}
 RECEIVERS = {"logger", "log", "_logger"}
 PREFIX_RE = re.compile(r"^\s*\[[A-Z0-9_-]+\]")
 PREFIX_CONST_RE = re.compile(r"^LOG_PREFIX_[A-Z0-9_]+$")
+LEADING_FMT_RE = re.compile(r"^\s*%s")
 
 # --------------------------------------------------------------------------
 # The table. One token per file, chosen from the ~16 already in use where one
@@ -93,15 +94,37 @@ def target_literal(call: ast.Call):
     """
     if not call.args:
         return None
+
+    # The prefix may arrive as the first %-format ARGUMENT rather than in the
+    # literal: `logger.debug("%s extraction failed: %s", LOG_PREFIX_SECURITY, e)`
+    # renders as "[SECURITY] extraction failed: ...". Prefixing that literal
+    # produces "[SECURITY] [SECURITY] ...". Caught by reading the sweep's own
+    # diff, not by any counter -- both counters called these calls unprefixed.
+    if (
+        len(call.args) >= 2
+        and isinstance(call.args[0], ast.Constant)
+        and isinstance(call.args[0].value, str)
+        and LEADING_FMT_RE.match(call.args[0].value)
+        and PREFIX_CONST_RE.match(ast.unparse(call.args[1]))
+    ):
+        return None
+
     arg = call.args[0]
 
     node = None
+    inside = False  # does col_offset point INSIDE the literal already?
     if isinstance(arg, ast.Constant) and isinstance(arg.value, str):
         node = arg
     elif isinstance(arg, ast.JoinedStr):
         for part in arg.values:
             if isinstance(part, ast.Constant) and isinstance(part.value, str):
-                node = part
+                # An f-string CHUNK reports the position of its own text, not of
+                # the enclosing quote -- unlike every other shape here. Measured,
+                # not assumed: probing `logger.error(f"fstring {x}")` gives
+                # col_offset pointing at `f` of `fstring`, while a plain constant
+                # points at the `"`. Getting this wrong is silent: the splice
+                # lands mid-word or not at all.
+                node, inside = part, True
             break
     elif isinstance(arg, ast.BinOp):
         if isinstance(arg.left, ast.Constant) and isinstance(arg.left.value, str):
@@ -111,7 +134,7 @@ def target_literal(call: ast.Call):
         return None
     if PREFIX_RE.match(node.value):
         return None  # already prefixed -- idempotent
-    return node
+    return node, inside
 
 
 def rewrite(path: pathlib.Path, token: str):
@@ -130,26 +153,38 @@ def rewrite(path: pathlib.Path, token: str):
     for call in (n for n in ast.walk(tree) if isinstance(n, ast.Call)):
         if not logger_level(call):
             continue
-        node = target_literal(call)
-        if node is None:
+        found = target_literal(call)
+        if found is None:
             continue
-        edits.append((node.lineno, node.col_offset))
+        node, inside = found
+        edits.append((node.lineno, node.col_offset, inside))
 
-    for lineno, col in sorted(edits, reverse=True):
+    applied = 0
+    for lineno, col, inside in sorted(edits, reverse=True):
         line = lines[lineno - 1]
-        # col points at the opening quote (or its f/r/u/b prefix). Step past the
-        # string prefix characters and the quote run to land inside the literal.
-        i = col
-        while i < len(line) and line[i] in "fFrRuUbB":
-            i += 1
-        if i >= len(line) or line[i] not in "\"'":
-            continue  # not a shape we understand; leave it alone
-        quote = line[i]
-        run = 3 if line[i : i + 3] == quote * 3 else 1
-        i += run
+        if inside:
+            i = col  # f-string chunk: already inside the literal
+        else:
+            # Step past any string-prefix letters and the quote run.
+            i = col
+            while i < len(line) and line[i] in "fFrRuUbB":
+                i += 1
+            if i >= len(line) or line[i] not in "\"'":
+                # Refuse rather than skip. A silent skip is how the first run of
+                # this script reported "prefixed 46" while writing 9: every
+                # f-string was dropped here and still counted. A splice this
+                # code cannot place is a bug in this code, not a file to ignore.
+                raise RuntimeError(
+                    f"{path}:{lineno}: cannot locate the literal opening at "
+                    f"col {col}; refusing to write a partial sweep"
+                )
+            quote = line[i]
+            i += 3 if line[i : i + 3] == quote * 3 else 1
         lines[lineno - 1] = line[:i] + token + " " + line[i:]
+        applied += 1
 
-    return "".join(lines), len(edits)
+    assert applied == len(edits), f"{path}: {applied} applied of {len(edits)}"
+    return "".join(lines), applied
 
 
 def main() -> int:

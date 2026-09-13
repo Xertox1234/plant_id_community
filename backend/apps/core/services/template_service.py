@@ -56,7 +56,7 @@ class TemplateService:
         try:
             return render_to_string(template_path, full_context)
         except TemplateDoesNotExist:
-            logger.error(f"Email template not found: {template_path}")
+            logger.error(f"[EMAIL] Email template not found: {template_path}")
             # Fallback to generic template
             return self._render_fallback_template(
                 template_name, full_context, format_type
