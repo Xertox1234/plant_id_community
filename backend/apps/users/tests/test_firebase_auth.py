@@ -11,6 +11,7 @@ from django.contrib.auth import get_user_model
 from django.core.cache import cache
 from django.test import TestCase, override_settings
 from django.urls import reverse
+from firebase_admin import auth as firebase_auth
 from freezegun import freeze_time
 from rest_framework import status
 from rest_framework.test import APIClient
@@ -356,6 +357,90 @@ class FirebaseTokenExchangeTestCase(TestCase):
             )
             self.assertIn("error", response.data)
             self.assertEqual(response.data["error"], "Internal server error")
+
+
+class FirebaseProjectIdOnlyInitTestCase(TestCase):
+    """Tier 3 (projectId-only) must be able to VERIFY, not just initialize.
+
+    Regression test for the 2026-09-13 production outage. `FIREBASE_PROJECT_ID`
+    was unset on Railway, so the SDK initialized with no project id at all and
+    every `verify_id_token` raised "A project ID is required". Setting the
+    variable moved it exactly one error along -- to "Your default credentials
+    were not found", because `firebase_admin` resolves a credential when it
+    builds the auth service even though ID-token verification needs no
+    authority whatsoever.
+
+    Both failures reach the client as an identical `401 {"error": "Token
+    verification failed"}`, and the mobile app converts any 401 into
+    "Your session expired" and signs the user out. So neither the status code
+    nor the client message can tell a broken verifier from a working one
+    rejecting a bad token -- which is why this asserts on the EXCEPTION TYPE.
+    """
+
+    def setUp(self):
+        # firebase_admin keeps a process-global default app and the app
+        # REGISTRY is the source of truth here (there is no module flag), so a
+        # neighbour's app would otherwise be reused and this would assert
+        # nothing. reset_firebase() is the project's own idiom.
+        from apps.garden.firebase_config import reset_firebase
+
+        reset_firebase()
+        self.addCleanup(reset_firebase)
+
+    @override_settings(
+        FIREBASE_CREDENTIALS_PATH=None, FIREBASE_PROJECT_ID="plant-community-prod"
+    )
+    def test_verification_does_not_require_application_default_credentials(self):
+        """The bug: this raised DefaultCredentialsError instead of a token error.
+
+        A malformed token must fail as a TOKEN problem. Any credentials error
+        means the verifier never looked at the token at all, and in production
+        that logs out every user who tries to sign in.
+        """
+        import apps.users.firebase_auth_views as views
+        from google.auth.exceptions import DefaultCredentialsError
+
+        views._ensure_firebase_initialized()
+
+        with self.assertRaises(Exception) as ctx:
+            firebase_auth.verify_id_token("not.a.real.token")
+
+        self.assertNotIsInstance(
+            ctx.exception,
+            DefaultCredentialsError,
+            msg=(
+                "verify_id_token demanded Application Default Credentials. "
+                "ID tokens are signed with Google's PUBLIC certs and need no "
+                "authority — this is the 2026-09-13 sign-in outage."
+            ),
+        )
+        self.assertNotIn("default credentials", str(ctx.exception).lower())
+        self.assertNotIn("project ID is required", str(ctx.exception))
+
+    @override_settings(
+        FIREBASE_CREDENTIALS_PATH=None, FIREBASE_PROJECT_ID="plant-community-prod"
+    )
+    def test_project_id_reaches_the_audience_check(self):
+        """Proves the configured project id is actually ENFORCED, not just stored.
+
+        A token whose `aud` does not match must be rejected naming the expected
+        audience. This is the positive half: it shows verification ran.
+        """
+        import apps.users.firebase_auth_views as views
+
+        views._ensure_firebase_initialized()
+
+        # Well-formed JWT shape, no `aud` claim. Base64 of {"sub":"probe"}
+        # with a literal "not-a-real-signature" — high entropy to a scanner,
+        # meaningless to Firebase.
+        token = (
+            "eyJhbGciOiJSUzI1NiIsImtpZCI6ImRlYWQiLCJ0eXAiOiJKV1QifQ"  # pragma: allowlist secret
+            ".eyJzdWIiOiJwcm9iZSJ9.bm90LWEtcmVhbC1zaWduYXR1cmU"  # pragma: allowlist secret
+        )
+        with self.assertRaises(firebase_auth.InvalidIdTokenError) as ctx:
+            firebase_auth.verify_id_token(token)
+
+        self.assertIn("plant-community-prod", str(ctx.exception))
 
 
 class FirebaseTrustedProviderTestCase(TestCase):
