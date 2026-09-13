@@ -254,6 +254,20 @@ reach only **new** worktrees; existing worktrees keep their setup until rebased.
   recurring-mistake triggers are logged to `~/.claude/inject-fires.log` (override
   with `INJECT_FIRES_LOG`). Run `python3 scripts/inject/report_fires.py` to see
   per-trigger fire counts.
+
+  **What "injected" actually guarantees** (todo 369). The hook output is capped
+  at ~8.8 KB, and the rule files total ~190 KB, so a large file cannot arrive
+  whole. `scripts/inject/budget_rules.py` splits the remaining budget across the
+  routed domains and takes each over-budget file's **opening and its ending**,
+  cutting on rule boundaries and naming the elided middle. So:
+
+  - every routed domain contributes something — a three-domain path no longer
+    gets the first domain and zero bytes of the other two;
+  - the **newest** rule in a file always arrives. These files are append-only, so
+    the rule written because the mistake just happened used to be the first cut;
+  - a rule in the **middle** of a large file may not. If a rule must bind at the
+    exact line, give it a `docs/rules/triggers.json` entry — the trigger tier is
+    content-matched and is not subject to this budget.
 - **`kimi-review.sh`** — before a `git commit` Bash call, runs `kimi-review` on
   the staged diff. A `[CRITICAL]` finding blocks the commit; `WARNING` is
   surfaced as context. Bypass with `SKIP_KIMI_REVIEW=1`.

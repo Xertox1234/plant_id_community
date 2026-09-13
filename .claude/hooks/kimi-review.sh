@@ -52,11 +52,21 @@ fi
 #    CRITICAL + WARNING (project convention). docs/rules/ holds the compact
 #    binding-rule checklists; missing files are silently skipped by kimi-review,
 #    so passing names freely is safe.
+#    kimi-review's own --pattern-max-chars defaults to 12000 PER FILE, which cut
+#    8 of the 13 rule files -- testing.md (46 KB), security.md (26 KB),
+#    react.md (20 KB) and the rest -- so a rule appended to any of them was
+#    documentation at this gate too, never enforcement (todo 369). This cap is
+#    independent of the PreToolUse hook-output limit, so raising it is free.
+#    60000 covers every rule file today with headroom and still bounds growth:
+#    the widest route is 4 domains, and 4 x 60000 chars is ~60k tokens against
+#    kimi-review's 131072 --max-tokens, leaving room for the diff itself.
+RULES_MAX_CHARS=60000
 if [ -n "$PATTERNS" ]; then
   REVIEW=$(git diff --cached | kimi-review \
     --scope "staged for commit" \
     --profile plant_id \
     --rules "$PATTERNS" \
+    --pattern-max-chars "$RULES_MAX_CHARS" \
     --verify deterministic \
     --tiers CRITICAL,WARNING 2>&1)
 else

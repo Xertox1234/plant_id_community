@@ -87,21 +87,50 @@ if [ -n "$MATCH_OUT" ]; then
 fi
 
 # (4) Domain-rule checklists, deduped once per session per domain.
+#
+# Budgeted per domain rather than concatenated and truncated (todo 369). The old
+# `cat` + `head -c 8800` gave the FIRST routed domain everything and the rest
+# zero bytes, and truncated even a single-domain edit mid-word because
+# `_discipline.md` consumes half the cap before any rule is read. budget_rules.py
+# splits the remaining bytes across the routed domains and takes head+tail from
+# an over-budget file, so the NEWEST rule -- these files are append-only -- is
+# reachable instead of always being the first thing cut.
 if [ -n "$DOMAINS" ]; then
   IFS=',' read -ra DOMAIN_LIST <<< "$DOMAINS"
+  WANTED=()
   for DOMAIN in "${DOMAIN_LIST[@]}"; do
-    RULES_FILE="$RULES_DIR/${DOMAIN}.md"
-    [ -f "$RULES_FILE" ] || continue
-    MARKER=""
+    [ -f "$RULES_DIR/${DOMAIN}.md" ] || continue
     if [ -n "$SESSION_ID" ]; then
       SAFE_ID=$(printf '%s' "$SESSION_ID" | tr -c 'A-Za-z0-9._-' '_')
       MARKER="/tmp/inject-${SAFE_ID}-${DOMAIN}"
       [ -f "$MARKER" ] && continue
     fi
-    printf '\n[RULES — %s]\n' "$DOMAIN" >> "$TMPFILE"
-    cat "$RULES_FILE" >> "$TMPFILE"
-    [ -n "$MARKER" ] && : > "$MARKER" 2>/dev/null || true
+    WANTED+=("$DOMAIN")
   done
+
+  if [ "${#WANTED[@]}" -gt 0 ]; then
+    # Whatever is left of the cap after the discipline floor and any triggers.
+    # RULES_RESERVE leaves room for the truncation notice appended below.
+    RULES_RESERVE=400
+    SO_FAR=$(wc -c < "$TMPFILE")
+    BUDGET=$(( 8800 - SO_FAR - RULES_RESERVE ))
+    RULES_OUT=""
+    if [ "$BUDGET" -gt 0 ] && command -v python3 >/dev/null 2>&1; then
+      # Fail-open, like the router above: on any error the hook still emits the
+      # discipline floor and triggers rather than nothing.
+      RULES_OUT=$(python3 "$PROJECT_ROOT/scripts/inject/budget_rules.py" \
+        --budget "$BUDGET" --rules-dir "$RULES_DIR" "${WANTED[@]}" 2>/dev/null) || RULES_OUT=""
+    fi
+    if [ -n "$RULES_OUT" ]; then
+      printf '%s\n' "$RULES_OUT" >> "$TMPFILE"
+      for DOMAIN in "${WANTED[@]}"; do
+        if [ -n "$SESSION_ID" ]; then
+          SAFE_ID=$(printf '%s' "$SESSION_ID" | tr -c 'A-Za-z0-9._-' '_')
+          : > "/tmp/inject-${SAFE_ID}-${DOMAIN}" 2>/dev/null || true
+        fi
+      done
+    fi
+  fi
 fi
 
 # Spill overflow to a per-invocation temp file so the agent can read the rest.

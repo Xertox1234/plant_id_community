@@ -173,6 +173,74 @@ else
 fi
 rm -f "/tmp/inject-${TRIG_SESSION}-"* 2>/dev/null
 
+# ---------------------------------------------------------------------------
+# Budgeted injection (todo 369). Before this, `cat` + `head -c 8800` gave the
+# FIRST routed domain everything and later domains zero bytes, and truncated a
+# single-domain edit mid-word. These four assert the properties that replaced it.
+# ---------------------------------------------------------------------------
+budget_ctx() {
+  jq -n --arg sid "budget-test-$$-$RANDOM" --arg fp "$1" \
+    '{tool_name:"Edit",session_id:$sid,tool_input:{file_path:$fp,old_string:"x",new_string:"y"}}' \
+    | INJECT_FIRES_LOG=/dev/null bash "$HOOK" 2>/dev/null \
+    | jq -r '.hookSpecificOutput.additionalContext'
+}
+
+# A path routing to three domains must carry content from ALL THREE. settings.py
+# routes to api,security,database and used to deliver api alone.
+MULTI=$(budget_ctx "backend/plant_community_backend/settings.py")
+MISSING=""
+for d in api security database; do
+  grep -q "\[RULES — $d\]" <<< "$MULTI" || MISSING="$MISSING $d"
+done
+if [ -z "$MISSING" ]; then
+  echo "PASS: 3-domain path injects all three domains"; PASS=$((PASS + 1))
+else
+  echo "FAIL: 3-domain path missing:$MISSING"; FAIL=$((FAIL + 1))
+fi
+
+# The payload must still respect the hook-output cap.
+MULTI_SIZE=$(printf '%s' "$MULTI" | wc -c | tr -d ' ')
+if [ "$MULTI_SIZE" -le 9000 ] && [ "$MULTI_SIZE" -gt 3000 ]; then
+  echo "PASS: budgeted payload within the cap ($MULTI_SIZE B)"; PASS=$((PASS + 1))
+else
+  echo "FAIL: budgeted payload out of range ($MULTI_SIZE B)"; FAIL=$((FAIL + 1))
+fi
+
+# An elision marker must start its own line -- i.e. the cut landed on a line
+# boundary, not mid-sentence. A marker appearing mid-line is the mid-bullet cut
+# this replaced.
+# Asserts markers EXIST as well as being well-placed. `|| ! grep` would have
+# made this pass vacuously against the old hook, which emitted no markers at all
+# -- the "green by emptiness" shape this repo keeps finding.
+MARKERS_TOTAL=$(grep -c '\[\.\.\.' <<< "$MULTI" || true)
+MARKERS_ANCHORED=$(grep -c '^\[\.\.\.' <<< "$MULTI" || true)
+if [ "$MARKERS_TOTAL" -ge 1 ] && [ "$MARKERS_TOTAL" -eq "$MARKERS_ANCHORED" ]; then
+  echo "PASS: $MARKERS_TOTAL elision marker(s), all starting their own line"; PASS=$((PASS + 1))
+else
+  echo "FAIL: $MARKERS_ANCHORED of $MARKERS_TOTAL elision markers start a line"; FAIL=$((FAIL + 1))
+fi
+
+# The newest rule -- these files are append-only -- must reach the edit site.
+# Asserted by appending a sentinel to the LARGEST rule file and looking for it.
+# Without the tail half of the excerpt this fails: the sentinel sits ~46 KB into
+# a file whose share is under 4 KB.
+SENTINEL_FILE="$(cd "$(dirname "$HOOK")/../.." && pwd)/docs/rules/testing.md"
+cp "$SENTINEL_FILE" "$SENTINEL_FILE.injecttest.bak"
+printf '\n- **SENTINEL_TAIL_369** proves an appended rule still injects.\n' >> "$SENTINEL_FILE"
+TAIL_CTX=$(budget_ctx "backend/apps/core/tests/test_budget_probe.py")
+cp "$SENTINEL_FILE.injecttest.bak" "$SENTINEL_FILE"
+rm -f "$SENTINEL_FILE.injecttest.bak"
+if grep -q "SENTINEL_TAIL_369" <<< "$TAIL_CTX"; then
+  echo "PASS: newest rule in the largest file reaches the edit"; PASS=$((PASS + 1))
+else
+  echo "FAIL: newest rule in the largest file was cut"; FAIL=$((FAIL + 1))
+fi
+if grep -q "SENTINEL_TAIL_369" "$SENTINEL_FILE"; then
+  echo "FAIL: sentinel left behind in docs/rules/testing.md"; FAIL=$((FAIL + 1))
+else
+  echo "PASS: sentinel removed from docs/rules/testing.md"; PASS=$((PASS + 1))
+fi
+
 echo ""
 echo "Results: $PASS passed, $FAIL failed"
 [ $FAIL -eq 0 ]
