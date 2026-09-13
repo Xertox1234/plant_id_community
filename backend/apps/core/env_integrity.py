@@ -36,6 +36,27 @@ PIN_RE = re.compile(r"^([A-Za-z0-9_.\-]+)(?:\[[^\]]*\])?\s*==\s*([^\s;]+)")
 
 REQUIREMENTS = Path(__file__).resolve().parents[2] / "requirements.txt"
 
+# Packages this project pinned, then removed on purpose.
+#
+# `pip install -r requirements.txt` installs and upgrades; it never uninstalls.
+# So a package dropped from the file survives in every venv that already had it,
+# indefinitely, and the `extra` bucket below cannot tell it apart from `flake8` —
+# a legitimately-unpinned dev tool. Reporting the whole bucket would flag both,
+# and a check that flags `flake8` gets switched off within a day (todo 380).
+#
+# Naming the set explicitly keeps the signal at zero false positives. The cost is
+# that this list is maintained by hand: add an entry when you remove a pin whose
+# continued presence would be wrong, not every time you remove a pin.
+REMOVED_ON_PURPOSE = {
+    "safety": "removed 2026-09-05 (todo 355): invoked by no workflow, hook or "
+    "script, and dragged in nltk",
+    "bandit": "removed 2026-09-05 (todo 355): declared and invoked by nothing",
+    "nltk": "removed 2026-09-05 (todo 355): pulled in by safety alone; carried "
+    "18 published advisories",
+}
+
+REMOVED_MARKER = "removed but still installed:"
+
 # Keep the drift message short; a 210-package dump helps nobody, and the
 # rule-injection hook has already been bitten by unbounded context (todo 369).
 MAX_LISTED = 10
@@ -128,6 +149,19 @@ def compare(
     return mismatched, missing, extra
 
 
+def removed_but_installed(installed: dict[str, str]) -> list[tuple[str, str, str]]:
+    """`(name, version, why)` for each deliberately-removed package still present.
+
+    Takes `installed` rather than calling `installed_versions()` itself so the
+    pure comparison stays testable without a venv to stage.
+    """
+    return sorted(
+        (name, installed[name], why)
+        for name, why in REMOVED_ON_PURPOSE.items()
+        if name in installed
+    )
+
+
 def _truncate(items: list[str]) -> str:
     if len(items) > MAX_LISTED:
         return ", ".join(items[:MAX_LISTED]) + f", +{len(items) - MAX_LISTED} more"
@@ -137,6 +171,7 @@ def _truncate(items: list[str]) -> str:
 def format_lines(
     mismatched: list[tuple[str, str, str]],
     missing: list[tuple[str, str]],
+    removed: list[tuple[str, str, str]] | None = None,
 ) -> list[str]:
     """Render the drift detail. Empty list when there is no drift.
 
@@ -153,15 +188,38 @@ def format_lines(
         lines.append(
             "  not installed: " + _truncate([f"{n} (pinned {p})" for n, p in missing])
         )
+    for name, version, why in removed or []:
+        # One line each, un-truncated: the set is small by construction and the
+        # reason is the whole point — "nltk 3.9.2 is installed" prompts nothing.
+        lines.append(f"  {REMOVED_MARKER} {name} {version} — {why}")
     return lines
+
+
+def fix_hints(lines: list[str]) -> list[str]:
+    """The remedies for whatever `lines` actually reports.
+
+    `pip install -r` is the wrong instruction for a removed-on-purpose package:
+    it installs and upgrades but never uninstalls, which is precisely why the
+    package is still there. Printing only that hint sends a reader to run the
+    command that already failed to help.
+    """
+    hints: list[str] = []
+    if any(not line.lstrip().startswith(REMOVED_MARKER) for line in lines):
+        hints.append("Fix: pip install -r backend/requirements.txt (see todo 378).")
+    if any(line.lstrip().startswith(REMOVED_MARKER) for line in lines):
+        hints.append(
+            "Fix: pip uninstall the package AND whatever it orphans — measure "
+            "the orphans, do not guess (safety's real subtree was 21, not 6; "
+            "see todo 380)."
+        )
+    return hints
 
 
 def drift_report() -> list[str]:
     """Full drift detail for the current interpreter, or `[]` when clean."""
-    mismatched, missing, _ = compare(
-        read_pins(), installed_versions(), editable_names()
-    )
-    return format_lines(mismatched, missing)
+    installed = installed_versions()
+    mismatched, missing, _ = compare(read_pins(), installed, editable_names())
+    return format_lines(mismatched, missing, removed_but_installed(installed))
 
 
 def main(argv: list[str]) -> int:
@@ -185,7 +243,8 @@ def main(argv: list[str]) -> int:
     )
     for line in lines:
         print(line)
-    print("Fix: pip install -r backend/requirements.txt (see todo 378).")
+    for line in fix_hints(lines):
+        print(line)
     return 0
 
 
