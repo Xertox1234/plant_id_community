@@ -613,8 +613,27 @@ reaching the line that says which key is missing. A release script that fails
 without saying why is the same category of problem as the one this item is
 about.
 
-The build-4 IPA the test run produced was **not** uploaded; build 3 remains the
-build at Apple.
+**Build 4 uploaded 2026-09-12 18:33** (delivery UUID
+`788b39f1-cda3-43c9-adc2-497f323e83f1`), and deliberately through the new
+`run_upload.sh` rather than a hand-typed `altool` call — so the gate was
+exercised on a real outbound upload, not only in tests:
+
+```text
+==> verifying build/ios/ipa/plant_community_mobile.ipa before upload
+    verification passed
+==> uploading to App Store Connect
+UPLOAD SUCCEEDED with no errors
+```
+
+Builds 3 and 4 are configured identically — same Firebase values, same
+production API base — and differ only in build number.
+
+**A sequencing note that matters more than it looks.** Expiring a build is
+irreversible, and until build 4 finishes processing, build 3 is the *only*
+installable build (1 and 2 are already expired). Expiring 3 before 4 is
+confirmed `VALID` would leave zero installable builds if 4 came back `INVALID`,
+with no way back. So the order is: wait for 4 to reach `VALID`, then expire 3 —
+never the reverse. The same reasoning applies to any future release here.
 
 ## Notes
 
