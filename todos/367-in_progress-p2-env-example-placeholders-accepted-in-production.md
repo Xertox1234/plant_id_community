@@ -216,3 +216,16 @@ same three cases fail. The assertions got stricter, not looser.
 **The lesson is the control's, though.** A test that asserts a whole environment
 boots is asserting far more than it means to, and every extra requirement is a
 way for it to fail for the wrong reason. Assert the specific behaviour.
+
+### 2026-09-13 - Drive-by: the CI step that generated the removed key
+
+`.github/workflows/backend-ci.yml` had **two** copies of a
+"Generate CI-only field encryption key" step writing `FIELD_ENCRYPTION_KEY` into
+`$GITHUB_ENV`. Nothing has ever read that variable — it appears in no `.py` and
+`encrypted_model_fields` was never in `INSTALLED_APPS` — so the steps were dead
+before this todo and unambiguously dead after it. Both removed; YAML and
+`actionlint` clean, and `FIELD_ENCRYPTION_KEY` now appears nowhere in the
+workflow.
+
+`cryptography` stays in `requirements.txt` — it has other users; only
+`django-encrypted-model-fields` went.
