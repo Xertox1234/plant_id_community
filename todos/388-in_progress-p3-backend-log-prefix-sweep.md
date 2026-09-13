@@ -322,6 +322,19 @@ It is **not** opened as a stacked PR on purpose: `scripts/add_log_prefixes.py`
 exists only on this branch, and in this repo a stacked PR runs 1 CI check instead
 of 17 and goes dirty the moment the parent squash-merges.
 
+**Method note for the remaining three slices.** Neither counter can be trusted
+alone, and spot-reading the diff is not enough either. The double-prefix
+(`LOG_PREFIX_SECURITY` as a format arg) was caught by reading the diff; the
+runtime relay was only caught by reading the **call site together with its test**
+— the test's fake stdout is what revealed the value already carried a prefix. So
+for each remaining slice, read each call's enclosing function before believing
+either count. `plant_identification` is 182 calls across 18 files and is the
+likeliest place for another relay-shaped case.
+
+And do not assume every app can reach 0. `forum_host` provably cannot. The honest
+outcome for a slice is "the count dropped to N, and here is why N is not 0" — a
+forced zero would mean editing correct code.
+
 `garden_calendar` (4 calls) is deliberately **deferred**, not folded in: its only
 lint blocker is an `E402` at `signals.py:156`, where a management `Command` class
 and its `BaseCommand` import sit in the middle of a signals module. That is a
