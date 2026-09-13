@@ -52,8 +52,8 @@
 ## 1. Backend (Django) - 40 Dependencies
 
 ### Detailed Reports Created
-- **Full Audit**: `/backend/docs/DEPENDENCY_SECURITY_AUDIT_2025.md` (38KB)
-- **Quick Reference**: `/backend/docs/DEPENDENCY_UPGRADE_QUICKREF.md`
+- **Full Audit**: `docs/archive/audits/DEPENDENCY_SECURITY_AUDIT_2025.md` (38KB)
+- **Quick Reference**: `docs/archive/audits/DEPENDENCY_UPGRADE_QUICKREF.md`
 
 ### Critical Security Vulnerabilities
 
@@ -718,8 +718,8 @@ npm run build -- --analyze  // If configured
 ## Appendix: Full Documentation Links
 
 ### Backend
-- **Full Security Audit**: `/backend/docs/DEPENDENCY_SECURITY_AUDIT_2025.md` (38KB)
-- **Quick Reference**: `/backend/docs/DEPENDENCY_UPGRADE_QUICKREF.md`
+- **Full Security Audit**: `docs/archive/audits/DEPENDENCY_SECURITY_AUDIT_2025.md` (38KB)
+- **Quick Reference**: `docs/archive/audits/DEPENDENCY_UPGRADE_QUICKREF.md`
 - **CVE Details**: https://nvd.nist.gov/
 
 ### Web Frontend

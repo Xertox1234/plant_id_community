@@ -30,10 +30,17 @@ This directory contains historical documentation, completion summaries, and audi
 **Security & Dependency Audits** - Comprehensive security audits conducted in October 2025.
 
 - `COMPREHENSIVE_DEPENDENCY_AUDIT_2025.md` - Full dependency security audit
+- `DEPENDENCY_SECURITY_AUDIT_2025.md` - Backend Python/Django deep dive (January 2025; archived 2026-09-13 by todo 365)
+- `DEPENDENCY_UPGRADE_QUICKREF.md` - Command-by-command upgrade sheet for the above (same vintage, same caveat)
 - `FLUTTER_DEPENDENCY_SECURITY_AUDIT_2025.md` - Flutter-specific audit
 - `SECURITY_AUDIT_REPORT_2025-10-23.md` - Backend security audit
 - `BEST_PRACTICES_AUDIT_2025.md` - Best practices review
 - `WAGTAIL_HEADLESS_BEST_PRACTICES_2025.md` - Wagtail CMS best practices
+
+The two `DEPENDENCY_*` files above prescribe installing `django-celery-beat`,
+which PR #695 removed. They carry an ARCHIVED banner naming what replaced them;
+dependency security now lives in `.github/workflows/security-scan.yml`,
+`.github/security-suppressions.yml` and Dependabot alerts.
 
 ### `/implementations/`
 **Historical Implementation Plans** - Completed implementation plans from previous development phases.

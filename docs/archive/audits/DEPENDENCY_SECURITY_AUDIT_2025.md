@@ -1,5 +1,30 @@
 # Python/Django Dependency Security Audit - January 2025
 
+> **ARCHIVED — point-in-time artifact, not current guidance.**
+>
+> Written in January 2025 against Django 5.2.x. The stack has moved on and the
+> commands below no longer describe it: `django-celery-beat` was **removed**
+> from `backend/requirements.txt` by PR #695 (declared but never invoked), so
+> every `pip install django-celery-beat` line here would reinstall a dependency
+> this project deliberately dropped. Treat the whole file as history.
+>
+> Kept for the audit trail — the reasoning behind the January 2025 pins is not
+> recorded anywhere else.
+>
+> **What replaced it:**
+>
+> | What this document did | Where that lives now |
+> | --- | --- |
+> | Names the pinned versions | `backend/requirements.txt`, `backend/requirements-dev.txt` |
+> | Finds known vulnerabilities | `.github/workflows/security-scan.yml` — pip-audit and `npm audit`, advisory per-PR and blocking on the Monday 09:00 UTC schedule — plus GitHub Dependabot alerts (enabled 2026-09-05) |
+> | Records deliberate exceptions | `.github/security-suppressions.yml`, each entry carrying a removal condition |
+> | Prescribes upgrade procedure | Dependabot PRs; `docs/rules/security.md` for the binding rules |
+> | Handles secrets and keys | `backend/docs/patterns/security/secret-management.md` |
+>
+> Archived by todo 365 on 2026-09-13.
+
+---
+
 **Generated**: January 2025
 **Project**: Plant ID Community Backend
 **Current Django Version**: 5.2.x
@@ -343,6 +368,7 @@ pip show httpx
 **Breaking Changes**: None reported (2.6.0 → 2.8.1)
 
 **Action**: Update to `django-celery-beat>=2.8.1,<3.0`
+**SUPERSEDED (PR #695)**: `django-celery-beat` was removed from `backend/requirements.txt` entirely. Do not reinstall it.
 
 ---
 
@@ -770,7 +796,7 @@ django-allauth>=65.4.0,<66.0  # MAJOR VERSION - TEST THOROUGHLY
 # Production Server
 gunicorn>=22.0.0,<23.0
 uvicorn[standard]>=0.30.0
-django-celery-beat>=2.8.1,<3.0
+django-celery-beat>=2.8.1,<3.0   # SUPERSEDED: removed by PR #695
 
 # WebSockets (Channels)
 channels>=4.2.0,<5.0
@@ -870,7 +896,7 @@ whitenoise[brotli]>=6.11.0,<7.0
 2. **Database & Caching**
    ```bash
    pip install "psycopg2-binary>=2.9.11,<3.0"
-   pip install "django-celery-beat>=2.8.1,<3.0"
+   pip install "django-celery-beat>=2.8.1,<3.0"   # SUPERSEDED: removed by PR #695, do not run
    pip install "channels>=4.2.0,<5.0"
    pip install "channels-redis>=4.3.0,<5.0"
    ```
