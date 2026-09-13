@@ -6,7 +6,7 @@ import '../../core/routing/app_router.dart';
 import '../../core/theme/green_thumb_extension.dart';
 import '../../services/auth_service.dart';
 import 'login_screen.dart'
-    show GoogleSignInButton, validateEmail, validatePassword;
+    show GoogleSignInButton, dismissAfterAuth, validateEmail, validatePassword;
 
 /// Email/password account creation.
 ///
@@ -56,7 +56,8 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
             password: _passwordController.text,
             displayName: _nameController.text.trim(),
           );
-      // Deliberately no navigation here -- see the class doc.
+      if (!mounted) return;
+      dismissAfterAuth(context);
     } on AuthException catch (e) {
       if (!mounted) return;
       setState(() => _error = e.message);

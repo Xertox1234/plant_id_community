@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:go_router/go_router.dart';
 import 'package:plant_community_mobile/features/auth/login_screen.dart';
 import 'package:plant_community_mobile/services/auth_service.dart';
 
@@ -20,14 +21,26 @@ void main() {
     bool enabled = true,
   }) async {
     final fake = FakeAuthService(loggedIn: false);
-    await tester.pumpWidget(
-      ProviderScope(
-        overrides: [authServiceProvider.overrideWith(() => fake)],
-        child: MaterialApp(
-          home: Scaffold(
+    // A router, not a bare MaterialApp: on success the button calls
+    // dismissAfterAuth, which reads GoRouter.of(context). In production this
+    // widget is never outside a router, and the helper deliberately does NOT
+    // use GoRouter.maybeOf -- a screen mounted outside the router is a bug
+    // worth crashing on, not one worth silently not navigating through.
+    final router = GoRouter(
+      routes: [
+        GoRoute(
+          path: '/',
+          builder: (context, state) => Scaffold(
             body: Center(child: GoogleSignInButton(enabled: enabled)),
           ),
         ),
+      ],
+    );
+    addTearDown(router.dispose);
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [authServiceProvider.overrideWith(() => fake)],
+        child: MaterialApp.router(routerConfig: router),
       ),
     );
     return fake;
