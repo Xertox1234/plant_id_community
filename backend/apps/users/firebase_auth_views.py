@@ -12,6 +12,7 @@ import uuid
 from typing import Optional, Tuple
 
 import firebase_admin
+import google.auth.credentials
 from apps.core.ratelimit import (  # rate-preserving wrapper (Retry-After)
     client_ip_key,
     ratelimit,
@@ -21,6 +22,7 @@ from apps.users.signup import create_default_plant_collection, join_forum_member
 from django.contrib.auth import get_user_model
 from django.db import IntegrityError
 from firebase_admin import auth as firebase_auth
+from firebase_admin import credentials as firebase_credentials
 from rest_framework import status
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import AllowAny
@@ -30,6 +32,30 @@ from rest_framework_simplejwt.tokens import RefreshToken
 
 # Federated providers that self-verify email — no explicit email_verified check needed.
 _TRUSTED_FIREBASE_PROVIDERS = frozenset({"google.com", "apple.com"})
+
+
+class _VerifyOnlyCredential(firebase_credentials.Base):
+    """A credential that grants nothing at all.
+
+    `verify_id_token` needs no authority: Firebase ID tokens are signed with
+    Google's PUBLIC x509 certs, and the SDK only needs the project id to check
+    the `aud`/`iss` claims. But `firebase_admin` resolves a credential when it
+    builds the auth service regardless, so a projectId-only app falls back to
+    Application Default Credentials and dies with "Your default credentials
+    were not found" on a host that has none -- which is precisely what happened
+    in production on 2026-09-13: every mobile sign-in 401'd, and the app turned
+    that 401 into "Your session expired."
+
+    Handing it anonymous credentials satisfies that plumbing while granting no
+    Google API access, which is also the correct least privilege here: this
+    app calls `verify_id_token` and nothing else. FCM sending remains disabled
+    in this tier by design -- it needs a real service account via
+    FIREBASE_CREDENTIALS_PATH.
+    """
+
+    def get_credential(self) -> google.auth.credentials.Credentials:
+        return google.auth.credentials.AnonymousCredentials()
+
 
 logger = logging.getLogger(__name__)
 User = get_user_model()
@@ -74,13 +100,23 @@ def _ensure_firebase_initialized() -> None:
        initialized through the same apps/garden bootstrap the FCM sender
        uses, so the shared app is fully credentialed whichever side runs
        first.
-    3. projectId-only (``settings.FIREBASE_PROJECT_ID``): serves the Firebase
-       Auth *emulator* dev loop (FIREBASE_AUTH_EMULATOR_HOST — emulator mode
-       substitutes its own credentials) and ADC-resolvable environments.
-       Against production Firebase with no resolvable ADC, verification
-       still fails as a handled 401 — this tier does NOT make a key-less
-       machine verify production tokens (verified live: firebase_admin 7.4.0
-       resolves the app credential eagerly in its verifier).
+    3. projectId-only (``settings.FIREBASE_PROJECT_ID``) with
+       :class:`_VerifyOnlyCredential`: verifies PRODUCTION tokens on a machine
+       holding no key at all. ID tokens are signed with Google's public certs,
+       so verification needs the project id and nothing else.
+
+       This tier previously could NOT do that, and said so here: firebase_admin
+       7.4.0 resolves the app credential eagerly when it builds the auth
+       service, so a credential-less app died with "Your default credentials
+       were not found" before ever looking at the token. That is not a
+       limitation of ID-token verification, only of the SDK's plumbing, and
+       handing it anonymous credentials satisfies the plumbing while granting
+       no API access. On 2026-09-13 the old behaviour took production down for
+       every mobile sign-in — see FirebaseProjectIdOnlyInitTestCase, which
+       fails with the real DefaultCredentialsError if the credential is removed.
+
+       FCM sending still requires a real service account
+       (FIREBASE_CREDENTIALS_PATH) and stays disabled in this tier.
 
     Never raises: a broken credential file or a lost first-touch init race
     must degrade to failed verification (handled 401), not 500 every login.
@@ -134,7 +170,8 @@ def _ensure_firebase_initialized() -> None:
         # sending stays disabled (it needs FIREBASE_CREDENTIALS_PATH).
         project_id = getattr(settings, "FIREBASE_PROJECT_ID", None)
         firebase_admin.initialize_app(
-            options={"projectId": project_id} if project_id else None
+            _VerifyOnlyCredential(),
+            options={"projectId": project_id} if project_id else None,
         )
         logger.info(
             "[FIREBASE] Firebase Admin SDK initialized (projectId-only — "
