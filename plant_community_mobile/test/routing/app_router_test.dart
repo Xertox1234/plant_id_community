@@ -17,6 +17,7 @@ import 'package:plant_community_mobile/features/forum/services/forum_sync_store.
 import 'package:plant_community_mobile/models/plant.dart';
 import 'package:plant_community_mobile/services/api_service.dart';
 import 'package:plant_community_mobile/services/auth_service.dart';
+import 'package:plant_community_mobile/services/user_profile_service.dart';
 
 import '../features/forum/support/forum_test_support.dart';
 
@@ -1210,6 +1211,14 @@ void main() {
             authServiceProvider.overrideWith(
               _MockAuthenticatedAuthNotifier.new,
             ),
+            // The redirect now lands on /profile, which mounts ProfileScreen,
+            // which auto-fetches GET /auth/user/ in build(). Unfaked it hits
+            // the network and Riverpod 3.x reschedules the failed fetch on a
+            // backoff timer forever, so the test fails on a pending timer
+            // rather than on its own assertion.
+            userProfileServiceProvider.overrideWith(
+              () => FakeUserProfileService(username: 'tester'),
+            ),
           ],
         );
         addTearDown(container.dispose);
@@ -1227,10 +1236,12 @@ void main() {
         router.go(AppRoutes.login);
         await tester.pump(const Duration(milliseconds: 100));
 
-        // Should be redirected to home
+        // Should be redirected to the profile tab (not home): a user who is
+        // already signed in and lands on /login is sent where being signed in
+        // is visible. Kept in step with dismissAfterAuth deliberately.
         expect(
           router.routerDelegate.currentConfiguration.uri.path,
-          equals(AppRoutes.home),
+          equals(AppRoutes.profile),
         );
 
         await tester.pump(const Duration(seconds: 4));

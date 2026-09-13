@@ -116,9 +116,15 @@ GoRouter appRouter(Ref ref) {
         return AppRoutes.login;
       }
 
-      // Redirect authenticated users away from login/register
+      // Redirect authenticated users away from login/register.
+      // PROFILE, not home: someone who has just signed in is there to be
+      // signed in, and the profile tab is what shows it. Build 8 sent them to
+      // Home and the owner asked for Profile. This also has to agree with
+      // `dismissAfterAuth`, which handles the PUSHED case the redirect cannot
+      // see — if the two disagree, where you land depends on how you happened
+      // to reach the sign-in screen.
       if (isAuthenticated && authOnlyRoutes.contains(location)) {
-        return AppRoutes.home;
+        return AppRoutes.profile;
       }
 
       return null; // No redirect

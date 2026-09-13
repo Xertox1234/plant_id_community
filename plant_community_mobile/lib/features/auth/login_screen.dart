@@ -267,7 +267,11 @@ class _GoogleSignInButtonState extends ConsumerState<GoogleSignInButton> {
 /// screen sent them here — normally the Profile tab, now rendering signed-in.
 ///
 /// When they arrived by REDIRECT from a protected route the underlying location
-/// IS an auth route, so there is nothing to go back to and home is correct.
+/// IS an auth route, so there is nothing to return to. That case lands on the
+/// PROFILE tab, not home: someone who just signed in is there to be signed in,
+/// and the profile tab is what reflects that. Observed on build 8 — the owner
+/// landed on Home and said "the profile tab would be the preferred
+/// destination".
 ///
 /// Before this, signing in left a fully authenticated user staring at the
 /// sign-in form; the owner only discovered it had worked by tapping the back
@@ -277,7 +281,7 @@ void dismissAfterAuth(BuildContext context) {
   final uri = router.routerDelegate.currentConfiguration.uri;
   final cameFromAnAuthRoute =
       uri.path == AppRoutes.login || uri.path == AppRoutes.register;
-  router.go(cameFromAnAuthRoute ? AppRoutes.home : uri.toString());
+  router.go(cameFromAnAuthRoute ? AppRoutes.profile : uri.toString());
 }
 
 /// Inline validation shared by the sign-in and register forms.

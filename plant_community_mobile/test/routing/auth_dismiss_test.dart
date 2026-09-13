@@ -119,7 +119,7 @@ void main() {
     await tester.pump(const Duration(seconds: 4));
   });
 
-  testWidgets('arriving by redirect (not push) still lands somewhere signed in', (
+  testWidgets('arriving by redirect (not push) lands on the Profile tab', (
     tester,
   ) async {
     // Here the location really IS /login, so there is nothing to return to.
@@ -140,7 +140,13 @@ void main() {
     await tester.pump(const Duration(seconds: 1));
 
     expect(find.byType(LoginScreen), findsNothing);
-    expect(router.routerDelegate.currentConfiguration.uri.path, AppRoutes.home);
+    // Profile, not home: someone who just signed in is there to BE signed in.
+    // Build 8 landed on Home here and the owner asked for Profile.
+    expect(
+      router.routerDelegate.currentConfiguration.uri.path,
+      AppRoutes.profile,
+    );
+    expect(find.byType(ProfileScreen), findsOneWidget);
 
     await tester.pump(const Duration(seconds: 4));
   });
