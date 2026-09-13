@@ -418,7 +418,12 @@ GoRouter appRouter(Ref ref) {
   );
 }
 
-/// Build page with fade transition
+/// Build page with fade transition.
+///
+/// The fade length here is coupled to `test/routing/navigation_shell_test.dart`,
+/// which pumps past it (`_settle`) to see the shell mount. Lengthen the
+/// transition beyond that and those tests start reporting "no NavigationBar"
+/// when the truth is "not yet" -- bump `_settle` in the same change.
 CustomTransitionPage _buildPageWithTransition({
   required BuildContext context,
   required GoRouterState state,
