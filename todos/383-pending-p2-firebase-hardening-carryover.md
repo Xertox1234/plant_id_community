@@ -613,8 +613,93 @@ reaching the line that says which key is missing. A release script that fails
 without saying why is the same category of problem as the one this item is
 about.
 
-The build-4 IPA the test run produced was **not** uploaded; build 3 remains the
-build at Apple.
+**Build 4 uploaded 2026-09-12 18:33** (delivery UUID
+`788b39f1-cda3-43c9-adc2-497f323e83f1`), and deliberately through the new
+`run_upload.sh` rather than a hand-typed `altool` call — so the gate was
+exercised on a real outbound upload, not only in tests:
+
+```text
+==> verifying build/ios/ipa/plant_community_mobile.ipa before upload
+    verification passed
+==> uploading to App Store Connect
+UPLOAD SUCCEEDED with no errors
+```
+
+Builds 3 and 4 are configured identically — same Firebase values, same
+production API base — and differ only in build number.
+
+**Build 3 expired 2026-09-12 once build 4 reached `VALID`**, in that order and
+deliberately not the reverse. Final state, read back from Apple rather than
+inferred from the `PATCH` responses:
+
+| build | state | expired | |
+|---|---|---|---|
+| 1 | VALID | **true** | define-less, error screen |
+| 2 | VALID | **true** | define-less, error screen |
+| 3 | VALID | **true** | worked; superseded by 4 |
+| 4 | VALID | false | **the only installable build** |
+
+**The sequencing is the reusable part.** Expiring is irreversible, and until
+build 4 finished processing, build 3 was the *only* installable build — 1 and 2
+were already expired. Expiring 3 first would have left **zero** installable
+builds had 4 come back `INVALID`, with no way back. So the rule for any future
+release here: confirm the replacement is `VALID` **before** retiring its
+predecessor.
+
+That rule is now enforced in code rather than remembered. The expiry script
+carries three guards: an allowlist of build numbers with the replacement
+explicitly protected; a re-`GET` of each id immediately before its `PATCH`
+asserting the build number it reports is the intended one, so a drifted id
+aborts instead of being written to; and a refusal to proceed at all if the
+expiry would leave no `VALID`, unexpired build. The third printed
+`builds that remain installable afterwards: ['4']` before writing anything.
+
+### 10. NEW — a `VALID` build is not a distributable build (export compliance)
+
+Build 4 processed to `VALID`, was unexpired, and was the only live build — and
+would still never have appeared in anyone's TestFlight app. Its
+`usesNonExemptEncryption` was `null`, which is App Store Connect's
+**"Missing Compliance"** state. TestFlight will not release a build to testers
+until the export-compliance question is answered, and nothing times out into a
+yes: it sits there indefinitely. Found by asking the API what stood between the
+build and a tester, rather than assuming `VALID` meant ready — the same mistake
+shape as reading a green upload as a working app.
+
+Root cause: `ITSAppUsesNonExemptEncryption` is absent from
+`ios/Runner/Info.plist` (checked in the shipped binary as well as the source).
+When that key is present, App Store Connect answers the question itself at
+ingest and never prompts.
+
+**Both halves done 2026-09-12, at the owner's instruction:**
+
+- **Build 4 answered directly** — `PATCH /v1/builds/{id}` with
+  `usesNonExemptEncryption: false`; re-read confirms `False`, not `null`. Guarded
+  the same way as the expiries: re-`GET` the id and assert it really is build 4,
+  and refuse if it is expired.
+- **`ITSAppUsesNonExemptEncryption = false` added to `ios/Runner/Info.plist`** so
+  every future build auto-answers. This is **not retroactive** — it only affects
+  builds compiled after it, which is why build 4 also needed the direct answer.
+
+**The declaration is an attestation, so it was checked rather than assumed.**
+`false` asserts the app uses only *exempt* encryption. What it actually uses:
+HTTPS/TLS (`dio`, `http`, `firebase_auth`) and the iOS Keychain
+(`flutter_secure_storage`) — all platform-provided and exempt — with **no**
+custom cryptography: no `encrypt` / `pointycastle` / `cryptography` dependency,
+and no `AES`/`RSA`/`Cipher` usage anywhere in `lib/`. If the app ever encrypts
+data itself rather than leaving it to TLS and the Keychain, this declaration
+must be revisited, because it would then be false.
+
+Committed with care in a shared checkout: `Info.plist` also carries another
+session's in-flight location-permission strings. Only the encryption key was
+staged — by building the index entry from `HEAD` plus that one key
+(`git hash-object` + `update-index --cacheinfo`) rather than `git add`, since a
+pathspec cannot split one file. Their lines remain unstaged in the working tree
+and are untouched.
+
+**Remaining gate on actually installing it:** the `Internal Testers` group exists
+(internal, `hasAccessToAllBuilds`) and the owner is its one member, but that
+member's state reads `NOT_INVITED`. Internal testing needs no Beta App Review, so
+once the invite is accepted the build should appear within minutes.
 
 ## Notes
 
