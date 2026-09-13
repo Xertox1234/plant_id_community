@@ -7,6 +7,11 @@ subsystem. GitHub issue #186 claimed 5% of log statements were unprefixed and
 nobody ever re-measured it. On 2026-09-13 (todo 361) the real figure across
 `backend/apps/` turned out to be 357 of 769 judgeable calls -- 46.4%.
 
+That 357 was itself 16 too high, corrected 2026-09-13 (todo 388) when the first
+sweep slice found the misses: 15 calls prefixed via a `LOG_PREFIX_*` constant and
+1 using a hyphenated token. The corrected baseline is **341 of 769 (44.3%)**, and
+all 16 corrections land in `core`. Both shapes are recognised below.
+
 Todo 388 sweeps that debt app by app, and its acceptance criteria are stated in
 terms of counts produced by THIS script. That is the whole point of committing
 it: a count is only meaningful against a fixed judgeability rule. Re-deriving a
@@ -20,14 +25,18 @@ WHAT COUNTS AS A LOGGER CALL
   all count. Limitation: a logger bound to any other name is invisible.
 
 WHAT COUNTS AS PREFIXED
-  The FIRST argument's leading *literal* text matches `^\\s*\\[[A-Z0-9_]+\\]`.
+  The FIRST argument's leading *literal* text matches `^\\s*\\[[A-Z0-9_-]+\\]`,
+  or the first argument is an f-string opening with a `LOG_PREFIX_*` constant.
   Leading text is resolved for four shapes, because a line-based regex misses
   most of them:
     - a plain string constant                  logger.info("[CACHE] hit")
     - an f-string, using its first literal     logger.info(f"[CACHE] {k}")
-      chunk (an f-string opening with an
-      interpolation has no literal prefix,
-      and is therefore UNPREFIXED)
+      chunk -- or, when it opens with an
+      interpolation, the interpolated name     logger.info(
+      if that name is a LOG_PREFIX_*             f"{LOG_PREFIX_AUTH} ok")
+      constant (apps/core/constants.py).
+      Any other opening interpolation is
+      UNPREFIXED
     - "..." % (...) and "..." + x, using       logger.info("[CACHE] %s" % k)
       the left operand
     - anything else (a bare name, a call)      -> UNDETERMINABLE, not counted
@@ -53,7 +62,17 @@ from collections import Counter
 
 LEVELS = {"debug", "info", "warning", "warn", "error", "exception", "critical"}
 RECEIVERS = {"logger", "log", "_logger"}
-PREFIX_RE = re.compile(r"^\s*\[[A-Z0-9_]+\]")
+# A hyphen is allowed in the token. `[RATELIMIT-RESOLVE]` (apps/core/ratelimit.py)
+# is a real, greppable subsystem prefix; rejecting it counted a compliant call as
+# a violation and would have invited someone to "fix" a working diagnostic.
+PREFIX_RE = re.compile(r"^\s*\[[A-Z0-9_-]+\]")
+# An f-string may open with a named constant that IS the prefix:
+#   logger.warning(f"{LOG_PREFIX_RATELIMIT} Rate limit violation: ...")
+# apps/core/constants.py:74-83 defines ten of these and they hold real bracketed
+# values. Treating "opens with an interpolation" as unprefixed marked 15 already-
+# compliant calls as violations -- every one of them in `core`, which is why that
+# app read as 92.5% non-compliant instead of its true 68.7%.
+PREFIX_CONST_RE = re.compile(r"^LOG_PREFIX_[A-Z0-9_]+$")
 SKIP_DIRS = {"venv", ".venv", "node_modules", "migrations", "__pycache__", ".git"}
 
 
@@ -68,7 +87,14 @@ def leading_literal(call: ast.Call) -> "str | None":
         for part in arg.values:
             if isinstance(part, ast.Constant) and isinstance(part.value, str):
                 return part.value
-            return ""  # opens with an interpolation -> no literal prefix
+            if isinstance(part, ast.FormattedValue):
+                # Opens with an interpolation. That is a prefix only when the
+                # interpolated name is one of the LOG_PREFIX_* constants; any
+                # other expression is a value, not a subsystem tag.
+                if PREFIX_CONST_RE.match(ast.unparse(part.value)):
+                    return "[CONST_PREFIX]"
+                return ""
+            return ""
         return ""
     if isinstance(arg, ast.BinOp):
         left = arg.left
