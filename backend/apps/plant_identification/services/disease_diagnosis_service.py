@@ -6,9 +6,8 @@ local disease database (for cost efficiency) and plant.health API (for comprehen
 """
 
 import logging
-from typing import Callable, Dict, List, Optional, Tuple, Union
+from typing import Callable, Dict, List, Optional
 
-from django.core.files.base import ContentFile
 from django.db import transaction
 from django.utils import timezone
 
@@ -17,7 +16,6 @@ from ..models import (
     PlantDiseaseDatabase,
     PlantDiseaseRequest,
     PlantDiseaseResult,
-    PlantSpecies,
 )
 from .plant_health_service import PlantHealthAPIService
 
@@ -340,14 +338,18 @@ class PlantDiseaseService:
             if progress_cb:
                 progress_cb("final_status", request.status, {"results": len(results)})
 
-        except Exception as e:
-            logger.error(
-                f"Error processing disease diagnosis request {request.request_id}: {str(e)}"
+        except Exception:
+            logger.exception(
+                "[DIAGNOSIS] Error processing disease diagnosis request %s",
+                request.request_id,
             )
             request.status = "failed"
             request.save()
             if progress_cb:
-                progress_cb("final_status", "failed", {"error": str(e)})
+                # progress_cb feeds a client-facing progress channel. No caller
+                # passes one today, so this never fires -- which is exactly why
+                # it has to be safe before one does (todo 377).
+                progress_cb("final_status", "failed", {"error": "Diagnosis failed"})
 
         return results
 
@@ -539,10 +541,13 @@ class PlantDiseaseService:
                 "disease_count": disease_count,
                 "last_check": "now",
             }
-        except Exception as e:
+        except Exception:
+            # Response shape -- keep the detail in the log, not in the payload
+            # (todo 377). A DB error message can name the connection string.
+            logger.exception("[DIAGNOSIS] Local disease database check failed")
             status["local_database"] = {
                 "available": False,
-                "error": str(e),
+                "error": "Local database check failed",
                 "last_check": "now",
             }
 

@@ -299,9 +299,15 @@ class PlantImageService:
                     }
                     logger.warning(f"No images found for {plant_name}")
 
-            except Exception as e:
-                results[plant_name] = {"success": False, "error": str(e)}
-                logger.error(f"Failed to process {plant_name}: {e}")
+            except Exception:
+                # Per-plant result dict, response-shaped (todo 377). The
+                # underlying services are HTTP clients, so `str(e)` here can
+                # carry a prepared URL with an api-key query parameter.
+                results[plant_name] = {
+                    "success": False,
+                    "error": "Image processing failed",
+                }
+                logger.exception("[PLANT_IMAGE] Failed to process %s", plant_name)
 
         # Add batch summary
         results["_batch_summary"] = {

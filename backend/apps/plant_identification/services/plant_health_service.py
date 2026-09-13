@@ -390,10 +390,22 @@ class PlantHealthAPIService:
                 }
 
         except Exception as e:
+            # This dict is a response shape: it is merged into
+            # DiseaseDiagnosisService.get_service_status and returned. `str(e)`
+            # on a requests exception embeds the prepared URL, i.e. the api-key
+            # (todos 354/358/377), so the detail goes to the log and the caller
+            # gets a constant.
+            if isinstance(e, requests.RequestException):
+                logger.error(
+                    "[PLANT_HEALTH] Service status check failed: %s",
+                    log_safe_api_error(e),
+                )
+            else:
+                logger.exception("[PLANT_HEALTH] Service status check failed")
             return {
                 "status": "error",
                 "api_key_valid": False,
-                "error": str(e),
+                "error": "Service status check failed",
                 "last_check": "now",
             }
 
