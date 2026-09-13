@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: p2
 issue_id: "383"
 tags: [security, firebase, gcp, mobile]
@@ -242,37 +242,49 @@ be closed before the first real distribution.
       build `1.0.0+2` has no Firebase configuration compiled in and never calls a
       key at all (item 8). Restrictions are server-side, so a revert needs no
       rebuild)
-- [ ] Release-cert SHA-1 registered before any distribution (or explicitly
-      deferred again, in writing, with the reason) — **deferred again 2026-09-12,
-      reason: there is nothing to register.** Re-verified rather than copied from
-      the earlier text: `android/app/build.gradle.kts:40-44` still reads
-      `signingConfig = signingConfigs.getByName("debug")` under `buildTypes {
-      release { ... } }`, there is no `android/key.properties`, no `.jks` anywhere
-      in the tree, and no `.aab`/`.apk` artifact has been produced. A release
-      certificate is a prerequisite of this AC, not a step within it. **Left
-      unchecked on purpose:** `- [x]` in this repo means shipped, and a box that
-      is checked because it was deferred is one nobody re-audits — the exact
-      failure the Review Doc Tracking convention exists to prevent. The trigger to
-      revisit is the creation of a release keystore, or the first Play upload
-      (Play re-signs with its own App Signing certificate, which is a *third*
-      SHA-1, matching neither the debug key nor a local release keystore).
-      Today's iOS distribution does not move this: iOS keys restrict by bundle
-      id, not by certificate
-- [ ] Sign-in verified on a physical Android device and a physical iOS device —
-      **iOS is now blocked on a rebuild, not on distribution.** The premise this
-      was deferred under ("the app is distributed to nobody") expired 2026-09-12
-      when two uploads of `com.plantcommunity.plantCommunityMobile` succeeded to
-      App Store Connect, so the deferral no longer holds. But the build that got
-      there cannot discharge it either: `1.0.0+2` was archived without any
-      `--dart-define`, so it shows the configuration-error screen and never
-      reaches a sign-in screen (item 8). Discharging this needs an archive built
-      through Flutter with the defines, re-uploaded, then an actual sign-in on the
-      installed build. **The first two of those three are now done** — build 3 was
-      built with the defines, verified against the artifact and uploaded
-      2026-09-12 (item 8, RESOLVED). What remains is the part no tooling can do
-      from here: install build 3 from TestFlight on a physical iPhone and sign in.
-      That single act discharges the iOS half. Android remains deferred with the
-      original reason — still no release keystore, still nothing installed anywhere
+- [ ] Release-cert SHA-1 registered before any distribution
+      → **RE-POINTED to todo 387 (2026-09-13). Not checked off: it MOVED.**
+      Still unmet and still blocked on the same prerequisite — there is nothing
+      to register. Re-verified today, not copied forward:
+      `android/app/build.gradle.kts:40-44` reads
+      `signingConfig = signingConfigs.getByName("debug")` in the release block,
+      there is no `android/key.properties`, no `.jks` in the tree, and no
+      `.aab`/`.apk` has ever been produced. A release certificate is a
+      PREREQUISITE of this criterion, not a step within it.
+      `- [x]` in this repo means shipped, and a box checked because it was
+      deferred is one nobody re-audits. Today's iOS work does not move it: iOS
+      keys restrict by bundle id, Android by package + certificate SHA-1.
+
+- [ ] Sign-in verified on a physical Android device and a physical iOS device
+      → **iOS half DONE 2026-09-13. Android half RE-POINTED to todo 387.**
+      Left `- [ ]` because the criterion as written names both platforms and
+      only one is satisfied; splitting it would falsify the record either way.
+
+      **iOS, discharged.** The owner signed in on TestFlight build 7 on a
+      physical iPhone, against production. Confirmed in the Railway
+      `plant_id_community` production log, not from the UI:
+      ```
+      [FIREBASE AUTH] Token validated for uid=QY7lYq7ne..., email=wi***@gmail.com
+      [FIREBASE AUTH] Bound Firebase UID for wi***@gmail.com
+      [FIREBASE AUTH] Existing user authenticated: wi***@gmail.com
+      ```
+      It LINKED to the existing Django account created by the web app's Google
+      OAuth button — forum history and bookmarks intact.
+
+      Reaching that took four fixes stacked behind each other, none of which
+      existed when this AC was written: auth screens that existed at all
+      (#735), a Google path (#736 — the backend 403s every unverified
+      email/password token and the app sends no verification mail, so the
+      email/password path could never complete), `FIREBASE_PROJECT_ID` set in
+      production, and `_VerifyOnlyCredential` so `firebase_admin` stops
+      demanding Application Default Credentials to verify a token signed with
+      Google's PUBLIC certs (#737).
+
+      **Android, moved to todo 387.** Still no release keystore, still nothing
+      installed anywhere, and `google-services.json` holds only a web OAuth
+      client (`client_type: 3`) — so Google Sign-In cannot work there at all.
+      Blocked by the same prerequisite as AC 4 above.
+
 - [x] Dead `isAuthenticated()` helper removed from `firebase/storage.rules`
       **and deployed in the same motion** (see item 5) — 2026-09-12, deployed
       from the todo-383 branch before merge, so the repo never went ahead of
@@ -885,3 +897,27 @@ means shipped, and a box checked for a deferral is a box nobody re-audits. The
 facts behind it were re-verified in the tree, not copied forward from the earlier
 entry, because this todo has already carried a confidently-wrong finding once
 (item 2's "no API restrictions", which were 24 all along).
+
+### 2026-09-13 - Started by completing-todos skill (run 2026-09-13-1516)
+
+- Picked up by automated workflow.
+
+### 2026-09-13 - Completed by completing-todos skill (run 2026-09-13-1516)
+
+- Verification: 4 of 6 acceptance criteria pass with evidence recorded above.
+  The remaining 2 are **left `- [ ]` on purpose and re-pointed to todo 387**
+  (Android release signing, SHA-1 registration, Android sign-in): a finding
+  that MOVED is re-pointed, never checked off, so the `…-COMPLETED` rename
+  that fires only on an all-`[x]` file deliberately does NOT apply here.
+- Archived with open criteria under the Review Doc Tracking convention — each
+  open line names todo 387 and says why it moved. Both are blocked on the same
+  prerequisite: no Android release keystore exists, so there is no certificate
+  to register and no Android OAuth client can be created.
+- Review: no code review dispatched. This archival diff is documentation only
+  (todo files); there is no changed source for `code-review-orchestrator` to
+  route. The code that discharged these criteria was reviewed in its own PRs —
+  #725, #726, #729, #736, #737.
+- The Firebase security thread this todo carried is closed: rules drift check
+  live under Workload Identity Federation with no key file, both mobile keys
+  narrowed 24 → 10 API targets with app restrictions intact, dead helper
+  removed and deployed, and iOS sign-in proven on a physical device.

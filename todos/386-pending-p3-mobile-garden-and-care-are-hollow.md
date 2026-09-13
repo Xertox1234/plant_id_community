@@ -4,7 +4,7 @@ priority: p3
 issue_id: "386"
 tags: [mobile, flutter, dead-code]
 dependencies: []
-source_review: "todos/384-pending-p1-mobile-navigation-shell-missing.md"
+source_review: "todos/384-mobile-navigation-shell-missing"
 ---
 
 # `/garden` is dead code and `/care` is a stub that promises navigation

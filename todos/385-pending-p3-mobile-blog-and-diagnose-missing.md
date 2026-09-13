@@ -4,7 +4,7 @@ priority: p3
 issue_id: "385"
 tags: [mobile, flutter, feature-parity]
 dependencies: []
-source_review: "todos/384-pending-p1-mobile-navigation-shell-missing.md"
+source_review: "todos/384-mobile-navigation-shell-missing"
 ---
 
 # Mobile has no Blog or Diagnose; the web has both
