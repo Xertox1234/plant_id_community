@@ -358,6 +358,121 @@ class FirebaseTokenExchangeTestCase(TestCase):
             self.assertEqual(response.data["error"], "Internal server error")
 
 
+class FirebaseTrustedProviderTestCase(TestCase):
+    """The `email_verified` gate, and the federated providers that bypass it.
+
+    Filed because this gate had NO test while being the single thing standing
+    between the mobile app and a signed-in user. The mobile app ships only
+    email/password sign-in and never calls `sendEmailVerification()`, so every
+    token it presents carries `email_verified: false` with
+    `sign_in_provider: "password"` -- which this endpoint 403s. The symptom on
+    device is a sign-in that appears to work and then silently does nothing,
+    because Firebase itself succeeded and only the exchange refused.
+
+    Google is in `_TRUSTED_FIREBASE_PROVIDERS` precisely so it does not have
+    that problem, which is what makes "Continue with Google" the fix rather
+    than a second broken path.
+    """
+
+    def setUp(self):
+        self.client = APIClient()
+        self.url = reverse("v1:users:firebase_token_exchange")
+        cache.clear()
+        self.token = "header.payload.signature"
+
+    def _decoded(self, provider, verified, email="newcomer@example.com", uid="uid-x"):
+        return {
+            "uid": uid,
+            "email": email,
+            "email_verified": verified,
+            "firebase": {"sign_in_provider": provider},
+        }
+
+    @patch("apps.users.firebase_auth_views.firebase_auth.verify_id_token")
+    def test_password_provider_with_unverified_email_is_refused(self, mock_verify):
+        """The live blocker: email/password + unverified == 403, not a sign-in."""
+        mock_verify.return_value = self._decoded("password", False)
+
+        response = self.client.post(
+            self.url, {"firebase_token": self.token}, format="json"
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertIn("verified", response.data["error"].lower())
+        # And it must not have quietly created the account anyway.
+        self.assertFalse(User.objects.filter(email="newcomer@example.com").exists())
+
+    @patch("apps.users.firebase_auth_views.firebase_auth.verify_id_token")
+    def test_google_provider_bypasses_the_verification_gate(self, mock_verify):
+        """Google self-verifies, so an unverified claim must NOT block it.
+
+        This is the assertion the mobile Google button depends on. If the
+        trusted-provider set is ever narrowed, this fails here rather than on
+        a TestFlight build.
+        """
+        mock_verify.return_value = self._decoded("google.com", False)
+
+        response = self.client.post(
+            self.url, {"firebase_token": self.token}, format="json"
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIn("access_token", response.data)
+        self.assertTrue(User.objects.filter(email="newcomer@example.com").exists())
+
+    @patch("apps.users.firebase_auth_views.firebase_auth.verify_id_token")
+    def test_google_links_to_an_existing_account_instead_of_duplicating(
+        self, mock_verify
+    ):
+        """The one that protects real data.
+
+        A user who signed up through the WEB app's Google OAuth button has a
+        Django account with no `firebase_uid`. Signing in on mobile with the
+        same Google identity must bind to that row -- not mint a second account
+        and strand their forum history on the first.
+        """
+        existing = User.objects.create_user(
+            username="webuser",
+            email="webuser@example.com",
+            password="unused-here",  # noqa: S106  # pragma: allowlist secret
+        )
+        self.assertFalse(existing.firebase_uid)
+
+        mock_verify.return_value = self._decoded(
+            "google.com", True, email="webuser@example.com", uid="google-uid-77"
+        )
+
+        response = self.client.post(
+            self.url, {"firebase_token": self.token}, format="json"
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(User.objects.filter(email="webuser@example.com").count(), 1)
+        existing.refresh_from_db()
+        self.assertEqual(existing.firebase_uid, "google-uid-77")
+
+    @patch("apps.users.firebase_auth_views.firebase_auth.verify_id_token")
+    def test_password_provider_cannot_seize_an_existing_account(self, mock_verify):
+        """The takeover the gate exists to stop, asserted rather than assumed."""
+        User.objects.create_user(
+            username="victim",
+            email="victim@example.com",
+            password="unused-here",  # noqa: S106  # pragma: allowlist secret
+        )
+
+        mock_verify.return_value = self._decoded(
+            "password", False, email="victim@example.com", uid="attacker-uid"
+        )
+
+        response = self.client.post(
+            self.url, {"firebase_token": self.token}, format="json"
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        victim = User.objects.get(email="victim@example.com")
+        self.assertFalse(victim.firebase_uid)
+
+
 class GetOrCreateUserFromFirebaseTestCase(TestCase):
     """Test cases for get_or_create_user_from_firebase helper function."""
 

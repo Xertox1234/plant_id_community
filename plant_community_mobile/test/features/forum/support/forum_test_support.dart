@@ -1128,6 +1128,25 @@ class FakeAuthService extends AuthService {
   FakeAuthService({required this.loggedIn});
   final bool loggedIn;
 
+  /// Taps on "Continue with Google", recorded rather than performed.
+  ///
+  /// MUST stay overridden: the inherited implementation calls
+  /// `GoogleSignIn.instance`, which needs a platform channel no widget test
+  /// has. Without this a test of the button would fail inside the plugin
+  /// instead of asserting the wiring.
+  int googleSignInCalls = 0;
+
+  /// Set to make the next [signInWithGoogle] fail, for error-path tests.
+  AuthException? googleSignInError;
+
+  @override
+  Future<void> signInWithGoogle() async {
+    googleSignInCalls++;
+    final error = googleSignInError;
+    if (error != null) throw error;
+    state = const AuthState(jwtToken: 'test-jwt');
+  }
+
   @override
   AuthState build() =>
       loggedIn ? const AuthState(jwtToken: 'test-jwt') : const AuthState();

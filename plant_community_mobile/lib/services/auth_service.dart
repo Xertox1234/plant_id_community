@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
+import 'package:google_sign_in/google_sign_in.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
@@ -191,6 +192,97 @@ class AuthService extends _$AuthService {
       throw AuthException(errorMessage);
     }
   }
+
+  /// Sign in with Google.
+  ///
+  /// **This is the only sign-in path that can actually complete.** The backend
+  /// rejects any Firebase token whose `email_verified` claim is false unless
+  /// the provider is trusted -- `firebase_auth_views.py` `_TRUSTED_FIREBASE_PROVIDERS`
+  /// is `{google.com, apple.com}` -- and returns 403 "Email address must be
+  /// verified before logging in." A freshly created email/password account is
+  /// unverified and this app sends no verification mail, so that path
+  /// dead-ends at the token exchange. Google self-verifies, so it does not.
+  ///
+  /// It also LINKS rather than duplicating: the exchange falls back to matching
+  /// on email and backfills `firebase_uid` onto the existing Django user
+  /// (`get_or_create_user_from_firebase`), so an account created by the web
+  /// app's Google OAuth button keeps its data.
+  ///
+  /// No `clientId` is passed to [GoogleSignIn.initialize]: on iOS the plugin
+  /// reads `GIDClientID` from `Info.plist`, which is populated from the
+  /// committed `GoogleService-Info.plist`. Passing it here as well would
+  /// duplicate a value that already has one home.
+  Future<void> signInWithGoogle() async {
+    try {
+      state = state.copyWith(isLoading: true, error: null);
+
+      // `initialize` must complete exactly once before any other call, and
+      // calling it twice is explicitly undefined behaviour in google_sign_in
+      // 7.x -- hence the latch rather than an unguarded call per sign-in.
+      await _ensureGoogleInitialized();
+
+      final account = await googleSignIn.authenticate();
+      final idToken = account.authentication.idToken;
+
+      // google_sign_in 7.x exposes ONLY idToken on GoogleSignInAuthentication
+      // (accessToken moved to the authorization client). Firebase accepts an
+      // idToken-only credential, but a null one would surface from
+      // `signInWithCredential` as an opaque internal error, so name it here.
+      if (idToken == null) {
+        throw AuthException(
+          'Google did not return an ID token. On Android this usually means '
+          'the app\'s signing certificate is not registered with Firebase.',
+        );
+      }
+
+      final credential = GoogleAuthProvider.credential(idToken: idToken);
+      final result = await _firebaseAuth.signInWithCredential(credential);
+
+      if (kDebugMode) {
+        debugPrint(
+          '[AUTH] Google sign in successful: '
+          '${redactEmail(result.user?.email)}',
+        );
+      }
+
+      // Auth state listener handles the token exchange, as for email/password.
+      state = AuthState(firebaseUser: result.user, isLoading: false);
+    } on GoogleSignInException catch (e) {
+      // A cancel is a normal outcome, not a failure: leaving an error on state
+      // would surface a red banner via main.dart's root listener for a user who
+      // simply changed their mind.
+      if (e.code == GoogleSignInExceptionCode.canceled) {
+        state = state.copyWith(isLoading: false, error: null);
+        return;
+      }
+      final message = 'Google sign in failed: ${e.description ?? e.code.name}';
+      state = state.copyWith(isLoading: false, error: message);
+      throw AuthException(message);
+    } on FirebaseAuthException catch (e) {
+      final errorMessage = _handleFirebaseAuthException(e);
+      state = state.copyWith(isLoading: false, error: errorMessage);
+      throw AuthException(errorMessage);
+    } on AuthException {
+      state = state.copyWith(isLoading: false);
+      rethrow;
+    } catch (e) {
+      final errorMessage = 'Google sign in failed: $e';
+      state = state.copyWith(isLoading: false, error: errorMessage);
+      throw AuthException(errorMessage);
+    }
+  }
+
+  /// Overridable for tests; the plugin exposes only a singleton.
+  @visibleForTesting
+  GoogleSignIn get googleSignIn => GoogleSignIn.instance;
+
+  Future<void> _ensureGoogleInitialized() async {
+    if (_googleInitialized) return;
+    await googleSignIn.initialize();
+    _googleInitialized = true;
+  }
+
+  bool _googleInitialized = false;
 
   /// Register new user with email and password
   ///
@@ -467,7 +559,9 @@ class AuthService extends _$AuthService {
       case 'weak-password':
         return 'Password is too weak. Use at least 6 characters.';
       case 'operation-not-allowed':
-        return 'Email/password sign in is not enabled.';
+        // Reached by BOTH paths now. Naming only email/password sent someone
+        // hunting the wrong console toggle when Google is the one disabled.
+        return 'That sign-in method is not enabled for this app.';
       case 'too-many-requests':
         return 'Too many failed attempts. Please try again later.';
       case 'network-request-failed':
