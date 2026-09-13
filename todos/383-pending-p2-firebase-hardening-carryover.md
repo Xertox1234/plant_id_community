@@ -628,12 +628,31 @@ UPLOAD SUCCEEDED with no errors
 Builds 3 and 4 are configured identically — same Firebase values, same
 production API base — and differ only in build number.
 
-**A sequencing note that matters more than it looks.** Expiring a build is
-irreversible, and until build 4 finishes processing, build 3 is the *only*
-installable build (1 and 2 are already expired). Expiring 3 before 4 is
-confirmed `VALID` would leave zero installable builds if 4 came back `INVALID`,
-with no way back. So the order is: wait for 4 to reach `VALID`, then expire 3 —
-never the reverse. The same reasoning applies to any future release here.
+**Build 3 expired 2026-09-12 once build 4 reached `VALID`**, in that order and
+deliberately not the reverse. Final state, read back from Apple rather than
+inferred from the `PATCH` responses:
+
+| build | state | expired | |
+|---|---|---|---|
+| 1 | VALID | **true** | define-less, error screen |
+| 2 | VALID | **true** | define-less, error screen |
+| 3 | VALID | **true** | worked; superseded by 4 |
+| 4 | VALID | false | **the only installable build** |
+
+**The sequencing is the reusable part.** Expiring is irreversible, and until
+build 4 finished processing, build 3 was the *only* installable build — 1 and 2
+were already expired. Expiring 3 first would have left **zero** installable
+builds had 4 come back `INVALID`, with no way back. So the rule for any future
+release here: confirm the replacement is `VALID` **before** retiring its
+predecessor.
+
+That rule is now enforced in code rather than remembered. The expiry script
+carries three guards: an allowlist of build numbers with the replacement
+explicitly protected; a re-`GET` of each id immediately before its `PATCH`
+asserting the build number it reports is the intended one, so a drifted id
+aborts instead of being written to; and a refusal to proceed at all if the
+expiry would leave no `VALID`, unexpired build. The third printed
+`builds that remain installable afterwards: ['4']` before writing anything.
 
 ## Notes
 
