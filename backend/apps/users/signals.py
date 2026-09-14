@@ -9,11 +9,7 @@ import logging
 
 from allauth.account.signals import email_confirmed, user_signed_up
 from apps.core.services.email_service import EmailService
-from apps.core.utils.pii_safe_logging import (
-    log_safe_email,
-    log_safe_user_context,
-    log_safe_username,
-)
+from apps.core.utils.pii_safe_logging import log_safe_email, log_safe_user_context
 from django.contrib.auth import get_user_model
 from django.dispatch import receiver
 
@@ -61,7 +57,7 @@ def handle_user_signup(sender, request, user, **kwargs):
 
         # Check if onboarding progress already exists
         if not hasattr(user, "onboarding_progress"):
-            onboarding = OnboardingProgress.objects.create(
+            OnboardingProgress.objects.create(
                 user=user,
                 current_step="account_created",
                 completed_steps=["account_created"],

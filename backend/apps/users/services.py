@@ -6,14 +6,9 @@ import json
 import logging
 from typing import Any, Dict, Optional
 
-from apps.core.utils.pii_safe_logging import (
-    log_safe_email,
-    log_safe_user_context,
-    log_safe_username,
-)
+from apps.core.utils.pii_safe_logging import log_safe_email, log_safe_user_context
 from django.conf import settings
 from django.core.mail import send_mail
-from django.template.loader import render_to_string
 from django.utils import timezone
 
 # External dependency for Web Push (requires: pip install pywebpush)
@@ -217,7 +212,8 @@ class NotificationService:
         )
 
         logger.info(
-            f"Care reminder sent to {success_count}/{subscriptions.count()} subscriptions for {log_safe_user_context(reminder.user)}"
+            f"Care reminder sent to {success_count}/{subscriptions.count()} "
+            f"subscriptions for {log_safe_user_context(reminder.user)}"
         )
         return success_count > 0
 
@@ -562,35 +558,50 @@ class DemoDataService:
                 "species_name": "Monstera deliciosa",
                 "common_names": "Swiss Cheese Plant, Split-leaf Philodendron",
                 "confidence": 0.92,
-                "care_notes": "Thrives in bright, indirect light. Water when top inch of soil is dry. Loves humidity and climbing support.",
+                "care_notes": (
+                    "Thrives in bright, indirect light. Water when top inch of "
+                    "soil is dry. Loves humidity and climbing support."
+                ),
                 "difficulty": "easy",
             },
             {
                 "species_name": "Ficus lyrata",
                 "common_names": "Fiddle Leaf Fig",
                 "confidence": 0.88,
-                "care_notes": "Needs bright, filtered light. Water thoroughly but infrequently. Sensitive to changes in environment.",
+                "care_notes": (
+                    "Needs bright, filtered light. Water thoroughly but "
+                    "infrequently. Sensitive to changes in environment."
+                ),
                 "difficulty": "moderate",
             },
             {
                 "species_name": "Sansevieria trifasciata",
                 "common_names": "Snake Plant, Mother-in-Law's Tongue",
                 "confidence": 0.95,
-                "care_notes": "Extremely low maintenance. Tolerates low light and infrequent watering. Perfect for beginners.",
+                "care_notes": (
+                    "Extremely low maintenance. Tolerates low light and "
+                    "infrequent watering. Perfect for beginners."
+                ),
                 "difficulty": "easy",
             },
             {
                 "species_name": "Epipremnum aureum",
                 "common_names": "Golden Pothos, Devil's Ivy",
                 "confidence": 0.91,
-                "care_notes": "Very forgiving plant. Bright, indirect light preferred. Water when soil feels dry. Great for trailing.",
+                "care_notes": (
+                    "Very forgiving plant. Bright, indirect light preferred. "
+                    "Water when soil feels dry. Great for trailing."
+                ),
                 "difficulty": "easy",
             },
             {
                 "species_name": "Spathiphyllum wallisii",
                 "common_names": "Peace Lily",
                 "confidence": 0.89,
-                "care_notes": "Moderate to bright, indirect light. Keep soil consistently moist. Dramatic when thirsty!",
+                "care_notes": (
+                    "Moderate to bright, indirect light. Keep soil "
+                    "consistently moist. Dramatic when thirsty!"
+                ),
                 "difficulty": "moderate",
             },
         ]
