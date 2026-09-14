@@ -103,10 +103,16 @@ Compact checklist auto-injected before edits. Long-form: `backend/docs/patterns/
   (`settings.py:94`), JWT's own checks (set / `!= SECRET_KEY` / `len >= 50`) all
   pass on the 66-char placeholder, and nothing reads `FIELD_ENCRYPTION_KEY` at
   all. Reason from the enforcing code, never from the value's shape (todo 367).
-- **A guard that works by coincidence is not a guard.** The only `.env.example`
-  placeholder production rejects is `SECRET_KEY`, and only because
-  `INSECURE_PATTERNS` contains a word its *generation hint text* happens to
-  include — reword the hint and the check silently stops firing. When you find
+  (FIXED by todo 367: the boot now refuses any verbatim `REQUIRED__`
+  placeholder, `INSECURE_PATTERNS` is applied to `JWT_SECRET_KEY` too, and
+  `FIELD_ENCRYPTION_KEY` was removed outright. The findings above describe the
+  world that review uncovered, not today's code — keep the lesson, not the
+  facts. See `backend/docs/patterns/security/secret-management.md`.)
+- **A guard that works by coincidence is not a guard.** As of the todo-367
+  review the only `.env.example` placeholder production rejected was
+  `SECRET_KEY`, and only because `INSECURE_PATTERNS` contains a word its
+  *generation hint text* happens to include — reword the hint and the check
+  silently stops firing. When you find
   a check passing, confirm it matches on the property you meant, not on
   incidental text (todo 367).
 - **A top-level workflow `permissions:` block REPLACES the repo default, it does
