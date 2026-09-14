@@ -37,7 +37,10 @@ pre-commit hook, which warns but does not block.
   - `backend/docs/development/SECURITY_PATTERNS_CODIFIED.md` (×3)
   - `backend/docs/patterns/security/secret-management.md` (locate with
     `grep -n 'export PLANT_ID_API_KEY=' <file>` — deliberately not a line
-    number, since PR #748 edits this same file and would shift it)
+    number, since PR #748 edits this same file and would shift it. That grep
+    returns TWO hits; the one carrying the 50-char literal is the one to
+    compare, the other is a placeholder. Verified: after #748 the pointer still
+    lands on the same value, 22 lines lower)
   - `backend/docs/development/SECURITY_INCIDENT_2025_10_23_API_KEYS.md`
   - `docs/archive/2025-10/completions/COMPREHENSIVE_AUDIT_SUMMARY.md`
   - `docs/archive/2025-11/KEY_ROTATION_INSTRUCTIONS.md`
@@ -67,7 +70,8 @@ was cleared. This item needs a human with plant.id account access.
 
 ### The class of mistake, and what it already cost
 
-27 of 340 archived todos have a filename claiming completion while the
+27 of 347 archived todos (329 under `todos/archive/` plus 18 under
+`backend/todos/archive/`) have a filename claiming completion while the
 frontmatter disagrees — but **26 are bookkeeping noise**. Spot-checked three of
 the most alarming and all are genuinely implemented:
 `CSRF_COOKIE_HTTPONLY = True` (settings.py:1250), the security headers
