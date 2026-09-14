@@ -221,8 +221,8 @@ def rewrite(path: pathlib.Path, spec):
             if len(hits) != 1:
                 raise RuntimeError(
                     f"{path}:{call.lineno}: {len(hits)} table keys match "
-                    f"{node.value[:60]!r}; a per-line table must cover every "
-                    f"unprefixed call in the file exactly once"
+                    f"{node.value[:60]!r}; a message-keyed table must match "
+                    f"every unprefixed call in the file exactly once"
                 )
             token = spec[hits[0]]
         edits.append((node.lineno, node.col_offset, inside, token))
