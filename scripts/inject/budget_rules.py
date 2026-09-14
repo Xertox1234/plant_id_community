@@ -96,6 +96,19 @@ def boundary_after(text: str, start: int) -> int:
     return nl + 1 if nl != -1 else start
 
 
+def rule_start_before(text: str, pos: int) -> int:
+    """Start of the `- ` bullet enclosing `pos`, or -1 if there is none.
+
+    `boundary_after` only searches FORWARD, so a cut landing inside the last
+    bullet of a file finds no later `\n- ` and falls through to the next
+    newline -- the tail then opens on a continuation line and the newest rule
+    arrives without the line that states what it is. Seek backwards instead,
+    and only take it when the whole rule still fits the budget.
+    """
+    found = text.rfind("\n- ", 0, pos)
+    return found + 1 if found != -1 else -1
+
+
 def nbytes(text: str) -> int:
     """UTF-8 byte length. The injection cap counts bytes; these files contain
     em dashes and arrows, so `len()` undercounts by ~2 bytes each."""
@@ -153,7 +166,11 @@ def excerpt(text: str, share: int, path: str) -> str:
         # Too tight to carry both ends. Carry the tail.
         body = fit_bytes(text, max(share - tail_cost, 0), from_end=True)
         start = boundary_after(text, len(text) - len(body))
-        body = fit_bytes(text[start:], max(share - tail_cost, 0), from_end=True)
+        room = max(share - tail_cost, 0)
+        rule_start = rule_start_before(text, start)
+        if rule_start != -1 and nbytes(text[rule_start:]) <= room:
+            start = rule_start
+        body = fit_bytes(text[start:], room, from_end=True)
         if not body:
             return ""
         return tail_marker(total - nbytes(body)) + body
@@ -166,12 +183,25 @@ def excerpt(text: str, share: int, path: str) -> str:
     tail = fit_bytes(text, max(content - nbytes(head), 0), from_end=True)
     tail_start = boundary_after(text, len(text) - len(tail))
 
+    # Prefer opening the tail at the start of the rule rather than mid-bullet,
+    # when the whole rule still fits. Buying it back out of the head is the
+    # right trade: the head is context, the tail is the rule being quoted.
+    rule_start = rule_start_before(text, tail_start)
+    if rule_start != -1 and rule_start > head_end and nbytes(text[rule_start:]) <= content:
+        tail_start = rule_start
+        head = fit_bytes(text, max(content - nbytes(text[tail_start:]), 0))
+        head_end = boundary_before(text, len(head))
+
     if tail_start <= head_end:
         # The halves met, so nothing is actually skipped -- but the file did not
         # fit, so emitting it whole would blow the budget. Fall back to the tail.
         body = fit_bytes(text, max(share - tail_cost, 0), from_end=True)
         start = boundary_after(text, len(text) - len(body))
-        body = fit_bytes(text[start:], max(share - tail_cost, 0), from_end=True)
+        room = max(share - tail_cost, 0)
+        rule_start = rule_start_before(text, start)
+        if rule_start != -1 and nbytes(text[rule_start:]) <= room:
+            start = rule_start
+        body = fit_bytes(text[start:], room, from_end=True)
         return tail_marker(total - nbytes(body)) + body
 
     return text[:head_end] + split_marker(tail_start - head_end) + text[tail_start:]

@@ -267,6 +267,13 @@ fi
 # a file whose share is under 4 KB.
 SENTINEL_FILE="$(cd "$(dirname "$HOOK")/../.." && pwd)/docs/rules/testing.md"
 cp "$SENTINEL_FILE" "$SENTINEL_FILE.injecttest.bak"
+# Restore on ANY exit, not just the happy path. Without this, a Ctrl-C in the
+# window below leaves a tracked rules file mutated and a .bak beside it -- and
+# this repo has lost time to exactly that residue shape before.
+trap 'if [ -f "$SENTINEL_FILE.injecttest.bak" ]; then
+        cp "$SENTINEL_FILE.injecttest.bak" "$SENTINEL_FILE"
+        rm -f "$SENTINEL_FILE.injecttest.bak"
+      fi' EXIT INT TERM
 printf '\n- **SENTINEL_TAIL_369** proves an appended rule still injects.\n' >> "$SENTINEL_FILE"
 TAIL_CTX=$(budget_ctx "backend/apps/core/tests/test_budget_probe.py")
 cp "$SENTINEL_FILE.injecttest.bak" "$SENTINEL_FILE"

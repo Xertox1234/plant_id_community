@@ -264,12 +264,18 @@ reach only **new** worktrees; existing worktrees keep their setup until rebased.
 
   - every routed domain contributes something — a three-domain path no longer
     gets the first domain and zero bytes of the other two;
-  - the **newest** rule in a file always arrives. These files are append-only, so
-    the rule written because the mistake just happened used to be the first cut.
+  - the **end of the file** always arrives. These files are append-only, so the
+    rule written because the mistake just happened used to be the first cut.
     When a share is too small to carry both ends, the excerpt keeps the
     **tail**, never the head — a head-only excerpt is the very bias this
-    replaced. Measured floor: the tail survives down to a ~220 B per-domain
-    share, against 620–928 B for real 4- and 5-domain routes;
+    replaced. What this does *not* guarantee is that the newest rule arrives
+    **whole**: when the share cannot hold the last bullet, the tail opens
+    part-way through it and you get the rule's closing lines without the line
+    that states what it is. Measured against the real routes: headless for
+    4 of 12 files at a 5-domain share (751 B) and 1 of 12 at 4 domains
+    (945 B) — but 8 of 12 at 554 B, the share a `.py` edit gets once a
+    trigger message is also charged. **If an injected fragment opens
+    mid-sentence, open the file** — that is the signal, and it is expected;
   - a rule in the **middle** of a large file may not. If a rule must bind at the
     exact line, give it a `docs/rules/triggers.json` entry — the trigger tier is
     content-matched and is not subject to this budget.
