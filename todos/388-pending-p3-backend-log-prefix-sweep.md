@@ -175,8 +175,8 @@ logging config. Delete it as a drive-by in whichever slice touches settings.
       reach 0, verified by
       `python3 scripts/check_log_prefixes.py --app <name> --fail-over 0`
       exiting 0 for each of the four
-      — **`core` DONE** (44 -> 0) and **`blog` DONE** (22 -> 0);
-      `plant_identification` (180) and `users` (84) remain, one slice each
+      — **`core` DONE** (44 -> 0), **`blog` DONE** (22 -> 0) and
+      **`users` DONE** (63 -> 0); only `plant_identification` (180) remains
 - [ ] No log message was **reworded** during prefixing (only prefixed) — the 17
       content assertions above still pass
 - [ ] Backend suite green on each slice
@@ -449,3 +449,53 @@ Backend `apps/blog`: **273 passed, 7 skipped**.
 Counts drift from this todo's 2026-09-13 baseline (339/769 then, 271/773 after
 this slice) because `core` and `blog` have since been swept. The acceptance
 criterion is a command rather than a number, so it is drift-proof.
+
+### 2026-09-13 - The `users` slice
+
+`users` 63 -> 0. Repo-wide 250 -> 187 of 773, measured against a `git archive`
+snapshot of merged main rather than by subtraction -- the first arithmetic I
+tried was wrong by exactly 21 because the widening below had already left the
+count before this slice touched anything. `plant_identification` (180) is all
+that remains.
+
+**A fourth checker blind spot, found before applying: a token may contain a
+space.** `users` read as 84 unprefixed; 21 of those were already prefixed with
+`[FIREBASE AUTH]` / `[FIREBASE AUTH ERROR]`, the only space-tokens in the repo.
+Every pattern here allowed `[A-Z0-9_-]`. Sweeping first would have written
+`[AUTH] [FIREBASE AUTH] No firebase_token in request` 21 times in the auth
+path -- the same double-prefix the %-format shape would have produced in
+`core`, caught the same way, by reading the call sites rather than re-running a
+counter. Both counters agreed on 84. Fixed in all three places that encode the
+pattern (PR #757); the trigger had the same gap and was firing on all 21
+correct lines, which is the failure todo 391 was filed about.
+
+**One call cannot be swept mechanically and was done by hand.**
+`email_preferences_views.py`'s unsubscribe log opens with an interpolation, so
+there is no leading literal to splice into. It is the only such call in the
+repo, so it was prefixed by hand rather than growing a fifth shape in the
+script for a single site.
+
+**A per-call key is not always possible.** `"Push subscription "` is the entire
+leading chunk of one message and a prefix of two others, so one key per call
+matched two keys on two of them. Keys cover GROUPS that share a token, not
+calls -- one broader key is correct and is less to keep in sync.
+
+New tokens, named for the concern: `[PUSH]` (deliberately not `[FCM]` --
+pywebpush/VAPID is a different transport from Firebase messaging), `[DEMO]`,
+`[ONBOARDING]`. Reused: `[AUTH]`, `[EMAIL]`, `[REMINDER]`, `[SIGNUP]`.
+
+**The auth-sensitivity check that actually mattered** was not the prefix
+mechanics -- those are proven -- but whether any of these lines is read by
+something outside Python: an alert, a dashboard query, a runbook. Nothing is.
+The three grep hits are the web and mobile clients logging their own
+identically-worded strings. Nothing asserts on them either (all 62 messages
+checked against 1425 test files). Done by hand throughout; no delegation.
+
+14 pre-existing flake8 violations blocked the commits and were cleared first,
+all verified identical on `main`: 6 unused imports, 1 unused local, and 6 lines
+already over 120 that black cannot split because they are long string
+literals. Wrapping those as implicit concatenation preserves every value, which
+was proven by AST-reconstructing each f-string into a normalised template
+before and after rather than by reading the diff.
+
+Backend `apps/users`: **159 passed**.
