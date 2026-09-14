@@ -93,9 +93,22 @@ Also repaired en route:
   (Quoting the literal string here made detect-secrets fire on this todo file —
   the scanner reads prose, so describe such a finding rather than reproduce it.)
 - the QUICKREF's own self-link and four links in
-  `COMPREHENSIVE_DEPENDENCY_AUDIT_2025.md` still pointed at
-  `/backend/docs/…`, now dangling. `grep -rn "backend/docs/DEPENDENCY"` returns
-  zero hits repo-wide.
+  `COMPREHENSIVE_DEPENDENCY_AUDIT_2025.md` still pointed at `/backend/docs/…`
+  and were re-pointed.
+
+  **Correction (review round 1).** An earlier draft of this log claimed
+  `grep -rn "backend/docs/DEPENDENCY"` returns zero hits repo-wide. It does not
+  — it returns five, in three files:
+  `backend/todos/archive/010-complete-p3-automated-dependency-scanning.md:280`,
+  `docs/archive/2025-10/completions/PHASE_1_COMPLETION_REPORT.md:361-362`, and
+  `docs/archive/2025-10/completions/PHASE_1_COMPLETE_FINAL_SUMMARY.md:113-114`.
+
+  Those five are left alone **deliberately**, and the rule is: re-point
+  navigational links, never edit a point-in-time record. All three are
+  completion reports stating what existed on the day they were written; changing
+  them would falsify the record. `COMPREHENSIVE_DEPENDENCY_AUDIT_2025.md` was
+  re-pointed because it is a sibling audit in the same archive directory that a
+  reader navigates *from*, not a record of a past event.
 - `docs/archive/README.md` indexes both files.
 
 ## Notes

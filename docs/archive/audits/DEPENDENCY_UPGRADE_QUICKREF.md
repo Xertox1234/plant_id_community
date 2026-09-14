@@ -3,10 +3,24 @@
 > **ARCHIVED — point-in-time artifact, not current guidance.**
 >
 > Written in January 2025 against Django 5.2.x. The stack has moved on and the
-> commands below no longer describe it: `django-celery-beat` was **removed**
-> from `backend/requirements.txt` by PR #695 (declared but never invoked), so
-> every `pip install django-celery-beat` line here would reinstall a dependency
-> this project deliberately dropped. Treat the whole file as history.
+> commands below no longer describe it. **Three packages this file tells you to
+> install have since been deliberately removed**, so those lines would reinstall
+> something the project dropped on purpose:
+>
+> | Package | Removed by | Why |
+> | --- | --- | --- |
+> | `django-celery-beat` | PR #695 | declared but never invoked |
+> | `bandit` | todo 355, 2026-09-05 | declared and invoked by nothing |
+> | `safety` | todo 355, 2026-09-05 | invoked by nothing, and dragged in `nltk` (18 published advisories) |
+>
+> Security scanning is now pip-audit + `npm audit` in
+> `.github/workflows/security-scan.yml`; adding a scanner to requirements scans
+> nothing. This file also prescribes `pip freeze > requirements.txt`, which is
+> the practice that caused the todo-217 failure — a flat freeze silently fell
+> behind and masked a Django 6.0 admin 500. Do not run it.
+>
+> Individual lines are annotated `# SUPERSEDED`, but the annotations are not
+> exhaustive: treat the whole file as history.
 >
 > Kept for the audit trail — the reasoning behind the January 2025 pins is not
 > recorded anywhere else.
@@ -15,7 +29,7 @@
 >
 > | What this document did | Where that lives now |
 > | --- | --- |
-> | Names the pinned versions | `backend/requirements.txt`, `backend/requirements-dev.txt` |
+> | Names the pinned versions | `backend/requirements.txt` (`requirements-dev.txt` is a thin overlay and carries no pins of its own) |
 > | Finds known vulnerabilities | `.github/workflows/security-scan.yml` — pip-audit and `npm audit`, advisory per-PR and blocking on the Monday 09:00 UTC schedule — plus GitHub Dependabot alerts (enabled 2026-09-05) |
 > | Records deliberate exceptions | `.github/security-suppressions.yml`, each entry carrying a removal condition |
 > | Prescribes upgrade procedure | Dependabot PRs; `docs/rules/security.md` for the binding rules |
@@ -62,14 +76,14 @@ python manage.py test --keepdb -v 2
 # PHASE 3: MODERATE PRIORITY (Week 3)
 pip install "pytest>=8.4.0,<9.0"
 pip install "pytest-django>=4.11.1,<5.0"
-pip install "bandit>=1.8.6,<2.0"
-pip install "safety>=3.6.2,<4.0"  # BREAKING CHANGES - Update CI/CD scripts
+pip install "bandit>=1.8.6,<2.0"   # SUPERSEDED: removed 2026-09-05 (todo 355), do not run
+pip install "safety>=3.6.2,<4.0"   # SUPERSEDED: removed 2026-09-05 (todo 355), do not run
 pip install "sentry-sdk[django,celery]>=3.0.0,<4.0"  # BREAKING CHANGES - Review migration
 pip install "django-cors-headers>=4.9.0,<5.0"
 pip install "pybreaker>=1.4.1,<2.0"
 
 # Regenerate requirements.txt
-pip freeze > requirements.txt
+pip freeze > requirements.txt   # SUPERSEDED: a flat freeze caused the todo-217 failure, do not run
 ```
 
 ---
@@ -137,10 +151,10 @@ ACCOUNT_LOGIN_METHODS = {'username', 'email'}
 **CI/CD Updates Required**:
 ```bash
 # OLD
-safety check --json
+safety check --json  # SUPERSEDED: bandit/safety removed 2026-09-05 (todo 355)
 
 # NEW (update CI/CD scripts)
-safety scan --output json
+safety scan --output json  # SUPERSEDED: bandit/safety removed 2026-09-05 (todo 355)
 ```
 
 ---
@@ -191,8 +205,8 @@ python --version
 
 ### After Phase 3 (Moderate Priority)
 - [ ] `pytest` (all tests pass)
-- [ ] `bandit -r apps/` (no high-severity issues)
-- [ ] `safety scan` (no known vulnerabilities)
+- [ ] ~~`bandit -r apps/`~~ SUPERSEDED: bandit removed 2026-09-05 (todo 355)
+- [ ] ~~`safety scan`~~ SUPERSEDED: safety removed 2026-09-05 (todo 355)
 - [ ] Sentry test event: Verify error capture
 - [ ] Load testing: 100 concurrent plant ID requests
 - [ ] Check Sentry performance monitoring
@@ -279,10 +293,10 @@ pip list | grep -E "Django|Pillow|djangorestframework|requests|django-allauth"
 # requests                 2.32.5
 
 # Check for security vulnerabilities
-safety scan
+safety scan  # SUPERSEDED: bandit/safety removed 2026-09-05 (todo 355)
 
 # Static analysis
-bandit -r apps/ -ll
+bandit -r apps/ -ll  # SUPERSEDED: bandit/safety removed 2026-09-05 (todo 355)
 
 # Type checking
 mypy apps/plant_identification/services/
@@ -372,4 +386,4 @@ redis-cli keys "*"
 ---
 
 **Last Updated**: January 2025
-**Status**: IMMEDIATE ACTION REQUIRED - CRITICAL SECURITY UPDATES
+**Status**: ARCHIVED 2026-09-13 (todo 365). The January 2025 line read "IMMEDIATE ACTION REQUIRED"; those actions are long since done or superseded.
