@@ -537,7 +537,25 @@ When plant identification completely fails ("does nothing at all"):
 ### Configuration Files
 - `backend/.env`
   - Contains: `PLANT_ID_API_KEY=MNvOarFi1z...`
-  - Contains: `PLANTNET_API_KEY=2b10BRvewU0u3JbgK53CnaBWvu`
+  - Contains: `PLANTNET_API_KEY=REVOKED_KEY_REDACTED_see_todo_390`
+
+> **This one was still LIVE when it was found, 2026-09-13.** Unlike every other
+> literal in these incident documents, the PlantNet key quoted here was not a
+> stale copy — `GET https://my-api.plantnet.org/v2/projects` with it returned
+> **HTTP 200 and 77 projects**, from a public repository, eleven months after
+> the incident was marked resolved. It was the key actually in use, in
+> `backend/.env` and on Railway.
+>
+> It is dead now: generating a replacement at my.plantnet.org destroys the
+> previous key, and the same probe afterwards returns **HTTP 401 "Bad token"**.
+> Both the live check and the dead check were run, because this whole incident
+> is a case study in rotation claimed but never verified.
+>
+> Why it hid for eleven months: todo 390 recorded "PlantNet was almost certainly
+> rotated" on the strength of a length mismatch — the *24-character* literal in
+> the other incident docs versus a 26-character live value. That inference was
+> correct about the 24-char literal and blind to this 26-char one, which nobody
+> had grepped for. `.secrets.baseline` has no entry for this file either.
 
 ---
 
