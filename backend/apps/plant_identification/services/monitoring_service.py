@@ -5,12 +5,9 @@ This service tracks API usage, rate limits, cache performance, and provides
 alerts when thresholds are approaching.
 """
 
-import json
 import logging
-from datetime import datetime, timedelta
-from typing import Dict, List, Optional
+from typing import Dict, List
 
-from django.conf import settings
 from django.core.cache import cache
 from django.utils import timezone
 

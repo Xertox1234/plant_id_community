@@ -222,7 +222,8 @@ class CombinedPlantIdentificationService:
             results["source"] = "plant_id"
 
             logger.info(
-                f"[SUCCESS] Plant.id identified: {plant_id_results.get('top_suggestion', {}).get('plant_name', 'Unknown')} "
+                f"[SUCCESS] Plant.id identified: "
+                f"{plant_id_results.get('top_suggestion', {}).get('plant_name', 'Unknown')} "
                 f"(confidence: {results['confidence_score']:.2%})"
             )
 

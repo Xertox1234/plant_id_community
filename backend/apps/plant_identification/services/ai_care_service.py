@@ -88,7 +88,11 @@ class AIPlantCareService:
                 messages=[
                     {
                         "role": "system",
-                        "content": "You are a professional botanist and plant care expert. Generate comprehensive, accurate plant care instructions in JSON format.",
+                        "content": (
+                            "You are a professional botanist and plant care "
+                            "expert. Generate comprehensive, accurate plant "
+                            "care instructions in JSON format."
+                        ),
                     },
                     {"role": "user", "content": prompt},
                 ],
@@ -199,7 +203,9 @@ class AIPlantCareService:
 
         prompt = f"""Generate comprehensive care instructions for {plant_name}. {context}
 
-Using the rich botanical data provided, create detailed care instructions with 25+ categories. Consider the plant's native habitat, growth characteristics, and environmental preferences when providing advice.
+Using the rich botanical data provided, create detailed care instructions \
+with 25+ categories. Consider the plant's native habitat, growth \
+characteristics, and environmental preferences when providing advice.
 
 Please provide enhanced care instructions in the following JSON format:
 
@@ -344,7 +350,10 @@ Please provide enhanced care instructions in the following JSON format:
     "community_resources": "Scientific and horticultural resources for continued learning"
 }}
 
-Ensure all advice is scientifically accurate, tailored for {experience_level} level, and specifically adapted for {location} climate conditions using the botanical data provided. Prioritize evidence-based recommendations over generic advice."""
+Ensure all advice is scientifically accurate, tailored for \
+{experience_level} level, and specifically adapted for {location} climate \
+conditions using the botanical data provided. Prioritize evidence-based \
+recommendations over generic advice."""
 
         return prompt
 
@@ -366,7 +375,10 @@ Ensure all advice is scientifically accurate, tailored for {experience_level} le
         )
 
         return {
-            "overview": f"Care guide for {display_name}. These are general guidelines - observe your plant and adjust care as needed.",
+            "overview": (
+                f"Care guide for {display_name}. These are general "
+                "guidelines - observe your plant and adjust care as needed."
+            ),
             "difficulty_level": "moderate",
             "light": {
                 "requirement": "Bright, indirect light",

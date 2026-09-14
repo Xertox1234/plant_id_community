@@ -5,10 +5,9 @@ Uses OpenAI DALL-E 3 to generate high-quality botanical images when stock photos
 """
 
 import hashlib
-import json
 import logging
 from io import BytesIO
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, Optional, Tuple
 
 import openai
 import requests
@@ -167,7 +166,8 @@ class AIBotanicalImageService:
 
         if current_cost + estimated_cost > max_daily_cost:
             logger.warning(
-                f"Daily AI image cost limit exceeded: ${current_cost:.2f} + ${estimated_cost:.2f} > ${max_daily_cost:.2f}"
+                f"Daily AI image cost limit exceeded: ${current_cost:.2f} "
+                f"+ ${estimated_cost:.2f} > ${max_daily_cost:.2f}"
             )
             return None
 

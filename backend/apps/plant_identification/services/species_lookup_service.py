@@ -6,15 +6,17 @@ rate limiting issues while maintaining data quality.
 """
 
 import logging
-from typing import Dict, List, Optional, Tuple
+from typing import TYPE_CHECKING, Dict, List, Optional
 
-from django.conf import settings
 from django.core.cache import cache
 from django.db.models import Q
 
-from ..exceptions import APIUnavailable, RateLimitExceeded
-from ..models import PlantIdentificationRequest, PlantIdentificationResult, PlantSpecies
+from ..exceptions import RateLimitExceeded
+from ..models import PlantSpecies
 from .trefle_service import TrefleAPIService
+
+if TYPE_CHECKING:
+    from .monitoring_service import APIMonitoringService
 
 logger = logging.getLogger(__name__)
 
