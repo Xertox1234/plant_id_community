@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: p2
 issue_id: "378"
 tags: [testing, tooling, harness, backend]
@@ -181,3 +181,8 @@ removed on 2026-09-05 (todo 355 slice 1) because nltk carried 18 advisories.
 The original AC above ("zero mismatches and zero not-installed") is blind to
 that bucket and would have passed with the advisory-bearing packages still
 present. Tracked in todo 380.
+
+### 2026-09-13 - Archived after PR #746 merged
+
+- Verification: all acceptance criteria checked; shipped in #746.
+- Review: round 1 + round 2 (subagent). 0 blocking; last open AC closed by todo 380's decision.

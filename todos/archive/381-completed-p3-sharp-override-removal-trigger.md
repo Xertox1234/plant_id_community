@@ -1,5 +1,5 @@
 ---
-status: in_progress
+status: completed
 priority: p3
 issue_id: "381"
 tags: [dependencies, security, npm, cloudflare]
@@ -150,3 +150,8 @@ first place -- no new machinery needed here, but the shape will recur.
 `docs/rules/triggers.json:1682` (the npm>=12 lockfile trigger) fired on this
 edit as designed and needs no change; it is about regenerating lockfiles
 generally, not about this override.
+
+### 2026-09-13 - Archived after PR #745 merged
+
+- Verification: all acceptance criteria checked; shipped in #745.
+- Review: round 1 + round 2 (subagent). 0 blocking; every claim in the work log survived independent re-verification.

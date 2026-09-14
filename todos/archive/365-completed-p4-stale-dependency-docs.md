@@ -1,5 +1,5 @@
 ---
-status: in_progress
+status: completed
 priority: p4
 issue_id: "365"
 tags: [documentation, dependencies]
@@ -114,3 +114,8 @@ Also repaired en route:
 ## Notes
 
 p4: pure hygiene, no runtime effect. Bundle it with the next markdownlint cleanup.
+
+### 2026-09-13 - Archived after PR #744 merged
+
+- Verification: all acceptance criteria checked; shipped in #744.
+- Review: round 1 + round 2 (subagent). 1 blocking (a third audit still prescribed the removed `safety`, unmarked) - repaired.

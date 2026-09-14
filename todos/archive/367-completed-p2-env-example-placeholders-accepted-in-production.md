@@ -1,5 +1,5 @@
 ---
-status: in_progress
+status: completed
 priority: p2
 issue_id: "367"
 tags: [security, configuration, settings, prevention]
@@ -278,3 +278,8 @@ enforcement claim written from intent rather than from the code.
 - `backend/docs/security/PII_ENCRYPTION_IMPLEMENTATION.md` still documents
   `FIELD_ENCRYPTION_KEY` as implemented. This PR removed the dependency and the
   `.env.example` entry, so that doc is now actively misleading.
+
+### 2026-09-13 - Archived after PR #748 merged
+
+- Verification: all acceptance criteria checked; shipped in #748.
+- Review: round 1 + round 2 (subagent). 0 blocking; the auto-injected docs/rules/security.md still taught the pre-fix world - repaired.
