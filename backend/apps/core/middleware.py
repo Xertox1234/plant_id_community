@@ -7,7 +7,6 @@ and other cross-cutting concerns.
 
 import logging
 import time
-from typing import Optional
 
 from django.contrib.auth import get_user_model
 from django.core.cache import cache

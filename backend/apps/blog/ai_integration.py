@@ -439,7 +439,11 @@ class BlogAIIntegration:
                 },
             )
 
+            # The exception is already logged with structured context just
+            # above, including `error_type`. Repeating its text in the returned
+            # dict adds nothing for a caller and would carry a provider URL or
+            # key on a requests failure (todo 377).
             return {
                 "success": False,
-                "error": f"AI content generation failed: {str(e)}",
+                "error": "AI content generation failed",
             }

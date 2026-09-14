@@ -150,7 +150,9 @@ def test_drift_report_runs_against_the_real_environment():
     report = env_integrity.drift_report()
     assert isinstance(report, list)
     for line in report:
-        assert line.startswith(("  mismatched:", "  not installed:"))
+        assert line.startswith(
+            ("  mismatched:", "  not installed:", f"  {env_integrity.REMOVED_MARKER}")
+        )
 
 
 # --------------------------------------------------------------------------
@@ -328,6 +330,11 @@ def test_main_is_silent_and_zero_when_the_environment_is_clean(
     req = tmp_path / "requirements.txt"
     req.write_text("# nothing pinned\n")
     monkeypatch.setattr(env_integrity, "REQUIREMENTS", req)
+    # Hermetic on purpose. `removed_but_installed` reads the REAL installed set,
+    # so without this the test asserts "this developer's venv is clean" rather
+    # than "main() is silent when there is nothing to report" -- it would fail
+    # for anyone whose venv still carries a removed package (todo 380).
+    monkeypatch.setattr(env_integrity, "REMOVED_ON_PURPOSE", {})
     assert env_integrity.main(["--hook"]) == 0
     assert capsys.readouterr().out == ""
 
@@ -421,3 +428,123 @@ def test_a_broken_checker_module_loads_as_none_instead_of_raising(
     (target / "env_integrity.py").write_text("this is not valid python (\n")
     monkeypatch.setattr(conftest, "_BACKEND", tmp_path)
     assert conftest._load_env_integrity() is None
+
+
+# --------------------------------------------------------------------------
+# removed_but_installed() — deliberately-removed pins that survived (todo 380)
+# --------------------------------------------------------------------------
+
+
+def test_a_removed_package_is_reported_with_its_version_and_reason():
+    removed = env_integrity.removed_but_installed({"nltk": "3.9.2"})
+    assert len(removed) == 1
+    name, version, why = removed[0]
+    assert (name, version) == ("nltk", "3.9.2")
+    assert why, "a bare name prompts nobody to act; the reason is the point"
+
+
+def test_a_removed_name_is_matched_after_pep503_normalization(monkeypatch):
+    """Regression: the dict's own keys must be normalized, not just `installed`.
+
+    `installed_versions()` returns PEP 503-normalized keys, so comparing the
+    hand-maintained `REMOVED_ON_PURPOSE` keys raw against it works only while
+    every key happens to be a single lowercase token -- which all three current
+    entries are. Add `ruamel.yaml` or `PyYAML` and a raw lookup matches nothing,
+    silently, which is the exact miss this check exists to prevent.
+
+    This test fails against a raw `name in installed` lookup.
+    """
+    monkeypatch.setattr(
+        env_integrity,
+        "REMOVED_ON_PURPOSE",
+        {"Ruamel.YAML": "removed in a hypothetical future sweep"},
+    )
+    removed = env_integrity.removed_but_installed({"ruamel-yaml": "0.18.6"})
+    assert len(removed) == 1, "a dotted, mixed-case key must still match"
+    name, version, _ = removed[0]
+    assert (name, version) == ("ruamel-yaml", "0.18.6")
+
+
+def test_a_removed_package_that_is_absent_is_not_reported():
+    assert env_integrity.removed_but_installed({"django": "5.2.7"}) == []
+
+
+def test_a_legitimately_unpinned_dev_tool_is_not_reported():
+    """The false positive that would get this check switched off.
+
+    `flake8`, `isort`, `pip-audit` and `detect-secrets` are all installed and
+    all unpinned in requirements.txt, on purpose. Flagging the whole `extra`
+    bucket would name them every run.
+    """
+    installed = {"flake8": "7.1.0", "isort": "5.13.2", "pip-audit": "2.7.3"}
+    assert env_integrity.removed_but_installed(installed) == []
+    _, _, extra = env_integrity.compare({}, installed)
+    assert (
+        len(extra) == 3
+    ), "the broad bucket does see them -- that is why it is not used"
+
+
+def test_every_removed_entry_carries_a_reason():
+    for name, why in env_integrity.REMOVED_ON_PURPOSE.items():
+        assert why.strip(), f"{name} has no recorded reason"
+        assert "todo" in why.lower(), f"{name}'s reason names no source todo"
+
+
+def test_the_fix_hint_for_a_removed_package_is_uninstall_not_install():
+    """`pip install -r` is the command that already failed to help.
+
+    It installs and upgrades but never uninstalls, which is exactly why the
+    package is still present. Printing that hint sends the reader in a circle.
+    """
+    lines = env_integrity.format_lines([], [], [("nltk", "3.9.2", "removed, todo 355")])
+    hints = env_integrity.fix_hints(lines)
+    assert len(hints) == 1
+    assert "uninstall" in hints[0]
+    assert "pip install -r" not in hints[0]
+
+
+def test_the_fix_hint_for_a_stale_pin_is_still_install():
+    lines = env_integrity.format_lines([("wagtail", "8.0", "7.4.3")], [], [])
+    hints = env_integrity.fix_hints(lines)
+    assert len(hints) == 1
+    assert "pip install -r backend/requirements.txt" in hints[0]
+
+
+def test_both_hints_appear_when_both_problems_are_present():
+    lines = env_integrity.format_lines(
+        [("wagtail", "8.0", "7.4.3")], [], [("nltk", "3.9.2", "removed, todo 355")]
+    )
+    hints = env_integrity.fix_hints(lines)
+    assert len(hints) == 2
+    assert any("pip install -r" in h for h in hints)
+    assert any("uninstall" in h for h in hints)
+
+
+def test_a_removed_package_reaches_the_terminal_summary(monkeypatch):
+    """Wiring, not just the pure function.
+
+    Without this, `removed_but_installed` could be correct while nothing ever
+    calls it -- the decorative-test failure this file's docstring names.
+    """
+    monkeypatch.setattr(
+        env_integrity,
+        "drift_report",
+        lambda: env_integrity.format_lines(
+            [], [], [("nltk", "3.9.2", "removed 2026-09-05 (todo 355)")]
+        ),
+    )
+    reporter = DummyReporter()
+    conftest.pytest_terminal_summary(reporter, exitstatus=0, config=None)
+    assert "nltk 3.9.2" in reporter.text
+    assert "todo 355" in reporter.text
+    assert "uninstall" in reporter.text
+
+
+def test_the_header_counts_removed_but_installed_separately(monkeypatch):
+    monkeypatch.setattr(
+        env_integrity,
+        "removed_but_installed",
+        lambda installed: [("nltk", "3.9.2", "x")],
+    )
+    header = "\n".join(conftest.pytest_report_header(config=None))
+    assert "1 removed-but-installed" in header

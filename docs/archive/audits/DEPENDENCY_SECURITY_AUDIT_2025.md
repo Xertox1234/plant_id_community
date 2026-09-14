@@ -1,5 +1,45 @@
 # Python/Django Dependency Security Audit - January 2025
 
+> **ARCHIVED — point-in-time artifact, not current guidance.**
+>
+> Written in January 2025 against Django 5.2.x. The stack has moved on and the
+> commands below no longer describe it. **Three packages this file tells you to
+> install have since been deliberately removed**, so those lines would reinstall
+> something the project dropped on purpose:
+>
+> | Package | Removed by | Why |
+> | --- | --- | --- |
+> | `django-celery-beat` | PR #695 | declared but never invoked |
+> | `bandit` | todo 355, 2026-09-05 | declared and invoked by nothing |
+> | `safety` | todo 355, 2026-09-05 | invoked by nothing, and dragged in `nltk` (18 published advisories) |
+>
+> Security scanning is now pip-audit + `npm audit` in
+> `.github/workflows/security-scan.yml`; adding a scanner to requirements scans
+> nothing. (Its companion `DEPENDENCY_UPGRADE_QUICKREF.md` additionally
+> prescribes `pip freeze > requirements.txt` — the practice that caused the
+> todo-217 failure, where a flat freeze silently fell behind and masked a
+> Django 6.0 admin 500. This file does not; do not run it there either.)
+>
+> Individual lines are annotated `# SUPERSEDED`, but the annotations are not
+> exhaustive: treat the whole file as history.
+>
+> Kept for the audit trail — the reasoning behind the January 2025 pins is not
+> recorded anywhere else.
+>
+> **What replaced it:**
+>
+> | What this document did | Where that lives now |
+> | --- | --- |
+> | Names the pinned versions | `backend/requirements.txt` (`requirements-dev.txt` is a thin overlay and carries no pins of its own) |
+> | Finds known vulnerabilities | `.github/workflows/security-scan.yml` — pip-audit and `npm audit`, advisory per-PR and blocking on the Monday 09:00 UTC schedule — plus GitHub Dependabot alerts (enabled 2026-09-05) |
+> | Records deliberate exceptions | `.github/security-suppressions.yml`, each entry carrying a removal condition |
+> | Prescribes upgrade procedure | Dependabot PRs; `docs/rules/security.md` for the binding rules |
+> | Handles secrets and keys | `backend/docs/patterns/security/secret-management.md` |
+>
+> Archived by todo 365 on 2026-09-13.
+
+---
+
 **Generated**: January 2025
 **Project**: Plant ID Community Backend
 **Current Django Version**: 5.2.x
@@ -342,7 +382,8 @@ pip show httpx
 
 **Breaking Changes**: None reported (2.6.0 → 2.8.1)
 
-**Action**: Update to `django-celery-beat>=2.8.1,<3.0`
+**Action**: ~~Update to `django-celery-beat>=2.8.1,<3.0`~~ SUPERSEDED: removed by PR #695
+**SUPERSEDED (PR #695)**: `django-celery-beat` was removed from `backend/requirements.txt` entirely. Do not reinstall it.
 
 ---
 
@@ -652,7 +693,7 @@ pip show httpx
 
 **Breaking Changes**: None reported (1.7.x → 1.8.x)
 
-**Action**: Update to `bandit>=1.8.6,<2.0`
+**Action**: ~~Update to `bandit>=1.8.6,<2.0`~~ SUPERSEDED: bandit removed 2026-09-05 (todo 355)
 
 ---
 
@@ -672,8 +713,8 @@ pip show httpx
 
 **Action**:
 1. Review Safety 3.x documentation
-2. Update to `safety>=3.6.2,<4.0`
-3. Update CI/CD scripts if using safety check
+2. ~~Update to `safety>=3.6.2,<4.0`~~ SUPERSEDED: safety removed 2026-09-05 (todo 355)
+3. ~~Update CI/CD scripts if using safety check~~ SUPERSEDED: no CI/CD script invokes safety
 
 ---
 
@@ -770,7 +811,7 @@ django-allauth>=65.4.0,<66.0  # MAJOR VERSION - TEST THOROUGHLY
 # Production Server
 gunicorn>=22.0.0,<23.0
 uvicorn[standard]>=0.30.0
-django-celery-beat>=2.8.1,<3.0
+django-celery-beat>=2.8.1,<3.0   # SUPERSEDED: removed by PR #695
 
 # WebSockets (Channels)
 channels>=4.2.0,<5.0
@@ -781,8 +822,8 @@ daphne>=4.1.0,<5.0
 wagtail-ai>=1.0.0
 
 # Security Testing (Development)
-bandit>=1.8.6,<2.0
-safety>=3.6.2,<4.0  # MAJOR VERSION - Update CI/CD scripts
+bandit>=1.8.6,<2.0   # SUPERSEDED: removed 2026-09-05 (todo 355), do not run
+safety>=3.6.2,<4.0   # SUPERSEDED: removed 2026-09-05 (todo 355), do not run
 
 # Request tracing and logging
 django-request-id>=1.0.0
@@ -870,7 +911,7 @@ whitenoise[brotli]>=6.11.0,<7.0
 2. **Database & Caching**
    ```bash
    pip install "psycopg2-binary>=2.9.11,<3.0"
-   pip install "django-celery-beat>=2.8.1,<3.0"
+   pip install "django-celery-beat>=2.8.1,<3.0"   # SUPERSEDED: removed by PR #695, do not run
    pip install "channels>=4.2.0,<5.0"
    pip install "channels-redis>=4.3.0,<5.0"
    ```
@@ -903,12 +944,12 @@ whitenoise[brotli]>=6.11.0,<7.0
    ```bash
    pip install "pytest>=8.4.0,<9.0"
    pip install "pytest-django>=4.11.1,<5.0"
-   pip install "bandit>=1.8.6,<2.0"
+   pip install "bandit>=1.8.6,<2.0"   # SUPERSEDED: removed 2026-09-05 (todo 355), do not run
    ```
 
 2. **Security Scanning (MAJOR VERSION)**
    ```bash
-   pip install "safety>=3.6.2,<4.0"
+   pip install "safety>=3.6.2,<4.0"   # SUPERSEDED: removed 2026-09-05 (todo 355), do not run
    ```
    - Update CI/CD scripts for Safety 3.x
    - Test new command structure
@@ -930,7 +971,7 @@ whitenoise[brotli]>=6.11.0,<7.0
 **Testing**:
 - Run pytest suite with new versions
 - Verify Sentry error tracking
-- Run bandit and safety scans
+- ~~Run bandit and safety scans~~ SUPERSEDED: both removed; pip-audit runs in security-scan.yml
 - Check CI/CD pipeline
 
 ---
@@ -1019,7 +1060,7 @@ whitenoise[brotli]>=6.11.0,<7.0
 
 - [ ] Update all CRITICAL dependencies in staging environment
 - [ ] Run full test suite (83+ tests passing)
-- [ ] Run security scans (bandit, safety)
+- [ ] ~~Run security scans (bandit, safety)~~ SUPERSEDED: both removed 2026-09-05 (todo 355); pip-audit runs in security-scan.yml
 - [ ] Review deprecation warnings in logs
 - [ ] Test authentication flows (JWT, account lockout, rate limiting)
 - [ ] Test plant identification (API calls, caching, circuit breakers)
@@ -1106,6 +1147,6 @@ whitenoise[brotli]>=6.11.0,<7.0
 ---
 
 **Last Updated**: January 2025
-**Next Review**: April 2025 (quarterly)
+**Next Review**: n/a - archived; dependency review is continuous via Dependabot + security-scan.yml
 **Maintained By**: Development Team
-**Status**: ACTIVE - IMMEDIATE ACTION REQUIRED
+**Status**: ARCHIVED 2026-09-13 (todo 365). The January 2025 line read "ACTIVE - IMMEDIATE ACTION REQUIRED"; those actions are long since done or superseded.

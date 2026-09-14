@@ -140,7 +140,7 @@ def custom_exception_handler(
             "exception_message": str(exc),
         }
 
-        logger.warning("429 Rate Limit Exceeded", extra=log_context)
+        logger.warning("[ERROR] 429 Rate Limit Exceeded", extra=log_context)
 
         error_data = {
             "error": True,
@@ -188,11 +188,13 @@ def custom_exception_handler(
         # Log the exception with context
         if response.status_code >= 500:
             logger.error(
-                f"API error: {exc.__class__.__name__}", extra=log_context, exc_info=True
+                f"[ERROR] API error: {exc.__class__.__name__}",
+                extra=log_context,
+                exc_info=True,
             )
         else:
             logger.warning(
-                f"API client error: {exc.__class__.__name__}", extra=log_context
+                f"[ERROR] API client error: {exc.__class__.__name__}", extra=log_context
             )
 
         # Standardize the response format
@@ -233,24 +235,24 @@ def custom_exception_handler(
         error_message = "Resource not found"
         status_code = status.HTTP_404_NOT_FOUND
         error_code = "not_found"
-        logger.warning("404 Not Found", extra=log_context)
+        logger.warning("[ERROR] 404 Not Found", extra=log_context)
 
     elif isinstance(exc, PermissionDenied):
         error_message = "Permission denied"
         status_code = status.HTTP_403_FORBIDDEN
         error_code = "permission_denied"
-        logger.warning("403 Forbidden", extra=log_context)
+        logger.warning("[ERROR] 403 Forbidden", extra=log_context)
 
     elif isinstance(exc, ValidationError):
         error_message = "Validation error"
         status_code = status.HTTP_400_BAD_REQUEST
         error_code = "validation_error"
-        logger.warning("Validation error", extra=log_context)
+        logger.warning("[ERROR] Validation error", extra=log_context)
 
     else:
         # Log unexpected errors with full traceback
         logger.error(
-            f"Unhandled exception: {exc.__class__.__name__}",
+            f"[ERROR] Unhandled exception: {exc.__class__.__name__}",
             extra={**log_context, "traceback": traceback.format_exc()},
             exc_info=True,
         )

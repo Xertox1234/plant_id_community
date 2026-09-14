@@ -8,7 +8,7 @@ response utilities to help maintain application security.
 import json
 import logging
 import time
-from datetime import datetime, timedelta
+from datetime import timedelta
 from typing import Any, Dict, Optional, Tuple
 
 from apps.core.utils.pii_safe_logging import (
@@ -399,7 +399,7 @@ This is an automated security message from Plant Community.
 
         # Log the event
         logger.warning(
-            f"Failed login attempt: ip={ip_address}, username={username}, "
+            f"[SECURITY] Failed login attempt: ip={ip_address}, username={username}, "
             f"total_attempts_in_window={len(attempts)}"
         )
 
@@ -489,7 +489,7 @@ This is an automated security message from Plant Community.
         # Log high-frequency requests
         if len(requests) > API_RATE_LIMIT_MAX_REQUESTS:
             logger.warning(
-                f"High API request frequency: user={user_id}, ip={ip_address}, "
+                f"[SECURITY] High API request frequency: user={user_id}, ip={ip_address}, "
                 f"endpoint={endpoint}, requests={len(requests)}/minute"
             )
 
@@ -510,7 +510,9 @@ This is an automated security message from Plant Community.
         }
 
         # Log the alert
-        logger.error(f"SECURITY ALERT [{alert_type}]: {json.dumps(details, indent=2)}")
+        logger.error(
+            f"[SECURITY] SECURITY ALERT [{alert_type}]: {json.dumps(details, indent=2)}"
+        )
 
         # Store alert for investigation
         key = f"security_alert:{alert_type}:{int(time.time())}"
@@ -679,7 +681,7 @@ def log_security_event(
     )
 
     logger.info(
-        f"Security event [{event_type}]: user={user_id}, ip={ip_address}, "
+        f"[SECURITY] Security event [{event_type}]: user={user_id}, ip={ip_address}, "
         f"details={details or {}}"
     )
 
@@ -710,7 +712,7 @@ def check_rate_limit(
 
     if len(attempts) >= limit:
         logger.warning(
-            f"Rate limit exceeded: user={user_id}, action={action}, "
+            f"[SECURITY] Rate limit exceeded: user={user_id}, action={action}, "
             f"attempts={len(attempts)}/{limit} in {time_window}s"
         )
         return False

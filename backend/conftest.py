@@ -114,9 +114,11 @@ def pytest_report_header(config):
         installed = env_integrity.installed_versions()
         editable = env_integrity.editable_names()
         mismatched, missing, extra = env_integrity.compare(pins, installed, editable)
+        removed = env_integrity.removed_but_installed(installed)
         lines.append(
             f"deps: {len(pins)} pinned, {len(mismatched)} mismatched, "
-            f"{len(missing)} not installed, {len(extra)} unpinned"
+            f"{len(missing)} not installed, {len(extra)} unpinned, "
+            f"{len(removed)} removed-but-installed"
         )
     except Exception:  # noqa: BLE001 - includes env_integrity being None
         lines.append("deps: unavailable (environment check could not run)")
@@ -145,9 +147,7 @@ def pytest_terminal_summary(terminalreporter, exitstatus, config):
         )
         for line in lines:
             terminalreporter.write_line(line)
-        terminalreporter.write_line(
-            "Fix: pip install -r backend/requirements.txt into that "
-            "environment (todo 378)."
-        )
+        for hint in env_integrity.fix_hints(lines):
+            terminalreporter.write_line(hint)
     except Exception:  # noqa: BLE001 - includes env_integrity being None
         return
