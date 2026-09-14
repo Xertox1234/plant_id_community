@@ -6119,6 +6119,23 @@ on domain — so `docs/rules/triggers.json` is the sole channel that reaches one
 `shell-numeric-compare-without-validation` trigger with a `**/*.sh` glob,
 verified end-to-end through `find_matches()` rather than by reading the regex.
 
+A trigger's `domains` field is metadata: `capture_trigger.py` writes it and
+nothing reads it. Only `path_glob` and the content patterns decide firing.
+
+**And the trigger needed a `content_absent` clause, or it would have reproduced
+the #749 defect inside the PR codifying it.** `content_present` matches the edit
+FRAGMENT, so the trigger fired on `run_archive.sh`'s own now-correct comparison —
+nagging about a bug already fixed, exactly what #749's regex did to 18 certified
+lines. `content_absent` is matched against the RESULTING FILE instead, so it can
+ask "does this script already validate?": `is_uint|\*\[!0-9\]\*|=~
+\^\[0-9\]\+\$|\[:digit:\]`. Discriminated 6/6 — quiet on the fixed script
+and on the `*[![:digit:]]*` and `=~ ^[0-9]+$` idioms, firing on the same script
+before its fix and on an unguarded hook.
+
+**Rule**: a trigger that keys only on the offending shape fires on the fix too.
+Pair every `content_present` with a `content_absent` naming the remedy, and test
+it against the fixed file, not just the broken one.
+
 **Rule**: before writing a rule, run its target path through
 `scripts/inject/route_domains.py`. Empty output means prose will never arrive;
 use a trigger.
