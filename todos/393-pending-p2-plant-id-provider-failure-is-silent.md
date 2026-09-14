@@ -1,13 +1,13 @@
 ---
 status: pending
-priority: p1
+priority: p2
 issue_id: "393"
 tags: [plant-identification, ops, billing, monitoring, production]
 dependencies: []
 source_review: "todos/390-pending-p3-plant-id-key-rotation-unverified.md"
 ---
 
-# The rotated-in Plant.id key has zero credits, and production fails silently
+# A Plant.id outage is invisible: the provider can fail completely and nothing says so
 
 ## Problem
 
@@ -107,8 +107,13 @@ is somewhere obvious for this to live.
 
 ## Acceptance Criteria
 
-- [ ] `remaining.total > 0` and `can_use_credits.value == true` for the live key
+- [x] `remaining.total > 0` and `can_use_credits.value == true` for the live key
       — recorded in this file with the date and the observed numbers
+      — **2026-09-13:** `active: true`, `credit_limits.total: 86`,
+      `remaining.total: 86.0`, `can_use_credits.value: true`. Credits were
+      reassigned from the old Plant.id project to the new Houseplant MD project.
+      This covers production as well as local: both were written from the same
+      piped value in one `&&` chain, so they are the same bytes.
 - [ ] One real identification through production returns `source == "plant_id"`
       with a non-null `disease_detection`, recorded here
 - [ ] A Plant.id failure is visible: a distinct log line (bracketed prefix, per
@@ -124,10 +129,11 @@ is somewhere obvious for this to live.
 
 ## Notes
 
-**Priority rationale: p1.** A core, differentiating feature is disabled in
-production right now, users get no indication, and the product silently
-downgrades to a single free-tier provider. The billing half is minutes of work;
-the p1 is justified by the silence, not by the credits.
+**Priority: p2 as of 2026-09-13** (filed p1). Filed p1 because a core feature
+was disabled in production at that moment. Credits were restored the same day,
+so there is no outage now — but the reason it was p1 was never the billing, it
+was the silence, and that is entirely unfixed. Downgraded because nothing is
+currently broken, not because the remaining work got smaller.
 
 Found while verifying the todo-390 rotation on 2026-09-13 — specifically by
 checking `/usage_info` after swapping the key rather than assuming a valid key
@@ -138,3 +144,34 @@ rolling back means fetching the old key from the vendor dashboard.
 
 Related: todo 390 (the rotation and the dead exposed key),
 `docs/patterns/domain/plant-identification.md`.
+
+## Work Log
+
+### 2026-09-13 - Credits restored; the billing half is closed
+
+Reassigned from the old Plant.id project to the new Houseplant MD project.
+Measured immediately after, against `backend/.env`'s key:
+
+```text
+active            : True
+credit_limits     : {'day': None, 'week': None, 'month': None, 'total': 86}
+used              : {'total': 0.0}
+remaining         : {'day': None, 'week': None, 'month': None, 'total': 86.0}
+can_use_credits   : True
+```
+
+86 rather than 100 because the free-tier month already had usage against the
+previous key.
+
+**What this does NOT close.** ACs 3-5 are the reason this was filed p1 and none
+of them is affected by the credits: a total failure of the primary
+identification provider still produces no error, no metric and no log line that
+distinguishes "declined" from "never asked".
+`combined_identification_service.py` still only errors when BOTH providers
+return nothing. Had the credits not been noticed by hand during the rotation,
+production would have run indefinitely with disease detection silently off.
+That is the durable defect; the billing was a symptom.
+
+AC 2 still needs one real identification through production confirming
+`source == "plant_id"` and a non-null `disease_detection` — it requires an
+authenticated request with an image, so it is a human step.
