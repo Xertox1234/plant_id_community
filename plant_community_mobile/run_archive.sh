@@ -73,10 +73,15 @@ case "$API_URL" in
     die "API_BASE_URL is a dev/tunnel URL, not production: $API_URL" ;;
 esac
 
-# Extract ONLY the digits after `+`. The old `sed 's/.*+//'` kept whatever
-# followed -- a trailing comment, or the whole string when pubspec had no `+N`
-# at all -- and a non-numeric value silently disabled the duplicate check below.
-EFFECTIVE_BUILD="${BUILD_NUMBER:-$(sed -n 's/^version:.*+\([0-9][0-9]*\).*/\1/p' pubspec.yaml | head -1)}"
+# Extract ONLY the digits after the FIRST `+`. The old `sed 's/.*+//'` kept
+# whatever followed -- a trailing comment, or the whole string when pubspec had
+# no `+N` at all -- and a non-numeric value silently disabled the duplicate
+# check below. `[^+]*` rather than `.*` because `.*+` is greedy: it matches the
+# LAST `+digits` on the line, so `version: 1.0.0+20  # see PR+743` extracted 743
+# -- a perfectly good integer that `is_uint` waves through. The die below tells
+# you to "bump pubspec.yaml to 1.0.0+N", which is exactly the edit that invites
+# a trailing comment, and a number Apple accepts can never be taken back.
+EFFECTIVE_BUILD="${BUILD_NUMBER:-$(sed -n 's/^version:[^+]*+\([0-9][0-9]*\).*/\1/p' pubspec.yaml | head -1)}"
 
 # ------------------------------------------------- build number vs. reality --
 # The pubspec integer is maintained by hand and has no idea what Apple already
