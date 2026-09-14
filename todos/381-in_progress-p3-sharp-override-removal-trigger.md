@@ -1,5 +1,5 @@
 ---
-status: pending
+status: in_progress
 priority: p3
 issue_id: "381"
 tags: [dependencies, security, npm, cloudflare]
@@ -78,12 +78,12 @@ independently by the pre-merge investigation.
 
 ## Acceptance Criteria
 
-- [ ] miniflare's current sharp requirement recorded in the Work Log
-- [ ] Override deleted, widened, or explicitly re-dated based on that fact
-- [ ] If the lockfile was regenerated: `grep -c '"libc"' package-lock.json`
+- [x] miniflare's current sharp requirement recorded in the Work Log
+- [x] Override deleted, widened, or explicitly re-dated based on that fact
+- [x] If the lockfile was regenerated: `grep -c '"libc"' package-lock.json`
       returns **16**, and no package lost a field versus the previous lockfile
-- [ ] `npm audit --package-lock-only` at the repo root reports 0 vulnerabilities
-- [ ] `npx wrangler --version` still runs
+- [x] `npm audit --package-lock-only` at the repo root reports 0 vulnerabilities
+- [x] `npx wrangler --version` still runs
 
 ## Notes
 
@@ -102,3 +102,51 @@ suppressions), `.github/security-suppressions.yml` header for the rationale.
 - Filed from the `/code-review` low finding on PR #718, during the GitHub cleanup
   that closed Dependabot #125.
 - Confirmed the cap is inert today: latest published sharp is `0.35.4`.
+
+### 2026-09-13 - Removal condition MET; override deleted (PR pending review)
+
+**miniflare moved.** Measured against the registry, not inferred:
+
+| wrangler | miniflare | its `dependencies.sharp` |
+| --- | --- | --- |
+| 4.129.0 (ours, before) | 5.20260903.0-alpha | `0.35.2` |
+| 4.130.0 | 5.20260908.0-alpha | `0.35.2` |
+| **4.131.1 (ours, now)** | **5.20260911.0-alpha** | **`0.35.4`** |
+
+That is Recommended Action 2, and it needs the wrangler bump to come with it:
+our own wrangler 4.129.0 still drags in the miniflare that pins `0.35.2`, so
+deleting the override alone would have silently walked sharp **back** to the
+vulnerable version. Bump and delete are one change, not two.
+
+Removed from the root `package.json`: the `overrides` block and its
+`"//sharp-override"` note. `wrangler` `^4.129.0` -> `^4.131.1`.
+
+**Lockfile regenerated with npm 12.0.2** (`npx --yes npm@12.0.2 install`); the
+local npm is 11.19.0, which is exactly the version the trigger warns silently
+strips `libc`.
+
+Verification:
+
+| Check | Result |
+| --- | --- |
+| `grep -c '"libc"' package-lock.json` | **16** (unchanged) |
+| packages present in both lockfiles that lost any field | **0** |
+| field census delta across all 99 packages | **empty** |
+| packages added / removed | 0 / 0 |
+| `npm ls --package-lock-only sharp` | `wrangler@4.131.1 -> miniflare@5.20260911.0-alpha -> sharp@0.35.4` |
+| `"overrides"` in `package-lock.json` | **0 occurrences** |
+| `npm audit --package-lock-only --json` | `{"info":0,"low":0,"moderate":0,"high":0,"critical":0,"total":0}` |
+| `npx wrangler --version` | `4.131.1` |
+
+sharp resolves to the patched `0.35.4` **because miniflare now asks for it**,
+not because we still cap it — `npm ls` is run against the override-free tree.
+
+**One residual worth knowing:** miniflare pins sharp at *exactly* `0.35.4`, not
+a range. If a future advisory lands on `0.35.4`, we are pinned to a vulnerable
+transitive again by the same mechanism, and the same override will be the only
+fix. The watcher for that is Dependabot, which is what raised alert #125 in the
+first place -- no new machinery needed here, but the shape will recur.
+
+`docs/rules/triggers.json:1682` (the npm>=12 lockfile trigger) fired on this
+edit as designed and needs no change; it is about regenerating lockfiles
+generally, not about this override.
