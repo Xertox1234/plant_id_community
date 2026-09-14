@@ -1,5 +1,5 @@
 ---
-status: ready
+status: completed
 priority: p2
 issue_id: "006"
 tags: [code-review, code-quality, eslint, quick-fix]
@@ -26,3 +26,8 @@ Fix all violations within 1-2 hours.
 
 **Effort**: Small (1-2 hours)  
 **Impact**: Code quality, prevent bugs
+
+### 2026-09-13 - Status corrected (todo 390)
+
+`status: ready` -> `completed`. `npx eslint src` in `web/` exits clean with no
+output -- 0 errors, against the 17 this todo was filed for.

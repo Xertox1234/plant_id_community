@@ -204,13 +204,20 @@ repos:
       - id: markdownlint
         name: Lint Markdown files
         args: ['--fix']
+        # TEMPLATE.md is excluded for two reasons, both structural rather than
+        # cosmetic: its <Concise Issue Title> placeholders are read as inline
+        # HTML (MD033), and --fix inserts a blank line after the frontmatter
+        # `---`, which would break the frontmatter of every todo copied from it.
+        # The frontmatter now sits at the top of that file so the second issue
+        # cannot recur, but the placeholders are deliberate and stay.
         exclude: |
           (?x)^(
             PLANNING/.*|
             backend/docs/development/SECURITY_INCIDENT_.*\.md$|
             todos/archive/.*\.md$|
             docs/archive/.*\.md$|
-            docs/reviews/.*\.md$
+            docs/reviews/.*\.md$|
+            todos/TEMPLATE\.md$
           )
 
   # ===================================

@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: p3
 issue_id: "390"
 tags: [security, incident-response, verification, todo-hygiene]
@@ -77,10 +77,17 @@ was cleared. This item needs a human with plant.id account access.
 
 ### The class of mistake, and what it already cost
 
-27 of 347 archived todos (329 under `todos/archive/` plus 18 under
-`backend/todos/archive/`) have a filename claiming completion while the
-frontmatter disagrees — but **26 are bookkeeping noise**. Spot-checked three of
-the most alarming and all are genuinely implemented:
+~~27 of 347 archived todos have a filename claiming completion while the
+frontmatter disagrees — but **26 are bookkeeping noise**.~~ **Superseded
+2026-09-13 by measurement.** The real figure under the rule that actually
+matters — *an archived todo must carry a terminal status* — is **29**, and
+"bookkeeping noise" was an inference from spot-checking three, not a finding.
+Sixteen of the 29 turned out to be genuinely implemented and were fixed with
+evidence; two were **not** done and are now `superseded`; thirteen remain
+untriaged (todo 394). Separately, 62 archived todos carry 462 bare unchecked
+acceptance criteria — a population this paragraph did not know existed, and the
+one that AC 4's rule cannot see. The three that were spot-checked are genuinely
+implemented:
 `CSRF_COOKIE_HTTPONLY = True` (settings.py:1250), the security headers
 (`SECURE_BROWSER_XSS_FILTER`, `SECURE_CONTENT_TYPE_NOSNIFF`,
 `X_FRAME_OPTIONS = "DENY"`, `SECURE_HSTS_SECONDS`, settings.py:1180-1204), and
@@ -164,14 +171,44 @@ security todo without doing it.
       carry a dated note saying the key was verified dead before redaction.
       The value remains in git history across 5 commits, which is why
       revocation, not deletion, was the fix.
-- [ ] A check fails when an archived todo's filename claims completion but its
-      frontmatter status disagrees — the 26 known bookkeeping-only mismatches
-      either fixed or explicitly allowlisted, so the check starts green
-- [ ] `completing-todos` refuses to archive a todo with unchecked ACs unless each
+- [x] A check fails when an archived todo's filename claims completion but its
+      frontmatter status disagrees — the known mismatches either fixed or
+      explicitly allowlisted, so the check starts green
+      — `scripts/check_archived_todo_status.py`, wired into
+      `.github/workflows/harness-ci.yml` (no path filter, so it runs on the
+      todos-only PRs that matter most). **Built on a broader rule than this AC
+      asked for**: *archived ⇒ terminal status*. The mismatch reading has a hole
+      the exact size of the failure mode — `017-pending-p2-registration-csrf-bypass`
+      (a CSRF bypass) and `018-pending-p2-jwt-token-lifetime` were *honest*,
+      filename and frontmatter both saying `pending`, and archived unfinished
+      anyway. A mismatch rule waves those through for being consistently wrong.
+      29 violations found: 16 fixed with evidence in each file's Work Log, 13
+      allowlisted as `not-triaged` (todo 394). Statuses compare by class, not
+      string — 24 of the repo's 50 literal mismatches are `completed`-vs-`resolved`
+      synonym noise, and firing on those is how a checker gets muted.
+- [x] `completing-todos` refuses to archive a todo with unchecked ACs unless each
       is re-pointed with a reason (the existing convention for moved findings)
-- [ ] A todo whose AC is an external verification must carry the evidence
+      — Safety Rail 4 in `.claude/skills/completing-todos/SKILL.md` now states
+      the re-point escape hatch explicitly, and Step 5 gained a pre-flight.
+      **But the skill text is the advisory half**: `.claude/` reaches only NEW
+      worktrees, and Rail 4 already said "acceptance criteria are gospel" while
+      62 archived todos carried 462 bare unchecked criteria. So the rule also
+      landed as a second checker rule, `ARCHIVED_UNCHECKED_AC`, which runs on
+      every PR. It closes what AC 4's rule cannot see: a todo archived with
+      `status: completed` and 38 unchecked ACs passes *archived-while-open*
+      cleanly. The re-point exemption is deliberately narrow — a named target
+      todo AND a re-point claim — because an exemption that is easy to satisfy
+      by accident is the same as no rule. Zero of the 62 clear it today.
+- [x] A todo whose AC is an external verification must carry the evidence
       (date + observed result) in-file before it can be archived — documented in
       `todos/TEMPLATE.md` and the `completing-todos` skill
+      — `todos/TEMPLATE.md` gained a worked example under Acceptance Criteria
+      (the Plant.id 401/200 probe) and states that "verified" with no date and no
+      observation is not evidence; `completing-todos` gained Safety Rail 5 saying
+      the same. This is the only one of the three that cannot be mechanically
+      enforced — no checker can tell a real observation from a plausible
+      sentence — which is why it is stated in both places a person actually
+      reads before archiving.
 
 ## Work Log
 
@@ -187,6 +224,39 @@ security todo without doing it.
   classifier. Not routed around; handed to the user instead.
 - Nothing about the nine open sweep PRs (#743–#751) depends on this; all nine are
   green and unaffected.
+
+### 2026-09-13 - Hygiene tripwire built (ACs 4-6); todo closed
+
+- `scripts/check_archived_todo_status.py` + `scripts/test_check_archived_todo_status.py`,
+  running in `.github/workflows/harness-ci.yml` on every PR.
+- **The rule is broader than AC 4 proposed, on purpose.** Filename-vs-frontmatter
+  misses the honest liar: two archived todos (`017` registration CSRF bypass,
+  `018` JWT token lifetime) had filename and frontmatter agreeing on `pending`.
+  Both were archived unfinished. `archived ⇒ terminal status` catches them.
+- **A second rule was needed, and it is the one AC 5 was really asking for.**
+  `ARCHIVED_UNCHECKED_AC` fails on a bare unchecked criterion under `archive/`.
+  Without it, `2025-11-05-011-completed-p2-sql-wildcard-sanitization.md` — status
+  `completed`, 38 unchecked criteria — passes the first rule cleanly.
+- Measured: **29** archived-status violations (not the 26 this file recorded) and
+  **62** files carrying **462** bare unchecked criteria.
+- 16 of the 29 fixed with evidence recorded in each file's own Work Log. Two were
+  **not** done and are now `superseded` rather than `completed`:
+  `005-superseded-p1-api-key-rotation-verification` (this todo did its work) and
+  `2025-11-01-003-superseded-p1-env-example-secret-placeholders` (todo 367 did,
+  ten months later). Calling either "resolved" would credit it with work it did
+  not do and erase the gap, which is the only thing they still have to teach.
+- 13 + 62 grandfathered in `todos/archive-status-allowlist.yml`, in two lists
+  kept separate because they have opposite futures. A **stale** entry fails the
+  check, so neither list can quietly become permanent. Todo 394 shrinks them.
+- 15 mutants applied to the checker; all caught by the named tests. One survived
+  the first pass — the two allowlists merged — because exit code cannot
+  distinguish it from a stale entry; an assertion on the `unallowed` column
+  catches it.
+- Two hazards found while doing this, both recorded in todo 394: renaming an
+  archived todo makes its `.secrets.baseline` entry stale and blocks the commit
+  (fix filename-only, never regenerate), and `rtk git commit` swallowed a
+  `detect-secrets` failure and reported exit 0 with no commit made.
+
 
 ## Notes
 

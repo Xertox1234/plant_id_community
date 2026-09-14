@@ -1,5 +1,5 @@
 ---
-status: pending
+status: superseded
 priority: p1
 issue_id: "003"
 tags: [code-review, security, secret-management, audit]
@@ -9,9 +9,11 @@ dependencies: []
 # Improve .env.example Secret Key Placeholders
 
 ## Problem Statement
+
 The `.env.example` file contains weak placeholder patterns for sensitive credentials that could lead to accidental commits of real keys or developers using insecure defaults in development.
 
 ## Findings
+
 - Discovered during comprehensive codebase audit (October 31, 2025)
 - Location: `backend/.env.example` (lines 4, 29, 33, 56, 72)
 - **Current placeholders**:
@@ -22,6 +24,7 @@ The `.env.example` file contains weak placeholder patterns for sensitive credent
   - `FIELD_ENCRYPTION_KEY=your-fernet-key-change-in-production-base64-encoded=`
 
 **Security risks**:
+
 1. Weak patterns might pass validation in development
 2. Developers could forget to replace placeholders
 3. Pattern-based secret scanners might flag these as false positives
@@ -30,13 +33,16 @@ The `.env.example` file contains weak placeholder patterns for sensitive credent
 ## Proposed Solutions
 
 ### Option 1: REQUIRED_ Prefix Pattern (Recommended)
+
 **Pros**:
+
 - Clear indication value must be replaced
 - Will fail validation if accidentally used
 - Includes generation instructions
 - Industry standard pattern
 
 **Cons**:
+
 - Slightly longer variable values
 - Developers must read comments for instructions
 
@@ -44,6 +50,7 @@ The `.env.example` file contains weak placeholder patterns for sensitive credent
 **Risk**: Low
 
 **Implementation**:
+
 ```bash
 # Django Core Settings
 DEBUG=True
@@ -67,11 +74,14 @@ FIELD_ENCRYPTION_KEY=REQUIRED__GENERATE_WITH__python_-c_from_cryptography_fernet
 ```
 
 ### Option 2: Empty Values with Validation
+
 **Pros**:
+
 - Forces explicit configuration
 - Clean .env.example file
 
 **Cons**:
+
 - Requires updating Django settings validation
 - Less informative for new developers
 
@@ -79,15 +89,18 @@ FIELD_ENCRYPTION_KEY=REQUIRED__GENERATE_WITH__python_-c_from_cryptography_fernet
 **Risk**: Medium (might break existing dev setups)
 
 ## Recommended Action
+
 **Option 1** - Replace all sensitive placeholders with `REQUIRED__*` pattern.
 
 This approach:
+
 1. Prevents accidental use of placeholders
 2. Provides clear generation/acquisition instructions
 3. Fails loudly if forgotten (Django SECRET_KEY validation already in place)
 4. Aligns with security best practices
 
 ## Technical Details
+
 - **Affected Files**:
   - `backend/.env.example` (primary)
   - `backend/.env.template` (if exists)
@@ -100,11 +113,13 @@ This approach:
 - **Database Changes**: None
 
 ## Resources
+
 - Code review audit: October 31, 2025
 - Related security patterns: `backend/docs/development/SECURITY_PATTERNS_CODIFIED.md`
 - Key rotation guide: `KEY_ROTATION_INSTRUCTIONS.md`
 
 ## Acceptance Criteria
+
 - [ ] Replace all sensitive placeholders in `.env.example` with `REQUIRED__*` pattern
 - [ ] Update comments with clear generation/acquisition instructions
 - [ ] Verify placeholder patterns would fail Django SECRET_KEY validation
@@ -115,19 +130,40 @@ This approach:
 ## Work Log
 
 ### 2025-10-31 - Code Review Discovery
+
 **By:** Claude Code Review System
 **Actions:**
+
 - Discovered during comprehensive codebase audit
 - Analyzed `.env.example` secret management patterns
 - Identified weak placeholder patterns across 5 critical keys
 - Categorized as P1 security issue
 
 **Learnings:**
+
 - Current validation in settings.py (lines 70-95) would catch most insecure patterns
 - But placeholders like "your-secret-key-here" could slip through
 - Need explicit "REQUIRED" marker to prevent confusion
 
+### 2026-09-13 - Status corrected (todo 390)
+
+`status: pending` -> `superseded`, renamed from `...-resolved-...`.
+
+**This is the file that proves the point.** It was archived as *"resolved"* with
+`status: pending` and 6 unchecked ACs, and it was NOT done. Ten months later
+**todo 367 / PR #748 had to rediscover the identical problem** -- by which point
+`JWT_SECRET_KEY`'s 66-character *placeholder* was accepted in production and
+signing every JWT, because it cleared set / `!= SECRET_KEY` / `len >= 50`.
+
+Marked `superseded`, not `resolved`: the work landed under
+`todos/archive/367-completed-p2-env-example-placeholders-accepted-in-production.md`,
+not here. `backend/.env.example:4` and `:72` now carry
+`REQUIRED__GENERATE_WITH__...` placeholders that `INSECURE_PATTERNS` rejects.
+Calling this file `resolved` would credit it with work it did not do and erase
+the ten-month gap, which is the only thing it still has to teach.
+
 ## Notes
+
 Source: Code review performed on October 31, 2025
 Review command: `/compounding-engineering:review audit code base`
 Severity: P1 (prevents security misconfigurations)

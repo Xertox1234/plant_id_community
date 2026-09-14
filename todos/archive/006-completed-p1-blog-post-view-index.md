@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: p1
 issue_id: "006"
 tags: [code-review, performance, django, indexing, blog]
@@ -122,6 +122,13 @@ class Meta:
 - Aggregate queries with date filters need composite indexes
 - Index order matters: (viewed_at, post) for date range + grouping
 - PostgreSQL CONCURRENTLY avoids table locks during creation
+
+### 2026-09-13 - Status corrected (todo 390)
+
+`status: pending` -> `completed`. The index exists and is purpose-named:
+`models.Index(fields=["viewed_at", "post"], name="blog_view_trending_idx")` in
+`backend/apps/blog/models.py`, shipped by migrations
+`0011_add_trending_index.py` and `0012_recreate_trending_index_concurrently.py`.
 
 ## Notes
 
