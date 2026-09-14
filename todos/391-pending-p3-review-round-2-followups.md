@@ -169,9 +169,9 @@ blocking findings, which are described in those PRs' commit messages.
 
 ## Acceptance Criteria
 
-- [ ] The #748 open question is answered: no non-production, non-DEBUG context
+- [x] The #748 open question is answered: no non-production, non-DEBUG context
       holds a hand-chosen `JWT_SECRET_KEY`, or the ones that do are rotated to
-      generated values.
+      generated values. **Answered 2026-09-13 — no such context exists.**
 - [ ] Slice 1 (guard durability) is either implemented or explicitly declined
       per item, with the reason recorded here.
 - [ ] Slice 2 (doc archival) is complete: no auto-discoverable doc describes
@@ -182,6 +182,31 @@ blocking findings, which are described in those PRs' commit messages.
       later reader cannot mistake "not done" for "not decided".
 
 ## Work Log
+
+### 2026-09-13 - the #748 open question is closed
+
+The only item here that could have bearing on a live deploy is answered, and
+the answer is no. Nothing can trip #748's boot refusal.
+
+- **Railway has exactly one environment: `production`.** (`railway status
+  --json` -> `environments` = `['production']`.) There is no staging or preview
+  environment, so the whole class of "some other non-DEBUG context holds a
+  hand-chosen key" has no instances.
+- Services are `plant_id_community`, `forum-prune-cron`, `Postgres`, `Redis`.
+  Production `JWT_SECRET_KEY` is **86 chars** — `token_urlsafe(64)`, i.e.
+  generated, not hand-chosen.
+- `backend/.env` (the local `DEBUG=False` path) also clears the guard:
+  `SECRET_KEY` and `JWT_SECRET_KEY` both have `startswith("REQUIRED__")` false
+  and **zero** `INSECURE_PATTERNS` substring hits.
+
+Checked by reading lengths and booleans only — no secret value entered the
+session, which is the same method used to clear the guard before #748 opened.
+
+Incidental, and it confirms todo 390's premise rather than this one: live
+`PLANT_ID_API_KEY` is **50 chars** against a documented literal of **50**, so
+length cannot distinguish them and only a direct comparison will settle it.
+`PLANTNET_API_KEY` is 26 against a documented 24 — which is how we know
+PlantNet was rotated and Plant.id cannot be assumed to have been.
 
 ### 2026-09-13 - Filed
 
