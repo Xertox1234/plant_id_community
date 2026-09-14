@@ -6044,3 +6044,51 @@ and a stale-marker inventory was wrong in both count and kind (claimed "5
    that makes them load-bearing — read the cited line back and confirm it says
    what the doc claims. Citations copied from an agent report are unverified by
    default.
+
+## 2026-09-13 — A version number nothing queries is wrong within a day, and expiring a build does not free its number (todo 389)
+
+The iOS build number lives as a hand-maintained integer in `pubspec.yaml`. It was
+wrong twice in two days, and neither time was caught by a tool:
+
+| Date | pubspec said | Reality | Caught by |
+| --- | --- | --- | --- |
+| 2026-09-12 | `1.0.0+2` | builds 1–5 existed | code review |
+| 2026-09-13 | `1.0.0+6` | builds 1–9 existed | the owner noticing build 9 on their phone |
+
+The second is the instructive one. PR #741 set `+6` from **todo 383**, which
+records builds 1–5. Builds 6–9 were uploaded on 2026-09-12/13 and never written
+back to that todo — build 6 went up at 2026-09-12T21:26:07, *before #741 was
+opened*, so `+6` was already a duplicate when it merged.
+
+**A todo is not a source of truth for remote state.** Any document describing a
+system someone else can mutate is a cache with no invalidation. It was accurate
+when written and silently wrong afterwards, and it reads exactly the same either
+way. Query the system.
+
+The failure is also expensive and late: `ios/ExportOptions.plist` sets
+`manageAppVersionAndBuildNumber = false`, so Xcode does not renumber at export.
+A duplicate builds cleanly, passes `run_archive.sh`'s IPA configuration gate, and
+is rejected by `altool` at the very end — about five minutes in.
+
+**Expiring a build does not free its number.** Builds 1–8 are all expired and all
+eight numbers remain permanently taken. This surprises people, and it is why
+"I expired the old ones" does not help. Any next-free calculation must be
+`max(every build ever uploaded) + 1`, not `max(live builds) + 1`.
+
+**Rules:**
+
+1. If a script's input describes remote state, have the script ask. `run_archive.sh`
+   now queries App Store Connect before building and refuses a duplicate, naming
+   the next free number (`--next` selects it automatically).
+2. Keep "could not check" distinct from "checked and fine". The query helper exits
+   `3` for absent credentials or an unreachable API, and the caller prints a loud
+   `SKIPPED … UNVERIFIED` banner. A check that cannot run must never read as a pass.
+   `--next` refuses outright rather than guessing.
+3. Prefer stdlib + `openssl` over an import for a release script. Signing the ES256
+   JWT would normally want PyJWT + `cryptography`, which live in `backend/venv` and
+   nowhere else — a release script that only works when a particular venv is on
+   PATH is a script that silently stops running. `openssl dgst` plus ~20 lines of
+   DER→raw conversion has no such dependency.
+4. Positive-control the gate. Proving `BUILD_NUMBER=9` is refused says nothing
+   about whether a free number still builds; the acceptance run stubbed `flutter`
+   on PATH and confirmed `--build-number=10` reached it.

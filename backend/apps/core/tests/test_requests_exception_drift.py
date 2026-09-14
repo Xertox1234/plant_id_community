@@ -416,3 +416,293 @@ def test_the_guard_flags_a_planted_violation(tmp_path):
     assert any("aliased" in src for src in flagged), flagged
     assert any("a constant message" in src for src in flagged), flagged
     assert not [src for src in flagged if "ok:" in src], flagged
+
+
+# ==========================================================================
+# Second guard: exception detail reaching a RESPONSE dict (todo 377)
+# ==========================================================================
+#
+# The guard above only inspects calls whose func unparses with the prefix
+# `logger.`, so `return {"error": str(e)}` is structurally invisible to it --
+# the same gap as `raise SomeError(f"{e}")`. `docs/rules/security.md` bans
+# `str(e)` in a response body as well as in a log: it reaches the client, and
+# for a requests exception it carries the prepared URL (i.e. the api-key).
+#
+# WHY THIS SCOPE, AND NOT A BROADER ONE. Todo 377 flagged the design tension
+# up front: a rule on every dict literal would fire on every internal-only
+# service result, and a guard that cries wolf gets deleted. So the sink is
+# narrowed to a dict value under an error-ish KEY -- the response idiom --
+# rather than any dict value.
+#
+# That was then measured rather than assumed. Across 582 files under ROOTS the
+# predicate matched exactly 5 sites, all 5 of them the ones todo 377 names, and
+# 0 in test files. The feared false-positive population does not exist on this
+# tree, which is what made extending the guard the right call instead of
+# leaving the class structurally open.
+#
+# Unlike the logger guard, this one is NOT restricted to `except requests...`
+# handlers. All five real sites were `except Exception`, which catches a
+# RequestException perfectly well -- restricting by handler type would have
+# caught none of them.
+
+RESPONSE_ERROR_KEYS = {"error", "detail", "message", "error_message", "reason"}
+
+
+def _exception_details_in_response_dicts(path):
+    """Yield ``(lineno, source)`` for exception detail reaching a response dict.
+
+    Strict by design: *no* reference to the bound exception name may appear in
+    the value. There is deliberately no allowlist here, unlike the logger
+    guard. `type(e).__name__` leaks an internal class name and
+    `e.response.text` leaks the provider's body; neither belongs in a payload,
+    and after todo 377 nothing in the tree needs an exception in a response at
+    all. A rule with no exceptions is one nobody has to adjudicate.
+    """
+    tree = ast.parse(pathlib.Path(path).read_text(encoding="utf-8"))
+    logging_dicts = _logging_extra_dicts(tree)
+    for handler in (n for n in ast.walk(tree) if isinstance(n, ast.ExceptHandler)):
+        if not handler.name:
+            continue
+        for dict_node in (n for n in ast.walk(handler) if isinstance(n, ast.Dict)):
+            if id(dict_node) in logging_dicts:
+                # `logger.error(..., extra={"error": str(e)})` is structured
+                # logging, not a payload -- the detail SHOULD be there. Without
+                # this, one rename of `error_type` to `error` in
+                # blog/ai_integration.py turns a correct commit red.
+                continue
+            for key, value in zip(dict_node.keys, dict_node.values):
+                if not (
+                    isinstance(key, ast.Constant) and key.value in RESPONSE_ERROR_KEYS
+                ):
+                    continue
+                if any(
+                    isinstance(n, ast.Name) and n.id == handler.name
+                    for n in ast.walk(value)
+                ):
+                    yield value.lineno, ast.unparse(value)
+
+
+LOGGER_METHODS = {"debug", "info", "warning", "warn", "error", "critical", "exception"}
+
+# A provider's raw body, reached through the response object rather than through
+# a bound exception. Structurally invisible to the guard above -- no `Name` node
+# matches the handler -- which is how plant_health_service.py:388 survived the
+# first sweep of todo 377, two branches above a site that WAS converted.
+BODY_ATTRS = {"text", "content", "body"}
+
+
+def _logging_extra_dicts(tree):
+    """`id()` of every dict passed as `extra=` to a `logger.*` call."""
+    out = set()
+    for call in (n for n in ast.walk(tree) if isinstance(n, ast.Call)):
+        func = call.func
+        if not (isinstance(func, ast.Attribute) and func.attr in LOGGER_METHODS):
+            continue
+        for kw in call.keywords:
+            if kw.arg == "extra" and isinstance(kw.value, ast.Dict):
+                out.add(id(kw.value))
+    return out
+
+
+def _provider_body_in_response_dicts(path):
+    """Yield ``(lineno, source)`` for a provider's raw body in a response dict.
+
+    Not scoped to except handlers: the leak at plant_health_service.py:388 was
+    in a plain `else:` branch checking `response.status_code`.
+    """
+    tree = ast.parse(pathlib.Path(path).read_text(encoding="utf-8"))
+    logging_dicts = _logging_extra_dicts(tree)
+    for dict_node in (n for n in ast.walk(tree) if isinstance(n, ast.Dict)):
+        if id(dict_node) in logging_dicts:
+            continue
+        for key, value in zip(dict_node.keys, dict_node.values):
+            if not (isinstance(key, ast.Constant) and key.value in RESPONSE_ERROR_KEYS):
+                continue
+            for node in ast.walk(value):
+                if isinstance(node, ast.Attribute) and node.attr in BODY_ATTRS:
+                    # Deliberately NOT gated on the receiver being named
+                    # `response*`. A name heuristic is the "correct by accident
+                    # of today's data" shape this round kept finding -- `r.text`
+                    # or `http_result.text` would walk straight past it. Any
+                    # `.text`/`.content`/`.body` under a response error key is
+                    # suspect; the tree has no legitimate instance.
+                    yield value.lineno, ast.unparse(value)
+                    break
+
+
+@pytest.mark.parametrize(
+    "service", [str(p.relative_to(BACKEND)) for p in _backend_python_files()]
+)
+def test_no_response_dict_carries_its_exception(service):
+    """Drift guard (todo 377).
+
+    Parametrised over every backend file rather than only those catching a
+    ``requests`` exception: the five real sites were all ``except Exception``,
+    in files that do not all import ``requests``.
+    """
+    offenders = list(_exception_details_in_response_dicts(BACKEND / service))
+    assert not offenders, "\n".join(f"  line {n}: {src}" for n, src in offenders)
+
+
+@pytest.mark.parametrize(
+    "service", [str(p.relative_to(BACKEND)) for p in _backend_python_files()]
+)
+def test_no_response_dict_carries_a_provider_body(service):
+    """Second half of the class (todo 377, review round 1).
+
+    The exception guard above keys on the bound exception name, so it cannot see
+    `response.text[:100]` -- which is how a leak two branches above a converted
+    site survived the first sweep.
+    """
+    offenders = list(_provider_body_in_response_dicts(BACKEND / service))
+    assert not offenders, "\n".join(f"  line {n}: {src}" for n, src in offenders)
+
+
+PLANTED_RESPONSE = """
+import logging
+import requests
+
+logger = logging.getLogger(__name__)
+
+
+def returned_directly():
+    try:
+        requests.get("https://example.invalid")
+    except Exception as e:
+        return {"status": "error", "error": str(e)}
+
+
+def interpolated():
+    try:
+        requests.get("https://example.invalid")
+    except Exception as e:
+        return {"detail": f"call failed: {e}"}
+
+
+def assigned_into_a_result_map(results, name):
+    try:
+        requests.get("https://example.invalid")
+    except Exception as e:
+        results[name] = {"success": False, "error": str(e)}
+
+
+def passed_to_a_callback(progress_cb):
+    try:
+        requests.get("https://example.invalid")
+    except Exception as e:
+        progress_cb("final_status", "failed", {"error": str(e)})
+
+
+def bare_name_not_str():
+    try:
+        requests.get("https://example.invalid")
+    except Exception as e:
+        return {"message": e}
+
+
+def attribute_shapes_are_not_an_escape_hatch():
+    try:
+        requests.get("https://example.invalid")
+    except requests.RequestException as e:
+        return {"error": e.response.text, "reason": type(e).__name__}
+
+
+def approved_constant():
+    try:
+        requests.get("https://example.invalid")
+    except Exception as e:
+        logger.exception("ok: the detail belongs here")
+        return {"status": "error", "error": "Service status check failed"}
+
+
+def approved_non_error_key():
+    # `count` is not a response error key, so an unrelated dict is not swept.
+    try:
+        requests.get("https://example.invalid")
+    except Exception as e:
+        logger.exception("ok")
+        return {"count": len(str(e))}
+
+
+def body_outside_a_handler(response):
+    # The sixth site's shape. There is no `except`, so the exception guard is
+    # structurally blind to it -- this is the one the body guard exists for.
+    if response.status_code != 200:
+        return {"status": "error",
+                "error": f"HTTP {response.status_code}: {response.text[:200]}"}
+    return {"status": "ok"}
+
+
+def approved_logged_body(response):
+    # A truncated provider body belongs in the log. The returned dict carries
+    # only the status code, so this must stay quiet.
+    logger.error("[PLANT_HEALTH] HTTP %s: %s", response.status_code, response.text[:200])
+    return {"status": "unavailable", "error": f"HTTP {response.status_code}"}
+"""
+
+
+def test_the_response_guard_flags_a_planted_violation(tmp_path):
+    """The guard can actually fail, and stays quiet on the approved shapes.
+
+    Written to ``tmp_path``, not checked in: a checked-in bad example would be
+    swept by the guard itself.
+    """
+    planted = tmp_path / "planted_response.py"
+    planted.write_text(PLANTED_RESPONSE, encoding="utf-8")
+
+    flagged = {src for _, src in _exception_details_in_response_dicts(planted)}
+
+    # Every shape the five real sites took.
+    assert "str(e)" in flagged, flagged
+    assert any("call failed" in src for src in flagged), flagged
+    assert "e" in flagged, f"a bare bound name must flag too: {flagged}"
+    # Attribute access is not an escape hatch here, unlike in the logger guard:
+    # a provider's error body and an internal class name both belong in the log.
+    assert "e.response.text" in flagged, flagged
+    assert "type(e).__name__" in flagged, flagged
+    # And the safe shapes stay quiet.
+    assert not [src for src in flagged if "Service status check failed" in src], flagged
+    assert not [src for src in flagged if "len(" in src], flagged
+
+
+def test_the_body_guard_flags_a_planted_violation(tmp_path):
+    """The body guard can actually fail.
+
+    Without this the guard has only a negative control: typo ``BODY_ATTRS`` to
+    ``{"texxt", ...}`` and ``test_no_response_dict_carries_a_provider_body``
+    goes green across every backend file having checked nothing. That is a
+    false green, not a clean sweep. The exception guard has had a positive
+    control since it was written; this one did not, and round 1 missed the
+    asymmetry -- which is how the sixth site hid in the first place.
+    """
+    planted = tmp_path / "planted_body.py"
+    planted.write_text(PLANTED_RESPONSE, encoding="utf-8")
+
+    flagged = {src for _, src in _provider_body_in_response_dicts(planted)}
+
+    # Directly in the dict, inside a handler.
+    assert "e.response.text" in flagged, flagged
+    # And outside any handler -- the shape `_exception_details_in_response_dicts`
+    # is structurally blind to, and the one the sixth site took.
+    assert any("response.text[:200]" in src for src in flagged), flagged
+    # Exactly those two: the approved constant, the non-error key and the
+    # logged-body shape must all stay quiet.
+    assert len(flagged) == 2, flagged
+
+
+def test_the_response_sweep_is_not_vacuous():
+    """A count floor plus the files that actually held the five sites.
+
+    Without this the parametrisation can silently collapse to zero files and
+    report green having read nothing -- the same failure the logger sweep's
+    vacuity test exists to catch.
+    """
+    scanned = [str(p.relative_to(BACKEND)) for p in _backend_python_files()]
+    assert len(scanned) > 400, f"scope collapsed to {len(scanned)} files"
+    for known in (
+        "apps/plant_identification/services/plant_health_service.py",
+        "apps/plant_identification/services/disease_diagnosis_service.py",
+        "apps/plant_identification/services/plant_image_service.py",
+        "apps/blog/ai_integration.py",
+    ):
+        assert known in scanned, f"{known} fell out of the sweep"
