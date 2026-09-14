@@ -213,7 +213,7 @@ Conducted comprehensive multi-agent code review using 12 specialized agents anal
 - **Context**: Security incident Oct 23, 2025 - exposed keys in git
 - **Exposed keys**:
   - Plant.id: `REVOKED_KEY_REDACTED_see_todo_390`
-  - PlantNet: `2b10XCJNMzrPYiojVsddjK0n`
+  - PlantNet: `ROTATED_KEY_REDACTED_see_todo_390`
 - **Action Required**: Verify rotation completed per `KEY_ROTATION_INSTRUCTIONS.md`
 - **Priority**: P1 - Critical (1 hour)
 

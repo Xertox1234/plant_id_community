@@ -25,7 +25,7 @@ API keys were exposed in git history (security incident Oct 23, 2025) and remove
    - Limit: 100 IDs/month (free tier)
    - Status: Unknown
 
-2. **PlantNet API Key**: `2b10XCJNMzrPYiojVsddjK0n`
+2. **PlantNet API Key**: `ROTATED_KEY_REDACTED_see_todo_390`
    - Limit: 500 requests/day (free tier)
    - Status: Unknown
 
@@ -125,7 +125,7 @@ Follow `/Users/williamtower/projects/plant_id_community/KEY_ROTATION_INSTRUCTION
 **PlantNet**:
 1. Login: https://my.plantnet.org/
 2. Navigate to API keys
-3. Revoke key: `2b10XCJNMzrPYiojVsddjK0n`
+3. Revoke key: `ROTATED_KEY_REDACTED_see_todo_390`
 4. Generate new key
 5. Update `backend/.env`: `PLANTNET_API_KEY=<new_key>`
 

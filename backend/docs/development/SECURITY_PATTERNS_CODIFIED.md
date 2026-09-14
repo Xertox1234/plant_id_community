@@ -44,7 +44,7 @@ This document codifies security patterns, anti-patterns, and detection rules lea
 PLANT_ID_API_KEY=REVOKED_KEY_REDACTED_see_todo_390
 
 # PlantNet API Key (24 character alphanumeric)
-PLANTNET_API_KEY=2b10XCJNMzrPYiojVsddjK0n
+PLANTNET_API_KEY=ROTATED_KEY_REDACTED_see_todo_390
 ```
 
 **Risk Level:** CRITICAL

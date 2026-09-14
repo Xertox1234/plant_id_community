@@ -27,7 +27,7 @@ Development environment uses insecure patterns for all secret keys that could be
 SECRET_KEY=django-insecure-dev-key-change-in-production-2024
 JWT_SECRET_KEY=jwt-dev-secret-change-in-production-2024
 PLANT_ID_API_KEY=REVOKED_KEY_REDACTED_see_todo_390
-PLANTNET_API_KEY=2b10XCJNMzrPYiojVsddjK0n
+PLANTNET_API_KEY=ROTATED_KEY_REDACTED_see_todo_390
 FIELD_ENCRYPTION_KEY=xa6fT1y6mKTpi7G0ERjZtkGncxLIY4emoy9j3ZbKXI0=
 ```
 

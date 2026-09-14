@@ -23,7 +23,7 @@ This PR removes exposed API keys from the repository, but you **MUST** rotate th
 1. Visit <https://my.plantnet.org/>
 2. Log in to your account
 3. Navigate to: **API Keys** or **Account Settings**
-4. **Revoke the old key:** `2b10XCJNMzrPYiojVsddjK0n`
+4. **Revoke the old key:** `ROTATED_KEY_REDACTED_see_todo_390`
 5. **Generate new key** (copy immediately)
 6. Update your environment variables (see step 5 below)
 
