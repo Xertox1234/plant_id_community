@@ -520,12 +520,14 @@ def _provider_body_in_response_dicts(path):
                 continue
             for node in ast.walk(value):
                 if isinstance(node, ast.Attribute) and node.attr in BODY_ATTRS:
-                    root = node.value
-                    while isinstance(root, ast.Attribute):
-                        root = root.value
-                    if isinstance(root, ast.Name) and "resp" in root.id.lower():
-                        yield value.lineno, ast.unparse(value)
-                        break
+                    # Deliberately NOT gated on the receiver being named
+                    # `response*`. A name heuristic is the "correct by accident
+                    # of today's data" shape this round kept finding -- `r.text`
+                    # or `http_result.text` would walk straight past it. Any
+                    # `.text`/`.content`/`.body` under a response error key is
+                    # suspect; the tree has no legitimate instance.
+                    yield value.lineno, ast.unparse(value)
+                    break
 
 
 @pytest.mark.parametrize(

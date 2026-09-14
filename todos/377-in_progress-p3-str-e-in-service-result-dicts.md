@@ -167,3 +167,12 @@ input: old FIRES, new quiet.
 Discrimination check on five shapes -- logging `extra` quiet, `str(e)` in a
 response fires, `response.text` in a response fires, `response.text` in a log
 quiet, status-code-only quiet.
+
+**The guard does not key on the receiver's name.** The first draft required
+`"resp" in root.id.lower()`, which is a heuristic on variable naming -- `r.text`
+or `http_result.text` walks straight past it. That is the same
+correct-by-accident-of-today's-data shape this review round found three times
+elsewhere, so it did not survive its own lesson. Any `.text`/`.content`/`.body`
+under a response error key now counts. Measured: the whole backend still passes
+(1196), so the wider rule costs no false positives, and it catches the two names
+the heuristic missed.
