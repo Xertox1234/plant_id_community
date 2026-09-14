@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Brand colours available to Android resources (themes, launch backgrounds).
+
+  Kept to the few values the native layer genuinely needs — the app's own
+  palette lives in lib/core/theme/canopy_palette.dart and is derived from
+  design/canopy-tokens.json. Anything added here must match that contract.
+-->
+<resources>
+    <!-- Canopy abyss: the ground the app's first painted frame uses. -->
+    <color name="canopy_abyss">#FF051F20</color>
+</resources>

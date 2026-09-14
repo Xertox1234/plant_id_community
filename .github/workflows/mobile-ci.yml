@@ -20,6 +20,9 @@ name: Mobile Fresh Checkout CI
     paths:
       - 'plant_community_mobile/**'
       - '.github/workflows/mobile-ci.yml'
+      - 'web/public/favicon.svg'
+      - 'scripts/check_brand_assets.py'
+      - 'scripts/design/render_brand_assets.mjs'
   pull_request:
     branches: [main, develop]
   workflow_dispatch: {}
@@ -52,6 +55,9 @@ jobs:
             mobile:
               - 'plant_community_mobile/**'
               - '.github/workflows/mobile-ci.yml'
+              - 'web/public/favicon.svg'
+              - 'scripts/check_brand_assets.py'
+              - 'scripts/design/render_brand_assets.mjs'
 
   flutter-fresh-checkout:
     name: Flutter analyze, test, and debug build
@@ -95,6 +101,13 @@ jobs:
 
       - name: Test
         run: flutter test
+
+      # The placeholder app icon shipped in every build through iOS build 11.
+      # `flutter build` only WARNS about it, and a warning nobody must read is
+      # not a check. This fails instead.
+      - name: Verify app icons carry the brand mark
+        working-directory: .
+        run: python3 scripts/check_brand_assets.py
 
       # Second run with real --dart-define values. The per-platform api key
       # resolution in lib/firebase_options.dart is driven by String.fromEnvironment,

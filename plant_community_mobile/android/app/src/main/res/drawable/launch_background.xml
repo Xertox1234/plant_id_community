@@ -1,7 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- Modify this file to customize your launch splash screen -->
 <layer-list xmlns:android="http://schemas.android.com/apk/res/android">
-    <item android:drawable="@android:color/white" />
+    <!-- Canopy abyss, not white: the app's first painted frame is dark, so a
+         white launch window flashed on every cold start. -->
+    <item android:drawable="@color/canopy_abyss" />
 
     <!-- You can insert your own image assets here -->
     <!-- <item>
