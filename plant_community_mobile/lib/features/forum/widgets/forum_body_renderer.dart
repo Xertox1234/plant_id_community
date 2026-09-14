@@ -1,8 +1,10 @@
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../../../core/constants/app_spacing.dart';
+import '../../../core/theme/app_typography.dart';
 import '../models/models.dart';
 import 'author_identity.dart';
 import 'forum_html_text.dart';
@@ -79,11 +81,11 @@ class ForumBodyRenderer extends StatelessWidget {
           onOpenLink: onOpenLink,
         ),
       DeletedImageBlock() => _Placeholder(
-        icon: Icons.broken_image_outlined,
+        icon: LucideIcons.imageOff,
         label: 'Image unavailable',
       ),
       UnknownBlock(:final type) => _Placeholder(
-        icon: Icons.help_outline,
+        icon: LucideIcons.circleHelp,
         label: 'Unsupported content ($type)',
       ),
     };
@@ -207,7 +209,11 @@ class _CollapsedQuoteNotice extends StatelessWidget {
     final muted = theme.colorScheme.onSurfaceVariant;
     return Row(
       children: [
-        Icon(blocked ? Icons.block : Icons.volume_off, size: 16, color: muted),
+        Icon(
+          blocked ? LucideIcons.ban : LucideIcons.volumeX,
+          size: 16,
+          color: muted,
+        ),
         const SizedBox(width: AppSpacing.sm),
         Expanded(
           child: Text(
@@ -326,7 +332,9 @@ class _Code extends StatelessWidget {
             scrollDirection: Axis.horizontal,
             child: Text(
               code,
-              style: const TextStyle(fontFamily: 'monospace', fontSize: 13),
+              // GeistMono, not the platform 'monospace': the app bundles the
+              // design system's mono face and the web sets `font-mono` here.
+              style: AppTypography.bodySm.copyWith(fontFamily: 'GeistMono'),
             ),
           ),
         ],
@@ -355,7 +363,7 @@ class _Image extends StatelessWidget {
             child: Center(child: CircularProgressIndicator()),
           ),
           errorWidget: (context, _, _) => const _Placeholder(
-            icon: Icons.broken_image_outlined,
+            icon: LucideIcons.imageOff,
             label: 'Image unavailable',
           ),
         ),
@@ -388,14 +396,14 @@ class _EmbedCard extends StatelessWidget {
   Widget build(BuildContext context) {
     if (url.isEmpty && title.isEmpty) {
       return const _Placeholder(
-        icon: Icons.videocam_off_outlined,
+        icon: LucideIcons.videoOff,
         label: 'Video unavailable',
       );
     }
     final theme = Theme.of(context);
     final label = title.isNotEmpty ? title : url;
     final fallbackIcon = Icon(
-      Icons.play_circle_outline,
+      LucideIcons.circlePlay,
       size: 32,
       color: theme.colorScheme.onSurfaceVariant,
     );

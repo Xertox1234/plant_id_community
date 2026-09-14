@@ -4,7 +4,6 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:plant_community_mobile/features/camera/camera_screen.dart';
 import 'package:plant_community_mobile/shared/widgets/clay_button.dart';
 import 'package:plant_community_mobile/core/theme/app_theme.dart';
-import 'package:plant_community_mobile/core/theme/app_palettes.dart';
 import 'package:plant_community_mobile/core/theme/green_thumb_extension.dart';
 
 // CameraScreen is a ConsumerStatefulWidget, so it needs a ProviderScope
@@ -12,11 +11,7 @@ import 'package:plant_community_mobile/core/theme/green_thumb_extension.dart';
 // provider at build time, so a plain MaterialApp under ProviderScope is enough.
 Widget _wrap(Widget child) => ProviderScope(
   child: MaterialApp(
-    theme: AppTheme.build(
-      AppPaletteChoice.loam,
-      Brightness.light,
-      AppDensity.cozy,
-    ),
+    theme: AppTheme.build(Brightness.light, AppDensity.cozy),
     home: child,
   ),
 );

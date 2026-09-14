@@ -2,7 +2,10 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:intl/intl.dart';
+import 'package:lucide_icons_flutter/lucide_icons.dart';
 import '../../core/constants/app_spacing.dart';
+import '../../core/theme/app_typography.dart';
+import '../../shared/widgets/canopy_surfaces.dart';
 import '../../core/theme/green_thumb_extension.dart';
 import '../../models/plant.dart';
 
@@ -61,8 +64,8 @@ class ResultsScreen extends StatelessWidget {
     final ext =
         Theme.of(context).extension<GreenThumbExtension>() ??
         GreenThumbExtension.fallback;
-    return Card(
-      clipBehavior: Clip.antiAlias,
+    return CanopyCard(
+      padding: EdgeInsets.zero,
       child: Stack(
         children: [
           // Image
@@ -90,16 +93,15 @@ class ResultsScreen extends StatelessWidget {
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   Icon(
-                    Icons.check_circle,
+                    LucideIcons.circleCheck,
                     size: 16,
                     color: GreenThumbExtension.onLeaf,
                   ),
                   const SizedBox(width: 4),
                   Text(
                     'Identified',
-                    style: TextStyle(
+                    style: AppTypography.meta.copyWith(
                       color: GreenThumbExtension.onLeaf,
-                      fontSize: 12,
                       fontWeight: FontWeight.w600,
                     ),
                   ),
@@ -139,47 +141,45 @@ class ResultsScreen extends StatelessWidget {
   Widget _buildImagePlaceholder(BuildContext context) {
     return Container(
       color: Theme.of(context).colorScheme.surfaceContainerLow,
-      child: const Center(child: Icon(Icons.image_not_supported, size: 64)),
+      child: const Center(child: Icon(LucideIcons.imageOff, size: 64)),
     );
   }
 
   /// Plant information card
   Widget _buildPlantInfo(BuildContext context) {
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(AppSpacing.lg),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // Common Name
-            Text(
-              plant.name,
-              style: Theme.of(
-                context,
-              ).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.bold),
-            ),
-            const SizedBox(height: AppSpacing.xs),
+    return CanopyCard(
+      padding: const EdgeInsets.all(AppSpacing.lg),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Common Name
+          Text(
+            plant.name,
+            style: Theme.of(
+              context,
+            ).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.bold),
+          ),
+          const SizedBox(height: AppSpacing.xs),
 
-            // Scientific Name
-            Text(
-              plant.scientificName,
-              style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                fontStyle: FontStyle.italic,
-                color: Theme.of(context).textTheme.bodySmall?.color,
-              ),
+          // Scientific Name
+          Text(
+            plant.scientificName,
+            style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+              fontStyle: FontStyle.italic,
+              color: Theme.of(context).textTheme.bodySmall?.color,
             ),
-            const SizedBox(height: AppSpacing.md),
+          ),
+          const SizedBox(height: AppSpacing.md),
 
-            // Description
-            Text(
-              plant.description,
-              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                color: Theme.of(context).textTheme.bodySmall?.color,
-                height: 1.5,
-              ),
+          // Description
+          Text(
+            plant.description,
+            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+              color: Theme.of(context).textTheme.bodySmall?.color,
+              height: 1.5,
             ),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }
@@ -189,40 +189,38 @@ class ResultsScreen extends StatelessWidget {
     final ext =
         Theme.of(context).extension<GreenThumbExtension>() ??
         GreenThumbExtension.fallback;
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(AppSpacing.lg),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // Header
-            Row(
-              children: [
-                Icon(Icons.water_drop, size: 20, color: ext.sky),
-                const SizedBox(width: AppSpacing.sm),
-                Text(
-                  'Care Instructions',
-                  style: Theme.of(
-                    context,
-                  ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold),
-                ),
-              ],
-            ),
-            const SizedBox(height: AppSpacing.lg),
+    return CanopyCard(
+      padding: const EdgeInsets.all(AppSpacing.lg),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Header
+          Row(
+            children: [
+              Icon(LucideIcons.droplet, size: 20, color: ext.sky),
+              const SizedBox(width: AppSpacing.sm),
+              Text(
+                'Care Instructions',
+                style: Theme.of(
+                  context,
+                ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold),
+              ),
+            ],
+          ),
+          const SizedBox(height: AppSpacing.lg),
 
-            // Care Items
-            ...plant.care.asMap().entries.map((entry) {
-              final index = entry.key;
-              final instruction = entry.value;
-              return Padding(
-                padding: EdgeInsets.only(
-                  bottom: index < plant.care.length - 1 ? AppSpacing.md : 0,
-                ),
-                child: _buildCareItem(context, instruction, index),
-              );
-            }),
-          ],
-        ),
+          // Care Items
+          ...plant.care.asMap().entries.map((entry) {
+            final index = entry.key;
+            final instruction = entry.value;
+            return Padding(
+              padding: EdgeInsets.only(
+                bottom: index < plant.care.length - 1 ? AppSpacing.md : 0,
+              ),
+              child: _buildCareItem(context, instruction, index),
+            );
+          }),
+        ],
       ),
     );
   }
@@ -235,11 +233,11 @@ class ResultsScreen extends StatelessWidget {
 
     // Icons for different care aspects
     final IconData icon = switch (index % 4) {
-      0 => Icons.water_drop,
-      1 => Icons.wb_sunny,
-      2 => Icons.air,
-      3 => Icons.thermostat,
-      _ => Icons.eco,
+      0 => LucideIcons.droplet,
+      1 => LucideIcons.sun,
+      2 => LucideIcons.wind,
+      3 => LucideIcons.thermometer,
+      _ => LucideIcons.leaf,
     };
 
     return Row(

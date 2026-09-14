@@ -57,8 +57,8 @@ void main() {
         await tester.pumpAndSettle(const Duration(seconds: 3));
 
         // Verify we're on the home screen
-        expect(find.text('Welcome to PlantID'), findsOneWidget);
-        expect(find.textContaining('Your pocket botanist'), findsOneWidget);
+        expect(find.text('Houseplant MD'), findsOneWidget);
+        expect(find.textContaining('Identify plants with AI'), findsOneWidget);
 
         // Step 1: Navigate to camera screen
         final identifyButton = find.text('Get Started');
@@ -117,7 +117,7 @@ void main() {
       await tester.pumpAndSettle();
 
       // Verify we're back on home screen
-      expect(find.text('Welcome to PlantID'), findsOneWidget);
+      expect(find.text('Houseplant MD'), findsOneWidget);
     });
 
     testWidgets('Error handling: Display error when identification fails', (

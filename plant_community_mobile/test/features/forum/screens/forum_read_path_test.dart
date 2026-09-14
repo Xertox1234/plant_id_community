@@ -11,6 +11,7 @@ import 'package:plant_community_mobile/features/forum/services/forum_api.dart';
 import 'package:plant_community_mobile/features/forum/services/forum_sync_store.dart';
 import 'package:plant_community_mobile/services/api_service.dart';
 import 'package:plant_community_mobile/services/auth_service.dart';
+import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../support/forum_test_support.dart';
 
@@ -76,7 +77,7 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(find.byIcon(Icons.notifications_outlined), findsOneWidget);
+    expect(find.byIcon(LucideIcons.bell), findsOneWidget);
     expect(find.text('3'), findsOneWidget);
   });
 
@@ -100,7 +101,7 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      expect(find.byIcon(Icons.mail_outline), findsOneWidget);
+      expect(find.byIcon(LucideIcons.mail), findsOneWidget);
       expect(find.byTooltip('Messages'), findsOneWidget);
       expect(find.text('2'), findsOneWidget);
     },
@@ -124,7 +125,7 @@ void main() {
       await tester.pumpWidget(wrap(loggedIn: true));
       await tester.pumpAndSettle();
       expect(find.byTooltip('Bookmarks'), findsOneWidget);
-      expect(find.byIcon(Icons.bookmark_border), findsOneWidget);
+      expect(find.byIcon(LucideIcons.bookmark), findsOneWidget);
 
       // A fresh ProviderScope — re-pumping the same scope with different
       // overrides keeps the first container (and its signed-in fake).
@@ -152,7 +153,7 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(find.byIcon(Icons.mail_outline), findsNothing);
+    expect(find.byIcon(LucideIcons.mail), findsNothing);
   });
 
   testWidgets('thread screen renders posts with rendered bodies', (
@@ -227,15 +228,15 @@ void main() {
     await tester.pumpAndSettle();
 
     // Starts unsubscribed (the topicDetail() fixture default).
-    expect(find.byIcon(Icons.notifications_none), findsOneWidget);
-    expect(find.byIcon(Icons.notifications_active), findsNothing);
+    expect(find.byIcon(LucideIcons.bell), findsOneWidget);
+    expect(find.byIcon(LucideIcons.bellRing), findsNothing);
 
-    await tester.tap(find.byIcon(Icons.notifications_none));
+    await tester.tap(find.byIcon(LucideIcons.bell));
     await tester.pumpAndSettle();
 
     expect(api.subscribeCalls, [10]);
-    expect(find.byIcon(Icons.notifications_active), findsOneWidget);
-    expect(find.byIcon(Icons.notifications_none), findsNothing);
+    expect(find.byIcon(LucideIcons.bellRing), findsOneWidget);
+    expect(find.byIcon(LucideIcons.bell), findsNothing);
   });
 
   testWidgets('composer shows the notify-and-return moderation notice', (
@@ -593,7 +594,7 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    await tester.tap(find.byIcon(Icons.more_vert));
+    await tester.tap(find.byIcon(LucideIcons.ellipsisVertical));
     await tester.pumpAndSettle();
     await tester.tap(find.text('Delete'));
     await tester.pumpAndSettle();
@@ -633,7 +634,7 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      await tester.tap(find.byIcon(Icons.more_vert));
+      await tester.tap(find.byIcon(LucideIcons.ellipsisVertical));
       await tester.pumpAndSettle();
       await tester.tap(find.text('Delete'));
       await tester.pumpAndSettle();
@@ -669,7 +670,7 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      await tester.tap(find.byIcon(Icons.more_vert));
+      await tester.tap(find.byIcon(LucideIcons.ellipsisVertical));
       await tester.pumpAndSettle();
       await tester.tap(find.text('Delete'));
       await tester.pumpAndSettle();

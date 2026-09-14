@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../../core/routing/app_router.dart';
+import '../../shared/widgets/canopy_notice.dart';
 import '../../core/theme/green_thumb_extension.dart';
 import '../../services/auth_service.dart';
 import 'login_screen.dart'
@@ -96,7 +98,7 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
                       controller: _nameController,
                       decoration: const InputDecoration(
                         labelText: 'Display name',
-                        prefixIcon: Icon(Icons.person_outline),
+                        prefixIcon: Icon(LucideIcons.user),
                       ),
                       textInputAction: TextInputAction.next,
                       autofillHints: const [AutofillHints.name],
@@ -110,7 +112,7 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
                       controller: _emailController,
                       decoration: const InputDecoration(
                         labelText: 'Email',
-                        prefixIcon: Icon(Icons.mail_outline),
+                        prefixIcon: Icon(LucideIcons.mail),
                       ),
                       keyboardType: TextInputType.emailAddress,
                       textInputAction: TextInputAction.next,
@@ -125,12 +127,12 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
                       decoration: InputDecoration(
                         labelText: 'Password',
                         helperText: 'At least 6 characters',
-                        prefixIcon: const Icon(Icons.lock_outline),
+                        prefixIcon: const Icon(LucideIcons.lock),
                         suffixIcon: IconButton(
                           icon: Icon(
                             _obscurePassword
-                                ? Icons.visibility_outlined
-                                : Icons.visibility_off_outlined,
+                                ? LucideIcons.eye
+                                : LucideIcons.eyeOff,
                           ),
                           tooltip: _obscurePassword
                               ? 'Show password'
@@ -151,7 +153,7 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
                       controller: _confirmController,
                       decoration: const InputDecoration(
                         labelText: 'Confirm password',
-                        prefixIcon: Icon(Icons.lock_outline),
+                        prefixIcon: Icon(LucideIcons.lock),
                       ),
                       obscureText: _obscurePassword,
                       textInputAction: TextInputAction.done,
@@ -208,29 +210,6 @@ class _RegisterErrorBanner extends StatelessWidget {
   final String message;
 
   @override
-  Widget build(BuildContext context) {
-    final cs = Theme.of(context).colorScheme;
-    return Container(
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: cs.errorContainer,
-        borderRadius: BorderRadius.circular(8),
-      ),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Icon(Icons.error_outline, size: 20, color: cs.onErrorContainer),
-          const SizedBox(width: 8),
-          Expanded(
-            child: Text(
-              message,
-              style: Theme.of(
-                context,
-              ).textTheme.bodyMedium?.copyWith(color: cs.onErrorContainer),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
+  Widget build(BuildContext context) =>
+      CanopyNotice(message: message, tone: CanopyNoticeTone.error);
 }

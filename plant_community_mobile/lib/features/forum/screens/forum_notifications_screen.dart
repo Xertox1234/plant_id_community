@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../../../core/constants/app_spacing.dart';
+import '../../../shared/widgets/canopy_surfaces.dart';
 import '../forum_format.dart';
 import '../models/models.dart';
 import '../providers/forum_providers.dart';
@@ -135,10 +137,8 @@ class _NotificationTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    return Card(
-      color: notification.isRead
-          ? null
-          : theme.colorScheme.primaryContainer.withValues(alpha: 0.25),
+    return CanopyCard(
+      padding: EdgeInsets.zero,
       child: ListTile(
         onTap: onTap,
         leading: Icon(
@@ -151,7 +151,11 @@ class _NotificationTile extends StatelessWidget {
             : null,
         trailing: notification.isRead
             ? null
-            : Icon(Icons.circle, size: 10, color: theme.colorScheme.primary),
+            : Icon(
+                LucideIcons.circle,
+                size: 10,
+                color: theme.colorScheme.primary,
+              ),
       ),
     );
   }
@@ -192,15 +196,15 @@ String _labelFor(ForumNotification notification) {
 IconData _iconFor(String verb) {
   switch (verb) {
     case 'mention':
-      return Icons.alternate_email;
+      return LucideIcons.atSign;
     case 'quote':
-      return Icons.format_quote_outlined;
+      return LucideIcons.quote;
     case 'solution':
-      return Icons.check_circle_outline;
+      return LucideIcons.circleCheck;
     case 'reply':
-      return Icons.reply;
+      return LucideIcons.reply;
     default:
-      return Icons.notifications_none;
+      return LucideIcons.bell;
   }
 }
 

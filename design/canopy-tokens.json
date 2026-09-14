@@ -1,0 +1,431 @@
+{
+  "$schema": "https://houseplant-md.dev/schemas/canopy-tokens-1.json",
+  "$generator": "scripts/design/extract_canopy_tokens.mjs",
+  "$source": "web/src/index.css",
+  "$doc": "CANONICAL cross-platform design token contract for the Canopy design language. GENERATED — do not hand-edit. Change web/src/index.css and re-run the generator. Every `color-mix(in oklab, ...)` is resolved here because Flutter cannot express an oklab blend; the resolved values were verified byte-for-byte against Chromium via scripts/design/verify_canopy_tokens_in_browser.mjs.",
+  "ramp": {
+    "abyss": "#051F20",
+    "pine": "#0B2B26",
+    "moss": "#163832",
+    "forest": "#235347",
+    "sage": "#8EB69B",
+    "mint": "#DAF1DE",
+    "pollen": "#E7B75F",
+    "bloom": "#E88E76",
+    "orchid": "#B7A5E0",
+    "red": "#DE6B5A"
+  },
+  "modes": {
+    "dark": {
+      "colors": {
+        "ground": {
+          "css": "var(--canopy-abyss)",
+          "hex": "#051F20",
+          "rgba": "rgb(5, 31, 32)",
+          "dart": "0xFF051F20"
+        },
+        "surface": {
+          "css": "var(--canopy-pine)",
+          "hex": "#0B2B26",
+          "rgba": "rgb(11, 43, 38)",
+          "dart": "0xFF0B2B26"
+        },
+        "surface-2": {
+          "css": "var(--canopy-moss)",
+          "hex": "#163832",
+          "rgba": "rgb(22, 56, 50)",
+          "dart": "0xFF163832"
+        },
+        "surface-3": {
+          "css": "color-mix(in oklab, var(--canopy-moss) 55%, var(--canopy-forest))",
+          "hex": "#1C443B",
+          "rgba": "rgb(28, 68, 59)",
+          "dart": "0xFF1C443B"
+        },
+        "ink": {
+          "css": "var(--canopy-mint)",
+          "hex": "#DAF1DE",
+          "rgba": "rgb(218, 241, 222)",
+          "dart": "0xFFDAF1DE"
+        },
+        "ink-2": {
+          "css": "color-mix(in oklab, var(--canopy-sage) 85%, var(--canopy-mint))",
+          "hex": "#99BFA5",
+          "rgba": "rgb(153, 191, 165)",
+          "dart": "0xFF99BFA5"
+        },
+        "ink-3": {
+          "css": "color-mix(in oklab, var(--canopy-sage) 65%, var(--canopy-forest))",
+          "hex": "#68927C",
+          "rgba": "rgb(104, 146, 124)",
+          "dart": "0xFF68927C"
+        },
+        "primary": {
+          "css": "var(--canopy-mint)",
+          "hex": "#DAF1DE",
+          "rgba": "rgb(218, 241, 222)",
+          "dart": "0xFFDAF1DE"
+        },
+        "on-primary": {
+          "css": "var(--canopy-abyss)",
+          "hex": "#051F20",
+          "rgba": "rgb(5, 31, 32)",
+          "dart": "0xFF051F20"
+        },
+        "secondary": {
+          "css": "var(--canopy-sage)",
+          "hex": "#8EB69B",
+          "rgba": "rgb(142, 182, 155)",
+          "dart": "0xFF8EB69B"
+        },
+        "tertiary": {
+          "css": "var(--canopy-pollen)",
+          "hex": "#E7B75F",
+          "rgba": "rgb(231, 183, 95)",
+          "dart": "0xFFE7B75F"
+        },
+        "clay": {
+          "css": "var(--canopy-pollen)",
+          "hex": "#E7B75F",
+          "rgba": "rgb(231, 183, 95)",
+          "dart": "0xFFE7B75F"
+        },
+        "on-clay": {
+          "css": "var(--canopy-abyss)",
+          "hex": "#051F20",
+          "rgba": "rgb(5, 31, 32)",
+          "dart": "0xFF051F20"
+        },
+        "leaf": {
+          "css": "var(--canopy-sage)",
+          "hex": "#8EB69B",
+          "rgba": "rgb(142, 182, 155)",
+          "dart": "0xFF8EB69B"
+        },
+        "berry": {
+          "css": "var(--canopy-bloom)",
+          "hex": "#E88E76",
+          "rgba": "rgb(232, 142, 118)",
+          "dart": "0xFFE88E76"
+        },
+        "sky": {
+          "css": "var(--canopy-orchid)",
+          "hex": "#B7A5E0",
+          "rgba": "rgb(183, 165, 224)",
+          "dart": "0xFFB7A5E0"
+        },
+        "ok": {
+          "css": "var(--canopy-sage)",
+          "hex": "#8EB69B",
+          "rgba": "rgb(142, 182, 155)",
+          "dart": "0xFF8EB69B"
+        },
+        "warn": {
+          "css": "var(--canopy-pollen)",
+          "hex": "#E7B75F",
+          "rgba": "rgb(231, 183, 95)",
+          "dart": "0xFFE7B75F"
+        },
+        "error": {
+          "css": "var(--canopy-red)",
+          "hex": "#DE6B5A",
+          "rgba": "rgb(222, 107, 90)",
+          "dart": "0xFFDE6B5A"
+        },
+        "on-error": {
+          "css": "var(--canopy-abyss)",
+          "hex": "#051F20",
+          "rgba": "rgb(5, 31, 32)",
+          "dart": "0xFF051F20"
+        },
+        "line": {
+          "css": "color-mix(in oklab, var(--canopy-forest) 45%, transparent)",
+          "hex": "#23534773",
+          "rgba": "rgba(35, 83, 71, 0.45)",
+          "dart": "0x73235347"
+        },
+        "line-2": {
+          "css": "color-mix(in oklab, var(--canopy-forest) 75%, transparent)",
+          "hex": "#235347BF",
+          "rgba": "rgba(35, 83, 71, 0.75)",
+          "dart": "0xBF235347"
+        }
+      },
+      "gradients": {
+        "grad-card": "linear-gradient( 150deg, rgb(24, 59, 52) 0%, rgb(22, 56, 50) 46%, rgb(20, 53, 48) 100% )",
+        "grad-sweep": "radial-gradient( 120% 90% at 12% -10%, rgba(218, 241, 222, 0.09) 0%, transparent 55% )",
+        "grad-cta": "linear-gradient( 135deg, rgb(218, 241, 222) 0%, rgb(164, 199, 175) 100% )",
+        "grad-ambient": "radial-gradient( 90rem 60rem at 18% -12%, rgba(142, 182, 155, 0.16) 0%, transparent 60% ), radial-gradient( 70rem 50rem at 105% 42%, rgba(35, 83, 71, 0.34) 0%, transparent 62% )"
+      },
+      "tiles": {
+        "tile-sage": "linear-gradient(135deg, rgb(218, 241, 222), rgb(142, 182, 155))",
+        "tile-pollen": "linear-gradient(135deg, #f2d28f, rgb(231, 183, 95))",
+        "tile-bloom": "linear-gradient(135deg, #f5b3a0, rgb(232, 142, 118))",
+        "tile-orchid": "linear-gradient(135deg, #d3c7ee, rgb(183, 165, 224))"
+      },
+      "shadows": {
+        "shadow-1": "0 1px 0 rgba(0, 0, 0, 0.1), 0 2px 6px rgba(0, 0, 0, 0.18)",
+        "shadow-2": "0 2px 0 rgba(0, 0, 0, 0.12), 0 8px 22px rgba(0, 0, 0, 0.26)",
+        "shadow-3": "0 4px 0 rgba(0, 0, 0, 0.14), 0 18px 40px rgba(0, 0, 0, 0.38)"
+      }
+    },
+    "light": {
+      "colors": {
+        "ground": {
+          "css": "#cde9d4",
+          "hex": "#CDE9D4",
+          "rgba": "rgb(205, 233, 212)",
+          "dart": "0xFFCDE9D4"
+        },
+        "surface": {
+          "css": "var(--canopy-mint)",
+          "hex": "#DAF1DE",
+          "rgba": "rgb(218, 241, 222)",
+          "dart": "0xFFDAF1DE"
+        },
+        "surface-2": {
+          "css": "#f2faf4",
+          "hex": "#F2FAF4",
+          "rgba": "rgb(242, 250, 244)",
+          "dart": "0xFFF2FAF4"
+        },
+        "surface-3": {
+          "css": "#e9f5ec",
+          "hex": "#E9F5EC",
+          "rgba": "rgb(233, 245, 236)",
+          "dart": "0xFFE9F5EC"
+        },
+        "ink": {
+          "css": "var(--canopy-pine)",
+          "hex": "#0B2B26",
+          "rgba": "rgb(11, 43, 38)",
+          "dart": "0xFF0B2B26"
+        },
+        "ink-2": {
+          "css": "#35594b",
+          "hex": "#35594B",
+          "rgba": "rgb(53, 89, 75)",
+          "dart": "0xFF35594B"
+        },
+        "ink-3": {
+          "css": "#5e8271",
+          "hex": "#5E8271",
+          "rgba": "rgb(94, 130, 113)",
+          "dart": "0xFF5E8271"
+        },
+        "primary": {
+          "css": "var(--canopy-forest)",
+          "hex": "#235347",
+          "rgba": "rgb(35, 83, 71)",
+          "dart": "0xFF235347"
+        },
+        "on-primary": {
+          "css": "var(--canopy-mint)",
+          "hex": "#DAF1DE",
+          "rgba": "rgb(218, 241, 222)",
+          "dart": "0xFFDAF1DE"
+        },
+        "secondary": {
+          "css": "color-mix(in oklab, var(--canopy-forest) 60%, var(--canopy-sage))",
+          "hex": "#4D7967",
+          "rgba": "rgb(77, 121, 103)",
+          "dart": "0xFF4D7967"
+        },
+        "tertiary": {
+          "css": "#8a6011",
+          "hex": "#8A6011",
+          "rgba": "rgb(138, 96, 17)",
+          "dart": "0xFF8A6011"
+        },
+        "clay": {
+          "css": "#8a6011",
+          "hex": "#8A6011",
+          "rgba": "rgb(138, 96, 17)",
+          "dart": "0xFF8A6011"
+        },
+        "on-clay": {
+          "css": "#f2faf4",
+          "hex": "#F2FAF4",
+          "rgba": "rgb(242, 250, 244)",
+          "dart": "0xFFF2FAF4"
+        },
+        "leaf": {
+          "css": "#3c6b50",
+          "hex": "#3C6B50",
+          "rgba": "rgb(60, 107, 80)",
+          "dart": "0xFF3C6B50"
+        },
+        "berry": {
+          "css": "#b0503a",
+          "hex": "#B0503A",
+          "rgba": "rgb(176, 80, 58)",
+          "dart": "0xFFB0503A"
+        },
+        "sky": {
+          "css": "#6b4fa0",
+          "hex": "#6B4FA0",
+          "rgba": "rgb(107, 79, 160)",
+          "dart": "0xFF6B4FA0"
+        },
+        "ok": {
+          "css": "#2f6b46",
+          "hex": "#2F6B46",
+          "rgba": "rgb(47, 107, 70)",
+          "dart": "0xFF2F6B46"
+        },
+        "warn": {
+          "css": "#8a6011",
+          "hex": "#8A6011",
+          "rgba": "rgb(138, 96, 17)",
+          "dart": "0xFF8A6011"
+        },
+        "error": {
+          "css": "#a63c2a",
+          "hex": "#A63C2A",
+          "rgba": "rgb(166, 60, 42)",
+          "dart": "0xFFA63C2A"
+        },
+        "on-error": {
+          "css": "#f2faf4",
+          "hex": "#F2FAF4",
+          "rgba": "rgb(242, 250, 244)",
+          "dart": "0xFFF2FAF4"
+        },
+        "line": {
+          "css": "color-mix(in oklab, var(--canopy-sage) 38%, transparent)",
+          "hex": "#8EB69B61",
+          "rgba": "rgba(142, 182, 155, 0.38)",
+          "dart": "0x618EB69B"
+        },
+        "line-2": {
+          "css": "color-mix(in oklab, var(--canopy-sage) 62%, transparent)",
+          "hex": "#8EB69B9E",
+          "rgba": "rgba(142, 182, 155, 0.62)",
+          "dart": "0x9E8EB69B"
+        }
+      },
+      "gradients": {
+        "grad-card": "linear-gradient(150deg, #fdfffd 0%, #f2faf4 55%, #e9f5ec 100%)",
+        "grad-sweep": "radial-gradient( 120% 90% at 12% -10%, rgba(255, 255, 255, 0.85) 0%, transparent 55% )",
+        "grad-cta": "linear-gradient(135deg, rgb(22, 56, 50), rgb(35, 83, 71))",
+        "grad-ambient": "radial-gradient( 70rem 40rem at 15% -20%, rgba(255, 255, 255, 0.75) 0%, transparent 60% )"
+      },
+      "tiles": {
+        "tile-sage": "linear-gradient(135deg, rgb(218, 241, 222), rgb(142, 182, 155))",
+        "tile-pollen": "linear-gradient(135deg, #f2d28f, rgb(231, 183, 95))",
+        "tile-bloom": "linear-gradient(135deg, #f5b3a0, rgb(232, 142, 118))",
+        "tile-orchid": "linear-gradient(135deg, #d3c7ee, rgb(183, 165, 224))"
+      },
+      "shadows": {
+        "shadow-1": "0 1px 0 rgba(11, 43, 38, 0.05), 0 2px 6px rgba(11, 43, 38, 0.08)",
+        "shadow-2": "0 2px 0 rgba(11, 43, 38, 0.06), 0 8px 22px rgba(11, 43, 38, 0.12)",
+        "shadow-3": "0 4px 0 rgba(11, 43, 38, 0.07), 0 18px 40px rgba(11, 43, 38, 0.18)"
+      }
+    }
+  },
+  "defaults": {
+    "mode": "dark",
+    "density": "cozy"
+  },
+  "density": {
+    "cozy": {
+      "padCard": "16px",
+      "padScreen": "16px",
+      "gap": "12px"
+    },
+    "comfortable": {
+      "padCard": "18px",
+      "padScreen": "18px",
+      "gap": "14px"
+    },
+    "compact": {
+      "padCard": "12px",
+      "padScreen": "14px",
+      "gap": "10px"
+    }
+  },
+  "radius": {
+    "xs": "6px",
+    "sm": "10px",
+    "md": "16px",
+    "lg": "22px",
+    "xl": "28px",
+    "pill": "999px"
+  },
+  "text": {
+    "micro": {
+      "size": "11px",
+      "lineHeight": "1.35"
+    },
+    "meta": {
+      "size": "12.5px",
+      "lineHeight": "1.4"
+    },
+    "body-sm": {
+      "size": "13px",
+      "lineHeight": "1.45"
+    },
+    "body": {
+      "size": "14px",
+      "lineHeight": "1.5"
+    },
+    "body-lg": {
+      "size": "15px",
+      "lineHeight": "1.5"
+    },
+    "lead": {
+      "size": "17px",
+      "lineHeight": "1.4"
+    },
+    "hero": {
+      "size": "38px",
+      "lineHeight": "1.1"
+    }
+  },
+  "display": {
+    "display": {
+      "fontFamily": "display",
+      "fontWeight": 600,
+      "fontSize": "2rem",
+      "lineHeight": 1.02,
+      "letterSpacing": "-0.02em",
+      "fontStyle": "normal"
+    },
+    "h1": {
+      "fontFamily": "display",
+      "fontWeight": 600,
+      "fontSize": "1.75rem",
+      "lineHeight": 1.1,
+      "letterSpacing": "-0.02em",
+      "fontStyle": "normal"
+    },
+    "h2": {
+      "fontFamily": "display",
+      "fontWeight": 600,
+      "fontSize": "1.375rem",
+      "lineHeight": 1.15,
+      "letterSpacing": "-0.02em",
+      "fontStyle": "normal"
+    },
+    "h3": {
+      "fontFamily": "display",
+      "fontWeight": 600,
+      "fontSize": "1.125rem",
+      "lineHeight": 1.2,
+      "letterSpacing": "-0.02em",
+      "fontStyle": "normal"
+    }
+  },
+  "label": {
+    "fontFamily": "mono",
+    "fontSize": "0.6875rem",
+    "letterSpacing": "0.08em",
+    "textTransform": "uppercase",
+    "color": "ink-3"
+  },
+  "fonts": {
+    "display": "'Bricolage Grotesque', Georgia, serif",
+    "sans": "'Geist', system-ui, sans-serif",
+    "mono": "'Geist Mono', ui-monospace, monospace"
+  }
+}

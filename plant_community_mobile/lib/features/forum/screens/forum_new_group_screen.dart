@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:uuid/uuid.dart';
+import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../../../core/constants/app_spacing.dart';
 import '../../../services/user_profile_service.dart';
@@ -239,7 +240,7 @@ class _ForumNewGroupScreenState extends ConsumerState<ForumNewGroupScreen> {
                   onPressed: _atCapacity || _submitting
                       ? null
                       : () => _addMember(_memberController.text),
-                  icon: const Icon(Icons.add),
+                  icon: const Icon(LucideIcons.plus),
                 ),
               ),
             ),
@@ -256,7 +257,7 @@ class _ForumNewGroupScreenState extends ConsumerState<ForumNewGroupScreen> {
                         ListTile(
                           dense: true,
                           minTileHeight: 48,
-                          leading: const Icon(Icons.alternate_email, size: 18),
+                          leading: const Icon(LucideIcons.atSign, size: 18),
                           title: Text('@${user.username}'),
                           subtitle: user.displayName != user.username
                               ? Text(user.displayName)
@@ -292,7 +293,7 @@ class _ForumNewGroupScreenState extends ConsumerState<ForumNewGroupScreen> {
                         height: 18,
                         child: CircularProgressIndicator(strokeWidth: 2),
                       )
-                    : const Icon(Icons.group_add),
+                    : const Icon(LucideIcons.userPlus),
                 label: const Text('Create group'),
               ),
             ),

@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../../core/constants/app_spacing.dart';
+import '../../shared/widgets/canopy_surfaces.dart';
 import '../../services/auth_service.dart';
 import 'models/models.dart';
 import 'providers/forum_providers.dart';
@@ -30,13 +32,13 @@ class ForumScreen extends ConsumerWidget {
           IconButton(
             tooltip: 'Search',
             onPressed: () => context.pushNamed('forumSearch'),
-            icon: const Icon(Icons.search),
+            icon: const Icon(LucideIcons.search),
           ),
           if (isAuthenticated) ...[
             IconButton(
               tooltip: 'Bookmarks',
               onPressed: () => context.pushNamed('forumBookmarks'),
-              icon: const Icon(Icons.bookmark_border),
+              icon: const Icon(LucideIcons.bookmark),
             ),
             const _MessagesInboxButton(),
             const _NotificationsBellButton(),
@@ -191,7 +193,7 @@ class _MessagesInboxButton extends ConsumerWidget {
       icon: Badge(
         isLabelVisible: unread > 0,
         label: Text('$unread'),
-        child: const Icon(Icons.mail_outline),
+        child: const Icon(LucideIcons.mail),
       ),
     );
   }
@@ -211,7 +213,7 @@ class _NotificationsBellButton extends ConsumerWidget {
       icon: Badge(
         isLabelVisible: unread > 0,
         label: Text('$unread'),
-        child: const Icon(Icons.notifications_outlined),
+        child: const Icon(LucideIcons.bell),
       ),
     );
   }
@@ -243,7 +245,8 @@ class _BoardTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    return Card(
+    return CanopyCard(
+      padding: EdgeInsets.zero,
       child: ListTile(
         onTap: onTap,
         title: Text(
@@ -277,11 +280,12 @@ class _RecentTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Card(
+    return CanopyCard(
+      padding: EdgeInsets.zero,
       child: ListTile(
         dense: true,
         onTap: onTap,
-        leading: const Icon(Icons.forum_outlined),
+        leading: const Icon(LucideIcons.messagesSquare),
         title: Text(stub.title, maxLines: 1, overflow: TextOverflow.ellipsis),
       ),
     );

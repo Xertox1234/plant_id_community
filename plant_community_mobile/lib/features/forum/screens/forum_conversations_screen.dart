@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../../../core/constants/app_spacing.dart';
+import '../../../shared/widgets/canopy_surfaces.dart';
 import '../forum_format.dart';
 import '../models/models.dart';
 import '../providers/forum_providers.dart';
@@ -26,7 +28,7 @@ class ForumConversationsScreen extends ConsumerWidget {
         actions: [
           IconButton(
             tooltip: 'New group',
-            icon: const Icon(Icons.group_add_outlined),
+            icon: const Icon(LucideIcons.userPlus),
             onPressed: () => context.pushNamed('forumNewGroup'),
           ),
         ],
@@ -156,10 +158,8 @@ class _ConversationTile extends StatelessWidget {
     // preview in the quieter onSurfaceVariant.
     final emphasis = unread ? FontWeight.w700 : null;
 
-    return Card(
-      color: unread
-          ? theme.colorScheme.primaryContainer.withValues(alpha: 0.25)
-          : null,
+    return CanopyCard(
+      padding: EdgeInsets.zero,
       child: ListTile(
         onTap: onTap,
         leading: isGroup

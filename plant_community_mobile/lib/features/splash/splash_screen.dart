@@ -3,7 +3,11 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import '../../core/constants/app_spacing.dart';
 import '../../core/routing/app_router.dart';
-import '../../core/theme/grain_overlay.dart';
+import '../../core/constants/app_brand.dart';
+import '../../core/theme/app_typography.dart';
+import '../../shared/widgets/brand_mark.dart';
+import '../../shared/widgets/canopy_label.dart';
+import '../../shared/widgets/canopy_surfaces.dart';
 import '../../core/theme/green_thumb_extension.dart';
 
 class SplashScreen extends StatefulWidget {
@@ -15,7 +19,6 @@ class SplashScreen extends StatefulWidget {
 
 class _SplashScreenState extends State<SplashScreen>
     with TickerProviderStateMixin {
-  late AnimationController _rotationController;
   late AnimationController _scaleController;
   late AnimationController _fadeController;
   late Timer _progressTimer;
@@ -24,11 +27,6 @@ class _SplashScreenState extends State<SplashScreen>
   @override
   void initState() {
     super.initState();
-
-    _rotationController = AnimationController(
-      duration: const Duration(seconds: 2),
-      vsync: this,
-    )..repeat();
 
     _scaleController = AnimationController(
       duration: const Duration(milliseconds: 500),
@@ -63,7 +61,6 @@ class _SplashScreenState extends State<SplashScreen>
 
   @override
   void dispose() {
-    _rotationController.dispose();
     _scaleController.dispose();
     _fadeController.dispose();
     _progressTimer.cancel();
@@ -79,7 +76,7 @@ class _SplashScreenState extends State<SplashScreen>
 
     return Scaffold(
       backgroundColor: cs.surface,
-      body: GrainOverlay(
+      body: CanopyGround(
         child: Center(
           child: ScaleTransition(
             scale: CurvedAnimation(
@@ -89,20 +86,9 @@ class _SplashScreenState extends State<SplashScreen>
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                // Rotating logo
-                RotationTransition(
-                  turns: _rotationController,
-                  child: Container(
-                    width: 96,
-                    height: 96,
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      color: cs.primary,
-                      boxShadow: ext.shadow2,
-                    ),
-                    child: const Icon(Icons.eco, size: 48, color: Colors.white),
-                  ),
-                ),
+                // The product mark. Not rotating: the mark is an identity,
+                // and the entrance already has scale + fade.
+                const BrandMark(size: 96),
                 SizedBox(height: ext.gapY * 2),
 
                 // App name + tagline
@@ -122,19 +108,13 @@ class _SplashScreenState extends State<SplashScreen>
                     child: Column(
                       children: [
                         Text(
-                          'PlantID',
-                          style: Theme.of(context).textTheme.displayLarge
-                              ?.copyWith(fontSize: 48, color: cs.onSurface),
+                          AppBrand.name,
+                          style: AppTypography.display.copyWith(
+                            color: cs.onSurface,
+                          ),
                         ),
                         SizedBox(height: ext.gapY),
-                        Text(
-                          "DISCOVER NATURE'S SECRETS",
-                          style: Theme.of(context).textTheme.labelSmall
-                              ?.copyWith(
-                                letterSpacing: 0.06 * 11,
-                                color: ext.ink3,
-                              ),
-                        ),
+                        const CanopyLabel(AppBrand.tagline),
                       ],
                     ),
                   ),

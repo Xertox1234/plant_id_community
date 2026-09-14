@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../../../core/constants/app_spacing.dart';
+import '../../../shared/widgets/canopy_surfaces.dart';
 import '../models/models.dart';
 
 /// A topic's poll (audit M8; todo 341 wave 3): the question, the ballot,
@@ -83,83 +85,81 @@ class _PollCardState extends State<PollCard> {
     return Semantics(
       container: true,
       label: 'Poll: ${poll.question}',
-      child: Card(
-        child: Padding(
-          padding: const EdgeInsets.all(AppSpacing.md),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Icon(
-                    Icons.poll_outlined,
-                    size: 20,
-                    color: theme.colorScheme.secondary,
-                  ),
-                  const SizedBox(width: AppSpacing.sm),
-                  Expanded(
-                    child: Text(
-                      poll.question,
-                      style: theme.textTheme.titleMedium?.copyWith(
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                  ),
-                  if (poll.isClosed) ...[
-                    const SizedBox(width: AppSpacing.sm),
-                    const _ClosedChip(),
-                  ],
-                ],
-              ),
-              if (poll.isMultiChoice && !_showResults)
-                Padding(
-                  padding: const EdgeInsets.only(top: AppSpacing.xs),
+      child: CanopyCard(
+        padding: const EdgeInsets.all(AppSpacing.md),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Icon(
+                  LucideIcons.chartColumn,
+                  size: 20,
+                  color: theme.colorScheme.secondary,
+                ),
+                const SizedBox(width: AppSpacing.sm),
+                Expanded(
                   child: Text(
-                    'Pick up to ${poll.maxChoices}.',
-                    style: theme.textTheme.bodySmall?.copyWith(
-                      color: theme.colorScheme.onSurfaceVariant,
+                    poll.question,
+                    style: theme.textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.w700,
                     ),
                   ),
                 ),
-              const SizedBox(height: AppSpacing.sm),
-              for (final option in poll.options) ...[
-                if (_showResults)
-                  _ResultRow(
-                    option: option,
-                    percent: poll.percentFor(option),
-                    isMine: poll.myVoteOptionIds.contains(option.id),
-                  )
-                else if (poll.isMultiChoice)
-                  _ballotCheckbox(option)
-                else
-                  _ballotButton(option),
-                const SizedBox(height: AppSpacing.xs),
+                if (poll.isClosed) ...[
+                  const SizedBox(width: AppSpacing.sm),
+                  const _ClosedChip(),
+                ],
               ],
-              if (poll.isMultiChoice && !_showResults)
-                Padding(
-                  padding: const EdgeInsets.only(top: AppSpacing.xs),
-                  child: FilledButton(
-                    onPressed: _votingDisabled || _selected.isEmpty
-                        ? null
-                        : () => widget.onVote?.call(List.of(_selected)),
-                    style: FilledButton.styleFrom(
-                      minimumSize: const Size(48, 48),
-                    ),
-                    child: poll.isVoting
-                        ? const _ButtonSpinner()
-                        : const Text('Vote'),
+            ),
+            if (poll.isMultiChoice && !_showResults)
+              Padding(
+                padding: const EdgeInsets.only(top: AppSpacing.xs),
+                child: Text(
+                  'Pick up to ${poll.maxChoices}.',
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: theme.colorScheme.onSurfaceVariant,
                   ),
-                ),
-              const SizedBox(height: AppSpacing.xs),
-              Text(
-                footer,
-                style: theme.textTheme.bodySmall?.copyWith(
-                  color: theme.colorScheme.onSurfaceVariant,
                 ),
               ),
+            const SizedBox(height: AppSpacing.sm),
+            for (final option in poll.options) ...[
+              if (_showResults)
+                _ResultRow(
+                  option: option,
+                  percent: poll.percentFor(option),
+                  isMine: poll.myVoteOptionIds.contains(option.id),
+                )
+              else if (poll.isMultiChoice)
+                _ballotCheckbox(option)
+              else
+                _ballotButton(option),
+              const SizedBox(height: AppSpacing.xs),
             ],
-          ),
+            if (poll.isMultiChoice && !_showResults)
+              Padding(
+                padding: const EdgeInsets.only(top: AppSpacing.xs),
+                child: FilledButton(
+                  onPressed: _votingDisabled || _selected.isEmpty
+                      ? null
+                      : () => widget.onVote?.call(List.of(_selected)),
+                  style: FilledButton.styleFrom(
+                    minimumSize: const Size(48, 48),
+                  ),
+                  child: poll.isVoting
+                      ? const _ButtonSpinner()
+                      : const Text('Vote'),
+                ),
+              ),
+            const SizedBox(height: AppSpacing.xs),
+            Text(
+              footer,
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
+            ),
+          ],
         ),
       ),
     );
@@ -238,7 +238,11 @@ class _ResultRow extends StatelessWidget {
                 ),
               ),
               if (isMine) ...[
-                Icon(Icons.check, size: 14, color: theme.colorScheme.primary),
+                Icon(
+                  LucideIcons.check,
+                  size: 14,
+                  color: theme.colorScheme.primary,
+                ),
                 const SizedBox(width: 2),
                 Text(
                   'your vote',

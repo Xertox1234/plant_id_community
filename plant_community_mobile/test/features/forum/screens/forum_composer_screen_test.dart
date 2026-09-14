@@ -16,6 +16,7 @@ import 'package:plant_community_mobile/features/forum/services/forum_api.dart';
 import 'package:plant_community_mobile/features/forum/services/forum_image_picker.dart';
 import 'package:plant_community_mobile/features/forum/widgets/forum_body_renderer.dart';
 import 'package:plant_community_mobile/services/auth_service.dart';
+import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../support/forum_test_support.dart';
 
@@ -294,7 +295,7 @@ void main() {
       // programmatically, exactly as every toolbar button does.
       await tester.tap(find.byType(TextField));
       await tester.pump();
-      await tester.tap(find.byIcon(Icons.format_list_bulleted));
+      await tester.tap(find.byIcon(LucideIcons.list));
       await tester.pump();
 
       final field = tester.widget<TextField>(find.byType(TextField));
@@ -318,7 +319,7 @@ void main() {
         await tester.tap(find.byType(TextField));
         await tester.pump();
 
-        await tester.tap(find.byIcon(Icons.link));
+        await tester.tap(find.byIcon(LucideIcons.link));
         await tester.pumpAndSettle();
 
         await tester.enterText(

@@ -1,5 +1,7 @@
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
+import '../../../core/theme/green_thumb_extension.dart';
+import '../../../core/theme/app_typography.dart';
 
 import '../../../core/constants/app_spacing.dart';
 import '../models/models.dart';
@@ -101,13 +103,15 @@ class AuthorAvatar extends StatelessWidget {
     final initial = author.name.isNotEmpty
         ? author.name.characters.first.toUpperCase()
         : '?';
+    final ext = context.canopy;
     return CircleAvatar(
       radius: radius,
-      backgroundColor: theme.colorScheme.primaryContainer,
+      backgroundColor: ext.surface3,
       child: Text(
         initial,
-        style: TextStyle(
-          color: theme.colorScheme.onPrimaryContainer,
+        style: AppTypography.label.copyWith(
+          letterSpacing: 0,
+          color: theme.colorScheme.onSurface,
           fontWeight: FontWeight.w600,
         ),
       ),

@@ -40,38 +40,44 @@ void main() {
 
     tearDown(() => container.dispose());
 
-    test('a saved plant is immediately readable from the local store', () async {
-      final plant = Plant(
-        id: 'offline-1',
-        name: 'Monstera Deliciosa',
-        scientificName: 'Monstera deliciosa',
-        description: 'Swiss Cheese Plant',
-        care: const ['Water weekly', 'Bright indirect light'],
-        imageUrl: 'https://example.com/monstera.jpg',
-        timestamp: DateTime.parse('2026-01-01T00:00:00Z'),
-      );
+    test(
+      'a saved plant is immediately readable from the local store',
+      () async {
+        final plant = Plant(
+          id: 'offline-1',
+          name: 'Monstera Deliciosa',
+          scientificName: 'Monstera deliciosa',
+          description: 'Swiss Cheese Plant',
+          care: const ['Water weekly', 'Bright indirect light'],
+          imageUrl: 'https://example.com/monstera.jpg',
+          timestamp: DateTime.parse('2026-01-01T00:00:00Z'),
+        );
 
-      await firestore.savePlant(userId, plant);
+        await firestore.savePlant(userId, plant);
 
-      final snapshot = await firestore.getPlantsStream(userId).first;
-      expect(snapshot.plants, hasLength(1));
-      expect(snapshot.plants.first.id, 'offline-1');
-      expect(snapshot.plants.first.name, 'Monstera Deliciosa');
-    });
+        final snapshot = await firestore.getPlantsStream(userId).first;
+        expect(snapshot.plants, hasLength(1));
+        expect(snapshot.plants.first.id, 'offline-1');
+        expect(snapshot.plants.first.name, 'Monstera Deliciosa');
+      },
+    );
 
-    test('multiple plants saved while offline all read back, newest first', () async {
-      await firestore.savePlant(
-        userId,
-        _plant('1', DateTime.parse('2026-01-01T00:00:00Z')),
-      );
-      await firestore.savePlant(
-        userId,
-        _plant('2', DateTime.parse('2026-02-01T00:00:00Z')),
-      );
+    test(
+      'multiple plants saved while offline all read back, newest first',
+      () async {
+        await firestore.savePlant(
+          userId,
+          _plant('1', DateTime.parse('2026-01-01T00:00:00Z')),
+        );
+        await firestore.savePlant(
+          userId,
+          _plant('2', DateTime.parse('2026-02-01T00:00:00Z')),
+        );
 
-      final snapshot = await firestore.getPlantsStream(userId).first;
-      expect(snapshot.plants.map((p) => p.id).toList(), ['2', '1']);
-    });
+        final snapshot = await firestore.getPlantsStream(userId).first;
+        expect(snapshot.plants.map((p) => p.id).toList(), ['2', '1']);
+      },
+    );
 
     test('data persisted before reconnect is still present afterward', () async {
       // Stand-in for the offline→online transition: the write lands in the local
@@ -113,7 +119,9 @@ void main() {
   group('API offline/online behavior (mocked ApiService)', () {
     test('offline API calls throw ApiException', () async {
       final container = ProviderContainer(
-        overrides: [apiServiceProvider.overrideWith((ref) => OfflineApiService())],
+        overrides: [
+          apiServiceProvider.overrideWith((ref) => OfflineApiService()),
+        ],
       );
       addTearDown(container.dispose);
       final api = container.read(apiServiceProvider);
@@ -130,7 +138,9 @@ void main() {
 
     test('online API upload returns identification data', () async {
       final container = ProviderContainer(
-        overrides: [apiServiceProvider.overrideWith((ref) => OnlineApiService())],
+        overrides: [
+          apiServiceProvider.overrideWith((ref) => OnlineApiService()),
+        ],
       );
       addTearDown(container.dispose);
       final api = container.read(apiServiceProvider);

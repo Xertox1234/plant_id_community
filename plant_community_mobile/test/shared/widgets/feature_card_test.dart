@@ -1,135 +1,127 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:plant_community_mobile/shared/widgets/feature_card.dart';
+import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:plant_community_mobile/core/theme/app_theme.dart';
-import 'package:plant_community_mobile/core/theme/app_palettes.dart';
+import 'package:plant_community_mobile/core/theme/canopy_palette.dart';
 import 'package:plant_community_mobile/core/theme/green_thumb_extension.dart';
+import 'package:plant_community_mobile/shared/widgets/canopy_surfaces.dart';
+import 'package:plant_community_mobile/shared/widgets/feature_card.dart';
 
 Widget _wrap(Widget child) => MaterialApp(
-  theme: AppTheme.build(
-    AppPaletteChoice.loam,
-    Brightness.light,
-    AppDensity.cozy,
-  ),
+  theme: AppTheme.build(Brightness.dark, AppDensity.cozy),
   home: Scaffold(body: child),
 );
 
-GreenThumbExtension get _ext => AppTheme.build(
-  AppPaletteChoice.loam,
-  Brightness.light,
-  AppDensity.cozy,
-).extension<GreenThumbExtension>()!;
-
 void main() {
-  testWidgets('renders title and description', (tester) async {
+  testWidgets('renders title, description and icon', (tester) async {
     await tester.pumpWidget(
       _wrap(
         const FeatureCard(
-          icon: Icons.book,
-          title: 'Care Guide',
+          icon: LucideIcons.bookOpen,
+          title: 'Care guide',
           description: 'Learn plant care tips',
         ),
       ),
     );
-    expect(find.text('Care Guide'), findsOneWidget);
+    expect(find.text('Care guide'), findsOneWidget);
     expect(find.text('Learn plant care tips'), findsOneWidget);
+    expect(find.byIcon(LucideIcons.bookOpen), findsOneWidget);
   });
 
-  testWidgets('renders icon', (tester) async {
-    await tester.pumpWidget(
-      _wrap(
-        const FeatureCard(
-          icon: Icons.camera_alt,
-          title: 'Camera',
-          description: 'desc',
-        ),
-      ),
-    );
-    expect(find.byIcon(Icons.camera_alt), findsOneWidget);
-  });
-
-  testWidgets('care type uses ext.sky tint for icon container', (tester) async {
-    await tester.pumpWidget(
-      _wrap(
-        const FeatureCard(
-          icon: Icons.book,
-          title: 'Care',
-          description: 'desc',
-          type: FeatureType.care,
-        ),
-      ),
-    );
-    final ext = _ext;
-    final containers = tester.widgetList<Container>(find.byType(Container));
-    final hasSkyTint = containers.any(
-      (c) =>
-          c.decoration is BoxDecoration &&
-          (c.decoration as BoxDecoration).color ==
-              ext.sky.withValues(alpha: 0.1),
-    );
-    expect(hasSkyTint, isTrue);
-  });
-
-  testWidgets('community type uses ext.berry tint for icon container', (
+  testWidgets('is built on the Canopy card material, not a flat fill', (
     tester,
   ) async {
+    // The card used to paint a flat `cs.surface` container. Canopy surfaces are
+    // gradient-lit — a flat one reads as off-system.
     await tester.pumpWidget(
       _wrap(
         const FeatureCard(
-          icon: Icons.people,
-          title: 'Community',
+          icon: LucideIcons.camera,
+          title: 'Identify',
           description: 'desc',
-          type: FeatureType.community,
         ),
       ),
     );
-    final ext = _ext;
-    final containers = tester.widgetList<Container>(find.byType(Container));
-    final hasBerryTint = containers.any(
-      (c) =>
-          c.decoration is BoxDecoration &&
-          (c.decoration as BoxDecoration).color ==
-              ext.berry.withValues(alpha: 0.1),
+    expect(find.byType(CanopyCard), findsOneWidget);
+
+    final decorated = tester.widgetList<DecoratedBox>(
+      find.descendant(
+        of: find.byType(CanopyCard),
+        matching: find.byType(DecoratedBox),
+      ),
     );
-    expect(hasBerryTint, isTrue);
+    expect(
+      decorated.any((d) => (d.decoration as BoxDecoration).gradient != null),
+      isTrue,
+      reason: 'the card surface must be a gradient, not a flat colour',
+    );
   });
 
-  testWidgets('calls onTap when tapped', (tester) async {
+  testWidgets('each feature type carries its own accent tile', (tester) async {
+    for (final (type, expected) in [
+      (FeatureType.camera, CanopyTileTone.sage),
+      (FeatureType.care, CanopyTileTone.orchid),
+      (FeatureType.community, CanopyTileTone.bloom),
+      (FeatureType.collection, CanopyTileTone.pollen),
+    ]) {
+      await tester.pumpWidget(
+        _wrap(
+          FeatureCard(
+            icon: LucideIcons.leaf,
+            title: 'T',
+            description: 'd',
+            type: type,
+          ),
+        ),
+      );
+      final tile = tester.widget<CanopyTile>(find.byType(CanopyTile));
+      expect(tile.tone, expected, reason: '${type.name} tile tone');
+    }
+  });
+
+  testWidgets('accent tiles keep dark ink on their light gradients', (
+    tester,
+  ) async {
+    // Every tile gradient is light in BOTH modes, so the glyph must be the
+    // fixed abyss ink — using onSurface renders light-on-light in dark mode.
+    await tester.pumpWidget(
+      _wrap(
+        const FeatureCard(icon: LucideIcons.leaf, title: 'T', description: 'd'),
+      ),
+    );
+    final icon = tester.widget<Icon>(
+      find.descendant(of: find.byType(CanopyTile), matching: find.byType(Icon)),
+    );
+    expect(icon.color, CanopyRamp.abyss);
+  });
+
+  testWidgets('calls onTap when tapped, and shows no affordance without it', (
+    tester,
+  ) async {
     var tapped = false;
     await tester.pumpWidget(
       _wrap(
         FeatureCard(
-          icon: Icons.star,
-          title: 'Favorite',
+          icon: LucideIcons.star,
+          title: 'Favourite',
           description: 'desc',
-          onTap: () {
-            tapped = true;
-          },
+          onTap: () => tapped = true,
         ),
       ),
     );
+    expect(find.byIcon(LucideIcons.chevronRight), findsOneWidget);
     await tester.tap(find.byType(InkWell));
     expect(tapped, isTrue);
-  });
 
-  testWidgets('uses custom icon color when provided', (tester) async {
     await tester.pumpWidget(
       _wrap(
-        FeatureCard(
-          icon: Icons.star,
-          title: 'Custom',
+        const FeatureCard(
+          icon: LucideIcons.star,
+          title: 'Favourite',
           description: 'desc',
-          iconColor: Colors.red,
         ),
       ),
     );
-    final containers = tester.widgetList<Container>(find.byType(Container));
-    final hasCustomColor = containers.any(
-      (c) =>
-          c.decoration is BoxDecoration &&
-          (c.decoration as BoxDecoration).color ==
-              Colors.red.withValues(alpha: 0.1),
-    );
-    expect(hasCustomColor, isTrue);
+    expect(find.byIcon(LucideIcons.chevronRight), findsNothing);
   });
 }

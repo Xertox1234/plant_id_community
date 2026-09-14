@@ -5,7 +5,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:cached_network_image/cached_network_image.dart';
+import 'package:lucide_icons_flutter/lucide_icons.dart';
 import '../../core/constants/app_spacing.dart';
+import '../../shared/widgets/canopy_surfaces.dart';
 import '../../core/routing/app_router.dart';
 import '../../core/theme/green_thumb_extension.dart';
 import '../../services/auth_service.dart';
@@ -199,8 +201,8 @@ class _CameraScreenState extends ConsumerState<CameraScreen> {
 
   /// Image display card
   Widget _buildImageCard() {
-    return Card(
-      clipBehavior: Clip.antiAlias,
+    return CanopyCard(
+      padding: EdgeInsets.zero,
       child: AspectRatio(
         aspectRatio: 1.0,
         child: _selectedImagePath != null
@@ -221,7 +223,7 @@ class _CameraScreenState extends ConsumerState<CameraScreen> {
             placeholder: (context, url) =>
                 const Center(child: CircularProgressIndicator()),
             errorWidget: (context, url, error) =>
-                const Center(child: Icon(Icons.error)),
+                const Center(child: Icon(LucideIcons.circleAlert)),
           )
         : Image.file(File(_selectedImagePath!), fit: BoxFit.cover);
   }
@@ -229,19 +231,24 @@ class _CameraScreenState extends ConsumerState<CameraScreen> {
   /// Placeholder when no image selected
   Widget _buildPlaceholder() {
     return Container(
+      // The web's dropzone: `rounded-md border-2 border-dashed border-line
+      // bg-surface-2/40`. The DASH is the one part not ported — Flutter has no
+      // dashed border without a CustomPainter or a new dependency, and the
+      // affordance reads the same without it.
       decoration: BoxDecoration(
-        color: Theme.of(context).colorScheme.surfaceContainerLow,
+        color: context.canopy.surface2.withValues(alpha: 0.4),
         border: Border.all(
-          color: Theme.of(context).dividerColor.withValues(alpha: 0.25),
+          color: context.canopy.line,
           width: 2,
           strokeAlign: BorderSide.strokeAlignInside,
         ),
+        borderRadius: BorderRadius.circular(AppSpacing.rMd),
       ),
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
           Icon(
-            Icons.camera_alt,
+            LucideIcons.camera,
             size: 64,
             color: Theme.of(context).iconTheme.color?.withValues(alpha: 0.5),
           ),
@@ -265,7 +272,7 @@ class _CameraScreenState extends ConsumerState<CameraScreen> {
         // Take Photo button
         ElevatedButton.icon(
           onPressed: _isIdentifying ? null : _takePhoto,
-          icon: const Icon(Icons.camera_alt),
+          icon: const Icon(LucideIcons.camera),
           label: const Text('Take Photo'),
           style: ElevatedButton.styleFrom(
             minimumSize: const Size.fromHeight(50),
@@ -276,7 +283,7 @@ class _CameraScreenState extends ConsumerState<CameraScreen> {
         // Upload from Gallery button
         OutlinedButton.icon(
           onPressed: _isIdentifying ? null : _pickFromGallery,
-          icon: const Icon(Icons.upload),
+          icon: const Icon(LucideIcons.upload),
           label: const Text('Upload from Gallery'),
           style: OutlinedButton.styleFrom(
             minimumSize: const Size.fromHeight(50),
@@ -288,7 +295,7 @@ class _CameraScreenState extends ConsumerState<CameraScreen> {
           const SizedBox(height: AppSpacing.md),
           ClayButton(
             label: _isIdentifying ? 'Identifying...' : 'Identify Plant',
-            icon: _isIdentifying ? null : Icons.search,
+            icon: _isIdentifying ? null : LucideIcons.search,
             fullWidth: true,
             onPressed: _isIdentifying ? null : _identifyPlant,
           ),
@@ -332,10 +339,10 @@ class _CameraScreenState extends ConsumerState<CameraScreen> {
   Widget _buildSampleImageTile(String imageUrl, int index) {
     return InkWell(
       onTap: () => _useSampleImage(imageUrl),
-      borderRadius: BorderRadius.circular(AppSpacing.radiusMD),
+      borderRadius: BorderRadius.circular(AppSpacing.rSm),
       child: Container(
         decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(AppSpacing.radiusMD),
+          borderRadius: BorderRadius.circular(AppSpacing.rSm),
           border: Border.all(
             color: Colors.transparent,
             width: 2,
@@ -353,7 +360,7 @@ class _CameraScreenState extends ConsumerState<CameraScreen> {
           ),
           errorWidget: (context, url, error) => Container(
             color: Theme.of(context).colorScheme.surfaceContainerLow,
-            child: const Icon(Icons.error, size: 24),
+            child: const Icon(LucideIcons.circleAlert, size: 24),
           ),
         ),
       ),

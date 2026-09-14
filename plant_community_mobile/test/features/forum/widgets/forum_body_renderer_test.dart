@@ -6,6 +6,7 @@ import 'package:plant_community_mobile/features/forum/models/models.dart';
 import 'package:plant_community_mobile/features/forum/widgets/author_identity.dart';
 import 'package:plant_community_mobile/features/forum/widgets/forum_body_renderer.dart';
 import 'package:plant_community_mobile/features/forum/widgets/forum_html_text.dart';
+import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 Future<void> _pump(
   WidgetTester tester,
@@ -263,7 +264,7 @@ void main() {
         await _pump(tester, const [blocked]);
 
         expect(find.text('Quote from a member you blocked.'), findsOneWidget);
-        expect(find.byIcon(Icons.block), findsOneWidget);
+        expect(find.byIcon(LucideIcons.ban), findsOneWidget);
         expect(find.text('Show anyway'), findsOneWidget);
         expect(find.text('Water it less.'), findsNothing);
         expect(find.text('Bob B'), findsNothing);
@@ -294,7 +295,7 @@ void main() {
         ]);
 
         expect(find.text('Quote from a member you muted.'), findsOneWidget);
-        expect(find.byIcon(Icons.volume_off), findsOneWidget);
+        expect(find.byIcon(LucideIcons.volumeX), findsOneWidget);
         expect(find.text('Show anyway'), findsOneWidget);
         expect(find.text('Water it less.'), findsNothing);
         expect(find.textContaining('blocked'), findsNothing);

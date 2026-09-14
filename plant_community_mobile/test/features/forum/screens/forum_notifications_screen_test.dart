@@ -5,6 +5,7 @@ import 'package:go_router/go_router.dart';
 import 'package:plant_community_mobile/features/forum/models/models.dart';
 import 'package:plant_community_mobile/features/forum/screens/forum_notifications_screen.dart';
 import 'package:plant_community_mobile/features/forum/services/forum_api.dart';
+import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../support/forum_test_support.dart';
 
@@ -48,7 +49,7 @@ void main() {
       find.textContaining('alice quoted your post in "Fiddle leaf fig"'),
       findsOneWidget,
     );
-    expect(find.byIcon(Icons.format_quote_outlined), findsOneWidget);
+    expect(find.byIcon(LucideIcons.quote), findsOneWidget);
 
     await tester.tap(find.byType(ListTile));
     await tester.pumpAndSettle();
@@ -145,12 +146,12 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(find.byIcon(Icons.circle), findsOneWidget);
+    expect(find.byIcon(LucideIcons.circle), findsOneWidget);
 
     await tester.tap(find.widgetWithText(TextButton, 'Mark all read'));
     await tester.pumpAndSettle();
 
     expect(api.markReadCalls, [null]);
-    expect(find.byIcon(Icons.circle), findsNothing);
+    expect(find.byIcon(LucideIcons.circle), findsNothing);
   });
 }

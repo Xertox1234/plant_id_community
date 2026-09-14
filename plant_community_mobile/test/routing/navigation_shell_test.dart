@@ -15,6 +15,7 @@ import 'package:plant_community_mobile/features/home/home_page.dart';
 import 'package:plant_community_mobile/features/profile/profile_screen.dart';
 import 'package:plant_community_mobile/services/auth_service.dart';
 import 'package:plant_community_mobile/services/user_profile_service.dart';
+import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../features/forum/support/forum_test_support.dart';
 
@@ -136,19 +137,19 @@ void main() {
       expect(h.path, AppRoutes.home);
       expect(find.byType(HomePage), findsOneWidget);
 
-      await tapTab(tester, Icons.eco_outlined);
+      await tapTab(tester, LucideIcons.leaf);
       expect(h.path, AppRoutes.collection);
       expect(find.byType(CollectionScreen), findsOneWidget);
 
-      await tapTab(tester, Icons.forum_outlined);
+      await tapTab(tester, LucideIcons.messagesSquare);
       expect(h.path, AppRoutes.forum);
       expect(find.byType(ForumScreen), findsOneWidget);
 
-      await tapTab(tester, Icons.person_outline);
+      await tapTab(tester, LucideIcons.user);
       expect(h.path, AppRoutes.profile);
       expect(find.byType(ProfileScreen), findsOneWidget);
 
-      await tapTab(tester, Icons.home_outlined);
+      await tapTab(tester, LucideIcons.house);
       expect(h.path, AppRoutes.home);
 
       await tester.pump(const Duration(seconds: 4));
@@ -159,14 +160,14 @@ void main() {
     ) async {
       final h = await pumpShell(tester, loggedIn: true);
 
-      await tapTab(tester, Icons.eco_outlined);
+      await tapTab(tester, LucideIcons.leaf);
       expect(h.path, AppRoutes.collection);
 
-      await tapTab(tester, Icons.forum_outlined);
+      await tapTab(tester, LucideIcons.messagesSquare);
       expect(h.path, AppRoutes.forum);
 
       // Signed in this must NOT bounce to /login either.
-      await tapTab(tester, Icons.person_outline);
+      await tapTab(tester, LucideIcons.user);
       expect(h.path, AppRoutes.profile);
 
       await tester.pump(const Duration(seconds: 4));
@@ -180,7 +181,7 @@ void main() {
       final h = await pumpShell(tester, loggedIn: false);
 
       // Land on a tab that is NOT Home, so the pop target is unambiguous.
-      await tapTab(tester, Icons.forum_outlined);
+      await tapTab(tester, LucideIcons.messagesSquare);
       expect(h.path, AppRoutes.forum);
 
       await tester.tap(find.byType(FloatingActionButton));
@@ -230,7 +231,7 @@ void main() {
     ) async {
       final h = await pumpShell(tester, loggedIn: false);
 
-      await tapTab(tester, Icons.person_outline);
+      await tapTab(tester, LucideIcons.user);
       expect(h.path, AppRoutes.profile);
 
       // The signed-out profile must offer sign-in rather than the old
@@ -253,7 +254,7 @@ void main() {
     ) async {
       final h = await pumpShell(tester, loggedIn: false);
 
-      await tapTab(tester, Icons.person_outline);
+      await tapTab(tester, LucideIcons.user);
       await tester.tap(
         find.widgetWithText(OutlinedButton, 'Create an account'),
       );
@@ -268,7 +269,7 @@ void main() {
     testWidgets('sign-in and register link to each other', (tester) async {
       final h = await pumpShell(tester, loggedIn: false);
 
-      await tapTab(tester, Icons.person_outline);
+      await tapTab(tester, LucideIcons.user);
       await tester.tap(find.widgetWithText(FilledButton, 'Sign in'));
       await settle(tester);
       expect(h.path, AppRoutes.login);
@@ -301,7 +302,7 @@ void main() {
       // button, that screen becomes a dead end.
       final h = await pumpShell(tester, loggedIn: false);
 
-      await tapTab(tester, Icons.person_outline);
+      await tapTab(tester, LucideIcons.user);
       await tester.tap(find.widgetWithText(FilledButton, 'Sign in'));
       await settle(tester);
       expect(h.path, AppRoutes.login);
@@ -320,8 +321,8 @@ void main() {
     testWidgets('Settings is reachable from the Profile tab', (tester) async {
       final h = await pumpShell(tester, loggedIn: false);
 
-      await tapTab(tester, Icons.person_outline);
-      await tester.tap(find.byIcon(Icons.settings));
+      await tapTab(tester, LucideIcons.user);
+      await tester.tap(find.byIcon(LucideIcons.settings));
       await settle(tester);
 
       // The Home FAB used to be the ONLY way to open Settings; the shell's
@@ -346,36 +347,33 @@ void main() {
     // label -- measuring anything text-shaped here without first loading the
     // real Geist face via FontLoader produces confident, wrong numbers.
     for (final width in <double>[320.0, 390.0, 428.0]) {
-      testWidgets(
-        'the Identify FAB never covers a tab selection indicator '
-        '@${width.toInt()}pt',
-        (tester) async {
-          tester.view.physicalSize = Size(width, 844) * 3;
-          tester.view.devicePixelRatio = 3.0;
-          addTearDown(tester.view.resetPhysicalSize);
-          addTearDown(tester.view.resetDevicePixelRatio);
+      testWidgets('the Identify FAB never covers a tab selection indicator '
+          '@${width.toInt()}pt', (tester) async {
+        tester.view.physicalSize = Size(width, 844) * 3;
+        tester.view.devicePixelRatio = 3.0;
+        addTearDown(tester.view.resetPhysicalSize);
+        addTearDown(tester.view.resetDevicePixelRatio);
 
-          await pumpShell(tester, loggedIn: false);
+        await pumpShell(tester, loggedIn: false);
 
-          final fab = tester.getRect(find.byType(FloatingActionButton));
-          final indicators = find.byType(NavigationIndicator);
-          // A missing indicator would make the loop below vacuously pass.
-          expect(indicators, findsNWidgets(MainShell.destinations.length));
+        final fab = tester.getRect(find.byType(FloatingActionButton));
+        final indicators = find.byType(NavigationIndicator);
+        // A missing indicator would make the loop below vacuously pass.
+        expect(indicators, findsNWidgets(MainShell.destinations.length));
 
-          for (var i = 0; i < MainShell.destinations.length; i++) {
-            expect(
-              tester.getRect(indicators.at(i)).overlaps(fab),
-              isFalse,
-              reason:
-                  'at ${width.toInt()}pt the Identify FAB covers part of the '
-                  '"${MainShell.destinations[i].label}" tab selection '
-                  'indicator, so that tab looks clipped when selected',
-            );
-          }
+        for (var i = 0; i < MainShell.destinations.length; i++) {
+          expect(
+            tester.getRect(indicators.at(i)).overlaps(fab),
+            isFalse,
+            reason:
+                'at ${width.toInt()}pt the Identify FAB covers part of the '
+                '"${MainShell.destinations[i].label}" tab selection '
+                'indicator, so that tab looks clipped when selected',
+          );
+        }
 
-          await tester.pump(const Duration(seconds: 4));
-        },
-      );
+        await tester.pump(const Duration(seconds: 4));
+      });
     }
   });
 }

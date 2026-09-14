@@ -2,15 +2,20 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
-import '../../config/palette_notifier.dart';
+import 'package:lucide_icons_flutter/lucide_icons.dart';
+import '../../config/density_notifier.dart';
 import '../../config/theme_provider.dart';
-import '../../core/constants/app_spacing.dart';
-import '../../core/theme/app_palettes.dart';
+import '../../core/constants/app_brand.dart';
 import '../../core/theme/green_thumb_extension.dart';
 import '../../core/theme/theme_preview_screen.dart';
+import '../../shared/widgets/canopy_label.dart';
 
-/// App settings: theme mode, Green Thumb palette, layout density, and (in debug
-/// builds) the theme preview gallery.
+/// App settings: theme mode, layout density, and (in debug builds) the theme
+/// preview gallery.
+///
+/// The palette picker is gone. Canopy is one identity (spec §2) — the four
+/// palettes it offered (Loam / Garden / Forest / Heritage) were a Flutter-only
+/// invention the web never had.
 class SettingsScreen extends ConsumerWidget {
   const SettingsScreen({super.key});
 
@@ -19,15 +24,10 @@ class SettingsScreen extends ConsumerWidget {
     final ext =
         Theme.of(context).extension<GreenThumbExtension>() ??
         GreenThumbExtension.fallback;
-    final cs = Theme.of(context).colorScheme;
     final themeMode = ref.watch(themeModeProvider);
     final themeNotifier = ref.read(themeModeProvider.notifier);
-    final palette = ref.watch(paletteProvider);
-    final paletteNotifier = ref.read(paletteProvider.notifier);
-
-    final eyebrowStyle = Theme.of(
-      context,
-    ).textTheme.labelSmall?.copyWith(letterSpacing: 0.06 * 11, color: ext.ink3);
+    final density = ref.watch(densityProvider);
+    final densityNotifier = ref.read(densityProvider.notifier);
 
     return Scaffold(
       appBar: AppBar(title: const Text('Settings')),
@@ -36,23 +36,23 @@ class SettingsScreen extends ConsumerWidget {
           padding: EdgeInsets.all(ext.padScreen),
           children: [
             // Appearance
-            Text('APPEARANCE', style: eyebrowStyle),
+            const CanopyLabel('APPEARANCE'),
             SizedBox(height: ext.gapY),
             SegmentedButton<ThemeMode>(
               segments: const [
                 ButtonSegment(
                   value: ThemeMode.system,
-                  icon: Icon(Icons.brightness_auto),
+                  icon: Icon(LucideIcons.monitor),
                   label: Text('System'),
                 ),
                 ButtonSegment(
                   value: ThemeMode.light,
-                  icon: Icon(Icons.light_mode),
+                  icon: Icon(LucideIcons.sun),
                   label: Text('Light'),
                 ),
                 ButtonSegment(
                   value: ThemeMode.dark,
-                  icon: Icon(Icons.dark_mode),
+                  icon: Icon(LucideIcons.moon),
                   label: Text('Dark'),
                 ),
               ],
@@ -70,48 +70,8 @@ class SettingsScreen extends ConsumerWidget {
             ),
             SizedBox(height: ext.gapY * 2),
 
-            // Palette
-            Text('PALETTE', style: eyebrowStyle),
-            SizedBox(height: ext.gapY),
-            Wrap(
-              spacing: AppSpacing.sm,
-              runSpacing: AppSpacing.sm,
-              children: AppPaletteChoice.values.map((choice) {
-                final isSelected = palette.palette == choice;
-                final swatchColor = _paletteSwatchColor(choice);
-                return InkWell(
-                  onTap: () => paletteNotifier.setPalette(choice),
-                  borderRadius: BorderRadius.circular(AppSpacing.rSm),
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 12,
-                      vertical: 8,
-                    ),
-                    decoration: BoxDecoration(
-                      color: swatchColor,
-                      borderRadius: BorderRadius.circular(AppSpacing.rSm),
-                      border: isSelected
-                          ? Border.all(color: cs.primary, width: 2)
-                          : null,
-                    ),
-                    child: Text(
-                      _paletteLabel(choice),
-                      style: TextStyle(
-                        color: _paletteTextColor(choice),
-                        fontWeight: isSelected
-                            ? FontWeight.bold
-                            : FontWeight.normal,
-                        fontSize: 13,
-                      ),
-                    ),
-                  ),
-                );
-              }).toList(),
-            ),
-            SizedBox(height: ext.gapY * 2),
-
             // Density
-            Text('DENSITY', style: eyebrowStyle),
+            const CanopyLabel('DENSITY'),
             SizedBox(height: ext.gapY),
             SegmentedButton<AppDensity>(
               segments: const [
@@ -125,32 +85,30 @@ class SettingsScreen extends ConsumerWidget {
                   label: Text('Compact'),
                 ),
               ],
-              selected: {palette.density},
-              onSelectionChanged: (s) => paletteNotifier.setDensity(s.first),
+              selected: {density},
+              onSelectionChanged: (s) => densityNotifier.setDensity(s.first),
             ),
             SizedBox(height: ext.gapY * 2),
 
             // About
-            Text('ABOUT', style: eyebrowStyle),
+            const CanopyLabel('ABOUT'),
             SizedBox(height: ext.gapY),
-            const ListTile(
-              leading: Icon(Icons.local_florist),
-              title: Text('Plant Community'),
-              subtitle: Text(
-                'Plant identification, care, and community features',
-              ),
+            ListTile(
+              leading: const Icon(LucideIcons.stethoscope),
+              title: const Text(AppBrand.name),
+              subtitle: const Text(AppBrand.tagline),
             ),
 
             // Debug
             if (kDebugMode) ...[
               SizedBox(height: ext.gapY * 2),
-              Text('DEBUG', style: eyebrowStyle),
+              const CanopyLabel('DEBUG'),
               SizedBox(height: ext.gapY),
               ListTile(
-                leading: const Icon(Icons.palette),
+                leading: const Icon(LucideIcons.palette),
                 title: const Text('Theme Preview'),
-                subtitle: const Text('All 24 palette combinations'),
-                trailing: const Icon(Icons.chevron_right),
+                subtitle: const Text('Every mode and density combination'),
+                trailing: const Icon(LucideIcons.chevronRight),
                 onTap: () => context.push(ThemePreviewScreen.routePath),
               ),
             ],
@@ -159,23 +117,4 @@ class SettingsScreen extends ConsumerWidget {
       ),
     );
   }
-
-  static Color _paletteSwatchColor(AppPaletteChoice c) => switch (c) {
-    AppPaletteChoice.loam => const Color(0xFF4A7034),
-    AppPaletteChoice.garden => const Color(0xFF2F6B3A),
-    AppPaletteChoice.forest => const Color(0xFFB8DC7C),
-    AppPaletteChoice.heritage => const Color(0xFF3D5A22),
-  };
-
-  static Color _paletteTextColor(AppPaletteChoice c) => switch (c) {
-    AppPaletteChoice.forest => const Color(0xFF0F1A12),
-    _ => const Color(0xFFF4F1DF),
-  };
-
-  static String _paletteLabel(AppPaletteChoice c) => switch (c) {
-    AppPaletteChoice.loam => 'Loam',
-    AppPaletteChoice.garden => 'Garden',
-    AppPaletteChoice.forest => 'Forest',
-    AppPaletteChoice.heritage => 'Heritage',
-  };
 }

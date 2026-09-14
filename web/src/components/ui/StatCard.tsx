@@ -29,6 +29,9 @@ export default function StatCard({
         {icon}
       </Tile>
       <div>
+        {/* Deliberately off-scale: the `--text-*` rungs stop at `lead` (17px)
+            and jump to `hero` (38px), so a 22px mono stat number has no rung.
+            Audited and kept — not an un-migrated legacy size. */}
         <div className="font-mono text-[22px] tracking-tight tabular-nums">{value}</div>
         <div className="text-meta font-medium">{label}</div>
         {sublabel && <div className="text-micro text-ink-3">{sublabel}</div>}

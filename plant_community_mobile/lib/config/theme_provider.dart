@@ -4,9 +4,21 @@ import 'package:flutter/material.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
+import '../core/theme/app_theme.dart';
+
 part 'theme_provider.g.dart';
 
 /// Theme mode notifier that manages theme state.
+///
+/// Defaults to DARK, matching the web (`ThemeContext.tsx` seeds `mode: 'dark'`;
+/// `:root` carries the dark values). Dark is Canopy's identity, not a
+/// preference — spec §3.4.
+///
+/// [ThemeMode.system] stays selectable. That is the one deliberate divergence
+/// from the web, which offers only light/dark: following the OS setting is a
+/// strong mobile platform convention, and the task explicitly allows a
+/// "platform-appropriate theme selector". It changes no colour value — both
+/// branches resolve to the same Canopy palette.
 @riverpod
 class ThemeModeNotifier extends _$ThemeModeNotifier {
   static const _storage = FlutterSecureStorage();
@@ -15,7 +27,7 @@ class ThemeModeNotifier extends _$ThemeModeNotifier {
   @override
   ThemeMode build() {
     _loadSavedPreference();
-    return ThemeMode.system;
+    return AppTheme.defaultThemeMode;
   }
 
   /// Set theme to light mode

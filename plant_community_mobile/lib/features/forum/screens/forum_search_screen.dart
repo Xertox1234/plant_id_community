@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../../../core/constants/app_spacing.dart';
+import '../../../shared/widgets/canopy_surfaces.dart';
 import '../models/models.dart';
 import '../providers/forum_providers.dart';
 
@@ -51,7 +53,7 @@ class _ForumSearchScreenState extends ConsumerState<ForumSearchScreen> {
                     textInputAction: TextInputAction.search,
                     decoration: const InputDecoration(
                       hintText: 'Search topics and posts',
-                      prefixIcon: Icon(Icons.search),
+                      prefixIcon: Icon(LucideIcons.search),
                       border: OutlineInputBorder(),
                     ),
                     onSubmitted: (_) => _submit(),
@@ -287,10 +289,11 @@ class _TopicHitTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Card(
+    return CanopyCard(
+      padding: EdgeInsets.zero,
       child: ListTile(
         onTap: onTap,
-        leading: const Icon(Icons.forum_outlined),
+        leading: const Icon(LucideIcons.messagesSquare),
         title: Text(topic.title, maxLines: 1, overflow: TextOverflow.ellipsis),
         subtitle: Text(
           '${topic.replyCount} replies · ${topic.viewCount} views',
@@ -307,10 +310,11 @@ class _PostHitTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Card(
+    return CanopyCard(
+      padding: EdgeInsets.zero,
       child: ListTile(
         onTap: onTap,
-        leading: const Icon(Icons.chat_bubble_outline),
+        leading: const Icon(LucideIcons.messageCircle),
         title: Text(
           post.topicTitle,
           maxLines: 1,

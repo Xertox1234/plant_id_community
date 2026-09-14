@@ -41,19 +41,25 @@ void main() {
   });
 
   group('construction', () {
-    test('builds without touching real Firebase and reports the current user', () async {
-      final harness = _Harness(currentUser: _FakeUser(uid: 'ada'));
-      addTearDown(harness.dispose);
+    test(
+      'builds without touching real Firebase and reports the current user',
+      () async {
+        final harness = _Harness(currentUser: _FakeUser(uid: 'ada'));
+        addTearDown(harness.dispose);
 
-      final state = harness.container.read(authServiceProvider);
+        final state = harness.container.read(authServiceProvider);
 
-      expect(state.firebaseUser?.uid, 'ada');
-      expect(state.isAuthenticated, isFalse); // no JWT until the exchange lands
+        expect(state.firebaseUser?.uid, 'ada');
+        expect(
+          state.isAuthenticated,
+          isFalse,
+        ); // no JWT until the exchange lands
 
-      // build() kicks off the exchange unawaited; drain it before teardown so
-      // it lands on a live Ref rather than a disposed one.
-      await pumpEventQueue();
-    });
+        // build() kicks off the exchange unawaited; drain it before teardown so
+        // it lands on a live Ref rather than a disposed one.
+        await pumpEventQueue();
+      },
+    );
   });
 
   group('push registration wiring', () {
@@ -208,26 +214,29 @@ void main() {
   });
 
   group('session expiry', () {
-    test('build() registers _handleSessionExpired, and it signs the user out', () async {
-      // Without this, the whole exemption group below is unfalsifiable from
-      // AuthService's side: deleting build()'s
-      // `apiService.setSessionExpiredHandler(_handleSessionExpired)` would
-      // leave every other test green while 401s stopped signing anyone out.
-      final harness = _Harness(currentUser: _FakeUser(uid: 'ada'));
-      addTearDown(harness.dispose);
-      await pumpEventQueue(); // let build()'s exchange settle
+    test(
+      'build() registers _handleSessionExpired, and it signs the user out',
+      () async {
+        // Without this, the whole exemption group below is unfalsifiable from
+        // AuthService's side: deleting build()'s
+        // `apiService.setSessionExpiredHandler(_handleSessionExpired)` would
+        // leave every other test green while 401s stopped signing anyone out.
+        final harness = _Harness(currentUser: _FakeUser(uid: 'ada'));
+        addTearDown(harness.dispose);
+        await pumpEventQueue(); // let build()'s exchange settle
 
-      final handler = harness.api.sessionExpiredHandler;
-      expect(handler, isNotNull, reason: 'build() registered no handler');
+        final handler = harness.api.sessionExpiredHandler;
+        expect(handler, isNotNull, reason: 'build() registered no handler');
 
-      await handler!();
-      await pumpEventQueue();
+        await handler!();
+        await pumpEventQueue();
 
-      final state = harness.container.read(authServiceProvider);
-      expect(state.error, 'Your session expired. Please sign in again.');
-      expect(state.jwtToken, isNull);
-      expect(harness.events, contains('firebase.signOut'));
-    });
+        final state = harness.container.read(authServiceProvider);
+        expect(state.error, 'Your session expired. Please sign in again.');
+        expect(state.jwtToken, isNull);
+        expect(harness.events, contains('firebase.signOut'));
+      },
+    );
 
     test('the handler is unregistered when the notifier is disposed', () async {
       // The handler closes over a Ref; leaving it installed on the shared
@@ -268,57 +277,52 @@ void main() {
       expect(clear.options?.extra?[ApiService.skipSessionExpiryKey], isTrue);
     });
 
-    test(
-      'a real 401 on an exempt request does not trigger the session-expired '
-      'handler, while an unexempt one does',
-      () async {
-        // Drives the actual Dio interceptor against a local server rather than
-        // trusting the flag's presence: the request-side opt-out is only worth
-        // anything if ApiService honours it.
-        final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
-        addTearDown(() => server.close(force: true));
-        unawaited(() async {
-          await for (final request in server) {
-            request.response.statusCode = HttpStatus.unauthorized;
-            request.response.headers.contentType = ContentType.json;
-            request.response.write(jsonEncode({'detail': 'expired'}));
-            await request.response.close();
-          }
-        }());
+    test('a real 401 on an exempt request does not trigger the session-expired '
+        'handler, while an unexempt one does', () async {
+      // Drives the actual Dio interceptor against a local server rather than
+      // trusting the flag's presence: the request-side opt-out is only worth
+      // anything if ApiService honours it.
+      final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+      addTearDown(() => server.close(force: true));
+      unawaited(() async {
+        await for (final request in server) {
+          request.response.statusCode = HttpStatus.unauthorized;
+          request.response.headers.contentType = ContentType.json;
+          request.response.write(jsonEncode({'detail': 'expired'}));
+          await request.response.close();
+        }
+      }());
 
-        final api = ApiService(
-          baseUrl: 'http://${server.address.host}:${server.port}',
-        );
-        var sessionExpiredCalls = 0;
-        api.setSessionExpiredHandler(() async => sessionExpiredCalls++);
+      final api = ApiService(
+        baseUrl: 'http://${server.address.host}:${server.port}',
+      );
+      var sessionExpiredCalls = 0;
+      api.setSessionExpiredHandler(() async => sessionExpiredCalls++);
 
-        await expectLater(
-          api.patch(
-            '/forum/me/profile/',
-            data: {'fcm_token': ''},
-            options: Options(
-              extra: {ApiService.skipSessionExpiryKey: true},
-            ),
-          ),
-          throwsA(isA<ApiException>()),
-        );
-        expect(
-          sessionExpiredCalls,
-          0,
-          reason: 'exempt 401 converted an intentional sign-out into expiry',
-        );
+      await expectLater(
+        api.patch(
+          '/forum/me/profile/',
+          data: {'fcm_token': ''},
+          options: Options(extra: {ApiService.skipSessionExpiryKey: true}),
+        ),
+        throwsA(isA<ApiException>()),
+      );
+      expect(
+        sessionExpiredCalls,
+        0,
+        reason: 'exempt 401 converted an intentional sign-out into expiry',
+      );
 
-        await expectLater(
-          api.patch('/forum/me/profile/', data: {'fcm_token': ''}),
-          throwsA(isA<ApiException>()),
-        );
-        expect(
-          sessionExpiredCalls,
-          1,
-          reason: 'the exemption is unfalsifiable — 401 never triggers expiry',
-        );
-      },
-    );
+      await expectLater(
+        api.patch('/forum/me/profile/', data: {'fcm_token': ''}),
+        throwsA(isA<ApiException>()),
+      );
+      expect(
+        sessionExpiredCalls,
+        1,
+        reason: 'the exemption is unfalsifiable — 401 never triggers expiry',
+      );
+    });
   });
 }
 

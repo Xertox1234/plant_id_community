@@ -2,15 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:plant_community_mobile/shared/widgets/loading_indicator.dart';
 import 'package:plant_community_mobile/core/theme/app_theme.dart';
-import 'package:plant_community_mobile/core/theme/app_palettes.dart';
 import 'package:plant_community_mobile/core/theme/green_thumb_extension.dart';
 
 Widget _wrap(Widget child) => MaterialApp(
-  theme: AppTheme.build(
-    AppPaletteChoice.loam,
-    Brightness.light,
-    AppDensity.cozy,
-  ),
+  theme: AppTheme.build(Brightness.light, AppDensity.cozy),
   home: Scaffold(body: Center(child: child)),
 );
 
@@ -23,7 +18,6 @@ void main() {
   testWidgets('uses theme primary color by default', (tester) async {
     await tester.pumpWidget(_wrap(const LoadingIndicator()));
     final primary = AppTheme.build(
-      AppPaletteChoice.loam,
       Brightness.light,
       AppDensity.cozy,
     ).colorScheme.primary;
@@ -53,12 +47,23 @@ void main() {
     expect(find.text('Loading...'), findsOneWidget);
   });
 
-  testWidgets('overlay shows dark background', (tester) async {
+  testWidgets('overlay scrim uses the theme scrim, not a hardcoded black', (
+    tester,
+  ) async {
+    // A hardcoded black wash reads as foreign over the mint light-mode ground;
+    // `ColorScheme.scrim` is black in dark mode and tinted pine in light.
+    final theme = AppTheme.build(Brightness.light, AppDensity.cozy);
     await tester.pumpWidget(_wrap(const LoadingIndicator.overlay()));
     final containers = tester.widgetList<Container>(find.byType(Container));
-    final hasDarkBackground = containers.any(
-      (c) => c.color == Colors.black.withValues(alpha: 0.5),
+    expect(
+      containers.any(
+        (c) => c.color == theme.colorScheme.scrim.withValues(alpha: 0.5),
+      ),
+      isTrue,
     );
-    expect(hasDarkBackground, isTrue);
+    expect(
+      containers.any((c) => c.color == Colors.black.withValues(alpha: 0.5)),
+      isFalse,
+    );
   });
 }

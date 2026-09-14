@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:plant_community_mobile/features/forum/widgets/author_identity.dart';
 import 'package:plant_community_mobile/features/forum/widgets/forum_avatar_cluster.dart';
+import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../support/forum_test_support.dart';
 
@@ -47,7 +48,7 @@ void main() {
         ),
       );
 
-      expect(find.byIcon(Icons.group), findsOneWidget);
+      expect(find.byIcon(LucideIcons.users), findsOneWidget);
       expect(tester.takeException(), isNull);
     });
   });

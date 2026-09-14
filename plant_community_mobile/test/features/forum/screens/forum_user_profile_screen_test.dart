@@ -6,6 +6,7 @@ import 'package:plant_community_mobile/features/forum/services/forum_api.dart';
 import 'package:plant_community_mobile/services/api_service.dart';
 import 'package:plant_community_mobile/services/auth_service.dart';
 import 'package:plant_community_mobile/services/user_profile_service.dart';
+import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../support/forum_test_support.dart';
 
@@ -26,7 +27,7 @@ Widget _wrap(FakeForumApi api, {String username = 'alice', String? me}) =>
       child: MaterialApp(home: ForumUserProfileScreen(username: username)),
     );
 
-Finder _messageButton() => find.widgetWithIcon(IconButton, Icons.mail_outline);
+Finder _messageButton() => find.widgetWithIcon(IconButton, LucideIcons.mail);
 
 void main() {
   group('ForumUserProfileScreen (todo 317)', () {

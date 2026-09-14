@@ -2,11 +2,13 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:lucide_icons_flutter/lucide_icons.dart';
 import '../../core/routing/app_router.dart';
 import '../../core/theme/green_thumb_extension.dart';
 import '../../models/user_profile.dart';
 import '../../services/user_profile_service.dart';
 import '../../services/auth_service.dart';
+import '../../shared/widgets/canopy_surfaces.dart';
 
 /// User profile screen displaying user information and settings
 ///
@@ -45,13 +47,13 @@ class ProfileScreen extends ConsumerWidget {
         title: const Text('Profile'),
         actions: [
           IconButton(
-            icon: const Icon(Icons.settings),
+            icon: const Icon(LucideIcons.settings),
             tooltip: 'Settings',
             onPressed: () => context.push(AppRoutes.settings),
           ),
           // Edit button (navigate to edit screen - not implemented yet)
           IconButton(
-            icon: const Icon(Icons.edit),
+            icon: const Icon(LucideIcons.pencil),
             onPressed: () {
               // TODO: Navigate to profile edit screen
               ScaffoldMessenger.of(context).showSnackBar(
@@ -112,7 +114,7 @@ class ProfileScreen extends ConsumerWidget {
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
               Icon(
-                Icons.error_outline,
+                LucideIcons.circleAlert,
                 size: 64,
                 color: Theme.of(context).colorScheme.error,
               ),
@@ -132,7 +134,7 @@ class ProfileScreen extends ConsumerWidget {
                 onPressed: () {
                   ref.read(userProfileServiceProvider.notifier).refresh();
                 },
-                icon: const Icon(Icons.refresh),
+                icon: const Icon(LucideIcons.refreshCw),
                 label: const Text('Retry'),
               ),
             ],
@@ -154,73 +156,68 @@ class _ProfileHeader extends StatelessWidget {
     final ext =
         Theme.of(context).extension<GreenThumbExtension>() ??
         GreenThumbExtension.fallback;
-    return Card(
-      child: Padding(
-        padding: EdgeInsets.all(ext.padCard),
-        child: Column(
-          children: [
-            // Avatar
-            CircleAvatar(
-              radius: 50,
-              backgroundColor: Theme.of(context).colorScheme.primaryContainer,
-              backgroundImage: profile.avatar != null
-                  ? NetworkImage(profile.avatar!)
-                  : null,
-              onBackgroundImageError: profile.avatar != null
-                  ? (error, _) {
-                      if (kDebugMode) {
-                        debugPrint(
-                          '[PROFILE] Avatar image failed to load: $error',
-                        );
-                      }
+    return CanopyCard(
+      padding: EdgeInsets.all(ext.padCard),
+      child: Column(
+        children: [
+          // Avatar
+          CircleAvatar(
+            radius: 50,
+            backgroundColor: Theme.of(context).colorScheme.primaryContainer,
+            backgroundImage: profile.avatar != null
+                ? NetworkImage(profile.avatar!)
+                : null,
+            onBackgroundImageError: profile.avatar != null
+                ? (error, _) {
+                    if (kDebugMode) {
+                      debugPrint(
+                        '[PROFILE] Avatar image failed to load: $error',
+                      );
                     }
-                  : null,
-              child: profile.avatar == null
-                  ? Text(
-                      profile.username.isNotEmpty
-                          ? profile.username[0].toUpperCase()
-                          : '?',
-                      style: Theme.of(context).textTheme.headlineLarge
-                          ?.copyWith(
-                            color: Theme.of(
-                              context,
-                            ).colorScheme.onPrimaryContainer,
-                          ),
-                    )
-                  : null,
+                  }
+                : null,
+            child: profile.avatar == null
+                ? Text(
+                    profile.username.isNotEmpty
+                        ? profile.username[0].toUpperCase()
+                        : '?',
+                    style: Theme.of(context).textTheme.headlineLarge?.copyWith(
+                      color: Theme.of(context).colorScheme.onPrimaryContainer,
+                    ),
+                  )
+                : null,
+          ),
+
+          const SizedBox(height: 16),
+
+          // Display name
+          Text(
+            profile.fullName,
+            style: Theme.of(context).textTheme.headlineMedium,
+            textAlign: TextAlign.center,
+          ),
+
+          const SizedBox(height: 4),
+
+          // Username
+          Text(
+            '@${profile.username}',
+            style: Theme.of(context).textTheme.labelSmall?.copyWith(
+              letterSpacing: 0.06 * 11,
+              color: ext.ink3,
             ),
+          ),
 
-            const SizedBox(height: 16),
+          const SizedBox(height: 4),
 
-            // Display name
-            Text(
-              profile.fullName,
-              style: Theme.of(context).textTheme.headlineMedium,
-              textAlign: TextAlign.center,
-            ),
-
-            const SizedBox(height: 4),
-
-            // Username
-            Text(
-              '@${profile.username}',
-              style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                letterSpacing: 0.06 * 11,
-                color: ext.ink3,
-              ),
-            ),
-
-            const SizedBox(height: 4),
-
-            // Email
-            Text(
-              profile.email,
-              style: Theme.of(
-                context,
-              ).textTheme.bodySmall?.copyWith(color: ext.ink2),
-            ),
-          ],
-        ),
+          // Email
+          Text(
+            profile.email,
+            style: Theme.of(
+              context,
+            ).textTheme.bodySmall?.copyWith(color: ext.ink2),
+          ),
+        ],
       ),
     );
   }
@@ -243,7 +240,7 @@ class _StatsSection extends StatelessWidget {
           child: _StatCard(
             label: 'Plants Identified',
             value: profile.plantsIdentified.toString(),
-            icon: Icons.eco,
+            icon: LucideIcons.leaf,
           ),
         ),
         SizedBox(width: ext.gapY),
@@ -251,7 +248,7 @@ class _StatsSection extends StatelessWidget {
           child: _StatCard(
             label: 'Collections',
             value: profile.plantCollectionsCount.toString(),
-            icon: Icons.collections_bookmark,
+            icon: LucideIcons.library,
           ),
         ),
         SizedBox(width: ext.gapY),
@@ -259,7 +256,7 @@ class _StatsSection extends StatelessWidget {
           child: _StatCard(
             label: 'Forum Posts',
             value: profile.forumPostsCount.toString(),
-            icon: Icons.forum,
+            icon: LucideIcons.messagesSquare,
           ),
         ),
       ],
@@ -284,31 +281,29 @@ class _StatCard extends StatelessWidget {
     final ext =
         Theme.of(context).extension<GreenThumbExtension>() ??
         GreenThumbExtension.fallback;
-    return Card(
-      child: Padding(
-        padding: EdgeInsets.all(ext.padCard * 0.75),
-        child: Column(
-          children: [
-            Icon(icon, size: 32, color: Theme.of(context).colorScheme.primary),
-            const SizedBox(height: 8),
-            Text(
-              value,
-              style: Theme.of(
-                context,
-              ).textTheme.headlineMedium?.copyWith(fontWeight: FontWeight.bold),
-            ),
-            const SizedBox(height: 4),
-            Text(
-              label,
-              style: Theme.of(
-                context,
-              ).textTheme.bodySmall?.copyWith(color: ext.ink3),
-              textAlign: TextAlign.center,
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
-            ),
-          ],
-        ),
+    return CanopyCard(
+      padding: EdgeInsets.all(ext.padCard * 0.75),
+      child: Column(
+        children: [
+          Icon(icon, size: 32, color: Theme.of(context).colorScheme.primary),
+          const SizedBox(height: 8),
+          Text(
+            value,
+            style: Theme.of(
+              context,
+            ).textTheme.headlineMedium?.copyWith(fontWeight: FontWeight.bold),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            label,
+            style: Theme.of(
+              context,
+            ).textTheme.bodySmall?.copyWith(color: ext.ink3),
+            textAlign: TextAlign.center,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+          ),
+        ],
       ),
     );
   }
@@ -325,70 +320,68 @@ class _ProfileDetailsSection extends StatelessWidget {
     final ext =
         Theme.of(context).extension<GreenThumbExtension>() ??
         GreenThumbExtension.fallback;
-    return Card(
-      child: Padding(
-        padding: EdgeInsets.all(ext.padCard),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              'Profile Details',
-              style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                letterSpacing: 0.06 * 11,
-                color: ext.ink3,
-              ),
+    return CanopyCard(
+      padding: EdgeInsets.all(ext.padCard),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Profile Details',
+            style: Theme.of(context).textTheme.labelSmall?.copyWith(
+              letterSpacing: 0.06 * 11,
+              color: ext.ink3,
             ),
-            const Divider(),
+          ),
+          const Divider(),
 
-            // Bio
-            if (profile.bio != null && profile.bio!.isNotEmpty) ...[
-              _DetailRow(
-                icon: Icons.info_outline,
-                label: 'Bio',
-                value: profile.bio!,
-              ),
-              const SizedBox(height: 12),
-            ],
-
-            // Location
-            if (profile.location != null && profile.location!.isNotEmpty) ...[
-              _DetailRow(
-                icon: Icons.location_on_outlined,
-                label: 'Location',
-                value: profile.location!,
-              ),
-              const SizedBox(height: 12),
-            ],
-
-            // Website
-            if (profile.website != null && profile.website!.isNotEmpty) ...[
-              _DetailRow(
-                icon: Icons.link,
-                label: 'Website',
-                value: profile.website!,
-              ),
-              const SizedBox(height: 12),
-            ],
-
-            // Gardening Experience
-            if (profile.gardeningExperience != null &&
-                profile.gardeningExperience!.isNotEmpty) ...[
-              _DetailRow(
-                icon: Icons.emoji_events_outlined,
-                label: 'Experience',
-                value: profile.gardeningExperience!,
-              ),
-              const SizedBox(height: 12),
-            ],
-
-            // Member since
+          // Bio
+          if (profile.bio != null && profile.bio!.isNotEmpty) ...[
             _DetailRow(
-              icon: Icons.calendar_today_outlined,
-              label: 'Member Since',
-              value: _formatDate(profile.dateJoined),
+              icon: LucideIcons.info,
+              label: 'Bio',
+              value: profile.bio!,
             ),
+            const SizedBox(height: 12),
           ],
-        ),
+
+          // Location
+          if (profile.location != null && profile.location!.isNotEmpty) ...[
+            _DetailRow(
+              icon: LucideIcons.mapPin,
+              label: 'Location',
+              value: profile.location!,
+            ),
+            const SizedBox(height: 12),
+          ],
+
+          // Website
+          if (profile.website != null && profile.website!.isNotEmpty) ...[
+            _DetailRow(
+              icon: LucideIcons.link,
+              label: 'Website',
+              value: profile.website!,
+            ),
+            const SizedBox(height: 12),
+          ],
+
+          // Gardening Experience
+          if (profile.gardeningExperience != null &&
+              profile.gardeningExperience!.isNotEmpty) ...[
+            _DetailRow(
+              icon: LucideIcons.trophy,
+              label: 'Experience',
+              value: profile.gardeningExperience!,
+            ),
+            const SizedBox(height: 12),
+          ],
+
+          // Member since
+          _DetailRow(
+            icon: LucideIcons.calendar,
+            label: 'Member Since',
+            value: _formatDate(profile.dateJoined),
+          ),
+        ],
       ),
     );
   }
@@ -484,79 +477,77 @@ class _SettingsSection extends ConsumerWidget {
     final ext =
         Theme.of(context).extension<GreenThumbExtension>() ??
         GreenThumbExtension.fallback;
-    return Card(
-      child: Padding(
-        padding: EdgeInsets.all(ext.padCard),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              'Settings',
-              style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                letterSpacing: 0.06 * 11,
-                color: ext.ink3,
-              ),
+    return CanopyCard(
+      padding: EdgeInsets.all(ext.padCard),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Settings',
+            style: Theme.of(context).textTheme.labelSmall?.copyWith(
+              letterSpacing: 0.06 * 11,
+              color: ext.ink3,
             ),
-            const Divider(),
+          ),
+          const Divider(),
 
-            // Email Notifications
-            SwitchListTile(
-              title: const Text('Email Notifications'),
-              subtitle: const Text('Receive email updates'),
-              value: profile.emailNotifications,
-              onChanged: (value) => _applyPreference(
-                context,
-                ref,
-                () => notifier.updateProfile(emailNotifications: value),
-              ),
-              secondary: const Icon(Icons.email_outlined),
+          // Email Notifications
+          SwitchListTile(
+            title: const Text('Email Notifications'),
+            subtitle: const Text('Receive email updates'),
+            value: profile.emailNotifications,
+            onChanged: (value) => _applyPreference(
+              context,
+              ref,
+              () => notifier.updateProfile(emailNotifications: value),
             ),
+            secondary: const Icon(LucideIcons.mail),
+          ),
 
-            // Plant ID Notifications
-            SwitchListTile(
-              title: const Text('Plant ID Notifications'),
-              subtitle: const Text('Get notified about plant identifications'),
-              value: profile.plantIdNotifications,
-              onChanged: (value) => _applyPreference(
-                context,
-                ref,
-                () => notifier.updateProfile(plantIdNotifications: value),
-              ),
-              secondary: const Icon(Icons.eco),
+          // Plant ID Notifications
+          SwitchListTile(
+            title: const Text('Plant ID Notifications'),
+            subtitle: const Text('Get notified about plant identifications'),
+            value: profile.plantIdNotifications,
+            onChanged: (value) => _applyPreference(
+              context,
+              ref,
+              () => notifier.updateProfile(plantIdNotifications: value),
             ),
+            secondary: const Icon(LucideIcons.leaf),
+          ),
 
-            // Forum Notifications
-            SwitchListTile(
-              title: const Text('Forum Notifications'),
-              subtitle: const Text('Get notified about forum activity'),
-              value: profile.forumNotifications,
-              onChanged: (value) => _applyPreference(
-                context,
-                ref,
-                () => notifier.updateProfile(forumNotifications: value),
-              ),
-              secondary: const Icon(Icons.forum),
+          // Forum Notifications
+          SwitchListTile(
+            title: const Text('Forum Notifications'),
+            subtitle: const Text('Get notified about forum activity'),
+            value: profile.forumNotifications,
+            onChanged: (value) => _applyPreference(
+              context,
+              ref,
+              () => notifier.updateProfile(forumNotifications: value),
             ),
+            secondary: const Icon(LucideIcons.messagesSquare),
+          ),
 
-            const Divider(),
+          const Divider(),
 
-            // Privacy settings
-            ListTile(
-              leading: const Icon(Icons.visibility_outlined),
-              title: const Text('Profile Visibility'),
-              subtitle: Text(profile.profileVisibility),
-              trailing: const Icon(Icons.chevron_right),
-              onTap: () {
-                // TODO: Show profile visibility selector
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(
-                    content: Text('Profile visibility selector coming soon!'),
-                  ),
-                );
-              },
-            ),
-          ],
-        ),
+          // Privacy settings
+          ListTile(
+            leading: const Icon(LucideIcons.eye),
+            title: const Text('Profile Visibility'),
+            subtitle: Text(profile.profileVisibility),
+            trailing: const Icon(LucideIcons.chevronRight),
+            onTap: () {
+              // TODO: Show profile visibility selector
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content: Text('Profile visibility selector coming soon!'),
+                ),
+              );
+            },
+          ),
+        ],
       ),
     );
   }
@@ -620,7 +611,7 @@ class _LogoutButton extends ConsumerWidget {
           }
         }
       },
-      icon: const Icon(Icons.logout),
+      icon: const Icon(LucideIcons.logOut),
       label: const Text('Logout'),
       style: OutlinedButton.styleFrom(
         foregroundColor: Theme.of(context).colorScheme.error,
@@ -657,7 +648,7 @@ class _SignedOutProfile extends StatelessWidget {
         title: const Text('Profile'),
         actions: [
           IconButton(
-            icon: const Icon(Icons.settings),
+            icon: const Icon(LucideIcons.settings),
             tooltip: 'Settings',
             onPressed: () => context.push(AppRoutes.settings),
           ),
@@ -673,7 +664,7 @@ class _SignedOutProfile extends StatelessWidget {
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   Icon(
-                    Icons.person_outline,
+                    LucideIcons.user,
                     size: 64,
                     color: cs.primary,
                     semanticLabel: null,
