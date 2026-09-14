@@ -130,3 +130,40 @@ its 122 tests still pass.
 Left deliberately: `ai_integration.py:429` still interpolates `str(e)` into its
 *log* line alongside `exc_info=True`. That is a log, not a response, and this
 todo is about response dicts -- noted rather than swept.
+
+## Review round 1 — the class was not closed
+
+No defect in the five conversions: review confirmed no `except` clause was
+narrowed (three dropped only the `as e` binding), the `error` key and its type
+survive at every site, `success`/`status` still signal failure, and every site
+still logs the real exception server-side. Caller contracts were traced and no
+reader of `result["error"]` can KeyError.
+
+But the PR's claim to close the class was **false**, in two ways.
+
+**A sixth site, two branches above one that was converted.**
+`plant_health_service.py:388` returned
+`"error": f"HTTP {response.status_code}: {response.text[:100]}"` -- up to 100
+characters of the provider's raw body, reaching the same merged `error` key that
+`DiseaseDiagnosisService.get_service_status` returns. It is structurally
+invisible to the drift guard: the value references `response`, not the bound
+exception, so no `Name` node matches and `ast.walk` never triggers. Converted;
+the status code stays (safe and useful), the body goes to the log.
+
+**The guard now sees that shape.** `_provider_body_in_response_dicts()` scans
+every response dict -- not only those inside an except handler, because this
+leak sat in a plain `else:` branch -- for a `.text`/`.content`/`.body` attribute
+on a `resp*` name under a response error key. Mutation-checked: restore the old
+line and the new test fails on exactly that file; restore the fix and 1196 pass.
+
+**And it no longer false-positives on structured logging.** The original walked
+every dict inside the handler, including `logger.error(..., extra={...})` --
+where exception detail *belongs*. `blog/ai_integration.py:438` already carries
+that shape and escaped only because `error_type` is not in
+`RESPONSE_ERROR_KEYS`; renaming it to `error` would have turned a correct commit
+red. `_logging_extra_dicts()` now excludes them. Verified old vs new on the same
+input: old FIRES, new quiet.
+
+Discrimination check on five shapes -- logging `extra` quiet, `str(e)` in a
+response fires, `response.text` in a response fires, `response.text` in a log
+quiet, status-code-only quiet.

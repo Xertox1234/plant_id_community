@@ -459,10 +459,17 @@ def _exception_details_in_response_dicts(path):
     all. A rule with no exceptions is one nobody has to adjudicate.
     """
     tree = ast.parse(pathlib.Path(path).read_text(encoding="utf-8"))
+    logging_dicts = _logging_extra_dicts(tree)
     for handler in (n for n in ast.walk(tree) if isinstance(n, ast.ExceptHandler)):
         if not handler.name:
             continue
         for dict_node in (n for n in ast.walk(handler) if isinstance(n, ast.Dict)):
+            if id(dict_node) in logging_dicts:
+                # `logger.error(..., extra={"error": str(e)})` is structured
+                # logging, not a payload -- the detail SHOULD be there. Without
+                # this, one rename of `error_type` to `error` in
+                # blog/ai_integration.py turns a correct commit red.
+                continue
             for key, value in zip(dict_node.keys, dict_node.values):
                 if not (
                     isinstance(key, ast.Constant) and key.value in RESPONSE_ERROR_KEYS
@@ -473,6 +480,52 @@ def _exception_details_in_response_dicts(path):
                     for n in ast.walk(value)
                 ):
                     yield value.lineno, ast.unparse(value)
+
+
+LOGGER_METHODS = {"debug", "info", "warning", "warn", "error", "critical", "exception"}
+
+# A provider's raw body, reached through the response object rather than through
+# a bound exception. Structurally invisible to the guard above -- no `Name` node
+# matches the handler -- which is how plant_health_service.py:388 survived the
+# first sweep of todo 377, two branches above a site that WAS converted.
+BODY_ATTRS = {"text", "content", "body"}
+
+
+def _logging_extra_dicts(tree):
+    """`id()` of every dict passed as `extra=` to a `logger.*` call."""
+    out = set()
+    for call in (n for n in ast.walk(tree) if isinstance(n, ast.Call)):
+        func = call.func
+        if not (isinstance(func, ast.Attribute) and func.attr in LOGGER_METHODS):
+            continue
+        for kw in call.keywords:
+            if kw.arg == "extra" and isinstance(kw.value, ast.Dict):
+                out.add(id(kw.value))
+    return out
+
+
+def _provider_body_in_response_dicts(path):
+    """Yield ``(lineno, source)`` for a provider's raw body in a response dict.
+
+    Not scoped to except handlers: the leak at plant_health_service.py:388 was
+    in a plain `else:` branch checking `response.status_code`.
+    """
+    tree = ast.parse(pathlib.Path(path).read_text(encoding="utf-8"))
+    logging_dicts = _logging_extra_dicts(tree)
+    for dict_node in (n for n in ast.walk(tree) if isinstance(n, ast.Dict)):
+        if id(dict_node) in logging_dicts:
+            continue
+        for key, value in zip(dict_node.keys, dict_node.values):
+            if not (isinstance(key, ast.Constant) and key.value in RESPONSE_ERROR_KEYS):
+                continue
+            for node in ast.walk(value):
+                if isinstance(node, ast.Attribute) and node.attr in BODY_ATTRS:
+                    root = node.value
+                    while isinstance(root, ast.Attribute):
+                        root = root.value
+                    if isinstance(root, ast.Name) and "resp" in root.id.lower():
+                        yield value.lineno, ast.unparse(value)
+                        break
 
 
 @pytest.mark.parametrize(
@@ -486,6 +539,20 @@ def test_no_response_dict_carries_its_exception(service):
     in files that do not all import ``requests``.
     """
     offenders = list(_exception_details_in_response_dicts(BACKEND / service))
+    assert not offenders, "\n".join(f"  line {n}: {src}" for n, src in offenders)
+
+
+@pytest.mark.parametrize(
+    "service", [str(p.relative_to(BACKEND)) for p in _backend_python_files()]
+)
+def test_no_response_dict_carries_a_provider_body(service):
+    """Second half of the class (todo 377, review round 1).
+
+    The exception guard above keys on the bound exception name, so it cannot see
+    `response.text[:100]` -- which is how a leak two branches above a converted
+    site survived the first sweep.
+    """
+    offenders = list(_provider_body_in_response_dicts(BACKEND / service))
     assert not offenders, "\n".join(f"  line {n}: {src}" for n, src in offenders)
 
 
