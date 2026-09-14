@@ -44,6 +44,66 @@ except Exception:
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 
+# ============================================================================
+# Placeholder / example-value rejection (todo 367)
+# ============================================================================
+# `.env.example` marks every must-replace value with a REQUIRED__GENERATE_WITH__
+# or REQUIRED__GET_FROM__ placeholder. Until todo 367 nothing enforced that
+# convention, and four of the five booted clean in production.
+#
+# JWT_SECRET_KEY was the one with teeth. Its own checks are set / != SECRET_KEY /
+# len >= 50, and the 66-character placeholder cleared all three, landing in
+# SIMPLE_JWT["SIGNING_KEY"]. Every JWT would then be signed with a value
+# published in a committed file in a PUBLIC repo.
+#
+# SECRET_KEY looked enforced and was not: it survived only because someone wrote
+# "get_random_secret_key" in the generate hint, so the word "secret" in
+# INSECURE_PATTERNS happened to match. Reword the hint and the last guard
+# disappears silently. A guard that works by coincidence is not a guard.
+REQUIRED_PLACEHOLDER_PREFIX = "REQUIRED__"
+
+# Substrings that mark a value as an example rather than a real secret. Matched
+# case-insensitively against the whole value.
+INSECURE_PATTERNS = [
+    "django-insecure",
+    "change-me",
+    "your-secret-key-here",
+    "secret",
+    "password",
+    "abc123",
+]
+
+
+def reject_insecure_value(name, value):
+    """Raise ImproperlyConfigured if `value` is a placeholder or example.
+
+    One function rather than a loop copied per key: the SECRET_KEY loop existed
+    for years while JWT_SECRET_KEY, the more dangerous of the two, had no such
+    check at all.
+
+    The REQUIRED__ prefix is checked first and reported on its own, because its
+    remedy differs -- "you copied .env.example and did not fill this in" is a
+    different mistake from "you chose a weak value".
+    """
+    if not value:
+        return
+    if value.startswith(REQUIRED_PLACEHOLDER_PREFIX):
+        raise ImproperlyConfigured(
+            f"{name} is still the unmodified .env.example placeholder "
+            f"({value[:40]}...).\n"
+            f"That value is committed to a PUBLIC repository -- anyone can read "
+            f"it.\n"
+            f"The placeholder itself names how to generate or obtain the real "
+            f"value."
+        )
+    for pattern in INSECURE_PATTERNS:
+        if pattern in value.lower():
+            raise ImproperlyConfigured(
+                f"Production {name} contains insecure pattern: '{pattern}'\n"
+                f"Generate a new value; do not adapt the example."
+            )
+
+
 # SECURITY WARNING: keep the secret key used in production secret!
 # Environment-aware SECRET_KEY configuration with production validation
 if config("DEBUG", default=False, cast=bool):
@@ -81,22 +141,7 @@ else:
         )
 
     # Validate it's not a default/example value
-    INSECURE_PATTERNS = [
-        "django-insecure",
-        "change-me",
-        "your-secret-key-here",
-        "secret",
-        "password",
-        "abc123",
-    ]
-
-    for pattern in INSECURE_PATTERNS:
-        if pattern in SECRET_KEY.lower():
-            raise ImproperlyConfigured(
-                f"Production SECRET_KEY contains insecure pattern: '{pattern}'\n"
-                f"Generate a new key with:\n"
-                f"  python -c 'from django.core.management.utils import get_random_secret_key; print(get_random_secret_key())'"
-            )
+    reject_insecure_value("SECRET_KEY", SECRET_KEY)
 
     # Validate minimum length
     if len(SECRET_KEY) < 50:
@@ -748,6 +793,18 @@ if len(JWT_SECRET_KEY) < 50:
         "This will generate an 86-character URL-safe key.\n"
         "=" * 70 + "\n"
     )
+
+# Reject the .env.example placeholder (todo 367).
+#
+# This is the case with teeth. The three checks above are set / != SECRET_KEY /
+# len >= 50, and the 66-character placeholder clears all three -- so without this
+# line it lands in SIGNING_KEY below and signs every JWT with a value committed
+# to a PUBLIC repository. Anyone who can read the repo can forge tokens.
+#
+# Gated on `not DEBUG` to match SECRET_KEY's own guard: a local dev environment
+# is not the threat model, and failing every dev boot is not this todo's ask.
+if not DEBUG:
+    reject_insecure_value("JWT_SECRET_KEY", JWT_SECRET_KEY)
 
 # Set JWT signing key (validation passed)
 SIMPLE_JWT["SIGNING_KEY"] = JWT_SECRET_KEY
@@ -1563,7 +1620,14 @@ def validate_environment():
     ]
 
     for key_name, key_value, min_length, description in api_key_checks:
-        if key_value and len(key_value) < min_length:
+        # Placeholder first: both placeholders are longer than their floor (41
+        # and 44 chars vs 32 and 20), so a length check alone accepts them.
+        if key_value and key_value.startswith(REQUIRED_PLACEHOLDER_PREFIX):
+            critical_errors.append(
+                f"{key_name} is still the unmodified .env.example placeholder. "
+                f"Get a real key: {description}."
+            )
+        elif key_value and len(key_value) < min_length:
             critical_errors.append(
                 f"{key_name} appears invalid (too short: {len(key_value)} chars, minimum {min_length}). "
                 f"Check your {description} key configuration."
