@@ -127,7 +127,12 @@ That was treated as a one-off. It is not.
 - [x] `test_image_rendition_formats.py` passes 4/4 locally — verified across
       three consecutive runs on the healed venv (wagtail 8.0), and with
       `backend/conftest.py` removed entirely to rule it out as a factor
-- [ ] Decide whether the 43 unpinned-but-installed packages matter → todo 380
+- [x] Decide whether the 43 unpinned-but-installed packages matter → todo 380
+      (decided 2026-09-13 in todo 380: they do, but only the deliberately-REMOVED
+      subset. `flake8`, `isort`, `pip-audit` and `detect-secrets` are unpinned on
+      purpose and must never be flagged, so the check names an explicit
+      `REMOVED_ON_PURPOSE` set rather than reporting the whole bucket. The three
+      packages are now uninstalled and the count is 22, not 43.)
 
 The guard itself is **todo 379's**, not this todo's. The three hook criteria
 that used to live here were duplicated verbatim there, and whichever todo closed
