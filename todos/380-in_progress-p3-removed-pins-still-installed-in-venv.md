@@ -126,7 +126,7 @@ Verification:
 | `pip check` | -- | `No broken requirements found` |
 | `manage.py check` | -- | `no issues (0 silenced)` |
 | `pytest apps/core` | -- | **207 passed** |
-| `pytest apps/core/tests/test_env_integrity.py` | -- | **42 passed** (10 new) |
+| `pytest apps/core/tests/test_env_integrity.py` | -- | **43 passed** (10 new) |
 
 The detector was positive-controlled *before* the uninstall (it fired, named all
 three, and printed the uninstall hint rather than the install one) and
@@ -149,3 +149,20 @@ docs.** In a scratch package, a hand-planted `node_modules/stray-removed-pkg`
 survived until `npm ci`, which removed it. `npm ci` deletes `node_modules`
 before installing, so the pip failure mode has no npm analogue.
 `.github/workflows/web-ci.yml:42` uses `npm ci`.
+
+## Review round 1
+
+`removed_but_installed()` compared the hand-maintained `REMOVED_ON_PURPOSE`
+keys **raw** against `installed`, whose keys are PEP 503-normalized. That is
+correct only by coincidence: all three current entries (`safety`, `bandit`,
+`nltk`) are single lowercase tokens with no separators, so `normalize(k) == k`.
+Adding `PyYAML` or `ruamel.yaml` to the dict -- which the module's own comment
+invites, since the list is maintained by hand -- would have made the lookup
+match nothing, silently. That is the same silent-miss this whole check exists
+to prevent, reintroduced one level up in the very function meant to close it.
+
+Fixed by normalizing both sides. Pinned by
+`test_a_removed_name_is_matched_after_pep503_normalization`, which was
+mutation-checked: reverted to the raw `name in installed` lookup it FAILS,
+restored it PASSES (43 passed). The file was restored with `cp` from a saved
+copy, never `git checkout --`.

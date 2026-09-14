@@ -155,10 +155,15 @@ def removed_but_installed(installed: dict[str, str]) -> list[tuple[str, str, str
     Takes `installed` rather than calling `installed_versions()` itself so the
     pure comparison stays testable without a venv to stage.
     """
+    # Normalize the keys too. `installed` is already PEP 503-normalized, so
+    # comparing raw keys against it works only while every key happens to be a
+    # single lowercase token. The moment someone adds `PyYAML` or `ruamel.yaml`
+    # to the hand-maintained dict above, a raw lookup silently matches nothing --
+    # which is the exact silent-miss this whole check exists to prevent.
     return sorted(
-        (name, installed[name], why)
+        (normalize(name), installed[normalize(name)], why)
         for name, why in REMOVED_ON_PURPOSE.items()
-        if name in installed
+        if normalize(name) in installed
     )
 
 

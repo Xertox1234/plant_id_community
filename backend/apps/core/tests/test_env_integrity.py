@@ -443,6 +443,28 @@ def test_a_removed_package_is_reported_with_its_version_and_reason():
     assert why, "a bare name prompts nobody to act; the reason is the point"
 
 
+def test_a_removed_name_is_matched_after_pep503_normalization(monkeypatch):
+    """Regression: the dict's own keys must be normalized, not just `installed`.
+
+    `installed_versions()` returns PEP 503-normalized keys, so comparing the
+    hand-maintained `REMOVED_ON_PURPOSE` keys raw against it works only while
+    every key happens to be a single lowercase token -- which all three current
+    entries are. Add `ruamel.yaml` or `PyYAML` and a raw lookup matches nothing,
+    silently, which is the exact miss this check exists to prevent.
+
+    This test fails against a raw `name in installed` lookup.
+    """
+    monkeypatch.setattr(
+        env_integrity,
+        "REMOVED_ON_PURPOSE",
+        {"Ruamel.YAML": "removed in a hypothetical future sweep"},
+    )
+    removed = env_integrity.removed_but_installed({"ruamel-yaml": "0.18.6"})
+    assert len(removed) == 1, "a dotted, mixed-case key must still match"
+    name, version, _ = removed[0]
+    assert (name, version) == ("ruamel-yaml", "0.18.6")
+
+
 def test_a_removed_package_that_is_absent_is_not_reported():
     assert env_integrity.removed_but_installed({"django": "5.2.7"}) == []
 
