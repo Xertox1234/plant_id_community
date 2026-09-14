@@ -46,8 +46,15 @@ DEFAULT_RULES_DIR = (
 )
 
 # Below this, a head/tail split produces two fragments too small to carry a
-# whole rule, and the marker costs more than the content. Emit head only.
+# whole rule. Fall back to TAIL only -- never head only. A head-only excerpt is
+# precisely the append-only bias this module exists to remove, so if the budget
+# can only carry one end it must carry the end where the newest rules are.
+# (Review round 1: the old head-only branch was reachable on 48 five-domain
+# files whenever any trigger fired, silently restoring the original bug.)
 MIN_SPLIT = 700
+
+# Smallest useful fragment: roughly one appended rule bullet.
+MIN_TAIL = 160
 
 # Of an over-budget file's share, how much goes to the opening. The remainder
 # goes to the ending. Weighted toward the head because a rule file opens with
@@ -89,37 +96,85 @@ def boundary_after(text: str, start: int) -> int:
     return nl + 1 if nl != -1 else start
 
 
+def nbytes(text: str) -> int:
+    """UTF-8 byte length. The injection cap counts bytes; these files contain
+    em dashes and arrows, so `len()` undercounts by ~2 bytes each."""
+    return len(text.encode("utf-8"))
+
+
+def fit_bytes(text: str, limit: int, from_end: bool = False) -> str:
+    """Longest prefix (or suffix) of `text` that fits `limit` UTF-8 bytes."""
+    if limit <= 0:
+        return ""
+    if nbytes(text) <= limit:
+        return text
+    lo, hi = 0, len(text)
+    while lo < hi:
+        mid = (lo + hi + 1) // 2
+        chunk = text[-mid:] if from_end else text[:mid]
+        if nbytes(chunk) <= limit:
+            lo = mid
+        else:
+            hi = mid - 1
+    return text[-lo:] if lo and from_end else text[:lo]
+
+
 def excerpt(text: str, share: int, path: str) -> str:
-    """`text` if it fits, else head + marker + tail, cut on rule boundaries."""
-    if len(text) <= share:
+    """`text` if it fits, else an excerpt that ALWAYS ends with the file's tail.
+
+    The return value never exceeds `share` bytes: the marker is charged against
+    the share before any content is sliced, rather than appended on top of it.
+    """
+    if nbytes(text) <= share:
         return text
 
-    if share < MIN_SPLIT:
-        head_end = boundary_before(text, share)
-        skipped = len(text) - head_end
+    total = nbytes(text)
+
+    def split_marker(skipped: int) -> str:
         return (
-            text[:head_end]
-            + f"\n[... {skipped} more bytes of {path} not injected "
-            f"(budget {share} B). Read the file for the rest.]\n"
+            f"\n[... {skipped} bytes of {path} skipped to fit the injection "
+            f"budget ({share} B). The NEWEST rules follow; read the file for "
+            f"the middle. ...]\n\n"
         )
 
-    head_limit = int(share * HEAD_FRACTION)
-    head_end = boundary_before(text, head_limit)
+    def tail_marker(skipped: int) -> str:
+        return (
+            f"\n[... the first {skipped} bytes of {path} were not injected "
+            f"(budget {share} B). The NEWEST rules follow; read the file for "
+            f"the rest. ...]\n\n"
+        )
 
-    tail_bytes = share - head_end
-    tail_start = boundary_after(text, max(head_end, len(text) - tail_bytes))
+    # Size the markers against the whole file, so the real (smaller) skipped
+    # count can only make them shorter than what we reserved.
+    split_cost = nbytes(split_marker(total))
+    tail_cost = nbytes(tail_marker(total))
 
-    if tail_start <= head_end:  # the two halves met; nothing was skipped
-        return text
+    if share - split_cost < MIN_TAIL * 2 or share < MIN_SPLIT:
+        # Too tight to carry both ends. Carry the tail.
+        body = fit_bytes(text, max(share - tail_cost, 0), from_end=True)
+        start = boundary_after(text, len(text) - len(body))
+        body = fit_bytes(text[start:], max(share - tail_cost, 0), from_end=True)
+        if not body:
+            return ""
+        return tail_marker(total - nbytes(body)) + body
 
-    skipped = tail_start - head_end
-    return (
-        text[:head_end]
-        + f"\n[... {skipped} bytes of {path} skipped to fit the injection "
-        f"budget ({share} B). The NEWEST rules follow; read the file for the "
-        f"middle. ...]\n\n"
-        + text[tail_start:]
-    )
+    content = share - split_cost
+    head = fit_bytes(text, int(content * HEAD_FRACTION))
+    head_end = boundary_before(text, len(head))
+    head = text[:head_end]
+
+    tail = fit_bytes(text, max(content - nbytes(head), 0), from_end=True)
+    tail_start = boundary_after(text, len(text) - len(tail))
+
+    if tail_start <= head_end:
+        # The halves met, so nothing is actually skipped -- but the file did not
+        # fit, so emitting it whole would blow the budget. Fall back to the tail.
+        body = fit_bytes(text, max(share - tail_cost, 0), from_end=True)
+        start = boundary_after(text, len(text) - len(body))
+        body = fit_bytes(text[start:], max(share - tail_cost, 0), from_end=True)
+        return tail_marker(total - nbytes(body)) + body
+
+    return text[:head_end] + split_marker(tail_start - head_end) + text[tail_start:]
 
 
 def allocate(sizes: dict[str, int], budget: int) -> dict[str, int]:
@@ -159,8 +214,10 @@ def assemble(domains: list[str], budget: int, rules_dir: pathlib.Path) -> str:
 
     # The per-domain header costs bytes too; charge for it up front so the
     # assembled output actually lands under `budget` rather than just over it.
-    overhead = sum(len(f"\n[RULES — {d}]\n") for d in files)
-    shares = allocate({d: len(t) for d, t in files.items()}, max(budget - overhead, 0))
+    overhead = sum(nbytes(f"\n[RULES — {d}]\n") for d in files)
+    shares = allocate(
+        {d: nbytes(t) for d, t in files.items()}, max(budget - overhead, 0)
+    )
 
     out = []
     for domain in domains:

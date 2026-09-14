@@ -268,3 +268,62 @@ a domain seen after one injection, even when that injection was a subset.
 Re-injecting the same head+tail on every edit is noise, and with the tail now
 guaranteed the once-per-session copy is representative rather than arbitrary.
 Changing dedup semantics is a separate decision.
+
+## Review round 1 — two blocking findings, both real
+
+**B1. The head-only branch reproduced the bug it replaced.** Below
+`MIN_SPLIT` (700 B) `excerpt()` returned head + marker and **no tail** — the
+append-only bias, restored. Not a corner case: real 4- and 5-domain routes
+produce shares of 620–928 B, so any route whose share landed under 700 silently
+lost the newest rule. The review measured 48 tracked files routing to 5 domains
+(share 734, only 34 B of slack — one trigger message tips it) and 279 routing to
+4. Worse, the per-session dedup marker is written on a head-only injection too,
+so that domain is then skipped for the rest of the session.
+
+Fixed by **never emitting head-only**. When the share cannot carry both ends the
+excerpt keeps the **tail**, since the newest rules are the documented guarantee.
+Measured floor moved 700 -> ~220 B per domain, comfortably below the real range.
+
+**B2. `excerpt()` returned more than its share.** The elision marker was
+appended *on top of* `share` rather than charged against it (~106–149 B per
+file), and `assemble()` measured `len()` on `str` while the cap counts bytes —
+`"\n[RULES — api]\n"` is 15 chars but 17 bytes. Measured overruns of +181 to
++591 B, pushing a 5-domain payload to 8916–8991 B against the 8800 target, which
+lands under `THRESHOLD=9000` so neither the spill file nor the truncation notice
+fires.
+
+Fixed by sizing both markers up front and subtracting them from the share before
+slicing, and by measuring every budget in UTF-8 bytes.
+
+Verified against the pre-fix module as a negative control, on `testing.md`:
+
+| share | old tail | old bytes | new tail | new bytes |
+| --- | --- | --- | --- | --- |
+| 300 | LOST | 326 (over) | kept | 194 |
+| 500 | LOST | 467 | kept | 194 |
+| 620 | LOST | 467 | kept | 530 |
+| 699 | LOST | 467 | kept | 530 |
+| 734 | kept | 558 | kept | 417 |
+| 1500 | kept | 1570 (over) | kept | 1245 |
+
+**Tests.** The review was right that neither prior assertion could fail: the
+size test (`-le 9000`) passes against the pre-fix hook, which emits 8951 B, and
+the sentinel test used a 4-domain path whose share (~928) takes the split
+branch. Two property tests now call `excerpt()` directly at the shares real
+routes produce. Mutation-checked: **against the pre-fix module they fail**
+(`dropped the tail at 4 shares`, `exceeded its share at 3 shares`); against the
+fix, 29 passed / 0 failed.
+
+**Claims corrected.** `kimi-review.sh` said the widest route is 4 domains; it is
+5 (measured). `CLAUDE.md` now states the tail-over-head rule and that markers
+are charged against the budget.
+
+### Deferred to follow-up, not fixed here
+
+- `boundary_before` under-uses a tight budget (24% of a 620 B share in one case).
+- `kimi-review`'s own cut is still head-only (`content[:max]`), so raising it to
+  60000 buys headroom but keeps the bias for any file that outgrows it.
+  `testing.md` is 46 KB and grew 4.6 KB during this todo alone.
+- `kimi-review.sh` treats exit 2 as "verified CRITICAL", but argparse also exits
+  2 on an unknown flag — an older `kimi-review` on PATH would block every commit
+  with a bogus reason. Not live here (nothing named `kimi-review` is on PATH).

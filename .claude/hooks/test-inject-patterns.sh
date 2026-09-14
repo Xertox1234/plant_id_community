@@ -220,6 +220,47 @@ else
   echo "FAIL: $MARKERS_ANCHORED of $MARKERS_TOTAL elision markers start a line"; FAIL=$((FAIL + 1))
 fi
 
+# ---------------------------------------------------------------------------
+# Direct budget_rules.py properties.
+#
+# The two assertions above go through the hook, where `allocate()`'s slack
+# cascade lifts most shares well clear of the interesting range. Review round 1
+# showed both of them pass against the PRE-FIX implementation, so neither is a
+# regression guard. These two call excerpt() at the shares real 4- and
+# 5-domain routes actually produce (620-928 B measured) and fail against it.
+# ---------------------------------------------------------------------------
+BR="$(cd "$(dirname "$HOOK")/../.." && pwd)/scripts/inject/budget_rules.py"
+RULES_DIR="$(cd "$(dirname "$HOOK")/../.." && pwd)/docs/rules"
+
+PROP=$(python3 - "$BR" "$RULES_DIR" <<'PYEOF'
+import importlib.util, pathlib, sys
+spec = importlib.util.spec_from_file_location("br", sys.argv[1])
+br = importlib.util.module_from_spec(spec); spec.loader.exec_module(br)
+text = (pathlib.Path(sys.argv[2]) / "testing.md").read_text() + "\n- SENTINEL_PROP_369\n"
+lost = over = 0
+for share in (300, 500, 620, 699, 734, 928, 1500, 3000, 6000):
+    out = br.excerpt(text, share, "docs/rules/testing.md")
+    if "SENTINEL_PROP_369" not in out:
+        lost += 1
+    if len(out.encode("utf-8")) > share:
+        over += 1
+print(f"{lost} {over}")
+PYEOF
+) || PROP="ERR ERR"
+PROP_LOST=${PROP%% *}; PROP_OVER=${PROP##* }
+
+if [ "$PROP_LOST" = "0" ]; then
+  echo "PASS: excerpt() keeps the file tail at every real share"; PASS=$((PASS + 1))
+else
+  echo "FAIL: excerpt() dropped the tail at $PROP_LOST share(s)"; FAIL=$((FAIL + 1))
+fi
+
+if [ "$PROP_OVER" = "0" ]; then
+  echo "PASS: excerpt() never exceeds the share it is given"; PASS=$((PASS + 1))
+else
+  echo "FAIL: excerpt() exceeded its share at $PROP_OVER share(s)"; FAIL=$((FAIL + 1))
+fi
+
 # The newest rule -- these files are append-only -- must reach the edit site.
 # Asserted by appending a sentinel to the LARGEST rule file and looking for it.
 # Without the tail half of the excerpt this fails: the sentinel sits ~46 KB into

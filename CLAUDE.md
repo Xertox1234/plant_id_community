@@ -257,14 +257,19 @@ reach only **new** worktrees; existing worktrees keep their setup until rebased.
 
   **What "injected" actually guarantees** (todo 369). The hook output is capped
   at ~8.8 KB, and the rule files total ~190 KB, so a large file cannot arrive
-  whole. `scripts/inject/budget_rules.py` splits the remaining budget across the
+  whole. The budget is counted in **bytes**, and each elision marker is charged
+  against its own file's share, so the assembled payload never exceeds it. `scripts/inject/budget_rules.py` splits the remaining budget across the
   routed domains and takes each over-budget file's **opening and its ending**,
   cutting on rule boundaries and naming the elided middle. So:
 
   - every routed domain contributes something — a three-domain path no longer
     gets the first domain and zero bytes of the other two;
   - the **newest** rule in a file always arrives. These files are append-only, so
-    the rule written because the mistake just happened used to be the first cut;
+    the rule written because the mistake just happened used to be the first cut.
+    When a share is too small to carry both ends, the excerpt keeps the
+    **tail**, never the head — a head-only excerpt is the very bias this
+    replaced. Measured floor: the tail survives down to a ~220 B per-domain
+    share, against 620–928 B for real 4- and 5-domain routes;
   - a rule in the **middle** of a large file may not. If a rule must bind at the
     exact line, give it a `docs/rules/triggers.json` entry — the trigger tier is
     content-matched and is not subject to this budget.
