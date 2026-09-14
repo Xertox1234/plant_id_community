@@ -315,3 +315,29 @@ Also covered the one reason token with no test (`executor-timeout`, produced by
 `gather` rather than `call`) and the detected-disease path, since the new `elif`
 shares an if/elif chain with the existing warning. 25 tests; app suite 147
 passed; 18 mutants, no survivors.
+
+### 2026-09-14 - CI caught what an app-scoped test run could not
+
+`apps/core/tests/test_requests_exception_drift.py` (todo 358) failed on
+`plant_id_service.py:317`. It allows exactly four shapes to carry a `requests`
+exception into a log, and I had inlined a fifth —
+`f"... ({classify_provider_failure(e)}) ..."`. The wrapper is safe by
+construction and there is a test pinning that it never returns the exception's
+message, but **that is not the point**: the guard cannot tell a safe wrapper
+from `e.args[0]`, so it forbids all of them rather than trust a reader. Widening
+its allowlist for a new wrapper would have been the wrong fix and would have
+weakened a guard written after three API keys leaked this way.
+
+Fixed by assigning `reason = classify_provider_failure(e)` first, so the only
+thing interpolated alongside `e` is the already-approved `log_safe_api_error(e)`.
+The same code in `combined_identification_service.py` already did this and
+passed, which is why only one site failed.
+
+**The process lesson, and it is the second time in this session.** I ran
+`apps/plant_identification/` and read 143 passed as "green". Both regressions I
+introduced were caught by repo-wide checks living *outside* the app I was
+editing — the log-prefix script in `scripts/`, and this drift guard in
+`apps/core/tests/`. An app-scoped run cannot see either. Before pushing a change
+to a service, run `apps/core/` as well: five of its tests scan the whole backend
+tree (`test_requests_exception_drift`, `test_env_example_placeholders`,
+`test_env_integrity`, `test_image_rendition_formats`, `test_r2_storage`).

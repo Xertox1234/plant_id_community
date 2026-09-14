@@ -314,9 +314,15 @@ class PlantIDAPIService:
             # URL today -- keep it that way structurally.
             # The reason token is what makes this greppable and comparable; the
             # bare message said "HTTPError" and distinguished nothing (todo 393).
+            # Assigned first, NOT inlined into the f-string: the drift guard in
+            # apps/core/tests/test_requests_exception_drift.py allows only four
+            # shapes to carry `e` into a log, and it is right to -- it cannot
+            # tell a safe wrapper from `e.args[0]`, so it forbids all of them
+            # rather than trust a reader. Widening that allowlist for a new
+            # wrapper would be the wrong fix.
+            reason = classify_provider_failure(e)
             logger.error(
-                f"[PLANT_ID] Plant.id API error ({classify_provider_failure(e)}): "
-                f"{log_safe_api_error(e)}"
+                f"[PLANT_ID] Plant.id API error ({reason}): {log_safe_api_error(e)}"
             )
             raise
         except Exception as e:
