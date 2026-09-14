@@ -3,7 +3,7 @@
          FirebaseMessaging.requestPermission() after login (todo 253 slice 6). -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <application
-        android:label="plant_community_mobile"
+        android:label="Houseplant MD"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">
         <activity
