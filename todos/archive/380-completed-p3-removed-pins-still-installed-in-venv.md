@@ -1,5 +1,5 @@
 ---
-status: in_progress
+status: completed
 priority: p3
 issue_id: "380"
 tags: [security, tooling, backend]
@@ -166,3 +166,8 @@ Fixed by normalizing both sides. Pinned by
 mutation-checked: reverted to the raw `name in installed` lookup it FAILS,
 restored it PASSES (43 passed). The file was restored with `cp` from a saved
 copy, never `git checkout --`.
+
+### 2026-09-13 - Archived after PR #746 merged
+
+- Verification: all acceptance criteria checked; shipped in #746.
+- Review: round 1 + round 2 (subagent). 0 blocking.

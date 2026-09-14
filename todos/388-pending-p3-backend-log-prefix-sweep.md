@@ -1,5 +1,5 @@
 ---
-status: in_progress
+status: pending
 priority: p3
 issue_id: "388"
 tags: [code-quality, logging, backend, tech-debt]
@@ -376,3 +376,26 @@ unlike the unlocatable-splice branch. No such calls exist in the 7 files swept
 here, so it did not fire, but `plant_identification` (182), `users` (84) and
 `blog` (22) are unaudited for that shape. Run the checker with `--list` before
 trusting a slice's count.
+
+### 2026-09-13 - core slice shipped in #749; returned to `pending`
+
+- The `core` app is swept: **0 unprefixed / 67 prefixed**, verified by
+  `scripts/check_log_prefixes.py --app core --fail-over 0` (exit 0).
+- Backend-wide this moved **339 -> 295 of 769** unprefixed (44.1% -> 38.4%).
+  Both numbers are snapshots; the trigger message now says so and points at the
+  checker rather than asserting a percentage that its own diff invalidates.
+- Three ACs remain open and are genuinely open: `plant_identification`,
+  `users` and `blog` are unswept, the no-rewording check has not been run
+  across the remaining slices, and the backend suite has only been proven green
+  on this one.
+- **Returned to `status: pending` rather than left `in_progress`** because the
+  todo-sweep skill selects on `^status: pending` - an `in_progress` todo is
+  invisible to every future sweep, so leaving it there would strand the
+  remaining slices silently. Same reason it is not being archived: its
+  deliverable is not done, and a filename claiming otherwise is the exact
+  defect todo 390 documents.
+- Round-2 review also found `scripts/add_log_prefixes.py` wrote unparseable
+  Python on Python <= 3.11 (PEP 701 f-string `col_offset`), silently - the
+  checker swallows `SyntaxError`, so a mangled file leaves both numerator and
+  denominator and the count goes DOWN. Fixed in #749: it now re-parses before
+  writing and refuses. Run the remaining slices on 3.12+.
