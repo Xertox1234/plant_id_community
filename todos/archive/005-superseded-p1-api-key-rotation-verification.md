@@ -1,5 +1,5 @@
 ---
-status: ready
+status: superseded
 priority: p1
 issue_id: "005"
 tags: [security, incident-response, verification]
@@ -194,6 +194,19 @@ python manage.py test apps.plant_identification --keepdb
 - Oct 23: Keys removed (commit ba256af, 2 days exposure)
 - Oct 25: Rotation status unknown (this todo created)
 - **Action required**: Verify rotation completed within 24-48 hours of Oct 23
+
+### 2026-09-13 - Status corrected (todo 390)
+
+`status: ready` -> `superseded`, and the file renamed from `005-completed-...`.
+This todo was **not** done when it was archived: 7 unchecked ACs and a rotation
+date left as the literal template `[DATE]`. Marking it `completed` now would
+repeat the original error. **Todo 390 did the work** on 2026-09-13 and carries
+the evidence: the exposed Plant.id literal returned HTTP 401 ("api key is not
+active") when tested directly against `plant.id/api/v3/usage_info`, and a new key
+is live. The PlantNet key from the same incident was found **still live** that
+day -- eleven months after this file was filed under `completed`. That is what
+this file's unchecked box actually cost, and is why
+`scripts/check_archived_todo_status.py` now exists.
 
 ## Notes
 

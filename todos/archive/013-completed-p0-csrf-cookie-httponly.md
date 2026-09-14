@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: p0
 issue_id: "013"
 tags: [security, critical, csrf, xss, authentication, django]
@@ -295,6 +295,14 @@ python manage.py runserver
 - Update frontend to read from meta tag
 - Test all CSRF-protected endpoints
 - Document pattern in CLAUDE.md
+
+### 2026-09-13 - Status corrected (todo 390)
+
+`status: pending` -> `completed`. The ACs were never checked off, but the work is
+in the tree: `CSRF_COOKIE_HTTPONLY = True` at
+`backend/plant_community_backend/settings.py:1307`, and the same file asserts it
+at runtime (:1771-1772, *"CSRF_COOKIE_HTTPONLY should be True"*). Frontmatter was
+the only thing wrong.
 
 ## Notes
 

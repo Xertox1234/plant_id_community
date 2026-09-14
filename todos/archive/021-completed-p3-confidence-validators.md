@@ -1,5 +1,5 @@
 ---
-status: ready
+status: completed
 priority: p3
 issue_id: "021"
 tags: [data-integrity, validation]
@@ -23,3 +23,9 @@ confidence_score = models.FloatField(
 ```
 
 **Effort**: 15 minutes
+
+### 2026-09-13 - Status corrected (todo 390)
+
+`status: ready` -> `completed`. `backend/apps/plant_identification/models.py:190`
+and `:515` both declare
+`confidence_score = models.FloatField(..., validators=[MinValueValidator(0.0), MaxValueValidator(1.0)])`.

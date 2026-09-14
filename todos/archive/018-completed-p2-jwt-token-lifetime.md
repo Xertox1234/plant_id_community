@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: p2
 issue_id: "018"
 tags: [security, authentication, jwt, owasp, medium]
@@ -280,6 +280,16 @@ class TokenActivityMiddleware:
 - Monitor API load and UX
 - Adjust to 20-30 min if needed
 - Document decision in architecture docs
+
+### 2026-09-13 - Status corrected (todo 390)
+
+`status: pending` -> `completed`, renamed from `018-pending-...`. See the note in
+todo 017: both were honestly-labelled `pending` files sitting in `archive/`, the
+shape a mismatch-only check cannot see.
+
+Verified done: `backend/plant_community_backend/settings.py:686-688` sets
+`ACCESS_TOKEN_LIFETIME` to `JWT_ACCESS_TOKEN_LIFETIME` minutes, **default 15** --
+the OWASP-conformant value this todo asked for. Refresh is 7 days (:689-691).
 
 ## Notes
 

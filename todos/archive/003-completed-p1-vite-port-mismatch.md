@@ -1,5 +1,5 @@
 ---
-status: ready
+status: completed
 priority: p1
 issue_id: "003"
 tags: [code-review, configuration, cors, quick-fix]
@@ -180,6 +180,10 @@ CORS_ALLOWED_ORIGINS = [
 - Avoids conflict with default Vite port 5173
 - Dedicated port for React blog interface
 - Clearly separated from other potential dev servers
+
+### 2026-09-13 - Status corrected (todo 390)
+
+`status: ready` -> `completed`. `web/vite.config.ts:25` pins `port: 5174`.
 
 ## Notes
 

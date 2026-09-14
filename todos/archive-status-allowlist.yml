@@ -1,0 +1,146 @@
+# Grandfathered archived todos — DATA for scripts/check_archived_todo_status.py.
+#
+# Every file here is archived while its frontmatter still says the work is open.
+# They predate the check, so the check would fail on day one without them. That
+# is the only reason this file exists.
+#
+# THIS IS NOT A MUTE BUTTON. A stale entry — one whose file no longer violates,
+# or no longer exists — FAILS the check. So the list can only shrink, and the
+# way to remove an entry is to establish what actually happened and fix the
+# file's frontmatter. Without that rule an allowlist quietly becomes permanent:
+# `.github/security-suppressions.yml` documents the same decay hiding 19
+# advisories for two months.
+#
+# kind:
+#   not-triaged  Nobody has confirmed the work landed. The `hint` records what a
+#                grep turned up — a STARTING POINT, never a verdict. Writing
+#                `status: completed` on the strength of a hint is precisely the
+#                falsification this checker exists to prevent, and it is what
+#                cost eleven months on the PlantNet key (see todo 390).
+#
+# Sixteen of the original 29 violations were resolved on 2026-09-13 rather than
+# listed here, each with its evidence recorded in the file's own Work Log. These
+# thirteen are what was left when the cheap, decisive greps ran out. Todo 394
+# tracks shrinking them.
+
+allow:
+  - path: todos/archive/001-completed-p1-plantnet-circuit-breaker.md
+    kind: not-triaged
+    date: 2026-09-13
+    reason: >-
+      10 unchecked ACs. A circuit breaker plainly exists, but this todo's ACs
+      cover monitoring, lock handling and tests as well as the breaker itself,
+      and "the class is there" does not settle those.
+    hint: >-
+      CircuitBreaker appears in plant_identification/services/plantnet_service.py,
+      circuit_monitoring.py and test_circuit_breaker_locks.py.
+
+  - path: todos/archive/002-completed-p1-cascade-plant-disease-result.md
+    kind: not-triaged
+    date: 2026-09-13
+    reason: >-
+      6 unchecked ACs. The model exists; the ACs are about the on_delete
+      behaviour and a data-loss migration, neither of which a name grep shows.
+    hint: class PlantDiseaseResult at plant_identification/models.py:1217.
+
+  - path: todos/archive/002-completed-p1-views-type-hints.md
+    kind: not-triaged
+    date: 2026-09-13
+    reason: >-
+      8 unchecked ACs. Type hints are present in the views read so far, but this
+      asks for the whole views layer plus a mypy gate — a coverage claim, and
+      coverage is exactly what a spot grep cannot support.
+    hint: >-
+      plant_identification/api/simple_views.py is fully annotated
+      (def identify_plant(request: Request) -> Response).
+
+  - path: todos/archive/004-completed-p1-reaction-toggle-race-condition.md
+    kind: not-triaged
+    date: 2026-09-13
+    reason: >-
+      6 unchecked ACs. select_for_update is used in the forum package, but not
+      shown to be on the reaction-toggle path specifically.
+    hint: select_for_update appears in wagtail_forum/signals.py.
+
+  - path: todos/archive/004-completed-p1-vote-race-condition.md
+    kind: not-triaged
+    date: 2026-09-13
+    reason: >-
+      6 unchecked ACs. Same shape as the reaction-toggle todo above and probably
+      the same answer, but "probably" is the word that got us here.
+    hint: select_for_update appears in wagtail_forum/signals.py.
+
+  - path: todos/archive/005-completed-p1-attachment-soft-delete.md
+    kind: not-triaged
+    date: 2026-09-13
+    reason: >-
+      8 unchecked ACs about consistency of soft-delete across the Attachment
+      model and its readers. Consistency is a sweep claim; a grep hit is not one.
+    hint: >-
+      soft_delete / is_deleted appear in wagtail_forum and forum_host tests, not
+      confirmed on the Attachment model itself.
+
+  - path: todos/archive/008-completed-p1-image-magic-number-validation.md
+    kind: not-triaged
+    date: 2026-09-13
+    reason: >-
+      8 unchecked ACs. Magic-byte validation clearly exists; whether it covers
+      every upload entry point this todo listed is the unverified part.
+    hint: >-
+      validate_image_file in apps/core/validators.py; python-magic used in
+      garden_calendar/constants.py and its file-upload security tests.
+
+  - path: todos/archive/009-completed-p2-dead-code-services.md
+    kind: not-triaged
+    date: 2026-09-13
+    reason: >-
+      Genuinely artifact-less, and the clearest example of the category. The
+      deliverable was DELETING 4,500 lines across 13 services; a successful
+      deletion leaves nothing to grep for, and so does never starting. Only the
+      git history can answer this one.
+
+  - path: todos/archive/009-completed-p2-file-upload-rate-limiting.md
+    kind: not-triaged
+    date: 2026-09-13
+    reason: >-
+      8 unchecked ACs naming specific upload endpoints. Rate limiting exists in
+      the app generally; no decorator was found on an upload endpoint.
+    hint: >-
+      @ratelimit on garden_calendar/api/views.py:193,224 — event create and RSVP,
+      not uploads.
+
+  - path: todos/archive/015-completed-p1-tiptap-memory-leak.md
+    kind: not-triaged
+    date: 2026-09-13
+    reason: >-
+      8 unchecked ACs. A destroy call exists; whether it is in an unmount cleanup
+      (the actual bug) rather than merely present was not checked.
+    hint: editor.destroy and useEditor both in web/src/components/forum/TipTapEditor.tsx.
+
+  - path: todos/archive/016-completed-p1-moderation-dashboard-performance.md
+    kind: not-triaged
+    date: 2026-09-13
+    reason: >-
+      10 unchecked ACs about collapsing sequential COUNT queries. Needs a query
+      count against the real view, which is a test run, not a grep.
+
+  - path: todos/archive/020-completed-p2-post-search-gin-index.md
+    kind: not-triaged
+    date: 2026-09-13
+    reason: >-
+      9 unchecked ACs. The one where the grep came back EMPTY, so it is the most
+      likely of the thirteen to be genuinely unfinished — look here first.
+    hint: >-
+      No GinIndex / gin_trgm / SearchVector found in the wagtail_forum
+      migrations. Absence via grep is weak evidence, but it is the only negative
+      result in this list.
+
+  - path: todos/archive/031-completed-p4-api-documentation.md
+    kind: not-triaged
+    date: 2026-09-13
+    reason: >-
+      7 unchecked ACs. drf-spectacular is installed and decorating views, but no
+      schema/Swagger route was found, so the endpoint half is unconfirmed.
+    hint: >-
+      drf_spectacular used in garden_calendar/api/views.py and forum_host;
+      SpectacularAPIView not found in any urls.py.

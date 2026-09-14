@@ -1,5 +1,5 @@
 ---
-status: pending
+status: resolved
 priority: p1
 issue_id: "002"
 tags: [security, django, critical]
@@ -20,6 +20,7 @@ SECRET_KEY = config('SECRET_KEY', default='django-insecure-change-me-in-producti
 The default fallback is predictable and includes "insecure" in the name, but still allows the application to run.
 
 **Impact:**
+
 - Session hijacking via forged session cookies
 - CSRF token bypass
 - Password reset token forgery
@@ -36,12 +37,14 @@ The default fallback is predictable and includes "insecure" in the name, but sti
 ## Proposed Solutions
 
 ### Option 1: Fail Fast in Production (RECOMMENDED)
+
 - **Pros**: Forces proper configuration, no silent failures
 - **Cons**: Application won't start if misconfigured (this is good!)
 - **Effort**: Small (15 minutes)
 - **Risk**: Low (production deployment checklist will catch this)
 
 **Implementation:**
+
 ```python
 # settings.py - NO DEFAULT for SECRET_KEY in production
 if DEBUG:
@@ -66,12 +69,14 @@ else:
 ```
 
 ### Option 2: Enhanced Validation (Alternative)
+
 - **Pros**: More robust validation, detects weak keys
 - **Cons**: More complex validation logic
 - **Effort**: Medium (30 minutes)
 - **Risk**: Low
 
 **Implementation:**
+
 ```python
 import re
 from django.core.exceptions import ImproperlyConfigured
@@ -119,7 +124,7 @@ if not DEBUG:
 
 - Security audit report: `/backend/docs/development/SECURITY_AUDIT_REPORT.md`
 - Agent report: security-sentinel (Finding #2)
-- Django SECRET_KEY docs: https://docs.djangoproject.com/en/5.2/ref/settings/#secret-key
+- Django SECRET_KEY docs: <https://docs.djangoproject.com/en/5.2/ref/settings/#secret-key>
 
 ## Acceptance Criteria
 
@@ -134,17 +139,26 @@ if not DEBUG:
 ## Work Log
 
 ### 2025-10-22 - Code Review Discovery
+
 **By:** security-sentinel agent
 **Actions:**
+
 - Discovered insecure default SECRET_KEY during security audit
 - Analyzed impact of predictable secret key
 - Categorized as CRITICAL priority (A02:2021 - Cryptographic Failures)
 
 **Learnings:**
+
 - Never provide default values for sensitive configuration in production
 - Fail fast > silent failures with insecure defaults
 - Include helpful error messages with remediation instructions
 - Use DEBUG flag to allow convenient local development
+
+### 2026-09-13 - Status corrected (todo 390)
+
+`status: pending` -> `resolved`. Same subject and same evidence as
+`002-completed-fix-secret-key-default.md` (the two are duplicates):
+`INSECURE_PATTERNS` at `settings.py:67`, rejection at `:99`, length floor at `:147`.
 
 ## Notes
 
@@ -153,6 +167,7 @@ if not DEBUG:
 **Testing:** Test that app fails to start without SECRET_KEY when DEBUG=False
 
 **Example SECRET_KEY generation:**
+
 ```bash
 python -c 'from django.core.management.utils import get_random_secret_key; print(get_random_secret_key())'
 ```

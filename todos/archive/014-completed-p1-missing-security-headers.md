@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: p1
 issue_id: "014"
 tags: [security, headers, csp, xss, clickjacking, django]
@@ -258,6 +258,13 @@ urlpatterns = [
 - Test thoroughly to avoid breaking app
 - Monitor CSP violation reports
 - Gradually tighten policy (remove unsafe-inline)
+
+### 2026-09-13 - Status corrected (todo 390)
+
+`status: pending` -> `completed`. Verified in
+`backend/plant_community_backend/settings.py`: `SECURE_BROWSER_XSS_FILTER` (:1237),
+`SECURE_CONTENT_TYPE_NOSNIFF` (:1238), `X_FRAME_OPTIONS = "DENY"` (:1239),
+`SECURE_HSTS_SECONDS = 31536000` (:1261).
 
 ## Notes
 

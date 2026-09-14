@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: p2
 issue_id: "017"
 tags: [security, csrf, authentication, django, medium]
@@ -242,6 +242,18 @@ Likely to avoid CORS preflight complexity. But the fix (CORS headers + CSRF toke
 - Add CSRF token endpoint
 - Update frontend to use CSRF token
 - Test CSRF protection enforcement
+
+### 2026-09-13 - Status corrected (todo 390)
+
+`status: pending` -> `completed`, renamed from `017-pending-...`. This file and
+`018` were the two that a filename-vs-frontmatter check would have MISSED: both
+were *honestly* labelled `pending` in filename and frontmatter, and archived
+unfinished anyway. They are why `scripts/check_archived_todo_status.py` fails on
+`archived && status is open` rather than on a mismatch.
+
+Verified done: `backend/apps/users/views.py:91` carries
+`@csrf_protect  # SECURITY: Enforce CSRF protection for registration` directly on
+`def register`. No `csrf_exempt` anywhere in `apps/users/`.
 
 ## Notes
 

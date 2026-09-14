@@ -53,3 +53,13 @@ class CombinedPlantIdentificationService:
 **Detailed analysis**: See `/todos/013-pending-p2-threadpool-analysis.md` (6,500 words)
 
 **Status**: CLOSED - Current implementation is appropriately engineered, not over-engineered
+
+## Work Log
+
+### 2026-09-13 - Renamed (todo 390)
+
+Renamed from `013-completed-p2-threadpool-overengineering.md`. The frontmatter is
+authoritative and always said `status: closed` / `resolution: wont-fix`; the
+filename claimed `completed`, which reads as "we did it" rather than "we decided
+not to". Caught by `scripts/check_archived_todo_status.py` as the repo's only
+FILENAME_OVERCLAIM.
