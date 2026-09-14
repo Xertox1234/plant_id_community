@@ -382,8 +382,13 @@ passes confidently.
 `backend/apps/core/tests/test_env_example_placeholders.py` parses the file,
 parametrises over every `REQUIRED__` line, and boots settings in a clean
 subprocess per case, so a placeholder added tomorrow is covered without anyone
-remembering to add a case. It carries a baseline-boots control, so a broken
-baseline cannot make every rejection pass for the wrong reason.
+remembering to add a case. Its control asserts that the baseline environment
+raises **no placeholder complaint** -- deliberately weaker than "the baseline
+boots". Asserting a clean exit is what broke this test in CI once already: it
+passed locally only because a dev `.env` supplied CSRF/CORS and a live Redis was
+running. So the control catches an over-broad `INSECURE_PATTERNS` addition, but
+it would still pass against a baseline that fails to boot for an unrelated
+reason. Do not describe it as proving a clean boot.
 
 ---
 

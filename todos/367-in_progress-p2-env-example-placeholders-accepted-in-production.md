@@ -229,3 +229,52 @@ workflow.
 
 `cryptography` stays in `requirements.txt` — it has other users; only
 `django-encrypted-model-fields` went.
+
+## Review round 1
+
+No code defect. Two things resolved.
+
+**The one blocking item was an operator check, and it is now cleared.** This PR
+applies the six-substring `INSECURE_PATTERNS` loop to `JWT_SECRET_KEY` for the
+first time -- on main it guarded `SECRET_KEY` only. A live value containing any
+of those substrings would raise `ImproperlyConfigured` at import on the next
+deploy, taking down the web service **and** `forum-prune-cron`, which imports the
+same settings and fails silently.
+
+Checked against the live Railway values on both services, testing substrings
+locally so no secret was printed or pulled into the session:
+
+| value | web | forum-prune-cron |
+| --- | --- | --- |
+| SECRET_KEY | 86 ch, clean | 86 ch, clean |
+| JWT_SECRET_KEY | 86 ch, clean | 86 ch, clean |
+| PLANT_ID_API_KEY | 50 ch, clean | 50 ch, clean |
+| PLANTNET_API_KEY | 26 ch, clean | not set |
+
+None matches any of the six patterns; none carries the `REQUIRED__` prefix. The
+unset key on the cron service is safe: `reject_insecure_value` returns on a
+falsy value, and the API-key check at settings.py:1625 is guarded by
+`if key_value and ...`.
+
+On the false-positive concern generally: for machine-generated keys the risk is
+negligible, not merely small -- about 3e-9 that a random 50-char Django key
+contains "secret". The real exposure was always a hand-chosen operator value,
+which is why the live check above was the thing worth doing rather than
+more analysis.
+
+**Doc overclaim corrected.** `secret-management.md` said the suite "carries a
+baseline-boots control". It does not: the control asserts the absence of a
+*placeholder* complaint, which is deliberately weaker, because asserting a clean
+exit is exactly what broke this test in CI earlier in this todo. Stating the
+stronger property is the same mistake todo 367 already shipped once -- an
+enforcement claim written from intent rather than from the code.
+
+### Follow-ups, not fixed here
+
+- ~15 non-`REQUIRED__` placeholders in `.env.example` remain unguarded
+  (`DATABASE_URL`, `GITHUB_CLIENT_SECRET` -- whose placeholder literally contains
+  "secret" -- `OPENAI_API_KEY`, `EMAIL_HOST_PASSWORD`, ...). Consistent with this
+  PR's scope; worth extending the convention.
+- `backend/docs/security/PII_ENCRYPTION_IMPLEMENTATION.md` still documents
+  `FIELD_ENCRYPTION_KEY` as implemented. This PR removed the dependency and the
+  `.env.example` entry, so that doc is now actively misleading.
