@@ -33,15 +33,15 @@ def send_welcome_email_on_verification(sender, request, email_address, **kwargs)
 
         if success:
             logger.info(
-                f"Welcome email sent to {log_safe_user_context(user)} ({log_safe_email(email_address.email)})"
+                f"[EMAIL] Welcome email sent to {log_safe_user_context(user)} ({log_safe_email(email_address.email)})"
             )
         else:
             logger.error(
-                f"Failed to send welcome email to {log_safe_user_context(user)}"
+                f"[EMAIL] Failed to send welcome email to {log_safe_user_context(user)}"
             )
 
     except Exception as e:
-        logger.error(f"Error sending welcome email: {e}")
+        logger.error(f"[EMAIL] Error sending welcome email: {e}")
 
 
 @receiver(user_signed_up)
@@ -64,7 +64,7 @@ def handle_user_signup(sender, request, user, **kwargs):
                 onboarding_entry_point="direct_signup",
             )
             logger.info(
-                f"Created onboarding progress for new {log_safe_user_context(user)}"
+                f"[ONBOARDING] Created onboarding progress for new {log_safe_user_context(user)}"
             )
 
         # Log user signup in activity
@@ -78,10 +78,10 @@ def handle_user_signup(sender, request, user, **kwargs):
         )
 
         logger.info(
-            f"New user signed up: {log_safe_user_context(user, include_email=True)}"
+            f"[SIGNUP] New user signed up: {log_safe_user_context(user, include_email=True)}"
         )
 
     except Exception as e:
         logger.error(
-            f"Error handling user signup for {log_safe_user_context(user)}: {e}"
+            f"[SIGNUP] Error handling user signup for {log_safe_user_context(user)}: {e}"
         )

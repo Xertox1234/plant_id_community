@@ -176,7 +176,7 @@ def set_jwt_cookies(response: HttpResponse, user: User) -> HttpResponse:
         path=REFRESH_COOKIE_PATH,  # Restrict refresh token to auth endpoints
     )
 
-    logger.info(f"JWT cookies set for {log_safe_user_context(user)}")
+    logger.info(f"[AUTH] JWT cookies set for {log_safe_user_context(user)}")
     return response
 
 
@@ -196,7 +196,7 @@ def clear_jwt_cookies(response: HttpResponse) -> HttpResponse:
     samesite, _ = _jwt_cookie_flags()
     response.delete_cookie("access_token", path="/", samesite=samesite)
     response.delete_cookie("refresh_token", path=REFRESH_COOKIE_PATH, samesite=samesite)
-    logger.info("JWT cookies cleared")
+    logger.info("[AUTH] JWT cookies cleared")
     return response
 
 

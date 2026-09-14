@@ -57,7 +57,7 @@ class NotificationService:
         """
         if not WEBPUSH_AVAILABLE:
             logger.error(
-                "pywebpush library not available. Install with: pip install pywebpush"
+                "[PUSH] pywebpush library not available. Install with: pip install pywebpush"
             )
             return False
 
@@ -90,7 +90,7 @@ class NotificationService:
             }
 
             if not vapid_private_key:
-                logger.error("VAPID_PRIVATE_KEY not configured in settings")
+                logger.error("[PUSH] VAPID_PRIVATE_KEY not configured in settings")
                 return False
 
             # Send the push notification
@@ -106,13 +106,13 @@ class NotificationService:
             subscription.mark_as_used()
 
             logger.info(
-                f"Push notification sent successfully to {log_safe_user_context(subscription.user)}"
+                f"[PUSH] Push notification sent successfully to {log_safe_user_context(subscription.user)}"
             )
             return True
 
         except WebPushException as e:
             logger.error(
-                f"WebPush error for {log_safe_user_context(subscription.user)}: {e}"
+                f"[PUSH] WebPush error for {log_safe_user_context(subscription.user)}: {e}"
             )
 
             # Handle specific error cases
@@ -120,13 +120,13 @@ class NotificationService:
                 # Subscription is no longer valid or rate limited
                 subscription.deactivate()
                 logger.warning(
-                    f"Deactivated push subscription for {log_safe_user_context(subscription.user)}"
+                    f"[PUSH] Deactivated push subscription for {log_safe_user_context(subscription.user)}"
                 )
 
             return False
 
         except Exception as e:
-            logger.error(f"Unexpected error sending push notification: {e}")
+            logger.error(f"[PUSH] Unexpected error sending push notification: {e}")
             return False
 
     @staticmethod
@@ -142,7 +142,7 @@ class NotificationService:
         """
         if not reminder.user.care_reminder_notifications:
             logger.info(
-                f"Care reminder push disabled for {log_safe_user_context(reminder.user)}"
+                f"[REMINDER] Care reminder push disabled for {log_safe_user_context(reminder.user)}"
             )
             return False
 
@@ -151,7 +151,7 @@ class NotificationService:
 
         if not subscriptions.exists():
             logger.info(
-                f"No active push subscriptions for {log_safe_user_context(reminder.user)}"
+                f"[PUSH] No active push subscriptions for {log_safe_user_context(reminder.user)}"
             )
             return False
 
@@ -212,7 +212,7 @@ class NotificationService:
         )
 
         logger.info(
-            f"Care reminder sent to {success_count}/{subscriptions.count()} "
+            f"[REMINDER] Care reminder sent to {success_count}/{subscriptions.count()} "
             f"subscriptions for {log_safe_user_context(reminder.user)}"
         )
         return success_count > 0
@@ -274,12 +274,12 @@ The Plant Community Team
             )
 
             logger.info(
-                f"Care reminder email sent to {log_safe_email(reminder.user.email)}"
+                f"[REMINDER] Care reminder email sent to {log_safe_email(reminder.user.email)}"
             )
             return True
 
         except Exception as e:
-            logger.error(f"Error sending care reminder email: {e}")
+            logger.error(f"[REMINDER] Error sending care reminder email: {e}")
             return False
 
     @staticmethod
@@ -316,7 +316,7 @@ The Plant Community Team
         )
 
         logger.info(
-            f"Push subscription {'created' if created else 'updated'} for {log_safe_user_context(user)}"
+            f"[PUSH] Push subscription {'created' if created else 'updated'} for {log_safe_user_context(user)}"
         )
         return subscription
 
@@ -338,12 +338,12 @@ The Plant Community Team
             subscription = PushSubscription.objects.get(user=user, endpoint=endpoint)
             subscription.deactivate()
             logger.info(
-                f"Push subscription deactivated for {log_safe_user_context(user)}"
+                f"[PUSH] Push subscription deactivated for {log_safe_user_context(user)}"
             )
             return True
         except PushSubscription.DoesNotExist:
             logger.warning(
-                f"Push subscription not found for {log_safe_user_context(user)} with endpoint {endpoint[:20]}..."
+                f"[PUSH] Push subscription not found for {log_safe_user_context(user)} with endpoint {endpoint[:20]}..."
             )
             return False
 
@@ -473,7 +473,9 @@ class CareReminderService:
             send_email_notification=user.care_reminder_email,
         )
 
-        logger.info(f"Care reminder created for {log_safe_user_context(user)}: {title}")
+        logger.info(
+            f"[REMINDER] Care reminder created for {log_safe_user_context(user)}: {title}"
+        )
         return reminder
 
     @staticmethod
@@ -494,9 +496,9 @@ class CareReminderService:
                 reminder.send_reminder()
                 sent_count += 1
             except Exception as e:
-                logger.error(f"Error sending reminder {reminder.id}: {e}")
+                logger.error(f"[REMINDER] Error sending reminder {reminder.id}: {e}")
 
-        logger.info(f"Processed {sent_count} care reminders")
+        logger.info(f"[REMINDER] Processed {sent_count} care reminders")
         return sent_count
 
 
@@ -538,7 +540,9 @@ class DemoDataService:
                 care_reminders = self._create_demo_care_reminders(identifications[:3])
                 created_items["care_reminders_count"] = len(care_reminders)
 
-            logger.info(f"Created demo data for user {self.user.id}: {created_items}")
+            logger.info(
+                f"[DEMO] Created demo data for user {self.user.id}: {created_items}"
+            )
             # DemoData model is for global demo templates, not per-user records;
             # return a lightweight wrapper so callers can access .id (None) and .created_data.
             return SimpleNamespace(id=None, created_data=created_items)
@@ -744,4 +748,4 @@ class DemoDataService:
             # Delete demo data record
             demo_data.delete()
 
-            logger.info(f"Cleaned up demo data for user {self.user.id}")
+            logger.info(f"[DEMO] Cleaned up demo data for user {self.user.id}")

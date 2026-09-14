@@ -88,6 +88,65 @@ PREFIXES = {
     # `[PLANT_DATA]` is new, named for the concern rather than for Trefle or
     # PlantNet, which are two interchangeable backends behind it.
     "backend/apps/blog/services/plant_data_lookup_service.py": "[PLANT_DATA]",
+    # --- users ----------------------------------------------------------
+    # Sets and clears the JWT cookie pair.
+    "backend/apps/users/authentication.py": "[AUTH]",
+    # Every call is an email-preference change or its failure.
+    "backend/apps/users/email_preferences_views.py": "[EMAIL]",
+    # allauth adapters: link a social account, or create a user from one.
+    "backend/apps/users/oauth_adapters.py": "[AUTH]",
+    # The whole OAuth login/callback/token-exchange path, one concern.
+    "backend/apps/users/oauth_views.py": "[AUTH]",
+    # Three concerns: Web Push delivery, care reminders, demo data. `[PUSH]`
+    # is new and deliberately not `[FCM]` -- this is pywebpush/VAPID, a
+    # different transport from the Firebase messaging `[FCM]` already marks.
+    "backend/apps/users/services.py": {
+        "pywebpush library not available": "[PUSH]",
+        "VAPID_PRIVATE_KEY not configured": "[PUSH]",
+        "Push notification sent successfully": "[PUSH]",
+        "WebPush error for": "[PUSH]",
+        "Deactivated push subscription": "[PUSH]",
+        "Unexpected error sending push notification": "[PUSH]",
+        "No active push subscriptions": "[PUSH]",
+        # One key for three calls -- "Push subscription " is the entire leading
+        # chunk of the created/updated message and a prefix of the other two,
+        # so a key per call would match two keys on those two. They share a
+        # token, so one broader key is both correct and less to keep in sync.
+        "Push subscription ": "[PUSH]",
+        "Care reminder push disabled": "[REMINDER]",
+        "Care reminder sent to": "[REMINDER]",
+        "Care reminder email sent to": "[REMINDER]",
+        "Error sending care reminder email": "[REMINDER]",
+        "Care reminder created for": "[REMINDER]",
+        "Error sending reminder ": "[REMINDER]",
+        "Processed ": "[REMINDER]",
+        "Created demo data for user": "[DEMO]",
+        "Cleaned up demo data for user": "[DEMO]",
+    },
+    # Welcome email, onboarding record, signup bookkeeping.
+    "backend/apps/users/signals.py": {
+        "Welcome email sent to": "[EMAIL]",
+        "Failed to send welcome email": "[EMAIL]",
+        "Error sending welcome email": "[EMAIL]",
+        "Created onboarding progress": "[ONBOARDING]",
+        "New user signed up": "[SIGNUP]",
+        "Error handling user signup": "[SIGNUP]",
+    },
+    # The widest file: registration, session, push, reminders, demo data and
+    # onboarding all log from here.
+    "backend/apps/users/views.py": {
+        "Registration attempt for user": "[SIGNUP]",
+        "Registration failed": "[SIGNUP]",
+        "Registration validation failed": "[SIGNUP]",
+        "Logout failed": "[AUTH]",
+        "User not found for token refresh": "[AUTH]",
+        "Token refresh failed": "[AUTH]",
+        "Push subscription failed": "[PUSH]",
+        "Failed to create care reminder": "[REMINDER]",
+        "Error creating demo data": "[DEMO]",
+        "Error tracking onboarding event": "[ONBOARDING]",
+        "Error deleting demo data": "[DEMO]",
+    },
 }
 
 
