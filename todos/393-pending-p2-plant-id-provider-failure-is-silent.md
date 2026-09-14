@@ -78,8 +78,53 @@ no error, no metric, no log line that distinguishes "Plant.id declined" from
 "Plant.id was never asked". The only reason this was caught at all is that the
 rotation happened to be verified against `/usage_info` by hand.
 
-`services/monitoring_service.py` already tracks API dependency health, so there
-is somewhere obvious for this to live.
+~~`services/monitoring_service.py` already tracks API dependency health, so there
+is somewhere obvious for this to live.~~ **Wrong — corrected 2026-09-14.** It
+tracks Trefle and nothing else: `record_api_call` has exactly one caller
+(`trefle_service.py`), and `CACHE_KEYS`/`RATE_LIMITS` have no `plant_id` entry
+at all, so `record_api_call("plant_id", ...)` raises `KeyError` today. Building
+there would mean a second counter beside an unused one. The real home is
+`circuit_monitoring.py`, which already implements a threshold rather than a
+per-request signal — see the 2026-09-14 work-log entry.
+
+### A second silent failure, independent of the one above
+
+Found while implementing this. `health_assessment` is a **separate Plant.id
+endpoint** (`plant_id_service.py:378-393`) and its failure was caught, logged at
+warning, and discarded:
+
+```python
+except Exception as e:
+    logger.warning(f"[HEALTH] Health assessment failed: {e}, continuing ...")
+```
+
+So identification can succeed, `source` can be `"plant_id"`, and disease
+detection can still be off — a different path to the same missing feature. Worse,
+it made `disease_detection: null` mean two incompatible things at once ("this
+plant is healthy" and "nobody answered"), and by the time the combined service
+saw the null, the reason was gone. **This changes what AC 2 proves**: a
+successful identification does not by itself demonstrate that disease detection
+works, which is why AC 2 asks for a non-null `disease_detection` specifically.
+
+### A partial API key was reaching the logs
+
+`CircuitMonitor.failure` logged `str(exception)[:100]`. `requests` builds its
+message from the **prepared URL** and PlantNet sends its credential as the
+`api-key` query parameter (`plantnet_service.py:251`). Truncating to 100
+characters is not redaction — measured against a 22-character key:
+
+| Error | Key characters in the log |
+| --- | --- |
+| 429 Too Many Requests, `/v2/identify/all` | 3 of 22 |
+| 404 Not Found, `/v2/identify/all` | 11 of 22 |
+| 401 Unauthorized, `/v2/projects` | 12 of 22 |
+| 403 Forbidden, `/v2/projects` | 15 of 22 |
+
+The bound is URL length, not design. `log_safe_api_error` exists for exactly
+this and its own docstring describes the hole — *"every 4xx/5xx from either used
+to log the key"* — but the hardening was applied to the call sites inside the
+services and missed this listener, which sits behind **both** of them. Fixed
+here because this todo is about how provider failures get logged.
 
 ## Recommended Action
 
@@ -116,16 +161,46 @@ is somewhere obvious for this to live.
       piped value in one `&&` chain, so they are the same bytes.
 - [ ] One real identification through production returns `source == "plant_id"`
       with a non-null `disease_detection`, recorded here
-- [ ] A Plant.id failure is visible: a distinct log line (bracketed prefix, per
+- [x] A Plant.id failure is visible: a distinct log line (bracketed prefix, per
       `docs/rules/api.md`) that names WHY the provider returned nothing —
       credit-blocked, auth-rejected, timeout — rather than the current silence
+      — `provider_failures.classify_provider_failure` turns an exception into a
+      stable token (`auth-rejected`, `payment-required`, `rate-limited`,
+      `timeout`, `connection-error`, `circuit-open`, `response-malformed`,
+      `executor-timeout`, `http-<status>`), and a partial failure now emits
+      `[DEGRADED] Identification ran with a failed provider: plant_id=<reason>
+      | disease_detection=<status>`. **Deliberately NOT "credit-blocked":**
+      which status Plant.id returns on credit exhaustion has never been
+      observed — the account was funded before any identification ran against an
+      empty one — so unmapped statuses become `http-<status>`, always specific
+      and never a guess wearing a confident label. Add the mapping when a real
+      credit block is seen, and record the observed status here.
 - [ ] Sustained primary-provider failure raises something a human sees, wired
-      into `services/monitoring_service.py`'s existing API-dependency tracking.
-      A threshold, not a per-request alert
-- [ ] The response makes provider degradation legible to the client: when
+      into ~~`services/monitoring_service.py`'s existing API-dependency
+      tracking~~ `circuit_monitoring.py`. A threshold, not a per-request alert
+      — **Half done, and the honest half is stated rather than claimed.** The
+      threshold is built and wired: the circuit opens only after `fail_max`
+      consecutive failures, and `state_change` now fires `_alert()` there with
+      the service name, the failure count and the last reason. What it cannot
+      do yet is reach a person: `backend/sentry_sdk.py` is a five-line local
+      stub that shadows the real `sentry-sdk==2.68.1`, so `sentry_sdk.init()`
+      has always been a no-op and **nothing this project has ever produced has
+      reached Sentry** (todo 395). Until that lands, this AC is satisfied by a
+      threshold log line only. The alert call is guarded, because the stub has
+      no `capture_message` and an unguarded call would raise AttributeError
+      *inside a circuit-breaker listener* — alerting must never be able to break
+      the failure path it reports on.
+- [x] The response makes provider degradation legible to the client: when
       `source` is absent or `disease_detection` is null because the provider
       failed (not because the plant is healthy), the API says so rather than
       returning a quietly thinner payload
+      — four **additive** fields, so the React and Flutter clients are
+      unaffected until they choose to read them: `providers`
+      (`{status, reason}` per provider, with `not_configured` distinguished from
+      `failed` so a single-provider deployment is not permanently "degraded"),
+      `degraded`, `disease_detection_status` (`"ok"` means the health assessment
+      **ran** — a healthy plant is `"ok"` with `disease_detection: null`) and
+      `disease_detection_reason`.
 
 ## Notes
 
@@ -175,3 +250,94 @@ That is the durable defect; the billing was a symptom.
 AC 2 still needs one real identification through production confirming
 `source == "plant_id"` and a non-null `disease_detection` — it requires an
 authenticated request with an image, so it is a human step.
+
+### 2026-09-14 - Detection gap closed (ACs 3 and 5); AC 4 half, AC 2 still human
+
+The billing was the symptom; this is the defect. Four changes, all in
+`apps/plant_identification/`:
+
+- **`provider_failures.py` (new)** — `classify_provider_failure(exc)` returns a
+  stable, greppable token. The design constraint is honesty: a token may claim
+  only what the evidence supports, so only statuses whose meaning is fixed by
+  HTTP itself are mapped and everything else becomes `http-<status>`. A wrong
+  reason stated with authority is worse than the silence it replaces, because it
+  sends the next person somewhere else entirely.
+- **`ProviderOutcome`** — carries `(result, reason, configured)` out of
+  `_identify_parallel`, which used to return bare `Optional[Dict]`s and throw the
+  reason away. `result is None` could not distinguish "declined" from "never
+  configured" from "never asked"; that ambiguity *was* the bug.
+- **`plant_id_service.py`** — the swallowed `health_assessment` failure now
+  travels as `health_assessment_error`, so `disease_detection: null` stops
+  meaning two things at once.
+- **`circuit_monitoring.py`** — threshold alert on circuit OPEN, and the
+  credential leak in `failure()` fixed (see Findings).
+
+**Verification.** 21 new tests; the full `apps/plant_identification` suite is
+143 passed. 14 mutants applied to the new logic, all caught — including
+"unconfigured counts as failed", "unmapped status guesses credit-blocked",
+"credential redaction removed" and "alert guard removed". The caplog assertions
+are written against the module logger because `apps.*` sets `propagate=False`.
+
+**What is deliberately not done here.** Deleting the Sentry stub would switch on
+live error reporting to a third party in production — an operator's call, not a
+side effect of this todo — and it carries a startup-crash landmine
+(`request_bodies` was removed in sentry-sdk 2.x; the real SDK raises
+`TypeError: Unknown option`). Filed as todo 395 with the evidence.
+
+**AC 2 remains open by choice.** One real identification through production
+returning `source == "plant_id"` and a non-null `disease_detection` is the only
+proof the rotated key can actually identify a plant — everything verified so far
+was `/usage_info`, which only proves the key authenticates. Note the two
+findings above: a successful identification and working disease detection are
+now known to be *separate* things, so the AC needs both assertions, not one.
+
+### 2026-09-14 - Two corrections found in review
+
+**I broke the log-prefix invariant while fixing the log messages.** Factoring the
+two provider closures into one helper turned four literal tokens into
+`f"[{prefix}] ..."`. `scripts/check_log_prefixes.py` judges an f-string by its
+first literal chunk, so an interpolated token reads as UNPREFIXED: 4 violations,
+against a baseline todo 388 drove from 339 to 7. It was silent twice over — the
+`unprefixed-logger-call` trigger fires on Edit/Write and this session was writing
+through Bash heredocs, so it never saw the lines. Fixed by restoring the original
+literal tokens (`[PARALLEL]`, `[ERROR]`) and keeping the provider name in the
+message, which also minimises the rewording. `--app plant_identification
+--fail-over 0` is back to 0 of 276, and the whole backend is unchanged at 7.
+
+**`summary` was still a quietly thinner payload.** `get_identification_summary`
+gated on `if results.get("disease_detection")`, so a failed health check simply
+omitted the health line — and `summary` is the one field a client may render on
+its own. It now says "Health check unavailable — disease detection did not run."
+The reason token is deliberately kept out of it: tokens are for logs and for
+`disease_detection_reason`, not for a person.
+
+Also covered the one reason token with no test (`executor-timeout`, produced by
+`gather` rather than `call`) and the detected-disease path, since the new `elif`
+shares an if/elif chain with the existing warning. 25 tests; app suite 147
+passed; 18 mutants, no survivors.
+
+### 2026-09-14 - CI caught what an app-scoped test run could not
+
+`apps/core/tests/test_requests_exception_drift.py` (todo 358) failed on
+`plant_id_service.py:317`. It allows exactly four shapes to carry a `requests`
+exception into a log, and I had inlined a fifth —
+`f"... ({classify_provider_failure(e)}) ..."`. The wrapper is safe by
+construction and there is a test pinning that it never returns the exception's
+message, but **that is not the point**: the guard cannot tell a safe wrapper
+from `e.args[0]`, so it forbids all of them rather than trust a reader. Widening
+its allowlist for a new wrapper would have been the wrong fix and would have
+weakened a guard written after three API keys leaked this way.
+
+Fixed by assigning `reason = classify_provider_failure(e)` first, so the only
+thing interpolated alongside `e` is the already-approved `log_safe_api_error(e)`.
+The same code in `combined_identification_service.py` already did this and
+passed, which is why only one site failed.
+
+**The process lesson, and it is the second time in this session.** I ran
+`apps/plant_identification/` and read 143 passed as "green". Both regressions I
+introduced were caught by repo-wide checks living *outside* the app I was
+editing — the log-prefix script in `scripts/`, and this drift guard in
+`apps/core/tests/`. An app-scoped run cannot see either. Before pushing a change
+to a service, run `apps/core/` as well: five of its tests scan the whole backend
+tree (`test_requests_exception_drift`, `test_env_example_placeholders`,
+`test_env_integrity`, `test_image_rendition_formats`, `test_r2_storage`).

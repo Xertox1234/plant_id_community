@@ -18,9 +18,44 @@ import logging
 from datetime import datetime
 from typing import Optional
 
+import sentry_sdk
+from apps.core.utils.pii_safe_logging import log_safe_api_error
 from pybreaker import CircuitBreakerListener
 
+from .provider_failures import classify_provider_failure
+
 logger = logging.getLogger(__name__)
+
+
+def _alert(message: str) -> None:
+    """Raise a threshold alert to Sentry, if Sentry is reachable at all.
+
+    **It currently is not, and that is a separate bug (todo 395).**
+    `backend/sentry_sdk.py` is a five-line local stub -- "Minimal test stub for
+    sentry_sdk to avoid hard dependency during local tests" -- committed in the
+    first backend commit. `backend/` is the Django project root and therefore on
+    `sys.path`, so `import sentry_sdk` resolves to that stub and NOT to the real
+    `sentry-sdk==2.68.1` in requirements.txt. `sentry_sdk.init()` at
+    settings.py:1185 has always returned None, so no error, DSN, trace or
+    profile this project ever produced has reached Sentry.
+
+    The guard is here because the stub has no `capture_message`: calling it
+    directly would raise AttributeError *inside a circuit-breaker listener*,
+    turning "the provider is down" into "the provider is down and the listener
+    crashed". Alerting must never be able to break the failure path it reports on.
+
+    Deleting the stub is the fix and it is deliberately NOT done here: it would
+    switch on live error reporting to a third party in production, which is an
+    operator's call, not a side effect of this todo.
+    """
+    capture = getattr(sentry_sdk, "capture_message", None)
+    if capture is None:
+        logger.warning(
+            "[CIRCUIT] Sentry alert not sent: sentry_sdk has no capture_message "
+            "(the local stub is shadowing the real package -- see todo 395)"
+        )
+        return
+    capture(message, level="error")
 
 
 class CircuitMonitor(CircuitBreakerListener):
@@ -42,6 +77,7 @@ class CircuitMonitor(CircuitBreakerListener):
         self.last_state_change = None
         self.circuit_open_time = None
         self.consecutive_failures = 0
+        self.last_failure_reason = None
 
     def state_change(self, cb, old_state, new_state):
         """
@@ -70,7 +106,20 @@ class CircuitMonitor(CircuitBreakerListener):
             logger.error(
                 f"[CIRCUIT] {self.service_name} circuit OPENED - "
                 f"API calls blocked for {cb.reset_timeout}s "
-                f"(consecutive failures: {cb.fail_counter})"
+                f"(consecutive failures: {cb.fail_counter}, "
+                f"last reason: {self.last_failure_reason})"
+            )
+            # Todo 393 AC 4: a THRESHOLD alert, not a per-request one. The
+            # circuit only opens after fail_max consecutive failures, which is
+            # exactly the "sustained failure" condition -- so this fires when a
+            # provider is genuinely down, not when one request times out.
+            # capture_message is a no-op when SENTRY_DSN is unset, so this is
+            # safe in dev and in tests; whether it reaches a person in
+            # production depends on that DSN being configured.
+            _alert(
+                f"{self.service_name} circuit OPENED after "
+                f"{cb.fail_counter} consecutive failures "
+                f"(last reason: {self.last_failure_reason})"
             )
 
         # Log successful recovery
@@ -133,11 +182,19 @@ class CircuitMonitor(CircuitBreakerListener):
             exception: Exception that was raised
         """
         self.consecutive_failures += 1
+        self.last_failure_reason = classify_provider_failure(exception)
 
-        # Log all failures with details
+        # NOT str(exception): `requests` builds its message from the PREPARED
+        # URL, and PlantNet sends its credential as the `api-key` query
+        # parameter (plantnet_service.py:251). Truncating to 100 characters is
+        # not redaction -- measured against a 22-character key, a 403 on a short
+        # path put 15 of those characters in the log, and a shorter host or
+        # reason phrase puts in more. The call sites inside the services were
+        # fixed for this; this listener sits behind BOTH of them and was missed.
+        # See log_safe_api_error's docstring, which describes this exact hole.
         logger.error(
-            f"[CIRCUIT] {self.service_name} call FAILED - "
-            f"{exception.__class__.__name__}: {str(exception)[:100]} "
+            f"[CIRCUIT] {self.service_name} call FAILED ({self.last_failure_reason}) - "
+            f"{log_safe_api_error(exception)} "
             f"(fail_count={cb.fail_counter}/{cb.fail_max})"
         )
 

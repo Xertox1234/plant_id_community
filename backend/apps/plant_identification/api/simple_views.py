@@ -110,9 +110,24 @@ def identify_plant(request: Request) -> Response:
         "confidence": 0.95,
         "suggestions": [...],
         "care_instructions": {...},
-        "disease_detection": {...}
+        "disease_detection": {...},
+
+        "degraded": false,
+        "providers": {
+            "plant_id": {"status": "ok", "reason": null},
+            "plantnet": {"status": "failed", "reason": "timeout"}
+        },
+        "disease_detection_status": "ok",
+        "disease_detection_reason": null
     }
     ```
+
+    `degraded` is true when a CONFIGURED provider was asked and did not deliver.
+    `disease_detection_status` is `"ok"` when the health assessment actually ran
+    -- a healthy plant is `"ok"` with `disease_detection: null` -- and
+    `"unavailable"` when it did not, with `disease_detection_reason` naming why.
+    A 200 with `degraded: true` is a real answer built from fewer providers, not
+    an error.
 
     **Rate Limits:**
     - Authenticated: 100 requests/hour
@@ -197,6 +212,17 @@ def identify_plant(request: Request) -> Response:
             "care_instructions": results.get("care_instructions"),
             "disease_detection": results.get("disease_detection"),
             "summary": service.get_identification_summary(results),
+            # Todo 393. Additive: every field above keeps its meaning, so the
+            # React and Flutter clients are unaffected until they read these.
+            # Without them a degraded response is indistinguishable from a
+            # healthy one -- "disease_detection": null meant both "this plant is
+            # fine" and "the provider never answered".
+            "providers": results.get("providers", {}),
+            "degraded": results.get("degraded", False),
+            "disease_detection_status": results.get(
+                "disease_detection_status", "unavailable"
+            ),
+            "disease_detection_reason": results.get("disease_detection_reason"),
         }
 
         logger.info(

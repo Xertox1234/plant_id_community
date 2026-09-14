@@ -41,6 +41,7 @@ from ..constants import (
     PLANT_ID_CIRCUIT_SUCCESS_THRESHOLD,
     PLANT_ID_CIRCUIT_TIMEOUT,
 )
+from ..provider_failures import classify_provider_failure
 from .quota_manager import QuotaExceeded, QuotaManager
 
 logger = logging.getLogger(__name__)
@@ -311,7 +312,18 @@ class PlantIDAPIService:
             # NOT `e`: requests builds its message from the prepared URL.
             # Plant.id uses an `Api-Key` HEADER, so no credential is in that
             # URL today -- keep it that way structurally.
-            logger.error(f"[PLANT_ID] Plant.id API error: {log_safe_api_error(e)}")
+            # The reason token is what makes this greppable and comparable; the
+            # bare message said "HTTPError" and distinguished nothing (todo 393).
+            # Assigned first, NOT inlined into the f-string: the drift guard in
+            # apps/core/tests/test_requests_exception_drift.py allows only four
+            # shapes to carry `e` into a log, and it is right to -- it cannot
+            # tell a safe wrapper from `e.args[0]`, so it forbids all of them
+            # rather than trust a reader. Widening that allowlist for a new
+            # wrapper would be the wrong fix.
+            reason = classify_provider_failure(e)
+            logger.error(
+                f"[PLANT_ID] Plant.id API error ({reason}): {log_safe_api_error(e)}"
+            )
             raise
         except Exception as e:
             logger.error(f"[PLANT_ID] Unexpected error in Plant.id identification: {e}")
@@ -376,6 +388,7 @@ class PlantIDAPIService:
 
         # Get health assessment if requested (separate endpoint in v3)
         health_result = None
+        health_error = None
         if include_diseases:
             try:
                 health_response = self.session.post(
@@ -388,12 +401,24 @@ class PlantIDAPIService:
                 health_response.raise_for_status()
                 health_result = health_response.json()
             except Exception as e:
+                # Todo 393: swallowing this made `disease_detection: null`
+                # ambiguous everywhere downstream -- "the plant is healthy" and
+                # "we never got an answer" produced the identical payload, and by
+                # the time the combined service saw it the reason was gone. This
+                # is a SECOND silent failure, independent of a whole-provider
+                # outage: identification can succeed and `source` can be
+                # "plant_id" while disease detection is quietly off.
+                health_error = classify_provider_failure(e)
                 logger.warning(
-                    f"[HEALTH] Health assessment failed: {e}, continuing with identification only"
+                    f"[HEALTH] Health assessment failed ({health_error}); "
+                    f"identification kept, disease detection unavailable: "
+                    f"{log_safe_api_error(e)}"
                 )
 
         # Format combined results
-        formatted_result = self._format_response(identification_result, health_result)
+        formatted_result = self._format_response(
+            identification_result, health_result, health_error
+        )
 
         # Log success
         suggestions = (
@@ -419,6 +444,7 @@ class PlantIDAPIService:
         self,
         identification_response: Dict[str, Any],
         health_response: Optional[Dict[str, Any]] = None,
+        health_error: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
         Format Plant.id API v3 response into a standardized structure.
@@ -426,6 +452,9 @@ class PlantIDAPIService:
         Args:
             identification_response: Raw identification API response
             health_response: Optional raw health assessment API response
+            health_error: Reason token if the health assessment call FAILED, as
+                opposed to succeeding and finding a healthy plant. Without it
+                `health_assessment: None` means both things at once (todo 393).
 
         Returns:
             Formatted response dictionary
@@ -510,6 +539,9 @@ class PlantIDAPIService:
         return {
             "suggestions": formatted_suggestions,
             "health_assessment": disease_info,
+            # None when the health call failed; None-and-this-is-None means the
+            # call succeeded and the plant has no detected disease.
+            "health_assessment_error": health_error,
             "top_suggestion": (
                 formatted_suggestions[0] if formatted_suggestions else None
             ),

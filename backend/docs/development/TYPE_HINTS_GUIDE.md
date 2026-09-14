@@ -15,24 +15,28 @@ from typing import Dict, List, Optional, Any, Tuple, Union
 ### Return Type Patterns
 
 **Dictionary returns:**
+
 ```python
 def identify_plant(...) -> Dict[str, Any]:
     return {'success': True, 'plant_name': 'Rose'}
 ```
 
 **Optional returns:**
+
 ```python
 def get_cached_result(...) -> Optional[Dict[str, Any]]:
     return cache.get(key) or None
 ```
 
 **Tuple returns:**
+
 ```python
 def parallel_call(...) -> Tuple[Optional[Dict[str, Any]], Optional[Dict[str, Any]]]:
     return (result1, result2)
 ```
 
 **Variable annotations:**
+
 ```python
 # For complex dictionaries, add type annotation
 results: Dict[str, Any] = {
@@ -113,6 +117,7 @@ results: Dict[str, Any] = {
 ### Core Services (Type Hints Complete)
 
 ✅ **plant_id_service.py**
+
 - `identify_plant(...) -> Dict[str, Any]`
 - `_call_plant_id_api(...) -> Dict[str, Any]`
 - `_format_response(...) -> Dict[str, Any]`
@@ -120,14 +125,16 @@ results: Dict[str, Any] = {
 - `_get_redis_connection(self) -> Optional[Redis]`
 
 ✅ **plantnet_service.py**
+
 - `identify_plant(...) -> Optional[Dict[str, Any]]`
 - `_prepare_image(...) -> bytes`
 - `get_top_suggestions(...) -> List[Dict[str, Any]]`
 
 ✅ **combined_identification_service.py**
+
 - `get_executor() -> ThreadPoolExecutor`
 - `identify_plant(...) -> Dict[str, Any]`
-- `_identify_parallel(...) -> Tuple[Optional[Dict[str, Any]], Optional[Dict[str, Any]]]`
+- `_identify_parallel(...) -> Tuple[ProviderOutcome, ProviderOutcome]` (was `Tuple[Optional[Dict], Optional[Dict]]` until todo 393 — a bare `None` could not say *why* a provider returned nothing)
 - `_merge_suggestions(...) -> List[Dict[str, Any]]`
 
 ## Mypy Configuration
@@ -178,11 +185,13 @@ Add to GitHub Actions workflow:
 ### "Name 'Any' is not defined"
 
 **Problem:**
+
 ```python
 def method() -> Dict[str, Any]:  # ❌ NameError
 ```
 
 **Solution:**
+
 ```python
 from typing import Dict, Any
 
@@ -192,11 +201,13 @@ def method() -> Dict[str, Any]:  # ✅
 ### "Incompatible default for argument"
 
 **Problem:**
+
 ```python
 def method(param: str = None):  # ❌ Should be Optional[str]
 ```
 
 **Solution:**
+
 ```python
 from typing import Optional
 
@@ -206,21 +217,23 @@ def method(param: Optional[str] = None):  # ✅
 ### "Need type annotation for variable"
 
 **Problem:**
+
 ```python
 results = {'data': [], 'count': 0}  # ❌ mypy can't infer
 ```
 
 **Solution:**
+
 ```python
 results: Dict[str, Any] = {'data': [], 'count': 0}  # ✅
 ```
 
 ## References
 
-- **PEP 484 - Type Hints:** https://peps.python.org/pep-0484/
-- **mypy Documentation:** https://mypy.readthedocs.io/
-- **django-stubs:** https://github.com/typeddjango/django-stubs
-- **Python typing Module:** https://docs.python.org/3/library/typing.html
+- **PEP 484 - Type Hints:** <https://peps.python.org/pep-0484/>
+- **mypy Documentation:** <https://mypy.readthedocs.io/>
+- **django-stubs:** <https://github.com/typeddjango/django-stubs>
+- **Python typing Module:** <https://docs.python.org/3/library/typing.html>
 
 ## Future Enhancements
 
@@ -256,6 +269,7 @@ def identify_plant(...) -> PlantIdentificationResult:
 ```
 
 This provides:
+
 - IDE autocomplete for dictionary keys
 - Type checking for values
 - Clear API contracts

@@ -15,7 +15,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 from concurrent.futures import TimeoutError as FuturesTimeoutError
 from io import BytesIO
-from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple, Union
+from typing import TYPE_CHECKING, Any, Dict, List, NamedTuple, Optional, Tuple, Union
 
 from django.conf import settings
 from django.core.files.uploadedfile import InMemoryUploadedFile, TemporaryUploadedFile
@@ -32,6 +32,7 @@ from ..constants import (
     PLANTNET_API_TIMEOUT,
     TEMPERATURE_RANGE_CELSIUS,
 )
+from ..provider_failures import UNKNOWN, classify_provider_failure
 from .plant_id_service import PlantIDAPIService
 from .plantnet_service import PlantNetAPIService, parse_plantnet_species
 
@@ -120,6 +121,33 @@ def _cleanup_executor() -> None:
         logger.info("[SHUTDOWN] ThreadPoolExecutor cleanup complete")
 
 
+class ProviderOutcome(NamedTuple):
+    """What one identification provider returned, and if nothing, why.
+
+    Todo 393. The reason is the entire point: `result is None` on its own cannot
+    tell "the provider declined" from "the provider was never configured" from
+    "we never asked", and that ambiguity is what let disease detection sit off in
+    production with no error, no metric and no usable log line.
+    """
+
+    result: Optional[Dict[str, Any]]
+    reason: Optional[str] = None
+    configured: bool = True
+
+    @property
+    def failed(self) -> bool:
+        """True only for a provider that was asked and did not deliver."""
+        return self.configured and self.result is None
+
+    def as_status(self) -> Dict[str, Optional[str]]:
+        """Render for the API response. Additive; no existing field changes."""
+        if not self.configured:
+            return {"status": "not_configured", "reason": None}
+        if self.result is None:
+            return {"status": "failed", "reason": self.reason or UNKNOWN}
+        return {"status": "ok", "reason": None}
+
+
 class CombinedPlantIdentificationService:
     """
     Combines Plant.id and PlantNet APIs for comprehensive plant identification.
@@ -203,6 +231,16 @@ class CombinedPlantIdentificationService:
             "confidence_score": 0,
             "source": None,
             "timing": {},
+            # Todo 393. These are ADDITIVE -- every field above keeps its
+            # meaning, so the React and Flutter clients are unaffected until
+            # they choose to read these.
+            "providers": {},
+            "degraded": False,
+            # "ok" means the health assessment ran. It does NOT mean a disease
+            # was found: a healthy plant is "ok" with disease_detection None.
+            # "unavailable" means nobody asked or nobody answered.
+            "disease_detection_status": "unavailable",
+            "disease_detection_reason": None,
         }
 
         # Read image data once to avoid file pointer issues in parallel execution
@@ -214,7 +252,14 @@ class CombinedPlantIdentificationService:
         logger.info("[PARALLEL] Starting parallel API calls (Plant.id + PlantNet)")
 
         # Execute both API calls in parallel
-        plant_id_results, plantnet_results = self._identify_parallel(image_data)
+        plant_id, plantnet = self._identify_parallel(image_data)
+        plant_id_results, plantnet_results = plant_id.result, plantnet.result
+
+        results["providers"] = {
+            "plant_id": plant_id.as_status(),
+            "plantnet": plantnet.as_status(),
+        }
+        results["degraded"] = plant_id.failed or plantnet.failed
 
         # Process Plant.id results
         if plant_id_results:
@@ -223,11 +268,22 @@ class CombinedPlantIdentificationService:
             results["confidence_score"] = plant_id_results.get("confidence", 0)
             results["source"] = "plant_id"
 
+            # Identification can succeed while the SEPARATE health_assessment
+            # endpoint fails, so a successful Plant.id call does not imply
+            # disease detection ran (todo 393).
+            health_error = plant_id_results.get("health_assessment_error")
+            if health_error:
+                results["disease_detection_reason"] = health_error
+            else:
+                results["disease_detection_status"] = "ok"
+
             logger.info(
                 f"[SUCCESS] Plant.id identified: "
                 f"{plant_id_results.get('top_suggestion', {}).get('plant_name', 'Unknown')} "
                 f"(confidence: {results['confidence_score']:.2%})"
             )
+        elif plant_id.failed:
+            results["disease_detection_reason"] = plant_id.reason
 
         # Process PlantNet results
         if plantnet_results:
@@ -238,6 +294,21 @@ class CombinedPlantIdentificationService:
         results["combined_suggestions"] = self._merge_suggestions(
             plant_id_results, plantnet_results
         )
+
+        # A PARTIAL failure used to be completely silent: with Plant.id down and
+        # PlantNet healthy, suggestions and care instructions were still
+        # populated, so nothing below fired and nothing above was set. Disease
+        # detection was simply off, in production, with nobody told (todo 393).
+        if results["degraded"]:
+            logger.error(
+                "[DEGRADED] Identification ran with a failed provider: "
+                + ", ".join(
+                    f"{name}={info['reason']}"
+                    for name, info in results["providers"].items()
+                    if info["status"] == "failed"
+                )
+                + f" | disease_detection={results['disease_detection_status']}"
+            )
 
         # If no results from either API, return error
         if not results["combined_suggestions"]:
@@ -255,7 +326,7 @@ class CombinedPlantIdentificationService:
 
     def _identify_parallel(
         self, image_data: bytes
-    ) -> Tuple[Optional[Dict[str, Any]], Optional[Dict[str, Any]]]:
+    ) -> Tuple["ProviderOutcome", "ProviderOutcome"]:
         """
         Execute Plant.id and PlantNet API calls in parallel.
 
@@ -263,143 +334,118 @@ class CombinedPlantIdentificationService:
             image_data: Image file bytes
 
         Returns:
-            Tuple of (plant_id_results, plantnet_results)
+            Tuple of (plant_id_outcome, plantnet_outcome). Each carries the
+            result AND, when there is none, a reason token -- the reason used to
+            be discarded here, which is what made a total provider failure
+            indistinguishable from "never asked" everywhere downstream (todo 393).
         """
         api_start_time = time.time()
 
-        def call_plant_id() -> Optional[Dict[str, Any]]:
-            """Call Plant.id API in a thread."""
+        def call(name: str, invoke) -> "ProviderOutcome":
+            """Run one provider's call, converting any failure into a reason.
+
+            The bracketed token is a LITERAL in every branch, never
+            f"[{prefix}]". `scripts/check_log_prefixes.py` judges an f-string by
+            its first literal chunk, so an interpolated token reads as
+            UNPREFIXED -- it counted 4 violations here against a baseline todo
+            388 drove from 339 to 7. The provider name stays in the message, so
+            per-provider grepping is unaffected.
+            """
             try:
-                plant_id_start = time.time()
-                logger.info("[PARALLEL] Plant.id API call started")
-
-                # Create BytesIO object from image data
-                image_file = BytesIO(image_data)
-                result = self.plant_id.identify_plant(image_file, include_diseases=True)
-
-                duration = time.time() - plant_id_start
-                logger.info(f"[SUCCESS] Plant.id completed in {duration:.2f}s")
-                return result
+                started = time.time()
+                logger.info(f"[PARALLEL] {name} API call started")
+                result = invoke()
+                logger.info(
+                    f"[SUCCESS] {name} completed in {time.time() - started:.2f}s"
+                )
+                return ProviderOutcome(result)
             except ExternalAPIError as e:
-                # API is unavailable (circuit breaker open, timeout, connection error)
-                # This is expected in degraded scenarios - log as warning and continue
+                # API is unavailable (circuit breaker open, timeout, connection
+                # error). Expected in degraded scenarios - warn and continue.
+                reason = classify_provider_failure(e)
                 logger.warning(
-                    f"[PARALLEL] Plant.id API unavailable: {type(e).__name__}",
+                    f"[PARALLEL] {name} API unavailable ({reason}): {type(e).__name__}",
                     exc_info=settings.DEBUG,
                 )
-                return None
+                return ProviderOutcome(None, reason)
             except (ValueError, KeyError, TypeError) as e:
-                # Data validation or parsing errors
+                reason = classify_provider_failure(e)
                 logger.error(
-                    f"[ERROR] Plant.id response parsing failed: {type(e).__name__}",
+                    f"[ERROR] {name} response parsing failed ({reason}): "
+                    f"{type(e).__name__}",
                     exc_info=True,
                 )
-                return None
+                return ProviderOutcome(None, reason)
             except Exception as e:
-                # Unexpected errors (should be rare with proper error handling)
+                # Unexpected errors. The reason token is what makes this
+                # actionable -- the previous line said only "HTTPError".
+                reason = classify_provider_failure(e)
                 logger.error(
-                    f"[ERROR] Unexpected Plant.id error: {type(e).__name__}",
+                    f"[ERROR] Unexpected {name} error ({reason}): {type(e).__name__}",
                     exc_info=True,
                 )
-                return None
+                return ProviderOutcome(None, reason)
 
-        def call_plantnet() -> Optional[Dict[str, Any]]:
-            """Call PlantNet API in a thread."""
+        def call_plant_id() -> "ProviderOutcome":
+            return call(
+                "Plant.id",
+                lambda: self.plant_id.identify_plant(
+                    BytesIO(image_data), include_diseases=True
+                ),
+            )
+
+        def call_plantnet() -> "ProviderOutcome":
+            return call(
+                "PlantNet",
+                lambda: self.plantnet.identify_plant(
+                    [BytesIO(image_data)],  # PlantNet expects a list of images
+                    organs=["leaf"],  # One organ per image - 'leaf' is most common
+                ),
+            )
+
+        def gather(future, name: str, timeout: float) -> "ProviderOutcome":
+            """Collect a submitted call, naming an executor-level failure too."""
             try:
-                plantnet_start = time.time()
-                logger.info("[PARALLEL] PlantNet API call started")
-
-                # Create BytesIO object from image data
-                image_file = BytesIO(image_data)
-                result = self.plantnet.identify_plant(
-                    [image_file],  # PlantNet expects a list of images
-                    organs=[
-                        "leaf"
-                    ],  # One organ per image - using 'leaf' as most common
-                    # Note: include_related_images removed - not supported by PlantNet API
-                )
-
-                duration = time.time() - plantnet_start
-                logger.info(f"[SUCCESS] PlantNet completed in {duration:.2f}s")
-                return result
-            except ExternalAPIError as e:
-                # API is unavailable (circuit breaker open, timeout, connection error)
-                # This is expected in degraded scenarios - log as warning and continue
-                logger.warning(
-                    f"[PARALLEL] PlantNet API unavailable: {type(e).__name__}",
-                    exc_info=settings.DEBUG,
-                )
-                return None
-            except (ValueError, KeyError, TypeError) as e:
-                # Data validation or parsing errors
-                logger.error(
-                    f"[ERROR] PlantNet response parsing failed: {type(e).__name__}",
-                    exc_info=True,
-                )
-                return None
-            except Exception as e:
-                # Unexpected errors (should be rare with proper error handling)
-                logger.error(
-                    f"[ERROR] Unexpected PlantNet error: {type(e).__name__}",
-                    exc_info=True,
-                )
-                return None
-
-        # Initialize results
-        plant_id_results = None
-        plantnet_results = None
-
-        # Submit both API calls to thread pool
-        future_plant_id = None
-        future_plantnet = None
-
-        if self.plant_id:
-            future_plant_id = self.executor.submit(call_plant_id)
-
-        if self.plantnet:
-            future_plantnet = self.executor.submit(call_plantnet)
-
-        # Get results with timeout handling
-        if future_plant_id:
-            try:
-                # Plant.id timeout with buffer
-                plant_id_results = future_plant_id.result(timeout=PLANT_ID_API_TIMEOUT)
+                return future.result(timeout=timeout)
             except FuturesTimeoutError:
-                # Executor timeout - API took too long
                 logger.error(
-                    f"[ERROR] Plant.id executor timeout after {PLANT_ID_API_TIMEOUT}s",
+                    f"[ERROR] {name} executor timeout after {timeout}s",
                     exc_info=settings.DEBUG,
                 )
+                return ProviderOutcome(None, "executor-timeout")
             except Exception as e:
-                # Thread execution errors (should be caught inside call_plant_id)
+                # Thread execution errors (should be caught inside the call).
+                reason = classify_provider_failure(e)
                 logger.error(
-                    f"[ERROR] Plant.id thread execution failed: {type(e).__name__}",
+                    f"[ERROR] {name} thread execution failed ({reason}): "
+                    f"{type(e).__name__}",
                     exc_info=True,
                 )
+                return ProviderOutcome(None, reason)
 
-        if future_plantnet:
-            try:
-                # PlantNet timeout with buffer
-                plantnet_results = future_plantnet.result(timeout=PLANTNET_API_TIMEOUT)
-            except FuturesTimeoutError:
-                # Executor timeout - API took too long
-                logger.error(
-                    f"[ERROR] PlantNet executor timeout after {PLANTNET_API_TIMEOUT}s",
-                    exc_info=settings.DEBUG,
-                )
-            except Exception as e:
-                # Thread execution errors (should be caught inside call_plantnet)
-                logger.error(
-                    f"[ERROR] PlantNet thread execution failed: {type(e).__name__}",
-                    exc_info=True,
-                )
+        # A provider that was never configured is NOT a failure -- reporting it
+        # as one would make every single-provider deployment permanently
+        # "degraded" and train people to ignore the signal.
+        future_plant_id = self.executor.submit(call_plant_id) if self.plant_id else None
+        future_plantnet = self.executor.submit(call_plantnet) if self.plantnet else None
+
+        plant_id_outcome = (
+            gather(future_plant_id, "Plant.id", PLANT_ID_API_TIMEOUT)
+            if future_plant_id
+            else ProviderOutcome(None, None, configured=False)
+        )
+        plantnet_outcome = (
+            gather(future_plantnet, "PlantNet", PLANTNET_API_TIMEOUT)
+            if future_plantnet
+            else ProviderOutcome(None, None, configured=False)
+        )
 
         parallel_duration = time.time() - api_start_time
         logger.info(
             f"[PERF] Parallel API execution completed in {parallel_duration:.2f}s"
         )
 
-        return plant_id_results, plantnet_results
+        return plant_id_outcome, plantnet_outcome
 
     def _extract_care_info(self, plantnet_results: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -552,5 +598,12 @@ class CombinedPlantIdentificationService:
             if not disease.get("is_healthy"):
                 disease_name = disease.get("disease_name", "Unknown disease")
                 summary += f"\n⚠️ Health Issue Detected: {disease_name}"
+        elif results.get("disease_detection_status") == "unavailable":
+            # `summary` is the one field a client may render on its own, so a
+            # silent omission here is exactly the "quietly thinner payload" this
+            # todo is about -- the reader cannot tell a clean bill of health from
+            # a check that never ran. The reason token stays out: it is for logs
+            # and for `disease_detection_reason`, not for a person (todo 393).
+            summary += "\nHealth check unavailable — disease detection did not run."
 
         return summary
