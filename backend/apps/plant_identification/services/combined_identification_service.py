@@ -341,8 +341,16 @@ class CombinedPlantIdentificationService:
         """
         api_start_time = time.time()
 
-        def call(name: str, prefix: str, invoke) -> "ProviderOutcome":
-            """Run one provider's call, converting any failure into a reason."""
+        def call(name: str, invoke) -> "ProviderOutcome":
+            """Run one provider's call, converting any failure into a reason.
+
+            The bracketed token is a LITERAL in every branch, never
+            f"[{prefix}]". `scripts/check_log_prefixes.py` judges an f-string by
+            its first literal chunk, so an interpolated token reads as
+            UNPREFIXED -- it counted 4 violations here against a baseline todo
+            388 drove from 339 to 7. The provider name stays in the message, so
+            per-provider grepping is unaffected.
+            """
             try:
                 started = time.time()
                 logger.info(f"[PARALLEL] {name} API call started")
@@ -363,7 +371,7 @@ class CombinedPlantIdentificationService:
             except (ValueError, KeyError, TypeError) as e:
                 reason = classify_provider_failure(e)
                 logger.error(
-                    f"[{prefix}] {name} response parsing failed ({reason}): "
+                    f"[ERROR] {name} response parsing failed ({reason}): "
                     f"{type(e).__name__}",
                     exc_info=True,
                 )
@@ -373,7 +381,7 @@ class CombinedPlantIdentificationService:
                 # actionable -- the previous line said only "HTTPError".
                 reason = classify_provider_failure(e)
                 logger.error(
-                    f"[{prefix}] Unexpected {name} error ({reason}): {type(e).__name__}",
+                    f"[ERROR] Unexpected {name} error ({reason}): {type(e).__name__}",
                     exc_info=True,
                 )
                 return ProviderOutcome(None, reason)
@@ -381,7 +389,6 @@ class CombinedPlantIdentificationService:
         def call_plant_id() -> "ProviderOutcome":
             return call(
                 "Plant.id",
-                "PLANT_ID",
                 lambda: self.plant_id.identify_plant(
                     BytesIO(image_data), include_diseases=True
                 ),
@@ -390,20 +397,19 @@ class CombinedPlantIdentificationService:
         def call_plantnet() -> "ProviderOutcome":
             return call(
                 "PlantNet",
-                "PLANTNET",
                 lambda: self.plantnet.identify_plant(
                     [BytesIO(image_data)],  # PlantNet expects a list of images
                     organs=["leaf"],  # One organ per image - 'leaf' is most common
                 ),
             )
 
-        def gather(future, name: str, prefix: str, timeout: float) -> "ProviderOutcome":
+        def gather(future, name: str, timeout: float) -> "ProviderOutcome":
             """Collect a submitted call, naming an executor-level failure too."""
             try:
                 return future.result(timeout=timeout)
             except FuturesTimeoutError:
                 logger.error(
-                    f"[{prefix}] {name} executor timeout after {timeout}s",
+                    f"[ERROR] {name} executor timeout after {timeout}s",
                     exc_info=settings.DEBUG,
                 )
                 return ProviderOutcome(None, "executor-timeout")
@@ -411,7 +417,7 @@ class CombinedPlantIdentificationService:
                 # Thread execution errors (should be caught inside the call).
                 reason = classify_provider_failure(e)
                 logger.error(
-                    f"[{prefix}] {name} thread execution failed ({reason}): "
+                    f"[ERROR] {name} thread execution failed ({reason}): "
                     f"{type(e).__name__}",
                     exc_info=True,
                 )
@@ -424,12 +430,12 @@ class CombinedPlantIdentificationService:
         future_plantnet = self.executor.submit(call_plantnet) if self.plantnet else None
 
         plant_id_outcome = (
-            gather(future_plant_id, "Plant.id", "PLANT_ID", PLANT_ID_API_TIMEOUT)
+            gather(future_plant_id, "Plant.id", PLANT_ID_API_TIMEOUT)
             if future_plant_id
             else ProviderOutcome(None, None, configured=False)
         )
         plantnet_outcome = (
-            gather(future_plantnet, "PlantNet", "PLANTNET", PLANTNET_API_TIMEOUT)
+            gather(future_plantnet, "PlantNet", PLANTNET_API_TIMEOUT)
             if future_plantnet
             else ProviderOutcome(None, None, configured=False)
         )
@@ -592,5 +598,12 @@ class CombinedPlantIdentificationService:
             if not disease.get("is_healthy"):
                 disease_name = disease.get("disease_name", "Unknown disease")
                 summary += f"\n⚠️ Health Issue Detected: {disease_name}"
+        elif results.get("disease_detection_status") == "unavailable":
+            # `summary` is the one field a client may render on its own, so a
+            # silent omission here is exactly the "quietly thinner payload" this
+            # todo is about -- the reader cannot tell a clean bill of health from
+            # a check that never ran. The reason token stays out: it is for logs
+            # and for `disease_detection_reason`, not for a person (todo 393).
+            summary += "\nHealth check unavailable — disease detection did not run."
 
         return summary

@@ -361,3 +361,74 @@ def test_the_stub_shadows_the_real_sentry_package():
     assert sentry_sdk.__file__.endswith("backend/sentry_sdk.py"), sentry_sdk.__file__
     assert not hasattr(sentry_sdk, "capture_message")
     assert sentry_sdk.init(dsn="https://public@example.invalid/1") is None
+
+
+def test_the_summary_says_when_the_health_check_did_not_run():
+    """`summary` is the one field a client may render alone, so an omission
+    there is the 'quietly thinner payload' this todo is about."""
+    svc = build(
+        plant_id=provider(raises=http_error(403)),
+        plantnet=provider(returns=PLANTNET_OK),
+    )
+    out = svc.identify_plant(b"image-bytes")
+
+    summary = svc.get_identification_summary(out)
+    assert "Health check unavailable" in summary
+    assert "auth-rejected" not in summary, "reason tokens are for logs, not people"
+
+
+def test_a_healthy_plant_summary_says_nothing_about_availability():
+    svc = build(
+        plant_id=provider(returns=PLANT_ID_OK),
+        plantnet=provider(returns=PLANTNET_OK),
+    )
+    out = svc.identify_plant(b"image-bytes")
+
+    summary = svc.get_identification_summary(out)
+    assert "Health check unavailable" not in summary
+    assert "Identified as:" in summary
+
+
+def test_an_executor_timeout_is_named_like_any_other_failure():
+    """The one reason token produced by `gather` rather than `call`."""
+    from concurrent.futures import TimeoutError as FuturesTimeoutError
+
+    svc = build(
+        plant_id=provider(returns=PLANT_ID_OK),
+        plantnet=provider(returns=PLANTNET_OK),
+    )
+    real_submit = svc.executor.submit
+
+    class SlowFuture:
+        def result(self, timeout=None):
+            raise FuturesTimeoutError()
+
+    def submit(fn, *a, **k):
+        # Only the Plant.id call stalls; PlantNet still answers.
+        return SlowFuture() if "plant_id" in fn.__name__ else real_submit(fn, *a, **k)
+
+    with patch.object(svc.executor, "submit", side_effect=submit):
+        out = svc.identify_plant(b"image-bytes")
+
+    assert out["providers"]["plant_id"]["status"] == "failed"
+    assert out["providers"]["plant_id"]["reason"] == "executor-timeout"
+    assert out["degraded"] is True
+    assert out["disease_detection_reason"] == "executor-timeout"
+
+
+def test_a_detected_disease_still_warns_and_is_not_swallowed_by_the_new_branch():
+    """The `elif` added for the unavailable case must not disturb the existing
+    warning -- it sits on the same if/elif chain."""
+    diseased = {
+        **PLANT_ID_OK,
+        "health_assessment": {"is_healthy": False, "disease_name": "Powdery mildew"},
+    }
+    svc = build(
+        plant_id=provider(returns=diseased), plantnet=provider(returns=PLANTNET_OK)
+    )
+    out = svc.identify_plant(b"image-bytes")
+
+    assert out["disease_detection_status"] == "ok"
+    summary = svc.get_identification_summary(out)
+    assert "Health Issue Detected: Powdery mildew" in summary
+    assert "Health check unavailable" not in summary

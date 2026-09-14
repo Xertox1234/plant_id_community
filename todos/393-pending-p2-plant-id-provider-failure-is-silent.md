@@ -290,3 +290,28 @@ proof the rotated key can actually identify a plant — everything verified so f
 was `/usage_info`, which only proves the key authenticates. Note the two
 findings above: a successful identification and working disease detection are
 now known to be *separate* things, so the AC needs both assertions, not one.
+
+### 2026-09-14 - Two corrections found in review
+
+**I broke the log-prefix invariant while fixing the log messages.** Factoring the
+two provider closures into one helper turned four literal tokens into
+`f"[{prefix}] ..."`. `scripts/check_log_prefixes.py` judges an f-string by its
+first literal chunk, so an interpolated token reads as UNPREFIXED: 4 violations,
+against a baseline todo 388 drove from 339 to 7. It was silent twice over — the
+`unprefixed-logger-call` trigger fires on Edit/Write and this session was writing
+through Bash heredocs, so it never saw the lines. Fixed by restoring the original
+literal tokens (`[PARALLEL]`, `[ERROR]`) and keeping the provider name in the
+message, which also minimises the rewording. `--app plant_identification
+--fail-over 0` is back to 0 of 276, and the whole backend is unchanged at 7.
+
+**`summary` was still a quietly thinner payload.** `get_identification_summary`
+gated on `if results.get("disease_detection")`, so a failed health check simply
+omitted the health line — and `summary` is the one field a client may render on
+its own. It now says "Health check unavailable — disease detection did not run."
+The reason token is deliberately kept out of it: tokens are for logs and for
+`disease_detection_reason`, not for a person.
+
+Also covered the one reason token with no test (`executor-timeout`, produced by
+`gather` rather than `call`) and the detected-disease path, since the new `elif`
+shares an if/elif chain with the existing warning. 25 tests; app suite 147
+passed; 18 mutants, no survivors.
