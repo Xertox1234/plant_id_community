@@ -1,6 +1,6 @@
 ---
 status: pending
-priority: p1
+priority: p3
 issue_id: "390"
 tags: [security, incident-response, verification, todo-hygiene]
 dependencies: []
@@ -134,8 +134,14 @@ security todo without doing it.
 
 - [ ] The committed Plant.id literal has been compared against the live key, and
       the verdict is recorded **in this file** with the date
+      — **Closed 2026-09-13 by operator disposition, NOT by this comparison.**
+      The scripted check was never run; see the Work Log entry below. Left
+      unchecked deliberately: `- [x]` here would mean the comparison produced a
+      verdict, and this todo exists because someone once checked exactly this
+      kind of box without that having happened.
 - [ ] If it matched: key rotated at plant.id, Railway variable updated, and a
       post-rotation call confirmed working
+      — **Moot under the same disposition**, on the same basis.
 - [ ] The literal is removed from all 7 tracked files (or, if it is a dead key,
       replaced with an obvious placeholder and annotated as rotated-out)
 - [ ] A check fails when an archived todo's filename claims completion but its
@@ -164,11 +170,16 @@ security todo without doing it.
 
 ## Notes
 
-**Priority rationale: p1.** A live API key in a public repository is exploitable
-now, and the free-tier limit (100 IDs/month) means abuse is also a
-denial-of-service against the product's core feature. Downgrade to p3 the moment
-the comparison shows the literal is a dead key — at that point only the cleanup
-and the hygiene ACs remain.
+**Priority: p3 as of 2026-09-13** (filed p1). The downgrade trigger this file
+states is *"the moment the comparison shows the literal is a dead key"*. That
+is **not** what fired — the operator dispositioned the key directly. Recording
+which basis applied, because they are not the same evidence: the stated trigger
+produces an artifact, this one is a person's judgement, and a later reader
+should not mistake the second for the first.
+
+Original p1 rationale, for the record: a live API key in a public repository is
+exploitable now, and the free-tier limit (100 IDs/month) means abuse is also a
+denial-of-service against the product's core feature.
 
 The two halves are separable. If the key turns out to be dead, split ACs 4-6 into
 their own p3 rather than leaving this p1 open on process work.
@@ -202,3 +213,37 @@ later. Three more instances, found by a one-line audit, is evidence the
 hygiene check in this todo's acceptance criteria is worth building rather than
 assuming. Note these are NOT claimed to be undone — device auth may well work.
 The defect is that nothing in the repo can tell you either way.
+
+### 2026-09-13 - Closed by operator disposition
+
+Asked the user to run the comparison in the Recommended Action (it prints only
+a verdict, and fetching a production secret to hash it is refused by the
+auto-mode classifier — correctly, and it was not routed around).
+
+Their answer, verbatim: **"Key is fine, move on"**.
+
+That retires the rotation half. Recorded exactly as received and attributed to
+the operator, *not* written up as a comparison result: no script was run, no
+verdict was produced, and nothing in the repo can distinguish "already rotated"
+from "dead key" from "checked at plant.id". Which of those it is, is unknown
+here — only that the person with account access says the exposure is closed.
+
+**AC 1 and AC 2 stay `- [ ]` and are re-pointed** rather than checked, per the
+moved-finding convention in CLAUDE.md. `- [x]` on AC 1 would assert that the
+comparison ran. Todo 005 was archived with exactly that kind of box ticked on
+exactly this key, which is why this todo exists; closing it the same way would
+be the joke writing itself.
+
+**Still open, and now the whole of this todo:**
+
+- The 50-char literal remains in the 7 tracked files listed above, in a public
+  repo. If the key is dead it is only untidy — but the next reader cannot tell
+  that from the file, and will re-run this investigation. Offered to the user;
+  not done unasked.
+- ACs 4-6, the hygiene gap: nothing stops an archived todo's filename claiming
+  completion while its frontmatter disagrees, nothing stops archiving with
+  unchecked ACs, and nothing requires an external-verification todo to carry
+  its evidence. Those are the reason this file was worth writing, and none of
+  them are affected by the key turning out to be fine. Todo 391 tracks the
+  three archived todos (360, 382, 383) with five more open external-verification
+  boxes — the same species.
