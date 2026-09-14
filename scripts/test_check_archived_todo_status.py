@@ -165,12 +165,16 @@ def main():
         check("unchecked ACs on a LIVE todo are fine", code == 0, out)
         os.remove(root / "051-pending-p1-live-acs.md")
 
-        repointed = ("## Acceptance Criteria\n\n"
-                     "- [ ] the thing -> todo 283 (re-pointed 2026-07-26; promoted)\n")
-        todo(arch, "052-completed-p1-repointed.md", "completed", repointed)
-        code, out = run(root, no_allowlist=True)
-        check("an unchecked AC re-pointed at a numbered todo is exempt", code == 0, out)
-        os.remove(arch / "052-completed-p1-repointed.md")
+        # Both arrow forms. CLAUDE.md's own worked example uses the UNICODE
+        # arrow, so that is the form a real re-point will most likely take -- an
+        # untested branch there would reject every correctly-written re-point.
+        for label, arrow in (("ASCII ->", "->"), ("Unicode \u2192", "\u2192")):
+            todo(arch, "052-completed-p1-repointed.md", "completed",
+                 "## Acceptance Criteria\n\n"
+                 f"- [ ] the thing {arrow} todo 283 (re-pointed 2026-07-26; promoted)\n")
+            code, out = run(root, no_allowlist=True)
+            check(f"an unchecked AC re-pointed with {label} is exempt", code == 0, out)
+            os.remove(arch / "052-completed-p1-repointed.md")
 
         for label, body in (
             ("bare prose 'see todo notes' is NOT a re-point",

@@ -64,7 +64,13 @@ Two entries are worth naming:
    Shrink it opportunistically: when you touch an archived todo for another
    reason, check off or re-point its criteria and drop the entry.
 
-**Renaming an archived todo makes its `.secrets.baseline` entries stale** — the
+**Renaming a file means updating its path in
+`todos/archive-status-allowlist.yml` too** — entries are keyed by path, and a
+path that no longer exists fails the check as a stale entry. If the rename came
+with a real fix, delete the entry instead. This bites immediately, because step
+2 above renames files.
+
+**Renaming an archived todo also makes its `.secrets.baseline` entries stale** — the
 baseline is keyed by filename, and `detect-secrets` will block the commit. Fix
 it with a filename-only edit to `.secrets.baseline`. **Never regenerate it**: a
 regeneration adds ~28 entries including the file that held the leaked Plant.id
