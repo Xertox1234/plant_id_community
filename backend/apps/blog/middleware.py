@@ -15,11 +15,9 @@ Performance Considerations:
 """
 
 import logging
-from datetime import timedelta
 
 from django.core.cache import cache
 from django.db import models, transaction
-from django.utils import timezone
 
 from .constants import (
     VIEW_DEDUPLICATION_TIMEOUT,
@@ -95,7 +93,7 @@ class BlogViewTrackingMiddleware:
         if not page or not isinstance(page, BlogPostPage):
             return
 
-        # Get tracking data with secure IP extraction (BLOCKER 1 fix)
+        # Get tracking data with secure IP extraction
         user = request.user if request.user.is_authenticated else None
         ip_address = SecurityMonitor._get_client_ip(request)  # ✅ Uses secure method
         user_agent = request.META.get("HTTP_USER_AGENT", "")[:255]
@@ -106,7 +104,7 @@ class BlogViewTrackingMiddleware:
             logger.debug(f"[ANALYTICS] Skipping bot view tracking: {user_agent[:50]}")
             return
 
-        # Deduplication: Check if same user/IP viewed this post recently (BLOCKER 3 fix)
+        # Deduplication: Check if same user/IP viewed this post recently
         cache_key = (
             f"{VIEW_TRACKING_CACHE_PREFIX}:{page.id}:{user.id if user else ip_address}"
         )
@@ -141,7 +139,7 @@ class BlogViewTrackingMiddleware:
 
             transaction.on_commit(track)
 
-            # Set deduplication cache (BLOCKER 3 fix - uses constant)
+            # Set deduplication cache (uses the constant above)
             cache.set(cache_key, True, timeout=VIEW_DEDUPLICATION_TIMEOUT)
 
         except Exception as e:
@@ -150,7 +148,7 @@ class BlogViewTrackingMiddleware:
 
     def _is_bot(self, user_agent):
         """
-        Bot detection based on user agent (BLOCKER 3 fix - uses constants).
+        Bot detection based on user agent (uses the constants above).
 
         Returns True if user agent looks like a bot/crawler.
         Uses comprehensive keyword list from constants.py.

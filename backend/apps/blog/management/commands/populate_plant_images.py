@@ -5,7 +5,6 @@ This command scans all blog posts for plant_spotlight blocks without images
 and automatically fetches appropriate images using the unified image service.
 """
 
-import json
 import logging
 
 from apps.blog.models import BlogPostPage
@@ -243,17 +242,21 @@ class Command(BaseCommand):
                         break
 
                 if not found_block:
-                    logger.error(f"Block {block_id} not found in post {post.id}")
+                    logger.error(
+                        f"[PLANT_IMAGE] Block {block_id} not found in post {post.id}"
+                    )
                     return False
 
                 # Save the post
                 post.save()
 
                 logger.info(
-                    f"Updated block {block_id} in post {post.id} with image {wagtail_image.id}"
+                    f"[PLANT_IMAGE] Updated block {block_id} in post {post.id} with image {wagtail_image.id}"
                 )
                 return True
 
         except Exception as e:
-            logger.error(f"Failed to update post {post.id} block {block_id}: {e}")
+            logger.error(
+                f"[PLANT_IMAGE] Failed to update post {post.id} block {block_id}: {e}"
+            )
             return False

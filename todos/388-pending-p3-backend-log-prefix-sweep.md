@@ -175,14 +175,16 @@ logging config. Delete it as a drive-by in whichever slice touches settings.
       reach 0, verified by
       `python3 scripts/check_log_prefixes.py --app <name> --fail-over 0`
       exiting 0 for each of the four
-      — **`core` DONE** (44 -> 0); `plant_identification` 182, `users` 84,
-      `blog` 22 remain, one slice each
+      — **`core` DONE** (44 -> 0) and **`blog` DONE** (22 -> 0);
+      `plant_identification` (180) and `users` (84) remain, one slice each
 - [ ] No log message was **reworded** during prefixing (only prefixed) — the 17
       content assertions above still pass
 - [ ] Backend suite green on each slice
 
-Left in place, out of scope: **7 stale fix-attribution markers** of the same
-family survive in `backend/apps/blog/`, verified 2026-09-13:
+**Done 2026-09-13 with the `blog` slice.** The 7 stale fix-attribution markers
+of the same family that survived in `backend/apps/blog/` are cleared;
+`grep -rn 'BLOCKER [0-9]' --include='*.py' backend/apps backend/packages` is
+now empty repo-wide. They were:
 
 | Marker | Location |
 | --- | --- |
@@ -192,7 +194,7 @@ family survive in `backend/apps/blog/`, verified 2026-09-13:
 | `TODO 037` | `blog/tests/test_analytics.py:487` |
 
 Todo 361 deliberately scoped itself to `TODO 040` (its AC), so these were not
-swept. Clear them as a drive-by in whichever slice touches `blog`.
+swept; the `blog` slice took them as the drive-by this note asked for.
 
 ## Notes
 
@@ -399,3 +401,51 @@ trusting a slice's count.
   checker swallows `SyntaxError`, so a mangled file leaves both numerator and
   denominator and the count goes DOWN. Fixed in #749: it now re-parses before
   writing and refuses. Run the remaining slices on 3.12+.
+
+### 2026-09-13 - The `blog` slice
+
+`blog` 22 -> 0: `check_log_prefixes.py --app blog --fail-over 0` exits 0.
+Two apps remain, `plant_identification` (180) and `users` (84).
+
+**The table now keys on message text, not line number.** `blog/api_views.py`
+is the first file whose calls span several concerns -- it caches plant lookups,
+performs them, and generates AI copy -- so it needed the per-call entries the
+script's docstring had always described but never implemented. Keyed on line
+number first. That version worked, passed eight controls, and was stale ten
+minutes later: **black re-wraps the very lines this script lengthens**, so
+applying the sweep moved 3 of its 7 keys and `--check` then refused to run at
+all. A line-keyed table is broken by its own formatter, and after that by any
+edit above a key made by someone not touching logging. Message keys survive
+both, and read as a table -- which message earns which token, rather than a
+bare integer.
+
+**A guard that broke the property it was protecting.** The first staleness
+check compared the table against the lines it had just *edited*, so a second
+run -- every call already prefixed, nothing to edit -- reported all 7 keys
+stale and crashed, silently ending the script's documented idempotence. Found
+by re-running `--check` after `--apply`, not by any control: the control suite
+had only ever exercised idempotence on the whole-file path, which is exactly
+why the gap existed. `target_literal` is now split into `first_literal`
+(prefixed or not) plus the prefix test, so the check can see calls with nothing
+left to do. Both gaps are now controls.
+
+**No rewording, proven twice.** Before black: all 22 diff pairs were pure
+prefix insertions. After black reflowed 9 of the now-longer lines: every
+`logger.*` message in the three files was AST-extracted at `main` and at HEAD
+and compared -- 22 are the original string with a token prepended, 0 differ any
+other way. That is the stronger check, since it reads through the reflow. No
+test asserts any of these 22 messages.
+
+`[PLANT_DATA]` is new, named for the concern rather than for Trefle or
+PlantNet, which are two interchangeable backends behind it.
+
+8 pre-existing unused imports blocked the commits (6 in the three swept files,
+2 more in `middleware.py` once the marker cleanup touched it) -- pre-commit
+lints whole staged files, the same reason `core` needed its own lint commit for
+18. All 8 verified identical on `main` first.
+
+Backend `apps/blog`: **273 passed, 7 skipped**.
+
+Counts drift from this todo's 2026-09-13 baseline (339/769 then, 271/773 after
+this slice) because `core` and `blog` have since been swept. The acceptance
+criterion is a command rather than a number, so it is drift-proof.
