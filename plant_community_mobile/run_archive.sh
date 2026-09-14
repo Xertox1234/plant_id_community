@@ -73,7 +73,10 @@ case "$API_URL" in
     die "API_BASE_URL is a dev/tunnel URL, not production: $API_URL" ;;
 esac
 
-EFFECTIVE_BUILD="${BUILD_NUMBER:-$(grep -E '^version:' pubspec.yaml | head -1 | sed 's/.*+//')}"
+# Extract ONLY the digits after `+`. The old `sed 's/.*+//'` kept whatever
+# followed -- a trailing comment, or the whole string when pubspec had no `+N`
+# at all -- and a non-numeric value silently disabled the duplicate check below.
+EFFECTIVE_BUILD="${BUILD_NUMBER:-$(sed -n 's/^version:.*+\([0-9][0-9]*\).*/\1/p' pubspec.yaml | head -1)}"
 
 # ------------------------------------------------- build number vs. reality --
 # The pubspec integer is maintained by hand and has no idea what Apple already
@@ -108,6 +111,24 @@ else
       ;;
   esac
   rm -f "/tmp/asc_check.$$"
+fi
+
+# `[ x -le y ]` exits 2 on a non-integer operand, and a failing command in an
+# `elif` CONDITION is exempt from `set -e` -- so the branch just evaluates false,
+# the die never fires, and the build proceeds with NO duplicate check while the
+# banner still prints a reassuring "highest on App Store Connect" line. Validate
+# both operands first; refuse rather than silently skip.
+is_uint() { case "$1" in ("" | *[!0-9]*) return 1 ;; (*) return 0 ;; esac }
+
+if [ -n "$HIGHEST" ] && ! is_uint "$HIGHEST"; then
+  die "App Store Connect returned a non-numeric highest build number: '$HIGHEST'."
+fi
+
+if [ -z "$WANT_NEXT" ] && ! is_uint "$EFFECTIVE_BUILD"; then
+  die "build number must be a bare integer, got '$EFFECTIVE_BUILD'.
+       Pass the build number alone -- BUILD_NUMBER=11, not BUILD_NUMBER=1.0.0+11.
+       If it came from pubspec.yaml, its version line needs a '+N' suffix.
+       Or run './run_archive.sh --next' to take the next free number."
 fi
 
 if [ -n "$WANT_NEXT" ]; then

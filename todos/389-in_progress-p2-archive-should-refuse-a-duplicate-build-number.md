@@ -129,3 +129,43 @@ The `BUILD_NUMBER=10` case is the positive control: refusing 9 says nothing abou
 whether a free number still builds.
 
 Also confirms this branch's own `1.0.0+10` is genuinely free.
+
+## Review round 1 — the gate had a silent bypass
+
+`[ "$EFFECTIVE_BUILD" -le "$HIGHEST" ]` exits 2 on a non-integer operand, and a
+failing command in an `elif` **condition** is exempt from `set -e`. So the branch
+evaluated false, `die` never fired, the build proceeded with no duplicate check
+at all -- and the banner still printed a reassuring
+`build number : X  (highest on App Store Connect: N)`.
+
+`-n "$HIGHEST"` guarded only the right operand. The left one came from
+`sed 's/.*+//'`, which keeps whatever follows the `+`, including a trailing
+comment, and returns the whole line when pubspec has no `+N`.
+
+This was a **regression introduced by this PR**. On main the flag was
+`${BUILD_NUMBER:+--build-number="$BUILD_NUMBER"}` -- unset meant no flag, and
+flutter read pubspec itself, which is always right. This PR made the sed
+authoritative for every build.
+
+Measured, stubbed `flutter` + stubbed ASC reporting highest=12:
+
+| input | before | after |
+| --- | --- | --- |
+| `BUILD_NUMBER=1.0.0+9` | gate skipped, `1.0.0+9` reached flutter | refused: not a bare integer |
+| pubspec `version: 1.0.0` | gate skipped, **`version:`** reached flutter | refused: not a bare integer |
+| pubspec `version: 1.0.0+10  # bumped` | **gate skipped, flutter got 10 -- a TAKEN number** | blocked: duplicate detected |
+| `BUILD_NUMBER=9` (taken) | blocked | blocked |
+| `BUILD_NUMBER=13` (free) | proceeds | proceeds, flutter got 13 |
+| `--next`, unparseable pubspec | n/a | proceeds, flutter got 13 |
+
+Row 3 is the one that matters: a genuine duplicate sailed through the check
+built to catch it.
+
+**Why the acceptance run missed it.** It stubbed flutter and confirmed
+`--build-number=10` arrived -- a real positive control, and it passed. But it
+only ever used a bare integer. The bug lives entirely in the non-numeric path,
+so only a negative control could have found it.
+
+Fix: extract digits only (`sed -n 's/^version:.*+\([0-9][0-9]*\).*/\1/p'`) and
+validate both operands with `is_uint` before comparing, refusing rather than
+silently skipping.
