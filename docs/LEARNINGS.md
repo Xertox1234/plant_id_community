@@ -6044,3 +6044,83 @@ and a stale-marker inventory was wrong in both count and kind (claimed "5
    that makes them load-bearing — read the cited line back and confirm it says
    what the doc claims. Citations copied from an agent report are unverified by
    default.
+
+---
+
+## Review round 1 across PRs #743–#750 (2026-09-13)
+
+Eight PRs reviewed in parallel by subagents. Three of the findings were the same
+shape, arrived at independently in unrelated code, which is what makes it a
+pattern rather than three bugs.
+
+### [2026-09-13] A guard whose correctness rests on an accident of its current data
+
+**Mistake**: three separate guards were correct only because of a property
+nobody had stated or pinned.
+
+1. `env_integrity.removed_but_installed()` (todo 380) compared its hand-kept
+   `REMOVED_ON_PURPOSE` keys **raw** against `installed`, whose keys are PEP 503
+   normalized. Correct only because all three entries — `safety`, `bandit`,
+   `nltk` — are single lowercase tokens. The first `PyYAML` or `ruamel.yaml`
+   entry would have matched nothing, **silently**, inside the very function
+   written to stop silent misses.
+2. `budget_rules.MIN_SPLIT = 700` (todo 369) chose head-only below that share,
+   dropping the file tail — the append-only bias the module exists to remove.
+   Real 4- and 5-domain routes produce shares of **620–928 B**: 48 tracked files
+   sit at 734, i.e. 34 bytes of margin, which one trigger message erases.
+3. The `unprefixed-logger-call` trigger (todo 388) used `[A-Z0-9_]+` where the
+   checker in the **same commit** had widened to `[A-Z0-9_-]+`, so it flagged 18
+   lines that commit had just certified as compliant.
+
+**Fix**: normalize both sides of any name comparison; pick a threshold from the
+measured operating range and state the margin; when two artifacts encode the
+same rule, derive one from the other or test them against a shared fixture.
+
+**Rule**: when a check passes, ask *why* — if the answer is a property of
+today's data rather than of the code, write the test that would fail when that
+property changes. "All current entries happen to be lowercase" is a bug with a
+delay on it.
+
+**Agent**: cross-cutting-reviewer
+
+### [2026-09-13] A positive control cannot validate the path it does not take
+
+**Mistake**: `run_archive.sh`'s duplicate-build gate (todo 389) was accepted on a
+genuine positive control — stub `flutter` on PATH, confirm `--build-number=10`
+arrives. It passed. But the defect lived entirely in the **non-numeric** path:
+`[ x -le y ]` exits 2 on a non-integer, and a failing command in an `elif`
+*condition* is exempt from `set -e`, so the gate silently evaluated false.
+`version: 1.0.0+10  # bumped` yielded `"10  # bumped"`, the gate skipped, and the
+build proceeded with an already-taken number — while printing a reassuring
+"highest on App Store Connect" line.
+
+This repeats todo 384's route-orphan checker, which was also validated against
+only the case it handled.
+
+**Fix**: every new guard gets a negative control — an input it must **refuse** —
+not only an input it must pass. Keep the pre-fix artifact and re-run the suite
+against it; if the new test still passes, it is not a regression guard. Applied
+here to all four repairs: each new test was shown to fail against the unfixed
+code before being accepted.
+
+**Rule**: "the positive control passed" is a statement about one path. Name the
+paths you did not exercise, and treat the guard as unverified on them.
+
+**Agent**: cross-cutting-reviewer
+
+### [2026-09-13] `.sh` files route to no rules domain
+
+**Mistake**: shell scripts match no entry in `scripts/inject/routing.json`, so a
+lesson written into any `docs/rules/<domain>.md` is unreachable from a shell
+edit. `match_triggers._fires()` gates on `path_glob` + content **only** — never
+on domain — so `docs/rules/triggers.json` is the sole channel that reaches one.
+
+**Fix**: the `set -e`/`elif` lesson above shipped as the
+`shell-numeric-compare-without-validation` trigger with a `**/*.sh` glob,
+verified end-to-end through `find_matches()` rather than by reading the regex.
+
+**Rule**: before writing a rule, run its target path through
+`scripts/inject/route_domains.py`. Empty output means prose will never arrive;
+use a trigger.
+
+**Agent**: pattern-codifier
