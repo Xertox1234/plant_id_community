@@ -339,3 +339,40 @@ forced zero would mean editing correct code.
 lint blocker is an `E402` at `signals.py:156`, where a management `Command` class
 and its `BaseCommand` import sit in the middle of a signals module. That is a
 real structural oddity and not something to resolve inside a log-prefix sweep.
+
+## Review round 1
+
+No blocking defects. The reviewer separated the mechanical sweep from the hand
+lint-cleanup in the security-sensitive files and cleared both: all 8 removed
+imports are unused in-file and not re-exported anywhere, the two rewrapped
+implicit-concat strings were diffed byte-for-byte against main and are
+identical (including the `body_style` extraction's `style="..."` attribute), and
+the F841 fix kept the `reverse()` call whose only purpose was raising
+`NoReverseMatch`.
+
+**Fixed here — the new trigger contradicted its own commit.** The
+`unprefixed-logger-call` lookahead was `[A-Z0-9_]+`, missing the hyphen that
+`check_log_prefixes.py`'s `PREFIX_RE` gained in the SAME commit, and it had no
+accommodation for the two other shapes that checker now treats as compliant.
+Measured: it fired on 3 of 5 real compliant shapes --
+`[RATELIMIT-RESOLVE]`, `f"{LOG_PREFIX_RATELIMIT} ..."` (15 occurrences) and
+`logger.debug("%s ...", LOG_PREFIX_SECURITY)` (2 occurrences). Since
+`match_triggers` matches the whole edit fragment, any future edit carrying one
+of those 18 lines as context would have nagged about already-correct code.
+
+Lookahead is now `(?:\[[A-Z0-9_-]+\]|\{LOG_PREFIX_|%s\s)`. Verified end to end
+through `match_triggers.find_matches()`: 0 fires on all 4 compliant shapes, still
+fires on a real violation. `triggers.json` spliced as text -- 2 lines changed,
+no reserialisation churn -- and re-parsed to 107 valid entries.
+
+Also corrected the trigger's message, which still quoted the debunked 357/769
+(46.4%) figure that this very todo corrected to 339/769 (44.1%).
+
+### Carried forward to the remaining slices
+
+`add_log_prefixes.py`'s `target_literal()` returns `None` for a `.format()`-style
+call or a bare-name first argument -- silently out of scope rather than raising,
+unlike the unlocatable-splice branch. No such calls exist in the 7 files swept
+here, so it did not fire, but `plant_identification` (182), `users` (84) and
+`blog` (22) are unaudited for that shape. Run the checker with `--list` before
+trusting a slice's count.
