@@ -622,6 +622,22 @@ def approved_non_error_key():
     except Exception as e:
         logger.exception("ok")
         return {"count": len(str(e))}
+
+
+def body_outside_a_handler(response):
+    # The sixth site's shape. There is no `except`, so the exception guard is
+    # structurally blind to it -- this is the one the body guard exists for.
+    if response.status_code != 200:
+        return {"status": "error",
+                "error": f"HTTP {response.status_code}: {response.text[:200]}"}
+    return {"status": "ok"}
+
+
+def approved_logged_body(response):
+    # A truncated provider body belongs in the log. The returned dict carries
+    # only the status code, so this must stay quiet.
+    logger.error("[PLANT_HEALTH] HTTP %s: %s", response.status_code, response.text[:200])
+    return {"status": "unavailable", "error": f"HTTP {response.status_code}"}
 """
 
 
@@ -647,6 +663,31 @@ def test_the_response_guard_flags_a_planted_violation(tmp_path):
     # And the safe shapes stay quiet.
     assert not [src for src in flagged if "Service status check failed" in src], flagged
     assert not [src for src in flagged if "len(" in src], flagged
+
+
+def test_the_body_guard_flags_a_planted_violation(tmp_path):
+    """The body guard can actually fail.
+
+    Without this the guard has only a negative control: typo ``BODY_ATTRS`` to
+    ``{"texxt", ...}`` and ``test_no_response_dict_carries_a_provider_body``
+    goes green across every backend file having checked nothing. That is a
+    false green, not a clean sweep. The exception guard has had a positive
+    control since it was written; this one did not, and round 1 missed the
+    asymmetry -- which is how the sixth site hid in the first place.
+    """
+    planted = tmp_path / "planted_body.py"
+    planted.write_text(PLANTED_RESPONSE, encoding="utf-8")
+
+    flagged = {src for _, src in _provider_body_in_response_dicts(planted)}
+
+    # Directly in the dict, inside a handler.
+    assert "e.response.text" in flagged, flagged
+    # And outside any handler -- the shape `_exception_details_in_response_dicts`
+    # is structurally blind to, and the one the sixth site took.
+    assert any("response.text[:200]" in src for src in flagged), flagged
+    # Exactly those two: the approved constant, the non-error key and the
+    # logged-body shape must all stay quiet.
+    assert len(flagged) == 2, flagged
 
 
 def test_the_response_sweep_is_not_vacuous():
