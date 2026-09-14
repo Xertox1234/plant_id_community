@@ -10,9 +10,17 @@ nobody ever re-measured it. On 2026-09-13 (todo 361) the real figure across
 That 357 was itself 16 too high, corrected 2026-09-13 (todo 388) when the first
 sweep slice found the misses: 15 calls prefixed via a `LOG_PREFIX_*` constant and
 1 using a hyphenated token -- then 2 more, found by spot-reading the sweep's own
-diff, where the prefix arrives as the first %-format ARGUMENT. The corrected
-baseline is **339 of 769 (44.1%)**, and all 18 corrections land in `core`. All
-three shapes are recognised below.
+diff, where the prefix arrives as the first %-format ARGUMENT. That corrected
+baseline was **339 of 769 (44.1%)**, all 18 corrections in `core`.
+
+A FOURTH shape surfaced 2026-09-13 while scoping the `users` slice: a token
+containing a SPACE. `[FIREBASE AUTH]` (15) and `[FIREBASE AUTH ERROR]` (6), all
+in `users/firebase_auth_views.py`, are real prefixes and the only space-tokens
+in the repo -- but the pattern allowed `[A-Z0-9_-]` only, so all 21 counted as
+violations. Left unfixed, the sweep would have written
+`[AUTH] [FIREBASE AUTH] ...`: the same double-prefix that the %-format shape
+would have produced, caught the same way -- by reading call sites before
+applying, not by re-running a counter. All four shapes are recognised below.
 
 Todo 388 sweeps that debt app by app, and its acceptance criteria are stated in
 terms of counts produced by THIS script. That is the whole point of committing
@@ -64,10 +72,13 @@ from collections import Counter
 
 LEVELS = {"debug", "info", "warning", "warn", "error", "exception", "critical"}
 RECEIVERS = {"logger", "log", "_logger"}
-# A hyphen is allowed in the token. `[RATELIMIT-RESOLVE]` (apps/core/ratelimit.py)
-# is a real, greppable subsystem prefix; rejecting it counted a compliant call as
-# a violation and would have invited someone to "fix" a working diagnostic.
-PREFIX_RE = re.compile(r"^\s*\[[A-Z0-9_-]+\]")
+# A hyphen and a SPACE are both allowed in the token. `[RATELIMIT-RESOLVE]`
+# (apps/core/ratelimit.py) and `[FIREBASE AUTH]` / `[FIREBASE AUTH ERROR]`
+# (users/firebase_auth_views.py, 21 calls) are real, greppable subsystem
+# prefixes; rejecting either counted compliant calls as violations and would
+# have invited someone to "fix" a working diagnostic -- or, worse, invited this
+# repo's own sweep to prepend a second prefix in front of the first.
+PREFIX_RE = re.compile(r"^\s*\[[A-Z0-9_ -]+\]")
 # An f-string may open with a named constant that IS the prefix:
 #   logger.warning(f"{LOG_PREFIX_RATELIMIT} Rate limit violation: ...")
 # apps/core/constants.py:74-83 defines ten of these and they hold real bracketed

@@ -42,7 +42,7 @@ REPO = pathlib.Path(__file__).resolve().parents[1]
 # prints and the counts the acceptance criteria use cannot disagree.
 LEVELS = {"debug", "info", "warning", "warn", "error", "exception", "critical"}
 RECEIVERS = {"logger", "log", "_logger"}
-PREFIX_RE = re.compile(r"^\s*\[[A-Z0-9_-]+\]")
+PREFIX_RE = re.compile(r"^\s*\[[A-Z0-9_ -]+\]")
 PREFIX_CONST_RE = re.compile(r"^LOG_PREFIX_[A-Z0-9_]+$")
 LEADING_FMT_RE = re.compile(r"^\s*%s")
 
