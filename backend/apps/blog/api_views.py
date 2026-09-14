@@ -72,7 +72,7 @@ class PlantLookupView(View):
             cached_result = cache.get(cache_key)
 
             if cached_result:
-                logger.info(f"Returning cached result for query: {query}")
+                logger.info(f"[CACHE] Returning cached result for query: {query}")
                 cached_result["cached"] = True
                 return JsonResponse(cached_result)
 
@@ -92,7 +92,7 @@ class PlantLookupView(View):
             # Cache successful results
             if result.get("success"):
                 cache.set(cache_key, result, cache_duration)
-                logger.info(f"Cached result for query: {query}")
+                logger.info(f"[CACHE] Cached result for query: {query}")
 
             result["cached"] = False
             return JsonResponse(result)
@@ -102,7 +102,7 @@ class PlantLookupView(View):
                 {"success": False, "error": "Invalid JSON data"}, status=400
             )
         except Exception as e:
-            logger.error(f"Error in plant lookup: {str(e)}", exc_info=True)
+            logger.error(f"[PLANT_DATA] Error in plant lookup: {str(e)}", exc_info=True)
             return JsonResponse(
                 {"success": False, "error": "Internal server error"},
                 status=500,
@@ -185,7 +185,9 @@ class PlantSuggestionsView(View):
             )
 
         except Exception as e:
-            logger.error(f"Error getting plant suggestions: {str(e)}", exc_info=True)
+            logger.error(
+                f"[PLANT_DATA] Error getting plant suggestions: {str(e)}", exc_info=True
+            )
             return JsonResponse(
                 {"success": False, "error": "Failed to get plant suggestions"},
                 status=500,
@@ -281,7 +283,9 @@ def generate_ai_content(request):
             )
 
         except Exception as ai_error:
-            logger.error(f"Wagtail AI generation error: {str(ai_error)}", exc_info=True)
+            logger.error(
+                f"[AI] Wagtail AI generation error: {str(ai_error)}", exc_info=True
+            )
             return JsonResponse(
                 {"success": False, "error": "AI content generation failed"},
                 status=500,
@@ -292,7 +296,7 @@ def generate_ai_content(request):
             {"success": False, "error": "Invalid JSON data"}, status=400
         )
     except Exception as e:
-        logger.error(f"Error in AI content generation: {str(e)}", exc_info=True)
+        logger.error(f"[AI] Error in AI content generation: {str(e)}", exc_info=True)
         return JsonResponse(
             {"success": False, "error": "AI content generation failed"}, status=500
         )
@@ -353,7 +357,9 @@ def plant_data_stats(request):
         return JsonResponse({"success": True, "stats": stats})
 
     except Exception as e:
-        logger.error(f"Error getting plant data stats: {str(e)}", exc_info=True)
+        logger.error(
+            f"[PLANT_DATA] Error getting plant data stats: {str(e)}", exc_info=True
+        )
         return JsonResponse(
             {"success": False, "error": "Failed to get plant data stats"}, status=500
         )

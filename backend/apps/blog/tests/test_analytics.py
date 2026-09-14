@@ -12,7 +12,7 @@ Following project testing patterns from:
 - apps/plant_identification/tests/
 - apps/users/tests/
 
-BLOCKER 2 fix: Comprehensive test coverage for all Phase 6.2 features.
+Comprehensive test coverage for all Phase 6.2 features.
 """
 
 from datetime import timedelta
@@ -484,7 +484,7 @@ class PopularPostsAPITests(TestCase):
 
     def test_popular_posts_query_optimization(self):
         """
-        TODO 037: Verify prefetch_related eliminates N+1 queries.
+        Verify prefetch_related eliminates N+1 queries.
 
         Tests that the popular() endpoint uses efficient prefetching
         to avoid N+1 query problems when filtering by time period.
