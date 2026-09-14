@@ -1,5 +1,5 @@
 ---
-status: pending
+status: in_progress
 priority: p2
 issue_id: "369"
 tags: [harness, docs-rules, hooks]
@@ -124,15 +124,15 @@ is separate and matches on patterns rather than being subject to this cap.
 
 ## Acceptance Criteria
 
-- [ ] A **single-domain** edit receives that domain's rules in full, or a
+- [x] A **single-domain** edit receives that domain's rules in full, or a
       documented, deliberate subset — proven by driving `inject-patterns.sh`
       with a synthetic event. `main.dart` → `flutter` is the reference case;
       today it gets 34%.
-- [ ] A path routing to 3 domains injects content from **all three**, proven the
+- [x] A path routing to 3 domains injects content from **all three**, proven the
       same way by grepping for a distinctive string from each file.
-- [ ] Truncation never cuts mid-bullet: the last surviving line of a truncated
+- [x] Truncation never cuts mid-bullet: the last surviving line of a truncated
       injection is a complete rule.
-- [ ] A rule appended to the end of the largest routed file is reachable at
+- [x] A rule appended to the end of the largest routed file is reachable at
       write time, or `CLAUDE.md` no longer claims write-time enforcement for
       that domain — state which was chosen and why.
 - [ ] `kimi-review`'s per-file cut is addressed or explicitly accepted with a
@@ -194,3 +194,136 @@ This is the append-only trap this todo already names, with a price attached: a
 rule written specifically to prevent a repeat of a wrong report to the user is
 documentation only until this todo lands. Hoisting it to the top of
 `testing.md` would only evict a different rule — the fix has to be structural.
+
+### 2026-09-13 - Fixed (PR pending review)
+
+Options 1, 2 and 5 from Recommended Action, plus a variant of 3. Option 4
+(splitting the eight oversized files) was **not** taken: it is a large,
+churn-heavy edit to append-only documents that would have to be repeated every
+time a file grows again, and raising `kimi-review`'s cap solves the half of the
+problem that motivated it.
+
+`scripts/inject/budget_rules.py` (new) assembles the routed rule files to fit a
+byte budget:
+
+1. **Budget per domain, not per concatenation.** Equal shares, with the slack
+   from files smaller than their allocation redistributed to the ones that need
+   it — otherwise a `typescript` (1.2 KB) + `testing` (46 KB) route wastes most
+   of typescript's half.
+2. **Head + tail, not head alone.** An over-budget file contributes its opening
+   (framing and oldest, most-settled rules) and its **ending** (the newest
+   rules), with a marker naming exactly how many bytes were elided. This is the
+   part that fixes the append-only bias.
+3. **Cut on rule boundaries** — before a top-level list bullet, a `#` heading
+   or a blank line, never mid-sentence.
+
+`.claude/hooks/inject-patterns.sh` computes the budget as whatever is left of
+the 8800-byte cap after the discipline floor and any triggers, and fails open the
+same way the router already does.
+
+**Verified by running the hook with synthetic events:**
+
+| Case | Before | After |
+| --- | --- | --- |
+| `main.dart` → `flutter` alone | 4227 of 12127 B (34%), cut mid-word at `'  every'` | complete rules, head+tail, last line a whole sentence |
+| `settings.py` → `api,security,database` | `api` only; the other two **0 bytes** | all three present, ~1.3 KB each |
+| payload size | 8899 B | 8236 B (under the cap) |
+| elision markers | n/a | 3, **all** starting their own line |
+
+**AC 4, the decisive one, mutation-tested.** A sentinel appended to the very end
+of `testing.md` — the largest file, 46 KB, on a four-domain route — **is now
+injected**. It sits at offset 45921 against an old effective budget of ~4332, so
+the old hook could never have reached it. `testing.md` was restored from a copy
+and the restoration verified by grep.
+
+So the answer to "rules bind, or `CLAUDE.md` stops claiming they do" is **both,
+honestly**: the claim now holds for the newest rules and for every routed domain,
+and `CLAUDE.md` gained a "What 'injected' actually guarantees" paragraph saying
+plainly that a rule in the **middle** of a large file may still be elided, and
+that a rule which must bind at the exact line belongs in `triggers.json` — which
+is not subject to this budget.
+
+**AC 5 — `kimi-review`'s independent cap.** `--pattern-max-chars` defaults to
+**12000 per file**, cutting 8 of the 13 rule files at the commit gate
+(`testing.md` 46 KB, `security.md` 26 KB, `react.md` 20 KB, …). It is not bound
+by the hook-output limit at all, so `.claude/hooks/kimi-review.sh` now passes
+**60000**: covers every rule file today with headroom, and still bounds growth —
+the widest route is 4 domains, and 4 × 60000 chars is ~60k tokens against
+kimi-review's 131072 `--max-tokens`, leaving room for the diff. Changed in the
+**hook**, not in `scripts/kimi-review`, which is a vendored copy under a
+canonical-match check.
+
+**Tests.** `.claude/hooks/test-inject-patterns.sh` gains four, 22 → **27
+passing**. Mutation-checked against the pre-369 hook restored from `main`:
+**3 of the 4 fail** there (all-three-domains, elision markers, newest-rule). The
+fourth is a payload-size regression guard and correctly passes either way.
+
+The elision-marker test was tightened after that mutation run: its first version
+used `|| ! grep`, which made it pass **vacuously** on the old hook that emitted
+no markers at all. It now asserts markers exist *and* are well-placed.
+
+**Accepted, not fixed:** the per-session per-domain dedup
+(`inject-patterns.sh` `/tmp/inject-${SESSION_ID}-${DOMAIN}` markers) still marks
+a domain seen after one injection, even when that injection was a subset.
+Re-injecting the same head+tail on every edit is noise, and with the tail now
+guaranteed the once-per-session copy is representative rather than arbitrary.
+Changing dedup semantics is a separate decision.
+
+## Review round 1 — two blocking findings, both real
+
+**B1. The head-only branch reproduced the bug it replaced.** Below
+`MIN_SPLIT` (700 B) `excerpt()` returned head + marker and **no tail** — the
+append-only bias, restored. Not a corner case: real 4- and 5-domain routes
+produce shares of 620–928 B, so any route whose share landed under 700 silently
+lost the newest rule. The review measured 48 tracked files routing to 5 domains
+(share 734, only 34 B of slack — one trigger message tips it) and 279 routing to
+4. Worse, the per-session dedup marker is written on a head-only injection too,
+so that domain is then skipped for the rest of the session.
+
+Fixed by **never emitting head-only**. When the share cannot carry both ends the
+excerpt keeps the **tail**, since the newest rules are the documented guarantee.
+Measured floor moved 700 -> ~220 B per domain, comfortably below the real range.
+
+**B2. `excerpt()` returned more than its share.** The elision marker was
+appended *on top of* `share` rather than charged against it (~106–149 B per
+file), and `assemble()` measured `len()` on `str` while the cap counts bytes —
+`"\n[RULES — api]\n"` is 15 chars but 17 bytes. Measured overruns of +181 to
++591 B, pushing a 5-domain payload to 8916–8991 B against the 8800 target, which
+lands under `THRESHOLD=9000` so neither the spill file nor the truncation notice
+fires.
+
+Fixed by sizing both markers up front and subtracting them from the share before
+slicing, and by measuring every budget in UTF-8 bytes.
+
+Verified against the pre-fix module as a negative control, on `testing.md`:
+
+| share | old tail | old bytes | new tail | new bytes |
+| --- | --- | --- | --- | --- |
+| 300 | LOST | 326 (over) | kept | 194 |
+| 500 | LOST | 467 | kept | 194 |
+| 620 | LOST | 467 | kept | 530 |
+| 699 | LOST | 467 | kept | 530 |
+| 734 | kept | 558 | kept | 417 |
+| 1500 | kept | 1570 (over) | kept | 1245 |
+
+**Tests.** The review was right that neither prior assertion could fail: the
+size test (`-le 9000`) passes against the pre-fix hook, which emits 8951 B, and
+the sentinel test used a 4-domain path whose share (~928) takes the split
+branch. Two property tests now call `excerpt()` directly at the shares real
+routes produce. Mutation-checked: **against the pre-fix module they fail**
+(`dropped the tail at 4 shares`, `exceeded its share at 3 shares`); against the
+fix, 29 passed / 0 failed.
+
+**Claims corrected.** `kimi-review.sh` said the widest route is 4 domains; it is
+5 (measured). `CLAUDE.md` now states the tail-over-head rule and that markers
+are charged against the budget.
+
+### Deferred to follow-up, not fixed here
+
+- `boundary_before` under-uses a tight budget (24% of a 620 B share in one case).
+- `kimi-review`'s own cut is still head-only (`content[:max]`), so raising it to
+  60000 buys headroom but keeps the bias for any file that outgrows it.
+  `testing.md` is 46 KB and grew 4.6 KB during this todo alone.
+- `kimi-review.sh` treats exit 2 as "verified CRITICAL", but argparse also exits
+  2 on an unknown flag — an older `kimi-review` on PATH would block every commit
+  with a bogus reason. Not live here (nothing named `kimi-review` is on PATH).
