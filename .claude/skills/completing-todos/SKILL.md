@@ -209,6 +209,8 @@ Per [verification-before-completion](https://github.com/anthropic-experimental/c
 
 #### Step 5 — Archive
 
+0. **Pre-flight.** Count bare `- [ ]` lines in the todo. If any remain, either flip it to `- [x]` with evidence or rewrite it as a re-point naming a target todo (Safety Rail 4). If a criterion was an external verification, confirm the date and observed result are in the file (Safety Rail 5). Do not proceed otherwise — `scripts/check_archived_todo_status.py` will fail the PR, and unlike this instruction it reaches every worktree.
+
 1. Edit the file's frontmatter: `status: in_progress` → `status: completed`.
 2. Append a Work Log entry:
 
@@ -219,7 +221,7 @@ Per [verification-before-completion](https://github.com/anthropic-experimental/c
    - Review: <N findings total, M blocking — addressed via repair / accepted / none>.
    ```
 
-3. Rename and move with `git mv`:
+3. Rename and move with `git mv`. **The filename's status segment must match the frontmatter status** — `todos/TEMPLATE.md` states this and `check_archived_todo_status.py` enforces it. Note that renaming a file makes any `.secrets.baseline` entry keyed to its old path stale, which blocks the commit; fix that with a filename-only edit to the baseline, never a regeneration.
 
    ```bash
    git mv todos/050-in_progress-p1-flutter-fresh-checkout-build.md \
@@ -313,6 +315,26 @@ These are non-negotiable. They override any in-the-moment judgment to "just push
 
    Skip this prompt if `--dry-run`.
 4. **Acceptance criteria are gospel.** A todo cannot be marked `completed` unless every `- [ ]` is flipped to `- [x]` with verification evidence quoted in the Work Log. There is no `--force-complete`.
-5. **No destructive recovery.** If `git mv` or any other step fails mid-todo, stop the loop and leave state as-is for the user to inspect. Do not roll back, do not delete, do not retry silently.
-6. **Stop on review block.** If `code-review-orchestrator` returns `critical`/`high` and the user chooses `repair`, exit the loop after that todo so the user can inspect the diff before the next todo starts.
-7. **Checkpoint integrity.** Update the checkpoint after every per-todo terminal state (completed or skipped), not at the end of the run. A killed process must be resumable from the last completed todo.
+
+   **The one exception is a re-point, and it must name a target.** If a criterion moved rather than shipped, leave it `- [ ]` and rewrite it to say where it went — the same convention CLAUDE.md states for review findings:
+
+   ```markdown
+   - [ ] Wire the export button → todo 283 (re-pointed 2026-07-26; promoted out of 263)
+   ```
+
+   Checking off a merely-relocated criterion falsifies the record, and nobody re-audits a checked box.
+
+   **This rail is now enforced, not advised.** `scripts/check_archived_todo_status.py` fails CI when a todo under `archive/` has a bare unchecked criterion, or a non-terminal `status:`. It runs on every PR via `.github/workflows/harness-ci.yml`. This text said the same thing before the checker existed and 63 archived todos carry unchecked criteria anyway — which is the whole argument for the checker: a rule that lives only in `.claude/` reaches only NEW worktrees, and a rule nothing measures is a preference.
+
+5. **An external verification must leave evidence in the file.** If a criterion can only be settled outside the repo — a key rotated at a vendor, a DNS record, a dashboard setting, a store submission — then before archiving, the criterion line or the Work Log must carry **the date and the observed result**, quoted:
+
+   ```markdown
+   - [x] Plant.id key rotated — 2026-09-13: GET plant.id/api/v3/usage_info with the
+         old literal returns HTTP 401 "api key is not active"; the new key returns
+         200 / active: true
+   ```
+
+   "Verified" with no date and no observation is not evidence. This is the exact shape that failed: `todos/archive/005-superseded-p1-api-key-rotation-verification.md` existed only to confirm a rotation, was archived with its rotation date left as the literal template `[DATE]`, and eleven months later a key from that same incident was still live in the public repo. An external verification leaves no artifact in the tree, so the file is the only record there will ever be.
+6. **No destructive recovery.** If `git mv` or any other step fails mid-todo, stop the loop and leave state as-is for the user to inspect. Do not roll back, do not delete, do not retry silently.
+7. **Stop on review block.** If `code-review-orchestrator` returns `critical`/`high` and the user chooses `repair`, exit the loop after that todo so the user can inspect the diff before the next todo starts.
+8. **Checkpoint integrity.** Update the checkpoint after every per-todo terminal state (completed or skipped), not at the end of the run. A killed process must be resumable from the last completed todo.

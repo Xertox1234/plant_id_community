@@ -144,3 +144,96 @@ allow:
     hint: >-
       drf_spectacular used in garden_calendar/api/views.py and forum_host;
       SpectacularAPIView not found in any urls.py.
+
+# ---------------------------------------------------------------------------
+# Every archived todo that already had bare unchecked acceptance criteria when
+# the ARCHIVED_UNCHECKED_AC rule landed on 2026-09-13. One dated snapshot, not
+# 63 individual judgements -- so paths only, no per-entry reason.
+#
+# This is the rule todo 390 AC 5 asked for, and it is the half that binds: the
+# skill text it also asks for reaches only NEW worktrees, while this runs on
+# every PR. It closes the hole AC 4's rule leaves open -- a todo archived with
+# `status: completed` and 38 unchecked ACs passes the archived-while-open rule
+# cleanly (todos/archive/2025-11-05-011-completed-p2-sql-wildcard-sanitization.md
+# is exactly that).
+#
+# A file leaves this list by having its ACs checked off or re-pointed, never by
+# being added back. A stale entry -- one whose file no longer has bare unchecked
+# ACs -- fails the check, same as above.
+#
+# The exemption is deliberately narrow: an unchecked AC is excused only if it
+# names a target todo AND says it was re-pointed, per CLAUDE.md's convention
+#   - [ ] #M2 bookmarks -> todo 283 (re-pointed 2026-07-26; promoted out of 263)
+# Zero of these 63 files clear that bar today. That is the honest starting
+# point: the exemption exists for future archivals, not to excuse the past.
+#
+# NOTE for whoever works through these: renaming an archived todo makes its
+# .secrets.baseline entries stale (the baseline is keyed by filename), and the
+# detect-secrets pre-commit hook will block the commit. Fix it with a
+# filename-only edit to .secrets.baseline -- NEVER regenerate it, which adds
+# ~28 entries including the file that held the leaked Plant.id key.
+
+grandfathered_unchecked_acs:
+  - backend/todos/archive/002-completed-fix-secret-key-default.md
+  - backend/todos/archive/009-complete-p3-migration-rollback-testing.md
+  - backend/todos/archive/010-complete-p3-automated-dependency-scanning.md
+  - backend/todos/archive/061-completed-p1-forum-phase-6-completion.md
+  - backend/todos/archive/061-superseded-p2-forum-phase-3-rich-content.md
+  - backend/todos/archive/090-resolved-p2-fix-api-versioning-tests.md
+  - backend/todos/archive/091-superseded-p3-fix-forum-cache-test-mocks.md
+  - backend/todos/archive/2025-10-28-parallel-resolution/003-resolved-p1-lock-release-error-handling.md
+  - backend/todos/archive/2025-10-28-parallel-resolution/004-resolved-p1-file-upload-validation.md
+  - backend/todos/archive/2025-11-01-002-resolved-p1-secret-key-already-implemented.md
+  - backend/todos/archive/2025-11-01-003-superseded-p1-env-example-secret-placeholders.md
+  - backend/todos/archive/2025-11-01-006-resolved-p2-cors-port-5174.md
+  - todos/archive/001-completed-p1-plantnet-circuit-breaker.md
+  - todos/archive/002-completed-p1-cascade-plant-disease-result.md
+  - todos/archive/002-completed-p1-views-type-hints.md
+  - todos/archive/003-completed-p1-vite-port-mismatch.md
+  - todos/archive/004-completed-p1-reaction-toggle-race-condition.md
+  - todos/archive/004-completed-p1-vote-race-condition.md
+  - todos/archive/005-completed-p1-attachment-soft-delete.md
+  - todos/archive/005-superseded-p1-api-key-rotation-verification.md
+  - todos/archive/006-completed-p1-blog-post-view-index.md
+  - todos/archive/007-completed-p1-jwt-secret-key-enforcement.md
+  - todos/archive/008-completed-p1-image-magic-number-validation.md
+  - todos/archive/009-completed-p2-file-upload-rate-limiting.md
+  - todos/archive/011-completed-p0-firebase-api-keys-exposed.md
+  - todos/archive/013-completed-p0-csrf-cookie-httponly.md
+  - todos/archive/014-completed-p1-missing-security-headers.md
+  - todos/archive/015-completed-p1-tiptap-memory-leak.md
+  - todos/archive/016-completed-p1-moderation-dashboard-performance.md
+  - todos/archive/017-completed-p2-registration-csrf-bypass.md
+  - todos/archive/018-completed-p2-jwt-token-lifetime.md
+  - todos/archive/020-completed-p2-post-search-gin-index.md
+  - todos/archive/022-completed-p3-cascade-behavior.md
+  - todos/archive/023-completed-p3-pii-encryption.md
+  - todos/archive/026-completed-p4-hsts-preload.md
+  - todos/archive/027-completed-p4-jwt-lifetime.md
+  - todos/archive/029-completed-p4-rate-limiting-consistency.md
+  - todos/archive/031-completed-p4-api-documentation.md
+  - todos/archive/032-completed-p4-component-tests.md
+  - todos/archive/034-completed-p4-duplicate-dompurify.md
+  - todos/archive/046-completed-p1-backend-syntax-error.md
+  - todos/archive/059-completed-p4-disease-db-viewset-queryset.md
+  - todos/archive/060-completed-p4-users-views-import-order.md
+  - todos/archive/061-completed-p4-ics-safe-lambda-scope.md
+  - todos/archive/062-completed-p4-blog-middleware-patch-path.md
+  - todos/archive/063-completed-p3-celery-task-idempotency.md
+  - todos/archive/064-completed-p3-forum-post-serializer-rich-content-n1.md
+  - todos/archive/086-skipped-p3-drop-orphan-forum-tables.md
+  - todos/archive/2025-10-28-parallel-resolution/035-resolved-p1-insecure-development-secrets.md
+  - todos/archive/2025-10-28-parallel-resolution/040-resolved-p2-missing-cache-popular-endpoint.md
+  - todos/archive/2025-10-28-parallel-resolution/043-resolved-p2-error-handling-leaks-details.md
+  - todos/archive/2025-10-28-parallel-resolution/044-resolved-p2-pii-logging-not-enforced.md
+  - todos/archive/2025-11-05-011-completed-p2-sql-wildcard-sanitization.md
+  - todos/archive/220-completed-p2-wagtail-forum-retire-machina.md
+  - todos/archive/234-completed-p2-flaky-web-vitest-unhandled-rejection.md
+  - todos/archive/246-completed-p4-trim-claude-md-critical-gotchas.md
+  - todos/archive/295-completed-p3-mobile-forum-search-and-profiles.md
+  - todos/archive/326-completed-p3-legacy-blog-serializer-same-landmine.md
+  - todos/archive/327-completed-p4-wagtail-stock-html-url-detail-url-still-site-based.md
+  - todos/archive/328-completed-p4-page-url-nested-site-disambiguation-gap.md
+  - todos/archive/360-completed-p1-firebase-secret-alerts-disposition.md
+  - todos/archive/382-completed-p1-firebase-api-key-shared-across-platforms.md
+  - todos/archive/383-completed-p2-firebase-hardening-carryover.md

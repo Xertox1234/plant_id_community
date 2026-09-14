@@ -37,6 +37,23 @@ WHAT IS CHECKED (two rules, both on the same status vocabulary)
                      say `pending` -- and archived unfinished anyway. A mismatch
                      rule waves those through for being consistently wrong.
 
+  ARCHIVED_UNCHECKED_AC
+                     A todo under `archive/` with at least one `- [ ]`
+                     acceptance criterion that is not re-pointed. This closes the
+                     half ARCHIVED_OPEN cannot see: a todo archived with
+                     `status: completed` and 38 unchecked ACs passes the
+                     archived-while-open rule cleanly
+                     (`todos/archive/2025-11-05-011-completed-p2-sql-wildcard-
+                     sanitization.md` is exactly that). An AC is excused only by
+                     CLAUDE.md's re-point convention -- a named target todo AND a
+                     re-point claim:
+                       - [ ] #M2 bookmarks -> todo 283 (re-pointed 2026-07-26)
+                     The predicate is deliberately narrow. A loose one ("see todo
+                     x", "tracked in y") matches ordinary prose, and an exemption
+                     that is easy to satisfy by accident is the same as no rule.
+                     Zero of the 63 files carrying unchecked ACs clear it today,
+                     so the exemption starts unused -- the honest starting point.
+
   FILENAME_OVERCLAIM The filename's status class and the frontmatter's status
                      class disagree. Compared by CLASS, not by string: 24 of the
                      50 literal string mismatches in this repo are
@@ -75,6 +92,14 @@ WHAT IS SKIPPED, AND THE LIMITATION THAT CREATES
   key is a violation, not a skip.
 
   Template/index files (TEMPLATE.md, README.md and friends) are skipped by name.
+
+TWO LISTS, NOT ONE
+
+  `todos/archive-status-allowlist.yml` holds both, keyed separately, because they
+  have opposite futures: `allow` (the archived-open backlog) should shrink to
+  zero as people triage, while `grandfathered_unchecked_acs` is a fixed snapshot
+  of what predated the AC rule. A single shared counter would let progress in one
+  bucket manufacture slack in the other.
 
 THE ALLOWLIST IS NOT A MUTE BUTTON
 
@@ -122,6 +147,17 @@ SKIP_NAMES = {
 
 # `042-completed-p1-slug.md` and `2025-11-01-003-resolved-p1-slug.md` both parse.
 FILENAME_RE = re.compile(r"^(?:\d{4}-\d{2}-\d{2}-)?\d+-([a-z_]+)-")
+UNCHECKED_AC_RE = re.compile(r"^\s*-\s\[ \]")
+# CLAUDE.md's re-point convention, deliberately narrow: a TARGET plus a reason --
+#   - [ ] #M2 bookmarks -> todo 283 (re-pointed 2026-07-26; promoted out of 263)
+# A loose predicate ("see todo", "tracked in") matches ordinary prose, and the
+# whole value of this exemption is that it is HARD to satisfy. Measured against
+# the repo: zero of the 63 files with unchecked ACs clear this bar, so the
+# exemption starts unused -- which is the honest starting point, not a failure.
+REPOINT_RE = re.compile(
+    r"(?:\u2192|->)\s*todo\s*\d+|re-?pointed\b.*\btodo\s*\d+|\btodo\s*\d+\b.*re-?pointed",
+    re.I,
+)
 STATUS_RE = re.compile(r"^status:\s*(.+?)\s*$", re.M)
 
 DEFAULT_ROOTS = ("todos", "backend/todos", "backend/github-issues")
@@ -129,20 +165,31 @@ ALLOWLIST_PATH = "todos/archive-status-allowlist.yml"
 
 
 def parse(path):
-    """Return (frontmatter_status, filename_status, has_frontmatter)."""
+    """Return (frontmatter_status, filename_status, has_frontmatter, bare_acs)."""
     with open(path, encoding="utf-8", errors="replace") as fh:
         text = fh.read()
     if not text.startswith("---\n"):
-        return None, None, False
+        return None, None, False, []
     end = text.find("\n---", 4)
     block = text[4:end] if end != -1 else text
     found = STATUS_RE.search(block)
     status = found.group(1).strip().lower() if found else None
     name_match = FILENAME_RE.match(os.path.basename(path))
-    return status, (name_match.group(1).lower() if name_match else None), True
+    bare = [
+        line
+        for line in text.splitlines()
+        if UNCHECKED_AC_RE.match(line) and not REPOINT_RE.search(line)
+    ]
+    return status, (name_match.group(1).lower() if name_match else None), True, bare
 
 
-SEVERITY = ("ARCHIVED_OPEN", "MISSING_STATUS", "UNKNOWN_STATUS", "FILENAME_OVERCLAIM")
+SEVERITY = (
+    "ARCHIVED_OPEN",
+    "MISSING_STATUS",
+    "UNKNOWN_STATUS",
+    "ARCHIVED_UNCHECKED_AC",
+    "FILENAME_OVERCLAIM",
+)
 
 
 def scan(roots):
@@ -154,7 +201,7 @@ def scan(roots):
     be excused for being archived-while-open and still fail on the filename, which
     reads as a bug rather than as the ratchet it is meant to be.
     """
-    violations, skipped = [], []
+    violations, skipped, kinds = [], [], {}
     for root in roots:
         if not os.path.isdir(root):
             continue
@@ -163,7 +210,7 @@ def scan(roots):
                 if not name.endswith(".md") or name in SKIP_NAMES:
                     continue
                 path = os.path.join(dirpath, name)
-                status, filename_status, has_fm = parse(path)
+                status, filename_status, has_fm, bare_acs = parse(path)
                 if not has_fm:
                     skipped.append(path)
                     continue
@@ -183,6 +230,15 @@ def scan(roots):
                                 ("ARCHIVED_OPEN", f"archived while status: {status}")
                             )
                         name_class = CLASS_OF_STATUS.get(filename_status)
+                        if archived and bare_acs:
+                            found.append(
+                                (
+                                    "ARCHIVED_UNCHECKED_AC",
+                                    f"archived with {len(bare_acs)} unchecked acceptance "
+                                    f"criteri{'on' if len(bare_acs) == 1 else 'a'} that "
+                                    "are not re-pointed",
+                                )
+                            )
                         if filename_status and name_class and name_class != status_class:
                             found.append(
                                 (
@@ -198,7 +254,8 @@ def scan(roots):
                         f" (+ also {', '.join(k for k, _ in found[1:])})" if len(found) > 1 else ""
                     )
                     violations.append((path, kind, detail + extra))
-    return violations, skipped
+                    kinds[path] = {k for k, _ in found}
+    return violations, skipped, kinds
 
 
 def load_allowlist(path):
@@ -229,6 +286,29 @@ def load_allowlist(path):
             raise SystemExit(2)
         out[entry["path"]] = entry
     return out
+
+
+AC_KIND = "ARCHIVED_UNCHECKED_AC"
+
+
+def load_ac_grandfathers(path):
+    """Return the set of paths grandfathered for unchecked acceptance criteria.
+
+    Paths only, no per-entry reason: this is one dated historical snapshot of
+    every archived todo that already had bare unchecked ACs when the rule landed,
+    not 63 individual judgements. Kept in its OWN list because the two buckets
+    have opposite futures -- the `allow` list above should shrink to zero as
+    people triage, while this one is a fixed record of what predates the rule.
+    Sharing one counter between them would let progress in one manufacture slack
+    in the other.
+    """
+    if not os.path.exists(path):
+        return set()
+    import yaml
+
+    with open(path, encoding="utf-8") as fh:
+        data = yaml.safe_load(fh) or {}
+    return set(data.get("grandfathered_unchecked_acs", []) or [])
 
 
 def main():
@@ -265,21 +345,29 @@ def main():
     args = parser.parse_args()
 
     roots = args.roots or list(DEFAULT_ROOTS)
-    violations, skipped = scan(roots)
+    violations, skipped, kinds = scan(roots)
 
     allow = {} if args.no_allowlist else load_allowlist(args.allowlist)
-    violating_paths = {p for p, _kind, _detail in violations}
+    ac_allow = set() if args.no_allowlist else load_ac_grandfathers(args.allowlist)
 
     # A stale entry fails. An allowlist nobody can be wrong about is an
     # allowlist nobody ever removes from.
     stale = []
-    for path, entry in allow.items():
+    for path in allow:
         if not os.path.exists(path):
-            stale.append((path, "file no longer exists", entry))
-        elif path not in violating_paths:
-            stale.append((path, "file no longer violates", entry))
+            stale.append((path, "file no longer exists"))
+        elif not (kinds.get(path, set()) - {AC_KIND}):
+            stale.append((path, "file no longer violates"))
+    for path in ac_allow:
+        if not os.path.exists(path):
+            stale.append((path, "file no longer exists (unchecked-AC list)"))
+        elif AC_KIND not in kinds.get(path, set()):
+            stale.append((path, "file no longer has bare unchecked ACs"))
 
-    remaining = [v for v in violations if v[0] not in allow]
+    def excused(path, kind):
+        return path in (ac_allow if kind == AC_KIND else allow)
+
+    remaining = [v for v in violations if not excused(v[0], v[1])]
 
     by_kind = Counter(kind for _p, kind, _d in violations)
     by_kind_remaining = Counter(kind for _p, kind, _d in remaining)
@@ -295,6 +383,8 @@ def main():
             f"\n{len(allow)} allowlisted "
             f"({', '.join(f'{v} {k}' for k, v in sorted(allowed_kinds.items()))})"
         )
+    if ac_allow:
+        print(f"{len(ac_allow)} grandfathered for unchecked acceptance criteria")
     if skipped:
         print(f"{len(skipped)} file(s) skipped: no frontmatter block, cannot be judged")
 
@@ -314,7 +404,7 @@ def main():
             "delete them, the thing they excused is gone:",
             file=sys.stderr,
         )
-        for path, why, _entry in sorted(stale):
+        for path, why in sorted(stale):
             print(f"  {path}: {why}", file=sys.stderr)
         return 1
 

@@ -21,6 +21,16 @@ blind:
     allowlist nobody ever removes from -- the decay documented in
     .github/security-suppressions.yml, which hid 19 advisories for two months.
   - a MALFORMED allowlist entry must exit 2 (a broken config is not a pass).
+  - the UNCHECKED-AC rule must hold where the archived-open rule is blind: a todo
+    archived with `status: completed` and 38 unchecked ACs passes "archived while
+    open" cleanly. That is the half of the hole AC 4 does not cover.
+  - the re-point EXEMPTION must be narrow. "see todo notes" is prose; only a
+    named target plus a re-point claim excuses an unchecked AC. A loose predicate
+    makes the exemption trivial to satisfy by accident, which is the same as not
+    having the rule.
+  - the two grandfather lists must be INDEPENDENT: excusing a file for being
+    archived-while-open must not also excuse its unchecked ACs, or cleaning up
+    one bucket silently creates slack in the other.
   - a file with NO frontmatter block is skipped, not failed: two such files are
     prose-era todos the frontmatter convention cannot judge, and guessing at them
     would manufacture exactly the false confidence this check opposes.
@@ -60,6 +70,21 @@ def run(root, allowlist=None, fail_over=0, no_allowlist=False):
     finally:
         sys.argv = old
     return code, out.getvalue() + err.getvalue()
+
+
+def unallowed(out, kind):
+    """The `unallowed` column for one violation kind, or None if absent.
+
+    Asserted on directly because exit code CANNOT distinguish this: a file listed
+    in the wrong bucket fails either way -- once as an unexcused violation, once
+    as a stale entry. Only the column separates "excused by the wrong list" from
+    "not excused at all", which is the whole point of keeping two lists.
+    """
+    for line in out.splitlines():
+        parts = line.split()
+        if len(parts) == 3 and parts[0] == kind:
+            return int(parts[2])
+    return None
 
 
 def todo(dirpath, name, status, body="# t\n"):
@@ -126,6 +151,71 @@ def main():
         code, out = run(root, no_allowlist=True)
         check("prose-era todo does not fail the check", code == 0, out)
         check("but is counted as skipped", "1 file(s) skipped" in out, out)
+
+        print("unchecked acceptance criteria")
+        acs = "## Acceptance Criteria\n\n- [ ] something nobody did\n"
+        todo(arch, "050-completed-p1-unchecked.md", "completed", acs)
+        code, out = run(root, no_allowlist=True)
+        check("terminal status + bare unchecked AC still fails", code == 1, out)
+        check("reported as ARCHIVED_UNCHECKED_AC", "ARCHIVED_UNCHECKED_AC" in out, out)
+        os.remove(arch / "050-completed-p1-unchecked.md")
+
+        todo(root, "051-pending-p1-live-acs.md", "pending", acs)
+        code, out = run(root, no_allowlist=True)
+        check("unchecked ACs on a LIVE todo are fine", code == 0, out)
+        os.remove(root / "051-pending-p1-live-acs.md")
+
+        repointed = ("## Acceptance Criteria\n\n"
+                     "- [ ] the thing -> todo 283 (re-pointed 2026-07-26; promoted)\n")
+        todo(arch, "052-completed-p1-repointed.md", "completed", repointed)
+        code, out = run(root, no_allowlist=True)
+        check("an unchecked AC re-pointed at a numbered todo is exempt", code == 0, out)
+        os.remove(arch / "052-completed-p1-repointed.md")
+
+        for label, body in (
+            ("bare prose 'see todo notes' is NOT a re-point",
+             "- [ ] the thing, see todo notes for context\n"),
+            ("a target with no re-point claim is NOT enough",
+             "- [ ] the thing, tracked in the forum epic\n"),
+            ("'re-pointed' with no target is NOT enough",
+             "- [ ] the thing (re-pointed somewhere else)\n"),
+        ):
+            todo(arch, "053-completed-p1-loose.md", "completed",
+                 "## Acceptance Criteria\n\n" + body)
+            code, out = run(root, no_allowlist=True)
+            check(label, code == 1, out)
+            os.remove(arch / "053-completed-p1-loose.md")
+
+        print("the two lists are independent")
+        both = arch / "054-completed-p1-openandacs.md"
+        todo(arch, both.name, "pending", acs)   # archived-open AND unchecked ACs
+        al2 = pathlib.Path(tmp) / "two.yml"
+        al2.write_text(f"allow:\n  - path: {both}\n    kind: not-triaged\n"
+                       "    date: 2026-09-13\n    reason: grandfathered\n")
+        code, out = run(root, allowlist=al2)
+        check("the archived-open list alone excuses the open status", code == 0, out)
+        todo(arch, both.name, "completed", acs)  # status fixed; ACs still bare
+        code, out = run(root, allowlist=al2)
+        check("once the status is fixed the unchecked ACs surface", code == 1, out)
+        check("and the now-stale archived-open entry is named",
+              "no longer violates" in out, out)
+        al3 = pathlib.Path(tmp) / "wrongbucket.yml"
+        al3.write_text(f"allow:\n  - path: {both}\n    kind: not-triaged\n"
+                       "    date: 2026-09-13\n    reason: wrong bucket\n")
+        code, out = run(root, allowlist=al3)
+        check("an AC violation is NOT excused by the archived-open list",
+              unallowed(out, "ARCHIVED_UNCHECKED_AC") == 1,
+              f"unallowed={unallowed(out, 'ARCHIVED_UNCHECKED_AC')}\n{out}")
+
+        al2.write_text(f"grandfathered_unchecked_acs:\n  - {both}\n")
+        code, out = run(root, allowlist=al2)
+        check("the unchecked-AC list excuses them", code == 0, out)
+        todo(arch, both.name, "completed", "## Acceptance Criteria\n\n- [x] done\n")
+        code, out = run(root, allowlist=al2)
+        check("a stale unchecked-AC entry fails", code == 1, out)
+        check("and says the ACs are no longer bare",
+              "no longer has bare unchecked ACs" in out, out)
+        os.remove(both)
 
         print("the allowlist")
         bad = arch / "040-completed-p1-unfinished.md"
