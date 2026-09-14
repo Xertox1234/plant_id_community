@@ -35,13 +35,13 @@ class PlantDataLookupService:
         try:
             self.trefle_service = TrefleAPIService()
         except Exception as e:
-            logger.warning(f"Could not initialize TrefleAPIService: {e}")
+            logger.warning(f"[PLANT_DATA] Could not initialize TrefleAPIService: {e}")
             self.trefle_service = None
 
         try:
             self.plantnet_service = PlantNetAPIService()
         except Exception as e:
-            logger.warning(f"Could not initialize PlantNetAPIService: {e}")
+            logger.warning(f"[PLANT_DATA] Could not initialize PlantNetAPIService: {e}")
             self.plantnet_service = None
 
         self.fuzzy_match_threshold = 85  # Minimum score for fuzzy matching
@@ -62,29 +62,35 @@ class PlantDataLookupService:
         # Step 1: Local database exact match
         local_result = self._search_local_database(query)
         if local_result["found"]:
-            logger.info(f"Found exact match in local database for: {query}")
+            logger.info(
+                f"[PLANT_DATA] Found exact match in local database for: {query}"
+            )
             return local_result
 
         # Step 2: Local database fuzzy match
         fuzzy_result = self._fuzzy_search_local_database(query)
         if fuzzy_result["found"]:
-            logger.info(f"Found fuzzy match in local database for: {query}")
+            logger.info(
+                f"[PLANT_DATA] Found fuzzy match in local database for: {query}"
+            )
             return fuzzy_result
 
         # Step 3: User's previous identifications
         if user:
             user_result = self._search_user_history(query, user)
             if user_result["found"]:
-                logger.info(f"Found in user's previous identifications: {query}")
+                logger.info(
+                    f"[PLANT_DATA] Found in user's previous identifications: {query}"
+                )
                 return user_result
 
         # Step 4: External API search
         api_result = self._search_external_apis(query)
         if api_result["found"]:
-            logger.info(f"Found via external API for: {query}")
+            logger.info(f"[PLANT_DATA] Found via external API for: {query}")
             return api_result
 
-        logger.warning(f"No plant data found for query: {query}")
+        logger.warning(f"[PLANT_DATA] No plant data found for query: {query}")
         return result
 
     def _search_local_database(self, query: str) -> Dict:
@@ -110,7 +116,7 @@ class PlantDataLookupService:
                 }
 
         except Exception as e:
-            logger.error(f"Error searching local database: {e}")
+            logger.error(f"[PLANT_DATA] Error searching local database: {e}")
 
         return {"found": False, "source": None, "confidence": 0.0, "data": {}}
 
@@ -147,7 +153,7 @@ class PlantDataLookupService:
                 }
 
         except Exception as e:
-            logger.error(f"Error in fuzzy search: {e}")
+            logger.error(f"[PLANT_DATA] Error in fuzzy search: {e}")
 
         return {"found": False, "source": None, "confidence": 0.0, "data": {}}
 
@@ -181,7 +187,7 @@ class PlantDataLookupService:
                             }
 
         except Exception as e:
-            logger.error(f"Error searching user history: {e}")
+            logger.error(f"[PLANT_DATA] Error searching user history: {e}")
 
         return {"found": False, "source": None, "confidence": 0.0, "data": {}}
 
@@ -200,14 +206,14 @@ class PlantDataLookupService:
                     }
             else:
                 logger.info(
-                    "Trefle service not available, skipping external API search"
+                    "[PLANT_DATA] Trefle service not available, skipping external API search"
                 )
 
             # Fallback to PlantNet if available
             # Note: PlantNet requires images, so this would be limited
 
         except Exception as e:
-            logger.error(f"Error searching external APIs: {e}")
+            logger.error(f"[PLANT_DATA] Error searching external APIs: {e}")
 
         return {"found": False, "source": None, "confidence": 0.0, "data": {}}
 
