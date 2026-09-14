@@ -18,6 +18,7 @@ import 'package:plant_community_mobile/models/plant.dart';
 import 'package:plant_community_mobile/services/api_service.dart';
 import 'package:plant_community_mobile/services/auth_service.dart';
 import 'package:plant_community_mobile/services/user_profile_service.dart';
+import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../features/forum/support/forum_test_support.dart';
 
@@ -368,7 +369,7 @@ void main() {
 
         // Should show error screen
         expect(find.text('Oops! Something went wrong'), findsOneWidget);
-        expect(find.byIcon(Icons.error_outline), findsOneWidget);
+        expect(find.byIcon(LucideIcons.circleAlert), findsOneWidget);
 
         await tester.pump(const Duration(seconds: 4));
       },
@@ -711,7 +712,7 @@ void main() {
         await tester.pump(const Duration(milliseconds: 400));
         expect(find.textContaining('Original body'), findsOneWidget);
 
-        await tester.tap(find.byIcon(Icons.more_vert));
+        await tester.tap(find.byIcon(LucideIcons.ellipsisVertical));
         await tester.pumpAndSettle();
         await tester.tap(find.text('Edit'));
         await tester.pump();
@@ -775,7 +776,7 @@ void main() {
         await tester.pump();
         await tester.pump(const Duration(milliseconds: 400));
 
-        await tester.tap(find.byIcon(Icons.more_vert));
+        await tester.tap(find.byIcon(LucideIcons.ellipsisVertical));
         await tester.pumpAndSettle();
         await tester.tap(find.text('Edit'));
         await tester.pump();
@@ -829,7 +830,7 @@ void main() {
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 400));
 
-      await tester.tap(find.byIcon(Icons.notifications_outlined));
+      await tester.tap(find.byIcon(LucideIcons.bell));
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 400));
 
@@ -861,7 +862,7 @@ void main() {
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 400));
 
-      await tester.tap(find.byIcon(Icons.search));
+      await tester.tap(find.byIcon(LucideIcons.search));
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 400));
 

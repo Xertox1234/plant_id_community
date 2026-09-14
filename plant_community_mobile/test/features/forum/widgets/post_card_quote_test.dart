@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:plant_community_mobile/features/forum/models/models.dart';
 import 'package:plant_community_mobile/features/forum/widgets/post_card.dart';
+import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../support/forum_test_support.dart';
 
@@ -23,7 +24,7 @@ void main() {
       expect(size.width, greaterThanOrEqualTo(48));
       expect(size.height, greaterThanOrEqualTo(48));
       // Not a menu entry: a post with no other capability still offers it.
-      expect(find.byIcon(Icons.more_vert), findsNothing);
+      expect(find.byIcon(LucideIcons.ellipsisVertical), findsNothing);
 
       await tester.tap(button);
       await tester.pump();

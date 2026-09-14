@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../../../core/constants/app_spacing.dart';
 import '../forum_errors.dart';
@@ -215,7 +216,7 @@ class _ForumGroupMembersSheetState
                   height: 48,
                   child: FilledButton.tonalIcon(
                     onPressed: _busy || atCapacity ? null : _addMember,
-                    icon: const Icon(Icons.person_add_alt_1),
+                    icon: const Icon(LucideIcons.userPlus),
                     label: const Text('Add member'),
                   ),
                 ),
@@ -238,7 +239,7 @@ class _ForumGroupMembersSheetState
                       foregroundColor: theme.colorScheme.error,
                     ),
                     onPressed: _busy ? null : () => _leave(me),
-                    icon: const Icon(Icons.logout),
+                    icon: const Icon(LucideIcons.logOut),
                     label: const Text('Leave group'),
                   ),
                 ),

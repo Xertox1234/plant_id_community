@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:plant_community_mobile/core/theme/app_palettes.dart';
 import 'package:plant_community_mobile/core/theme/app_theme.dart';
 import 'package:plant_community_mobile/core/theme/green_thumb_extension.dart';
 import 'package:plant_community_mobile/features/collection/collection_screen.dart';
@@ -10,7 +9,7 @@ import 'package:plant_community_mobile/services/auth_service.dart';
 import 'package:plant_community_mobile/services/firestore_service.dart';
 
 Widget _wrap(Widget child) => MaterialApp(
-  theme: AppTheme.build(AppPaletteChoice.loam, Brightness.light, AppDensity.cozy),
+  theme: AppTheme.build(Brightness.light, AppDensity.cozy),
   home: child,
 );
 
@@ -74,7 +73,9 @@ void main() {
     expect(find.text('Identify a plant'), findsOneWidget); // the "add" tile
   });
 
-  testWidgets('shows an empty state when the collection is empty', (tester) async {
+  testWidgets('shows an empty state when the collection is empty', (
+    tester,
+  ) async {
     await _pump(
       tester,
       ProviderScope(

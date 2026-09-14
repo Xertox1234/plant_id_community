@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../../../core/constants/app_spacing.dart';
 import '../models/models.dart';
@@ -141,7 +142,7 @@ class _ForumMentionSuggestionsState
                 ListTile(
                   dense: true,
                   minTileHeight: 48,
-                  leading: const Icon(Icons.alternate_email, size: 18),
+                  leading: const Icon(LucideIcons.atSign, size: 18),
                   title: Text('@${user.username}'),
                   subtitle: user.displayName != user.username
                       ? Text(user.displayName)

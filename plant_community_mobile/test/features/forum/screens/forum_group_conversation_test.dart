@@ -8,6 +8,7 @@ import 'package:plant_community_mobile/features/forum/services/forum_api.dart';
 import 'package:plant_community_mobile/features/forum/widgets/author_identity.dart';
 import 'package:plant_community_mobile/services/api_service.dart';
 import 'package:plant_community_mobile/services/user_profile_service.dart';
+import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../support/forum_test_support.dart';
 
@@ -50,7 +51,7 @@ Future<void> _open(
   await tester.pumpAndSettle();
 }
 
-Finder _sendButton() => find.widgetWithIcon(IconButton, Icons.send);
+Finder _sendButton() => find.widgetWithIcon(IconButton, LucideIcons.send);
 
 Finder _removeIn(String member) => find.descendant(
   of: find.widgetWithText(ListTile, member),
@@ -434,7 +435,7 @@ void main() {
           ),
           findsOneWidget,
         );
-        final members = find.widgetWithIcon(IconButton, Icons.group_outlined);
+        final members = find.widgetWithIcon(IconButton, LucideIcons.users);
         expect(tester.widget<IconButton>(members).onPressed, isNotNull);
 
         await tester.tap(members);
@@ -457,7 +458,7 @@ void main() {
       expect(
         tester
             .widget<IconButton>(
-              find.widgetWithIcon(IconButton, Icons.group_outlined),
+              find.widgetWithIcon(IconButton, LucideIcons.users),
             )
             .onPressed,
         isNull,

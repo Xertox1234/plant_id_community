@@ -2,7 +2,10 @@ import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:lucide_icons_flutter/lucide_icons.dart';
 import '../../core/constants/app_spacing.dart';
+import '../../core/theme/app_typography.dart';
+import '../../shared/widgets/canopy_surfaces.dart';
 import '../../core/routing/app_router.dart';
 import '../../core/theme/green_thumb_extension.dart';
 import '../../models/plant.dart';
@@ -33,7 +36,7 @@ class CollectionScreen extends ConsumerWidget {
         // throw in FirestoreService._validateUserId).
         child: uid == null || uid.isEmpty
             ? _CenteredMessage(
-                icon: Icons.person_outline,
+                icon: LucideIcons.user,
                 title: 'Sign in to see your collection',
                 subtitle:
                     'Your identified plants sync across devices and stay '
@@ -46,7 +49,7 @@ class CollectionScreen extends ConsumerWidget {
                     loading: () =>
                         const Center(child: CircularProgressIndicator()),
                     error: (error, _) => _CenteredMessage(
-                      icon: Icons.cloud_off_outlined,
+                      icon: LucideIcons.cloudOff,
                       title: "Couldn't load your collection",
                       subtitle: 'Check your connection and try again.',
                       ext: ext,
@@ -136,10 +139,10 @@ class _SyncBadge extends StatelessWidget {
     final IconData icon;
     final String label;
     if (snapshot.hasPendingWrites) {
-      icon = Icons.sync;
+      icon = LucideIcons.refreshCw;
       label = 'Syncing…';
     } else if (snapshot.isFromCache) {
-      icon = Icons.cloud_off_outlined;
+      icon = LucideIcons.cloudOff;
       label = 'Offline';
     } else {
       return const SizedBox.shrink();
@@ -180,8 +183,8 @@ class _PlantCard extends StatelessWidget {
     final cs = Theme.of(context).colorScheme;
     final hasImage = plant.imageUrl != null && plant.imageUrl!.isNotEmpty;
 
-    return Card(
-      clipBehavior: Clip.antiAlias,
+    return CanopyCard(
+      padding: EdgeInsets.zero,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -231,9 +234,8 @@ class _PlantCard extends StatelessWidget {
                   ),
                   child: Text(
                     '✓ ID\'d',
-                    style: TextStyle(
+                    style: AppTypography.micro.copyWith(
                       color: GreenThumbExtension.onLeaf,
-                      fontSize: 10,
                       fontWeight: FontWeight.w600,
                     ),
                   ),
@@ -249,7 +251,11 @@ class _PlantCard extends StatelessWidget {
   Widget _imagePlaceholder(ColorScheme cs) => Container(
     color: cs.surfaceContainerLow,
     alignment: Alignment.center,
-    child: Icon(Icons.eco, size: 32, color: cs.primary.withValues(alpha: 0.4)),
+    child: Icon(
+      LucideIcons.leaf,
+      size: 32,
+      color: cs.primary.withValues(alpha: 0.4),
+    ),
   );
 }
 
@@ -272,13 +278,13 @@ class _AddCard extends StatelessWidget {
         child: Container(
           decoration: BoxDecoration(
             borderRadius: radius,
-            border: Border.all(color: cs.outlineVariant, width: 2),
+            border: Border.all(color: ext.line2, width: 2),
           ),
           child: Center(
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                Icon(Icons.add, color: ext.ink3, size: 28),
+                Icon(LucideIcons.plus, color: ext.ink3, size: 28),
                 const SizedBox(height: 4),
                 Text(
                   'Identify a plant',
@@ -308,7 +314,7 @@ class _EmptyState extends StatelessWidget {
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Icon(Icons.eco_outlined, size: 48, color: ext.ink3),
+          Icon(LucideIcons.leaf, size: 48, color: ext.ink3),
           SizedBox(height: ext.gapY),
           Text('No plants yet', style: Theme.of(context).textTheme.titleMedium),
           const SizedBox(height: AppSpacing.xs),
@@ -322,7 +328,7 @@ class _EmptyState extends StatelessWidget {
           SizedBox(height: ext.gapY),
           FilledButton.icon(
             onPressed: () => context.push(AppRoutes.camera),
-            icon: const Icon(Icons.add_a_photo_outlined),
+            icon: const Icon(LucideIcons.camera),
             label: const Text('Identify a plant'),
           ),
         ],

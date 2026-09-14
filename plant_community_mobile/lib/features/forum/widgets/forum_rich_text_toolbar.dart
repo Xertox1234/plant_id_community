@@ -1,5 +1,6 @@
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
+import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../models/forum_rich_text_markup.dart';
 
@@ -289,27 +290,27 @@ class ForumRichTextToolbar extends StatelessWidget {
       mainAxisSize: MainAxisSize.min,
       children: [
         IconButton(
-          icon: const Icon(Icons.format_bold),
+          icon: const Icon(LucideIcons.bold),
           tooltip: 'Bold',
           onPressed: () => _wrap('**'),
         ),
         IconButton(
-          icon: const Icon(Icons.format_italic),
+          icon: const Icon(LucideIcons.italic),
           tooltip: 'Italic',
           onPressed: () => _wrap('_'),
         ),
         IconButton(
-          icon: const Icon(Icons.code),
+          icon: const Icon(LucideIcons.code),
           tooltip: 'Inline code',
           onPressed: () => _wrap('`'),
         ),
         IconButton(
-          icon: const Icon(Icons.link),
+          icon: const Icon(LucideIcons.link),
           tooltip: 'Insert link',
           onPressed: () => _showLinkDialog(context),
         ),
         IconButton(
-          icon: const Icon(Icons.format_list_bulleted),
+          icon: const Icon(LucideIcons.list),
           tooltip: 'Bulleted list',
           onPressed: () {
             controller.value = toggleListPrefix(

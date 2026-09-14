@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../../core/constants/app_spacing.dart';
+import 'canopy_surfaces.dart';
 
 /// A customizable loading indicator with various styles
 ///
@@ -58,11 +59,17 @@ class LoadingIndicator extends StatelessWidget {
 
     if (type == LoadingIndicatorType.overlay) {
       return Container(
-        color: Colors.black.withValues(alpha: 0.5),
+        // `ColorScheme.scrim` is the Canopy shadow colour — black in dark mode,
+        // tinted pine in light. A hardcoded black scrim reads as a foreign
+        // grey wash over the mint light-mode ground.
+        color: Theme.of(context).colorScheme.scrim.withValues(alpha: 0.5),
         child: Center(
-          child: Card(
-            margin: const EdgeInsets.all(AppSpacing.xl),
-            child: Padding(
+          child: Padding(
+            padding: const EdgeInsets.all(AppSpacing.xl),
+            child: CanopyCard(
+              // A modal-weight surface: this floats over a scrim, so it takes the
+              // top shadow rung rather than a resting card's.
+              elevation: 3,
               padding: const EdgeInsets.all(AppSpacing.xl2),
               child: Column(
                 mainAxisSize: MainAxisSize.min,

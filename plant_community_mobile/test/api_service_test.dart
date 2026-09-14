@@ -24,7 +24,9 @@ void main() {
       test('should create ApiService instance with correct base URL', () {
         expect(apiService, isNotNull);
         expect(
-            apiService.baseUrl, 'http://test-server-does-not-exist.local:9999/api/v1');
+          apiService.baseUrl,
+          'http://test-server-does-not-exist.local:9999/api/v1',
+        );
       });
 
       test('should allow setting auth token after creation', () {
@@ -84,20 +86,24 @@ void main() {
       }
 
       test('reads top-level message from canonical shape', () {
-        final e = makeBadResponse(
-          {'error': true, 'message': 'Invalid credentials', 'code': 'auth_failed', 'status_code': 400},
-          400,
-        );
+        final e = makeBadResponse({
+          'error': true,
+          'message': 'Invalid credentials',
+          'code': 'auth_failed',
+          'status_code': 400,
+        }, 400);
         final result = apiService.handleDioException(e) as ApiException;
         expect(result.message, 'Invalid credentials');
         expect(result.message, isNot('true'));
       });
 
       test('never surfaces boolean true as the error string', () {
-        final e = makeBadResponse(
-          {'error': true, 'message': 'Account locked', 'code': 'account_locked', 'status_code': 403},
-          403,
-        );
+        final e = makeBadResponse({
+          'error': true,
+          'message': 'Account locked',
+          'code': 'account_locked',
+          'status_code': 403,
+        }, 403);
         final result = apiService.handleDioException(e) as ApiException;
         expect(result.message, isNot('true'));
       });
@@ -140,22 +146,36 @@ void main() {
         );
       }
 
-      test('does NOT retry 429 even when the request is marked retry-unsafe', () {
-        // The core fix: a rate-limited non-idempotent mutation must not be
-        // resubmitted, or it can create duplicate records.
-        final e = makeError(statusCode: 429, method: 'POST', retryUnsafe: true);
-        expect(apiService.shouldRetry(e), isFalse);
-      });
+      test(
+        'does NOT retry 429 even when the request is marked retry-unsafe',
+        () {
+          // The core fix: a rate-limited non-idempotent mutation must not be
+          // resubmitted, or it can create duplicate records.
+          final e = makeError(
+            statusCode: 429,
+            method: 'POST',
+            retryUnsafe: true,
+          );
+          expect(apiService.shouldRetry(e), isFalse);
+        },
+      );
 
       test('does NOT retry 429 on an otherwise-safe GET', () {
         final e = makeError(statusCode: 429, method: 'GET');
         expect(apiService.shouldRetry(e), isFalse);
       });
 
-      test('still retries 500 for a retry-unsafe request (regression guard)', () {
-        final e = makeError(statusCode: 500, method: 'POST', retryUnsafe: true);
-        expect(apiService.shouldRetry(e), isTrue);
-      });
+      test(
+        'still retries 500 for a retry-unsafe request (regression guard)',
+        () {
+          final e = makeError(
+            statusCode: 500,
+            method: 'POST',
+            retryUnsafe: true,
+          );
+          expect(apiService.shouldRetry(e), isTrue);
+        },
+      );
 
       test('does not retry 500 for an unmarked mutation', () {
         final e = makeError(statusCode: 500, method: 'POST');
@@ -225,13 +245,21 @@ void main() {
     // These tests are skipped by default to allow unit tests to pass in CI
     // without requiring backend infrastructure.
 
-    test('should successfully call backend health check endpoint', () async {
-      // Placeholder for future integration test
-    }, skip: 'Requires running Django backend');
+    test(
+      'should successfully call backend health check endpoint',
+      () async {
+        // Placeholder for future integration test
+      },
+      skip: 'Requires running Django backend',
+    );
 
-    test('should handle authentication with JWT token', () async {
-      // Placeholder for future integration test
-    }, skip: 'Requires running Django backend');
+    test(
+      'should handle authentication with JWT token',
+      () async {
+        // Placeholder for future integration test
+      },
+      skip: 'Requires running Django backend',
+    );
 
     test('should upload file to backend', () async {
       // Placeholder for future integration test

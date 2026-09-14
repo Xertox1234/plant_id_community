@@ -23,16 +23,19 @@ void main() {
   });
 
   group('syncAfterLogin', () {
-    test('registers the FCM token against the forum profile endpoint', () async {
-      fakeMessaging.token = 'device-token-1';
+    test(
+      'registers the FCM token against the forum profile endpoint',
+      () async {
+        fakeMessaging.token = 'device-token-1';
 
-      await service.syncAfterLogin();
+        await service.syncAfterLogin();
 
-      expect(fakeApi.patchCalls, hasLength(1));
-      expect(fakeApi.patchCalls.single.path, '/forum/me/profile/');
-      expect(fakeApi.patchCalls.single.data, {'fcm_token': 'device-token-1'});
-      expect(service.lastSyncedToken, 'device-token-1');
-    });
+        expect(fakeApi.patchCalls, hasLength(1));
+        expect(fakeApi.patchCalls.single.path, '/forum/me/profile/');
+        expect(fakeApi.patchCalls.single.data, {'fcm_token': 'device-token-1'});
+        expect(service.lastSyncedToken, 'device-token-1');
+      },
+    );
 
     test('skips re-registering an unchanged token', () async {
       // Fires on every JWT exchange, including silent app-start login — an
@@ -66,41 +69,35 @@ void main() {
       expect(fakeApi.patchCalls, isEmpty);
     });
 
-    test(
-      'a null token still installs the rotation listener, which heals '
-      'registration when the token arrives (iOS APNS warm-up)',
-      () async {
-        fakeMessaging.token = null;
+    test('a null token still installs the rotation listener, which heals '
+        'registration when the token arrives (iOS APNS warm-up)', () async {
+      fakeMessaging.token = null;
 
-        await service.syncAfterLogin();
-        expect(fakeApi.patchCalls, isEmpty);
+      await service.syncAfterLogin();
+      expect(fakeApi.patchCalls, isEmpty);
 
-        fakeMessaging.tokenRefreshController.add('late-token');
-        await pumpEventQueue();
+      fakeMessaging.tokenRefreshController.add('late-token');
+      await pumpEventQueue();
 
-        expect(fakeApi.patchCalls, hasLength(1));
-        expect(fakeApi.patchCalls.single.data, {'fcm_token': 'late-token'});
-      },
-    );
+      expect(fakeApi.patchCalls, hasLength(1));
+      expect(fakeApi.patchCalls.single.data, {'fcm_token': 'late-token'});
+    });
 
-    test(
-      'a failed initial PATCH does not cost the session its rotation '
-      'listener',
-      () async {
-        fakeMessaging.token = 'device-token-1';
-        fakeApi.patchError = ApiException('server down', statusCode: 500);
+    test('a failed initial PATCH does not cost the session its rotation '
+        'listener', () async {
+      fakeMessaging.token = 'device-token-1';
+      fakeApi.patchError = ApiException('server down', statusCode: 500);
 
-        await service.syncAfterLogin();
-        expect(fakeApi.patchCalls, hasLength(1)); // the failed attempt
+      await service.syncAfterLogin();
+      expect(fakeApi.patchCalls, hasLength(1)); // the failed attempt
 
-        fakeApi.patchError = null;
-        fakeMessaging.tokenRefreshController.add('device-token-2');
-        await pumpEventQueue();
+      fakeApi.patchError = null;
+      fakeMessaging.tokenRefreshController.add('device-token-2');
+      await pumpEventQueue();
 
-        expect(fakeApi.patchCalls, hasLength(2));
-        expect(fakeApi.patchCalls.last.data, {'fcm_token': 'device-token-2'});
-      },
-    );
+      expect(fakeApi.patchCalls, hasLength(2));
+      expect(fakeApi.patchCalls.last.data, {'fcm_token': 'device-token-2'});
+    });
 
     test('re-registers when FCM rotates the token', () async {
       fakeMessaging.token = 'device-token-1';
@@ -139,30 +136,27 @@ void main() {
       expect(fakeApi.patchCalls, hasLength(2));
     });
 
-    test(
-      'a sync parked on getToken when detach() runs registers nothing and '
-      'attaches nothing (sign-out during login sync)',
-      () async {
-        // Empirically confirmed race in review: without the epoch guard the
-        // resumed continuation re-registered the token and re-attached the
-        // listener after logout had cleared everything.
-        final gate = Completer<String?>();
-        fakeMessaging.getTokenOverride = () => gate.future;
+    test('a sync parked on getToken when detach() runs registers nothing and '
+        'attaches nothing (sign-out during login sync)', () async {
+      // Empirically confirmed race in review: without the epoch guard the
+      // resumed continuation re-registered the token and re-attached the
+      // listener after logout had cleared everything.
+      final gate = Completer<String?>();
+      fakeMessaging.getTokenOverride = () => gate.future;
 
-        final inFlight = service.syncAfterLogin();
-        await pumpEventQueue();
+      final inFlight = service.syncAfterLogin();
+      await pumpEventQueue();
 
-        service.detach(); // sign-out path
-        gate.complete('device-token-1');
-        await inFlight;
+      service.detach(); // sign-out path
+      gate.complete('device-token-1');
+      await inFlight;
 
-        expect(fakeApi.patchCalls, isEmpty);
+      expect(fakeApi.patchCalls, isEmpty);
 
-        fakeMessaging.tokenRefreshController.add('device-token-2');
-        await pumpEventQueue();
-        expect(fakeApi.patchCalls, isEmpty); // no resurrected listener either
-      },
-    );
+      fakeMessaging.tokenRefreshController.add('device-token-2');
+      await pumpEventQueue();
+      expect(fakeApi.patchCalls, isEmpty); // no resurrected listener either
+    });
   });
 
   group('registerToken', () {
@@ -224,24 +218,21 @@ void main() {
   });
 
   group('detach', () {
-    test(
-      'clears the sync marker so a different user on this device is never '
-      'dedupe-skipped',
-      () async {
-        // Session-expiry and external sign-outs run detach() only (no
-        // clearOnLogout); the next account's registration of the SAME device
-        // token must still be sent (review: cross-file tracer).
-        fakeMessaging.token = 'device-token-1';
-        await service.syncAfterLogin();
-        expect(fakeApi.patchCalls, hasLength(1));
+    test('clears the sync marker so a different user on this device is never '
+        'dedupe-skipped', () async {
+      // Session-expiry and external sign-outs run detach() only (no
+      // clearOnLogout); the next account's registration of the SAME device
+      // token must still be sent (review: cross-file tracer).
+      fakeMessaging.token = 'device-token-1';
+      await service.syncAfterLogin();
+      expect(fakeApi.patchCalls, hasLength(1));
 
-        service.detach();
+      service.detach();
 
-        await service.syncAfterLogin();
-        expect(fakeApi.patchCalls, hasLength(2));
-        expect(fakeApi.patchCalls.last.data, {'fcm_token': 'device-token-1'});
-      },
-    );
+      await service.syncAfterLogin();
+      expect(fakeApi.patchCalls, hasLength(2));
+      expect(fakeApi.patchCalls.last.data, {'fcm_token': 'device-token-1'});
+    });
   });
 }
 
@@ -296,8 +287,7 @@ class _TestablePushRegistrationService extends PushRegistrationService {
 /// across firebase_messaging upgrades.
 class _FakeSettings implements NotificationSettings {
   @override
-  AuthorizationStatus get authorizationStatus =>
-      AuthorizationStatus.authorized;
+  AuthorizationStatus get authorizationStatus => AuthorizationStatus.authorized;
 
   @override
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);

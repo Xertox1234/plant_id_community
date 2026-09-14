@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:lucide_icons_flutter/lucide_icons.dart';
 import '../../core/constants/app_spacing.dart';
+import '../../shared/widgets/canopy_surfaces.dart';
 import '../../core/theme/green_thumb_extension.dart';
 
 /// Plant care guides hub (stub). Lists the core care categories; full guides
@@ -67,25 +69,25 @@ class CareScreen extends StatelessWidget {
         _Category(
           title: 'Watering',
           subtitle: 'When and how much to water your plants',
-          icon: Icons.water_drop,
+          icon: LucideIcons.droplet,
           accent: ext.sky,
         ),
         _Category(
           title: 'Sunlight',
           subtitle: 'Light requirements for healthy growth',
-          icon: Icons.wb_sunny,
+          icon: LucideIcons.sun,
           accent: cs.tertiary,
         ),
         _Category(
           title: 'Soil & Fertilising',
           subtitle: 'The right growing medium and nutrients',
-          icon: Icons.grass,
+          icon: LucideIcons.sprout,
           accent: cs.primary,
         ),
         _Category(
           title: 'Temperature',
           subtitle: 'Optimal conditions for your plants',
-          icon: Icons.thermostat,
+          icon: LucideIcons.thermometer,
           accent: ext.clay,
         ),
       ];
@@ -111,13 +113,14 @@ class _CategoryCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Card(
+    return CanopyCard(
+      padding: EdgeInsets.zero,
       child: ListTile(
         contentPadding: EdgeInsets.all(ext.padCard),
         leading: Container(
           padding: const EdgeInsets.all(AppSpacing.sm),
           decoration: BoxDecoration(
-            color: category.accent.withValues(alpha: 0.12),
+            color: category.accent.withValues(alpha: 0.10),
             borderRadius: BorderRadius.circular(AppSpacing.rSm),
           ),
           child: Icon(category.icon, color: category.accent, size: 24),
@@ -132,7 +135,7 @@ class _CategoryCard extends StatelessWidget {
             context,
           ).textTheme.bodySmall?.copyWith(color: ext.ink2),
         ),
-        trailing: Icon(Icons.chevron_right, color: ext.ink3),
+        trailing: Icon(LucideIcons.chevronRight, color: ext.ink3),
       ),
     );
   }

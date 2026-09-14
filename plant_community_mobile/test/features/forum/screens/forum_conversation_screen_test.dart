@@ -5,6 +5,7 @@ import 'package:plant_community_mobile/features/forum/models/models.dart';
 import 'package:plant_community_mobile/features/forum/screens/forum_conversation_screen.dart';
 import 'package:plant_community_mobile/features/forum/services/forum_api.dart';
 import 'package:plant_community_mobile/services/api_service.dart';
+import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../support/forum_test_support.dart';
 
@@ -13,7 +14,7 @@ Widget _wrap(FakeForumApi api, {String username = 'bob'}) => ProviderScope(
   child: MaterialApp(home: ForumConversationScreen(username: username)),
 );
 
-Finder _sendButton() => find.widgetWithIcon(IconButton, Icons.send);
+Finder _sendButton() => find.widgetWithIcon(IconButton, LucideIcons.send);
 
 void main() {
   group('ForumConversationScreen (todo 339)', () {

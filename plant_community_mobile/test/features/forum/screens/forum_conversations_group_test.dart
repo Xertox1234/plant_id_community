@@ -7,6 +7,7 @@ import 'package:plant_community_mobile/features/forum/screens/forum_conversation
 import 'package:plant_community_mobile/features/forum/services/forum_api.dart';
 import 'package:plant_community_mobile/features/forum/widgets/author_identity.dart';
 import 'package:plant_community_mobile/features/forum/widgets/forum_avatar_cluster.dart';
+import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../support/forum_test_support.dart';
 
@@ -180,7 +181,7 @@ void main() {
       // The button's padded tap target, not the 40 dp visual the Tooltip
       // wraps (same measurement as PostCard's Quote button test).
       final size = tester.getSize(
-        find.widgetWithIcon(IconButton, Icons.group_add_outlined),
+        find.widgetWithIcon(IconButton, LucideIcons.userPlus),
       );
       expect(size.width, greaterThanOrEqualTo(48));
       expect(size.height, greaterThanOrEqualTo(48));

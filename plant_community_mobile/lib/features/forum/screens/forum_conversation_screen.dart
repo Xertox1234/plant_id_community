@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:uuid/uuid.dart';
+import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../../../core/constants/app_spacing.dart';
 import '../../../services/api_service.dart';
@@ -159,7 +160,7 @@ class _ForumConversationScreenState
           if (isGroup)
             IconButton(
               tooltip: 'Members',
-              icon: const Icon(Icons.group_outlined),
+              icon: const Icon(LucideIcons.users),
               onPressed: conversation == null
                   ? null
                   : () => _openMembers(myUsername: me),
@@ -399,10 +400,16 @@ class _MessageBubble extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
+    // A DM bubble has no web counterpart, so the pair is chosen here: the
+    // SOLID secondary for "mine" against the neutral raised surface for
+    // "theirs". A tinted `primaryContainer` was measured at a summed-RGB
+    // distance of 36/765 from surface-3 in dark mode — the two speakers were
+    // very nearly the same colour. Solid secondary measures 324 (dark) and
+    // 413 (light) and stays quieter than a full primary fill.
     final bubbleColor = isMine
-        ? scheme.primaryContainer
+        ? scheme.secondary
         : scheme.surfaceContainerHighest;
-    final textColor = isMine ? scheme.onPrimaryContainer : scheme.onSurface;
+    final textColor = isMine ? scheme.onSecondary : scheme.onSurface;
     final radius = BorderRadius.only(
       topLeft: const Radius.circular(AppSpacing.rMd),
       topRight: const Radius.circular(AppSpacing.rMd),
@@ -576,7 +583,7 @@ class _Composer extends StatelessWidget {
               IconButton.filled(
                 tooltip: 'Send',
                 onPressed: canSend ? onSend : null,
-                icon: const Icon(Icons.send),
+                icon: const Icon(LucideIcons.send),
               ),
           ],
         ),

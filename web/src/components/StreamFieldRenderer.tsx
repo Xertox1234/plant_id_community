@@ -157,11 +157,7 @@ function StreamFieldBlock({ block, mentionHighlight, currentTopicId }: StreamFie
   switch (type) {
     case 'heading': {
       // Backend: CharBlock (simple string)
-      return (
-        <h2 className="mt-9 mb-3.5 text-[24px] font-semibold leading-snug text-balance text-ink">
-          {block.value}
-        </h2>
-      );
+      return <h2 className="gt-h2 mt-9 mb-3.5 text-balance text-ink">{block.value}</h2>;
     }
 
     case 'paragraph':
@@ -297,7 +293,7 @@ function StreamFieldBlock({ block, mentionHighlight, currentTopicId }: StreamFie
 
       return (
         <div className="my-8 rounded-md border border-line bg-surface-2/50 p-6">
-          <h3 className="mb-3 text-[19px] font-semibold text-ink">{plantName}</h3>
+          <h3 className="gt-h3 mb-3 text-ink">{plantName}</h3>
           {value.scientific_name && (
             <p className="text-sm italic text-ink-3 mb-3">{value.scientific_name}</p>
           )}
@@ -345,7 +341,7 @@ function StreamFieldBlock({ block, mentionHighlight, currentTopicId }: StreamFie
 
       return (
         <div className="canopy-card my-8 rounded-md p-8 text-center">
-          <h3 className="mb-2 text-[19px] font-semibold text-ink">{title}</h3>
+          <h3 className="gt-h3 mb-2 text-ink">{title}</h3>
           {description && renderTextOrSafeHtml(description, 'mb-6 text-ink-2')}
           {buttonText && (
             <a href={buttonUrl} className={buttonClasses}>

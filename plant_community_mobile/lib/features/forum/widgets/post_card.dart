@@ -1,6 +1,10 @@
 import 'package:flutter/material.dart';
+import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../../../core/constants/app_spacing.dart';
+import '../../../core/theme/app_typography.dart';
+import '../../../core/theme/green_thumb_extension.dart';
+import '../../../shared/widgets/canopy_surfaces.dart';
 import '../forum_format.dart';
 import '../models/models.dart';
 import 'author_identity.dart';
@@ -100,92 +104,85 @@ class _PostCardState extends State<PostCard> {
     }
     final theme = Theme.of(context);
     final author = post.author;
-    return Card(
-      shape: widget.isSolution
-          ? RoundedRectangleBorder(
-              side: BorderSide(color: theme.colorScheme.secondary, width: 1.5),
-              borderRadius: BorderRadius.circular(AppSpacing.rMd),
-            )
-          : null,
-      child: Padding(
-        padding: const EdgeInsets.all(AppSpacing.md),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            if (widget.isSolution)
-              const Padding(
-                padding: EdgeInsets.only(bottom: AppSpacing.sm),
-                child: _SolutionChip(),
-              ),
-            Row(
-              children: [
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      AuthorIdentity(author: author, onTap: widget.onAuthorTap),
-                      if (forumRelativeTime(post.createdAt).isNotEmpty)
-                        Text(
-                          forumRelativeTime(post.createdAt),
-                          style: theme.textTheme.labelSmall?.copyWith(
-                            color: theme.colorScheme.onSurfaceVariant,
-                          ),
+    return CanopyCard(
+      accentBorder: widget.isSolution ? theme.colorScheme.secondary : null,
+      padding: const EdgeInsets.all(AppSpacing.md),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          if (widget.isSolution)
+            const Padding(
+              padding: EdgeInsets.only(bottom: AppSpacing.sm),
+              child: _SolutionChip(),
+            ),
+          Row(
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    AuthorIdentity(author: author, onTap: widget.onAuthorTap),
+                    if (forumRelativeTime(post.createdAt).isNotEmpty)
+                      Text(
+                        forumRelativeTime(post.createdAt),
+                        style: theme.textTheme.labelSmall?.copyWith(
+                          color: theme.colorScheme.onSurfaceVariant,
                         ),
-                    ],
-                  ),
+                      ),
+                  ],
                 ),
-                if (post.isOpeningPost)
-                  Icon(
-                    Icons.push_pin_outlined,
-                    size: 16,
-                    color: theme.colorScheme.onSurfaceVariant,
-                  ),
-                _PostMenu(
-                  post: post,
-                  onEdit: widget.onEdit,
-                  onDelete: widget.onDelete,
-                  onReport: widget.onReport,
-                  isSolution: widget.isSolution,
-                  onToggleSolution: widget.onToggleSolution,
-                ),
-              ],
-            ),
-            if (post.isPending)
-              Padding(
-                padding: const EdgeInsets.only(top: AppSpacing.xs),
-                child: _PendingChip(),
               ),
-            const SizedBox(height: AppSpacing.sm),
-            ForumBodyRenderer(
-              post.body,
-              onOpenLink: widget.onOpenLink,
-              currentTopicId: widget.currentTopicId,
-            ),
-            if (post.isEdited)
-              Padding(
-                padding: const EdgeInsets.only(top: AppSpacing.xs),
-                child: _EditedStamp(onTap: widget.onShowHistory),
-              ),
-            const SizedBox(height: AppSpacing.sm),
-            Row(
-              children: [
-                Expanded(
-                  child: ReactionPills(
-                    counts: post.reactionCounts,
-                    reacted: post.reacted,
-                    onReact: widget.onReact,
-                  ),
+              if (post.isOpeningPost)
+                Icon(
+                  LucideIcons.pin,
+                  size: 16,
+                  color: theme.colorScheme.onSurfaceVariant,
                 ),
-                if (widget.onQuote != null)
-                  IconButton(
-                    tooltip: 'Quote',
-                    icon: const Icon(Icons.format_quote_outlined, size: 20),
-                    onPressed: widget.onQuote,
-                  ),
-              ],
+              _PostMenu(
+                post: post,
+                onEdit: widget.onEdit,
+                onDelete: widget.onDelete,
+                onReport: widget.onReport,
+                isSolution: widget.isSolution,
+                onToggleSolution: widget.onToggleSolution,
+              ),
+            ],
+          ),
+          if (post.isPending)
+            Padding(
+              padding: const EdgeInsets.only(top: AppSpacing.xs),
+              child: _PendingChip(),
             ),
-          ],
-        ),
+          const SizedBox(height: AppSpacing.sm),
+          ForumBodyRenderer(
+            post.body,
+            onOpenLink: widget.onOpenLink,
+            currentTopicId: widget.currentTopicId,
+          ),
+          if (post.isEdited)
+            Padding(
+              padding: const EdgeInsets.only(top: AppSpacing.xs),
+              child: _EditedStamp(onTap: widget.onShowHistory),
+            ),
+          const SizedBox(height: AppSpacing.sm),
+          Row(
+            children: [
+              Expanded(
+                child: ReactionPills(
+                  counts: post.reactionCounts,
+                  reacted: post.reacted,
+                  onReact: widget.onReact,
+                ),
+              ),
+              if (widget.onQuote != null)
+                IconButton(
+                  tooltip: 'Quote',
+                  icon: const Icon(LucideIcons.quote, size: 20),
+                  onPressed: widget.onQuote,
+                ),
+            ],
+          ),
+        ],
       ),
     );
   }
@@ -222,7 +219,7 @@ class _PostMenu extends StatelessWidget {
       return const SizedBox.shrink();
     }
     return PopupMenuButton<String>(
-      icon: const Icon(Icons.more_vert, size: 20),
+      icon: const Icon(LucideIcons.ellipsisVertical, size: 20),
       tooltip: 'Post options',
       onSelected: (value) {
         switch (value) {
@@ -264,31 +261,29 @@ class _BlockedPlaceholder extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.symmetric(
-          horizontal: AppSpacing.md,
-          vertical: AppSpacing.sm,
-        ),
-        child: Row(
-          children: [
-            Icon(
-              Icons.block,
-              size: 16,
-              color: theme.colorScheme.onSurfaceVariant,
-            ),
-            const SizedBox(width: AppSpacing.sm),
-            Expanded(
-              child: Text(
-                "You've blocked ${author.name}.",
-                style: theme.textTheme.bodySmall?.copyWith(
-                  color: theme.colorScheme.onSurfaceVariant,
-                ),
+    return CanopyCard(
+      padding: const EdgeInsets.symmetric(
+        horizontal: AppSpacing.md,
+        vertical: AppSpacing.sm,
+      ),
+      child: Row(
+        children: [
+          Icon(
+            LucideIcons.ban,
+            size: 16,
+            color: theme.colorScheme.onSurfaceVariant,
+          ),
+          const SizedBox(width: AppSpacing.sm),
+          Expanded(
+            child: Text(
+              "You've blocked ${author.name}.",
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
               ),
             ),
-            TextButton(onPressed: onReveal, child: const Text('Show anyway')),
-          ],
-        ),
+          ),
+          TextButton(onPressed: onReveal, child: const Text('Show anyway')),
+        ],
       ),
     );
   }
@@ -304,9 +299,12 @@ class _EditedStamp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final style = theme.textTheme.labelSmall?.copyWith(
-      fontStyle: FontStyle.italic,
-      color: theme.colorScheme.onSurfaceVariant,
+    // The web's stamp is `gt-label normal-case tracking-normal` — the mono
+    // label face, neither uppercased nor letterspaced, and NOT italic. The
+    // italic here was a Flutter-only treatment with no counterpart on the web.
+    final style = AppTypography.label.copyWith(
+      letterSpacing: 0,
+      color: context.canopy.ink3,
     );
     final onTap = this.onTap;
     if (onTap == null) return Text('edited', style: style);
@@ -320,7 +318,7 @@ class _EditedStamp extends StatelessWidget {
           alignment: Alignment.centerLeft,
           foregroundColor: theme.colorScheme.onSurfaceVariant,
         ),
-        icon: const Icon(Icons.history, size: 14),
+        icon: const Icon(LucideIcons.history, size: 14),
         label: Text('edited', style: style),
       ),
     );
@@ -346,7 +344,7 @@ class _SolutionChip extends StatelessWidget {
           mainAxisSize: MainAxisSize.min,
           children: [
             Icon(
-              Icons.check_circle,
+              LucideIcons.circleCheck,
               size: 14,
               color: theme.colorScheme.onSecondaryContainer,
             ),

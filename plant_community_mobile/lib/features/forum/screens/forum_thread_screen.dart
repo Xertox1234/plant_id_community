@@ -3,6 +3,7 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../../../core/constants/app_spacing.dart';
 import '../../../services/api_service.dart';
@@ -62,15 +63,19 @@ class ForumThreadScreen extends ConsumerWidget {
           if (isAuthenticated && detail.hasValue) ...[
             IconButton(
               tooltip: isBookmarked ? 'Remove bookmark' : 'Bookmark',
-              icon: Icon(isBookmarked ? Icons.bookmark : Icons.bookmark_border),
+              // Lucide has no filled bookmark, so the SAVED state is a different
+              // glyph, matching the web's BookmarkCheck/Bookmark pair
+              // (ThreadDetailPage.tsx). Material's filled/outline pair does
+              // not survive the move to an all-outlined icon set.
+              icon: Icon(
+                isBookmarked ? LucideIcons.bookmarkCheck : LucideIcons.bookmark,
+              ),
               onPressed: () => _toggleBookmark(context, ref),
             ),
             IconButton(
               tooltip: isSubscribed ? 'Unsubscribe' : 'Subscribe',
               icon: Icon(
-                isSubscribed
-                    ? Icons.notifications_active
-                    : Icons.notifications_none,
+                isSubscribed ? LucideIcons.bellRing : LucideIcons.bell,
               ),
               onPressed: () => _toggleSubscription(context, ref),
             ),
@@ -128,7 +133,7 @@ class ForumThreadScreen extends ConsumerWidget {
       floatingActionButton: (isAuthenticated && !isLocked)
           ? FloatingActionButton.extended(
               onPressed: () => _openReply(context, ref),
-              icon: const Icon(Icons.reply),
+              icon: const Icon(LucideIcons.reply),
               label: const Text('Reply'),
             )
           : null,
@@ -700,7 +705,7 @@ class _SolvedBanner extends StatelessWidget {
         child: Row(
           children: [
             Icon(
-              Icons.check_circle,
+              LucideIcons.circleCheck,
               size: 18,
               color: scheme.onSecondaryContainer,
             ),

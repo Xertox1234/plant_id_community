@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../../../core/constants/app_spacing.dart';
+import '../../../shared/widgets/canopy_surfaces.dart';
 import '../models/models.dart';
 
 /// The "Your season" 2×2 stat grid for `GET me/stats/` (todo 341 wave 4) —
@@ -26,7 +28,7 @@ class ForumStatsGrid extends StatelessWidget {
             children: [
               Expanded(
                 child: _StatTile(
-                  icon: Icons.document_scanner_outlined,
+                  icon: LucideIcons.scanLine,
                   value: stats.identificationsShared,
                   label: 'Identifications',
                   // Badge progress lives on this tile — its value IS the
@@ -46,7 +48,7 @@ class ForumStatsGrid extends StatelessWidget {
               const SizedBox(width: AppSpacing.sm),
               Expanded(
                 child: _StatTile(
-                  icon: Icons.forum_outlined,
+                  icon: LucideIcons.messagesSquare,
                   value: stats.posts,
                   label: 'Posts',
                   sublabel: 'all time',
@@ -62,7 +64,7 @@ class ForumStatsGrid extends StatelessWidget {
             children: [
               Expanded(
                 child: _StatTile(
-                  icon: Icons.check_circle_outline,
+                  icon: LucideIcons.circleCheck,
                   value: stats.solutionsAccepted,
                   label: 'Solutions',
                   sublabel: 'accepted answers',
@@ -71,7 +73,7 @@ class ForumStatsGrid extends StatelessWidget {
               const SizedBox(width: AppSpacing.sm),
               Expanded(
                 child: _StatTile(
-                  icon: Icons.local_fire_department_outlined,
+                  icon: LucideIcons.flame,
                   value: stats.streakDays,
                   label: 'Day streak',
                   sublabel: stats.streakDays == 0
@@ -116,9 +118,9 @@ class _StatTile extends StatelessWidget {
       container: true,
       label: '$label: $value, $sublabel',
       excludeSemantics: true,
-      child: Card(
-        margin: EdgeInsets.zero,
-        child: Padding(
+      child: Padding(
+        padding: EdgeInsets.zero,
+        child: CanopyCard(
           padding: const EdgeInsets.all(AppSpacing.md),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -190,7 +192,7 @@ class ForumBadgeChips extends StatelessWidget {
                   : badge.name,
               child: Chip(
                 avatar: Icon(
-                  Icons.workspace_premium_outlined,
+                  LucideIcons.award,
                   size: 18,
                   color: theme.colorScheme.onSecondaryContainer,
                 ),

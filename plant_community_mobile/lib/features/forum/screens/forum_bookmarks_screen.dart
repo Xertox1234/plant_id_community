@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../../../core/constants/app_spacing.dart';
 import '../models/models.dart';
@@ -68,7 +69,7 @@ class _BookmarksList extends StatelessWidget {
             child: Column(
               children: [
                 Icon(
-                  Icons.bookmark_border,
+                  LucideIcons.bookmark,
                   size: 40,
                   color: Theme.of(context).colorScheme.onSurfaceVariant,
                 ),

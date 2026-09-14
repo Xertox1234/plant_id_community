@@ -121,6 +121,9 @@ function Brand({ onNavigate }: BrandProps) {
       <BrandMark size={34} />
       <span className="text-body leading-tight font-semibold text-ink">
         Houseplant MD
+        {/* Deliberately below the `micro` (11px) floor: the tagline sits in a
+            fixed ~236px sidebar under the wordmark, and 11px wraps it. Audited
+            and kept — not an un-migrated legacy size. */}
         <small className="block font-mono text-[9.5px] tracking-[0.14em] text-ink-3 uppercase">
           The plant clinic
         </small>

@@ -3,6 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:plant_community_mobile/features/forum/models/models.dart';
 import 'package:plant_community_mobile/features/forum/widgets/author_identity.dart';
 import 'package:plant_community_mobile/features/forum/widgets/post_card.dart';
+import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../support/forum_test_support.dart';
 
@@ -26,8 +27,8 @@ void main() {
           ),
         );
 
-        expect(find.byIcon(Icons.more_vert), findsOneWidget);
-        await tester.tap(find.byIcon(Icons.more_vert));
+        expect(find.byIcon(LucideIcons.ellipsisVertical), findsOneWidget);
+        await tester.tap(find.byIcon(LucideIcons.ellipsisVertical));
         await tester.pumpAndSettle();
         expect(find.text('Edit'), findsOneWidget);
         expect(find.text('Delete'), findsOneWidget);
@@ -51,7 +52,7 @@ void main() {
         ),
       );
 
-      expect(find.byIcon(Icons.more_vert), findsNothing);
+      expect(find.byIcon(LucideIcons.ellipsisVertical), findsNothing);
     });
 
     testWidgets(
@@ -66,7 +67,7 @@ void main() {
           ),
         );
 
-        await tester.tap(find.byIcon(Icons.more_vert));
+        await tester.tap(find.byIcon(LucideIcons.ellipsisVertical));
         await tester.pumpAndSettle();
         expect(find.text('Edit'), findsOneWidget);
         expect(find.text('Delete'), findsNothing);
@@ -82,7 +83,7 @@ void main() {
           PostCard(post: post(canEdit: true, canDelete: true)),
         );
 
-        expect(find.byIcon(Icons.more_vert), findsNothing);
+        expect(find.byIcon(LucideIcons.ellipsisVertical), findsNothing);
       },
     );
   });
@@ -142,7 +143,7 @@ void main() {
         ),
       );
 
-      await tester.tap(find.byIcon(Icons.more_vert));
+      await tester.tap(find.byIcon(LucideIcons.ellipsisVertical));
       await tester.pumpAndSettle();
       expect(find.text('Report'), findsOneWidget);
       expect(find.text('Edit'), findsNothing);
@@ -161,7 +162,7 @@ void main() {
           PostCard(post: post(id: 2, canReport: false), onReport: () {}),
         );
 
-        expect(find.byIcon(Icons.more_vert), findsNothing);
+        expect(find.byIcon(LucideIcons.ellipsisVertical), findsNothing);
       },
     );
 
@@ -207,7 +208,7 @@ void main() {
         );
 
         expect(find.text('Accepted answer'), findsOneWidget);
-        await tester.tap(find.byIcon(Icons.more_vert));
+        await tester.tap(find.byIcon(LucideIcons.ellipsisVertical));
         await tester.pumpAndSettle();
         expect(find.text('Unmark answer'), findsOneWidget);
         expect(find.text('Mark as answer'), findsNothing);
@@ -224,7 +225,7 @@ void main() {
       await pump(tester, PostCard(post: post(id: 2), onToggleSolution: () {}));
 
       expect(find.text('Accepted answer'), findsNothing);
-      await tester.tap(find.byIcon(Icons.more_vert));
+      await tester.tap(find.byIcon(LucideIcons.ellipsisVertical));
       await tester.pumpAndSettle();
       expect(find.text('Mark as answer'), findsOneWidget);
     });
@@ -237,7 +238,7 @@ void main() {
         PostCard(post: post(id: 2, canEdit: true), onEdit: () {}),
       );
 
-      await tester.tap(find.byIcon(Icons.more_vert));
+      await tester.tap(find.byIcon(LucideIcons.ellipsisVertical));
       await tester.pumpAndSettle();
       expect(find.text('Mark as answer'), findsNothing);
     });

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../../../core/constants/app_spacing.dart';
 import '../../../services/auth_service.dart';
@@ -54,7 +55,7 @@ class ForumTopicsScreen extends ConsumerWidget {
       floatingActionButton: isAuthenticated
           ? FloatingActionButton.extended(
               onPressed: () => _openComposer(context, ref),
-              icon: const Icon(Icons.add),
+              icon: const Icon(LucideIcons.plus),
               label: const Text('New topic'),
             )
           : null,

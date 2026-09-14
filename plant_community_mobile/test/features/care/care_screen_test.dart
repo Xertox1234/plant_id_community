@@ -2,15 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:plant_community_mobile/features/care/care_screen.dart';
 import 'package:plant_community_mobile/core/theme/app_theme.dart';
-import 'package:plant_community_mobile/core/theme/app_palettes.dart';
 import 'package:plant_community_mobile/core/theme/green_thumb_extension.dart';
 
 Widget _wrap(Widget child) => MaterialApp(
-  theme: AppTheme.build(
-    AppPaletteChoice.loam,
-    Brightness.light,
-    AppDensity.cozy,
-  ),
+  theme: AppTheme.build(Brightness.light, AppDensity.cozy),
   home: child,
 );
 

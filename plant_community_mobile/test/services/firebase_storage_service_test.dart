@@ -9,7 +9,9 @@ void main() {
     late FirebaseStorageService service;
 
     setUp(() {
-      tempDir = Directory.systemTemp.createTempSync('firebase_storage_service_test_');
+      tempDir = Directory.systemTemp.createTempSync(
+        'firebase_storage_service_test_',
+      );
       service = FirebaseStorageService();
     });
 
@@ -18,7 +20,8 @@ void main() {
     });
 
     test('rejects unsupported file extensions before upload', () async {
-      final file = File('${tempDir.path}/plant.txt')..writeAsStringSync('not an image');
+      final file = File('${tempDir.path}/plant.txt')
+        ..writeAsStringSync('not an image');
 
       expect(
         () => service.uploadPlantImage(file.path),
@@ -53,19 +56,23 @@ void main() {
       );
     });
 
-    test('rejects files whose content does not match image extension', () async {
-      final file = File('${tempDir.path}/plant.png')..writeAsStringSync('not really a png');
+    test(
+      'rejects files whose content does not match image extension',
+      () async {
+        final file = File('${tempDir.path}/plant.png')
+          ..writeAsStringSync('not really a png');
 
-      expect(
-        () => service.uploadPlantImage(file.path),
-        throwsA(
-          isA<FirebaseStorageServiceException>().having(
-            (error) => error.message,
-            'message',
-            contains('content does not match'),
+        expect(
+          () => service.uploadPlantImage(file.path),
+          throwsA(
+            isA<FirebaseStorageServiceException>().having(
+              (error) => error.message,
+              'message',
+              contains('content does not match'),
+            ),
           ),
-        ),
-      );
-    });
+        );
+      },
+    );
   });
 }

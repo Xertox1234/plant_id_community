@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import 'app_router.dart';
 
@@ -14,13 +15,17 @@ class ShellDestination {
   const ShellDestination({
     required this.route,
     required this.icon,
-    required this.selectedIcon,
     required this.label,
   });
 
   final String route;
+
+  /// One glyph for both states. Lucide is an all-outlined set with no filled
+  /// variants, so selection is carried by colour and the indicator pill —
+  /// exactly how the web's sidebar marks its active item. The previous
+  /// outlined/filled pair was a Material idiom the web never had.
   final IconData icon;
-  final IconData selectedIcon;
+
   final String label;
 }
 
@@ -55,26 +60,22 @@ class MainShell extends StatelessWidget {
   static const List<ShellDestination> destinations = <ShellDestination>[
     ShellDestination(
       route: AppRoutes.home,
-      icon: Icons.home_outlined,
-      selectedIcon: Icons.home,
+      icon: LucideIcons.house,
       label: 'Home',
     ),
     ShellDestination(
       route: AppRoutes.collection,
-      icon: Icons.eco_outlined,
-      selectedIcon: Icons.eco,
+      icon: LucideIcons.leaf,
       label: 'My Plants',
     ),
     ShellDestination(
       route: AppRoutes.forum,
-      icon: Icons.forum_outlined,
-      selectedIcon: Icons.forum,
+      icon: LucideIcons.messagesSquare,
       label: 'Forum',
     ),
     ShellDestination(
       route: AppRoutes.profile,
-      icon: Icons.person_outline,
-      selectedIcon: Icons.person,
+      icon: LucideIcons.user,
       label: 'Profile',
     ),
   ];
@@ -105,7 +106,7 @@ class MainShell extends StatelessWidget {
         heroTag: 'shellIdentifyFab',
         tooltip: 'Identify a plant',
         onPressed: () => context.push(AppRoutes.camera),
-        child: const Icon(Icons.camera_alt),
+        child: const Icon(LucideIcons.camera),
       ),
       // centerFloat, NOT centerDocked. `centerDocked` sinks the FAB halfway
       // into the bar, and with FOUR destinations the centre of the screen is
@@ -126,7 +127,6 @@ class MainShell extends StatelessWidget {
           for (final ShellDestination d in destinations)
             NavigationDestination(
               icon: Icon(d.icon),
-              selectedIcon: Icon(d.selectedIcon),
               label: d.label,
               tooltip: d.label,
             ),

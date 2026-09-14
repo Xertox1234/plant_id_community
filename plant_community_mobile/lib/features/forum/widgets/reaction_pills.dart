@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../../../core/constants/app_spacing.dart';
 import '../services/forum_api.dart' show forumReactionTypes;
@@ -137,7 +138,7 @@ class _AddReactionButton extends StatelessWidget {
               borderRadius: BorderRadius.circular(AppSpacing.rPill),
             ),
             child: Icon(
-              Icons.add_reaction_outlined,
+              LucideIcons.smilePlus,
               size: 18,
               color: theme.colorScheme.onSurfaceVariant,
             ),

@@ -7,6 +7,7 @@ import 'package:plant_community_mobile/features/forum/services/forum_api.dart';
 import 'package:plant_community_mobile/features/forum/widgets/forum_edit_history_sheet.dart';
 import 'package:plant_community_mobile/services/api_service.dart';
 import 'package:plant_community_mobile/services/auth_service.dart';
+import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../support/forum_test_support.dart';
 
@@ -20,7 +21,7 @@ Widget _wrap(FakeForumApi api, {bool loggedIn = true}) => ProviderScope(
 
 /// The only post menu on screen — fixtures below give exactly one post a
 /// capability, so this is unambiguous.
-Finder _menu() => find.byIcon(Icons.more_vert);
+Finder _menu() => find.byIcon(LucideIcons.ellipsisVertical);
 
 void main() {
   group('Thread bookmark toggle (todo 341)', () {
@@ -33,11 +34,11 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.byTooltip('Bookmark'), findsOneWidget);
-      await tester.tap(find.byIcon(Icons.bookmark_border));
+      await tester.tap(find.byIcon(LucideIcons.bookmark));
       await tester.pumpAndSettle();
 
       expect(api.bookmarkCalls, [10]);
-      expect(find.byIcon(Icons.bookmark), findsOneWidget);
+      expect(find.byIcon(LucideIcons.bookmarkCheck), findsOneWidget);
       expect(find.byTooltip('Remove bookmark'), findsOneWidget);
     });
 
@@ -49,7 +50,7 @@ void main() {
       await tester.pumpWidget(_wrap(api, loggedIn: false));
       await tester.pumpAndSettle();
 
-      expect(find.byIcon(Icons.bookmark_border), findsNothing);
+      expect(find.byIcon(LucideIcons.bookmark), findsNothing);
     });
 
     testWidgets('a rate-limited toggle reverts the icon and reads as "too '
@@ -62,12 +63,12 @@ void main() {
       await tester.pumpWidget(_wrap(api));
       await tester.pumpAndSettle();
 
-      await tester.tap(find.byIcon(Icons.bookmark_border));
+      await tester.tap(find.byIcon(LucideIcons.bookmark));
       await tester.pumpAndSettle();
 
       expect(find.text('Too fast — try again in a minute'), findsOneWidget);
-      expect(find.byIcon(Icons.bookmark_border), findsOneWidget);
-      expect(find.byIcon(Icons.bookmark), findsNothing);
+      expect(find.byIcon(LucideIcons.bookmark), findsOneWidget);
+      expect(find.byIcon(LucideIcons.bookmarkCheck), findsNothing);
     });
   });
 

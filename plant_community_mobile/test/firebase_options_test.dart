@@ -85,10 +85,7 @@ void main() {
 
     test('an empty platform key is treated as unset, not as an empty key', () {
       final resolver = FirebaseOptionsResolver(
-        _values({
-          'FIREBASE_API_KEY': _shared,
-          'FIREBASE_ANDROID_API_KEY': '',
-        }),
+        _values({'FIREBASE_API_KEY': _shared, 'FIREBASE_ANDROID_API_KEY': ''}),
       );
 
       expect(resolver.android.apiKey, _shared);

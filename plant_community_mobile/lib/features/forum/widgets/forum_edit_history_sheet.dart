@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../../../core/constants/app_spacing.dart';
 import '../../../services/api_service.dart';
@@ -130,7 +131,7 @@ class _ForumEditHistorySheetState extends ConsumerState<ForumEditHistorySheet> {
                     IconButton(
                       tooltip: 'Back to history',
                       onPressed: () => setState(() => _selected = null),
-                      icon: const Icon(Icons.arrow_back),
+                      icon: const Icon(LucideIcons.arrowLeft),
                     ),
                   Expanded(
                     child: Text(
@@ -209,10 +210,10 @@ class _ForumEditHistorySheetState extends ConsumerState<ForumEditHistorySheet> {
         return ListTile(
           contentPadding: EdgeInsets.zero,
           minTileHeight: 48,
-          leading: const Icon(Icons.history),
+          leading: const Icon(LucideIcons.history),
           title: Text(revision.user.name),
           subtitle: Text(forumRelativeTime(revision.createdAt)),
-          trailing: const Icon(Icons.chevron_right),
+          trailing: const Icon(LucideIcons.chevronRight),
           onTap: () => _select(revision),
         );
       },

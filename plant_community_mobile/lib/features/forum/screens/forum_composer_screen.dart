@@ -1,6 +1,7 @@
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../../../core/constants/app_spacing.dart';
 import '../../../services/api_service.dart';
@@ -424,7 +425,7 @@ class _ForumComposerScreenState extends ConsumerState<ForumComposerScreen> {
               message:
                   "This post has formatting or an image the app can't show "
                   'here yet — saving will replace it with plain text.',
-              icon: Icons.warning_amber_outlined,
+              icon: LucideIcons.triangleAlert,
             ),
           ),
         if (_error != null)
@@ -432,7 +433,7 @@ class _ForumComposerScreenState extends ConsumerState<ForumComposerScreen> {
             padding: const EdgeInsets.only(bottom: AppSpacing.sm),
             child: ForumNoticeBanner(
               message: _error!,
-              icon: Icons.error_outline,
+              icon: LucideIcons.circleAlert,
             ),
           ),
         if (_imageError != null)
@@ -440,7 +441,7 @@ class _ForumComposerScreenState extends ConsumerState<ForumComposerScreen> {
             padding: const EdgeInsets.only(bottom: AppSpacing.sm),
             child: ForumNoticeBanner(
               message: _imageError!,
-              icon: Icons.error_outline,
+              icon: LucideIcons.circleAlert,
             ),
           ),
         if (_isTopic) ...[
@@ -503,7 +504,7 @@ class _ForumComposerScreenState extends ConsumerState<ForumComposerScreen> {
                       width: 16,
                       child: CircularProgressIndicator(strokeWidth: 2),
                     )
-                  : const Icon(Icons.add_photo_alternate_outlined),
+                  : const Icon(LucideIcons.imagePlus),
               label: Text(_uploadingImage ? 'Uploading…' : 'Add photo'),
             ),
         ],
@@ -576,7 +577,7 @@ class _QuoteDraft extends StatelessWidget {
             ),
             IconButton(
               tooltip: 'Remove quote',
-              icon: const Icon(Icons.close, size: 20),
+              icon: const Icon(LucideIcons.x, size: 20),
               onPressed: onRemove,
             ),
           ],
@@ -610,13 +611,13 @@ class _AttachedImagePreview extends StatelessWidget {
             ),
             errorWidget: (context, _, _) => const SizedBox(
               height: 160,
-              child: Center(child: Icon(Icons.broken_image_outlined)),
+              child: Center(child: Icon(LucideIcons.imageOff)),
             ),
           ),
         ),
         IconButton.filled(
           onPressed: onRemove,
-          icon: const Icon(Icons.close),
+          icon: const Icon(LucideIcons.x),
           tooltip: 'Remove photo',
         ),
       ],

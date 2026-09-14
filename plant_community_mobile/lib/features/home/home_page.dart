@@ -1,7 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import 'package:lucide_icons_flutter/lucide_icons.dart';
+import '../../core/constants/app_spacing.dart';
 import '../../core/routing/app_router.dart';
-import '../../core/theme/grain_overlay.dart';
+import '../../core/theme/app_typography.dart';
+import '../../shared/widgets/brand_mark.dart';
+import '../../shared/widgets/canopy_label.dart';
+import '../../shared/widgets/canopy_surfaces.dart';
 import '../../core/theme/green_thumb_extension.dart';
 import '../../shared/widgets/clay_button.dart';
 import '../../shared/widgets/feature_card.dart';
@@ -27,9 +32,13 @@ class HomePage extends StatelessWidget {
       // No Settings FAB: MainShell renders the Identify FAB over every tab, and
       // two FABs on one screen both collide as Heroes and read as clutter.
       // Settings moved under the Profile tab (todo 384).
-      body: SafeArea(
-        child: SingleChildScrollView(
-          child: GrainOverlay(
+      // CanopyGround wraps the SCROLLER, not the scrolled content. Its Stack
+      // sizes to its non-positioned child, so inside a SingleChildScrollView
+      // the `Positioned.fill` glow would fill the CONTENT height and scroll
+      // away with it — the web's `.canopy-ground` is `position: fixed`.
+      body: CanopyGround(
+        child: SafeArea(
+          child: SingleChildScrollView(
             child: Padding(
               padding: EdgeInsets.symmetric(
                 horizontal: ext.padScreen,
@@ -57,72 +66,66 @@ class HomePage extends StatelessWidget {
     );
   }
 
-  /// Hero section with eyebrow label, logo, and title
+  /// Hero: brand lockup, eyebrow, headline, standfirst, two CTAs.
+  ///
+  /// Mirrors the web `HeroCard` (eyebrow -> display headline -> description ->
+  /// primary + ghost actions), including the accented final word. The
+  /// nested-circles logo it replaced was a Flutter-only treatment with a
+  /// hardcoded white icon, and showed a camera glyph rather than the product
+  /// mark.
   Widget _buildHeroSection(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
-    final ext =
-        Theme.of(context).extension<GreenThumbExtension>() ??
-        GreenThumbExtension.fallback;
+    final ext = context.canopy;
 
-    return Column(
-      children: [
-        // Eyebrow label
-        Text(
-          'PLANT IDENTIFICATION',
-          style: Theme.of(context).textTheme.labelSmall?.copyWith(
-            letterSpacing: 0.06 * 11,
-            color: ext.ink3,
-          ),
-        ),
-        SizedBox(height: ext.gapY),
-
-        // Logo with nested circles
-        Container(
-          width: 128,
-          height: 128,
-          decoration: BoxDecoration(
-            shape: BoxShape.circle,
-            color: cs.surfaceContainerLow,
-          ),
-          child: Center(
-            child: Container(
-              width: 96,
-              height: 96,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                color: cs.primary,
-                boxShadow: ext.shadow2,
-              ),
-              child: const Icon(
-                Icons.camera_alt,
-                size: 48,
-                color: Colors.white,
-              ),
+    return CanopyCard(
+      radius: AppSpacing.rLg,
+      padding: EdgeInsets.all(ext.padCard * 1.5),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const BrandLockup(markSize: 40, showTagline: true),
+          SizedBox(height: ext.gapY * 1.5),
+          const CanopyLabel('Plant identification community'),
+          SizedBox(height: ext.gapY),
+          // The web accents the final word in `--gt-primary`.
+          Text.rich(
+            TextSpan(
+              style: AppTypography.h1.copyWith(color: cs.onSurface),
+              children: [
+                const TextSpan(text: 'Discover the world of '),
+                TextSpan(
+                  text: 'plants',
+                  style: TextStyle(color: cs.primary),
+                ),
+              ],
             ),
           ),
-        ),
-        SizedBox(height: ext.gapY),
-
-        // Title
-        Text(
-          'Welcome to PlantID',
-          style: Theme.of(
-            context,
-          ).textTheme.displayLarge?.copyWith(color: cs.onSurface),
-          textAlign: TextAlign.center,
-        ),
-        SizedBox(height: ext.gapY),
-
-        // Description
-        Text(
-          'Your pocket botanist for identifying plants, learning care tips, and connecting with fellow plant enthusiasts',
-          style: Theme.of(
-            context,
-          ).textTheme.bodyMedium?.copyWith(color: ext.ink2, height: 1.5),
-          textAlign: TextAlign.center,
-          maxLines: 3,
-        ),
-      ],
+          SizedBox(height: ext.gapY),
+          Text(
+            'Identify plants with AI, track your collection, and learn from '
+            'other growers.',
+            style: AppTypography.body.copyWith(color: ext.ink2),
+          ),
+          SizedBox(height: ext.gapY * 1.5),
+          Wrap(
+            spacing: AppSpacing.sm,
+            runSpacing: AppSpacing.sm,
+            children: [
+              ClayButton(
+                label: 'Identify a plant',
+                size: ClayButtonSize.medium,
+                onPressed: () => context.push(AppRoutes.camera),
+              ),
+              ClayButton(
+                label: 'Join the forum',
+                size: ClayButtonSize.medium,
+                variant: ClayButtonVariant.ghost,
+                onPressed: () => context.go(AppRoutes.forum),
+              ),
+            ],
+          ),
+        ],
+      ),
     );
   }
 
@@ -134,7 +137,7 @@ class HomePage extends StatelessWidget {
 
     final features = [
       _FeatureData(
-        icon: Icons.camera_alt,
+        icon: LucideIcons.camera,
         title: 'Instant Identification',
         description:
             'Snap a photo and instantly identify any plant with AI-powered recognition',
@@ -143,7 +146,7 @@ class HomePage extends StatelessWidget {
         isTab: false,
       ),
       _FeatureData(
-        icon: Icons.book,
+        icon: LucideIcons.bookOpen,
         title: 'Care Instructions',
         description:
             'Get personalized care tips for watering, sunlight, and maintenance',
@@ -152,7 +155,7 @@ class HomePage extends StatelessWidget {
         isTab: false,
       ),
       _FeatureData(
-        icon: Icons.people,
+        icon: LucideIcons.users,
         title: 'Community Forum',
         description:
             'Connect with plant lovers, share experiences, and get expert advice',
@@ -161,7 +164,7 @@ class HomePage extends StatelessWidget {
         isTab: true,
       ),
       _FeatureData(
-        icon: Icons.auto_awesome,
+        icon: LucideIcons.sparkles,
         title: 'Track Your Collection',
         description:
             'Build your personal plant library and track identification history',
@@ -198,7 +201,7 @@ class HomePage extends StatelessWidget {
       constraints: const BoxConstraints(maxWidth: 600),
       child: ClayButton(
         label: 'Get Started',
-        icon: Icons.arrow_forward,
+        icon: LucideIcons.arrowRight,
         fullWidth: true,
         onPressed: () => context.push(AppRoutes.camera),
       ),

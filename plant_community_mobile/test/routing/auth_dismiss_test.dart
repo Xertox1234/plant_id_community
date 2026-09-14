@@ -10,6 +10,7 @@ import 'package:plant_community_mobile/features/forum/services/forum_sync_store.
 import 'package:plant_community_mobile/features/profile/profile_screen.dart';
 import 'package:plant_community_mobile/services/auth_service.dart';
 import 'package:plant_community_mobile/services/user_profile_service.dart';
+import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../features/forum/support/forum_test_support.dart';
 
@@ -47,8 +48,9 @@ void main() {
         authServiceProvider.overrideWith(() => fake),
         forumApiProvider.overrideWithValue(FakeForumApi()),
         forumSyncStoreProvider.overrideWithValue(InMemoryForumSyncStore()),
-        userProfileServiceProvider
-            .overrideWith(() => FakeUserProfileService(username: 'tester')),
+        userProfileServiceProvider.overrideWith(
+          () => FakeUserProfileService(username: 'tester'),
+        ),
       ],
     );
     addTearDown(container.dispose);
@@ -68,7 +70,7 @@ void main() {
       await tester.tap(
         find.descendant(
           of: find.byType(NavigationBar),
-          matching: find.byIcon(Icons.person_outline),
+          matching: find.byIcon(LucideIcons.user),
         ),
       );
       await settle(tester);

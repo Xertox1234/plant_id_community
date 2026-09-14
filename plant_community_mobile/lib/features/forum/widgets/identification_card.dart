@@ -1,7 +1,9 @@
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
+import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../../../core/constants/app_spacing.dart';
+import '../../../shared/widgets/canopy_surfaces.dart';
 import '../models/models.dart';
 
 /// The plant-ID SNAPSHOT a topic carries, rendered under the opening post
@@ -42,79 +44,77 @@ class IdentificationCard extends StatelessWidget {
     return Semantics(
       container: true,
       label: 'What the app suggested',
-      child: Card(
-        child: Padding(
-          padding: const EdgeInsets.all(AppSpacing.md),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                children: [
-                  Icon(
-                    Icons.auto_awesome_outlined,
-                    size: 18,
-                    color: theme.colorScheme.secondary,
+      child: CanopyCard(
+        padding: const EdgeInsets.all(AppSpacing.md),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(
+                  LucideIcons.sparkles,
+                  size: 18,
+                  color: theme.colorScheme.secondary,
+                ),
+                const SizedBox(width: AppSpacing.sm),
+                Text(
+                  'What the app suggested',
+                  style: theme.textTheme.titleSmall?.copyWith(
+                    fontWeight: FontWeight.w700,
                   ),
-                  const SizedBox(width: AppSpacing.sm),
-                  Text(
-                    'What the app suggested',
-                    style: theme.textTheme.titleSmall?.copyWith(
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: AppSpacing.sm),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // No-photo fallback is a real state, not an error: the FK
+                // is SET_NULL, and a run without a kept photo still has
+                // candidates.
+                if (image != null) ...[
+                  _Photo(image: image),
+                  const SizedBox(width: AppSpacing.md),
                 ],
-              ),
-              const SizedBox(height: AppSpacing.sm),
-              Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  // No-photo fallback is a real state, not an error: the FK
-                  // is SET_NULL, and a run without a kept photo still has
-                  // candidates.
-                  if (image != null) ...[
-                    _Photo(image: image),
-                    const SizedBox(width: AppSpacing.md),
-                  ],
-                  Expanded(
-                    child: identification.candidates.isEmpty
-                        ? Text(
-                            'No suggestions were recorded.',
-                            style: theme.textTheme.bodySmall?.copyWith(
-                              color: theme.colorScheme.onSurfaceVariant,
-                            ),
-                          )
-                        : Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              for (final candidate in identification.candidates)
-                                _CandidateRow(candidate: candidate),
-                            ],
+                Expanded(
+                  child: identification.candidates.isEmpty
+                      ? Text(
+                          'No suggestions were recorded.',
+                          style: theme.textTheme.bodySmall?.copyWith(
+                            color: theme.colorScheme.onSurfaceVariant,
                           ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: AppSpacing.sm),
-              Text(
-                'Suggested by the Plant ID app'
-                '${provider.isNotEmpty ? ' ($provider)' : ''} and attached '
-                'by the author — not a confirmed identification. That’s '
-                'what this thread is for.',
-                style: theme.textTheme.bodySmall?.copyWith(
-                  color: theme.colorScheme.onSurfaceVariant,
+                        )
+                      : Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            for (final candidate in identification.candidates)
+                              _CandidateRow(candidate: candidate),
+                          ],
+                        ),
                 ),
+              ],
+            ),
+            const SizedBox(height: AppSpacing.sm),
+            Text(
+              'Suggested by the Plant ID app'
+              '${provider.isNotEmpty ? ' ($provider)' : ''} and attached '
+              'by the author — not a confirmed identification. That’s '
+              'what this thread is for.',
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
               ),
-              if (solvedPostId != null && jump != null)
-                TextButton.icon(
-                  onPressed: jump,
-                  style: TextButton.styleFrom(
-                    minimumSize: const Size(48, 48),
-                    padding: EdgeInsets.zero,
-                  ),
-                  icon: const Icon(Icons.check_circle_outline, size: 18),
-                  label: const Text('See the accepted answer'),
+            ),
+            if (solvedPostId != null && jump != null)
+              TextButton.icon(
+                onPressed: jump,
+                style: TextButton.styleFrom(
+                  minimumSize: const Size(48, 48),
+                  padding: EdgeInsets.zero,
                 ),
-            ],
-          ),
+                icon: const Icon(LucideIcons.circleCheck, size: 18),
+                label: const Text('See the accepted answer'),
+              ),
+          ],
         ),
       ),
     );
@@ -146,7 +146,7 @@ class _Photo extends StatelessWidget {
               color: Theme.of(context).colorScheme.surfaceContainerHigh,
             ),
             errorWidget: (context, _, _) => Icon(
-              Icons.broken_image_outlined,
+              LucideIcons.imageOff,
               color: Theme.of(context).colorScheme.onSurfaceVariant,
             ),
           ),

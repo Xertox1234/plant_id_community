@@ -4,8 +4,9 @@ import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'firebase_options.dart';
 import 'core/theme/app_theme.dart';
+import 'config/density_notifier.dart';
 import 'config/theme_provider.dart';
-import 'config/palette_notifier.dart';
+import 'core/constants/app_brand.dart';
 import 'core/routing/app_router.dart';
 import 'services/auth_service.dart';
 import 'services/push_message_router_service.dart';
@@ -37,7 +38,7 @@ class ConfigurationErrorApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Plant Community - Configuration Required',
+      title: '${AppBrand.name} — Configuration Required',
       home: Scaffold(
         body: Center(
           child: Padding(
@@ -72,7 +73,7 @@ class MyApp extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final themeMode = ref.watch(themeModeProvider);
-    final settings = ref.watch(paletteProvider);
+    final density = ref.watch(densityProvider);
     final router = ref.watch(appRouterProvider);
     ref.watch(authServiceProvider);
     ref.watch(pushMessageRouterServiceProvider);
@@ -91,19 +92,11 @@ class MyApp extends ConsumerWidget {
     });
 
     return MaterialApp.router(
-      title: 'Plant Community',
+      title: AppBrand.name,
       debugShowCheckedModeBanner: false,
       scaffoldMessengerKey: _rootScaffoldMessengerKey,
-      theme: AppTheme.build(
-        settings.palette,
-        Brightness.light,
-        settings.density,
-      ),
-      darkTheme: AppTheme.build(
-        settings.palette,
-        Brightness.dark,
-        settings.density,
-      ),
+      theme: AppTheme.build(Brightness.light, density),
+      darkTheme: AppTheme.build(Brightness.dark, density),
       themeMode: themeMode,
       routerConfig: router,
     );

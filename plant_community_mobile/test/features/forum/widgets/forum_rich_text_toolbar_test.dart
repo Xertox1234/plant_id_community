@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:plant_community_mobile/features/forum/models/forum_rich_text_markup.dart';
 import 'package:plant_community_mobile/features/forum/widgets/forum_rich_text_toolbar.dart';
+import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 void main() {
   group('wrapInlineMarker', () {
@@ -250,11 +251,11 @@ void main() {
 
       // Exactly one TextField in the tree: the composer's own body field.
       expect(find.byType(TextField), findsOneWidget);
-      expect(find.byIcon(Icons.format_bold), findsOneWidget);
-      expect(find.byIcon(Icons.format_italic), findsOneWidget);
-      expect(find.byIcon(Icons.code), findsOneWidget);
-      expect(find.byIcon(Icons.link), findsOneWidget);
-      expect(find.byIcon(Icons.format_list_bulleted), findsOneWidget);
+      expect(find.byIcon(LucideIcons.bold), findsOneWidget);
+      expect(find.byIcon(LucideIcons.italic), findsOneWidget);
+      expect(find.byIcon(LucideIcons.code), findsOneWidget);
+      expect(find.byIcon(LucideIcons.link), findsOneWidget);
+      expect(find.byIcon(LucideIcons.list), findsOneWidget);
     });
 
     testWidgets('tapping bold wraps the current selection in the body field', (
@@ -278,7 +279,7 @@ void main() {
         baseOffset: 6,
         extentOffset: 11,
       );
-      await tester.tap(find.byIcon(Icons.format_bold));
+      await tester.tap(find.byIcon(LucideIcons.bold));
       await tester.pump();
 
       expect(controller.text, 'hello **world**');
@@ -307,7 +308,7 @@ void main() {
         ),
       );
 
-      await tester.tap(find.byIcon(Icons.format_bold));
+      await tester.tap(find.byIcon(LucideIcons.bold));
       await tester.pump();
 
       expect(controller.text, isNot(isEmpty));

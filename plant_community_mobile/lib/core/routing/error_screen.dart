@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 /// Full-screen error state shown by the router (e.g. unknown route, missing
 /// navigation data).
@@ -15,7 +16,7 @@ class ErrorScreen extends StatelessWidget {
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
             Icon(
-              Icons.error_outline,
+              LucideIcons.circleAlert,
               size: 48,
               color: Theme.of(context).colorScheme.error,
             ),

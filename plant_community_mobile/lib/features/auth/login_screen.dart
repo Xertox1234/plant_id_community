@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../../core/routing/app_router.dart';
+import '../../shared/widgets/canopy_notice.dart';
 import '../../core/theme/green_thumb_extension.dart';
 import '../../services/auth_service.dart';
 
@@ -105,7 +107,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                       controller: _emailController,
                       decoration: const InputDecoration(
                         labelText: 'Email',
-                        prefixIcon: Icon(Icons.mail_outline),
+                        prefixIcon: Icon(LucideIcons.mail),
                       ),
                       keyboardType: TextInputType.emailAddress,
                       textInputAction: TextInputAction.next,
@@ -119,12 +121,12 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                       controller: _passwordController,
                       decoration: InputDecoration(
                         labelText: 'Password',
-                        prefixIcon: const Icon(Icons.lock_outline),
+                        prefixIcon: const Icon(LucideIcons.lock),
                         suffixIcon: IconButton(
                           icon: Icon(
                             _obscurePassword
-                                ? Icons.visibility_outlined
-                                : Icons.visibility_off_outlined,
+                                ? LucideIcons.eye
+                                : LucideIcons.eyeOff,
                           ),
                           tooltip: _obscurePassword
                               ? 'Show password'
@@ -238,7 +240,7 @@ class _GoogleSignInButtonState extends ConsumerState<GoogleSignInButton> {
                   width: 18,
                   child: CircularProgressIndicator(strokeWidth: 2),
                 )
-              : const Icon(Icons.account_circle_outlined),
+              : const Icon(LucideIcons.circleUser),
           label: Text(_busy ? 'Signing in...' : 'Continue with Google'),
         ),
       ],
@@ -318,29 +320,6 @@ class _AuthErrorBanner extends StatelessWidget {
   final String message;
 
   @override
-  Widget build(BuildContext context) {
-    final cs = Theme.of(context).colorScheme;
-    return Container(
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: cs.errorContainer,
-        borderRadius: BorderRadius.circular(8),
-      ),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Icon(Icons.error_outline, size: 20, color: cs.onErrorContainer),
-          const SizedBox(width: 8),
-          Expanded(
-            child: Text(
-              message,
-              style: Theme.of(
-                context,
-              ).textTheme.bodyMedium?.copyWith(color: cs.onErrorContainer),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
+  Widget build(BuildContext context) =>
+      CanopyNotice(message: message, tone: CanopyNoticeTone.error);
 }

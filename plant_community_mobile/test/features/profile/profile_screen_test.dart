@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:plant_community_mobile/core/theme/app_theme.dart';
-import 'package:plant_community_mobile/core/theme/app_palettes.dart';
 import 'package:plant_community_mobile/core/theme/green_thumb_extension.dart';
 import 'package:plant_community_mobile/features/profile/profile_screen.dart';
 import 'package:plant_community_mobile/models/user_profile.dart';
@@ -51,7 +50,7 @@ Widget _wrap(AppDensity density, {bool loggedIn = true}) => ProviderScope(
     userProfileServiceProvider.overrideWith(_FakeUserProfileService.new),
   ],
   child: MaterialApp(
-    theme: AppTheme.build(AppPaletteChoice.loam, Brightness.light, density),
+    theme: AppTheme.build(Brightness.light, density),
     home: const ProfileScreen(),
   ),
 );

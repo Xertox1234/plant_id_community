@@ -93,7 +93,6 @@ void main() {
         equals('FirestoreException: Test error message'),
       );
     });
-
   });
 
   group('Plant copyWith', () {
@@ -311,8 +310,9 @@ void main() {
           .doc('broken')
           .set({
             'id': 'broken',
-            'timestamp': DateTime.parse('2026-03-01T00:00:00Z')
-                .toIso8601String(),
+            'timestamp': DateTime.parse(
+              '2026-03-01T00:00:00Z',
+            ).toIso8601String(),
           });
       await service.savePlant(
         uid,

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../models/models.dart';
 import 'author_identity.dart';
@@ -25,10 +26,12 @@ class AuthorAvatarCluster extends StatelessWidget {
     if (shown.isEmpty) {
       return CircleAvatar(
         radius: radius + 6,
-        backgroundColor: theme.colorScheme.primaryContainer,
+        // Opaque, matching AuthorIdentity's initial disc: avatars overlap by a
+        // quarter here, and a translucent disc shows the one beneath it.
+        backgroundColor: theme.colorScheme.surfaceContainerHigh,
         child: Icon(
-          Icons.group,
-          color: theme.colorScheme.onPrimaryContainer,
+          LucideIcons.users,
+          color: theme.colorScheme.onSurface,
           size: radius * 1.4,
         ),
       );

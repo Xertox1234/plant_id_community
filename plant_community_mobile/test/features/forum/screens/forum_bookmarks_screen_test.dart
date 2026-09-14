@@ -5,6 +5,7 @@ import 'package:plant_community_mobile/features/forum/models/models.dart';
 import 'package:plant_community_mobile/features/forum/screens/forum_bookmarks_screen.dart';
 import 'package:plant_community_mobile/features/forum/services/forum_api.dart';
 import 'package:plant_community_mobile/features/forum/widgets/topic_card.dart';
+import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../support/forum_test_support.dart';
 
@@ -76,7 +77,7 @@ void main() {
       await tester.pumpWidget(_wrap(api));
       await tester.pumpAndSettle();
 
-      expect(find.byIcon(Icons.check_circle), findsOneWidget);
+      expect(find.byIcon(LucideIcons.circleCheck), findsOneWidget);
     });
   });
 }

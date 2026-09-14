@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../../../core/constants/app_spacing.dart';
 import '../../../services/auth_service.dart';
@@ -57,7 +58,7 @@ class ForumUserProfileScreen extends ConsumerWidget {
           if (canMessage)
             IconButton(
               tooltip: 'Message',
-              icon: const Icon(Icons.mail_outline),
+              icon: const Icon(LucideIcons.mail),
               onPressed: () => context.pushNamed(
                 'forumConversation',
                 pathParameters: {'username': username},
@@ -92,7 +93,7 @@ class ForumUserProfileScreen extends ConsumerWidget {
                 Padding(
                   padding: const EdgeInsets.only(bottom: AppSpacing.md),
                   child: ForumNoticeBanner(
-                    icon: Icons.block,
+                    icon: LucideIcons.ban,
                     message:
                         "You've blocked ${profile.author.name}. Their posts "
                         'are collapsed and they can\'t message you.',
