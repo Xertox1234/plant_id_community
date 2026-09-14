@@ -111,13 +111,13 @@ class NotificationService:
                         notification_type, recipient, title, message, context
                     )
                 else:
-                    logger.warning(f"Channel {channel} not implemented yet")
+                    logger.warning(f"[NOTIFY] Channel {channel} not implemented yet")
                     success = False
 
                 results[channel.value] = success
 
             except Exception as e:
-                logger.error(f"Failed to send notification via {channel}: {e}")
+                logger.error(f"[NOTIFY] Failed to send notification via {channel}: {e}")
                 results[channel.value] = False
 
         return results
@@ -168,7 +168,9 @@ class NotificationService:
             try:
                 user = User.objects.get(email=recipient)
             except User.DoesNotExist:
-                logger.error(f"User not found for email: {log_safe_email(recipient)}")
+                logger.error(
+                    f"[NOTIFY] User not found for email: {log_safe_email(recipient)}"
+                )
                 return False
         else:
             user = recipient
@@ -177,11 +179,11 @@ class NotificationService:
         try:
             # This will be implemented when we add the InAppNotification model
             logger.info(
-                f"In-app notification sent to {log_safe_user_context(user)}: {title}"
+                f"[NOTIFY] In-app notification sent to {log_safe_user_context(user)}: {title}"
             )
             return True
         except Exception as e:
-            logger.error(f"Failed to create in-app notification: {e}")
+            logger.error(f"[NOTIFY] Failed to create in-app notification: {e}")
             return False
 
     def _schedule_notification(
@@ -199,7 +201,7 @@ class NotificationService:
         """Schedule notification for later delivery."""
         # TODO: Implement proper scheduling with Celery or Django-RQ
         logger.warning(
-            "Scheduled notifications not yet implemented. Sending immediately instead."
+            "[NOTIFY] Scheduled notifications not yet implemented. Sending immediately instead."
         )
 
         # For now, send immediately instead of scheduling
@@ -221,14 +223,14 @@ class NotificationService:
                         notification_type, recipient, title, message, context
                     )
                 else:
-                    logger.warning(f"Channel {channel} not implemented yet")
+                    logger.warning(f"[NOTIFY] Channel {channel} not implemented yet")
                     success = False
 
                 results[channel.value] = success
 
             except Exception as e:
                 logger.error(
-                    f"Failed to send scheduled notification via {channel}: {e}"
+                    f"[NOTIFY] Failed to send scheduled notification via {channel}: {e}"
                 )
                 results[channel.value] = False
 
@@ -427,12 +429,12 @@ class NotificationService:
             user.save()
 
             logger.info(
-                f"Updated notification preferences for {log_safe_user_context(user)}"
+                f"[NOTIFY] Updated notification preferences for {log_safe_user_context(user)}"
             )
             return True
 
         except Exception as e:
             logger.error(
-                f"Failed to update preferences for {log_safe_user_context(user)}: {e}"
+                f"[NOTIFY] Failed to update preferences for {log_safe_user_context(user)}: {e}"
             )
             return False
