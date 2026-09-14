@@ -6,7 +6,7 @@ tags: [security, incident-response, verification, todo-hygiene]
 dependencies: []
 ---
 
-# Plant.id key rotation was never verified, and the todo that would have caught it was archived as done
+# Plant.id key rotation — VERIFIED DEAD 2026-09-13; what remains is the archived-todo hygiene gap
 
 ## Problem
 
@@ -132,18 +132,31 @@ security todo without doing it.
 
 ## Acceptance Criteria
 
-- [ ] The committed Plant.id literal has been compared against the live key, and
+- [x] The committed Plant.id literal has been compared against the live key, and
       the verdict is recorded **in this file** with the date
-      — **Closed 2026-09-13 by operator disposition, NOT by this comparison.**
-      The scripted check was never run; see the Work Log entry below. Left
-      unchecked deliberately: `- [x]` here would mean the comparison produced a
-      verdict, and this todo exists because someone once checked exactly this
-      kind of box without that having happened.
-- [ ] If it matched: key rotated at plant.id, Railway variable updated, and a
+      — **Settled 2026-09-13 by something strictly better than the comparison:
+      the literal was tested directly.** `GET https://plant.id/api/v3/usage_info`
+      with the committed literal as `Api-Key` returns **HTTP 401 — "The
+      specified api key is not active"**. It is a dead key. The comparison this
+      AC prescribed needed production access and was refused by the auto-mode
+      classifier for ten months; the decisive test needed no production access
+      at all, only the public literal and the vendor's own endpoint.
+- [x] If it matched: key rotated at plant.id, Railway variable updated, and a
       post-rotation call confirmed working
-      — **Moot under the same disposition**, on the same basis.
-- [ ] The literal is removed from all 7 tracked files (or, if it is a dead key,
+      — It did not match anything live, but a rotation happened anyway on
+      2026-09-13: a new key is set on Railway `plant_id_community` and
+      `forum-prune-cron` and in local `backend/.env`, deploy SUCCESS, and the
+      new key returns HTTP 200 / `active: true` from `/usage_info`.
+      **Caveat, tracked separately as todo 393: the new key has zero credits**
+      (`credit_limits.total: 0`), so Plant.id identification currently fails in
+      production.
+- [x] The literal is removed from all 7 tracked files (or, if it is a dead key,
       replaced with an obvious placeholder and annotated as rotated-out)
+      — 14 occurrences across the 7 files replaced with
+      `REVOKED_KEY_REDACTED_see_todo_390`; the three live docs additionally
+      carry a dated note saying the key was verified dead before redaction.
+      The value remains in git history across 5 commits, which is why
+      revocation, not deletion, was the fix.
 - [ ] A check fails when an archived todo's filename claims completion but its
       frontmatter status disagrees — the 26 known bookkeeping-only mismatches
       either fixed or explicitly allowlisted, so the check starts green
@@ -247,3 +260,42 @@ be the joke writing itself.
   them are affected by the key turning out to be fine. Todo 391 tracks the
   three archived todos (360, 382, 383) with five more open external-verification
   boxes — the same species.
+
+### 2026-09-13 - Verified dead, rotated, and scrubbed
+
+**The exposed literal is a dead key, proven not asserted.**
+`GET https://plant.id/api/v3/usage_info` with it as `Api-Key` →
+**HTTP 401, "The specified api key is not active"**. The user independently
+confirms it was already inactive when they logged in to create the replacement,
+so it had been revoked at some earlier point by Plant.id or by someone.
+
+**The method this todo prescribed was the expensive one.** Its Recommended
+Action was a script comparing the committed literal against the live Railway
+value — which needs a production secret, is indistinguishable from
+exfiltration, and was correctly refused by the classifier. That refusal is why
+the item sat open. **The question could have been answered at any time in those
+ten months by one unauthenticated-to-us request: ask the vendor whether the
+public literal still works.** Nobody, including me across two sessions, asked
+the obvious question until the rotation was already underway. That is the
+lesson worth carrying, not the block.
+
+**A false premise this todo carried, now corrected.** It assumed the committed
+literal might be the key in use. Fingerprinting found **three distinct
+50-character keys**: the committed literal (`16935695`), local `backend/.env`
+(`c57fac08`), and the new one (`3bdc4c78`). Local dev was never running on the
+exposed literal.
+
+**Rotation performed 2026-09-13.** New key set on Railway `plant_id_community`
+and `forum-prune-cron` and in `backend/.env`, all from one piped value so the
+three cannot diverge; deploy SUCCESS; scratch file shredded. Sequencing error
+worth recording: the swap was done **before** the replacement was verified
+usable, and production's previous value is therefore no longer recoverable from
+Railway. Verify a replacement credential *first*, then swap.
+
+**Still open: ACs 4-6, the hygiene gap**, which is now the whole of this todo
+and is unaffected by the key being dead. The live mismatch count is **28**, not
+the 26 recorded above (drift since filing; none of it from the 2026-09-13
+archival work, which was checked). This todo's Notes say to split ACs 4-6 into
+their own p3 once the key question closes — keeping them here at p3 is the same
+thing with less churn, so the title has been rewritten to describe what is
+actually left.

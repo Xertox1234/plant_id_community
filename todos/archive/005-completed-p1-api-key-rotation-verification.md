@@ -21,7 +21,7 @@ API keys were exposed in git history (security incident Oct 23, 2025) and remove
 - **Documentation created**: KEY_ROTATION_INSTRUCTIONS.md, SECURITY_INCIDENT_2025_10_23_API_KEYS.md
 
 **Exposed Credentials**:
-1. **Plant.id API Key**: `W3YvEk2rx8g7Ko3fa8hKrlPJVqQeT2muIfikhKqvSBnaIUkXd4`
+1. **Plant.id API Key**: `REVOKED_KEY_REDACTED_see_todo_390`
    - Limit: 100 IDs/month (free tier)
    - Status: Unknown
 
@@ -118,7 +118,7 @@ Follow `/Users/williamtower/projects/plant_id_community/KEY_ROTATION_INSTRUCTION
 **Plant.id**:
 1. Login: https://plant.id/api/v3/
 2. Navigate to API keys section
-3. Revoke key: `W3YvEk2rx8g7Ko3fa8hKrlPJVqQeT2muIfikhKqvSBnaIUkXd4`
+3. Revoke key: `REVOKED_KEY_REDACTED_see_todo_390`
 4. Generate new key
 5. Update `backend/.env`: `PLANT_ID_API_KEY=<new_key>`
 

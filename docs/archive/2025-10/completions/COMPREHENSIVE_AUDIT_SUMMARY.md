@@ -212,7 +212,7 @@ Conducted comprehensive multi-agent code review using 12 specialized agents anal
 **Issue #005: API Key Rotation Verification** (CVSS: TBD)
 - **Context**: Security incident Oct 23, 2025 - exposed keys in git
 - **Exposed keys**:
-  - Plant.id: `W3YvEk2rx8g7Ko3fa8hKrlPJVqQeT2muIfikhKqvSBnaIUkXd4`
+  - Plant.id: `REVOKED_KEY_REDACTED_see_todo_390`
   - PlantNet: `2b10XCJNMzrPYiojVsddjK0n`
 - **Action Required**: Verify rotation completed per `KEY_ROTATION_INSTRUCTIONS.md`
 - **Priority**: P1 - Critical (1 hour)
