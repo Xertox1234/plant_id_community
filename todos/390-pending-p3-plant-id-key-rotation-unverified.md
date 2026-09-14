@@ -49,8 +49,15 @@ pre-commit hook, which warns but does not block.
     — which lists it under **"Current insecure values"** with stated impact
     *"API quota exhaustion from exposed keys"* and *"Financial impact from key
     abuse"*.
-- **PlantNet was almost certainly rotated**: the documented value is 24
-  characters, the live Railway value is 26. Different length, different key.
+- ~~**PlantNet was almost certainly rotated**: the documented value is 24
+  characters, the live Railway value is 26. Different length, different key.~~
+  **WRONG — corrected 2026-09-13.** True of the *24-character* literal, and
+  blind to a **second, 26-character PlantNet literal** in
+  `docs/archive/2025-11/patterns-consolidated/PLANT_ID_PATTERNS_CODIFIED.md`
+  that nobody had grepped for. That one was the key actually in use, and it was
+  **still live**: `GET https://my-api.plantnet.org/v2/projects` returned HTTP
+  200 and 77 projects from a public repo, eleven months after this incident was
+  marked resolved. See the 2026-09-13 work-log entry.
 - **Plant.id cannot be distinguished by length**: documented 50, live 50, and
   Plant.id keys are fixed-length. Only a direct comparison settles it.
 - It is not in `.secrets.baseline` — that file records four entries for
@@ -299,3 +306,51 @@ archival work, which was checked). This todo's Notes say to split ACs 4-6 into
 their own p3 once the key question closes — keeping them here at p3 is the same
 thing with less churn, so the title has been rewritten to describe what is
 actually left.
+
+### 2026-09-13 - The PlantNet key was live, and this todo's own reasoning hid it
+
+While scrubbing the Plant.id literal, the `scan-api-keys` hook warned on a
+PlantNet literal in the same documents. Scrubbing those 10 occurrences (24
+chars, provably stale by length) turned up an **eleventh** in a file none of
+this todo's findings mentioned:
+`docs/archive/2025-11/patterns-consolidated/PLANT_ID_PATTERNS_CODIFIED.md:540`,
+**26 characters — the same length as the live value**, so length proved nothing,
+exactly as with Plant.id.
+
+Probed it: **HTTP 200, 77 projects.** A working API key in a public repository.
+`backend/.env` held the same fingerprint (`3a4b2da7`), and Railway's value was
+the same length, so it was the key in production too.
+
+**Three failures stacked to keep it hidden for eleven months:**
+
+1. **This todo's own inference.** "PlantNet was almost certainly rotated (24 vs
+   26 chars)" was true of the literal it examined and false of the repo. A
+   length comparison against *one* occurrence was treated as a statement about
+   all of them. Nobody fingerprinted every occurrence — which is exactly what
+   this todo DID do for Plant.id, and did not do for PlantNet.
+2. **`.secrets.baseline` has no entry for that file**, so detect-secrets never
+   looked at it. The baseline is hand-maintained, not a scan.
+3. **The incident was marked `✅ RESOLVED (Verified 2025-10-27)`** while the key
+   was live, which is the defect this todo was filed about, recurring on the
+   other half of the same incident.
+
+**Rotated 2026-09-13.** New key verified working against PlantNet BEFORE the
+swap (HTTP 200), then set on Railway `plant_id_community` and `backend/.env`;
+`forum-prune-cron` has no PlantNet variable. The exposed literal now returns
+**HTTP 401 "Bad token"** — verified, not assumed, because this incident is a
+case study in the difference.
+
+**A sequencing hazard worth its own rule:** creating a key at my.plantnet.org
+*destroys the previous one*. So the replacement existed, and production's key
+was dead, before the swap was staged — PlantNet was down in that gap. For a
+vendor that auto-revokes, stage the new value everywhere first, then generate,
+then swap immediately. For a vendor that does not (Plant.id), verify the
+replacement is usable before swapping. Both hazards bit in the same session.
+
+**The full sweep, so this is not re-derived.** Every tracked file was scanned
+for credential-shaped values. Apart from the PlantNet key, nothing live was
+exposed: five documented `JWT_SECRET_KEY` values are 40-45 chars against a live
+86; two `FIELD_ENCRYPTION_KEY` values match neither local nor prod (and todo 367
+established that variable is never read); the `backend/Dockerfile` JWT value is
+a documented build-time throwaway; the short `PLANT_ID_API_KEY` strings are
+20-21 chars against a real 50.
