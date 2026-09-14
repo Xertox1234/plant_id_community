@@ -76,7 +76,7 @@ def get_executor() -> ThreadPoolExecutor:
                     max_workers = int(max_workers_env)
                     if max_workers < 1:
                         logger.warning(
-                            f"Invalid PLANT_ID_MAX_WORKERS={max_workers} (must be positive), using default"
+                            f"[IDENTIFY] Invalid PLANT_ID_MAX_WORKERS={max_workers} (must be positive), using default"
                         )
                         cpu_count = os.cpu_count() or 1
                         default_workers = cpu_count * CPU_CORE_MULTIPLIER
@@ -85,7 +85,9 @@ def get_executor() -> ThreadPoolExecutor:
                     cpu_count = os.cpu_count() or 1
                     max_workers = cpu_count * CPU_CORE_MULTIPLIER
             except (ValueError, TypeError) as e:
-                logger.error(f"Invalid PLANT_ID_MAX_WORKERS value: {e}, using default")
+                logger.error(
+                    f"[IDENTIFY] Invalid PLANT_ID_MAX_WORKERS value: {e}, using default"
+                )
                 cpu_count = os.cpu_count() or 1
                 max_workers = cpu_count * CPU_CORE_MULTIPLIER
 
@@ -141,17 +143,17 @@ class CombinedPlantIdentificationService:
         try:
             if getattr(settings, "ENABLE_PLANT_ID", True):
                 self.plant_id = PlantIDAPIService()
-                logger.info("Plant.id service initialized")
+                logger.info("[IDENTIFY] Plant.id service initialized")
         except (ImportError, AttributeError, KeyError) as e:
             # Configuration errors or missing dependencies
             logger.warning(
-                f"Plant.id service not available: {type(e).__name__}",
+                f"[IDENTIFY] Plant.id service not available: {type(e).__name__}",
                 exc_info=settings.DEBUG,
             )
         except Exception as e:
             # Unexpected initialization errors
             logger.error(
-                f"Unexpected error initializing Plant.id service: {type(e).__name__}",
+                f"[IDENTIFY] Unexpected error initializing Plant.id service: {type(e).__name__}",
                 exc_info=True,
             )
 
@@ -159,22 +161,22 @@ class CombinedPlantIdentificationService:
         try:
             if getattr(settings, "ENABLE_PLANTNET", True):
                 self.plantnet = PlantNetAPIService()
-                logger.info("PlantNet service initialized")
+                logger.info("[IDENTIFY] PlantNet service initialized")
         except (ImportError, AttributeError, KeyError) as e:
             # Configuration errors or missing dependencies
             logger.warning(
-                f"PlantNet service not available: {type(e).__name__}",
+                f"[IDENTIFY] PlantNet service not available: {type(e).__name__}",
                 exc_info=settings.DEBUG,
             )
         except Exception as e:
             # Unexpected initialization errors
             logger.error(
-                f"Unexpected error initializing PlantNet service: {type(e).__name__}",
+                f"[IDENTIFY] Unexpected error initializing PlantNet service: {type(e).__name__}",
                 exc_info=True,
             )
 
         if not self.plant_id and not self.plantnet:
-            logger.error("No plant identification APIs available")
+            logger.error("[IDENTIFY] No plant identification APIs available")
 
     def identify_plant(
         self,
@@ -222,7 +224,8 @@ class CombinedPlantIdentificationService:
             results["source"] = "plant_id"
 
             logger.info(
-                f"[SUCCESS] Plant.id identified: {plant_id_results.get('top_suggestion', {}).get('plant_name', 'Unknown')} "
+                f"[SUCCESS] Plant.id identified: "
+                f"{plant_id_results.get('top_suggestion', {}).get('plant_name', 'Unknown')} "
                 f"(confidence: {results['confidence_score']:.2%})"
             )
 

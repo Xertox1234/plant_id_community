@@ -100,7 +100,7 @@ class PlantNetAPIService:
         """
         self.api_key = api_key or getattr(settings, "PLANTNET_API_KEY", None)
         if not self.api_key:
-            logger.error("PlantNet API key not configured")
+            logger.error("[PLANTNET] PlantNet API key not configured")
             raise ValueError("PLANTNET_API_KEY must be set in Django settings")
 
         self.session = requests.Session()
@@ -166,8 +166,8 @@ class PlantNetAPIService:
                 f"[ERROR] PlantNet API request failed: {log_safe_api_error(e)}"
             )
             if hasattr(e, "response") and e.response is not None:
-                logger.error(f"Response status: {e.response.status_code}")
-                logger.error(f"Response body: {e.response.text[:500]}")
+                logger.error(f"[PLANTNET] Response status: {e.response.status_code}")
+                logger.error(f"[PLANTNET] Response body: {e.response.text[:500]}")
             raise  # Re-raise for circuit breaker to track failures
         except Exception as e:
             logger.error(f"[ERROR] PlantNet API error: {str(e)}")
@@ -202,7 +202,7 @@ class PlantNetAPIService:
             return buffer.getvalue()
 
         except Exception as e:
-            logger.error(f"Error preparing image for PlantNet: {str(e)}")
+            logger.error(f"[PLANTNET] Error preparing image for PlantNet: {str(e)}")
             raise
 
     def identify_plant(
@@ -227,11 +227,13 @@ class PlantNetAPIService:
             Identification results dictionary or None if error
         """
         if not images:
-            logger.error("No images provided for plant identification")
+            logger.error("[PLANTNET] No images provided for plant identification")
             return None
 
         if len(images) > 5:
-            logger.warning("PlantNet API supports max 5 images, using first 5")
+            logger.warning(
+                "[PLANTNET] PlantNet API supports max 5 images, using first 5"
+            )
             images = images[:5]
 
         # Default organs if not specified - use valid organ types
@@ -482,7 +484,7 @@ class PlantNetAPIService:
                 return proj
 
         logger.warning(
-            f"Project {project} (key: {project_key}) not found in available projects"
+            f"[PLANTNET] Project {project} (key: {project_key}) not found in available projects"
         )
         return None
 
@@ -504,7 +506,9 @@ class PlantNetAPIService:
             return response.json()
 
         except requests.exceptions.RequestException as e:
-            logger.error(f"PlantNet projects request failed: {log_safe_api_error(e)}")
+            logger.error(
+                f"[PLANTNET] PlantNet projects request failed: {log_safe_api_error(e)}"
+            )
             return None
 
     def get_available_projects(self) -> List[Dict[str, Any]]:

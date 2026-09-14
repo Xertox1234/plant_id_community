@@ -40,7 +40,7 @@ class UnsplashImageService:
         self.access_key = access_key or getattr(settings, "UNSPLASH_ACCESS_KEY", None)
         if not self.access_key:
             logger.warning(
-                "Unsplash API key not configured - image search will be disabled"
+                "[UNSPLASH] Unsplash API key not configured - image search will be disabled"
             )
             self.access_key = None
 
@@ -67,13 +67,13 @@ class UnsplashImageService:
             JSON response data or None if error
         """
         if not self.access_key:
-            logger.warning("Unsplash API key not available")
+            logger.warning("[UNSPLASH] Unsplash API key not available")
             return None
 
         # Check rate limits from cache
         rate_limit_key = "unsplash_rate_limit"
         if cache.get(rate_limit_key, 0) >= 50:  # Demo limit
-            logger.warning("Unsplash API rate limit exceeded")
+            logger.warning("[UNSPLASH] Unsplash API rate limit exceeded")
             return None
 
         url = f"{self.BASE_URL}/{endpoint.lstrip('/')}"
@@ -93,7 +93,7 @@ class UnsplashImageService:
             # which carries every query parameter. `url` itself is the bare
             # endpoint (params ride in `params=`), so it stays.
             logger.error(
-                f"Unsplash API request failed: {url} - {log_safe_api_error(e)}"
+                f"[UNSPLASH] Unsplash API request failed: {url} - {log_safe_api_error(e)}"
             )
             return None
 
@@ -132,7 +132,7 @@ class UnsplashImageService:
         cache_key = f"unsplash_search_{search_query.replace(' ', '_').lower()}_{limit}_{orientation}"
         cached_result = cache.get(cache_key)
         if cached_result:
-            logger.info(f"Using cached Unsplash results for: {plant_name}")
+            logger.info(f"[UNSPLASH] Using cached Unsplash results for: {plant_name}")
             return cached_result
 
         params = {
@@ -180,12 +180,14 @@ class UnsplashImageService:
                 }
                 processed_images.append(image_data)
             except KeyError as e:
-                logger.error(f"Invalid Unsplash photo data structure: {e}")
+                logger.error(f"[UNSPLASH] Invalid Unsplash photo data structure: {e}")
                 continue
 
         # Cache successful results
         cache.set(cache_key, processed_images, self.CACHE_TIMEOUT)
-        logger.info(f"Found {len(processed_images)} Unsplash images for: {plant_name}")
+        logger.info(
+            f"[UNSPLASH] Found {len(processed_images)} Unsplash images for: {plant_name}"
+        )
 
         return processed_images
 
@@ -240,13 +242,13 @@ class UnsplashImageService:
                 ]
                 wagtail_image.tags.add(*tags)
             except Exception as e:
-                logger.warning(f"Could not add tags to image: {e}")
+                logger.warning(f"[UNSPLASH] Could not add tags to image: {e}")
 
-            logger.info(f"Created Wagtail image: {title}")
+            logger.info(f"[UNSPLASH] Created Wagtail image: {title}")
             return wagtail_image
 
         except Exception as e:
-            logger.error(f"Failed to download/create Wagtail image: {e}")
+            logger.error(f"[UNSPLASH] Failed to download/create Wagtail image: {e}")
             return None
 
     def get_best_plant_image(
@@ -270,7 +272,7 @@ class UnsplashImageService:
         )
 
         if not images:
-            logger.info(f"No Unsplash images found for: {plant_name}")
+            logger.info(f"[UNSPLASH] No Unsplash images found for: {plant_name}")
             return None
 
         # Sort by relevance factors (likes, quality, etc.)
@@ -292,7 +294,9 @@ class UnsplashImageService:
             if wagtail_image:
                 return image_data, wagtail_image
 
-        logger.warning(f"Failed to download any Unsplash images for: {plant_name}")
+        logger.warning(
+            f"[UNSPLASH] Failed to download any Unsplash images for: {plant_name}"
+        )
         return None
 
     def trigger_download(self, image_data: Dict) -> None:
@@ -321,8 +325,10 @@ class UnsplashImageService:
             response.raise_for_status()
 
             logger.info(
-                f"Triggered download tracking for Unsplash image: {image_data.get('id')}"
+                f"[UNSPLASH] Triggered download tracking for Unsplash image: {image_data.get('id')}"
             )
 
         except Exception as e:
-            logger.error(f"Failed to trigger Unsplash download tracking: {e}")
+            logger.error(
+                f"[UNSPLASH] Failed to trigger Unsplash download tracking: {e}"
+            )

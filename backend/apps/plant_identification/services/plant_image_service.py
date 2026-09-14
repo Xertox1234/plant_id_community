@@ -65,10 +65,10 @@ class PlantImageService:
             )
             results["unsplash"] = unsplash_images
             logger.info(
-                f"Found {len(unsplash_images)} Unsplash images for {plant_name}"
+                f"[PLANT_IMAGE] Found {len(unsplash_images)} Unsplash images for {plant_name}"
             )
         except Exception as e:
-            logger.error(f"Unsplash search failed for {plant_name}: {e}")
+            logger.error(f"[PLANT_IMAGE] Unsplash search failed for {plant_name}: {e}")
             results["unsplash"] = []
 
         # Search Pexels
@@ -80,9 +80,11 @@ class PlantImageService:
                 orientation="landscape",
             )
             results["pexels"] = pexels_images
-            logger.info(f"Found {len(pexels_images)} Pexels images for {plant_name}")
+            logger.info(
+                f"[PLANT_IMAGE] Found {len(pexels_images)} Pexels images for {plant_name}"
+            )
         except Exception as e:
-            logger.error(f"Pexels search failed for {plant_name}: {e}")
+            logger.error(f"[PLANT_IMAGE] Pexels search failed for {plant_name}: {e}")
             results["pexels"] = []
 
         # Note: AI generation is not included in search as it's expensive
@@ -133,7 +135,7 @@ class PlantImageService:
                         # Trigger download tracking for Unsplash (required by ToS)
                         self.unsplash.trigger_download(image_data)
                         logger.info(
-                            f"Successfully got {plant_name} image from Unsplash"
+                            f"[PLANT_IMAGE] Successfully got {plant_name} image from Unsplash"
                         )
                         return "unsplash", image_data, wagtail_image
 
@@ -143,7 +145,9 @@ class PlantImageService:
                     )
                     if result:
                         image_data, wagtail_image = result
-                        logger.info(f"Successfully got {plant_name} image from Pexels")
+                        logger.info(
+                            f"[PLANT_IMAGE] Successfully got {plant_name} image from Pexels"
+                        )
                         return "pexels", image_data, wagtail_image
 
                 elif source == "ai":
@@ -155,19 +159,23 @@ class PlantImageService:
                         if result:
                             image_data, wagtail_image = result
                             logger.info(
-                                f"Successfully generated AI image for {plant_name}"
+                                f"[PLANT_IMAGE] Successfully generated AI image for {plant_name}"
                             )
                             return "ai", image_data, wagtail_image
                     else:
                         logger.info(
-                            f"Skipping AI generation for {plant_name} due to cost limits"
+                            f"[PLANT_IMAGE] Skipping AI generation for {plant_name} due to cost limits"
                         )
 
             except Exception as e:
-                logger.error(f"Failed to get image from {source} for {plant_name}: {e}")
+                logger.error(
+                    f"[PLANT_IMAGE] Failed to get image from {source} for {plant_name}: {e}"
+                )
                 continue
 
-        logger.warning(f"No images found for {plant_name} from any source")
+        logger.warning(
+            f"[PLANT_IMAGE] No images found for {plant_name} from any source"
+        )
         return None
 
     def _should_use_ai_generation(self) -> bool:
@@ -289,7 +297,7 @@ class PlantImageService:
                         ai_images_generated += 1
 
                     logger.info(
-                        f"Successfully processed image for {plant_name} from {source}"
+                        f"[PLANT_IMAGE] Successfully processed image for {plant_name} from {source}"
                     )
 
                 else:
@@ -297,7 +305,7 @@ class PlantImageService:
                         "success": False,
                         "error": "No suitable images found",
                     }
-                    logger.warning(f"No images found for {plant_name}")
+                    logger.warning(f"[PLANT_IMAGE] No images found for {plant_name}")
 
             except Exception:
                 # Per-plant result dict, response-shaped (todo 377). The

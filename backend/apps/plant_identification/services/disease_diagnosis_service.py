@@ -70,13 +70,16 @@ class DiseaseAutostorageService:
                 self._create_care_instructions(disease, result)
 
                 logger.info(
-                    f"Auto-stored disease '{disease.disease_name}' with {result.confidence_score:.1%} confidence"
+                    f"[DIAGNOSIS] Auto-stored disease '{disease.disease_name}' "
+                    f"with {result.confidence_score:.1%} confidence"
                 )
 
                 return disease
 
         except Exception as e:
-            logger.error(f"Failed to auto-store disease result {result.id}: {str(e)}")
+            logger.error(
+                f"[DIAGNOSIS] Failed to auto-store disease result {result.id}: {str(e)}"
+            )
             return None
 
     def _update_existing_disease(
@@ -166,7 +169,9 @@ class DiseaseAutostorageService:
                     )
 
             except Exception as e:
-                logger.warning(f"Failed to create care instruction: {str(e)}")
+                logger.warning(
+                    f"[DIAGNOSIS] Failed to create care instruction: {str(e)}"
+                )
 
     def _map_treatment_type(self, api_type: str) -> str:
         """Map API treatment type to our internal categories."""
@@ -196,13 +201,15 @@ class PlantDiseaseService:
         try:
             self.plant_health = PlantHealthAPIService()
         except ValueError:
-            logger.warning("plant.health API not available - continuing without it")
+            logger.warning(
+                "[DIAGNOSIS] plant.health API not available - continuing without it"
+            )
             self.plant_health = None
 
         self.auto_storage = DiseaseAutostorageService()
 
         if not self.plant_health:
-            logger.error("No disease diagnosis APIs available")
+            logger.error("[DIAGNOSIS] No disease diagnosis APIs available")
 
     def diagnose_disease_from_request(
         self, request: PlantDiseaseRequest, progress_cb: ProgressCallback = None
@@ -238,7 +245,9 @@ class PlantDiseaseService:
                 images.append(request.image_3)
 
             if not images:
-                logger.error(f"No images found in disease request {request.request_id}")
+                logger.error(
+                    f"[DIAGNOSIS] No images found in disease request {request.request_id}"
+                )
                 request.status = "failed"
                 request.save()
                 return []
@@ -378,7 +387,7 @@ class PlantDiseaseService:
 
             if not diagnosis:
                 logger.warning(
-                    f"No plant.health results for disease request {request.request_id}"
+                    f"[DIAGNOSIS] No plant.health results for disease request {request.request_id}"
                 )
                 return []
 
@@ -410,7 +419,7 @@ class PlantDiseaseService:
 
         except Exception as e:
             logger.error(
-                f"plant.health diagnosis failed for request {request.request_id}: {str(e)}"
+                f"[DIAGNOSIS] plant.health diagnosis failed for request {request.request_id}: {str(e)}"
             )
 
         return results
@@ -442,7 +451,9 @@ class PlantDiseaseService:
                     results.append(result)
 
         except Exception as e:
-            logger.error(f"Failed to create results from local data: {str(e)}")
+            logger.error(
+                f"[DIAGNOSIS] Failed to create results from local data: {str(e)}"
+            )
 
         return results
 
@@ -514,7 +525,9 @@ class PlantDiseaseService:
             )
 
         except Exception as e:
-            logger.error(f"Failed to create fallback disease result: {str(e)}")
+            logger.error(
+                f"[DIAGNOSIS] Failed to create fallback disease result: {str(e)}"
+            )
 
     def get_service_status(self) -> Dict:
         """

@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: p3
 issue_id: "388"
 tags: [code-quality, logging, backend, tech-debt]
@@ -171,15 +171,24 @@ logging config. Delete it as a drive-by in whichever slice touches settings.
 - [x] A `docs/rules/triggers.json` trigger flags an unprefixed `logger.*` call
       in `backend/**/*.py`, and its target path is confirmed to route by running
       it through `scripts/inject/route_domains.py`
-- [ ] `plant_identification`, `users`, `core` and `blog` unprefixed counts all
+- [x] `plant_identification`, `users`, `core` and `blog` unprefixed counts all
       reach 0, verified by
       `python3 scripts/check_log_prefixes.py --app <name> --fail-over 0`
       exiting 0 for each of the four
-      — **`core` DONE** (44 -> 0), **`blog` DONE** (22 -> 0) and
-      **`users` DONE** (63 -> 0); only `plant_identification` (180) remains
-- [ ] No log message was **reworded** during prefixing (only prefixed) — the 17
+      — `core` 44 -> 0, `blog` 22 -> 0, `users` 63 -> 0,
+      `plant_identification` 180 -> 0. Repo-wide 339/769 -> 7/773 (0.9%)
+- [x] No log message was **reworded** during prefixing (only prefixed) — the 17
       content assertions above still pass
-- [ ] Backend suite green on each slice
+      — and proven directly per slice, not only via the assertions: every
+      `logger.*` message was AST-reconstructed as constant chunks plus
+      `ast.unparse` of each interpolation, before and after, and compared.
+      Across the four slices 309 are the original template with a token
+      prepended and 0 differ any other way. The template form matters because
+      black reflows the lines this sweep lengthens, so a diff-level check stops
+      being readable after the formatter runs
+- [x] Backend suite green on each slice — `core` at the time, then
+      `apps/blog` 273 passed / 7 skipped, `apps/users` 159 passed,
+      `apps/plant_identification` 122 passed; full suite green in CI per PR
 
 **Done 2026-09-13 with the `blog` slice.** The 7 stale fix-attribution markers
 of the same family that survived in `backend/apps/blog/` are cleared;
@@ -499,3 +508,52 @@ was proven by AST-reconstructing each f-string into a normalised template
 before and after rather than by reading the diff.
 
 Backend `apps/users`: **159 passed**.
+
+### 2026-09-13 - The `plant_identification` slice, and the todo closes
+
+180 -> 0, the last of the four apps. Repo-wide **339 of 769 -> 7 of 773**.
+
+**Done as one PR, not the three slices this todo suggested.** That split was
+proposed during scoping, when the tooling was weaker. The review surface turned
+out to be the token table, not the 180 call sites: 18 files, 13 taking a single
+token, with the diff mechanically proven prefix-only. Splitting would have
+tripled the CI wait without giving a reviewer another decision to make.
+
+**The token rule, now stated in the table itself.** A module wrapping ONE
+external API takes that API's token (`[TREFLE]`, `[PLANTNET]`, `[PLANT_ID]`,
+`[PLANT_HEALTH]`, new `[PEXELS]` / `[UNSPLASH]`); a module orchestrating
+several takes the concern's (`[IDENTIFY]`, `[DIAGNOSIS]`, `[PLANT_IMAGE]`, new
+`[SPECIES]`); and a line whose real subsystem is the cache, the rate limiter or
+the spend cap keeps `[CACHE]` / `[RATE_LIMIT]` / `[QUOTA]` even inside a
+provider module. `[IDENTIFY]` is new rather than reusing `[PLANT_ID]` because
+Plant.id is the name of one of the two providers -- marking the pipeline that
+fans out to both with one provider's token would be actively misleading.
+
+**Two E501s sat inside a 7692-character LLM prompt.** `ai_care_service.py`'s
+care-instruction prompt is one triple-quoted f-string whose long lines start at
+column 1, so wrapping them would have inserted newlines into what is sent to
+the model. A backslash continuation inside the literal is consumed by Python,
+so the source line shortens and the value does not change -- verified by
+extracting the prompt from both trees and comparing: byte-identical. This is
+the case where "just reflow it" would have silently altered behaviour.
+
+**A pre-existing F821 was a forward reference, not a NameError.**
+`species_lookup_service.py` annotates `Optional["APIMonitoringService"]` while
+importing the class lazily inside the method to dodge a circular import, so the
+name resolved for nobody reading the annotation. Fixed with a `TYPE_CHECKING`
+guard: defined for flake8 and type checkers, still no runtime import.
+
+### What is left, and why it is not this todo
+
+7 calls remain repo-wide, all outside the four apps this todo scopes:
+`forum_host/notifications.py` (3) and `garden_calendar/signals.py` (4). Three
+of those are `%`-style forum event logs whose right token is a forum decision,
+not a mechanical one. **Filed as todo 392** (p4) with the call sites, the
+competing `forum.<event>` convention already in that file, and the reason
+`tasks.py:71` cannot simply be prefixed -- it re-emits another command's
+captured stdout, so a token there labels output this module did not write.
+
+62 pre-existing flake8 violations were cleared across the four slices --
+`core` 18, `blog` 8, `users` 14, `plant_identification` 22 -- purely because
+pre-commit lints whole staged files. Every one was verified identical on `main`
+before being touched.

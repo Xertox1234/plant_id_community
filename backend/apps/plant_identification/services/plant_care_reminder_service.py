@@ -10,11 +10,9 @@ from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional
 
 from apps.core.models import PlantCareReminder
-from apps.core.services.email_service import EmailType
 from apps.core.services.notification_service import NotificationService
 from apps.core.utils.pii_safe_logging import log_safe_user_context
 from django.contrib.auth import get_user_model
-from django.urls import reverse
 from django.utils import timezone
 
 from .trefle_service import TrefleAPIService
@@ -79,7 +77,7 @@ class PlantCareReminderService:
         )
 
         logger.info(
-            f"Created care reminder for {log_safe_user_context(user)}: {care_type} for {reminder.plant_name}"
+            f"[REMINDER] Created care reminder for {log_safe_user_context(user)}: {care_type} for {reminder.plant_name}"
         )
         return reminder
 
@@ -119,7 +117,7 @@ class PlantCareReminderService:
         )
 
         logger.info(
-            f"Created custom care reminder for {log_safe_user_context(user)}: {care_type} for {plant_name}"
+            f"[REMINDER] Created custom care reminder for {log_safe_user_context(user)}: {care_type} for {plant_name}"
         )
         return reminder
 
@@ -167,17 +165,17 @@ class PlantCareReminderService:
                 # Mark reminder as sent and calculate next date
                 reminder.mark_reminder_sent()
                 logger.info(
-                    f"Sent care reminder to {log_safe_user_context(reminder.user)} for {reminder.plant_name}"
+                    f"[REMINDER] Sent care reminder to {log_safe_user_context(reminder.user)} for {reminder.plant_name}"
                 )
             else:
                 logger.warning(
-                    f"Failed to send care reminder to {log_safe_user_context(reminder.user)}"
+                    f"[REMINDER] Failed to send care reminder to {log_safe_user_context(reminder.user)}"
                 )
 
             return success
 
         except Exception as e:
-            logger.error(f"Error sending care reminder {reminder.id}: {e}")
+            logger.error(f"[REMINDER] Error sending care reminder {reminder.id}: {e}")
             return False
 
     def send_due_reminders(self) -> Dict[str, int]:
@@ -197,7 +195,7 @@ class PlantCareReminderService:
                 results["failed"] += 1
 
         logger.info(
-            f"Reminder batch complete: {results['sent']} sent, {results['failed']} failed"
+            f"[REMINDER] Reminder batch complete: {results['sent']} sent, {results['failed']} failed"
         )
         return results
 
@@ -242,12 +240,12 @@ class PlantCareReminderService:
             reminder.save(update_fields=["frequency", "next_reminder_date"])
 
             logger.info(
-                f"Updated reminder frequency for {reminder.plant_name} to {new_frequency}"
+                f"[REMINDER] Updated reminder frequency for {reminder.plant_name} to {new_frequency}"
             )
             return True
 
         except Exception as e:
-            logger.error(f"Failed to update reminder frequency: {e}")
+            logger.error(f"[REMINDER] Failed to update reminder frequency: {e}")
             return False
 
     def disable_reminder(self, reminder: PlantCareReminder) -> bool:
@@ -264,11 +262,11 @@ class PlantCareReminderService:
             reminder.is_active = False
             reminder.save(update_fields=["is_active"])
 
-            logger.info(f"Disabled reminder for {reminder.plant_name}")
+            logger.info(f"[REMINDER] Disabled reminder for {reminder.plant_name}")
             return True
 
         except Exception as e:
-            logger.error(f"Failed to disable reminder: {e}")
+            logger.error(f"[REMINDER] Failed to disable reminder: {e}")
             return False
 
     def _calculate_next_reminder_date(self, frequency: str) -> datetime:
@@ -372,7 +370,10 @@ class PlantCareReminderService:
 
         # This could be enhanced to use AI or a tips database
         tips_map = {
-            "watering": "Check soil moisture by inserting your finger 1-2 inches deep. Water when the top layer feels dry.",
+            "watering": (
+                "Check soil moisture by inserting your finger 1-2 inches "
+                "deep. Water when the top layer feels dry."
+            ),
             "fertilizing": "Use a balanced fertilizer during growing season (spring/summer) and reduce in winter.",
             "pruning": "Remove dead, damaged, or yellowing leaves to promote healthy growth.",
             "repotting": "Repot when roots are visible at drainage holes or soil drains too quickly.",
@@ -432,9 +433,9 @@ class PlantCareReminderService:
                 )
                 reminders.append(reminder)
             except Exception as e:
-                logger.error(f"Failed to create {care_type} reminder: {e}")
+                logger.error(f"[REMINDER] Failed to create {care_type} reminder: {e}")
 
         logger.info(
-            f"Created {len(reminders)} reminders for {log_safe_user_context(user)}"
+            f"[REMINDER] Created {len(reminders)} reminders for {log_safe_user_context(user)}"
         )
         return reminders
