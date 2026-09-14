@@ -6108,6 +6108,43 @@ paths you did not exercise, and treat the guard as unverified on them.
 
 **Agent**: cross-cutting-reviewer
 
+### [2026-09-13] A trigger that fires on 31 correct lines teaches people to ignore triggers
+
+**Mistake**: codifying the shell lesson above as a `triggers.json` entry, I
+matched the *syntax* of the bug — a variable in an arithmetic test — and shipped
+it after checking only that it fired on the bug and stayed quiet on the fix.
+Round 2 measured it against the repo: **31 fires across 13 files, every one a
+false positive.** All 30 non-bug operands are `$?` (18), `$((n+1))` counters (6),
+`grep -c` output (3), or `wc` output — integers by construction. The one thing
+that actually distinguishes the bug is **operand provenance**, and a
+content-regex matcher cannot see provenance at all.
+
+Narrowing `content_present` to require **both** operands be variables took it
+from 31 fires to 1, and it still matches the original defect
+(`[ "$EFFECTIVE_BUILD" -le "$HIGHEST"`). That is the enforceable subset — not
+the lesson, a shape that correlates with it.
+
+**Also learned, the hard way**: `content_absent` is evaluated against the whole
+resulting **file**, so it is a file-level kill switch. One validated comparison
+anywhere silences the trigger for every other comparison in that file, including
+ones added later — and the alternation matches prose, so a comment mentioning
+`is_uint` is enough. This trigger is engineered to go dark on its own motivating
+file the moment PR #743 lands. Kept anyway: firing on validated code is worse.
+
+**Fix**: before adding a trigger, run its `content_present` over the whole repo
+and count the fires. If most are correct code, the regex is matching the wrong
+thing.
+
+**Rule**: a trigger's cost is paid by every future edit that sees it, so the
+bar is not "does it catch the bug" but "what else does it catch". Validate a new
+trigger with a **repo-wide false-positive count**, the same way a new detector
+needs a positive control — a negative control alone only proves it is quiet
+where you already looked. Where the real signal is semantic (provenance, taint,
+ownership), say so in the message and ship the narrow shape, rather than
+widening until it fires on everything.
+
+**Agent**: cross-cutting-reviewer
+
 ### [2026-09-13] `.sh` files route to no rules domain
 
 **Mistake**: shell scripts match no entry in `scripts/inject/routing.json`, so a
