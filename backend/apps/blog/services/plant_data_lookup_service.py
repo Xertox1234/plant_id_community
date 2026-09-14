@@ -9,12 +9,11 @@ This service searches multiple data sources in priority order:
 """
 
 import logging
-from typing import Dict, List, Optional, Union
+from typing import Dict
 
 from apps.plant_identification.models import PlantSpecies
 from apps.plant_identification.services.plantnet_service import PlantNetAPIService
 from apps.plant_identification.services.trefle_service import TrefleAPIService
-from django.conf import settings
 from django.db.models import Q
 from fuzzywuzzy import fuzz
 
@@ -155,10 +154,7 @@ class PlantDataLookupService:
     def _search_user_history(self, query: str, user) -> Dict:
         """Search user's previous plant identification results."""
         try:
-            from apps.plant_identification.models import (
-                PlantIdentificationRequest,
-                PlantIdentificationResult,
-            )
+            from apps.plant_identification.models import PlantIdentificationRequest
 
             # Search in user's accepted identifications
             user_requests = PlantIdentificationRequest.objects.filter(

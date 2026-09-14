@@ -5,7 +5,6 @@ This command scans all blog posts for plant_spotlight blocks without images
 and automatically fetches appropriate images using the unified image service.
 """
 
-import json
 import logging
 
 from apps.blog.models import BlogPostPage
