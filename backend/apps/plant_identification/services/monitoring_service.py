@@ -5,12 +5,9 @@ This service tracks API usage, rate limits, cache performance, and provides
 alerts when thresholds are approaching.
 """
 
-import json
 import logging
-from datetime import datetime, timedelta
-from typing import Dict, List, Optional
+from typing import Dict, List
 
-from django.conf import settings
 from django.core.cache import cache
 from django.utils import timezone
 
@@ -88,7 +85,7 @@ class APIMonitoringService:
         cache.set(recent_calls_key, recent_calls, timeout=3600)
 
         logger.debug(
-            f"Recorded {api_name} API call: {endpoint} ({'success' if success else 'failed'})"
+            f"[PERF] Recorded {api_name} API call: {endpoint} ({'success' if success else 'failed'})"
         )
 
     def record_cache_hit(self, cache_type: str = "redis"):
@@ -342,17 +339,17 @@ class APIMonitoringService:
         for api_name in ["trefle", "plantnet"]:
             cache.delete(f"monitor:{api_name}:recent")
 
-        logger.warning("All monitoring metrics have been reset")
+        logger.warning("[PERF] All monitoring metrics have been reset")
 
     def log_performance_summary(self):
         """Log a summary of current performance metrics."""
         health = self.get_system_health()
         cache_perf = self.get_cache_performance()
 
-        logger.info(f"System Health: {health['overall_health']}")
-        logger.info(f"Cache Hit Ratio: {cache_perf['cache_hit_ratio']:.1f}%")
-        logger.info(f"Local DB Ratio: {cache_perf['local_db_ratio']:.1f}%")
-        logger.info(f"API Dependency: {cache_perf['api_dependency_ratio']:.1f}%")
+        logger.info(f"[PERF] System Health: {health['overall_health']}")
+        logger.info(f"[PERF] Cache Hit Ratio: {cache_perf['cache_hit_ratio']:.1f}%")
+        logger.info(f"[PERF] Local DB Ratio: {cache_perf['local_db_ratio']:.1f}%")
+        logger.info(f"[PERF] API Dependency: {cache_perf['api_dependency_ratio']:.1f}%")
 
         # Log alerts
         alerts = self.get_alerts()

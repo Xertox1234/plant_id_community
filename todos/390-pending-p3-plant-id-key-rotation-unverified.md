@@ -1,12 +1,12 @@
 ---
 status: pending
-priority: p1
+priority: p3
 issue_id: "390"
 tags: [security, incident-response, verification, todo-hygiene]
 dependencies: []
 ---
 
-# Plant.id key rotation was never verified, and the todo that would have caught it was archived as done
+# Plant.id key rotation — VERIFIED DEAD 2026-09-13; what remains is the archived-todo hygiene gap
 
 ## Problem
 
@@ -49,8 +49,15 @@ pre-commit hook, which warns but does not block.
     — which lists it under **"Current insecure values"** with stated impact
     *"API quota exhaustion from exposed keys"* and *"Financial impact from key
     abuse"*.
-- **PlantNet was almost certainly rotated**: the documented value is 24
-  characters, the live Railway value is 26. Different length, different key.
+- ~~**PlantNet was almost certainly rotated**: the documented value is 24
+  characters, the live Railway value is 26. Different length, different key.~~
+  **WRONG — corrected 2026-09-13.** True of the *24-character* literal, and
+  blind to a **second, 26-character PlantNet literal** in
+  `docs/archive/2025-11/patterns-consolidated/PLANT_ID_PATTERNS_CODIFIED.md`
+  that nobody had grepped for. That one was the key actually in use, and it was
+  **still live**: `GET https://my-api.plantnet.org/v2/projects` returned HTTP
+  200 and 77 projects from a public repo, eleven months after this incident was
+  marked resolved. See the 2026-09-13 work-log entry.
 - **Plant.id cannot be distinguished by length**: documented 50, live 50, and
   Plant.id keys are fixed-length. Only a direct comparison settles it.
 - It is not in `.secrets.baseline` — that file records four entries for
@@ -132,12 +139,31 @@ security todo without doing it.
 
 ## Acceptance Criteria
 
-- [ ] The committed Plant.id literal has been compared against the live key, and
+- [x] The committed Plant.id literal has been compared against the live key, and
       the verdict is recorded **in this file** with the date
-- [ ] If it matched: key rotated at plant.id, Railway variable updated, and a
+      — **Settled 2026-09-13 by something strictly better than the comparison:
+      the literal was tested directly.** `GET https://plant.id/api/v3/usage_info`
+      with the committed literal as `Api-Key` returns **HTTP 401 — "The
+      specified api key is not active"**. It is a dead key. The comparison this
+      AC prescribed needed production access and was refused by the auto-mode
+      classifier for ten months; the decisive test needed no production access
+      at all, only the public literal and the vendor's own endpoint.
+- [x] If it matched: key rotated at plant.id, Railway variable updated, and a
       post-rotation call confirmed working
-- [ ] The literal is removed from all 7 tracked files (or, if it is a dead key,
+      — It did not match anything live, but a rotation happened anyway on
+      2026-09-13: a new key is set on Railway `plant_id_community` and
+      `forum-prune-cron` and in local `backend/.env`, deploy SUCCESS, and the
+      new key returns HTTP 200 / `active: true` from `/usage_info`.
+      **Caveat, tracked separately as todo 393: the new key has zero credits**
+      (`credit_limits.total: 0`), so Plant.id identification currently fails in
+      production.
+- [x] The literal is removed from all 7 tracked files (or, if it is a dead key,
       replaced with an obvious placeholder and annotated as rotated-out)
+      — 14 occurrences across the 7 files replaced with
+      `REVOKED_KEY_REDACTED_see_todo_390`; the three live docs additionally
+      carry a dated note saying the key was verified dead before redaction.
+      The value remains in git history across 5 commits, which is why
+      revocation, not deletion, was the fix.
 - [ ] A check fails when an archived todo's filename claims completion but its
       frontmatter status disagrees — the 26 known bookkeeping-only mismatches
       either fixed or explicitly allowlisted, so the check starts green
@@ -164,11 +190,16 @@ security todo without doing it.
 
 ## Notes
 
-**Priority rationale: p1.** A live API key in a public repository is exploitable
-now, and the free-tier limit (100 IDs/month) means abuse is also a
-denial-of-service against the product's core feature. Downgrade to p3 the moment
-the comparison shows the literal is a dead key — at that point only the cleanup
-and the hygiene ACs remain.
+**Priority: p3 as of 2026-09-13** (filed p1). The downgrade trigger this file
+states is *"the moment the comparison shows the literal is a dead key"*. That
+is **not** what fired — the operator dispositioned the key directly. Recording
+which basis applied, because they are not the same evidence: the stated trigger
+produces an artifact, this one is a person's judgement, and a later reader
+should not mistake the second for the first.
+
+Original p1 rationale, for the record: a live API key in a public repository is
+exploitable now, and the free-tier limit (100 IDs/month) means abuse is also a
+denial-of-service against the product's core feature.
 
 The two halves are separable. If the key turns out to be dead, split ACs 4-6 into
 their own p3 rather than leaving this p1 open on process work.
@@ -202,3 +233,124 @@ later. Three more instances, found by a one-line audit, is evidence the
 hygiene check in this todo's acceptance criteria is worth building rather than
 assuming. Note these are NOT claimed to be undone — device auth may well work.
 The defect is that nothing in the repo can tell you either way.
+
+### 2026-09-13 - Closed by operator disposition
+
+Asked the user to run the comparison in the Recommended Action (it prints only
+a verdict, and fetching a production secret to hash it is refused by the
+auto-mode classifier — correctly, and it was not routed around).
+
+Their answer, verbatim: **"Key is fine, move on"**.
+
+That retires the rotation half. Recorded exactly as received and attributed to
+the operator, *not* written up as a comparison result: no script was run, no
+verdict was produced, and nothing in the repo can distinguish "already rotated"
+from "dead key" from "checked at plant.id". Which of those it is, is unknown
+here — only that the person with account access says the exposure is closed.
+
+**AC 1 and AC 2 stay `- [ ]` and are re-pointed** rather than checked, per the
+moved-finding convention in CLAUDE.md. `- [x]` on AC 1 would assert that the
+comparison ran. Todo 005 was archived with exactly that kind of box ticked on
+exactly this key, which is why this todo exists; closing it the same way would
+be the joke writing itself.
+
+**Still open, and now the whole of this todo:**
+
+- The 50-char literal remains in the 7 tracked files listed above, in a public
+  repo. If the key is dead it is only untidy — but the next reader cannot tell
+  that from the file, and will re-run this investigation. Offered to the user;
+  not done unasked.
+- ACs 4-6, the hygiene gap: nothing stops an archived todo's filename claiming
+  completion while its frontmatter disagrees, nothing stops archiving with
+  unchecked ACs, and nothing requires an external-verification todo to carry
+  its evidence. Those are the reason this file was worth writing, and none of
+  them are affected by the key turning out to be fine. Todo 391 tracks the
+  three archived todos (360, 382, 383) with five more open external-verification
+  boxes — the same species.
+
+### 2026-09-13 - Verified dead, rotated, and scrubbed
+
+**The exposed literal is a dead key, proven not asserted.**
+`GET https://plant.id/api/v3/usage_info` with it as `Api-Key` →
+**HTTP 401, "The specified api key is not active"**. The user independently
+confirms it was already inactive when they logged in to create the replacement,
+so it had been revoked at some earlier point by Plant.id or by someone.
+
+**The method this todo prescribed was the expensive one.** Its Recommended
+Action was a script comparing the committed literal against the live Railway
+value — which needs a production secret, is indistinguishable from
+exfiltration, and was correctly refused by the classifier. That refusal is why
+the item sat open. **The question could have been answered at any time in those
+ten months by one unauthenticated-to-us request: ask the vendor whether the
+public literal still works.** Nobody, including me across two sessions, asked
+the obvious question until the rotation was already underway. That is the
+lesson worth carrying, not the block.
+
+**A false premise this todo carried, now corrected.** It assumed the committed
+literal might be the key in use. Fingerprinting found **three distinct
+50-character keys**: the committed literal (`16935695`), local `backend/.env`
+(`c57fac08`), and the new one (`3bdc4c78`). Local dev was never running on the
+exposed literal.
+
+**Rotation performed 2026-09-13.** New key set on Railway `plant_id_community`
+and `forum-prune-cron` and in `backend/.env`, all from one piped value so the
+three cannot diverge; deploy SUCCESS; scratch file shredded. Sequencing error
+worth recording: the swap was done **before** the replacement was verified
+usable, and production's previous value is therefore no longer recoverable from
+Railway. Verify a replacement credential *first*, then swap.
+
+**Still open: ACs 4-6, the hygiene gap**, which is now the whole of this todo
+and is unaffected by the key being dead. The live mismatch count is **28**, not
+the 26 recorded above (drift since filing; none of it from the 2026-09-13
+archival work, which was checked). This todo's Notes say to split ACs 4-6 into
+their own p3 once the key question closes — keeping them here at p3 is the same
+thing with less churn, so the title has been rewritten to describe what is
+actually left.
+
+### 2026-09-13 - The PlantNet key was live, and this todo's own reasoning hid it
+
+While scrubbing the Plant.id literal, the `scan-api-keys` hook warned on a
+PlantNet literal in the same documents. Scrubbing those 10 occurrences (24
+chars, provably stale by length) turned up an **eleventh** in a file none of
+this todo's findings mentioned:
+`docs/archive/2025-11/patterns-consolidated/PLANT_ID_PATTERNS_CODIFIED.md:540`,
+**26 characters — the same length as the live value**, so length proved nothing,
+exactly as with Plant.id.
+
+Probed it: **HTTP 200, 77 projects.** A working API key in a public repository.
+`backend/.env` held the same fingerprint (`3a4b2da7`), and Railway's value was
+the same length, so it was the key in production too.
+
+**Three failures stacked to keep it hidden for eleven months:**
+
+1. **This todo's own inference.** "PlantNet was almost certainly rotated (24 vs
+   26 chars)" was true of the literal it examined and false of the repo. A
+   length comparison against *one* occurrence was treated as a statement about
+   all of them. Nobody fingerprinted every occurrence — which is exactly what
+   this todo DID do for Plant.id, and did not do for PlantNet.
+2. **`.secrets.baseline` has no entry for that file**, so detect-secrets never
+   looked at it. The baseline is hand-maintained, not a scan.
+3. **The incident was marked `✅ RESOLVED (Verified 2025-10-27)`** while the key
+   was live, which is the defect this todo was filed about, recurring on the
+   other half of the same incident.
+
+**Rotated 2026-09-13.** New key verified working against PlantNet BEFORE the
+swap (HTTP 200), then set on Railway `plant_id_community` and `backend/.env`;
+`forum-prune-cron` has no PlantNet variable. The exposed literal now returns
+**HTTP 401 "Bad token"** — verified, not assumed, because this incident is a
+case study in the difference.
+
+**A sequencing hazard worth its own rule:** creating a key at my.plantnet.org
+*destroys the previous one*. So the replacement existed, and production's key
+was dead, before the swap was staged — PlantNet was down in that gap. For a
+vendor that auto-revokes, stage the new value everywhere first, then generate,
+then swap immediately. For a vendor that does not (Plant.id), verify the
+replacement is usable before swapping. Both hazards bit in the same session.
+
+**The full sweep, so this is not re-derived.** Every tracked file was scanned
+for credential-shaped values. Apart from the PlantNet key, nothing live was
+exposed: five documented `JWT_SECRET_KEY` values are 40-45 chars against a live
+86; two `FIELD_ENCRYPTION_KEY` values match neither local nor prod (and todo 367
+established that variable is never read); the `backend/Dockerfile` JWT value is
+a documented build-time throwaway; the short `PLANT_ID_API_KEY` strings are
+20-21 chars against a real 50.

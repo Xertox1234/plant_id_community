@@ -47,7 +47,7 @@ class PlantHealthAPIService:
         """
         self.api_key = api_key or getattr(settings, "PLANT_HEALTH_API_KEY", None)
         if not self.api_key:
-            logger.error("Plant.health API key not configured")
+            logger.error("[PLANT_HEALTH] Plant.health API key not configured")
             raise ValueError("PLANT_HEALTH_API_KEY must be set in Django settings")
 
         self.session = requests.Session()
@@ -86,7 +86,9 @@ class PlantHealthAPIService:
             return image_b64
 
         except Exception as e:
-            logger.error(f"Error preparing image for plant.health: {str(e)}")
+            logger.error(
+                f"[PLANT_HEALTH] Error preparing image for plant.health: {str(e)}"
+            )
             raise
 
     def diagnose_disease(
@@ -109,11 +111,13 @@ class PlantHealthAPIService:
             Disease diagnosis results dictionary or None if error
         """
         if not images:
-            logger.error("No images provided for disease diagnosis")
+            logger.error("[PLANT_HEALTH] No images provided for disease diagnosis")
             return None
 
         if len(images) > 10:  # API limit
-            logger.warning("plant.health API supports max 10 images, using first 10")
+            logger.warning(
+                "[PLANT_HEALTH] plant.health API supports max 10 images, using first 10"
+            )
             images = images[:10]
 
         # Default modifiers for disease diagnosis
@@ -156,7 +160,7 @@ class PlantHealthAPIService:
 
             # Log API usage for cost tracking
             logger.info(
-                f"plant.health API call made - Images: {len(images)}, "
+                f"[PLANT_HEALTH] plant.health API call made - Images: {len(images)}, "
                 f"Access token used, Status: {response.status_code}"
             )
 
@@ -167,13 +171,19 @@ class PlantHealthAPIService:
             # plant.health authenticates with an `Api-Key` HEADER today, so
             # nothing in that URL is secret -- but this is one query
             # parameter away from leaking, so the log stays URL-free.
-            logger.error(f"plant.health API request failed: {log_safe_api_error(e)}")
+            logger.error(
+                f"[PLANT_HEALTH] plant.health API request failed: {log_safe_api_error(e)}"
+            )
             if hasattr(e, "response") and e.response is not None:
-                logger.error(f"Response status: {e.response.status_code}")
-                logger.error(f"Response body: {e.response.text[:500]}")
+                logger.error(
+                    f"[PLANT_HEALTH] Response status: {e.response.status_code}"
+                )
+                logger.error(f"[PLANT_HEALTH] Response body: {e.response.text[:500]}")
             return None
         except Exception as e:
-            logger.error(f"Error preparing plant.health request: {str(e)}")
+            logger.error(
+                f"[PLANT_HEALTH] Error preparing plant.health request: {str(e)}"
+            )
             return None
 
     def get_top_disease_suggestions(
@@ -465,7 +475,9 @@ class PlantHealthAPIService:
             return results
 
         except Exception as e:
-            logger.error(f"Error searching local disease database: {str(e)}")
+            logger.error(
+                f"[PLANT_HEALTH] Error searching local disease database: {str(e)}"
+            )
             return []
 
     def should_use_api(

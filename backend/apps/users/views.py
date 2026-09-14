@@ -105,7 +105,9 @@ def register(request: Request) -> Response:
     """
     # Log registration attempt (without sensitive data)
     username = request.data.get("username", "unknown")
-    logger.info(f"Registration attempt for user: {log_safe_username(username)}")
+    logger.info(
+        f"[SIGNUP] Registration attempt for user: {log_safe_username(username)}"
+    )
 
     serializer = UserRegistrationSerializer(data=request.data)
 
@@ -134,7 +136,7 @@ def register(request: Request) -> Response:
                 return response
 
         except Exception as e:
-            logger.error(f"Registration failed: {str(e)}")
+            logger.error(f"[SIGNUP] Registration failed: {str(e)}")
             return create_error_response(
                 "REGISTRATION_FAILED",
                 "Registration failed",
@@ -146,7 +148,7 @@ def register(request: Request) -> Response:
     error_fields = list(serializer.errors.keys()) if serializer.errors else []
     username = request.data.get("username", "unknown")
     logger.warning(
-        f"Registration validation failed for user: {log_safe_username(username)}, fields: {error_fields}"
+        f"[SIGNUP] Registration validation failed for user: {log_safe_username(username)}, fields: {error_fields}"
     )
     return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
@@ -330,7 +332,7 @@ def logout(request: Request) -> Response:
 
         return response
     except Exception as e:
-        logger.error(f"Logout failed: {str(e)}")
+        logger.error(f"[AUTH] Logout failed: {str(e)}")
         # Still clear cookies even if blacklisting fails
         response = Response({"message": "Logout successful"}, status=status.HTTP_200_OK)
         response = clear_jwt_cookies(response)
@@ -407,7 +409,7 @@ def token_refresh(request: Request) -> Response:
         response = set_jwt_cookies(response, user)
         return response
     except User.DoesNotExist:
-        logger.error("User not found for token refresh")
+        logger.error("[AUTH] User not found for token refresh")
         return create_error_response(
             "INVALID_REFRESH_TOKEN",
             "Invalid refresh token",
@@ -415,7 +417,7 @@ def token_refresh(request: Request) -> Response:
             status.HTTP_401_UNAUTHORIZED,
         )
     except Exception as e:
-        logger.error(f"Token refresh failed: {str(e)}")
+        logger.error(f"[AUTH] Token refresh failed: {str(e)}")
         return create_error_response(
             "TOKEN_REFRESH_FAILED",
             "Invalid refresh token",
@@ -766,7 +768,7 @@ def subscribe_push_notifications(request: Request) -> Response:
 
     except Exception as e:
         logger.error(
-            f"Push subscription failed for {log_safe_user_context(request.user)}: {e}"
+            f"[PUSH] Push subscription failed for {log_safe_user_context(request.user)}: {e}"
         )
         return Response(
             {"error": "Failed to subscribe to push notifications"},
@@ -929,7 +931,7 @@ def care_reminders(request: Request) -> Response:
             )
         except Exception as e:
             logger.error(
-                f"Failed to create care reminder for {log_safe_user_context(request.user)}: {e}"
+                f"[REMINDER] Failed to create care reminder for {log_safe_user_context(request.user)}: {e}"
             )
             return Response(
                 {"error": "Failed to create care reminder"},
@@ -1332,7 +1334,9 @@ def create_demo_data(request: Request) -> Response:
             )
 
     except Exception as e:
-        logger.error(f"Error creating demo data for user {request.user.id}: {str(e)}")
+        logger.error(
+            f"[DEMO] Error creating demo data for user {request.user.id}: {str(e)}"
+        )
         return Response(
             {"error": "Failed to create demo data. Please try again."},
             status=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -1368,7 +1372,7 @@ def track_onboarding_event(request: Request) -> Response:
         return Response({"message": "Event tracked successfully"})
 
     except Exception as e:
-        logger.error(f"Error tracking onboarding event: {str(e)}")
+        logger.error(f"[ONBOARDING] Error tracking onboarding event: {str(e)}")
         return Response(
             {"error": "Failed to track event"},
             status=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -1397,7 +1401,9 @@ def delete_demo_data(request: Request) -> Response:
             )
 
     except Exception as e:
-        logger.error(f"Error deleting demo data for user {request.user.id}: {str(e)}")
+        logger.error(
+            f"[DEMO] Error deleting demo data for user {request.user.id}: {str(e)}"
+        )
         return Response(
             {"error": "Failed to delete demo data"},
             status=status.HTTP_500_INTERNAL_SERVER_ERROR,

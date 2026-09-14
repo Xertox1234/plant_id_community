@@ -1062,7 +1062,10 @@ git filter-branch --force --index-filter \
 ```python
 # ❌ DANGER - Hardcoded secret in code
 SECRET_KEY = 'django-insecure-hardcoded-key-123'
-PLANT_ID_API_KEY = 'W3YvEk2rx8g7Ko3fa8hKrlPJVqQeT2muIfikhKqvSBnaIUkXd4'
+# (the real literal that used to sit here was redacted 2026-09-13 — it was
+#  verified dead first: Plant.id /usage_info returns HTTP 401 "not active".
+#  See todo 390 and SECURITY_INCIDENT_2025_10_23_API_KEYS.md.)
+PLANT_ID_API_KEY = 'REVOKED_KEY_REDACTED_see_todo_390'
 ```
 
 **Solution**:
@@ -1087,7 +1090,7 @@ PLANT_ID_API_KEY = config('PLANT_ID_API_KEY')
 
 Set up your environment:
 \`\`\`bash
-export PLANT_ID_API_KEY=W3YvEk2rx8g7Ko3fa8hKrlPJVqQeT2muIfikhKqvSBnaIUkXd4
+export PLANT_ID_API_KEY=REVOKED_KEY_REDACTED_see_todo_390
 export SECRET_KEY=django-insecure-real-production-key-abc123
 \`\`\`
 ```

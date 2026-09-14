@@ -5,6 +5,12 @@
 **Status:** Patterns extracted and codified for automated detection
 **Related:** `SECURITY_INCIDENT_2025_10_23_API_KEYS.md`, `KEY_ROTATION_INSTRUCTIONS.md`
 
+> **Redacted 2026-09-13.** The three exposed key literals this document quoted
+> were replaced with `REVOKED_KEY_REDACTED_see_todo_390` after the Plant.id key
+> was verified dead (HTTP 401 "not active" from `/api/v3/usage_info`). The
+> *shapes* — 50-char alphanumeric for Plant.id, 24 for PlantNet — are kept,
+> because the detection rules are the point of this document. See todo 390.
+
 ## Executive Summary
 
 This document codifies security patterns, anti-patterns, and detection rules learned from a critical security incident where API keys and secrets were inadvertently committed to the public GitHub repository. These patterns have been integrated into the `code-review-specialist` agent to prevent similar incidents in the future.
@@ -35,10 +41,10 @@ This document codifies security patterns, anti-patterns, and detection rules lea
 
 ```bash
 # Plant.id API Key (50 character alphanumeric)
-PLANT_ID_API_KEY=W3YvEk2rx8g7Ko3fa8hKrlPJVqQeT2muIfikhKqvSBnaIUkXd4
+PLANT_ID_API_KEY=REVOKED_KEY_REDACTED_see_todo_390
 
 # PlantNet API Key (24 character alphanumeric)
-PLANTNET_API_KEY=2b10XCJNMzrPYiojVsddjK0n
+PLANTNET_API_KEY=ROTATED_KEY_REDACTED_see_todo_390
 ```
 
 **Risk Level:** CRITICAL
@@ -178,7 +184,7 @@ GITHUB_CLIENT_SECRET=your-github-client-secret
 
 Set up your environment:
 ```bash
-export PLANT_ID_API_KEY=W3YvEk2rx8g7Ko3fa8hKrlPJVqQeT2muIfikhKqvSBnaIUkXd4
+export PLANT_ID_API_KEY=REVOKED_KEY_REDACTED_see_todo_390
 export SECRET_KEY=django-insecure-dev-key-change-in-production-2024
 ```
 
@@ -272,7 +278,7 @@ config.local.*
 
 ```bash
 # .env.example (WRONG - contains real key!)
-PLANT_ID_API_KEY=W3YvEk2rx8g7Ko3fa8hKrlPJVqQeT2muIfikhKqvSBnaIUkXd4
+PLANT_ID_API_KEY=REVOKED_KEY_REDACTED_see_todo_390
 ```
 
 **Why it's dangerous:**

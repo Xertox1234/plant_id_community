@@ -2,7 +2,17 @@
 
 **Date:** 2025-10-23
 **Severity:** CRITICAL (CVSS 7.5)
-**Status:** ✅ RESOLVED (Verified 2025-10-27)
+**Status:** ✅ RESOLVED (Plant.id half first actually verified 2026-09-13 — see below)
+
+> **Plant.id key verified dead, 2026-09-13.** The exposed literal now returns
+> `HTTP 401 — "The specified api key is not active"` from Plant.id's
+> `/api/v3/usage_info`. That is the first recorded *test* of this key: the
+> 2025-10-27 "verified" claim above carried no evidence for Plant.id, which is
+> what todo 390 was filed about. The literal has been redacted from all 7
+> tracked files that held it (14 occurrences). It remains in git history across
+> 5 commits — which is exactly why revocation, not deletion, was the fix.
+> A replacement key is live on Railway (`plant_id_community`,
+> `forum-prune-cron`) and in local `backend/.env`.
 **Issue:** [#1 - Rotate exposed API keys and remove from git history](https://github.com/Xertox1234/plant_id_community/issues/1)
 
 ## Summary
@@ -12,18 +22,27 @@ API keys for Plant.id and PlantNet services were inadvertently committed to the 
 ## Exposed Credentials
 
 ### Plant.id API Key
-- **Key:** `W3YvEk2rx8g7Ko3fa8hKrlPJVqQeT2muIfikhKqvSBnaIUkXd4`
+- **Key:** `REVOKED_KEY_REDACTED_see_todo_390`
 - **Service:** Plant.id (Kindwise) - Primary plant identification service
 - **Limit:** 100 identifications/month (free tier)
 - **First Exposure:** Initial commit `e43a7e1` (2025-10-XX)
 - **Files:** `CLAUDE.md`, various documentation files
 
 ### PlantNet API Key
-- **Key:** `2b10XCJNMzrPYiojVsddjK0n`
+- **Key:** `ROTATED_KEY_REDACTED_see_todo_390`
 - **Service:** PlantNet - Supplemental plant identification
 - **Limit:** 500 requests/day (free tier)
 - **First Exposure:** Initial commit `e43a7e1` (2025-10-XX)
 - **Files:** `CLAUDE.md`, various documentation files
+
+> **PlantNet key redacted 2026-09-13; evidence is a length mismatch, not a
+> probe.** The literal documented here was 24 characters; the value live on
+> Railway is 26. Different length means a different key, so this one was
+> rotated at some earlier point. That is weaker evidence than the Plant.id
+> HTTP 401 above — it was not tested against PlantNet's API, which is a
+> separate service with its own endpoint — but it is decisive enough: the
+> string in this file is not the key in use. Redacted so the next reader does
+> not have to re-derive that. See todo 390.
 
 ### Django SECRET_KEY
 - **Key:** `django-insecure-dev-key-change-in-production-2024`
@@ -37,7 +56,7 @@ API keys for Plant.id and PlantNet services were inadvertently committed to the 
 
 ## Git History Analysis
 
-### Commits Containing Plant.id Key (`W3YvEk2rx8g7Ko3fa8hKrlPJVqQeT2muIfikhKqvSBnaIUkXd4`)
+### Commits Containing Plant.id Key (`REVOKED_KEY_REDACTED_see_todo_390`)
 
 1. **e43a7e1** - Initial commit - Plant ID Community multi-platform project
    - `CLAUDE.md`
@@ -62,7 +81,7 @@ API keys for Plant.id and PlantNet services were inadvertently committed to the 
    - `backend/github-issues/001-security-rotate-exposed-api-keys.md`
    - `backend/todos/001-pending-p1-rotate-exposed-api-keys.md`
 
-### Commits Containing PlantNet Key (`2b10XCJNMzrPYiojVsddjK0n`)
+### Commits Containing PlantNet Key (`ROTATED_KEY_REDACTED_see_todo_390`)
 
 Same commit history as Plant.id key (both keys were committed together).
 
@@ -165,8 +184,8 @@ cd plant_id_community
 git filter-repo --path CLAUDE.md --invert-paths --force
 
 # Option 2: Replace API keys with placeholders (safer)
-git filter-repo --replace-text <(echo 'W3YvEk2rx8g7Ko3fa8hKrlPJVqQeT2muIfikhKqvSBnaIUkXd4==>YOUR_PLANT_ID_API_KEY_HERE')
-git filter-repo --replace-text <(echo '2b10XCJNMzrPYiojVsddjK0n==>YOUR_PLANTNET_API_KEY_HERE')
+git filter-repo --replace-text <(echo 'REVOKED_KEY_REDACTED_see_todo_390==>YOUR_PLANT_ID_API_KEY_HERE')
+git filter-repo --replace-text <(echo 'ROTATED_KEY_REDACTED_see_todo_390==>YOUR_PLANTNET_API_KEY_HERE')
 
 # Force push (coordinate with team first!)
 git push origin --force --all
@@ -250,8 +269,8 @@ All exposed API keys have been successfully rotated and are no longer in use. Th
 
 **Verification Method**: String comparison against `backend/.env`
 
-**Result**: 
-- Exposed key `W3YvEk2rx8g7Ko3fa8hKrlPJVqQeT2muIfikhKqvSBnaIUkXd4` NOT found in current environment
+**Result**:
+- Exposed key `REVOKED_KEY_REDACTED_see_todo_390` NOT found in current environment
 - New API key present and configured
 - Service connectivity confirmed
 
@@ -262,7 +281,7 @@ All exposed API keys have been successfully rotated and are no longer in use. Th
 **Verification Method**: String comparison against `backend/.env`
 
 **Result**:
-- Exposed key `2b10XCJNMzrPYiojVsddjK0n` NOT found in current environment  
+- Exposed key `ROTATED_KEY_REDACTED_see_todo_390` NOT found in current environment  
 - New API key present and configured
 - Service connectivity confirmed
 
@@ -344,4 +363,3 @@ All exposed API keys have been successfully rotated and are no longer in use. Th
 **Closure Summary**: All 4 exposed credentials have been rotated successfully. The security incident is now considered resolved. Git history was not cleaned to preserve audit trail and demonstrate incident response capabilities. Prevention measures are documented for future implementation.
 
 **Related Issue**: [#17 - Verify API key rotation completed](https://github.com/Xertox1234/plant_id_community/issues/17)
-

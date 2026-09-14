@@ -33,7 +33,7 @@ TARGET_COLD_LIST_RESPONSE_MS = 500  # Target response time for uncached list (ms
 TARGET_COLD_DETAIL_RESPONSE_MS = 300  # Target response time for uncached detail (ms)
 
 # ============================================================================
-# Phase 6.2: Analytics Integration Constants (BLOCKER 3 fix)
+# Phase 6.2: Analytics Integration Constants
 # ============================================================================
 
 # View tracking constants

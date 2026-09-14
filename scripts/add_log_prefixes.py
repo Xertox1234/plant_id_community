@@ -16,8 +16,9 @@ WHY A TABLE AND NOT INFERENCE. The prefix names the CONCERN, not the module --
 `plant_id_service.py` alone emits `[LOCK]`, `[CACHE]` and `[QUOTA]` -- which is
 also why the logging `Filter` approach was rejected. Concern is not derivable
 from a path, so it is stated here per file and reviewed as a table. A file whose
-calls span several concerns should be split into per-line entries or done by
-hand rather than forced under one token.
+calls span several concerns takes a `{message snippet: token}` entry instead of
+a single token, rather than being forced under one -- `blog/api_views.py`
+caches, looks plant data up and generates AI copy in one module.
 
 Idempotent: a call the checker already considers prefixed is skipped, so a second
 run is a no-op.
@@ -41,7 +42,7 @@ REPO = pathlib.Path(__file__).resolve().parents[1]
 # prints and the counts the acceptance criteria use cannot disagree.
 LEVELS = {"debug", "info", "warning", "warn", "error", "exception", "critical"}
 RECEIVERS = {"logger", "log", "_logger"}
-PREFIX_RE = re.compile(r"^\s*\[[A-Z0-9_-]+\]")
+PREFIX_RE = re.compile(r"^\s*\[[A-Z0-9_ -]+\]")
 PREFIX_CONST_RE = re.compile(r"^LOG_PREFIX_[A-Z0-9_]+$")
 LEADING_FMT_RE = re.compile(r"^\s*%s")
 
@@ -67,6 +68,186 @@ PREFIXES = {
     "backend/apps/core/services/template_service.py": "[EMAIL]",
     # File-upload and input validation outcomes.
     "backend/apps/core/validators.py": "[VALIDATION]",
+    # --- blog -----------------------------------------------------------
+    # Three concerns in one module: the plant-lookup cache, the lookup itself,
+    # and Wagtail AI content generation.
+    "backend/apps/blog/api_views.py": {
+        "Returning cached result": "[CACHE]",
+        "Cached result for query": "[CACHE]",
+        "Error in plant lookup": "[PLANT_DATA]",
+        "Error getting plant suggestions": "[PLANT_DATA]",
+        "Error getting plant data stats": "[PLANT_DATA]",
+        "Wagtail AI generation error": "[AI]",
+        "Error in AI content generation": "[AI]",
+    },
+    # Backfills image blocks on existing posts; `[PLANT_IMAGE]` is already the
+    # token for this concern elsewhere in the repo.
+    "backend/apps/blog/management/commands/populate_plant_images.py": "[PLANT_IMAGE]",
+    # Every call is the plant-data lookup pipeline -- local DB, fuzzy match,
+    # user history, external providers -- so one token fits the whole file.
+    # `[PLANT_DATA]` is new, named for the concern rather than for Trefle or
+    # PlantNet, which are two interchangeable backends behind it.
+    "backend/apps/blog/services/plant_data_lookup_service.py": "[PLANT_DATA]",
+    # --- users ----------------------------------------------------------
+    # Sets and clears the JWT cookie pair.
+    "backend/apps/users/authentication.py": "[AUTH]",
+    # Every call is an email-preference change or its failure.
+    "backend/apps/users/email_preferences_views.py": "[EMAIL]",
+    # allauth adapters: link a social account, or create a user from one.
+    "backend/apps/users/oauth_adapters.py": "[AUTH]",
+    # The whole OAuth login/callback/token-exchange path, one concern.
+    "backend/apps/users/oauth_views.py": "[AUTH]",
+    # Three concerns: Web Push delivery, care reminders, demo data. `[PUSH]`
+    # is new and deliberately not `[FCM]` -- this is pywebpush/VAPID, a
+    # different transport from the Firebase messaging `[FCM]` already marks.
+    "backend/apps/users/services.py": {
+        "pywebpush library not available": "[PUSH]",
+        "VAPID_PRIVATE_KEY not configured": "[PUSH]",
+        "Push notification sent successfully": "[PUSH]",
+        "WebPush error for": "[PUSH]",
+        "Deactivated push subscription": "[PUSH]",
+        "Unexpected error sending push notification": "[PUSH]",
+        "No active push subscriptions": "[PUSH]",
+        # One key for three calls -- "Push subscription " is the entire leading
+        # chunk of the created/updated message and a prefix of the other two,
+        # so a key per call would match two keys on those two. They share a
+        # token, so one broader key is both correct and less to keep in sync.
+        "Push subscription ": "[PUSH]",
+        "Care reminder push disabled": "[REMINDER]",
+        "Care reminder sent to": "[REMINDER]",
+        "Care reminder email sent to": "[REMINDER]",
+        "Error sending care reminder email": "[REMINDER]",
+        "Care reminder created for": "[REMINDER]",
+        "Error sending reminder ": "[REMINDER]",
+        "Processed ": "[REMINDER]",
+        "Created demo data for user": "[DEMO]",
+        "Cleaned up demo data for user": "[DEMO]",
+    },
+    # Welcome email, onboarding record, signup bookkeeping.
+    "backend/apps/users/signals.py": {
+        "Welcome email sent to": "[EMAIL]",
+        "Failed to send welcome email": "[EMAIL]",
+        "Error sending welcome email": "[EMAIL]",
+        "Created onboarding progress": "[ONBOARDING]",
+        "New user signed up": "[SIGNUP]",
+        "Error handling user signup": "[SIGNUP]",
+    },
+    # The widest file: registration, session, push, reminders, demo data and
+    # onboarding all log from here.
+    "backend/apps/users/views.py": {
+        "Registration attempt for user": "[SIGNUP]",
+        "Registration failed": "[SIGNUP]",
+        "Registration validation failed": "[SIGNUP]",
+        "Logout failed": "[AUTH]",
+        "User not found for token refresh": "[AUTH]",
+        "Token refresh failed": "[AUTH]",
+        "Push subscription failed": "[PUSH]",
+        "Failed to create care reminder": "[REMINDER]",
+        "Error creating demo data": "[DEMO]",
+        "Error tracking onboarding event": "[ONBOARDING]",
+        "Error deleting demo data": "[DEMO]",
+    },
+    # --- plant_identification -------------------------------------------
+    # The rule for this app: a module wrapping ONE external API takes that
+    # API's token; a module that orchestrates several takes the concern's.
+    # Cross-cutting lines keep their own token where the concern really is
+    # the cache, the rate limiter or the spend cap rather than the provider.
+    "backend/apps/plant_identification/api/simple_views.py": {
+        "Processing plant identification request": "[IDENTIFY]",
+        "Identification successful": "[IDENTIFY]",
+        "Plant identification error": "[IDENTIFY]",
+        "Health check failed": "[HEALTH]",
+    },
+    "backend/apps/plant_identification/services/ai_care_service.py": "[AI]",
+    "backend/apps/plant_identification/services/ai_image_service.py": {
+        "OpenAI API key not configured": "[AI]",
+        "Failed to initialize OpenAI client": "[AI]",
+        "OpenAI client not available": "[AI]",
+        "Generating AI image for": "[AI]",
+        "Successfully generated AI image for": "[AI]",
+        "Failed to generate AI image for": "[AI]",
+        "Could not add tags to AI image": "[AI]",
+        "Created Wagtail image from AI generation": "[AI]",
+        "Failed to download/create Wagtail image from AI": "[AI]",
+        "Failed to download generated AI image for": "[AI]",
+        # Spend, not generation -- [QUOTA] is how budget lines are grepped.
+        "AI image cost tracked": "[QUOTA]",
+        "Daily AI image cost limit exceeded": "[QUOTA]",
+        "Using cached AI-generated image for": "[CACHE]",
+    },
+    # Orchestrates both identification providers; [PLANT_ID] is reserved for
+    # the Plant.id provider itself, so the pipeline gets its own token.
+    "backend/apps/plant_identification/services/combined_identification_service.py": "[IDENTIFY]",
+    "backend/apps/plant_identification/services/identification_service.py": "[IDENTIFY]",
+    "backend/apps/plant_identification/services/disease_diagnosis_service.py": "[DIAGNOSIS]",
+    "backend/apps/plant_identification/services/monitoring_service.py": "[PERF]",
+    "backend/apps/plant_identification/services/pexels_service.py": "[PEXELS]",
+    "backend/apps/plant_identification/services/unsplash_service.py": "[UNSPLASH]",
+    "backend/apps/plant_identification/services/plant_care_reminder_service.py": "[REMINDER]",
+    "backend/apps/plant_identification/services/plant_health_service.py": "[PLANT_HEALTH]",
+    "backend/apps/plant_identification/services/plantnet_service.py": "[PLANTNET]",
+    # Orchestrates Unsplash, Pexels and AI generation.
+    "backend/apps/plant_identification/services/plant_image_service.py": "[PLANT_IMAGE]",
+    "backend/apps/plant_identification/services/plant_id_service.py": {
+        "Plant.id API key not configured": "[PLANT_ID]",
+        "Plant.id API request timed out": "[PLANT_ID]",
+        "Plant.id API error": "[PLANT_ID]",
+        "Unexpected error in Plant.id identification": "[PLANT_ID]",
+        "Plant.id identification successful": "[PLANT_ID]",
+        "Plant.id doesn't support direct plant name lookup": "[PLANT_ID]",
+        "Retrieved plant details from cache": "[CACHE]",
+    },
+    "backend/apps/plant_identification/services/species_lookup_service.py": {
+        "Trefle API not available": "[SPECIES]",
+        "Found ": "[SPECIES]",
+        "Using local fallback for": "[SPECIES]",
+        "No data found for species": "[SPECIES]",
+        "Error searching local species": "[SPECIES]",
+        "API fetch failed for": "[SPECIES]",
+        "API search failed for": "[SPECIES]",
+        "Monitoring service not available": "[PERF]",
+        "Failed to initialize monitoring": "[PERF]",
+        "Rate limit exceeded during common name search": "[RATE_LIMIT]",
+        "Rate limit exceeded for species lookup": "[RATE_LIMIT]",
+        "Rate limit exceeded during API search": "[RATE_LIMIT]",
+        "Rate limit hit during cache warming": "[RATE_LIMIT]",
+        "Cached species data for": "[CACHE]",
+        "Cannot warm cache": "[CACHE]",
+        "Warmed cache for": "[CACHE]",
+        "Failed to warm cache for": "[CACHE]",
+        "Cache warming completed": "[CACHE]",
+    },
+    "backend/apps/plant_identification/services/trefle_service.py": {
+        "Trefle API rate limit exceeded": "[RATE_LIMIT]",
+        "API call failed": "[TREFLE]",
+        "Final failure after": "[TREFLE]",
+        "Trefle API key not configured": "[TREFLE]",
+        "Trefle API authentication failed": "[TREFLE]",
+        "Trefle API service temporarily unavailable": "[TREFLE]",
+        "Trefle API request timed out after": "[TREFLE]",
+        "Trefle API connection error": "[TREFLE]",
+        "Trefle API request failed": "[TREFLE]",
+        "Monitoring service not available": "[PERF]",
+        "Failed to initialize monitoring": "[PERF]",
+        "Cache hit for Trefle": "[CACHE]",
+        "Cached Trefle": "[CACHE]",
+    },
+    "backend/apps/plant_identification/utils/file_validation.py": "[VALIDATION]",
+    "backend/apps/plant_identification/views.py": {
+        "External plant search failed": "[SPECIES]",
+        "Local plant search failed": "[SPECIES]",
+        "Plant data enrichment failed for": "[SPECIES]",
+        "Plant species search failed for": "[SPECIES]",
+        "Failed to get plant characteristics for species": "[SPECIES]",
+        "Failed to get growth info for species": "[SPECIES]",
+        "Processed disease diagnosis for": "[DIAGNOSIS]",
+        "Failed to process disease diagnosis": "[DIAGNOSIS]",
+        "Manual disease diagnosis processing failed": "[DIAGNOSIS]",
+        "Local disease search failed": "[DIAGNOSIS]",
+        "Error getting care instructions": "[AI]",
+        "Regenerating care instructions for result": "[AI]",
+        "Failed to regenerate care instructions for result": "[AI]",
+    },
 }
 
 
@@ -84,13 +265,18 @@ def logger_level(call: ast.Call):
     return func.attr if name.lower() in RECEIVERS else None
 
 
-def target_literal(call: ast.Call):
-    """The `ast.Constant` to prepend into, or None when out of scope.
+def first_literal(call: ast.Call):
+    """The first argument's leading string literal, PREFIXED OR NOT.
 
-    Returns None for an already-prefixed call, for a first argument that is not
-    a literal, and for an f-string opening with an interpolation -- the last of
-    which may be a `LOG_PREFIX_*` constant (already correct) or an arbitrary
-    value (a real violation this script deliberately will not guess at).
+    Split out from `target_literal` so the per-line table's staleness check can
+    see calls that are already prefixed: on the second run of a completed slice
+    every call is prefixed, and a table key must still resolve against them or
+    idempotence breaks.
+
+    Returns None for a first argument that is not a literal and for an f-string
+    opening with an interpolation -- the last of which may be a `LOG_PREFIX_*`
+    constant (already correct) or an arbitrary value (a real violation this
+    script deliberately will not guess at).
     """
     if not call.args:
         return None
@@ -132,13 +318,37 @@ def target_literal(call: ast.Call):
 
     if node is None:
         return None
-    if PREFIX_RE.match(node.value):
-        return None  # already prefixed -- idempotent
     return node, inside
 
 
-def rewrite(path: pathlib.Path, token: str):
+def target_literal(call: ast.Call):
+    """The literal to prepend into, or None when it is out of scope or done."""
+    found = first_literal(call)
+    if found is None:
+        return None
+    if PREFIX_RE.match(found[0].value):
+        return None  # already prefixed -- idempotent
+    return found
+
+
+def rewrite(path: pathlib.Path, spec):
     """Return (new_source, changed_count). Edits by (line, col) from the AST.
+
+    `spec` is either one token for the whole file or a {message snippet: token}
+    map for a file whose calls span several concerns. Keyed by message and not
+    by line number: black re-wraps the very lines this script lengthens, so a
+    line-keyed table is stale the moment the formatter runs on its own output,
+    and every later edit above a key would break it again for someone who did
+    not touch logging at all. A snippet also reads as a table -- the reviewer
+    sees which message earns which token instead of a bare integer.
+
+    A map is validated BOTH ways: an unprefixed call no key matches (or that
+    two keys match) raises, and a key matching no message in the file raises.
+    Either would otherwise be silent -- a stale key simply prefixes nothing and
+    the file still parses, so only the acceptance criterion would catch it, and
+    only for the file it happened to be run on. A key resolving against an
+    ALREADY-PREFIXED call is neither: that is the second run of a completed
+    slice, and it stays a no-op.
 
     Text is spliced at the literal's own start offset rather than by regex, so a
     multi-line call, an implicitly concatenated literal, and a message that
@@ -150,17 +360,43 @@ def rewrite(path: pathlib.Path, token: str):
     tree = ast.parse(source)
 
     edits = []
+    all_texts = []
     for call in (n for n in ast.walk(tree) if isinstance(n, ast.Call)):
         if not logger_level(call):
             continue
+        # Every logger call's message, prefixed or not: a key resolving against
+        # an ALREADY-PREFIXED call is the idempotent case, not a stale key, and
+        # the staleness check below must tell those two apart.
+        seen = first_literal(call)
+        if seen is not None:
+            all_texts.append(seen[0].value)
         found = target_literal(call)
         if found is None:
             continue
         node, inside = found
-        edits.append((node.lineno, node.col_offset, inside))
+        if isinstance(spec, str):
+            token = spec
+        else:
+            hits = [k for k in spec if k in node.value]
+            if len(hits) != 1:
+                raise RuntimeError(
+                    f"{path}:{call.lineno}: {len(hits)} table keys match "
+                    f"{node.value[:60]!r}; a message-keyed table must match "
+                    f"every unprefixed call in the file exactly once"
+                )
+            token = spec[hits[0]]
+        edits.append((node.lineno, node.col_offset, inside, token))
+
+    if not isinstance(spec, str):
+        stale = sorted(k for k in spec if not any(k in t for t in all_texts))
+        if stale:
+            raise RuntimeError(
+                f"{path}: table key(s) {stale} match no logger message in this "
+                f"file -- the message was reworded or the call was removed"
+            )
 
     applied = 0
-    for lineno, col, inside in sorted(edits, reverse=True):
+    for lineno, col, inside, token in sorted(edits, reverse=True):
         line = lines[lineno - 1]
         if inside:
             i = col  # f-string chunk: already inside the literal
@@ -195,14 +431,15 @@ def main() -> int:
     args = parser.parse_args()
 
     total = 0
-    for rel, token in sorted(PREFIXES.items()):
+    for rel, spec in sorted(PREFIXES.items()):
         path = REPO / rel
         if not path.is_file():
             print(f"MISSING: {rel}", file=sys.stderr)
             return 1
-        new_source, count = rewrite(path, token)
+        new_source, count = rewrite(path, spec)
         total += count
-        print(f"  {count:3d}  {token:<12} {rel}")
+        shown = spec if isinstance(spec, str) else "+".join(sorted(set(spec.values())))
+        print(f"  {count:3d}  {shown:<26} {rel}")
         if args.apply and count:
             # Re-parse before writing. The f-string branch splices at
             # `node.col_offset`, which only points inside the literal since

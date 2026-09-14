@@ -79,7 +79,7 @@ class CustomSocialAccountAdapter(DefaultSocialAccountAdapter):
         # Verified: link the social account to the existing local user.
         sociallogin.connect(request, existing_user)
         logger.info(
-            f"Connected {sociallogin.account.provider} account "
+            f"[AUTH] Connected {sociallogin.account.provider} account "
             f"to existing {log_safe_user_context(existing_user)}"
         )
 
@@ -144,7 +144,7 @@ class CustomSocialAccountAdapter(DefaultSocialAccountAdapter):
 
         user.save()
         logger.info(
-            f"Created new {log_safe_user_context(user)} via {sociallogin.account.provider}"
+            f"[AUTH] Created new {log_safe_user_context(user)} via {sociallogin.account.provider}"
         )
         return user
 

@@ -12,9 +12,8 @@ from apps.core.utils.pii_safe_logging import log_safe_user_context
 from django.contrib import messages
 from django.contrib.auth import get_user_model
 from django.contrib.auth.decorators import login_required
-from django.http import HttpResponse, JsonResponse
-from django.shortcuts import get_object_or_404, redirect, render
-from django.utils import timezone
+from django.http import JsonResponse
+from django.shortcuts import render
 from django.views.decorators.http import require_http_methods
 
 User = get_user_model()
@@ -53,7 +52,9 @@ def email_preferences(request):
             messages.success(
                 request, "✅ Your email preferences have been updated successfully!"
             )
-            logger.info(f"Email preferences updated for {log_safe_user_context(user)}")
+            logger.info(
+                f"[EMAIL] Email preferences updated for {log_safe_user_context(user)}"
+            )
 
         except Exception as e:
             messages.error(
@@ -61,7 +62,7 @@ def email_preferences(request):
                 "❌ There was an error updating your preferences. Please try again.",
             )
             logger.error(
-                f"Error updating email preferences for {log_safe_user_context(user)}: {e}"
+                f"[EMAIL] Error updating email preferences for {log_safe_user_context(user)}: {e}"
             )
 
     # Get current preferences
@@ -142,7 +143,7 @@ def unsubscribe(request):
             user.save()
 
         logger.info(
-            f"{log_safe_user_context(user)} unsubscribed from {email_type} emails"
+            f"[EMAIL] {log_safe_user_context(user)} unsubscribed from {email_type} emails"
         )
 
         return render(
@@ -203,13 +204,13 @@ def ajax_update_preference(request):
             )
 
         logger.info(
-            f"AJAX preference update: {log_safe_user_context(user)} set {preference_name} to {enabled}"
+            f"[EMAIL] AJAX preference update: {log_safe_user_context(user)} set {preference_name} to {enabled}"
         )
 
         return JsonResponse({"success": True})
 
     except Exception as e:
-        logger.error(f"Error in AJAX preference update: {e}")
+        logger.error(f"[EMAIL] Error in AJAX preference update: {e}")
         return JsonResponse(
             {"success": False, "error": "An error occurred while updating preferences"},
             status=500,

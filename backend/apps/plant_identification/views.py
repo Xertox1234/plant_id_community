@@ -111,7 +111,7 @@ class PlantSpeciesViewSet(viewsets.ReadOnlyModelViewSet):
             return Response({"results": results, "source": "trefle", "query": query})
 
         except Exception as e:
-            logger.error(f"External plant search failed: {str(e)}")
+            logger.error(f"[SPECIES] External plant search failed: {str(e)}")
             return Response(
                 {"error": "External search service temporarily unavailable"}, status=503
             )
@@ -441,7 +441,7 @@ def get_care_instructions(request, species_id=None):
         )
 
     except Exception as e:
-        logger.error(f"Error getting care instructions: {str(e)}")
+        logger.error(f"[AI] Error getting care instructions: {str(e)}")
         return Response({"error": "Unable to retrieve care instructions"}, status=500)
 
 
@@ -675,10 +675,10 @@ class PlantDiseaseRequestViewSet(viewsets.ModelViewSet):
             disease_service = PlantDiseaseService()
             results = disease_service.diagnose_disease_from_request(request_obj)
             logger.info(
-                f"Processed disease diagnosis for {request_obj.request_id}, found {len(results)} results"
+                f"[DIAGNOSIS] Processed disease diagnosis for {request_obj.request_id}, found {len(results)} results"
             )
         except Exception as e:
-            logger.error(f"Failed to process disease diagnosis: {str(e)}")
+            logger.error(f"[DIAGNOSIS] Failed to process disease diagnosis: {str(e)}")
             # Set status to failed but don't raise exception - request is still created
             request_obj.status = "failed"
             request_obj.save()
@@ -769,7 +769,9 @@ class PlantDiseaseRequestViewSet(viewsets.ModelViewSet):
         except ValueError:
             return Response({"error": "Invalid request ID format"}, status=400)
         except Exception as e:
-            logger.error(f"Manual disease diagnosis processing failed: {str(e)}")
+            logger.error(
+                f"[DIAGNOSIS] Manual disease diagnosis processing failed: {str(e)}"
+            )
             return Response(
                 {"error": "Processing failed. Please try again."}, status=500
             )
@@ -1218,7 +1220,7 @@ def search_local_plants(request):
         )
 
     except Exception as e:
-        logger.error(f"Local plant search failed: {str(e)}")
+        logger.error(f"[SPECIES] Local plant search failed: {str(e)}")
         return Response({"error": "Search temporarily unavailable"}, status=500)
 
 
@@ -1265,7 +1267,7 @@ def search_local_diseases(request):
         )
 
     except Exception as e:
-        logger.error(f"Local disease search failed: {str(e)}")
+        logger.error(f"[DIAGNOSIS] Local disease search failed: {str(e)}")
         return Response({"error": "Disease search temporarily unavailable"}, status=500)
 
 
@@ -1356,7 +1358,9 @@ def enrich_plant_data(request):
         return Response(enriched_data)
 
     except Exception as e:
-        logger.error(f"Plant data enrichment failed for {scientific_name}: {str(e)}")
+        logger.error(
+            f"[SPECIES] Plant data enrichment failed for {scientific_name}: {str(e)}"
+        )
         return Response({"error": "Failed to enrich plant data"}, status=500)
 
 
@@ -1409,7 +1413,7 @@ def search_plant_species(request):
         )
 
     except Exception as e:
-        logger.error(f"Plant species search failed for '{query}': {str(e)}")
+        logger.error(f"[SPECIES] Plant species search failed for '{query}': {str(e)}")
         return Response({"error": "Species search temporarily unavailable"}, status=500)
 
 
@@ -1478,7 +1482,7 @@ def get_plant_characteristics(request, species_id):
 
     except Exception as e:
         logger.error(
-            f"Failed to get plant characteristics for species {species_id}: {str(e)}"
+            f"[SPECIES] Failed to get plant characteristics for species {species_id}: {str(e)}"
         )
         return Response(
             {"error": "Failed to retrieve plant characteristics"}, status=500
@@ -1559,7 +1563,9 @@ def get_plant_growth_info(request, species_id):
         return Response(growth_info)
 
     except Exception as e:
-        logger.error(f"Failed to get growth info for species {species_id}: {str(e)}")
+        logger.error(
+            f"[SPECIES] Failed to get growth info for species {species_id}: {str(e)}"
+        )
         return Response({"error": "Failed to retrieve growth information"}, status=500)
 
 
@@ -1624,7 +1630,7 @@ def regenerate_care_instructions(request, result_id):
 
         # Generate new care instructions
         logger.info(
-            f"Regenerating care instructions for result {result_id} - {scientific_name}"
+            f"[AI] Regenerating care instructions for result {result_id} - {scientific_name}"
         )
         care_instructions = ai_care_service.generate_care_instructions(
             plant_name=scientific_name,
@@ -1656,6 +1662,6 @@ def regenerate_care_instructions(request, result_id):
 
     except Exception as e:
         logger.error(
-            f"Failed to regenerate care instructions for result {result_id}: {str(e)}"
+            f"[AI] Failed to regenerate care instructions for result {result_id}: {str(e)}"
         )
         return Response({"error": "Failed to regenerate care instructions"}, status=500)

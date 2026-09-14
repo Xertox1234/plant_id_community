@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: p3
 issue_id: "388"
 tags: [code-quality, logging, backend, tech-debt]
@@ -171,18 +171,29 @@ logging config. Delete it as a drive-by in whichever slice touches settings.
 - [x] A `docs/rules/triggers.json` trigger flags an unprefixed `logger.*` call
       in `backend/**/*.py`, and its target path is confirmed to route by running
       it through `scripts/inject/route_domains.py`
-- [ ] `plant_identification`, `users`, `core` and `blog` unprefixed counts all
+- [x] `plant_identification`, `users`, `core` and `blog` unprefixed counts all
       reach 0, verified by
       `python3 scripts/check_log_prefixes.py --app <name> --fail-over 0`
       exiting 0 for each of the four
-      — **`core` DONE** (44 -> 0); `plant_identification` 182, `users` 84,
-      `blog` 22 remain, one slice each
-- [ ] No log message was **reworded** during prefixing (only prefixed) — the 17
+      — `core` 44 -> 0, `blog` 22 -> 0, `users` 63 -> 0,
+      `plant_identification` 180 -> 0. Repo-wide 339/769 -> 7/773 (0.9%)
+- [x] No log message was **reworded** during prefixing (only prefixed) — the 17
       content assertions above still pass
-- [ ] Backend suite green on each slice
+      — and proven directly per slice, not only via the assertions: every
+      `logger.*` message was AST-reconstructed as constant chunks plus
+      `ast.unparse` of each interpolation, before and after, and compared.
+      Across the four slices 309 are the original template with a token
+      prepended and 0 differ any other way. The template form matters because
+      black reflows the lines this sweep lengthens, so a diff-level check stops
+      being readable after the formatter runs
+- [x] Backend suite green on each slice — `core` at the time, then
+      `apps/blog` 273 passed / 7 skipped, `apps/users` 159 passed,
+      `apps/plant_identification` 122 passed; full suite green in CI per PR
 
-Left in place, out of scope: **7 stale fix-attribution markers** of the same
-family survive in `backend/apps/blog/`, verified 2026-09-13:
+**Done 2026-09-13 with the `blog` slice.** The 7 stale fix-attribution markers
+of the same family that survived in `backend/apps/blog/` are cleared;
+`grep -rn 'BLOCKER [0-9]' --include='*.py' backend/apps backend/packages` is
+now empty repo-wide. They were:
 
 | Marker | Location |
 | --- | --- |
@@ -192,7 +203,7 @@ family survive in `backend/apps/blog/`, verified 2026-09-13:
 | `TODO 037` | `blog/tests/test_analytics.py:487` |
 
 Todo 361 deliberately scoped itself to `TODO 040` (its AC), so these were not
-swept. Clear them as a drive-by in whichever slice touches `blog`.
+swept; the `blog` slice took them as the drive-by this note asked for.
 
 ## Notes
 
@@ -399,3 +410,150 @@ trusting a slice's count.
   checker swallows `SyntaxError`, so a mangled file leaves both numerator and
   denominator and the count goes DOWN. Fixed in #749: it now re-parses before
   writing and refuses. Run the remaining slices on 3.12+.
+
+### 2026-09-13 - The `blog` slice
+
+`blog` 22 -> 0: `check_log_prefixes.py --app blog --fail-over 0` exits 0.
+Two apps remain, `plant_identification` (180) and `users` (84).
+
+**The table now keys on message text, not line number.** `blog/api_views.py`
+is the first file whose calls span several concerns -- it caches plant lookups,
+performs them, and generates AI copy -- so it needed the per-call entries the
+script's docstring had always described but never implemented. Keyed on line
+number first. That version worked, passed eight controls, and was stale ten
+minutes later: **black re-wraps the very lines this script lengthens**, so
+applying the sweep moved 3 of its 7 keys and `--check` then refused to run at
+all. A line-keyed table is broken by its own formatter, and after that by any
+edit above a key made by someone not touching logging. Message keys survive
+both, and read as a table -- which message earns which token, rather than a
+bare integer.
+
+**A guard that broke the property it was protecting.** The first staleness
+check compared the table against the lines it had just *edited*, so a second
+run -- every call already prefixed, nothing to edit -- reported all 7 keys
+stale and crashed, silently ending the script's documented idempotence. Found
+by re-running `--check` after `--apply`, not by any control: the control suite
+had only ever exercised idempotence on the whole-file path, which is exactly
+why the gap existed. `target_literal` is now split into `first_literal`
+(prefixed or not) plus the prefix test, so the check can see calls with nothing
+left to do. Both gaps are now controls.
+
+**No rewording, proven twice.** Before black: all 22 diff pairs were pure
+prefix insertions. After black reflowed 9 of the now-longer lines: every
+`logger.*` message in the three files was AST-extracted at `main` and at HEAD
+and compared -- 22 are the original string with a token prepended, 0 differ any
+other way. That is the stronger check, since it reads through the reflow. No
+test asserts any of these 22 messages.
+
+`[PLANT_DATA]` is new, named for the concern rather than for Trefle or
+PlantNet, which are two interchangeable backends behind it.
+
+8 pre-existing unused imports blocked the commits (6 in the three swept files,
+2 more in `middleware.py` once the marker cleanup touched it) -- pre-commit
+lints whole staged files, the same reason `core` needed its own lint commit for
+18. All 8 verified identical on `main` first.
+
+Backend `apps/blog`: **273 passed, 7 skipped**.
+
+Counts drift from this todo's 2026-09-13 baseline (339/769 then, 271/773 after
+this slice) because `core` and `blog` have since been swept. The acceptance
+criterion is a command rather than a number, so it is drift-proof.
+
+### 2026-09-13 - The `users` slice
+
+`users` 63 -> 0. Repo-wide 250 -> 187 of 773, measured against a `git archive`
+snapshot of merged main rather than by subtraction -- the first arithmetic I
+tried was wrong by exactly 21 because the widening below had already left the
+count before this slice touched anything. `plant_identification` (180) is all
+that remains.
+
+**A fourth checker blind spot, found before applying: a token may contain a
+space.** `users` read as 84 unprefixed; 21 of those were already prefixed with
+`[FIREBASE AUTH]` / `[FIREBASE AUTH ERROR]`, the only space-tokens in the repo.
+Every pattern here allowed `[A-Z0-9_-]`. Sweeping first would have written
+`[AUTH] [FIREBASE AUTH] No firebase_token in request` 21 times in the auth
+path -- the same double-prefix the %-format shape would have produced in
+`core`, caught the same way, by reading the call sites rather than re-running a
+counter. Both counters agreed on 84. Fixed in all three places that encode the
+pattern (PR #757); the trigger had the same gap and was firing on all 21
+correct lines, which is the failure todo 391 was filed about.
+
+**One call cannot be swept mechanically and was done by hand.**
+`email_preferences_views.py`'s unsubscribe log opens with an interpolation, so
+there is no leading literal to splice into. It is the only such call in the
+repo, so it was prefixed by hand rather than growing a fifth shape in the
+script for a single site.
+
+**A per-call key is not always possible.** `"Push subscription "` is the entire
+leading chunk of one message and a prefix of two others, so one key per call
+matched two keys on two of them. Keys cover GROUPS that share a token, not
+calls -- one broader key is correct and is less to keep in sync.
+
+New tokens, named for the concern: `[PUSH]` (deliberately not `[FCM]` --
+pywebpush/VAPID is a different transport from Firebase messaging), `[DEMO]`,
+`[ONBOARDING]`. Reused: `[AUTH]`, `[EMAIL]`, `[REMINDER]`, `[SIGNUP]`.
+
+**The auth-sensitivity check that actually mattered** was not the prefix
+mechanics -- those are proven -- but whether any of these lines is read by
+something outside Python: an alert, a dashboard query, a runbook. Nothing is.
+The three grep hits are the web and mobile clients logging their own
+identically-worded strings. Nothing asserts on them either (all 62 messages
+checked against 1425 test files). Done by hand throughout; no delegation.
+
+14 pre-existing flake8 violations blocked the commits and were cleared first,
+all verified identical on `main`: 6 unused imports, 1 unused local, and 6 lines
+already over 120 that black cannot split because they are long string
+literals. Wrapping those as implicit concatenation preserves every value, which
+was proven by AST-reconstructing each f-string into a normalised template
+before and after rather than by reading the diff.
+
+Backend `apps/users`: **159 passed**.
+
+### 2026-09-13 - The `plant_identification` slice, and the todo closes
+
+180 -> 0, the last of the four apps. Repo-wide **339 of 769 -> 7 of 773**.
+
+**Done as one PR, not the three slices this todo suggested.** That split was
+proposed during scoping, when the tooling was weaker. The review surface turned
+out to be the token table, not the 180 call sites: 18 files, 13 taking a single
+token, with the diff mechanically proven prefix-only. Splitting would have
+tripled the CI wait without giving a reviewer another decision to make.
+
+**The token rule, now stated in the table itself.** A module wrapping ONE
+external API takes that API's token (`[TREFLE]`, `[PLANTNET]`, `[PLANT_ID]`,
+`[PLANT_HEALTH]`, new `[PEXELS]` / `[UNSPLASH]`); a module orchestrating
+several takes the concern's (`[IDENTIFY]`, `[DIAGNOSIS]`, `[PLANT_IMAGE]`, new
+`[SPECIES]`); and a line whose real subsystem is the cache, the rate limiter or
+the spend cap keeps `[CACHE]` / `[RATE_LIMIT]` / `[QUOTA]` even inside a
+provider module. `[IDENTIFY]` is new rather than reusing `[PLANT_ID]` because
+Plant.id is the name of one of the two providers -- marking the pipeline that
+fans out to both with one provider's token would be actively misleading.
+
+**Two E501s sat inside a 7692-character LLM prompt.** `ai_care_service.py`'s
+care-instruction prompt is one triple-quoted f-string whose long lines start at
+column 1, so wrapping them would have inserted newlines into what is sent to
+the model. A backslash continuation inside the literal is consumed by Python,
+so the source line shortens and the value does not change -- verified by
+extracting the prompt from both trees and comparing: byte-identical. This is
+the case where "just reflow it" would have silently altered behaviour.
+
+**A pre-existing F821 was a forward reference, not a NameError.**
+`species_lookup_service.py` annotates `Optional["APIMonitoringService"]` while
+importing the class lazily inside the method to dodge a circular import, so the
+name resolved for nobody reading the annotation. Fixed with a `TYPE_CHECKING`
+guard: defined for flake8 and type checkers, still no runtime import.
+
+### What is left, and why it is not this todo
+
+7 calls remain repo-wide, all outside the four apps this todo scopes:
+`forum_host/notifications.py` (3) and `garden_calendar/signals.py` (4). Three
+of those are `%`-style forum event logs whose right token is a forum decision,
+not a mechanical one. **Filed as todo 392** (p4) with the call sites, the
+competing `forum.<event>` convention already in that file, and the reason
+`tasks.py:71` cannot simply be prefixed -- it re-emits another command's
+captured stdout, so a token there labels output this module did not write.
+
+62 pre-existing flake8 violations were cleared across the four slices --
+`core` 18, `blog` 8, `users` 14, `plant_identification` 22 -- purely because
+pre-commit lints whole staged files. Every one was verified identical on `main`
+before being touched.

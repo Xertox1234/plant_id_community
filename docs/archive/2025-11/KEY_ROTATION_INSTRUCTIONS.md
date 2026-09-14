@@ -14,7 +14,7 @@ This PR removes exposed API keys from the repository, but you **MUST** rotate th
 1. Visit <https://web.plant.id/account> (or <https://my.kindwise.com/>)
 2. Log in to your account
 3. Navigate to: **API Keys** or **Developer Settings**
-4. **Revoke the old key:** `W3YvEk2rx8g7Ko3fa8hKrlPJVqQeT2muIfikhKqvSBnaIUkXd4`
+4. **Revoke the old key:** `REVOKED_KEY_REDACTED_see_todo_390`
 5. **Generate new key** (copy immediately - shown only once)
 6. Update your environment variables (see step 5 below)
 
@@ -23,7 +23,7 @@ This PR removes exposed API keys from the repository, but you **MUST** rotate th
 1. Visit <https://my.plantnet.org/>
 2. Log in to your account
 3. Navigate to: **API Keys** or **Account Settings**
-4. **Revoke the old key:** `2b10XCJNMzrPYiojVsddjK0n`
+4. **Revoke the old key:** `ROTATED_KEY_REDACTED_see_todo_390`
 5. **Generate new key** (copy immediately)
 6. Update your environment variables (see step 5 below)
 
