@@ -77,7 +77,7 @@ class PlantCareReminderService:
         )
 
         logger.info(
-            f"Created care reminder for {log_safe_user_context(user)}: {care_type} for {reminder.plant_name}"
+            f"[REMINDER] Created care reminder for {log_safe_user_context(user)}: {care_type} for {reminder.plant_name}"
         )
         return reminder
 
@@ -117,7 +117,7 @@ class PlantCareReminderService:
         )
 
         logger.info(
-            f"Created custom care reminder for {log_safe_user_context(user)}: {care_type} for {plant_name}"
+            f"[REMINDER] Created custom care reminder for {log_safe_user_context(user)}: {care_type} for {plant_name}"
         )
         return reminder
 
@@ -165,17 +165,17 @@ class PlantCareReminderService:
                 # Mark reminder as sent and calculate next date
                 reminder.mark_reminder_sent()
                 logger.info(
-                    f"Sent care reminder to {log_safe_user_context(reminder.user)} for {reminder.plant_name}"
+                    f"[REMINDER] Sent care reminder to {log_safe_user_context(reminder.user)} for {reminder.plant_name}"
                 )
             else:
                 logger.warning(
-                    f"Failed to send care reminder to {log_safe_user_context(reminder.user)}"
+                    f"[REMINDER] Failed to send care reminder to {log_safe_user_context(reminder.user)}"
                 )
 
             return success
 
         except Exception as e:
-            logger.error(f"Error sending care reminder {reminder.id}: {e}")
+            logger.error(f"[REMINDER] Error sending care reminder {reminder.id}: {e}")
             return False
 
     def send_due_reminders(self) -> Dict[str, int]:
@@ -195,7 +195,7 @@ class PlantCareReminderService:
                 results["failed"] += 1
 
         logger.info(
-            f"Reminder batch complete: {results['sent']} sent, {results['failed']} failed"
+            f"[REMINDER] Reminder batch complete: {results['sent']} sent, {results['failed']} failed"
         )
         return results
 
@@ -240,12 +240,12 @@ class PlantCareReminderService:
             reminder.save(update_fields=["frequency", "next_reminder_date"])
 
             logger.info(
-                f"Updated reminder frequency for {reminder.plant_name} to {new_frequency}"
+                f"[REMINDER] Updated reminder frequency for {reminder.plant_name} to {new_frequency}"
             )
             return True
 
         except Exception as e:
-            logger.error(f"Failed to update reminder frequency: {e}")
+            logger.error(f"[REMINDER] Failed to update reminder frequency: {e}")
             return False
 
     def disable_reminder(self, reminder: PlantCareReminder) -> bool:
@@ -262,11 +262,11 @@ class PlantCareReminderService:
             reminder.is_active = False
             reminder.save(update_fields=["is_active"])
 
-            logger.info(f"Disabled reminder for {reminder.plant_name}")
+            logger.info(f"[REMINDER] Disabled reminder for {reminder.plant_name}")
             return True
 
         except Exception as e:
-            logger.error(f"Failed to disable reminder: {e}")
+            logger.error(f"[REMINDER] Failed to disable reminder: {e}")
             return False
 
     def _calculate_next_reminder_date(self, frequency: str) -> datetime:
@@ -433,9 +433,9 @@ class PlantCareReminderService:
                 )
                 reminders.append(reminder)
             except Exception as e:
-                logger.error(f"Failed to create {care_type} reminder: {e}")
+                logger.error(f"[REMINDER] Failed to create {care_type} reminder: {e}")
 
         logger.info(
-            f"Created {len(reminders)} reminders for {log_safe_user_context(user)}"
+            f"[REMINDER] Created {len(reminders)} reminders for {log_safe_user_context(user)}"
         )
         return reminders

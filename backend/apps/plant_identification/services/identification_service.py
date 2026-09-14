@@ -27,17 +27,21 @@ class PlantIdentificationService:
         try:
             self.trefle = TrefleAPIService()
         except ValueError:
-            logger.warning("Trefle API not available - continuing without it")
+            logger.warning(
+                "[IDENTIFY] Trefle API not available - continuing without it"
+            )
             self.trefle = None
 
         try:
             self.plantnet = PlantNetAPIService()
         except ValueError:
-            logger.warning("PlantNet API not available - continuing without it")
+            logger.warning(
+                "[IDENTIFY] PlantNet API not available - continuing without it"
+            )
             self.plantnet = None
 
         if not self.trefle and not self.plantnet:
-            logger.error("No plant identification APIs available")
+            logger.error("[IDENTIFY] No plant identification APIs available")
 
     def get_service_status(self) -> Dict:
         """

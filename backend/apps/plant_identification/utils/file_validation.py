@@ -96,7 +96,7 @@ def validate_image_file(image_file: BinaryIO) -> bool:
     except Exception:
         # PIL's message is not shown to the user: it reaches the client through
         # simple_views' readable_message() (CodeQL #23 -> #121).
-        logger.warning("Image failed PIL verification", exc_info=True)
+        logger.warning("[VALIDATION] Image failed PIL verification", exc_info=True)
         raise ValidationError(
             "Invalid or corrupted image file. "
             "File may be incomplete, corrupted, or not a valid image."

@@ -44,7 +44,7 @@ def rate_limit(max_calls_per_hour=120):
                     now - current_calls[0]
                 )  # Time until oldest call expires
                 logger.warning(
-                    f"Trefle API rate limit exceeded ({len(current_calls)}/{max_calls_per_hour}). "
+                    f"[RATE_LIMIT] Trefle API rate limit exceeded ({len(current_calls)}/{max_calls_per_hour}). "
                     f"Oldest call expires in {remaining_time:.0f} seconds"
                 )
                 raise RateLimitExceeded(
@@ -87,20 +87,20 @@ def retry_on_failure(max_retries=3, backoff_factor=1):
                     if attempt < max_retries - 1:  # Don't sleep on last attempt
                         sleep_time = backoff_factor * (2**attempt)
                         logger.warning(
-                            f"API call failed (attempt {attempt + 1}/{max_retries}), "
+                            f"[TREFLE] API call failed (attempt {attempt + 1}/{max_retries}), "
                             f"retrying in {sleep_time}s: {log_safe_api_error(e)}"
                         )
                         time.sleep(sleep_time)
                     else:
                         logger.error(
-                            f"API call failed after {max_retries} attempts: "
+                            f"[TREFLE] API call failed after {max_retries} attempts: "
                             f"{log_safe_api_error(e)}"
                         )
 
             # If all retries failed, return None or raise the last exception
             if last_exception:
                 logger.error(
-                    f"Final failure after {max_retries} retries: "
+                    f"[TREFLE] Final failure after {max_retries} retries: "
                     f"{log_safe_api_error(last_exception)}"
                 )
             return None
@@ -129,7 +129,7 @@ class TrefleAPIService:
         """
         self.api_key = api_key or getattr(settings, "TREFLE_API_KEY", None)
         if not self.api_key:
-            logger.error("Trefle API key not configured")
+            logger.error("[TREFLE] Trefle API key not configured")
             raise ValueError("TREFLE_API_KEY must be set in Django settings")
 
         self.session = requests.Session()
@@ -148,10 +148,10 @@ class TrefleAPIService:
                 self.monitor = APIMonitoringService()
             except ImportError:
                 self.monitor = None
-                logger.warning("Monitoring service not available")
+                logger.warning("[PERF] Monitoring service not available")
             except Exception as e:
                 self.monitor = None
-                logger.warning(f"Failed to initialize monitoring: {e}")
+                logger.warning(f"[PERF] Failed to initialize monitoring: {e}")
             self._monitor_initialized = True
         return self.monitor
 
@@ -179,7 +179,9 @@ class TrefleAPIService:
 
             # Handle specific HTTP status codes
             if response.status_code == 401:
-                logger.error("Trefle API authentication failed - check API key")
+                logger.error(
+                    "[TREFLE] Trefle API authentication failed - check API key"
+                )
                 monitor = self._get_monitor()
                 if monitor:
                     monitor.record_api_call("trefle", endpoint, success=False)
@@ -187,7 +189,7 @@ class TrefleAPIService:
                     "Authentication failed", response=response
                 )
             elif response.status_code == 429:
-                logger.warning("Trefle API rate limit exceeded by server")
+                logger.warning("[RATE_LIMIT] Trefle API rate limit exceeded by server")
                 monitor = self._get_monitor()
                 if monitor:
                     monitor.record_api_call("trefle", endpoint, success=False)
@@ -195,7 +197,7 @@ class TrefleAPIService:
                     "Rate limit exceeded", response=response
                 )
             elif response.status_code == 503:
-                logger.warning("Trefle API service temporarily unavailable")
+                logger.warning("[TREFLE] Trefle API service temporarily unavailable")
                 monitor = self._get_monitor()
                 if monitor:
                     monitor.record_api_call("trefle", endpoint, success=False)
@@ -214,14 +216,14 @@ class TrefleAPIService:
 
         except requests.exceptions.Timeout:
             logger.error(
-                f"Trefle API request timed out after {self.REQUEST_TIMEOUT}s: {url}"
+                f"[TREFLE] Trefle API request timed out after {self.REQUEST_TIMEOUT}s: {url}"
             )
             monitor = self._get_monitor()
             if monitor:
                 monitor.record_api_call("trefle", endpoint, success=False)
             raise
         except requests.exceptions.ConnectionError:
-            logger.error(f"Trefle API connection error: {url}")
+            logger.error(f"[TREFLE] Trefle API connection error: {url}")
             monitor = self._get_monitor()
             if monitor:
                 monitor.record_api_call("trefle", endpoint, success=False)
@@ -230,7 +232,9 @@ class TrefleAPIService:
             # NOT str(e): `session.params` carries `token=<TREFLE_API_KEY>` on
             # EVERY request, and HTTPError's message is the prepared URL.
             # `url` itself is the bare endpoint, so it stays.
-            logger.error(f"Trefle API request failed: {url} - {log_safe_api_error(e)}")
+            logger.error(
+                f"[TREFLE] Trefle API request failed: {url} - {log_safe_api_error(e)}"
+            )
             monitor = self._get_monitor()
             if monitor:
                 monitor.record_api_call("trefle", endpoint, success=False)
@@ -250,7 +254,7 @@ class TrefleAPIService:
         cache_key = f"trefle_search_{query.lower().replace(' ', '_')}_{limit}"
         cached_result = cache.get(cache_key)
         if cached_result:
-            logger.debug(f"Cache hit for Trefle search: {query}")
+            logger.debug(f"[CACHE] Cache hit for Trefle search: {query}")
             return cached_result
 
         params = {"q": query, "limit": limit}
@@ -263,7 +267,7 @@ class TrefleAPIService:
 
         # Cache the results for better performance
         cache.set(cache_key, plants, self.CACHE_TIMEOUT)
-        logger.debug(f"Cached Trefle search results for: {query}")
+        logger.debug(f"[CACHE] Cached Trefle search results for: {query}")
 
         return plants
 
@@ -280,7 +284,7 @@ class TrefleAPIService:
         cache_key = f"trefle_plant_{plant_id}"
         cached_result = cache.get(cache_key)
         if cached_result:
-            logger.debug(f"Cache hit for Trefle plant details: {plant_id}")
+            logger.debug(f"[CACHE] Cache hit for Trefle plant details: {plant_id}")
             return cached_result
 
         result = self._make_request(f"plants/{plant_id}")
@@ -290,7 +294,7 @@ class TrefleAPIService:
         plant_data = result.get("data")
         if plant_data:
             cache.set(cache_key, plant_data, self.CACHE_TIMEOUT)
-            logger.debug(f"Cached Trefle plant details for: {plant_id}")
+            logger.debug(f"[CACHE] Cached Trefle plant details for: {plant_id}")
 
         return plant_data
 
@@ -307,7 +311,7 @@ class TrefleAPIService:
         cache_key = f"trefle_species_{scientific_name.lower().replace(' ', '_')}"
         cached_result = cache.get(cache_key)
         if cached_result:
-            logger.debug(f"Cache hit for Trefle species: {scientific_name}")
+            logger.debug(f"[CACHE] Cache hit for Trefle species: {scientific_name}")
             return cached_result
 
         params = {"filter[scientific_name]": scientific_name, "limit": 1}
@@ -322,7 +326,7 @@ class TrefleAPIService:
 
         species_data = species_list[0]
         cache.set(cache_key, species_data, self.CACHE_TIMEOUT)
-        logger.debug(f"Cached Trefle species for: {scientific_name}")
+        logger.debug(f"[CACHE] Cached Trefle species for: {scientific_name}")
 
         return species_data
 
@@ -339,7 +343,7 @@ class TrefleAPIService:
         cache_key = f"trefle_species_details_{species_id}"
         cached_result = cache.get(cache_key)
         if cached_result:
-            logger.debug(f"Cache hit for Trefle species details: {species_id}")
+            logger.debug(f"[CACHE] Cache hit for Trefle species details: {species_id}")
             return cached_result
 
         result = self._make_request(f"species/{species_id}")
@@ -349,7 +353,7 @@ class TrefleAPIService:
         species_data = result.get("data")
         if species_data:
             cache.set(cache_key, species_data, self.CACHE_TIMEOUT)
-            logger.debug(f"Cached Trefle species details for: {species_id}")
+            logger.debug(f"[CACHE] Cached Trefle species details for: {species_id}")
 
         return species_data
 

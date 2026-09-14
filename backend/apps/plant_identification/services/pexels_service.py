@@ -39,7 +39,7 @@ class PexelsImageService:
         self.api_key = api_key or getattr(settings, "PEXELS_API_KEY", None)
         if not self.api_key:
             logger.warning(
-                "Pexels API key not configured - image search will be disabled"
+                "[PEXELS] Pexels API key not configured - image search will be disabled"
             )
             self.api_key = None
 
@@ -61,13 +61,13 @@ class PexelsImageService:
             JSON response data or None if error
         """
         if not self.api_key:
-            logger.warning("Pexels API key not available")
+            logger.warning("[PEXELS] Pexels API key not available")
             return None
 
         # Check rate limits from cache (generous limits for Pexels)
         rate_limit_key = "pexels_rate_limit"
         if cache.get(rate_limit_key, 0) >= 200:  # Conservative limit
-            logger.warning("Pexels API rate limit exceeded")
+            logger.warning("[PEXELS] Pexels API rate limit exceeded")
             return None
 
         url = f"{self.BASE_URL}/{endpoint.lstrip('/')}"
@@ -86,7 +86,9 @@ class PexelsImageService:
             # NOT str(e): requests builds its message from the prepared URL,
             # which carries every query parameter. `url` itself is the bare
             # endpoint (params ride in `params=`), so it stays.
-            logger.error(f"Pexels API request failed: {url} - {log_safe_api_error(e)}")
+            logger.error(
+                f"[PEXELS] Pexels API request failed: {url} - {log_safe_api_error(e)}"
+            )
             return None
 
     def search_plant_images(
@@ -124,7 +126,7 @@ class PexelsImageService:
         cache_key = f"pexels_search_{search_query.replace(' ', '_').lower()}_{limit}_{orientation}"
         cached_result = cache.get(cache_key)
         if cached_result:
-            logger.info(f"Using cached Pexels results for: {plant_name}")
+            logger.info(f"[PEXELS] Using cached Pexels results for: {plant_name}")
             return cached_result
 
         params = {
@@ -168,12 +170,14 @@ class PexelsImageService:
                 }
                 processed_images.append(image_data)
             except KeyError as e:
-                logger.error(f"Invalid Pexels photo data structure: {e}")
+                logger.error(f"[PEXELS] Invalid Pexels photo data structure: {e}")
                 continue
 
         # Cache successful results
         cache.set(cache_key, processed_images, self.CACHE_TIMEOUT)
-        logger.info(f"Found {len(processed_images)} Pexels images for: {plant_name}")
+        logger.info(
+            f"[PEXELS] Found {len(processed_images)} Pexels images for: {plant_name}"
+        )
 
         return processed_images
 
@@ -228,13 +232,15 @@ class PexelsImageService:
                 ]
                 wagtail_image.tags.add(*tags)
             except Exception as e:
-                logger.warning(f"Could not add tags to image: {e}")
+                logger.warning(f"[PEXELS] Could not add tags to image: {e}")
 
-            logger.info(f"Created Wagtail image from Pexels: {title}")
+            logger.info(f"[PEXELS] Created Wagtail image from Pexels: {title}")
             return wagtail_image
 
         except Exception as e:
-            logger.error(f"Failed to download/create Wagtail image from Pexels: {e}")
+            logger.error(
+                f"[PEXELS] Failed to download/create Wagtail image from Pexels: {e}"
+            )
             return None
 
     def get_best_plant_image(
@@ -258,7 +264,7 @@ class PexelsImageService:
         )
 
         if not images:
-            logger.info(f"No Pexels images found for: {plant_name}")
+            logger.info(f"[PEXELS] No Pexels images found for: {plant_name}")
             return None
 
         # Sort by relevance factors (size, etc.)
@@ -285,5 +291,7 @@ class PexelsImageService:
             if wagtail_image:
                 return image_data, wagtail_image
 
-        logger.warning(f"Failed to download any Pexels images for: {plant_name}")
+        logger.warning(
+            f"[PEXELS] Failed to download any Pexels images for: {plant_name}"
+        )
         return None

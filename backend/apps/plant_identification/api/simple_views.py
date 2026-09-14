@@ -159,7 +159,8 @@ def identify_plant(request: Request) -> Response:
             )
 
         logger.info(
-            f"Processing plant identification request - File: {image_file.name}, Size: {image_file.size / 1024:.1f}KB"
+            f"[IDENTIFY] Processing plant identification request - "
+            f"File: {image_file.name}, Size: {image_file.size / 1024:.1f}KB"
         )
 
         # Initialize combined identification service
@@ -199,13 +200,13 @@ def identify_plant(request: Request) -> Response:
         }
 
         logger.info(
-            f"Identification successful: {response_data['plant_name']} ({response_data['confidence']:.2%})"
+            f"[IDENTIFY] Identification successful: {response_data['plant_name']} ({response_data['confidence']:.2%})"
         )
 
         return Response(response_data, status=status.HTTP_200_OK)
 
     except Exception as e:
-        logger.error(f"Plant identification error: {str(e)}", exc_info=True)
+        logger.error(f"[IDENTIFY] Plant identification error: {str(e)}", exc_info=True)
         return Response(
             {
                 "success": False,
@@ -237,7 +238,7 @@ def health_check(request):
         )
 
     except Exception as e:
-        logger.error(f"Health check failed: {str(e)}", exc_info=True)
+        logger.error(f"[HEALTH] Health check failed: {str(e)}", exc_info=True)
         # Anonymous endpoint: the detail stays in the log, not in the body.
         return Response(
             {"status": "unhealthy", "error": "Health check failed"},

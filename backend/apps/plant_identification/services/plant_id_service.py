@@ -82,7 +82,7 @@ class PlantIDAPIService:
         """
         self.api_key = api_key or getattr(settings, "PLANT_ID_API_KEY", None)
         if not self.api_key:
-            logger.error("Plant.id API key not configured")
+            logger.error("[PLANT_ID] Plant.id API key not configured")
             raise ValueError("PLANT_ID_API_KEY must be set in Django settings")
 
         self.session = requests.Session()
@@ -305,16 +305,16 @@ class PlantIDAPIService:
                 status_code=503,
             )
         except requests.exceptions.Timeout:
-            logger.error("Plant.id API request timed out")
+            logger.error("[PLANT_ID] Plant.id API request timed out")
             raise
         except requests.exceptions.RequestException as e:
             # NOT `e`: requests builds its message from the prepared URL.
             # Plant.id uses an `Api-Key` HEADER, so no credential is in that
             # URL today -- keep it that way structurally.
-            logger.error(f"Plant.id API error: {log_safe_api_error(e)}")
+            logger.error(f"[PLANT_ID] Plant.id API error: {log_safe_api_error(e)}")
             raise
         except Exception as e:
-            logger.error(f"Unexpected error in Plant.id identification: {e}")
+            logger.error(f"[PLANT_ID] Unexpected error in Plant.id identification: {e}")
             raise
 
     def _call_plant_id_api(
@@ -403,7 +403,7 @@ class PlantIDAPIService:
         )
         if suggestions:
             logger.info(
-                f"Plant.id identification successful: {suggestions[0].get('name', 'Unknown')}"
+                f"[PLANT_ID] Plant.id identification successful: {suggestions[0].get('name', 'Unknown')}"
             )
 
         # Increment quota counter after successful API call
@@ -534,10 +534,10 @@ class PlantIDAPIService:
         cache_key = f"plant_id_details_{plant_name.lower()}"
         cached_data = cache.get(cache_key)
         if cached_data:
-            logger.info(f"Retrieved plant details from cache: {plant_name}")
+            logger.info(f"[CACHE] Retrieved plant details from cache: {plant_name}")
             return cached_data
 
         # Plant.id doesn't have a direct search endpoint
         # Would need to use image identification instead
-        logger.warning("Plant.id doesn't support direct plant name lookup")
+        logger.warning("[PLANT_ID] Plant.id doesn't support direct plant name lookup")
         return None

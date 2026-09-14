@@ -46,14 +46,14 @@ class AIBotanicalImageService:
         self.api_key = api_key or getattr(settings, "OPENAI_API_KEY", None)
         if not self.api_key:
             logger.warning(
-                "OpenAI API key not configured - AI image generation will be disabled"
+                "[AI] OpenAI API key not configured - AI image generation will be disabled"
             )
             self.client = None
         else:
             try:
                 self.client = openai.OpenAI(api_key=self.api_key)
             except Exception as e:
-                logger.error(f"Failed to initialize OpenAI client: {e}")
+                logger.error(f"[AI] Failed to initialize OpenAI client: {e}")
                 self.client = None
 
     def _get_cost_cache_key(self) -> str:
@@ -72,7 +72,7 @@ class AIBotanicalImageService:
         current_cost = cache.get(cache_key, 0.0)
         cache.set(cache_key, current_cost + cost, self.COST_CACHE_TIMEOUT)
         logger.info(
-            f"AI image cost tracked: ${cost:.3f} (daily total: ${current_cost + cost:.3f})"
+            f"[QUOTA] AI image cost tracked: ${cost:.3f} (daily total: ${current_cost + cost:.3f})"
         )
 
     def _create_botanical_prompt(
@@ -153,7 +153,7 @@ class AIBotanicalImageService:
             Dictionary with image data and metadata, or None if failed
         """
         if not self.client:
-            logger.warning("OpenAI client not available")
+            logger.warning("[AI] OpenAI client not available")
             return None
 
         # Check daily cost limit (configurable)
@@ -166,7 +166,7 @@ class AIBotanicalImageService:
 
         if current_cost + estimated_cost > max_daily_cost:
             logger.warning(
-                f"Daily AI image cost limit exceeded: ${current_cost:.2f} "
+                f"[QUOTA] Daily AI image cost limit exceeded: ${current_cost:.2f} "
                 f"+ ${estimated_cost:.2f} > ${max_daily_cost:.2f}"
             )
             return None
@@ -179,12 +179,12 @@ class AIBotanicalImageService:
         cache_key = f"ai_plant_image_{prompt_hash}"
         cached_result = cache.get(cache_key)
         if cached_result:
-            logger.info(f"Using cached AI-generated image for: {plant_name}")
+            logger.info(f"[CACHE] Using cached AI-generated image for: {plant_name}")
             return cached_result
 
         try:
             logger.info(
-                f"Generating AI image for: {plant_name} (style: {style}, quality: {quality})"
+                f"[AI] Generating AI image for: {plant_name} (style: {style}, quality: {quality})"
             )
 
             response = self.client.images.generate(
@@ -216,11 +216,11 @@ class AIBotanicalImageService:
             # Cache the result
             cache.set(cache_key, image_data, self.CACHE_TIMEOUT)
 
-            logger.info(f"Successfully generated AI image for: {plant_name}")
+            logger.info(f"[AI] Successfully generated AI image for: {plant_name}")
             return image_data
 
         except Exception as e:
-            logger.error(f"Failed to generate AI image for {plant_name}: {e}")
+            logger.error(f"[AI] Failed to generate AI image for {plant_name}: {e}")
             return None
 
     def download_and_create_wagtail_image(
@@ -273,13 +273,13 @@ class AIBotanicalImageService:
 
                 wagtail_image.tags.add(*tags)
             except Exception as e:
-                logger.warning(f"Could not add tags to AI image: {e}")
+                logger.warning(f"[AI] Could not add tags to AI image: {e}")
 
-            logger.info(f"Created Wagtail image from AI generation: {title}")
+            logger.info(f"[AI] Created Wagtail image from AI generation: {title}")
             return wagtail_image
 
         except Exception as e:
-            logger.error(f"Failed to download/create Wagtail image from AI: {e}")
+            logger.error(f"[AI] Failed to download/create Wagtail image from AI: {e}")
             return None
 
     def get_best_ai_plant_image(
@@ -305,7 +305,7 @@ class AIBotanicalImageService:
         )
 
         if not image_data:
-            logger.info(f"Failed to generate AI image for: {plant_name}")
+            logger.info(f"[AI] Failed to generate AI image for: {plant_name}")
             return None
 
         wagtail_image = self.download_and_create_wagtail_image(
@@ -315,7 +315,9 @@ class AIBotanicalImageService:
         if wagtail_image:
             return image_data, wagtail_image
         else:
-            logger.warning(f"Failed to download generated AI image for: {plant_name}")
+            logger.warning(
+                f"[AI] Failed to download generated AI image for: {plant_name}"
+            )
             return None
 
     def get_generation_stats(self) -> Dict:

@@ -33,7 +33,7 @@ class AIPlantCareService:
 
         if not self.api_key:
             logger.warning(
-                "OpenAI API key not configured - AI care instructions will not be available"
+                "[AI] OpenAI API key not configured - AI care instructions will not be available"
             )
 
     def generate_care_instructions(
@@ -63,7 +63,7 @@ class AIPlantCareService:
             Dictionary containing comprehensive care instructions with 25+ categories or None if generation fails
         """
         if not self.api_key:
-            logger.error("OpenAI API key not configured")
+            logger.error("[AI] OpenAI API key not configured")
             return self._generate_fallback_instructions(plant_name, common_names)
 
         try:
@@ -109,15 +109,17 @@ class AIPlantCareService:
             care_instructions["ai_model"] = self.model
             care_instructions["confidence"] = "high"
 
-            logger.info(f"Successfully generated AI care instructions for {plant_name}")
+            logger.info(
+                f"[AI] Successfully generated AI care instructions for {plant_name}"
+            )
             return care_instructions
 
         except ImportError:
-            logger.error("OpenAI library not installed. Run: pip install openai")
+            logger.error("[AI] OpenAI library not installed. Run: pip install openai")
             return self._generate_fallback_instructions(plant_name, common_names)
 
         except Exception as e:
-            logger.error(f"Error generating AI care instructions: {str(e)}")
+            logger.error(f"[AI] Error generating AI care instructions: {str(e)}")
             return self._generate_fallback_instructions(plant_name, common_names)
 
     def _create_enhanced_care_prompt(
@@ -468,4 +470,4 @@ recommendations over generic advice."""
             update_fields=["ai_care_instructions", "care_instructions_generated_at"]
         )
 
-        logger.info(f"Updated result {result.id} with AI care instructions")
+        logger.info(f"[AI] Updated result {result.id} with AI care instructions")

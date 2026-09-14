@@ -49,7 +49,7 @@ class SpeciesLookupService:
         try:
             self.trefle = TrefleAPIService()
         except ValueError:
-            logger.warning("Trefle API not available")
+            logger.warning("[SPECIES] Trefle API not available")
             self.trefle = None
 
         # Initialize monitoring (lazy import to avoid circular dependencies)
@@ -65,10 +65,10 @@ class SpeciesLookupService:
                 self.monitor = APIMonitoringService()
             except ImportError:
                 self.monitor = None
-                logger.warning("Monitoring service not available")
+                logger.warning("[PERF] Monitoring service not available")
             except Exception as e:
                 self.monitor = None
-                logger.warning(f"Failed to initialize monitoring: {e}")
+                logger.warning(f"[PERF] Failed to initialize monitoring: {e}")
             self._monitor_initialized = True
         return self.monitor
 
@@ -96,7 +96,7 @@ class SpeciesLookupService:
             monitor = self._get_monitor()
             if monitor:
                 monitor.record_cache_hit("redis")
-            logger.info(f"Found {scientific_name} in cache")
+            logger.info(f"[SPECIES] Found {scientific_name} in cache")
             return cached_data
 
         # Strategy 3: Call API if rate limits allow
@@ -117,10 +117,10 @@ class SpeciesLookupService:
             monitor = self._get_monitor()
             if monitor:
                 monitor.record_local_db_hit()
-            logger.info(f"Using local fallback for {scientific_name}")
+            logger.info(f"[SPECIES] Using local fallback for {scientific_name}")
             return self._format_local_species(fallback_species, "local_fallback")
 
-        logger.warning(f"No data found for species: {scientific_name}")
+        logger.warning(f"[SPECIES] No data found for species: {scientific_name}")
         monitor = self._get_monitor()
         if monitor:
             monitor.record_cache_miss("total_miss")
@@ -157,7 +157,7 @@ class SpeciesLookupService:
                 results.extend(api_results)
             except RateLimitExceeded:
                 logger.warning(
-                    f"Rate limit exceeded during common name search: {common_name}"
+                    f"[RATE_LIMIT] Rate limit exceeded during common name search: {common_name}"
                 )
 
         return results[:limit]
@@ -200,7 +200,7 @@ class SpeciesLookupService:
                 results.append(species_data)
 
         except Exception as e:
-            logger.error(f"Error searching local species: {e}")
+            logger.error(f"[SPECIES] Error searching local species: {e}")
 
         return results
 
@@ -215,7 +215,7 @@ class SpeciesLookupService:
         """Cache species data in Redis."""
         cache_key = f"species:api:{scientific_name.lower().replace(' ', '_')}"
         cache.set(cache_key, data, timeout)
-        logger.debug(f"Cached species data for: {scientific_name}")
+        logger.debug(f"[CACHE] Cached species data for: {scientific_name}")
 
     def _can_call_api(self) -> bool:
         """Check if we can make API calls (not rate limited)."""
@@ -243,10 +243,12 @@ class SpeciesLookupService:
                     return normalized_data
 
         except RateLimitExceeded:
-            logger.warning(f"Rate limit exceeded for species lookup: {scientific_name}")
+            logger.warning(
+                f"[RATE_LIMIT] Rate limit exceeded for species lookup: {scientific_name}"
+            )
             raise
         except Exception as e:
-            logger.error(f"API fetch failed for {scientific_name}: {e}")
+            logger.error(f"[SPECIES] API fetch failed for {scientific_name}: {e}")
 
         return None
 
@@ -268,10 +270,12 @@ class SpeciesLookupService:
                 results.append(normalized_data)
 
         except RateLimitExceeded:
-            logger.warning(f"Rate limit exceeded during API search: {query}")
+            logger.warning(
+                f"[RATE_LIMIT] Rate limit exceeded during API search: {query}"
+            )
             raise
         except Exception as e:
-            logger.error(f"API search failed for {query}: {e}")
+            logger.error(f"[SPECIES] API search failed for {query}: {e}")
 
         return results
 
@@ -304,7 +308,7 @@ class SpeciesLookupService:
     def warm_cache_for_popular_species(self) -> None:
         """Pre-populate cache with data for popular species."""
         if not self._can_call_api():
-            logger.info("Cannot warm cache - API rate limited")
+            logger.info("[CACHE] Cannot warm cache - API rate limited")
             return
 
         popular_species = self.get_popular_species(50)  # Top 50 most identified
@@ -317,18 +321,20 @@ class SpeciesLookupService:
                     api_data = self._fetch_from_api(species.scientific_name)
                     if api_data:
                         warmed_count += 1
-                        logger.debug(f"Warmed cache for {species.scientific_name}")
+                        logger.debug(
+                            f"[CACHE] Warmed cache for {species.scientific_name}"
+                        )
                 except RateLimitExceeded:
                     logger.info(
-                        f"Rate limit hit during cache warming after {warmed_count} species"
+                        f"[RATE_LIMIT] Rate limit hit during cache warming after {warmed_count} species"
                     )
                     break
                 except Exception as e:
                     logger.warning(
-                        f"Failed to warm cache for {species.scientific_name}: {e}"
+                        f"[CACHE] Failed to warm cache for {species.scientific_name}: {e}"
                     )
 
-        logger.info(f"Cache warming completed: {warmed_count} species cached")
+        logger.info(f"[CACHE] Cache warming completed: {warmed_count} species cached")
 
     def get_lookup_stats(self) -> Dict:
         """Get statistics about lookup performance and cache usage."""
