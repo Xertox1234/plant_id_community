@@ -15,9 +15,10 @@
 >
 > Security scanning is now pip-audit + `npm audit` in
 > `.github/workflows/security-scan.yml`; adding a scanner to requirements scans
-> nothing. This file also prescribes `pip freeze > requirements.txt`, which is
-> the practice that caused the todo-217 failure — a flat freeze silently fell
-> behind and masked a Django 6.0 admin 500. Do not run it.
+> nothing. (Its companion `DEPENDENCY_UPGRADE_QUICKREF.md` additionally
+> prescribes `pip freeze > requirements.txt` — the practice that caused the
+> todo-217 failure, where a flat freeze silently fell behind and masked a
+> Django 6.0 admin 500. This file does not; do not run it there either.)
 >
 > Individual lines are annotated `# SUPERSEDED`, but the annotations are not
 > exhaustive: treat the whole file as history.
