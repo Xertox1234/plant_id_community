@@ -6045,6 +6045,8 @@ and a stale-marker inventory was wrong in both count and kind (claimed "5
    what the doc claims. Citations copied from an agent report are unverified by
    default.
 
+---
+
 ## 2026-09-13 — A version number nothing queries is wrong within a day, and expiring a build does not free its number (todo 389)
 
 The iOS build number lives as a hand-maintained integer in `pubspec.yaml`. It was
@@ -6092,3 +6094,137 @@ eight numbers remain permanently taken. This surprises people, and it is why
 4. Positive-control the gate. Proving `BUILD_NUMBER=9` is refused says nothing
    about whether a free number still builds; the acceptance run stubbed `flutter`
    on PATH and confirmed `--build-number=10` reached it.
+
+---
+
+## Review round 1 across PRs #743–#750 (2026-09-13)
+
+Eight PRs reviewed in parallel by subagents. Three of the findings were the same
+shape, arrived at independently in unrelated code, which is what makes it a
+pattern rather than three bugs.
+
+### [2026-09-13] A guard whose correctness rests on an accident of its current data
+
+**Mistake**: three separate guards were correct only because of a property
+nobody had stated or pinned.
+
+1. `env_integrity.removed_but_installed()` (todo 380) compared its hand-kept
+   `REMOVED_ON_PURPOSE` keys **raw** against `installed`, whose keys are PEP 503
+   normalized. Correct only because all three entries — `safety`, `bandit`,
+   `nltk` — are single lowercase tokens. The first `PyYAML` or `ruamel.yaml`
+   entry would have matched nothing, **silently**, inside the very function
+   written to stop silent misses.
+2. `budget_rules.MIN_SPLIT = 700` (todo 369) chose head-only below that share,
+   dropping the file tail — the append-only bias the module exists to remove.
+   Real 4- and 5-domain routes produce shares of **620–928 B**: 48 tracked files
+   sit at 734, i.e. 34 bytes of margin, which one trigger message erases.
+3. The `unprefixed-logger-call` trigger (todo 388) used `[A-Z0-9_]+` where the
+   checker in the **same commit** had widened to `[A-Z0-9_-]+`, so it flagged 18
+   lines that commit had just certified as compliant.
+
+**Fix**: normalize both sides of any name comparison; pick a threshold from the
+measured operating range and state the margin; when two artifacts encode the
+same rule, derive one from the other or test them against a shared fixture.
+
+**Rule**: when a check passes, ask *why* — if the answer is a property of
+today's data rather than of the code, write the test that would fail when that
+property changes. "All current entries happen to be lowercase" is a bug with a
+delay on it.
+
+**Agent**: cross-cutting-reviewer
+
+### [2026-09-13] A positive control cannot validate the path it does not take
+
+**Mistake**: `run_archive.sh`'s duplicate-build gate (todo 389) was accepted on a
+genuine positive control — stub `flutter` on PATH, confirm `--build-number=10`
+arrives. It passed. But the defect lived entirely in the **non-numeric** path:
+`[ x -le y ]` exits 2 on a non-integer, and a failing command in an `elif`
+*condition* is exempt from `set -e`, so the gate silently evaluated false.
+`version: 1.0.0+10  # bumped` yielded `"10  # bumped"`, the gate skipped, and the
+build proceeded with an already-taken number — while printing a reassuring
+"highest on App Store Connect" line.
+
+This repeats todo 384's route-orphan checker, which was also validated against
+only the case it handled.
+
+**Fix**: every new guard gets a negative control — an input it must **refuse** —
+not only an input it must pass. Keep the pre-fix artifact and re-run the suite
+against it; if the new test still passes, it is not a regression guard. Applied
+here to all four repairs: each new test was shown to fail against the unfixed
+code before being accepted.
+
+**Rule**: "the positive control passed" is a statement about one path. Name the
+paths you did not exercise, and treat the guard as unverified on them.
+
+**Agent**: cross-cutting-reviewer
+
+### [2026-09-13] A trigger that fires on 31 correct lines teaches people to ignore triggers
+
+**Mistake**: codifying the shell lesson above as a `triggers.json` entry, I
+matched the *syntax* of the bug — a variable in an arithmetic test — and shipped
+it after checking only that it fired on the bug and stayed quiet on the fix.
+Round 2 measured it against the repo: **31 fires across 13 files, every one a
+false positive.** All 30 non-bug operands are `$?` (18), `$((n+1))` counters (6),
+`grep -c` output (3), or `wc` output — integers by construction. The one thing
+that actually distinguishes the bug is **operand provenance**, and a
+content-regex matcher cannot see provenance at all.
+
+Narrowing `content_present` to require **both** operands be variables took it
+from 31 fires to 1, and it still matches the original defect
+(`[ "$EFFECTIVE_BUILD" -le "$HIGHEST"`). That is the enforceable subset — not
+the lesson, a shape that correlates with it.
+
+**Also learned, the hard way**: `content_absent` is evaluated against the whole
+resulting **file**, so it is a file-level kill switch. One validated comparison
+anywhere silences the trigger for every other comparison in that file, including
+ones added later — and the alternation matches prose, so a comment mentioning
+`is_uint` is enough. This trigger is engineered to go dark on its own motivating
+file the moment PR #743 lands. Kept anyway: firing on validated code is worse.
+
+**Fix**: before adding a trigger, run its `content_present` over the whole repo
+and count the fires. If most are correct code, the regex is matching the wrong
+thing.
+
+**Rule**: a trigger's cost is paid by every future edit that sees it, so the
+bar is not "does it catch the bug" but "what else does it catch". Validate a new
+trigger with a **repo-wide false-positive count**, the same way a new detector
+needs a positive control — a negative control alone only proves it is quiet
+where you already looked. Where the real signal is semantic (provenance, taint,
+ownership), say so in the message and ship the narrow shape, rather than
+widening until it fires on everything.
+
+**Agent**: cross-cutting-reviewer
+
+### [2026-09-13] `.sh` files route to no rules domain
+
+**Mistake**: shell scripts match no entry in `scripts/inject/routing.json`, so a
+lesson written into any `docs/rules/<domain>.md` is unreachable from a shell
+edit. `match_triggers._fires()` gates on `path_glob` + content **only** — never
+on domain — so `docs/rules/triggers.json` is the sole channel that reaches one.
+
+**Fix**: the `set -e`/`elif` lesson above shipped as the
+`shell-numeric-compare-without-validation` trigger with a `**/*.sh` glob,
+verified end-to-end through `find_matches()` rather than by reading the regex.
+
+A trigger's `domains` field is metadata: `capture_trigger.py` writes it and
+nothing reads it. Only `path_glob` and the content patterns decide firing.
+
+**And the trigger needed a `content_absent` clause, or it would have reproduced
+the #749 defect inside the PR codifying it.** `content_present` matches the edit
+FRAGMENT, so the trigger fired on `run_archive.sh`'s own now-correct comparison —
+nagging about a bug already fixed, exactly what #749's regex did to 18 certified
+lines. `content_absent` is matched against the RESULTING FILE instead, so it can
+ask "does this script already validate?": `is_uint|\*\[!0-9\]\*|=~
+\^\[0-9\]\+\$|\[:digit:\]`. Discriminated 6/6 — quiet on the fixed script
+and on the `*[![:digit:]]*` and `=~ ^[0-9]+$` idioms, firing on the same script
+before its fix and on an unguarded hook.
+
+**Rule**: a trigger that keys only on the offending shape fires on the fix too.
+Pair every `content_present` with a `content_absent` naming the remedy, and test
+it against the fixed file, not just the broken one.
+
+**Rule**: before writing a rule, run its target path through
+`scripts/inject/route_domains.py`. Empty output means prose will never arrive;
+use a trigger.
+
+**Agent**: pattern-codifier

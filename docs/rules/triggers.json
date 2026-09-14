@@ -1747,4 +1747,23 @@
     "added": "2026-09-13",
     "severity": "warn"
   }
+,
+  {
+    "id": "shell-numeric-compare-without-validation",
+    "domains": [
+      "security"
+    ],
+    "path_glob": [
+      "**/*.sh",
+      "**/*.bash",
+      ".claude/hooks/*"
+    ],
+    "content_present": "\\[\\s+\"?\\$\\{?[A-Za-z_][A-Za-z0-9_]*\\}?\"?\\s+-(?:eq|ne|lt|le|gt|ge)\\s+\"?\\$\\{?[A-Za-z_][A-Za-z0-9_]*\\}?\"?",
+    "content_absent": "is_uint|\\*\\[!0-9\\]\\*|=~ \\^\\[0-9\\]\\+\\$|\\[:digit:\\]",
+    "message": "This is an arithmetic test on a shell variable. `[ x -le y ]` exits 2 on a NON-INTEGER operand, and a failing command in an `if`/`elif` CONDITION is exempt from `set -e` -- so the branch silently evaluates false and the guard does not fire. Measured 2026-09-13 (todo 389/PR #743): run_archive.sh's duplicate-build-number gate read the number with `sed 's/.*+//'`, which kept a trailing comment, so `version: 1.0.0+10  # bumped` produced \"10  # bumped\", the comparison errored, the gate was skipped, and the build proceeded with an ALREADY-TAKEN build number -- while the banner printed a reassuring 'highest on App Store Connect' line. `version: 1.0.0` passed the literal string \"version:\" as the build number. Validate BOTH operands first (`case \"$v\" in (\"\"|*[!0-9]*) die ;; esac`) and refuse rather than skip. Guarding only the right-hand operand with `-n \"$HIGHEST\"` is what made this look safe. SCOPE: this fires only when BOTH operands are variables, which is the shape that bit us. A variable compared against a literal is not matched -- 30 of the 31 comparisons in this repo are `$?`, `$((n+1))` counters or `grep -c` output, integers by construction, and flagging them would be pure noise. What the matcher CANNOT see is operand provenance, so this catches a shape, not a risk. NOTE: .sh files route to NO rules domain, so triggers.json is the only channel that reaches a shell edit. NOTE 2: content_absent is FILE-level -- one validated comparison anywhere in the file silences this for every other comparison in it, including ones added later.",
+    "pattern_ref": "docs/LEARNINGS.md",
+    "source": "codify: review round 1 across PRs #743-#750",
+    "added": "2026-09-13",
+    "severity": "warn"
+  }
 ]
