@@ -176,3 +176,29 @@ their own p3 rather than leaving this p1 open on process work.
 Related: todo 367 / PR #748 (the rediscovered placeholder problem), todo 355
 (the security epic), `todos/archive/005-completed-p1-api-key-rotation-verification.md`,
 `backend/todos/archive/2025-11-01-003-resolved-p1-env-example-secret-placeholders.md`.
+
+### 2026-09-13 - Three concrete instances found during the archival pass
+
+Auditing the eight swept todos for filename/frontmatter agreement turned up
+three ARCHIVED todos marked `completed` that still carry open acceptance
+criteria — and all five open boxes are the same species this todo is about:
+
+- `todos/archive/360-completed-p1-firebase-secret-alerts-disposition.md` —
+  "SHA-1 re-checked against the real release signing cert once one exists";
+  "App still authenticates on a real Android device AND a real iOS device."
+- `todos/archive/382-completed-p1-firebase-api-key-shared-across-platforms.md` —
+  "Auth works on a real Android device and a real iOS device."
+- `todos/archive/383-completed-p2-firebase-hardening-carryover.md` —
+  "Release-cert SHA-1 registered before any distribution"; "Sign-in verified on
+  a physical Android device and a physical iOS device."
+
+Every one is an EXTERNAL verification on hardware or a signing cert — no
+artifact lands in the repo, so the unchecked box is the only record, and the
+file is archived where nobody re-reads it. Two are p1.
+
+This is the same shape as todo 005 (this todo's subject) and as
+`backend/todos/archive/2025-11-01-003`, which had to be rediscovered ten months
+later. Three more instances, found by a one-line audit, is evidence the
+hygiene check in this todo's acceptance criteria is worth building rather than
+assuming. Note these are NOT claimed to be undone — device auth may well work.
+The defect is that nothing in the repo can tell you either way.

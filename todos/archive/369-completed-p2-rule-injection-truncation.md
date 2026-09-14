@@ -1,5 +1,5 @@
 ---
-status: in_progress
+status: completed
 priority: p2
 issue_id: "369"
 tags: [harness, docs-rules, hooks]
@@ -135,11 +135,11 @@ is separate and matches on patterns rather than being subject to this cap.
 - [x] A rule appended to the end of the largest routed file is reachable at
       write time, or `CLAUDE.md` no longer claims write-time enforcement for
       that domain — state which was chosen and why.
-- [ ] `kimi-review`'s per-file cut is addressed or explicitly accepted with a
+- [x] `kimi-review`'s per-file cut is addressed or explicitly accepted with a
       recorded reason.
-- [ ] `.claude/hooks/test-inject-patterns.sh` covers the truncation path and
+- [x] `.claude/hooks/test-inject-patterns.sh` covers the truncation path and
       passes; harness CI green.
-- [ ] Evidence quoted in the Work Log for each of the above — the byte counts
+- [x] Evidence quoted in the Work Log for each of the above — the byte counts
       before and after, not a description.
 
 ## Technical Details
@@ -327,3 +327,32 @@ are charged against the budget.
 - `kimi-review.sh` treats exit 2 as "verified CRITICAL", but argparse also exits
   2 on an unknown flag — an older `kimi-review` on PATH would block every commit
   with a bogus reason. Not live here (nothing named `kimi-review` is on PATH).
+
+### 2026-09-13 - Archived after PR #750 merged
+
+- Verification: all acceptance criteria checked; shipped in #750. Byte counts,
+  not descriptions, per the last AC:
+  - Over-budget excerpts, 13 rule files x shares 1-8000 (104,000 calls):
+    **34,888 -> 0**. Tail-lost: **9,087 -> 0**. Head-only outputs: **0**.
+  - The two new property tests fail against the pre-repair module
+    (`lost=4 over=3`) and pass against the repaired one (`0/0`) - a real
+    mutation kill, not a tautology.
+  - Round 2 found the remaining hole: the newest rule arrived **headless**
+    (tail opening mid-bullet) in 10 of 12 files at the real 5-domain share of
+    751 B. A backward rule-boundary seek took that to **4 of 12** at 751 B,
+    **1 of 12** at 945 B and **0 of 12** at 1267 B, with the exhaustive sweep
+    still at 0 over-budget / 0 tail-lost.
+  - It buys nothing at 554 B (**8/12 before and after**) - the share a `.py`
+    edit gets once todo 388's trigger message is charged - so `CLAUDE.md` now
+    states the file's END always arrives, not the newest rule, and carries all
+    three figures.
+  - `kimi-review`'s per-file cut: **explicitly accepted.** #750 raised
+    `--pattern-max-chars` 12000 -> 60000; 8 of 13 rule files exceed 12000
+    chars, largest 45,916, so 60000 has headroom. Its truncation is still
+    `content[:max]` - head-only and counted in characters - so the append-only
+    bias returns there if any rule file passes 60000 chars. Recorded as a
+    known limit in todo 391 rather than fixed here.
+  - Harness CI green, and the hook self-tests pass **29/29** against the
+    combined tree carrying #749's trigger, #750's budget and #751's trigger -
+    the interaction no single PR could test.
+- Review: round 1 + round 2 (subagent). 1 blocking (CLAUDE.md claimed a guarantee the code did not deliver) - repaired.

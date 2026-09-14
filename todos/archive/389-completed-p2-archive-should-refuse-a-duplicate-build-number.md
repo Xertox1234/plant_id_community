@@ -1,5 +1,5 @@
 ---
-status: in_progress
+status: completed
 priority: p2
 issue_id: "389"
 tags: [mobile, ios, release, tooling]
@@ -169,3 +169,8 @@ so only a negative control could have found it.
 Fix: extract digits only (`sed -n 's/^version:.*+\([0-9][0-9]*\).*/\1/p'`) and
 validate both operands with `is_uint` before comparing, refusing rather than
 silently skipping.
+
+### 2026-09-13 - Archived after PR #743 merged
+
+- Verification: all acceptance criteria checked; shipped in #743.
+- Review: round 1 + round 2 (subagent). 1 blocking (extraction took the LAST +digits on the line) - repaired.

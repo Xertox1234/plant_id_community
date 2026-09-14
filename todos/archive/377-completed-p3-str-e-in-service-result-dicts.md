@@ -1,5 +1,5 @@
 ---
-status: in_progress
+status: completed
 priority: p3
 issue_id: "377"
 tags: [security, backend, plant-identification, blog]
@@ -176,3 +176,8 @@ elsewhere, so it did not survive its own lesson. Any `.text`/`.content`/`.body`
 under a response error key now counts. Measured: the whole backend still passes
 (1196), so the wider rule costs no false positives, and it catches the two names
 the heuristic missed.
+
+### 2026-09-13 - Archived after PR #747 merged
+
+- Verification: all acceptance criteria checked; shipped in #747.
+- Review: round 1 + round 2 (subagent). 0 blocking; the new body guard had no positive control and could pass blind - repaired.
