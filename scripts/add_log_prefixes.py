@@ -204,6 +204,26 @@ def main() -> int:
         total += count
         print(f"  {count:3d}  {token:<12} {rel}")
         if args.apply and count:
+            # Re-parse before writing. The f-string branch splices at
+            # `node.col_offset`, which only points inside the literal since
+            # PEP 701 (Python 3.12). On 3.11 and earlier it points at the `f`,
+            # so the prefix lands OUTSIDE the quotes and the file stops
+            # parsing -- and nothing notices: `rewrite()` reports success
+            # (the splice "worked", just at the wrong offset), and
+            # check_log_prefixes.py swallows SyntaxError with `continue`, so a
+            # mangled file drops out of BOTH numerator and denominator and the
+            # reported count goes DOWN. That is indistinguishable from a
+            # successful sweep in the very tool that certifies it.
+            try:
+                ast.parse(new_source)
+            except SyntaxError as exc:
+                print(
+                    f"REFUSING to write {rel}: the rewrite does not parse "
+                    f"({exc}). This is the pre-3.12 f-string col_offset bug; "
+                    f"run under Python 3.12+.",
+                    file=sys.stderr,
+                )
+                return 1
             path.write_text(new_source, encoding="utf-8")
 
     print(f"\n{'would prefix' if args.check else 'prefixed'} {total} call(s)")
