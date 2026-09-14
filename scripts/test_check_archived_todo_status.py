@@ -186,6 +186,19 @@ def main():
             check(label, code == 1, out)
             os.remove(arch / "053-completed-p1-loose.md")
 
+        fenced = ("## Acceptance Criteria\n\n- [x] really done\n\n"
+                  "Example of the convention:\n\n```markdown\n"
+                  "- [ ] a criterion that has not been met\n```\n")
+        todo(arch, "055-completed-p1-fenced.md", "completed", fenced)
+        code, out = run(root, no_allowlist=True)
+        check("an unchecked box inside a ``` fence is an EXAMPLE, not a criterion",
+              code == 0, out)
+        todo(arch, "055-completed-p1-fenced.md", "completed",
+             fenced + "\n- [ ] a real one outside the fence\n")
+        code, out = run(root, no_allowlist=True)
+        check("but a real one after the fence closes still fails", code == 1, out)
+        os.remove(arch / "055-completed-p1-fenced.md")
+
         print("the two lists are independent")
         both = arch / "054-completed-p1-openandacs.md"
         todo(arch, both.name, "pending", acs)   # archived-open AND unchecked ACs

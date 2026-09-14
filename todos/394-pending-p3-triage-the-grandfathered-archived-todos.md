@@ -16,7 +16,7 @@ lists excuse what predates it:
 
 - **`allow` — 13 archived todos whose frontmatter still says the work is open.**
   Nobody has confirmed any of them landed.
-- **`grandfathered_unchecked_acs` — 63 archived todos carrying 483 bare unchecked
+- **`grandfathered_unchecked_acs` — 62 archived todos carrying 462 bare unchecked
   acceptance criteria.**
 
 Neither list can grow: a new violation fails CI, and a *stale* entry fails too,

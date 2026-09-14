@@ -84,7 +84,7 @@ matters — *an archived todo must carry a terminal status* — is **29**, and
 "bookkeeping noise" was an inference from spot-checking three, not a finding.
 Sixteen of the 29 turned out to be genuinely implemented and were fixed with
 evidence; two were **not** done and are now `superseded`; thirteen remain
-untriaged (todo 394). Separately, 63 archived todos carry 483 bare unchecked
+untriaged (todo 394). Separately, 62 archived todos carry 462 bare unchecked
 acceptance criteria — a population this paragraph did not know existed, and the
 one that AC 4's rule cannot see. The three that were spot-checked are genuinely
 implemented:
@@ -192,13 +192,13 @@ security todo without doing it.
       the re-point escape hatch explicitly, and Step 5 gained a pre-flight.
       **But the skill text is the advisory half**: `.claude/` reaches only NEW
       worktrees, and Rail 4 already said "acceptance criteria are gospel" while
-      63 archived todos carried 483 bare unchecked criteria. So the rule also
+      62 archived todos carried 462 bare unchecked criteria. So the rule also
       landed as a second checker rule, `ARCHIVED_UNCHECKED_AC`, which runs on
       every PR. It closes what AC 4's rule cannot see: a todo archived with
       `status: completed` and 38 unchecked ACs passes *archived-while-open*
       cleanly. The re-point exemption is deliberately narrow — a named target
       todo AND a re-point claim — because an exemption that is easy to satisfy
-      by accident is the same as no rule. Zero of the 63 clear it today.
+      by accident is the same as no rule. Zero of the 62 clear it today.
 - [x] A todo whose AC is an external verification must carry the evidence
       (date + observed result) in-file before it can be archived — documented in
       `todos/TEMPLATE.md` and the `completing-todos` skill
@@ -238,14 +238,14 @@ security todo without doing it.
   Without it, `2025-11-05-011-completed-p2-sql-wildcard-sanitization.md` — status
   `completed`, 38 unchecked criteria — passes the first rule cleanly.
 - Measured: **29** archived-status violations (not the 26 this file recorded) and
-  **63** files carrying **483** bare unchecked criteria.
+  **62** files carrying **462** bare unchecked criteria.
 - 16 of the 29 fixed with evidence recorded in each file's own Work Log. Two were
   **not** done and are now `superseded` rather than `completed`:
   `005-superseded-p1-api-key-rotation-verification` (this todo did its work) and
   `2025-11-01-003-superseded-p1-env-example-secret-placeholders` (todo 367 did,
   ten months later). Calling either "resolved" would credit it with work it did
   not do and erase the gap, which is the only thing they still have to teach.
-- 13 + 63 grandfathered in `todos/archive-status-allowlist.yml`, in two lists
+- 13 + 62 grandfathered in `todos/archive-status-allowlist.yml`, in two lists
   kept separate because they have opposite futures. A **stale** entry fails the
   check, so neither list can quietly become permanent. Todo 394 shrinks them.
 - 15 mutants applied to the checker; all caught by the named tests. One survived

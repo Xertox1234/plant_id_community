@@ -148,7 +148,7 @@ allow:
 # ---------------------------------------------------------------------------
 # Every archived todo that already had bare unchecked acceptance criteria when
 # the ARCHIVED_UNCHECKED_AC rule landed on 2026-09-13. One dated snapshot, not
-# 63 individual judgements -- so paths only, no per-entry reason.
+# 62 individual judgements -- so paths only, no per-entry reason.
 #
 # This is the rule todo 390 AC 5 asked for, and it is the half that binds: the
 # skill text it also asks for reaches only NEW worktrees, while this runs on
@@ -164,7 +164,7 @@ allow:
 # The exemption is deliberately narrow: an unchecked AC is excused only if it
 # names a target todo AND says it was re-pointed, per CLAUDE.md's convention
 #   - [ ] #M2 bookmarks -> todo 283 (re-pointed 2026-07-26; promoted out of 263)
-# Zero of these 63 files clear that bar today. That is the honest starting
+# Zero of these 62 files clear that bar today. That is the honest starting
 # point: the exemption exists for future archivals, not to excuse the past.
 #
 # NOTE for whoever works through these: renaming an archived todo makes its
@@ -225,7 +225,6 @@ grandfathered_unchecked_acs:
   - todos/archive/2025-10-28-parallel-resolution/035-resolved-p1-insecure-development-secrets.md
   - todos/archive/2025-10-28-parallel-resolution/040-resolved-p2-missing-cache-popular-endpoint.md
   - todos/archive/2025-10-28-parallel-resolution/043-resolved-p2-error-handling-leaks-details.md
-  - todos/archive/2025-10-28-parallel-resolution/044-resolved-p2-pii-logging-not-enforced.md
   - todos/archive/2025-11-05-011-completed-p2-sql-wildcard-sanitization.md
   - todos/archive/220-completed-p2-wagtail-forum-retire-machina.md
   - todos/archive/234-completed-p2-flaky-web-vitest-unhandled-rejection.md

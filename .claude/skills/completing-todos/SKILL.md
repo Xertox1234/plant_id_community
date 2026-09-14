@@ -324,7 +324,7 @@ These are non-negotiable. They override any in-the-moment judgment to "just push
 
    Checking off a merely-relocated criterion falsifies the record, and nobody re-audits a checked box.
 
-   **This rail is now enforced, not advised.** `scripts/check_archived_todo_status.py` fails CI when a todo under `archive/` has a bare unchecked criterion, or a non-terminal `status:`. It runs on every PR via `.github/workflows/harness-ci.yml`. This text said the same thing before the checker existed and 63 archived todos carry unchecked criteria anyway — which is the whole argument for the checker: a rule that lives only in `.claude/` reaches only NEW worktrees, and a rule nothing measures is a preference.
+   **This rail is now enforced, not advised.** `scripts/check_archived_todo_status.py` fails CI when a todo under `archive/` has a bare unchecked criterion, or a non-terminal `status:`. It runs on every PR via `.github/workflows/harness-ci.yml`. This text said the same thing before the checker existed and 62 archived todos carry unchecked criteria anyway — which is the whole argument for the checker: a rule that lives only in `.claude/` reaches only NEW worktrees, and a rule nothing measures is a preference.
 
 5. **An external verification must leave evidence in the file.** If a criterion can only be settled outside the repo — a key rotated at a vendor, a DNS record, a dashboard setting, a store submission — then before archiving, the criterion line or the Work Log must carry **the date and the observed result**, quoted:
 

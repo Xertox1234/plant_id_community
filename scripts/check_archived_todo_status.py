@@ -51,7 +51,7 @@ WHAT IS CHECKED (two rules, both on the same status vocabulary)
                      The predicate is deliberately narrow. A loose one ("see todo
                      x", "tracked in y") matches ordinary prose, and an exemption
                      that is easy to satisfy by accident is the same as no rule.
-                     Zero of the 63 files carrying unchecked ACs clear it today,
+                     Zero of the 62 files carrying unchecked ACs clear it today,
                      so the exemption starts unused -- the honest starting point.
 
   FILENAME_OVERCLAIM The filename's status class and the frontmatter's status
@@ -148,11 +148,17 @@ SKIP_NAMES = {
 # `042-completed-p1-slug.md` and `2025-11-01-003-resolved-p1-slug.md` both parse.
 FILENAME_RE = re.compile(r"^(?:\d{4}-\d{2}-\d{2}-)?\d+-([a-z_]+)-")
 UNCHECKED_AC_RE = re.compile(r"^\s*-\s\[ \]")
+# Fenced blocks are EXAMPLES, not criteria. Two archived todos illustrate the
+# convention inside ``` fences, and one of them
+# (2025-10-28-parallel-resolution/044-resolved-p2-pii-logging-not-enforced.md)
+# has three unchecked boxes in fences and none outside -- counting those would
+# fail a file whose real criteria are all done.
+FENCE_RE = re.compile(r"^\s*(?:```|~~~)")
 # CLAUDE.md's re-point convention, deliberately narrow: a TARGET plus a reason --
 #   - [ ] #M2 bookmarks -> todo 283 (re-pointed 2026-07-26; promoted out of 263)
 # A loose predicate ("see todo", "tracked in") matches ordinary prose, and the
 # whole value of this exemption is that it is HARD to satisfy. Measured against
-# the repo: zero of the 63 files with unchecked ACs clear this bar, so the
+# the repo: zero of the 62 files with unchecked ACs clear this bar, so the
 # exemption starts unused -- which is the honest starting point, not a failure.
 REPOINT_RE = re.compile(
     r"(?:\u2192|->)\s*todo\s*\d+|re-?pointed\b.*\btodo\s*\d+|\btodo\s*\d+\b.*re-?pointed",
@@ -175,11 +181,12 @@ def parse(path):
     found = STATUS_RE.search(block)
     status = found.group(1).strip().lower() if found else None
     name_match = FILENAME_RE.match(os.path.basename(path))
-    bare = [
-        line
-        for line in text.splitlines()
-        if UNCHECKED_AC_RE.match(line) and not REPOINT_RE.search(line)
-    ]
+    bare, in_fence = [], False
+    for line in text.splitlines():
+        if FENCE_RE.match(line):
+            in_fence = not in_fence
+        elif not in_fence and UNCHECKED_AC_RE.match(line) and not REPOINT_RE.search(line):
+            bare.append(line)
     return status, (name_match.group(1).lower() if name_match else None), True, bare
 
 
@@ -296,7 +303,7 @@ def load_ac_grandfathers(path):
 
     Paths only, no per-entry reason: this is one dated historical snapshot of
     every archived todo that already had bare unchecked ACs when the rule landed,
-    not 63 individual judgements. Kept in its OWN list because the two buckets
+    not 62 individual judgements. Kept in its OWN list because the two buckets
     have opposite futures -- the `allow` list above should shrink to zero as
     people triage, while this one is a fixed record of what predates the rule.
     Sharing one counter between them would let progress in one manufacture slack
