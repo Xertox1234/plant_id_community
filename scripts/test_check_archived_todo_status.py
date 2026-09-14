@@ -171,10 +171,17 @@ def main():
         for label, arrow in (("ASCII ->", "->"), ("Unicode \u2192", "\u2192")):
             todo(arch, "052-completed-p1-repointed.md", "completed",
                  "## Acceptance Criteria\n\n"
-                 f"- [ ] the thing {arrow} todo 283 (re-pointed 2026-07-26; promoted)\n")
+                 f"- [ ] the thing {arrow} todo 283, promoted out of 263\n")
             code, out = run(root, no_allowlist=True)
-            check(f"an unchecked AC re-pointed with {label} is exempt", code == 0, out)
+            check(f"an arrow re-point written with {label} is exempt", code == 0, out)
             os.remove(arch / "052-completed-p1-repointed.md")
+
+        todo(arch, "052-completed-p1-repointed.md", "completed",
+             "## Acceptance Criteria\n\n"
+             "- [ ] the thing, re-pointed 2026-07-26 to todo 283\n")
+        code, out = run(root, no_allowlist=True)
+        check("a prose re-point naming a todo is exempt without an arrow", code == 0, out)
+        os.remove(arch / "052-completed-p1-repointed.md")
 
         for label, body in (
             ("bare prose 'see todo notes' is NOT a re-point",

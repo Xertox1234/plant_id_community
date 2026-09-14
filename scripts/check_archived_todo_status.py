@@ -45,8 +45,9 @@ WHAT IS CHECKED (two rules, both on the same status vocabulary)
                      archived-while-open rule cleanly
                      (`todos/archive/2025-11-05-011-completed-p2-sql-wildcard-
                      sanitization.md` is exactly that). An AC is excused only by
-                     CLAUDE.md's re-point convention -- a named target todo AND a
-                     re-point claim:
+                     CLAUDE.md's re-point convention -- a named target todo,
+                     marked either by an arrow (`->` or U+2192) or by the words
+                     "re-pointed" next to it:
                        - [ ] #M2 bookmarks -> todo 283 (re-pointed 2026-07-26)
                      The predicate is deliberately narrow. A loose one ("see todo
                      x", "tracked in y") matches ordinary prose, and an exemption
@@ -154,7 +155,8 @@ UNCHECKED_AC_RE = re.compile(r"^\s*-\s\[ \]")
 # has three unchecked boxes in fences and none outside -- counting those would
 # fail a file whose real criteria are all done.
 FENCE_RE = re.compile(r"^\s*(?:```|~~~)")
-# CLAUDE.md's re-point convention, deliberately narrow: a TARGET plus a reason --
+# CLAUDE.md's re-point convention, deliberately narrow: a NUMBERED TARGET, marked
+# by an arrow or by the words "re-pointed". A bare todo number is not enough --
 #   - [ ] #M2 bookmarks -> todo 283 (re-pointed 2026-07-26; promoted out of 263)
 # A loose predicate ("see todo", "tracked in") matches ordinary prose, and the
 # whole value of this exemption is that it is HARD to satisfy. Measured against
