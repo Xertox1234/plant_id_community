@@ -550,6 +550,7 @@ guard: defined for flake8 and type checkers, still no runtime import.
 of those are `%`-style forum event logs whose right token is a forum decision,
 not a mechanical one. Worth a small follow-up; deliberately not folded in here.
 
-61 pre-existing flake8 violations were cleared across the four slices (18 + 8 +
-14 + 21) purely because pre-commit lints whole staged files. Every one was
-verified identical on `main` before being touched.
+62 pre-existing flake8 violations were cleared across the four slices --
+`core` 18, `blog` 8, `users` 14, `plant_identification` 22 -- purely because
+pre-commit lints whole staged files. Every one was verified identical on `main`
+before being touched.
