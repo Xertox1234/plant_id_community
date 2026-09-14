@@ -548,7 +548,10 @@ guard: defined for flake8 and type checkers, still no runtime import.
 7 calls remain repo-wide, all outside the four apps this todo scopes:
 `forum_host/notifications.py` (3) and `garden_calendar/signals.py` (4). Three
 of those are `%`-style forum event logs whose right token is a forum decision,
-not a mechanical one. Worth a small follow-up; deliberately not folded in here.
+not a mechanical one. **Filed as todo 392** (p4) with the call sites, the
+competing `forum.<event>` convention already in that file, and the reason
+`tasks.py:71` cannot simply be prefixed -- it re-emits another command's
+captured stdout, so a token there labels output this module did not write.
 
 62 pre-existing flake8 violations were cleared across the four slices --
 `core` 18, `blog` 8, `users` 14, `plant_identification` 22 -- purely because
