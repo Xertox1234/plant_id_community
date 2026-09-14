@@ -65,6 +65,24 @@ TypeError: Unknown option 'request_bodies'
 production means **Django fails to start**. The stub has been masking a config
 incompatibility for as long as it has been masking Sentry.
 
+### `SENTRY_DSN` is not set in production, so the fix alone changes nothing
+
+Checked 2026-09-14 against the Railway `plant_id_community` service — variable
+**names** only, no values. The service has 40 variables and `SENTRY_DSN` is not
+among them.
+
+Two consequences, and they reorder this todo:
+
+- Deleting the stub, by itself, changes **nothing at runtime**. `init()` is
+  guarded by `if SENTRY_DSN and not DEBUG`, so it is never reached. The real
+  question is not "fix the stub" but **"do we want error reporting at all?"** —
+  which is a spend-and-privacy decision, not a code cleanup.
+- The startup-crash landmine is therefore **not armed today**, and arming it is
+  a one-variable action by someone who will have no idea. Setting `SENTRY_DSN`
+  *now* is a harmless no-op; setting it *after* the stub is removed but before
+  the `request_bodies` fix **crashes Django at boot**. Do steps 1 and 2 in the
+  same commit, never separately.
+
 ### `request_bodies="medium"` contradicts the setting two lines above it
 
 `send_default_pii=False` is set deliberately, with the comment *"Don't send
@@ -116,8 +134,14 @@ pins the diagnosis so it cannot be closed on a guess.
       reconciles with `send_default_pii=False`
 - [ ] One deliberately-triggered error is confirmed **received** in the Sentry
       project, with the date and what was seen recorded here
-- [ ] Whether `SENTRY_DSN` is set in production is recorded here (boolean only,
+- [x] Whether `SENTRY_DSN` is set in production is recorded here (boolean only,
       never the value)
+      — **2026-09-14: it is NOT set.** Railway `plant_id_community`, production,
+      40 variables, no `SENTRY_DSN`. Read as names-only; no value was fetched.
+- [ ] A decision is recorded on whether this project wants Sentry at all. If
+      not, delete the stub AND the `settings.py` block AND the `sentry-sdk`
+      pin, rather than leaving dead configuration that reads as working
+      observability
 - [ ] Todo 393's `_alert` guard is removed and its two stub-pinning tests are
       updated, so AC 4 of that todo becomes genuinely met
 
