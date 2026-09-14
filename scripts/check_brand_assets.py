@@ -152,11 +152,20 @@ def pixel(px: bytes, channels: int, width: int, x: int, y: int) -> tuple[int, ..
 # --------------------------------------------------------------- marks ----
 
 
-def brand_colours() -> tuple[tuple[int, int, int], list[tuple[int, int, int]]]:
-    """Read the tile's dark stop and the leaf's stops from the canonical SVG.
+def brand_colours() -> tuple[
+    tuple[tuple[int, int, int], tuple[int, int, int]], list[tuple[int, int, int]]
+]:
+    """Read BOTH tile gradient stops and the leaf's stops from the canonical SVG.
 
     Read, never hardcoded: an expectation that does not move with the mark is an
     expectation that goes stale silently the first time the mark is redrawn.
+
+    Both tile stops, not one, because the pair is what makes the corner test
+    mean something. Checking a single corner against a single colour cannot tell
+    "the tile fills the canvas" from "the tile is inset and something else got
+    composited behind it", and cannot notice a flipped gradient at all. The two
+    diagonal corners of a topLeft->bottomRight gradient must land on the two
+    stops, and on a correct render they land on them exactly.
     """
     if not SVG.exists():
         raise Fail(f"canonical mark not found at {SVG.relative_to(REPO)}")
@@ -169,14 +178,20 @@ def brand_colours() -> tuple[tuple[int, int, int], list[tuple[int, int, int]]]:
         )
     rgb = lambda h: (int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16))
     # Document order: the tile gradient is declared before the leaf gradient.
-    return rgb(hexes[0]), [rgb(h) for h in hexes[2:4]]
+    return (rgb(hexes[0]), rgb(hexes[1])), [rgb(h) for h in hexes[2:4]]
 
 
 def near(a: tuple[int, ...], b: tuple[int, int, int], tol: int = 12) -> bool:
     return all(abs(a[i] - b[i]) <= tol for i in range(3))
 
 
-def check_image(path: Path, size: int, *, opaque: bool, tile: tuple[int, int, int]):
+def check_image(
+    path: Path,
+    size: int,
+    *,
+    opaque: bool,
+    tile: tuple[tuple[int, int, int], tuple[int, int, int]],
+):
     if not path.exists():
         raise Fail(f"missing: {path.relative_to(REPO)}")
     width, height, channels, px = decode_png(path)
@@ -197,11 +212,33 @@ def check_image(path: Path, size: int, *, opaque: bool, tile: tuple[int, int, in
             f"{path.relative_to(REPO)} has a white corner -- this is still "
             f"Flutter's default placeholder icon, not the Houseplant MD mark."
         )
-    if opaque and not near(corner, tile):
-        raise Fail(
-            f"{path.relative_to(REPO)} corner is rgb{corner}, expected the pine "
-            f"tile rgb{tile}. The icon is not the brand mark."
-        )
+    if opaque:
+        far = pixel(px, channels, width, width - 1, height - 1)
+
+        # 1. Absolute: is this the tile at all? Catches an inset tile, a
+        #    transparent corner composited over something else, a wrong mark.
+        for label, got, want in (("top-left", corner, tile[0]), ("bottom-right", far, tile[1])):
+            if not near(got, want):
+                raise Fail(
+                    f"{path.relative_to(REPO)} {label} corner is rgb{got}, expected "
+                    f"rgb{want}. The tile does not fill the canvas -- iOS would show "
+                    f"a ring around the icon."
+                )
+
+        # 2. Relative: is the gradient the right way round? The absolute test
+        #    ALONE CANNOT ANSWER THIS. The two stops sit ~15 units apart, inside
+        #    near()'s tolerance, so a reversed gradient passes every per-corner
+        #    check while being visibly wrong. Verified: flipping x1/y1/x2/y2 in
+        #    the SVG and re-rendering produced no failure until this test existed.
+        #    Comparing each corner to BOTH stops is scale-free, so it keeps
+        #    working if the mark is redrawn with closer or wider stops.
+        d = lambda a, b: sum((a[i] - b[i]) ** 2 for i in range(3))
+        if d(corner, tile[0]) > d(corner, tile[1]) or d(far, tile[1]) > d(far, tile[0]):
+            raise Fail(
+                f"{path.relative_to(REPO)} has its tile gradient reversed: the "
+                f"top-left corner rgb{corner[:3]} is nearer the END stop rgb{tile[1]} "
+                f"than the START stop rgb{tile[0]}."
+            )
 
     distinct = {pixel(px, channels, width, x, y)[:3] for y in range(0, height, max(1, height // 16)) for x in range(0, width, max(1, width // 16))}
     if len(distinct) < 3:
@@ -282,7 +319,7 @@ def main() -> int:
         print("BRAND ASSET CHECK")
         print("=" * 60)
         print(f"  canonical mark : {SVG.relative_to(REPO)}")
-        print(f"  tile rgb{tile}   leaf rgb{leaf[0]}")
+        print(f"  tile rgb{tile[0]} -> rgb{tile[1]}   leaf rgb{leaf[0]}")
         print(f"  assets checked : {len(checked)}")
         for f in failures:
             print(f"  ✗ {f}")
