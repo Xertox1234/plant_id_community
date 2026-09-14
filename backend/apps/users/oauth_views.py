@@ -122,7 +122,7 @@ def oauth_login(request, provider):
         return Response({"oauth_url": oauth_url, "provider": provider})
 
     except Exception as e:
-        logger.error(f"OAuth login error for {provider}: {str(e)}")
+        logger.error(f"[AUTH] OAuth login error for {provider}: {str(e)}")
         return Response(
             {"error": "OAuth initialization failed"},
             status=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -162,7 +162,7 @@ def oauth_callback(request, provider):
                 if _OAUTH_ERROR_CODE.fullmatch(error)
                 else f"<non-conforming, {len(error)} chars>"
             )
-            logger.warning("OAuth error for %s: %s", provider, safe_error)
+            logger.warning("[AUTH] OAuth error for %s: %s", provider, safe_error)
             # Redirect to frontend with error
             frontend_url = get_oauth_redirect_url(provider)
             return HttpResponseRedirect(f"{frontend_url}?{urlencode({'error': error})}")
@@ -180,7 +180,7 @@ def oauth_callback(request, provider):
             return HttpResponseRedirect(f"{frontend_url}?error=invalid_state")
 
         if not code:
-            logger.warning(f"No authorization code received for {provider}")
+            logger.warning(f"[AUTH] No authorization code received for {provider}")
             frontend_url = get_oauth_redirect_url(provider)
             return HttpResponseRedirect(f"{frontend_url}?error=no_code")
 
@@ -190,12 +190,12 @@ def oauth_callback(request, provider):
         elif provider == "github":
             user_data = _handle_github_callback(request, code)
         else:  # pragma: no cover - unreachable, guarded above
-            logger.error("Unsupported provider reached the callback dispatch")
+            logger.error("[AUTH] Unsupported provider reached the callback dispatch")
             frontend_url = get_oauth_redirect_url(provider)
             return HttpResponseRedirect(f"{frontend_url}?error=unsupported_provider")
 
         if not user_data:
-            logger.error(f"Failed to get user data from {provider}")
+            logger.error(f"[AUTH] Failed to get user data from {provider}")
             frontend_url = get_oauth_redirect_url(provider)
             return HttpResponseRedirect(f"{frontend_url}?error=user_data_failed")
 
@@ -203,7 +203,7 @@ def oauth_callback(request, provider):
         user = _find_or_create_user(provider, user_data)
 
         if not user:
-            logger.error(f"Failed to create/find user for {provider}")
+            logger.error(f"[AUTH] Failed to create/find user for {provider}")
             frontend_url = get_oauth_redirect_url(provider)
             return HttpResponseRedirect(f"{frontend_url}?error=user_creation_failed")
 
@@ -218,12 +218,12 @@ def oauth_callback(request, provider):
         response = set_jwt_cookies(response, user)
 
         logger.info(
-            f"Successful OAuth login for {log_safe_user_context(user)} via {provider}"
+            f"[AUTH] Successful OAuth login for {log_safe_user_context(user)} via {provider}"
         )
         return response
 
     except Exception as e:
-        logger.error(f"OAuth callback error for {provider}: {str(e)}")
+        logger.error(f"[AUTH] OAuth callback error for {provider}: {str(e)}")
         frontend_url = get_oauth_redirect_url(provider)
         return HttpResponseRedirect(f"{frontend_url}?error=callback_failed")
 
@@ -257,7 +257,7 @@ def _handle_google_callback(request, code):
         token_json = token_response.json()
 
         if "access_token" not in token_json:
-            logger.error(f"Google token exchange failed: {token_json}")
+            logger.error(f"[AUTH] Google token exchange failed: {token_json}")
             return None
 
         # Get user profile
@@ -265,7 +265,7 @@ def _handle_google_callback(request, code):
         profile_response = requests.get(profile_url)
 
         if profile_response.status_code != 200:
-            logger.error(f"Google profile fetch failed: {profile_response.text}")
+            logger.error(f"[AUTH] Google profile fetch failed: {profile_response.text}")
             return None
 
         profile = profile_response.json()
@@ -289,7 +289,7 @@ def _handle_google_callback(request, code):
         return profile
 
     except Exception as e:
-        logger.error(f"Google OAuth handling error: {str(e)}")
+        logger.error(f"[AUTH] Google OAuth handling error: {str(e)}")
         return None
 
 
@@ -317,7 +317,7 @@ def _handle_github_callback(request, code):
         token_json = token_response.json()
 
         if "access_token" not in token_json:
-            logger.error(f"GitHub token exchange failed: {token_json}")
+            logger.error(f"[AUTH] GitHub token exchange failed: {token_json}")
             return None
 
         # Get user profile
@@ -330,7 +330,7 @@ def _handle_github_callback(request, code):
         profile_response = requests.get(profile_url, headers=headers)
 
         if profile_response.status_code != 200:
-            logger.error(f"GitHub profile fetch failed: {profile_response.text}")
+            logger.error(f"[AUTH] GitHub profile fetch failed: {profile_response.text}")
             return None
 
         user_data = profile_response.json()
@@ -355,7 +355,7 @@ def _handle_github_callback(request, code):
         return user_data
 
     except Exception as e:
-        logger.error(f"GitHub OAuth handling error: {str(e)}")
+        logger.error(f"[AUTH] GitHub OAuth handling error: {str(e)}")
         return None
 
 
@@ -374,13 +374,15 @@ def _find_or_create_user(provider, user_data):
     try:
         email = user_data.get("email")
         if not email:
-            logger.error(f"No email provided by {provider} (GDPR: no email logged)")
+            logger.error(
+                f"[AUTH] No email provided by {provider} (GDPR: no email logged)"
+            )
             return None
 
         # Check if user exists with this email
         try:
             user = User.objects.get(email=email)
-            logger.info(f"Found existing {log_safe_user_context(user)}")
+            logger.info(f"[AUTH] Found existing {log_safe_user_context(user)}")
             return user
         except User.DoesNotExist:
             pass
@@ -430,9 +432,9 @@ def _find_or_create_user(provider, user_data):
                 user.location = user_data.get("location", "")[:100]
             user.save()
 
-        logger.info(f"Created new {log_safe_user_context(user)} via {provider}")
+        logger.info(f"[AUTH] Created new {log_safe_user_context(user)} via {provider}")
         return user
 
     except Exception as e:
-        logger.error(f"User creation error for {provider}: {str(e)}")
+        logger.error(f"[AUTH] User creation error for {provider}: {str(e)}")
         return None
