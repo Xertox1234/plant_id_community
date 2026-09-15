@@ -171,3 +171,26 @@ Compact checklist auto-injected before edits. Long-form:
   field needs a direct assertion (a fixture that carries a value nobody reads back
   cannot fail), and a nested author surface reads `is_blocked` / `is_muted` and
   collapses like the post card (todo 342).
+- **Never `rm -rf plant_community_mobile/build` to reclaim disk — run
+  `flutter clean`.** Deleting `build/` orphans
+  `build/native_assets/ios/objective_c.framework` while
+  `.dart_tool/hooks_runner/<pkg>/<confighash>/` still records the native-assets
+  hook as having run, so the hook is skipped forever and EVERY later
+  `flutter build ipa` dies. The exception names a `NativeAssetsManifest.json`
+  under **DerivedData**, which is the wrong suspect — clearing DerivedData costs
+  a full cold rebuild and changes nothing. `flutter clean` removes `.dart_tool`
+  too, which is the part that matters (2026-09-14, build 12).
+- **A Dart constant cannot reach the app's home-screen name.** `AppBrand.name`
+  governs every Dart-side string, but the caption under the icon is
+  `CFBundleDisplayName` in `ios/Runner/Info.plist` and `android:label` in
+  `AndroidManifest.xml` — native manifests no `String.fromEnvironment` or
+  compile-time constant touches. Rename all three together;
+  `test/core/constants/app_brand_platform_parity_test.dart` fails if you don't.
+  iOS build 10 shipped the whole Canopy design under "Plant Community Mobile".
+- **App icons are full-bleed and carry no alpha channel, on BOTH platforms.**
+  iOS and Android launchers apply their own mask, so shipping an already-rounded
+  tile rounds it twice (dark wedges under a masking launcher; a tile floating on
+  a backdrop square under one that doesn't). Apple additionally rejects an icon
+  containing an alpha channel. Generate icons from the canonical vector with
+  `node scripts/design/render_brand_assets.mjs`, never by hand;
+  `scripts/check_brand_assets.py` is the gate and runs in `mobile-ci.yml`.

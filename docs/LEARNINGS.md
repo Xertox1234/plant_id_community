@@ -6228,3 +6228,82 @@ it against the fixed file, not just the broken one.
 use a trigger.
 
 **Agent**: pattern-codifier
+
+## 2026-09-14 — Three shipped defects that a build WARNING announced every time (mobile)
+
+**What broke.** The Flutter app's design work (#764, Canopy) was merged but not
+visible, and chasing it uncovered three stacked gaps, each shipped for many
+builds while being printed on screen on every single build:
+
+```
+[✓] App Settings Validation
+    • Display Name: Plant Community Mobile      <- wrong for 11 builds
+[!] App Icon and Launch Image Assets Validation
+    ! App icon is set to the default placeholder icon.   <- 11 builds
+```
+
+1. **The design merged but no build was made.** PR #764 merged
+   2026-09-14T04:27Z; build 9 — the only installable build — was uploaded
+   14 hours earlier. `pubspec.yaml` said `1.0.0+10` while App Store Connect's
+   highest was 9: a build number staged and never shipped. Diagnosis was a
+   TIMESTAMP comparison, not a code search. Nothing was stranded on a branch.
+2. **The home-screen name never got the rename.** `AppBrand.name` unified every
+   Dart-side name on "Houseplant MD", but `CFBundleDisplayName` and
+   `android:label` are native manifests that no compile-time constant reaches.
+   Fixed in #767 with a parity test reading the SHIPPED manifests.
+3. **The app icon was Flutter's placeholder.** Fixed in #768 by rendering all 23
+   PNGs from the one canonical vector (`web/public/favicon.svg`) through
+   Chromium, with `scripts/check_brand_assets.py` as a CI gate.
+
+**Root cause, common to all three: a warning nobody is forced to read is not a
+check.** Each is now a test that fails.
+
+### The build failure that followed, and the wrong suspect
+
+Freeing disk with `rm -rf plant_community_mobile/build` broke the next
+`flutter build ipa`:
+
+```
+Exception: The native assets specification at <DerivedData>/.../NativeAssetsManifest.json
+references objective_c, which was not found in .../build/native_assets/ios/.
+```
+
+The message names DerivedData, so DerivedData was cleared first — 7.8 GB and a
+full cold rebuild, for nothing; the manifest was being regenerated correctly each
+time. The stale state is `.dart_tool/hooks_runner/objective_c/<confighash>/`,
+which records that the native-assets hook already ran. Deleting `build/` removed
+the hook's OUTPUT while leaving that record intact, so the hook was skipped
+permanently. **`flutter clean` + `flutter pub get`** fixed it — confirmed by
+checking the thing the hypothesis predicts (`build/native_assets/ios/` repopulated),
+not by the build merely going green.
+
+**Rule**: an error message names where it NOTICED the problem, not where the
+problem is. Ask what regenerates the missing artefact before clearing the cache
+the message happens to mention.
+
+### Two guards that passed while blind
+
+- **A one-corner colour assertion cannot see a reversed gradient.** The icon
+  check compared one corner to one colour. Adding a second corner was still not
+  enough: the tile's stops are `rgb(16,54,47)` and `rgb(11,43,38)`, ~15 units
+  apart — INSIDE the `tol=12` tolerance — so flipping the gradient in the SVG,
+  re-rendering and re-checking produced NO failure. The fix compares each corner's
+  distance to BOTH stops (scale-free). Same lesson as the Canopy DM bubbles: for
+  two things that must DIFFER, assert the distance between them.
+- **A mutation test run against the wrong revision proves nothing.** Restoring
+  "the old placeholder" with `git show HEAD:<icon>` reported 0 failures — because
+  HEAD was by then the commit that ADDED the new icon, so the test compared the
+  icon to itself. Re-run against `main`. Sibling of the aapt2 negative control in
+  the same session, which failed on the manifest instead of the colour reference
+  and therefore tested nothing until rebuilt with a real `res/` tree.
+
+### Verifying an icon inside an IPA needs a CgBI decoder
+
+Xcode compiles the asset catalogue to `Assets.car` and extracts a couple of PNGs
+to the bundle root. Those are Apple's **CgBI** variant: a `CgBI` chunk before
+IHDR, IDAT is RAW deflate (`zlib.decompressobj(-15)`, not `zlib.decompress`), and
+pixels are **BGRA**, premultiplied. A stdlib PNG reader raises
+`zlib.error: incorrect header check` on a perfectly good icon. This is the check
+that separates "right in the repo" from "right in what Apple receives".
+
+**Agent**: flutter-dart-reviewer
