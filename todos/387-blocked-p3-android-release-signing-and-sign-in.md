@@ -1,14 +1,24 @@
 ---
-status: pending
+status: blocked
 priority: p3
 issue_id: "387"
 tags: [android, firebase, signing, mobile, security]
 dependencies: []
 source_review: "todos/383-firebase-hardening-carryover"
 source_finding: "AC4,AC5-android"
+blocked_on: "no physical Android device is available (held 2026-09-14)"
+unblock_when: "a physical Android device with a Google account can be connected over adb"
 ---
 
 # Android: release signing, SHA-1 registration, and a verified sign-in
+
+> **ON HOLD since 2026-09-14.** The engineering is done and merged (#772); the
+> two remaining criteria need hardware and a Play account that do not exist yet.
+>
+> `status: blocked` makes this file **invisible to every sweep skill** —
+> `todo-sweep`, `todo-next`, `todo-batch` and `completing-todos` all select on
+> `^status: pending`. Nothing will resurface it automatically. Flip the status
+> and the filename back to `pending` when a device is available.
 
 ## Problem
 
