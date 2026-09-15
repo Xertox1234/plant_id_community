@@ -113,6 +113,28 @@ aapt2 dump resources build/app/outputs/flutter-apk/app-release.apk \
   | grep default_web_client_id
 ```
 
+### The side effect: dart-defines must now agree with the json
+
+Applying the plugin also generates `google_app_id` and `google_api_key`, which
+makes `FirebaseInitProvider` create a **native `[DEFAULT]` app before Dart
+runs**. That never happened before — `Firebase.initializeApp(options:)` was the
+only initializer.
+
+`firebase_core` reconciles the two with a *soft* comparison
+(`method_channel_firebase.dart`): if a native default app already exists and
+Dart also passes options, it throws `[core/duplicate-app]` when **`apiKey`**
+differs, or when Dart supplies a `databaseURL` or `storageBucket` that differs.
+Other fields are ignored, so a missing platform-specific key is fine.
+
+So on Android the dart-defines are no longer free to drift from
+`google-services.json`. Checked at the time of writing: `.env.production` and
+`.env.local` both agree on all three fields; `.env.example` does not, but its
+values are placeholders that never worked anyway. CI is unaffected because it
+only *builds* the debug APK — it never starts it.
+
+If the app dies at startup with `[core/duplicate-app]`, compare those three
+fields against the json rather than looking for two `initializeApp` calls.
+
 ## Verifying a build
 
 Check the artifact, not the build log. A green build says nothing about which
