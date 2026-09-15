@@ -131,12 +131,38 @@ def test_no_local_module_shadows_the_real_sentry_sdk():
     rather than the one known stub path -- the failure mode is "a local file
     shadows an installed package", not "this particular file exists".
     """
-    resolved = Path(sentry_sdk.__file__).resolve()
     project_root = Path(__file__).resolve().parents[3]
 
-    assert not resolved.is_relative_to(project_root), (
+    # Checked independently of which copy won the import, because the two
+    # failures are not the same. The resolved-path assertion below catches a
+    # stub that IS currently shadowing the SDK. This one catches a stub sitting
+    # in the tree that ISN'T -- committed but out-shadowed by a sys.path
+    # accident, so every check passes here and the landmine goes off on someone
+    # else's machine instead.
+    for shadow in (project_root / "sentry_sdk.py", project_root / "sentry_sdk"):
+        assert not shadow.exists(), (
+            f"{shadow} exists. backend/ is the Django project root and is on "
+            "sys.path, so a module named sentry_sdk there can win over the "
+            "installed package and silently disable all error reporting "
+            "(todo 395) -- whether or not it won this particular import."
+        )
+
+    resolved = Path(sentry_sdk.__file__).resolve()
+
+    # This project's documented venv is backend/venv, so the REAL installed SDK
+    # resolves inside project_root too. A bare `not is_relative_to` therefore
+    # failed for every local developer while passing in CI, where site-packages
+    # sits outside the repo -- a guard that fires on the correct state is one
+    # people learn to ignore, which is how a shadowing stub survives. Exempt the
+    # package directories; the repo check still catches a stub anywhere else.
+    in_site_packages = any(
+        part in ("site-packages", "dist-packages") for part in resolved.parts
+    )
+
+    assert in_site_packages or not resolved.is_relative_to(project_root), (
         f"import sentry_sdk resolves to {resolved}, inside the project root "
-        f"{project_root}. A local module is shadowing the installed "
+        f"{project_root} and outside any site-packages. A local module is "
+        f"shadowing the installed "
         f"sentry-sdk ({sentry_sdk.VERSION}), which silently "
         "disables ALL error reporting -- init() becomes a no-op and nothing "
         "ever reaches Sentry. This is exactly the todo 395 regression."

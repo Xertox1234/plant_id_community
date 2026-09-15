@@ -1,10 +1,10 @@
 ---
-status: pending
+status: completed
 priority: p2
 issue_id: "393"
 tags: [plant-identification, ops, billing, monitoring, production]
 dependencies: []
-source_review: "todos/390-pending-p3-plant-id-key-rotation-unverified.md"
+source_review: "todos/archive/390-completed-p3-plant-id-key-rotation-unverified.md"
 ---
 
 # A Plant.id outage is invisible: the provider can fail completely and nothing says so
@@ -159,8 +159,27 @@ here because this todo is about how provider failures get logged.
       reassigned from the old Plant.id project to the new Houseplant MD project.
       This covers production as well as local: both were written from the same
       piped value in one `&&` chain, so they are the same bytes.
-- [ ] One real identification through production returns `source == "plant_id"`
+- [x] One real identification through production returns `source == "plant_id"`
       with a non-null `disease_detection`, recorded here
+      — **2026-09-15**, `POST /api/v1/plant-identification/identify/` against
+      `api.houseplant-md.com`, authenticated, HTTP 200 in 2.58s. Observed:
+      `providers: {plant_id: {status: "ok"}, plantnet: {status: "ok"}}`,
+      `degraded: false`, `plant_name: "Aloe vera"`, `confidence: 0.99`,
+      `disease_detection_status: "ok"`, `disease_detection_reason: null`, and
+      **`disease_detection` non-null** —
+      `{is_healthy: true, disease_name: "Hemiptera", probability: 0.0236, ...}`.
+      `source` is not exposed over HTTP; the direct evidence is the Railway log
+      line `[SUCCESS] Plant.id identified: Aloe vera (confidence: 99.00%)`
+      (`combined_identification_service.py:280`), which is emitted *inside* the
+      same `if plant_id_results:` branch that executes
+      `results["source"] = "plant_id"` eleven lines above it.
+      **Cache miss confirmed, not assumed:** the image was re-encoded to force a
+      novel hash and the log shows `[LOCK] Attempting to acquire lock for
+      d06593ce...`, matching the new file's SHA-256 — so Plant.id was really
+      called, not replayed. `[SUCCESS] Plant.id completed in 2.06s`.
+      **Cost: exactly 2.0 credits** (`used.total` 0.0 → 2.0, remaining 86 → 84),
+      which answers empirically what was never confirmed from the vendor docs:
+      `/identification` and `/health_assessment` bill separately.
 - [x] A Plant.id failure is visible: a distinct log line (bracketed prefix, per
       `docs/rules/api.md`) that names WHY the provider returned nothing —
       credit-blocked, auth-rejected, timeout — rather than the current silence
@@ -175,7 +194,7 @@ here because this todo is about how provider failures get logged.
       empty one — so unmapped statuses become `http-<status>`, always specific
       and never a guess wearing a confident label. Add the mapping when a real
       credit block is seen, and record the observed status here.
-- [ ] Sustained primary-provider failure raises something a human sees, wired
+- [x] Sustained primary-provider failure raises something a human sees, wired
       into ~~`services/monitoring_service.py`'s existing API-dependency
       tracking~~ `circuit_monitoring.py`. A threshold, not a per-request alert
       — **Half done, and the honest half is stated rather than claimed.** The
@@ -204,10 +223,12 @@ here because this todo is about how provider failures get logged.
       unchecked, deliberately.** Todo 395 is closed and archived: the Sentry
       project `houseplant-md-backend` is live, `SENTRY_DSN` is set on the
       Railway service, and a deliberately-triggered error was confirmed received
-      (issue `HOUSEPLANT-MD-BACKEND-1`). That error arrived via the **logging
-      integration** — a `logger.error` inside an `except` — which is precisely
-      the path `_alert()` uses, so the mechanism this AC depends on is proven end
-      to end. What is *not* proven is this AC's own sentence: nobody has seen a
+      (issue `HOUSEPLANT-MD-BACKEND-1`). **Corrected 2026-09-15:** that error
+      arrived via the **logging integration** (a `logger.error` inside an
+      `except`), which is *not* the path `_alert()` uses — `_alert()` calls
+      `sentry_sdk.capture_message` directly. The two share `init()`, the DSN and
+      the transport, so what 395 proved is that those work; `capture_message`
+      itself has never been exercised here. What is *not* proven is this AC's own sentence: nobody has seen a
       **sustained primary-provider failure** actually open the circuit and raise.
       Forcing that needs real repeated Plant.id failures against production, so
       it stays open until either a genuine outage does it or someone exercises
@@ -218,6 +239,32 @@ here because this todo is about how provider failures get logged.
       a `try/except` remains in its place on purpose, because "alerting must
       never break the failure path it watches" is a permanent invariant rather
       than stub-era scaffolding.
+      **CLOSED 2026-09-15, on this AC's own stated exit condition** — "until
+      either a genuine outage does it or someone exercises `_alert()` on
+      purpose". Both halves are now proven with real components rather than
+      assumed:
+      **(a) threshold → alert.** `test_a_real_circuit_reaching_its_threshold_actually_raises_the_alert`
+      drives a real `create_monitored_circuit` breaker with real `HTTPError`s:
+      no alert at failures 1 and 2, exactly one at failure 3, carrying the
+      service name and the reason token that the real `failure()` callback
+      derived from the real exception. Three mutants fail it.
+      **(b) alert → a human.** `_alert()` invoked in the production container:
+      `sentry_sdk.get_client().is_active()` → `True`, `release 1.0.0`,
+      `environment production`, and the event arrived as issue
+      **`HOUSEPLANT-MD-BACKEND-2`** (id 7734151220, event `062ab2e1`), level
+      **Error**, title carrying the full message including `payment-required`.
+      Note it is a *separate* issue from `HOUSEPLANT-MD-BACKEND-1`, which is the
+      point: that one came via the logging integration, this one via
+      `capture_message`, and only this one exercises the path `_alert()` takes.
+      **What remains inferred, stated plainly:** nobody has watched a genuine
+      Plant.id outage drive a live gunicorn worker's circuit to its threshold.
+      The two links above are each proven; their *composition in production* is
+      not. That gap is structural rather than negligent — `_plant_id_circuit` is
+      module-level with pybreaker's in-memory storage and `bin/start.sh` runs
+      `--workers 2`, so each worker holds an independent `fail_max=3` counter and
+      external traffic cannot reliably drive either to the threshold. Closing on
+      the AC's own exit condition rather than leaving it open forever, with the
+      residual risk named here instead of hidden behind a tick.
 - [x] The response makes provider degradation legible to the client: when
       `source` is absent or `disease_detection` is null because the provider
       failed (not because the plant is healthy), the API says so rather than
@@ -369,3 +416,203 @@ editing — the log-prefix script in `scripts/`, and this drift guard in
 to a service, run `apps/core/` as well: five of its tests scan the whole backend
 tree (`test_requests_exception_drift`, `test_env_example_placeholders`,
 `test_env_integrity`, `test_image_rendition_formats`, `test_r2_storage`).
+
+### 2026-09-15 - The alert chain, tested against a real circuit rather than a Mock
+
+AC 4 is about a sustained failure reaching a person. Both existing alert tests
+build a `Mock` breaker with `fail_counter` pre-set, call
+`state_change(breaker, "closed", "open")` by hand, and hand-assign
+`last_failure_reason`. They pin what the listener does *given* the transition —
+but every step that **produces** the transition is supplied by the test. Three
+links went unchecked, and all three have to hold for a real outage to alert:
+
+- that pybreaker calls `state_change` at all, with `"open"` as the lowercase
+  name this listener compares against;
+- that it fires on the `fail_max`-th failure and **not before** — the entire
+  difference between the threshold alert this AC asks for and a per-request one;
+- that `last_failure_reason` is filled in by the real `failure()` callback from
+  the real exception. `None` there still produces an alert, just one that names
+  nothing.
+
+`test_a_real_circuit_reaching_its_threshold_actually_raises_the_alert` drives a
+real `create_monitored_circuit` breaker with real `HTTPError`s and asserts on
+what comes out the far end. Three mutants confirm it can fail: removing the
+`_alert()` call, moving it into `failure()` so it fires per request, and
+blanking the reason. `apps/plant_identification/` + `apps/core/`: 1563 passed.
+
+**Learned while writing it:** pybreaker replaces the provider's exception with
+`CircuitBreakerError` on the call that *trips* the threshold — which is why
+`classify_provider_failure` maps that type to `circuit-open`. The listener still
+receives the original, which is how the alert names `payment-required` and not
+`circuit-open`.
+
+**A correction to the previous entry.** It said todo 395's verification proved
+"precisely the path `_alert()` uses". It did not. That event arrived through the
+**logging integration** (a `logger.error` inside an `except`); `_alert()` calls
+`sentry_sdk.capture_message` **directly**. The two share `init()`, the DSN and
+the transport, so 395 proved those — but `capture_message` itself has never been
+exercised in this project, and `apps.*` sets `propagate=False`, so treating the
+two as interchangeable is the same substitution this AC keeps warning about.
+That makes the remaining gap smaller and sharper, not larger.
+
+**Two guards were crying wolf.** `test_no_local_stub_shadows_the_real_sentry_package`
+and `apps/core/tests/test_sentry_options_drift.py` both asserted `sentry_sdk`
+does not resolve under the project root. This project's documented venv is
+`backend/venv`, so the real installed SDK resolves there too: both failed for
+every local developer while passing in CI, where site-packages sits outside the
+repo. A guard that fires on the correct state is one people learn to ignore —
+which is exactly how a shadowing stub survives. Now exempt
+site-packages/dist-packages, plus a direct existence check on
+`backend/sentry_sdk.py` that does not depend on which copy won the import.
+Verified by re-adding the stub: the plant_identification guard fails cleanly and
+names the file; the core one goes red at *collection* instead, because it
+imports `sentry_sdk` at module scope. Both protective, only the first legible.
+
+**Still open, and unchanged in kind.** Nobody has seen `capture_message` deliver
+from production, and nobody has seen a real provider outage open the circuit.
+Why the second cannot simply be forced: `_plant_id_circuit` is module-level with
+pybreaker's default **in-memory** storage, and `bin/start.sh` runs
+`gunicorn --workers 2`, so each worker holds its own independent `fail_max=3`
+counter and external requests cannot reliably drive either one to the threshold.
+That is a structural reason, not a shrug.
+
+**Baseline for AC 2, measured 2026-09-15:** `used.total: 0.0` against 86
+credits — **no identification has ever run on the rotated key.** Whatever else
+was verified in September, this AC's own sentence has never been true.
+
+### 2026-09-15 - AC 2's wording is stale, and the rule for recording it is fixed NOW
+
+Read before spending a credit, which is the only reason it was caught.
+`_format_response` (`plant_id_service.py:500-541`) initialises
+`disease_info = None` and populates it **only** `if disease_suggestions:`. There
+is no `else`. Its own comment states the consequence:
+
+```python
+"health_assessment": disease_info,
+# None when the health call failed; None-and-this-is-None means the
+# call succeeded and the plant has no detected disease.
+```
+
+So `disease_detection` is null whenever Plant.id's health endpoint runs
+successfully and finds **nothing wrong**. AC 2 demands "a non-null
+`disease_detection`" — which is therefore not a test of whether disease
+detection works, it is a test of whether the submitted plant is *sick*. A
+perfectly healthy plant fails it while the system behaves exactly as designed.
+
+The wording is simply older than the fix. It was written 2026-09-13; the field
+that actually expresses "the health assessment ran" —
+`disease_detection_status` — did not exist until #766 the next day, and AC 5
+defines it precisely: *`"ok"` means the health assessment **ran** — a healthy
+plant is `"ok"` with `disease_detection: null`*.
+
+**The rule, committed before the result is known**, because deciding afterwards
+is how a stale AC gets quietly checked off:
+
+| Observed | Verdict |
+| --- | --- |
+| `disease_detection` non-null | literal wording met — check it |
+| `disease_detection` null **and** `disease_detection_status == "ok"` | intent met, wording stale — **reword the AC**, state why, then check it |
+| `disease_detection_status == "unavailable"` | fails, whatever else the response says |
+
+`source` is not exposed over HTTP. `providers.plant_id.status == "ok"` is set
+from the same `ProviderOutcome` that gates `results["source"] = "plant_id"`, and
+the `[SUCCESS] Plant.id identified:` log line is emitted *inside* that same
+branch — so the Railway log is the direct evidence that the assignment ran.
+(They diverge only if Plant.id returns a falsy-but-not-None result, which a
+response carrying suggestions rules out.)
+
+**Cost:** identification and health assessment are two separate POSTs, so
+authorise **up to 2 credits**, then measure the real delta against the
+`used.total: 0.0` baseline and record it — that answers empirically what the
+vendor docs were never consulted for.
+
+### 2026-09-15 - AC 2 closed: the rotated key really can identify a plant
+
+One authenticated `POST /api/v1/plant-identification/identify/` against
+production, HTTP 200 in 2.58s. `providers.plant_id.status: "ok"`,
+`plantnet: "ok"`, `degraded: false`, `Aloe vera` at 0.99, and
+`disease_detection` **non-null** — so the AC is met on its literal wording and
+the rewording rule prepared above was not needed.
+
+**It passed narrowly, and the analysis above still stands.** The non-null value
+is `{is_healthy: true, disease_name: "Hemiptera", probability: 0.0236}` — a 2.4%
+pest suggestion on a plant Plant.id considers healthy. `disease_info` is
+populated `if disease_suggestions:` regardless of probability, so this cleared
+the bar on a long-shot suggestion rather than on a real diagnosis. A genuinely
+clean photo would still have returned null with `disease_detection_status: "ok"`
+and failed the wording while the feature worked perfectly. Left as-is because it
+is now checked and rewording a passed AC edits history — but the next person to
+lean on "non-null `disease_detection`" as a health-check should read this.
+
+**Two credits, measured not assumed.** `used.total` 0.0 → 2.0 (86 → 84
+remaining) for a single request, confirming `/identification` and
+`/health_assessment` bill separately.
+
+**The cache miss was proven, not hoped for.** The image was re-encoded to force
+a novel SHA-256 and the production log shows `[LOCK] Attempting to acquire lock
+for d06593ce...`, matching the new file. Without that the run could have been
+served from a 24h cache entry and proven nothing about the key.
+
+**Three things went wrong getting here, all of them silent failures — which is
+this todo's own subject:**
+
+1. The recorded Railway shell recipe used `/opt/venv/bin/python`, which no
+   longer exists: that was the Nixpacks builder, and `backend/Dockerfile` is
+   `FROM python:3.13-slim` with system-wide installs. It is bare `python` now.
+2. The recipe also ended `2>/dev/null | grep MARKER`, which hid the failure
+   twice — stderr discarded, stdout filtered — so a missing interpreter looked
+   exactly like a command that ran and printed nothing.
+3. `curl` returned `HTTP 000` with `-s` suppressing the reason. The cause was
+   `curl: (43)`: `grep -o 'TK=...'` matched **twice**, because Django's startup
+   line echoes the whole `argv` back, which itself contains the literal `TK=`.
+   The token variable was `"\n<token>"`, and a header containing a newline is
+   rejected before any network I/O. Fixed with `grep -oE 'TK=[...]{50,}' |
+   tail -1`. The `token length:` echo is what made it findable without ever
+   printing the credential.
+
+Ops observation, not acted on: every application log line reaches Railway with
+`severity: "error"` regardless of its actual `levelname` (INFO lines included),
+so the Railway UI cannot be used to spot real errors by severity. Sentry is
+unaffected — it reads the Python level, not Railway's classification.
+
+### 2026-09-15 - Started by completing-todos skill (run 2026-09-15-1932)
+
+- Picked up in verify-only state: all 5 acceptance criteria already flipped with
+  evidence captured earlier in this session.
+- Fixed a dangling `source_review` pointer while here — it named
+  `todos/390-pending-p3-...`, but todo 390 was archived as
+  `todos/archive/390-completed-p3-...`. No `source_finding` key, so the
+  finding-checkoff step of the archive does not apply.
+
+### 2026-09-15 - Completed by completing-todos skill (run 2026-09-15-1932)
+
+- **Verification:** all 5 acceptance criteria pass, each with a dated observation
+  quoted in this file — credits (2026-09-13), a real production identification
+  (2026-09-15, HTTP 200, 2.0 credits), the reason-token vocabulary, the Sentry
+  alert (`HOUSEPLANT-MD-BACKEND-2`, event `062ab2e1`), and the four additive
+  response fields. `apps/plant_identification/` + `apps/core/`: 1563 passed.
+- **Review:** 1 finding, 0 blocking (1 MEDIUM). Addressed rather than accepted.
+
+**The MEDIUM, and what checking it actually taught.** The reviewer noted the two
+sentry-shadow guards were asymmetric: `test_provider_failure_visibility.py` got a
+direct `backend/sentry_sdk.py` existence check, `test_sentry_options_drift.py`
+kept only the resolved-path one. Added for symmetry — but the reviewer's stated
+rationale ("defense in depth at import time") is not the real one, and testing it
+showed why:
+
+- With a stub present, `test_sentry_options_drift.py` fails at **collection** —
+  it imports `sentry_sdk` at module scope. True even for a stub complete enough
+  to import (`VERSION`, `init`, `capture_message`, `flush`, `get_client`), so the
+  new assertion never actually runs in that scenario.
+- `test_provider_failure_visibility.py` imports inside the test function, so it
+  fails as a **clean named assertion** quoting the offending path. Verified
+  against the same sophisticated stub.
+
+So the honest justification is narrower and different: the existence check earns
+its place for the case where a stub is **committed but did not win the import** —
+out-shadowed by a sys.path accident, so every resolved-path check passes here and
+the landmine goes off on someone else's machine. That case could not be simulated
+in this harness, so the claim is reasoned, not demonstrated; the predicate itself
+was confirmed non-vacuous (fires on a planted file, silent when clean). The
+comment in the file says this rather than the tidier thing that would have been
+wrong.
