@@ -434,3 +434,49 @@ That is a structural reason, not a shrug.
 **Baseline for AC 2, measured 2026-09-15:** `used.total: 0.0` against 86
 credits — **no identification has ever run on the rotated key.** Whatever else
 was verified in September, this AC's own sentence has never been true.
+
+### 2026-09-15 - AC 2's wording is stale, and the rule for recording it is fixed NOW
+
+Read before spending a credit, which is the only reason it was caught.
+`_format_response` (`plant_id_service.py:500-541`) initialises
+`disease_info = None` and populates it **only** `if disease_suggestions:`. There
+is no `else`. Its own comment states the consequence:
+
+```python
+"health_assessment": disease_info,
+# None when the health call failed; None-and-this-is-None means the
+# call succeeded and the plant has no detected disease.
+```
+
+So `disease_detection` is null whenever Plant.id's health endpoint runs
+successfully and finds **nothing wrong**. AC 2 demands "a non-null
+`disease_detection`" — which is therefore not a test of whether disease
+detection works, it is a test of whether the submitted plant is *sick*. A
+perfectly healthy plant fails it while the system behaves exactly as designed.
+
+The wording is simply older than the fix. It was written 2026-09-13; the field
+that actually expresses "the health assessment ran" —
+`disease_detection_status` — did not exist until #766 the next day, and AC 5
+defines it precisely: *`"ok"` means the health assessment **ran** — a healthy
+plant is `"ok"` with `disease_detection: null`*.
+
+**The rule, committed before the result is known**, because deciding afterwards
+is how a stale AC gets quietly checked off:
+
+| Observed | Verdict |
+| --- | --- |
+| `disease_detection` non-null | literal wording met — check it |
+| `disease_detection` null **and** `disease_detection_status == "ok"` | intent met, wording stale — **reword the AC**, state why, then check it |
+| `disease_detection_status == "unavailable"` | fails, whatever else the response says |
+
+`source` is not exposed over HTTP. `providers.plant_id.status == "ok"` is set
+from the same `ProviderOutcome` that gates `results["source"] = "plant_id"`, and
+the `[SUCCESS] Plant.id identified:` log line is emitted *inside* that same
+branch — so the Railway log is the direct evidence that the assignment ran.
+(They diverge only if Plant.id returns a falsy-but-not-None result, which a
+response carrying suggestions rules out.)
+
+**Cost:** identification and health assessment are two separate POSTs, so
+authorise **up to 2 credits**, then measure the real delta against the
+`used.total: 0.0` baseline and record it — that answers empirically what the
+vendor docs were never consulted for.
