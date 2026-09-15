@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: p2
 issue_id: "395"
 tags: [observability, ops, production, security, tech-debt]
@@ -163,22 +163,40 @@ pins the diagnosis so it cannot be closed on a guess.
       pinned by `test_request_bodies_are_off_and_stay_off`, which fails if
       either the body size or the PII flag is flipped — the decision is
       asserted, not left to the next reader.
-- [ ] One deliberately-triggered error is confirmed **received** in the Sentry
+- [x] One deliberately-triggered error is confirmed **received** in the Sentry
       project, with the date and what was seen recorded here
-      — **STILL OPEN, and it is the only thing left.** It cannot be met from a
-      session: there is no Sentry project and no DSN. Everything up to the wire
-      is now proven (the SDK initialises and posts an envelope), but *received*
-      means a human opening a Sentry dashboard. To close it: create the project,
-      set `SENTRY_DSN` on the Railway `plant_id_community` service, trigger one
-      error, record the date and what was seen here. **Do not check this box on
-      a green deploy** — a boot that does not crash proves only that `init()`
-      did not raise, which is exactly the mistake that let this bug live for the
-      project's entire history.
+      — **2026-09-14 (event 2026-09-15T02:41Z UTC): RECEIVED.** Project `houseplant-md-backend` created in the
+      `ocrecipes-wx` org (Django platform, team `#ocrecipes`), DSN set on Railway,
+      deploy `a8c2e634` SUCCESS. Trigger: `POST /api/v1/security/csp-report/`
+      with a JSON **array** body, so `request.data.get()` raises `AttributeError`
+      inside `csp_report_view`'s `try`. Chosen deliberately over adding a debug
+      route — it is anonymous, CSRF-exempt, writes nothing, returns 400, and
+      needed no code shipped to production to test production.
+      Confirmed at all three layers rather than just the last:
+      **HTTP** 400; **Railway log** `[CSP] Report parsing error: 'list' object
+      has no attribute 'get'` at `apps/core/views.py:170`, severity `error`;
+      **Sentry** issue `HOUSEPLANT-MD-BACKEND-1`, event `05c67f83`, the first
+      event this project has ever received — `level: error`, `handled: --`,
+      transaction `/api/v1/security/csp-report/`, full stack trace,
+      **`environment: production`** and **`release: 1.0.0`**, CPython 3.13.15.
+      Those last two matter: they are `settings.py` values arriving intact, so
+      this proves the real SDK config reached Sentry, not merely that *something*
+      did. The issue is left unresolved in Sentry as the audit trail.
+      Note the capture path was the **logging integration** (`logger.error` in an
+      `except`), not an unhandled exception — which is also the path
+      `circuit_monitoring._alert()` depends on, so todo 393's alert now has a
+      live destination.
 - [x] Whether `SENTRY_DSN` is set in production is recorded here (boolean only,
       never the value)
-      — **2026-09-14: it is NOT set.** Railway `plant_id_community`, production,
+      — **2026-09-14: NOT set.** Railway `plant_id_community`, production,
       40 variables, no `SENTRY_DSN`. Read as names-only; no value was fetched.
-      Re-confirmed unchanged at the time this todo was implemented.
+      — **2026-09-14: IT IS NOW SET.** Same service and environment, alongside
+      `SENTRY_TRACES_SAMPLE_RATE=0` and `SENTRY_PROFILES_SAMPLE_RATE=0`. Both
+      sampling rates default to `0.1` in `settings.py`, so setting the DSN alone
+      would have started shipping 10% of transactions as traces *and* profiles
+      into a quota shared with `ocrecipes-mobile` — operator chose error-only,
+      raiseable later with one variable and no code change. Still recorded as a
+      boolean: the value was written, never read back or printed.
 - [x] A decision is recorded on whether this project wants Sentry at all. If
       not, delete the stub AND the `settings.py` block AND the `sentry-sdk`
       pin, rather than leaving dead configuration that reads as working
