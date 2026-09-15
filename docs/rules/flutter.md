@@ -194,3 +194,15 @@ Compact checklist auto-injected before edits. Long-form:
   containing an alpha channel. Generate icons from the canonical vector with
   `node scripts/design/render_brand_assets.mjs`, never by hand;
   `scripts/check_brand_assets.py` is the gate and runs in `mobile-ci.yml`.
+- **An iOS entitlement is only proven by a signed archive, and the proof is a
+  triple.** `codesign -d --entitlements :-` reports `aps-environment =
+  production` on a **Development**-signed archive too, whenever the entitlements
+  file says so — so that line alone proves nothing about distribution. Always
+  read `codesign -dv --verbose=4` for `Authority = Apple Distribution: …` and
+  decode `embedded.mobileprovision` for the profile name, and treat
+  `get-task-allow = false` as the independent tell that it is not a dev build.
+  `xcodebuild -showBuildSettings` and the `.entitlements` source are weaker
+  still: they describe intent, not what got signed. Check Release resolves
+  `CODE_SIGN_STYLE = Manual` + the distribution profile *before* spending 20
+  minutes on an archive — automatic signing can resolve the development profile
+  and yield an artifact that cannot prove anything (todo 286).

@@ -6350,3 +6350,42 @@ compute — the source is not evidence. Check the artifact the tool produced, or
 mutate and watch it fail.
 
 **Agent**: react-typescript-reviewer
+
+## 2026-09-15 — A recorded blocker outlived its cause by six weeks (todo 286)
+
+**What broke.** Todo 286's work log stated four signing facts as current: no
+Apple Distribution certificate, no provisioning profile for
+`com.plantcommunity.plantCommunityMobile`, no App ID with Push Notifications
+enabled, and `DEVELOPMENT_TEAM` absent from the pbxproj. Every one was false.
+They stopped being true when TestFlight build 12 shipped, and nothing re-audited
+the log. Two sessions' worth of "blocked on the operator" was recorded against a
+blocker that no longer existed; a third acting on it would have redone finished
+Apple-portal work.
+
+**Root cause.** The todo carried `status: in_progress`, and every sweep skill
+greps `^status: pending`. An `in_progress` todo is invisible to all of them, so
+nothing ever re-opened the file to notice its facts had rotted. The staleness and
+the invisibility were the same bug.
+
+**The fix, and the generalisable half.** Re-measure before acting on any recorded
+environment claim — certificates, profiles, console state, quota. These are
+*external* facts with no test guarding them, so a work log is a snapshot with no
+expiry date, unlike code where CI notices drift. Concretely, decode the artifact
+rather than reading the note: a provisioning profile carrying `aps-environment`
+*proves* Push is enabled on the App ID, with no portal access needed.
+
+**Second-order.** The same distinction settles a criterion cheaply. A profile
+proving the App-ID capability says nothing about whether the APNs key was
+uploaded to Firebase — different facts, and only the second makes FCM deliver.
+FCM returns `THIRD_PARTY_AUTH_ERROR` when no key is configured, so one delivered
+push is the artifact for both. Do not tick an AC on anyone's recollection of a
+console action when a one-command empirical test exists.
+
+**Also measured, since the obvious remedy is wrong:** when a Flutter iOS release
+build exhausts the disk, `xcrun simctl delete unavailable` can free *nothing* —
+it only removes simulators macOS already considers unavailable, and here all 11
+were available, with 10.4 GB sitting inside two of them. `xcrun simctl erase all`
+is the lever. Never `rm -rf plant_community_mobile/build` to make room (see the
+`native_assets/ios/` orphaning entry); `flutter clean` is the fix.
+
+**Agent**: flutter-dart-reviewer
