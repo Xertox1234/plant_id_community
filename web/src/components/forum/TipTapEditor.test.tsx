@@ -1128,3 +1128,109 @@ describe('TipTapEditor under StrictMode', () => {
     expect(errors).toEqual([]);
   });
 });
+
+describe('reusing an already-uploaded photo (todo 374)', () => {
+  const existing = {
+    id: 42,
+    url: 'https://cdn.example/old.jpg',
+    alt: 'a fern frond',
+    decorative: false,
+    width: 800,
+    height: 600,
+  };
+
+  const openPicker = async () => {
+    const { container } = render(<TipTapEditor onChange={vi.fn()} />);
+    await waitFor(() => expect(container.querySelector('.ProseMirror')).toBeInTheDocument());
+    await userEvent.click(screen.getByRole('button', { name: /Choose from your photos/i }));
+    return container;
+  };
+
+  it('offers the affordance in the toolbar', async () => {
+    const { container } = render(<TipTapEditor onChange={vi.fn()} />);
+    await waitFor(() => expect(container.querySelector('.ProseMirror')).toBeInTheDocument());
+    expect(screen.getByRole('button', { name: /Choose from your photos/i })).toBeInTheDocument();
+  });
+
+  it('inserts the EXISTING image without uploading anything', async () => {
+    vi.spyOn(forumService, 'listMyForumImages').mockResolvedValue({
+      items: [existing],
+      meta: { count: 0, next: null, previous: null },
+    });
+    const uploadSpy = vi.spyOn(forumService, 'uploadPostImage');
+    const onChange = vi.fn();
+    const { container } = render(<TipTapEditor onChange={onChange} />);
+    await waitFor(() => expect(container.querySelector('.ProseMirror')).toBeInTheDocument());
+    await userEvent.click(screen.getByRole('button', { name: /Choose from your photos/i }));
+
+    await userEvent.click(
+      await screen.findByRole('button', { name: /Insert photo: a fern frond/i })
+    );
+    await userEvent.click(await screen.findByRole('button', { name: 'Add image' }));
+
+    // The whole point of the feature: no second copy of the file, no new row.
+    expect(uploadSpy).not.toHaveBeenCalled();
+    await waitFor(() => {
+      const img = container.querySelector('.ProseMirror img');
+      expect(img).not.toBeNull();
+      expect(img?.getAttribute('data-image-id')).toBe('42');
+    });
+  });
+
+  it('pre-fills the alt prompt from the stored description', async () => {
+    vi.spyOn(forumService, 'listMyForumImages').mockResolvedValue({
+      items: [existing],
+      meta: { count: 0, next: null, previous: null },
+    });
+    await openPicker();
+    await userEvent.click(
+      await screen.findByRole('button', { name: /Insert photo: a fern frond/i })
+    );
+    // Pre-filled so the common case is one keystroke, not retyping.
+    expect(await screen.findByLabelText('Describe this image')).toHaveValue('a fern frond');
+  });
+
+  it('a re-authored alt is written to THIS usage only — no upload, no row rewrite', async () => {
+    // Alt has belonged to the usage since the ImageBlock migration (todo 357).
+    // Describing a reused photo differently here must not re-caption every
+    // other post that references the same row, so nothing is sent to the server.
+    vi.spyOn(forumService, 'listMyForumImages').mockResolvedValue({
+      items: [existing],
+      meta: { count: 0, next: null, previous: null },
+    });
+    const uploadSpy = vi.spyOn(forumService, 'uploadPostImage');
+    const { container } = render(<TipTapEditor onChange={vi.fn()} />);
+    await waitFor(() => expect(container.querySelector('.ProseMirror')).toBeInTheDocument());
+    await userEvent.click(screen.getByRole('button', { name: /Choose from your photos/i }));
+    await userEvent.click(
+      await screen.findByRole('button', { name: /Insert photo: a fern frond/i })
+    );
+
+    const input = await screen.findByLabelText('Describe this image');
+    await userEvent.clear(input);
+    await userEvent.type(input, 'brown edges on the lower fronds');
+    await userEvent.click(screen.getByRole('button', { name: 'Add image' }));
+
+    await waitFor(() => {
+      const img = container.querySelector('.ProseMirror img');
+      expect(img?.getAttribute('alt')).toBe('brown edges on the lower fronds');
+    });
+    expect(uploadSpy).not.toHaveBeenCalled();
+  });
+
+  it('never revokes an object URL for a reused photo — its src is a real URL', async () => {
+    // closeAltPrompt revokes previewUrlRef; the reuse path must never put a
+    // non-blob URL there, or the browser would be asked to revoke a CDN link.
+    vi.spyOn(forumService, 'listMyForumImages').mockResolvedValue({
+      items: [existing],
+      meta: { count: 0, next: null, previous: null },
+    });
+    revokeObjectURL.mockClear();
+    await openPicker();
+    await userEvent.click(
+      await screen.findByRole('button', { name: /Insert photo: a fern frond/i })
+    );
+    await userEvent.click(await screen.findByRole('button', { name: 'Add image' }));
+    expect(revokeObjectURL).not.toHaveBeenCalled();
+  });
+});

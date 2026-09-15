@@ -20,6 +20,9 @@ import {
   fetchMyForumProfile,
   updateMyForumProfile,
   uploadPostImage,
+  listMyForumImages,
+  deleteForumImage,
+  ForumApiError,
   searchForum,
   searchForumUsers,
   improveDraft,
@@ -890,5 +893,85 @@ describe('forumService (wagtail_forum API contract)', () => {
     expect(init.method).toBe('POST');
     expect(JSON.parse(init.body)).toEqual({ detail: 'Pothos should not be watered daily' });
     expect(init.headers['X-CSRFToken']).toBe('test-csrf-token');
+  });
+
+  // --- My forum images (todo 374) -------------------------------------------
+
+  describe('listMyForumImages / deleteForumImage (todo 374)', () => {
+    const img = (id: number) => ({
+      id,
+      url: `http://x/${id}.jpg`,
+      alt: `photo ${id}`,
+      decorative: false,
+      width: 800,
+      height: 600,
+    });
+
+    it("lists the caller's own forum images from /images/mine/", async () => {
+      fetchMock.mockResolvedValueOnce(
+        okJson({ results: [img(1), img(2)], next: null, previous: null })
+      );
+      const page = await listMyForumImages();
+      expect(page.items).toHaveLength(2);
+      expect(page.items[0]).toEqual(img(1));
+      const [url] = fetchMock.mock.calls[0];
+      expect(url).toContain('/api/v1/forum/images/mine/');
+    });
+
+    it('passes a cursor URL through UNCHANGED rather than rebuilding it', async () => {
+      // DRF cursor next/previous are absolute; authenticatedFetch hands its url
+      // straight to fetch() with no base prepended (see fetchThreads). Rebuilding
+      // would drop the opaque cursor and silently restart at page one.
+      const cursor = 'http://api.test/api/v1/forum/images/mine/?cursor=cD0y';
+      fetchMock.mockResolvedValueOnce(okJson({ results: [img(3)], next: null, previous: null }));
+      await listMyForumImages({ cursor });
+      expect(fetchMock.mock.calls[0][0]).toBe(cursor);
+    });
+
+    it('surfaces the next cursor so the caller knows more exist', async () => {
+      const next = 'http://api.test/api/v1/forum/images/mine/?cursor=cD0z';
+      fetchMock.mockResolvedValueOnce(okJson({ results: [img(1)], next, previous: null }));
+      const page = await listMyForumImages();
+      expect(page.meta.next).toBe(next);
+    });
+
+    it('tolerates a response with no results array', async () => {
+      fetchMock.mockResolvedValueOnce(okJson({ next: null, previous: null }));
+      const page = await listMyForumImages();
+      expect(page.items).toEqual([]);
+    });
+
+    it('throws ForumApiError carrying status 403 so callers can tell "not a member" from "empty"', async () => {
+      // The whole point: a 403 must be distinguishable from an empty library.
+      // Branching on the MESSAGE would not work — DRF's PermissionDenied text
+      // contains neither "403" nor "forbidden".
+      fetchMock.mockResolvedValueOnce({
+        ok: false,
+        status: 403,
+        json: async () => ({ detail: 'You do not have permission to perform this action.' }),
+      });
+      await expect(listMyForumImages()).rejects.toMatchObject({
+        name: 'ForumApiError',
+        status: 403,
+      });
+    });
+
+    it('deleteForumImage DELETEs the id and resolves on 204', async () => {
+      fetchMock.mockResolvedValueOnce({ ok: true, status: 204, json: async () => undefined });
+      await expect(deleteForumImage(7)).resolves.toBeUndefined();
+      const [url, init] = fetchMock.mock.calls[0];
+      expect(url).toContain('/api/v1/forum/images/7/');
+      expect(init.method).toBe('DELETE');
+      expect(init.headers['X-CSRFToken']).toBe('test-csrf-token');
+    });
+
+    it('deleteForumImage surfaces a 403 as ForumApiError (not the owner)', async () => {
+      fetchMock.mockResolvedValueOnce({
+        ok: false,
+        status: 403,
+        json: async () => ({ detail: 'You do not have permission to delete this image.' }),
+      });
+      await expect(deleteForumImage(7)).rejects.toBeInstanceOf(ForumApiError);
+    });
   });
 });

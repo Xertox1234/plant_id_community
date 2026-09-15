@@ -892,4 +892,41 @@ describe('StreamFieldRenderer', () => {
       expect(screen.queryByRole('button', { name: 'Show anyway' })).not.toBeInTheDocument();
     });
   });
+
+  describe('an image deleted after posting (todo 374)', () => {
+    // serialize_forum_body: "A referenced image missing from the map (e.g.
+    // deleted after posting) serializes as None". Destructuring that null took
+    // the whole post render down. Latent until todo 374 gave members a delete
+    // button; reachable by anyone tidying their own photos afterwards.
+    const deleted = [{ type: 'image', value: null, id: 'b1' }] as never;
+    const present = [
+      {
+        type: 'image',
+        value: { id: 9, url: '/media/x.jpg', alt: 'a fern', decorative: false },
+        id: 'b2',
+      },
+    ] as never;
+
+    it('positive control: a live image still renders an <img>', () => {
+      const { container } = render(<StreamFieldRenderer blocks={present} />);
+      expect(container.querySelector('img')).not.toBeNull();
+    });
+
+    it('renders a placeholder instead of crashing the post', () => {
+      const { container } = render(<StreamFieldRenderer blocks={deleted} />);
+      expect(screen.getByTestId('image-unavailable')).toBeInTheDocument();
+      expect(container.querySelector('img')).toBeNull();
+    });
+
+    it('the rest of the post still renders around it', () => {
+      const mixed = [
+        { type: 'paragraph', value: '<p>before</p>', id: 'a' },
+        { type: 'image', value: null, id: 'b' },
+        { type: 'paragraph', value: '<p>after</p>', id: 'c' },
+      ] as never;
+      render(<StreamFieldRenderer blocks={mixed} />);
+      expect(screen.getByText('before')).toBeInTheDocument();
+      expect(screen.getByText('after')).toBeInTheDocument();
+    });
+  });
 });

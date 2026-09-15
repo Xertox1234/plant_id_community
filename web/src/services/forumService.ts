@@ -624,6 +624,62 @@ export async function uploadPostImage(
   return response.json() as Promise<UploadedImage>;
 }
 
+/**
+ * The caller's OWN previously-uploaded forum images, newest first (todo 374).
+ *
+ * Powers "choose from your photos" in the composer instead of forcing a fresh
+ * upload every time. The backend (`MyForumImagesView`) already scopes this to
+ * `uploaded_by_user=request.user` — Wagtail's `choose` permission is
+ * collection-wide, but a PERSONAL library rather than a shared browse of
+ * everyone's photos is this forum's product decision. The client must not
+ * re-filter: doing so would silently hide images on any future change to that
+ * scoping, and the server is the only place that can enforce it anyway.
+ *
+ * 403 means "not a Forum Member" — a real state the endpoint enforces, not an
+ * error to swallow. It is distinguishable here because `authenticatedFetch`
+ * throws `ForumApiError` carrying `.status`; callers branch on it so the UI can
+ * say so rather than showing an empty grid that reads as "you have no photos".
+ *
+ * CURSOR NOTE: DRF cursor `next`/`previous` are absolute URLs and are passed
+ * through unchanged — see fetchThreads. Cursor pagination returns no `count`,
+ * so `meta.count` is 0 here; `next` is the only "is there more" signal.
+ */
+export async function listMyForumImages(
+  options: { cursor?: string; signal?: AbortSignal } = {}
+): Promise<PaginatedResponse<UploadedImage>> {
+  const { cursor, signal } = options;
+  const url = cursor || `${FORUM_BASE}/images/mine/`;
+  const data = await authenticatedFetch<{
+    results: UploadedImage[];
+    next?: string | null;
+    previous?: string | null;
+  }>(url, { signal });
+  return {
+    items: data.results ?? [],
+    meta: { count: 0, next: data.next, previous: data.previous },
+  };
+}
+
+/**
+ * Delete one of the caller's own forum images (todo 374). 204 on success.
+ *
+ * Deleting a row that a live post still references is SAFE and deliberately not
+ * blocked: an `image` body block resolves a missing id to null at read time and
+ * `ForumIdentificationAttachment.image` is SET_NULL, so both already render a
+ * no-photo fallback. No cascade, no post rewrite. The UI must still say this
+ * out loud before confirming — "removed from your photos" and "removed from
+ * posts you already published" are the same action here, and a user who does
+ * not know that will be surprised by it.
+ *
+ * Throws `ForumApiError` with `.status` 403 (not the owner and not a moderator)
+ * or 404 (no such image, or not in the forum collection).
+ */
+export async function deleteForumImage(imageId: number): Promise<void> {
+  await authenticatedFetch<void>(`${FORUM_BASE}/images/${imageId}/`, {
+    method: 'DELETE',
+  });
+}
+
 // ---------------------------------------------------------------------------
 // Search
 // ---------------------------------------------------------------------------

@@ -1,10 +1,14 @@
 // web/src/pages/SettingsPage.test.tsx
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { render, screen, waitFor, act, fireEvent } from '@testing-library/react';
+import { render, screen, waitFor, act, fireEvent, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { BrowserRouter } from 'react-router-dom';
 import { ThemeProvider } from '../contexts/ThemeContext';
-import SettingsPage, { EmailDigestSection, NotificationPreferencesSection } from './SettingsPage';
+import SettingsPage, {
+  EmailDigestSection,
+  NotificationPreferencesSection,
+  MyForumImagesSection,
+} from './SettingsPage';
 import * as forumService from '../services/forumService';
 import type {
   ForumMyProfile,
@@ -14,6 +18,17 @@ import type {
 } from '../types/forum';
 
 vi.mock('../services/forumService');
+
+// MyForumImagesSection (todo 374) renders on the settings page, so EVERY
+// whole-page test now hits listMyForumImages. `mockReset: true` wipes values
+// between tests, so this re-seeds each time; a describe wanting different data
+// overrides it in its own beforeEach, which runs after this one.
+beforeEach(() => {
+  vi.mocked(forumService.listMyForumImages).mockResolvedValue({
+    items: [],
+    meta: { count: 0, next: null, previous: null },
+  });
+});
 
 // The resolved matrix as the API sends it (todo 343): ONLY the cells with a
 // delivery path — push for every event, email for replies alone today. The
@@ -666,5 +681,96 @@ describe('SettingsPage composes the profile-backed sections', () => {
     expect(screen.getAllByRole('checkbox')).toHaveLength(5);
     // Section-owned state: one GET per profile-backed section, in whatever order.
     expect(forumService.fetchMyForumProfile).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe('MyForumImagesSection (todo 374)', () => {
+  const img = (id: number) => ({
+    id,
+    url: `http://x/${id}.jpg`,
+    alt: `photo ${id}`,
+    decorative: false,
+    width: 800,
+    height: 600,
+  });
+  const page = (items: ReturnType<typeof img>[], next: string | null = null) => ({
+    items,
+    meta: { count: 0, next, previous: null },
+  });
+
+  beforeEach(() => {
+    vi.mocked(forumService.listMyForumImages).mockResolvedValue(page([img(1), img(2)]));
+    vi.mocked(forumService.deleteForumImage).mockResolvedValue(undefined);
+  });
+
+  it('lists the photos', async () => {
+    render(<MyForumImagesSection />);
+    await waitFor(() => expect(screen.getAllByRole('button', { name: 'Delete' })).toHaveLength(2));
+  });
+
+  it('does NOT delete until the confirmation is accepted', async () => {
+    render(<MyForumImagesSection />);
+    const [first] = await screen.findAllByRole('button', { name: 'Delete' });
+    fireEvent.click(first);
+    // Dialog is up; nothing has been sent yet.
+    expect(await screen.findByRole('dialog')).toBeInTheDocument();
+    expect(forumService.deleteForumImage).not.toHaveBeenCalled();
+  });
+
+  it('cancelling the confirmation deletes nothing', async () => {
+    render(<MyForumImagesSection />);
+    fireEvent.click((await screen.findAllByRole('button', { name: 'Delete' }))[0]);
+    fireEvent.click(await screen.findByRole('button', { name: /Cancel/i }));
+    expect(forumService.deleteForumImage).not.toHaveBeenCalled();
+    expect(screen.getAllByRole('button', { name: 'Delete' })).toHaveLength(2);
+  });
+
+  it('confirming deletes that image and drops it from the grid', async () => {
+    render(<MyForumImagesSection />);
+    fireEvent.click((await screen.findAllByRole('button', { name: 'Delete' }))[0]);
+    const dialog = await screen.findByRole('dialog');
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Delete' }));
+    await waitFor(() => expect(forumService.deleteForumImage).toHaveBeenCalledWith(1));
+    await waitFor(() => expect(screen.getAllByRole('button', { name: 'Delete' })).toHaveLength(1));
+  });
+
+  it('warns that the photo also disappears from posts already published', async () => {
+    // The server fallback makes this SAFE, not invisible: the photo really does
+    // vanish from live posts, and a user who does not expect that experiences
+    // it as data loss.
+    render(<MyForumImagesSection />);
+    fireEvent.click((await screen.findAllByRole('button', { name: 'Delete' }))[0]);
+    expect(await screen.findByText(/any post you've already shared it in/i)).toBeInTheDocument();
+  });
+
+  it('a failed delete keeps the photo and reports it', async () => {
+    vi.mocked(forumService.deleteForumImage).mockRejectedValue(new Error('nope'));
+    render(<MyForumImagesSection />);
+    fireEvent.click((await screen.findAllByRole('button', { name: 'Delete' }))[0]);
+    const dialog = await screen.findByRole('dialog');
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Delete' }));
+    expect(await screen.findByText('nope')).toBeInTheDocument();
+    expect(screen.getAllByRole('button', { name: 'Delete' })).toHaveLength(2);
+  });
+
+  it('an empty library says so rather than looking like a failure', async () => {
+    vi.mocked(forumService.listMyForumImages).mockResolvedValue(page([]));
+    render(<MyForumImagesSection />);
+    expect(await screen.findByTestId('forum-images-empty')).toBeInTheDocument();
+  });
+
+  it('a 403 says "not a forum member", not "no photos"', async () => {
+    // `vi.mock(path)` automocks the CLASS too: `instanceof` still holds (the
+    // prototype chain survives) but the constructor body is replaced by a
+    // no-op, so `status` is never assigned and the component's
+    // `err.status === 403` check would silently take the generic-error branch.
+    // Assigning it back is what makes this test exercise the 403 path rather
+    // than pass for the wrong reason.
+    const forbidden = new forumService.ForumApiError('nope', 403);
+    Object.assign(forbidden, { status: 403 });
+    vi.mocked(forumService.listMyForumImages).mockRejectedValue(forbidden);
+    render(<MyForumImagesSection />);
+    expect(await screen.findByTestId('forum-images-forbidden')).toBeInTheDocument();
+    expect(screen.queryByTestId('forum-images-empty')).not.toBeInTheDocument();
   });
 });

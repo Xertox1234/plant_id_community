@@ -7,6 +7,7 @@ import {
   Bold,
   Code,
   Image as ImageIcon,
+  Images,
   Italic,
   Link as LinkIcon,
   List,
@@ -26,12 +27,14 @@ import {
   isComposeAssistUnavailable,
   markComposeAssistUnavailable,
   uploadPostImage,
+  type UploadedImage,
 } from '../../services/forumService';
 import { logger } from '../../utils/logger';
 import { previewUrlFromHtml } from '../../utils/forumBody';
 import LinkPreviewCard from './LinkPreviewCard';
 import { ForumBlockquoteAttrs } from './forumBlockquoteAttrs';
 import { ForumImage } from './forumImageNode';
+import ForumImagePicker from './ForumImagePicker';
 import { ForumMention } from './forumMentionNode';
 import type { LinkPreview } from '@/types/forum';
 
@@ -246,6 +249,7 @@ export default function TipTapEditor({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [imageError, setImageError] = useState<string | null>(null);
   const [uploadingImage, setUploadingImage] = useState(false);
+  const [pickerOpen, setPickerOpen] = useState(false);
   // A COUNT, not the boolean: `uploadingImage` is only what the spinner reads.
   // With a boolean, the first upload to settle cleared the flag while a second
   // was still in flight and re-opened the gate. A ref (not state) because
@@ -292,6 +296,13 @@ export default function TipTapEditor({
         alt: string;
         /** One key per file SELECTION, reused across retries of it (M36). */
         idempotencyKey: string;
+      }
+    | {
+        kind: 'reuse';
+        /** An image the user ALREADY uploaded — reused, never re-uploaded. */
+        imageId: number;
+        src: string;
+        alt: string;
       }
     | {
         kind: 'edit';
@@ -385,6 +396,24 @@ export default function TipTapEditor({
     handleImageFile(file);
   };
 
+  /** A photo picked from the user's existing forum uploads (todo 374).
+   *
+   *  Goes through the SAME alt prompt as an upload rather than inserting
+   *  straight away: alt is per-usage, so the author gets to describe the image
+   *  for THIS post. It is pre-filled with the row's stored description so the
+   *  common case is one keystroke (Enter), not retyping.
+   *
+   *  `closeAltPrompt()` first, matching handleImageFile: the prompt is a single
+   *  slot, and opening a second one without releasing the first would leak the
+   *  previous preview's object URL. */
+  const handlePickExisting = (image: UploadedImage) => {
+    if (!editor) return;
+    setPickerOpen(false);
+    setImageError(null);
+    closeAltPrompt();
+    setAltPrompt({ kind: 'reuse', imageId: image.id, src: image.url, alt: image.alt ?? '' });
+  };
+
   /** Re-author an image's alt — no re-upload. */
   const openAltEditor = () => {
     if (!editor) return;
@@ -433,6 +462,27 @@ export default function TipTapEditor({
           return true;
         })
         .run();
+      return;
+    }
+
+    if (altPrompt.kind === 'reuse') {
+      // No upload, no idempotency key, no object URL: the row already exists
+      // and is being referenced a second time. Alt is written to the NODE only
+      // — since the ImageBlock migration (todo 357) alt belongs to the USAGE,
+      // so describing this image differently here must not rewrite the row's
+      // description and thereby re-caption every other post using it.
+      const { imageId, src } = altPrompt;
+      const insertAtReuse = dropPosRef.current;
+      dropPosRef.current = null;
+      closeAltPrompt();
+      const attrs = { src, alt: trimmed, decorative, imageId };
+      const chain = editor.chain().focus();
+      if (insertAtReuse !== null) {
+        chain.insertContentAt(insertAtReuse, { type: 'image', attrs });
+      } else {
+        chain.insertContent({ type: 'image', attrs });
+      }
+      chain.run();
       return;
     }
 
@@ -725,6 +775,16 @@ export default function TipTapEditor({
               )}
             </ToolbarButton>
 
+            {/* Reuse a photo already uploaded to the forum (todo 374). Distinct
+                from the upload button beside it: no file, no request, no new
+                row — it references an image the user has already shared. NOT
+                disabled during an upload, because it starts no upload of its
+                own; the single alt-prompt slot is released by handlePickExisting
+                rather than gated here, matching handleImageFile. */}
+            <ToolbarButton onClick={() => setPickerOpen(true)} title="Choose from your photos">
+              <Images className="h-4 w-4" aria-hidden="true" />
+            </ToolbarButton>
+
             {/* Re-author an inserted image's alt (todo 357). Only reachable while
                 the caret is on an image — and only possible at all because
                 ImageBlock moved alt onto the USAGE; under ImageChooserBlock this
@@ -766,6 +826,14 @@ export default function TipTapEditor({
             />
           </div>
         </div>
+      )}
+
+      {editable && (
+        <ForumImagePicker
+          open={pickerOpen}
+          onSelect={handlePickExisting}
+          onClose={() => setPickerOpen(false)}
+        />
       )}
 
       {/* Alt-text prompt. On upload it is collected before the request so the

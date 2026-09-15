@@ -641,3 +641,34 @@ describe('forumBody image id guard (todo 357 review)', () => {
     ).toEqual([{ type: 'quote', value: 'q' }]);
   });
 });
+
+describe('an image deleted after posting (todo 374)', () => {
+  // The composer's RE-EDIT path. The server sends `value: null` for an image
+  // whose row is gone; destructuring it threw, so opening an old post for
+  // editing crashed outright once the photo had been deleted.
+  it('positive control: a live image still round-trips to an <img>', () => {
+    const html = bodyBlocksToHtml([
+      {
+        type: 'image',
+        value: { id: 9, url: '/media/x.jpg', alt: 'a fern', decorative: false },
+        id: 'b1',
+      },
+    ] as never);
+    expect(html).toContain('data-image-id="9"');
+  });
+
+  it('drops the dead block instead of throwing', () => {
+    expect(bodyBlocksToHtml([{ type: 'image', value: null, id: 'b1' }] as never)).toBe('');
+  });
+
+  it('keeps the surrounding blocks intact', () => {
+    const html = bodyBlocksToHtml([
+      { type: 'paragraph', value: '<p>before</p>', id: 'a' },
+      { type: 'image', value: null, id: 'b' },
+      { type: 'paragraph', value: '<p>after</p>', id: 'c' },
+    ] as never);
+    expect(html).toContain('before');
+    expect(html).toContain('after');
+    expect(html).not.toContain('<img');
+  });
+});

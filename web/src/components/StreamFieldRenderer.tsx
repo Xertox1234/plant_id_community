@@ -176,6 +176,18 @@ function StreamFieldBlock({ block, mentionHighlight, currentTopicId }: StreamFie
       // Backend (todo 357): ImageBlock → {id, url, alt, decorative, width, height}.
       // url may be relative (`/media/...`) — resolve against the API origin
       // like every other blog image consumer (BlogCard, BlogDetailPage cover).
+      // A DELETED image serializes as `value: null` (serialize_forum_body:
+      // "A referenced image missing from the map (e.g. deleted after posting)
+      // serializes as None"). Destructuring that threw, taking the whole post
+      // render down with it -- latent until todo 374 gave members a delete
+      // button, and then reachable by anyone tidying their own photos.
+      if (!block.value) {
+        return (
+          <p className="my-5 text-sm italic text-ink-3" data-testid="image-unavailable">
+            Photo no longer available
+          </p>
+        );
+      }
       const { url, alt, decorative } = block.value;
       return (
         <img

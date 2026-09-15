@@ -339,6 +339,12 @@ export function bodyBlocksToHtml(body: StreamFieldBlock[] | null | undefined): s
   return body
     .map((block) => {
       if (block.type === 'image') {
+        // Deleted image -> `value: null` from the server. Dropped rather than
+        // rendered: there is no id or url left to round-trip, and emitting an
+        // <img> with `undefined` would re-persist a broken block on the next
+        // save. Losing a reference that already points at nothing is the
+        // correct outcome; throwing here blocked re-editing the post at all.
+        if (!block.value) return '';
         const { id, url, alt, decorative } = block.value;
         const safeAlt = (alt || '').replace(/"/g, '&quot;');
         // data-decorative round-trips the flag so re-saving an untouched
