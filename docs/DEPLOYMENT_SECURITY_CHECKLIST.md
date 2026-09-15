@@ -691,7 +691,12 @@ service firebase.storage {
      ```bash
      railway ssh --service plant_id_community -- sh -c \
        'echo CRED=[${FIREBASE_CREDENTIALS_PATH:-UNSET}] GAC=[${GOOGLE_APPLICATION_CREDENTIALS:-UNSET}]'
+     # 2026-09-15 → CRED=[UNSET] GAC=[UNSET]   (confirmed in the container)
      ```
+
+     Fixing it needs the service-account JSON **present in the container** — the
+     setting is a path, not the JSON — so a Railway volume or a baked file, plus
+     the env var pointing at it.
 
 - [ ] **Production build** tested
 

@@ -518,7 +518,22 @@ railway ssh --service plant_id_community -- sh -c \
   'echo CRED=[${FIREBASE_CREDENTIALS_PATH:-UNSET}] GAC=[${GOOGLE_APPLICATION_CREDENTIALS:-UNSET}]'
 ```
 
-These are file *paths*, not secrets. `UNSET` for both confirms the diagnosis.
+These are file *paths*, not secrets.
+
+**CONFIRMED in the running container, 2026-09-15:**
+
+```
+$ railway ssh --service plant_id_community -- sh -c 'echo CRED=[...] GAC=[...]'
+CRED=[UNSET] GAC=[UNSET]
+```
+
+So the diagnosis is measured inside the deployment, not merely inferred from the
+service's variable list. Worth the extra step: a Railway service can receive
+variables that the config API does not enumerate (shared/environment-level), so
+the variable list alone is suggestive and `printenv` inside the container is
+proof. The same run also showed `railway ssh` itself works fine — the earlier
+blank output was the `grep` swallowing the probe's own failure, not an access
+problem.
 
 **Revised AC4 ordering.** The device and the TestFlight build were never the
 first blocker:
