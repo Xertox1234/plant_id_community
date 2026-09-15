@@ -14,6 +14,22 @@
       },
       "oauth_client": [
         {
+          "client_id": "190351417275-3pvng366p9d5jl3ff66p6fit6st1bii0.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.plantcommunity.plant_community_mobile",
+            "certificate_hash": "6e131b9bbf15f682b9cb3189cf3b5f6e1fb18a5d"
+          }
+        },
+        {
+          "client_id": "190351417275-kh4rbu5uru8sgtli9a0ntove424emocj.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.plantcommunity.plant_community_mobile",
+            "certificate_hash": "068a6f6a4ff91559a9d03b5bbd8f9f0e3b2a7dc2"
+          }
+        },
+        {
           "client_id": "190351417275-p9mtdnq4qcfca7poku95cdcueoradtnp.apps.googleusercontent.com",
           "client_type": 3
         }
