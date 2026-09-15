@@ -443,3 +443,62 @@ createMockPost({
 Same for a per-thread `fetchPosts` mock: key it on the call's `{ thread }`
 argument (`mockImplementation(async ({ thread }) => …)`) rather than chaining
 `mockResolvedValueOnce`, or the second thread's load consumes the wrong page.
+
+## Two ways a web test passes for the wrong reason (todo 374)
+
+Both were hit in one session, both produced a green suite over a live bug, and
+both are invisible unless you mutate the code and watch the test go red.
+
+### `vi.mock('<path>')` automocks classes into something that is not the class
+
+Automock keeps the prototype chain — `instanceof MyError` is still `true` — but:
+
+- the **constructor body never runs**, so anything it assigns (`status`,
+  and `super(message)`'s `message`) is `undefined`;
+- the instance is **not an `Error`**: `instanceof Error` is `false`, even when
+  the real class is `class MyError extends Error`.
+
+A component branching on `err instanceof ApiError && err.status === 403` then
+takes the *else* branch, and `err instanceof Error ? err.message : fallback`
+renders the fallback. A test asserting the 403 copy fails confusingly; worse, a
+test asserting the *generic* copy passes while believing it tested the 403 path.
+
+```ts
+// Assign back what the no-op constructor never set.
+const forbidden = new forumService.ForumApiError('nope', 403);
+Object.assign(forbidden, { status: 403, message: 'nope' });
+```
+
+When the code under test does `instanceof`, prefer a factory mock that keeps the
+real class and mocks only the functions:
+
+```ts
+vi.mock('../../services/forumService', async () => {
+  const actual = await vi.importActual<typeof import('../../services/forumService')>(
+    '../../services/forumService'
+  );
+  return { ForumApiError: actual.ForumApiError, listMyForumImages };
+});
+```
+
+### jsdom has no layout, so drop-coordinate code cannot be tested here
+
+ProseMirror resolves a document position from the drop event's coordinates via
+`posAtCoords` before it consults `handleDrop`. jsdom implements no layout, so
+that never resolves and any `dropPosRef` stays `null` for the whole suite —
+which means **every branch keyed on a drop position is dead code under test**.
+
+Measured, not assumed: making the upload path ignore the drop position entirely
+(`const insertAt = null`) leaves the entire 60-test `TipTapEditor` suite green.
+Two attempts at a regression test for a drop-position bug therefore survived
+mutation before the cause was identified.
+
+Consequence: drop positioning needs a real browser (Playwright). If you write a
+jsdom test that touches it, **mutate the code and confirm the test fails** — and
+if it cannot, say so in the test rather than leaving it to imply coverage.
+
+### The general rule
+
+A new test is not evidence until it has failed once. Both traps above were found
+by applying the mutation and watching a "passing" test stay green — never by
+reading it.

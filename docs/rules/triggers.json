@@ -1779,5 +1779,20 @@
     "source": "codify: docs/codify-brand-assets-session",
     "added": "2026-09-14",
     "severity": "warn"
+  },
+  {
+    "id": "dead-tailwind-utility",
+    "domains": [
+      "react"
+    ],
+    "path_glob": [
+      "web/src/**/*.tsx"
+    ],
+    "content_present": "\\b(ring-primary|rounded-card)\\b",
+    "message": "This Tailwind class compiles to NOTHING. Tailwind 4 emits no CSS for an unrecognised utility -- no error, no lint failure. `ring-primary` is dead in 22 places across 10 files (todo 396) and `rounded-card` was invented (todo 374). Use `ring-secondary` / a real `--radius-*` token (rounded-sm|md|lg|xl|pill), and confirm with: cd web && npm run build && grep \".<class>\" dist/assets/*.css",
+    "pattern_ref": "web/docs/patterns/tailwind.md",
+    "source": "codify: feat/todo-374-forum-image-picker",
+    "added": "2026-09-14",
+    "severity": "warn"
   }
 ]

@@ -6307,3 +6307,46 @@ pixels are **BGRA**, premultiplied. A stdlib PNG reader raises
 that separates "right in the repo" from "right in what Apple receives".
 
 **Agent**: flutter-dart-reviewer
+
+## 2026-09-14 — Tailwind 4 emits nothing for a class you invented (todo 374, PR #771)
+
+**What broke.** The forum image picker shipped three elements styled
+`rounded-card`. There is no such utility: the radius scale is
+`xs/sm/md/lg/xl/pill`. Tailwind 4 emits **nothing** for an unrecognised utility
+— no build error, no lint failure, no console warning — so the dialog, its image
+tiles and the settings thumbnails all rendered square-cornered, and the diff
+looked entirely reasonable.
+
+**Root cause.** The name was invented by pattern-matching neighbouring code
+rather than taken from `--radius-*`. Nothing in the pipeline disagrees with a
+plausible-sounding class name.
+
+**Why grep cannot find this.** The obvious check — "is this class used elsewhere?"
+— inverts the signal. Auditing the rest of the diff turned up `ring-primary`,
+which appears **22 times across 10 files** and *also* compiles to nothing: every
+one of those focus rings is invisible, which is a real keyboard-accessibility
+defect (todo 396). A wrong class used 22 times looks *more* correct than one used
+once.
+
+**The fix, and the only reliable check.** Build the CSS and look for the class in
+the output:
+
+```bash
+cd web && npm run build
+grep -o '\.rounded-card' dist/assets/*.css   # empty  -> the class does not exist
+grep -o '\.rounded-lg'   dist/assets/*.css   # present -> it does
+```
+
+**Same session, same shape of problem, different subject.** Two new regression
+tests passed while the bug they targeted was still live — once from a wrong prop
+name (`content=` where the component takes `blocks=`, so it returned early), once
+because jsdom cannot produce a drop coordinate. Both were caught only by mutating
+the code and watching the test stay green. See
+`web/docs/patterns/testing.md` → "Two ways a web test passes for the wrong reason".
+
+**Rule of thumb this generalises to:** for anything the toolchain accepts
+silently — a CSS utility name, an automocked class, a coordinate jsdom cannot
+compute — the source is not evidence. Check the artifact the tool produced, or
+mutate and watch it fail.
+
+**Agent**: react-typescript-reviewer
