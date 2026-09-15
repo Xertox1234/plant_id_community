@@ -679,6 +679,25 @@ service firebase.storage {
      APNs key is configured, so a push that actually arrives proves the upload
      happened. Prefer it over anyone's recollection that the key was uploaded.
 
+     **Do item 0 first (2026-09-15).** Production has neither
+     `FIREBASE_CREDENTIALS_PATH` nor `GOOGLE_APPLICATION_CREDENTIALS` set, so
+     `is_firebase_available()` is `False` and *every* FCM send returns early at
+     `logger.debug` — no error, no log line, task succeeds. This is
+     platform-neutral: **Android push is equally dead.** `FIREBASE_PROJECT_ID`
+     *is* set, which is why it hides — that feeds the auth exchange's
+     projectId-only tier, so Firebase sign-in works while FCM does not. Confirm
+     with (these are file paths, not secrets):
+
+     ```bash
+     railway ssh --service plant_id_community -- sh -c \
+       'echo CRED=[${FIREBASE_CREDENTIALS_PATH:-UNSET}] GAC=[${GOOGLE_APPLICATION_CREDENTIALS:-UNSET}]'
+     # 2026-09-15 → CRED=[UNSET] GAC=[UNSET]   (confirmed in the container)
+     ```
+
+     Fixing it needs the service-account JSON **present in the container** — the
+     setting is a path, not the JSON — so a Railway volume or a baked file, plus
+     the env var pointing at it.
+
 - [ ] **Production build** tested
 
   ```bash
