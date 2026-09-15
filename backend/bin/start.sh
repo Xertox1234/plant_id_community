@@ -69,6 +69,80 @@ finish_stopped() {
   exit 0
 }
 
+# --- Firebase service-account credentials (todo 286) -------------------------
+# The Admin SDK takes a FILE PATH (`credentials.Certificate(path)`), so a
+# service-account JSON has to exist in the container. It must never be
+# committed — this repo is public — so it arrives as a Railway variable and is
+# materialized here at boot, into /tmp for the same reason celerybeat's schedule
+# lives there: the app dir is treated as read-only.
+#
+# Why this exists: until 2026-09-15 neither FIREBASE_CREDENTIALS_PATH nor
+# GOOGLE_APPLICATION_CREDENTIALS was set in production, so
+# `is_firebase_available()` was False and EVERY push returned early at
+# `logger.debug` — below the deployed level. No error, no log line, the task
+# succeeded, nothing was delivered, on iOS and Android alike. Hence the loud
+# log lines on both branches below: the failure mode this replaces was silence.
+#
+# Done HERE rather than in Django so both children inherit it — the export must
+# happen before the worker (which actually sends) and gunicorn are forked.
+#
+# A malformed value logs loudly and leaves push disabled rather than exiting:
+# these credentials are push-only, and taking the whole web tier down over them
+# would turn a broken notification into an outage. The log line is the signal.
+firebase_credentials_file=${FIREBASE_CREDENTIALS_FILE:-/tmp/firebase-service-account.json}
+if [[ -n ${FIREBASE_CREDENTIALS_PATH:-} ]]; then
+  log "firebase: FIREBASE_CREDENTIALS_PATH already set (${FIREBASE_CREDENTIALS_PATH}); leaving it alone"
+elif [[ -z ${FIREBASE_CREDENTIALS_B64:-} ]]; then
+  log "firebase: FIREBASE_CREDENTIALS_B64 unset -> FCM PUSH DISABLED (sends return early and log nothing)"
+elif firebase_project=$(FIREBASE_CREDENTIALS_TARGET="$firebase_credentials_file" python3 -c '
+import base64, binascii, json, os, sys
+
+raw = os.environ["FIREBASE_CREDENTIALS_B64"].strip()
+if raw.startswith("{"):
+    # Pasting the JSON straight into the variable is the obvious operator
+    # mistake; it costs nothing to accept.
+    data = raw.encode()
+else:
+    # Whitespace is stripped before validating because `base64 -i file` WRAPS
+    # its output at 76 columns on both macOS and GNU coreutils, so a copied
+    # value normally arrives with newlines in it. validate=True would reject
+    # those outright and the failure would look like a corrupt key.
+    try:
+        data = base64.b64decode("".join(raw.split()), validate=True)
+    except (binascii.Error, ValueError) as exc:
+        sys.exit(f"value is neither raw JSON nor valid base64 ({exc})")
+try:
+    parsed = json.loads(data)
+except ValueError as exc:
+    sys.exit(f"decoded value is not JSON ({exc})")
+if parsed.get("type") != "service_account":
+    # NO single quotes anywhere in this script: the whole thing is one
+    # single-quoted shell argument, so a quote here is eaten by the shell.
+    # That bug shipped for one test run -- repr() below arrived as
+    # parsed.get(type), looking up the BUILTIN, which returns None and made
+    # every bad credential report "type is None".
+    sys.exit("JSON type is " + repr(parsed.get("type")) + ", expected service_account")
+missing = [k for k in ("project_id", "private_key", "client_email") if not parsed.get(k)]
+if missing:
+    sys.exit(f"service-account JSON is missing {missing}")
+# 0600 and O_TRUNC via os.open: the file holds a private key, and a plain
+# open() would leave it world-readable under the default umask.
+fd = os.open(os.environ["FIREBASE_CREDENTIALS_TARGET"], os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+with os.fdopen(fd, "wb") as fh:
+    fh.write(data)
+# project_id only. Never the key, and not client_email either; the project id
+# is what makes a credential-source divergence diagnosable from logs (the same
+# reason firebase_config.initialize_firebase logs it).
+print(parsed["project_id"], end="")
+' 2>/tmp/firebase-cred-error)
+then
+  export FIREBASE_CREDENTIALS_PATH="$firebase_credentials_file"
+  log "firebase: credentials materialized at ${firebase_credentials_file} for project ${firebase_project} -> FCM push ENABLED"
+else
+  log "firebase: FIREBASE_CREDENTIALS_B64 is set but UNUSABLE: $(cat /tmp/firebase-cred-error 2>/dev/null) -> FCM PUSH STAYS DISABLED"
+fi
+rm -f /tmp/firebase-cred-error
+
 start_worker
 bash -c "$WEB_CMD" & web_pid=$!
 log "worker pid ${worker_pid} (${WORKER_CMD}); web pid ${web_pid} (${WEB_CMD})"
