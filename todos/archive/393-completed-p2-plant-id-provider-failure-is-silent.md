@@ -1,10 +1,10 @@
 ---
-status: pending
+status: completed
 priority: p2
 issue_id: "393"
 tags: [plant-identification, ops, billing, monitoring, production]
 dependencies: []
-source_review: "todos/390-pending-p3-plant-id-key-rotation-unverified.md"
+source_review: "todos/archive/390-completed-p3-plant-id-key-rotation-unverified.md"
 ---
 
 # A Plant.id outage is invisible: the provider can fail completely and nothing says so
@@ -194,7 +194,7 @@ here because this todo is about how provider failures get logged.
       empty one — so unmapped statuses become `http-<status>`, always specific
       and never a guess wearing a confident label. Add the mapping when a real
       credit block is seen, and record the observed status here.
-- [ ] Sustained primary-provider failure raises something a human sees, wired
+- [x] Sustained primary-provider failure raises something a human sees, wired
       into ~~`services/monitoring_service.py`'s existing API-dependency
       tracking~~ `circuit_monitoring.py`. A threshold, not a per-request alert
       — **Half done, and the honest half is stated rather than claimed.** The
@@ -239,6 +239,32 @@ here because this todo is about how provider failures get logged.
       a `try/except` remains in its place on purpose, because "alerting must
       never break the failure path it watches" is a permanent invariant rather
       than stub-era scaffolding.
+      **CLOSED 2026-09-15, on this AC's own stated exit condition** — "until
+      either a genuine outage does it or someone exercises `_alert()` on
+      purpose". Both halves are now proven with real components rather than
+      assumed:
+      **(a) threshold → alert.** `test_a_real_circuit_reaching_its_threshold_actually_raises_the_alert`
+      drives a real `create_monitored_circuit` breaker with real `HTTPError`s:
+      no alert at failures 1 and 2, exactly one at failure 3, carrying the
+      service name and the reason token that the real `failure()` callback
+      derived from the real exception. Three mutants fail it.
+      **(b) alert → a human.** `_alert()` invoked in the production container:
+      `sentry_sdk.get_client().is_active()` → `True`, `release 1.0.0`,
+      `environment production`, and the event arrived as issue
+      **`HOUSEPLANT-MD-BACKEND-2`** (id 7734151220, event `062ab2e1`), level
+      **Error**, title carrying the full message including `payment-required`.
+      Note it is a *separate* issue from `HOUSEPLANT-MD-BACKEND-1`, which is the
+      point: that one came via the logging integration, this one via
+      `capture_message`, and only this one exercises the path `_alert()` takes.
+      **What remains inferred, stated plainly:** nobody has watched a genuine
+      Plant.id outage drive a live gunicorn worker's circuit to its threshold.
+      The two links above are each proven; their *composition in production* is
+      not. That gap is structural rather than negligent — `_plant_id_circuit` is
+      module-level with pybreaker's in-memory storage and `bin/start.sh` runs
+      `--workers 2`, so each worker holds an independent `fail_max=3` counter and
+      external traffic cannot reliably drive either to the threshold. Closing on
+      the AC's own exit condition rather than leaving it open forever, with the
+      residual risk named here instead of hidden behind a tick.
 - [x] The response makes provider degradation legible to the client: when
       `source` is absent or `disease_detection` is null because the provider
       failed (not because the plant is healthy), the API says so rather than
@@ -548,3 +574,45 @@ Ops observation, not acted on: every application log line reaches Railway with
 `severity: "error"` regardless of its actual `levelname` (INFO lines included),
 so the Railway UI cannot be used to spot real errors by severity. Sentry is
 unaffected — it reads the Python level, not Railway's classification.
+
+### 2026-09-15 - Started by completing-todos skill (run 2026-09-15-1932)
+
+- Picked up in verify-only state: all 5 acceptance criteria already flipped with
+  evidence captured earlier in this session.
+- Fixed a dangling `source_review` pointer while here — it named
+  `todos/390-pending-p3-...`, but todo 390 was archived as
+  `todos/archive/390-completed-p3-...`. No `source_finding` key, so the
+  finding-checkoff step of the archive does not apply.
+
+### 2026-09-15 - Completed by completing-todos skill (run 2026-09-15-1932)
+
+- **Verification:** all 5 acceptance criteria pass, each with a dated observation
+  quoted in this file — credits (2026-09-13), a real production identification
+  (2026-09-15, HTTP 200, 2.0 credits), the reason-token vocabulary, the Sentry
+  alert (`HOUSEPLANT-MD-BACKEND-2`, event `062ab2e1`), and the four additive
+  response fields. `apps/plant_identification/` + `apps/core/`: 1563 passed.
+- **Review:** 1 finding, 0 blocking (1 MEDIUM). Addressed rather than accepted.
+
+**The MEDIUM, and what checking it actually taught.** The reviewer noted the two
+sentry-shadow guards were asymmetric: `test_provider_failure_visibility.py` got a
+direct `backend/sentry_sdk.py` existence check, `test_sentry_options_drift.py`
+kept only the resolved-path one. Added for symmetry — but the reviewer's stated
+rationale ("defense in depth at import time") is not the real one, and testing it
+showed why:
+
+- With a stub present, `test_sentry_options_drift.py` fails at **collection** —
+  it imports `sentry_sdk` at module scope. True even for a stub complete enough
+  to import (`VERSION`, `init`, `capture_message`, `flush`, `get_client`), so the
+  new assertion never actually runs in that scenario.
+- `test_provider_failure_visibility.py` imports inside the test function, so it
+  fails as a **clean named assertion** quoting the offending path. Verified
+  against the same sophisticated stub.
+
+So the honest justification is narrower and different: the existence check earns
+its place for the case where a stub is **committed but did not win the import** —
+out-shadowed by a sys.path accident, so every resolved-path check passes here and
+the landmine goes off on someone else's machine. That case could not be simulated
+in this harness, so the claim is reasoned, not demonstrated; the predicate itself
+was confirmed non-vacuous (fires on a planted file, silent when clean). The
+comment in the file says this rather than the tidier thing that would have been
+wrong.

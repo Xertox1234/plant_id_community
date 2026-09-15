@@ -131,8 +131,23 @@ def test_no_local_module_shadows_the_real_sentry_sdk():
     rather than the one known stub path -- the failure mode is "a local file
     shadows an installed package", not "this particular file exists".
     """
-    resolved = Path(sentry_sdk.__file__).resolve()
     project_root = Path(__file__).resolve().parents[3]
+
+    # Checked independently of which copy won the import, because the two
+    # failures are not the same. The resolved-path assertion below catches a
+    # stub that IS currently shadowing the SDK. This one catches a stub sitting
+    # in the tree that ISN'T -- committed but out-shadowed by a sys.path
+    # accident, so every check passes here and the landmine goes off on someone
+    # else's machine instead.
+    for shadow in (project_root / "sentry_sdk.py", project_root / "sentry_sdk"):
+        assert not shadow.exists(), (
+            f"{shadow} exists. backend/ is the Django project root and is on "
+            "sys.path, so a module named sentry_sdk there can win over the "
+            "installed package and silently disable all error reporting "
+            "(todo 395) -- whether or not it won this particular import."
+        )
+
+    resolved = Path(sentry_sdk.__file__).resolve()
 
     # This project's documented venv is backend/venv, so the REAL installed SDK
     # resolves inside project_root too. A bare `not is_relative_to` therefore
