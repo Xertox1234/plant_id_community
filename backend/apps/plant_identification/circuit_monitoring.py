@@ -28,34 +28,37 @@ logger = logging.getLogger(__name__)
 
 
 def _alert(message: str) -> None:
-    """Raise a threshold alert to Sentry, if Sentry is reachable at all.
+    """Raise a threshold alert to Sentry.
 
-    **It currently is not, and that is a separate bug (todo 395).**
-    `backend/sentry_sdk.py` is a five-line local stub -- "Minimal test stub for
-    sentry_sdk to avoid hard dependency during local tests" -- committed in the
-    first backend commit. `backend/` is the Django project root and therefore on
-    `sys.path`, so `import sentry_sdk` resolves to that stub and NOT to the real
-    `sentry-sdk==2.68.1` in requirements.txt. `sentry_sdk.init()` at
-    settings.py:1185 has always returned None, so no error, DSN, trace or
-    profile this project ever produced has reached Sentry.
+    Sentry is real now. Until todo 395 landed, `backend/sentry_sdk.py` was a
+    five-line local stub -- "Minimal test stub for sentry_sdk to avoid hard
+    dependency during local tests" -- committed in the first backend commit.
+    `backend/` is the Django project root and therefore on `sys.path`, so
+    `import sentry_sdk` resolved to that stub and NOT to the real
+    `sentry-sdk==2.68.1` in requirements.txt. `sentry_sdk.init()` returned None
+    for the project's entire history, so no error, trace or profile ever reached
+    Sentry. The stub is gone; the import resolves to the installed package.
 
-    The guard is here because the stub has no `capture_message`: calling it
-    directly would raise AttributeError *inside a circuit-breaker listener*,
-    turning "the provider is down" into "the provider is down and the listener
-    crashed". Alerting must never be able to break the failure path it reports on.
+    **Delivery still depends on SENTRY_DSN being set**, and it is not set in
+    production today. With no DSN, `init()` is never called and
+    `capture_message` is a no-op -- which is what makes this safe in dev and in
+    tests. Setting the DSN is what turns this into something a human sees.
 
-    Deleting the stub is the fix and it is deliberately NOT done here: it would
-    switch on live error reporting to a third party in production, which is an
-    operator's call, not a side effect of this todo.
+    The try/except is NOT leftover scaffolding from the stub era. Alerting must
+    never be able to break the failure path it reports on: this runs inside a
+    circuit-breaker listener, so an exception here would turn "the provider is
+    down" into "the provider is down and the listener crashed". Only the
+    exception TYPE is logged -- a Sentry exception message can contain the DSN,
+    which carries a key.
     """
-    capture = getattr(sentry_sdk, "capture_message", None)
-    if capture is None:
+    try:
+        sentry_sdk.capture_message(message, level="error")
+    except Exception as exc:  # noqa: BLE001 - see docstring; must never propagate
+        alert_error = type(exc).__name__
         logger.warning(
-            "[CIRCUIT] Sentry alert not sent: sentry_sdk has no capture_message "
-            "(the local stub is shadowing the real package -- see todo 395)"
+            f"[CIRCUIT] Sentry alert not sent ({alert_error}); "
+            "the circuit-open log line above is the surviving signal"
         )
-        return
-    capture(message, level="error")
 
 
 class CircuitMonitor(CircuitBreakerListener):

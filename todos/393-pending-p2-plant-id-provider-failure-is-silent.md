@@ -190,6 +190,19 @@ here because this todo is about how provider failures get logged.
       no `capture_message` and an unguarded call would raise AttributeError
       *inside a circuit-breaker listener* — alerting must never be able to break
       the failure path it reports on.
+      **Update 2026-09-14 (todo 395 landed): the gap moved, it did not close.**
+      The stub is deleted, so `sentry_sdk` now resolves to the real
+      `sentry-sdk==2.68.1` and `capture_message` exists and is called for real.
+      What still does not happen is anyone being reached: `SENTRY_DSN` is not
+      set on the Railway `plant_id_community` service, so `init()` is never
+      called and `capture_message` is a no-op. **This AC therefore stays
+      unchecked.** The threshold ERROR log line remains the only signal that
+      actually reaches a person today. The remaining action is an operator's,
+      not an engineer's — create a Sentry project and set one variable — and it
+      is tracked as the last open AC of todo 395. The `getattr` guard is gone;
+      a `try/except` remains in its place on purpose, because "alerting must
+      never break the failure path it watches" is a permanent invariant rather
+      than stub-era scaffolding.
 - [x] The response makes provider degradation legible to the client: when
       `source` is absent or `disease_detection` is null because the provider
       failed (not because the plant is healthy), the API says so rather than

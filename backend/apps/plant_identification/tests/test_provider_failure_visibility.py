@@ -239,9 +239,7 @@ def test_opening_the_circuit_raises_an_alert_a_human_can_see():
     monitor.last_failure_reason = "payment-required"
     breaker = Mock(fail_counter=3, fail_max=3, reset_timeout=60)
 
-    with patch.object(
-        circuit_monitoring.sentry_sdk, "capture_message", create=True
-    ) as alert:
+    with patch.object(circuit_monitoring.sentry_sdk, "capture_message") as alert:
         monitor.state_change(breaker, "closed", "open")
 
     alert.assert_called_once()
@@ -258,9 +256,7 @@ def test_a_recovering_circuit_does_not_alert():
     monitor = circuit_monitoring.CircuitMonitor("plant_id_api")
     breaker = Mock(fail_counter=0, fail_max=3, reset_timeout=60)
 
-    with patch.object(
-        circuit_monitoring.sentry_sdk, "capture_message", create=True
-    ) as alert:
+    with patch.object(circuit_monitoring.sentry_sdk, "capture_message") as alert:
         monitor.state_change(breaker, "open", "half_open")
         monitor.state_change(breaker, "half_open", "closed")
 
@@ -329,38 +325,92 @@ def test_provider_outcome_distinguishes_absent_from_failed():
 
 
 def test_the_alert_cannot_crash_the_failure_path_it_reports_on():
-    """`backend/sentry_sdk.py` is a local stub with no `capture_message`, and it
-    shadows the real package (todo 395). Calling it unguarded would raise
-    AttributeError INSIDE a circuit-breaker listener -- turning "the provider is
-    down" into "the provider is down and the listener crashed". Alerting is never
-    allowed to break the thing it is watching.
+    """Alerting is never allowed to break the thing it is watching.
+
+    This runs inside a circuit-breaker listener. If `capture_message` raises --
+    a broken DSN, a transport error, a serialization failure -- an unguarded
+    call would turn "the provider is down" into "the provider is down and the
+    listener crashed", losing the circuit-open log line as well as the alert.
+
+    Before todo 395 the failure mode was AttributeError, because
+    `backend/sentry_sdk.py` was a local stub with no `capture_message` at all.
+    The stub is gone, so this asserts the durable invariant -- any exception is
+    contained -- rather than that one vanished symptom.
     """
     from apps.plant_identification import circuit_monitoring
 
     monitor = circuit_monitoring.CircuitMonitor("plant_id_api")
+    monitor.last_failure_reason = "rate-limited"
     breaker = Mock(fail_counter=3, fail_max=3, reset_timeout=60)
 
-    class NoCaptureMessage:
-        def init(self, *a, **k):
-            return None
+    with patch.object(
+        circuit_monitoring.sentry_sdk,
+        "capture_message",
+        side_effect=RuntimeError("transport is down"),
+    ):
+        with patch.object(circuit_monitoring, "logger") as log:
+            monitor.state_change(breaker, "closed", "open")  # must not raise
 
-    with patch.object(circuit_monitoring, "sentry_sdk", NoCaptureMessage()):
-        monitor.state_change(breaker, "closed", "open")  # must not raise
+    # Asserted on the module logger, not caplog: `apps.*` sets propagate=False.
+    written = " ".join(str(c) for c in log.mock_calls)
+    assert "circuit OPENED" in written, (
+        "the circuit-open log line is the signal that survives a dead alert "
+        "channel; losing it leaves the outage completely invisible"
+    )
+    assert "RuntimeError" in written, "say why the alert did not go out"
 
 
-def test_the_stub_shadows_the_real_sentry_package():
-    """Pins the diagnosis so todo 395 cannot be closed on a guess.
+def test_the_alert_failure_notice_never_logs_the_sentry_message():
+    """A Sentry exception message can quote the DSN, which carries a key."""
+    from apps.plant_identification import circuit_monitoring
 
-    If this test starts FAILING, the stub was removed and real Sentry is live --
-    at which point the guard in `_alert` becomes dead weight and the alert
-    actually reaches a person. That is the intended end state; update this test
-    then, do not delete it silently.
+    monitor = circuit_monitoring.CircuitMonitor("plant_id_api")
+    breaker = Mock(fail_counter=3, fail_max=3, reset_timeout=60)
+    # Fabricated, not a real DSN. The whole point of the test is that this
+    # value must NOT reach the log, so it has to look like the real thing.
+    secret_dsn = (
+        "https://deadbeefcafe@o123.ingest.sentry.io/456"  # pragma: allowlist secret
+    )
+
+    with patch.object(
+        circuit_monitoring.sentry_sdk,
+        "capture_message",
+        side_effect=RuntimeError(f"bad dsn: {secret_dsn}"),
+    ):
+        with patch.object(circuit_monitoring, "logger") as log:
+            monitor.state_change(breaker, "closed", "open")
+
+    written = " ".join(str(c) for c in log.mock_calls)
+    assert "deadbeefcafe" not in written, "the DSN key reached the log"
+    assert secret_dsn not in written
+
+
+def test_no_local_stub_shadows_the_real_sentry_package():
+    """The todo 395 fix, pinned in the place that depends on it.
+
+    This test previously asserted the OPPOSITE -- that `backend/sentry_sdk.py`
+    shadowed the installed package -- and was written to fail loudly when the
+    stub was removed, so the fix could not go unnoticed. It has now been
+    inverted rather than deleted: the same line is what proves the bug is gone
+    and what will catch a convenience stub being re-added.
+
+    `backend/` is the Django project root and so is on `sys.path`. Any module
+    named `sentry_sdk.py` placed there wins over the installed package and
+    silently disables all error reporting. See
+    `apps/core/tests/test_sentry_options_drift.py` for the settings half.
     """
+    from pathlib import Path
+
     import sentry_sdk
 
-    assert sentry_sdk.__file__.endswith("backend/sentry_sdk.py"), sentry_sdk.__file__
-    assert not hasattr(sentry_sdk, "capture_message")
-    assert sentry_sdk.init(dsn="https://public@example.invalid/1") is None
+    project_root = Path(__file__).resolve().parents[3]
+    resolved = Path(sentry_sdk.__file__).resolve()
+
+    assert not resolved.is_relative_to(project_root), (
+        f"sentry_sdk resolves to {resolved}, inside {project_root} -- a local "
+        "module is shadowing the real SDK and init() is a no-op (todo 395)"
+    )
+    assert hasattr(sentry_sdk, "capture_message")
 
 
 def test_the_summary_says_when_the_health_check_did_not_run():
