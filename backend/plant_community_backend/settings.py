@@ -1192,7 +1192,14 @@ if SENTRY_DSN and not DEBUG:
         environment=config("ENVIRONMENT", default="production"),
         release=config("RELEASE_VERSION", default="1.0.0"),
         attach_stacktrace=True,
-        request_bodies="medium",  # Log request bodies for POST/PUT
+        # NOT request_bodies="medium". That option was removed in sentry-sdk
+        # 2.x and the real SDK REJECTS unknown options (TypeError: Unknown
+        # option), so it would crash Django at boot the moment SENTRY_DSN is
+        # set -- masked for years by a local stub that shadowed the package
+        # (todo 395). Bodies stay OFF deliberately: POST/PUT payloads carry
+        # login and registration credentials, which is the same data
+        # send_default_pii=False above exists to keep out of a third party.
+        max_request_body_size="never",
         profiles_sample_rate=config(
             "SENTRY_PROFILES_SAMPLE_RATE", default=0.1, cast=float
         ),

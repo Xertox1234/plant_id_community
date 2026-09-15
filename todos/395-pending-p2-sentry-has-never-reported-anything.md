@@ -124,26 +124,103 @@ pins the diagnosis so it cannot be closed on a guess.
 
 ## Acceptance Criteria
 
-- [ ] `backend/sentry_sdk.py` is gone and `import sentry_sdk` resolves into
+- [x] `backend/sentry_sdk.py` is gone and `import sentry_sdk` resolves into
       `site-packages` under `django.setup()`, asserted by a test
-- [ ] `settings.py` passes only options the installed SDK accepts, and Django
+      — **2026-09-14.** Deleted. Under `django.setup()` the import now resolves
+      to `venv/lib/python3.13/site-packages/sentry_sdk/__init__.py`
+      (2.68.1, `capture_message` present). Asserted from two directions so a
+      convenience stub cannot come back:
+      `apps/core/tests/test_sentry_options_drift.py::test_no_local_module_shadows_the_real_sentry_sdk`
+      and `test_provider_failure_visibility.py::test_no_local_stub_shadows_the_real_sentry_package`.
+      Both assert the *resolved module is outside the project root* rather than
+      that one known path is absent — the failure mode is "a local file shadows
+      an installed package", not "this particular file exists".
+- [x] `settings.py` passes only options the installed SDK accepts, and Django
       starts with `SENTRY_DSN` set and `DEBUG=False` — verified by actually
       starting it, not by reading the signature
-- [ ] The request-body decision is explicit: bodies are either off
+      — **2026-09-14, booted both ways:**
+      `manage.py check` with `SENTRY_DSN` unset → *System check identified no
+      issues*. With `DEBUG=False SENTRY_DSN=https://public@example.invalid/1` →
+      *System check identified no issues*, **and** urllib3 logged three retries
+      of `POST /api/1/envelope/` to `example.invalid`. That envelope attempt is
+      the real evidence: the SDK initialised and tried to transmit, which the
+      stub could never do. Counterfactual checked in the same session — putting
+      `request_bodies="medium"` back while the stub is gone raises
+      `TypeError: Unknown option 'request_bodies'` at import time inside
+      settings, confirming the two changes must ship in one commit.
+      A drift guard now parses the `sentry_sdk.init()` call out of `settings.py`
+      with `ast` and asserts every keyword is in
+      `sentry_sdk.consts.DEFAULT_OPTIONS` (73 options), so the next SDK major
+      cannot re-arm this quietly. It reads the source rather than calling
+      `init()`, which would need a DSN and a live transport.
+- [x] The request-body decision is explicit: bodies are either off
       (`max_request_body_size="never"`) or on with a stated reason that
       reconciles with `send_default_pii=False`
+      — **Off, deliberately.** `max_request_body_size="never"`. POST/PUT bodies
+      carry login and registration payloads, which is the same data
+      `send_default_pii=False` exists to keep out of a third party; shipping
+      them would have contradicted the comment two lines above. Both halves are
+      pinned by `test_request_bodies_are_off_and_stay_off`, which fails if
+      either the body size or the PII flag is flipped — the decision is
+      asserted, not left to the next reader.
 - [ ] One deliberately-triggered error is confirmed **received** in the Sentry
       project, with the date and what was seen recorded here
+      — **STILL OPEN, and it is the only thing left.** It cannot be met from a
+      session: there is no Sentry project and no DSN. Everything up to the wire
+      is now proven (the SDK initialises and posts an envelope), but *received*
+      means a human opening a Sentry dashboard. To close it: create the project,
+      set `SENTRY_DSN` on the Railway `plant_id_community` service, trigger one
+      error, record the date and what was seen here. **Do not check this box on
+      a green deploy** — a boot that does not crash proves only that `init()`
+      did not raise, which is exactly the mistake that let this bug live for the
+      project's entire history.
 - [x] Whether `SENTRY_DSN` is set in production is recorded here (boolean only,
       never the value)
       — **2026-09-14: it is NOT set.** Railway `plant_id_community`, production,
       40 variables, no `SENTRY_DSN`. Read as names-only; no value was fetched.
-- [ ] A decision is recorded on whether this project wants Sentry at all. If
+      Re-confirmed unchanged at the time this todo was implemented.
+- [x] A decision is recorded on whether this project wants Sentry at all. If
       not, delete the stub AND the `settings.py` block AND the `sentry-sdk`
       pin, rather than leaving dead configuration that reads as working
       observability
-- [ ] Todo 393's `_alert` guard is removed and its two stub-pinning tests are
+      — **2026-09-14, operator decision: keep Sentry wired, do not enable it
+      yet.** The `settings.py` block and the `sentry-sdk==2.68.1` pin stay. The
+      alternative on the table was ripping all three out; it was declined
+      because the circuit-open threshold alert wants a destination. This is
+      explicitly *not* "Sentry is on": with no DSN, `init()` is never called and
+      `capture_message` is a no-op, so no data leaves the service and there is
+      no spend. What changed is that setting the DSN is now a one-variable
+      action that works, instead of one that crashes Django at boot.
+- [x] Todo 393's `_alert` guard is removed and its two stub-pinning tests are
       updated, so AC 4 of that todo becomes genuinely met
+      — **Done, with one deliberate deviation.** The `getattr(sentry_sdk,
+      "capture_message", None)` check is gone; it existed only because the stub
+      lacked the attribute. The *protection* is kept as a `try/except`, because
+      the invariant it enforces is permanent and independent of which SDK is
+      imported: `_alert` runs inside a circuit-breaker listener, so an
+      exception there turns "the provider is down" into "the provider is down
+      and the listener crashed", taking the circuit-open log line with it. Only
+      the exception **type** is logged — a Sentry exception message can quote
+      the DSN, which carries a key. Both tests were inverted rather than
+      deleted, so the same lines that proved the bug now prove it is gone.
+      **Todo 393 AC 4 is still not checked** — see the note added there. The
+      gap moved from "the SDK is fake" to "no DSN is configured", which is
+      smaller and is an operator action, but it is still nobody being reached.
+
+## Verification
+
+- `pytest apps/core/ apps/plant_identification/` → **1562 passed** (75s).
+  App-scoped runs are a false green here; the repo-wide guards live in
+  `apps/core/tests/`.
+- `scripts/check_log_prefixes.py --app plant_identification --fail-over 0` →
+  0 unprefixed of 276.
+- `scripts/check_archived_todo_status.py --fail-over 0` → green.
+- **Mutation check: 8 mutants, 8 caught.** Re-add the stub; restore
+  `request_bodies="medium"`; turn request bodies on; flip `send_default_pii`;
+  hardcode `traces_sample_rate`; drop the `_alert` guard; swallow the alert
+  failure silently; log the exception message instead of its type. The two that
+  first reported a bare exit code were re-run and confirmed to fail on the real
+  assertion, not on a SyntaxError or ImportError standing in for one.
 
 ## Notes
 
