@@ -645,15 +645,15 @@ export async function uploadPostImage(
  * so `meta.count` is 0 here; `next` is the only "is there more" signal.
  */
 export async function listMyForumImages(
-  options: { cursor?: string; signal?: AbortSignal } = {}
+  options: { cursor?: string } = {}
 ): Promise<PaginatedResponse<UploadedImage>> {
-  const { cursor, signal } = options;
+  const { cursor } = options;
   const url = cursor || `${FORUM_BASE}/images/mine/`;
   const data = await authenticatedFetch<{
     results: UploadedImage[];
     next?: string | null;
     previous?: string | null;
-  }>(url, { signal });
+  }>(url);
   return {
     items: data.results ?? [],
     meta: { count: 0, next: data.next, previous: data.previous },

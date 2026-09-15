@@ -773,4 +773,57 @@ describe('MyForumImagesSection (todo 374)', () => {
     expect(await screen.findByTestId('forum-images-forbidden')).toBeInTheDocument();
     expect(screen.queryByTestId('forum-images-empty')).not.toBeInTheDocument();
   });
+
+  it('a NON-403 load failure is a failure, not "not a forum member"', async () => {
+    // The picker has this test; the settings copy of the identical logic did
+    // not, so deleting `&& err.status === 403` left the whole suite green.
+    // Two automock facts, both measured rather than assumed. The constructor is
+    // a no-op, so `status` must be assigned back (as in the 403 test above) --
+    // AND the automocked class is NOT an Error subclass (`instanceof Error` is
+    // false), so the component takes its non-Error fallback message rather than
+    // `err.message`. A real 500 in production IS an Error and shows its message;
+    // what this test pins is the branch, which is the part that was unpinned.
+    const boom = new forumService.ForumApiError('boom', 500);
+    Object.assign(boom, { status: 500, message: 'boom' });
+    vi.mocked(forumService.listMyForumImages).mockRejectedValue(boom);
+    render(<MyForumImagesSection />);
+    expect(await screen.findByText(/Failed to load your photos/i)).toBeInTheDocument();
+    expect(screen.queryByTestId('forum-images-forbidden')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('forum-images-empty')).not.toBeInTheDocument();
+  });
+
+  it('a plain Error (no status) is reported too, not swallowed', async () => {
+    vi.mocked(forumService.listMyForumImages).mockRejectedValue(new Error('offline'));
+    render(<MyForumImagesSection />);
+    expect(await screen.findByText('offline')).toBeInTheDocument();
+    expect(screen.queryByTestId('forum-images-forbidden')).not.toBeInTheDocument();
+  });
+
+  it('offers Load more only when the server sent a next cursor', async () => {
+    render(<MyForumImagesSection />);
+    await screen.findAllByRole('button', { name: 'Delete' });
+    expect(screen.queryByRole('button', { name: /Load more/i })).not.toBeInTheDocument();
+  });
+
+  it('appends the next page instead of replacing the current one', async () => {
+    // handleLoadMore had NO coverage at all — it could have been deleted
+    // outright and this suite would have stayed green.
+    vi.mocked(forumService.listMyForumImages)
+      .mockResolvedValueOnce(page([img(1), img(2)], 'http://api/next'))
+      .mockResolvedValueOnce(page([img(3)]));
+    render(<MyForumImagesSection />);
+    fireEvent.click(await screen.findByRole('button', { name: /Load more/i }));
+    await waitFor(() => expect(screen.getAllByRole('button', { name: 'Delete' })).toHaveLength(3));
+    expect(forumService.listMyForumImages).toHaveBeenLastCalledWith({ cursor: 'http://api/next' });
+  });
+
+  it('a failed Load more keeps the photos already on screen', async () => {
+    vi.mocked(forumService.listMyForumImages)
+      .mockResolvedValueOnce(page([img(1)], 'http://api/next'))
+      .mockRejectedValueOnce(new Error('nope'));
+    render(<MyForumImagesSection />);
+    fireEvent.click(await screen.findByRole('button', { name: /Load more/i }));
+    expect(await screen.findByText('nope')).toBeInTheDocument();
+    expect(screen.getAllByRole('button', { name: 'Delete' })).toHaveLength(1);
+  });
 });

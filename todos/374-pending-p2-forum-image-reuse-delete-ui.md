@@ -220,6 +220,63 @@ missed).
 **Still open:** AC 4 only. Flutter has no compose-side picker; that is a
 follow-up PR, and this todo stays `pending` until it lands.
 
+### 2026-09-14 - Review round 1 + repairs (PR #771)
+
+Two reviewers on the diff: `react-typescript-reviewer` (correctness) and
+`cross-cutting-reviewer` (checklist + test quality). Three BLOCKING findings,
+all fixed and mutation-proven; the rest went to **todo 396** per the
+review-loop budget rather than a third round.
+
+**Fixed, each proven by a mutant that fails without it (6 caught):**
+
+- `ForumImagePicker.loadMore` had no cancellation and never reset
+  `isLoadingMore`. The component is never UNMOUNTED between opens — the composer
+  renders it permanently and `open` only gates the render — so closing mid-"load
+  more" and reopening appended the OLD session's page two onto the NEW session's
+  page one and left `nextCursor` walking the wrong chain, with the button stuck
+  disabled. Fixed with a session counter + reset on open.
+- **`rounded-card` emitted no CSS.** I invented the class name; the radius scale
+  is `xs/sm/md/lg/xl/pill`. Tailwind 4 silently emits nothing for an unknown
+  utility, so three elements rendered square with no error and nothing visible in
+  review. Now `rounded-lg` (dialog) / `rounded-md` (tiles), **verified against
+  the built bundle** rather than by grepping.
+- A reused photo could land at a stale drag-and-drop coordinate:
+  `closeAltPrompt` releases the preview URL but never clears `dropPosRef`, so
+  abandoning a drop by picking an existing photo inserted at the abandoned drop
+  position. `handlePickExisting` now clears it and the reuse path always inserts
+  at the caret.
+
+**Also fixed, because they falsified AC 5 rather than being mere polish** — the
+settings section had claimed coverage it did not have:
+
+- the non-403 load-error branch was unpinned (deleting `&& err.status === 403`
+  left the whole suite green; the picker had the mirror test, settings did not)
+- `handleLoadMore` had ZERO coverage — it could have been deleted outright
+
+**What could NOT be proven, stated rather than implied.** The stale-coordinate
+fix has no discriminating test, and two attempts survived mutation before the
+reason was found: jsdom has no layout, so `posAtCoords` never resolves and
+`dropPosRef` stays null for the entire suite. Measured — making even the UPLOAD
+path ignore `dropPosRef` breaks zero tests, so the whole drop-position feature
+is untested repo-wide, not just this path. The gap is now written into the code
+comment, the test, and todo 396 rather than papered over with a test that
+implies coverage.
+
+**Two automock facts, both measured:** vitest's `vi.mock(path)` replaces a class
+with a constructor whose body never runs (so `status` and `message` are unset)
+**and** the result is not an `Error` subclass (`instanceof Error` is false). Both
+change which branch a component takes, and both had already produced a
+green-but-wrong test in this file.
+
+**Confirmed safe by the cross-cutting pass, so AC 3 is closed on evidence rather
+than on the two paths I happened to look at:** the other two consumers of a
+now-nullable image reference already guard —
+`IdentificationCard.tsx` (`{image && …}`) and Flutter's
+`forum_body_block.dart` (`value == null` → `DeletedImageBlock()`).
+
+Verification after repairs: tsc clean, eslint clean, prettier clean, **full web
+suite 1385 passed across 100 files**.
+
 ### 2026-09-08 - Backend half landed; this todo stays open for the UI
 
 The premise above was **not true when this todo was written**. It says the

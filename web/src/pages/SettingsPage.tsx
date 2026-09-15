@@ -780,7 +780,7 @@ export function MyForumImagesSection() {
                   src={image.url}
                   alt={image.alt || ''}
                   loading="lazy"
-                  className="aspect-square w-full rounded-card border border-line object-cover"
+                  className="aspect-square w-full rounded-md border border-line object-cover"
                 />
                 <button
                   type="button"

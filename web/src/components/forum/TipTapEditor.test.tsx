@@ -1233,4 +1233,55 @@ describe('reusing an already-uploaded photo (todo 374)', () => {
     await userEvent.click(await screen.findByRole('button', { name: 'Add image' }));
     expect(revokeObjectURL).not.toHaveBeenCalled();
   });
+
+  it('an ABANDONED drop does not place a reused photo at the drop coordinate', async () => {
+    // Drag-and-drop sets dropPosRef and opens the upload prompt. closeAltPrompt
+    // only releases the preview URL, so abandoning that prompt used to leave the
+    // coordinate set — and the reuse path, reached from the TOOLBAR, then
+    // inserted at that stale position instead of at the caret.
+    //
+    // HONEST SCOPE: this does NOT prove the stale-coordinate fix. jsdom has no
+    // layout, so posAtCoords never resolves and dropPosRef stays null for the
+    // whole suite -- measured by mutation, where making even the UPLOAD path
+    // ignore dropPosRef broke zero tests. Two earlier versions of this test
+    // survived the mutation for exactly that reason. What it DOES pin, and what
+    // is worth keeping: abandoning a drop by picking an existing photo uploads
+    // nothing, inserts exactly one image, and leaves it after the caret.
+    vi.spyOn(forumService, 'listMyForumImages').mockResolvedValue({
+      items: [existing],
+      meta: { count: 0, next: null, previous: null },
+    });
+    const { container } = render(<TipTapEditor onChange={vi.fn()} />);
+    await waitFor(() => expect(container.querySelector('.ProseMirror')).toBeInTheDocument());
+    const editorEl = container.querySelector('.ProseMirror') as HTMLElement;
+
+    // Caret ends up AFTER this text, which is what the reused image must follow.
+    await userEvent.click(editorEl);
+    await userEvent.type(editorEl, 'sentinel text');
+
+    fireEvent.drop(editorEl, {
+      dataTransfer: {
+        files: [new File(['x'], 'dropped.jpg', { type: 'image/jpeg' })],
+        items: [],
+        types: ['Files'],
+        getData: () => '',
+      },
+    });
+    // Abandon the drop's prompt by picking an existing photo instead.
+    await screen.findByLabelText('Describe this image');
+    await userEvent.click(screen.getByRole('button', { name: /Choose from your photos/i }));
+    await userEvent.click(
+      await screen.findByRole('button', { name: /Insert photo: a fern frond/i })
+    );
+    await userEvent.click(await screen.findByRole('button', { name: 'Add image' }));
+
+    await waitFor(() => expect(container.querySelector('.ProseMirror img')).not.toBeNull());
+    const html = editorEl.innerHTML;
+    const textAt = html.indexOf('sentinel text');
+    const imgAt = html.indexOf('data-image-id="42"');
+    expect(textAt).toBeGreaterThanOrEqual(0);
+    expect(imgAt).toBeGreaterThanOrEqual(0);
+    // At the caret (after the text), NOT at the abandoned drop coordinate.
+    expect(imgAt).toBeGreaterThan(textAt);
+  });
 });

@@ -411,6 +411,19 @@ export default function TipTapEditor({
     setPickerOpen(false);
     setImageError(null);
     closeAltPrompt();
+    // Clear any drop coordinate left behind by an ABANDONED drag-and-drop.
+    // closeAltPrompt only releases the preview URL, so a drop whose alt prompt
+    // was never committed leaves dropPosRef set; the reuse path is reached from
+    // the TOOLBAR, where the caret is the only sensible target, and would
+    // otherwise insert at that stale position instead.
+    //
+    // NOT covered by a discriminating test, deliberately stated rather than
+    // implied: jsdom has no layout, so `posAtCoords` never resolves a real drop
+    // coordinate and `dropPosRef` stays null throughout the suite. Measured --
+    // making the UPLOAD path ignore dropPosRef entirely breaks zero tests, so
+    // the whole drop-position feature is untested here, not just this path.
+    // Any change to drop positioning needs a real browser to verify.
+    dropPosRef.current = null;
     setAltPrompt({ kind: 'reuse', imageId: image.id, src: image.url, alt: image.alt ?? '' });
   };
 
@@ -472,17 +485,15 @@ export default function TipTapEditor({
       // so describing this image differently here must not rewrite the row's
       // description and thereby re-caption every other post using it.
       const { imageId, src } = altPrompt;
-      const insertAtReuse = dropPosRef.current;
-      dropPosRef.current = null;
       closeAltPrompt();
-      const attrs = { src, alt: trimmed, decorative, imageId };
-      const chain = editor.chain().focus();
-      if (insertAtReuse !== null) {
-        chain.insertContentAt(insertAtReuse, { type: 'image', attrs });
-      } else {
-        chain.insertContent({ type: 'image', attrs });
-      }
-      chain.run();
+      // Always at the caret: this path is only reachable from the toolbar
+      // button, never from a drop, so there is no drop coordinate to honour
+      // (handlePickExisting clears any stale one).
+      editor
+        .chain()
+        .focus()
+        .insertContent({ type: 'image', attrs: { src, alt: trimmed, decorative, imageId } })
+        .run();
       return;
     }
 

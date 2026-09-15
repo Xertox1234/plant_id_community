@@ -35,6 +35,11 @@ interface ForumImagePickerProps {
  */
 export default function ForumImagePicker({ open, onSelect, onClose }: ForumImagePickerProps) {
   const dialogRef = useRef<HTMLDivElement>(null);
+  // Bumped on every open. The component is never UNMOUNTED between opens -- the
+  // composer renders it permanently and `open` only gates the render -- so an
+  // in-flight "load more" from a previous open would otherwise resolve into the
+  // new session and append last session's page onto this session's page one.
+  const sessionRef = useRef(0);
   const titleId = useId();
   const [images, setImages] = useState<UploadedImage[]>([]);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
@@ -63,7 +68,11 @@ export default function ForumImagePicker({ open, onSelect, onClose }: ForumImage
   useEffect(() => {
     if (!open) return;
     let cancelled = false;
+    sessionRef.current += 1;
     setIsLoading(true);
+    // Reset too, or a "load more" left in flight by the previous open leaves
+    // the button permanently disabled in this one.
+    setIsLoadingMore(false);
     setError(null);
     setForbidden(false);
     setImages([]);
@@ -96,21 +105,29 @@ export default function ForumImagePicker({ open, onSelect, onClose }: ForumImage
 
   const loadMore = useCallback(() => {
     if (!nextCursor || isLoadingMore) return;
+    const session = sessionRef.current;
     setIsLoadingMore(true);
     setError(null);
     listMyForumImages({ cursor: nextCursor })
       .then((page) => {
+        // Drop the response if the picker was closed and reopened meanwhile:
+        // appending it would splice the OLD session's page two onto the NEW
+        // session's page one and leave nextCursor walking the wrong chain.
+        if (sessionRef.current !== session) return;
         // Append, never replace: the cursor walks forward and the already-
         // rendered tiles stay put, so the user does not lose their place.
         setImages((prev) => [...prev, ...page.items]);
         setNextCursor(page.meta.next ?? null);
       })
       .catch(() => {
+        if (sessionRef.current !== session) return;
         // The already-loaded page stays on screen — a failed "load more" must
         // not empty the grid the user is looking at.
         setError("Couldn't load more photos.");
       })
-      .finally(() => setIsLoadingMore(false));
+      .finally(() => {
+        if (sessionRef.current === session) setIsLoadingMore(false);
+      });
   }, [nextCursor, isLoadingMore]);
 
   if (!open) return null;
@@ -126,7 +143,7 @@ export default function ForumImagePicker({ open, onSelect, onClose }: ForumImage
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
-        className="max-h-[80vh] w-full max-w-2xl overflow-y-auto rounded-card bg-surface p-4 shadow-lg"
+        className="max-h-[80vh] w-full max-w-2xl overflow-y-auto rounded-lg bg-surface p-4 shadow-3"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between gap-3">
@@ -162,7 +179,7 @@ export default function ForumImagePicker({ open, onSelect, onClose }: ForumImage
                   <button
                     type="button"
                     onClick={() => onSelect(image)}
-                    className="group block w-full overflow-hidden rounded-card border border-line focus:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                    className="group block w-full overflow-hidden rounded-md border border-line focus:outline-none focus-visible:ring-2 focus-visible:ring-secondary"
                   >
                     <img
                       src={image.url}

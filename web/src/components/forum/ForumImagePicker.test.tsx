@@ -151,4 +151,64 @@ describe('ForumImagePicker (todo 374)', () => {
     fireEvent.click(screen.getByTestId('forum-image-picker-backdrop'));
     expect(onClose).toHaveBeenCalled();
   });
+
+  // --- stale responses across open/close (review round 1) --------------------
+
+  it('a load-more still in flight when the picker is reopened is DISCARDED', async () => {
+    // The component is never unmounted between opens — the composer renders it
+    // permanently and `open` only gates the render — so without a session guard
+    // the old page two would be appended onto the new page one.
+    let releaseSecond: (v: unknown) => void = () => {};
+    const pending = new Promise((resolve) => {
+      releaseSecond = resolve;
+    });
+    listMyForumImages
+      .mockResolvedValueOnce(page([img(1)], 'http://api/next')) // first open
+      .mockReturnValueOnce(pending) // the load-more we will strand
+      .mockResolvedValueOnce(page([img(5)])); // second open, page one
+
+    const { rerender } = render(<ForumImagePicker open onSelect={vi.fn()} onClose={vi.fn()} />);
+    fireEvent.click(await screen.findByRole('button', { name: /Load more/i }));
+
+    // Close and reopen while that request is still outstanding.
+    rerender(<ForumImagePicker open={false} onSelect={vi.fn()} onClose={vi.fn()} />);
+    rerender(<ForumImagePicker open onSelect={vi.fn()} onClose={vi.fn()} />);
+    await waitFor(() =>
+      expect(screen.getAllByRole('button', { name: /Insert photo/i })).toHaveLength(1)
+    );
+
+    releaseSecond(page([img(99)]));
+    await Promise.resolve();
+
+    // Still exactly the new session's single tile — img 99 must NOT appear.
+    await waitFor(() =>
+      expect(screen.getAllByRole('button', { name: /Insert photo/i })).toHaveLength(1)
+    );
+    expect(
+      screen.queryByRole('button', { name: /Insert photo: photo 99/i })
+    ).not.toBeInTheDocument();
+  });
+
+  it('reopening resets the load-more spinner left behind by the previous open', async () => {
+    // Without resetting isLoadingMore, "Load more" renders permanently disabled
+    // in the new session.
+    let release: (v: unknown) => void = () => {};
+    listMyForumImages
+      .mockResolvedValueOnce(page([img(1)], 'http://api/next'))
+      .mockReturnValueOnce(
+        new Promise((resolve) => {
+          release = resolve;
+        })
+      )
+      .mockResolvedValueOnce(page([img(5)], 'http://api/next2'));
+
+    const { rerender } = render(<ForumImagePicker open onSelect={vi.fn()} onClose={vi.fn()} />);
+    fireEvent.click(await screen.findByRole('button', { name: /Load more/i }));
+    rerender(<ForumImagePicker open={false} onSelect={vi.fn()} onClose={vi.fn()} />);
+    rerender(<ForumImagePicker open onSelect={vi.fn()} onClose={vi.fn()} />);
+
+    const loadMore = await screen.findByRole('button', { name: /Load more/i });
+    expect(loadMore).not.toBeDisabled();
+    release(page([]));
+  });
 });
