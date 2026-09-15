@@ -161,7 +161,9 @@
     },
     {
       "globs": [
-        "*.dart"
+        "*.dart",
+        "plant_community_mobile/ios/*",
+        "plant_community_mobile/android/*"
       ],
       "domains": [
         "flutter"

@@ -1746,8 +1746,7 @@
     "source": "codify: chore/388-backend-log-prefix-sweep",
     "added": "2026-09-13",
     "severity": "warn"
-  }
-,
+  },
   {
     "id": "shell-numeric-compare-without-validation",
     "domains": [
@@ -1764,6 +1763,21 @@
     "pattern_ref": "docs/LEARNINGS.md",
     "source": "codify: review round 1 across PRs #743-#750",
     "added": "2026-09-13",
+    "severity": "warn"
+  },
+  {
+    "id": "dart-brand-name-cannot-reach-native-manifests",
+    "domains": [
+      "flutter"
+    ],
+    "path_glob": [
+      "plant_community_mobile/lib/core/constants/app_brand.dart"
+    ],
+    "content_present": "static const String name\\s*=",
+    "message": "AppBrand.name governs only DART strings. The home-screen caption is CFBundleDisplayName (ios/Runner/Info.plist) and android:label (AndroidManifest.xml) — native manifests no compile-time constant reaches. Rename all three; app_brand_platform_parity_test.dart fails otherwise. iOS build 10 shipped the whole Canopy design under \"Plant Community Mobile\".",
+    "pattern_ref": "plant_community_mobile/docs/patterns/flutter-patterns.md",
+    "source": "codify: docs/codify-brand-assets-session",
+    "added": "2026-09-14",
     "severity": "warn"
   }
 ]

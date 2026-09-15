@@ -309,3 +309,45 @@ Reference: `lib/features/forum/widgets/author_identity.dart`,
 - **Shared-widget chrome gets a 375-wide test** (avatar cluster in the inbox
   row); the cluster's summary `Semantics` uses `excludeSemantics: true` so it
   announces "N members", not the initials.
+
+## App icon and launch assets: derive them, never hand-export
+
+The mark is a vector that already exists (`web/public/favicon.svg`, ported to
+Flutter as `BrandMark`). Every icon and launch PNG is DERIVED from it by
+`node scripts/design/render_brand_assets.mjs`, which rasterises through Chromium
+— the renderer this repo already trusts to pin Canopy tokens to painted pixels,
+and the one that needs no native image toolchain. Re-running the script is how
+the assets are updated; nothing is hand-exported, because a hand-export drifts
+from the mark the first time the mark changes.
+
+**Two shapes, split by ROLE rather than by platform:**
+
+| Role | Shape | Why |
+|------|-------|-----|
+| icons (iOS + Android) | full-bleed, `rx → 0` | both platforms apply their own mask; an already-rounded tile gets rounded twice — dark wedges under a masking launcher, a tile floating on a backdrop square under one that doesn't |
+| launch image | the rounded tile, centred on the ground | here the mark really IS a logo presented on a background, so the radius is the point |
+
+**No alpha channel in an app icon** — Apple rejects one. Chromium always writes
+RGBA, so re-encode as PNG colour type 2 *after* asserting every pixel is already
+opaque; a transparent pixel means the artwork did not cover the canvas and is a
+hard error, not something to flatten onto a guessed background.
+
+**Launch backgrounds must match the app's first painted frame.** Both defaults
+are white (`LaunchScreen.storyboard` `rgb(1,1,1)`, Android
+`@android:color/white`); against a dark first frame that flashes white on every
+cold start. Set both to the ground colour (`#051F20`, Canopy abyss — Android
+needs a `values/colors.xml` entry to reference).
+
+**Verifying the icon a user will actually see** means reading it out of the
+built IPA, not the repo. Xcode compiles the catalogue into `Assets.car` and
+extracts `AppIcon60x60@2x.png` / `AppIcon76x76@2x~ipad.png` to the bundle root
+in Apple's **CgBI** format — raw deflate (`zlib.decompressobj(-15)`) and BGRA,
+premultiplied. A stdlib PNG reader throws `incorrect header check` on a
+perfectly good icon.
+
+**The gate** is `scripts/check_brand_assets.py` (stdlib-only, so it runs as a
+bare `python3` in CI), wired into `mobile-ci.yml`. It reads expectations from
+the SVG rather than hardcoding them, and asserts each diagonal corner against
+both gradient stops — one corner against one colour cannot distinguish "tile
+fills the canvas" from "tile is inset over a similar backdrop", and cannot see
+a reversed gradient at all when the stops sit inside the colour tolerance.
