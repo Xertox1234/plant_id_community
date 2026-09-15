@@ -263,6 +263,72 @@ def test_a_recovering_circuit_does_not_alert():
     alert.assert_not_called()
 
 
+def test_a_real_circuit_reaching_its_threshold_actually_raises_the_alert():
+    """Drive a REAL pybreaker circuit to OPEN and assert the alert comes out.
+
+    The two tests above call `state_change(breaker, "closed", "open")` by hand
+    on a `Mock` breaker whose `fail_counter` is pre-set, and hand-assign
+    `last_failure_reason`. That pins what the listener does GIVEN the
+    transition -- but every step that PRODUCES the transition is supplied by
+    the test, so three links in the chain go unchecked, and all three have to
+    hold for a real outage to reach a person:
+
+      * that pybreaker calls `state_change` at all, with `"open"` as the name
+        this listener matches on (it compares against a lowercase string);
+      * that it fires on the fail_max-th failure and NOT before -- which is the
+        entire difference between the threshold alert this AC asks for and a
+        per-request alert that would page on one slow call;
+      * that `last_failure_reason` is filled in by the real `failure()`
+        callback from the real exception, rather than by the test. A `None`
+        there would still produce an alert, just one that names nothing.
+
+    A fresh breaker, not the module-level `_plant_id_circuit`, so this leaves no
+    state behind for another test to trip over.
+    """
+    from apps.plant_identification import circuit_monitoring
+    from pybreaker import CircuitBreakerError
+
+    circuit, _monitor, _stats = circuit_monitoring.create_monitored_circuit(
+        "plant_id_api", fail_max=3, reset_timeout=60, success_threshold=2
+    )
+
+    def payment_required():
+        raise http_error(402)
+
+    with patch.object(circuit_monitoring.sentry_sdk, "capture_message") as alert:
+        for _ in range(2):
+            with pytest.raises(requests.exceptions.HTTPError):
+                circuit.call(payment_required)
+
+        assert circuit.current_state == "closed"
+        assert alert.call_count == 0, (
+            "Alerted below the threshold. The circuit is what makes this a "
+            "SUSTAINED-failure signal; firing on failure 1 of 3 would page a "
+            "human for a single timeout and the alerts would be ignored."
+        )
+
+        # The call that TRIPS the threshold raises CircuitBreakerError, not the
+        # provider's own exception -- pybreaker substitutes it in `on_failure`.
+        # That substitution is why `classify_provider_failure` maps
+        # CircuitBreakerError to `circuit-open`. The listener is unaffected: it
+        # still receives the original HTTPError, which is how the alert below
+        # can name `payment-required` rather than `circuit-open`.
+        with pytest.raises(CircuitBreakerError):
+            circuit.call(payment_required)
+
+    assert circuit.current_state == "open"
+    alert.assert_called_once()
+
+    message = alert.call_args.args[0]
+    assert "plant_id_api" in message, "the alert must name which provider died"
+    assert "payment-required" in message, (
+        "the reason must survive from the real exception, through the real "
+        "failure() callback, into the alert -- unlike the Mock-breaker tests "
+        "above, nothing here hand-sets it"
+    )
+    assert alert.call_args.kwargs["level"] == "error"
+
+
 # --------------------------------------------------------------------------
 # the reason vocabulary
 # --------------------------------------------------------------------------
@@ -404,11 +470,35 @@ def test_no_local_stub_shadows_the_real_sentry_package():
     import sentry_sdk
 
     project_root = Path(__file__).resolve().parents[3]
+
+    # The direct check, and the one that cannot be argued with: the shadowing
+    # file is a module named sentry_sdk sitting in the project root itself.
+    # This holds whatever else happens to be on sys.path, and does not depend
+    # on which copy won the import.
+    for shadow in (project_root / "sentry_sdk.py", project_root / "sentry_sdk"):
+        assert not shadow.exists(), (
+            f"{shadow} exists. backend/ is the Django project root and so is on "
+            "sys.path, so a module named sentry_sdk there wins over the "
+            "installed package and silently disables all error reporting "
+            "(todo 395)."
+        )
+
     resolved = Path(sentry_sdk.__file__).resolve()
 
-    assert not resolved.is_relative_to(project_root), (
-        f"sentry_sdk resolves to {resolved}, inside {project_root} -- a local "
-        "module is shadowing the real SDK and init() is a no-op (todo 395)"
+    # `not under project_root` was the original phrasing and it is WRONG here:
+    # this project's documented venv is backend/venv, so the real installed SDK
+    # is under project_root too and the guard failed for every local developer
+    # while passing in CI, where site-packages sits outside the repo. A check
+    # that fires on the correct state teaches people to ignore it. Exempt the
+    # package directories rather than dropping the repo check, which still
+    # catches a stub dropped anywhere else in the tree.
+    in_site_packages = any(
+        part in ("site-packages", "dist-packages") for part in resolved.parts
+    )
+    assert in_site_packages or not resolved.is_relative_to(project_root), (
+        f"sentry_sdk resolves to {resolved}, inside {project_root} and outside "
+        "any site-packages -- a local module is shadowing the real SDK and "
+        "init() is a no-op (todo 395)"
     )
     assert hasattr(sentry_sdk, "capture_message")
 

@@ -134,9 +134,20 @@ def test_no_local_module_shadows_the_real_sentry_sdk():
     resolved = Path(sentry_sdk.__file__).resolve()
     project_root = Path(__file__).resolve().parents[3]
 
-    assert not resolved.is_relative_to(project_root), (
+    # This project's documented venv is backend/venv, so the REAL installed SDK
+    # resolves inside project_root too. A bare `not is_relative_to` therefore
+    # failed for every local developer while passing in CI, where site-packages
+    # sits outside the repo -- a guard that fires on the correct state is one
+    # people learn to ignore, which is how a shadowing stub survives. Exempt the
+    # package directories; the repo check still catches a stub anywhere else.
+    in_site_packages = any(
+        part in ("site-packages", "dist-packages") for part in resolved.parts
+    )
+
+    assert in_site_packages or not resolved.is_relative_to(project_root), (
         f"import sentry_sdk resolves to {resolved}, inside the project root "
-        f"{project_root}. A local module is shadowing the installed "
+        f"{project_root} and outside any site-packages. A local module is "
+        f"shadowing the installed "
         f"sentry-sdk ({sentry_sdk.VERSION}), which silently "
         "disables ALL error reporting -- init() becomes a no-op and nothing "
         "ever reaches Sentry. This is exactly the todo 395 regression."
