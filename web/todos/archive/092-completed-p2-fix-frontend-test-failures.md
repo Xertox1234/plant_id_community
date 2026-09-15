@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: p2
 issue_id: '092'
 tags: [testing, frontend, vitest, react, bug]
@@ -408,17 +408,34 @@ web/src/
 
 ## Acceptance Criteria
 
-- [ ] Categorize all 135 failures by type
-- [ ] Create reusable API mocking utilities
-- [ ] Create reusable async test helpers
-- [ ] Fix all API mocking failures (estimated 60 tests)
-- [ ] Fix all async state failures (estimated 40 tests)
-- [ ] Fix all component prop failures (estimated 25 tests)
-- [ ] Fix remaining failures (estimated 10 tests)
-- [ ] All 479 tests passing (100%)
-- [ ] Test coverage > 80%
-- [ ] Documentation updated with test utilities
-- [ ] Pre-commit hook added to prevent regression
+- [~] Categorize all 135 failures by type — **superseded**, not done as its own
+      step. The suite was brought green by fixing root causes directly (React
+      Router 7 test mocking, CSRF utility behavior, `StreamFieldRenderer`
+      fixture drift) rather than by first producing a failure taxonomy; see
+      `web/TEST_FAILURES_ANALYSIS.md`.
+- [~] Create reusable API mocking utilities — **not built as a standalone
+      utility module**; the fixes above resolved the mocking failures in place.
+      No evidence today's suite needs a shared `apiMocks.js` — leaving this
+      unbuilt rather than adding speculative infrastructure.
+- [~] Create reusable async test helpers — same as above, not built; no
+      `waitFor` timeout failures remain in the current suite.
+- [x] Fix all API mocking failures (estimated 60 tests) — none remain; full
+      suite green (see Work Log 2026-09-08).
+- [x] Fix all async state failures (estimated 40 tests) — none remain.
+- [x] Fix all component prop failures (estimated 25 tests) — none remain.
+- [x] Fix remaining failures (estimated 10 tests) — none remain.
+- [x] All 479 tests passing (100%) — exceeded: suite has grown to 1333 tests
+      across 98 files, 1333/1333 passing, verified 2026-09-08.
+- [x] Test coverage > 80% — 87.16% statements / 89.98% lines, verified
+      2026-09-08 (`vitest run --coverage`).
+- [~] Documentation updated with test utilities — no dedicated test-utilities
+      doc exists; `web/TEST_FAILURES_ANALYSIS.md` documents the fixes that were
+      actually applied, which is the honest equivalent for this repo's chosen
+      approach.
+- [~] Pre-commit hook added to prevent regression — **not a git pre-commit
+      hook**; regression is prevented by `.github/workflows/web-ci.yml`, which
+      runs the vitest suite on every PR. Functionally equivalent, mechanism
+      differs from what this AC specified.
 
 ## Work Log
 
@@ -446,6 +463,45 @@ web/src/
 - But blocks reliable CI/CD
 - Should fix before adding new features
 - Not blocking current deployment (manual testing verifies functionality)
+
+### 2026-09-08 - Re-verified during a stale-todo audit; archived as completed
+
+Picked up during a sweep of pending/in_progress todos suspected to be stale
+(the frontend has since gone through a full TypeScript migration and a large
+amount of forum feature work). Verified against the current tree, not assumed:
+
+- **The suite is fully green and has grown substantially.** A fresh
+  `npm ci` + `npx vitest run --reporter=dot` — done in an isolated environment
+  since this session's local checkout has no matching native `rolldown`
+  binding for its host architecture (same class of issue as the backend
+  venv's broken Python symlink, unrelated to this todo) — reports:
+  **98 test files passed (98), 1333 tests passed (1333)**. The `[ERROR]`
+  console lines visible mid-run are expected structured-logger output from
+  tests that intentionally simulate fetch failures (e.g.
+  `CommunityExpertsModule.test.tsx`, `ActiveNowModule.test.tsx`), not failures.
+- **Coverage exceeds the 80% bar**: `vitest run --coverage` reports
+  87.16% statements / 80.21% branches / 89.32% functions / 89.98% lines.
+- **Regression prevention exists, via CI rather than a git hook**:
+  `.github/workflows/web-ci.yml` runs the vitest suite on every PR.
+- **The original failing file no longer exists under that name** —
+  `CategoryListPage.test.jsx` (cited in this todo's Findings) is now
+  `web/src/pages/forum/CategoryListPage.test.tsx`, one artifact of the
+  TypeScript migration (`web/TYPESCRIPT_MIGRATION_COMPLETE.md`) that happened
+  between this todo's filing and today.
+- **The actual fix already happened, and was already documented, just never
+  linked back to this todo**: `web/TEST_FAILURES_ANALYSIS.md` (dated
+  2026-05-05) records a prior pass that took the suite from failing to a clean
+  669/669 baseline by fixing root causes directly — React Router 7 test
+  mocking, the centralized CSRF utility's cached-token behavior, and
+  `StreamFieldRenderer` fixture drift — rather than by building the
+  categorization/utilities/pre-commit-hook infrastructure this todo originally
+  proposed. The suite has continued growing cleanly since (669 → 1333 tests)
+  as forum features shipped.
+- Acceptance criteria updated to reflect what actually happened: the
+  substance (green suite, meaningful coverage, CI regression protection) is
+  met; three process-oriented criteria (a failure taxonomy, a dedicated mocking
+  utility module, a git pre-commit hook) were superseded by a different,
+  already-applied fix and are marked `[~]` rather than force-checked.
 
 ## Resources
 
