@@ -623,3 +623,11 @@ Compact checklist auto-injected before edits.
   `showheader = verbosity >= 0`, so `-qq`/`--no-header` skip the header hook
   entirely; the summary has no such gate and lands next to the pass/fail counts
   where a reader is looking (todo 379).
+- **Vitest `vi.mock('<path>')` automocks CLASSES too, and the result is not what
+  it looks like:** the constructor body never runs (so fields set in it — an
+  error's `status`, `message` — stay undefined) and the instance is **not** an
+  `Error` subclass (`instanceof Error` is `false`), even for a class that
+  `extends Error`. Both facts silently change which branch a component takes, so
+  a test asserting the wrong branch passes. Assign the fields back explicitly,
+  or use a factory mock that keeps the real class via `importActual` when the
+  code under test does `instanceof` (todo 374).

@@ -279,3 +279,18 @@ Compact checklist auto-injected before edits. Long-form:
   A radius that equals a `--radius-*` value is that token, never an arbitrary
   twin; a dimension a skeleton mirrors lives in `components/ui/dimensions.ts`
   (todo 351).
+- **A Tailwind utility name is only real if it is in the BUILT CSS.** Tailwind 4
+  emits *nothing* for an unrecognised utility — no error, no lint failure,
+  nothing visible in a diff — so an invented name renders as a silently missing
+  style. Grepping `src/` cannot confirm one: `ring-primary` appears 22 times
+  across 10 files and compiles to nothing. Check with
+  `npm run build && grep '\.<class>' dist/assets/*.css`, and prefer an existing
+  token (`--radius-*`, `ring-secondary`) over a plausible-sounding new name
+  (todo 374: `rounded-card` shipped square corners on three elements).
+- **A dialog rendered permanently and gated by `open` is never unmounted, so its
+  async work needs a session guard.** `{open && <Dialog/>}` unmounts; `<Dialog
+  open={open}/>` with `if (!open) return null` does not — an in-flight request
+  from a previous open resolves into the next one, appending stale rows and
+  overwriting the cursor. Bump a `useRef` counter on open, capture it per
+  request, and drop any response whose session no longer matches. Reset every
+  in-flight flag on open too, or the button stays disabled forever (todo 374).

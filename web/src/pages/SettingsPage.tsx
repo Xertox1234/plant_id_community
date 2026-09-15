@@ -21,11 +21,16 @@ import {
   unmuteUser,
   fetchMyForumProfile,
   updateMyForumProfile,
+  listMyForumImages,
+  deleteForumImage,
+  ForumApiError,
+  type UploadedImage,
 } from '../services/forumService';
 import { specimenAvatar } from '../utils/forumAvatars';
 import { logger } from '../utils/logger';
 import Eyebrow from '../components/ui/Eyebrow';
 import Avatar from '../components/ui/Avatar';
+import ConfirmDialog from '../components/ui/ConfirmDialog';
 import type {
   BlockedUser,
   MutedUser,
@@ -655,6 +660,163 @@ function MutedUsersSection() {
   );
 }
 
+/**
+ * My forum photos (todo 374).
+ *
+ * The self-service half of the forum image-ownership work: the backend grants
+ * every member Wagtail's real `add_image` + `choose_image` on the forum
+ * collection and exposes `DELETE /forum/images/<id>/`, ownership-checked
+ * through `permission_policy` (so a moderator's `change_image` composes for
+ * free). Until this section existed, a member could share a photo and never
+ * take it back.
+ *
+ * Owns its own load/delete state rather than lifting it, exactly as every other
+ * section in this file does — see NotificationPreferencesSection's note on why
+ * that is deliberate here.
+ *
+ * The confirm copy names the consequence out loud. Deleting is SAFE server-side
+ * (an `image` block resolves a missing id to null and the identification
+ * attachment is SET_NULL, so both render a no-photo fallback rather than
+ * breaking) — but "safe" is not "invisible": the photo really does disappear
+ * from posts the user already published, and someone who does not expect that
+ * will experience it as data loss.
+ */
+export function MyForumImagesSection() {
+  const [images, setImages] = useState<UploadedImage[] | null>(null);
+  const [nextCursor, setNextCursor] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [forbidden, setForbidden] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
+  // Per-row pending state, matching BlockedUsersSection: deleting one photo
+  // must not disable every other row's button.
+  const [pending, setPending] = useState<Record<number, boolean>>({});
+  // The image awaiting confirmation; null = dialog closed.
+  const [confirming, setConfirming] = useState<UploadedImage | null>(null);
+
+  useEffect(() => {
+    let active = true;
+    listMyForumImages()
+      .then((page) => {
+        if (!active) return;
+        setImages(page.items);
+        setNextCursor(page.meta.next ?? null);
+      })
+      .catch((err: unknown) => {
+        if (!active) return;
+        // Branch on STATUS, not message text — DRF's PermissionDenied sentence
+        // contains neither "403" nor "forbidden".
+        if (err instanceof ForumApiError && err.status === 403) {
+          setForbidden(true);
+        } else {
+          setError(err instanceof Error ? err.message : 'Failed to load your photos');
+        }
+        setImages([]);
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  const handleLoadMore = async () => {
+    if (!nextCursor || loadingMore) return;
+    setLoadingMore(true);
+    setError(null);
+    try {
+      const page = await listMyForumImages({ cursor: nextCursor });
+      setImages((prev) => [...(prev ?? []), ...page.items]);
+      setNextCursor(page.meta.next ?? null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to load more photos');
+    } finally {
+      setLoadingMore(false);
+    }
+  };
+
+  const handleDelete = async (image: UploadedImage) => {
+    setConfirming(null);
+    setPending((prev) => ({ ...prev, [image.id]: true }));
+    setError(null);
+    try {
+      await deleteForumImage(image.id);
+      // Dropped locally on success rather than refetching: a cursor page would
+      // have to be re-walked from the start, and the row is definitively gone.
+      setImages((prev) => (prev ? prev.filter((i) => i.id !== image.id) : prev));
+    } catch (err) {
+      logger.error('Error deleting forum image', {
+        component: 'SettingsPage',
+        error: err,
+        context: { imageId: image.id },
+      });
+      setError(err instanceof Error ? err.message : 'Failed to delete photo');
+    } finally {
+      setPending((prev) => {
+        const next = { ...prev };
+        delete next[image.id];
+        return next;
+      });
+    }
+  };
+
+  return (
+    <section className="p-screen">
+      <Eyebrow>Your forum photos</Eyebrow>
+      {error && <p className="mt-2 text-sm text-error">{error}</p>}
+      {images === null ? (
+        <p className="mt-2 text-sm text-ink-3">Loading…</p>
+      ) : forbidden ? (
+        <p className="mt-2 text-sm text-ink-3" data-testid="forum-images-forbidden">
+          Your account isn&apos;t a forum member yet, so it has no photo library.
+        </p>
+      ) : images.length === 0 && !error ? (
+        <p className="mt-2 text-sm text-ink-3" data-testid="forum-images-empty">
+          You haven&apos;t shared any photos to the forum yet.
+        </p>
+      ) : (
+        <>
+          <ul className="mt-2 grid grid-cols-2 gap-3 sm:grid-cols-3">
+            {images.map((image) => (
+              <li key={image.id} className="flex flex-col gap-2">
+                <img
+                  src={image.url}
+                  alt={image.alt || ''}
+                  loading="lazy"
+                  className="aspect-square w-full rounded-md border border-line object-cover"
+                />
+                <button
+                  type="button"
+                  onClick={() => setConfirming(image)}
+                  disabled={!!pending[image.id]}
+                  className="min-h-11 px-3 py-1 text-sm text-error hover:bg-error/10 rounded-pill disabled:opacity-50"
+                >
+                  {pending[image.id] ? 'Deleting…' : 'Delete'}
+                </button>
+              </li>
+            ))}
+          </ul>
+          {nextCursor && (
+            <button
+              type="button"
+              onClick={handleLoadMore}
+              disabled={loadingMore}
+              className="mt-4 min-h-11 px-3 py-1 text-sm text-primary hover:bg-primary/10 rounded-pill disabled:opacity-50"
+            >
+              {loadingMore ? 'Loading…' : 'Load more'}
+            </button>
+          )}
+        </>
+      )}
+      <ConfirmDialog
+        open={confirming !== null}
+        title="Delete this photo?"
+        message="This removes the photo from your library AND from any post you've already shared it in — those posts will show no photo. This can't be undone."
+        confirmLabel="Delete"
+        onConfirm={() => confirming && void handleDelete(confirming)}
+        onCancel={() => setConfirming(null)}
+      />
+    </section>
+  );
+}
+
 export default function SettingsPage() {
   return (
     <div className="max-w-4xl mx-auto px-4 py-12">
@@ -678,6 +840,9 @@ export default function SettingsPage() {
 
       {/* Muted users (todo 347) */}
       <MutedUsersSection />
+
+      {/* Forum photo library — reuse + self-service delete (todo 374) */}
+      <MyForumImagesSection />
     </div>
   );
 }

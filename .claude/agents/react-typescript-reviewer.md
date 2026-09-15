@@ -126,6 +126,34 @@ Use Grep as fallback for any LSP call that returns an error or empty/inconclusiv
 - [ ] **Composer insertion is a remount** (`content` is init-only): a Quote action must write the draft store AND bump the composer key with `autoFocus`; check that the remount does not drop an unrelated in-progress edit composer and that the live region is mounted before the announce
 - [ ] **Every new author-rendering surface reads the viewer's collapse signals** (`is_blocked` / `is_muted` on the quote envelope) and collapses like `PostCard` — never hides — and the `available: false` branch keeps the text with no attribution
 
+### Silent-failure additions (2026-09-14, todo 374)
+
+Three checks for things the toolchain accepts without complaint, so neither the
+build, the linter, nor a careful read will flag them.
+
+- **Any Tailwind utility the diff introduces must exist in the compiled CSS.**
+  Tailwind 4 emits nothing for an unrecognised name — no error, no warning. Flag
+  a `className` token that is not an obvious stock utility and does not map to a
+  `--radius-*` / `--color-*` / `--shadow-*` token, and say how to confirm it:
+  `cd web && npm run build && grep '\.<class>' dist/assets/*.css`. **Do not
+  clear a class because it appears elsewhere in `src/`** — `ring-primary` is used
+  22 times across 10 files and compiles to nothing (todo 374 / 396).
+- **A dialog rendered permanently and gated by `open` is never unmounted.**
+  `<Dialog open={open}/>` with an internal `if (!open) return null` keeps all
+  state between opens, unlike `{open && <Dialog/>}`. Any async work it starts
+  needs a per-open session guard, and every in-flight flag must be reset on open
+  — otherwise a stale response appends into the next session and a spinner flag
+  sticks. Check `loadMore`-style callbacks specifically: mount effects usually
+  have a `cancelled` flag and these usually do not.
+- **A new test is not evidence until it has failed once.** For a regression test
+  in the diff, ask whether it would still pass with the fix reverted. Two
+  specific traps, both seen in this repo: a component rendered with the wrong
+  prop name returns early and the assertion never reaches the code under test;
+  and jsdom has no layout, so anything keyed on a drop/pointer coordinate
+  (`posAtCoords`, `getBoundingClientRect`) is dead under test. Where a test
+  genuinely cannot discriminate, require that the limitation be stated in the
+  test rather than left to imply coverage.
+
 ## Output Format (Review Mode)
 
 Return ONLY this JSON structure (no surrounding prose, no markdown fences in the actual response — the example fences below show the schema):

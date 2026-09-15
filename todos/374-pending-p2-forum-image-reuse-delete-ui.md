@@ -121,19 +121,161 @@ Same UI shape, built in lockstep for React and Flutter in one PR.
 
 ## Acceptance Criteria
 
-- [ ] React composer offers "choose from your photos" as an alternative to a
+- [x] React composer offers "choose from your photos" as an alternative to a
       fresh upload, backed by `GET /forum/images/mine/`.
-- [ ] React exposes a way to delete a previously-uploaded forum image via
+      — `components/forum/ForumImagePicker.tsx`, opened from a new toolbar
+      button beside the upload control. Picking routes through the SAME alt
+      prompt as an upload (a third `kind: 'reuse'`) rather than inserting
+      straight away, because alt has belonged to the USAGE since the ImageBlock
+      migration (todo 357) — so the author describes the photo for *this* post,
+      pre-filled from the row's stored description. No upload, no idempotency
+      key, no object URL, no new row.
+- [x] React exposes a way to delete a previously-uploaded forum image via
       `DELETE /forum/images/<id>/`, with a confirmation step.
-- [ ] Deleting an image that is currently referenced by a live post is
+      — `MyForumImagesSection` on the settings page, which is where the other
+      per-user forum management already lives (blocked users, muted users,
+      digest). Uses the existing `ConfirmDialog`. The confirm copy names the
+      consequence out loud: the photo disappears from posts already published,
+      which is safe server-side but is NOT invisible to the reader.
+- [x] Deleting an image that is currently referenced by a live post is
       handled gracefully in the UI (no crash; matches the server's
       no-photo-fallback behavior).
+      — **This AC found a real bug, and it was not theoretical.** The server
+      serialises a deleted image as `value: null` (`serialize_forum_body`: "A
+      referenced image missing from the map … serializes as None"). BOTH client
+      paths destructured that null:
+      `StreamFieldRenderer` (`const { url, alt, decorative } = block.value`)
+      took down the whole post render, and `bodyBlocksToHtml`
+      (`const { id, url, ... }`) made the post impossible to re-open in the
+      composer. Latent until this todo shipped the delete button, and reachable
+      immediately afterwards by anyone tidying their own photos. Proven by
+      failing tests first — with a POSITIVE CONTROL, because the first probe
+      passed for the wrong reason (it passed `content=` instead of `blocks=`,
+      so the component returned early and never reached the image branch).
+      The display path now renders a "Photo no longer available" placeholder;
+      the re-edit path drops the dead block rather than re-persisting a broken
+      reference.
 - [ ] Flutter has the equivalent picker + delete affordance (may ship as a
       separate follow-up PR per Option 1).
-- [ ] New client code has test coverage (component/widget tests) for the
+      — **Deliberately not in this PR**, per the todo's own recommended Option 1
+      (React first, validate the UX, Flutter as a fast-follow).
+      `plant_community_mobile/lib/features/forum/` still has no compose-side
+      image picker at all, so this is unchanged rather than regressed. **This
+      todo stays `pending` for it.**
+- [x] New client code has test coverage (component/widget tests) for the
       picker, the delete confirmation, and the 403/empty-list states.
+      — 13 picker tests, 8 settings-section tests, 6 composer reuse tests, 8
+      service tests, 6 null-image regression tests. The 403 and empty states are
+      asserted as MUTUALLY EXCLUSIVE in both surfaces (each asserts the other's
+      testid is absent), because collapsing one into the other — or into the
+      spinner — is the failure this UI is most likely to have.
 
 ## Work Log
+
+### 2026-09-14 - React half shipped; Flutter deliberately deferred
+
+Option 1 as recommended. Five files changed plus one new component.
+
+**Service** (`forumService.ts`) — `listMyForumImages({cursor})` and
+`deleteForumImage(id)`. Cursor URLs are passed through UNCHANGED, matching
+`fetchThreads`/`fetchPosts`: `authenticatedFetch` hands its url straight to
+`fetch()` with no base prepended, and rebuilding would drop the opaque cursor
+and silently restart at page one. Cursor pagination sends no `count`, so
+`meta.count` is 0 and `next` is the only "more exist" signal.
+
+**403 is a state, not an error.** Both surfaces branch on
+`err instanceof ForumApiError && err.status === 403`, never on message text —
+DRF serialises `PermissionDenied` to a sentence containing neither "403" nor
+"forbidden", so a regex would route every real 403 into the generic failure and
+defeat the distinction entirely. Same rule the EditHistoryDialog already
+follows.
+
+**The scoping stays on the server.** `MyForumImagesView` already filters to
+`uploaded_by_user=request.user`; the client does not re-filter. Wagtail's
+`choose` is collection-wide, and a personal library is a product decision that
+only the server can enforce.
+
+**Two test traps hit and fixed, both of which would have produced a green lie:**
+
+- The first null-image probe PASSED while the bug was live: it passed `content=`
+  where the component takes `blocks=`, so `StreamFieldRenderer` returned null
+  early and never reached the image branch. Re-run with a positive control
+  asserting a real image still renders, both paths then failed as they should.
+- `vi.mock(path)` automocks the CLASS too. `instanceof ForumApiError` still
+  holds, but the constructor body is replaced by a no-op, so `status` is never
+  assigned and the component's `=== 403` check quietly took the generic branch.
+  The settings 403 test assigns `status` back explicitly; without that it would
+  have passed against the wrong code path.
+
+Adding a section to `SettingsPage` also broke every whole-page test in that
+file — the new section calls `listMyForumImages`, and an automocked function
+returns `undefined`, which the section then `.then()`s. Seeded once in a
+top-level `beforeEach` rather than scattered per-describe.
+
+Verification: `tsc --noEmit` clean; eslint clean on all changed files;
+**full web suite 1377 passed across 100 files** (not just the new ones — the
+SettingsPage breakage above is exactly what a file-scoped run would have
+missed).
+
+**Still open:** AC 4 only. Flutter has no compose-side picker; that is a
+follow-up PR, and this todo stays `pending` until it lands.
+
+### 2026-09-14 - Review round 1 + repairs (PR #771)
+
+Two reviewers on the diff: `react-typescript-reviewer` (correctness) and
+`cross-cutting-reviewer` (checklist + test quality). Three BLOCKING findings,
+all fixed and mutation-proven; the rest went to **todo 396** per the
+review-loop budget rather than a third round.
+
+**Fixed, each proven by a mutant that fails without it (6 caught):**
+
+- `ForumImagePicker.loadMore` had no cancellation and never reset
+  `isLoadingMore`. The component is never UNMOUNTED between opens — the composer
+  renders it permanently and `open` only gates the render — so closing mid-"load
+  more" and reopening appended the OLD session's page two onto the NEW session's
+  page one and left `nextCursor` walking the wrong chain, with the button stuck
+  disabled. Fixed with a session counter + reset on open.
+- **`rounded-card` emitted no CSS.** I invented the class name; the radius scale
+  is `xs/sm/md/lg/xl/pill`. Tailwind 4 silently emits nothing for an unknown
+  utility, so three elements rendered square with no error and nothing visible in
+  review. Now `rounded-lg` (dialog) / `rounded-md` (tiles), **verified against
+  the built bundle** rather than by grepping.
+- A reused photo could land at a stale drag-and-drop coordinate:
+  `closeAltPrompt` releases the preview URL but never clears `dropPosRef`, so
+  abandoning a drop by picking an existing photo inserted at the abandoned drop
+  position. `handlePickExisting` now clears it and the reuse path always inserts
+  at the caret.
+
+**Also fixed, because they falsified AC 5 rather than being mere polish** — the
+settings section had claimed coverage it did not have:
+
+- the non-403 load-error branch was unpinned (deleting `&& err.status === 403`
+  left the whole suite green; the picker had the mirror test, settings did not)
+- `handleLoadMore` had ZERO coverage — it could have been deleted outright
+
+**What could NOT be proven, stated rather than implied.** The stale-coordinate
+fix has no discriminating test, and two attempts survived mutation before the
+reason was found: jsdom has no layout, so `posAtCoords` never resolves and
+`dropPosRef` stays null for the entire suite. Measured — making even the UPLOAD
+path ignore `dropPosRef` breaks zero tests, so the whole drop-position feature
+is untested repo-wide, not just this path. The gap is now written into the code
+comment, the test, and todo 396 rather than papered over with a test that
+implies coverage.
+
+**Two automock facts, both measured:** vitest's `vi.mock(path)` replaces a class
+with a constructor whose body never runs (so `status` and `message` are unset)
+**and** the result is not an `Error` subclass (`instanceof Error` is false). Both
+change which branch a component takes, and both had already produced a
+green-but-wrong test in this file.
+
+**Confirmed safe by the cross-cutting pass, so AC 3 is closed on evidence rather
+than on the two paths I happened to look at:** the other two consumers of a
+now-nullable image reference already guard —
+`IdentificationCard.tsx` (`{image && …}`) and Flutter's
+`forum_body_block.dart` (`value == null` → `DeletedImageBlock()`).
+
+Verification after repairs: tsc clean, eslint clean, prettier clean, **full web
+suite 1385 passed across 100 files**.
 
 ### 2026-09-08 - Backend half landed; this todo stays open for the UI
 
