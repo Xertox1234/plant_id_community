@@ -204,10 +204,12 @@ here because this todo is about how provider failures get logged.
       unchecked, deliberately.** Todo 395 is closed and archived: the Sentry
       project `houseplant-md-backend` is live, `SENTRY_DSN` is set on the
       Railway service, and a deliberately-triggered error was confirmed received
-      (issue `HOUSEPLANT-MD-BACKEND-1`). That error arrived via the **logging
-      integration** — a `logger.error` inside an `except` — which is precisely
-      the path `_alert()` uses, so the mechanism this AC depends on is proven end
-      to end. What is *not* proven is this AC's own sentence: nobody has seen a
+      (issue `HOUSEPLANT-MD-BACKEND-1`). **Corrected 2026-09-15:** that error
+      arrived via the **logging integration** (a `logger.error` inside an
+      `except`), which is *not* the path `_alert()` uses — `_alert()` calls
+      `sentry_sdk.capture_message` directly. The two share `init()`, the DSN and
+      the transport, so what 395 proved is that those work; `capture_message`
+      itself has never been exercised here. What is *not* proven is this AC's own sentence: nobody has seen a
       **sustained primary-provider failure** actually open the circuit and raise.
       Forcing that needs real repeated Plant.id failures against production, so
       it stays open until either a genuine outage does it or someone exercises
@@ -369,3 +371,66 @@ editing — the log-prefix script in `scripts/`, and this drift guard in
 to a service, run `apps/core/` as well: five of its tests scan the whole backend
 tree (`test_requests_exception_drift`, `test_env_example_placeholders`,
 `test_env_integrity`, `test_image_rendition_formats`, `test_r2_storage`).
+
+### 2026-09-15 - The alert chain, tested against a real circuit rather than a Mock
+
+AC 4 is about a sustained failure reaching a person. Both existing alert tests
+build a `Mock` breaker with `fail_counter` pre-set, call
+`state_change(breaker, "closed", "open")` by hand, and hand-assign
+`last_failure_reason`. They pin what the listener does *given* the transition —
+but every step that **produces** the transition is supplied by the test. Three
+links went unchecked, and all three have to hold for a real outage to alert:
+
+- that pybreaker calls `state_change` at all, with `"open"` as the lowercase
+  name this listener compares against;
+- that it fires on the `fail_max`-th failure and **not before** — the entire
+  difference between the threshold alert this AC asks for and a per-request one;
+- that `last_failure_reason` is filled in by the real `failure()` callback from
+  the real exception. `None` there still produces an alert, just one that names
+  nothing.
+
+`test_a_real_circuit_reaching_its_threshold_actually_raises_the_alert` drives a
+real `create_monitored_circuit` breaker with real `HTTPError`s and asserts on
+what comes out the far end. Three mutants confirm it can fail: removing the
+`_alert()` call, moving it into `failure()` so it fires per request, and
+blanking the reason. `apps/plant_identification/` + `apps/core/`: 1563 passed.
+
+**Learned while writing it:** pybreaker replaces the provider's exception with
+`CircuitBreakerError` on the call that *trips* the threshold — which is why
+`classify_provider_failure` maps that type to `circuit-open`. The listener still
+receives the original, which is how the alert names `payment-required` and not
+`circuit-open`.
+
+**A correction to the previous entry.** It said todo 395's verification proved
+"precisely the path `_alert()` uses". It did not. That event arrived through the
+**logging integration** (a `logger.error` inside an `except`); `_alert()` calls
+`sentry_sdk.capture_message` **directly**. The two share `init()`, the DSN and
+the transport, so 395 proved those — but `capture_message` itself has never been
+exercised in this project, and `apps.*` sets `propagate=False`, so treating the
+two as interchangeable is the same substitution this AC keeps warning about.
+That makes the remaining gap smaller and sharper, not larger.
+
+**Two guards were crying wolf.** `test_no_local_stub_shadows_the_real_sentry_package`
+and `apps/core/tests/test_sentry_options_drift.py` both asserted `sentry_sdk`
+does not resolve under the project root. This project's documented venv is
+`backend/venv`, so the real installed SDK resolves there too: both failed for
+every local developer while passing in CI, where site-packages sits outside the
+repo. A guard that fires on the correct state is one people learn to ignore —
+which is exactly how a shadowing stub survives. Now exempt
+site-packages/dist-packages, plus a direct existence check on
+`backend/sentry_sdk.py` that does not depend on which copy won the import.
+Verified by re-adding the stub: the plant_identification guard fails cleanly and
+names the file; the core one goes red at *collection* instead, because it
+imports `sentry_sdk` at module scope. Both protective, only the first legible.
+
+**Still open, and unchanged in kind.** Nobody has seen `capture_message` deliver
+from production, and nobody has seen a real provider outage open the circuit.
+Why the second cannot simply be forced: `_plant_id_circuit` is module-level with
+pybreaker's default **in-memory** storage, and `bin/start.sh` runs
+`gunicorn --workers 2`, so each worker holds its own independent `fail_max=3`
+counter and external requests cannot reliably drive either one to the threshold.
+That is a structural reason, not a shrug.
+
+**Baseline for AC 2, measured 2026-09-15:** `used.total: 0.0` against 86
+credits — **no identification has ever run on the rotated key.** Whatever else
+was verified in September, this AC's own sentence has never been true.
