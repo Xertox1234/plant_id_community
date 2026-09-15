@@ -199,7 +199,22 @@ here because this todo is about how provider failures get logged.
       unchecked.** The threshold ERROR log line remains the only signal that
       actually reaches a person today. The remaining action is an operator's,
       not an engineer's — create a Sentry project and set one variable — and it
-      is tracked as the last open AC of todo 395. The `getattr` guard is gone;
+      is tracked as the last open AC of todo 395.
+      **Update 2026-09-14: the destination now exists — and the AC is STILL
+      unchecked, deliberately.** Todo 395 is closed and archived: the Sentry
+      project `houseplant-md-backend` is live, `SENTRY_DSN` is set on the
+      Railway service, and a deliberately-triggered error was confirmed received
+      (issue `HOUSEPLANT-MD-BACKEND-1`). That error arrived via the **logging
+      integration** — a `logger.error` inside an `except` — which is precisely
+      the path `_alert()` uses, so the mechanism this AC depends on is proven end
+      to end. What is *not* proven is this AC's own sentence: nobody has seen a
+      **sustained primary-provider failure** actually open the circuit and raise.
+      Forcing that needs real repeated Plant.id failures against production, so
+      it stays open until either a genuine outage does it or someone exercises
+      `_alert()` on purpose. Checking it now would record "the wiring looks
+      right" as "a human was reached", which is the same substitution that let
+      todo 395's bug survive the project's entire history.
+      The `getattr` guard is gone;
       a `try/except` remains in its place on purpose, because "alerting must
       never break the failure path it watches" is a permanent invariant rather
       than stub-era scaffolding.
