@@ -648,21 +648,36 @@ service firebase.storage {
   done
   ```
 
-  **Still outstanding** — tick this box only once all three hold:
+  **The archive half is also done** (2026-09-15). A Distribution-signed archive
+  was produced and inspected — this is the check that matters, because
+  `-showBuildSettings` and the source file both pass even when the archive is
+  Development-signed:
+
+  ```bash
+  flutter build ipa --release --export-options-plist ios/ExportOptions.plist
+  APP=build/ios/archive/Runner.xcarchive/Products/Applications/Runner.app
+  codesign -d --entitlements :- "$APP"      # aps-environment = production
+                                            # get-task-allow  = false  ← distribution, not dev
+  codesign -dv --verbose=4 "$APP"           # Authority = Apple Distribution: … (3442937R38)
+  security cms -D -i "$APP/embedded.mobileprovision" | plutil -extract Name raw -
+                                            # Plant Community Mobile App Store
+  ```
+
+  Check all three, not just `aps-environment` — a Development-signed archive
+  reports `production` too if the entitlements file says so, and is worthless.
+
+  **Still outstanding** — tick this box only once both hold:
 
   1. APNs authentication key created in the Apple Developer account and
      uploaded to the Firebase console (iOS app → Cloud Messaging → APNs
-     Authentication Key).
-  2. A Distribution-signed archive confirms the embedded value (reading the
-     source file is not sufficient — it must match the signing certificate):
-
-     ```bash
-     flutter build ipa --release
-     codesign -d --entitlements :- \
-       build/ios/archive/Runner.xcarchive/Products/Applications/Runner.app
-     ```
-
-  3. A device push received end-to-end from a TestFlight build.
+     Authentication Key). The App-ID capability half is already proven: the
+     `Plant Community Mobile App Store` profile carries `aps-environment`, and
+     a profile cannot carry it unless Push is enabled on the App ID. The
+     *Firebase key upload* is a separate fact, and only it makes FCM deliver.
+  2. A device push received end-to-end from a TestFlight build. This single
+     test settles both items — FCM returns `THIRD_PARTY_AUTH_ERROR` when no
+     APNs key is configured, so a push that actually arrives proves the upload
+     happened. Prefer it over anyone's recollection that the key was uploaded.
 
 - [ ] **Production build** tested
 

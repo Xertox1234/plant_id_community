@@ -1,5 +1,5 @@
 ---
-status: in_progress
+status: pending
 priority: p2
 issue_id: "286"
 tags: [flutter, ios, firebase, notifications, release]
@@ -91,9 +91,13 @@ outright.
 
 ## Acceptance Criteria
 
-- [ ] Release (and TestFlight/Profile, if used for distribution) builds resolve
+- [x] Release (and TestFlight/Profile, if used for distribution) builds resolve
       `aps-environment` = `production`, verified by `codesign -d --entitlements`
       against a real archive — not by reading the source file
+      — **2026-09-15**: Distribution-signed `Runner.xcarchive` inspected;
+      `aps-environment=production`, `get-task-allow=false`, authority
+      `Apple Distribution: William Tower (3442937R38)`, embedded profile
+      `Plant Community Mobile App Store`. See the 2026-09-15 work-log entry.
 - [x] The Debug configuration still resolves `development` (dev push loop intact)
       — `xcodebuild -showBuildSettings`, 2026-07-31; Profile too
 - [ ] APNs authentication key uploaded to the Firebase console for the iOS app
@@ -294,6 +298,157 @@ were handed over in-session. AC1 gets verified with `codesign -d
 --entitlements :-` against the produced archive once it exists; AC5 ticks
 last. Xcode will write `DEVELOPMENT_TEAM` into the pbxproj on the main
 checkout — that change rides the closing PR with the checklist tick.
+
+### 2026-09-15 - The recorded blocker was STALE; re-measured from scratch
+
+**Every signing fact this file asserted from 2026-07-31 through 2026-09-04 is
+now false.** The 2026-09-04 entry says "still no Apple Distribution", "none for
+`com.plantcommunity.plantCommunityMobile`", "none carries aps-environment",
+"`DEVELOPMENT_TEAM` → 0 occurrences". All four became false when the operator
+did the portal work and shipped TestFlight build 12 (on device 2026-09-14), and
+nothing re-audited this log. A session reading it would have gone off to redo
+Apple-portal work that was already done. Re-measured on this Mac:
+
+```
+$ security find-identity -v -p codesigning
+  1) …8YMA4779DD "Apple Development: william.tower@gmail.com"
+  2) …2B12B1C2   "Apple Distribution: William Tower (3442937R38)"     ← NEW
+     2 valid identities found
+```
+
+Profiles, decoded rather than guessed at (note the Xcode path, *not* the legacy
+`~/Library/MobileDevice/` one — reading the wrong path is what produced the
+false "no profiles exist" in this log's first pass):
+
+```
+$ for f in ~/Library/Developer/Xcode/UserData/Provisioning\ Profiles/*.mobileprovision; do
+    security cms -D -i "$f" | plutil -extract Entitlements.aps-environment raw - ; done
+Plant Community Mobile App Store            → production     ← NEW
+iOS Team Provisioning Profile: …Mobile      → development    ← NEW
+(ocrecipes / luma.tuner / 3442937R38.*      → no aps-environment)
+```
+
+**That first profile settles AC3's App-ID half on its own.** A profile cannot
+carry `aps-environment` unless Push Notifications is enabled on the App ID, so
+the artifact is the proof — no portal access needed to establish it.
+
+`DEVELOPMENT_TEAM = 3442937R38` is now in the pbxproj at 3 sites (504/688/714),
+so automatic signing resolves. And the Release configuration is wired for
+manual Distribution signing, which is what makes AC1 reachable here at all:
+
+```
+$ xcodebuild -workspace Runner.xcworkspace -scheme Runner -configuration Release \
+    -showBuildSettings | grep -E 'CODE_SIGN|PROVISIONING_PROFILE_SPECIFIER|DEVELOPMENT_TEAM'
+CODE_SIGN_ENTITLEMENTS        = Runner/RunnerRelease.entitlements
+CODE_SIGN_IDENTITY            = Apple Distribution
+CODE_SIGN_STYLE               = Manual
+DEVELOPMENT_TEAM              = 3442937R38
+PROVISIONING_PROFILE_SPECIFIER = Plant Community Mobile App Store
+```
+
+**Checked this BEFORE building, deliberately.** Had Release been on automatic
+signing it could have resolved the *development* profile, and the archive would
+either have failed to sign ("provisioning profile doesn't include the
+aps-environment entitlement") or produced an artifact that cannot satisfy AC1 —
+20 minutes spent on unusable evidence.
+
+**AC1 CLOSED — a real Distribution-signed archive was produced and inspected.**
+
+```
+$ flutter build ipa --release --export-options-plist ios/ExportOptions.plist
+Running pod install...                                             16.6s
+Xcode archive done.                                               354.3s
+✓ Built build/ios/archive/Runner.xcarchive (486.3MB)
+✓ Built IPA to build/ios/ipa (48.4MB)
+```
+
+The evidence is a **triple**, not just the entitlement string — grepping the
+dump for `production` and stopping there would pass just as happily on a
+Development-signed archive, which is worthless for this AC:
+
+```
+$ APP=build/ios/archive/Runner.xcarchive/Products/Applications/Runner.app
+$ codesign -d --entitlements :- "$APP"
+  aps-environment                        = production     ← the AC
+  get-task-allow                         = false          ← distribution, not dev
+  beta-reports-active                    = true           ← TestFlight-eligible
+  application-identifier                 = 3442937R38.com.plantcommunity.plantCommunityMobile
+$ codesign -dv --verbose=4 "$APP"
+  Authority = Apple Distribution: William Tower (3442937R38)
+  TeamIdentifier = 3442937R38
+$ security cms -D -i "$APP/embedded.mobileprovision" | plutil -extract Name raw -
+  Plant Community Mobile App Store       (its own aps-environment: production)
+```
+
+`get-task-allow = false` is the independent corroboration: a development-signed
+build always carries `true`. So the archive is Distribution-signed, embeds the
+App Store profile, and requests the **production** APNs environment — which is
+exactly what AC1 asked for and what `-showBuildSettings` alone could never show.
+
+**Where this was built, and why it matters.** The main checkout was sitting on a
+peer's branch (`feat/todo-393-circuit-alert-verified`), whose diff is
+backend-only — zero `plant_community_mobile/` files — so its iOS tree is
+byte-identical to `origin/main` and the archive is valid evidence for main.
+Building there also reused the warm `ios/Pods` (16.6 s instead of a ~10 min cold
+`pod install` in a fresh worktree). `git status` in the main checkout was clean
+before and after, so the `pod install` did not rewrite the tracked `Podfile.lock`
+and the peer's tree was never touched. All doc edits were made in a worktree.
+
+**Disk nearly ended this.** Free space fell 5.5 GiB → 896 MiB during the build
+(DerivedData 425 MB → ~2 GB, archive 486 MB). Worth recording because the
+obvious remedy is wrong: `xcrun simctl delete unavailable` frees **nothing**
+here — all 11 simulators are *available*, and the 11 GB is two of them holding
+5.5 GB and 4.9 GB of accumulated app data. `xcrun simctl erase all` is the lever
+that actually reclaims it. And per `docs/LEARNINGS.md`, never `rm -rf
+plant_community_mobile/build` to make room — that orphans `native_assets/ios/`
+while `.dart_tool/hooks_runner` still claims the hook ran, and the resulting
+error names DerivedData, which is the wrong suspect. `flutter clean` is the fix.
+
+**Build number note (does not affect AC1, does block any upload):**
+`pubspec.yaml` is at `1.0.0+10`, but build 12 already shipped to TestFlight. The
+IPA produced here is therefore un-uploadable as-is. Deliberately NOT bumped —
+AC1 needs an archive, not a submission, and picking the next free build number
+is an App Store Connect fact, not a local one.
+
+**AC3 deliberately NOT ticked on attestation.** The operator reports the APNs
+authentication key is uploaded to Firebase. That is very likely right — but this
+todo is the case study in what an unverified recorded claim costs: its own log
+carried four false signing facts for six weeks and would have sent a session to
+redo finished portal work. An assertion about a console is not an artifact, so
+AC3 stays open until a push actually lands.
+
+**The empirical test that closes AC3 and AC4 together**, and why one test does
+both: FCM returns `THIRD_PARTY_AUTH_ERROR` when no APNs key is configured for
+the project, so a push that is actually delivered *is* the proof the upload
+happened. Run against prod (the Claude session cannot — the auto-mode classifier
+blocks `railway ssh`, so this is handed to the operator as a `!` command):
+
+```bash
+railway ssh --service plant_id_community -- bash -lc 'cd /app && \
+  /opt/venv/bin/python manage.py shell -c "…send_test_notification(p.fcm_token)"'
+```
+
+Read three things from it, not one:
+
+- `FirebaseNotificationService.is_available()` — `False` means
+  `FIREBASE_CREDENTIALS_PATH` is unset on Railway and prod push is off
+  *entirely*, a blocker with nothing to do with APNs.
+- whether any `ForumProfile` carries an `fcm_token` at all (the Flutter client
+  registers it via `PATCH /forum/me/profile/`; no token, no test).
+- **which build registered that token.** AC4 says "from a distribution build
+  (TestFlight)". A token registered by a Debug/Profile build is bound to the
+  *development* APNs environment, so a delivery to it proves the plumbing but
+  not this AC. The phone must be on the TestFlight copy.
+
+Note the Python in that command is written with **no quote characters at all**
+(`chr(62)*3` as the grep marker, `str()` for the empty string) — `railway ssh
+-- bash -lc '…python -c "…"'` is already two levels of nesting deep, and a third
+level of quoting inside the Python is what breaks it.
+
+**AC5 stays open by design.** It ticks last, after AC3 and AC4. Per `CLAUDE.md`
+→ Review Doc Tracking a checked box means shipped and nobody re-audits it —
+ticking it now would assert end-to-end push delivery on the strength of an
+archive that has never been installed on a phone.
 
 ## Notes
 
