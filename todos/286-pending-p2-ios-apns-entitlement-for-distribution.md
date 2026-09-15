@@ -103,6 +103,12 @@ outright.
 - [ ] APNs authentication key uploaded to the Firebase console for the iOS app
 - [ ] A device push is received end-to-end from a distribution build
       (TestFlight), closing todo 253 AC6's "receives a push" for iOS
+      — **BLOCKED (2026-09-15) on a prerequisite outside iOS**: production has
+      neither `FIREBASE_CREDENTIALS_PATH` nor `GOOGLE_APPLICATION_CREDENTIALS`,
+      so `is_firebase_available()` is `False` and every push returns early at
+      `logger.debug` — silently. Affects Android identically. See the
+      2026-09-15 work-log entry; fix that first, then this AC and AC3 close
+      together on one probe.
 - [ ] `docs/DEPLOYMENT_SECURITY_CHECKLIST.md` iOS APNs line ticked
 
 ## Work Log
@@ -449,6 +455,82 @@ level of quoting inside the Python is what breaks it.
 → Review Doc Tracking a checked box means shipped and nobody re-audits it —
 ticking it now would assert end-to-end push delivery on the strength of an
 archive that has never been installed on a phone.
+
+### 2026-09-15 - AC4 has a second blocker nobody had named: prod has no Firebase credentials
+
+Found while chasing why the AC3/AC4 probe returned nothing. **Production cannot
+send an FCM message at all**, independent of APNs, the entitlement, or the
+device.
+
+`settings.py` (~line 1019) resolves the credentials in two tiers, and the
+comment is explicit that **"FCM sending always needs FIREBASE_CREDENTIALS_PATH"**:
+
+```python
+_firebase_credentials_path = config("FIREBASE_CREDENTIALS_PATH", default=None)
+if _firebase_credentials_path is None:
+    _firebase_credentials_path = os.environ.get("GOOGLE_APPLICATION_CREDENTIALS")
+FIREBASE_CREDENTIALS_PATH = _firebase_credentials_path or None
+```
+
+The production service (`plant_id_community`, project `PlantID Community`,
+environment `production`) lists **43 variables, and neither name is among them**.
+`FIREBASE_PROJECT_ID` *is* set — which is why this hides so well: that feeds the
+auth exchange's "projectId-only init tier", so **Firebase sign-in works while FCM
+is dead**, and the two look like one capability from the outside.
+
+Consequence, traced to the line: `is_firebase_available()` returns
+`FIREBASE_CREDENTIALS_PATH is not None` → `False`, so `send_forum_push`
+(`forum_host/tasks.py:182`) and `send_forum_push_batch` (`:294`) both return at
+
+```python
+if not is_firebase_available():
+    logger.debug("[FCM] Firebase not configured — skipping forum push (%s)", event)
+    return
+```
+
+**at `logger.debug`** — below the deployed level, so it emits nothing. The task
+succeeds, the queue drains, and no push is sent. Corroborating: a log query for
+`Firebase OR FCM OR firebase_admin OR credentials` across the running deployment
+returns **zero lines**.
+
+**What this does NOT block, checked rather than assumed.** I suspected the Celery
+worker was also dead, because `get-service-config` reports the *dashboard*
+start command (plain gunicorn, builder RAILPACK) rather than
+`backend/railway.json`'s `bash bin/start.sh` + DOCKERFILE. The deploy log
+disproves it — config-as-code wins at deploy time:
+
+```
+[start] worker pid 2 (celery -A plant_community_backend worker -B …); web pid 3 (gunicorn …)
+[2026-09-15 19:55:26: INFO/Beat] beat: Starting...
+[2026-09-15 19:55:26: INFO/MainProcess] celery@28ca4a101b2d ready.
+```
+
+So the worker and beat are alive; the queue is drained. **Read the deploy log,
+not `get-service-config`, for what a Railway service actually runs.**
+
+**Confirm with one command** (`printenv`-style, deliberately with no `grep` —
+the earlier probe piped `2>&1` into `grep`, so a railway auth failure or a
+traceback printed *nothing* and empty output was indistinguishable from "no
+tokens"):
+
+```bash
+railway ssh --service plant_id_community -- sh -c \
+  'echo CRED=[${FIREBASE_CREDENTIALS_PATH:-UNSET}] GAC=[${GOOGLE_APPLICATION_CREDENTIALS:-UNSET}]'
+```
+
+These are file *paths*, not secrets. `UNSET` for both confirms the diagnosis.
+
+**Revised AC4 ordering.** The device and the TestFlight build were never the
+first blocker:
+
+1. Put the service-account JSON on the prod service and point
+   `FIREBASE_CREDENTIALS_PATH` at it (a Railway volume or a baked file — the
+   value is a path, so the JSON has to exist in the container).
+2. *Then* the push probe becomes meaningful, and it settles AC3 and AC4 together.
+
+**Scope note: this is not an iOS problem.** `send_forum_push` is platform-neutral,
+so Android push is equally dead in production. Todo 253 AC6 ("receives a push")
+cannot close on either platform until step 1 happens.
 
 ## Notes
 
