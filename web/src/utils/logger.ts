@@ -5,7 +5,7 @@
  * distributed tracing and enterprise-grade monitoring.
  *
  * Features:
- * - Automatic request ID correlation (from RequestContext)
+ * - Automatic request ID correlation (from utils/requestId)
  * - Automatic user ID tracking (from AuthContext)
  * - Structured JSON logging in production
  * - Pretty-print in development

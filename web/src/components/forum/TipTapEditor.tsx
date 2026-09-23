@@ -110,7 +110,6 @@ interface TipTapEditorProps {
   content?: string;
   onChange?: (html: string) => void;
   placeholder?: string;
-  editable?: boolean;
   className?: string;
   /** Focus the editor once it mounts — used to restore focus after posting (M25). */
   autoFocus?: boolean;
@@ -126,7 +125,6 @@ export default function TipTapEditor({
   content = '',
   onChange,
   placeholder = 'Write your post...',
-  editable = true,
   className = '',
   autoFocus = false,
 }: TipTapEditorProps) {
@@ -235,7 +233,6 @@ export default function TipTapEditor({
       ForumBlockquoteAttrs,
     ],
     content,
-    editable,
     // TipTap applies this at creation; the composer remounts (key change) after
     // a reply, so a fresh instance with autoFocus lands the caret in it (M25).
     autofocus: autoFocus ? 'end' : false,
@@ -621,8 +618,8 @@ export default function TipTapEditor({
     // this effect runs again against it, so skipping the destroyed pass loses
     // nothing.
     if (!editor || editor.isDestroyed) return;
-    scheduleLinkPreview(editable ? editor.getHTML() : '');
-  }, [editor, editable, scheduleLinkPreview]);
+    scheduleLinkPreview(editor.getHTML());
+  }, [editor, scheduleLinkPreview]);
 
   useEffect(() => {
     return () => {
@@ -661,198 +658,194 @@ export default function TipTapEditor({
   return (
     <div className={`border border-line-2 rounded-sm overflow-hidden ${className}`}>
       {/* Toolbar */}
-      {editable && (
-        <div
-          role="toolbar"
-          aria-label="Formatting toolbar"
-          className="forum-editor-toolbar overflow-x-auto border-b border-line-2 bg-surface"
-        >
-          <div className="flex min-w-max items-center gap-1 p-2 sm:min-w-0 sm:flex-wrap">
+      <div
+        role="toolbar"
+        aria-label="Formatting toolbar"
+        className="forum-editor-toolbar overflow-x-auto border-b border-line-2 bg-surface"
+      >
+        <div className="flex min-w-max items-center gap-1 p-2 sm:min-w-0 sm:flex-wrap">
+          <ToolbarButton
+            onClick={() => editor.chain().focus().undo().run()}
+            disabled={!editor.can().undo()}
+            title="Undo (Ctrl+Z)"
+          >
+            <Undo2 className="h-4 w-4" aria-hidden="true" />
+          </ToolbarButton>
+
+          <ToolbarButton
+            onClick={() => editor.chain().focus().redo().run()}
+            disabled={!editor.can().redo()}
+            title="Redo (Ctrl+Shift+Z)"
+          >
+            <Redo2 className="h-4 w-4" aria-hidden="true" />
+          </ToolbarButton>
+
+          <div className="w-px bg-line-2 mx-1" aria-hidden="true" />
+
+          <ToolbarButton
+            onClick={() => editor.chain().focus().toggleBold().run()}
+            isActive={editor.isActive('bold')}
+            title="Bold (Ctrl+B)"
+          >
+            <Bold className="h-4 w-4" aria-hidden="true" />
+          </ToolbarButton>
+
+          <ToolbarButton
+            onClick={() => editor.chain().focus().toggleItalic().run()}
+            isActive={editor.isActive('italic')}
+            title="Italic (Ctrl+I)"
+          >
+            <Italic className="h-4 w-4" aria-hidden="true" />
+          </ToolbarButton>
+
+          {/* Strike / headings / code-block are intentionally omitted: the
+            server's nh3 allowlist keeps only bold, italic, links, lists and
+            inline code, so those marks would silently flatten to plain text
+            (Spec 2 PR-3). Blockquote is the exception — see the Quote button
+            below: it is not kept as inline markup either, but a TOP-LEVEL
+            blockquote is lifted out into its own `quote` StreamField block by
+            forumBody.ts, so it survives the round-trip (todo 276 / M1). */}
+
+          <div className="w-px bg-line-2 mx-1" aria-hidden="true" />
+
+          <ToolbarButton
+            onClick={() => editor.chain().focus().toggleBulletList().run()}
+            isActive={editor.isActive('bulletList')}
+            title="Bullet List"
+          >
+            <List className="h-4 w-4" aria-hidden="true" />
+          </ToolbarButton>
+
+          <ToolbarButton
+            onClick={() => editor.chain().focus().toggleOrderedList().run()}
+            isActive={editor.isActive('orderedList')}
+            title="Numbered List"
+          >
+            <ListOrdered className="h-4 w-4" aria-hidden="true" />
+          </ToolbarButton>
+
+          <ToolbarButton
+            onClick={() => editor.chain().focus().toggleBlockquote().run()}
+            isActive={editor.isActive('blockquote')}
+            title="Quote"
+          >
+            <Quote className="h-4 w-4" aria-hidden="true" />
+          </ToolbarButton>
+
+          <div className="w-px bg-line-2 mx-1" aria-hidden="true" />
+
+          <ToolbarButton
+            onClick={() => editor.chain().focus().toggleCode().run()}
+            isActive={editor.isActive('code')}
+            title="Inline Code"
+          >
+            <Code className="h-4 w-4" aria-hidden="true" />
+          </ToolbarButton>
+
+          <div className="w-px bg-line-2 mx-1" aria-hidden="true" />
+
+          <ToolbarButton
+            onClick={() => {
+              setLinkError(null);
+              setLinkDraft(editor.getAttributes('link').href ?? '');
+            }}
+            isActive={editor.isActive('link')}
+            title="Insert Link"
+          >
+            <LinkIcon className="h-4 w-4" aria-hidden="true" />
+          </ToolbarButton>
+
+          {editor.isActive('link') && (
             <ToolbarButton
-              onClick={() => editor.chain().focus().undo().run()}
-              disabled={!editor.can().undo()}
-              title="Undo (Ctrl+Z)"
+              onClick={() => editor.chain().focus().unsetLink().run()}
+              title="Remove Link"
             >
-              <Undo2 className="h-4 w-4" aria-hidden="true" />
+              <Unlink className="h-4 w-4" aria-hidden="true" />
             </ToolbarButton>
+          )}
 
-            <ToolbarButton
-              onClick={() => editor.chain().focus().redo().run()}
-              disabled={!editor.can().redo()}
-              title="Redo (Ctrl+Shift+Z)"
-            >
-              <Redo2 className="h-4 w-4" aria-hidden="true" />
-            </ToolbarButton>
+          <div className="w-px bg-line-2 mx-1" aria-hidden="true" />
 
-            <div className="w-px bg-line-2 mx-1" aria-hidden="true" />
-
-            <ToolbarButton
-              onClick={() => editor.chain().focus().toggleBold().run()}
-              isActive={editor.isActive('bold')}
-              title="Bold (Ctrl+B)"
-            >
-              <Bold className="h-4 w-4" aria-hidden="true" />
-            </ToolbarButton>
-
-            <ToolbarButton
-              onClick={() => editor.chain().focus().toggleItalic().run()}
-              isActive={editor.isActive('italic')}
-              title="Italic (Ctrl+I)"
-            >
-              <Italic className="h-4 w-4" aria-hidden="true" />
-            </ToolbarButton>
-
-            {/* Strike / headings / code-block are intentionally omitted: the
-              server's nh3 allowlist keeps only bold, italic, links, lists and
-              inline code, so those marks would silently flatten to plain text
-              (Spec 2 PR-3). Blockquote is the exception — see the Quote button
-              below: it is not kept as inline markup either, but a TOP-LEVEL
-              blockquote is lifted out into its own `quote` StreamField block by
-              forumBody.ts, so it survives the round-trip (todo 276 / M1). */}
-
-            <div className="w-px bg-line-2 mx-1" aria-hidden="true" />
-
-            <ToolbarButton
-              onClick={() => editor.chain().focus().toggleBulletList().run()}
-              isActive={editor.isActive('bulletList')}
-              title="Bullet List"
-            >
-              <List className="h-4 w-4" aria-hidden="true" />
-            </ToolbarButton>
-
-            <ToolbarButton
-              onClick={() => editor.chain().focus().toggleOrderedList().run()}
-              isActive={editor.isActive('orderedList')}
-              title="Numbered List"
-            >
-              <ListOrdered className="h-4 w-4" aria-hidden="true" />
-            </ToolbarButton>
-
-            <ToolbarButton
-              onClick={() => editor.chain().focus().toggleBlockquote().run()}
-              isActive={editor.isActive('blockquote')}
-              title="Quote"
-            >
-              <Quote className="h-4 w-4" aria-hidden="true" />
-            </ToolbarButton>
-
-            <div className="w-px bg-line-2 mx-1" aria-hidden="true" />
-
-            <ToolbarButton
-              onClick={() => editor.chain().focus().toggleCode().run()}
-              isActive={editor.isActive('code')}
-              title="Inline Code"
-            >
-              <Code className="h-4 w-4" aria-hidden="true" />
-            </ToolbarButton>
-
-            <div className="w-px bg-line-2 mx-1" aria-hidden="true" />
-
-            <ToolbarButton
-              onClick={() => {
-                setLinkError(null);
-                setLinkDraft(editor.getAttributes('link').href ?? '');
-              }}
-              isActive={editor.isActive('link')}
-              title="Insert Link"
-            >
-              <LinkIcon className="h-4 w-4" aria-hidden="true" />
-            </ToolbarButton>
-
-            {editor.isActive('link') && (
-              <ToolbarButton
-                onClick={() => editor.chain().focus().unsetLink().run()}
-                title="Remove Link"
-              >
-                <Unlink className="h-4 w-4" aria-hidden="true" />
-              </ToolbarButton>
+          <ToolbarButton
+            onClick={() => fileInputRef.current?.click()}
+            // Disabled while an upload is in flight: without this a second
+            // activation reopens the picker mid-upload and starts a concurrent
+            // request, so AC 4's "one multipart request" would not hold. Matches
+            // the AI button's shape below.
+            disabled={uploadingImage}
+            title={uploadingImage ? 'Uploading image…' : 'Insert image'}
+          >
+            {uploadingImage ? (
+              <LoaderCircle className="h-4 w-4 animate-spin" aria-hidden="true" />
+            ) : (
+              <ImageIcon className="h-4 w-4" aria-hidden="true" />
             )}
+          </ToolbarButton>
 
-            <div className="w-px bg-line-2 mx-1" aria-hidden="true" />
+          {/* Reuse a photo already uploaded to the forum (todo 374). Distinct
+              from the upload button beside it: no file, no request, no new
+              row — it references an image the user has already shared. NOT
+              disabled during an upload, because it starts no upload of its
+              own; the single alt-prompt slot is released by handlePickExisting
+              rather than gated here, matching handleImageFile. */}
+          <ToolbarButton onClick={() => setPickerOpen(true)} title="Choose from your photos">
+            <Images className="h-4 w-4" aria-hidden="true" />
+          </ToolbarButton>
 
-            <ToolbarButton
-              onClick={() => fileInputRef.current?.click()}
-              // Disabled while an upload is in flight: without this a second
-              // activation reopens the picker mid-upload and starts a concurrent
-              // request, so AC 4's "one multipart request" would not hold. Matches
-              // the AI button's shape below.
-              disabled={uploadingImage}
-              title={uploadingImage ? 'Uploading image…' : 'Insert image'}
-            >
-              {uploadingImage ? (
-                <LoaderCircle className="h-4 w-4 animate-spin" aria-hidden="true" />
-              ) : (
-                <ImageIcon className="h-4 w-4" aria-hidden="true" />
-              )}
-            </ToolbarButton>
+          {/* Re-author an inserted image's alt (todo 357). Only reachable while
+              the caret is on an image — and only possible at all because
+              ImageBlock moved alt onto the USAGE; under ImageChooserBlock this
+              would have meant re-uploading the file. */}
+          <ToolbarButton onClick={openAltEditor} title="Edit image alt text">
+            <Type className="h-4 w-4" aria-hidden="true" />
+          </ToolbarButton>
 
-            {/* Reuse a photo already uploaded to the forum (todo 374). Distinct
-                from the upload button beside it: no file, no request, no new
-                row — it references an image the user has already shared. NOT
-                disabled during an upload, because it starts no upload of its
-                own; the single alt-prompt slot is released by handlePickExisting
-                rather than gated here, matching handleImageFile. */}
-            <ToolbarButton onClick={() => setPickerOpen(true)} title="Choose from your photos">
-              <Images className="h-4 w-4" aria-hidden="true" />
-            </ToolbarButton>
-
-            {/* Re-author an inserted image's alt (todo 357). Only reachable while
-                the caret is on an image — and only possible at all because
-                ImageBlock moved alt onto the USAGE; under ImageChooserBlock this
-                would have meant re-uploading the file. */}
-            <ToolbarButton onClick={openAltEditor} title="Edit image alt text">
-              <Type className="h-4 w-4" aria-hidden="true" />
-            </ToolbarButton>
-
-            {/* AI draft improvement (M14) — premium perk, server-gated. Once the
-              server says this account/deployment can never use it, the button stays
-              MOUNTED but permanently disabled rather than disappearing: unmounting
-              a control the user just activated drops keyboard focus to <body> with
-              nothing to return to, and shifts the toolbar under the pointer. */}
-            <div className="w-px bg-line-2 mx-1" aria-hidden="true" />
-            <ToolbarButton
-              onClick={handleAiAssist}
-              disabled={aiWorking || aiUnavailable || editor.isEmpty}
-              title={
-                aiUnavailable
-                  ? 'AI assist is not available for this account'
-                  : aiWorking
-                    ? 'Improving draft…'
-                    : 'Improve draft with AI (premium; undo to revert)'
-              }
-            >
-              {aiWorking ? (
-                <LoaderCircle className="h-4 w-4 animate-spin" aria-hidden="true" />
-              ) : (
-                <Sparkles className="h-4 w-4" aria-hidden="true" />
-              )}
-            </ToolbarButton>
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept={ALLOWED_IMAGE_TYPES.join(',')}
-              className="hidden"
-              data-testid="forum-image-input"
-              onChange={handleImageSelect}
-            />
-          </div>
+          {/* AI draft improvement (M14) — premium perk, server-gated. Once the
+            server says this account/deployment can never use it, the button stays
+            MOUNTED but permanently disabled rather than disappearing: unmounting
+            a control the user just activated drops keyboard focus to <body> with
+            nothing to return to, and shifts the toolbar under the pointer. */}
+          <div className="w-px bg-line-2 mx-1" aria-hidden="true" />
+          <ToolbarButton
+            onClick={handleAiAssist}
+            disabled={aiWorking || aiUnavailable || editor.isEmpty}
+            title={
+              aiUnavailable
+                ? 'AI assist is not available for this account'
+                : aiWorking
+                  ? 'Improving draft…'
+                  : 'Improve draft with AI (premium; undo to revert)'
+            }
+          >
+            {aiWorking ? (
+              <LoaderCircle className="h-4 w-4 animate-spin" aria-hidden="true" />
+            ) : (
+              <Sparkles className="h-4 w-4" aria-hidden="true" />
+            )}
+          </ToolbarButton>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept={ALLOWED_IMAGE_TYPES.join(',')}
+            className="hidden"
+            data-testid="forum-image-input"
+            onChange={handleImageSelect}
+          />
         </div>
-      )}
+      </div>
 
-      {editable && (
-        <ForumImagePicker
-          open={pickerOpen}
-          onSelect={handlePickExisting}
-          onClose={() => setPickerOpen(false)}
-        />
-      )}
+      <ForumImagePicker
+        open={pickerOpen}
+        onSelect={handlePickExisting}
+        onClose={() => setPickerOpen(false)}
+      />
 
       {/* Alt-text prompt. On upload it is collected before the request so the
           value also becomes the image row's default description; on edit it
           rewrites the node's attribute with no upload at all (todo 357).
           "Skip" is a first-class choice: a decorative image is correctly
           alt="", and empty must never block posting. */}
-      {editable && altPrompt !== null && (
+      {altPrompt !== null && (
         <div className="flex flex-wrap items-center gap-2 border-b border-line-2 bg-surface p-2">
           {/* On edit this src is read back off a node in the live document.
               That is NOT a new exposure: TipTap already renders the very same
@@ -919,7 +912,7 @@ export default function TipTapEditor({
 
       {/* Link editor — styled replacement for window.prompt (M24), with
           validation (M24: the prompt applied any string unvalidated). */}
-      {editable && linkDraft !== null && (
+      {linkDraft !== null && (
         <div className="flex flex-wrap items-center gap-2 border-b border-line-2 bg-surface p-2">
           <label htmlFor="tiptap-link-url" className="sr-only">
             Link URL
@@ -965,11 +958,9 @@ export default function TipTapEditor({
       )}
 
       {/* Image upload limits hint (M29). */}
-      {editable && (
-        <p className="border-b border-line-2 bg-surface px-3 py-1 text-xs text-ink-3">
-          Images: {IMAGE_LIMIT_HINT}
-        </p>
-      )}
+      <p className="border-b border-line-2 bg-surface px-3 py-1 text-xs text-ink-3">
+        Images: {IMAGE_LIMIT_HINT}
+      </p>
 
       {/* Upload error — persistent live region so a screen reader reads the text
           swap; a conditionally-mounted role node generally is not announced (M26). */}
@@ -998,7 +989,7 @@ export default function TipTapEditor({
 
       {/* Editor Content */}
       <EditorContent editor={editor} className="forum-editor-content" />
-      {editable && linkPreviewLoading && (
+      {linkPreviewLoading && (
         <p
           role="status"
           aria-live="polite"
@@ -1007,7 +998,7 @@ export default function TipTapEditor({
           Loading link preview…
         </p>
       )}
-      {editable && linkPreview && <LinkPreviewCard preview={linkPreview} />}
+      {linkPreview && <LinkPreviewCard preview={linkPreview} />}
     </div>
   );
 }

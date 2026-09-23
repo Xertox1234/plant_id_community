@@ -102,8 +102,8 @@ describe('TipTapEditor', () => {
     expect(editor.textContent).toBe('');
   });
 
-  it('renders toolbar when editable', async () => {
-    render(<TipTapEditor onChange={vi.fn()} editable={true} />);
+  it('renders the toolbar', async () => {
+    render(<TipTapEditor onChange={vi.fn()} />);
 
     await waitFor(() => {
       expect(screen.getByTitle('Bold (Ctrl+B)')).toBeInTheDocument();
@@ -117,7 +117,7 @@ describe('TipTapEditor', () => {
   it('toolbar buttons expose accessible names, not just title attributes', async () => {
     // getByTitle only checks the attribute; getByRole(name) checks what the
     // accessibility tree exposes — glyph content would fail this (audit H19).
-    render(<TipTapEditor onChange={vi.fn()} editable={true} />);
+    render(<TipTapEditor onChange={vi.fn()} />);
 
     await waitFor(() => {
       expect(screen.getByRole('button', { name: 'Bold (Ctrl+B)' })).toBeInTheDocument();
@@ -127,7 +127,7 @@ describe('TipTapEditor', () => {
   });
 
   it('exposes responsive toolbar semantics and history controls', async () => {
-    const { container } = render(<TipTapEditor onChange={vi.fn()} editable />);
+    const { container } = render(<TipTapEditor onChange={vi.fn()} />);
 
     await waitFor(() => {
       expect(screen.getByRole('toolbar', { name: 'Formatting toolbar' })).toBeInTheDocument();
@@ -152,7 +152,7 @@ describe('TipTapEditor', () => {
     const previewSpy = vi.spyOn(forumService, 'fetchLinkPreview').mockResolvedValue(preview);
 
     const { container } = render(
-      <TipTapEditor content={`<p>Check this out: ${url}</p>`} onChange={vi.fn()} editable />
+      <TipTapEditor content={`<p>Check this out: ${url}</p>`} onChange={vi.fn()} />
     );
 
     await waitFor(() => expect(previewSpy).toHaveBeenCalledWith(url, expect.any(AbortSignal)));
@@ -168,38 +168,8 @@ describe('TipTapEditor', () => {
     ).not.toBeInTheDocument();
   });
 
-  it('does not render a link preview in readonly mode', async () => {
-    const url = 'https://www.facebook.com/example/posts/1';
-    const previewSpy = vi.spyOn(forumService, 'fetchLinkPreview').mockResolvedValue({
-      url,
-      title: 'A community post',
-      description: '',
-      image_url: null,
-      site_name: 'Facebook',
-      domain: 'www.facebook.com',
-      available: true,
-    });
-
-    render(<TipTapEditor content={`<p>${url}</p>`} onChange={vi.fn()} editable={false} />);
-
-    await waitFor(() => expect(screen.queryByTestId('forum-link-preview')).not.toBeInTheDocument());
-    expect(previewSpy).not.toHaveBeenCalled();
-  });
-
-  it('does not render toolbar when readonly', async () => {
-    render(<TipTapEditor onChange={vi.fn()} editable={false} />);
-
-    await waitFor(() => {
-      const editor = screen.queryByRole('textbox');
-      expect(editor).toBeDefined();
-    });
-
-    expect(screen.queryByTitle('Bold (Ctrl+B)')).not.toBeInTheDocument();
-    expect(screen.queryByTitle('Italic (Ctrl+I)')).not.toBeInTheDocument();
-  });
-
-  it('renders an editable ProseMirror surface in edit mode', async () => {
-    const { container } = render(<TipTapEditor onChange={vi.fn()} editable />);
+  it('renders an editable ProseMirror surface', async () => {
+    const { container } = render(<TipTapEditor onChange={vi.fn()} />);
 
     await waitFor(() => {
       expect(container.querySelector('.ProseMirror')).toBeInTheDocument();
@@ -311,7 +281,7 @@ describe('TipTapEditor', () => {
   });
 
   it('shows the image size/type limits hint (M29)', async () => {
-    render(<TipTapEditor onChange={vi.fn()} editable />);
+    render(<TipTapEditor onChange={vi.fn()} />);
     await waitFor(() => expect(screen.getByTitle('Insert image')).toBeInTheDocument());
     expect(screen.getByText(/up to 10 MB/i)).toBeInTheDocument();
   });
@@ -524,7 +494,7 @@ describe('TipTapEditor', () => {
   const AI_TITLE = /improve draft with ai/i;
 
   it('offers an AI assist button, disabled while the draft is empty (M14)', async () => {
-    render(<TipTapEditor onChange={vi.fn()} editable />);
+    render(<TipTapEditor onChange={vi.fn()} />);
     const button = await screen.findByTitle(AI_TITLE);
     // Nothing to improve yet — and an enabled button would spend a premium call
     // on an empty document.
@@ -537,7 +507,7 @@ describe('TipTapEditor', () => {
       .mockResolvedValue('My tomato plant is wilting.');
     const onChange = vi.fn();
     const { container } = render(
-      <TipTapEditor content="<p>tomato plant sad</p>" onChange={onChange} editable />
+      <TipTapEditor content="<p>tomato plant sad</p>" onChange={onChange} />
     );
     await waitFor(() => expect(container.querySelector('.ProseMirror')).toBeInTheDocument());
 
@@ -562,9 +532,7 @@ describe('TipTapEditor', () => {
     vi.spyOn(forumService, 'improveDraft').mockResolvedValue(
       '<b>bold</b> and <img src=x onerror=alert(1)>'
     );
-    const { container } = render(
-      <TipTapEditor content="<p>draft</p>" onChange={vi.fn()} editable />
-    );
+    const { container } = render(<TipTapEditor content="<p>draft</p>" onChange={vi.fn()} />);
     await waitFor(() => expect(container.querySelector('.ProseMirror')).toBeInTheDocument());
 
     await userEvent.click(screen.getByTitle(AI_TITLE));
@@ -582,9 +550,7 @@ describe('TipTapEditor', () => {
     vi.spyOn(forumService, 'improveDraft').mockResolvedValue(
       'First paragraph.\n\nSecond paragraph.\nThird line.'
     );
-    const { container } = render(
-      <TipTapEditor content="<p>draft</p>" onChange={vi.fn()} editable />
-    );
+    const { container } = render(<TipTapEditor content="<p>draft</p>" onChange={vi.fn()} />);
     await waitFor(() => expect(container.querySelector('.ProseMirror')).toBeInTheDocument());
 
     await userEvent.click(screen.getByTitle(AI_TITLE));
@@ -601,7 +567,7 @@ describe('TipTapEditor', () => {
     // silent data loss instead.
     vi.spyOn(forumService, 'improveDraft').mockResolvedValue('Rewritten.');
     const { container } = render(
-      <TipTapEditor content="<p>the original draft</p>" onChange={vi.fn()} editable />
+      <TipTapEditor content="<p>the original draft</p>" onChange={vi.fn()} />
     );
     await waitFor(() => expect(container.querySelector('.ProseMirror')).toBeInTheDocument());
 
@@ -627,9 +593,7 @@ describe('TipTapEditor', () => {
     vi.spyOn(forumService, 'improveDraft').mockRejectedValue(
       new forumService.ComposeAssistError(403, 'This feature requires a premium account.')
     );
-    const { container } = render(
-      <TipTapEditor content="<p>draft</p>" onChange={vi.fn()} editable />
-    );
+    const { container } = render(<TipTapEditor content="<p>draft</p>" onChange={vi.fn()} />);
     await waitFor(() => expect(container.querySelector('.ProseMirror')).toBeInTheDocument());
 
     await userEvent.click(screen.getByTitle(AI_TITLE));
@@ -650,7 +614,7 @@ describe('TipTapEditor', () => {
     vi.spyOn(forumService, 'improveDraft').mockRejectedValue(
       new forumService.ComposeAssistError(403, 'This feature requires a premium account.')
     );
-    const first = render(<TipTapEditor content="<p>draft</p>" onChange={vi.fn()} editable />);
+    const first = render(<TipTapEditor content="<p>draft</p>" onChange={vi.fn()} />);
     await waitFor(() => expect(first.container.querySelector('.ProseMirror')).toBeInTheDocument());
     await userEvent.click(screen.getByTitle(AI_TITLE));
     await waitFor(() =>
@@ -658,7 +622,7 @@ describe('TipTapEditor', () => {
     );
     first.unmount();
 
-    const second = render(<TipTapEditor content="<p>draft</p>" onChange={vi.fn()} editable />);
+    const second = render(<TipTapEditor content="<p>draft</p>" onChange={vi.fn()} />);
     await waitFor(() => expect(second.container.querySelector('.ProseMirror')).toBeInTheDocument());
     // Fresh mount, still disabled — no second wasted round-trip.
     expect(screen.getByTitle(/not available for this account/i)).toBeDisabled();
@@ -672,9 +636,7 @@ describe('TipTapEditor', () => {
     vi.spyOn(forumService, 'improveDraft').mockRejectedValue(
       new forumService.ComposeAssistError(503, 'AI assist is unavailable right now.', 'unavailable')
     );
-    const { container } = render(
-      <TipTapEditor content="<p>draft</p>" onChange={vi.fn()} editable />
-    );
+    const { container } = render(<TipTapEditor content="<p>draft</p>" onChange={vi.fn()} />);
     await waitFor(() => expect(container.querySelector('.ProseMirror')).toBeInTheDocument());
 
     await userEvent.click(screen.getByTitle(AI_TITLE));
@@ -689,9 +651,7 @@ describe('TipTapEditor', () => {
     vi.spyOn(forumService, 'improveDraft').mockRejectedValue(
       new forumService.ComposeAssistError(503, 'AI composer assist is not enabled.', 'disabled')
     );
-    const { container } = render(
-      <TipTapEditor content="<p>draft</p>" onChange={vi.fn()} editable />
-    );
+    const { container } = render(<TipTapEditor content="<p>draft</p>" onChange={vi.fn()} />);
     await waitFor(() => expect(container.querySelector('.ProseMirror')).toBeInTheDocument());
 
     await userEvent.click(screen.getByTitle(AI_TITLE));
@@ -707,9 +667,7 @@ describe('TipTapEditor', () => {
     vi.spyOn(forumService, 'improveDraft').mockRejectedValue(
       new forumService.ComposeAssistError(429, 'AI assist is temporarily at capacity.')
     );
-    const { container } = render(
-      <TipTapEditor content="<p>draft</p>" onChange={vi.fn()} editable />
-    );
+    const { container } = render(<TipTapEditor content="<p>draft</p>" onChange={vi.fn()} />);
     await waitFor(() => expect(container.querySelector('.ProseMirror')).toBeInTheDocument());
 
     await userEvent.click(screen.getByTitle(AI_TITLE));
@@ -733,7 +691,6 @@ describe('TipTapEditor', () => {
       <TipTapEditor
         content='<blockquote data-post-id="7"><p>quoted</p></blockquote><p></p>'
         onChange={vi.fn()}
-        editable
       />
     );
     await waitFor(() => expect(container.querySelector('.ProseMirror')).toBeInTheDocument());
@@ -1117,7 +1074,6 @@ describe('TipTapEditor under StrictMode', () => {
           <TipTapEditor
             content="<p>a draft with a link https://example.com in it</p>"
             onChange={vi.fn()}
-            editable
           />
         </StrictMode>
       );

@@ -8,7 +8,6 @@ import type { Thread } from '@/types';
 
 interface ThreadCardProps {
   thread: Thread;
-  compact?: boolean;
   /** Pass true for search results where author data is unavailable (sentinel). */
   hideAuthor?: boolean;
   /**
@@ -25,38 +24,15 @@ interface ThreadCardProps {
  * display face, excerpt, mono stat line. Tags sit OUTSIDE the row link
  * (nested anchors/buttons are invalid HTML — same contract as before).
  */
-function ThreadCard({
-  thread,
-  compact = false,
-  hideAuthor = false,
-  onTagClick,
-  activeTag,
-}: ThreadCardProps) {
+function ThreadCard({ thread, hideAuthor = false, onTagClick, activeTag }: ThreadCardProps) {
   const threadUrl = threadPath(thread.category, thread);
   const tags = thread.tags ?? [];
 
   return (
-    <Card
-      interactive
-      className={`${compact ? 'p-3.5' : 'p-card'} ${thread.is_locked ? 'opacity-75' : ''}`}
-    >
+    <Card interactive className={`p-card ${thread.is_locked ? 'opacity-75' : ''}`}>
       <Link to={threadUrl} viewTransition className="block">
-        {(compact ||
-          thread.is_pinned ||
-          thread.is_locked ||
-          thread.is_solved ||
-          thread.is_unread) && (
+        {(thread.is_pinned || thread.is_locked || thread.is_solved || thread.is_unread) && (
           <div className="gt-label mb-1.5 flex flex-wrap items-center gap-x-2 gap-y-1">
-            {compact && (
-              <span>
-                {thread.category.icon && (
-                  <span className="mr-1" aria-hidden="true">
-                    {thread.category.icon}
-                  </span>
-                )}
-                {thread.category.name}
-              </span>
-            )}
             {thread.is_pinned && (
               <span className="inline-flex items-center gap-1 text-tertiary">
                 <Pin className="h-3 w-3" aria-hidden="true" /> Pinned
@@ -76,22 +52,17 @@ function ThreadCard({
           </div>
         )}
 
-        <h3
-          className={`gt-h3 text-ink ${compact ? 'mb-0.5' : 'mb-1.5'}`}
-          style={{ viewTransitionName: `thread-${thread.id}` }}
-        >
+        <h3 className="gt-h3 mb-1.5 text-ink" style={{ viewTransitionName: `thread-${thread.id}` }}>
           {thread.title}
         </h3>
 
-        {!compact && thread.excerpt && (
+        {thread.excerpt && (
           <p className="line-clamp-2 max-w-prose text-sm leading-relaxed text-ink-2">
             {thread.excerpt}
           </p>
         )}
 
-        <div
-          className={`gt-label flex flex-wrap items-center gap-x-2 gap-y-1 ${compact ? 'mt-1' : 'mt-2.5'}`}
-        >
+        <div className="gt-label mt-2.5 flex flex-wrap items-center gap-x-2 gap-y-1">
           {!hideAuthor && (
             <>
               <span className="normal-case tracking-normal text-ink-2">
