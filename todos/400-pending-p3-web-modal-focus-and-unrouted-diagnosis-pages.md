@@ -60,7 +60,11 @@ section test is clean. Await each section's settled state in the smoke tests.
 
 - [ ] Each of the three modals either uses `useModalFocus` or has a stated
       reason not to, with a trap test that fails when the trap is removed
-- [ ] The diagnosis pages are either routed or deleted (decision recorded)
+- [x] The diagnosis pages are either routed or deleted (decision recorded):
+      deleted by the 2026-09-23 web dead-code audit (H1). Their backend was
+      gone: migration `plant_identification/0025` ran `DeleteModel` on
+      DiagnosisCard and DiagnosisReminder, and all 16 endpoints they called
+      resolve to `wagtail_serve`. Routing them could not have worked.
 - [ ] `SettingsPage.test.tsx` runs with zero `act()` warnings
 
 ## Work Log
@@ -69,3 +73,12 @@ section test is clean. Await each section's settled state in the smoke tests.
 
 None of these was in todo 396's acceptance criteria. Filed under the
 review-loop budget rather than widening that PR.
+
+### 2026-09-23 - Item 2 closed by the web dead-code audit
+
+The route-or-delete question has a factual answer: **delete**. The
+diagnosis-card and reminder backend was removed in November 2025 (migration
+0025), so the pages called 16 dead endpoints. They were deleted along with
+diagnosisService, the unused types, and their tests. See
+`docs/audits/2026-09-23-web-dead-code.md` H1. Items 1 (modal focus) and 3
+(act() warnings) remain open.
