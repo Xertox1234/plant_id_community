@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: p3
 issue_id: "375"
 tags: [railway, deployment, forum, verification]
@@ -61,11 +61,14 @@ deployment it was proven against no longer exists.
 
 ## Acceptance Criteria
 
-- [ ] The live cron deployment's deploy log shows a `prune_forum_tombstones` run
-      dated on or after 2026-09-09T03:00Z
-- [ ] That run completed without traceback
-- [ ] The run happened under a repo-sourced deployment (its metadata carries
-      `commitHash` and `branch`, not only a `snapshotId`)
+- [x] The live cron deployment's deploy log shows a `prune_forum_tombstones` run
+      dated on or after 2026-09-09T03:00Z — seven daily runs, 2026-09-16 →
+      2026-09-22, under `2a260c93` while it was the live deployment
+      (completed 2026-09-23)
+- [x] That run completed without traceback — each run is argv line → `Pruned N…` line; a `Traceback` filter over the whole window returns nothing (completed 2026-09-23)
+- [x] The run happened under a repo-sourced deployment (its metadata carries
+      `commitHash` and `branch`, not only a `snapshotId`) — `2a260c93`:
+      `commitHash 70511ba4…`, `branch main`, `reason deploy` (completed 2026-09-23)
 
 ## Work Log
 
@@ -74,6 +77,42 @@ deployment it was proven against no longer exists.
 - Split out of todo 372 so that todo could be archived on its five verified
   criteria without ticking a sixth that was never run. Per this repo's rule, a
   criterion that moved is re-pointed and never checked off.
+
+### 2026-09-23 - Verified: the schedule fires daily under repo-sourced deploys; CLOSED
+
+Deployment `2a260c93-0f27-4e77-a1bc-3b5a3cdf9b6b` (created 2026-09-15 22:13 UTC
+from `main` @ `70511ba4`, `reason: deploy` — repo-sourced, metadata carries
+`commitHash` + `branch`) was the live cron deployment from 2026-09-15 until
+2026-09-23 00:56. `get-logs` filtered on `Pruned OR argv OR Traceback`:
+
+```
+2026-09-16T03:01:35Z  [settings] … (argv=['manage.py', 'prune_forum_tombstones'])
+2026-09-16T03:01:37Z  Pruned 17 tombstone row(s) older than 30 day(s).
+2026-09-17T03:02:30Z  argv … prune_forum_tombstones   → Pruned 0 …
+2026-09-18T03:02:08Z  argv … prune_forum_tombstones   → Pruned 0 …
+2026-09-19T03:01:37Z  argv … prune_forum_tombstones   → Pruned 0 …
+2026-09-20T03:02:16Z  argv … prune_forum_tombstones   → Pruned 0 …
+2026-09-21T03:02:59Z  argv … prune_forum_tombstones   → Pruned 0 …
+2026-09-22T03:04:57Z  argv … prune_forum_tombstones   → Pruned 0 …
+```
+
+Seven consecutive nights, each 1.5–5 min after 03:00 UTC, each an argv line
+followed by a `Pruned` line and no `Traceback`. The 09-16 run did real work (17
+rows), so this is not only a no-op path passing. The argv also re-confirms the
+start command comes from `backend/railway.cron.json`.
+
+**Correction to this file's premise.** The Findings say "Railway returns nothing
+for a superseded deployment's log". Not true today: `2a260c93` was already
+`REMOVED` (superseded by `f02feef4` at 00:54 UTC, then `105ca4a7` at 01:32) when
+this log was read, and the full history came back. Retention may still be
+finite, so capturing evidence promptly remains the right habit, but a
+superseded deployment is not instantly unreadable.
+
+**Every merge to `main` redeploys the cron** (three deployments on 2026-09-23
+alone, from docs-only PRs). That is expected under a repo source, and seven
+nights across a live week show a redeploy does not reset `cronSchedule`. The
+current deployment `105ca4a7` has not yet reached a 03:00 — not needed for the
+ACs, which ask about the repo-sourced schedule, not a specific deployment id.
 
 ## Notes
 
