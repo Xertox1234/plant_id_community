@@ -22,9 +22,10 @@ export interface NotificationTopicRef {
 
 /**
  * 'mention' added in slice 4; 'quote' in todo 342 (someone quoted your post);
- * later slices add moderation/subscription.
+ * 'solution' when your reply is accepted as the answer (backend
+ * NotificationVerb.SOLUTION). Later slices add moderation/subscription.
  */
-export type ForumNotificationVerb = 'reply' | 'mention' | 'quote';
+export type ForumNotificationVerb = 'reply' | 'mention' | 'quote' | 'solution';
 
 export interface ForumNotification {
   id: number;

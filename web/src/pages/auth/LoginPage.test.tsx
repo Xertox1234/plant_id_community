@@ -41,6 +41,14 @@ describe('LoginPage', () => {
     mockLogin.mockReset();
   });
 
+  // Web dead-code audit M4: a permanently disabled "Forgot your password?"
+  // button hovered like a link and did nothing (no reset flow exists on either
+  // end). Offer it again only with a working flow behind it.
+  it('renders no dead "Forgot your password?" control', () => {
+    renderLoginPage();
+    expect(screen.queryByText(/forgot your password/i)).not.toBeInTheDocument();
+  });
+
   // Regression for PR #379: the login form wrongly ran the 14-char *new-password*
   // strength rule, locking out every account whose password predates that rule
   // (including the bootstrap superuser). Login must accept any non-empty password.
