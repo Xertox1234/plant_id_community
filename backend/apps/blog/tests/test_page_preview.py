@@ -97,6 +97,37 @@ class BlogPostPreviewAPITestCase(TestCase):
         self.assertEqual(response.json()["title"], "Draft title")
         self.assertEqual(response.json()["slug"], "preview-post")
 
+    def test_previews_a_brand_new_never_saved_post(self):
+        # Wagtail offers Preview on the create screen; the draft then has no pk
+        # (PagePreview.as_page() restores pk=None). Code review round 1 found
+        # this 500'd in get_comment_count's obj.comments query.
+        draft = BlogPostPage(
+            title="Brand new draft",
+            slug="brand-new-draft",
+            author=self.user,
+            publish_date=date.today(),
+            introduction="<p>first words</p>",
+            content_blocks=[],
+        )
+        # Exactly what Wagtail 8's pages PreviewOnCreateView.get_object() does
+        # (wagtail/admin/views/pages/preview.py): populate treebeard's
+        # depth/path from the parent so get_parent() resolves. The library's
+        # create_page_preview() needs that for its "parent_id=…" identifier.
+        parent = self.blog_index
+        draft.depth = parent.depth + 1
+        if parent.is_leaf():
+            draft.path = draft._get_path(parent.path, draft.depth, 1)
+        else:
+            draft.path = parent.get_last_child()._inc_path()
+        token = draft.create_page_preview().token
+
+        response = self.client.get(
+            ENDPOINT, {"content_type": "blog.blogpostpage", "token": token}
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["title"], "Brand new draft")
+
     def test_does_not_poison_the_live_post_cache(self):
         token = self._draft_token()
         self.client.get(ENDPOINT, {"content_type": "blog.blogpostpage", "token": token})

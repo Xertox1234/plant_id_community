@@ -856,6 +856,11 @@ class BlogPostPreviewAPIViewSet(BlogPostPageViewSet):
             raise Http404("Invalid preview token")
         if page is None:
             raise Http404("Preview not found or expired")
+        if page.pk is None:
+            # A never-saved draft (Preview on the create screen): it has no
+            # comments, and the serializer's fallback comments query raises
+            # ValueError on a pk-less instance.
+            page._comment_count = 0
         return page
 
     def listing_view(self, request):

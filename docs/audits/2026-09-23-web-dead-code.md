@@ -117,3 +117,4 @@ files.
 - [ ] #L13 backend endpoints no client calls → todo 405
 - [ ] #L14 dead "Mobile (Flutter)" preview mode → todo 405
 - [ ] #M2 production preview checks → todo 406
+- [ ] #review-r1 non-blocking review findings → todo 407
