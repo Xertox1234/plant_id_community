@@ -131,6 +131,10 @@ So fixing findings 1 and 2 alone would not have produced a working sign-in.
       (completed 2026-09-14)
 - [ ] Sign-in verified on a physical Android device against production,
       confirmed in the server logs rather than from the UI
+      — **2026-09-23: verified on a `google_apis_playstore` EMULATOR, not a
+      physical device**, so this stays open by its own wording. The emulator
+      run proves the whole configuration chain (see the 2026-09-23 entry); the
+      remaining gap is hardware only.
 - [ ] The Play App Signing SHA-1 is registered on the Firebase Android app
       (new 2026-09-14; blocked until a first Play upload exists to generate it)
 
@@ -182,6 +186,83 @@ changing their mind are indistinguishable on screen.
 To discharge it: `adb install -r` the release APK on a device with a Google
 account, sign in, and confirm `[FIREBASE AUTH] ... authenticated` in the Railway
 logs for `plant_id_community`.
+
+## Progress 2026-09-23 — sign-in AND push verified on a release-signed emulator build
+
+Operator chose the emulator route (no physical Android device available), with
+the explicit understanding that it does **not** tick the physical-device AC.
+
+**Build.** `flutter build apk --release --dart-define-from-file=.env.production`
+(API `https://api.houseplant-md.com/api/v1`). `apksigner verify --print-certs`:
+SHA-1 `6e131b9b…8a5d` = release, and **not** the debug `068a6f6a…`. Installed
+on `Medium_Phone_API_36.1` (`google_apis_playstore`, arm64), operator added
+their own Google account in Settings.
+
+**Finding 5 — the Android API key never allowed the release certificate.**
+First tap of *Continue with Google* showed, in the app:
+*"Requests from this Android client application
+com.plantcommunity.plant_community_mobile are blocked."* The Google Cloud key
+`9f90a089-…` (Android, auto-created by Firebase) was app-restricted on
+2026-09-12 to package + **debug** SHA-1 only — two days before the release
+keystore existed. The 2026-09-14 work registered the release SHA-1 on the
+Firebase **app** (OAuth client) but not on the **API key**'s allowlist; those
+are separate lists, and nothing checked the second. Fixed 2026-09-23 01:00 UTC
+by the operator (`gcloud services api-keys update`, Owner-only; restating all
+10 `--api-target`s because the update replaces the whole `restrictions`
+object, and `--no-check-existing-usage` because the "active usage" it cited was
+`geocoding-backend` — the daily internet scanner, already 100% refused since
+geocoding is not an allowed target). Read back: both SHA-1s, 10 APIs.
+`scripts/check_firebase_key_restrictions.py` → all PASS — but note it probes
+**only the debug SHA-1**, which is why it stayed green while release builds
+were blocked. Follow-up below.
+
+**Sign-in, confirmed three ways, same uid, seconds apart** (emulator clock is
+MDT = UTC−6):
+
+```
+emulator 19:06:37  GetGoogleIdOperation succeeded … CREDENTIALS_RECEIVED
+emulator 19:06:43  FirebaseAuth: auth state listeners about user ( QY7lYq7n… )
+server   01:06:50  POST /api/v1/auth/firebase-token-exchange/ 200
+server   01:06:50  [FIREBASE AUTH] Existing user authenticated: wi***@gmail.com
+```
+
+**Push — a trap worth recording.** The first session registered no token: the
+app had first launched at 18:53 MDT, *before* the key fix, and Firebase
+Installations got a 403 (`PERMISSION_DENIED … are blocked`) and logged
+*"invalid configuration"*. The SDK then refused to retry for the life of that
+process — every later `getToken()` failed locally with *"Firebase
+Installations Service is unavailable. Please try again later."*, even after the
+key was fixed and a direct REST probe of FIS with the release cert headers
+returned 200. Signing out and back in did **not** clear it (same pid 5096).
+`adb shell pm clear` + relaunch did. **An FIS 403 poisons the process; after
+fixing a key, restart the app with cleared data before re-testing.**
+
+After the clean relaunch:
+
+```
+server 01:17:20  POST /api/v1/auth/firebase-token-exchange/ 200
+server 01:17:21  PATCH /api/v1/forum/me/profile/ 200        ← token registered
+send   01:19:14  >>> dYJHiljlRxCw True projects/plant-community-prod/messages/0:1790126354654190%…
+emulator         NotificationRecord pkg=com.plantcommunity.plant_community_mobile
+                   tag=FCM-Notification:1733528  android.title=String (387)
+```
+
+A first send at 01:18 was also accepted and *received* (the app's
+FirebaseMessaging logged the arrival), but the app was in the foreground, where
+Android delivers to the app without drawing a notification — so the send was
+repeated with the app backgrounded to get a notification record as evidence.
+
+**Side effects / follow-ups found (not fixed here):**
+
+- `check_firebase_key_restrictions.py` probes the Android key with the debug
+  SHA-1 only. It should also assert the **release** SHA-1 is allowed — that
+  single probe would have caught finding 5.
+- `ForumProfile.fcm_token` holds **one** token per user, so the emulator's
+  registration silently replaced the operator's iPhone token. Last signed-in
+  device wins; multi-device push does not exist.
+- Notifications land on `fcm_fallback_notification_channel`: the app declares
+  no default channel (`com.google.firebase.messaging.default_notification_channel_id`),
+  so Android users cannot manage forum notifications as a named category.
 
 ## Notes
 
