@@ -224,3 +224,56 @@ slice, behind the production row-count gate.
   - `plant_care_reminder_service.py:390` links to
     `/profile/care-instructions/<uuid>/`, whose API this slice removed. Revisit
     it with todo 410 (care reminders).
+
+### 2026-09-23 - Slice 2 merged (PR #800); slice 3: Plant CMS v2 and dead models
+
+**Slice 2** merged at 22:18 UTC.
+
+**Production gate for slice 3** (2026-09-23, read-only `railway ssh`,
+`count()` per model): **all 11 models held 0 rows.**
+
+- PlantCategory, PlantCareGuide, PlantSpeciesPage, PlantCategoryIndexPage;
+- PlantDiseaseVote, SavedDiagnosis, TreatmentAttempt;
+- BatchIdentificationRequest, BatchIdentificationComparison,
+  BatchIdentificationImage, BatchProcessingQueue.
+
+(`PlantCareBlocks` is a StreamField block, not a table.)
+
+**Slice 3 removed:**
+
+- The 5 Wagtail v2 plant endpoints (`plant-species`, `plant-categories`,
+  `care-guides`, `plants`, `plant-index`), plus `api/endpoints.py` and
+  `api/serializers.py`.
+- The 11 dead models, `PlantCareBlocks`, and the abstract
+  `PlantIdentificationBasePage` (its only subclasses were removed). This cut
+  `models.py` from 2810 lines to about 1570.
+- The blog command `migrate_care_guides_to_blog` and its test file.
+- The tests of removed code: `test_stock_meta_fields_site_based`,
+  `test_search_wildcards`, `test_page_viewsets_versioning_and_wiring`,
+  `test_disease_vote_deduplication`, and the PlantCategory N+1 test.
+- The stale docs from the slice 2 review: `API_DOCUMENTATION_IMPLEMENTATION.md`,
+  and the mobile `api_service.dart` and `services/README.md` doc examples.
+
+**About migration `0027_remove_dead_cms_and_diagnosis_models`:**
+
+- **The autodetector's output failed on a production-shaped DB**
+  (`FieldDoesNotExist: TreatmentAttempt has no field named 'saved_diagnosis'`).
+  `SavedDiagnosis.treatments_tried` is an M2M *through* TreatmentAttempt, and
+  the generated field-by-field ops removed the FK after the M2M removal had
+  already dropped it from state.
+- The ops are now **hand-ordered**: remove the through-M2M, then `DeleteModel`
+  child-first. Content types are removed through the ORM at the end.
+  `makemigrations --check` reports "No changes detected", so the state matches.
+- **Proof on a scratch Postgres DB migrated from current main:**
+  - before: 11 tables, 11 content types, 44 permissions;
+  - after `0027` (OK): 0 of each, and no leftover M2M or tag tables;
+  - all 7 kept tables (PlantSpecies, UserPlant, PlantDiseaseResult,
+    PlantDiseaseDatabase, DiseaseCareInstructions, SavedCareInstructions,
+    PlantIdentificationVote) are present.
+
+**Noted, not fixed (it predates this slice and is independent of it):**
+`get_absolute_url` on PlantSpecies, PlantIdentificationRequest, UserPlant and
+PlantDiseaseRequest (`models.py` ~230/453/741/920) reverses route names that
+never existed (`species_detail`, `request_detail`, `user_plant_detail`,
+`disease_request_detail`), so each raises NoReverseMatch if called. Nothing in
+the app calls them. Fix or delete them in a later cleanup.

@@ -251,7 +251,7 @@ class ApiService {
   ///
   /// Example:
   /// ```dart
-  /// final response = await apiService.get('/plant-identification/species/');
+  /// final response = await apiService.get('/plant-identification/plants/');
   /// ```
   Future<Response> get(
     String path, {

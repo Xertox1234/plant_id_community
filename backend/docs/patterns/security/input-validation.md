@@ -51,8 +51,9 @@
 > 2026-07-14 pairs it with `__icontains` and is therefore suspected
 > double-escaped** (`apps/blog/admin_views.py`, `apps/blog/api_views.py`,
 > `apps/blog/views.py`, `apps/blog/api/viewsets.py`,
-> `apps/plant_identification/views.py`,
-> `apps/plant_identification/api/endpoints.py`) — not verified/fixed as
+> `apps/plant_identification/views.py`; the plant-ID views and the
+> `apps/plant_identification/api/endpoints.py` sites were deleted in todo 405)
+> — not verified/fixed as
 > part of this correction; each site needs its own audit, since this is a
 > silent-failure bug (empty result set, not an error) that a smoke test
 > without a `%`/`_`-containing fixture would never catch.
