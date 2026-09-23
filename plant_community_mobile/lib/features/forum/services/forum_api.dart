@@ -82,6 +82,29 @@ abstract class ForumApi {
     required String idempotencyKey,
   });
 
+  /// The caller's OWN previously-uploaded forum images, newest first
+  /// (`GET /forum/images/mine/`, cursor-paginated, 24 per page, todo 374).
+  /// First page when [cursorUrl] is null; pass the absolute `next` URL for a
+  /// later one. Each row has the same shape as the [uploadImage] response,
+  /// with `alt` falling back to the description stored at upload time.
+  ///
+  /// The server already scopes the list to `uploaded_by_user=request.user` —
+  /// never re-filter it here. A 403 is an EXPECTED state (the caller is not
+  /// in "Forum Members"), not a failure to retry.
+  Future<CursorPage<ForumImageBlock>> fetchMyImages({String? cursorUrl});
+
+  /// Delete one of the caller's own forum images (`DELETE /forum/images/
+  /// {id}/`, 204). 403 when the caller neither owns nor moderates it, 404
+  /// when it is already gone, 429 past the host's `image_delete` throttle
+  /// (20/h). Posts that used the image keep rendering, with a "photo no
+  /// longer available" placeholder where it was ([DeletedImageBlock]).
+  ///
+  /// No `Idempotency-Key`: `ForumImageDetailView.delete` never reads one,
+  /// and a repeat DELETE of a deleted image 404s, which the caller treats
+  /// as "already gone" (docs/rules/flutter.md → verify the server consumes
+  /// it).
+  Future<void> deleteMyImage(int imageId);
+
   /// Subscribe/unsubscribe the authenticated user to a topic. Both are
   /// idempotent server-side; returns the resulting `subscribed` state.
   Future<bool> subscribeToTopic(int topicId);
@@ -544,6 +567,24 @@ class HttpForumApi implements ForumApi {
     return ForumImageBlock.fromUploadResponse(
       resp.data as Map<String, dynamic>,
     );
+  }
+
+  @override
+  Future<CursorPage<ForumImageBlock>> fetchMyImages({String? cursorUrl}) async {
+    // The cursor URL goes through UNCHANGED: rebuilding it would drop the
+    // opaque cursor and silently restart at page one.
+    final resp = cursorUrl != null
+        ? await _api.get(cursorUrl)
+        : await _api.get('/forum/images/mine/');
+    return CursorPage.fromJson(
+      resp.data as Map<String, dynamic>,
+      ForumImageBlock.fromUploadResponse,
+    );
+  }
+
+  @override
+  Future<void> deleteMyImage(int imageId) async {
+    await _api.delete('/forum/images/$imageId/');
   }
 
   @override

@@ -1126,6 +1126,41 @@ void main() {
       );
 
       testWidgets(
+        'my forum photos redirects a signed-out user to login (todo 374)',
+        (WidgetTester tester) async {
+          // Top-level route, outside the shell, so it is guarded by the
+          // exact-path set rather than a forum-branch prefix.
+          final container = ProviderContainer(
+            overrides: [
+              authServiceProvider.overrideWith(
+                _MockUnauthenticatedAuthNotifier.new,
+              ),
+            ],
+          );
+          addTearDown(container.dispose);
+
+          final router = container.read(appRouterProvider);
+
+          await tester.pumpWidget(
+            UncontrolledProviderScope(
+              container: container,
+              child: MaterialApp.router(routerConfig: router),
+            ),
+          );
+
+          router.go(AppRoutes.forumMyImages);
+          await tester.pump(const Duration(milliseconds: 100));
+
+          expect(
+            router.routerDelegate.currentConfiguration.uri.path,
+            equals(AppRoutes.login),
+          );
+
+          await tester.pump(const Duration(seconds: 4));
+        },
+      );
+
+      testWidgets(
         'the profile tab is reachable signed out and gates itself (todo 384)',
         (WidgetTester tester) async {
           final container = ProviderContainer(

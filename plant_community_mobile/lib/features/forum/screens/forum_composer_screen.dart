@@ -13,6 +13,7 @@ import '../models/models.dart';
 import '../services/forum_api.dart';
 import '../services/forum_composer_controller.dart';
 import '../services/forum_image_picker.dart';
+import '../widgets/forum_my_images_grid.dart';
 import '../widgets/forum_mention_suggestions.dart';
 import '../widgets/forum_notice_banner.dart';
 import '../widgets/forum_rich_text_toolbar.dart';
@@ -264,6 +265,19 @@ class _ForumComposerScreenState extends ConsumerState<ForumComposerScreen> {
     }
   }
 
+  /// Attach a photo the user already shared to the forum (todo 374). The
+  /// existing image row is referenced by id, so there is no upload, no new
+  /// row and no idempotency key; the submit fingerprint already includes the
+  /// image id.
+  Future<void> _chooseExistingPhoto() async {
+    final picked = await showForumMyImagesPicker(context);
+    if (picked == null || !mounted) return;
+    setState(() {
+      _attachedImage = picked;
+      _imageError = null;
+    });
+  }
+
   void _removePhoto() {
     setState(() => _attachedImage = null);
   }
@@ -496,16 +510,27 @@ class _ForumComposerScreenState extends ConsumerState<ForumComposerScreen> {
               onRemove: _removePhoto,
             )
           else
-            OutlinedButton.icon(
-              onPressed: _uploadingImage ? null : _addPhoto,
-              icon: _uploadingImage
-                  ? const SizedBox(
-                      height: 16,
-                      width: 16,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    )
-                  : const Icon(LucideIcons.imagePlus),
-              label: Text(_uploadingImage ? 'Uploading…' : 'Add photo'),
+            Wrap(
+              spacing: AppSpacing.sm,
+              runSpacing: AppSpacing.sm,
+              children: [
+                OutlinedButton.icon(
+                  onPressed: _uploadingImage ? null : _addPhoto,
+                  icon: _uploadingImage
+                      ? const SizedBox(
+                          height: 16,
+                          width: 16,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(LucideIcons.imagePlus),
+                  label: Text(_uploadingImage ? 'Uploading…' : 'Add photo'),
+                ),
+                OutlinedButton.icon(
+                  onPressed: _uploadingImage ? null : _chooseExistingPhoto,
+                  icon: const Icon(LucideIcons.images),
+                  label: const Text('Choose from your photos'),
+                ),
+              ],
             ),
         ],
         const SizedBox(height: AppSpacing.md),

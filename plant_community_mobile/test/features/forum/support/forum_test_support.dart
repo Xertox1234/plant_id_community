@@ -117,6 +117,23 @@ class FakeForumApi implements ForumApi {
   /// (code review, todo 294: the Post button race).
   Completer<ForumImageBlock>? uploadImageGate;
 
+  /// [fetchMyImages] fixtures (todo 374). [myImagePages] mirrors
+  /// [postPages]: page N+1 is returned when `cursorUrl` equals page N's
+  /// `next`, and `null` always returns the first page. Falls back to
+  /// [myImages] when empty — which [deleteMyImage] also removes from, so a
+  /// refetch after a delete sees the server's state.
+  List<ForumImageBlock> myImages = [];
+  List<CursorPage<ForumImageBlock>> myImagePages = const [];
+  final List<String?> fetchMyImagesCalls = [];
+
+  /// When set, [fetchMyImages] throws this instead of returning a page.
+  ApiException? failFetchMyImagesWith;
+
+  final List<int> deleteMyImageCalls = [];
+
+  /// When set, [deleteMyImage] throws this instead of succeeding.
+  ApiException? failDeleteMyImageWith;
+
   /// [subscribeToTopic]/[unsubscribeFromTopic] call log and failure hook.
   final List<int> subscribeCalls = [];
   final List<int> unsubscribeCalls = [];
@@ -439,6 +456,31 @@ class FakeForumApi implements ForumApi {
     final fail = failUploadImageWith;
     if (fail != null) throw fail;
     return uploadImageResult;
+  }
+
+  @override
+  Future<CursorPage<ForumImageBlock>> fetchMyImages({String? cursorUrl}) async {
+    fetchMyImagesCalls.add(cursorUrl);
+    final fail = failFetchMyImagesWith;
+    if (fail != null) throw fail;
+    if (myImagePages.isEmpty) {
+      return CursorPage(items: List.of(myImages));
+    }
+    if (cursorUrl == null) return myImagePages.first;
+    for (var i = 1; i < myImagePages.length; i++) {
+      if (myImagePages[i - 1].next == cursorUrl) {
+        return myImagePages[i];
+      }
+    }
+    return myImagePages.last;
+  }
+
+  @override
+  Future<void> deleteMyImage(int imageId) async {
+    deleteMyImageCalls.add(imageId);
+    final fail = failDeleteMyImageWith;
+    if (fail != null) throw fail;
+    myImages.removeWhere((image) => image.id == imageId);
   }
 
   @override

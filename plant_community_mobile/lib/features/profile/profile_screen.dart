@@ -532,6 +532,15 @@ class _SettingsSection extends ConsumerWidget {
 
           const Divider(),
 
+          // The viewer's own forum photo library (todo 374)
+          ListTile(
+            leading: const Icon(LucideIcons.images),
+            title: const Text('My forum photos'),
+            subtitle: const Text('Photos you shared in forum posts'),
+            trailing: const Icon(LucideIcons.chevronRight),
+            onTap: () => context.push(AppRoutes.forumMyImages),
+          ),
+
           // Privacy settings
           ListTile(
             leading: const Icon(LucideIcons.eye),
