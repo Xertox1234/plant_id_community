@@ -102,6 +102,8 @@ cron would stop being a cron.
   <https://docs.railway.com/infrastructure-as-code#migrating-from-config-as-code>
 - `.railway/railway.py` and `.railway/railway.go` also exist but are in beta;
   `.railway/railway.ts` is the GA authoring format.
-- Related: todo 335 (Celery co-location), todo 286 (FCM credentials), todo 375
-  (verify the cron fires under repo source) — 375 touches the same cron service
-  and could reasonably be folded in.
+- Related: todo 335 (Celery co-location), todo 286 (FCM credentials — CLOSED
+  2026-09-23, push is now LIVE in production, which raises the stakes of the
+  start-command row above), todo 375 (CLOSED 2026-09-23, PR #787: the cron's
+  03:00 UTC schedule fired seven nights running under repo-sourced deploys —
+  AC3's cron check can reuse that `get-logs` recipe after the migration).
