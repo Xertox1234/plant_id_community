@@ -51,6 +51,9 @@ class _ExpertTile extends StatelessWidget {
     return Semantics(
       label: '${author.name}${expert.online ? ', online' : ''}',
       button: onTap != null,
+      // excludeSemantics drops the InkWell's own tap action, so the node
+      // must carry it or a screen reader's double-tap does nothing.
+      onTap: onTap,
       excludeSemantics: true,
       child: InkWell(
         borderRadius: BorderRadius.circular(AppSpacing.rSm),
