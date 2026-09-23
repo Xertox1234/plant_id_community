@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: p2
 issue_id: "286"
 tags: [flutter, ios, firebase, notifications, release]
@@ -100,16 +100,17 @@ outright.
       `Plant Community Mobile App Store`. See the 2026-09-15 work-log entry.
 - [x] The Debug configuration still resolves `development` (dev push loop intact)
       — `xcodebuild -showBuildSettings`, 2026-07-31; Profile too
-- [ ] APNs authentication key uploaded to the Firebase console for the iOS app
-- [ ] A device push is received end-to-end from a distribution build
+- [x] APNs authentication key uploaded to the Firebase console for the iOS app
+      — **2026-09-23**: proven by delivery, not attestation — FCM accepted a
+      send to an iOS token and it arrived; with no APNs key FCM returns
+      `THIRD_PARTY_AUTH_ERROR`. See the 2026-09-23 work-log entry.
+- [x] A device push is received end-to-end from a distribution build
       (TestFlight), closing todo 253 AC6's "receives a push" for iOS
-      — **BLOCKED (2026-09-15) on a prerequisite outside iOS**: production has
-      neither `FIREBASE_CREDENTIALS_PATH` nor `GOOGLE_APPLICATION_CREDENTIALS`,
-      so `is_firebase_available()` is `False` and every push returns early at
-      `logger.debug` — silently. Affects Android identically. See the
-      2026-09-15 work-log entry; fix that first, then this AC and AC3 close
-      together on one probe.
-- [ ] `docs/DEPLOYMENT_SECURITY_CHECKLIST.md` iOS APNs line ticked
+      — **2026-09-23**: sent from production, received on the operator's
+      phone running the TestFlight install that registered the token. The
+      2026-09-15 blocker (no Firebase credentials in prod) was cleared first
+      via `FIREBASE_CREDENTIALS_B64` (PR #779).
+- [x] `docs/DEPLOYMENT_SECURITY_CHECKLIST.md` iOS APNs line ticked — 2026-09-23, with the stale "still outstanding" block replaced
 
 ## Work Log
 
@@ -546,6 +547,57 @@ first blocker:
 **Scope note: this is not an iOS problem.** `send_forum_push` is platform-neutral,
 so Android push is equally dead in production. Todo 253 AC6 ("receives a push")
 cannot close on either platform until step 1 happens.
+
+### 2026-09-23 - AC3, AC4, AC5 closed on one real push; todo CLOSED
+
+**Prerequisite, measured before and after.** The deploy running since
+2026-09-15 22:15 UTC (`70511ba4`) logged at boot:
+
+```
+[start] firebase: FIREBASE_CREDENTIALS_B64 unset -> FCM PUSH DISABLED (sends return early and log nothing)
+```
+
+The operator generated a service-account key (Firebase console →
+`plant-community-prod` → Service accounts), set it base64-encoded as
+`FIREBASE_CREDENTIALS_B64` on the `plant_id_community` Railway service, and
+deleted the local file. The resulting deploy (`4f207de4`, 2026-09-23 00:21 UTC):
+
+```
+[start] firebase: credentials materialized at /tmp/firebase-service-account.json for project plant-community-prod -> FCM push ENABLED
+[start] worker pid 5 (celery ... worker -B ...); web pid 6 (gunicorn ...)
+celery@7e6cb79b4983 ready.
+```
+
+**Token inventory** (operator-run `railway ssh`, read-only): exactly one
+`ForumProfile` carries an `fcm_token` — pk 1, the operator's account. The
+operator confirms it was registered by the **TestFlight** install, which is
+what AC4 requires (a Debug/Profile-registered token is bound to the development
+APNs environment and would prove only the plumbing).
+
+**The push.** Sent to pk 1 only, calling `messaging.send_each` directly rather
+than `FirebaseNotificationService.send_test_notification`, because that helper
+catches every exception into a log line and returns `False` — it would have
+hidden the one error code (`THIRD_PARTY_AUTH_ERROR`) this probe exists to read.
+The notification (title `286`) **arrived on the device.**
+
+What that one delivery proves, and why it closes three ACs:
+
+- **AC3** — FCM cannot deliver to an iOS token without an APNs auth key on the
+  project; it returns `THIRD_PARTY_AUTH_ERROR` instead. Delivery is the proof
+  the upload happened, so AC3 closes on an artifact, not on the operator's
+  earlier (correct) recollection.
+- **AC4** — end-to-end: production backend → FCM → APNs production environment
+  → a Distribution-signed TestFlight build.
+- **AC5** — checklist line ticked; its "still outstanding" block was rewritten
+  (it described the credentials as missing, now false) into a short "how to
+  verify on a new environment" note.
+
+**Not verified here, deliberately out of scope:** the *forum* send path
+(`send_forum_push` via Celery) end-to-end. This probe used the same Admin SDK
+client and credentials that path uses, from the same container, but not the
+task itself; the first real forum reply notification will exercise it. Android
+push was also dead for the same credentials reason and should now work, but no
+Android device was tested (todo 387 still gates Android release signing).
 
 ## Notes
 
