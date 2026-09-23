@@ -1225,7 +1225,7 @@ CELERY_BROKER_CONNECTION_RETRY_ON_STARTUP = True
 # double-send; the idempotent sync_blog_page_chunks is the deliberate exception),
 # so every prefetched message dies with the worker. Reserve one per pool process
 # instead of the default four so a redeploy can strand at most `concurrency`
-# messages; railway.json drainingSeconds gives the warm shutdown time to finish.
+# messages; drainingSeconds in .railway/railway.ts gives the warm shutdown time.
 CELERY_WORKER_PREFETCH_MULTIPLIER = 1
 # Periodic tasks (beat is embedded in the co-located worker: bin/start.sh
 # starts `celery worker -B`). Crontabs are evaluated in CELERY_TIMEZONE —

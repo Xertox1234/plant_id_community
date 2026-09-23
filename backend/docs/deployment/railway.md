@@ -11,8 +11,10 @@ depends on whether API and frontend share a registrable domain.
 ## One-time setup
 
 1. **New Project → Deploy from GitHub repo** → select `plant_id_community`.
-2. In the service **Settings → Root Directory**, set `backend`. (Railway then reads
-   `backend/railway.json` for the build + start command.)
+2. In the service **Settings → Root Directory**, set `backend`. Railway then
+   detects `backend/Dockerfile`. Every other service setting lives in
+   `.railway/railway.ts`; apply it with `railway config apply`, as described in
+   "Where service config lives" below.
 3. **Add PostgreSQL** and **Add Redis** (New → Database). Railway exposes
    `DATABASE_URL` and `REDIS_URL` — reference them from the web service (see below).
 4. Set the **environment variables** (Settings → Variables).
@@ -24,10 +26,58 @@ depends on whether API and frontend share a registrable domain.
 6. Deploy. The Docker build bakes `collectstatic`; `preDeployCommand` runs
    migrations + the forum seed; the start command is gunicorn-only (see below).
 
+## Where service config lives — `.railway/railway.ts` (todo 397)
+
+Both services, `plant_id_community` and `forum-prune-cron`, are configured by
+**Railway Infrastructure as Code**: `.railway/railway.ts` at the repo root,
+which holds the whole project, databases and volumes included. `backend/railway.json`
+and `backend/railway.cron.json` were deleted in todo 397. Railway stopped reading
+Config as Code on 2026-12-01, and the dashboard values it would have fallen back
+to were stale pre-Dockerfile settings: a plain gunicorn start, so no Celery
+worker and no FCM credentials, and nothing would have alarmed.
+
+**Railway does not read `.railway/` at deploy time.** A deploy uses the
+service's stored settings, and the file only changes those settings when
+someone runs the CLI:
+
+```bash
+npm install                  # root devDependency `railway` (the TS SDK)
+railway config plan          # read-only; shows the diff against production
+railway config apply         # writes the service settings after confirmation
+```
+
+**Merging a change to `.railway/railway.ts` changes nothing in production
+until someone applies it.** Run `plan` after merging; "already up to date"
+means the file and prod agree.
+
+Rules the file has taught us:
+
+- **It describes the whole project, and anything left out of the file is
+  planned as a destroy.** Postgres, Redis and both volumes are in it for that
+  reason. Read every `-` line of a plan before applying.
+- **Some values cannot be stored and must stay out of the file.** An apply
+  leaves `build.builder: "DOCKERFILE"` and `restartPolicyType: "ON_FAILURE"`
+  null, and every later plan proposes them again. Both nulls are correct:
+  - a null builder auto-detects `backend/Dockerfile`, verified 2026-09-23 by a
+    deploy with no config-as-code file, whose build log reads `load build
+    definition from backend/Dockerfile`;
+  - ON_FAILURE is Railway's default restart policy, and `restartPolicyMaxRetries: 5`
+    is stored.
+- **`railway config migrate` produced a wrong file here.** It named the web
+  service `backend` (after the directory), so an apply would have created a
+  new service. It missed `railway.cron.json` (a non-standard name), and it
+  dropped `drainingSeconds`, the restart policy and the builder. The file was
+  generated with `railway config pull` instead, then edited by hand.
+- **`get-service-config` shows the stored settings, which are now the real
+  config.** Before todo 397 they were stale values that `railway.json`
+  overrode at deploy time. The deploy log is still the proof of what runs:
+  look for `[start] firebase:`, `[start] worker pid … web pid …` and
+  `celery@… ready.`
+
 ## How a deploy works (DOCKERFILE builder — todo 241)
 
-`backend/railway.json` sets `"builder": "DOCKERFILE"`, so Railway builds
-`backend/Dockerfile` instead of auto-generating one. Deploys auto-trigger from
+Railway builds `backend/Dockerfile`, detected from Root Directory `backend`,
+instead of generating an image with Railpack or Nixpacks. Deploys auto-trigger from
 GitHub `main` (Railway's GitHub connection — no Actions workflow, no staging
 environment): **merging to `main` IS deploying**. Each piece below was placed
 where it is for a reason — moving it breaks prod in a way local testing won't
@@ -108,7 +158,7 @@ directly-reachable host can't be tricked into thinking plain HTTP is secure).
 
 **Current prod topology (since 2026-09-05, todo 335): the web service runs
 gunicorn AND a Celery worker in the same container** via `bash bin/start.sh`
-(`railway.json` `deploy.startCommand`), plus the `forum-prune-cron` service for
+(the `start` field in `.railway/railway.ts`), plus the `forum-prune-cron` service for
 `prune_forum_tombstones`. Since todo 340 the worker also **embeds Celery
 beat** (`-B`, schedule file `/tmp/celerybeat-schedule`) for
 `CELERY_BEAT_SCHEDULE` — today the weekly forum digest (Monday 09:00 UTC,
@@ -127,7 +177,7 @@ Django-checks job; on macOS run it in Docker — `docker run --rm -v
 "$PWD/bin:/w" -w /w bash:5.2 bash test-start.sh` — because it needs bash 5.1):
 
 - **gunicorn exits on its own → the worker is stopped and the script exits 1**,
-  so Railway's `ON_FAILURE` policy (5 container restarts, `railway.json`)
+  so Railway's `ON_FAILURE` policy (5 container restarts, `.railway/railway.ts`)
   restarts the container.
 - **the worker exits on its own (any status, even 0) → restarted in-container**
   after `WORKER_RESTART_DELAY` (5 s), up to `WORKER_MAX_RESTARTS` (5) times,
@@ -139,7 +189,7 @@ Django-checks job; on macOS run it in Docker — `docker run --rm -v
   crash must not spend the bounded container-restart budget either — that
   budget is shared with the web tier, and exhausting it stops the service.
 - **SIGTERM (redeploy, `railway redeploy`) → forwarded to both, exit 0.**
-  `drainingSeconds: 60` in `railway.json` is what gives the worker's warm
+  `drainingSeconds: 60` in `.railway/railway.ts` is what gives the worker's warm
   shutdown time to finish in-flight tasks — Railway's default is **0 s** between
   SIGTERM and SIGKILL (deployment-teardown docs).
 
@@ -221,8 +271,9 @@ went live. Pruning was moved to the cron service at the time; that part stands.
 ### Add the tombstone-pruning cron service
 
 Railway cron services run a start command on a schedule, then **must exit** (a
-run that doesn't terminate skips the next one). Config lives in
-[`backend/railway.cron.json`](../../railway.cron.json): daily at `03:00 UTC`
+run that doesn't terminate skips the next one). Config lives in the
+`forum-prune-cron` block of [`.railway/railway.ts`](../../../.railway/railway.ts)
+(until todo 397 it was `backend/railway.cron.json`): daily at `03:00 UTC`
 (`cronSchedule` min frequency is 5 min; schedules are UTC), running
 `python manage.py prune_forum_tombstones`, with no healthcheck and
 `restartPolicyType: NEVER` (a failed prune waits for tomorrow, it does not
@@ -234,8 +285,14 @@ crash-loop).
 #### Current source: the GitHub repo (since 2026-09-08, todo 372)
 
 The service deploys from `Xertox1234/plant_id_community` on `main`, Root
-Directory `backend`, config-as-code **`backend/railway.cron.json`**. A merge to
-`main` redeploys it like every other service. Verified end-to-end: merging #711
+Directory `backend`. Until todo 397 it also had config-as-code
+**`backend/railway.cron.json`**. That file is deleted and the service's
+Railway Config File setting is cleared, so its schedule, start command and
+restart policy come from `.railway/railway.ts`. **Do not re-point the config
+file setting at anything.** An empty setting makes Railway auto-detect a
+`railway.json` in the build context, and a cron that picks up a web config runs
+gunicorn instead of pruning. A merge to `main` redeploys it like every other
+service. Verified end-to-end: merging #711
 produced deployment `07c9ed09` carrying `commitHash`/`branch: main`, building
 `wagtail==8.0` with none of the purged packages.
 
@@ -262,7 +319,11 @@ healthcheck the cron can never pass).
 
 #### Historical: how it was deployed 2026-07-26 → 2026-09-08 (snapshot upload)
 
-Kept as the fallback if the repo source is ever detached. Both settings above
+**Superseded twice. Do not run these recipes as written.** The repo source
+replaced the snapshot upload (todo 372), and `railway.cron.json` no longer
+exists (todo 397). A snapshot upload now takes its settings from
+`.railway/railway.ts` like any other deploy, so no config file swap is needed.
+Kept for the history it explains. Both settings above
 become unnecessary when deploying a snapshot directly, because
 **Railway reads config-as-code from the root of the uploaded build context**:
 
@@ -367,7 +428,8 @@ requirements.txt (line 201))`.
    fires it, roughly 1–2 minutes after the nominal time — a `32 14 * * *` test
    schedule fired at `14:34:15Z`. To verify without waiting for 03:00 UTC,
    temporarily deploy with a `cronSchedule` a few minutes out, capture the log,
-   then redeploy with `railway.cron.json` unchanged to restore `0 3 * * *`.
+   then restore `0 3 * * *` (now: `railway config apply` from an unchanged
+   `.railway/railway.ts`, which puts the schedule back).
 
    Reading logs: `railway logs <deployment-id> --service forum-prune-cron
    --deployment --lines 60`. Pass the deployment id explicitly — the default

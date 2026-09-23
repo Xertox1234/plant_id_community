@@ -672,7 +672,7 @@ echo "R2_ACCESS_KEY_ID=new-key-here" >> backend/.env
 echo "R2_SECRET_ACCESS_KEY=new-secret-here" >> backend/.env
 
 # 3. Update both Railway services — the web service AND forum-prune-cron
-#    (railway.cron.json) import the same settings, so both crash-loop if
+#    (the prune cron) import the same settings, so both crash-loop if
 #    only one is updated (see validate_environment() in settings.py):
 railway variables --set R2_ACCESS_KEY_ID=new-key-here --set R2_SECRET_ACCESS_KEY=new-secret-here --service <web-service>
 railway variables --set R2_ACCESS_KEY_ID=new-key-here --set R2_SECRET_ACCESS_KEY=new-secret-here --service forum-prune-cron
