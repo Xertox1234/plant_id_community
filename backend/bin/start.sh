@@ -19,7 +19,7 @@
 #     was exactly the pre-2026-09-05 topology), but one flaky worker crash must not
 #     spend Railway's bounded container-restart budget either.
 #   * SIGTERM (redeploy, `railway redeploy`) -> forwarded to both children; exit 0
-#     once they have stopped. railway.json's drainingSeconds gives the worker's
+#     once they have stopped. drainingSeconds (.railway/railway.ts) gives the worker's
 #     warm shutdown time to finish in-flight tasks before Railway's SIGKILL.
 #     (SIGINT is trapped the same way for a local foreground Ctrl-C; the self-test
 #     only exercises SIGTERM, which is the only signal Railway sends.)

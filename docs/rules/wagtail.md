@@ -65,7 +65,8 @@ Compact checklist auto-injected before edits. Long-form:
 - **Never seed Wagtail pages in `post_migrate`.** It also runs against every TEST
   database, colliding with test helpers that build the same (sibling-unique) slug
   → `MultipleObjectsReturned`/409. Seed via an idempotent management command and
-  wire it into the deploy `startCommand` (`railway.json`) — a documented-but-unwired
+  wire it into the deploy `preDeploy` command (`.railway/railway.ts`, then
+  `railway config apply`) — a documented-but-unwired
   seed command ships an empty forum to prod.
 - **A `post_migrate` receiver must tolerate a TRUNCATED database, and must never
   raise.** `post_migrate` does not only fire after `migrate`: Django's `flush`

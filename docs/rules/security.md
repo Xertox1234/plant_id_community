@@ -342,7 +342,7 @@ Compact checklist auto-injected before edits. Long-form: `backend/docs/patterns/
   anything that lets the service boot and serve wrong or empty data goes in
   `critical_errors` (fatal when `not DEBUG`), never `warnings`.** "SQLite while
   `DEBUG=False`" sat in `warnings` and stopped nothing — and the deploy does not
-  save you: `railway.json`'s `preDeployCommand` (`migrate --noinput` +
+  save you: the Railway `preDeploy` command in `.railway/railway.ts` (`migrate --noinput` +
   `seed_default_forum` + `seed_default_badges`) all exit **0** against SQLite,
   because the `connection.vendor` guards that make SQLite dev work also make the
   Postgres-only DDL self-skip. A dropped `DATABASE_URL` yields a green deploy

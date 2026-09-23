@@ -59,7 +59,7 @@ RUN DEBUG=True JWT_SECRET_KEY=build-only-throwaway-value-not-a-real-key-00000000
 # that tells detect-secrets the throwaway JWT value is intentional, not a real secret.
 RUN DEBUG=True JWT_SECRET_KEY=build-only-throwaway-value-not-a-real-key-000000000000000 DATABASE_URL=sqlite:////tmp/build.sqlite3 python manage.py collectstatic --noinput --verbosity 1  # pragma: allowlist secret
 
-# Railway's railway.json `deploy.startCommand` overrides this at deploy time
+# The Railway service's start command (`.railway/railway.ts`) overrides this at deploy time
 # (`bash bin/start.sh`: gunicorn + the co-located Celery worker, todo 335 —
 # migrate/seed run in preDeployCommand, static baked above).
 # CMD is a sane fallback for a bare `docker run`; secrets are injected at runtime.
