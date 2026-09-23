@@ -92,12 +92,12 @@ def _ensure_firebase_initialized() -> None:
     Resolution order:
 
     1. An existing default app — initialized by any code path (e.g.
-       apps/garden/firebase_config.py's FCM bootstrap) — is reused as-is; the
+       apps/core/firebase_config.py's FCM bootstrap) — is reused as-is; the
        firebase_admin app registry, not a module flag, is the source of truth
        (a flag can't survive test-side ``reset_firebase()`` app deletion).
     2. ``settings.FIREBASE_CREDENTIALS_PATH`` — the canonical service-account
        setting (it also absorbs GOOGLE_APPLICATION_CREDENTIALS; settings.py),
-       initialized through the same apps/garden bootstrap the FCM sender
+       initialized through the same apps/core bootstrap the FCM sender
        uses, so the shared app is fully credentialed whichever side runs
        first.
     3. projectId-only (``settings.FIREBASE_PROJECT_ID``) with
@@ -123,7 +123,7 @@ def _ensure_firebase_initialized() -> None:
 
     TWO INIT HOMES — accepted as-is (todo 272 item 4, 2026-07-29). Firebase
     bootstrap is still split between this function and
-    ``apps/garden/firebase_config.initialize_firebase`` (path gate → registry
+    ``apps/core/firebase_config.initialize_firebase`` (path gate → registry
     reuse → Certificate). That is deliberate, not an oversight: the dangerous
     part of the split — two code paths reaching *different credentials*, and
     so a divergent project identity — was already closed. Tier 2 above does
@@ -145,7 +145,7 @@ def _ensure_firebase_initialized() -> None:
     except ValueError:
         pass
 
-    from apps.garden.firebase_config import initialize_firebase
+    from apps.core.firebase_config import initialize_firebase
     from django.conf import settings
 
     try:

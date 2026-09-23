@@ -174,7 +174,6 @@ urlpatterns = [
                     # Host wrapper adds rate limiting around the package views.
                     path("forum/", include("apps.forum_host.api_urls")),
                     path("calendar/", include("apps.garden_calendar.urls")),
-                    path("garden/", include("apps.garden.urls")),  # Garden Planner API
                 ],
                 "v1",
             )
@@ -193,7 +192,6 @@ urlpatterns = [
                 path("blog/", include("apps.blog.urls")),
                 path("blog-api/", include("apps.blog.api_urls")),
                 path("calendar/", include("apps.garden_calendar.urls")),
-                path("garden/", include("apps.garden.urls")),  # Garden Planner API
             ]
         ),
     ),

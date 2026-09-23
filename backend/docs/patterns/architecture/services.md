@@ -882,7 +882,7 @@ exception's clarity. Full trail: `docs/LEARNINGS.md` (2026-07-16).
 ## Firebase Admin Default-App Arbitration (Shared Process-Global SDK Singleton)
 
 **Context** (todo 253 slice 6): two apps initialize the same `firebase_admin`
-default app — `apps/users` (ID-token verification on login) and `apps/garden`
+default app — `apps/users` (ID-token verification on login) and `apps/core`
 (FCM sending, also used by `apps/forum_host` push). `initialize_app()` raises
 `ValueError` on a second call, and whichever side runs first decides the
 app's credentials for the whole process. Before arbitration, an auth-first
@@ -900,7 +900,7 @@ instance shared across Django apps:
    `_initialized` boolean — test utilities that delete apps
    (`reset_firebase()`) can't reset your flag, leaving it `True` with no app.
 3. **Single-home the credentialed init.** One bootstrap function
-   (`apps/garden/firebase_config.initialize_firebase()`) owns
+   (`apps/core/firebase_config.initialize_firebase()`) owns
    `credentials.Certificate(path)`; other modules delegate to it so the
    shared app is fully credentialed whichever side runs first.
 4. **Adopt on init races.** Under threaded runserver two first-touch requests
@@ -917,9 +917,9 @@ instance shared across Django apps:
    the key file EAGERLY — an unguarded call turns a typo'd path into a 500 on
    every login (write-time trigger `eager-certificate-parse-unguarded`).
 
-Reference implementation: `backend/apps/garden/firebase_config.py` +
+Reference implementation: `backend/apps/core/firebase_config.py` +
 `backend/apps/users/firebase_auth_views.py::_ensure_firebase_initialized`
-(tests: `apps/garden/tests/test_firebase_config.py`,
+(tests: `apps/core/tests/test_firebase_config.py`,
 `apps/users/tests/test_firebase_auth.py::FirebaseInitFailureTestCase`).
 
 ## `stealth_options` — Passing an Orchestrator-Only Flag Without a CLI Override

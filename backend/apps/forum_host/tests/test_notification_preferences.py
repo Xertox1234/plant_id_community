@@ -24,8 +24,8 @@ def _fcm():
     mock_fcm = MagicMock()
     return (
         mock_fcm,
-        patch("apps.garden.firebase_config.is_firebase_available", return_value=True),
-        patch("apps.garden.firebase_config.get_fcm_client", return_value=mock_fcm),
+        patch("apps.core.firebase_config.is_firebase_available", return_value=True),
+        patch("apps.core.firebase_config.get_fcm_client", return_value=mock_fcm),
     )
 
 

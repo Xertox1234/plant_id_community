@@ -382,7 +382,7 @@ class FirebaseProjectIdOnlyInitTestCase(TestCase):
         # REGISTRY is the source of truth here (there is no module flag), so a
         # neighbour's app would otherwise be reused and this would assert
         # nothing. reset_firebase() is the project's own idiom.
-        from apps.garden.firebase_config import reset_firebase
+        from apps.core.firebase_config import reset_firebase
 
         reset_firebase()
         self.addCleanup(reset_firebase)
@@ -861,7 +861,7 @@ class FirebaseInitFailureTestCase(TestCase):
     """
 
     def setUp(self):
-        from apps.garden.firebase_config import reset_firebase
+        from apps.core.firebase_config import reset_firebase
 
         self.client = APIClient()
         self.url = reverse("v1:users:firebase_token_exchange")
@@ -871,7 +871,7 @@ class FirebaseInitFailureTestCase(TestCase):
         reset_firebase()
 
     def tearDown(self):
-        from apps.garden.firebase_config import reset_firebase
+        from apps.core.firebase_config import reset_firebase
 
         reset_firebase()
 

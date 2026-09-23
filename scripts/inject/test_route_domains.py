@@ -58,7 +58,7 @@ class DomainsForTests(unittest.TestCase):
         # THE crux: fallback fires (empty), THEN firebase additive stacks on top.
         # A "fallback only if nothing matched anywhere" model would drop database.
         self.assertEqual(
-            rd._domains_for("backend/apps/garden/firebase_config.py", RULES),
+            rd._domains_for("backend/apps/core/firebase_config.py", RULES),
             ["api", "security", "database", "firebase"],
         )
 
@@ -87,7 +87,7 @@ class SubprocessTests(unittest.TestCase):
 
     def test_real_routing_firebase_regression(self):
         # End-to-end against the REAL docs/rules/routing.json.
-        r = self._run("backend/apps/garden/firebase_config.py\n")
+        r = self._run("backend/apps/core/firebase_config.py\n")
         self.assertEqual(r.returncode, 0)
         out = set(r.stdout.split(","))
         self.assertIn("database", out)  # fallback fired

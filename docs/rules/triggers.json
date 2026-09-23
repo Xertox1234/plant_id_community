@@ -509,7 +509,7 @@
     "content_present": "firebase_admin\\.initialize_app\\(",
     "content_absent": "except\\s+ValueError",
     "message": "firebase_admin.initialize_app() without a ValueError catch — under threaded runserver two concurrent first-touch requests can both miss get_app() and both initialize; the loser raises 'default app already exists'. Catch ValueError and adopt via firebase_admin.get_app() (todo 253 slice 6 review).",
-    "pattern_ref": "backend/apps/garden/firebase_config.py",
+    "pattern_ref": "backend/apps/core/firebase_config.py",
     "source": "review: todo 253 slice 6 review",
     "added": "2026-07-16",
     "severity": "candidate"

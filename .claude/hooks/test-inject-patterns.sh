@@ -121,11 +121,11 @@ check "backend test file → testing rules" \
 # anywhere" model would drop database here — these two checks guard against that
 # regression (see docs/rules/routing.json: ORDER IS LOAD-BEARING).
 check "backend firebase .py → database (fallback fires)" \
-  '{"tool_name":"Edit","tool_input":{"file_path":"backend/apps/garden/firebase_config.py"}}' \
+  '{"tool_name":"Edit","tool_input":{"file_path":"backend/apps/core/firebase_config.py"}}' \
   "RULES — database"
 
 check "backend firebase .py → firebase (stacks on fallback)" \
-  '{"tool_name":"Edit","tool_input":{"file_path":"backend/apps/garden/firebase_config.py"}}' \
+  '{"tool_name":"Edit","tool_input":{"file_path":"backend/apps/core/firebase_config.py"}}' \
   "RULES — firebase"
 
 # Output is valid JSON

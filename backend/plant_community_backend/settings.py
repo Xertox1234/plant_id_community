@@ -251,7 +251,6 @@ LOCAL_APPS = [
     "apps.blog",
     "apps.core",
     "apps.garden_calendar",
-    "apps.garden",  # Garden planner feature (Phase 1 - Backend)
     "wagtail_forum",
     # MUST stay after "wagtail_forum": its post_migrate bootstrap filters
     # wagtail_forum permissions, which only exist once wagtail_forum's own
@@ -1035,7 +1034,7 @@ FORUM_RAG_ENABLED = config("FORUM_RAG_ENABLED", default=False, cast=bool)
 
 # Firebase Admin SDK service-account JSON path — the CANONICAL credentials
 # setting: both the auth token exchange (apps/users) and the FCM sender
-# (apps/garden/firebase_config.py) read this. Falls back to the
+# (apps/core/firebase_config.py) read this. Falls back to the
 # GOOGLE_APPLICATION_CREDENTIALS env var so a deployment configured for ADC
 # alone gets push too (review 2026-07-16: a path-only gate left push silently
 # dead on ADC-only configs). Set-but-EMPTY explicitly disables (and does NOT
