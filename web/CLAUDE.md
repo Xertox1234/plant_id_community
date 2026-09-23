@@ -38,7 +38,7 @@ The `assets.directory` points at `web/dist` (the Vite build output — **not** t
 
 ## CI
 
-`web-ci.yml` gates every PR: TypeScript check (`tsc --noEmit`), ESLint, and Vitest unit tests (`vitest --run`). No external services required.
+`web-ci.yml` gates every PR: TypeScript check (`tsc --noEmit`), ESLint, Vitest unit tests (`vitest --run`), and `npm run check:classes` (`vite build`, then `scripts/check-tailwind-classes.mjs` fails on any class token the built CSS does not define; todo 399). No external services required.
 
 Coverage thresholds in `vitest.config.ts` (80% statements/lines/branches/functions) are **advisory/local-only** — they are documented there as such. CI does not run `--coverage`, so the threshold is never enforced in the pipeline. Current measured coverage is ~79–81% depending on metric; enforce once the suite is above the floor.
 

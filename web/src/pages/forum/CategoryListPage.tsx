@@ -261,10 +261,7 @@ export default function CategoryListPage() {
           Sanitized here as well as on the server; gated on the SANITIZED html,
           not the raw string. */}
       {introMarkup.__html && (
-        <div
-          className="prose prose-sm mt-6 max-w-none text-ink-2"
-          dangerouslySetInnerHTML={introMarkup}
-        />
+        <div className="mt-6 max-w-none text-ink-2" dangerouslySetInnerHTML={introMarkup} />
       )}
 
       {isAuthenticated
