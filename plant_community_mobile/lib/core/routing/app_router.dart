@@ -15,6 +15,7 @@ import '../../features/settings/settings_screen.dart';
 import '../../features/care/care_screen.dart';
 import '../../features/forum/forum_screen.dart';
 import '../../features/forum/screens/forum_bookmarks_screen.dart';
+import '../../features/forum/screens/forum_my_images_screen.dart';
 import '../../features/forum/screens/forum_topics_screen.dart';
 import '../../features/forum/screens/forum_thread_screen.dart';
 import '../../features/forum/screens/forum_composer_screen.dart';
@@ -67,6 +68,8 @@ abstract class AppRoutes {
   static const forumNewGroup = '/forum/groups/new';
   // Auth-only: the bookmarks list is the caller's own (todo 341).
   static const forumBookmarks = '/forum/bookmarks';
+  // Auth-only: the caller's own forum photo library (todo 374).
+  static const forumMyImages = '/forum/my-photos';
   static const collection = '/collection';
 }
 
@@ -93,6 +96,7 @@ GoRouter appRouter(Ref ref) {
     AppRoutes.forumNotifications,
     AppRoutes.forumMessages,
     AppRoutes.forumBookmarks,
+    AppRoutes.forumMyImages,
   };
   // Parameterised protected routes (`/forum/messages/:username`) can't be
   // matched by the exact-path set above; guard them by prefix.
@@ -377,6 +381,17 @@ GoRouter appRouter(Ref ref) {
             child: ResultsScreen(plant: plant),
           );
         },
+      ),
+      // Top-level (outside the shell), like settings: it is pushed from the
+      // Profile tab, not from inside the forum branch.
+      GoRoute(
+        path: AppRoutes.forumMyImages,
+        name: 'forumMyImages',
+        pageBuilder: (context, state) => _buildPageWithTransition(
+          context: context,
+          state: state,
+          child: const ForumMyImagesScreen(),
+        ),
       ),
       GoRoute(
         path: AppRoutes.settings,

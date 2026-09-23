@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: p2
 issue_id: "374"
 tags: [forum, frontend, mobile, wagtail-images, ux]
@@ -155,13 +155,17 @@ Same UI shape, built in lockstep for React and Flutter in one PR.
       The display path now renders a "Photo no longer available" placeholder;
       the re-edit path drops the dead block rather than re-persisting a broken
       reference.
-- [ ] Flutter has the equivalent picker + delete affordance (may ship as a
+- [x] Flutter has the equivalent picker + delete affordance (may ship as a
       separate follow-up PR per Option 1).
-      — **Deliberately not in this PR**, per the todo's own recommended Option 1
-      (React first, validate the UX, Flutter as a fast-follow).
-      `plant_community_mobile/lib/features/forum/` still has no compose-side
-      image picker at all, so this is unchanged rather than regressed. **This
-      todo stays `pending` for it.**
+      — 2026-09-23, the follow-up PR. The composer's "Choose from your photos"
+      button (beside "Add photo") opens `showForumMyImagesPicker`. The
+      "My forum photos" screen (Profile → Settings card, route
+      `/forum/my-photos`, auth-guarded) deletes behind an `AlertDialog`
+      confirm. Both share `widgets/forum_my_images_grid.dart`. See the Work Log
+      entry of that date for the evidence.
+      — The earlier note on this line ("the Flutter forum package has no
+      compose-side image picker at all") was stale by then: todo 294 had already
+      added "Add photo" upload to the Flutter composer.
 - [x] New client code has test coverage (component/widget tests) for the
       picker, the delete confirmation, and the 403/empty-list states.
       — 13 picker tests, 8 settings-section tests, 6 composer reuse tests, 8
@@ -171,6 +175,80 @@ Same UI shape, built in lockstep for React and Flutter in one PR.
       spinner — is the failure this UI is most likely to have.
 
 ## Work Log
+
+### 2026-09-23 - Flutter half shipped; todo completed
+
+The Flutter composer already had a fresh-upload "Add photo" (todo 294), which
+writes a bare-id `image` block. So reuse only needed to set the same
+`_attachedImage` from an existing row. There is no upload, no idempotency key
+and no alt prompt: mobile sends no per-usage alt, so the server falls back to
+the description stored at upload, the same as a fresh mobile upload.
+**Web differs here on purpose.** The web composer routes reuse through its alt
+prompt, because its ImageBlock carries per-usage alt.
+
+- **API** (`forum_api.dart`): `fetchMyImages({cursorUrl})` passes the cursor
+  URL through unchanged; `deleteMyImage(id)`. No `Idempotency-Key` on delete:
+  `ForumImageDetailView.delete` never reads one, and a repeat delete 404s.
+- **Shared grid** (`widgets/forum_my_images_grid.dart`): loads imperatively, not
+  through a `@riverpod` provider, because a 403 is an expected state, not an
+  error to auto-retry. It has four states: loading, 403 (a separate state,
+  branched on `statusCode`, never on message text), generic error with Retry,
+  and empty; plus "Load more". Delete runs only after the confirm dialog. The
+  dialog copy says the photo will disappear from existing posts. A 404 removes
+  the tile (already gone); 403 and 429 leave it and explain why.
+- **Picker placement:** delete lives only on the management screen, never in the
+  composer sheet. A stray tap while composing should never delete a photo.
+- **Route** `/forum/my-photos` is top-level, next to `/settings`, because it is
+  pushed from the Profile tab, not from inside the forum shell branch. It is
+  added to the router's `protectedRoutes`, and `app_router.g.dart` was
+  regenerated.
+
+**Evidence:**
+
+- `flutter analyze` → `No issues found!`
+- full `flutter test` → `+760 ~9: All tests passed!` (after the review fixes below)
+- New tests: 18 grid/screen tests; 5 composer reuse tests (upload never called;
+  the body carries `{'type': 'image', 'value': 7}`; picking alone trips the back
+  guard); 1 router redirect test.
+- **Mutation-checked:** 6 of 6 mutants were caught, each restored from a copy
+  rather than with `git checkout`:
+  - 403 routed as a generic error
+  - load-more drops the cursor
+  - 404 treated as a failure
+  - delete ignores Cancel
+  - pick never attaches
+  - route left unguarded
+- **Visual:** rendered with the real `AppTheme` and fonts at 390×844, in light
+  and dark, as a scratch golden (not committed). Screens checked: the composer
+  with both buttons wrapping, the picker sheet, the management grid with
+  filled-tonal delete buttons, the confirm dialog, and the 403 state. Network
+  images don't load in the test harness, so the tiles render as their surface
+  colour. **Not checked on a device or simulator against a live backend.**
+
+**Review (bundled `/code-review`, round 1): 2 findings, both fixed.**
+
+1. **(medium, a real bug) Deleting every photo on page one showed "No photos
+   yet".** It also hid "Load more", so older pages became unreachable. The
+   server pages at 24, so this was reachable with 25 or more photos. Two
+   changes:
+   - the empty state now also requires `_next == null`;
+   - deleting the last loaded photo fetches the next page.
+
+   Each change has its own test, including one where that fetch fails and the
+   grid must offer "Load more" rather than claim the library is empty. The first
+   mutant of the empty-state guard SURVIVED, because the auto-fetch masked it;
+   the failed-fetch test is what kills it.
+2. **(low, accessibility) The tile's `Semantics(excludeSemantics: true)` dropped
+   the InkWell's tap action.** A screen reader announced a button that did
+   nothing, so screen-reader users could not pick a photo. The node now carries
+   `onTap` itself. The test fires the tap through the semantics owner, not
+   `tester.tap`.
+
+   The reviewer noted the same pattern in `forum_experts_strip.dart` and
+   `forum_body_renderer.dart`. That is an unverified hypothesis, filed as
+   todo 398 under the review budget.
+
+Round 2 was verification by mutation: 3 of 3 mutants of the fixes were caught.
 
 ### 2026-09-14 - React half shipped; Flutter deliberately deferred
 
