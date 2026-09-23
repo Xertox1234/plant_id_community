@@ -5,16 +5,11 @@ Django REST Framework serializers for plant identification.
 from rest_framework import serializers
 
 from .models import (
-    DiseaseCareInstructions,
-    PlantDiseaseDatabase,
     PlantDiseaseRequest,
     PlantDiseaseResult,
     PlantIdentificationRequest,
     PlantIdentificationResult,
     PlantSpecies,
-    SavedCareInstructions,
-    SavedDiagnosis,
-    TreatmentAttempt,
     UserPlant,
 )
 
@@ -452,162 +447,6 @@ class PlantIdentificationRequestWithResultsSerializer(serializers.ModelSerialize
 
 
 # Missing serializers for the disease diagnosis models
-class DiseaseCareInstructionsSerializer(serializers.ModelSerializer):
-    """Serializer for DiseaseCareInstructions model."""
-
-    disease_name = serializers.CharField(source="disease.disease_name", read_only=True)
-
-    class Meta:
-        model = DiseaseCareInstructions
-        fields = [
-            "id",
-            "uuid",
-            "disease",
-            "disease_name",
-            "treatment_name",
-            "treatment_type",
-            "instructions",
-            "application_method",
-            "frequency",
-            "duration",
-            "effectiveness_score",
-            "source",
-            "user_contributed",
-            "created_at",
-            "updated_at",
-        ]
-
-
-class PlantDiseaseDatabaseSerializer(serializers.ModelSerializer):
-    """Serializer for PlantDiseaseDatabase model."""
-
-    confidence_percentage = serializers.SerializerMethodField()
-    affected_plant_count = serializers.SerializerMethodField()
-
-    class Meta:
-        model = PlantDiseaseDatabase
-        fields = [
-            "id",
-            "uuid",
-            "disease_name",
-            "disease_type",
-            "confidence_score",
-            "confidence_percentage",
-            "api_source",
-            "diagnosis_count",
-            "symptoms",
-            "description",
-            "affected_plants",
-            "affected_plant_count",
-            "updated_at",
-        ]
-
-    def get_confidence_percentage(self, obj):
-        """Convert confidence score to percentage."""
-        return round(obj.confidence_score * 100, 1) if obj.confidence_score else 0
-
-    def get_affected_plant_count(self, obj):
-        """Get count of affected plant species."""
-        if hasattr(obj, "_affected_plant_count"):
-            return obj._affected_plant_count
-        return obj.affected_plants.count()
-
-
-class SavedDiagnosisSerializer(serializers.ModelSerializer):
-    """Serializer for SavedDiagnosis model."""
-
-    diagnosis_data = PlantDiseaseResultSerializer(
-        source="diagnosis_result", read_only=True
-    )
-    disease_name = serializers.CharField(
-        source="diagnosis_result.suggested_disease_name", read_only=True
-    )
-
-    class Meta:
-        model = SavedDiagnosis
-        fields = [
-            "id",
-            "uuid",
-            "user",
-            "diagnosis_result",
-            "diagnosis_data",
-            "disease_name",
-            "personal_notes",
-            "treatment_status",
-            "plant_recovered",
-            "share_with_community",
-            "saved_at",
-            "updated_at",
-        ]
-
-
-class SavedCareInstructionsSerializer(serializers.ModelSerializer):
-    """Serializer for SavedCareInstructions model."""
-
-    plant_species_data = PlantSpeciesSerializer(source="plant_species", read_only=True)
-    care_difficulty_display = serializers.CharField(
-        source="get_care_difficulty_experienced_display", read_only=True
-    )
-    status_display = serializers.CharField(
-        source="get_current_status_display", read_only=True
-    )
-    display_name = serializers.CharField(read_only=True)
-
-    class Meta:
-        model = SavedCareInstructions
-        fields = [
-            "id",
-            "uuid",
-            "user",
-            "plant_species",
-            "plant_species_data",
-            "plant_scientific_name",
-            "plant_common_name",
-            "plant_family",
-            "care_instructions_data",
-            "personal_notes",
-            "custom_nickname",
-            "care_difficulty_experienced",
-            "care_difficulty_display",
-            "current_status",
-            "status_display",
-            "share_with_community",
-            "is_favorite",
-            "display_name",
-            "saved_at",
-            "updated_at",
-            "last_viewed_at",
-        ]
-        read_only_fields = ["uuid", "user", "saved_at", "updated_at"]
-
-
-class TreatmentAttemptSerializer(serializers.ModelSerializer):
-    """Serializer for TreatmentAttempt model."""
-
-    username = serializers.CharField(
-        source="saved_diagnosis.user.username", read_only=True
-    )
-    treatment_name = serializers.CharField(
-        source="treatment.treatment_name", read_only=True
-    )
-
-    class Meta:
-        model = TreatmentAttempt
-        fields = [
-            "id",
-            "saved_diagnosis",
-            "treatment",
-            "treatment_name",
-            "username",
-            "started_date",
-            "completed_date",
-            "effectiveness_rating",
-            "success",
-            "user_notes",
-            "side_effects",
-            "created_at",
-            "updated_at",
-        ]
 
 
 class PlantDiseaseRequestWithResultsSerializer(serializers.ModelSerializer):

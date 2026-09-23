@@ -5,7 +5,7 @@ This module contains Wagtail page models for the blog system with AI-enhanced
 content creation and plant-specific features.
 """
 
-from typing import List, Optional, Tuple
+from typing import Optional
 
 from django.contrib.auth import get_user_model
 from django.core.paginator import Paginator
@@ -813,23 +813,10 @@ class BlogPostPage(HeadlessPreviewMixin, BlogBasePage):
 
         return max(1, word_count // 200)  # At least 1 minute
 
-    # Headless Preview Configuration (Phase 3)
-    @property
-    def preview_modes(self) -> List[Tuple[str, str]]:
-        """
-        Define preview modes for different frontend platforms.
-
-        Returns:
-            List of tuples: (mode_key, mode_display_name)
-        """
-        return [
-            ("", "Default (Web)"),
-            ("mobile", "Mobile (Flutter)"),
-        ]
-
-    def get_client_root_url(
-        self, request: Optional[HttpRequest] = None, mode: str = ""
-    ) -> str:
+    # Headless Preview. Wagtail's single default preview mode is the web app.
+    # A "Mobile (Flutter)" mode used to be offered here, but the library never
+    # passes the mode and no plantid:// deep link exists (todo 405 slice 2).
+    def get_client_root_url(self, request: Optional[HttpRequest] = None) -> str:
         """
         Return the root URL the editor's preview opens.
 
@@ -840,17 +827,10 @@ class BlogPostPage(HeadlessPreviewMixin, BlogBasePage):
 
         Args:
             request: The HTTP request object (unused)
-            mode: Preview mode, '' for web or 'mobile' for Flutter. The library
-                never passes it (``get_preview_url`` calls this with the request
-                only), so the mobile branch is unreachable today.
 
         Returns:
             The preview client root URL, without a query string.
         """
-        if mode == "mobile":
-            # Flutter deep link for mobile preview
-            return "plantid://blog/preview"
-
         from django.conf import settings
 
         return settings.HEADLESS_PREVIEW_CLIENT_URL

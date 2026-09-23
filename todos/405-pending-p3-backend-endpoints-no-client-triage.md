@@ -157,3 +157,70 @@ Proof on a scratch Postgres DB:
 **Filed as feature todos:** 408 (unsubscribe, p2), 409 (newsletter, p2), 410
 (care reminders), 411 (dashboard stats), 412 (onboarding plus the broken demo
 seeder), 413 (web push), 414 (forum summary button).
+
+### 2026-09-23 - Slice 1 merged and verified in production; slice 2 (security removals)
+
+**Slice 1: PR #799, merged 21:45 UTC.** Production was checked on 2026-09-23
+with a read-only `railway ssh`:
+
+- `showmigrations core` shows `[X] 0003_drop_garden_tables`;
+- introspection lists **no** `garden_*` tables (the calendar tables are
+  separate and untouched).
+
+**Slice 2 removed these, none of which had a client:**
+
+- **SimpleJWT `api/auth/token/` and `token/verify/`.** It was an unthrottled
+  password grant that bypassed the login view's rate limit and lockout. A new
+  test pins both paths as 404. The bearer-auth and refresh tests now mint
+  tokens with `RefreshToken.for_user`.
+- **Plant ID v1 routes:**
+  - `species/*`, including `search_external`. The verifier had shown 150 of 150
+    anonymous requests reaching Trefle.
+  - The Trefle proxies: `characteristics`, `growth-info`, `search/species` and
+    `enrich-plant-data`. Anonymous callers got the authenticated tier, about
+    1000/h.
+  - `search/plants|diseases`.
+  - `results/*`, including vote, accept, add_to_collection and the OpenAI
+    `regenerate-care`.
+  - `care-instructions`, `saved-care-instructions`, `disease-results`,
+    `disease-database`, `saved-diagnoses` and `treatment-attempts`.
+- **`disease-requests/<id>/process_now/`.** It is *removed*, where the slice
+  plan said rate-limited. Its docstring said "for testing", no client calls
+  it, and each call re-ran the paid plant.health diagnosis with no limit.
+  Removing it is the stricter fix. `status/` and `results/` stay.
+- **The dead "Mobile (Flutter)" preview mode**, its `plantid://` branch, and
+  the two tests that pinned the dead behaviour. The web default mode is now
+  pinned instead.
+- **Five serializers left with no reference:** DiseaseCareInstructions,
+  PlantDiseaseDatabase, SavedDiagnosis, SavedCareInstructions and
+  TreatmentAttempt.
+
+`views.py` went from 1667 lines to 195. All live models stay, per the
+verifier's claim 7. Dropping the dead models (PlantDiseaseVote,
+SavedDiagnosis, TreatmentAttempt, the Batch* models) is left for a later
+slice, behind the production row-count gate.
+
+**Verification:**
+
+- Full backend pytest: 3581 passed, 8 skipped.
+- `check` and `makemigrations --check` are clean.
+- `spectacular --validate` exits 0. Its pre-existing errors fell from 212
+  (49 unique) to 176 (41 unique), because the removed routes carried some of
+  them.
+
+**Slice 2 review (bundled /code-review): 0 blocking.**
+
+- Leftovers fixed in the PR: the dead vote-URL helper and `APIClient` setup in
+  `test_disease_vote_deduplication.py`, and the empty section header at the
+  end of `views.py`.
+- Carried to slice 3:
+  - Stale docs still name removed routes:
+    `backend/docs/API_DOCUMENTATION_IMPLEMENTATION.md:216` (`/api/auth/token/`),
+    and the mobile `api_service.dart:254` and `services/README.md:49`
+    (`/plant-identification/species/`).
+  - `PlantSpecies.get_absolute_url` (`models.py:234`) already raised
+    NoReverseMatch before this slice: it reverses `species_detail`, a name that
+    never existed.
+  - `plant_care_reminder_service.py:390` links to
+    `/profile/care-instructions/<uuid>/`, whose API this slice removed. Revisit
+    it with todo 410 (care reminders).

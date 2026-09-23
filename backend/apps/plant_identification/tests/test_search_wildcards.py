@@ -27,13 +27,8 @@ from apps.plant_identification.api.endpoints import (
     PlantSpeciesAPIViewSet,
     PlantSpeciesPageViewSet,
 )
-from apps.plant_identification.models import (
-    PlantDiseaseDatabase,
-    PlantSpecies,
-    PlantSpeciesPage,
-)
+from apps.plant_identification.models import PlantSpecies, PlantSpeciesPage
 from django.core.cache import cache
-from django.urls import reverse
 from rest_framework.test import APIRequestFactory, APITestCase
 from wagtail.models import Page
 
@@ -43,121 +38,6 @@ def _unwrap(response_data):
     if isinstance(response_data, dict) and "results" in response_data:
         return response_data["results"]
     return response_data
-
-
-class PlantSpeciesViewSetSearchWildcardTests(APITestCase):
-    """GET /api/v1/plant-identification/species/ ?search= and ?family=."""
-
-    def setUp(self):
-        cache.clear()
-        self.url = reverse("v1:plant_identification:species-list")
-        # Target: literal "Rosa_" appears in scientific_name AND family.
-        self.target = PlantSpecies.objects.create(
-            scientific_name="Rosa_damascena",
-            common_names="Damask rose",
-            family="Rosa_family",
-        )
-        # Decoy: only matches if "_" acts as a single-char SQL wildcard.
-        self.decoy = PlantSpecies.objects.create(
-            scientific_name="RosaXdamascena",
-            common_names="Imposter rose",
-            family="RosaXfamily",
-        )
-
-    def test_search_treats_underscore_as_literal(self):
-        response = self.client.get(self.url, {"search": "Rosa_"})
-        self.assertEqual(response.status_code, 200)
-        names = {row["scientific_name"] for row in _unwrap(response.data)}
-        # Target returned (fails under the old double-escape bug).
-        self.assertIn("Rosa_damascena", names)
-        # Decoy excluded (proves "_" is literal, not a wildcard).
-        self.assertNotIn("RosaXdamascena", names)
-
-    def test_family_filter_treats_underscore_as_literal(self):
-        response = self.client.get(self.url, {"family": "Rosa_"})
-        self.assertEqual(response.status_code, 200)
-        names = {row["scientific_name"] for row in _unwrap(response.data)}
-        self.assertIn("Rosa_damascena", names)
-        self.assertNotIn("RosaXdamascena", names)
-
-
-class DiseaseDatabaseViewSetSearchWildcardTests(APITestCase):
-    """GET /api/v1/plant-identification/disease-database/ ?search=."""
-
-    def setUp(self):
-        cache.clear()
-        self.url = reverse("v1:plant_identification:disease-database-list")
-        # Base queryset filters diagnosis_count__gte=1; default is 1.
-        self.target = PlantDiseaseDatabase.objects.create(
-            disease_name="Rosa_rot",
-            disease_type="fungal",
-            confidence_score=0.8,
-            diagnosis_count=1,
-        )
-        self.decoy = PlantDiseaseDatabase.objects.create(
-            disease_name="RosaXrot",
-            disease_type="fungal",
-            confidence_score=0.8,
-            diagnosis_count=1,
-        )
-
-    def test_search_treats_underscore_as_literal(self):
-        response = self.client.get(self.url, {"search": "Rosa_"})
-        self.assertEqual(response.status_code, 200)
-        names = {row["disease_name"] for row in _unwrap(response.data)}
-        self.assertIn("Rosa_rot", names)
-        self.assertNotIn("RosaXrot", names)
-
-
-class SearchLocalPlantsWildcardTests(APITestCase):
-    """GET /api/v1/plant-identification/search/plants/ ?q= (rate-limited)."""
-
-    def setUp(self):
-        cache.clear()
-        self.url = reverse("v1:plant_identification:search_local_plants")
-        self.target = PlantSpecies.objects.create(
-            scientific_name="Fern_ales",
-            common_names="Underscore fern",
-        )
-        self.decoy = PlantSpecies.objects.create(
-            scientific_name="FernXales",
-            common_names="Wildcard fern",
-        )
-
-    def test_search_treats_underscore_as_literal(self):
-        # Endpoint is rate-limited -- issue exactly one request.
-        response = self.client.get(self.url, {"q": "Fern_"})
-        self.assertEqual(response.status_code, 200)
-        names = {row["scientific_name"] for row in response.data["results"]}
-        self.assertIn("Fern_ales", names)
-        self.assertNotIn("FernXales", names)
-
-
-class SearchLocalDiseasesWildcardTests(APITestCase):
-    """GET /api/v1/plant-identification/search/diseases/ ?q= (rate-limited)."""
-
-    def setUp(self):
-        cache.clear()
-        self.url = reverse("v1:plant_identification:search_local_diseases")
-        # No diagnosis_count gate on this endpoint.
-        self.target = PlantDiseaseDatabase.objects.create(
-            disease_name="Mildew_spot",
-            disease_type="fungal",
-            confidence_score=0.7,
-        )
-        self.decoy = PlantDiseaseDatabase.objects.create(
-            disease_name="MildewXspot",
-            disease_type="fungal",
-            confidence_score=0.7,
-        )
-
-    def test_search_treats_underscore_as_literal(self):
-        # Endpoint is rate-limited -- issue exactly one request.
-        response = self.client.get(self.url, {"q": "Mildew_"})
-        self.assertEqual(response.status_code, 200)
-        names = {row["disease_name"] for row in response.data["results"]}
-        self.assertIn("Mildew_spot", names)
-        self.assertNotIn("MildewXspot", names)
 
 
 class PlantSpeciesAPIViewSetWildcardTests(APITestCase):
@@ -251,32 +131,3 @@ class PlantSpeciesPageViewSetWildcardTests(APITestCase):
         ids = set(view.get_queryset().values_list("id", flat=True))
         self.assertIn(self.target_page.id, ids)
         self.assertNotIn(self.decoy_page.id, ids)
-
-
-class PlantSpeciesSearchPercentWildcardTests(APITestCase):
-    """Parity coverage for the OTHER SQL LIKE wildcard, ``%`` (todo 269 review).
-
-    The removed ``escape_search_query`` escaped BOTH ``%`` and ``_``, so ``%``
-    had the identical silent-drop bug. ``_`` is covered per-endpoint above; this
-    pins the ``%`` case for the shared ``__icontains`` mechanism via one
-    representative endpoint. (``\\`` is intentionally not tested separately: the
-    removed util only ever escaped ``%`` and ``_``, never backslash, so ``\\``
-    was never a double-escape vector for this fix.)
-    """
-
-    def setUp(self):
-        cache.clear()
-        self.url = reverse("v1:plant_identification:species-list")
-        # Target contains a literal "%"; the decoy would match only if "%"
-        # acted as a "zero-or-more-chars" SQL wildcard.
-        self.target = PlantSpecies.objects.create(scientific_name="Rosa%alba")
-        self.decoy = PlantSpecies.objects.create(scientific_name="RosaZZalba")
-
-    def test_search_treats_percent_as_literal(self):
-        response = self.client.get(self.url, {"search": "Rosa%"})
-        self.assertEqual(response.status_code, 200)
-        names = {row["scientific_name"] for row in _unwrap(response.data)}
-        # Target returned (fails under the old double-escape bug).
-        self.assertIn("Rosa%alba", names)
-        # Decoy excluded (proves "%" is literal, not a wildcard).
-        self.assertNotIn("RosaZZalba", names)
