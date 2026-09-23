@@ -23,17 +23,18 @@ running `m.objects.count()` over every garden model): all 9 tables held 0 rows.
 
 from django.db import migrations
 
-# Child tables before the tables they reference.
-GARDEN_TABLES = [
-    "garden_journalimage",
-    "garden_pestimage",
-    "garden_journalentry",
-    "garden_pestissue",
-    "garden_carereminder",
-    "garden_task",
-    "garden_gardenplant",
-    "garden_garden",
-    "garden_plantcarelibrary",
+# Child tables before the tables they reference. Written out as literal SQL,
+# never built with an f-string (CLAUDE.md Critical Gotcha #3).
+DROP_STATEMENTS = [
+    "DROP TABLE IF EXISTS garden_journalimage;",
+    "DROP TABLE IF EXISTS garden_pestimage;",
+    "DROP TABLE IF EXISTS garden_journalentry;",
+    "DROP TABLE IF EXISTS garden_pestissue;",
+    "DROP TABLE IF EXISTS garden_carereminder;",
+    "DROP TABLE IF EXISTS garden_task;",
+    "DROP TABLE IF EXISTS garden_gardenplant;",
+    "DROP TABLE IF EXISTS garden_garden;",
+    "DROP TABLE IF EXISTS garden_plantcarelibrary;",
 ]
 
 
@@ -52,7 +53,7 @@ class Migration(migrations.Migration):
 
     operations = [
         migrations.RunSQL(
-            sql=[f"DROP TABLE IF EXISTS {table};" for table in GARDEN_TABLES],
+            sql=DROP_STATEMENTS,
             reverse_sql=migrations.RunSQL.noop,
         ),
         migrations.RunPython(
