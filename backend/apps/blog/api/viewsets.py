@@ -717,7 +717,7 @@ class BlogIndexPageViewSet(PagesAPIViewSet):
         `serializer_class` is a plain DRF `GenericAPIView` attribute —
         Wagtail's `BaseAPIViewSet.get_serializer_class()` never reads it.
         And unlike `PagesAPIViewSet` viewsets that set `base_serializer_class`
-        (e.g. the snippet viewsets in `apps/plant_identification/api/endpoints.py`),
+        (e.g. snippet viewsets built on Wagtail's dynamic serializers),
         overriding `base_serializer_class` here wouldn't work either:
         Wagtail's `get_serializer_class()` always builds a serializer
         *dynamically* from `model.api_fields` (`_get_serializer_class()`,
