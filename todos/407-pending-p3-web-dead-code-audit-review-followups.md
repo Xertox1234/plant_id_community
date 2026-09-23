@@ -58,6 +58,12 @@ review budget, those findings land here instead of widening the PR.
 - **Item 8:** `CommunityExpertsModule.test.tsx` asserts on the `.bg-ok` class. Assert on
    Avatar's stable `[data-presence]` hook instead.
 
+- **Item 11 (round 2):** `test_previews_a_brand_new_never_saved_post` copies
+  `PreviewOnCreateView.get_object()` but not the `get_form()` step that follows
+  it, so the draft never carries categories, tags or a url_path. Round 2's probe
+  showed those serialize fine with a pk-less page; pin it with one populated
+  relation.
+
 **Web client**
 
 - **Item 9:** `profileService.authenticatedFetch` has no retry on a stale CSRF token and
@@ -85,7 +91,7 @@ description.
 ## Acceptance Criteria
 
 - [ ] Items 1–3: preview hardening is done or explicitly accepted, with a reason.
-- [ ] Items 4–8: each test gap is closed, and each new test is mutation-checked.
+- [ ] Items 4–8 and 11: each test gap is closed, and each new test is mutation-checked.
 - [ ] Item 9: the profile and notification services handle a stale CSRF token.
 
 ## Work Log
