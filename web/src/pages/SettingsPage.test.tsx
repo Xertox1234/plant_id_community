@@ -705,12 +705,14 @@ describe('MyForumImagesSection (todo 374)', () => {
 
   it('lists the photos', async () => {
     render(<MyForumImagesSection />);
-    await waitFor(() => expect(screen.getAllByRole('button', { name: 'Delete' })).toHaveLength(2));
+    await waitFor(() =>
+      expect(screen.getAllByRole('button', { name: /^Delete photo/ })).toHaveLength(2)
+    );
   });
 
   it('does NOT delete until the confirmation is accepted', async () => {
     render(<MyForumImagesSection />);
-    const [first] = await screen.findAllByRole('button', { name: 'Delete' });
+    const first = await screen.findByRole('button', { name: 'Delete photo 1: photo 1' });
     fireEvent.click(first);
     // Dialog is up; nothing has been sent yet.
     expect(await screen.findByRole('dialog')).toBeInTheDocument();
@@ -719,19 +721,89 @@ describe('MyForumImagesSection (todo 374)', () => {
 
   it('cancelling the confirmation deletes nothing', async () => {
     render(<MyForumImagesSection />);
-    fireEvent.click((await screen.findAllByRole('button', { name: 'Delete' }))[0]);
+    fireEvent.click(await screen.findByRole('button', { name: 'Delete photo 1: photo 1' }));
     fireEvent.click(await screen.findByRole('button', { name: /Cancel/i }));
     expect(forumService.deleteForumImage).not.toHaveBeenCalled();
-    expect(screen.getAllByRole('button', { name: 'Delete' })).toHaveLength(2);
+    expect(screen.getAllByRole('button', { name: /^Delete photo/ })).toHaveLength(2);
   });
 
   it('confirming deletes that image and drops it from the grid', async () => {
     render(<MyForumImagesSection />);
-    fireEvent.click((await screen.findAllByRole('button', { name: 'Delete' }))[0]);
+    fireEvent.click(await screen.findByRole('button', { name: 'Delete photo 1: photo 1' }));
     const dialog = await screen.findByRole('dialog');
     fireEvent.click(within(dialog).getByRole('button', { name: 'Delete' }));
     await waitFor(() => expect(forumService.deleteForumImage).toHaveBeenCalledWith(1));
-    await waitFor(() => expect(screen.getAllByRole('button', { name: 'Delete' })).toHaveLength(1));
+    // Matched on the alt suffix, not the exact name: while pending the button
+    // reads "Deleting photo 1: photo 1", which an exact match would count as
+    // gone. (Not /photo 1/ either: names carry the grid position, so the
+    // survivor becomes "photo 1: photo 2".)
+    await waitFor(() =>
+      expect(screen.queryByRole('button', { name: /: photo 1$/ })).not.toBeInTheDocument()
+    );
+    // The OTHER row survives: selected by name, which is what a screen reader
+    // user has, not by array position.
+    // Now first in the grid, so its position-based name moved up.
+    expect(screen.getByRole('button', { name: 'Delete photo 1: photo 2' })).toBeInTheDocument();
+  });
+
+  // --- accessible names + the 404 path (todo 396) -----------------------------
+
+  it('gives every per-photo Delete a distinct accessible name, untitled and duplicate-alt ones included', async () => {
+    vi.mocked(forumService.listMyForumImages).mockResolvedValue(
+      page([img(1), { ...img(2), alt: '' }, { ...img(3), alt: '' }, { ...img(4), alt: 'photo 1' }])
+    );
+    render(<MyForumImagesSection />);
+    const names = (await screen.findAllByRole('button', { name: /^Delete/ })).map((b) =>
+      b.getAttribute('aria-label')
+    );
+    expect(names).toEqual([
+      'Delete photo 1: photo 1',
+      'Delete untitled photo 2',
+      'Delete untitled photo 3',
+      // Same alt text as photo 1, still a different name.
+      'Delete photo 4: photo 1',
+    ]);
+  });
+
+  it('the confirmation names the photo it is about to delete', async () => {
+    render(<MyForumImagesSection />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Delete photo 2: photo 2' }));
+    const dialog = await screen.findByRole('dialog');
+    expect(dialog).toHaveTextContent('This removes photo 2: photo 2 from your library');
+  });
+
+  it('a 404 on delete means already gone: the row is dropped, no error shown', async () => {
+    // Automocked class: assign back the status its no-op constructor never set.
+    const gone = new forumService.ForumApiError('Not found.', 404);
+    Object.assign(gone, { status: 404, message: 'Not found.' });
+    vi.mocked(forumService.deleteForumImage).mockRejectedValue(gone);
+    render(<MyForumImagesSection />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Delete photo 1: photo 1' }));
+    const dialog = await screen.findByRole('dialog');
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Delete' }));
+    // Matched on the alt suffix, not the exact name: while pending the button
+    // reads "Deleting photo 1: photo 1", which an exact match would count as
+    // gone. (Not /photo 1/ either: names carry the grid position, so the
+    // survivor becomes "photo 1: photo 2".)
+    await waitFor(() =>
+      expect(screen.queryByRole('button', { name: /: photo 1$/ })).not.toBeInTheDocument()
+    );
+    // Now first in the grid, so its position-based name moved up.
+    expect(screen.getByRole('button', { name: 'Delete photo 1: photo 2' })).toBeInTheDocument();
+    expect(screen.queryByText('Not found.')).not.toBeInTheDocument();
+  });
+
+  it('a 403 on delete keeps the row and reports it (only 404 means gone)', async () => {
+    const denied = new forumService.ForumApiError('Not yours.', 403);
+    Object.assign(denied, { status: 403, message: 'Not yours.' });
+    vi.mocked(forumService.deleteForumImage).mockRejectedValue(denied);
+    render(<MyForumImagesSection />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Delete photo 1: photo 1' }));
+    const dialog = await screen.findByRole('dialog');
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Delete' }));
+    // Automocked class is not an Error, so the generic copy renders.
+    expect(await screen.findByText('Failed to delete photo')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Delete photo 1: photo 1' })).toBeInTheDocument();
   });
 
   it('warns that the photo also disappears from posts already published', async () => {
@@ -739,18 +811,18 @@ describe('MyForumImagesSection (todo 374)', () => {
     // vanish from live posts, and a user who does not expect that experiences
     // it as data loss.
     render(<MyForumImagesSection />);
-    fireEvent.click((await screen.findAllByRole('button', { name: 'Delete' }))[0]);
+    fireEvent.click(await screen.findByRole('button', { name: 'Delete photo 1: photo 1' }));
     expect(await screen.findByText(/any post you've already shared it in/i)).toBeInTheDocument();
   });
 
   it('a failed delete keeps the photo and reports it', async () => {
     vi.mocked(forumService.deleteForumImage).mockRejectedValue(new Error('nope'));
     render(<MyForumImagesSection />);
-    fireEvent.click((await screen.findAllByRole('button', { name: 'Delete' }))[0]);
+    fireEvent.click(await screen.findByRole('button', { name: 'Delete photo 1: photo 1' }));
     const dialog = await screen.findByRole('dialog');
     fireEvent.click(within(dialog).getByRole('button', { name: 'Delete' }));
     expect(await screen.findByText('nope')).toBeInTheDocument();
-    expect(screen.getAllByRole('button', { name: 'Delete' })).toHaveLength(2);
+    expect(screen.getAllByRole('button', { name: /^Delete photo/ })).toHaveLength(2);
   });
 
   it('an empty library says so rather than looking like a failure', async () => {
@@ -801,7 +873,7 @@ describe('MyForumImagesSection (todo 374)', () => {
 
   it('offers Load more only when the server sent a next cursor', async () => {
     render(<MyForumImagesSection />);
-    await screen.findAllByRole('button', { name: 'Delete' });
+    await screen.findAllByRole('button', { name: /^Delete photo/ });
     expect(screen.queryByRole('button', { name: /Load more/i })).not.toBeInTheDocument();
   });
 
@@ -813,7 +885,9 @@ describe('MyForumImagesSection (todo 374)', () => {
       .mockResolvedValueOnce(page([img(3)]));
     render(<MyForumImagesSection />);
     fireEvent.click(await screen.findByRole('button', { name: /Load more/i }));
-    await waitFor(() => expect(screen.getAllByRole('button', { name: 'Delete' })).toHaveLength(3));
+    await waitFor(() =>
+      expect(screen.getAllByRole('button', { name: /^Delete photo/ })).toHaveLength(3)
+    );
     expect(forumService.listMyForumImages).toHaveBeenLastCalledWith({ cursor: 'http://api/next' });
   });
 
@@ -824,6 +898,6 @@ describe('MyForumImagesSection (todo 374)', () => {
     render(<MyForumImagesSection />);
     fireEvent.click(await screen.findByRole('button', { name: /Load more/i }));
     expect(await screen.findByText('nope')).toBeInTheDocument();
-    expect(screen.getAllByRole('button', { name: 'Delete' })).toHaveLength(1);
+    expect(screen.getAllByRole('button', { name: /^Delete photo/ })).toHaveLength(1);
   });
 });

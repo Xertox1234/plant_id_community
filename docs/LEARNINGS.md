@@ -6322,7 +6322,9 @@ rather than taken from `--radius-*`. Nothing in the pipeline disagrees with a
 plausible-sounding class name.
 
 **Why grep cannot find this.** The obvious check — "is this class used elsewhere?"
-— inverts the signal. Auditing the rest of the diff turned up `ring-primary`,
+— inverts the signal. **[Corrected 2026-09-23, see the todo 396 entry: the
+`ring-primary` claim below is a false negative. The class compiles.]** Auditing
+the rest of the diff turned up `ring-primary`,
 which appears **22 times across 10 files** and *also* compiles to nothing: every
 one of those focus rings is invisible, which is a real keyboard-accessibility
 defect (todo 396). A wrong class used 22 times looks *more* correct than one used
@@ -6389,3 +6391,28 @@ is the lever. Never `rm -rf plant_community_mobile/build` to make room (see the
 `native_assets/ios/` orphaning entry); `flutter clean` is the fix.
 
 **Agent**: flutter-dart-reviewer
+
+## 2026-09-23 — A "compiles to nothing" check that was itself a false negative (todo 396)
+
+**What happened.** Todo 396 said `ring-primary` "emits no CSS" in 22 places and
+that every one of those focus rings was invisible. The evidence was
+`grep '\.ring-primary' dist/assets/*.css`, which came back empty. The class
+compiles fine: `--color-primary` is defined, and the build emits
+`.focus\:ring-primary:focus{--tw-ring-color:var(--gt-primary)}`. Tailwind 4 only
+emits the forms that source actually contains, and all 22 uses carry a variant
+(`focus:` or `focus-within:`). No bare `.ring-primary` existed to find. The
+claim then went into `docs/rules/react.md`, the React reviewer agent and a
+write-time trigger. That trigger would have told the next person their working
+class was dead.
+
+**What was really wrong.** 13 of the 22 set a ring *colour* with no ring
+*width*. They drew nothing, though the browser's default outline still showed.
+They got `focus:ring-2`.
+
+**Rule.** Build-and-grep is still the only real check, but grep the exact form
+used, with the variant prefix and an escaped colon:
+`grep -F '.focus\:ring-primary'`. An empty result from a bare class name proves
+nothing when every use is prefixed. Treat a "does not exist" finding as a claim
+to reproduce, the same as any other.
+
+**Agent**: react-typescript-reviewer

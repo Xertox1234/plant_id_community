@@ -1,5 +1,6 @@
-import { useEffect, useId, useRef } from 'react';
+import { useId, useRef } from 'react';
 import Button from './Button';
+import { useModalFocus } from '../../hooks/useModalFocus';
 
 interface ConfirmDialogProps {
   open: boolean;
@@ -16,8 +17,9 @@ interface ConfirmDialogProps {
  *
  * A styled, accessible replacement for the native `window.confirm()` used in
  * forum flows (audit 2026-07-11 M24). Modal semantics (`role="dialog"`,
- * `aria-modal`); the confirm button is focused on open, Escape and a backdrop
- * click cancel, and focus is returned to the trigger on close.
+ * `aria-modal`); the confirm button is focused on open, Tab/Shift+Tab stay
+ * inside the dialog, Escape and a backdrop click cancel, and focus is returned
+ * to the trigger on close (`useModalFocus`).
  */
 export default function ConfirmDialog({
   open,
@@ -34,23 +36,7 @@ export default function ConfirmDialog({
   const titleId = useId();
   const messageId = useId();
 
-  useEffect(() => {
-    if (!open) return;
-    // Capture the trigger BEFORE moving focus into the dialog, then focus the
-    // confirm button. A React `autoFocus` prop runs during the commit phase —
-    // before this effect — so `document.activeElement` would already be the
-    // button and the real trigger (to restore on close) would be lost.
-    const previouslyFocused = document.activeElement as HTMLElement | null;
-    dialogRef.current?.querySelector<HTMLButtonElement>('[data-autofocus]')?.focus();
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onCancel();
-    };
-    document.addEventListener('keydown', onKey);
-    return () => {
-      document.removeEventListener('keydown', onKey);
-      previouslyFocused?.focus?.();
-    };
-  }, [open, onCancel]);
+  useModalFocus(open, dialogRef, onCancel);
 
   if (!open) return null;
 

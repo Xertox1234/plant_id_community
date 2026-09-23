@@ -141,7 +141,7 @@ export default function DiagnosisListPage() {
                 value={searchQuery}
                 onChange={(e: ChangeEvent<HTMLInputElement>) => setSearchQuery(e.target.value)}
                 placeholder="Plant or disease name..."
-                className="w-full px-3 py-2 border border-line-2 rounded-md bg-surface-2 text-ink focus:ring-primary focus:border-primary"
+                className="w-full px-3 py-2 border border-line-2 rounded-md bg-surface-2 text-ink focus:ring-2 focus:ring-primary focus:border-primary"
               />
             </div>
 
@@ -159,7 +159,7 @@ export default function DiagnosisListPage() {
                 onChange={(e: ChangeEvent<HTMLSelectElement>) =>
                   setTreatmentFilter(e.target.value as TreatmentStatus | '')
                 }
-                className="w-full px-3 py-2 border border-line-2 rounded-md bg-surface-2 text-ink focus:ring-primary focus:border-primary"
+                className="w-full px-3 py-2 border border-line-2 rounded-md bg-surface-2 text-ink focus:ring-2 focus:ring-primary focus:border-primary"
               >
                 <option value="">All Statuses</option>
                 <option value="not_started">Not Started</option>
@@ -181,7 +181,7 @@ export default function DiagnosisListPage() {
                 onChange={(e: ChangeEvent<HTMLSelectElement>) =>
                   setDiseaseTypeFilter(e.target.value as DiseaseType | '')
                 }
-                className="w-full px-3 py-2 border border-line-2 rounded-md bg-surface-2 text-ink focus:ring-primary focus:border-primary"
+                className="w-full px-3 py-2 border border-line-2 rounded-md bg-surface-2 text-ink focus:ring-2 focus:ring-primary focus:border-primary"
               >
                 <option value="">All Types</option>
                 <option value="fungal">Fungal</option>
@@ -202,7 +202,7 @@ export default function DiagnosisListPage() {
                 id="sort-order"
                 value={sortOrder}
                 onChange={(e: ChangeEvent<HTMLSelectElement>) => setSortOrder(e.target.value)}
-                className="w-full px-3 py-2 border border-line-2 rounded-md bg-surface-2 text-ink focus:ring-primary focus:border-primary"
+                className="w-full px-3 py-2 border border-line-2 rounded-md bg-surface-2 text-ink focus:ring-2 focus:ring-primary focus:border-primary"
               >
                 <option value="-saved_at">Newest First</option>
                 <option value="saved_at">Oldest First</option>
@@ -224,7 +224,7 @@ export default function DiagnosisListPage() {
                   onChange={(e: ChangeEvent<HTMLInputElement>) =>
                     setShowFavoritesOnly(e.target.checked)
                   }
-                  className="w-4 h-4 text-primary border-line-2 rounded focus:ring-primary"
+                  className="w-4 h-4 text-primary border-line-2 rounded focus:ring-2 focus:ring-primary"
                 />
                 <span className="text-sm text-ink-2">Favorites Only</span>
               </label>

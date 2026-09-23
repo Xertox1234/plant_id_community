@@ -1,5 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { useState } from 'react';
+import { act, render, screen, fireEvent, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import ForumImagePicker from './ForumImagePicker';
 
 const { listMyForumImages } = vi.hoisted(() => ({ listMyForumImages: vi.fn() }));
@@ -150,6 +152,100 @@ describe('ForumImagePicker (todo 374)', () => {
     expect(onClose).not.toHaveBeenCalled();
     fireEvent.click(screen.getByTestId('forum-image-picker-backdrop'));
     expect(onClose).toHaveBeenCalled();
+  });
+
+  // --- focus: in on open, trapped, back to the trigger on close (todo 396) ---
+
+  function Harness({ onCloseSpy }: { onCloseSpy?: () => void }) {
+    const [open, setOpen] = useState(false);
+    const [, setTicks] = useState(0);
+    return (
+      <>
+        <button onClick={() => setOpen(true)}>Choose from your photos</button>
+        <ForumImagePicker
+          open={open}
+          onSelect={vi.fn()}
+          // Inline, so every parent render passes a new identity -- exactly
+          // what the composer does.
+          onClose={() => {
+            onCloseSpy?.();
+            setOpen(false);
+          }}
+        />
+        {open && <button onClick={() => setTicks((t) => t + 1)}>Rerender parent</button>}
+      </>
+    );
+  }
+
+  const openFromTrigger = async () => {
+    const trigger = screen.getByRole('button', { name: 'Choose from your photos' });
+    trigger.focus();
+    await userEvent.click(trigger);
+    await screen.findAllByRole('button', { name: /Insert photo/i });
+    return trigger;
+  };
+
+  it('moves focus to Close on open and returns it to the trigger on close', async () => {
+    render(<Harness />);
+    const trigger = await openFromTrigger();
+    expect(screen.getByRole('button', { name: 'Close' })).toHaveFocus();
+
+    await userEvent.keyboard('{Escape}');
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(trigger).toHaveFocus();
+  });
+
+  it('Tab from Load more (the last control) wraps to Close', async () => {
+    listMyForumImages.mockResolvedValueOnce(page([img(1), img(2)], 'http://api/next'));
+    render(<Harness />);
+    await openFromTrigger();
+    screen.getByRole('button', { name: /Load more/i }).focus();
+
+    await userEvent.tab();
+    expect(screen.getByRole('button', { name: 'Close' })).toHaveFocus();
+  });
+
+  it('Shift+Tab from Close wraps to the last control', async () => {
+    listMyForumImages.mockResolvedValueOnce(page([img(1), img(2)], 'http://api/next'));
+    render(<Harness />);
+    await openFromTrigger();
+    expect(screen.getByRole('button', { name: 'Close' })).toHaveFocus();
+
+    await userEvent.tab({ shift: true });
+    expect(screen.getByRole('button', { name: /Load more/i })).toHaveFocus();
+  });
+
+  it('a DISABLED Load more is skipped: Tab from the last tile wraps to Close', async () => {
+    listMyForumImages.mockResolvedValueOnce(page([img(1), img(2)], 'http://api/next'));
+    // Page two never settles, so Load more stays disabled.
+    listMyForumImages.mockReturnValueOnce(new Promise(() => {}));
+    render(<Harness />);
+    await openFromTrigger();
+    fireEvent.click(screen.getByRole('button', { name: /Load more/i }));
+    expect(await screen.findByRole('button', { name: /Loading/i })).toBeDisabled();
+
+    screen.getByRole('button', { name: /Insert photo: photo 2/i }).focus();
+    await userEvent.tab();
+    expect(screen.getByRole('button', { name: 'Close' })).toHaveFocus();
+  });
+
+  it('a parent re-render while open neither moves focus nor loses the trigger', async () => {
+    const onCloseSpy = vi.fn();
+    render(<Harness onCloseSpy={onCloseSpy} />);
+    const trigger = await openFromTrigger();
+    const tile = screen.getByRole('button', { name: /Insert photo: photo 2/i });
+    tile.focus();
+
+    act(() => {
+      screen.getByRole('button', { name: 'Rerender parent' }).click();
+    });
+    // Not yanked back to the autofocused Close button...
+    expect(tile).toHaveFocus();
+
+    await userEvent.keyboard('{Escape}');
+    // ...the latest onClose ran, and focus went back to the real trigger.
+    expect(onCloseSpy).toHaveBeenCalledTimes(1);
+    expect(trigger).toHaveFocus();
   });
 
   // --- stale responses across open/close (review round 1) --------------------

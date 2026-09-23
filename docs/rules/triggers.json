@@ -1788,8 +1788,8 @@
     "path_glob": [
       "web/src/**/*.tsx"
     ],
-    "content_present": "\\b(ring-primary|rounded-card)\\b",
-    "message": "This Tailwind class compiles to NOTHING. Tailwind 4 emits no CSS for an unrecognised utility -- no error, no lint failure. `ring-primary` is dead in 22 places across 10 files (todo 396) and `rounded-card` was invented (todo 374). Use `ring-secondary` / a real `--radius-*` token (rounded-sm|md|lg|xl|pill), and confirm with: cd web && npm run build && grep \".<class>\" dist/assets/*.css",
+    "content_present": "\\brounded-card\\b",
+    "message": "`rounded-card` compiles to NOTHING: it was invented (todo 374), and Tailwind 4 emits no CSS for an unrecognised utility -- no error, no lint failure. Use a real `--radius-*` token (rounded-sm|md|lg|xl|pill). To confirm any class, build and grep the EXACT form you use, variant prefix included and the colon escaped: cd web && npm run build && grep -F '.focus\\:ring-primary' dist/assets/*.css -- Tailwind emits only the forms source uses, so a bare `.ring-primary` grep misses a class used only as `focus:ring-primary` (todo 396).",
     "pattern_ref": "web/docs/patterns/tailwind.md",
     "source": "codify: feat/todo-374-forum-image-picker",
     "added": "2026-09-14",

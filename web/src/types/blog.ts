@@ -116,10 +116,12 @@ export interface ImageBlockValue {
 /**
  * Image block
  * Backend: ImageBlock (forum inline images) → {id, url, alt, decorative, width, height}.
+ * `value` is `null` when the image row was deleted: `serialize_forum_body`
+ * resolves a missing id to null, and consumers render a no-photo fallback.
  */
 export interface ImageBlock extends BaseStreamFieldBlock {
   type: 'image';
-  value: ImageBlockValue;
+  value: ImageBlockValue | null;
 }
 
 /**
