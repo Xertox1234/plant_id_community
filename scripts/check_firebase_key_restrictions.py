@@ -50,11 +50,27 @@ PROJECT_NUMBER = "190351417275"
 
 IOS_BUNDLE = "com.plantcommunity.plantCommunityMobile"
 ANDROID_PKG = "com.plantcommunity.plant_community_mobile"
-# Debug-keystore SHA-1. Release still signs with the debug key -- todo 383 item 3.
-# Not a secret: a certificate fingerprint is derived from a PUBLIC certificate,
-# is readable from any APK, and is already the value registered on the Android
-# key's restriction. detect-secrets sees only a high-entropy hex string.
-ANDROID_SHA1 = "068a6f6a4ff91559a9d03b5bbd8f9f0e3b2a7dc2"  # pragma: allowlist secret
+# Certificate SHA-1s the Android key must admit. Not secrets: a fingerprint is
+# derived from a PUBLIC certificate and is readable from any APK. detect-secrets
+# sees only a high-entropy hex string.
+#
+# BOTH are probed, because the key's allowlist is a separate list from the
+# SHA-1s registered on the Firebase Android app (`apps:android:sha:create`).
+# Until 2026-09-23 this script probed only the debug cert, so it stayed green
+# while the key refused EVERY release build ("Requests from this Android client
+# application ... are blocked") -- todo 387, finding 5. When a Play App Signing
+# certificate exists, it goes here too, and on the key.
+ANDROID_DEBUG_SHA1 = "068a6f6a4ff91559a9d03b5bbd8f9f0e3b2a7dc2"  # pragma: allowlist secret
+ANDROID_RELEASE_SHA1 = "6e131b9bbf15f682b9cb3189cf3b5f6e1fb18a5d"  # pragma: allowlist secret
+ANDROID_SHA1S = {ANDROID_DEBUG_SHA1, ANDROID_RELEASE_SHA1}
+# Right package, certificate that is on no list. It must be BLOCKED: without
+# this row, a key restricted by package alone would ADMIT both certs above and
+# the two ADMIT rows would prove nothing about fingerprints.
+UNREGISTERED_SHA1 = "00" * 20
+
+
+def android_headers(sha1: str) -> list[str]:
+    return [f"X-Android-Package: {ANDROID_PKG}", f"X-Android-Cert: {sha1}"]
 
 # Same shape as a real key, guaranteed not to be one.
 FAKE_KEY = "AIzaSyA0000000000000000000000000000000000"
@@ -148,6 +164,14 @@ def check_api_targets(name: str, key: str, headers: list[str]) -> int:
             got, verdict = "inconclusive", "service off project-wide; proves nothing"
         elif "API_KEY_SERVICE_BLOCKED" in real:
             got, verdict = "drop", "BLOCKED"
+        elif re.search(r"API_KEY_\w*APP_BLOCKED|are blocked", real, re.I):
+            # The APPLICATION restriction refused these headers before the API
+            # list was consulted. Falling through to "reachable" here scored a
+            # key that refused every release build as keeping all its APIs.
+            # Must come AFTER the SERVICE_BLOCKED test: a service block's prose
+            # also says "...are blocked.", so matching this first turned every
+            # correct API block into a false INCONCLUSIVE.
+            got, verdict = "inconclusive", "client refused by app restriction; proves nothing"
         else:
             got, verdict = "keep", "reachable"
 
@@ -163,15 +187,19 @@ def check_api_targets(name: str, key: str, headers: list[str]) -> int:
 def check_app_restriction(ios: str, android: str) -> int:
     print("  APPLICATION restriction -- each key must admit only its own platform")
     ios_h = [f"X-Ios-Bundle-Identifier: {IOS_BUNDLE}"]
-    and_h = [f"X-Android-Package: {ANDROID_PKG}", f"X-Android-Cert: {ANDROID_SHA1}"]
+    and_debug = android_headers(ANDROID_DEBUG_SHA1)
+    and_release = android_headers(ANDROID_RELEASE_SHA1)
+    and_unregistered = android_headers(UNREGISTERED_SHA1)
     wrong = ["X-Ios-Bundle-Identifier: com.attacker.app"]
 
     cases = [
         ("iOS", ios, "own iOS headers", ios_h, "ADMIT"),
         ("iOS", ios, "no headers", [], "BLOCK"),
         ("iOS", ios, "wrong bundle id", wrong, "BLOCK"),
-        ("iOS", ios, "Android headers", and_h, "BLOCK"),
-        ("Android", android, "own Android headers", and_h, "ADMIT"),
+        ("iOS", ios, "Android headers", and_release, "BLOCK"),
+        ("Android", android, "debug cert", and_debug, "ADMIT"),
+        ("Android", android, "release cert", and_release, "ADMIT"),
+        ("Android", android, "unregistered cert", and_unregistered, "BLOCK"),
         ("Android", android, "no headers", [], "BLOCK"),
         ("Android", android, "iOS headers", ios_h, "BLOCK"),
         ("Android", android, "wrong bundle id", wrong, "BLOCK"),
@@ -218,9 +246,20 @@ def check_config() -> int:
             continue
         ok_t = targets == EXPECTED_TARGETS
         ok_a = bool(app)
-        failures += not (ok_t and ok_a)
-        print(f"    {'PASS' if ok_t and ok_a else 'FAIL':4s}         {label:36s} "
+        # For the Android key, "has an app restriction" is not enough: it must
+        # list every certificate we ship with. The live probe above is the
+        # authority; this names WHICH fingerprint is missing.
+        missing_certs: set[str] = set()
+        if "androidKeyRestrictions" in r:
+            listed = {a.get("sha1Fingerprint", "").lower()
+                      for a in r["androidKeyRestrictions"].get("allowedApplications", [])}
+            missing_certs = ANDROID_SHA1S - listed
+        ok = ok_t and ok_a and not missing_certs
+        failures += not ok
+        print(f"    {'PASS' if ok else 'FAIL':4s}         {label:36s} "
               f"{len(targets)} targets, app restriction: {app or 'MISSING'}")
+        if missing_certs:
+            print(f"                   cert MISSING from allowedApplications: {sorted(missing_certs)}")
         if not ok_t:
             if extra := targets - EXPECTED_TARGETS:
                 print(f"                   unexpected: {sorted(extra)}")
@@ -238,9 +277,9 @@ def main() -> int:
         failures += check_app_restriction(ios, android)
         print()
         failures += check_api_targets("iOS key", ios, [f"X-Ios-Bundle-Identifier: {IOS_BUNDLE}"])
-        failures += check_api_targets(
-            "Android key", android,
-            [f"X-Android-Package: {ANDROID_PKG}", f"X-Android-Cert: {ANDROID_SHA1}"])
+        # Release headers: what users actually run. (Debug admission is covered
+        # by the APPLICATION half; the API targets do not vary by certificate.)
+        failures += check_api_targets("Android key", android, android_headers(ANDROID_RELEASE_SHA1))
     except Indeterminate as exc:
         print(f"\nINDETERMINATE: {exc}", file=sys.stderr)
         print("Could not verify. This is NOT a pass.", file=sys.stderr)
