@@ -229,18 +229,6 @@ export default function LoginPage() {
             </Link>
           </div>
         </div>
-
-        {/* Additional Links (placeholder for future features) */}
-        <div className="mt-4 text-center">
-          <button
-            type="button"
-            className="text-sm text-ink-3 hover:text-ink transition-colors"
-            disabled
-            aria-disabled="true"
-          >
-            Forgot your password?
-          </button>
-        </div>
       </div>
     </div>
   );

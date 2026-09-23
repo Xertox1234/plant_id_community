@@ -831,41 +831,29 @@ class BlogPostPage(HeadlessPreviewMixin, BlogBasePage):
         self, request: Optional[HttpRequest] = None, mode: str = ""
     ) -> str:
         """
-        Return the preview URL for the specified mode.
+        Return the root URL the editor's preview opens.
 
-        IMPORTANT: This returns the BASE URL. The wagtail-headless-preview
-        library automatically appends {content_type}/{token}/ dynamically.
+        wagtail-headless-preview 0.9 appends the page as QUERY parameters:
+        ``<root>?content_type=blog.blogpostpage&token=<signed>`` (see
+        HeadlessPreviewMixin.get_preview_url). The web app's ``/blog/preview``
+        route reads them and fetches ``GET /api/v2/page_preview/``.
 
         Args:
-            request: The HTTP request object (optional, unused)
-            mode: Preview mode - '' for web, 'mobile' for Flutter
+            request: The HTTP request object (unused)
+            mode: Preview mode, '' for web or 'mobile' for Flutter. The library
+                never passes it (``get_preview_url`` calls this with the request
+                only), so the mobile branch is unreachable today.
 
         Returns:
-            Base preview URL without content_type/token placeholders
-
-        Example:
-            Base URL: http://localhost:5173/blog/preview
-            Library appends: /blog.blogpostpage/abc123xyz/
+            The preview client root URL, without a query string.
         """
         if mode == "mobile":
             # Flutter deep link for mobile preview
-            # Format: plantid://blog/preview
             return "plantid://blog/preview"
 
-        # React web preview (default)
-        # URL structure: http://localhost:5173/blog/preview/{content_type}/{token}/
-        # The {content_type} and {token} are replaced by wagtail-headless-preview
         from django.conf import settings
 
-        preview_url = settings.HEADLESS_PREVIEW_CLIENT_URLS.get("default")
-
-        # Extract base URL without placeholder variables for return
-        # The library will append the content_type and token dynamically
-        return (
-            preview_url.rsplit("/{content_type}", 1)[0]
-            if preview_url
-            else "http://localhost:5173/blog/preview"
-        )
+        return settings.HEADLESS_PREVIEW_CLIENT_URL
 
     def save(self, *args, **kwargs):
         # Auto-calculate reading time

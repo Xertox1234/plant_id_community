@@ -21,6 +21,31 @@ export interface User {
 }
 
 /**
+ * The signed-in user's own profile, as GET /api/v1/auth/user/ returns it
+ * (backend UserProfileSerializer). Only the fields the profile page uses.
+ */
+export interface UserProfile {
+  id: number;
+  username: string;
+  email: string;
+  first_name: string;
+  last_name: string;
+  display_name: string;
+  bio: string;
+  location: string;
+  website: string;
+}
+
+/**
+ * The fields the web profile page may change via PATCH /api/v1/auth/user/update/.
+ * Email is deliberately absent: changing it needs re-verification, which the
+ * backend does not do yet.
+ */
+export type ProfileUpdate = Partial<
+  Pick<UserProfile, 'first_name' | 'last_name' | 'bio' | 'location' | 'website'>
+>;
+
+/**
  * Login credentials
  */
 export interface LoginCredentials {

@@ -186,6 +186,26 @@ export async function fetchBlogPost(slug: string): Promise<BlogPost> {
 }
 
 /**
+ * Fetch an editor's unpublished draft for the /blog/preview route (web
+ * dead-code audit M2). Wagtail's Preview button opens
+ * `/blog/preview?content_type=blog.blogpostpage&token=<signed>`; the backend
+ * resolves the signed token and returns the DRAFT in the same shape as the
+ * blog-post detail payload. A bad or expired token is a 404.
+ */
+export async function fetchBlogPreview(contentType: string, token: string): Promise<BlogPost> {
+  const params = new URLSearchParams({ content_type: contentType, token });
+  try {
+    const response = await apiClient.get(`/api/v2/page_preview/?${params}`);
+    return response.data;
+  } catch (error) {
+    if (axios.isAxiosError(error) && error.response?.status === 404) {
+      throw new Error('Preview not found or expired', { cause: error });
+    }
+    throw error;
+  }
+}
+
+/**
  * Fetch popular blog posts.
  */
 export async function fetchPopularPosts(

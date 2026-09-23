@@ -29,6 +29,9 @@ function notificationLabel(notification: ForumNotification): string {
       // Someone quoted one of your posts (todo 342). post_id is the QUOTING
       // post, so the deep link below lands on the quote, like a reply.
       return `${actorName} quoted your post in "${topicTitle}"`;
+    case 'solution':
+      // Your reply was accepted as the answer; post_id is the accepted post.
+      return `${actorName} accepted your answer in "${topicTitle}"`;
     case 'reply':
     default:
       return `${actorName} replied to "${topicTitle}"`;

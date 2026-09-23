@@ -60,7 +60,7 @@ function App() {
           <Route path="/identify" element={<IdentifyPage />} />
           <Route path="/blog" element={<BlogListPage />} />
           <Route path="/blog/:slug" element={<BlogDetailPage />} />
-          <Route path="/blog/preview/:content_type/:token" element={<BlogPreview />} />
+          <Route path="/blog/preview" element={<BlogPreview />} />
           <Route path="/forum/search" element={<SearchPage />} />
           {/* Safe against /forum/:categorySlug/:threadSlug despite React Router's
               static>dynamic ranking: board/thread URLs are always ID-prefixed

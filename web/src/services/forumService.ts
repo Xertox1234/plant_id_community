@@ -145,9 +145,6 @@ export async function fetchCategories(): Promise<Category[]> {
   return (await fetchForumIndex()).categories;
 }
 
-/** No backend tree endpoint — returns the flat list (no children). */
-export const fetchCategoryTree = fetchCategories;
-
 /**
  * Resolve a single category by its integer id.
  * Fetches the boards list and scans for the matching id string.

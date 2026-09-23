@@ -93,7 +93,7 @@ export function SkeletonStatus({ children, label = 'Loading…' }: SkeletonStatu
 
 /* ───────── shapes ───────── */
 
-/** Mirrors ThreadCard (non-compact, no state chips/tags): title, 2-line excerpt, stat row. */
+/** Mirrors ThreadCard (no state chips/tags): title, 2-line excerpt, stat row. */
 export function ThreadCardSkeleton() {
   return (
     <Card className="p-card">

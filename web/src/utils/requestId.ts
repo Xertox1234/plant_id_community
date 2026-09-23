@@ -1,11 +1,6 @@
 const REQUEST_ID_STORAGE_KEY = 'requestId';
 
 let fallbackRequestId: string | null = null;
-const requestIdListeners = new Set<(requestId: string) => void>();
-
-function notifyRequestIdListeners(requestId: string): void {
-  requestIdListeners.forEach((listener) => listener(requestId));
-}
 
 function createRequestId(): string {
   const webCrypto = globalThis.crypto;
@@ -56,14 +51,5 @@ export function resetRequestId(): void {
 
 export function rotateRequestId(): string {
   resetRequestId();
-  const requestId = getOrCreateRequestId();
-  notifyRequestIdListeners(requestId);
-  return requestId;
-}
-
-export function subscribeRequestId(listener: (requestId: string) => void): () => void {
-  requestIdListeners.add(listener);
-  return () => {
-    requestIdListeners.delete(listener);
-  };
+  return getOrCreateRequestId();
 }

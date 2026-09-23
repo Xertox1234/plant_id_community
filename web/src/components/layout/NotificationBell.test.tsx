@@ -126,6 +126,23 @@ describe('NotificationBell', () => {
     expect(screen.queryByText('Ada replied to "Watering Tips"')).not.toBeInTheDocument();
   });
 
+  it('labels an accepted-answer ("solution") notification, not as a reply (web dead-code audit M1)', async () => {
+    vi.mocked(notificationService.fetchUnreadCount).mockResolvedValue(1);
+    vi.mocked(notificationService.fetchNotifications).mockResolvedValue({
+      results: [makeNotification({ verb: 'solution', post_id: 55 })],
+      next: null,
+      previous: null,
+    });
+    renderBell();
+
+    await userEvent.click(await screen.findByLabelText(/notifications/i));
+
+    expect(
+      await screen.findByText('Ada accepted your answer in "Watering Tips"')
+    ).toBeInTheDocument();
+    expect(screen.queryByText('Ada replied to "Watering Tips"')).not.toBeInTheDocument();
+  });
+
   it('shows an empty state when there are no notifications', async () => {
     renderBell();
 

@@ -417,13 +417,3 @@ export async function getGoogleOAuthUrl(): Promise<string> {
 
   return data.oauth_url;
 }
-
-export const authService = {
-  login,
-  signup,
-  logout,
-  getCurrentUser,
-  getStoredUser,
-  refreshAccessToken,
-  getGoogleOAuthUrl,
-};

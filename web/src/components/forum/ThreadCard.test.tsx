@@ -7,10 +7,10 @@ import { createMockThread } from '../../tests/forumUtils';
 /**
  * Helper to render ThreadCard with Router context
  */
-function renderThreadCard(thread, compact = false) {
+function renderThreadCard(thread) {
   return render(
     <BrowserRouter>
-      <ThreadCard thread={thread} compact={compact} />
+      <ThreadCard thread={thread} />
     </BrowserRouter>
   );
 }
@@ -170,33 +170,6 @@ describe('ThreadCard', () => {
     expect(link).toHaveAttribute('href', '/forum/cat-123-plant-care/thread-1-watering-tips');
   });
 
-  it('hides excerpt in compact mode', () => {
-    const thread = createMockThread({
-      excerpt: 'This should not appear in compact mode',
-    });
-
-    renderThreadCard(thread, true);
-
-    expect(screen.queryByText('This should not appear in compact mode')).not.toBeInTheDocument();
-  });
-
-  it('shows category name in compact mode', () => {
-    const thread = createMockThread({
-      category: {
-        id: 'cat-123',
-        name: 'Plant Care',
-        slug: 'plant-care',
-        icon: '🌱',
-        created_at: '2025-01-01T00:00:00Z',
-      },
-    });
-
-    renderThreadCard(thread, true);
-
-    expect(screen.getByText('Plant Care')).toBeInTheDocument();
-    expect(screen.getByText('🌱')).toBeInTheDocument();
-  });
-
   it('renders the pinned chip with the tertiary tint (moved off the row background)', () => {
     const thread = createMockThread({ is_pinned: true });
 
@@ -213,18 +186,6 @@ describe('ThreadCard', () => {
 
     const card = container.querySelector('.opacity-75');
     expect(card).toBeInTheDocument();
-  });
-
-  it('renders with correct compact padding', () => {
-    const thread = createMockThread();
-
-    const { container } = renderThreadCard(thread, true);
-
-    // Boundary-safe: a substring match on class* would also hit an unrelated
-    // "p-3.5x" utility. Anchor on the Card root's own class (canopy-card is
-    // unconditional) and match its className on a word boundary.
-    const cardEl = container.querySelector('div.canopy-card');
-    expect(cardEl.className).toMatch(/(^|\s)p-3\.5(\s|$)/);
   });
 
   it('renders tags as inert chips when the list cannot be filtered (audit M5)', () => {

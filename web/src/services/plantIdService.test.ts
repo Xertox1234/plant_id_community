@@ -21,7 +21,6 @@ import type {
   PlantIdentificationResult,
   Collection,
   UserPlant,
-  IdentificationHistoryItem,
   SavePlantInput,
 } from '../types/plantId';
 
@@ -69,15 +68,6 @@ describe('plantIdService', () => {
       source: 'plant_id',
     },
     created_at: '2025-01-01T00:00:00Z',
-  };
-
-  const mockHistoryItem: IdentificationHistoryItem = {
-    id: 'history-123',
-    plant_name: 'Rosa damascena',
-    confidence: 0.97,
-    image_url: 'https://example.com/rose.jpg',
-    created_at: '2025-01-01T00:00:00Z',
-    source: 'plant_id',
   };
 
   // Mock implementations
@@ -268,72 +258,6 @@ describe('plantIdService', () => {
       // Assert
       expect(result.source).toBe('plantnet');
       expect(['plant_id', 'plantnet']).toContain(result.source);
-    });
-  });
-
-  // ============================================================================
-  // GET HISTORY TESTS
-  // ============================================================================
-
-  describe('getHistory', () => {
-    it('should fetch identification history', async () => {
-      // Arrange
-      fetchMock.mockResolvedValueOnce({
-        ok: true,
-        json: async () => [mockHistoryItem],
-      });
-
-      // Act
-      const result = await plantIdService.getHistory();
-
-      // Assert
-      expect(result).toEqual([mockHistoryItem]);
-      expect(fetchMock).toHaveBeenCalledWith(
-        expect.stringContaining('/api/v1/plant-identification/history/'),
-        expect.objectContaining({
-          credentials: 'include',
-          headers: expect.objectContaining({
-            'X-CSRFToken': 'test-csrf-token',
-          }),
-        })
-      );
-    });
-
-    it('should handle empty history', async () => {
-      // Arrange
-      fetchMock.mockResolvedValueOnce({
-        ok: true,
-        json: async () => [],
-      });
-
-      // Act
-      const result = await plantIdService.getHistory();
-
-      // Assert
-      expect(result).toEqual([]);
-    });
-
-    it('should handle API errors', async () => {
-      // Arrange
-      fetchMock.mockResolvedValueOnce({
-        ok: false,
-        status: 500,
-      });
-
-      // Act & Assert
-      await expect(plantIdService.getHistory()).rejects.toThrow(
-        'Failed to load identification history'
-      );
-    });
-
-    it('should handle network errors', async () => {
-      // Arrange
-      fetchMock.mockRejectedValueOnce(new Error('Network error'));
-
-      // Act & Assert
-      await expect(plantIdService.getHistory()).rejects.toThrow(
-        'Failed to load identification history'
-      );
     });
   });
 

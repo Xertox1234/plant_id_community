@@ -54,30 +54,13 @@ export type {
   PlantSuggestion,
   Collection,
   UserPlant,
-  IdentificationHistoryItem,
   SavePlantInput,
 } from './plantId';
 
 // Diagnosis types
 export type {
-  DiagnosisBlock,
-  PlantIdentification,
   DiseaseRequestStatus,
   PlantDiseaseResult,
   DiseaseDiagnosisResults,
   DiseaseDiagnosisCreated,
-  Disease,
-  TreatmentStatus,
-  DiseaseType,
-  SeverityAssessment,
-  ReminderType,
-  DiagnosisCard,
-  CreateDiagnosisCardInput,
-  UpdateDiagnosisCardInput,
-  FetchDiagnosisCardsOptions,
-  DiagnosisReminder,
-  CreateReminderInput,
-  FetchRemindersOptions,
-  PaginatedDiagnosisCardsResponse,
-  PaginatedRemindersResponse,
 } from './diagnosis';

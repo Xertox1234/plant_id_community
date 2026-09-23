@@ -4,7 +4,6 @@ import { BrowserRouter } from 'react-router-dom';
 import { ErrorBoundary, FallbackProps } from 'react-error-boundary';
 import { ThemeProvider } from './contexts/ThemeContext';
 import { AuthProvider } from './contexts/AuthContext';
-import { RequestProvider } from './contexts/RequestContext';
 import { AnnouncerProvider } from './contexts/AnnouncerContext';
 import { ErrorFallback } from './components/ErrorBoundary';
 import { initSentry } from './config/sentry';
@@ -43,7 +42,6 @@ initLogger({
  * - ThemeProvider for design-token theme state (outermost — wraps all providers)
  * - ErrorBoundary to catch and display errors gracefully
  * - BrowserRouter for routing
- * - RequestProvider for distributed tracing (Phase 2)
  * - AuthProvider for authentication state (Phase 3)
  * - Sentry error tracking (production only)
  *
@@ -75,13 +73,11 @@ createRoot(document.getElementById('root')!).render(
         }}
       >
         <BrowserRouter>
-          <RequestProvider>
-            <AuthProvider>
-              <AnnouncerProvider>
-                <App />
-              </AnnouncerProvider>
-            </AuthProvider>
-          </RequestProvider>
+          <AuthProvider>
+            <AnnouncerProvider>
+              <App />
+            </AnnouncerProvider>
+          </AuthProvider>
         </BrowserRouter>
       </ErrorBoundary>
     </ThemeProvider>

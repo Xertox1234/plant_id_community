@@ -307,3 +307,44 @@ links to the full audit manifest with detailed findings and resolutions.
   mobile analyze clean, 427 passed, codegen regenerated.
 - **Round 2:** `/code-review medium` on the PR → 8 confirmed (6 defects in the fixes: hollow L10 pin, reply guard skipping the identity refresh, L4 composer state, hidden-topic manual redirects overwritten, Android picker re-encode, untested edit-mode guard arm; 2 cleanups), all applied with tests.
 - **Commit(s):** `22c2d1f` (fixes), `9819617` + `c8a7a28` (codify), plus the round-2 fix commit on branch `audit/forum-2026-09-04` — PR #629.
+
+### 2026-09-23 — Web Dead & Half-Wired Code Audit
+
+- **Trigger:** The owner keeps meeting unused variables, and code that exists
+  but is not wired. They asked for a web-only sweep for dead and half-built
+  code.
+- **Manifest:** [2026-09-23-web-dead-code.md](2026-09-23-web-dead-code.md)
+- **Method:** Tools first, then agents.
+  - knip ran twice. The default run treats tests as entry points; the
+    `--production` run catches components that only their own tests import.
+  - `react-typescript-reviewer` looked for unpassed props, stubs and controls
+    that look interactive but do nothing.
+  - A route mapper used `django.urls.resolve()` on every web call, and walked
+    the URLconf for endpoints no client uses.
+- **Findings:** 2 high (1 new security), 4 medium, 14 low (20 total).
+- **Resolved:** 17 verified, 3 deferred (S1 → todo 404, L13 and L14 → todo
+  405, plus M2's production checks → todo 406), 0 open.
+- **Headlines:**
+  - **H1:** the unrouted diagnosis-card and reminder UI called 16 endpoints
+    whose models migration 0025 deleted. It is removed, which also closes
+    todo 400 item 2.
+  - **M2:** Wagtail's blog Preview was broken at 4 hops:
+    - the removed `HEADLESS_PREVIEW_CLIENT_URLS` setting made the library
+      raise RuntimeError;
+    - the route used path params, but the library sends query params;
+    - there was no draft API;
+    - the CSP had no `frame-src`.
+
+    All 4 are fixed, with tests.
+  - **M3:** `/profile` said "Coming Soon" over a working endpoint; it is now
+    editable. **S1:** that endpoint lets `email` change with no re-auth.
+- **Found vs. fixed:** knip `--production` unused files went from 20 to 6.
+  The 6 left are test, e2e and script entry points, so there are 0 unused
+  production source files.
+- **Close baseline:**
+  - web: vitest 1364 passed (100 files); tsc, eslint and prettier clean;
+    check:classes passes.
+  - backend: apps/blog plus apps/core 1698 passed; check and makemigrations
+    clean.
+- **Commit(s):** `8d44b097`, `b1f3e12d`, `e3ba3bcd`, `dd931dbf`, `66f6ac7a`,
+  `c487c328` on branch `audit/web-dead-code`.

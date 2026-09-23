@@ -8,7 +8,7 @@ import { userProfilePath } from '../../../utils/forumUrls';
 import { TRUST_LEVEL_LABELS } from '../../../utils/forumAuthor';
 import { logger } from '../../../utils/logger';
 import type { ForumExpert } from '@/types';
-import { AVATAR_BOX, AVATAR_RADIUS } from '../../ui/dimensions';
+import Avatar from '../../ui/Avatar';
 
 /**
  * Right-rail module: highest-trust community members.
@@ -52,19 +52,12 @@ export default function CommunityExpertsModule() {
         {experts.map((expert) => (
           <li key={expert.username}>
             <Link to={userProfilePath(expert.username)} className="group flex items-center gap-2.5">
-              <span className="relative inline-block shrink-0">
-                <img
-                  src={expert.avatar ?? specimenAvatar(expert.username)}
-                  alt=""
-                  className={`${AVATAR_BOX.sm} ${AVATAR_RADIUS.sm} object-cover`}
-                />
-                {expert.online && (
-                  <span
-                    className="absolute -bottom-0.5 -right-0.5 h-2.5 w-2.5 rounded-full bg-ok ring-2 ring-surface"
-                    aria-hidden="true"
-                  />
-                )}
-              </span>
+              <Avatar
+                src={expert.avatar ?? specimenAvatar(expert.username)}
+                alt=""
+                size="sm"
+                presence={!!expert.online}
+              />
               <span className="min-w-0">
                 <span className="block truncate text-meta font-semibold text-ink transition-colors group-hover:text-primary">
                   {expert.display_name}

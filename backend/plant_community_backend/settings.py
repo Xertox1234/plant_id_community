@@ -9,6 +9,7 @@ import os
 import sys
 from datetime import timedelta
 from pathlib import Path
+from urllib.parse import urlsplit
 
 import dj_database_url
 import sentry_sdk
@@ -568,15 +569,34 @@ WAGTAILADMIN_BASE_URL = config("WAGTAILADMIN_BASE_URL", default="http://localhos
 # Frontend base URL (used for OAuth redirect targets)
 FRONTEND_BASE_URL = config("FRONTEND_BASE_URL", default="http://localhost:3000")
 
-# Wagtail Headless Preview (Phase 3)
-# Configuration for React/Flutter preview of unpublished content
-HEADLESS_PREVIEW_CLIENT_URLS = {
-    "default": config(
-        "HEADLESS_PREVIEW_CLIENT_URL",
-        default="http://localhost:5173/blog/preview/{content_type}/{token}/",
-    ),
+# Wagtail Headless Preview: editors' "Preview" opens the React app.
+# wagtail-headless-preview 0.9 reads ONLY this dict. The old top-level
+# HEADLESS_PREVIEW_CLIENT_URLS is a *removed* setting: while it was defined,
+# every preview settings read raised RuntimeError, so the admin Preview button
+# errored (web dead-code audit 2026-09-23, M2). HEADLESS_PREVIEW_LIVE was never
+# a setting of this package and did nothing.
+#
+# The library appends ?content_type=<app.model>&token=<signed> to this root
+# URL (query params, NOT path segments); the web app's /blog/preview route
+# reads them and fetches GET /api/v2/page_preview/.
+#
+# REDIRECT_ON_PREVIEW: send the editor straight to the web app instead of
+# rendering the package's iframe page. That page carries an un-nonced inline
+# <style>, which the production CSP blocks.
+HEADLESS_PREVIEW_CLIENT_URL = config(
+    "HEADLESS_PREVIEW_CLIENT_URL", default="http://localhost:5174/blog/preview"
+)
+WAGTAIL_HEADLESS_PREVIEW = {
+    "CLIENT_URLS": {"default": HEADLESS_PREVIEW_CLIENT_URL},
+    "REDIRECT_ON_PREVIEW": True,
+    "ENFORCE_TRAILING_SLASH": False,
 }
-HEADLESS_PREVIEW_LIVE = config("HEADLESS_PREVIEW_LIVE", default=True, cast=bool)
+# Origin of the preview client, allowed as a frame source (below) so the
+# Wagtail editor's side-by-side preview panel can show it.
+_preview_url_parts = urlsplit(HEADLESS_PREVIEW_CLIENT_URL)
+HEADLESS_PREVIEW_CLIENT_ORIGIN = (
+    f"{_preview_url_parts.scheme}://{_preview_url_parts.netloc}"
+)
 
 # Use custom user model
 AUTH_USER_MODEL = "users.User"
@@ -1345,6 +1365,8 @@ if DEBUG:
             "frame-ancestors": (
                 "'none'",
             ),  # Anti-clickjacking (also enforced by X-Frame-Options)
+            # The Wagtail editor's preview panel frames the React preview page.
+            "frame-src": ("'self'", HEADLESS_PREVIEW_CLIENT_ORIGIN),
             "img-src": ("'self'", "data:", "https:", "blob:"),
             "media-src": ("'self'",),
             "object-src": ("'none'",),  # Block Flash, Java applets, etc.
@@ -1377,6 +1399,8 @@ else:
             "frame-ancestors": (
                 "'none'",
             ),  # Anti-clickjacking (redundant with X-Frame-Options but defense-in-depth)
+            # The Wagtail editor's preview panel frames the React preview page.
+            "frame-src": ("'self'", HEADLESS_PREVIEW_CLIENT_ORIGIN),
             "img-src": (
                 "'self'",
                 "data:",

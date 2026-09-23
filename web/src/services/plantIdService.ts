@@ -11,7 +11,6 @@ import type {
   Collection,
   UserPlant,
   PaginatedUserPlants,
-  IdentificationHistoryItem,
   SavePlantInput,
 } from '../types/plantId';
 
@@ -65,34 +64,6 @@ async function identifyPlant(imageFile: File): Promise<PlantIdentificationResult
       throw error;
     }
     throw new Error('Failed to identify plant. Please try again.', { cause: error });
-  }
-}
-
-/**
- * Get plant identification history
- * Uses centralized CSRF utility (handles caching + meta tag/API fallback)
- */
-async function getHistory(): Promise<IdentificationHistoryItem[]> {
-  const csrfToken = await getCsrfToken();
-
-  try {
-    const response = await fetch(
-      `${API_BASE_URL}/api/${API_VERSION}/plant-identification/history/`,
-      {
-        credentials: 'include', // Send HttpOnly cookies
-        headers: {
-          ...(csrfToken && { 'X-CSRFToken': csrfToken }),
-        },
-      }
-    );
-
-    if (!response.ok) {
-      throw new Error('Failed to load identification history');
-    }
-
-    return response.json();
-  } catch {
-    throw new Error('Failed to load identification history');
   }
 }
 
@@ -213,7 +184,6 @@ async function getMyPlants(page: number = 1): Promise<PaginatedUserPlants> {
 
 export const plantIdService = {
   identifyPlant,
-  getHistory,
   saveToCollection,
   getMyPlants,
 };
