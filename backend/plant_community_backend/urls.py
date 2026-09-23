@@ -12,6 +12,7 @@ from apps.blog.api.viewsets import (
     BlogCategoryPageViewSet,
     BlogIndexPageViewSet,
     BlogPostPageViewSet,
+    BlogPostPreviewAPIViewSet,
 )
 from apps.blog.feeds import AtomBlogPostsFeed, BlogPostsFeed
 
@@ -103,6 +104,9 @@ api_router.register_endpoint("blog-posts", BlogPostPageViewSet)
 api_router.register_endpoint("blog-index", BlogIndexPageViewSet)
 api_router.register_endpoint("blog-categories", BlogCategoryPageViewSet)
 api_router.register_endpoint("blog-authors", BlogAuthorPageViewSet)
+# Editors' unpublished drafts for the web /blog/preview route (web dead-code
+# audit M2): GET /api/v2/page_preview/?content_type=…&token=…
+api_router.register_endpoint("page_preview", BlogPostPreviewAPIViewSet)
 
 # Blog snippets endpoints
 api_router.register_endpoint("categories", BlogCategoryAPIViewSet)

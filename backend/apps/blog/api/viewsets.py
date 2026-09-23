@@ -802,3 +802,64 @@ class BlogAuthorPageViewSet(PagesAPIViewSet):
             filters["expertise_areas__name__icontains"] = expertise
 
         return filters
+
+
+class BlogPostPreviewAPIViewSet(BlogPostPageViewSet):
+    """
+    GET /api/v2/page_preview/?content_type=blog.blogpostpage&token=<signed>
+
+    Serves an editor's unpublished draft to the web app's /blog/preview route,
+    in the same shape as a blog-post detail response, so the React page
+    renders it with the normal article renderer (web dead-code audit M2).
+
+    The token is the capability: wagtail-headless-preview signs it when an
+    editor clicks Preview and stores the draft beside it (PagePreview, garbage
+    collected after a day). ``get_page_from_preview_token`` verifies the
+    signature before loading anything; a bad or unknown token is a 404.
+
+    Deliberately bypasses the parent's slug cache: a preview must never be
+    served from, or written to, the live post's cache entry.
+    """
+
+    known_query_parameters = BlogPostPageViewSet.known_query_parameters.union(
+        ["content_type", "token"]
+    )
+
+    def get_serializer_class(self):
+        return BlogPostPageSerializer
+
+    def get_object(self):
+        from django.contrib.contenttypes.models import ContentType
+        from django.core.signing import BadSignature
+        from django.http import Http404
+        from wagtail_headless_preview.models import HeadlessPreviewMixin
+
+        content_type = self.request.GET.get("content_type", "")
+        token = self.request.GET.get("token", "")
+        app_label, _, model_name = content_type.partition(".")
+        if not (app_label and model_name and token):
+            raise Http404("content_type and token are required")
+        try:
+            model = ContentType.objects.get_by_natural_key(
+                app_label, model_name
+            ).model_class()
+        except ContentType.DoesNotExist:
+            raise Http404("Unknown content type")
+        # Only preview-enabled page models; this endpoint serializes blog posts.
+        if model is None or not (
+            issubclass(model, HeadlessPreviewMixin) and issubclass(model, BlogPostPage)
+        ):
+            raise Http404("Content type is not previewable here")
+        try:
+            page = model.get_page_from_preview_token(token)
+        except BadSignature:
+            raise Http404("Invalid preview token")
+        if page is None:
+            raise Http404("Preview not found or expired")
+        return page
+
+    def listing_view(self, request):
+        return Response(self.get_serializer(self.get_object()).data)
+
+    def detail_view(self, request, pk):
+        return self.listing_view(request)
