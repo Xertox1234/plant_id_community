@@ -272,9 +272,20 @@ converted; see todo 400.
   - **ConfirmDialog** (delete-post, on local thread 75): open focuses Delete.
     Tab gives Cancel, Tab gives Delete, Tab gives Cancel, then Shift+Tab gives
     Delete. Escape closes it and focus returns to the post's Delete button.
-  - The picker was not checked with a multi-tile grid in the browser, because
-    the E2E user has no uploads. That grid's trap is covered by the jsdom
-    tests above.
+  - **ForumImagePicker with a multi-tile grid**, checked after merge
+    (2026-09-23). The E2E user has no uploads, so Playwright `page.route`
+    stubbed `GET /forum/images/mine/` with 5 tiles plus a `next` cursor, and
+    held page two open:
+    - Open focuses Close. Shift+Tab goes to Load more, and Tab wraps back to
+      Close.
+    - Tab walks tiles 1–5, then Load more, then Close.
+    - While page two loads, Load more is disabled and skipped: Tab from tile 5
+      goes to Close, and Shift+Tab from Close goes to tile 5.
+    - Once page two arrives, tiles 6 and 7 are appended, Load more disappears,
+      and Tab from tile 7 goes to Close.
+    - Escape returns focus to "Choose from your photos".
+    - The focused tile shows a visible 2px sage ring (`:focus-visible`, box
+      shadow `rgb(142,182,155) 0 0 0 2px`).
 
 **Review.** Bundled `/code-review` (medium) gave 1 finding, fixed in round 1:
 two photos with the same alt text shared a Delete name. Every name now carries
