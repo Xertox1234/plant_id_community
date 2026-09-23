@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: p2
 issue_id: "286"
 tags: [flutter, ios, firebase, notifications, release]
@@ -100,16 +100,17 @@ outright.
       `Plant Community Mobile App Store`. See the 2026-09-15 work-log entry.
 - [x] The Debug configuration still resolves `development` (dev push loop intact)
       — `xcodebuild -showBuildSettings`, 2026-07-31; Profile too
-- [ ] APNs authentication key uploaded to the Firebase console for the iOS app
-- [ ] A device push is received end-to-end from a distribution build
+- [x] APNs authentication key uploaded to the Firebase console for the iOS app
+      — **2026-09-23**: proven by delivery, not attestation — FCM accepted a
+      send to an iOS token and it arrived; with no APNs key FCM returns
+      `THIRD_PARTY_AUTH_ERROR`. See the 2026-09-23 work-log entry.
+- [x] A device push is received end-to-end from a distribution build
       (TestFlight), closing todo 253 AC6's "receives a push" for iOS
-      — **BLOCKED (2026-09-15) on a prerequisite outside iOS**: production has
-      neither `FIREBASE_CREDENTIALS_PATH` nor `GOOGLE_APPLICATION_CREDENTIALS`,
-      so `is_firebase_available()` is `False` and every push returns early at
-      `logger.debug` — silently. Affects Android identically. See the
-      2026-09-15 work-log entry; fix that first, then this AC and AC3 close
-      together on one probe.
-- [ ] `docs/DEPLOYMENT_SECURITY_CHECKLIST.md` iOS APNs line ticked
+      — **2026-09-23**: sent from production, received on the operator's
+      phone running the TestFlight install that registered the token. The
+      2026-09-15 blocker (no Firebase credentials in prod) was cleared first
+      via `FIREBASE_CREDENTIALS_B64` (PR #779).
+- [x] `docs/DEPLOYMENT_SECURITY_CHECKLIST.md` iOS APNs line ticked — 2026-09-23, with the stale "still outstanding" block replaced
 
 ## Work Log
 
@@ -546,6 +547,80 @@ first blocker:
 **Scope note: this is not an iOS problem.** `send_forum_push` is platform-neutral,
 so Android push is equally dead in production. Todo 253 AC6 ("receives a push")
 cannot close on either platform until step 1 happens.
+
+### 2026-09-23 - AC3, AC4, AC5 closed on one real push; todo CLOSED
+
+**Prerequisite, measured before and after.** The deploy running since
+2026-09-15 22:15 UTC (`70511ba4`) logged at boot:
+
+```
+[start] firebase: FIREBASE_CREDENTIALS_B64 unset -> FCM PUSH DISABLED (sends return early and log nothing)
+```
+
+The operator generated a service-account key (Firebase console →
+`plant-community-prod` → Service accounts), set it base64-encoded as
+`FIREBASE_CREDENTIALS_B64` on the `plant_id_community` Railway service, and
+deleted the local file. The resulting deploy (`4f207de4`, 2026-09-23 00:21 UTC):
+
+```
+[start] firebase: credentials materialized at /tmp/firebase-service-account.json for project plant-community-prod -> FCM push ENABLED
+[start] worker pid 5 (celery ... worker -B ...); web pid 6 (gunicorn ...)
+celery@7e6cb79b4983 ready.
+```
+
+**First attempt was a false positive, recorded so nobody repeats it.** The
+first send ran in a `railway ssh` shell and was reported as "received". It
+could not have sent anything. `bin/start.sh` exports `FIREBASE_CREDENTIALS_PATH`
+only into the gunicorn and Celery processes it forks, and a `railway ssh`
+session is a new shell in the same container that never ran `start.sh`. So
+`get_fcm_client()` returned `None` (`[FIREBASE] No credentials path
+configured`, then `AttributeError: 'NoneType' object has no attribute
+'send_each'`). The todo was briefly closed on that report (PR #785, auto-merge
+armed). The PR was stopped before merge when the operator said nothing had
+arrived. **Rule: a push AC closes on the probe's printed result (`True
+projects/.../messages/...`) PLUS the device, never on the device report
+alone.**
+
+**The real run.** The operator reinstalled TestFlight build 12, signed in and
+allowed notifications. The registered token changed `fJ4iax8s3kPZ…` →
+`fQ7OW-DwD0g5…`, which proves the fresh TestFlight install registered it (the
+only `ForumProfile` with a token: pk 1, the operator). The send was then run
+with the credentials path supplied explicitly, since the file already exists in
+the container:
+
+```bash
+railway ssh --service plant_id_community -- bash -lc 'cd /app && \
+  FIREBASE_CREDENTIALS_PATH=/tmp/firebase-service-account.json \
+  python manage.py shell -c "...m.send_each([m.Message(..., token=p.fcm_token)])..."'
+[FIREBASE] ✅ Firebase Admin SDK initialized successfully
+>>> fQ7OW-DwD0g5 True projects/plant-community-prod/messages/64c72709-05aa-4fe9-a71c-b4ab7b414936 None
+```
+
+The notification (title `286`) **arrived on the locked device**, confirmed by
+the operator, 2026-09-23 00:41 UTC. `messaging.send_each` was called directly
+rather than `FirebaseNotificationService.send_test_notification`, because that
+helper catches every exception into a log line and returns `False`. It would
+have hidden the one error code (`THIRD_PARTY_AUTH_ERROR`) this probe exists to
+read.
+
+What that one delivery proves, and why it closes three ACs:
+
+- **AC3** — FCM cannot deliver to an iOS token without an APNs auth key on the
+  project; it returns `THIRD_PARTY_AUTH_ERROR` instead. Delivery is the proof
+  the upload happened, so AC3 closes on an artifact, not on the operator's
+  earlier (correct) recollection.
+- **AC4** — end-to-end: production backend → FCM → APNs production environment
+  → a Distribution-signed TestFlight build.
+- **AC5** — checklist line ticked; its "still outstanding" block was rewritten
+  (it described the credentials as missing, now false) into a short "how to
+  verify on a new environment" note.
+
+**Not verified here, deliberately out of scope:** the *forum* send path
+(`send_forum_push` via Celery) end-to-end. This probe used the same Admin SDK
+client and credentials that path uses, from the same container, but not the
+task itself; the first real forum reply notification will exercise it. Android
+push was also dead for the same credentials reason and should now work, but no
+Android device was tested (todo 387 still gates Android release signing).
 
 ## Notes
 

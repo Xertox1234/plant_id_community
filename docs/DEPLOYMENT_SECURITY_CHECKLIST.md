@@ -632,7 +632,7 @@ service firebase.storage {
   await dotenv.load(fileName: ".env");
   ```
 
-- [ ] **iOS APNs provisioning complete** (blocks App Store submission)
+- [x] **iOS APNs provisioning complete** (blocks App Store submission) — **done 2026-09-23** (todo 286)
 
   The entitlements half is **done** (todo 286): per-config files now exist —
   Release resolves `ios/Runner/RunnerRelease.entitlements` (`aps-environment` =
@@ -666,37 +666,29 @@ service firebase.storage {
   Check all three, not just `aps-environment` — a Development-signed archive
   reports `production` too if the entitlements file says so, and is worthless.
 
-  **Still outstanding** — tick this box only once both hold:
+  **Closed 2026-09-23 (todo 286).** Both remaining facts were settled by one
+  real push, sent from production to a TestFlight install and received on the
+  device. FCM returns `THIRD_PARTY_AUTH_ERROR` when no APNs key is configured,
+  so a delivered push proves the Firebase APNs-key upload.
 
-  1. APNs authentication key created in the Apple Developer account and
-     uploaded to the Firebase console (iOS app → Cloud Messaging → APNs
-     Authentication Key). The App-ID capability half is already proven: the
-     `Plant Community Mobile App Store` profile carries `aps-environment`, and
-     a profile cannot carry it unless Push is enabled on the App ID. The
-     *Firebase key upload* is a separate fact, and only it makes FCM deliver.
-  2. A device push received end-to-end from a TestFlight build. This single
-     test settles both items — FCM returns `THIRD_PARTY_AUTH_ERROR` when no
-     APNs key is configured, so a push that actually arrives proves the upload
-     happened. Prefer it over anyone's recollection that the key was uploaded.
+  Prerequisite that was missing until then (platform-neutral, Android too):
+  production had no Firebase service-account credentials, so every FCM send
+  returned early at `logger.debug`. `bin/start.sh` now materializes them from
+  the `FIREBASE_CREDENTIALS_B64` Railway variable (PR #779). On a new
+  environment, check the deploy log for exactly one of:
 
-     **Do item 0 first (2026-09-15).** Production has neither
-     `FIREBASE_CREDENTIALS_PATH` nor `GOOGLE_APPLICATION_CREDENTIALS` set, so
-     `is_firebase_available()` is `False` and *every* FCM send returns early at
-     `logger.debug` — no error, no log line, task succeeds. This is
-     platform-neutral: **Android push is equally dead.** `FIREBASE_PROJECT_ID`
-     *is* set, which is why it hides — that feeds the auth exchange's
-     projectId-only tier, so Firebase sign-in works while FCM does not. Confirm
-     with (these are file paths, not secrets):
+  ```text
+  [start] firebase: credentials materialized at ... -> FCM push ENABLED
+  [start] firebase: FIREBASE_CREDENTIALS_B64 unset -> FCM PUSH DISABLED ...
+  ```
 
-     ```bash
-     railway ssh --service plant_id_community -- sh -c \
-       'echo CRED=[${FIREBASE_CREDENTIALS_PATH:-UNSET}] GAC=[${GOOGLE_APPLICATION_CREDENTIALS:-UNSET}]'
-     # 2026-09-15 → CRED=[UNSET] GAC=[UNSET]   (confirmed in the container)
-     ```
+  Firebase **sign-in** keeps working without these credentials
+  (`FIREBASE_PROJECT_ID` alone suffices), so never infer push from auth.
 
-     Fixing it needs the service-account JSON **present in the container** — the
-     setting is a path, not the JSON — so a Railway volume or a baked file, plus
-     the env var pointing at it.
+  A one-off `railway ssh` shell does **not** inherit the exported path (only
+  `start.sh`'s children do). Prefix a manual probe with
+  `FIREBASE_CREDENTIALS_PATH=/tmp/firebase-service-account.json`, or
+  `get_fcm_client()` returns `None` and nothing is sent.
 
 - [ ] **Production build** tested
 
