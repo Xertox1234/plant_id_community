@@ -66,3 +66,76 @@ See the file references above, and todo 405's Work Log.
 
 The owner decided, during the endpoint triage, to wire this up rather than
 remove it.
+
+### 2026-09-23 - Implemented (branch fix/todo-408-unsubscribe-signed-token)
+
+**Reproduced first.** On origin/main, `GET /api/v1/auth/unsubscribe/?user=<uuid>`
+raised `TemplateDoesNotExist: users/unsubscribe_error.html`. `reverse("users:unsubscribe")`
+gave `/api/auth/unsubscribe/`, which resolves only through the legacy mount.
+
+**Two findings changed the design:**
+
+- The live reply email carried `type=forum_reply`, but the old POST branched only
+  on `all`, `plant_care` and `forum`. So even with templates in place,
+  `forum_reply` fell through to a `user.save()` that changed nothing and still
+  reported success.
+- The flags the old view flipped were the wrong ones. `User.forum_notifications`
+  also silences FCM push (`forum_host/tasks.py:194,317`), and no web UI can turn
+  `User.email_notifications` back on. The reply email is actually gated by
+  `ForumProfile.notification_preferences["reply"]["email"]`, which is the cell
+  the Settings grid edits (todo 343).
+
+**What was built:**
+
+- **`apps/users/email_unsubscribe.py`**: a `django.core.signing` token under
+  its own salt, holding `{u: user.uuid, l: list}`, with a 90-day max age.
+  - `read_token` raises `UnsubscribeTokenExpired` for an expired token.
+    Everything else raises `UnsubscribeTokenInvalid`: forged, other salt,
+    unknown list, or an inactive or deleted user.
+  - A `LISTS` registry has one list, `forum_reply`. It turns off the reply-email
+    matrix cell only, using the same `merge_preferences` the Settings PATCH
+    uses, under `select_for_update`.
+- **API:** `POST /api/v1/auth/unsubscribe/check/` (describes the link, changes
+  nothing) and `POST /api/v1/auth/unsubscribe/` (idempotent).
+  - The token is the only credential: `authentication_classes([])`, so a
+    signed-in session never chooses the target.
+  - Rate limited to 30/h per IP; GET returns 405; `?user=` is no longer read.
+  - An OpenAPI `extend_schema` is added, so spectacular has no new errors.
+- **Web:** a public `/unsubscribe?token=` page. Opening it changes nothing;
+  only the button acts. It covers the confirm, already-unsubscribed, done,
+  invalid, expired and error-with-retry states, and every state links to
+  `/settings`. The service sends `credentials: 'omit'`.
+- **Email:** `EmailService` adds `unsubscribe_url` only for types in
+  `UNSUBSCRIBE_LISTS` (a type with no list gets no link), plus a matching
+  RFC 2369 `List-Unsubscribe` header. `preferences_url` is now
+  `SITE_URL + "/settings"`, replacing the dead `#!/` fragment.
+- **`validate_environment()`:** a missing `SITE_URL` is now a critical error in
+  production, and `SITE_URL` is added to both services in `.railway/railway.ts`.
+
+**Production `SITE_URL`:**
+
+- Railway (checked by variable name only) had no `SITE_URL` on either service,
+  so every emailed link, both RSS feeds and the sitemap used the default
+  `https://plantcommunity.com`.
+- With the owner's approval, I set `SITE_URL=https://houseplant-md.com` on
+  `plant_id_community` (redeployed) and `forum-prune-cron` (`--skip-deploys`).
+  A script confirmed both are present and equal the intended value.
+
+**Mutation checks** (each file copied aside and restored from the copy; the
+restore was grep-confirmed). All 8 backend mutations were killed:
+
+- no `max_age`
+- signature skipped
+- salt kwarg dropped
+- inactive user accepted
+- unknown list accepted
+- check endpoint mutates
+- no link for `forum_reply`
+- no header
+
+A salt replaced with `''` first SURVIVED. That value differs from Django's
+default salt, so it was a bad mutant; the real drop was killed once the
+unsalted test case was added.
+
+Both web mutations were killed: the page unsubscribing on load failed 8 tests,
+and the service sending cookies failed as well.

@@ -110,5 +110,16 @@ urlpatterns = [
         email_preferences_views.ajax_update_preference,
         name="ajax_update_preference",
     ),
-    path("unsubscribe/", email_preferences_views.unsubscribe, name="unsubscribe"),
+    # Signed-link unsubscribe (todo 408) — the web app's /unsubscribe page
+    # calls these; email links are built by apps/users/email_unsubscribe.py.
+    path(
+        "unsubscribe/check/",
+        email_preferences_views.email_unsubscribe_check,
+        name="email_unsubscribe_check",
+    ),
+    path(
+        "unsubscribe/",
+        email_preferences_views.email_unsubscribe,
+        name="email_unsubscribe",
+    ),
 ]
