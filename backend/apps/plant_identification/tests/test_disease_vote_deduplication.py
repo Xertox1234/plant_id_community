@@ -16,7 +16,6 @@ from apps.plant_identification.models import (
 )
 from django.contrib.auth import get_user_model
 from django.test import TestCase
-from rest_framework.test import APIClient
 
 User = get_user_model()
 
@@ -34,8 +33,6 @@ class PlantDiseaseVoteDeduplicationTest(TestCase):
             email="other@example.com",
             password="pass123",  # pragma: allowlist secret
         )
-        self.client = APIClient()
-        self.client.force_authenticate(user=self.user)
 
         self.disease = PlantDiseaseDatabase.objects.create(
             disease_name="Powdery Mildew",
@@ -57,12 +54,6 @@ class PlantDiseaseVoteDeduplicationTest(TestCase):
             upvotes=0,
             downvotes=0,
         )
-        self.vote_url = (
-            f"/api/v1/plant-identification/disease-results/{self.result.pk}/vote/"
-        )
-
-    def _vote(self, vote_type):
-        return self.client.post(self.vote_url, {"vote_type": vote_type}, format="json")
 
     def test_different_users_can_hold_independent_votes(self):
         PlantDiseaseVote.objects.create(

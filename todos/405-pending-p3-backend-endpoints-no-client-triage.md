@@ -207,3 +207,20 @@ slice, behind the production row-count gate.
 - `spectacular --validate` exits 0. Its pre-existing errors fell from 212
   (49 unique) to 176 (41 unique), because the removed routes carried some of
   them.
+
+**Slice 2 review (bundled /code-review): 0 blocking.**
+
+- Leftovers fixed in the PR: the dead vote-URL helper and `APIClient` setup in
+  `test_disease_vote_deduplication.py`, and the empty section header at the
+  end of `views.py`.
+- Carried to slice 3:
+  - Stale docs still name removed routes:
+    `backend/docs/API_DOCUMENTATION_IMPLEMENTATION.md:216` (`/api/auth/token/`),
+    and the mobile `api_service.dart:254` and `services/README.md:49`
+    (`/plant-identification/species/`).
+  - `PlantSpecies.get_absolute_url` (`models.py:234`) already raised
+    NoReverseMatch before this slice: it reverses `species_detail`, a name that
+    never existed.
+  - `plant_care_reminder_service.py:390` links to
+    `/profile/care-instructions/<uuid>/`, whose API this slice removed. Revisit
+    it with todo 410 (care reminders).

@@ -186,8 +186,3 @@ class PlantDiseaseRequestViewSet(viewsets.ModelViewSet):
 
         except ValueError:
             return Response({"error": "Invalid request ID format"}, status=400)
-
-
-# =============================================================================
-# Local Database Search API Endpoints
-# =============================================================================
