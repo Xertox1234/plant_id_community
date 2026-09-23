@@ -568,17 +568,40 @@ deleted the local file. The resulting deploy (`4f207de4`, 2026-09-23 00:21 UTC):
 celery@7e6cb79b4983 ready.
 ```
 
-**Token inventory** (operator-run `railway ssh`, read-only): exactly one
-`ForumProfile` carries an `fcm_token` — pk 1, the operator's account. The
-operator confirms it was registered by the **TestFlight** install, which is
-what AC4 requires (a Debug/Profile-registered token is bound to the development
-APNs environment and would prove only the plumbing).
+**First attempt was a false positive, recorded so nobody repeats it.** The
+first send ran in a `railway ssh` shell and was reported as "received". It
+could not have sent anything. `bin/start.sh` exports `FIREBASE_CREDENTIALS_PATH`
+only into the gunicorn and Celery processes it forks, and a `railway ssh`
+session is a new shell in the same container that never ran `start.sh`. So
+`get_fcm_client()` returned `None` (`[FIREBASE] No credentials path
+configured`, then `AttributeError: 'NoneType' object has no attribute
+'send_each'`). The todo was briefly closed on that report (PR #785, auto-merge
+armed). The PR was stopped before merge when the operator said nothing had
+arrived. **Rule: a push AC closes on the probe's printed result (`True
+projects/.../messages/...`) PLUS the device, never on the device report
+alone.**
 
-**The push.** Sent to pk 1 only, calling `messaging.send_each` directly rather
-than `FirebaseNotificationService.send_test_notification`, because that helper
-catches every exception into a log line and returns `False` — it would have
-hidden the one error code (`THIRD_PARTY_AUTH_ERROR`) this probe exists to read.
-The notification (title `286`) **arrived on the device.**
+**The real run.** The operator reinstalled TestFlight build 12, signed in and
+allowed notifications. The registered token changed `fJ4iax8s3kPZ…` →
+`fQ7OW-DwD0g5…`, which proves the fresh TestFlight install registered it (the
+only `ForumProfile` with a token: pk 1, the operator). The send was then run
+with the credentials path supplied explicitly, since the file already exists in
+the container:
+
+```bash
+railway ssh --service plant_id_community -- bash -lc 'cd /app && \
+  FIREBASE_CREDENTIALS_PATH=/tmp/firebase-service-account.json \
+  python manage.py shell -c "...m.send_each([m.Message(..., token=p.fcm_token)])..."'
+[FIREBASE] ✅ Firebase Admin SDK initialized successfully
+>>> fQ7OW-DwD0g5 True projects/plant-community-prod/messages/64c72709-05aa-4fe9-a71c-b4ab7b414936 None
+```
+
+The notification (title `286`) **arrived on the locked device**, confirmed by
+the operator, 2026-09-23 00:41 UTC. `messaging.send_each` was called directly
+rather than `FirebaseNotificationService.send_test_notification`, because that
+helper catches every exception into a log line and returns `False`. It would
+have hidden the one error code (`THIRD_PARTY_AUTH_ERROR`) this probe exists to
+read.
 
 What that one delivery proves, and why it closes three ACs:
 

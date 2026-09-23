@@ -685,6 +685,11 @@ service firebase.storage {
   Firebase **sign-in** keeps working without these credentials
   (`FIREBASE_PROJECT_ID` alone suffices), so never infer push from auth.
 
+  A one-off `railway ssh` shell does **not** inherit the exported path (only
+  `start.sh`'s children do). Prefix a manual probe with
+  `FIREBASE_CREDENTIALS_PATH=/tmp/firebase-service-account.json`, or
+  `get_fcm_client()` returns `None` and nothing is sent.
+
 - [ ] **Production build** tested
 
   ```bash
