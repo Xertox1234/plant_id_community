@@ -62,12 +62,11 @@ describe('HomePage', () => {
     vi.mocked(forumService.fetchRecentTopics).mockResolvedValue([recentTopic]);
   });
 
-  it('renders the hero headline and CTA links, not a GrainOverlay or ClayButton', () => {
+  it('renders the hero headline and CTA links', () => {
     renderHome();
     expect(
       screen.getByRole('heading', { level: 2, name: /discover the world of plants/i })
     ).toBeInTheDocument();
-    expect(screen.queryByTestId('grain-overlay')).not.toBeInTheDocument();
     expect(screen.getByRole('heading', { level: 1, name: 'Home' })).toHaveClass('sr-only');
 
     const getStarted = screen.getByRole('link', { name: /get started/i });

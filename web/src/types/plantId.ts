@@ -103,18 +103,6 @@ export interface PaginatedUserPlants {
 }
 
 /**
- * Plant identification history item
- */
-export interface IdentificationHistoryItem {
-  id: string;
-  plant_name: string;
-  confidence: number;
-  image_url?: string;
-  created_at: string;
-  source: string;
-}
-
-/**
  * Input data for saving plant to collection
  */
 export interface SavePlantInput {

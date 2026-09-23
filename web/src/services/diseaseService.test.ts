@@ -67,7 +67,7 @@ describe('diseaseService', () => {
     expect(res.request_id).toBe('req-1');
     const [url, opts] = fetchMock.mock.calls[0];
     expect(url).toContain('/api/v1/plant-identification/disease-requests/req-1/results/');
-    expect(opts.headers['X-CSRFToken']).toBe('test-csrf-token'); // CSRF on GET, like plantIdService.getHistory
+    expect(opts.headers['X-CSRFToken']).toBe('test-csrf-token'); // CSRF on GET
     expect(opts.credentials).toBe('include');
   });
 
