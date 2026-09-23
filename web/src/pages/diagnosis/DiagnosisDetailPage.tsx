@@ -459,7 +459,7 @@ export default function DiagnosisDetailPage() {
           <h2 className="text-xl font-semibold text-ink mb-6">Care Instructions</h2>
 
           {card.care_instructions && card.care_instructions.length > 0 ? (
-            <div className="prose prose-green max-w-none">
+            <div className="max-w-none">
               {card.care_instructions.map((block, index) => (
                 <StreamFieldBlock key={index} block={block as DiagnosisBlock} />
               ))}

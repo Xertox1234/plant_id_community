@@ -1,4 +1,7 @@
 @import 'tailwindcss';
+/* scripts/check-tailwind-classes.mjs names utilities in its comments; scanning
+   it would compile them into the bundle (todo 399). */
+@source not '../scripts';
 
 @font-face {
   font-family: 'Bricolage Grotesque';

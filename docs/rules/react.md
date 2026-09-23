@@ -286,9 +286,10 @@ Compact checklist auto-injected before edits. Long-form:
   form you use: Tailwind emits only the variant forms source contains, with the
   colon escaped, so `focus:ring-primary` is `.focus\:ring-primary` and a bare
   `grep '\.ring-primary'` finds nothing even though it compiles (todo 396 was
-  filed on that false negative). `npm run build && grep -F '.focus\:ring-primary'
-  dist/assets/*.css`. Prefer an existing token (`--radius-*`, `--color-*`) over
-  a plausible-sounding new name (todo 374: `rounded-card` shipped square corners
+  filed on that false negative). `npm run check:classes` does this for every
+  class token in `src/` and runs in CI (todo 399); for one class, `npm run build
+  && grep -F '.focus\:ring-primary' dist/assets/*.css`. Prefer an existing token
+  (`--radius-*`, `--color-*`) over a plausible-sounding new name (todo 374: `rounded-card` shipped square corners
   on three elements). A `ring-<color>` sets only the colour: without a width
   (`ring-2`) it draws nothing.
 - **A dialog rendered permanently and gated by `open` is never unmounted, so its

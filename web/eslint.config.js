@@ -103,6 +103,17 @@ export default defineConfig([
       'no-console': 'off',
     },
   },
+  // Node build scripts (todo 399). Without this block a .mjs file matches no
+  // config and is not linted at all.
+  {
+    files: ['scripts/**/*.mjs'],
+    extends: [js.configs.recommended],
+    languageOptions: {
+      ecmaVersion: 'latest',
+      sourceType: 'module',
+      globals: globals.node,
+    },
+  },
   // Allow console in logger.js/ts only (implements the logger infrastructure)
   // All other files must use structured logger (import { logger } from '../utils/logger')
   {

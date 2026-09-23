@@ -40,7 +40,7 @@ export default function LinkPreviewCard({ preview }: LinkPreviewCardProps) {
         href={href}
         target="_blank"
         rel="noopener noreferrer"
-        className="forum-link-preview-card block overflow-hidden rounded-sm border border-line-2 bg-surface-2 text-ink transition-colors hover:bg-surface-3 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-secondary"
+        className="block overflow-hidden rounded-sm border border-line-2 bg-surface-2 text-ink transition-colors hover:bg-surface-3 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-secondary"
         data-testid="forum-link-preview"
       >
         {showImage && (

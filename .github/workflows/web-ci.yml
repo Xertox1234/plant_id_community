@@ -51,6 +51,13 @@ jobs:
         # --run forces a single pass (Vitest defaults to watch mode interactively).
         run: npm run test -- --run
 
+      - name: Build, then check class names against the built CSS
+        # Tailwind 4 emits nothing for a class name it does not recognise, so an
+        # invented utility (todo 374's `rounded-card`) ships as a silently
+        # missing style. `check:classes` runs `vite build` (tsc already ran
+        # above) and fails on any class token the bundle does not define.
+        run: npm run check:classes
+
       # Playwright E2E is intentionally NOT run here. web/playwright.config.ts
       # defines a webServer block that auto-starts the Vite dev server, and the
       # specs exercise the live backend API (see web/CLAUDE.md). Wiring that into

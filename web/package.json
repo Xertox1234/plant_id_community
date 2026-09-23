@@ -7,6 +7,7 @@
     "dev": "vite",
     "build": "npm run type-check && vite build",
     "lint": "eslint .",
+    "check:classes": "vite build && node scripts/check-tailwind-classes.mjs",
     "format": "prettier --write .",
     "type-check": "tsc --noEmit",
     "preview": "vite preview",
