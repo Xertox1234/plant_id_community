@@ -407,11 +407,18 @@ class _EmbedCard extends StatelessWidget {
       size: 32,
       color: theme.colorScheme.onSurfaceVariant,
     );
+    final onOpenLink = this.onOpenLink;
+    final onTap = onOpenLink == null || url.isEmpty
+        ? null
+        : () => onOpenLink(url);
     return Semantics(
       label: providerName.isNotEmpty
           ? '$providerName video: $label'
           : 'Video: $label',
-      button: onOpenLink != null,
+      button: onTap != null,
+      // excludeSemantics drops the InkWell's own tap action, so the node
+      // must carry it or a screen reader's double-tap does nothing.
+      onTap: onTap,
       // The composed label already says everything the two Text children
       // say; without this a screen reader announces the title twice.
       excludeSemantics: true,
@@ -420,9 +427,7 @@ class _EmbedCard extends StatelessWidget {
         borderRadius: BorderRadius.circular(AppSpacing.rXs),
         child: InkWell(
           borderRadius: BorderRadius.circular(AppSpacing.rXs),
-          onTap: onOpenLink == null || url.isEmpty
-              ? null
-              : () => onOpenLink!(url),
+          onTap: onTap,
           child: Padding(
             padding: const EdgeInsets.all(AppSpacing.sm),
             child: Row(

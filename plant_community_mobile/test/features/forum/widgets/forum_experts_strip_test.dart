@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/semantics.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:plant_community_mobile/features/forum/models/models.dart';
 import 'package:plant_community_mobile/features/forum/widgets/forum_experts_strip.dart';
@@ -44,6 +45,28 @@ void main() {
       await tester.tap(find.text('sage'));
       await tester.pump();
       expect(tapped?.author.username, 'sage');
+    });
+
+    testWidgets('a screen reader can open a member: it carries a tap action', (
+      tester,
+    ) async {
+      final handle = tester.ensureSemantics();
+      ForumExpert? tapped;
+      await _pump(
+        tester,
+        ForumExpertsStrip(
+          experts: [expert(username: 'sage', online: true)],
+          onTap: (e) => tapped = e,
+        ),
+      );
+
+      final node = tester.getSemantics(find.bySemanticsLabel('sage, online'));
+      expect(node.getSemanticsData().hasAction(SemanticsAction.tap), isTrue);
+
+      node.owner!.performAction(node.id, SemanticsAction.tap);
+      await tester.pump();
+      expect(tapped?.author.username, 'sage');
+      handle.dispose();
     });
 
     testWidgets('renders nothing for an empty list', (tester) async {

@@ -1,5 +1,6 @@
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/semantics.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:plant_community_mobile/features/forum/models/models.dart';
@@ -123,6 +124,53 @@ void main() {
       expect(opened, ['https://youtu.be/dQw4w9WgXcQ']);
     },
   );
+
+  testWidgets(
+    'a screen reader can open an embed card: it carries a tap action',
+    (tester) async {
+      final handle = tester.ensureSemantics();
+      final opened = <String>[];
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: ForumBodyRenderer(const [
+              EmbedBlock(url: 'https://youtu.be/dQw4w9WgXcQ', title: 'T'),
+            ], onOpenLink: opened.add),
+          ),
+        ),
+      );
+
+      final node = tester.getSemantics(find.bySemanticsLabel(RegExp(r': T$')));
+      expect(node.getSemanticsData().hasAction(SemanticsAction.tap), isTrue);
+
+      node.owner!.performAction(node.id, SemanticsAction.tap);
+      await tester.pump();
+      expect(opened, ['https://youtu.be/dQw4w9WgXcQ']);
+      handle.dispose();
+    },
+  );
+
+  testWidgets('an embed card with no URL is not announced as a button', (
+    tester,
+  ) async {
+    final handle = tester.ensureSemantics();
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: ForumBodyRenderer(const [
+            EmbedBlock(url: '', title: 'T'),
+          ], onOpenLink: (_) {}),
+        ),
+      ),
+    );
+
+    final data = tester
+        .getSemantics(find.bySemanticsLabel(RegExp(r': T$')))
+        .getSemanticsData();
+    expect(data.flagsCollection.isButton, isFalse);
+    expect(data.hasAction(SemanticsAction.tap), isFalse);
+    handle.dispose();
+  });
 
   testWidgets('a blank embed envelope renders the unavailable placeholder', (
     tester,
