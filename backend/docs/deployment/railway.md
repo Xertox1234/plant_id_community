@@ -46,9 +46,21 @@ railway config plan          # read-only; shows the diff against production
 railway config apply         # writes the service settings after confirmation
 ```
 
-**Merging a change to `.railway/railway.ts` changes nothing in production
-until someone applies it.** Run `plan` after merging; "already up to date"
-means the file and prod agree.
+**CI applies it on merge.** A PR that touches `.railway/` gets a plan
+comment from `.github/workflows/railway-plan.yml`, and merging it runs
+`railway-apply.yml`, which applies exactly that pinned plan. Both need the
+`RAILWAY_TOKEN` secret (a Railway project token for `production`) and fail
+loudly without it. Three cases still need a human:
+
+- **Destructive plans fail on purpose** (`confirm-destructive: false`). Apply
+  a deletion by hand after reading the plan.
+- **Drift fails the apply.** A dashboard edit or another apply since the plan
+  changes the environment's `configEtag`. Re-push the PR to re-plan.
+- **An apply updates settings only.** Each service picks them up on its next
+  deployment.
+
+Running `railway config plan` locally stays safe at any time; "already up to
+date" means the file and prod agree.
 
 Rules the file has taught us:
 

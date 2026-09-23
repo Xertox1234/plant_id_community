@@ -1,0 +1,56 @@
+name: Railway apply
+
+# Applies the plan that railway-plan.yml pinned for the merged PR. It never
+# re-evaluates railway.ts. It fails, and you re-plan, if:
+#   - production drifted since the plan (dashboard edit, another apply): the
+#     configEtag no longer matches;
+#   - the merged .railway/ tree differs from the planned one (base moved);
+#   - the commit reached main without a PR, so there is no pinned plan.
+#
+# confirm-destructive: false is deliberate. The action's default (true) makes
+# merging the approval for deletions, and railway.ts plans a DESTROY for any
+# resource missing from the file. One dropped `postgres(...)` line would then
+# delete the production database on merge. With false, a destructive plan
+# FAILS here; do deletions by hand with `railway config apply`.
+#
+# A successful apply updates service settings only. Settings take effect on
+# each service's next deployment.
+#
+# AUTH and why this is not a required check: see railway-plan.yml.
+
+'on':
+  push:
+    branches: [main]
+    paths:
+      - '.railway/**'
+
+# pull-requests: read lets the action find which merged PR the pushed commit
+# came from, and actions: read lets it download that PR's pinned plan.
+permissions:
+  contents: read
+  actions: read
+  pull-requests: read
+
+# Never run two applies against production at once.
+concurrency:
+  group: railway-apply-production
+  cancel-in-progress: false
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require RAILWAY_TOKEN
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+        run: |
+          if [ -z "$RAILWAY_TOKEN" ]; then
+            echo "::error::RAILWAY_TOKEN secret is not set — the merged .railway/railway.ts was NOT applied to production"
+            exit 1
+          fi
+      - uses: actions/checkout@v5
+      - uses: railwayapp/config@v1
+        with:
+          command: apply
+          railway-token: ${{ secrets.RAILWAY_TOKEN }}
+          confirm-destructive: false

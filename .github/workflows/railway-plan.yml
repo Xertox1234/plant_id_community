@@ -1,0 +1,55 @@
+name: Railway plan
+
+# Plans .railway/railway.ts against production on every PR that touches it,
+# posts the diff as a PR comment, and pins the plan as an artifact. The
+# companion railway-apply.yml applies exactly that pinned plan once the PR
+# merges.
+#
+# Why: Railway never reads .railway/ at deploy time. Before this workflow, a
+# merged railway.ts edit changed NOTHING in production until someone ran
+# `railway config apply` by hand (todo 397). That is the same silent gap the
+# Firebase rules drift check exists for: the repo says one thing and prod
+# does another.
+#
+# READ EVERY `-` LINE OF THE PLAN COMMENT. railway.ts describes the whole
+# project (Postgres, Redis, both volumes, both services). Anything missing from
+# the file is planned as a DESTROY. railway-apply.yml refuses destructive
+# applies (confirm-destructive: false), so a destroy needs a deliberate manual
+# `railway config apply` from a laptop.
+#
+# NOT a required status check: it needs the RAILWAY_TOKEN secret, and a
+# required check that cannot run deadlocks every PR (see harness-ci.yml).
+#
+# AUTH: RAILWAY_TOKEN repository secret, a Railway PROJECT token scoped to the
+# `production` environment (Railway dashboard → Project Settings → Tokens).
+# If it is unset the job FAILS rather than skipping: a plan that quietly
+# passes when it cannot look is worse than none.
+
+'on':
+  pull_request:
+    paths:
+      - '.railway/**'
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  plan:
+    # Fork PRs get no secrets; skip them rather than fail.
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require RAILWAY_TOKEN
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+        run: |
+          if [ -z "$RAILWAY_TOKEN" ]; then
+            echo "::error::RAILWAY_TOKEN secret is not set — cannot plan .railway/railway.ts"
+            exit 1
+          fi
+      - uses: actions/checkout@v5
+      - uses: railwayapp/config@v1
+        with:
+          command: plan
+          railway-token: ${{ secrets.RAILWAY_TOKEN }}
