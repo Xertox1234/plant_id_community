@@ -1,3 +1,7 @@
+> **Retired 2026-09-23 (todo 405).** The `apps.garden` backend this plan
+> produced was removed: an outdoor garden planner no longer fits Houseplant MD,
+> and no client ever called it. Kept for history only.
+
 # Garden Planner Feature - Implementation Plan (4-6 weeks)
 
 ## Overview

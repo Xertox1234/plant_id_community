@@ -173,7 +173,7 @@ def send_forum_push(self, event: str, recipient_user_id: int, data: dict):
         data: dict of string key/value pairs to include in the FCM data payload.
               All values are coerced to strings (FCM requirement).
     """
-    from apps.garden.firebase_config import get_fcm_client, is_firebase_available
+    from apps.core.firebase_config import get_fcm_client, is_firebase_available
     from django.contrib.auth import get_user_model
     from wagtail_forum.models import ForumProfile
 
@@ -285,7 +285,7 @@ def send_forum_push_batch(event: str, recipient_user_ids: list[int], data: dict)
         recipient_user_ids: pks of the Users to notify.
         data: FCM data payload (values coerced to str).
     """
-    from apps.garden.firebase_config import get_fcm_client, is_firebase_available
+    from apps.core.firebase_config import get_fcm_client, is_firebase_available
     from wagtail_forum.models import ForumProfile
 
     if not recipient_user_ids:

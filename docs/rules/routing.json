@@ -10,7 +10,7 @@
     "  - mode 'fallback': applied ONLY if no domain has been collected YET at this",
     "    position. A fallback must stay BELOW the additive rules it defers to, and",
     "    additive rules placed AFTER a fallback still stack on top of it. This is why",
-    "    e.g. backend/apps/garden/firebase_config.py resolves to",
+    "    e.g. backend/apps/core/firebase_config.py resolves to",
     "    api,security,database (backend/*.py fallback) + firebase,security (stacked).",
     "    Reordering changes behavior \u2014 see test-inject-patterns.sh firebase regression.",
     "",

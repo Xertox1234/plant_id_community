@@ -27,8 +27,8 @@ def test_send_forum_push_sends_when_token_present():
     mock_fcm.send.return_value = "projects/x/messages/1"
 
     with patch(
-        "apps.garden.firebase_config.is_firebase_available", return_value=True
-    ), patch("apps.garden.firebase_config.get_fcm_client", return_value=mock_fcm):
+        "apps.core.firebase_config.is_firebase_available", return_value=True
+    ), patch("apps.core.firebase_config.get_fcm_client", return_value=mock_fcm):
         from apps.forum_host.tasks import send_forum_push
 
         send_forum_push(
@@ -72,8 +72,8 @@ def test_send_forum_push_skips_when_no_token():
 
     mock_fcm = MagicMock()
     with patch(
-        "apps.garden.firebase_config.is_firebase_available", return_value=True
-    ), patch("apps.garden.firebase_config.get_fcm_client", return_value=mock_fcm):
+        "apps.core.firebase_config.is_firebase_available", return_value=True
+    ), patch("apps.core.firebase_config.get_fcm_client", return_value=mock_fcm):
         from apps.forum_host.tasks import send_forum_push
 
         send_forum_push("reply_added", user.pk, {"topic_id": "1"})
@@ -90,8 +90,8 @@ def test_send_forum_push_skips_when_firebase_unavailable():
 
     mock_fcm = MagicMock()
     with patch(
-        "apps.garden.firebase_config.is_firebase_available", return_value=False
-    ), patch("apps.garden.firebase_config.get_fcm_client", return_value=mock_fcm):
+        "apps.core.firebase_config.is_firebase_available", return_value=False
+    ), patch("apps.core.firebase_config.get_fcm_client", return_value=mock_fcm):
         from apps.forum_host.tasks import send_forum_push
 
         send_forum_push("reply_added", user.pk, {"topic_id": "1"})
@@ -110,8 +110,8 @@ def test_send_forum_push_skips_when_forum_notifications_off():
 
     mock_fcm = MagicMock()
     with patch(
-        "apps.garden.firebase_config.is_firebase_available", return_value=True
-    ), patch("apps.garden.firebase_config.get_fcm_client", return_value=mock_fcm):
+        "apps.core.firebase_config.is_firebase_available", return_value=True
+    ), patch("apps.core.firebase_config.get_fcm_client", return_value=mock_fcm):
         from apps.forum_host.tasks import send_forum_push
 
         send_forum_push("reply_added", user.pk, {"topic_id": "1"})
@@ -123,8 +123,8 @@ def test_send_forum_push_skips_when_forum_notifications_off():
 def test_send_forum_push_skips_for_nonexistent_user():
     mock_fcm = MagicMock()
     with patch(
-        "apps.garden.firebase_config.is_firebase_available", return_value=True
-    ), patch("apps.garden.firebase_config.get_fcm_client", return_value=mock_fcm):
+        "apps.core.firebase_config.is_firebase_available", return_value=True
+    ), patch("apps.core.firebase_config.get_fcm_client", return_value=mock_fcm):
         from apps.forum_host.tasks import send_forum_push
 
         send_forum_push("reply_added", 999999, {"topic_id": "1"})
@@ -143,8 +143,8 @@ def test_send_forum_push_all_data_values_coerced_to_str():
     mock_fcm.send.return_value = "ok"
 
     with patch(
-        "apps.garden.firebase_config.is_firebase_available", return_value=True
-    ), patch("apps.garden.firebase_config.get_fcm_client", return_value=mock_fcm):
+        "apps.core.firebase_config.is_firebase_available", return_value=True
+    ), patch("apps.core.firebase_config.get_fcm_client", return_value=mock_fcm):
         from apps.forum_host.tasks import send_forum_push
 
         send_forum_push(
@@ -254,8 +254,8 @@ def test_send_forum_push_does_not_retry_permanent_fcm_errors(exc):
     mock_fcm.send.side_effect = exc
 
     with patch(
-        "apps.garden.firebase_config.is_firebase_available", return_value=True
-    ), patch("apps.garden.firebase_config.get_fcm_client", return_value=mock_fcm):
+        "apps.core.firebase_config.is_firebase_available", return_value=True
+    ), patch("apps.core.firebase_config.get_fcm_client", return_value=mock_fcm):
         from apps.forum_host.tasks import send_forum_push
 
         # Must complete without raising (no Retry, no exception).
@@ -281,8 +281,8 @@ def test_send_forum_push_retries_transient_errors_until_exhausted():
     mock_fcm.send.side_effect = fb_exceptions.UnavailableError("FCM backend down")
 
     with patch(
-        "apps.garden.firebase_config.is_firebase_available", return_value=True
-    ), patch("apps.garden.firebase_config.get_fcm_client", return_value=mock_fcm):
+        "apps.core.firebase_config.is_firebase_available", return_value=True
+    ), patch("apps.core.firebase_config.get_fcm_client", return_value=mock_fcm):
         from apps.forum_host.tasks import send_forum_push
 
         result = send_forum_push.apply(args=("reply_added", user.pk, {"topic_id": "1"}))
@@ -315,9 +315,9 @@ def test_send_forum_push_backoff_countdown_values(prior_retries, expected_countd
     mock_fcm.send.side_effect = fb_exceptions.UnavailableError("FCM backend down")
 
     with patch(
-        "apps.garden.firebase_config.is_firebase_available", return_value=True
+        "apps.core.firebase_config.is_firebase_available", return_value=True
     ), patch(
-        "apps.garden.firebase_config.get_fcm_client", return_value=mock_fcm
+        "apps.core.firebase_config.get_fcm_client", return_value=mock_fcm
     ), patch.object(
         send_forum_push, "retry", side_effect=Retry("retried")
     ) as mock_retry:
@@ -599,8 +599,8 @@ def test_send_forum_push_batch_sends_to_each_recipient_from_one_bulk_fetch():
         mock_fcm.send.return_value = "ok"
 
         with patch(
-            "apps.garden.firebase_config.is_firebase_available", return_value=True
-        ), patch("apps.garden.firebase_config.get_fcm_client", return_value=mock_fcm):
+            "apps.core.firebase_config.is_firebase_available", return_value=True
+        ), patch("apps.core.firebase_config.get_fcm_client", return_value=mock_fcm):
             from apps.forum_host.tasks import send_forum_push_batch
 
             with CaptureQueriesContext(connection) as ctx:
@@ -642,8 +642,8 @@ def test_send_forum_push_batch_skips_recipients_without_token():
     mock_fcm.send.return_value = "ok"
 
     with patch(
-        "apps.garden.firebase_config.is_firebase_available", return_value=True
-    ), patch("apps.garden.firebase_config.get_fcm_client", return_value=mock_fcm):
+        "apps.core.firebase_config.is_firebase_available", return_value=True
+    ), patch("apps.core.firebase_config.get_fcm_client", return_value=mock_fcm):
         from apps.forum_host.tasks import send_forum_push_batch
 
         send_forum_push_batch(
@@ -675,8 +675,8 @@ def test_send_forum_push_batch_skips_forum_notifications_off_recipients():
     mock_fcm.send.return_value = "ok"
 
     with patch(
-        "apps.garden.firebase_config.is_firebase_available", return_value=True
-    ), patch("apps.garden.firebase_config.get_fcm_client", return_value=mock_fcm):
+        "apps.core.firebase_config.is_firebase_available", return_value=True
+    ), patch("apps.core.firebase_config.get_fcm_client", return_value=mock_fcm):
         from apps.forum_host.tasks import send_forum_push_batch
 
         send_forum_push_batch(
@@ -707,10 +707,8 @@ def test_send_forum_push_batch_re_enqueues_single_on_transient_error():
     mock_fcm.send.side_effect = fb_exceptions.UnavailableError("FCM backend down")
 
     with patch(
-        "apps.garden.firebase_config.is_firebase_available", return_value=True
-    ), patch(
-        "apps.garden.firebase_config.get_fcm_client", return_value=mock_fcm
-    ), patch(
+        "apps.core.firebase_config.is_firebase_available", return_value=True
+    ), patch("apps.core.firebase_config.get_fcm_client", return_value=mock_fcm), patch(
         "apps.forum_host.tasks.send_forum_push.delay"
     ) as mock_single:
         from apps.forum_host.tasks import send_forum_push_batch
@@ -736,10 +734,8 @@ def test_send_forum_push_batch_does_not_re_enqueue_on_permanent_error(exc):
     mock_fcm.send.side_effect = exc
 
     with patch(
-        "apps.garden.firebase_config.is_firebase_available", return_value=True
-    ), patch(
-        "apps.garden.firebase_config.get_fcm_client", return_value=mock_fcm
-    ), patch(
+        "apps.core.firebase_config.is_firebase_available", return_value=True
+    ), patch("apps.core.firebase_config.get_fcm_client", return_value=mock_fcm), patch(
         "apps.forum_host.tasks.send_forum_push.delay"
     ) as mock_single:
         from apps.forum_host.tasks import send_forum_push_batch
@@ -800,9 +796,9 @@ def test_push_batch_autoretry_countdown_is_exponential_from_the_retry_delay(
     from django.db import OperationalError
 
     with patch(
-        "apps.garden.firebase_config.is_firebase_available", return_value=True
+        "apps.core.firebase_config.is_firebase_available", return_value=True
     ), patch(
-        "apps.garden.firebase_config.get_fcm_client", return_value=MagicMock()
+        "apps.core.firebase_config.get_fcm_client", return_value=MagicMock()
     ), patch.object(
         ForumProfile.objects, "filter", side_effect=OperationalError("db down")
     ), patch(

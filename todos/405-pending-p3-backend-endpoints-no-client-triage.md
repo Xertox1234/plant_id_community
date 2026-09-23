@@ -74,8 +74,9 @@ paths without `v1`/`v2` before removing it.
 
 ## Acceptance Criteria
 
-- [ ] Every family listed above has a recorded decision (wire up, mobile
-      roadmap, or remove) with a reason.
+- [x] Every family listed above has a recorded decision (wire up, mobile
+      roadmap, or remove) with a reason. See the 2026-09-23 decision table
+      in the Work Log (owner decisions; the evidence is quoted per row).
 - [ ] The legacy unversioned `/api/` mount is removed, or kept with evidence
       of a live caller.
 - [ ] The "Mobile (Flutter)" preview mode is either made to work or removed
@@ -86,3 +87,73 @@ paths without `v1`/`v2` before removing it.
 ### 2026-09-23 - Filed from the web dead-code audit (L13, L14)
 
 This is a product triage, so it could not be fixed inside a web dead-code PR.
+
+### 2026-09-23 - Evidence gathered; owner decisions recorded
+
+Evidence came from three research agents (route walk with `get_resolver()`,
+client grep, git history, roadmap docs) plus one adversarial verifier. The
+verifier ran probes against a test DB with Trefle and OpenAI patched, and it
+confirmed every plant-ID/CMS claim, several of them as worse than first
+reported.
+
+**Owner decisions (2026-09-23):**
+
+| Family | Decision | Reason / evidence |
+|---|---|---|
+| `apps.garden` (outdoor garden planner) | **REMOVE the whole app** | Off-brand for Houseplant MD (owner). No client, no API tests, no feature work since 2025-11. Its FCM bootstrap moves to `apps/core/firebase_config.py`. Production row count 2026-09-23 (`railway ssh --service plant_id_community`, `m.objects.count()` per model): **9 tables, 0 rows each**. |
+| `apps.garden_calendar` | **KEEP** | "Still fairly useful" (owner). Mobile's client is todo 386. The Houseplant MD scope may trim beds, harvests and weather. |
+| Plant ID v1 dead groups; Plant CMS v2 | **Owner asked for a thorough check first.** Every claim verified; removal plan below. | Verifier: `search_external` served 150/150 anonymous calls with no limit (every one hit Trefle). The other Trefle endpoints give anonymous callers the *authenticated* tier (~1000/h). `process_now` re-runs a paid diagnosis with no limit. The Wagtail plant `@action`s all resolve to `wagtail_serve`, so they 404. The demo seeder is broken three ways. |
+| `/api/auth/token/` + `token/verify/` (SimpleJWT) | **REMOVE (security)** | A password grant with no rate limit and no lockout check. Nothing calls it. |
+| Email unsubscribe / preferences | **Build properly** (owner) | Signed token and real templates. Today the templates are missing (500), it takes an unsigned `?user=<uuid>`, and `SITE_URL` may point at the wrong domain. |
+| Blog newsletter | **Wire up** (owner) | Must add double opt-in and rate limits first: anyone can subscribe or unsubscribe any email today, and it leaks who is subscribed. No sender exists yet. |
+| `me/care-reminders`, `me/dashboard-stats`, `me/onboarding`, `me/push-notifications` | **Wire up** (owner) | Each becomes its own feature todo. |
+| Forum AI `summary/` | **Wire up** (web button) | Finished and tested; the only premium AI feature with no UI. |
+| Forum AI `similar/` | **KEEP dark** | It waits on `FORUM_VECTOR_SEARCH_ENABLED` and a built index. |
+| Blog v2 extras | **KEEP** for the mobile blog (todo 385) | The owner already decided this in todo 307. |
+| Legacy unversioned `/api/` mount | **REMOVE** | No HTTP caller (299 duplicate routes). It is load-bearing only through root URL namespaces: `users:unsubscribe`, `users:oauth_callback`, `blog_api:*`. Those must move to `v1:` first. |
+| `preview_modes` "Mobile (Flutter)" | **REMOVE** | The library never passes `mode`. There is no `plantid://` scheme on either platform. |
+
+**Slice 1 (this PR): garden app removed.** Contents:
+
+- `firebase_config.py` and its test moved to `apps/core`, with 55 references
+  updated. The new path routes to the same inject domains.
+- `apps.garden` removed from `INSTALLED_APPS` and from both URL mounts, and
+  its package deleted.
+- `apps/core/migrations/0003_drop_garden_tables.py`: `DROP TABLE IF EXISTS`
+  child-first, no CASCADE; content types removed through the ORM so
+  permissions cascade; the `django_migrations` rows deleted.
+
+Proof on a scratch Postgres DB:
+
+- Migrating with the pre-removal code created 9 garden tables, 9 content
+  types, 36 permissions and 1 migration row.
+- Migrating the same DB with this branch applied `core.0003` and left 0 of
+  each. The 11 `garden_calendar_*` tables are untouched.
+
+**Remaining slices of this todo (removals only; each wire-up is its own todo):**
+
+- **Slice 2 (security, next):**
+  - Remove SimpleJWT `api/auth/token/` and `token/verify/`.
+  - Remove the dead Plant ID v1 groups: `species/*` including
+    `search_external`; `characteristics`, `growth-info`, `search/*` and
+    `enrich-plant-data` (the Trefle proxies); `results/*` and
+    `regenerate-care`; `care-instructions`, `saved-care-instructions`,
+    `disease-results`, `disease-database`, `saved-diagnoses` and
+    `treatment-attempts`.
+  - Rate-limit `disease-requests/<id>/process_now/`.
+  - Remove the dead preview mode.
+  - Keep every live model named in the verifier's claim 7.
+- **Slice 3:** remove the Plant CMS v2 endpoints and their models:
+  PlantCategory, PlantCareGuide, PlantSpeciesPage, PlantCategoryIndexPage and
+  PlantCareBlocks. Take a production page/snippet row count first (the
+  garden-style gate), and handle PlantCareGuide's blog references and the
+  migration-graph dependencies (blog 0004 depends on plant_identification
+  0005).
+- **Slice 4:** remove the legacy unversioned `/api/` mount. It **depends on
+  todo 408**: `users:unsubscribe` resolves only through that mount. Also move
+  `users:oauth_callback`, `blog_api:plant_stats` and the middleware path lists
+  to `/api/v1/`.
+
+**Filed as feature todos:** 408 (unsubscribe, p2), 409 (newsletter, p2), 410
+(care reminders), 411 (dashboard stats), 412 (onboarding plus the broken demo
+seeder), 413 (web push), 414 (forum summary button).

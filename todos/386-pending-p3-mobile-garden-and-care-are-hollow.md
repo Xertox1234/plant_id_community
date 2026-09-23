@@ -63,3 +63,17 @@ Independent, either order:
 
 p3 for garden (invisible to users — unreachable), but the `care` chevron is a
 live papercut on a reachable screen and is a one-line fix.
+
+### 2026-09-23 - Backend decision from todo 405: calendar KEEP, garden REMOVED
+
+The owner decided in todo 405 that `apps.garden_calendar` is **kept** ("still
+fairly useful"). So this todo's choice is now **build**, not "build or delete":
+the mobile `/garden` feature is built against `/api/v1/calendar/api/*`.
+
+- `apps.garden`, the separate outdoor garden planner, was **removed** in todo
+  405 slice 1.
+- Scope note for Houseplant MD: `garden_calendar` is outdoor-shaped in places
+  (GardenBed, Harvest, GrowingZone, WeatherAlert, `OPENWEATHER_API_KEY`). The
+  houseplant core is CareTask, CareLog and reminders. Decide which models the
+  mobile screens need before wiring a bed or hardiness-zone picker into a
+  houseplant app.

@@ -1,4 +1,4 @@
-"""Tests for the lazy Firebase Admin SDK bootstrap (apps/garden/firebase_config).
+"""Tests for the lazy Firebase Admin SDK bootstrap (apps/core/firebase_config).
 
 Only the initialization-arbitration logic is exercised — real Firebase I/O is
 mocked. Added with todo 253 slice 6, when FIREBASE_CREDENTIALS_PATH became a
@@ -8,7 +8,7 @@ on this module outside tests.
 
 from unittest.mock import MagicMock, patch
 
-from apps.garden import firebase_config
+from apps.core import firebase_config
 from django.test import override_settings
 
 
