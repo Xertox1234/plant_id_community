@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: p2
 issue_id: "397"
 tags: [infrastructure, railway, celery, deployment, deadline]
@@ -86,7 +86,7 @@ cron would stop being a cron.
   config-as-code file in its context ran on the IaC-applied settings alone:
   Dockerfile build, preDeploy migrate, healthcheck, and start.sh's worker +
   gunicorn (work log).
-- [ ] AC3b — the deploy of the merge commit that deletes the json files (the
+- [x] AC3b — the deploy of the merge commit that deletes the json files (the
   first repo-sourced deploy without them) shows `[start] firebase: …
   FCM push ENABLED`, `[start] worker pid … web pid …` and `celery@<host> ready.`
 - [x] AC4 — both `backend/railway.json` and `backend/railway.cron.json` are
@@ -97,10 +97,12 @@ cron would stop being a cron.
   `secret-management.md`, and code comments in the Dockerfile, `bin/start.sh` and
   `settings.py`. `CLAUDE.md` never carried the "wins at deploy time" line; it
   lives in session memory and is updated there.
-- [ ] AC6 — after the merge, `forum-prune-cron`'s Railway Config File setting
-  (`backend/railway.cron.json`) is cleared and the cron redeployed. The next
-  03:00 UTC run logs `Pruned N tombstone row(s)` (`get-logs` filter
-  `Pruned OR argv OR Traceback`).
+- [x] AC6 (narrowed 2026-09-23) — after the merge, `forum-prune-cron`'s Railway
+  Config File setting (`backend/railway.cron.json`) is cleared, and the cron's
+  redeploy runs on the IaC settings alone: Dockerfile build, `cronSchedule
+  0 3 * * *`, `NEVER`, the prune start command, and no healthcheck. Watching
+  the first 03:00 UTC run was split out as a follow-up check rather than
+  holding the todo open (Follow-up below).
 
 ## Notes
 
@@ -197,3 +199,43 @@ no change). Clearing it *before* this PR merges would let the cron auto-detect
 `service config at 'backend/railway.cron.json' not found`; the last good
 deployment keeps serving the schedule), then clear the setting via MCP
 `update-service`, then redeploy the cron (AC6).
+
+### 2026-09-23 — merged (#789), both services verified without railway.json; closed
+
+**AC3b, web.** Merge commit `e24037d1` deployed `plant_id_community` as
+`adcd1a7a` (SUCCESS). This is the first repo-sourced deploy with no
+config-as-code file. The deploy log shows:
+
+```text
+[start] firebase: credentials materialized at /tmp/firebase-service-account.json for project plant-community-prod -> FCM push ENABLED
+[start] worker pid 5 (celery -A plant_community_backend worker -B --schedule=/tmp/celerybeat-schedule --loglevel=info --concurrency=2 --max-tasks-per-child=500); web pid 6 (gunicorn plant_community_backend.wsgi:application --bind 0.0.0.0:8080 --workers 2 --timeout 120)
+[2026-09-23 13:08:51,067: INFO/MainProcess] celery@6edf573b0f91 ready.
+```
+
+So the probe deploy's missing `[start]` lines were lost at log ingestion, as
+hypothesised. Nothing had failed.
+
+**AC6, cron.** The merge deploy `a0bcb8f9` FAILED as predicted
+(`failureStage: SNAPSHOT_CODE`, `service config at 'backend/railway.cron.json'
+not found`), and the previous deployment `ef26bfef` stayed active. The Claude
+session could not clear the setting: the auto-mode classifier blocked MCP
+`update-service` as "Modify Shared Resources". The user cleared the Config File
+path in the dashboard and redeployed. Deployment `b29c4899` (SUCCESS) has a
+manifest of `cronSchedule 0 3 * * *`, `restartPolicyType NEVER`, `startCommand
+python manage.py prune_forum_tombstones`, no healthcheck, builder `DOCKERFILE`
+(detected) and no config file. Its build log ends with the Dockerfile's
+`[7/7] … collectstatic` step.
+
+## Follow-up
+
+- **First 03:00 UTC run under IaC (2026-09-24).** Check `get-logs` on
+  `forum-prune-cron` with filter `Pruned OR argv OR Traceback`, and expect
+  `Pruned N tombstone row(s) older than 30 day(s).` The schedule, command and
+  image are verified above, and the same schedule fired seven nights running
+  under todo 375. Only a runtime surprise is left untested, and a missed night
+  only delays tombstone pruning. If it fails, reopen this todo.
+- **Editing `.railway/railway.ts` changes nothing in prod until `railway config
+  apply`.** Railway never reads `.railway/` at deploy time. Wiring the
+  `railwayapp/config` GitHub Action (plan on PR, apply on merge, needs a
+  `RAILWAY_TOKEN` project token) would close that gap. Not done here: it is an
+  outward-facing CI and secrets decision for the user.
