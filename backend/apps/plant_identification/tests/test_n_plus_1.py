@@ -2,20 +2,12 @@
 N+1 query regression tests for the plant_identification API list endpoints
 (todo 079).
 
-Four plant_identification list endpoints serialize a count field on every row
-(``results_count`` / ``affected_plant_count`` / ``plant_count``). The naive
-implementation issued one ``SELECT COUNT(*)`` query per serialized object (an
-N+1 pattern): the query count grew linearly with the number of objects on the
-page. The fix annotates the counts on the queryset so the serializers read an
-annotation (``hasattr(obj, "_results_count")`` etc.) instead of issuing a
-COUNT:
-
-  - ``serializers.py`` — ``get_results_count`` reads ``_results_count``;
-    ``get_affected_plant_count`` reads ``_affected_plant_count``.
-  - ``api/serializers.py`` — ``PlantCategorySerializer.get_plant_count`` reads
-    ``_plant_count``.
-  - ``views.py`` viewsets annotate ``_results_count`` /
-    ``_affected_plant_count``; ``api/endpoints.py`` annotates ``_plant_count``.
+The plant_identification list endpoints serialized a count field on every row.
+The naive implementation issued one ``SELECT COUNT(*)`` query per serialized
+object (an N+1 pattern); the fix annotates the count on the queryset so the
+serializer reads the annotation (``_results_count``) instead. Todo 405 removed
+the disease-database and plant-category endpoints, so only the disease-request
+list remains here.
 
 These tests prove the fix holds by counting only the ``SELECT COUNT(...)``
 queries issued while serving each endpoint, with a SMALL fixture set and then
@@ -52,12 +44,7 @@ from django.urls import reverse
 from PIL import Image
 from rest_framework.test import APIClient
 
-from ..models import (
-    PlantCategory,
-    PlantDiseaseRequest,
-    PlantDiseaseResult,
-    PlantSpecies,
-)
+from ..models import PlantDiseaseRequest, PlantDiseaseResult
 
 User = get_user_model()
 
@@ -170,50 +157,3 @@ class PlantDiseaseRequestListN1Test(PlantIdN1TestMixin, TestCase):
         large = self._measure(self.client, self.url)
 
         self._assert_no_n_plus_1(self.url, small, large)
-
-
-class PlantCategoryListN1Test(PlantIdN1TestMixin, TestCase):
-    """Wagtail plant-categories API — PlantCategorySerializer.get_plant_count().
-
-    PlantCategoryAPIViewSet.get_queryset() annotates ``_plant_count``. The
-    endpoint is the Wagtail API router path /api/v2/plant-categories/ (registered
-    in plant_community_backend/urls.py); Wagtail API URLs are not reversible
-    from a Django namespace, so the path is hard-coded. Each category is given
-    one plant species so the count code path is non-trivial per row.
-    """
-
-    URL = "/api/v2/plant-categories/"
-
-    def setUp(self):
-        cache.clear()
-        self.client = APIClient()
-        self._seq = 0
-
-    def _make_category_with_species(self):
-        """Create one PlantCategory with one plant species attached."""
-        self._seq += 1
-        i = self._seq
-        species = PlantSpecies.objects.create(
-            scientific_name=f"Category species {i}",
-        )
-        category = PlantCategory.objects.create(
-            name=f"Plant Category {i}",
-            slug=f"plant-category-{i}",
-        )
-        # plant_species is a ParentalManyToManyField; .add() commits directly
-        # to the through table on a saved instance.
-        category.plant_species.add(species)
-        return category
-
-    def test_no_n_plus_1_scaling(self):
-        # Small fixture: 2 categories.
-        self._make_category_with_species()
-        self._make_category_with_species()
-        small = self._measure(self.client, self.URL)
-
-        # Large fixture: 6 categories total (still page 1).
-        for _ in range(4):
-            self._make_category_with_species()
-        large = self._measure(self.client, self.URL)
-
-        self._assert_no_n_plus_1(self.URL, small, large)

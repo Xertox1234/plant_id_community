@@ -46,12 +46,12 @@ class MyWidget extends ConsumerWidget {
 ```dart
 try {
   final response = await apiService.get(
-    '/plant-identification/species/',
+    '/plant-identification/plants/',
     queryParameters: {'page': 1, 'limit': 20},
   );
 
-  final species = response.data as List;
-  print('Found ${species.length} species');
+  final plants = response.data as List;
+  print('Found ${plants.length} plants');
 } on ApiException catch (e) {
   print('Error: ${e.message}');
   print('Status code: ${e.statusCode}');

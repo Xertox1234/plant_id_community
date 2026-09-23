@@ -14,6 +14,7 @@ Successfully implemented interactive API documentation using drf-spectacular (Op
 ### 1. Package Installation
 
 Installed `drf-spectacular==0.28.0` with dependencies:
+
 - jsonschema>=2.6.0
 - uritemplate>=2.0.0
 - inflection>=0.3.1
@@ -24,11 +25,13 @@ Installed `drf-spectacular==0.28.0` with dependencies:
 #### settings.py Changes
 
 **Added to THIRD_PARTY_APPS**:
+
 ```python
 'drf_spectacular',  # OpenAPI 3.0 schema generation
 ```
 
 **Updated REST_FRAMEWORK**:
+
 ```python
 REST_FRAMEWORK = {
     # ... existing settings ...
@@ -37,6 +40,7 @@ REST_FRAMEWORK = {
 ```
 
 **Added SPECTACULAR_SETTINGS**:
+
 ```python
 SPECTACULAR_SETTINGS = {
     'TITLE': 'Plant ID Community API',
@@ -77,6 +81,7 @@ SPECTACULAR_SETTINGS = {
 ### 3. URL Configuration
 
 Added to `plant_community_backend/urls.py`:
+
 ```python
 from drf_spectacular.views import (
     SpectacularAPIView,
@@ -96,6 +101,7 @@ urlpatterns = [
 ### 4. Schema Preprocessing Hook
 
 Created `plant_community_backend/api_schema.py` to filter endpoints:
+
 ```python
 def preprocess_exclude_wagtail(endpoints):
     """
@@ -119,6 +125,7 @@ def preprocess_exclude_wagtail(endpoints):
 ```
 
 **Rationale**: The project uses two different API systems:
+
 - DRF with NamespaceVersioning (`/api/v1/*`)
 - Wagtail API (`/api/v2/*`) with its own versioning
 
@@ -127,20 +134,25 @@ Mixing these in one schema causes versioning conflicts, so we filter to only inc
 ### 5. Updated Documentation
 
 #### README.md
+
 Added interactive API documentation section with links to:
-- Swagger UI: http://localhost:8000/api/docs/
-- ReDoc: http://localhost:8000/api/redoc/
-- OpenAPI Schema: http://localhost:8000/api/schema/
+
+- Swagger UI: <http://localhost:8000/api/docs/>
+- ReDoc: <http://localhost:8000/api/redoc/>
+- OpenAPI Schema: <http://localhost:8000/api/schema/>
 
 ## Available Endpoints
 
 ### Documentation Endpoints
+
 - `GET /api/schema/` - Download OpenAPI 3.0 schema (YAML)
 - `GET /api/docs/` - Swagger UI (interactive API explorer)
 - `GET /api/redoc/` - ReDoc UI (clean documentation interface)
 
 ### Documented API Endpoints (auto-generated)
+
 All `/api/v1/*` endpoints are automatically included:
+
 - `/api/v1/auth/*` - Authentication (login, register, JWT tokens)
 - `/api/v1/plant-identification/*` - Plant identification
 - `/api/v1/blog/*` - Blog posts
@@ -151,7 +163,8 @@ Note: Wagtail API endpoints (`/api/v2/*`) are intentionally excluded and use the
 
 ## Features
 
-### Swagger UI (http://localhost:8000/api/docs/)
+### Swagger UI (<http://localhost:8000/api/docs/>)
+
 ✅ Interactive API explorer
 ✅ "Try it out" functionality for testing endpoints
 ✅ JWT authentication support
@@ -162,14 +175,16 @@ Note: Wagtail API endpoints (`/api/v2/*`) are intentionally excluded and use the
 ✅ Operation ID display
 ✅ Search filter
 
-### ReDoc (http://localhost:8000/api/redoc/)
+### ReDoc (<http://localhost:8000/api/redoc/>)
+
 ✅ Clean, responsive documentation
 ✅ Better for browsing and learning
 ✅ Mobile-friendly
 ✅ Hierarchical navigation
 ✅ Code samples
 
-### OpenAPI Schema (http://localhost:8000/api/schema/)
+### OpenAPI Schema (<http://localhost:8000/api/schema/>)
+
 ✅ Downloadable YAML format
 ✅ OpenAPI 3.0 specification
 ✅ Can be imported into Postman, Insomnia, etc.
@@ -192,10 +207,12 @@ Note: Wagtail API endpoints (`/api/v2/*`) are intentionally excluded and use the
 ### 1. Why drf-spectacular over alternatives?
 
 **Alternatives considered**:
+
 - DRF built-in schema (OpenAPI 2.0, less feature-rich)
 - Manual documentation (high maintenance, drift risk)
 
 **Chosen**: drf-spectacular
+
 - OpenAPI 3.0 (latest spec)
 - Active maintenance
 - Excellent DRF integration
@@ -212,15 +229,15 @@ Note: Wagtail API endpoints (`/api/v2/*`) are intentionally excluded and use the
 
 ### 3. Why filter non-versioned auth endpoints?
 
-The project has duplicate auth endpoints:
-- `/api/auth/token/` (non-versioned, legacy)
-- `/api/v1/auth/*` (versioned, current)
-
-We include only the versioned endpoints to avoid confusion and versioning conflicts.
+The project had duplicate auth endpoints: a non-versioned SimpleJWT
+`/api/auth/token/` and the versioned `/api/v1/auth/*`. Only the versioned
+endpoints are documented. The SimpleJWT routes were removed in todo 405 (an
+unthrottled password grant that bypassed login lockout).
 
 ## Known Issues & Limitations
 
 ### 1. Serializer Field Error
+
 One serializer (`PlantDiseaseDatabaseSerializer`) references a field (`created_at`) that doesn't exist on the model. This causes schema generation to fail for that specific endpoint.
 
 **Impact**: Minor - affects one endpoint only
@@ -228,12 +245,14 @@ One serializer (`PlantDiseaseDatabaseSerializer`) references a field (`created_a
 **Workaround**: The endpoint is excluded from schema until serializer is fixed
 
 ### 2. Wagtail API Not Included
+
 Wagtail API endpoints (`/api/v2/*`) are not in the OpenAPI schema.
 
 **Impact**: Low - Wagtail has its own API browser
 **Alternative**: Use Wagtail's built-in API browser at `/api/v2/`
 
 ### 3. No Endpoint Descriptions Yet
+
 While the schema is auto-generated, individual endpoints don't have detailed descriptions yet.
 
 **Impact**: Low - schemas and field names are self-documenting
@@ -242,6 +261,7 @@ While the schema is auto-generated, individual endpoints don't have detailed des
 ## Future Enhancements
 
 ### High Value
+
 1. Add `@extend_schema` decorators to viewsets for:
    - Operation descriptions
    - Request/response examples
@@ -253,18 +273,21 @@ While the schema is auto-generated, individual endpoints don't have detailed des
 3. Add code examples in multiple languages (curl, Python, JavaScript)
 
 ### Medium Value
-4. Add custom tags for better organization
-5. Add security scheme descriptions
-6. Version the schema (v1.0, v1.1, etc.)
+
+1. Add custom tags for better organization
+2. Add security scheme descriptions
+3. Version the schema (v1.0, v1.1, etc.)
 
 ### Low Value
-7. Add response status code descriptions
-8. Add deprecation warnings for legacy endpoints
-9. Custom Swagger UI theme
+
+1. Add response status code descriptions
+2. Add deprecation warnings for legacy endpoints
+3. Custom Swagger UI theme
 
 ## Testing
 
 ### Manual Testing Performed
+
 ✅ Django check passes
 ✅ Schema preprocessing hook works (filters 455 → 369 endpoints)
 ✅ Swagger UI loads (accessible at `/api/docs/`)
@@ -274,6 +297,7 @@ While the schema is auto-generated, individual endpoints don't have detailed des
 ✅ JWT authentication flow functional
 
 ### Automated Testing
+
 - No automated tests added (documentation feature, low risk)
 - Schema generation can be tested with: `python manage.py spectacular --file schema.yml`
 
@@ -286,11 +310,14 @@ While the schema is auto-generated, individual endpoints don't have detailed des
 ## Deployment Considerations
 
 ### Development
+
 - Works out of the box
 - No additional configuration needed
 
 ### Production
+
 Update `SPECTACULAR_SETTINGS['SERVERS']` to include production URL:
+
 ```python
 'SERVERS': [
     {'url': 'https://api.plantidcommunity.com', 'description': 'Production'},
@@ -299,6 +326,7 @@ Update `SPECTACULAR_SETTINGS['SERVERS']` to include production URL:
 ```
 
 ### Security
+
 - API docs are public (no authentication required)
 - Consider adding authentication for production if API is private
 - JWT tokens persist in browser (convenience vs. security trade-off)
@@ -315,13 +343,14 @@ Update `SPECTACULAR_SETTINGS['SERVERS']` to include production URL:
 
 ## References
 
-- drf-spectacular documentation: https://drf-spectacular.readthedocs.io/
-- OpenAPI 3.0 Specification: https://swagger.io/specification/
-- DRF Schema Generation: https://www.django-rest-framework.org/api-guide/schemas/
+- drf-spectacular documentation: <https://drf-spectacular.readthedocs.io/>
+- OpenAPI 3.0 Specification: <https://swagger.io/specification/>
+- DRF Schema Generation: <https://www.django-rest-framework.org/api-guide/schemas/>
 
 ## Conclusion
 
 API documentation is now fully functional and accessible. Developers can:
+
 1. Browse all API endpoints interactively at `/api/docs/`
 2. Test endpoints directly in the browser with JWT authentication
 3. Download the OpenAPI schema for use with API clients

@@ -21,13 +21,6 @@ from apps.core.views import ReactAppView, csp_report_view, csrf_token_view
 from apps.forum_host.feeds import ForumTopicsFeed
 from apps.forum_host.redirects import RedirectsAPIViewSet
 from apps.forum_host.sitemaps import forum_sitemaps
-from apps.plant_identification.api.endpoints import (
-    PlantCareGuideAPIViewSet,
-    PlantCategoryAPIViewSet,
-    PlantCategoryIndexPageViewSet,
-    PlantSpeciesAPIViewSet,
-    PlantSpeciesPageViewSet,
-)
 from django.conf import settings
 from django.conf.urls.static import static
 from django.contrib import admin
@@ -110,13 +103,6 @@ api_router.register_endpoint("page_preview", BlogPostPreviewAPIViewSet)
 # Blog snippets endpoints
 api_router.register_endpoint("categories", BlogCategoryAPIViewSet)
 api_router.register_endpoint("series", BlogSeriesAPIViewSet)
-
-# Plant identification endpoints
-api_router.register_endpoint("plant-species", PlantSpeciesAPIViewSet)
-api_router.register_endpoint("plant-categories", PlantCategoryAPIViewSet)
-api_router.register_endpoint("care-guides", PlantCareGuideAPIViewSet)
-api_router.register_endpoint("plants", PlantSpeciesPageViewSet)
-api_router.register_endpoint("plant-index", PlantCategoryIndexPageViewSet)
 
 urlpatterns = [
     # Django Admin
