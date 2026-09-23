@@ -254,9 +254,10 @@ repeated with the app backgrounded to get a notification record as evidence.
 
 **Side effects / follow-ups found (not fixed here):**
 
-- `check_firebase_key_restrictions.py` probes the Android key with the debug
-  SHA-1 only. It should also assert the **release** SHA-1 is allowed — that
-  single probe would have caught finding 5.
+- ~~`check_firebase_key_restrictions.py` probes the Android key with the debug
+  SHA-1 only~~ — **fixed 2026-09-23** (branch `fix/key-checker-release-sha1`):
+  probes debug + release + an unregistered cert, read-back asserts both SHA-1s
+  on the key, and an app-level refusal no longer scores as "reachable".
 - `ForumProfile.fcm_token` holds **one** token per user, so the emulator's
   registration silently replaced the operator's iPhone token. Last signed-in
   device wins; multi-device push does not exist.
