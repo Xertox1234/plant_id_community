@@ -27,7 +27,7 @@ export default function Avatar({
         <span
           data-presence
           aria-hidden="true"
-          className="absolute -right-0.5 -bottom-0.5 h-2.5 w-2.5 rounded-pill border-2 border-surface bg-secondary"
+          className="absolute -right-0.5 -bottom-0.5 h-2.5 w-2.5 rounded-full bg-ok ring-2 ring-surface"
         />
       )}
     </span>
