@@ -4,7 +4,7 @@ priority: p3
 issue_id: "415"
 tags: [backend, email, users, dead-code]
 dependencies: []
-source_review: "todos/408-pending-p2-email-unsubscribe-signed-token-and-pages.md"
+source_review: "todos/archive/408-completed-p2-email-unsubscribe-signed-token-and-pages.md"
 source_finding: "follow-up filed 2026-09-23"
 ---
 

@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: p2
 issue_id: "408"
 tags: [backend, email, security, users]
@@ -56,9 +56,27 @@ See the file references above, and todo 405's Work Log.
 
 ## Acceptance Criteria
 
-- [ ] A link carrying a forged or expired token cannot unsubscribe anyone. Tests pin this.
-- [ ] The unsubscribe page renders in all states, with no TemplateDoesNotExist.
-- [ ] Production email links point at the real domain. Record the date and what was observed.
+- [x] A link carrying a forged or expired token cannot unsubscribe anyone. Tests pin this.
+      `apps/users/tests/test_email_unsubscribe.py`: `test_forged_token_changes_nothing`,
+      `test_expired_token_changes_nothing` (both endpoints return 400, and
+      `_assert_nothing_changed` holds), plus unit tests for tampered, UUID-swapped,
+      unsalted or other-salt, unknown-list and inactive or deleted tokens. All 8
+      mutation checks were killed, including "no max_age" (2 failed) and
+      "signature skipped" (6 failed).
+- [x] The unsubscribe page renders in all states, with no TemplateDoesNotExist.
+      The page is now the web app's `/unsubscribe` route (it renders no Django
+      template; the old view that 500'd is deleted). `UnsubscribePage.test.tsx`
+      covers 8 states: confirm, done, already, missing token, invalid, expired,
+      error with retry, and a failed save. 8 passed; full vitest 1376 passed.
+- [x] Production email links point at the real domain. Record the date and what was observed.
+      2026-09-23: Railway had NO `SITE_URL` on either service (checked by name), so
+      links used the `https://plantcommunity.com` default. With owner approval I set
+      `SITE_URL=https://houseplant-md.com` on `plant_id_community` and
+      `forum-prune-cron`; a script confirmed both are present and equal that
+      value. After the redeploy (SUCCESS), a read-only `railway ssh` at about
+      23:46 UTC printed `SITE_URL_HOST houseplant-md.com`. Every emailed link is
+      built on it (`unsubscribe_url()` = `SITE_URL/unsubscribe?token=…`, pinned by
+      `test_forum_reply_email_carries_a_working_signed_link`).
 
 ## Work Log
 
@@ -139,3 +157,21 @@ unsalted test case was added.
 
 Both web mutations were killed: the page unsubscribing on load failed 8 tests,
 and the service sending cookies failed as well.
+
+### 2026-09-23 - Completed (PR #802)
+
+- **Verification:** all 3 acceptance criteria are met; the evidence is inline
+  above.
+  - Full backend pytest: 3589 passed, 8 skipped.
+  - `apps/users` and `apps/core` re-run after the schema edit: 1554 passed.
+  - `check` is clean, `makemigrations --check` reports no changes, and
+    `spectacular` exits 0 with no new errors.
+  - Web: `tsc`, `eslint`, `prettier` and `check:classes` are clean; vitest 1376
+    passed.
+- **Review:** bundled `/code-review` found 0 blocking issues. Its three
+  non-blocking findings became todos 417 (a non-object body returns a 500, and
+  a comment overstates the log exposure) and 416 (RFC 8058 one-click, already
+  filed).
+- **Also filed:** todo 415 (dead Django email-preferences views).
+- **Todo 405 slice 4 is unblocked:** nothing reverses `users:unsubscribe` any
+  more.
