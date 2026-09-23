@@ -135,9 +135,13 @@ build, the linter, nor a careful read will flag them.
   Tailwind 4 emits nothing for an unrecognised name — no error, no warning. Flag
   a `className` token that is not an obvious stock utility and does not map to a
   `--radius-*` / `--color-*` / `--shadow-*` token, and say how to confirm it:
-  `cd web && npm run build && grep '\.<class>' dist/assets/*.css`. **Do not
-  clear a class because it appears elsewhere in `src/`** — `ring-primary` is used
-  22 times across 10 files and compiles to nothing (todo 374 / 396).
+  `cd web && npm run build && grep -F '.<variant>\:<class>' dist/assets/*.css`
+  — grep the exact variant form used (`.focus\:ring-primary`), because Tailwind
+  emits only those; a bare `.ring-primary` grep is a false negative (todo 396
+  was filed on one). **Do not clear a class because it appears elsewhere in
+  `src/`**: a wrong name used many times looks more correct, not less (todo
+  374's `rounded-card`). Also flag a `ring-<color>` with no ring width on the
+  same element: it draws nothing.
 - **A dialog rendered permanently and gated by `open` is never unmounted.**
   `<Dialog open={open}/>` with an internal `if (!open) return null` keeps all
   state between opens, unlike `{open && <Dialog/>}`. Any async work it starts

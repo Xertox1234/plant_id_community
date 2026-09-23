@@ -382,7 +382,7 @@ export default function DiagnosisDetailPage() {
                   handleStatusUpdate(e.target.value as TreatmentStatus)
                 }
                 disabled={isUpdatingStatus}
-                className="w-full px-4 py-2 border border-line-2 rounded-md bg-surface-2 text-ink focus:ring-primary focus:border-primary disabled:opacity-50"
+                className="w-full px-4 py-2 border border-line-2 rounded-md bg-surface-2 text-ink focus:ring-2 focus:ring-primary focus:border-primary disabled:opacity-50"
               >
                 <option value="not_started">Not Started</option>
                 <option value="in_progress">In Progress</option>
@@ -490,7 +490,7 @@ export default function DiagnosisDetailPage() {
                 onChange={(e: ChangeEvent<HTMLTextAreaElement>) => setEditedNotes(e.target.value)}
                 rows={6}
                 placeholder="Add your observations, progress notes, or reminders..."
-                className="w-full px-4 py-3 border border-line-2 rounded-md bg-surface-2 text-ink focus:ring-primary focus:border-primary"
+                className="w-full px-4 py-3 border border-line-2 rounded-md bg-surface-2 text-ink focus:ring-2 focus:ring-primary focus:border-primary"
               />
               <div className="flex items-center gap-2 mt-4">
                 <button

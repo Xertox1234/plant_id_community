@@ -681,6 +681,13 @@ function MutedUsersSection() {
  * from posts the user already published, and someone who does not expect that
  * will experience it as data loss.
  */
+// How a photo is named to assistive tech and in the confirm copy. Every photo
+// carries its grid position, so neither two untitled photos nor two with the
+// same alt text ever share a name.
+function photoName(image: UploadedImage, index: number): string {
+  return image.alt ? `photo ${index + 1}: ${image.alt}` : `untitled photo ${index + 1}`;
+}
+
 export function MyForumImagesSection() {
   const [images, setImages] = useState<UploadedImage[] | null>(null);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
@@ -736,12 +743,21 @@ export function MyForumImagesSection() {
     setConfirming(null);
     setPending((prev) => ({ ...prev, [image.id]: true }));
     setError(null);
+    const dropRow = () =>
+      setImages((prev) => (prev ? prev.filter((i) => i.id !== image.id) : prev));
     try {
       await deleteForumImage(image.id);
       // Dropped locally on success rather than refetching: a cursor page would
       // have to be re-walked from the start, and the row is definitively gone.
-      setImages((prev) => (prev ? prev.filter((i) => i.id !== image.id) : prev));
+      dropRow();
     } catch (err) {
+      // 404 = already gone (deleted in another tab, or by a moderator). The
+      // outcome the user asked for holds, so drop the row rather than leave a
+      // Delete button wired to an id that no longer exists.
+      if (err instanceof ForumApiError && err.status === 404) {
+        dropRow();
+        return;
+      }
       logger.error('Error deleting forum image', {
         component: 'SettingsPage',
         error: err,
@@ -774,7 +790,7 @@ export function MyForumImagesSection() {
       ) : (
         <>
           <ul className="mt-2 grid grid-cols-2 gap-3 sm:grid-cols-3">
-            {images.map((image) => (
+            {images.map((image, index) => (
               <li key={image.id} className="flex flex-col gap-2">
                 <img
                   src={image.url}
@@ -786,6 +802,9 @@ export function MyForumImagesSection() {
                   type="button"
                   onClick={() => setConfirming(image)}
                   disabled={!!pending[image.id]}
+                  // The <img> is a sibling, not part of the button's name, so a
+                  // bare "Delete" would announce identically on every row.
+                  aria-label={`${pending[image.id] ? 'Deleting' : 'Delete'} ${photoName(image, index)}`}
                   className="min-h-11 px-3 py-1 text-sm text-error hover:bg-error/10 rounded-pill disabled:opacity-50"
                 >
                   {pending[image.id] ? 'Deleting…' : 'Delete'}
@@ -808,7 +827,7 @@ export function MyForumImagesSection() {
       <ConfirmDialog
         open={confirming !== null}
         title="Delete this photo?"
-        message="This removes the photo from your library AND from any post you've already shared it in — those posts will show no photo. This can't be undone."
+        message={`This removes ${confirming ? photoName(confirming, images?.indexOf(confirming) ?? 0) : 'the photo'} from your library AND from any post you've already shared it in — those posts will show no photo. This can't be undone.`}
         confirmLabel="Delete"
         onConfirm={() => confirming && void handleDelete(confirming)}
         onCancel={() => setConfirming(null)}

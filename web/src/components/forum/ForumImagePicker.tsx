@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useId, useRef, useState } from 'react';
 import Button from '../ui/Button';
 import LoadingSpinner from '../ui/LoadingSpinner';
+import { useModalFocus } from '../../hooks/useModalFocus';
 import { ForumApiError, listMyForumImages, type UploadedImage } from '../../services/forumService';
 
 interface ForumImagePickerProps {
@@ -30,8 +31,9 @@ interface ForumImagePickerProps {
  *   failed     anything else.
  *
  * Modal semantics follow ConfirmDialog/EditHistoryDialog (audit M24):
- * `role="dialog"` + `aria-modal`, Escape and backdrop-click close, focus moved
- * in on open and returned to the trigger on close.
+ * `role="dialog"` + `aria-modal`, Escape and backdrop-click close, Tab/Shift+Tab
+ * trapped inside, focus moved in on open and returned to the trigger on close
+ * (`useModalFocus`).
  */
 export default function ForumImagePicker({ open, onSelect, onClose }: ForumImagePickerProps) {
   const dialogRef = useRef<HTMLDivElement>(null);
@@ -48,22 +50,7 @@ export default function ForumImagePicker({ open, onSelect, onClose }: ForumImage
   const [error, setError] = useState<string | null>(null);
   const [forbidden, setForbidden] = useState(false);
 
-  useEffect(() => {
-    if (!open) return;
-    // Capture the trigger BEFORE moving focus in, mirroring ConfirmDialog: a
-    // React `autoFocus` runs during commit, i.e. before this effect, so
-    // document.activeElement would already be inside the dialog.
-    const previouslyFocused = document.activeElement as HTMLElement | null;
-    dialogRef.current?.querySelector<HTMLButtonElement>('[data-autofocus]')?.focus();
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
-    };
-    document.addEventListener('keydown', onKey);
-    return () => {
-      document.removeEventListener('keydown', onKey);
-      previouslyFocused?.focus?.();
-    };
-  }, [open, onClose]);
+  useModalFocus(open, dialogRef, onClose);
 
   useEffect(() => {
     if (!open) return;

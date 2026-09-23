@@ -898,14 +898,14 @@ describe('StreamFieldRenderer', () => {
     // deleted after posting) serializes as None". Destructuring that null took
     // the whole post render down. Latent until todo 374 gave members a delete
     // button; reachable by anyone tidying their own photos afterwards.
-    const deleted = [{ type: 'image', value: null, id: 'b1' }] as never;
-    const present = [
+    const deleted: StreamFieldBlock[] = [{ type: 'image', value: null, id: 'b1' }];
+    const present: StreamFieldBlock[] = [
       {
         type: 'image',
         value: { id: 9, url: '/media/x.jpg', alt: 'a fern', decorative: false },
         id: 'b2',
       },
-    ] as never;
+    ];
 
     it('positive control: a live image still renders an <img>', () => {
       const { container } = render(<StreamFieldRenderer blocks={present} />);
@@ -919,11 +919,11 @@ describe('StreamFieldRenderer', () => {
     });
 
     it('the rest of the post still renders around it', () => {
-      const mixed = [
+      const mixed: StreamFieldBlock[] = [
         { type: 'paragraph', value: '<p>before</p>', id: 'a' },
         { type: 'image', value: null, id: 'b' },
         { type: 'paragraph', value: '<p>after</p>', id: 'c' },
-      ] as never;
+      ];
       render(<StreamFieldRenderer blocks={mixed} />);
       expect(screen.getByText('before')).toBeInTheDocument();
       expect(screen.getByText('after')).toBeInTheDocument();

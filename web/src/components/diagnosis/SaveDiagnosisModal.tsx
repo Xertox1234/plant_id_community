@@ -158,7 +158,7 @@ export default function SaveDiagnosisModal({
                   setFormData({ ...formData, custom_nickname: e.target.value })
                 }
                 placeholder="e.g., Kitchen Aloe, Balcony Tomato"
-                className="w-full px-3 py-2 border border-line-2 rounded-md bg-surface-2 text-ink focus:ring-primary focus:border-primary"
+                className="w-full px-3 py-2 border border-line-2 rounded-md bg-surface-2 text-ink focus:ring-2 focus:ring-primary focus:border-primary"
               />
               <p className="text-xs text-ink-3 mt-1">Give this plant a memorable name</p>
             </div>
@@ -176,7 +176,7 @@ export default function SaveDiagnosisModal({
                 }
                 placeholder="Add any observations or notes about the plant's condition..."
                 rows={4}
-                className="w-full px-3 py-2 border border-line-2 rounded-md bg-surface-2 text-ink focus:ring-primary focus:border-primary"
+                className="w-full px-3 py-2 border border-line-2 rounded-md bg-surface-2 text-ink focus:ring-2 focus:ring-primary focus:border-primary"
               />
             </div>
 

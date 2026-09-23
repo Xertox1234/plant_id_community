@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: p3
 issue_id: "396"
 tags: [web, accessibility, tailwind, testing, tech-debt]
@@ -133,25 +133,57 @@ pattern, two more instances.
 
 ## Acceptance Criteria
 
-- [ ] `ring-primary` is replaced with a token that actually compiles (or the
+- [x] `ring-primary` is replaced with a token that actually compiles (or the
       token is defined), verified by finding the class in the built
       `dist/assets/*.css` — **not** by grepping the source
-- [ ] A decision is recorded on the CI guard proposed in finding 1 (build the
+      — 2026-09-23: **the premise was a false negative**. The token IS defined
+      (`--color-primary: var(--gt-primary)`, `index.css:185`), and the build
+      contains `.focus\:ring-primary:focus{--tw-ring-color:var(--gt-primary)}`
+      and `.focus-within\:ring-primary:focus-within{…}`. The original check
+      grepped for a bare `.ring-primary`, which no source uses. The real defect:
+      13 of the 22 uses set a ring colour with no width, so they drew nothing.
+      Those 13 got `focus:ring-2`. Found 22; changed 13; the other 9 already had
+      a width. See the Work Log.
+- [x] A decision is recorded on the CI guard proposed in finding 1 (build the
       CSS, fail on any `className` utility the bundle does not define), and it
       is either implemented or explicitly declined with a reason
-- [ ] `ConfirmDialog` and `ForumImagePicker` trap focus, and the focus-restore
+      — Declined for this PR and filed as **todo 399**. It is more than small:
+      it must match each token's escaped variant form (the bare-name check is
+      exactly what produced this todo's false premise), handle template-literal
+      class strings, and allowlist the non-Tailwind `gt-*`/`canopy-*`
+      classes.
+- [x] `ConfirmDialog` and `ForumImagePicker` trap focus, and the focus-restore
       target is captured once per open rather than per effect run — with a test
       that fails if the trap is removed
-- [ ] Each per-photo Delete control carries a distinct accessible name, and the
+      — Both use the new `web/src/hooks/useModalFocus.ts`. Removing the trap
+      fails 6 tests, and restoring the per-run capture (`onClose` in the deps)
+      fails 2.
+- [x] Each per-photo Delete control carries a distinct accessible name, and the
       section's tests select rows by that name instead of by array index
-- [ ] `ImageBlock.value` is `ImageBlockValue | null` and the `as never` casts in
+      — The names are `Delete photo <n>: <alt>`, or `Delete untitled photo <n>`.
+      Every name carries the grid position, so photos with the same alt text are
+      still distinct (review round 1). The confirm copy names the photo. There are no
+      `[0]` row selectors left in the section's tests.
+- [x] `ImageBlock.value` is `ImageBlockValue | null` and the `as never` casts in
       `StreamFieldRenderer.test.tsx` / `forumBody.test.ts` are gone
-- [ ] Finding 5 is resolved one of two ways, stated explicitly: either a
+      — The fixtures are now typed `StreamFieldBlock[]`, and `tsc` covers test
+      files (`include: src/**/*`). Caveat: with `strictNullChecks: false` the
+      compiler will NOT flag a consumer that forgets the null check, so the
+      problem's expectation does not hold. Both current consumers
+      (`forumBody.ts:341`, `StreamFieldRenderer.tsx:175`) do check.
+- [x] Finding 5 is resolved one of two ways, stated explicitly: either a
       Playwright test covers drop positioning, or the gap is recorded in
       `web/docs/patterns/testing.md` as a known jsdom limitation so the next
       person does not waste a cycle writing a test that cannot fail
-- [ ] The picker's focus behaviour and `deleteForumImage`'s 404 path are either
+      — **Recorded as a jsdom limitation.** This was already done in PR #771:
+      `web/docs/patterns/testing.md`, section "jsdom has no layout, so
+      drop-coordinate code cannot be tested here". No Playwright test was
+      added.
+- [x] The picker's focus behaviour and `deleteForumImage`'s 404 path are either
       tested or their claims removed from the docstrings
+      — Both are tested. Picker: focus moves in on open and returns to the
+      trigger. Settings: a 404 now drops the row as already gone, matching
+      mobile (#792); a 403 keeps it.
 
 ## Notes
 
@@ -163,3 +195,94 @@ mutation-proven in that PR; nothing here blocked it.
 Priority p3: finding 1 is a real accessibility defect and is the strongest
 candidate to promote if anyone is doing a keyboard-accessibility pass, but
 nothing here is a crash, a data risk, or a blocker for other work.
+
+## Work Log
+
+### 2026-09-23 - Completed (one PR)
+
+**Finding 1 was a false negative.** `vite build` followed by a probe of
+`dist/assets/index-*.css`:
+
+```text
+focus\:ring-primary       => .focus\:ring-primary:focus{--tw-ring-color:var(--gt-primary)}
+focus-within\:ring-primary => .focus-within\:ring-primary:focus-within{--tw-ring-color:var(--gt-primary)}
+```
+
+Tailwind 4 emits only the forms that source uses, and every use is
+variant-prefixed. The real defect was a colour with no width: 13 of the 22 had
+no `ring-2`.
+
+- **Browser check at :5174:**
+  - An input with `focus:ring-2 focus:ring-primary` shows on focus
+    `box-shadow: … rgb(218, 241, 222) 0px 0px 0px 2px` (`--gt-primary` is
+    `#daf1de`).
+  - The same input with only `focus:ring-primary` shows `none`.
+- **The 13 inputs could not be checked in place.**
+  `DiagnosisListPage`, `DiagnosisDetailPage`, `ReminderManager` and
+  `SaveDiagnosisModal` are not routed; see **todo 400**.
+- **Corrected everywhere the false claim had spread:**
+  - `docs/rules/react.md`;
+  - `.claude/agents/react-typescript-reviewer.md`;
+  - the `dead-tailwind-utility` trigger, narrowed to `rounded-card`, because it
+    was warning on a working class;
+  - `docs/LEARNINGS.md` (an inline marker plus a new entry).
+
+**Focus.** `useModalFocus(open, dialogRef, onClose)` does the following:
+
+- It captures the trigger in an effect keyed on `[open]`, and reads `onClose`
+  through a ref.
+- It autofocuses `[data-autofocus]`.
+- Escape calls the latest `onClose`.
+- Tab and Shift+Tab wrap. Disabled controls and `tabindex="-1"` are skipped.
+  Focus that has escaped to `<body>` is pulled back in.
+- It restores focus to the trigger on close.
+
+`CommandPalette`, `EditHistoryDialog` and the `AppShell` drawer were not
+converted; see todo 400.
+
+**Evidence:**
+
+- `tsc --noEmit`: no errors. `eslint .`: exit 0. `prettier --check`: clean.
+- Full `vitest run`: `Test Files 100 passed (100)`, `Tests 1398 passed (1398)`.
+- **Mutation check, 12 of 12 caught.** Each file was copied aside and restored
+  from the copy.
+
+  | Mutant | Result |
+  |---|---|
+  | no Tab trap | 6 failed |
+  | disabled not excluded | 1 failed |
+  | capture per effect run | 2 failed |
+  | no focus restore | 4 failed |
+  | no picker autofocus | 2 failed |
+  | no outside pull-back | 1 failed |
+  | 404 not handled | 1 failed |
+  | any error drops the row | 2 failed |
+  | no aria-label | 13 failed |
+  | untitled not numbered | 1 failed |
+  | titled names lack position | 9 failed |
+  | confirm does not name the photo | 1 failed |
+
+  Two mutants first survived and got stronger tests:
+  - "404 not handled": `waitFor` passed during the pending "Deleting …" label.
+  - "outside pull-back": the first mutant removed only the Shift+Tab half.
+- **Real browser at :5174**, Playwright, local dev DB, E2E user:
+  - **ForumImagePicker** in the 403 state: Enter on the trigger moves focus to
+    Close. Tab, Tab, Shift+Tab stay on Close, inside the dialog. Escape closes
+    it and focus returns to "Choose from your photos".
+  - **ConfirmDialog** (delete-post, on local thread 75): open focuses Delete.
+    Tab gives Cancel, Tab gives Delete, Tab gives Cancel, then Shift+Tab gives
+    Delete. Escape closes it and focus returns to the post's Delete button.
+  - The picker was not checked with a multi-tile grid in the browser, because
+    the E2E user has no uploads. That grid's trap is covered by the jsdom
+    tests above.
+
+**Review.** Bundled `/code-review` (medium) gave 1 finding, fixed in round 1:
+two photos with the same alt text shared a Delete name. Every name now carries
+its grid position. Round 2 verified the fix: the "titled names lack position"
+mutant fails 9 tests, and the full suite is back to 1398 passed. Two
+pre-existing behaviours were noted and not counted: focus returns to a Delete
+button that is disabled while its delete is pending, and two stacked modals
+would both react to Escape.
+
+**Not addressed.** Finding 7 (`act()` warnings) had no acceptance criterion;
+it is carried to todo 400.

@@ -378,7 +378,7 @@ export default function ReminderManager({ diagnosisCardUuid }: ReminderManagerPr
               onChange={(e: ChangeEvent<HTMLSelectElement>) =>
                 setFormData({ ...formData, reminder_type: e.target.value as ReminderType })
               }
-              className="w-full px-3 py-2 border border-line-2 rounded-md bg-surface-2 text-ink focus:ring-primary focus:border-primary"
+              className="w-full px-3 py-2 border border-line-2 rounded-md bg-surface-2 text-ink focus:ring-2 focus:ring-primary focus:border-primary"
             >
               {REMINDER_TYPES.map((type) => (
                 <option key={type.value} value={type.value}>
@@ -401,7 +401,7 @@ export default function ReminderManager({ diagnosisCardUuid }: ReminderManagerPr
               }
               placeholder="e.g., Check for new growth"
               required
-              className="w-full px-3 py-2 border border-line-2 rounded-md bg-surface-2 text-ink focus:ring-primary focus:border-primary"
+              className="w-full px-3 py-2 border border-line-2 rounded-md bg-surface-2 text-ink focus:ring-2 focus:ring-primary focus:border-primary"
             />
           </div>
 
@@ -417,7 +417,7 @@ export default function ReminderManager({ diagnosisCardUuid }: ReminderManagerPr
               }
               placeholder="Additional notes or instructions..."
               rows={3}
-              className="w-full px-3 py-2 border border-line-2 rounded-md bg-surface-2 text-ink focus:ring-primary focus:border-primary"
+              className="w-full px-3 py-2 border border-line-2 rounded-md bg-surface-2 text-ink focus:ring-2 focus:ring-primary focus:border-primary"
             />
           </div>
 
@@ -434,7 +434,7 @@ export default function ReminderManager({ diagnosisCardUuid }: ReminderManagerPr
               }
               min={getMinDate()}
               required
-              className="w-full px-3 py-2 border border-line-2 rounded-md bg-surface-2 text-ink focus:ring-primary focus:border-primary"
+              className="w-full px-3 py-2 border border-line-2 rounded-md bg-surface-2 text-ink focus:ring-2 focus:ring-primary focus:border-primary"
             />
           </div>
 

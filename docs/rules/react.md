@@ -282,11 +282,15 @@ Compact checklist auto-injected before edits. Long-form:
 - **A Tailwind utility name is only real if it is in the BUILT CSS.** Tailwind 4
   emits *nothing* for an unrecognised utility — no error, no lint failure,
   nothing visible in a diff — so an invented name renders as a silently missing
-  style. Grepping `src/` cannot confirm one: `ring-primary` appears 22 times
-  across 10 files and compiles to nothing. Check with
-  `npm run build && grep '\.<class>' dist/assets/*.css`, and prefer an existing
-  token (`--radius-*`, `ring-secondary`) over a plausible-sounding new name
-  (todo 374: `rounded-card` shipped square corners on three elements).
+  style. Grepping `src/` cannot confirm one. Check the built CSS for the EXACT
+  form you use: Tailwind emits only the variant forms source contains, with the
+  colon escaped, so `focus:ring-primary` is `.focus\:ring-primary` and a bare
+  `grep '\.ring-primary'` finds nothing even though it compiles (todo 396 was
+  filed on that false negative). `npm run build && grep -F '.focus\:ring-primary'
+  dist/assets/*.css`. Prefer an existing token (`--radius-*`, `--color-*`) over
+  a plausible-sounding new name (todo 374: `rounded-card` shipped square corners
+  on three elements). A `ring-<color>` sets only the colour: without a width
+  (`ring-2`) it draws nothing.
 - **A dialog rendered permanently and gated by `open` is never unmounted, so its
   async work needs a session guard.** `{open && <Dialog/>}` unmounts; `<Dialog
   open={open}/>` with `if (!open) return null` does not — an in-flight request
