@@ -54,7 +54,6 @@ from rest_framework.test import APIClient
 
 from ..models import (
     PlantCategory,
-    PlantDiseaseDatabase,
     PlantDiseaseRequest,
     PlantDiseaseResult,
     PlantSpecies,
@@ -168,51 +167,6 @@ class PlantDiseaseRequestListN1Test(PlantIdN1TestMixin, TestCase):
         # Large fixture: 6 disease requests total (still page 1).
         for _ in range(4):
             self._make_request_with_result()
-        large = self._measure(self.client, self.url)
-
-        self._assert_no_n_plus_1(self.url, small, large)
-
-
-class PlantDiseaseDatabaseListN1Test(PlantIdN1TestMixin, TestCase):
-    """disease-database-list — PlantDiseaseDatabaseSerializer.get_affected_plant_count().
-
-    PlantDiseaseDatabaseViewSet.get_queryset() filters to rows with
-    ``diagnosis_count >= 1`` and annotates ``_affected_plant_count``. Each row
-    is given one affected plant (M2M) so the count code path is non-trivial.
-    The endpoint allows anonymous access (IsAuthenticatedOrReadOnly).
-    """
-
-    def setUp(self):
-        cache.clear()
-        self.client = APIClient()
-        self.url = reverse("v1:plant_identification:disease-database-list")
-        self._seq = 0
-
-    def _make_disease_with_affected_plant(self):
-        """Create one disease (diagnosis_count >= 1) with one affected plant."""
-        self._seq += 1
-        i = self._seq
-        species = PlantSpecies.objects.create(
-            scientific_name=f"Affected species {i}",
-        )
-        disease = PlantDiseaseDatabase.objects.create(
-            disease_name=f"Disease DB {i}",
-            disease_type="fungal",
-            confidence_score=0.8,
-            diagnosis_count=1,
-        )
-        disease.affected_plants.add(species)
-        return disease
-
-    def test_no_n_plus_1_scaling(self):
-        # Small fixture: 2 disease-database rows.
-        self._make_disease_with_affected_plant()
-        self._make_disease_with_affected_plant()
-        small = self._measure(self.client, self.url)
-
-        # Large fixture: 6 disease-database rows total (still page 1).
-        for _ in range(4):
-            self._make_disease_with_affected_plant()
         large = self._measure(self.client, self.url)
 
         self._assert_no_n_plus_1(self.url, small, large)

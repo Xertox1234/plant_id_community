@@ -4,19 +4,12 @@ Model tests for blog app.
 Tests BlogPostPage, BlogIndexPage, BlogCategory, BlogSeries, and related models.
 """
 
-from datetime import date, timedelta
+from datetime import date
 
-from apps.blog.models import (
-    BlogBasePage,
-    BlogCategory,
-    BlogIndexPage,
-    BlogPostPage,
-    BlogSeries,
-)
+from apps.blog.models import BlogCategory, BlogIndexPage, BlogPostPage, BlogSeries
 from django.contrib.auth import get_user_model
 from django.test import TestCase
-from wagtail.fields import StreamValue
-from wagtail.models import Page, Site
+from wagtail.models import Page
 from wagtail.test.utils import WagtailPageTestCase
 
 User = get_user_model()
@@ -430,12 +423,12 @@ class BlogPostHeadlessPreviewTestCase(WagtailPageTestCase):
         self.assertIsInstance(modes, list)
         self.assertGreater(len(modes), 0)
 
-    def test_preview_modes_includes_web_and_mobile(self):
-        """BlogPostPage preview_modes includes both web and mobile."""
+    def test_preview_modes_offer_only_the_web_default(self):
+        """Only the working web mode is offered (todo 405 slice 2): the old
+        'Mobile (Flutter)' mode opened the same web URL, since the library
+        never passes a mode, and no plantid:// deep link exists."""
         modes = self.blog_post.preview_modes
-        mode_names = [mode[0] for mode in modes]
-        self.assertIn("", mode_names)  # Default (web)
-        self.assertIn("mobile", mode_names)  # Mobile
+        self.assertEqual([mode[0] for mode in modes], [""])
 
     def test_get_client_root_url_method(self):
         """BlogPostPage has get_client_root_url method."""
@@ -444,13 +437,8 @@ class BlogPostHeadlessPreviewTestCase(WagtailPageTestCase):
         self.assertIsInstance(url, str)
         self.assertIn("preview", url.lower())
 
-    def test_get_client_root_url_mobile_mode(self):
-        """BlogPostPage returns mobile deep link for mobile mode."""
-        url = self.blog_post.get_client_root_url(mode="mobile")
-        self.assertIn("plantid://", url)
-
-    def test_get_client_root_url_default_mode(self):
-        """BlogPostPage returns web URL for default mode."""
-        url = self.blog_post.get_client_root_url(mode="")
+    def test_get_client_root_url_is_the_web_preview_url(self):
+        """BlogPostPage returns the web preview URL."""
+        url = self.blog_post.get_client_root_url()
         self.assertIn("http", url.lower())
         self.assertIn("preview", url.lower())

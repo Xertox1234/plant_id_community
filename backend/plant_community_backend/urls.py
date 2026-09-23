@@ -41,7 +41,6 @@ from drf_spectacular.views import (
     SpectacularRedocView,
     SpectacularSwaggerView,
 )
-from rest_framework_simplejwt.views import TokenObtainPairView, TokenVerifyView
 from wagtail import urls as wagtail_urls
 from wagtail.admin import urls as wagtailadmin_urls
 from wagtail.api.v2.router import WagtailAPIRouter
@@ -126,9 +125,6 @@ urlpatterns = [
     path("cms/", include(wagtailadmin_urls)),
     # Wagtail Documents
     path("documents/", include(wagtaildocs_urls)),
-    # API Authentication
-    path("api/auth/token/", TokenObtainPairView.as_view(), name="token_obtain_pair"),
-    path("api/auth/token/verify/", TokenVerifyView.as_view(), name="token_verify"),
     # CSRF Token endpoint for SPA (Issue #144 fix)
     path("api/csrf/", csrf_token_view, name="csrf-token"),
     # CSP Violation Report endpoint (Issue #014)
