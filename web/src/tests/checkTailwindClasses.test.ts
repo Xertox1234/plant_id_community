@@ -130,10 +130,15 @@ describe('findUnknownClasses', () => {
   it('checks the arguments of a class-joining helper', () => {
     // `prose` has no `-`, so only the strict class-position check flags it.
     expect(flagged("<div className={clsx('prose', on && 'p-2')} />")).toEqual(['prose']);
+    expect(flagged("<div className={twJoin('prose', 'p-2')} />")).toEqual(['prose']);
   });
 
   it('checks the elements of an array joined into a class string', () => {
     expect(flagged("<div className={['p-2', 'prose'].join(' ')} />")).toEqual(['prose']);
+    // Review round 1: `.filter` is the array's direct method here, not `.join`.
+    expect(flagged("<div className={['p-2', 'prose'].filter(Boolean).join(' ')} />")).toEqual([
+      'prose',
+    ]);
   });
 
   it('checks the literals a classList argument can evaluate to', () => {

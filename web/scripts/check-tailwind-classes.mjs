@@ -199,17 +199,11 @@ function isClassListArgument(node) {
  * Calls whose arguments are class names. The repo has none today; `clsx`-style
  * helpers are listed so adding one does not silently stop the check.
  */
-const CLASS_JOIN_HELPERS = /^(clsx|cn|cx|classNames|classnames|twMerge)$/;
+const CLASS_JOIN_HELPERS = /^(clsx|cn|cx|classNames|classnames|twMerge|twJoin)$/;
 
-/** Whether a call joins class names: a helper above, or `[...].join(...)`. */
+/** Whether a call is one of the class-joining helpers above. */
 function isClassJoinCall(call) {
-  const callee = call.expression;
-  if (ts.isIdentifier(callee)) return CLASS_JOIN_HELPERS.test(callee.text);
-  return (
-    ts.isPropertyAccessExpression(callee) &&
-    callee.name.text === 'join' &&
-    ts.isArrayLiteralExpression(callee.expression)
-  );
+  return ts.isIdentifier(call.expression) && CLASS_JOIN_HELPERS.test(call.expression.text);
 }
 
 /**
@@ -237,12 +231,15 @@ function inGluedInterpolation(node) {
   return (before !== '' && !/\s$/.test(before)) || (after !== '' && !/^\s/.test(after));
 }
 
+const ARRAY_LOOKUP_METHOD = /^(includes|indexOf|lastIndexOf)$/;
+
 /**
  * Whether a literal is used as a value to compare, index or look up with, not
  * as classes, inside a className expression: `status === 'active'`,
- * `styles['primary']`, `'foo' in obj`, or an element of an array a method is
- * called on (`['a', 'b'].includes(x)`). `[...].join(' ')` builds a class
- * string, so its elements are still classes.
+ * `styles['primary']`, `'foo' in obj`, or an element of an array searched
+ * with a lookup method (`['a', 'b'].includes(x)`). Any other array method
+ * (`[...].filter(Boolean).join(' ')`) may be building a class string, so its
+ * elements stay classes.
  */
 function isComparedOrKey(node) {
   const parent = node.parent;
@@ -257,7 +254,7 @@ function isComparedOrKey(node) {
       access.parent !== undefined &&
       ts.isCallExpression(access.parent) &&
       access.parent.expression === access &&
-      !isClassJoinCall(access.parent)
+      ARRAY_LOOKUP_METHOD.test(access.name.text)
     );
   }
   if (!ts.isBinaryExpression(parent)) return false;

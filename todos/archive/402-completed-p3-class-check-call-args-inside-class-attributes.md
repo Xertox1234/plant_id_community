@@ -58,11 +58,12 @@ bundled `/code-review` round 2.
 
 - **Call arguments inside a class attribute.** A literal passed to a call is
   now skipped inside a class attribute too, unless the callee is a
-  class-joining helper (`clsx`/`cn`/`cx`/`classNames`/`twMerge`, none in the
-  repo today) or `[...].join(...)`. The `in` operator's left operand and the
-  elements of an array a method is called on (`['a','b'].includes(x)`) are
-  treated like compared values: not class position. A `.join` array keeps its
-  elements in class position, since `[...].join(' ')` builds a class string.
+  class-joining helper (`clsx`/`cn`/`cx`/`classNames`/`twMerge`/`twJoin`,
+  none in the repo today). The `in` operator's left operand and the elements
+  of an array searched with a lookup method (`includes`/`indexOf`/
+  `lastIndexOf`) are treated like compared values: not class position. Any
+  other array method keeps its elements in class position, since
+  `[...].filter(Boolean).join(' ')` builds a class string.
 - **classList false negative.** `isClassListArgument` now climbs through
   parentheses, conditional branches (not the test) and `||` / `??`.
 - Tests (`src/tests/checkTailwindClasses.test.ts`): one per probe
@@ -78,3 +79,18 @@ bundled `/code-review` round 2.
   checked against 710 built classes; 136 dynamic fragments skipped.` —
   identical to main's checker on the same build, confirming none of these
   shapes occurs in `src/` today.
+
+### 2026-09-24 - Review round 1 (bundled /code-review) — 2 findings, both repaired
+
+- **Medium, confirmed by probe:** the first cut treated elements of *any*
+  non-`.join` array method as values, so
+  `['p-2', 'prose'].filter(Boolean).join(' ')` stopped flagging `prose`
+  (main flagged it). Fixed by inverting the rule: only a lookup method
+  (`includes`/`indexOf`/`lastIndexOf`) makes elements values. The `.join`
+  special case in `isClassJoinCall` became dead code (its mutation
+  survived), so it was removed.
+- **Low:** `twJoin` was missing from `CLASS_JOIN_HELPERS`; added.
+- New tests for both. Mutation check after the repair: all 7 mutations
+  killed (call-arg skip 4, `in` 1, array branch 1, lookup-any 1, classList
+  climb 1, helper 1, twJoin 1). `Tests 26 passed (26)`; `check:classes`
+  still `5737 class tokens`.
