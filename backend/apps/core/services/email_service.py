@@ -160,11 +160,10 @@ class EmailService:
             )
             text_content = strip_tags(html_content)
 
-        # Create email message. List-Unsubscribe (RFC 2369) puts the same
-        # signed link in the mail client's own "Unsubscribe" button.
-        headers = {}
-        if context.get("unsubscribe_url"):
-            headers["List-Unsubscribe"] = f"<{context['unsubscribe_url']}>"
+        # Create email message. List-Unsubscribe (RFC 2369, plus RFC 8058
+        # one-click when API_PUBLIC_URL is set) puts a signed link in the mail
+        # client's own "Unsubscribe" button (todo 416).
+        headers = dict(context.get("unsubscribe_headers") or {})
         email = EmailMultiAlternatives(
             subject=subject,
             body=text_content,
@@ -350,9 +349,13 @@ class EmailService:
         # list to leave. No link beats one that 500s or does nothing.
         list_id = UNSUBSCRIBE_LISTS.get(email_type)
         if user and list_id:
-            from apps.users.email_unsubscribe import unsubscribe_url
+            from apps.users.email_unsubscribe import (
+                unsubscribe_headers,
+                unsubscribe_url,
+            )
 
             context["unsubscribe_url"] = unsubscribe_url(user, list_id)
+            context["unsubscribe_headers"] = unsubscribe_headers(user, list_id)
 
         return context
 

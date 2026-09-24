@@ -29,7 +29,7 @@ from apps.users.email_unsubscribe import (
 from django.contrib.auth import get_user_model
 from django.core import mail, signing
 from django.core.cache import cache
-from django.test import TestCase, override_settings
+from django.test import Client, TestCase, override_settings
 from django.urls import NoReverseMatch, reverse
 from rest_framework.test import APIClient
 from wagtail_forum.models import ForumProfile
@@ -191,6 +191,32 @@ class UnsubscribeEndpointTests(TestCase):
         self.assertTrue(self.user.email_notifications)
         self.assertTrue(self.user.forum_notifications)
 
+    def test_digest_link_turns_the_weekly_digest_off(self):
+        # Todo 416: the digest's link (minted by digest_unsubscribe, the
+        # WAGTAILFORUM_DIGEST_UNSUBSCRIBE callable) turns the digest off,
+        # which the Settings page's "Email digest" select can turn back on.
+        from apps.users.email_unsubscribe import digest_unsubscribe
+        from wagtail_forum.models import DigestFrequency, ForumProfile
+
+        profile = ForumProfile.for_user(self.user)
+        profile.digest_frequency = DigestFrequency.WEEKLY
+        profile.save(update_fields=["digest_frequency"])
+        token = parse_qs(urlsplit(digest_unsubscribe(self.user)["url"]).query)["token"][
+            0
+        ]
+
+        check = self.client.post(self.check_url, {"token": token}, format="json")
+        self.assertEqual(check.data["list"], "forum_digest")
+        self.assertTrue(check.data["subscribed"])
+
+        response = self.client.post(self.unsub_url, {"token": token}, format="json")
+
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertFalse(response.data["subscribed"])
+        profile.refresh_from_db()
+        self.assertEqual(profile.digest_frequency, DigestFrequency.OFF)
+        self._assert_nothing_changed()  # reply email/push and account switches
+
     def test_unsubscribe_is_idempotent(self):
         token = make_token(self.user, LIST)
         self.client.post(self.unsub_url, {"token": token}, format="json")
@@ -340,6 +366,69 @@ class UnsubscribeLinkInEmailTests(TestCase):
         message = self._send_forum_reply()
         (url,) = self._unsubscribe_urls(message)
         self.assertEqual(message.extra_headers["List-Unsubscribe"], f"<{url}>")
+
+    def test_without_api_public_url_there_is_no_one_click_header(self):
+        with self.settings(API_PUBLIC_URL=""):
+            message = self._send_forum_reply()
+        self.assertNotIn("List-Unsubscribe-Post", message.extra_headers)
+
+    def test_one_click_header_accepts_a_bare_post(self):
+        # Todo 416 / RFC 8058: with API_PUBLIC_URL set, the header names this
+        # API's endpoint, and a mail provider's cookie-less, CSRF-less POST of
+        # `List-Unsubscribe=One-Click` to it unsubscribes.
+        with self.settings(API_PUBLIC_URL="https://api.example"):
+            message = self._send_forum_reply()
+        self.assertEqual(
+            message.extra_headers["List-Unsubscribe-Post"],
+            "List-Unsubscribe=One-Click",
+        )
+        header = message.extra_headers["List-Unsubscribe"]
+        self.assertTrue(header.startswith("<https://api.example/api/v1/auth/"))
+        url = header[1:-1]
+        # The body still links the web page (a human's click is a GET).
+        self.assertEqual(len(self._unsubscribe_urls(message)), 1)
+
+        cache.clear()  # the unsubscribe rate limit counts per IP
+        parts = urlsplit(url)
+        response = Client(enforce_csrf_checks=True).post(
+            f"{parts.path}?{parts.query}",
+            data="List-Unsubscribe=One-Click",
+            content_type="application/x-www-form-urlencoded",
+        )
+
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertFalse(_reply_email_on(self.user))
+
+    def test_one_click_rejects_a_forged_token(self):
+        cache.clear()
+        response = Client(enforce_csrf_checks=True).post(
+            reverse("v1:users:email_unsubscribe_one_click") + "?token=forged",
+            data="List-Unsubscribe=One-Click",
+            content_type="application/x-www-form-urlencoded",
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertTrue(_reply_email_on(self.user))
+
+    def test_digest_callable_carries_one_click_headers(self):
+        from apps.users.email_unsubscribe import digest_unsubscribe
+
+        with self.settings(API_PUBLIC_URL="https://api.example"):
+            links = digest_unsubscribe(self.user)
+        self.assertIn("/unsubscribe?token=", links["url"])
+        self.assertEqual(
+            links["headers"]["List-Unsubscribe-Post"], "List-Unsubscribe=One-Click"
+        )
+        token = parse_qs(urlsplit(links["headers"]["List-Unsubscribe"][1:-1]).query)[
+            "token"
+        ][0]
+        self.assertEqual(read_token(token)[1], "forum_digest")
+
+    def test_reply_email_offers_unfollow_not_a_dead_fragment(self):
+        # Todo 416: the SPA topic page reads only #post-<id>, so a
+        # #unsubscribe fragment did nothing.
+        html = self._send_forum_reply().alternatives[0][0]
+        self.assertNotIn("#unsubscribe", html)
+        self.assertIn("Unfollow this topic", html)
 
     def test_preferences_link_is_the_web_settings_page(self):
         message = self._send_forum_reply()

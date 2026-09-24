@@ -160,6 +160,11 @@ DEFAULTS = {
     "DIGEST_MAX_WATCHED_TOPICS": 10,  # "new replies on topics you follow" rows
     "DIGEST_MAX_TRENDING_TOPICS": 10,  # "active topics you have not seen" rows
     "DIGEST_SETTINGS_PATH": "/settings",  # where the email's manage link points
+    # Dotted path to a host callable(user) -> {"url": <absolute signed
+    # unsubscribe page>, "headers": {<List-Unsubscribe headers>}} or None.
+    # Set, the digest shows the link and sends the headers; unset, only the
+    # manage link. The host owns token minting and header policy (todo 416).
+    "DIGEST_UNSUBSCRIBE": None,
     "EMAIL_SITE_URL": None,  # absolute origin for email links; None = settings.SITE_URL
     # Per-channel notification preferences (todo 343): the matrix a member
     # gets when they have not chosen otherwise. In-app is always on and is

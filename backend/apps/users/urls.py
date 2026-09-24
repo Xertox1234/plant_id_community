@@ -111,4 +111,10 @@ urlpatterns = [
         email_preferences_views.email_unsubscribe,
         name="email_unsubscribe",
     ),
+    # RFC 8058 one-click (todo 416): the List-Unsubscribe header's URL.
+    path(
+        "unsubscribe/one-click/",
+        email_preferences_views.email_unsubscribe_one_click,
+        name="email_unsubscribe_one_click",
+    ),
 ]

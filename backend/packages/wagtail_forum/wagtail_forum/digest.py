@@ -30,6 +30,7 @@ from django.core.mail import EmailMultiAlternatives
 from django.db.models import Count, Exists, Max, OuterRef
 from django.template.loader import render_to_string
 from django.utils import timezone
+from django.utils.module_loading import import_string
 from django.utils.translation import gettext as _
 
 from .conf import get_setting
@@ -89,6 +90,18 @@ def site_url() -> str:
 
 def settings_url() -> str:
     return f"{site_url()}{get_setting('DIGEST_SETTINGS_PATH')}"
+
+
+def unsubscribe_links(user) -> dict | None:
+    """The host's ``{"url", "headers"}`` for this member's digest, or None.
+
+    The package can't mint unsubscribe tokens or pick header policy (that is
+    the host's email policy), so the host names a callable in
+    ``DIGEST_UNSUBSCRIBE`` (todo 416)."""
+    path = get_setting("DIGEST_UNSUBSCRIBE")
+    if not path:
+        return None
+    return import_string(path)(user)
 
 
 def digest_recipients(frequency: str = DigestFrequency.WEEKLY):
@@ -181,10 +194,13 @@ def build_digest(user, since: datetime, profile: ForumProfile | None = None) -> 
     )
 
 
-def render_digest(digest: Digest) -> tuple[str, str, str]:
+def render_digest(
+    digest: Digest, unsubscribe: str | None = None
+) -> tuple[str, str, str]:
     """(subject, text body, html body) from the package templates — a host
     overrides `wagtail_forum/email/digest.txt|html` by shadowing them."""
     context = {
+        "unsubscribe_url": unsubscribe,
         "user": digest.user,
         "display_name": digest.display_name or digest.user.get_username(),
         "since": digest.since,
@@ -203,12 +219,15 @@ def send_digest(digest: Digest) -> bool:
     """Send one digest. Never raises: a render/send failure is logged with
     the `[EMAIL]` prefix and reported as False so a batch keeps going."""
     try:
-        subject, text, html = render_digest(digest)
+        links = unsubscribe_links(digest.user) or {}
+        subject, text, html = render_digest(digest, links.get("url"))
         message = EmailMultiAlternatives(
             subject=subject,
             body=text,
             from_email=getattr(settings, "DEFAULT_FROM_EMAIL", None),
             to=[digest.user.email],
+            # RFC 2369/8058: the mail client's own unsubscribe button.
+            headers=dict(links.get("headers") or {}),
         )
         message.attach_alternative(html, "text/html")
         message.send(fail_silently=False)

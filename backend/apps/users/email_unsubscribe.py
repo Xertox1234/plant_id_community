@@ -73,6 +73,26 @@ def _forum_reply_unsubscribe(user) -> None:
         profile.save(update_fields=["notification_preferences"])
 
 
+def _forum_digest_subscribed(user) -> bool:
+    from wagtail_forum.models import ForumProfile
+    from wagtail_forum.models.profiles import DigestFrequency
+
+    frequency = (
+        ForumProfile.objects.filter(user=user)
+        .values_list("digest_frequency", flat=True)
+        .first()
+    )
+    return frequency not in (None, DigestFrequency.OFF)
+
+
+def _forum_digest_unsubscribe(user) -> None:
+    from wagtail_forum.models import ForumProfile
+    from wagtail_forum.models.profiles import DigestFrequency
+
+    # The Settings page's "Email digest" select turns it back on.
+    ForumProfile.objects.filter(user=user).update(digest_frequency=DigestFrequency.OFF)
+
+
 @dataclass(frozen=True)
 class EmailList:
     label: str
@@ -85,6 +105,11 @@ LISTS: dict[str, EmailList] = {
         label="Email for replies to topics you follow",
         is_subscribed=_forum_reply_subscribed,
         unsubscribe=_forum_reply_unsubscribe,
+    ),
+    "forum_digest": EmailList(
+        label="The weekly forum digest",
+        is_subscribed=_forum_digest_subscribed,
+        unsubscribe=_forum_digest_unsubscribe,
     ),
 }
 
@@ -128,3 +153,41 @@ def unsubscribe_url(user, list_id: str) -> str:
     the web app's origin, as for every other link in our email)."""
     query = urlencode({"token": make_token(user, list_id)})
     return f"{settings.SITE_URL.rstrip('/')}/unsubscribe?{query}"
+
+
+def one_click_url(user, list_id: str):
+    """The RFC 8058 one-click URL on THIS API's origin, or None when
+    ``API_PUBLIC_URL`` is unset. A mail provider POSTs to it with no cookies
+    and no JavaScript, so it can't be the web page."""
+    base = getattr(settings, "API_PUBLIC_URL", "")
+    if not base:
+        return None
+    from django.urls import reverse
+
+    query = urlencode({"token": make_token(user, list_id)})
+    path = reverse("v1:users:email_unsubscribe_one_click")
+    return f"{base.rstrip('/')}{path}?{query}"
+
+
+def unsubscribe_headers(user, list_id: str) -> dict:
+    """List-Unsubscribe headers for one email on one list (RFC 2369/8058).
+
+    One-click needs the header's https URL to accept a bare POST, so with
+    ``API_PUBLIC_URL`` set the header names the API endpoint and adds
+    ``List-Unsubscribe-Post``; without it, the web page (clients open it).
+    """
+    one_click = one_click_url(user, list_id)
+    if one_click:
+        return {
+            "List-Unsubscribe": f"<{one_click}>",
+            "List-Unsubscribe-Post": "List-Unsubscribe=One-Click",
+        }
+    return {"List-Unsubscribe": f"<{unsubscribe_url(user, list_id)}>"}
+
+
+def digest_unsubscribe(user) -> dict:
+    """``WAGTAILFORUM_DIGEST_UNSUBSCRIBE``'s callable (todo 416)."""
+    return {
+        "url": unsubscribe_url(user, "forum_digest"),
+        "headers": unsubscribe_headers(user, "forum_digest"),
+    }

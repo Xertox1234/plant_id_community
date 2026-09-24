@@ -497,3 +497,54 @@ def test_recount_created_profiles_get_the_host_digest_default():
     assert (
         ForumProfile.objects.get(user=user).digest_frequency == DigestFrequency.WEEKLY
     )
+
+
+def fake_unsubscribe(user):
+    """A host callable for DIGEST_UNSUBSCRIBE (todo 416)."""
+    return {
+        "url": f"https://forum.example/unsubscribe?token=t-{user.pk}",
+        "headers": {"List-Unsubscribe": "<https://api.example/one-click>"},
+    }
+
+
+def _send_one_digest():
+    index = _index()
+    board = _board(index, "general")
+    friend = User.objects.create_user(username="du-poster")
+    topic = _topic(board, friend, "Fungus gnats", replies=2)
+    member = User.objects.create_user(username="du-member", email="du@example.com")
+    _opt_in(member)
+    _reply_note(member, friend, topic)
+    call_command("send_forum_digest", frequency="weekly", stdout=StringIO())
+    assert len(mail.outbox) == 1
+    return member, mail.outbox[0]
+
+
+@pytest.mark.django_db
+@override_settings(
+    SITE_URL="https://forum.example",
+    WAGTAILFORUM_DIGEST_UNSUBSCRIBE=(
+        "wagtail_forum.tests.test_digest.fake_unsubscribe"
+    ),
+)
+def test_digest_carries_the_hosts_unsubscribe_link_and_header():
+    member, message = _send_one_digest()
+
+    url = f"https://forum.example/unsubscribe?token=t-{member.pk}"
+    assert (
+        message.extra_headers["List-Unsubscribe"] == "<https://api.example/one-click>"
+    )
+    assert f"Unsubscribe from this digest: {url}" in message.body
+    assert f'href="{url}"' in message.alternatives[0][0]
+
+
+@pytest.mark.django_db
+@override_settings(
+    SITE_URL="https://forum.example", WAGTAILFORUM_DIGEST_UNSUBSCRIBE=None
+)
+def test_digest_without_a_host_callable_has_no_unsubscribe_link():
+    _, message = _send_one_digest()
+
+    assert "List-Unsubscribe" not in message.extra_headers
+    assert "Unsubscribe from this digest" not in message.body
+    assert "Unsubscribe from this digest" not in message.alternatives[0][0]

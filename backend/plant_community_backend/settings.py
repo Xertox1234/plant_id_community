@@ -971,6 +971,14 @@ OPENAI_API_KEY = config("OPENAI_API_KEY", default="")
 # wagtail_forum package's heuristic check; set this env var to
 # "apps.forum_host.spam.LLMSpamBackend" to enable the LLM screen (requires a
 # working OPENAI_API_KEY). Ships dormant — the default does not change behavior.
+# The weekly digest's signed unsubscribe link + List-Unsubscribe headers
+# (todo 416): the package asks the host to mint them.
+WAGTAILFORUM_DIGEST_UNSUBSCRIBE = "apps.users.email_unsubscribe.digest_unsubscribe"
+# This API's own public origin (e.g. https://api.houseplant-md.com). SITE_URL
+# is the WEB app's. Set, every list email carries an RFC 8058 one-click
+# List-Unsubscribe URL on this origin plus List-Unsubscribe-Post; unset, the
+# header points at the web /unsubscribe page and one-click is off (todo 416).
+API_PUBLIC_URL = config("API_PUBLIC_URL", default="")
 WAGTAILFORUM_SPAM_BACKEND = config(
     "WAGTAILFORUM_SPAM_BACKEND",
     default="wagtail_forum.spam.heuristic.HeuristicSpamBackend",
