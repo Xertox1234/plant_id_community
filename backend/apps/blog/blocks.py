@@ -26,8 +26,7 @@ optional `image_credit_url`. The URL is rendered as a link only when it is an
 absolute http(s) URL — see `safe_http_url`.
 """
 
-from urllib.parse import urlsplit
-
+from apps.core.utils.urls import safe_http_url  # noqa: F401  (re-exported)
 from wagtail import blocks
 from wagtail.images.blocks import ImageChooserBlock
 from wagtail.images.models import SourceImageIOError
@@ -67,24 +66,6 @@ class APIImageChooserBlock(ImageChooserBlock):
             "width": rendition.width,
             "height": rendition.height,
         }
-
-
-def safe_http_url(url):
-    """Return `url` if it is an absolute http(s) URL with a host, else `""`.
-
-    `URLBlock` validates in the admin form, but the populate command and any
-    import write the StreamField directly, so a stored value is not proof of
-    a safe scheme. Never let a `javascript:`/`data:` value reach an `href`.
-    """
-    if not isinstance(url, str) or not url:
-        return ""
-    try:
-        parts = urlsplit(url.strip())
-    except ValueError:
-        return ""
-    if parts.scheme.lower() not in ("http", "https") or not parts.netloc:
-        return ""
-    return url.strip()
 
 
 class PlantSpotlightBlock(blocks.StructBlock):

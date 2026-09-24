@@ -69,6 +69,16 @@ class SafeHttpUrlTest(SimpleTestCase):
                 self.assertEqual(safe_http_url(url), "")
 
 
+class SafeHttpUrlCredentialsTest(SimpleTestCase):
+    def test_rejects_embedded_credentials_like_the_web(self):
+        # PR #820: the template and the React renderer must agree.
+        creds = "https://user:pass@evil.example/"  # pragma: allowlist secret
+        self.assertEqual(safe_http_url(creds), "")
+        self.assertEqual(safe_http_url("https://user@evil.example/"), "")
+        self.assertEqual(safe_http_url("https://"), "")
+        self.assertEqual(safe_http_url("https:///path"), "")
+
+
 class PlantSpotlightBlockTest(SimpleTestCase):
     def test_block_is_the_credit_aware_subclass(self):
         self.assertIsInstance(spotlight_block(), PlantSpotlightBlock)
@@ -253,3 +263,16 @@ class PlantSpotlightCreditFlowTest(TestCase):
         )
         self.assertEqual(spotlight["value"]["image_credit"], CREDIT)
         self.assertEqual(spotlight["value"]["image_credit_url"], CREDIT_URL)
+
+    def test_null_photographer_still_saves_the_image(self):
+        # PR #820: the credit is now built BEFORE the save; a provider's
+        # "photographer": null must not drop the image.
+        value = self.run_command("unsplash", {"photographer": None})
+        self.assertEqual(value["image"].pk, self.image.pk)
+        self.assertEqual(value["image_credit"], "Photo by Unknown on Unsplash")
+        self.assertEqual(value["image_credit_url"], "")
+
+    def test_an_overlong_credit_is_truncated_to_the_block_limit(self):
+        # PR #820: a longer value would fail every later admin edit.
+        value = self.run_command("pexels", {"photographer": {"name": "N" * 400}})
+        self.assertEqual(len(value["image_credit"]), 255)

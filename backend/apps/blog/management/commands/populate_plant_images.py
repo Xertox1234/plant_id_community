@@ -15,6 +15,10 @@ from django.db import transaction
 logger = logging.getLogger(__name__)
 
 
+# Mirrors plant_spotlight.image_credit's CharBlock(max_length=255).
+IMAGE_CREDIT_MAX_LENGTH = 255
+
+
 class Command(BaseCommand):
     help = "Populate missing plant images in blog post spotlight blocks"
 
@@ -252,7 +256,12 @@ class Command(BaseCommand):
                         # Update the block value with the new image
                         new_value = dict(block.value)  # Create a proper dict copy
                         new_value["image"] = wagtail_image
-                        new_value["image_credit"] = credit or ""
+                        # CharBlock max_length=255: a longer value would
+                        # make every later admin edit of the page fail
+                        # validation on a field the editor never touched.
+                        new_value["image_credit"] = (credit or "")[
+                            :IMAGE_CREDIT_MAX_LENGTH
+                        ]
                         new_value["image_credit_url"] = credit_url or ""
 
                         # Replace the block using StreamField's tuple interface

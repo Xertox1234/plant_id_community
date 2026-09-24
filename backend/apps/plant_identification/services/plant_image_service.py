@@ -8,6 +8,7 @@ plant images with smart fallback logic and cost optimization.
 import logging
 from typing import Dict, List, Optional, Tuple, Union
 
+from apps.core.utils.urls import safe_http_url
 from django.conf import settings
 from wagtail.images.models import Image
 
@@ -205,14 +206,17 @@ class PlantImageService:
         Returns:
             Formatted attribution text
         """
+        # `or {}`: a provider can send "photographer": null, and this now
+        # runs BEFORE the block is saved, so a crash would drop the image
+        # (PR #820 review).
         if source == "unsplash":
-            photographer = image_data.get("photographer", {})
-            photographer_name = photographer.get("name", "Unknown")
+            photographer = image_data.get("photographer") or {}
+            photographer_name = photographer.get("name") or "Unknown"
             return f"Photo by {photographer_name} on Unsplash"
 
         elif source == "pexels":
-            photographer = image_data.get("photographer", {})
-            photographer_name = photographer.get("name", "Unknown")
+            photographer = image_data.get("photographer") or {}
+            photographer_name = photographer.get("name") or "Unknown"
             return f"Photo by {photographer_name} from Pexels"
 
         elif source == "ai":
@@ -246,9 +250,8 @@ class PlantImageService:
         else:
             return ""
 
-        if not isinstance(url, str) or not url.lower().startswith(
-            ("https://", "http://")
-        ):
+        url = safe_http_url(url)
+        if not url:
             return ""
         return with_unsplash_utm(url) if source == "unsplash" else url
 

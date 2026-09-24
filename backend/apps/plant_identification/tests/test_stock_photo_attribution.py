@@ -57,6 +57,25 @@ class GetAttributionUrlTest(SimpleTestCase):
                 )
 
 
+class AttributionRobustnessTest(SimpleTestCase):
+    def test_text_survives_a_null_photographer(self):
+        service = PlantImageService.__new__(PlantImageService)
+        self.assertEqual(
+            service.get_attribution_text("pexels", {"photographer": None}),
+            "Photo by Unknown from Pexels",
+        )
+
+    def test_url_rejects_hostless_or_credentialed_provider_links(self):
+        for bad in ("https://", "https:///x", "https://u:p@host.example/"):
+            with self.subTest(url=bad):
+                self.assertEqual(
+                    PlantImageService.get_attribution_url(
+                        "pexels", {"photographer": {"url": bad}}
+                    ),
+                    "",
+                )
+
+
 class UnsplashUtmTest(SimpleTestCase):
     def test_with_unsplash_utm(self):
         self.assertEqual(

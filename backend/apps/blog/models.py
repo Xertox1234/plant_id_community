@@ -137,7 +137,10 @@ class BlogStreamBlocks(blocks.StreamBlock):
                 blocks.CharBlock(
                     required=False,
                     max_length=255,
-                    help_text='Photo credit shown under the image, e.g. "Photo by Jane Doe on Unsplash"',
+                    help_text=(
+                        'Photo credit shown under the image, e.g. "Photo by Jane Doe on '
+                        'Unsplash". Update or clear it whenever you change the image.'
+                    ),
                 ),
             ),
             (

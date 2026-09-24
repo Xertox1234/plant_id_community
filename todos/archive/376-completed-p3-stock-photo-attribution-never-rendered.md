@@ -144,3 +144,27 @@ present:
 **Residual.** There is one link, to the photographer. Unsplash's guideline
 also asks for a link to Unsplash itself; the credit text names Unsplash but
 does not link it.
+
+### 2026-09-24 - Review round 1 (bundled /code-review, PR #820): 5 repaired
+
+- **Regression: a null photographer dropped the image.** The credit text is
+  now built before the save, and `get_attribution_text` did
+  `image_data.get("photographer", {}).get(...)`, which raises on
+  `"photographer": null`. It now reads `or {}`. Tests (red with the old
+  line): the text helper, and the command still saving the image.
+- **Backend and web disagreed on credentialed URLs.** `safe_http_url` moved
+  to `apps/core/utils/urls.py` (re-exported from `apps/blog/blocks.py`) and
+  now rejects `user:pass@`, a missing host and `https:///x`, matching the
+  web's `safeExternalUrl`. Red with the credentials check removed.
+- `get_attribution_url` reuses `safe_http_url` instead of its own
+  `startswith` check, so a hostless provider URL is never stored.
+- **An overlong credit would break every later admin edit** (CharBlock
+  max_length 255). The command truncates to `IMAGE_CREDIT_MAX_LENGTH`. Red
+  with the slice removed.
+- The `image_credit` help text tells editors to update or clear it when they
+  change the image (the migration was regenerated for the help text;
+  `makemigrations --check` is clean).
+- Deferred to todo 438: backfilling credits for spotlight photos already in
+  production (rebuildable from the `photographer:` tags), the command's
+  bare `post.save()` (no revision, no cache invalidation, pre-existing), the
+  three copies of the web URL check, and linking "Unsplash" itself.
