@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: p2
 issue_id: "424"
 tags: [forum, flutter, mobile, accessibility]
@@ -57,7 +57,7 @@ opens. Sighted users get the same SnackBar, silently.
 
 ## Acceptance Criteria
 
-- [ ] Tapping a paragraph link and tapping a video card each open the URL in
+- [x] Tapping a paragraph link and tapping a video card each open the URL in
       the in-app browser, with VoiceOver on and off. Checked on a device.
 - [x] A widget test with a fake launcher shows that tapping a link, and
       performing `SemanticsAction.tap` on an embed card, pass the exact URL to
@@ -101,3 +101,12 @@ opens. Sighted users get the same SnackBar, silently.
 - No `LSApplicationQueriesSchemes`: the code never calls `canLaunchUrl`.
 - The todo stays `pending` until the build 14 device check (the first AC).
   The archive tripwire fails an archived todo that has an unchecked AC.
+
+### 2026-09-24 - Verified on a device (TestFlight build 14)
+
+- The owner checked build 14 with VoiceOver on and off. Links and video cards
+  both open in the in-app browser. The first AC passes.
+- A VoiceOver problem was found in the browser itself: the URL bar's focus
+  area covers the close (X) button, so a VoiceOver user can't dismiss the
+  browser by tapping. This is in Apple's SFSafariViewController UI, not our
+  widget tree. Filed as todo 427.
