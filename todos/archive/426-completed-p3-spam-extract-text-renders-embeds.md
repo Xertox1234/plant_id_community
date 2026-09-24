@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: p3
 issue_id: "426"
 tags: [forum, backend, embeds, spam]
@@ -48,11 +48,29 @@ the URL.
 
 ## Acceptance Criteria
 
-- [ ] `extract_text` on a body with an `embed` block does not call the
+- [x] `extract_text` on a body with an `embed` block does not call the
       finder. Pinned by a test that fails before the change.
-- [ ] The URL is in the extracted text, so the link-count heuristic still
+- [x] The URL is in the extracted text, so the link-count heuristic still
       counts it.
 
 ## Work Log
 
 ### 2026-09-24 - Filed while implementing todo 421
+
+### 2026-09-24 - Done: embeds flatten to their URL
+
+- `extract_text` (`wagtail_forum/spam/base.py`) now flattens an
+  `EmbedValue` as `value.url`. It matches on the value type, not the block
+  name, so any embed block in any body is covered.
+- Test: `test_spam.py::test_extract_text_flattens_an_embed_to_its_url_without_the_finder`
+  patches `wagtail.embeds.embeds.get_finder_for_embed` to raise. It failed
+  before the change (`AssertionError: extract_text must not call an embed
+  finder`) and passes after it. It also asserts the URL is in the text and
+  no `<iframe` is.
+- `pytest packages/wagtail_forum apps/forum_host --create-db`: 1494 passed.
+- Not verified: the hypothesis that the LLM backend received the iframe HTML.
+  It no longer can, since both backends read `extract_text`.
+- Found on the way, not changed: `test_spam.py` fails 8 tests when run as a
+  file on its own (`Database access not allowed`), because `get_setting`
+  reaches `forum_host.forum_settings._load_values` on a cold memo. It passes
+  inside the full suite, where an earlier DB test warms the memo.

@@ -1,7 +1,11 @@
 from types import SimpleNamespace
+from unittest import mock
 
+import pytest
+from wagtail_forum.blocks import ForumBodyBlock
 from wagtail_forum.conf import get_setting
 from wagtail_forum.spam import get_spam_backend
+from wagtail_forum.spam.base import extract_text
 from wagtail_forum.spam.heuristic import HeuristicSpamBackend
 
 
@@ -74,6 +78,29 @@ def test_check_text_and_check_agree_on_the_same_object(settings):
 
     assert via_obj.is_clean == via_text.is_clean is False
     assert via_obj.reason == via_text.reason
+
+
+@pytest.mark.django_db
+def test_extract_text_flattens_an_embed_to_its_url_without_the_finder():
+    # Todo 426: str(EmbedValue) is its provider HTML, so flattening an embed
+    # block with str() looked the URL up in the embed cache and, on a miss,
+    # fetched it from the provider in the middle of spam screening.
+    url = "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
+    body = ForumBodyBlock().to_python(
+        [
+            {"type": "paragraph", "value": "<p>watch this</p>"},
+            {"type": "embed", "value": url},
+        ]
+    )
+    post = SimpleNamespace(body=body)
+    with mock.patch(
+        "wagtail.embeds.embeds.get_finder_for_embed",
+        side_effect=AssertionError("extract_text must not call an embed finder"),
+    ) as finder:
+        text = extract_text(post)
+    finder.assert_not_called()
+    assert url in text
+    assert "<iframe" not in text
 
 
 def test_default_autopublish_level_is_member():

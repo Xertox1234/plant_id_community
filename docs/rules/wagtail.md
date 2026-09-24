@@ -260,4 +260,8 @@ Compact checklist auto-injected before edits. Long-form:
   - widget case on Flutter (with the "unknown type" fixtures moved to a
   still-unknown name), and a README contract entry. Gate a host-optional
   block with a package setting rather than making the block list vary per
-  host (todo 344).
+  host (todo 344). Every **text walker** over a body counts too (spam's
+  `extract_text`, search text): never flatten a block with `str(value)` —
+  `str(EmbedValue)` is `.html`, a provider fetch on an embed-cache miss, and
+  the text becomes markup the author never wrote. Flatten an embed to
+  `value.url` (todo 426).
