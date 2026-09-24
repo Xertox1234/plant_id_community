@@ -12,6 +12,7 @@ cost and storage in check.
 """
 
 import json
+from html.parser import HTMLParser
 
 import nh3
 from django.db.models import Q
@@ -50,6 +51,68 @@ def sanitize_rich_text(html):
         url_schemes=ALLOWED_URL_SCHEMES,
         link_rel="noopener noreferrer nofollow",
     )
+
+
+class _TextWithTagBreaks(HTMLParser):
+    """Collects an HTML fragment's text with every tag read as a space, so
+    two links on two lines (``url<br>url``, ``<p>url</p><p>url</p>``) can
+    never glue into one token. Character references are decoded."""
+
+    def __init__(self):
+        super().__init__(convert_charrefs=True)
+        self.parts = []
+
+    def handle_starttag(self, tag, attrs):
+        self.parts.append(" ")
+
+    def handle_endtag(self, tag):
+        self.parts.append(" ")
+
+    def handle_data(self, data):
+        self.parts.append(data)
+
+
+def _sole_video_url(html):
+    """The URL when a paragraph's ONLY content is one video link the host's
+    finders accept, else ``None`` (todo 421).
+
+    The same rule the web composer applies before submit
+    (``web/src/utils/forumBody.ts`` ``embedUrlOf``), moved to the server so
+    every client gets it. The mobile composer sends a bare ``url`` with no
+    ``<p>`` wrapper, so the test is on the text, not the markup. The allowlist
+    is ``is_supported_url`` (the host's ``WAGTAILEMBEDS_FINDERS``), not a copy
+    of the web's regex, so a link that converts is exactly a link the embed
+    validation below accepts.
+    """
+    parser = _TextWithTagBreaks()
+    parser.feed(sanitize_rich_text(html))
+    parser.close()
+    text = "".join(parser.parts).strip()
+    if not text or any(ch.isspace() for ch in text):
+        return None
+    return text if is_supported_url(text) else None
+
+
+def _convert_video_paragraphs(value, embed_type):
+    """Replace each URL-only ``paragraph`` block with an ``embed`` block.
+
+    Stops at ``MAX_EMBED_URLS_PER_BODY`` distinct URLs, counting explicit
+    embed blocks first: a body of bare links saved fine before this
+    conversion existed, so it must never turn one into a 400. A link past
+    the cap stays a paragraph, and a repeat of an already-counted URL
+    converts at no cost.
+    """
+    counted = {block["value"] for block in value if block["type"] == embed_type}
+    cap = get_setting("MAX_EMBED_URLS_PER_BODY")
+    converted = []
+    for block in value:
+        if block["type"] == "paragraph":
+            url = _sole_video_url(block["value"])
+            if url and (url in counted or len(counted) < cap):
+                counted.add(url)
+                block = {**block, "type": embed_type, "value": url}
+        converted.append(block)
+    return converted
 
 
 # The forum index's welcome copy is CMS-authored, not user-submitted, so the
@@ -315,6 +378,13 @@ def validate_forum_body(value, allowed_uploader_ids, user=None, existing_quote_i
         for name, block in body_block.child_blocks.items()
         if isinstance(block, EmbedBlock)
     }
+    # A paragraph that is only a video link becomes an embed block here, on
+    # the server, so every client gets the card (todo 421). Before the embed
+    # checks below, so a converted block is capped and warmed like any
+    # other. Only when the host allows embeds: with the flag off, the link
+    # stays a paragraph and the post still saves.
+    if get_setting("ALLOW_EMBED_BLOCKS") and embed_types:
+        value = _convert_video_paragraphs(value, min(embed_types))
     embed_urls = [
         block["value"]
         for block in value

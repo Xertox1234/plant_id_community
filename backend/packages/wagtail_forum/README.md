@@ -454,6 +454,16 @@ An unreachable provider, a timeout, or an unknown-but-allowed provider all
 degrade to that link card; nothing 500s and nothing is stored beyond the URL.
 Unsupported or non-http(s) URLs are 400 on write.
 
+A client does not have to build the block itself. On create, reply and edit,
+a `paragraph` whose only text is one URL that the finders accept is stored as
+an `embed` block. This happens with or without a `<p>` wrapper, and an
+autolinked `<a>` counts too. A link inside other text stays a paragraph, and
+so does a URL on its own line after other text. Once
+`WAGTAILFORUM_MAX_EMBED_URLS_PER_BODY` distinct URLs have been counted
+(explicit embed blocks first), any further link stays a paragraph rather than
+failing the post. With `WAGTAILFORUM_ALLOW_EMBED_BLOCKS` off, nothing
+converts (todo 421).
+
 ## Polls
 
 A topic may carry **one** `Poll`, attached at compose time via the topic-create

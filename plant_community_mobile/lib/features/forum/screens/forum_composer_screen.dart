@@ -57,6 +57,17 @@ class ForumComposeArgs {
   /// rather than silently discard it on submit.
   factory ForumComposeArgs.edit({required ForumPost post}) {
     final body = post.body;
+    // The server stores a paragraph that is only a video link as one embed
+    // block (todo 421), so a link-only post comes back as a video card.
+    // Offer the URL itself: saving it unchanged converts it back.
+    final onlyBlock = body.length == 1 ? body.first : null;
+    if (onlyBlock is EmbedBlock && onlyBlock.url.isNotEmpty) {
+      return ForumComposeArgs._edit(
+        postId: post.id,
+        initialBodyText: escapeMarkerChars(onlyBlock.url),
+        hasNonTextContent: false,
+      );
+    }
     if (body.length == 1 && body.first is ParagraphBlock) {
       final markup = parseForumRichHtmlToMarkup(
         (body.first as ParagraphBlock).html,

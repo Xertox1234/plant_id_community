@@ -278,6 +278,56 @@ void main() {
     );
   });
 
+  group('editing a post the server turned into a video card (todo 421)', () {
+    testWidgets('a lone embed block opens as its URL, editable, with no '
+        'warning', (tester) async {
+      // The server stores a link-only post as one embed block, so without
+      // this the author's own post opened blank with a warning.
+      final editedPost = post(
+        id: 7,
+        body: const [EmbedBlock(url: 'https://youtu.be/dQw4w9WgXcQ?si=x')],
+        canEdit: true,
+      );
+
+      await _pumpComposer(
+        tester,
+        FakeForumApi(),
+        args: ForumComposeArgs.edit(post: editedPost),
+      );
+
+      final field = tester.widget<TextField>(find.byType(TextField));
+      expect(field.controller!.text, 'https://youtu.be/dQw4w9WgXcQ?si=x');
+      expect(find.textContaining("can't show here yet"), findsNothing);
+    });
+
+    testWidgets('a URL with a marker character round-trips escaped, like a '
+        'paragraph does', (tester) async {
+      const url = 'https://www.youtube.com/watch?v=ab_cd_efghi';
+      final args = ForumComposeArgs.edit(
+        post: post(id: 7, body: const [EmbedBlock(url: url)], canEdit: true),
+      );
+
+      expect(args.initialBodyText, escapeMarkerChars(url));
+      expect(args.hasNonTextContent, isFalse);
+      // Re-posting the field sends back exactly the URL.
+      expect(generateForumRichHtml(args.initialBodyText), url);
+    });
+
+    test('an embed next to other blocks still warns', () {
+      final args = ForumComposeArgs.edit(
+        post: post(
+          id: 7,
+          body: const [
+            ParagraphBlock('Watch this'),
+            EmbedBlock(url: 'https://youtu.be/dQw4w9WgXcQ'),
+          ],
+        ),
+      );
+      expect(args.hasNonTextContent, isTrue);
+      expect(args.initialBodyText, isEmpty);
+    });
+  });
+
   group('rich-text toolbar <-> composer reactivity (todo 314)', () {
     testWidgets('tapping a toolbar button (without typing through the IME) '
         're-evaluates the Post button\'s enabled state — controller.value '
