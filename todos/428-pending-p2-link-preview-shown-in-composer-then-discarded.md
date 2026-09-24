@@ -84,10 +84,22 @@ So the preview is built and it works; it just isn't used where it matters.
 
 **Decisions for the owner before building:**
 
-- **Show the domain on the card?** The request is "no URL at all". A small
-  site name or domain line (e.g. `nytimes.com`) is not the URL. It's the only
-  place a reader can see where the card goes before tapping, which matters
-  for phishing. Recommended: show `site_name`, falling back to `domain`.
+- **The address line: DECIDED 2026-09-24 (owner).** The card shows a
+  **shortened URL**, never the full one: the origin, with an ellipsis when
+  there's a path. For example `https://microsoft.com/…` for
+  `https://microsoft.com/en-us/windows/some/long/path?x=1`. The full URL is
+  still reachable:
+  - **Web:** the card's `title` attribute carries the full URL, so hovering
+    shows it (`alt` applies only to images). The browser status bar also
+    shows the link target on hover.
+  - **Mobile:** there is no hover, so **long-press** shows the full URL.
+    Flutter's `Tooltip` already triggers on long-press. Include a "Copy link"
+    action there.
+  - **Screen readers:** the spoken label is the title plus the shortened
+    address, never the full URL. VoiceOver spells a URL out character by
+    character, which is the build 13 bug from todo 424. The full URL is
+    offered as a custom semantics action ("Show full address"), which a
+    VoiceOver user can reach without a long-press.
 - **Preview images.** `image_url` points at the third-party site, so showing
   it means every reader's device fetches from that host. That leaks the IP
   and lets the site track who read the post. Options: hotlink it (simplest,
@@ -109,8 +121,11 @@ So the preview is built and it works; it just isn't used where it matters.
       prose stays in the prose as a link.
 - [ ] Reading a post never contacts the linked site. Pinned by a test that
       patches the fetcher to raise.
-- [ ] Web and mobile render the card with no raw URL, open the link on tap,
-      and expose a screen-reader label and tap action.
+- [ ] Web and mobile render the card with the shortened URL (origin plus
+      `…`) and never the full one, and open the link on tap. Pinned by tests.
+- [ ] The full URL is reachable: web `title` (hover), mobile long-press, and
+      a screen-reader custom action. The spoken label never contains the
+      full URL. Pinned by widget and Vitest tests.
 - [ ] Every "new block" change is present: the migration, the serializer
       branch, the web renderer, the Flutter model and widget, and the README.
 - [ ] On a device: a link pasted in the app composer shows as a preview card
@@ -127,3 +142,7 @@ So the preview is built and it works; it just isn't used where it matters.
   "the preview is already in the posting interface... it is just not being
   used". Rescoped to persisting and rendering the preview. Auto-linking stays
   only for links inside prose.
+- The owner decided the address line: show a shortened URL
+  (`https://microsoft.com/…`) with the full URL available on hover (web),
+  on long-press (mobile), and through a screen-reader action. Still open:
+  preview images (hotlink or copy) and the cap on the number of cards.
