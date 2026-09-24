@@ -111,7 +111,7 @@ describe('CommunityExpertsModule', () => {
 
     const link = await screen.findByRole('link', { name: /iris delgado/i });
     const row = link.closest('li') as HTMLElement;
-    expect(row.querySelectorAll('.bg-ok')).toHaveLength(0);
+    expect(row.querySelectorAll('[data-presence]')).toHaveLength(0);
     expect(screen.getByText('Community experts')).toBeInTheDocument();
   });
 
@@ -127,7 +127,7 @@ describe('CommunityExpertsModule', () => {
 
     const link = await screen.findByRole('link', { name: /iris delgado/i });
     const row = link.closest('li') as HTMLElement;
-    expect(row.querySelectorAll('.bg-ok')).toHaveLength(0);
+    expect(row.querySelectorAll('[data-presence]')).toHaveLength(0);
     expect(screen.getByText('Community experts')).toBeInTheDocument();
     expect(screen.queryByText('Experts online')).not.toBeInTheDocument();
   });
@@ -140,7 +140,7 @@ describe('CommunityExpertsModule', () => {
 
     const link = await screen.findByRole('link', { name: /iris delgado/i });
     const row = link.closest('li') as HTMLElement;
-    expect(row.querySelectorAll('.bg-ok')).toHaveLength(1);
+    expect(row.querySelectorAll('[data-presence]')).toHaveLength(1);
     expect(screen.getByText('Experts online')).toBeInTheDocument();
     expect(screen.queryByText('Community experts')).not.toBeInTheDocument();
   });
@@ -176,7 +176,7 @@ describe('CommunityExpertsModule', () => {
     const onlineRow = screen
       .getByRole('link', { name: /mo gardener/i })
       .closest('li') as HTMLElement;
-    expect(offlineRow.querySelectorAll('.bg-ok')).toHaveLength(0);
-    expect(onlineRow.querySelectorAll('.bg-ok')).toHaveLength(1);
+    expect(offlineRow.querySelectorAll('[data-presence]')).toHaveLength(0);
+    expect(onlineRow.querySelectorAll('[data-presence]')).toHaveLength(1);
   });
 });
