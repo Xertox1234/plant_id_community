@@ -33,6 +33,10 @@ The bundled `/code-review` of PR #818 raised these as non-blocking.
   view's `ratelimit` decorator rejects a request. Moot if the first finding
   lands.
 
+- **Raw IP in the failed-login warning and alert** (round 2).
+  `track_failed_login` pseudonymizes the identifier but still logs
+  `ip_address` raw; the rest of the file uses `log_safe_ip`. Predates #818.
+
 ## Acceptance Criteria
 
 - [ ] Each finding is fixed with a test, or declined with a reason.
