@@ -1831,14 +1831,6 @@ def validate_environment():
         critical_errors.append("Database configuration is invalid")
 
     # ========================================
-    # RFC 8058 one-click needs an https URI; a plain-http or path-carrying
-    # value makes providers ignore the header. Warn, never block boot.
-    if API_PUBLIC_URL and not re.match(r"^https://[^/]+/?$", API_PUBLIC_URL):
-        warnings.append(
-            f"API_PUBLIC_URL should be a bare https origin (got {API_PUBLIC_URL!r}); "
-            f"one-click unsubscribe headers will be ignored by mail providers"
-        )
-=======
     # Blog preview client (todo 407)
     # ========================================
     preview_problem = validate_preview_client_url(HEADLESS_PREVIEW_CLIENT_URL)
@@ -1847,7 +1839,15 @@ def validate_environment():
 
     # ========================================
     # One-click unsubscribe origin (todo 416)
-    # =================================
+    # ========================================
+    # RFC 8058 one-click needs an https URI; a plain-http or path-carrying
+    # value makes providers ignore the header. Warn, never block boot.
+    if API_PUBLIC_URL and not re.match(r"^https://[^/]+/?$", API_PUBLIC_URL):
+        warnings.append(
+            f"API_PUBLIC_URL should be a bare https origin (got {API_PUBLIC_URL!r}); "
+            f"one-click unsubscribe headers will be ignored by mail providers"
+        )
+
     # ========================================
     # Email Configuration
     # ========================================
