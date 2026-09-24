@@ -30,6 +30,15 @@ def with_unsplash_utm(url: str) -> str:
     return url + separator + urlencode(UNSPLASH_UTM_PARAMS)
 
 
+# The displayed credit is "Photo by <name> on Unsplash"
+# (PlantImageService.get_attribution_text). Renderers link the trailing
+# "Unsplash" to UNSPLASH_HOME_URL when a credit ends with this suffix, since
+# the guidelines ask for a link to the photographer AND to Unsplash (todo 438).
+# web/src/components/StreamFieldRenderer.tsx mirrors both values.
+UNSPLASH_CREDIT_SUFFIX = " on Unsplash"
+UNSPLASH_HOME_URL = with_unsplash_utm("https://unsplash.com/")
+
+
 class UnsplashImageService:
     """
     Service for sourcing plant images from Unsplash API.

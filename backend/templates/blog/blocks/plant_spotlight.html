@@ -9,8 +9,9 @@
                 <img src="{{ plant_img.url }}" alt="{{ plant_img.alt }}">
                 {% if value.image_credit %}
                     {# Stock-photo credit (todo 376). credit_href is vetted to http(s) by PlantSpotlightBlock.get_context. #}
+                    {# An "... on Unsplash" credit also links Unsplash itself (todo 438): credit_lead + unsplash_href come from get_context. #}
                     <p class="image-credit">
-                        {% if credit_href %}<a href="{{ credit_href }}" target="_blank" rel="noopener noreferrer">{{ value.image_credit }}</a>{% else %}{{ value.image_credit }}{% endif %}
+                        {% if unsplash_href %}{% if credit_href %}<a href="{{ credit_href }}" target="_blank" rel="noopener noreferrer">{{ credit_lead }}</a>{% else %}{{ credit_lead }}{% endif %} on <a href="{{ unsplash_href }}" target="_blank" rel="noopener noreferrer">Unsplash</a>{% elif credit_href %}<a href="{{ credit_href }}" target="_blank" rel="noopener noreferrer">{{ value.image_credit }}</a>{% else %}{{ value.image_credit }}{% endif %}
                     </p>
                 {% endif %}
             </div>

@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { Editor } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
 import Link from '@tiptap/extension-link';
@@ -14,6 +14,19 @@ import {
 import { ForumImage } from '../components/forum/forumImageNode';
 import { ForumBlockquoteAttrs } from '../components/forum/forumBlockquoteAttrs';
 import type { StreamFieldBlock } from '@/types/blog';
+
+// Lets one test make the shared URL rule reject everything, to prove the
+// preview detection defers to it (todo 438). A plain wrapper, not vi.fn:
+// the config's mockReset would wipe a vi.fn implementation between tests.
+const urlGate = vi.hoisted(() => ({ rejectAll: false }));
+vi.mock('./externalUrl', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./externalUrl')>();
+  return {
+    ...actual,
+    safeExternalUrl: (...args: Parameters<typeof actual.safeExternalUrl>) =>
+      urlGate.rejectAll ? null : actual.safeExternalUrl(...args),
+  };
+});
 
 // Round-trip tests feed WRITE blocks back into the READ-shape renderer. The
 // `structuredClone` boundary is deliberate (todo 353): it is the only place
@@ -48,6 +61,29 @@ describe('previewUrlFromHtml', () => {
     ).toBe('https://example.org/two');
     expect(previewUrlFromHtml('<p>mailto:test@example.com</p>')).toBeNull();
     expect(previewUrlFromHtml('<script>https://example.com/hidden</script>')).toBeNull();
+  });
+
+  it('uses the shared safeExternalUrl rule, not a copy of it (todo 438)', () => {
+    urlGate.rejectAll = true;
+    try {
+      expect(previewUrlFromHtml('<p>See https://example.com for details</p>')).toBeNull();
+      expect(previewUrlFromHtml('<p><a href="https://example.com/a">a</a></p>')).toBeNull();
+    } finally {
+      urlGate.rejectAll = false;
+    }
+  });
+
+  it('keeps its own stricter shape and returns the author string unnormalised', () => {
+    // safeExternalUrl would accept these after percent-encoding; the preview
+    // detector refuses them outright (todo 353).
+    expect(previewUrlFromHtml('<p><a href="https://example.com/a&quot;b">x</a></p>')).toBeNull();
+    expect(previewUrlFromHtml('<p><a href="https://example.com/a b">x</a></p>')).toBeNull();
+    expect(previewUrlFromHtml('<p><a href="https://u:p@example.com/">x</a></p>')).toBeNull();
+    expect(previewUrlFromHtml('<p><a href="ftp://example.com/x">x</a></p>')).toBeNull();
+    // The parser's form would be "https://example.com/"; the author's string wins.
+    expect(previewUrlFromHtml('<p><a href="https://EXAMPLE.com">x</a></p>')).toBe(
+      'https://EXAMPLE.com'
+    );
   });
 });
 
