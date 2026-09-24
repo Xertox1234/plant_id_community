@@ -12,6 +12,9 @@ from django.contrib.auth import get_user_model
 from django.core.cache import cache
 from django.http import HttpRequest, HttpResponse
 
+# Defined in constants (todo 419); re-exported for existing importers.
+from .constants import SECURITY_SENSITIVE_PATHS
+
 # Import constants
 try:
     from .constants import (
@@ -29,16 +32,9 @@ except ImportError:
 
 logger = logging.getLogger(__name__)
 
-# Path prefixes SecurityMetricsMiddleware records metrics for. Each must be a
-# real route (pinned in apps/core/tests/test_legacy_api_mount_removed.py):
-# these named the removed unversioned /api/auth/ paths and silently matched
-# nothing for as long as clients used /api/v1/.
-SECURITY_SENSITIVE_PATHS = (
-    "/api/v1/auth/login/",
-    "/api/v1/auth/register/",
-    "/api/v1/auth/logout/",
-    "/api/v1/auth/token/refresh/",
-)
+
+# A security endpoint slower than this is logged.
+SLOW_SECURITY_REQUEST_SECONDS = 5.0
 
 User = get_user_model()
 
@@ -262,7 +258,14 @@ class SecurityMetricsMiddleware:
         ip_address: str,
     ) -> None:
         """
-        Track security metric for analysis.
+        Log a slow security-endpoint request.
+
+        This used to also rewrite one ``security_metrics:<endpoint>:<method>``
+        cache key per request: a read-modify-write that lost updates, a 24h
+        TTL that reset on every write (so it never expired under traffic),
+        and a raw-IP set that grew without bound. Nothing read it
+        (``get_security_metrics`` doesn't), so the write was dropped
+        (todo 419 item 2).
 
         Args:
             endpoint: API endpoint
@@ -272,43 +275,7 @@ class SecurityMetricsMiddleware:
             user_id: User ID or 'anonymous'
             ip_address: Client IP address
         """
-        # Store aggregated metrics in cache for monitoring dashboard
-        metrics_key = f"security_metrics:{endpoint}:{method}"
-        metrics = cache.get(
-            metrics_key,
-            {
-                "total_requests": 0,
-                "failed_requests": 0,
-                "avg_duration": 0,
-                "unique_ips": set(),
-            },
-        )
-
-        metrics["total_requests"] += 1
-        if status_code >= 400:
-            metrics["failed_requests"] += 1
-
-        # Update rolling average duration
-        metrics["avg_duration"] = (
-            metrics["avg_duration"] * (metrics["total_requests"] - 1) + duration
-        ) / metrics["total_requests"]
-
-        # Track unique IPs (convert to list for cache storage)
-        if isinstance(metrics["unique_ips"], set):
-            metrics["unique_ips"].add(ip_address)
-        else:
-            metrics["unique_ips"] = set(metrics["unique_ips"])
-            metrics["unique_ips"].add(ip_address)
-
-        # Convert set to list for cache storage
-        metrics_to_store = metrics.copy()
-        metrics_to_store["unique_ips"] = list(metrics["unique_ips"])
-
-        # Store for 24 hours
-        cache.set(metrics_key, metrics_to_store, 86400)
-
-        # Log high-duration requests
-        if duration > 5.0:  # More than 5 seconds
+        if duration > SLOW_SECURITY_REQUEST_SECONDS:
             logger.warning(
                 f"{LOG_PREFIX_SECURITY} Slow security endpoint: "
                 f"endpoint={endpoint}, duration={duration:.2f}s, "

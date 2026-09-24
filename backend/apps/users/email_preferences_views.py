@@ -8,11 +8,12 @@ had no client and were removed (todo 415).
 """
 
 import logging
+from urllib.parse import urlencode
 
 from apps.core.ratelimit import client_ip_key
 from apps.core.utils.pii_safe_logging import log_safe_user_context
 from django_ratelimit.decorators import ratelimit
-from drf_spectacular.utils import extend_schema, inline_serializer
+from drf_spectacular.utils import OpenApiParameter, extend_schema, inline_serializer
 from rest_framework import permissions, serializers, status
 from rest_framework.decorators import (
     api_view,
@@ -57,27 +58,28 @@ def _list_state(user, list_id: str) -> dict:
     }
 
 
+_UNSUBSCRIBE_SCHEMA_RESPONSES = {
+    200: inline_serializer(
+        "EmailListState",
+        {
+            "list": serializers.CharField(),
+            "label": serializers.CharField(),
+            "subscribed": serializers.BooleanField(),
+        },
+    ),
+    400: inline_serializer(
+        "EmailUnsubscribeError",
+        {
+            "code": serializers.ChoiceField(choices=["invalid", "expired"]),
+            "message": serializers.CharField(),
+        },
+    ),
+}
 _UNSUBSCRIBE_SCHEMA = extend_schema(
     request=inline_serializer(
         "EmailUnsubscribeRequest", {"token": serializers.CharField()}
     ),
-    responses={
-        200: inline_serializer(
-            "EmailListState",
-            {
-                "list": serializers.CharField(),
-                "label": serializers.CharField(),
-                "subscribed": serializers.BooleanField(),
-            },
-        ),
-        400: inline_serializer(
-            "EmailUnsubscribeError",
-            {
-                "code": serializers.ChoiceField(choices=["invalid", "expired"]),
-                "message": serializers.CharField(),
-            },
-        ),
-    },
+    responses=_UNSUBSCRIBE_SCHEMA_RESPONSES,
 )
 
 
@@ -126,5 +128,51 @@ def email_unsubscribe(request: Request) -> Response:
     LISTS[list_id].unsubscribe(user)
     logger.info(
         f"[EMAIL] {log_safe_user_context(user)} unsubscribed from {list_id} via email link"
+    )
+    return Response(_list_state(user, list_id))
+
+
+@extend_schema(
+    request=None,
+    parameters=[OpenApiParameter("token", str, OpenApiParameter.QUERY, required=True)],
+    responses=_UNSUBSCRIBE_SCHEMA_RESPONSES,
+)
+@api_view(["GET", "POST"])
+@authentication_classes([])
+@permission_classes([permissions.AllowAny])
+# Keyed on the TOKEN, not the client IP: providers POST from a few shared
+# egress IPs, so a per-IP limit would drop every user after the first 30 an
+# hour (PR #819 review). A forged token fails the signature check before any
+# DB work; a real one only unsubscribes its own user.
+@ratelimit(
+    key="get:token", rate=RATE_LIMIT_EMAIL_UNSUBSCRIBE, method="POST", block=True
+)
+def email_unsubscribe_one_click(request: Request):
+    """RFC 8058 one-click unsubscribe (todo 416).
+
+    A mail provider POSTs ``List-Unsubscribe=One-Click`` (form-encoded) to the
+    List-Unsubscribe header's URL, with no cookies and no JavaScript, so the
+    signed token rides in the query string and the body is ignored. Same
+    token and credential model as ``email_unsubscribe``.
+
+    A client without RFC 8058 opens the header URL with a GET instead: that
+    redirects to the web page (which asks before acting) and changes
+    nothing, since mail scanners prefetch GET links.
+    """
+    if request.method == "GET":
+        from django.conf import settings
+        from django.http import HttpResponseRedirect
+
+        query = urlencode({"token": request.query_params.get("token", "")})
+        return HttpResponseRedirect(
+            f"{settings.SITE_URL.rstrip('/')}/unsubscribe?{query}"
+        )
+    try:
+        user, list_id = read_token(request.query_params.get("token"))
+    except UnsubscribeTokenInvalid as exc:
+        return _token_error(exc)
+    LISTS[list_id].unsubscribe(user)
+    logger.info(
+        f"[EMAIL] {log_safe_user_context(user)} unsubscribed from {list_id} via one-click"
     )
     return Response(_list_state(user, list_id))
