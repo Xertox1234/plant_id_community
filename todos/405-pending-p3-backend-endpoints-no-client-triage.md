@@ -277,3 +277,19 @@ PlantDiseaseRequest (`models.py` ~230/453/741/920) reverses route names that
 never existed (`species_detail`, `request_detail`, `user_plant_detail`,
 `disease_request_detail`), so each raises NoReverseMatch if called. Nothing in
 the app calls them. Fix or delete them in a later cleanup.
+
+### 2026-09-23 - Slice 3 verified in production; slice 4 unblocked by todo 408
+
+- **Slice 3 (PR #801) is verified in production.** A read-only `railway ssh`,
+  running `showmigrations plant_identification` plus a table introspection,
+  showed `plant_identification.0027_remove_dead_cms_and_diagnosis_models`
+  applied at about 22:58 UTC, with `LEFTOVER []` (no removed-model tables
+  remain).
+- **Slice 4 (removing the legacy unversioned `/api/` mount) is unblocked for
+  unsubscribe.** Todo 408 (PR #802) replaced `users:unsubscribe` with
+  `v1:users:email_unsubscribe[_check]`, and `EmailService` no longer reverses
+  any `users:` name.
+- **Still to check before slice 4:** `users:oauth_callback` and `blog_api:*`,
+  both from the earlier route walk. Also `templates/emails/forum_digest.html`'s
+  `{% url 'users:email_preferences' %}`, which is not a live template (todo
+  415).

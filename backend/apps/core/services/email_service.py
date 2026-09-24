@@ -14,7 +14,6 @@ from django.contrib.auth import get_user_model
 from django.core.mail import EmailMultiAlternatives, send_mail
 from django.template import TemplateDoesNotExist
 from django.template.loader import render_to_string
-from django.urls import reverse
 from django.utils import timezone
 from django.utils.html import strip_tags
 
@@ -48,6 +47,13 @@ class EmailType:
     # Community emails
     IDENTIFICATION_RESULT = "identification_result"
     COMMUNITY_UPDATE = "community_update"
+
+
+# Email type -> the list its unsubscribe link leaves (a key of
+# apps.users.email_unsubscribe.LISTS). A type with no entry carries no link.
+UNSUBSCRIBE_LISTS = {
+    EmailType.FORUM_REPLY: "forum_reply",
+}
 
 
 class EmailService:
@@ -154,12 +160,17 @@ class EmailService:
             )
             text_content = strip_tags(html_content)
 
-        # Create email message
+        # Create email message. List-Unsubscribe (RFC 2369) puts the same
+        # signed link in the mail client's own "Unsubscribe" button.
+        headers = {}
+        if context.get("unsubscribe_url"):
+            headers["List-Unsubscribe"] = f"<{context['unsubscribe_url']}>"
         email = EmailMultiAlternatives(
             subject=subject,
             body=text_content,
             from_email=from_email or self.from_email,
             to=[recipient_email],
+            headers=headers,
         )
         email.attach_alternative(html_content, "text/html")
 
@@ -331,41 +342,19 @@ class EmailService:
             "current_year": timezone.now().year,
         }
 
-        # Add unsubscribe URL if user exists
-        if user:
-            context["unsubscribe_url"] = self._generate_unsubscribe_url(
-                user, email_type
-            )
-            context["preferences_url"] = self._generate_preferences_url(user)
+        # The web app's Settings page holds every email choice a user can
+        # change (todo 408; the old "#!/settings/..." PWA fragment led nowhere).
+        context["preferences_url"] = f"{site_url.rstrip('/')}/settings"
+
+        # A signed one-user, one-list link — only for an email type that has a
+        # list to leave. No link beats one that 500s or does nothing.
+        list_id = UNSUBSCRIBE_LISTS.get(email_type)
+        if user and list_id:
+            from apps.users.email_unsubscribe import unsubscribe_url
+
+            context["unsubscribe_url"] = unsubscribe_url(user, list_id)
 
         return context
-
-    def _generate_unsubscribe_url(self, user: User, email_type: str) -> str:
-        """Generate unsubscribe URL for user and email type."""
-        site_url = getattr(settings, "SITE_URL", "https://plantcommunity.com")
-        try:
-            unsubscribe_path = reverse("users:unsubscribe")
-            return f"{site_url}{unsubscribe_path}?user={user.uuid}&type={email_type}"
-        except Exception:
-            # Fallback if reverse fails
-            return (
-                f"{site_url}/api/auth/unsubscribe/"
-                f"?user={user.uuid}&type={email_type}"
-            )
-
-    def _generate_preferences_url(self, user: User) -> str:
-        """Generate email preferences URL for user."""
-        try:
-            # Called for its side effect: raises NoReverseMatch when the route
-            # is absent, which is what the `except` below handles. The resolved
-            # path is not used -- the PWA route is a fragment, not the Django one.
-            reverse("users:email_preferences")
-            site_url = getattr(settings, "SITE_URL", "https://plantcommunity.com")
-            return f"{site_url}#!/settings/email-preferences"  # PWA route
-        except Exception:
-            # Fallback if reverse fails
-            site_url = getattr(settings, "SITE_URL", "https://plantcommunity.com")
-            return f"{site_url}#!/settings"
 
     def _track_email_sent(
         self,

@@ -1597,6 +1597,16 @@ def validate_environment():
         if not config("CSRF_TRUSTED_ORIGINS", default=""):
             critical_errors.append("CSRF_TRUSTED_ORIGINS must be set in production")
 
+        # Required: SITE_URL (todo 408) — the web app's origin. Every link in
+        # our email (topics, unsubscribe, settings), the RSS feeds and the
+        # sitemap are built on it, and its default names a domain we do not
+        # own: unset, the service boots fine and ships wrong links.
+        if not config("SITE_URL", default=""):
+            critical_errors.append(
+                "SITE_URL must be set in production to the web app's origin "
+                "(e.g. https://houseplant-md.com)"
+            )
+
         # Required: PLANT_ID_API_KEY (Issue #156)
         if not PLANT_ID_API_KEY:
             critical_errors.append(

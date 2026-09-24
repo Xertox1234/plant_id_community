@@ -2,21 +2,34 @@
 Views for managing user email notification preferences.
 
 Provides user-friendly interface for controlling all email notification types
-with proper GDPR compliance and one-click unsubscribe functionality.
+with proper GDPR compliance, and the signed-link unsubscribe endpoints the web
+app's /unsubscribe page calls (todo 408).
 """
 
 import logging
 
+from apps.core.ratelimit import client_ip_key
 from apps.core.services.notification_service import NotificationService
 from apps.core.utils.pii_safe_logging import log_safe_user_context
 from django.contrib import messages
-from django.contrib.auth import get_user_model
 from django.contrib.auth.decorators import login_required
 from django.http import JsonResponse
 from django.shortcuts import render
 from django.views.decorators.http import require_http_methods
+from django_ratelimit.decorators import ratelimit
+from drf_spectacular.utils import extend_schema, inline_serializer
+from rest_framework import permissions, serializers, status
+from rest_framework.decorators import (
+    api_view,
+    authentication_classes,
+    permission_classes,
+)
+from rest_framework.request import Request
+from rest_framework.response import Response
 
-User = get_user_model()
+from .constants import RATE_LIMIT_EMAIL_UNSUBSCRIBE
+from .email_unsubscribe import LISTS, UnsubscribeTokenInvalid, read_token
+
 logger = logging.getLogger(__name__)
 
 
@@ -80,91 +93,89 @@ def email_preferences(request):
     return render(request, "users/email_preferences.html", context)
 
 
-@require_http_methods(["GET", "POST"])
-def unsubscribe(request):
-    """
-    Handle one-click unsubscribe from all emails or specific email types.
-    GDPR compliant unsubscribe functionality.
-    """
-    user_uuid = request.GET.get("user")
-    email_type = request.GET.get("type", "all")
-
-    if not user_uuid:
-        return render(
-            request,
-            "users/unsubscribe_error.html",
-            {"error": "Invalid unsubscribe link"},
-        )
-
-    try:
-        user = User.objects.get(uuid=user_uuid)
-    except User.DoesNotExist:
-        return render(
-            request,
-            "users/unsubscribe_error.html",
-            {"error": "Invalid unsubscribe link"},  # Don't reveal if user exists
-        )
-
-    if request.method == "POST":
-        # Process unsubscribe request
-        if email_type == "all":
-            # Unsubscribe from all emails
-            user.email_notifications = False
-            user.plant_id_notifications = False
-            user.forum_notifications = False
-            user.care_reminder_email = False
-            user.save()
-
-            # Deactivate all forum subscriptions
-            from apps.core.models import ForumNotificationSubscription
-
-            ForumNotificationSubscription.objects.filter(
-                user=user, is_active=True
-            ).update(is_active=False)
-
-            success_message = (
-                "You have been unsubscribed from all Plant Community emails."
-            )
-
-        else:
-            # Unsubscribe from specific email type
-            if email_type == "plant_care":
-                user.plant_id_notifications = False
-                user.care_reminder_email = False
-                success_message = "You have been unsubscribed from plant care emails."
-            elif email_type == "forum":
-                user.forum_notifications = False
-                success_message = "You have been unsubscribed from forum emails."
-            else:
-                success_message = (
-                    f"You have been unsubscribed from {email_type} emails."
-                )
-
-            user.save()
-
-        logger.info(
-            f"[EMAIL] {log_safe_user_context(user)} unsubscribed from {email_type} emails"
-        )
-
-        return render(
-            request,
-            "users/unsubscribe_success.html",
-            {
-                "user": user,
-                "email_type": email_type,
-                "success_message": success_message,
-            },
-        )
-
-    # Show unsubscribe confirmation page (GET request)
-    return render(
-        request,
-        "users/unsubscribe_confirm.html",
-        {
-            "user": user,
-            "email_type": email_type,
-        },
+def _token_error(exc: UnsubscribeTokenInvalid) -> Response:
+    message = (
+        "This unsubscribe link has expired."
+        if exc.code == "expired"
+        else "This unsubscribe link is not valid."
     )
+    return Response(
+        {"code": exc.code, "message": message}, status=status.HTTP_400_BAD_REQUEST
+    )
+
+
+def _list_state(user, list_id: str) -> dict:
+    email_list = LISTS[list_id]
+    return {
+        "list": list_id,
+        "label": email_list.label,
+        "subscribed": email_list.is_subscribed(user),
+    }
+
+
+_UNSUBSCRIBE_SCHEMA = extend_schema(
+    request=inline_serializer(
+        "EmailUnsubscribeRequest", {"token": serializers.CharField()}
+    ),
+    responses={
+        200: inline_serializer(
+            "EmailListState",
+            {
+                "list": serializers.CharField(),
+                "label": serializers.CharField(),
+                "subscribed": serializers.BooleanField(),
+            },
+        ),
+        400: inline_serializer(
+            "EmailUnsubscribeError",
+            {
+                "code": serializers.ChoiceField(choices=["invalid", "expired"]),
+                "message": serializers.CharField(),
+            },
+        ),
+    },
+)
+
+
+# The signed token in the body is the only credential (todo 408): no
+# authentication class, so a signed-in visitor's session can never redirect
+# the action onto their own account, and no CSRF — a cross-site POST would need
+# the token, and whoever holds the token can act anyway. POST only: mail
+# scanners prefetch GET links, and the token stays out of access logs.
+@_UNSUBSCRIBE_SCHEMA
+@api_view(["POST"])
+@authentication_classes([])
+@permission_classes([permissions.AllowAny])
+@ratelimit(
+    key=client_ip_key, rate=RATE_LIMIT_EMAIL_UNSUBSCRIBE, method="POST", block=True
+)
+def email_unsubscribe_check(request: Request) -> Response:
+    """Describe the list a link unsubscribes from, without changing it."""
+    try:
+        user, list_id = read_token(request.data.get("token"))
+    except UnsubscribeTokenInvalid as exc:
+        return _token_error(exc)
+    return Response(_list_state(user, list_id))
+
+
+@_UNSUBSCRIBE_SCHEMA
+@api_view(["POST"])
+@authentication_classes([])
+@permission_classes([permissions.AllowAny])
+@ratelimit(
+    key=client_ip_key, rate=RATE_LIMIT_EMAIL_UNSUBSCRIBE, method="POST", block=True
+)
+def email_unsubscribe(request: Request) -> Response:
+    """Unsubscribe the token's user from the token's list. Idempotent."""
+    try:
+        user, list_id = read_token(request.data.get("token"))
+    except UnsubscribeTokenInvalid as exc:
+        return _token_error(exc)
+    LISTS[list_id].unsubscribe(user)
+    logger.info(
+        f"[EMAIL] {log_safe_user_context(user)} unsubscribed from {list_id} via email link"
+    )
+    return Response(_list_state(user, list_id))
 
 
 @login_required
