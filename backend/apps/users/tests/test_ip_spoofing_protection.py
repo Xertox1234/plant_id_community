@@ -8,7 +8,6 @@ Tests SecurityMonitor IP validation and spoofing protection including:
 - Fallback to REMOTE_ADDR
 """
 
-import logging
 from unittest.mock import patch
 
 from apps.core.security import SecurityMonitor
@@ -179,6 +178,8 @@ class IPSpoofingProtectionTestCase(TestCase):
             with patch("apps.core.security.logger") as mock_logger:
                 ip = SecurityMonitor._get_client_ip(request)
 
+                # The spoofed value is rejected; the real REMOTE_ADDR wins.
+                self.assertEqual(ip, "192.168.1.100")
                 # Should log warning about invalid IP
                 mock_logger.warning.assert_called()
                 warning_message = mock_logger.warning.call_args[0][0]
@@ -247,7 +248,7 @@ class IPValidationInSecurityContextTestCase(TestCase):
     def test_failed_login_tracking_with_spoofed_ip(self):
         """Failed-login tracking must use the validated REMOTE_ADDR, not a spoofed
         X-Forwarded-For value."""
-        request = self.factory.post("/api/auth/login/")
+        request = self.factory.post("/api/v1/auth/login/")
         request.META["REMOTE_ADDR"] = "192.168.1.100"
         request.META["HTTP_X_FORWARDED_FOR"] = "spoofed_ip"
 
@@ -261,7 +262,7 @@ class IPValidationInSecurityContextTestCase(TestCase):
 
     def test_successful_login_tracking_with_validated_ip(self):
         """Test that successful login tracking uses validated IP."""
-        request = self.factory.post("/api/auth/login/")
+        request = self.factory.post("/api/v1/auth/login/")
         request.META["REMOTE_ADDR"] = "192.168.1.100"
 
         # Track successful login

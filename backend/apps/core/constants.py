@@ -111,3 +111,32 @@ RATE_LIMIT_VIOLATION_THRESHOLD = 5
 
 # Time window for tracking rate limit violations (1 hour)
 RATE_LIMIT_VIOLATION_WINDOW = 3600
+
+# ============================================================================
+# Security Middleware Path Lists (todo 419 moved these here)
+# ============================================================================
+# Hand-maintained URL literals, pinned route-by-route in
+# apps/core/tests/test_legacy_api_mount_removed.py: they named the removed
+# /api/auth/ paths and silently matched nothing until todo 405.
+
+# Path prefixes SecurityMetricsMiddleware logs slow requests for.
+SECURITY_SENSITIVE_PATHS = (
+    "/api/v1/auth/login/",
+    "/api/v1/auth/register/",
+    "/api/v1/auth/logout/",
+    "/api/v1/auth/token/refresh/",
+    "/api/v1/auth/firebase-token-exchange/",
+)
+
+# Exact paths whose 401 responses SecurityMiddleware counts as a failed login
+# (SecurityMonitor.track_failed_login). Only a 401 is a rejected credential:
+# register's 400s are form validation and a 403 is CSRF, and counting either
+# would raise false brute-force alerts.
+#
+# The Firebase token exchange (every mobile sign-in) is deliberately NOT here:
+# it also returns 401 for server-side failures (Firebase init degrading, a
+# Google cert fetch failing), so an outage like 2026-09-13's would count every
+# mobile sign-in as a failed login and fire brute-force alerts, and a success
+# never clears the per-IP counter. Firebase itself rate-limits and verifies
+# the ID token; the view is also rate-limited (todo 419, PR #818 review).
+FAILED_AUTH_TRACKED_PATHS = ("/api/v1/auth/login/",)
