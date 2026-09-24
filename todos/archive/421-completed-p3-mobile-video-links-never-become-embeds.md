@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: p3
 issue_id: "421"
 tags: [forum, mobile, backend, embeds]
@@ -61,7 +61,8 @@ so it is not preferred.
 - [x] A non-provider URL stays a paragraph. With `FORUM_EMBEDS_ENABLED=False`,
       a provider URL also stays a paragraph.
 - [x] Editing a post goes through the same conversion. Replies do too.
-- [ ] On a device: a video link posted from the app shows as an embed card.
+- [x] On a device: a video link posted from the app shows as an embed card.
+      Build 14, 2026-09-24 (owner).
 
 ## Work Log
 
@@ -112,3 +113,12 @@ so it is not preferred.
 - The web conversion (`forumBody.ts`) stays. It is now redundant but does no
   harm.
 - Todo 421 stays `pending` until the build 14 device check (the last AC).
+
+### 2026-09-24 - Verified on a device (TestFlight build 14)
+
+- The owner posted a video link from the app in build 14. After approval it
+  showed as a video card. The server conversion shipped in PR #809 and has
+  been live since the 16:11 UTC deploy.
+- The Edit pre-fill wasn't part of this check. It is pinned by widget tests.
+- The same check found that an ordinary (non-video) link posted from the app
+  stays plain, untappable text: todo 428.
