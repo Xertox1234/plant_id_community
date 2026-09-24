@@ -120,14 +120,32 @@ So the preview is built and it works; it just isn't used where it matters.
     collection, and it has upload-owner rules these files shouldn't join.
   - **Failure** (unreachable, too big, not an image, or undecodable) gives
     a card without an image, not a broken one.
-  - **Cleanup:** a stored image is unused once no live post body refers to
-    it. Add a sweep, for example to the nightly `forum-prune-cron`, or accept
-    orphans and say so. Decide when building.
+  - **Cleanup: DECIDED 2026-09-24 (owner): add the cleanup job.** A new
+    host management command, for example `prune_link_preview_images` in
+    `apps/forum_host/management/commands/`, deletes cached preview images
+    that nothing refers to. The rules that make it safe:
+    - **A reference is any body that can still be shown**, not just live
+      posts: `Post.body` AND every Wagtail revision of a post
+      (`RevisionMixin`). A post waiting for moderation exists only as a
+      revision (todos 422/423), and the edit-history sheet shows old
+      revisions, so an image used only there must survive.
+    - **Grace period:** never delete a file younger than e.g. 24 h. A post
+      being saved right now can hold an image nothing refers to yet.
+    - **List the storage prefix, then subtract the referenced set.** Never
+      delete by guessing from post rows. Log each deletion with a bracketed
+      prefix (`[PRUNE]`), and add `--dry-run`.
+    - **Schedule:** run it from the existing nightly `forum-prune-cron`
+      (03:00 UTC). Its start command in `.railway/railway.ts` becomes
+      `python manage.py prune_forum_tombstones && python manage.py
+      prune_link_preview_images`. **Merging a `.railway/` change is a
+      production IaC apply** (`railway-apply.yml`), and auto mode blocks it,
+      so the owner merges it. After merging, confirm the next 03:00 run logs
+      both commands. The cron needs the same `USE_R2`/`R2_*` variables as
+      the web service; it already has them, per todo 305.
 - **How many cards: DECIDED 2026-09-24 (owner).** One card per link, capped
   at **5 per post**. Links past the cap stay tappable links. Counted
   separately from the existing 5-video `MAX_EMBED_URLS_PER_BODY` cap.
-  Hypothesis, not confirmed with the owner: "capped at 5" was meant for link
-  cards, not a combined total with videos.
+  The owner confirmed this: 5 link cards, separate from the 5 videos.
 
 ## Acceptance Criteria
 
@@ -152,6 +170,11 @@ So the preview is built and it works; it just isn't used where it matters.
       stored `image_url` is on our media origin.
 - [ ] More than 5 standalone links in one post: the first 5 become cards and
       the rest stay tappable links. Pinned by a test.
+- [ ] `prune_link_preview_images` deletes only unreferenced cached images
+      older than the grace period, and keeps one referenced only by a
+      pending or historical revision. Pinned by tests. It runs nightly from
+      `forum-prune-cron`, and its first production run is confirmed in the
+      cron logs.
 - [ ] Every "new block" change is present: the migration, the serializer
       branch, the web renderer, the Flutter model and widget, and the README.
 - [ ] On a device: a link pasted in the app composer shows as a preview card
@@ -174,3 +197,6 @@ So the preview is built and it works; it just isn't used where it matters.
   decided that images are cached on our storage and never hotlinked, and
   that there is one card per link, capped at 5 per post. All decisions are
   made; the todo is ready to build.
+- The owner asked for the image cleanup job (now part of this todo) and
+  confirmed the 5-card cap is separate from videos. A better layout for many
+  cards or videos in one post, instead of a vertical stack, is todo 429.
