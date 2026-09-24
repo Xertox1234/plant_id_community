@@ -57,6 +57,7 @@ import type {
 } from '../types/forum';
 import { slugifyTitle } from '../utils/forumUrls';
 import { htmlToBodyBlocks } from '../utils/forumBody';
+import { safeExternalUrl } from '../utils/externalUrl';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 const FORUM_BASE = `${API_URL}/api/v1/forum`;
@@ -455,19 +456,9 @@ export async function fetchPosts(options: {
 
 export async function fetchLinkPreview(url: string, signal?: AbortSignal): Promise<LinkPreview> {
   const trimmed = url.trim();
-  try {
-    const parsed = new URL(trimmed);
-    if (
-      !['http:', 'https:'].includes(parsed.protocol) ||
-      !parsed.hostname ||
-      parsed.username ||
-      parsed.password
-    ) {
-      throw new Error('Link preview URL is invalid');
-    }
-  } catch {
-    throw new Error('Link preview URL is invalid');
-  }
+  // The shared http(s)/host/no-credentials rule (todo 438). The request still
+  // sends the author's trimmed string, not safeExternalUrl's normalised form.
+  if (!safeExternalUrl(trimmed)) throw new Error('Link preview URL is invalid');
   const params = new URLSearchParams({ url: trimmed });
   return authenticatedFetch<LinkPreview>(`${FORUM_BASE}/link-preview/?${params}`, { signal });
 }

@@ -72,6 +72,25 @@ class PlantSpotlightBlock(blocks.StructBlock):
     """`plant_spotlight` StructBlock; exposes a vetted credit link to templates."""
 
     def get_context(self, value, parent_context=None):
+        # Lazy: importing plant_identification.services at module load would
+        # run that package's __init__ (the identification stack) while the
+        # blog models are still loading.
+        from apps.plant_identification.services.unsplash_service import (
+            UNSPLASH_CREDIT_SUFFIX,
+            UNSPLASH_HOME_URL,
+        )
+
         context = super().get_context(value, parent_context=parent_context)
         context["credit_href"] = safe_http_url(value.get("image_credit_url") or "")
+        # "Photo by X on Unsplash": the guidelines want Unsplash itself linked
+        # too (todo 438). Split off the lead so the template can link each part.
+        credit = (value.get("image_credit") or "").strip()
+        if credit.endswith(UNSPLASH_CREDIT_SUFFIX) and len(credit) > len(
+            UNSPLASH_CREDIT_SUFFIX
+        ):
+            context["credit_lead"] = credit[: -len(UNSPLASH_CREDIT_SUFFIX)]
+            context["unsplash_href"] = UNSPLASH_HOME_URL
+        else:
+            context["credit_lead"] = ""
+            context["unsplash_href"] = ""
         return context

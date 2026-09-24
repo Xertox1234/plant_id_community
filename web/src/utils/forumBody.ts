@@ -9,6 +9,7 @@
  */
 import type { StreamFieldBlock } from '@/types/blog';
 import { stripHtml } from './sanitize';
+import { safeExternalUrl } from './externalUrl';
 
 /**
  * Whether `html` is an effectively-empty rich-text body.
@@ -156,23 +157,18 @@ function previewTextWithBlockBreaks(node: Node): string {
   return PREVIEW_BLOCK_TAGS.has(element.tagName) ? `${content}\n` : content;
 }
 
+/**
+ * The URL check is `safeExternalUrl` (todo 438: one shared http(s)/host/
+ * no-credentials rule). Two differences stay deliberate here: characters that
+ * `new URL` would percent-encode rather than reject (`<>"'`, whitespace) are
+ * refused outright (todo 353), and the author's own trimmed string is
+ * returned, not the parser's normalised form (`https://example.com` must not
+ * become `https://example.com/`).
+ */
 function validPreviewUrl(value: string | null): string | null {
   const trimmed = value?.trim() ?? '';
   if (!trimmed || /[<>"']/.test(trimmed) || /\s/.test(trimmed)) return null;
-  try {
-    const parsed = new URL(trimmed);
-    if (
-      !['http:', 'https:'].includes(parsed.protocol) ||
-      !parsed.hostname ||
-      parsed.username ||
-      parsed.password
-    ) {
-      return null;
-    }
-  } catch {
-    return null;
-  }
-  return trimmed;
+  return safeExternalUrl(trimmed) ? trimmed : null;
 }
 
 export function previewUrlFromHtml(html: string): string | null {

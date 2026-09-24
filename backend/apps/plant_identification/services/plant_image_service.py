@@ -6,6 +6,7 @@ plant images with smart fallback logic and cost optimization.
 """
 
 import logging
+import re
 from typing import Dict, List, Optional, Tuple, Union
 
 from apps.core.utils.urls import safe_http_url
@@ -14,7 +15,11 @@ from wagtail.images.models import Image
 
 from .ai_image_service import AIBotanicalImageService
 from .pexels_service import PexelsImageService
-from .unsplash_service import UnsplashImageService, with_unsplash_utm
+from .unsplash_service import (
+    UNSPLASH_CREDIT_SUFFIX,
+    UnsplashImageService,
+    with_unsplash_utm,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -195,7 +200,8 @@ class PlantImageService:
 
         return (current_cost + estimated_cost) <= self._daily_cost_limit
 
-    def get_attribution_text(self, source: str, image_data: Dict) -> str:
+    @staticmethod
+    def get_attribution_text(source: str, image_data: Dict) -> str:
         """
         Generate proper attribution text for an image based on its source.
 
@@ -212,7 +218,7 @@ class PlantImageService:
         if source == "unsplash":
             photographer = image_data.get("photographer") or {}
             photographer_name = photographer.get("name") or "Unknown"
-            return f"Photo by {photographer_name} on Unsplash"
+            return f"Photo by {photographer_name}{UNSPLASH_CREDIT_SUFFIX}"
 
         elif source == "pexels":
             photographer = image_data.get("photographer") or {}
@@ -254,6 +260,64 @@ class PlantImageService:
         if not url:
             return ""
         return with_unsplash_utm(url) if source == "unsplash" else url
+
+    @staticmethod
+    def attribution_from_image_tags(tag_names) -> Optional[Tuple[str, str]]:
+        """
+        Rebuild `(credit_text, credit_url)` from a stored image's taggit tags.
+
+        For images saved before the credit was stored on the spotlight block
+        (todo 438 backfill). The tag shapes are the ones each service's
+        `download_and_create_wagtail_image` writes:
+
+        - Unsplash: `unsplash`, `photographer:<username>`, `unsplash_id:<id>`.
+          Only the username is kept, so the credit names the username and
+          links `https://unsplash.com/@<username>` (with the UTM params).
+        - Pexels: `pexels`, `photographer:<name with spaces as _>`. No
+          photographer URL is kept, so the credit is text only; `_` is turned
+          back into a space (lossy for a name that really contained `_`).
+        - AI: `ai_generated` -> the same disclosure text as a fresh image.
+
+        Returns None when the tags do not identify exactly one provider, or a
+        stock photo has no usable photographer (both services write
+        `photographer:unknown` when the provider sent none) — never a guess.
+        """
+        names = [str(name) for name in tag_names]
+        lowered = {name.lower() for name in names}
+        sources = [s for s in ("unsplash", "pexels") if s in lowered]
+        if "ai_generated" in lowered:
+            sources.append("ai")
+        if len(sources) != 1:
+            return None
+        source = sources[0]
+        if source == "ai":
+            return PlantImageService.get_attribution_text("ai", {}), ""
+
+        photographers = [
+            name.split(":", 1)[1].strip()
+            for name in names
+            if name.lower().startswith("photographer:")
+        ]
+        if len(photographers) != 1:
+            return None
+        photographer = photographers[0]
+        if not photographer or photographer.lower() == "unknown":
+            return None
+
+        if source == "unsplash":
+            image_data = {"photographer": {"name": photographer}}
+            # Unsplash usernames are [A-Za-z0-9_]; anything else is not a
+            # username we can safely build a profile path from.
+            if re.fullmatch(r"[A-Za-z0-9_]+", photographer):
+                image_data["photographer"][
+                    "profile_url"
+                ] = f"https://unsplash.com/@{photographer}"
+        else:
+            image_data = {"photographer": {"name": photographer.replace("_", " ")}}
+        return (
+            PlantImageService.get_attribution_text(source, image_data),
+            PlantImageService.get_attribution_url(source, image_data),
+        )
 
     def get_source_stats(self) -> Dict:
         """

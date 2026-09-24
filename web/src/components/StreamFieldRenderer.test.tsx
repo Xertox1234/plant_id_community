@@ -425,6 +425,9 @@ describe('StreamFieldRenderer', () => {
     const CREDIT = 'Photo by Jane Doe on Unsplash';
     const CREDIT_URL =
       'https://unsplash.com/@janedoe?utm_source=plant_community&utm_medium=referral';
+    const UNSPLASH_URL = 'https://unsplash.com/?utm_source=plant_community&utm_medium=referral';
+    const PEXELS_CREDIT = 'Photo by Sam Roe from Pexels';
+    const PEXELS_URL = 'https://www.pexels.com/@samroe';
 
     function spotlight(extra: Partial<PlantSpotlightBlockValue>): StreamFieldBlock[] {
       return [
@@ -444,12 +447,12 @@ describe('StreamFieldRenderer', () => {
     it('renders the credit under the image as a safe external link', () => {
       render(
         <StreamFieldRenderer
-          blocks={spotlight({ image_credit: CREDIT, image_credit_url: CREDIT_URL })}
+          blocks={spotlight({ image_credit: PEXELS_CREDIT, image_credit_url: PEXELS_URL })}
         />
       );
 
-      const link = screen.getByRole('link', { name: CREDIT });
-      expect(link).toHaveAttribute('href', CREDIT_URL);
+      const link = screen.getByRole('link', { name: PEXELS_CREDIT });
+      expect(link).toHaveAttribute('href', PEXELS_URL);
       expect(link).toHaveAttribute('target', '_blank');
       expect(link).toHaveAttribute('rel', 'noopener noreferrer');
       // The credit belongs to the image: it is the image's figure caption.
@@ -457,22 +460,58 @@ describe('StreamFieldRenderer', () => {
     });
 
     it('renders the credit as plain text when there is no link', () => {
-      render(<StreamFieldRenderer blocks={spotlight({ image_credit: CREDIT })} />);
+      render(<StreamFieldRenderer blocks={spotlight({ image_credit: PEXELS_CREDIT })} />);
 
-      expect(screen.getByText(CREDIT)).toBeInTheDocument();
+      expect(screen.getByText(PEXELS_CREDIT)).toBeInTheDocument();
       expect(screen.queryByRole('link')).not.toBeInTheDocument();
     });
 
     it('never renders a javascript: credit URL as a link', () => {
       render(
         <StreamFieldRenderer
-          blocks={spotlight({ image_credit: CREDIT, image_credit_url: 'javascript:alert(1)' })}
+          blocks={spotlight({
+            image_credit: PEXELS_CREDIT,
+            image_credit_url: 'javascript:alert(1)',
+          })}
         />
       );
 
-      expect(screen.getByText(CREDIT)).toBeInTheDocument();
+      expect(screen.getByText(PEXELS_CREDIT)).toBeInTheDocument();
       expect(screen.queryByRole('link')).not.toBeInTheDocument();
       expect(document.querySelector('a[href^="javascript"]')).toBeNull();
+    });
+
+    it('links the photographer AND Unsplash for an Unsplash credit (todo 438)', () => {
+      const { container } = render(
+        <StreamFieldRenderer
+          blocks={spotlight({ image_credit: CREDIT, image_credit_url: CREDIT_URL })}
+        />
+      );
+
+      const photographer = screen.getByRole('link', { name: 'Photo by Jane Doe' });
+      expect(photographer).toHaveAttribute('href', CREDIT_URL);
+      const unsplash = screen.getByRole('link', { name: 'Unsplash' });
+      expect(unsplash).toHaveAttribute('href', UNSPLASH_URL);
+      expect(unsplash).toHaveAttribute('target', '_blank');
+      expect(unsplash).toHaveAttribute('rel', 'noopener noreferrer');
+      expect(container.querySelector('figcaption')).toHaveTextContent(CREDIT);
+    });
+
+    it('still links Unsplash when the photographer link is missing or unsafe', () => {
+      for (const url of [null, 'javascript:alert(1)']) {
+        const { container, unmount } = render(
+          <StreamFieldRenderer
+            blocks={spotlight({ image_credit: CREDIT, image_credit_url: url })}
+          />
+        );
+
+        const links = screen.getAllByRole('link');
+        expect(links).toHaveLength(1);
+        expect(links[0]).toHaveAttribute('href', UNSPLASH_URL);
+        expect(container.querySelector('figcaption')).toHaveTextContent(CREDIT);
+        expect(document.querySelector('a[href^="javascript"]')).toBeNull();
+        unmount();
+      }
     });
 
     it('renders no credit when the block has none (pre-credit payloads)', () => {
@@ -491,7 +530,8 @@ describe('StreamFieldRenderer', () => {
         />
       );
 
-      expect(screen.queryByText(CREDIT)).not.toBeInTheDocument();
+      expect(screen.queryByText(/Photo by Jane Doe/)).not.toBeInTheDocument();
+      expect(screen.queryByRole('link')).not.toBeInTheDocument();
     });
   });
 

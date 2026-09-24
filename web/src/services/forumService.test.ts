@@ -36,6 +36,19 @@ import {
 } from './forumService';
 import { clearCsrfToken } from '../utils/csrf';
 
+// Lets one test make the shared URL rule reject everything, to prove
+// fetchLinkPreview defers to it (todo 438). A plain wrapper, not vi.fn: the
+// config's mockReset would wipe a vi.fn implementation between tests.
+const urlGate = vi.hoisted(() => ({ rejectAll: false }));
+vi.mock('../utils/externalUrl', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../utils/externalUrl')>();
+  return {
+    ...actual,
+    safeExternalUrl: (...args: Parameters<typeof actual.safeExternalUrl>) =>
+      urlGate.rejectAll ? null : actual.safeExternalUrl(...args),
+  };
+});
+
 // ---------------------------------------------------------------------------
 // Backend fixture shapes (wagtail_forum contract)
 // ---------------------------------------------------------------------------
@@ -353,6 +366,34 @@ describe('forumService (wagtail_forum API contract)', () => {
       'Link preview URL is invalid'
     );
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('fetchLinkPreview uses the shared safeExternalUrl rule, not a copy (todo 438)', async () => {
+    urlGate.rejectAll = true;
+    try {
+      await expect(fetchLinkPreview('https://example.com/a')).rejects.toThrow(
+        'Link preview URL is invalid'
+      );
+    } finally {
+      urlGate.rejectAll = false;
+    }
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('fetchLinkPreview rejects credentials and sends the trimmed, unnormalised URL', async () => {
+    await expect(fetchLinkPreview('https://u:p@example.com/')).rejects.toThrow(
+      'Link preview URL is invalid'
+    );
+    await expect(fetchLinkPreview('ftp://example.com/x')).rejects.toThrow(
+      'Link preview URL is invalid'
+    );
+    expect(fetchMock).not.toHaveBeenCalled();
+
+    fetchMock.mockResolvedValueOnce(okJson({ url: 'https://EXAMPLE.com', available: false }));
+    await fetchLinkPreview('  https://EXAMPLE.com  ');
+    // Not "https://example.com/": the server gets what the author wrote.
+    expect(fetchMock.mock.calls[0][0]).toContain('?url=https%3A%2F%2FEXAMPLE.com');
+    expect(fetchMock.mock.calls[0][0]).not.toContain('EXAMPLE.com%2F');
   });
 
   // --- Search ---------------------------------------------------------------

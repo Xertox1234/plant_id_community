@@ -3,20 +3,28 @@ Management command to populate plant images in blog post spotlight blocks.
 
 This command scans all blog posts for plant_spotlight blocks without images
 and automatically fetches appropriate images using the unified image service.
+
+Writes go through `apps.blog.services.plant_spotlight_writes` (todo 438): one
+`save_revision().publish()` per live page, so the admin's latest revision
+carries the image and credit and `page_published` invalidates the blog cache.
+A live page with unpublished draft changes, or one in moderation, is skipped
+and reported before any image is fetched.
 """
 
 import logging
 
 from apps.blog.models import BlogPostPage
+from apps.blog.services.plant_spotlight_writes import (
+    DRAFT_SAVED,
+    SKIP_MESSAGES,
+    WRITTEN,
+    load_spotlight_base,
+    save_spotlight_updates,
+)
 from apps.plant_identification.services.plant_image_service import PlantImageService
 from django.core.management.base import BaseCommand, CommandError
-from django.db import transaction
 
 logger = logging.getLogger(__name__)
-
-
-# Mirrors plant_spotlight.image_credit's CharBlock(max_length=255).
-IMAGE_CREDIT_MAX_LENGTH = 255
 
 
 class Command(BaseCommand):
@@ -84,13 +92,31 @@ class Command(BaseCommand):
         for post in posts:
             self.stdout.write(f"\nProcessing: {post.title}")
 
-            plants_in_post = self._extract_plants_from_post(post)
+            # Load the content to change BEFORE any fetch: a page this command
+            # must not write (unpublished draft changes, in moderation) costs
+            # no API call and no AI spend (todo 438).
+            base = load_spotlight_base(post.pk)
+            if base is None:
+                self.stdout.write("  Skipped: page was deleted during the run")
+                continue
+            plants_in_post = self._extract_plants_from_post(base.page)
             if not plants_in_post:
                 self.stdout.write("  No plant spotlight blocks found")
                 continue
 
             total_plants_found += len(plants_in_post)
 
+            if base.skip_reason:
+                self.stdout.write(
+                    self.style.WARNING(
+                        f"  Skipped: page {post.pk} "
+                        f"{SKIP_MESSAGES[base.skip_reason]}"
+                    )
+                )
+                continue
+
+            updates = {}
+            added = []
             for plant_info in plants_in_post:
                 block_id = plant_info["block_id"]
                 plant_name = plant_info["plant_name"]
@@ -124,36 +150,24 @@ class Command(BaseCommand):
 
                     if result:
                         source, image_data, wagtail_image = result
+                        # AI spend happened at generation, whatever the write does.
+                        if source == "ai":
+                            ai_images_used += 1
                         attribution = self.image_service.get_attribution_text(
                             source, image_data
                         )
                         attribution_url = self.image_service.get_attribution_url(
                             source, image_data
                         )
-
-                        # Update the blog post
-                        if self._update_post_image(
-                            post,
-                            block_id,
-                            wagtail_image,
-                            credit=attribution,
-                            credit_url=attribution_url,
-                        ):
-                            total_images_added += 1
-                            if source == "ai":
-                                ai_images_used += 1
-
-                            self.stdout.write(
-                                self.style.SUCCESS(
-                                    f"  {plant_name}: Added image from {source} - {attribution}"
-                                )
-                            )
-                        else:
-                            self.stdout.write(
-                                self.style.ERROR(
-                                    f"  {plant_name}: Failed to update post"
-                                )
-                            )
+                        # The credit is written with the image, never
+                        # separately, so a --force replacement cannot leave the
+                        # previous photographer's credit on a new image (todo 376).
+                        updates[block_id] = {
+                            "image": wagtail_image,
+                            "image_credit": attribution,
+                            "image_credit_url": attribution_url or "",
+                        }
+                        added.append((plant_name, source, attribution))
                     else:
                         self.stdout.write(
                             self.style.WARNING(
@@ -165,6 +179,36 @@ class Command(BaseCommand):
                     self.stdout.write(
                         self.style.ERROR(f"  {plant_name}: Error - {str(e)}")
                     )
+
+            if not updates:
+                continue
+
+            # One revision per page for all of its spotlight changes.
+            try:
+                outcome = save_spotlight_updates(base, updates)
+            except Exception as e:
+                logger.error(f"[PLANT_IMAGE] Failed to update post {post.pk}: {e}")
+                outcome = None
+
+            if outcome in WRITTEN:
+                total_images_added += len(added)
+                for plant_name, source, attribution in added:
+                    self.stdout.write(
+                        self.style.SUCCESS(
+                            f"  {plant_name}: Added image from {source} - {attribution}"
+                        )
+                    )
+                if outcome == DRAFT_SAVED:
+                    self.stdout.write(
+                        f"  Saved as a draft revision: page {post.pk} is not live"
+                    )
+            else:
+                reason = SKIP_MESSAGES.get(outcome, "could not be saved")
+                self.stdout.write(
+                    self.style.ERROR(
+                        f"  Failed to update post: page {post.pk} {reason}"
+                    )
+                )
 
         # Show summary
         self.stdout.write(f"\n{self.style.SUCCESS('Summary:')}")
@@ -204,7 +248,8 @@ class Command(BaseCommand):
         plants = []
 
         for block in post.content_blocks:
-            if block.block_type == "plant_spotlight":
+            # Id-less legacy blocks can't be targeted by id (PR #825).
+            if block.block_type == "plant_spotlight" and block.id is not None:
                 block_value = block.value
                 plant_name = block_value.get("plant_name", "").strip()
 
@@ -222,69 +267,3 @@ class Command(BaseCommand):
                     )
 
         return plants
-
-    def _update_post_image(
-        self, post, block_id, wagtail_image, credit="", credit_url=""
-    ):
-        """
-        Update a plant_spotlight block with a new image and its credit.
-
-        The credit is written with the image, never separately, so a
-        --force replacement cannot leave the previous photographer's credit
-        on a new image (todo 376).
-
-        Args:
-            post: BlogPostPage instance
-            block_id: Block ID to update
-            wagtail_image: Wagtail Image instance
-            credit: Display credit, e.g. "Photo by Jane Doe on Unsplash"
-            credit_url: http(s) link for the credit, or ""
-
-        Returns:
-            True if successful, False otherwise
-        """
-        try:
-            with transaction.atomic():
-                # Find and update the block using StreamField's list interface
-                found_block = False
-
-                for i, block in enumerate(post.content_blocks):
-                    if (
-                        str(block.id) == block_id
-                        and block.block_type == "plant_spotlight"
-                    ):
-                        # Update the block value with the new image
-                        new_value = dict(block.value)  # Create a proper dict copy
-                        new_value["image"] = wagtail_image
-                        # CharBlock max_length=255: a longer value would
-                        # make every later admin edit of the page fail
-                        # validation on a field the editor never touched.
-                        new_value["image_credit"] = (credit or "")[
-                            :IMAGE_CREDIT_MAX_LENGTH
-                        ]
-                        new_value["image_credit_url"] = credit_url or ""
-
-                        # Replace the block using StreamField's tuple interface
-                        post.content_blocks[i] = (block.block_type, new_value)
-                        found_block = True
-                        break
-
-                if not found_block:
-                    logger.error(
-                        f"[PLANT_IMAGE] Block {block_id} not found in post {post.id}"
-                    )
-                    return False
-
-                # Save the post
-                post.save()
-
-                logger.info(
-                    f"[PLANT_IMAGE] Updated block {block_id} in post {post.id} with image {wagtail_image.id}"
-                )
-                return True
-
-        except Exception as e:
-            logger.error(
-                f"[PLANT_IMAGE] Failed to update post {post.id} block {block_id}: {e}"
-            )
-            return False

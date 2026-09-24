@@ -281,3 +281,11 @@ Compact checklist auto-injected before edits. Long-form:
   `apps.core.utils.urls.safe_http_url` (http(s), a host, no credentials), the
   backend twin of the web's `safeExternalUrl` — never a hand-rolled
   `startswith("http")` (PR #820).
+- **A command that edits page content writes a revision, and first checks it
+  may.** A bare `page.save()` leaves the admin's latest revision without the
+  change (the next editor publish drops it) and fires no `page_published`
+  (caches stay stale). Before writing, skip and report a page with
+  unpublished draft changes, a workflow in progress, an alias, or ANY
+  `get_lock()` (editor, workflow, or a scheduled publish that would later
+  go live without the change); re-check under a row lock before saving. See
+  `apps/blog/services/plant_spotlight_writes.py` (PR #825).
