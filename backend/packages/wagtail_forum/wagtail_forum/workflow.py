@@ -87,8 +87,9 @@ def submit_for_moderation(obj, user):
       publish(user=...) would raise PublishPermissionError (audit M15).
     - Fail CLOSED: if no moderation workflow is configured, an untrusted post is
       left as a draft rather than published unscreened.
-    - The opening-post -> topic publish is guarded by an author match so one user
-      can never force someone else's draft topic live (IDOR).
+    - The opening-post -> topic publish (done by the `published` receiver in
+      signals.py) is guarded by an author match so one user can never force
+      someone else's draft topic live (IDOR).
     - A moderation-step failure (e.g. a spam-backend exception) is caught
       HERE, not left to the view's own outer try/except: the caller's catch
       already stops it 500ing the create request, but by the time it fires
@@ -126,17 +127,9 @@ def submit_for_moderation(obj, user):
         )
     obj.refresh_from_db()
 
-    # Publish the topic only when its own author's opening post goes live.
-    # The author check prevents forcing someone else's draft topic live (IDOR).
-    if (
-        obj.live
-        and obj.is_opening_post
-        and not obj.topic.live
-        and obj.topic.author_id == obj.author_id
-    ):
-        obj.topic.save_revision(user=user).publish(
-            user=user, skip_permission_checks=True
-        )
+    # An opening post going live publishes its author's draft topic from the
+    # `published` receiver (signals.update_counters_on_publish), so the admin
+    # publish path gets the same author-guarded link as this one (todo 422).
 
     # Notify hosts of the moderation outcome (e.g. to push-notify the author).
     from .signals import moderation_decided, notify

@@ -241,6 +241,46 @@ def _refresh_topic_authors(topic_id):
         _refresh_profile(author_id)
 
 
+def _same_author(a_id, b_id):
+    # Two account-deleted authors are both NULL (SET_NULL); NULL is nobody,
+    # not "the same person", so it never matches (IDOR, audit M18).
+    return a_id is not None and a_id == b_id
+
+
+def _publish_counterpart(obj, trigger_revision):
+    """Publish the other half of a thread (topic <-> opening post, todo 422).
+
+    Attributed to the admin's acting user when there is one (a moderator's
+    publish, including the workflow Approve action, which republishes the
+    AUTHOR's revision), else to whoever made the triggering revision (the
+    author on the API path, where no LogContext is active).
+    ``skip_permission_checks``: the trust/moderation logic that published the
+    trigger is the authority here, as in workflow._route_revision_by_trust.
+
+    Never raises. This runs inside the trigger's own ``published`` receiver,
+    and a failure here must not abort the trigger's publish half-way (its
+    activity, badges, audit log and workflow cancel all come after the
+    signal). The savepoint keeps a failed publish from poisoning an
+    enclosing admin transaction; the trigger still publishes, and publishing
+    it again retries the link (the gates below look at whether the other
+    half was ever published, not at the trigger's publish count).
+    """
+    from wagtail.log_actions import get_active_log_context
+
+    user = get_active_log_context().user or getattr(trigger_revision, "user", None)
+    try:
+        with transaction.atomic():
+            obj.save_revision(user=user).publish(user=user, skip_permission_checks=True)
+    except Exception:
+        logger.exception(
+            "[ERROR] wagtail_forum could not publish %s %s with its thread",
+            type(obj).__name__,
+            obj.pk,
+        )
+        return False
+    return True
+
+
 @receiver(published)
 def update_counters_on_publish(sender, instance, **kwargs):
     from .models import ForumActivityDate, Post, Topic
@@ -252,11 +292,25 @@ def update_counters_on_publish(sender, instance, **kwargs):
         # also visibility-dependent (topic__live), so re-derive it.
         _refresh_board_counters(instance.board_id)
         _refresh_topic_authors(instance.pk)
+        opening = instance.posts.filter(is_opening_post=True).first()
+        if (
+            opening is not None
+            and not opening.live
+            and opening.first_published_at is None
+            and _same_author(opening.author_id, instance.author_id)
+        ):
+            # A moderator approving the topic approves the thread: publish its
+            # never-published opening post too, or the thread goes live empty
+            # (todo 422). Never-published, not merely `not live`: an opening
+            # post a moderator took down stays down.
+            if _publish_counterpart(opening, kwargs.get("revision")):
+                # revision.publish() saves a copy built from the revision, so
+                # this instance still reads live=False; hosts get the live row.
+                opening.refresh_from_db()
         if _is_first_publish(instance):
             # Fired from the TOPIC publish (not the opening post's) so the topic
             # is already live when a host deep-links to it. `post` is None for
             # admin-created topics that have no opening post yet.
-            opening = instance.posts.filter(is_opening_post=True).first()
             notify(topic_created, sender=Topic, post=opening, topic=instance)
             # Badges (todo 348): a topic going live is what makes its
             # identification attachment count (`identifications_shared`).
@@ -284,6 +338,21 @@ def update_counters_on_publish(sender, instance, **kwargs):
         # Badges (todo 348), after the activity row above so a streak badge
         # sees today's day; on_commit so a rolled-back publish awards nothing.
         award_after_commit(post.author_id)
+    if post.is_opening_post:
+        # The opening post going live publishes its author's never-published
+        # topic, on every path: the API's moderation routing and a moderator's
+        # admin publish alike (todo 422). Last, so this post's own publish
+        # bookkeeping is done before the nested one. Never-published, not
+        # "first publish of this post": a topic a moderator took down stays
+        # down, yet republishing the post still repairs a thread whose topic
+        # never went live. Same-author only (IDOR, audit M18).
+        topic = Topic.objects.get(pk=post.topic_id)
+        if (
+            not topic.live
+            and topic.first_published_at is None
+            and _same_author(topic.author_id, post.author_id)
+        ):
+            _publish_counterpart(topic, kwargs.get("revision"))
 
 
 @receiver(solution_marked)

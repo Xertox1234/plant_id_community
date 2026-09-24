@@ -269,7 +269,10 @@ class ForumModerationSummaryItem(SummaryItem):
             "count": self.count,
             # Resolved, not hardcoded: the admin mount (/cms/ here) is host
             # config, and this package is reusable (audit 2026-07-17 M1).
-            "moderation_url": reverse(Topic.snippet_viewset.get_url_name("list")),
+            # The Posts list, not Topics: the count is posts (a topic never
+            # runs the workflow), pending replies exist only there, and
+            # publishing an opening post publishes its topic (todo 422).
+            "moderation_url": reverse(Post.snippet_viewset.get_url_name("list")),
         }
 
 
