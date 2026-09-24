@@ -2,7 +2,7 @@ amqp==5.3.1
 annotated-types==0.7.0
 any-llm-sdk==0.20.3
 anyascii==0.3.3
-anyio==4.13.0
+anyio==4.14.2
 asgiref==3.11.1
 asttokens==3.0.0
 attrs==26.1.0
