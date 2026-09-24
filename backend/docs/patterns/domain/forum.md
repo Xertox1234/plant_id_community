@@ -922,8 +922,16 @@ The block is declared unconditionally (schema) but inert until
 finder allowlist and the per-body cap (`MAX_EMBED_URLS_PER_BODY`), then
 warms the distinct URLs concurrently. `build_forum_embed_map`
 rides the serializer context beside `build_forum_image_map` so a page of
-videos costs one query. Web: a URL-only paragraph becomes the block on
-submit; the renderer iframes `embed_url` with `sandbox`/`referrerPolicy` or
+videos costs one query. The server converts a URL-only paragraph into the
+block (`_convert_video_paragraphs`, todo 421). The rule used to live only in
+the web composer, so a link posted from mobile stayed a bare link. The test
+is on the sanitized text with every tag read as a space: mobile sends no
+`<p>`, and `url<br>url` must not glue into one token. The predicate is
+`is_supported_url`, not a copied regex. The conversion runs only when
+`ALLOW_EMBED_BLOCKS` is on, and before the embed checks, so a converted
+block is capped and warmed like any other. It stops at the cap rather than
+turning a previously valid body into a 400. Web: a URL-only paragraph also
+becomes the block on submit (now redundant, kept); the renderer iframes `embed_url` with `sandbox`/`referrerPolicy` or
 shows a thumbnail card; re-edit round-trips through `<p><a href>` with an
 http(s) allowlist. Flutter: thumbnail card tappable through the renderer's
 existing `onOpenLink`. Reviewer-caught seams: per-block cache query (N+1),
