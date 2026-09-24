@@ -82,7 +82,7 @@ So the preview is built and it works; it just isn't used where it matters.
    paragraph text (skipping text already inside `<a>` or `<code>`). That was
    this todo's original proposal, and it is still needed for the prose case.
 
-**Decisions for the owner before building:**
+**Owner decisions (all made 2026-09-24):**
 
 - **The address line: DECIDED 2026-09-24 (owner).** The card shows a
   **shortened URL**, never the full one: the origin, with an ellipsis when
@@ -100,14 +100,34 @@ So the preview is built and it works; it just isn't used where it matters.
     character, which is the build 13 bug from todo 424. The full URL is
     offered as a custom semantics action ("Show full address"), which a
     VoiceOver user can reach without a long-press.
-- **Preview images.** `image_url` points at the third-party site, so showing
-  it means every reader's device fetches from that host. That leaks the IP
-  and lets the site track who read the post. Options: hotlink it (simplest,
-  and the composer does this today), or copy the image into our storage (R2)
-  at write time (private, but more work and needs its own size and type
-  checks). Recommended: copy the image, or ship without images first.
-- **Several links on their own lines:** a card each, capped the way videos
-  are (`MAX_EMBED_URLS_PER_BODY`, or a separate cap).
+- **Preview images: DECIDED 2026-09-24 (owner). Never hotlink; cache the
+  image.** A reader's device must never contact the linked site. At write
+  time the server downloads the `og:image` once and stores its own copy, and
+  the card points only at that copy.
+  - **Fetch** through the same SSRF-hardened path as the page: the
+    `_target_for_url` public-IP pinning plus `_open_connection` in
+    `forum_host/link_preview.py`. Add an image read with its own byte cap
+    (e.g. 2 MB), the same timeout, and at most 3 redirects.
+  - **Validate** like an upload (`backend/docs/patterns/security/file-upload.md`,
+    `wagtail_forum/api/upload_validation.py::validate_image_upload`): check
+    the content type, then that PIL can decode it, then its pixel dimensions.
+    **Re-encode** it (to WebP or JPEG), which strips EXIF and anything else
+    embedded, and store it under a size bound.
+  - **Store** it through the default storage (R2 in production, local media
+    in dev), under a key from a hash of the source image URL, so the same
+    image shared by many posts is stored once. Store it as a plain file, not
+    a Wagtail `Image` in the forum collection: members can pick from that
+    collection, and it has upload-owner rules these files shouldn't join.
+  - **Failure** (unreachable, too big, not an image, or undecodable) gives
+    a card without an image, not a broken one.
+  - **Cleanup:** a stored image is unused once no live post body refers to
+    it. Add a sweep, for example to the nightly `forum-prune-cron`, or accept
+    orphans and say so. Decide when building.
+- **How many cards: DECIDED 2026-09-24 (owner).** One card per link, capped
+  at **5 per post**. Links past the cap stay tappable links. Counted
+  separately from the existing 5-video `MAX_EMBED_URLS_PER_BODY` cap.
+  Hypothesis, not confirmed with the owner: "capped at 5" was meant for link
+  cards, not a combined total with videos.
 
 ## Acceptance Criteria
 
@@ -126,6 +146,12 @@ So the preview is built and it works; it just isn't used where it matters.
 - [ ] The full URL is reachable: web `title` (hover), mobile long-press, and
       a screen-reader custom action. The spoken label never contains the
       full URL. Pinned by widget and Vitest tests.
+- [ ] A preview image is downloaded once at write time, validated,
+      re-encoded and served from our storage. No card on either client
+      references a third-party image host. Pinned by a test asserting the
+      stored `image_url` is on our media origin.
+- [ ] More than 5 standalone links in one post: the first 5 become cards and
+      the rest stay tappable links. Pinned by a test.
 - [ ] Every "new block" change is present: the migration, the serializer
       branch, the web renderer, the Flutter model and widget, and the README.
 - [ ] On a device: a link pasted in the app composer shows as a preview card
@@ -144,5 +170,7 @@ So the preview is built and it works; it just isn't used where it matters.
   only for links inside prose.
 - The owner decided the address line: show a shortened URL
   (`https://microsoft.com/…`) with the full URL available on hover (web),
-  on long-press (mobile), and through a screen-reader action. Still open:
-  preview images (hotlink or copy) and the cap on the number of cards.
+  on long-press (mobile), and through a screen-reader action. The owner then
+  decided that images are cached on our storage and never hotlinked, and
+  that there is one card per link, capped at 5 per post. All decisions are
+  made; the todo is ready to build.
