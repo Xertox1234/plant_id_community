@@ -101,7 +101,13 @@ def unsubscribe_links(user) -> dict | None:
     path = get_setting("DIGEST_UNSUBSCRIBE")
     if not path:
         return None
-    return import_string(path)(user)
+    try:
+        return import_string(path)(user)
+    except Exception:
+        # The link is an extra: a broken hook must not stop every digest in
+        # the batch. The manage link still lets the member turn it off.
+        logger.exception("[EMAIL] DIGEST_UNSUBSCRIBE failed for user=%s", user.pk)
+        return None
 
 
 def digest_recipients(frequency: str = DigestFrequency.WEEKLY):

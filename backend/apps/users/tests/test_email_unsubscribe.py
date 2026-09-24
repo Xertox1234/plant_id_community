@@ -13,7 +13,7 @@ carries the link.
 import re
 from datetime import timedelta
 from unittest import mock
-from urllib.parse import parse_qs, urlsplit
+from urllib.parse import parse_qs, urlencode, urlsplit
 
 from apps.core.services.email_service import EmailService, EmailType
 from apps.core.services.notification_service import NotificationService
@@ -363,7 +363,8 @@ class UnsubscribeLinkInEmailTests(TestCase):
             self.assertNotIn("/api/auth/unsubscribe", body)
 
     def test_list_unsubscribe_header_points_at_the_same_link(self):
-        message = self._send_forum_reply()
+        with self.settings(API_PUBLIC_URL=""):  # PR #819: env-independent
+            message = self._send_forum_reply()
         (url,) = self._unsubscribe_urls(message)
         self.assertEqual(message.extra_headers["List-Unsubscribe"], f"<{url}>")
 
@@ -399,6 +400,42 @@ class UnsubscribeLinkInEmailTests(TestCase):
         self.assertEqual(response.status_code, 200, response.content)
         self.assertFalse(_reply_email_on(self.user))
 
+    def test_one_click_header_and_body_carry_the_same_token(self):
+        # PR #819: minted once per email, never two timestamped signatures.
+        with self.settings(API_PUBLIC_URL="https://api.example"):
+            message = self._send_forum_reply()
+        (body_url,) = self._unsubscribe_urls(message)
+        header_url = message.extra_headers["List-Unsubscribe"][1:-1]
+        self.assertEqual(
+            parse_qs(urlsplit(header_url).query)["token"],
+            parse_qs(urlsplit(body_url).query)["token"],
+        )
+
+    def test_one_click_get_redirects_to_the_web_page_and_changes_nothing(self):
+        # PR #819: a client without RFC 8058 opens the header URL with a GET.
+        token = make_token(self.user, LIST)
+        response = Client().get(
+            reverse("v1:users:email_unsubscribe_one_click"), {"token": token}
+        )
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(
+            response["Location"], f"{SITE}/unsubscribe?{urlencode({'token': token})}"
+        )
+        self.assertTrue(_reply_email_on(self.user))
+
+    def test_one_click_is_not_limited_per_shared_provider_ip(self):
+        # PR #819: 40 different users' one-clicks from ONE provider IP all land.
+        cache.clear()
+        url = reverse("v1:users:email_unsubscribe_one_click")
+        for i in range(40):
+            user = User.objects.create_user(username=f"oc{i}", email=f"oc{i}@x.io")
+            response = Client(REMOTE_ADDR="203.0.113.7").post(
+                f"{url}?{urlencode({'token': make_token(user, LIST)})}",
+                data="List-Unsubscribe=One-Click",
+                content_type="application/x-www-form-urlencoded",
+            )
+            self.assertEqual(response.status_code, 200, (i, response.content))
+
     def test_one_click_rejects_a_forged_token(self):
         cache.clear()
         response = Client(enforce_csrf_checks=True).post(
@@ -428,7 +465,7 @@ class UnsubscribeLinkInEmailTests(TestCase):
         # #unsubscribe fragment did nothing.
         html = self._send_forum_reply().alternatives[0][0]
         self.assertNotIn("#unsubscribe", html)
-        self.assertIn("Unfollow this topic", html)
+        self.assertIn("View topic to unfollow", html)
 
     def test_preferences_link_is_the_web_settings_page(self):
         message = self._send_forum_reply()

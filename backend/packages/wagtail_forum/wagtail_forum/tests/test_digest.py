@@ -548,3 +548,20 @@ def test_digest_without_a_host_callable_has_no_unsubscribe_link():
     assert "List-Unsubscribe" not in message.extra_headers
     assert "Unsubscribe from this digest" not in message.body
     assert "Unsubscribe from this digest" not in message.alternatives[0][0]
+
+
+def broken_unsubscribe(user):
+    raise RuntimeError("host hook broke")
+
+
+@pytest.mark.django_db
+@override_settings(
+    SITE_URL="https://forum.example",
+    WAGTAILFORUM_DIGEST_UNSUBSCRIBE="wagtail_forum.tests.test_digest.broken_unsubscribe",
+)
+def test_a_broken_unsubscribe_hook_still_sends_the_digest():
+    # PR #819: the link is an extra; the digest still goes out without it.
+    _, message = _send_one_digest()
+
+    assert "List-Unsubscribe" not in message.extra_headers
+    assert "https://forum.example/settings" in message.body

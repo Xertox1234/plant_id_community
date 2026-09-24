@@ -53,6 +53,7 @@ class EmailType:
 # apps.users.email_unsubscribe.LISTS). A type with no entry carries no link.
 UNSUBSCRIBE_LISTS = {
     EmailType.FORUM_REPLY: "forum_reply",
+    EmailType.FORUM_DIGEST: "forum_digest",
 }
 
 
@@ -350,12 +351,15 @@ class EmailService:
         list_id = UNSUBSCRIBE_LISTS.get(email_type)
         if user and list_id:
             from apps.users.email_unsubscribe import (
+                make_token,
                 unsubscribe_headers,
                 unsubscribe_url,
             )
 
-            context["unsubscribe_url"] = unsubscribe_url(user, list_id)
-            context["unsubscribe_headers"] = unsubscribe_headers(user, list_id)
+            # One token for the body link and the header (PR #819 review).
+            token = make_token(user, list_id)
+            context["unsubscribe_url"] = unsubscribe_url(user, list_id, token)
+            context["unsubscribe_headers"] = unsubscribe_headers(user, list_id, token)
 
         return context
 

@@ -971,6 +971,11 @@ OPENAI_API_KEY = config("OPENAI_API_KEY", default="")
 # wagtail_forum package's heuristic check; set this env var to
 # "apps.forum_host.spam.LLMSpamBackend" to enable the LLM screen (requires a
 # working OPENAI_API_KEY). Ships dormant — the default does not change behavior.
+WAGTAILFORUM_SPAM_BACKEND = config(
+    "WAGTAILFORUM_SPAM_BACKEND",
+    default="wagtail_forum.spam.heuristic.HeuristicSpamBackend",
+)
+
 # The weekly digest's signed unsubscribe link + List-Unsubscribe headers
 # (todo 416): the package asks the host to mint them.
 WAGTAILFORUM_DIGEST_UNSUBSCRIBE = "apps.users.email_unsubscribe.digest_unsubscribe"
@@ -979,10 +984,6 @@ WAGTAILFORUM_DIGEST_UNSUBSCRIBE = "apps.users.email_unsubscribe.digest_unsubscri
 # List-Unsubscribe URL on this origin plus List-Unsubscribe-Post; unset, the
 # header points at the web /unsubscribe page and one-click is off (todo 416).
 API_PUBLIC_URL = config("API_PUBLIC_URL", default="")
-WAGTAILFORUM_SPAM_BACKEND = config(
-    "WAGTAILFORUM_SPAM_BACKEND",
-    default="wagtail_forum.spam.heuristic.HeuristicSpamBackend",
-)
 
 # Forum video embeds (todo 344). The package's embed block is inert until this
 # is True; the provider allowlist below is Wagtail's own finder config and is
@@ -1570,6 +1571,7 @@ ENABLE_DISEASE_DIAGNOSIS = config("ENABLE_DISEASE_DIAGNOSIS", default=True, cast
 
 # Environment Validation and Warning System
 import logging
+import re
 
 logger = logging.getLogger(__name__)
 
@@ -1790,6 +1792,17 @@ def validate_environment():
                 warnings.append(message)
     except Exception:
         critical_errors.append("Database configuration is invalid")
+
+    # ========================================
+    # One-click unsubscribe origin (todo 416)
+    # ========================================
+    # RFC 8058 one-click needs an https URI; a plain-http or path-carrying
+    # value makes providers ignore the header. Warn, never block boot.
+    if API_PUBLIC_URL and not re.match(r"^https://[^/]+/?$", API_PUBLIC_URL):
+        warnings.append(
+            f"API_PUBLIC_URL should be a bare https origin (got {API_PUBLIC_URL!r}); "
+            f"one-click unsubscribe headers will be ignored by mail providers"
+        )
 
     # ========================================
     # Email Configuration

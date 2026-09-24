@@ -90,7 +90,7 @@ Left out of todo 408 to keep it to the reply email, the only live
 - **Findings bullet 2.** The SPA topic page ignores `#unsubscribe` (it only
   reads `#post-<id>`), so the reply email's "Unsubscribe from Topic" link just
   opened the topic. As the todo suggested, it now links the topic and says
-  "Unfollow this topic" (`templates/emails/forum_reply.html`); pinned by
+  "View topic to unfollow" (`templates/emails/forum_reply.html`); pinned by
   `test_reply_email_offers_unfollow_not_a_dead_fragment`.
 - Tests, each red with its fix removed (mutation-checked):
   `test_digest_carries_the_hosts_unsubscribe_link_and_header` (drop the
@@ -104,3 +104,34 @@ Left out of todo 408 to keep it to the reply email, the only live
   `Client(enforce_csrf_checks=True)` with no session.
 - `pytest apps/core apps/users packages/wagtail_forum apps/forum_host
   --create-db`: 3092 passed.
+
+### 2026-09-24 - Review round 1 (bundled /code-review, PR #819): 9 repaired
+
+- **Per-IP limit on one-click would drop real unsubscribes.** Providers POST
+  from a few shared egress IPs; after 30/h per IP every later user's
+  one-click got a 403. The one-click limit is now keyed on the token
+  (`get:token`); a forged token fails the signature before any DB work.
+  Test: 40 users' one-clicks from one IP all return 200 (red with the IP key).
+- **GET on the one-click URL returned 405.** Clients without RFC 8058 open
+  the header URL. GET now 302s to the web `/unsubscribe` page with the same
+  token and changes nothing (scanners prefetch GETs). Test red with GET
+  removed.
+- **Two tokens per email.** Body and header links were minted separately
+  (timestamped, so they could differ). One token is minted per email in
+  `EmailService` and `digest_unsubscribe`, and passed to both builders.
+  Pinned by `test_one_click_header_and_body_carry_the_same_token`; the
+  mutation can't be forced red reliably (two signings in one second match).
+- The existing header==body test now pins `API_PUBLIC_URL=""`.
+- **A broken host hook aborted every digest.** `unsubscribe_links` now logs
+  and returns None, so the digest still sends with its manage link. Test red
+  with the guard removed.
+- `validate_environment()` warns when `API_PUBLIC_URL` isn't a bare https
+  origin (providers ignore non-https one-click URIs).
+- The reply email link says "View topic to unfollow" (it opens the topic;
+  it doesn't unfollow).
+- The legacy `EmailType.FORUM_DIGEST` now maps to the `forum_digest` list,
+  so `forum_digest.html`'s `{{ unsubscribe_url }}` is no longer empty.
+- The new settings block moved below `WAGTAILFORUM_SPAM_BACKEND`, rejoining
+  that setting and its comment.
+- `pytest apps/core apps/users packages/wagtail_forum apps/forum_host
+  --create-db`: 3097 passed.

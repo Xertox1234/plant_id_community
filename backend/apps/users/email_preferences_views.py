@@ -8,6 +8,7 @@ had no client and were removed (todo 415).
 """
 
 import logging
+from urllib.parse import urlencode
 
 from apps.core.ratelimit import client_ip_key
 from apps.core.utils.pii_safe_logging import log_safe_user_context
@@ -136,20 +137,36 @@ def email_unsubscribe(request: Request) -> Response:
     parameters=[OpenApiParameter("token", str, OpenApiParameter.QUERY, required=True)],
     responses=_UNSUBSCRIBE_SCHEMA_RESPONSES,
 )
-@api_view(["POST"])
+@api_view(["GET", "POST"])
 @authentication_classes([])
 @permission_classes([permissions.AllowAny])
+# Keyed on the TOKEN, not the client IP: providers POST from a few shared
+# egress IPs, so a per-IP limit would drop every user after the first 30 an
+# hour (PR #819 review). A forged token fails the signature check before any
+# DB work; a real one only unsubscribes its own user.
 @ratelimit(
-    key=client_ip_key, rate=RATE_LIMIT_EMAIL_UNSUBSCRIBE, method="POST", block=True
+    key="get:token", rate=RATE_LIMIT_EMAIL_UNSUBSCRIBE, method="POST", block=True
 )
-def email_unsubscribe_one_click(request: Request) -> Response:
+def email_unsubscribe_one_click(request: Request):
     """RFC 8058 one-click unsubscribe (todo 416).
 
     A mail provider POSTs ``List-Unsubscribe=One-Click`` (form-encoded) to the
     List-Unsubscribe header's URL, with no cookies and no JavaScript, so the
     signed token rides in the query string and the body is ignored. Same
-    token, same credential model and rate limit as ``email_unsubscribe``.
+    token and credential model as ``email_unsubscribe``.
+
+    A client without RFC 8058 opens the header URL with a GET instead: that
+    redirects to the web page (which asks before acting) and changes
+    nothing, since mail scanners prefetch GET links.
     """
+    if request.method == "GET":
+        from django.conf import settings
+        from django.http import HttpResponseRedirect
+
+        query = urlencode({"token": request.query_params.get("token", "")})
+        return HttpResponseRedirect(
+            f"{settings.SITE_URL.rstrip('/')}/unsubscribe?{query}"
+        )
     try:
         user, list_id = read_token(request.query_params.get("token"))
     except UnsubscribeTokenInvalid as exc:
