@@ -59,14 +59,18 @@ opens. Sighted users get the same SnackBar, silently.
 
 - [ ] Tapping a paragraph link and tapping a video card each open the URL in
       the in-app browser, with VoiceOver on and off. Checked on a device.
-- [ ] A widget test with a fake launcher shows that tapping a link, and
+- [x] A widget test with a fake launcher shows that tapping a link, and
       performing `SemanticsAction.tap` on an embed card, pass the exact URL to
       the launcher. The test fails against the current SnackBar code.
-- [ ] A non-`http(s)` `href` is never passed to the launcher. Pinned by a
-      test.
-- [ ] A link that fails to launch shows a readable error, not the raw URL.
-- [ ] `flutter analyze` is clean, the full `flutter test` passes, and
-      codegen is unaffected.
+      `forum_thread_links_test.dart`: both failed first (`Actual: []`).
+- [x] A non-`http(s)` `href` is never passed to the launcher. Pinned by a
+      test. Five hrefs through the screen plus 12 in the `openableForumLink`
+      unit test. Deleting the scheme check fails 2 tests.
+- [x] A link that fails to launch shows a readable error, not the raw URL.
+      Covers both a `false` return and a thrown exception.
+- [x] `flutter analyze` is clean, the full `flutter test` passes, and
+      codegen is unaffected. 774 passed, 9 skipped. The provider is a plain
+      `Provider`, so there is no `build_runner` output.
 
 ## Work Log
 
@@ -75,3 +79,25 @@ opens. Sighted users get the same SnackBar, silently.
 - VoiceOver double-tap on the video card in topic 44 showed the URL in a
   SnackBar, and VoiceOver spelled it out. Todo 398's own fix works: the tap
   action now fires. The broken part is what the tap action does.
+
+### 2026-09-24 - Launcher wired in; device check waits for build 14
+
+- Added `url_launcher` ^6.3.2. The lockfile gained only its eight
+  `url_launcher*` packages. `pod install` added `url_launcher_ios` to
+  `ios/Podfile.lock`.
+- `lib/features/forum/services/forum_link_launcher.dart` holds two things.
+  `forumLinkLauncherProvider` is the seam that tests override;
+  `LaunchMode.inAppBrowserView` is the real launcher. `openableForumLink`
+  enforces the allowlist: an absolute `http`/`https` URL with a host.
+  Relative hrefs are refused too. The server does keep them (nh3 limits
+  schemes only on absolute URLs), so a post holding `<a href="/forum/...">`
+  shows the error on mobile. It never opened before this change either
+  (the SnackBar). Resolving it against the web origin is todo 425; the
+  bundled `/code-review` raised it as a low-severity finding.
+- `forum_thread_screen.dart`: `_showLink` became `_openLink`. It returns the
+  one fixed message "Couldn't open this link." for a refused scheme, a
+  `false` return, or a thrown exception. VoiceOver no longer reads a URL
+  aloud.
+- No `LSApplicationQueriesSchemes`: the code never calls `canLaunchUrl`.
+- The todo stays `pending` until the build 14 device check (the first AC).
+  The archive tripwire fails an archived todo that has an unchecked AC.

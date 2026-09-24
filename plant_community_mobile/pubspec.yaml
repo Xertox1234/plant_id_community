@@ -86,6 +86,10 @@ dependencies:
   # keeps only the glyphs actually referenced.
   lucide_icons_flutter: ^3.1.19
 
+  # Opens forum links in the in-app browser (SFSafariViewController / Custom
+  # Tab). Only http(s) is ever handed to it (todo 424).
+  url_launcher: ^6.3.2
+
 dev_dependencies:
   flutter_test:
     sdk: flutter
