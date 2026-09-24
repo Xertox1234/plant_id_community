@@ -585,6 +585,25 @@ FRONTEND_BASE_URL = config("FRONTEND_BASE_URL", default="http://localhost:3000")
 HEADLESS_PREVIEW_CLIENT_URL = config(
     "HEADLESS_PREVIEW_CLIENT_URL", default="http://localhost:5174/blog/preview"
 )
+
+
+def validate_preview_client_url(value):
+    """Reject the pre-0.9 value format, which kept this env var's name.
+
+    The old library took a path template (``…/{content_type}/{token}/``); 0.9
+    appends ``?content_type=…&token=…`` to a plain root. A stale Railway value
+    in the old format would send every editor to an unroutable URL, silently
+    (todo 407).
+    """
+    if "{" in value or "}" in value:
+        raise ImproperlyConfigured(
+            f"HEADLESS_PREVIEW_CLIENT_URL looks like the old path-template "
+            f"format ({value!r}). Set it to the web app's preview root, e.g. "
+            f"https://<web host>/blog/preview (no {{content_type}}/{{token}})."
+        )
+
+
+validate_preview_client_url(HEADLESS_PREVIEW_CLIENT_URL)
 WAGTAIL_HEADLESS_PREVIEW = {
     "CLIENT_URLS": {"default": HEADLESS_PREVIEW_CLIENT_URL},
     "REDIRECT_ON_PREVIEW": True,
@@ -596,6 +615,11 @@ _preview_url_parts = urlsplit(HEADLESS_PREVIEW_CLIENT_URL)
 HEADLESS_PREVIEW_CLIENT_ORIGIN = (
     f"{_preview_url_parts.scheme}://{_preview_url_parts.netloc}"
 )
+# ONE value for both CSP dicts below, so the report-only (DEBUG) dict a test
+# can read and the enforcing production dict it can't cannot drift (todo 407).
+# Not named CSP_*: django-csp 4 flags ANY CSP_-prefixed setting as its
+# pre-4.0 format (csp.E001) and fails `manage.py check`.
+PREVIEW_FRAME_SRC = ("'self'", HEADLESS_PREVIEW_CLIENT_ORIGIN)
 
 # Use custom user model
 AUTH_USER_MODEL = "users.User"
@@ -1365,7 +1389,7 @@ if DEBUG:
                 "'none'",
             ),  # Anti-clickjacking (also enforced by X-Frame-Options)
             # The Wagtail editor's preview panel frames the React preview page.
-            "frame-src": ("'self'", HEADLESS_PREVIEW_CLIENT_ORIGIN),
+            "frame-src": PREVIEW_FRAME_SRC,
             "img-src": ("'self'", "data:", "https:", "blob:"),
             "media-src": ("'self'",),
             "object-src": ("'none'",),  # Block Flash, Java applets, etc.
@@ -1399,7 +1423,7 @@ else:
                 "'none'",
             ),  # Anti-clickjacking (redundant with X-Frame-Options but defense-in-depth)
             # The Wagtail editor's preview panel frames the React preview page.
-            "frame-src": ("'self'", HEADLESS_PREVIEW_CLIENT_ORIGIN),
+            "frame-src": PREVIEW_FRAME_SRC,
             "img-src": (
                 "'self'",
                 "data:",

@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: p3
 issue_id: "407"
 tags: [blog, web, testing, security, review-followup]
@@ -90,9 +90,9 @@ description.
 
 ## Acceptance Criteria
 
-- [ ] Items 1–3: preview hardening is done or explicitly accepted, with a reason.
-- [ ] Items 4–8 and 11: each test gap is closed, and each new test is mutation-checked.
-- [ ] Item 9: the profile and notification services handle a stale CSRF token.
+- [x] Items 1–3: preview hardening is done or explicitly accepted, with a reason.
+- [x] Items 4–8 and 11: each test gap is closed, and each new test is mutation-checked.
+- [x] Item 9: the profile and notification services handle a stale CSRF token.
 
 ## Work Log
 
@@ -107,3 +107,60 @@ sets `depth`/`path` from the parent, so `get_parent()` resolves. The
 reviewer's probe used a bare `BlogPostPage()`, which the admin never produces.
 `test_previews_a_brand_new_never_saved_post` now mirrors that view exactly and
 mints its token through `create_page_preview()`.
+
+### 2026-09-24 - Done: items 1–9 and 11 (10 is information only)
+
+**Preview hardening (backend, `apps/blog/api/viewsets.py`, settings)**
+
+- **Item 1.** `BlogPostPreviewAPIViewSet` now calls `unsign(token,
+  max_age=PREVIEW_TOKEN_MAX_AGE)` (1 hour) before loading the draft.
+  `SignatureExpired` is a `BadSignature`, so a stale token is a 404. Every
+  Preview click signs a fresh token, so editors lose nothing. The response
+  gets `add_never_cache_headers` (`no-store, private`).
+- **Item 2.** `settings.validate_preview_client_url` raises
+  `ImproperlyConfigured` at startup on a `{`/`}` value, the pre-0.9 path
+  template. It does not verify Railway's actual value (todo 406 owns that).
+- **Item 3.** `get_urlpatterns` exposes only the listing route, so the
+  inherited `<int:pk>/` and `find/` routes are gone (404). The dead
+  `known_query_parameters` union and the `detail_view` override were removed.
+
+**Test gaps**
+
+- **Item 4.** A fake `HeadlessPreviewMixin` model that is not a
+  `BlogPostPage`, with a validly signed token, is a 404.
+- **Item 5.** Warming the live post's cache first still serves the draft.
+- **Item 6.** `fetchBlogPreview`: URL and params, 404 → "Preview not found or
+  expired" (cause attached), other errors unchanged.
+- **Item 7.** Both CSP dicts now take `frame-src` from one module constant,
+  `PREVIEW_FRAME_SRC`. The test pins that the constant carries the origin and
+  that both `"frame-src"` entries in `settings.py` are that name (AST check),
+  because only one dict is ever built per run. It is **not** named `CSP_*`:
+  django-csp 4 flags any `CSP_`-prefixed setting as its old format
+  (`csp.E001`), which failed `manage.py check` in the first attempt.
+- **Item 8.** `CommunityExpertsModule` tests assert `[data-presence]`, not
+  `.bg-ok`.
+- **Item 11.** A never-saved draft with a populated category serializes it.
+
+**Web client**
+
+- **Item 9.** `profileService` and `notificationService` now go through the
+  shared `apiClient`. They inherit its stale-CSRF refresh-and-retry and send
+  the CSRF header only on mutations; a bodyless GET carries no
+  `Content-Type`. Signatures and error messages are unchanged. Premise
+  correction: `apiClient` has **no** 401 refresh (only the CSRF retry), so
+  none was inherited; token refresh lives in `AuthContext`.
+
+**Evidence**
+
+- Backend: 5 new tests failed on the original code (expiry, no-store, routes,
+  URL format, frame-src constant). Items 4, 5 and 11 pin existing behavior,
+  so they were mutation-checked instead, each red once: drop the
+  `issubclass(model, BlogPostPage)` half; serve the preview through the
+  parent's cached `detail_view`; strip the pk-less draft's categories.
+  `pytest apps/blog/tests/test_page_preview.py`: 18 passed.
+  `pytest apps/blog apps/core --create-db`: 1679 passed, 7 skipped after the rename
+  (the 4 `test_r2_storage` failures were `csp.E001` from the first name).
+- Web (items 6, 8, 9): type-check and lint clean; full `npx vitest run`
+  1417 passed. Fail-before: the new profile tests fail 9/9 on the old
+  service. Mutations: item 6 (3 red), item 8 (2 red), item 9 CSRF retry
+  (3 red).

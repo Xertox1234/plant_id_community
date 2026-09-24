@@ -819,11 +819,27 @@ class BlogPostPreviewAPIViewSet(BlogPostPageViewSet):
 
     Deliberately bypasses the parent's slug cache: a preview must never be
     served from, or written to, the live post's cache entry.
+
+    The token expires after PREVIEW_TOKEN_MAX_AGE. The library itself never
+    expires one: its unsign() has no max_age, and PagePreview rows are only
+    garbage-collected when an editor previews again, so a leaked preview URL
+    (history, Referer, logs) kept working indefinitely (todo 407). Every
+    Preview click signs a fresh token, so this costs editors nothing. The
+    response is never cached for the same reason.
+
+    Only the listing route is exposed: the inherited ``<int:pk>/`` route would
+    ignore pk, and ``find/`` would search live pages (todo 407).
     """
 
-    known_query_parameters = BlogPostPageViewSet.known_query_parameters.union(
-        ["content_type", "token"]
-    )
+    # An hour: long enough to read and reload a draft, short enough that a
+    # leaked link dies the same day. A new Preview click mints a new token.
+    PREVIEW_TOKEN_MAX_AGE = 60 * 60
+
+    @classmethod
+    def get_urlpatterns(cls):
+        from django.urls import path
+
+        return [path("", cls.as_view({"get": "listing_view"}), name="listing")]
 
     def get_serializer_class(self):
         return BlogPostPageSerializer
@@ -851,9 +867,11 @@ class BlogPostPreviewAPIViewSet(BlogPostPageViewSet):
         ):
             raise Http404("Content type is not previewable here")
         try:
+            # SignatureExpired subclasses BadSignature: stale is also a 404.
+            model.get_preview_signer().unsign(token, max_age=self.PREVIEW_TOKEN_MAX_AGE)
             page = model.get_page_from_preview_token(token)
         except BadSignature:
-            raise Http404("Invalid preview token")
+            raise Http404("Invalid or expired preview token")
         if page is None:
             raise Http404("Preview not found or expired")
         if page.pk is None:
@@ -864,7 +882,8 @@ class BlogPostPreviewAPIViewSet(BlogPostPageViewSet):
         return page
 
     def listing_view(self, request):
-        return Response(self.get_serializer(self.get_object()).data)
+        from django.utils.cache import add_never_cache_headers
 
-    def detail_view(self, request, pk):
-        return self.listing_view(request)
+        response = Response(self.get_serializer(self.get_object()).data)
+        add_never_cache_headers(response)
+        return response
