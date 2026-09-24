@@ -631,3 +631,10 @@ Compact checklist auto-injected before edits.
   a test asserting the wrong branch passes. Assign the fields back explicitly,
   or use a factory mock that keeps the real class via `importActual` when the
   code under test does `instanceof` (todo 374).
+- **An e2e "no extra requests" assertion counts EVERY request under the
+  resource path, any method, and asserts the exact list** (e.g.
+  `['POST /api/v1/forum/images/']`). Counting only `POST` to the collection URL
+  let a PATCH/DELETE to the detail route pass as "zero new uploads" (PR #823).
+- **A persistence e2e reloads before asserting.** After a save, the page shows
+  the mutation's RESPONSE; only `page.reload()` exercises the read path. Also
+  assert the old content is gone, or an append passes as a replace (PR #823).
