@@ -53,6 +53,7 @@ import type {
   ThreadPoll,
   PlantCareAnswer,
   LinkPreview,
+  TopicSummary,
 } from '../types/forum';
 import { slugifyTitle } from '../utils/forumUrls';
 import { htmlToBodyBlocks } from '../utils/forumBody';
@@ -935,6 +936,96 @@ export async function askPlantCare(question: string): Promise<PlantCareAnswer> {
     throw new RagError(response.status, 'Plant-care answer came back in an unknown shape.');
   }
   return data as PlantCareAnswer;
+}
+
+// ---------------------------------------------------------------------------
+// AI thread summary (todo 414; backend todo 255 slice 3 / H14)
+// ---------------------------------------------------------------------------
+
+/**
+ * Error from the thread-summary endpoint — the compose-assist contract (status
+ * + backend `code`, `permanent` only when retrying can never work) plus
+ * `retryAfter`: the endpoint's 30/h bucket counts every POLL, so a 429 is a
+ * real outcome of normal use and the caller says when to come back. There is
+ * no feature flag on this endpoint, so no 503 `disabled` case.
+ */
+export class TopicSummaryError extends Error {
+  readonly status: number;
+  readonly code?: string;
+  /** Seconds from a 429's `Retry-After` header; null otherwise. */
+  readonly retryAfter: number | null;
+  /** 401 (signed out) / 403 (not a premium account). */
+  readonly permanent: boolean;
+
+  constructor(status: number, message: string, code?: string, retryAfter: number | null = null) {
+    super(message);
+    this.name = 'TopicSummaryError';
+    this.status = status;
+    this.code = code;
+    this.retryAfter = retryAfter;
+    this.permanent = status === 401 || status === 403;
+  }
+}
+
+/**
+ * Session-scoped latch, the compose-assist pattern: the web has no client-side
+ * premium flag (the auth user payload carries none), so the server's 403 is
+ * what tells us — remembered here so a remounted panel (a new thread) does not
+ * re-offer the button. Cleared by `AuthContext` on every identity change.
+ */
+let topicSummaryUnavailable = false;
+
+export function isTopicSummaryUnavailable(): boolean {
+  return topicSummaryUnavailable;
+}
+
+export function markTopicSummaryUnavailable(): void {
+  topicSummaryUnavailable = true;
+}
+
+export function resetTopicSummaryAvailability(): void {
+  topicSummaryUnavailable = false;
+}
+
+/** Delta-seconds `Retry-After`, or null (same reading as messageService's). */
+function readRetryAfterSeconds(response: Response): number | null {
+  const raw = response.headers?.get?.('Retry-After');
+  if (!raw || !/^\d+$/.test(raw.trim())) return null;
+  return Number.parseInt(raw, 10);
+}
+
+/**
+ * One GET of a topic's AI summary. Returns `pending` on a 202 — the caller
+ * polls (sparingly: polls spend the same 30/h bucket as clicks).
+ */
+export async function fetchTopicSummary(topicId: number): Promise<TopicSummary> {
+  const response = await fetch(`${FORUM_BASE}/topics/${topicId}/summary/`, {
+    method: 'GET',
+    credentials: 'include',
+    headers: { Accept: 'application/json' },
+  });
+  if (!response.ok) {
+    const body = await response.json().catch(() => ({}));
+    throw new TopicSummaryError(
+      response.status,
+      body.message || body.detail || `HTTP ${response.status}`,
+      body.code,
+      response.status === 429 ? readRetryAfterSeconds(response) : null
+    );
+  }
+  const data: unknown = await response.json();
+  if (!isTopicSummary(data)) {
+    throw new TopicSummaryError(response.status, 'Thread summary came back in an unknown shape.');
+  }
+  return data;
+}
+
+function isTopicSummary(value: unknown): value is TopicSummary {
+  if (typeof value !== 'object' || value === null) return false;
+  const { status, summary } = value as { status?: unknown; summary?: unknown };
+  if (status === 'pending' || status === 'too_short') return true;
+  // A blank "ready" would render an empty card as if it were the summary.
+  return status === 'ready' && typeof summary === 'string' && summary.trim() !== '';
 }
 
 /** Report an answered plant-care answer as wrong (moderator review loop). */

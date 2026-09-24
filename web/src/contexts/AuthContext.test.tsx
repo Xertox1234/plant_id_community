@@ -51,6 +51,9 @@ describe('AuthContext', () => {
       // Simulate the 403 that latches the flag for account #1.
       forumService.markComposeAssistUnavailable();
       expect(forumService.isComposeAssistUnavailable()).toBe(true);
+      // Same account-scoped fact for the thread-summary button (todo 414).
+      forumService.markTopicSummaryUnavailable();
+      expect(forumService.isTopicSummaryUnavailable()).toBe(true);
 
       vi.mocked(authService.login).mockResolvedValue(second);
       await act(async () => {
@@ -62,6 +65,7 @@ describe('AuthContext', () => {
 
       await waitFor(() => expect(result.current.user).toEqual(second));
       expect(forumService.isComposeAssistUnavailable()).toBe(false);
+      expect(forumService.isTopicSummaryUnavailable()).toBe(false);
     });
   });
 
