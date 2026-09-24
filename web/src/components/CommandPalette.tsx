@@ -11,6 +11,7 @@ import {
 import { categoryPath, threadPath, userProfilePath } from '../utils/forumUrls';
 import { boardIdentity } from '../utils/forumTones';
 import { useBodyScrollLock } from '../hooks/useBodyScrollLock';
+import { useModalFocus } from '../hooks/useModalFocus';
 import type { Category, Thread } from '../types/forum';
 
 const MIN_QUERY_LENGTH = 2;
@@ -89,9 +90,7 @@ export default function CommandPalette({ open, onClose }: CommandPaletteProps) {
   const [peopleLoading, setPeopleLoading] = useState(false);
   const [peopleError, setPeopleError] = useState(false);
 
-  const inputRef = useRef<HTMLInputElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
-  const previouslyFocusedRef = useRef<HTMLElement | null>(null);
   const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Monotonic request epoch — a response only lands if no newer query has
   // been issued since (same class as PR #537's unread-badge fix).
@@ -136,29 +135,10 @@ export default function CommandPalette({ open, onClose }: CommandPaletteProps) {
       });
   }, [open]);
 
-  // Initial focus + focus return, in one effect so the trigger is always
-  // captured BEFORE focus moves into the palette's own input — a separate
-  // "capture" effect ordered after "focus the input" would record the input
-  // itself as the thing to return focus to.
-  useEffect(() => {
-    if (open) {
-      previouslyFocusedRef.current = document.activeElement as HTMLElement | null;
-      inputRef.current?.focus();
-    } else if (previouslyFocusedRef.current) {
-      previouslyFocusedRef.current.focus();
-      previouslyFocusedRef.current = null;
-    }
-  }, [open]);
-
-  // Escape closes the palette.
-  useEffect(() => {
-    if (!open) return;
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
-    };
-    document.addEventListener('keydown', handleKeyDown);
-    return () => document.removeEventListener('keydown', handleKeyDown);
-  }, [open, onClose]);
+  // Focus into the input on open and back to the trigger on close, Escape,
+  // and the Tab trap (todo 400). Arrow keys and Enter stay on the input's own
+  // handler below: they don't stop propagation, and the hook ignores them.
+  useModalFocus(open, panelRef, onClose);
 
   // Body scroll lock while open — shared, ref-counted with AppShell's mobile
   // drawer (see useBodyScrollLock) so the two compose correctly when both
@@ -388,25 +368,6 @@ export default function CommandPalette({ open, onClose }: CommandPaletteProps) {
     }
   };
 
-  // Tab/Shift+Tab wraps between the input and the last visible row instead
-  // of leaving the dialog for the page behind it.
-  const handlePanelKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
-    if (e.key !== 'Tab') return;
-    const panel = panelRef.current;
-    if (!panel) return;
-    const focusables = panel.querySelectorAll<HTMLElement>('a[href], button, input');
-    if (focusables.length === 0) return;
-    const first = focusables[0];
-    const last = focusables[focusables.length - 1];
-    if (e.shiftKey && document.activeElement === first) {
-      e.preventDefault();
-      last.focus();
-    } else if (!e.shiftKey && document.activeElement === last) {
-      e.preventDefault();
-      first.focus();
-    }
-  };
-
   if (!open) return null;
 
   const renderRow = (row: PaletteRow) => {
@@ -448,7 +409,6 @@ export default function CommandPalette({ open, onClose }: CommandPaletteProps) {
           role="dialog"
           aria-modal="true"
           aria-label="Search"
-          onKeyDown={handlePanelKeyDown}
           className={`canopy-card w-full rounded-lg border border-line shadow-2 transition-all duration-200 motion-reduce:transition-none ${
             visible ? 'scale-100 opacity-100' : 'scale-95 opacity-0'
           }`}
@@ -456,7 +416,7 @@ export default function CommandPalette({ open, onClose }: CommandPaletteProps) {
           <div className="flex items-center gap-2.5 border-b border-line px-4 py-3">
             <Search className="h-4 w-4 shrink-0 text-ink-3" aria-hidden="true" />
             <input
-              ref={inputRef}
+              data-autofocus
               type="text"
               value={query}
               onChange={(e) => setQuery(e.target.value)}

@@ -3,6 +3,7 @@ import StreamFieldRenderer from '../StreamFieldRenderer';
 import Timestamp from '../ui/Timestamp';
 import Button from '../ui/Button';
 import LoadingSpinner from '../ui/LoadingSpinner';
+import { useModalFocus } from '../../hooks/useModalFocus';
 import {
   ForumApiError,
   fetchPostRevision,
@@ -27,8 +28,9 @@ interface EditHistoryDialogProps {
  * the two are visually comparable without a second renderer.
  *
  * Modal semantics follow ConfirmDialog (audit M24 replaced the native dialogs):
- * `role="dialog"` + `aria-modal`, Escape and backdrop-click close, focus moved
- * in on open and returned to the trigger on close.
+ * `role="dialog"` + `aria-modal`, backdrop-click close, and `useModalFocus`
+ * for Escape, the Tab trap, and focus in on open / back to the trigger on
+ * close (todo 400).
  *
  * A 403 is an expected state, not a failure. The backend serves history to the
  * post's author and to moderators, and turns it moderator-only once someone
@@ -45,22 +47,7 @@ export default function EditHistoryDialog({ open, postId, onClose }: EditHistory
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
 
-  useEffect(() => {
-    if (!open) return;
-    // Capture the trigger BEFORE moving focus in, mirroring ConfirmDialog: a
-    // React `autoFocus` runs during commit, i.e. before this effect, so
-    // document.activeElement would already be inside the dialog.
-    const previouslyFocused = document.activeElement as HTMLElement | null;
-    dialogRef.current?.querySelector<HTMLButtonElement>('[data-autofocus]')?.focus();
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
-    };
-    document.addEventListener('keydown', onKey);
-    return () => {
-      document.removeEventListener('keydown', onKey);
-      previouslyFocused?.focus?.();
-    };
-  }, [open, onClose]);
+  useModalFocus(open, dialogRef, onClose);
 
   useEffect(() => {
     if (!open) return;

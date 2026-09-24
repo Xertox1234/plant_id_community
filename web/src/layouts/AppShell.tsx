@@ -29,6 +29,7 @@ import UserMenu from '../components/layout/UserMenu';
 import CommandPalette from '../components/CommandPalette';
 import { RAIL_CONTAINER_ID } from '../components/layout/RailSlot';
 import { useBodyScrollLock } from '../hooks/useBodyScrollLock';
+import { useModalFocus } from '../hooks/useModalFocus';
 import BrandMark from '../components/ui/BrandMark';
 import CountBadge from '../components/ui/CountBadge';
 
@@ -142,17 +143,12 @@ export default function AppShell({ children }: AppShellProps) {
   const { mode, toggleMode } = useTheme();
   const themeLabel = mode === 'dark' ? 'Switch to light mode' : 'Switch to dark mode';
   const closeDrawer = () => setDrawerOpen(false);
-  const closeButtonRef = useRef<HTMLButtonElement>(null);
+  const drawerRef = useRef<HTMLElement>(null);
 
-  // Escape closes the drawer.
-  useEffect(() => {
-    if (!drawerOpen) return;
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') closeDrawer();
-    };
-    document.addEventListener('keydown', handleKeyDown);
-    return () => document.removeEventListener('keydown', handleKeyDown);
-  }, [drawerOpen]);
+  // Focus to Close menu on open and back to Open menu on close, Escape, and
+  // the Tab trap (todo 400). Route changes close the drawer through each
+  // link's onNavigate, not through this hook.
+  useModalFocus(drawerOpen, drawerRef, closeDrawer);
 
   // Cmd/Ctrl+K opens the command palette from anywhere. The functional
   // update makes an already-open palette a no-op — the simplest guard
@@ -176,11 +172,6 @@ export default function AppShell({ children }: AppShellProps) {
   // when both are open at once (closing one must never unlock under the
   // other, or leave the page locked forever).
   useBodyScrollLock(drawerOpen);
-
-  // Initial focus: send focus to the drawer's close button when it opens.
-  useEffect(() => {
-    if (drawerOpen) closeButtonRef.current?.focus();
-  }, [drawerOpen]);
 
   return (
     <UnreadNotificationsProvider>
@@ -209,6 +200,7 @@ export default function AppShell({ children }: AppShellProps) {
                 aria-hidden="true"
               />
               <aside
+                ref={drawerRef}
                 role="dialog"
                 aria-modal="true"
                 aria-label="Menu"
@@ -217,7 +209,7 @@ export default function AppShell({ children }: AppShellProps) {
                 <div className="flex items-center justify-between">
                   <Brand onNavigate={closeDrawer} />
                   <button
-                    ref={closeButtonRef}
+                    data-autofocus
                     onClick={closeDrawer}
                     aria-label="Close menu"
                     className="rounded-md p-2 text-ink-3 hover:bg-surface-2"
