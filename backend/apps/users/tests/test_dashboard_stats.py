@@ -200,7 +200,8 @@ class DashboardStatsForumTests(TestCase):
 
     def test_query_count_is_constant(self):
         # Several topics and replies: select_related keeps the recent-activity
-        # lists from issuing a query per row. 2 aggregates + 2 recent lists.
+        # lists from issuing a query per row. Restriction lookup + 2 aggregates +
+        # 2 recent lists.
         for n in range(3):
             topic = self._topic(f"topic-{n}", live=True)
             Post.objects.create(

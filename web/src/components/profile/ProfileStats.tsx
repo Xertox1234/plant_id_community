@@ -72,8 +72,8 @@ function StatsBody({ stats }: { stats: DashboardStats }) {
 /**
  * The signed-in user's forum totals and recent activity on /profile, from
  * GET /api/v1/auth/me/dashboard-stats/ (todo 411). Loads independently of the
- * profile form, so a stats failure never blocks editing. Mount it keyed on the
- * user id so an account switch refetches.
+ * profile form, so a stats failure never blocks editing. ProfilePage remounts
+ * it (with the form) when the signed-in account changes.
  */
 export default function ProfileStats() {
   const [state, setState] = useState<StatsState>({ kind: 'loading' });
