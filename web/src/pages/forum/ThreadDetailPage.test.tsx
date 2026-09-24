@@ -368,6 +368,52 @@ describe('ThreadDetailPage', () => {
     expect(screen.queryByRole('button', { name: /Follow/i })).not.toBeInTheDocument();
   });
 
+  // --- AI thread summary (todo 414) -----------------------------------------
+  // forumService is automocked here, so isTopicSummaryUnavailable() returns
+  // undefined (falsy) unless a test says otherwise. The panel's own states
+  // (poll, 429, 403 latch) are covered in ThreadSummaryPanel.test.tsx.
+
+  it('offers Summarize thread to a signed-in user and renders the summary for this topic', async () => {
+    vi.spyOn(forumService, 'fetchThread').mockResolvedValue(createMockThread());
+    vi.spyOn(forumService, 'fetchPosts').mockResolvedValue({ items: [], meta: { count: 0 } });
+    const summarySpy = vi.spyOn(forumService, 'fetchTopicSummary').mockResolvedValue({
+      status: 'ready',
+      summary: 'Everyone agrees: water less in winter.',
+      post_count: 4,
+      generated_at: '2026-09-24T10:00:00+00:00',
+    });
+
+    renderThreadDetailPage();
+
+    await userEvent.click(await screen.findByRole('button', { name: /summarize thread/i }));
+    expect(await screen.findByText('Everyone agrees: water less in winter.')).toBeInTheDocument();
+    // topicId parsed from the URL ('12-watering-tips'), not the display id.
+    expect(summarySpy).toHaveBeenCalledWith(12, expect.any(AbortSignal));
+  });
+
+  it('shows no Summarize thread button to a logged-out user', async () => {
+    vi.mocked(useAuth).mockReturnValue(mockAuth(false));
+    vi.spyOn(forumService, 'fetchThread').mockResolvedValue(createMockThread());
+    vi.spyOn(forumService, 'fetchPosts').mockResolvedValue({ items: [], meta: { count: 0 } });
+
+    renderThreadDetailPage();
+
+    await screen.findByText(/Log in/i);
+    expect(screen.queryByRole('button', { name: /summarize thread/i })).not.toBeInTheDocument();
+  });
+
+  it('shows no Summarize thread button once the server has said the account is not premium', async () => {
+    vi.mocked(forumService.isTopicSummaryUnavailable).mockReturnValue(true);
+    vi.spyOn(forumService, 'fetchThread').mockResolvedValue(createMockThread());
+    vi.spyOn(forumService, 'fetchPosts').mockResolvedValue({ items: [], meta: { count: 0 } });
+
+    renderThreadDetailPage();
+
+    await screen.findByRole('heading', { level: 1 });
+    expect(screen.queryByRole('button', { name: /summarize thread/i })).not.toBeInTheDocument();
+    expect(screen.queryByText(/thread summary/i)).not.toBeInTheDocument();
+  });
+
   it('clicking Follow subscribes and flips the button to Following', async () => {
     vi.spyOn(forumService, 'fetchThread').mockResolvedValue(
       createMockThread({ is_subscribed: false })

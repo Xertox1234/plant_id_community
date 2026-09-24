@@ -369,3 +369,9 @@ Compact checklist auto-injected before edits. Long-form: `backend/docs/patterns/
   (`pip-audit … --format json --output <f>` then
   `check_suppressions.py --recheck --report <f>`) asks "is this entry still
   true?". Only the second can close a suppression (todo 355 slice 6).
+- **An identifier read from a request body is attacker-controlled PII.**
+  A failed-login tracker, alert or log line gets `log_safe_username(...)`,
+  never the raw value (it is often an email, and a newline in it forges a log
+  line). Read the field the real client sends: the web login posts
+  `{email, password}`, so a tracker reading only `username` records `None`
+  for every real failure while a `username`-shaped test passes (PR #818).

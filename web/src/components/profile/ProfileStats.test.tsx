@@ -1,15 +1,26 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import ProfileStats from './ProfileStats';
 import { getCsrfToken } from '../../utils/csrf';
+import {
+  httpError,
+  installAdapter,
+  ok,
+  restoreAdapter,
+  type AdapterMock,
+} from '../../tests/apiClientHarness';
 
-// The real profileService runs against a mocked fetch, so these tests cover the
-// fetch-boundary guard and the render together (todo 411).
-vi.mock('../../utils/csrf', () => ({ getCsrfToken: vi.fn() }));
+// The real profileService runs against the real apiClient with a mocked axios
+// adapter, so these tests cover the response guard and the render together
+// (todo 411).
+vi.mock('../../utils/csrf', () => ({ getCsrfToken: vi.fn(), clearCsrfToken: vi.fn() }));
+vi.mock('../../utils/logger', () => ({
+  logger: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+}));
 
-function jsonResponse(body: unknown, status = 200) {
-  return { ok: status < 400, status, json: () => Promise.resolve(body) } as Response;
+function respondWith(adapter: AdapterMock, body: unknown) {
+  adapter.mockImplementation(async (config) => ok(config, body));
 }
 
 const forumStats = {
@@ -47,18 +58,19 @@ function renderStats() {
 }
 
 describe('ProfileStats (todo 411)', () => {
-  let fetchMock: ReturnType<typeof vi.fn>;
+  let adapter: AdapterMock;
 
   beforeEach(() => {
     vi.mocked(getCsrfToken).mockResolvedValue('csrf-123');
-    fetchMock = vi.fn();
-    global.fetch = fetchMock as unknown as typeof fetch;
+    adapter = installAdapter();
+  });
+
+  afterEach(() => {
+    restoreAdapter();
   });
 
   it('shows a loading state, then the forum totals and recent activity', async () => {
-    fetchMock.mockResolvedValue(
-      jsonResponse({ forum_stats: forumStats, recent_activity: activity })
-    );
+    respondWith(adapter, { forum_stats: forumStats, recent_activity: activity });
     renderStats();
 
     expect(screen.getByText('Loading your activity…')).toBeInTheDocument();
@@ -80,7 +92,9 @@ describe('ProfileStats (todo 411)', () => {
   });
 
   it('shows the error message when the stats cannot load', async () => {
-    fetchMock.mockResolvedValue(jsonResponse({ detail: 'Server exploded' }, 500));
+    adapter.mockImplementation(async (config) => {
+      throw httpError(config, 500, { detail: 'Server exploded' });
+    });
     renderStats();
 
     expect(await screen.findByRole('alert')).toHaveTextContent('Server exploded');
@@ -88,12 +102,10 @@ describe('ProfileStats (todo 411)', () => {
   });
 
   it('shows an empty state with a way into the forum when there is no activity', async () => {
-    fetchMock.mockResolvedValue(
-      jsonResponse({
-        forum_stats: { total_topics: 0, total_posts: 0, topics_this_month: 0, posts_this_month: 0 },
-        recent_activity: [],
-      })
-    );
+    respondWith(adapter, {
+      forum_stats: { total_topics: 0, total_posts: 0, topics_this_month: 0, posts_this_month: 0 },
+      recent_activity: [],
+    });
     renderStats();
 
     expect(await screen.findByText(/haven’t posted in the forum yet/)).toBeInTheDocument();
@@ -102,29 +114,27 @@ describe('ProfileStats (todo 411)', () => {
   });
 
   it('never renders the removed plant fields an older server may still send', async () => {
-    fetchMock.mockResolvedValue(
-      jsonResponse({
-        plant_stats: {
-          total_identified: 5,
-          total_searches: 9,
-          searches_this_week: 4,
-          saved_care_cards: 2,
+    respondWith(adapter, {
+      plant_stats: {
+        total_identified: 5,
+        total_searches: 9,
+        searches_this_week: 4,
+        saved_care_cards: 2,
+      },
+      total_activity_score: 99,
+      forum_stats: forumStats,
+      recent_activity: [
+        {
+          type: 'plant_identification',
+          title: 'Identified plant',
+          description: 'Successfully identified a plant species',
+          timestamp: '2026-09-22T10:00:00Z',
+          url: '/identify/0b8e',
+          icon: 'leaf',
         },
-        total_activity_score: 99,
-        forum_stats: forumStats,
-        recent_activity: [
-          {
-            type: 'plant_identification',
-            title: 'Identified plant',
-            description: 'Successfully identified a plant species',
-            timestamp: '2026-09-22T10:00:00Z',
-            url: '/identify/0b8e',
-            icon: 'leaf',
-          },
-          ...activity,
-        ],
-      })
-    );
+        ...activity,
+      ],
+    });
     const { container } = renderStats();
 
     expect(await screen.findByText('Topics')).toBeInTheDocument();

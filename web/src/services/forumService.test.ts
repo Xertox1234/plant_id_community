@@ -31,6 +31,8 @@ import {
   reportPlantCareAnswer,
   RagError,
   ComposeAssistError,
+  fetchTopicSummary,
+  TopicSummaryError,
 } from './forumService';
 import { clearCsrfToken } from '../utils/csrf';
 
@@ -893,6 +895,65 @@ describe('forumService (wagtail_forum API contract)', () => {
     expect(init.method).toBe('POST');
     expect(JSON.parse(init.body)).toEqual({ detail: 'Pothos should not be watered daily' });
     expect(init.headers['X-CSRFToken']).toBe('test-csrf-token');
+  });
+
+  // --- Thread summary (todo 414) --------------------------------------------
+
+  it('fetchTopicSummary GETs /topics/{id}/summary/ with cookie auth and returns the envelope', async () => {
+    const ready = {
+      status: 'ready',
+      summary: 'The thread settles on bottom-watering.',
+      post_count: 4,
+      generated_at: '2026-09-24T10:00:00+00:00',
+    };
+    fetchMock.mockResolvedValueOnce(okJson(ready));
+    await expect(fetchTopicSummary(12)).resolves.toEqual(ready);
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toMatch(/\/api\/v1\/forum\/topics\/12\/summary\/$/);
+    expect(init.method ?? 'GET').toBe('GET');
+    expect(init.credentials).toBe('include');
+  });
+
+  it('fetchTopicSummary returns 202 pending and 200 too_short as results, not errors', async () => {
+    fetchMock.mockResolvedValueOnce({
+      ok: true,
+      status: 202,
+      json: async () => ({ status: 'pending' }),
+    });
+    await expect(fetchTopicSummary(12)).resolves.toEqual({ status: 'pending' });
+    fetchMock.mockResolvedValueOnce(okJson({ status: 'too_short', post_count: 2 }));
+    await expect(fetchTopicSummary(12)).resolves.toEqual({ status: 'too_short', post_count: 2 });
+  });
+
+  it('fetchTopicSummary marks only 403 permanent and reads Retry-After on 429', async () => {
+    for (const [status, permanent, retryAfter] of [
+      [401, false, null], // expired access cookie — never latched (PR #816 review)
+      [403, true, null], // not a premium account
+      [429, false, 3600], // 30/h bucket (polls count) — retry later
+      [404, false, null], // restricted / missing topic
+      [500, false, null],
+    ] as const) {
+      fetchMock.mockResolvedValueOnce({
+        ok: false,
+        status,
+        headers: new Headers(status === 429 ? { 'Retry-After': '3600' } : {}),
+        json: async () => ({ message: `failed ${status}`, code: 'x' }),
+      });
+      await expect(fetchTopicSummary(12)).rejects.toMatchObject({
+        name: 'TopicSummaryError',
+        status,
+        permanent,
+        retryAfter,
+        message: `failed ${status}`,
+      });
+    }
+  });
+
+  it('fetchTopicSummary rejects an unknown status or a ready envelope with no summary', async () => {
+    fetchMock.mockResolvedValueOnce(okJson({ status: 'surprise' }));
+    await expect(fetchTopicSummary(12)).rejects.toBeInstanceOf(TopicSummaryError);
+    fetchMock.mockResolvedValueOnce(okJson({ status: 'ready', summary: '  ' }));
+    await expect(fetchTopicSummary(12)).rejects.toBeInstanceOf(TopicSummaryError);
   });
 
   // --- My forum images (todo 374) -------------------------------------------
