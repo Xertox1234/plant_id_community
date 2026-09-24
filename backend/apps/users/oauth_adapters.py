@@ -162,8 +162,9 @@ class CustomSocialAccountAdapter(DefaultSocialAccountAdapter):
         # Get the provider name
         provider = getattr(request, "_oauth_provider", "unknown")
 
-        # Redirect to our custom callback view
-        return reverse("users:oauth_callback", kwargs={"provider": provider})
+        # Redirect to our custom callback view (the root OAuth mount,
+        # /api/auth/oauth/<provider>/callback/)
+        return reverse("oauth_callback", kwargs={"provider": provider})
 
 
 class CustomAccountAdapter(DefaultAccountAdapter):

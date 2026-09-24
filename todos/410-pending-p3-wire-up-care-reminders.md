@@ -4,7 +4,7 @@ priority: p3
 issue_id: "410"
 tags: [backend, mobile, web, users, notifications]
 dependencies: []
-source_review: "todos/405-pending-p3-backend-endpoints-no-client-triage.md"
+source_review: "todos/archive/405-completed-p3-backend-endpoints-no-client-triage.md"
 source_finding: "owner decision 2026-09-23"
 ---
 

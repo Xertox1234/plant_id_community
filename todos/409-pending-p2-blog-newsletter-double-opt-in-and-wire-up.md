@@ -4,7 +4,7 @@ priority: p2
 issue_id: "409"
 tags: [backend, web, blog, security, email]
 dependencies: []
-source_review: "todos/405-pending-p3-backend-endpoints-no-client-triage.md"
+source_review: "todos/archive/405-completed-p3-backend-endpoints-no-client-triage.md"
 source_finding: "owner decision 2026-09-23"
 ---
 

@@ -29,6 +29,17 @@ except ImportError:
 
 logger = logging.getLogger(__name__)
 
+# Path prefixes SecurityMetricsMiddleware records metrics for. Each must be a
+# real route (pinned in apps/core/tests/test_legacy_api_mount_removed.py):
+# these named the removed unversioned /api/auth/ paths and silently matched
+# nothing for as long as clients used /api/v1/.
+SECURITY_SENSITIVE_PATHS = (
+    "/api/v1/auth/login/",
+    "/api/v1/auth/register/",
+    "/api/v1/auth/logout/",
+    "/api/v1/auth/token/refresh/",
+)
+
 User = get_user_model()
 
 
@@ -227,16 +238,7 @@ class SecurityMetricsMiddleware:
         Returns:
             True if security-sensitive, False otherwise
         """
-        sensitive_paths = [
-            "/api/auth/login/",
-            "/api/auth/register/",
-            "/api/auth/logout/",
-            "/api/auth/token/refresh/",
-            "/api/auth/password/reset/",
-            "/api/auth/password/change/",
-        ]
-
-        return any(path.startswith(p) for p in sensitive_paths)
+        return any(path.startswith(p) for p in SECURITY_SENSITIVE_PATHS)
 
     def _get_user_id(self, request: HttpRequest) -> str:
         """Get user ID from request."""

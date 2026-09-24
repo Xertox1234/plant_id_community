@@ -35,7 +35,7 @@ class PlantDataStatsQueryTest(TestCase):
         )
         PlantSpecies.objects.create(scientific_name="Mentha spicata")
         PlantSpecies.objects.create(scientific_name="Ocimum basilicum")
-        self.url = reverse("blog_api:plant_stats")
+        self.url = reverse("v1:blog_api:plant_stats")
 
     def test_returns_200_with_correct_counts(self):
         response = self.client.get(self.url)

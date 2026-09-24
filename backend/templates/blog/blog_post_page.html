@@ -15,7 +15,7 @@
         {% endif %}
 
         <h1>{{ page.title }}</h1>
-        
+
         <div class="post-meta">
             <span class="author">
                 By <a href="/blog/author/{{ page.author.username }}/">{{ page.author.get_full_name|default:page.author.username }}</a>
@@ -108,21 +108,27 @@
 // Load comments via API
 document.addEventListener('DOMContentLoaded', function() {
     if (document.getElementById('blog-comments')) {
-        fetch(`/api/blog/posts/{{ page.pk }}/comments/`)
+        fetch(`/api/v1/blog/posts/{{ page.pk }}/comments/`)
             .then(response => response.json())
             .then(comments => {
                 const commentsContainer = document.getElementById('blog-comments');
                 if (comments.length === 0) {
                     commentsContainer.innerHTML = '<p>No comments yet. Be the first to comment!</p>';
                 } else {
-                    // Render comments (simplified)
-                    commentsContainer.innerHTML = comments.map(comment => `
-                        <div class="comment">
-                            <strong>${comment.author.display_name}</strong>
-                            <time>${new Date(comment.created_at).toLocaleDateString()}</time>
-                            <p>${comment.content}</p>
-                        </div>
-                    `).join('');
+                    // Comment text is user input: build nodes and set
+                    // textContent, never interpolate it into innerHTML.
+                    commentsContainer.replaceChildren(...comments.map(comment => {
+                        const item = document.createElement('div');
+                        item.className = 'comment';
+                        const author = document.createElement('strong');
+                        author.textContent = comment.author.display_name;
+                        const time = document.createElement('time');
+                        time.textContent = new Date(comment.created_at).toLocaleDateString();
+                        const body = document.createElement('p');
+                        body.textContent = comment.content;
+                        item.append(author, time, body);
+                        return item;
+                    }));
                 }
             })
             .catch(error => {
