@@ -386,5 +386,5 @@ Compact checklist auto-injected before edits. Long-form: `backend/docs/patterns/
   with `csp.E001` — which surfaced only in a subprocess test (PR #817).
 - **A "placeholder / example value" guard matches a substring, not a stripped
   prefix.** Values from `os.environ` are not stripped by python-decouple, and
-  pastes arrive as `'X'`, `' X'`, `` `X` `` or a whole `KEY=X` line; a prefix
+  pastes arrive padded with spaces, as `' X'`, `` `X` `` or a whole `KEY=X` line; a prefix
   check after `.strip()` missed three of those (PR #822).
