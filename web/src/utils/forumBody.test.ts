@@ -675,3 +675,59 @@ describe('an image deleted after posting (todo 374)', () => {
     expect(html).not.toContain('<img');
   });
 });
+
+describe('image attribute escaping on rehydrate (todo 441)', () => {
+  // bodyBlocksToHtml hand-builds the <img> HTML the composer parses. Escaping
+  // only `"` let an `&` through, so a stored alt of `Tom &amp; Jerry` came back
+  // as `Tom & Jerry` and re-saving an untouched post PATCHed a DIFFERENT
+  // alt_text. `&copy ` is decoded too: a legacy entity needs no semicolon when
+  // the next character is a space. The other values are regression pins —
+  // inside a double-quoted attribute they already parsed literally.
+  const ALTS = [
+    'Tom &amp; Jerry',
+    'leaf &copy 2026',
+    'a < b > c',
+    'say "hi"',
+    "it's",
+    'A plain monstera leaf',
+  ];
+  const imageBody = (alt: string, url = 'https://cdn/p.jpg'): StreamFieldBlock[] => [
+    { type: 'image', value: { id: 42, url, alt, decorative: alt === '' } },
+  ];
+  const expected = (alt: string) => [
+    { type: 'image', value: { image: 42, alt_text: alt, decorative: alt === '' } },
+  ];
+
+  it.each([...ALTS, ''])('alt %j survives bodyBlocksToHtml -> htmlToBodyBlocks', (alt) => {
+    expect(htmlToBodyBlocks(bodyBlocksToHtml(imageBody(alt)))).toEqual(expected(alt));
+  });
+
+  it.each([...ALTS, ''])('alt %j survives a real TipTap rehydrate -> getHTML', (alt) => {
+    // The production edit path: bodyBlocksToHtml seeds the editor, the author
+    // saves, getHTML() is what htmlToBodyBlocks reads.
+    const editor = new Editor({
+      extensions: [StarterKit, ForumImage],
+      content: bodyBlocksToHtml(imageBody(alt)),
+    });
+    try {
+      expect(htmlToBodyBlocks(editor.getHTML())).toEqual(expected(alt));
+    } finally {
+      editor.destroy();
+    }
+  });
+
+  it('escapes the image url too, so src survives and cannot break out', () => {
+    const url = 'https://cdn/x.jpg?a=1&amp;b=2&copy=3" onerror="alert(1)';
+    const html = bodyBlocksToHtml(imageBody('leaf', url));
+    expect(html).not.toContain('onerror="alert(1)"');
+    const img = new DOMParser().parseFromString(html, 'text/html').querySelector('img');
+    expect(img?.getAttribute('src')).toBe(url);
+    expect(img?.hasAttribute('onerror')).toBe(false);
+  });
+
+  it('leaves ordinary values byte-identical', () => {
+    expect(bodyBlocksToHtml(imageBody("it's a fern"))).toBe(
+      `<img src="https://cdn/p.jpg" alt="it's a fern" data-image-id="42">`
+    );
+  });
+});
