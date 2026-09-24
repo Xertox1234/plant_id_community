@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: p2
 issue_id: "427"
 tags: [forum, flutter, mobile, accessibility, ios]
@@ -53,13 +53,36 @@ Do the three device checks above first. Then, depending on the results:
 
 ## Acceptance Criteria
 
-- [ ] The three device checks above are recorded here.
-- [ ] A VoiceOver user can reliably leave a link they opened and get back to
-      the thread. Checked on a device.
-- [ ] If the launch mode changes with VoiceOver, a widget test pins the
-      mode chosen for each case (the fake launcher from
-      `forum_thread_links_test.dart` records the mode).
+- [x] The device checks above are recorded here. Checks 1 and 2 were run
+      and both pass (see the Work Log). Check 3 (`showTitle`) was dropped: it
+      needs a new build and only mattered if 1 and 2 failed.
+- [x] A VoiceOver user can reliably leave a link they opened and get back to
+      the thread. Checked on a device (build 14, 2026-09-24): both the
+      two-finger Z scrub and swiping to the X then double-tapping work.
+- [x] If the launch mode changes with VoiceOver, a widget test pins the
+      mode chosen for each case. Not applicable: the launch mode does not
+      change, because no app change was needed.
 
 ## Work Log
 
 ### 2026-09-24 - Filed from build 14's device check
+
+### 2026-09-24 - Device checks done: VoiceOver users can get out; no app change
+
+The owner tested build 14 with VoiceOver on:
+- **Check 1 (swipe navigation): passes.** Touching the X selects the URL,
+  but one swipe right from the URL moves focus to the close button, and a
+  double-tap closes the browser. Swiping is how VoiceOver users normally
+  move around, so this is an ordinary path.
+- **Check 2 (two-finger Z scrub): passes.** It closes the browser, the
+  standard VoiceOver "go back".
+- **Check 3 (`showTitle`): not run.** It needs a new build and mattered only
+  if 1 and 2 failed.
+
+The remaining problem is that the X's touch target overlaps the URL bar's in
+Apple's SFSafariViewController. The app can't change that: `url_launcher`
+exposes only `showTitle`. Switching VoiceOver users to Safari itself
+(`externalApplication`) would give up the in-app browser for a gap that two
+standard gestures already cover, so it was not done. If it's wanted, report
+the overlap to Apple through Feedback Assistant as an SFSafariViewController
+accessibility bug.
