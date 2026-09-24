@@ -388,3 +388,13 @@ Compact checklist auto-injected before edits. Long-form: `backend/docs/patterns/
   prefix.** Values from `os.environ` are not stripped by python-decouple, and
   pastes arrive padded with spaces, as `' X'`, `` `X` `` or a whole `KEY=X` line; a prefix
   check after `.strip()` missed three of those (PR #822).
+- **An endpoint a third-party SERVICE calls rate-limits by its credential,
+  not the caller's IP.** RFC 8058 one-click POSTs come from a mail provider's
+  few shared egress IPs; a per-IP limit dropped every user after the first 30
+  an hour. Key on the signed token (a forged one fails the signature before
+  any DB work) (PR #819).
+- **A `List-Unsubscribe` URL must survive a plain GET.** Clients without RFC
+  8058 open the header URL in a browser: a POST-only endpoint 405s. GET
+  redirects to the confirming web page and changes nothing (mail scanners
+  prefetch GETs); mint ONE token per email for the header and body links
+  (PR #819).
