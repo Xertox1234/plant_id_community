@@ -1,3 +1,6 @@
+// Applied to production by .github/workflows/railway-apply.yml on merge to main,
+// after railway-plan.yml posts the plan on the PR. Railway never reads this file
+// at deploy time; an edit changes nothing until that apply runs.
 import { defineRailway, github, postgres, preserve, project, redis, service, volume } from "railway/iac";
 
 export default defineRailway(() => {
