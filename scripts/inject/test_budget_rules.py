@@ -48,6 +48,18 @@ class NeverHeadOnlyTests(unittest.TestCase):
                 )
                 self.assertLessEqual(len(out.encode("utf-8")), share)
 
+    def test_a_final_rule_ending_in_a_blank_line_is_not_head_only(self):
+        # PR #822: boundary_after() stops on the trailing "\n\n", so the tail
+        # was a lone "\n" and `tail_start >= len(text)` missed it.
+        text = "# Rules\n" + "- a short rule\n" * 80 + "- " + "x" * 2000 + "\n\n"
+        for share in (1200, 1500, 1800):
+            with self.subTest(share=share):
+                out = br.excerpt(text, share, "docs/rules/x.md")
+                self.assertFalse(
+                    SPLIT_MARKER in out and not out.split("...]")[-1].strip(),
+                    f"head-only excerpt at share {share}: {out[-120:]!r}",
+                )
+
     def test_control_an_ordinary_file_still_splits(self):
         # Without this, a fix that made excerpt() always return "" would pass
         # the test above.

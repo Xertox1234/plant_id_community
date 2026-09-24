@@ -201,10 +201,12 @@ def excerpt(text: str, share: int, path: str) -> str:
         # fit, so emitting it whole would blow the budget. Fall back to the tail.
         return tail_only()
 
-    if tail_start >= len(text):
+    if not text[tail_start:].strip():
         # The tail's share landed inside the file's final line: no boundary
-        # follows it, so the tail is EMPTY and this would emit head + marker +
-        # nothing -- head-only, the exact bias this module removes. Latent with
+        # (or only trailing blank lines) follows it, so the tail is EMPTY and
+        # this would emit head + marker + nothing -- head-only, the exact
+        # bias this module removes. `.strip()`, not `>= len(text)`: a final
+        # rule ending in a blank line left a lone "\n" tail (PR #822). Latent with
         # today's files (final lines 14-83 B against a 286-486 B tail share),
         # but nothing caps a rule's length (todo 391).
         return tail_only()

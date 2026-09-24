@@ -147,7 +147,10 @@ if [ -z "${SKIP_BUILD:-}" ] && [ -z "$WANT_NEXT" ] && ! is_uint "$EFFECTIVE_BUIL
        Or run './run_archive.sh --next' to take the next free number."
 fi
 
-if [ -n "$WANT_NEXT" ]; then
+# Not under SKIP_BUILD either: BUILD_NUMBER=next inherited by run_upload.sh's
+# `SKIP_BUILD=1 ./run_archive.sh` must not die for want of a query that run
+# deliberately skips (PR #822 review) -- the IPA's number is already baked in.
+if [ -z "${SKIP_BUILD:-}" ] && [ -n "$WANT_NEXT" ]; then
   [ -n "$HIGHEST" ] || die "--next needs App Store Connect, and the query did not run (see above)."
   EFFECTIVE_BUILD=$((HIGHEST + 1))
   echo "==> --next      : highest on App Store Connect is $HIGHEST, using $EFFECTIVE_BUILD"

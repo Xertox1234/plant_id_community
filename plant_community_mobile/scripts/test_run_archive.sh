@@ -56,6 +56,15 @@ check "SKIP_BUILD ignores an unparseable pubspec build number" \
   "$out" "no ipa at" "must be a bare integer"
 rm -rf "$d"
 
+# 1b. BUILD_NUMBER=next exported for the build is inherited by run_upload.sh's
+#     SKIP_BUILD=1 verification run, which skips the App Store Connect query.
+#     --next must not die there either (PR #822 review).
+sandbox 'version: 1.0.0+7' 5
+out="$(run "$d" SKIP_BUILD=1 BUILD_NUMBER=next)"
+check "SKIP_BUILD with BUILD_NUMBER=next still verifies" \
+  "$out" "no ipa at" "needs App Store Connect"
+rm -rf "$d"
+
 # 2. Control: the same pubspec WITHOUT SKIP_BUILD is still refused, so test 1
 #    passes because of the SKIP_BUILD guard and not because validation broke.
 sandbox 'version: 1.0.0' 5

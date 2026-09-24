@@ -320,3 +320,26 @@ PlantNet was rotated and Plant.id cannot be assumed to have been.
 - Collected from round-2 subagent review of PRs #743–#752. Eight blocking
   findings were repaired in their own PRs; this file is the non-blocking
   remainder, filed before the merges so it is not lost in the archival pass.
+
+### 2026-09-24 - Review round 1 (bundled /code-review, PR #822): 5 repaired
+
+- **`--next` still died under SKIP_BUILD.** `BUILD_NUMBER=next` exported for
+  a build is inherited by `run_upload.sh`'s `SKIP_BUILD=1 ./run_archive.sh`,
+  which skips the App Store Connect query, so the `--next` branch died and a
+  good IPA was reported as failing verification. The branch now runs only
+  without SKIP_BUILD. New case 1b in `test_run_archive.sh` (6/6; red with
+  the guard removed).
+- **The new head-only guard missed a trailing blank line.** A final rule
+  ending in `"\n\n"` left a lone `"\n"` tail. The guard is now
+  `not text[tail_start:].strip()`. New test red with the old guard.
+- **`is_required_placeholder` still missed paste shapes**: quote-then-space,
+  backticks, a whole `KEY=REQUIRED__...` line. It is now a substring test
+  (no real key contains `REQUIRED__`). The padded-placeholder test now
+  asserts a non-zero exit and covers all four shapes; 4 of them go red with
+  the stripped-prefix check.
+- `triggers.json`: `**/*.bash` → `*.bash`, so repo-root `.bash` scripts
+  fire the trigger too.
+- Deferred to todo 440: the drift guards' remaining reach limits (exception
+  taint after the handler, `str.join`, loop/`with`/comprehension targets,
+  nested-def scoping) and `budget_rules`' tail-only fallback returning `""`
+  (predates this PR).

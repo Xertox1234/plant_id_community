@@ -67,14 +67,13 @@ REQUIRED_PLACEHOLDER_PREFIX = "REQUIRED__"
 def is_required_placeholder(value):
     """True if `value` is a `.env.example` REQUIRED__ placeholder.
 
-    Tolerates surrounding whitespace and quotes (todo 391). python-decouple
+    A substring test, not a prefix (todo 391, PR #822): python-decouple
     strips values read from a `.env` FILE but not from `os.environ`, so a
-    placeholder pasted into Railway with a leading space would otherwise walk
-    past a bare `startswith`. Stripping can only widen what is rejected.
+    paste into Railway can carry padding, quotes in either order, backticks,
+    or a whole `KEY=REQUIRED__...` line. No real key contains `REQUIRED__`,
+    so matching anywhere can only widen what is rejected.
     """
-    return bool(value) and value.strip().strip("\"'").startswith(
-        REQUIRED_PLACEHOLDER_PREFIX
-    )
+    return bool(value) and REQUIRED_PLACEHOLDER_PREFIX in value
 
 
 # Substrings that mark a value as an example rather than a real secret. Matched

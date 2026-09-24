@@ -184,12 +184,17 @@ def test_a_padded_placeholder_refuses_to_boot(key, value):
     go through `validate_environment()`'s loop rather than
     `reject_insecure_value()`, so both sites are exercised here.
     """
-    combined = _boot_output({key: f" '{value}' "})
-    assert any(m in combined for m in PLACEHOLDER_MARKERS), (
-        f"{key} with surrounding whitespace/quotes was not rejected as a "
-        f"placeholder:\n{combined[-2500:]}"
-    )
-    assert key in combined, combined[-3000:]
+    # Every paste shape PR #822 found slipping the stripped-prefix check.
+    for padded in (f" '{value}' ", f"' {value}'", f"`{value}`", f"{key}={value}"):
+        result = _boot({key: padded})
+        combined = result.stdout + result.stderr
+        assert (
+            result.returncode != 0
+        ), f"{key}={padded!r} booted cleanly:\n{result.stdout[-2000:]}"
+        assert any(
+            m in combined for m in PLACEHOLDER_MARKERS
+        ), f"{key}={padded!r} was not rejected as a placeholder:\n{combined[-2500:]}"
+        assert key in combined, combined[-3000:]
 
 
 def test_the_removed_encryption_setting_is_gone():
