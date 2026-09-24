@@ -117,6 +117,13 @@ Compact checklist auto-injected before edits. Long-form:
   `isinstance(value, str)` and treat anything else as absent. Happy-path tests
   send the field as a field and never exercise this — write the file-part case
   explicitly for every text field on a multipart endpoint.
+- **`request.data` is whatever the JSON body parsed to** — a body of `[]`,
+  `"x"` or `7` makes it a `list`/`str`/`int`, so `request.data.get(...)` itself
+  raises `AttributeError` → **500** before any validation runs (todo 417: both
+  public unsubscribe endpoints, no token needed, one Sentry event per hit). A
+  serializer rejects a non-object body with a 400; a view that reads
+  `request.data` directly must check `isinstance(request.data, dict)` first
+  and test `[]` and a bare string.
 - **Every new `wagtail_forum` package endpoint also needs a host mount + docs
   row.** The host app ENUMERATES routes in `apps/forum_host/api_urls.py` — a
   package-only route 404s in the real app — and `conf.DEFAULTS` keys must have
