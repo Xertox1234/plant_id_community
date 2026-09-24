@@ -131,9 +131,12 @@ SECURITY_SENSITIVE_PATHS = (
 # Exact paths whose 401 responses SecurityMiddleware counts as a failed login
 # (SecurityMonitor.track_failed_login). Only a 401 is a rejected credential:
 # register's 400s are form validation and a 403 is CSRF, and counting either
-# would raise false brute-force alerts. The Firebase exchange is every mobile
-# sign-in; it has no username, so its failures count per IP only.
-FAILED_AUTH_TRACKED_PATHS = (
-    "/api/v1/auth/login/",
-    "/api/v1/auth/firebase-token-exchange/",
-)
+# would raise false brute-force alerts.
+#
+# The Firebase token exchange (every mobile sign-in) is deliberately NOT here:
+# it also returns 401 for server-side failures (Firebase init degrading, a
+# Google cert fetch failing), so an outage like 2026-09-13's would count every
+# mobile sign-in as a failed login and fire brute-force alerts, and a success
+# never clears the per-IP counter. Firebase itself rate-limits and verifies
+# the ID token; the view is also rate-limited (todo 419, PR #818 review).
+FAILED_AUTH_TRACKED_PATHS = ("/api/v1/auth/login/",)

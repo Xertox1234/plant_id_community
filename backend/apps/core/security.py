@@ -371,6 +371,10 @@ This is an automated security message from Plant Community.
             username: Username that was attempted (optional)
         """
         key = cls.FAILED_LOGIN_KEY.format(ip=ip_address)
+        # The attempted identifier is attacker-controlled and is often an
+        # email: keep only its pseudonym, in the log line, the cached attempts
+        # and the alert payload alike (docs/rules/security.md, PR #818 review).
+        username = log_safe_username(username) if username else None
 
         # Get current failed attempts
         attempts = cache.get(key, [])
@@ -652,18 +656,25 @@ class SecurityMiddleware:
         Reads the body cached by _pre_request_checks (form or JSON). Never
         raises: tracking must not break the response.
         """
+        # The login view accepts `username` OR `email`, and the web client
+        # sends `{email, password}` (PR #818 review), so read both.
         try:
             if request.POST:
-                value = request.POST.get("username")
+                data = request.POST
             else:
                 data = json.loads(request.body.decode("utf-8"))
-                value = data.get("username") if isinstance(data, dict) else None
+                if not isinstance(data, dict):
+                    return None
+            value = data.get("username") or data.get("email")
         except Exception as exc:
             logger.debug("%s username extraction failed: %s", LOG_PREFIX_SECURITY, exc)
             return None
-        if not isinstance(value, str) or not value:
+        if not isinstance(value, str):
             return None
-        return value[:MAX_TRACKED_USERNAME_LENGTH]
+        # Attacker-controlled: drop control characters so it can't forge a
+        # log line, and cap the length.
+        value = "".join(ch for ch in value if ch.isprintable())
+        return value[:MAX_TRACKED_USERNAME_LENGTH] or None
 
 
 # Utility functions for use in views

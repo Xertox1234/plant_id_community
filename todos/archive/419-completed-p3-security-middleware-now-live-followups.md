@@ -113,3 +113,33 @@ test did not pin the `pk` kwarg) was a one-line test fix, done in the slice.
   serializer's own test passes a plain `RequestFactory` request), and that
   name doesn't exist.
 - `pytest apps/core apps/users --create-db`: 1580 passed. flake8 clean.
+
+### 2026-09-24 - Review round 1 (bundled /code-review, PR #818): 4 repaired
+
+- **Item 1 was fixed only for a client nobody uses.** The web posts
+  `{email, password}`; the extractor read only `username`, so real web
+  failures still tracked `None`. It now reads `username or email`. Test:
+  `test_rejected_email_login_is_tracked_with_the_email` (red with the email
+  fallback removed).
+- **The identifier is attacker-controlled and was logged raw** (often an
+  email: PII; a newline could forge a log line). `track_failed_login` now
+  keeps only `log_safe_username(...)` in the log line, the cached attempts
+  and the alert payload, and the extractor drops non-printable characters.
+  Tests: `test_failed_login_logs_and_alerts_only_a_pseudonym`,
+  `test_attempted_username_is_stripped_of_control_characters` (each red with
+  its fix removed).
+- **Item 3 reversed: the Firebase exchange is deliberately untracked.** It
+  returns 401 for server-side failures too (Firebase init degrading, a cert
+  fetch failing), so an outage like 2026-09-13's would count every mobile
+  sign-in as a failed login, and a success never clears the per-IP counter.
+  The exclusion and its reason are in `constants.py`, pinned by
+  `test_firebase_exchange_is_deliberately_untracked`. This also removes the
+  round-1 test that initialized the process-global Firebase app. The AC
+  allows "or its exclusion is stated".
+- **The metrics test checked one key shape.** A new test patches the
+  middleware's `cache` and asserts no `set` at all.
+- Deferred to todo 435: track failures from the login view instead of
+  re-parsing the body; drop the unused `ip_address`/`method` params; the dead
+  `ImportError` fallback in `security.py`/`middleware.py`; the body pre-read
+  running before the view's rate limiter.
+- `pytest apps/core apps/users --create-db`: 1585 passed.
