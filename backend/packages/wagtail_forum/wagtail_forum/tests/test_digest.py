@@ -565,3 +565,26 @@ def test_a_broken_unsubscribe_hook_still_sends_the_digest():
 
     assert "List-Unsubscribe" not in message.extra_headers
     assert "https://forum.example/settings" in message.body
+
+
+class SoftTimeLimitExceeded(Exception):
+    """Stands in for billiard's, matched by name like the package does."""
+
+
+def time_limited_unsubscribe(user):
+    raise SoftTimeLimitExceeded()
+
+
+@pytest.mark.django_db
+@override_settings(
+    SITE_URL="https://forum.example",
+    WAGTAILFORUM_DIGEST_UNSUBSCRIBE=(
+        "wagtail_forum.tests.test_digest.time_limited_unsubscribe"
+    ),
+)
+def test_a_soft_time_limit_inside_the_unsubscribe_hook_still_stops_the_run():
+    from wagtail_forum.digest import unsubscribe_links
+
+    member = User.objects.create_user(username="du-soft", email="soft@example.com")
+    with pytest.raises(SoftTimeLimitExceeded):
+        unsubscribe_links(member)

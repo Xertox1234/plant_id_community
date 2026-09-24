@@ -103,7 +103,11 @@ def unsubscribe_links(user) -> dict | None:
         return None
     try:
         return import_string(path)(user)
-    except Exception:
+    except Exception as exc:
+        # A worker's soft time limit is the RUN being stopped, not the hook
+        # failing: never swallow it (same rule as send_digest).
+        if type(exc).__name__ == "SoftTimeLimitExceeded":
+            raise
         # The link is an extra: a broken hook must not stop every digest in
         # the batch. The manage link still lets the member turn it off.
         logger.exception("[EMAIL] DIGEST_UNSUBSCRIBE failed for user=%s", user.pk)
