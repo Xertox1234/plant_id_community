@@ -34,6 +34,12 @@ blocking, so under the two-round review budget they land here.
   `docs/rules/react.md` polling rule. Skip the tick while
   `document.visibilityState === 'hidden'`.
 
+- **Same 401 latch in plant-care ask** (round 2). `RagError.permanent`
+  (`forumService.ts`, used by `PlantCareAskPanel`) includes 401 on purpose,
+  because that page is public and a 401 teaches an anonymous visitor. For a
+  SIGNED-IN user it is the same expired-cookie bug #816 fixed: latch 401 only
+  when there is no signed-in user.
+
 ## Acceptance Criteria
 
 - [ ] Each finding is fixed with a test, or explicitly declined with a reason.
