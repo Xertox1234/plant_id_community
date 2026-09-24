@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: p3
 issue_id: "402"
 tags: [web, tailwind, ci, tooling]
@@ -43,9 +43,9 @@ edges in that rule. Neither occurs in `src/` today (the check passes on main).
 
 ## Acceptance Criteria
 
-- [ ] Each probe in (1) passes the check, and each has a test
-- [ ] `el.classList.add(on ? 'bogus-x' : 'flex')` is flagged, with a test
-- [ ] `npm run check:classes` still passes on main
+- [x] Each probe in (1) passes the check, and each has a test
+- [x] `el.classList.add(on ? 'bogus-x' : 'flex')` is flagged, with a test
+- [x] `npm run check:classes` still passes on main
 
 ## Work Log
 
@@ -53,3 +53,28 @@ edges in that rule. Neither occurs in `src/` today (the check passes on main).
 
 Non-blocking under the two-round review budget. The probes came from the
 bundled `/code-review` round 2.
+
+### 2026-09-24 - Completed (goal run, todo-next → completing-todos)
+
+- **Call arguments inside a class attribute.** A literal passed to a call is
+  now skipped inside a class attribute too, unless the callee is a
+  class-joining helper (`clsx`/`cn`/`cx`/`classNames`/`twMerge`, none in the
+  repo today) or `[...].join(...)`. The `in` operator's left operand and the
+  elements of an array a method is called on (`['a','b'].includes(x)`) are
+  treated like compared values: not class position. A `.join` array keeps its
+  elements in class position, since `[...].join(' ')` builds a class string.
+- **classList false negative.** `isClassListArgument` now climbs through
+  parentheses, conditional branches (not the test) and `||` / `??`.
+- Tests (`src/tests/checkTailwindClasses.test.ts`): one per probe
+  (`it.each`), plus the surrounding classes still checked, helper args,
+  `.join` elements, both classList shapes, and a classList condition that is
+  not a class. `Tests  26 passed (26)`.
+- Mutation check, each change reverted in turn against a copy of the script:
+  call-arg skip → 4 failed; `in` left → 1; array-method → 1; classList climb
+  → 1; helper → 1; `.join` → 1. First run had the helper and `.join`
+  mutations SURVIVING (their test tokens were flagged by the non-strict path
+  either way); the tests now use `prose`, which only the strict path flags.
+- `npm run check:classes` on this branch: `133 files, 5737 class tokens
+  checked against 710 built classes; 136 dynamic fragments skipped.` —
+  identical to main's checker on the same build, confirming none of these
+  shapes occurs in `src/` today.

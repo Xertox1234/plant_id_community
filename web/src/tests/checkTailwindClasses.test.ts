@@ -109,6 +109,42 @@ describe('findUnknownClasses', () => {
     expect(flagged(source)).toEqual([]);
   });
 
+  // Todo 402: a literal passed to a call inside a class attribute is an
+  // argument, not a class. Each probe used to fail CI on the token shown.
+  it.each([
+    ["tags.includes('featured') ? 'p-2' : ''", 'featured'],
+    ["href.startsWith('/forum') ? 'p-2' : 'rounded-sm'", '/forum'],
+    ["variantClass('primary')", 'primary'],
+    ["['a', 'b'].includes(x) ? 'p-2' : ''", 'a'],
+    ["'foo' in obj ? 'p-2' : ''", 'foo'],
+  ])('does not check %s as classes (flagged %s)', (expression) => {
+    expect(flagged(`<div className={${expression}} />`)).toEqual([]);
+  });
+
+  it('still checks the classes around a call inside a class attribute', () => {
+    expect(
+      flagged("<div className={tags.includes('featured') ? 'rounded-card' : 'p-2'} />")
+    ).toEqual(['rounded-card']);
+  });
+
+  it('checks the arguments of a class-joining helper', () => {
+    // `prose` has no `-`, so only the strict class-position check flags it.
+    expect(flagged("<div className={clsx('prose', on && 'p-2')} />")).toEqual(['prose']);
+  });
+
+  it('checks the elements of an array joined into a class string', () => {
+    expect(flagged("<div className={['p-2', 'prose'].join(' ')} />")).toEqual(['prose']);
+  });
+
+  it('checks the literals a classList argument can evaluate to', () => {
+    expect(flagged("el.classList.add(on ? 'bogus-x' : 'p-2');")).toEqual(['bogus-x']);
+    expect(flagged("el.classList.add((mode ?? 'bogus-y') || 'p-2');")).toEqual(['bogus-y']);
+  });
+
+  it('does not check a classList conditional test as a class', () => {
+    expect(flagged("el.classList.add(mode === 'darkish' ? 'p-2' : 'rounded-sm');")).toEqual([]);
+  });
+
   it('treats a literal inside a glued interpolation as a fragment', () => {
     const result = check("<code className={`language-${lang || 'text'}`} />");
     expect(result.hits).toEqual([]);
