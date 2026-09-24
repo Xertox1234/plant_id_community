@@ -33,6 +33,7 @@ from ..constants import (
     POPULAR_POSTS_DEFAULT_DAYS,
     POPULAR_POSTS_DEFAULT_LIMIT,
     POPULAR_POSTS_MAX_LIMIT,
+    PREVIEW_TOKEN_MAX_AGE,
     RECENT_POSTS_DEFAULT_LIMIT,
     RECENT_POSTS_MAX_LIMIT,
     RELATED_POSTS_LIMIT,
@@ -831,9 +832,7 @@ class BlogPostPreviewAPIViewSet(BlogPostPageViewSet):
     ignore pk, and ``find/`` would search live pages (todo 407).
     """
 
-    # An hour: long enough to read and reload a draft, short enough that a
-    # leaked link dies the same day. A new Preview click mints a new token.
-    PREVIEW_TOKEN_MAX_AGE = 60 * 60
+    PREVIEW_TOKEN_MAX_AGE = PREVIEW_TOKEN_MAX_AGE  # apps/blog/constants.py
 
     @classmethod
     def get_urlpatterns(cls):

@@ -140,4 +140,12 @@ describe('notificationService', () => {
     expect(sentHeaders()).not.toContain('content-type');
     expect(sentHeaders()).not.toContain('x-csrftoken');
   });
+
+  // PR #817 review: axios resolves a non-JSON body as a string, where fetch's
+  // response.json() rejected. The service must keep rejecting.
+  it('a non-JSON 200 body (CDN challenge page) rejects instead of resolving undefined', async () => {
+    adapter.mockImplementation(async (config) => ok(config, '<html>challenge</html>'));
+
+    await expect(fetchUnreadCount()).rejects.toThrow();
+  });
 });

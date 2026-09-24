@@ -123,4 +123,12 @@ describe('profileService', () => {
     await vi.waitFor(() => expect(sentHeaders()).toContain('x-csrftoken'));
     expect(sentHeaders()).toContain('content-type');
   });
+
+  // PR #817 review: axios resolves a non-JSON body as a string, where fetch's
+  // response.json() rejected. The service must keep rejecting.
+  it('a non-JSON 200 body rejects instead of resolving a string as the profile', async () => {
+    adapter.mockImplementation(async (config) => ok(config, '<html>challenge</html>'));
+
+    await expect(fetchProfile()).rejects.toThrow();
+  });
 });

@@ -46,6 +46,10 @@ function toProfileError(error: unknown): unknown {
 export async function fetchProfile(): Promise<UserProfile> {
   try {
     const response = await apiClient.get<UserProfile>(`${AUTH_BASE}/user/`);
+    // A non-JSON 2xx body arrives as a string under axios (PR #817 review).
+    if (typeof response.data !== 'object' || response.data === null) {
+      throw new Error('Could not load your profile.');
+    }
     return response.data;
   } catch (error) {
     throw toProfileError(error);

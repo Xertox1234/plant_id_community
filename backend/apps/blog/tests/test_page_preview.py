@@ -19,7 +19,7 @@ from urllib.parse import parse_qs, urlsplit
 from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.core.cache import cache
-from django.core.exceptions import ImproperlyConfigured
+from django.core.signing import TimestampSigner, b62_encode
 from django.test import RequestFactory, TestCase
 from plant_community_backend import settings as settings_module
 from wagtail.models import Page
@@ -74,13 +74,28 @@ class HeadlessPreviewSettingsTestCase(TestCase):
             self.assertIsInstance(value, ast.Name)
             self.assertEqual(value.id, "PREVIEW_FRAME_SRC")
 
-    def test_old_path_template_client_url_is_rejected(self):
-        # The pre-0.9 format kept the env var's name (todo 407, item 2).
-        with self.assertRaises(ImproperlyConfigured):
-            settings_module.validate_preview_client_url(
-                "https://web.example/{content_type}/{token}/"
-            )
-        settings_module.validate_preview_client_url("https://web.example/blog/preview")
+    def test_bad_client_urls_are_reported_not_raised(self):
+        # Item 2 + PR #817: a bad value is a startup WARNING, never an
+        # exception that stops the whole backend from booting.
+        check = settings_module.validate_preview_client_url
+        self.assertIn(
+            "old path-template", check("https://web.example/{content_type}/{token}/")
+        )
+        self.assertIn("no scheme or host", check("web.example/blog/preview"))
+        self.assertIn("no scheme or host", check(""))
+        self.assertIsNone(check("https://web.example/blog/preview"))
+
+    def test_a_bad_client_url_surfaces_as_an_environment_warning(self):
+        # validate_environment() raises outside DEBUG on unrelated gaps, so
+        # pin its wiring from source: the problem lands in `warnings`
+        # (logged at startup), never in `critical_errors`.
+        source = inspect.getsource(settings_module.validate_environment)
+        self.assertIn(
+            "preview_problem = validate_preview_client_url(HEADLESS_PREVIEW_CLIENT_URL)",
+            source,
+        )
+        self.assertIn("warnings.append(preview_problem)", source)
+        self.assertNotIn("critical_errors.append(preview_problem)", source)
 
 
 class BlogPostPreviewAPITestCase(TestCase):
@@ -204,11 +219,11 @@ class BlogPostPreviewAPITestCase(TestCase):
 
     def test_expired_token_is_404(self):
         # The library never expires a token (todo 407, item 1).
-        # Mint the token in the past rather than patch the clock during the
-        # request: a patched time.time leaks into the Redis cache pickler.
+        # Mint the token in the past by stamping ONLY the signer's clock
+        # (patching time.time would move every clock in the process).
         max_age = BlogPostPreviewAPIViewSet.PREVIEW_TOKEN_MAX_AGE
-        minted_at = time.time() - max_age - 5
-        with mock.patch("django.core.signing.time.time", new=lambda: minted_at):
+        old_stamp = b62_encode(int(time.time()) - max_age - 5)
+        with mock.patch.object(TimestampSigner, "timestamp", return_value=old_stamp):
             token = self._draft_token()
         response = self.client.get(
             ENDPOINT, {"content_type": "blog.blogpostpage", "token": token}
@@ -260,8 +275,9 @@ class BlogPostPreviewAPITestCase(TestCase):
             "django.contrib.contenttypes.models.ContentTypeManager.get_by_natural_key",
             return_value=fake_ct,
         ):
-            # A validly signed token (the mixin's salt), so the request gets
-            # past the signature check and only the model guard can stop it.
+            # The model guard runs before any unsign, so this pins the guard
+            # alone: with it removed, the mocked lookup below serves a page
+            # (200). Mutation-checked in todo 407.
             token = OtherPreviewable.get_preview_signer().sign("id=1")
             response = self.client.get(
                 ENDPOINT, {"content_type": "other.previewable", "token": token}

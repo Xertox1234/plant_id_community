@@ -588,22 +588,35 @@ HEADLESS_PREVIEW_CLIENT_URL = config(
 
 
 def validate_preview_client_url(value):
-    """Reject the pre-0.9 value format, which kept this env var's name.
+    """Return a problem with HEADLESS_PREVIEW_CLIENT_URL, or None.
 
-    The old library took a path template (``…/{content_type}/{token}/``); 0.9
-    appends ``?content_type=…&token=…`` to a plain root. A stale Railway value
-    in the old format would send every editor to an unroutable URL, silently
-    (todo 407).
+    Two ways a value silently breaks only the editor's Preview button:
+    - the pre-0.9 path-template format, which kept this env var's name
+      (``…/{content_type}/{token}/``; 0.9 appends ``?content_type=…&token=…``
+      to a plain root), sends every editor to an unroutable URL;
+    - a value with no scheme or host makes the CSP frame-src origin ``://``
+      and redirects editors to a relative path on the backend.
+
+    Reported as a startup WARNING by validate_environment(), never raised:
+    a preview misconfiguration must not stop the whole backend (and
+    forum-prune-cron, which imports these settings) from booting (todo 407,
+    PR #817 review).
     """
     if "{" in value or "}" in value:
-        raise ImproperlyConfigured(
+        return (
             f"HEADLESS_PREVIEW_CLIENT_URL looks like the old path-template "
-            f"format ({value!r}). Set it to the web app's preview root, e.g. "
-            f"https://<web host>/blog/preview (no {{content_type}}/{{token}})."
+            f"format ({value!r}); set it to the web app's preview root, e.g. "
+            f"https://<web host>/blog/preview - blog Preview is broken until then"
         )
+    parts = urlsplit(value)
+    if not (parts.scheme and parts.netloc):
+        return (
+            f"HEADLESS_PREVIEW_CLIENT_URL has no scheme or host ({value!r}); "
+            f"blog Preview and its CSP frame-src are broken until it does"
+        )
+    return None
 
 
-validate_preview_client_url(HEADLESS_PREVIEW_CLIENT_URL)
 WAGTAIL_HEADLESS_PREVIEW = {
     "CLIENT_URLS": {"default": HEADLESS_PREVIEW_CLIENT_URL},
     "REDIRECT_ON_PREVIEW": True,
@@ -1806,6 +1819,13 @@ def validate_environment():
                 warnings.append(message)
     except Exception:
         critical_errors.append("Database configuration is invalid")
+
+    # ========================================
+    # Blog preview client (todo 407)
+    # ========================================
+    preview_problem = validate_preview_client_url(HEADLESS_PREVIEW_CLIENT_URL)
+    if preview_problem:
+        warnings.append(preview_problem)
 
     # ========================================
     # Email Configuration

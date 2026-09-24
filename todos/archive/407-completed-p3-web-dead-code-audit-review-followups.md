@@ -164,3 +164,29 @@ mints its token through `create_page_preview()`.
   1417 passed. Fail-before: the new profile tests fail 9/9 on the old
   service. Mutations: item 6 (3 red), item 8 (2 red), item 9 CSRF retry
   (3 red).
+
+### 2026-09-24 - Review round 1 (bundled /code-review, PR #817): 5 repaired
+
+- **Item 2's check could take production down.** It raised
+  `ImproperlyConfigured` at settings import, so a stale Railway value would
+  have crash-looped the backend and `forum-prune-cron` over an editor-only
+  feature. `validate_preview_client_url` now returns a problem string, and
+  `validate_environment()` logs it as a startup warning. It also now catches
+  a value with no scheme or host (CSP origin `://`).
+- **Non-JSON 2xx bodies resolved as strings under axios** (fetch's
+  `response.json()` rejected them), so the unread badge could show
+  `undefined`. Both services reject a non-object body again.
+- `PREVIEW_TOKEN_MAX_AGE` moved to `apps/blog/constants.py` (no magic
+  numbers).
+- The item-4 test's comment claimed the signed token got past a signature
+  check. The model guard runs first; comment corrected.
+- The expiry test patched `time.time` process-wide; it now stamps only
+  `TimestampSigner.timestamp`.
+- Tests: 2 new web tests (non-JSON body rejects), the settings test now
+  asserts return values plus the `validate_environment` wiring (warnings,
+  never `critical_errors`). Mutations red: both web guards (2), dropping
+  `max_age` (expiry test).
+- Deferred to todo 434: unread-count polls now log through the client's
+  error interceptor (Sentry noise), expiry lives in the viewset rather than
+  the model, two near-identical AxiosError translators, and axios's
+  "Network Error" text reaching the profile banner.

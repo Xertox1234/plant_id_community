@@ -45,6 +45,12 @@ async function request<T>(
   try {
     const response = await apiClient.request<T>({ method, url, data });
     if (response.status === 204) return undefined as T;
+    // axios resolves a non-JSON body (a CDN challenge page, an SPA fallback)
+    // as a string; fetch's response.json() rejected it. Keep rejecting, or
+    // the unread badge renders `undefined` (PR #817 review).
+    if (typeof response.data !== 'object' || response.data === null) {
+      throw new Error('Request failed');
+    }
     return response.data;
   } catch (error) {
     throw toNotificationError(error);
