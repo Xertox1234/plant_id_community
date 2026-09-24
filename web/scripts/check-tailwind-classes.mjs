@@ -24,8 +24,12 @@
  *    not a class name. It is counted and skipped, never checked.
  *
  * A literal in class position (a `className` / `class` attribute, or a
- * `classList.add/remove/toggle` argument) is all class names, so every token
- * in it is checked. Other strings may be prose, so there a token is checked
+ * `classList.add/remove/toggle` argument, including each branch of a
+ * conditional passed there) is all class names, so every token in it is
+ * checked. Inside a class attribute, a value that is compared, indexed, tested
+ * with `in`, or passed to a call (`tags.includes('featured')`) is not a class;
+ * only a class-joining helper's arguments are (todo 402). Other strings may be
+ * prose, so there a token is checked
  * only when it looks like a utility: it contains `-`, `:`, `/` or `[`, and the
  * part of its utility name before the first `-` (`rounded` in
  * `md:rounded-card`) is the start of some class the build does define. A token
@@ -153,10 +157,35 @@ function isDirectCallArgument(node) {
 
 const CLASS_LIST_METHOD = /^(add|remove|toggle|replace|contains)$/;
 
-/** `el.classList.add('canopy-flash')`: the argument is a class name. */
+/**
+ * Climb from a literal to the expression that stands for it: through
+ * parentheses, either branch of a conditional (not its condition), and either
+ * side of `||` / `??`. In `on ? 'a' : ('b' || 'c')` every literal is a value
+ * the whole expression can take; the `on` test is not.
+ */
+function valueExpression(node) {
+  let n = node;
+  for (let parent = n.parent; parent; parent = n.parent) {
+    const alternative =
+      ts.isParenthesizedExpression(parent) ||
+      (ts.isConditionalExpression(parent) && parent.condition !== n) ||
+      (ts.isBinaryExpression(parent) &&
+        (parent.operatorToken.kind === ts.SyntaxKind.BarBarToken ||
+          parent.operatorToken.kind === ts.SyntaxKind.QuestionQuestionToken));
+    if (!alternative) break;
+    n = parent;
+  }
+  return n;
+}
+
+/**
+ * `el.classList.add('canopy-flash')`: the argument is a class name, and so is
+ * each literal the argument can evaluate to (`add(on ? 'a' : 'b')`).
+ */
 function isClassListArgument(node) {
-  const call = node.parent;
-  if (!call || !ts.isCallExpression(call) || !call.arguments.includes(node)) return false;
+  const arg = valueExpression(node);
+  const call = arg.parent;
+  if (!call || !ts.isCallExpression(call) || !call.arguments.includes(arg)) return false;
   const method = call.expression;
   return (
     ts.isPropertyAccessExpression(method) &&
@@ -164,6 +193,17 @@ function isClassListArgument(node) {
     ts.isPropertyAccessExpression(method.expression) &&
     method.expression.name.text === 'classList'
   );
+}
+
+/**
+ * Calls whose arguments are class names. The repo has none today; `clsx`-style
+ * helpers are listed so adding one does not silently stop the check.
+ */
+const CLASS_JOIN_HELPERS = /^(clsx|cn|cx|classNames|classnames|twMerge|twJoin)$/;
+
+/** Whether a call is one of the class-joining helpers above. */
+function isClassJoinCall(call) {
+  return ts.isIdentifier(call.expression) && CLASS_JOIN_HELPERS.test(call.expression.text);
 }
 
 /**
@@ -191,17 +231,35 @@ function inGluedInterpolation(node) {
   return (before !== '' && !/\s$/.test(before)) || (after !== '' && !/^\s/.test(after));
 }
 
+const ARRAY_LOOKUP_METHOD = /^(includes|indexOf|lastIndexOf)$/;
+
 /**
- * Whether a literal is used as a value to compare or index with, not as
- * classes: `status === 'active'` or `styles['primary']` inside a className
- * expression.
+ * Whether a literal is used as a value to compare, index or look up with, not
+ * as classes, inside a className expression: `status === 'active'`,
+ * `styles['primary']`, `'foo' in obj`, or an element of an array searched
+ * with a lookup method (`['a', 'b'].includes(x)`). Any other array method
+ * (`[...].filter(Boolean).join(' ')`) may be building a class string, so its
+ * elements stay classes.
  */
 function isComparedOrKey(node) {
   const parent = node.parent;
   if (ts.isElementAccessExpression(parent)) return parent.argumentExpression === node;
   if (ts.isCaseClause(parent)) return true;
+  if (ts.isArrayLiteralExpression(parent)) {
+    const access = parent.parent;
+    return (
+      access !== undefined &&
+      ts.isPropertyAccessExpression(access) &&
+      access.expression === parent &&
+      access.parent !== undefined &&
+      ts.isCallExpression(access.parent) &&
+      access.parent.expression === access &&
+      ARRAY_LOOKUP_METHOD.test(access.name.text)
+    );
+  }
   if (!ts.isBinaryExpression(parent)) return false;
   const op = parent.operatorToken.kind;
+  if (op === ts.SyntaxKind.InKeyword) return parent.left === node;
   return (
     op === ts.SyntaxKind.EqualsEqualsEqualsToken ||
     op === ts.SyntaxKind.ExclamationEqualsEqualsToken ||
@@ -234,10 +292,12 @@ export function literalTokens(fileName, sourceText) {
     if (ts.isJsxAttribute(node) && !CLASS_ATTRIBUTE.test(node.name.getText(source))) return;
     const classList = isClassListArgument(node);
     // A literal passed straight to any other call is a log message, a selector
-    // or a storage key (`querySelector('[data-autofocus]')`). Other arguments
-    // are still walked, since a `.map()` callback holds JSX. The repo has no
-    // class-building helper such as `clsx`; if one is added, exempt it here.
-    if (isDirectCallArgument(node) && !classList && !insideClassAttribute(node)) return;
+    // or a storage key (`querySelector('[data-autofocus]')`), and inside a
+    // class attribute it is an argument (`tags.includes('featured')`,
+    // `variantClass('primary')`), not a class. Only a class-joining helper's
+    // arguments are classes. Other arguments are still walked, since a
+    // `.map()` callback holds JSX.
+    if (isDirectCallArgument(node) && !classList && !isClassJoinCall(node.parent)) return;
     const isLiteral =
       ts.isStringLiteral(node) ||
       ts.isNoSubstitutionTemplateLiteral(node) ||
