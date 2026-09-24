@@ -380,4 +380,13 @@ test.describe('Forum inline image upload', () => {
   }) => {
     await imageRoundTrip(page, { alt: null });
   });
+
+  // todo 441: bodyBlocksToHtml escaped only `"`, so an `&amp;` in a stored alt
+  // decoded to `&` on rehydrate and the untouched re-save PATCHed a changed
+  // alt_text. Entity-like text AND markup characters, byte-for-byte.
+  test('an alt carrying `&amp;` and `<` rehydrates and re-saves byte-for-byte', async ({
+    page,
+  }) => {
+    await imageRoundTrip(page, { alt: 'Tom &amp; Jerry <3' });
+  });
 });

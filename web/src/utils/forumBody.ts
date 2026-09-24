@@ -201,6 +201,18 @@ function escapeHtml(text: string): string {
 }
 
 /**
+ * escapeHtml plus `"`, for a value interpolated into a DOUBLE-quoted attribute
+ * of composer HTML. `&` matters as much as `"` (todo 441): escaping only the
+ * quote let a stored alt of `Tom &amp; Jerry` (or `leaf &copy 2026` — a legacy
+ * entity needs no semicolon before a space) decode on rehydrate, so re-saving
+ * an untouched post PATCHed a different alt_text. `'` is left alone: every
+ * attribute here is double-quoted, and ordinary values stay byte-identical.
+ */
+function escapeAttr(text: string): string {
+  return escapeHtml(text).replace(/"/g, '&quot;');
+}
+
+/**
  * An element's visible text with each `<br>` as "\n". `textContent` drops a
  * hard break entirely ("one<br>two" -> "onetwo"). Only text nodes and breaks
  * contribute, so no tag ever leaks into the plain `text` of a quote block.
@@ -342,11 +354,19 @@ export function bodyBlocksToHtml(body: StreamFieldBlock[] | null | undefined): s
         // correct outcome; throwing here blocked re-editing the post at all.
         if (!block.value) return '';
         const { id, url, alt, decorative } = block.value;
-        const safeAlt = (alt || '').replace(/"/g, '&quot;');
+        // Both string attributes are escaped (see escapeAttr). `url` is
+        // display-only (the backend re-derives the rendition), but an
+        // unescaped `"` in it could still break out of the attribute. `id` is
+        // a number; htmlToBodyBlocks drops any non-digit id on the way back.
+        const safeAlt = escapeAttr(alt || '');
+        // `|| ''` like alt: a nullish url must degrade, not throw and block
+        // re-editing the post (PR #826 review).
+        const safeUrl = escapeAttr(url || '');
+        const safeId = escapeAttr(String(id ?? ''));
         // data-decorative round-trips the flag so re-saving an untouched
         // decorative image does not downgrade it to the pair the CMS refuses.
         const decorativeAttr = decorative ? ' data-decorative="true"' : '';
-        return `<img src="${url}" alt="${safeAlt}" data-image-id="${id}"${decorativeAttr}>`;
+        return `<img src="${safeUrl}" alt="${safeAlt}" data-image-id="${safeId}"${decorativeAttr}>`;
       }
       if (block.type === 'paragraph') {
         return typeof block.value === 'string' ? block.value : '';
@@ -360,8 +380,7 @@ export function bodyBlocksToHtml(body: StreamFieldBlock[] | null | undefined): s
         // that skipped the composer) is dropped, not linked (review).
         const url = typeof block.value === 'string' ? block.value : block.value.url;
         if (!url || !/^https?:\/\//i.test(url)) return '';
-        const safe = escapeHtml(url);
-        return `<p><a href="${safe.replace(/"/g, '&quot;')}">${safe}</a></p>`;
+        return `<p><a href="${escapeAttr(url)}">${escapeHtml(url)}</a></p>`;
       }
       if (block.type === 'quote') {
         // Plain text in, escaped markup out — see escapeHtml. One <p> per

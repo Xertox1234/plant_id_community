@@ -304,3 +304,9 @@ Compact checklist auto-injected before edits. Long-form:
   "unavailable" latch there: the refresh timer is throttled in background
   tabs and stops during sleep, so a paid feature vanishes until reload.
   Latch on 403 only; say "session expired" on 401 (PR #816).
+- **HTML built as a string escapes `&` too, for EVERY interpolated attribute.**
+  Escaping only `"` in an alt let `Tom &amp; Jerry` decode on rehydrate, so
+  re-saving an untouched post changed the stored text. Use `escapeAttr`
+  (`web/src/utils/forumBody.ts`) on alt, src, href and ids alike, guard
+  nullish values (`x || ''`), and prefer building nodes via the DOM/TipTap JSON
+  when adding a new branch (PR #826).
