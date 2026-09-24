@@ -388,7 +388,7 @@ describe('ThreadDetailPage', () => {
     await userEvent.click(await screen.findByRole('button', { name: /summarize thread/i }));
     expect(await screen.findByText('Everyone agrees: water less in winter.')).toBeInTheDocument();
     // topicId parsed from the URL ('12-watering-tips'), not the display id.
-    expect(summarySpy).toHaveBeenCalledWith(12);
+    expect(summarySpy).toHaveBeenCalledWith(12, expect.any(AbortSignal));
   });
 
   it('shows no Summarize thread button to a logged-out user', async () => {

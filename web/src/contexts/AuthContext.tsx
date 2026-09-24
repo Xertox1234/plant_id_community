@@ -227,7 +227,8 @@ export function AuthProvider({ children }: AuthProviderProps) {
   // "this account can't" fact — and it also covers 401, so signing in must
   // clear it or the panel stays disabled for the now-authenticated user.
   // The thread-summary latch (todo 414) is the same "this account is not
-  // premium" fact, so an upgrade or account switch must re-offer the button.
+  // premium" fact, so an account switch must re-offer the button. (An upgrade
+  // within the same session keeps the same id, so it needs a reload.)
   useEffect(() => {
     resetComposeAssistAvailability();
     resetPlantCareAskAvailability();

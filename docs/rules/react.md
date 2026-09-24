@@ -299,3 +299,8 @@ Compact checklist auto-injected before edits. Long-form:
   overwriting the cursor. Bump a `useRef` counter on open, capture it per
   request, and drop any response whose session no longer matches. Reset every
   in-flight flag on open too, or the button stays disabled forever (todo 374).
+- **A 401 on a surface shown only to signed-in users is an expired access
+  cookie, not "this account can't".** Never put 401 into a session-scoped
+  "unavailable" latch there: the refresh timer is throttled in background
+  tabs and stops during sleep, so a paid feature vanishes until reload.
+  Latch on 403 only; say "session expired" on 401 (PR #816).

@@ -111,3 +111,25 @@ test red · M11 treat pending as final → 2 panel tests red.
 `npx vitest run` on the 6 touched/adjacent files: 262 passed · full
 `npx vitest run`: 103 files, 1412 passed · `npm run check:classes`: 134 files,
 5766 tokens, exit 0 · prettier --check clean on all touched files.
+
+### 2026-09-24 - Review round 1 (bundled /code-review, PR #816): 3 repaired
+
+- **A 401 latched the feature off for the session.** The panel renders only
+  for signed-in users, so a 401 is an expired access cookie (the refresh
+  timer is throttled in background tabs), not "can't". `TopicSummaryError`
+  now marks only 403 permanent; a 401 says the session expired and keeps
+  the button.
+- **The result was never announced.** It mounted outside the live region.
+  The result area is now a persistent `aria-live="polite"` container.
+- **The in-flight request wasn't aborted on unmount** (`docs/rules/react.md`).
+  Each run owns an `AbortController`; unmount aborts it, so a navigated-away
+  request stops spending the 30/h bucket.
+- Comment fix: an upgrade in the same session keeps `user.id`, so it does
+  NOT reset the latch (the old comment said it did).
+- Tests: +3 panel tests (401 not latched, abort on unmount, live-region
+  result); the service test now expects 401 non-permanent. Mutations, each
+  red: 401 back in `permanent` (2), drop the abort (1), drop `aria-live` (1).
+  Affected files 192/192; type-check and lint clean.
+- Deferred to todo 433: hide the button below 3 posts, a shared
+  Retry-After/wait formatter, 404 as non-retryable, a shared capability
+  latch, and skipping polls while the tab is hidden.

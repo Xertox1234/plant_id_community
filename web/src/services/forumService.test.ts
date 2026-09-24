@@ -925,9 +925,9 @@ describe('forumService (wagtail_forum API contract)', () => {
     await expect(fetchTopicSummary(12)).resolves.toEqual({ status: 'too_short', post_count: 2 });
   });
 
-  it('fetchTopicSummary marks 401/403 permanent and reads Retry-After on 429', async () => {
+  it('fetchTopicSummary marks only 403 permanent and reads Retry-After on 429', async () => {
     for (const [status, permanent, retryAfter] of [
-      [401, true, null], // not signed in
+      [401, false, null], // expired access cookie — never latched (PR #816 review)
       [403, true, null], // not a premium account
       [429, false, 3600], // 30/h bucket (polls count) — retry later
       [404, false, null], // restricted / missing topic

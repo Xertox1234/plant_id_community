@@ -35,7 +35,7 @@ const MAX_POLLS = 6;
 const MIN_POSTS = 3;
 
 const STILL_WRITING = 'The summary is still being written. Try again in a minute.';
-const SIGN_IN = 'Sign in with a premium account to summarize threads.';
+const SESSION_EXPIRED = 'Your session expired. Sign in again to summarize this thread.';
 const GENERIC_ERROR = 'Couldn’t summarize this thread. Please try again.';
 
 function throttledMessage(retryAfter: number | null): string {
@@ -61,13 +61,17 @@ export default function ThreadSummaryPanel({ topicId }: ThreadSummaryPanelProps)
   const [outcome, setOutcome] = useState<Outcome | null>(null);
   // Poll timer + a run token: unmount bumps the token so an in-flight run
   // stops at its next await instead of polling for a thread no longer shown.
+  // The abort cancels the request itself, which would otherwise still spend a
+  // slot of the 30/h bucket for a thread nobody is viewing.
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const runRef = useRef(0);
+  const abortRef = useRef<AbortController | null>(null);
 
   useEffect(
     () => () => {
       runRef.current += 1;
       if (timerRef.current) clearTimeout(timerRef.current);
+      abortRef.current?.abort();
     },
     []
   );
@@ -77,12 +81,14 @@ export default function ThreadSummaryPanel({ topicId }: ThreadSummaryPanelProps)
   const summarize = async () => {
     if (busy || unavailable) return;
     const run = ++runRef.current;
+    const controller = new AbortController();
+    abortRef.current = controller;
     setBusy(true);
     setMessage(null);
     setOutcome(null);
     try {
       for (let polls = 0; ; polls += 1) {
-        const result = await fetchTopicSummary(topicId);
+        const result = await fetchTopicSummary(topicId, controller.signal);
         if (runRef.current !== run) return;
         if (result.status !== 'pending') {
           setOutcome(result);
@@ -104,11 +110,14 @@ export default function ThreadSummaryPanel({ topicId }: ThreadSummaryPanelProps)
         error: err instanceof Error ? err.message : String(err),
       });
       if (err instanceof TopicSummaryError && err.permanent) {
-        // Not premium (403) / signed out (401): retrying can never succeed for
-        // this account — latch it so the next thread does not re-offer it.
+        // Not premium (403): retrying can never succeed for this account —
+        // latch it so the next thread does not re-offer it.
         markTopicSummaryUnavailable();
         setUnavailable(true);
-        setMessage(err.status === 401 ? SIGN_IN : err.message);
+        setMessage(err.message);
+      } else if (err instanceof TopicSummaryError && err.status === 401) {
+        // An expired access cookie, not "can't": say so, never latch.
+        setMessage(SESSION_EXPIRED);
       } else if (err instanceof TopicSummaryError && err.status === 429) {
         setMessage(throttledMessage(err.retryAfter));
       } else {
@@ -150,20 +159,26 @@ export default function ThreadSummaryPanel({ topicId }: ThreadSummaryPanelProps)
         {message ?? ''}
       </p>
 
-      {outcome?.status === 'ready' && (
-        <div className="mt-3">
-          <p className="text-body leading-relaxed text-ink">{outcome.summary}</p>
-          <p className="gt-label mt-2">
-            AI summary of {outcome.post_count} posts — may miss nuance; read the thread for details.
-          </p>
-        </div>
-      )}
+      {/* Also a persistent live region: the result arrives after up to ~30s
+          of polling, and content mounted into a region that already exists is
+          what a screen reader announces (a freshly mounted node is not). */}
+      <div aria-live="polite" data-testid="thread-summary-result">
+        {outcome?.status === 'ready' && (
+          <div className="mt-3">
+            <p className="text-body leading-relaxed text-ink">{outcome.summary}</p>
+            <p className="gt-label mt-2">
+              AI summary of {outcome.post_count} posts — may miss nuance; read the thread for
+              details.
+            </p>
+          </div>
+        )}
 
-      {outcome?.status === 'too_short' && (
-        <p className="mt-3 text-body-sm text-ink-2">
-          Threads need at least {MIN_POSTS} posts before they can be summarized.
-        </p>
-      )}
+        {outcome?.status === 'too_short' && (
+          <p className="mt-3 text-body-sm text-ink-2">
+            Threads need at least {MIN_POSTS} posts before they can be summarized.
+          </p>
+        )}
+      </div>
     </section>
   );
 }

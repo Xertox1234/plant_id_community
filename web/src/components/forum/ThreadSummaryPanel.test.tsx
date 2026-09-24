@@ -55,7 +55,7 @@ describe('ThreadSummaryPanel', () => {
     fireEvent.click(summarize());
     await advance(0);
 
-    expect(fetchSummary).toHaveBeenCalledWith(12);
+    expect(fetchSummary).toHaveBeenCalledWith(12, expect.any(AbortSignal));
     expect(screen.getByText(READY.summary)).toBeInTheDocument();
     expect(screen.getByText(/5 posts/)).toBeInTheDocument();
   });
@@ -189,5 +189,51 @@ describe('ThreadSummaryPanel', () => {
     await advance(60_000);
 
     expect(fetchSummary).toHaveBeenCalledTimes(1);
+  });
+
+  // --- PR #816 review round 1 ---
+
+  it('on 401 (expired access cookie) says so, keeps the button, and never latches', async () => {
+    vi.spyOn(forumService, 'fetchTopicSummary').mockRejectedValue(
+      new forumService.TopicSummaryError(401, 'Authentication credentials were not provided.')
+    );
+    render(<ThreadSummaryPanel topicId={12} />);
+
+    fireEvent.click(summarize());
+    await advance(0);
+
+    expect(statusRegion()).toHaveTextContent(/session expired/i);
+    expect(summarize()).toBeEnabled();
+    expect(forumService.isTopicSummaryUnavailable()).toBe(false);
+  });
+
+  it('aborts the in-flight request when unmounted', async () => {
+    let seen: AbortSignal | undefined;
+    vi.spyOn(forumService, 'fetchTopicSummary').mockImplementation((_id, signal) => {
+      seen = signal;
+      return new Promise<TopicSummary>(() => {});
+    });
+    const { unmount } = render(<ThreadSummaryPanel topicId={12} />);
+
+    fireEvent.click(summarize());
+    await advance(0);
+    expect(seen?.aborted).toBe(false);
+
+    unmount();
+    expect(seen?.aborted).toBe(true);
+  });
+
+  it('renders the result inside a live region that exists before it arrives', async () => {
+    vi.spyOn(forumService, 'fetchTopicSummary').mockResolvedValue(READY);
+    render(<ThreadSummaryPanel topicId={12} />);
+    const region = screen.getByTestId('thread-summary-result');
+    expect(region).toHaveAttribute('aria-live', 'polite');
+    expect(region).toBeEmptyDOMElement();
+
+    fireEvent.click(summarize());
+    await advance(0);
+
+    expect(screen.getByTestId('thread-summary-result')).toBe(region);
+    expect(region).toHaveTextContent(READY.summary);
   });
 });

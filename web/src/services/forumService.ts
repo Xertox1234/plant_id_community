@@ -954,7 +954,12 @@ export class TopicSummaryError extends Error {
   readonly code?: string;
   /** Seconds from a 429's `Retry-After` header; null otherwise. */
   readonly retryAfter: number | null;
-  /** 401 (signed out) / 403 (not a premium account). */
+  /**
+   * 403 only (not a premium account). NOT 401: the panel renders for signed-in
+   * users only, so a 401 is an expired access cookie (the refresh timer is
+   * throttled in background tabs and stops during sleep) — latching it would
+   * hide a paid feature from a premium user until reload (PR #816 review).
+   */
   readonly permanent: boolean;
 
   constructor(status: number, message: string, code?: string, retryAfter: number | null = null) {
@@ -963,7 +968,7 @@ export class TopicSummaryError extends Error {
     this.status = status;
     this.code = code;
     this.retryAfter = retryAfter;
-    this.permanent = status === 401 || status === 403;
+    this.permanent = status === 403;
   }
 }
 
@@ -998,11 +1003,15 @@ function readRetryAfterSeconds(response: Response): number | null {
  * One GET of a topic's AI summary. Returns `pending` on a 202 — the caller
  * polls (sparingly: polls spend the same 30/h bucket as clicks).
  */
-export async function fetchTopicSummary(topicId: number): Promise<TopicSummary> {
+export async function fetchTopicSummary(
+  topicId: number,
+  signal?: AbortSignal
+): Promise<TopicSummary> {
   const response = await fetch(`${FORUM_BASE}/topics/${topicId}/summary/`, {
     method: 'GET',
     credentials: 'include',
     headers: { Accept: 'application/json' },
+    signal,
   });
   if (!response.ok) {
     const body = await response.json().catch(() => ({}));
