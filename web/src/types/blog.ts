@@ -60,6 +60,13 @@ export interface PlantSpotlightBlockValue {
    * rebase needed here unlike `BlogPostImage`.
    */
   image?: ImageBlockValue | null;
+  /**
+   * Stock-photo credit shown under the image (todo 376), e.g. "Photo by Jane
+   * Doe on Unsplash". `null` for blocks saved before the field existed.
+   */
+  image_credit?: string | null;
+  /** Credit link — render only if it passes `safeExternalUrl` (http(s) only). */
+  image_credit_url?: string | null;
 }
 
 /**
@@ -79,7 +86,8 @@ export interface CallToActionBlockValue {
 
 /**
  * Plant Spotlight block
- * Backend: StructBlock with plant_name, scientific_name, description, care_difficulty, image
+ * Backend: StructBlock with plant_name, scientific_name, description, care_difficulty, image,
+ * image_credit, image_credit_url
  */
 export interface PlantSpotlightBlock extends BaseStreamFieldBlock {
   type: 'plant_spotlight';

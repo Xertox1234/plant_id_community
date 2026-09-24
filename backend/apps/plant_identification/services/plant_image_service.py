@@ -13,7 +13,7 @@ from wagtail.images.models import Image
 
 from .ai_image_service import AIBotanicalImageService
 from .pexels_service import PexelsImageService
-from .unsplash_service import UnsplashImageService
+from .unsplash_service import UnsplashImageService, with_unsplash_utm
 
 logger = logging.getLogger(__name__)
 
@@ -220,6 +220,37 @@ class PlantImageService:
 
         else:
             return "Image attribution unknown"
+
+    @staticmethod
+    def get_attribution_url(source: str, image_data: Dict) -> str:
+        """
+        Link for the displayed credit (todo 376): the photographer's page.
+
+        Unsplash links carry the referral UTM parameters its API guidelines
+        require. Returns "" when there is nothing to link (AI images) or the
+        provider value is not an absolute http(s) URL — the credit then
+        renders as plain text rather than as an unsafe or dead link.
+
+        Args:
+            source: Source name ('unsplash', 'pexels', 'ai')
+            image_data: Image metadata
+
+        Returns:
+            An http(s) URL, or ""
+        """
+        photographer = image_data.get("photographer") or {}
+        if source == "unsplash":
+            url = photographer.get("profile_url") or ""
+        elif source == "pexels":
+            url = photographer.get("url") or ""
+        else:
+            return ""
+
+        if not isinstance(url, str) or not url.lower().startswith(
+            ("https://", "http://")
+        ):
+            return ""
+        return with_unsplash_utm(url) if source == "unsplash" else url
 
     def get_source_stats(self) -> Dict:
         """

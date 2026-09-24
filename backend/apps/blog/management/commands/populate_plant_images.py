@@ -120,16 +120,25 @@ class Command(BaseCommand):
 
                     if result:
                         source, image_data, wagtail_image = result
+                        attribution = self.image_service.get_attribution_text(
+                            source, image_data
+                        )
+                        attribution_url = self.image_service.get_attribution_url(
+                            source, image_data
+                        )
 
                         # Update the blog post
-                        if self._update_post_image(post, block_id, wagtail_image):
+                        if self._update_post_image(
+                            post,
+                            block_id,
+                            wagtail_image,
+                            credit=attribution,
+                            credit_url=attribution_url,
+                        ):
                             total_images_added += 1
                             if source == "ai":
                                 ai_images_used += 1
 
-                            attribution = self.image_service.get_attribution_text(
-                                source, image_data
-                            )
                             self.stdout.write(
                                 self.style.SUCCESS(
                                     f"  {plant_name}: Added image from {source} - {attribution}"
@@ -210,14 +219,22 @@ class Command(BaseCommand):
 
         return plants
 
-    def _update_post_image(self, post, block_id, wagtail_image):
+    def _update_post_image(
+        self, post, block_id, wagtail_image, credit="", credit_url=""
+    ):
         """
-        Update a plant_spotlight block with a new image.
+        Update a plant_spotlight block with a new image and its credit.
+
+        The credit is written with the image, never separately, so a
+        --force replacement cannot leave the previous photographer's credit
+        on a new image (todo 376).
 
         Args:
             post: BlogPostPage instance
             block_id: Block ID to update
             wagtail_image: Wagtail Image instance
+            credit: Display credit, e.g. "Photo by Jane Doe on Unsplash"
+            credit_url: http(s) link for the credit, or ""
 
         Returns:
             True if successful, False otherwise
@@ -235,6 +252,8 @@ class Command(BaseCommand):
                         # Update the block value with the new image
                         new_value = dict(block.value)  # Create a proper dict copy
                         new_value["image"] = wagtail_image
+                        new_value["image_credit"] = credit or ""
+                        new_value["image_credit_url"] = credit_url or ""
 
                         # Replace the block using StreamField's tuple interface
                         post.content_blocks[i] = (block.block_type, new_value)

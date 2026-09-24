@@ -19,6 +19,16 @@ from wagtail.images.models import Image
 
 logger = logging.getLogger(__name__)
 
+# Unsplash's API guidelines require these on every link back to Unsplash
+# (download tracking AND the displayed photographer credit, todo 376).
+UNSPLASH_UTM_PARAMS = {"utm_source": "plant_community", "utm_medium": "referral"}
+
+
+def with_unsplash_utm(url: str) -> str:
+    """Append Unsplash's required referral UTM parameters to `url`."""
+    separator = "&" if "?" in url else "?"
+    return url + separator + urlencode(UNSPLASH_UTM_PARAMS)
+
 
 class UnsplashImageService:
     """
@@ -311,14 +321,8 @@ class UnsplashImageService:
             return
 
         try:
-            download_url = image_data["download_url"]
             # Add UTM parameters as required by Unsplash
-            utm_params = {"utm_source": "plant_community", "utm_medium": "referral"}
-
-            if "?" in download_url:
-                download_url += "&" + urlencode(utm_params)
-            else:
-                download_url += "?" + urlencode(utm_params)
+            download_url = with_unsplash_utm(image_data["download_url"])
 
             # Make request to trigger download tracking
             response = requests.get(download_url, timeout=10)

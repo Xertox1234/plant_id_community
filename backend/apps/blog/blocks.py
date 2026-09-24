@@ -19,8 +19,16 @@ URL it built resolved to `http://localhost/...` in production (todo 308).
 That file now uses `request.build_absolute_uri()` too, for the same reason
 this block always has: it reads the actual incoming request's host
 directly, no Site involved.
+
+`PlantSpotlightBlock` (todo 376) carries the stock-photo credit that
+Unsplash's and Pexels' terms require on display: `image_credit` text plus an
+optional `image_credit_url`. The URL is rendered as a link only when it is an
+absolute http(s) URL — see `safe_http_url`.
 """
 
+from urllib.parse import urlsplit
+
+from wagtail import blocks
 from wagtail.images.blocks import ImageChooserBlock
 from wagtail.images.models import SourceImageIOError
 
@@ -59,3 +67,30 @@ class APIImageChooserBlock(ImageChooserBlock):
             "width": rendition.width,
             "height": rendition.height,
         }
+
+
+def safe_http_url(url):
+    """Return `url` if it is an absolute http(s) URL with a host, else `""`.
+
+    `URLBlock` validates in the admin form, but the populate command and any
+    import write the StreamField directly, so a stored value is not proof of
+    a safe scheme. Never let a `javascript:`/`data:` value reach an `href`.
+    """
+    if not isinstance(url, str) or not url:
+        return ""
+    try:
+        parts = urlsplit(url.strip())
+    except ValueError:
+        return ""
+    if parts.scheme.lower() not in ("http", "https") or not parts.netloc:
+        return ""
+    return url.strip()
+
+
+class PlantSpotlightBlock(blocks.StructBlock):
+    """`plant_spotlight` StructBlock; exposes a vetted credit link to templates."""
+
+    def get_context(self, value, parent_context=None):
+        context = super().get_context(value, parent_context=parent_context)
+        context["credit_href"] = safe_http_url(value.get("image_credit_url") or "")
+        return context

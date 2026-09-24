@@ -5,6 +5,7 @@ import { highlightMentions } from '../utils/mentions';
 import { postAnchor, userProfilePath } from '../utils/forumUrls';
 import { DELETED_AUTHOR_USERNAME } from '../utils/forumAuthor';
 import { mediaUrl } from '../services/blogService';
+import { safeExternalUrl } from '../utils/externalUrl';
 import type { PostQuoteBlockValue, StreamFieldBlock as StreamFieldBlockType } from '@/types/blog';
 
 /**
@@ -296,12 +297,17 @@ function StreamFieldBlock({ block, mentionHighlight, currentTopicId }: StreamFie
     }
 
     case 'plant_spotlight': {
-      // Backend: StructBlock with plant_name, scientific_name, description, care_difficulty, image
+      // Backend: StructBlock with plant_name, scientific_name, description, care_difficulty, image,
+      // image_credit, image_credit_url
       const { value } = block;
       const plantName = value.plant_name ?? value.heading ?? '';
       const description = value.description ?? '';
       const careValue = value.care_difficulty ?? value.care_level;
       const careLabel = value.care_level ? 'Care Level' : 'Care Difficulty';
+      // Stock-photo credit (todo 376): Unsplash/Pexels require it on display.
+      // Linked only when the URL is absolute http(s) — never a javascript: href.
+      const credit = value.image_credit?.trim() ?? '';
+      const creditHref = safeExternalUrl(value.image_credit_url);
 
       return (
         <div className="my-8 rounded-md border border-line bg-surface-2/50 p-6">
@@ -310,11 +316,29 @@ function StreamFieldBlock({ block, mentionHighlight, currentTopicId }: StreamFie
             <p className="text-sm italic text-ink-3 mb-3">{value.scientific_name}</p>
           )}
           {value.image && (
-            <img
-              src={value.image.url}
-              alt={value.image.alt || plantName}
-              className="w-full h-64 object-cover rounded-lg mb-4 shadow-md"
-            />
+            <figure className="mb-4">
+              <img
+                src={value.image.url}
+                alt={value.image.alt || plantName}
+                className="w-full h-64 object-cover rounded-lg shadow-md"
+              />
+              {credit && (
+                <figcaption className="mt-2 text-xs text-ink-3">
+                  {creditHref ? (
+                    <a
+                      href={creditHref}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="underline underline-offset-2 hover:text-ink"
+                    >
+                      {credit}
+                    </a>
+                  ) : (
+                    credit
+                  )}
+                </figcaption>
+              )}
+            </figure>
           )}
           {description && renderTextOrSafeHtml(description, 'text-ink-2 mb-4')}
           {careValue && (
