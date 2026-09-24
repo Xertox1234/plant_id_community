@@ -375,3 +375,16 @@ Compact checklist auto-injected before edits. Long-form: `backend/docs/patterns/
   line). Read the field the real client sends: the web login posts
   `{email, password}`, so a tracker reading only `username` records `None`
   for every real failure while a `username`-shaped test passes (PR #818).
+- **A startup check for a non-critical feature WARNS; it never raises at
+  settings import.** A bad blog-preview URL raised `ImproperlyConfigured` and
+  would have crash-looped the whole backend and `forum-prune-cron` over an
+  editor-only button. Return a problem string and let `validate_environment()`
+  put it in `warnings`; reserve `critical_errors` for what the app cannot run
+  without (PR #817).
+- **Never name a Django setting `CSP_*`.** django-csp 4 treats ANY
+  `CSP_`-prefixed setting as its pre-4.0 format and fails `manage.py check`
+  with `csp.E001` — which surfaced only in a subprocess test (PR #817).
+- **A "placeholder / example value" guard matches a substring, not a stripped
+  prefix.** Values from `os.environ` are not stripped by python-decouple, and
+  pastes arrive padded with spaces, as `' X'`, `` `X` `` or a whole `KEY=X` line; a prefix
+  check after `.strip()` missed three of those (PR #822).
