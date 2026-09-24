@@ -2,14 +2,16 @@
  * Profile API Service — read and edit the signed-in user's own profile
  * (web dead-code audit M3: the backend endpoint existed, only mobile used it).
  *
- * Cookie-based JWT auth with CSRF on mutating requests (same pattern as
- * notificationService.ts).
+ * Goes through the shared `apiClient` (todo 407 item 9), so it inherits the
+ * client's cookie credentials, X-Request-ID, CSRF header on mutating requests
+ * only, and its one-shot refresh-and-retry when a stale CSRF token gets a 403.
+ * A bodyless GET carries no `Content-Type` (axios's xhr adapter drops it).
  */
-import { getCsrfToken } from '../utils/csrf';
+import axios from 'axios';
+import apiClient from '../utils/httpClient';
 import type { ProfileUpdate, UserProfile } from '../types/auth';
 
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
-const AUTH_BASE = `${API_URL}/api/v1/auth`;
+const AUTH_BASE = '/api/v1/auth';
 
 /**
  * Turn a DRF error body into one readable message. Validation errors arrive
@@ -28,33 +30,36 @@ function errorMessage(body: unknown, status: number): string {
   return `Request failed (HTTP ${status})`;
 }
 
-async function authenticatedFetch<T>(url: string, options: RequestInit = {}): Promise<T> {
-  const csrfToken = await getCsrfToken();
-  const response = await fetch(url, {
-    ...options,
-    credentials: 'include',
-    headers: {
-      'Content-Type': 'application/json',
-      Accept: 'application/json',
-      ...(csrfToken && { 'X-CSRFToken': csrfToken }),
-      ...options.headers,
-    },
-  });
-  if (!response.ok) {
-    const body = await response.json().catch(() => null);
-    throw new Error(errorMessage(body, response.status));
+/**
+ * Re-throw an HTTP failure as a plain `Error` carrying the server's readable
+ * message — an AxiosError's own message is "Request failed with status code
+ * 400", which is not what ProfilePage should show. Anything without a
+ * response (network, timeout) propagates unchanged.
+ */
+function toProfileError(error: unknown): unknown {
+  if (axios.isAxiosError(error) && error.response) {
+    return new Error(errorMessage(error.response.data, error.response.status), { cause: error });
   }
-  return response.json();
+  return error;
 }
 
 export async function fetchProfile(): Promise<UserProfile> {
-  return authenticatedFetch<UserProfile>(`${AUTH_BASE}/user/`);
+  try {
+    const response = await apiClient.get<UserProfile>(`${AUTH_BASE}/user/`);
+    return response.data;
+  } catch (error) {
+    throw toProfileError(error);
+  }
 }
 
 export async function updateProfile(changes: ProfileUpdate): Promise<UserProfile> {
-  const data = await authenticatedFetch<{ message: string; user: UserProfile }>(
-    `${AUTH_BASE}/user/update/`,
-    { method: 'PATCH', body: JSON.stringify(changes) }
-  );
-  return data.user;
+  try {
+    const response = await apiClient.patch<{ message: string; user: UserProfile }>(
+      `${AUTH_BASE}/user/update/`,
+      changes
+    );
+    return response.data.user;
+  } catch (error) {
+    throw toProfileError(error);
+  }
 }

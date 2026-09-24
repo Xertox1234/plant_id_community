@@ -2,10 +2,13 @@
  * Notification API Service — translation layer for the forum notification
  * endpoints (todo 253 slice 1, audit C2).
  *
- * Cookie-based JWT auth with CSRF on mutating requests (same pattern as
- * forumService.ts).
+ * Goes through the shared `apiClient` (todo 407 item 9), so it inherits the
+ * client's cookie credentials, X-Request-ID, CSRF header on mutating requests
+ * only, and its one-shot refresh-and-retry when a stale CSRF token gets a 403.
+ * A bodyless GET carries no `Content-Type` (axios's xhr adapter drops it).
  */
-import { getCsrfToken } from '../utils/csrf';
+import axios from 'axios';
+import apiClient from '../utils/httpClient';
 import type {
   ForumNotification,
   MarkReadResponse,
@@ -13,40 +16,54 @@ import type {
   UnreadCountResponse,
 } from '../types/notifications';
 
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
-const FORUM_BASE = `${API_URL}/api/v1/forum`;
+const FORUM_BASE = '/api/v1/forum';
 
-async function authenticatedFetch<T>(url: string, options: RequestInit = {}): Promise<T> {
-  const csrfToken = await getCsrfToken();
-  const response = await fetch(url, {
-    ...options,
-    credentials: 'include',
-    headers: {
-      'Content-Type': 'application/json',
-      Accept: 'application/json',
-      ...(csrfToken && { 'X-CSRFToken': csrfToken }),
-      ...options.headers,
-    },
-  });
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({ message: 'Request failed' }));
-    throw new Error(error.message || error.detail || `HTTP ${response.status}`);
+/**
+ * Re-throw an HTTP failure as a plain `Error` carrying the server's
+ * `message`/`detail` (falling back to `HTTP <status>`), the shape callers
+ * have always received. Anything without a response propagates unchanged.
+ */
+function toNotificationError(error: unknown): unknown {
+  if (axios.isAxiosError(error) && error.response) {
+    const { data, status } = error.response;
+    const body: { message?: unknown; detail?: unknown } =
+      data && typeof data === 'object' ? data : { message: 'Request failed' };
+    const message =
+      (typeof body.message === 'string' && body.message) ||
+      (typeof body.detail === 'string' && body.detail) ||
+      `HTTP ${status}`;
+    return new Error(message, { cause: error });
   }
-  if (response.status === 204) return undefined as T;
-  return response.json();
+  return error;
+}
+
+async function request<T>(
+  method: 'get' | 'post',
+  url: string,
+  data?: Record<string, unknown>
+): Promise<T> {
+  try {
+    const response = await apiClient.request<T>({ method, url, data });
+    if (response.status === 204) return undefined as T;
+    return response.data;
+  } catch (error) {
+    throw toNotificationError(error);
+  }
 }
 
 /**
  * List notifications, newest first. Pass an absolute cursor URL (from a prior
  * response's `next`) to fetch a later page — DRF cursor URLs are absolute and
- * must be fetched verbatim, never re-prefixed with FORUM_BASE.
+ * must be fetched verbatim, never re-prefixed with FORUM_BASE (axios applies
+ * `baseURL` only to relative URLs).
  */
 export async function fetchNotifications(cursorUrl?: string): Promise<NotificationListResponse> {
-  return authenticatedFetch<NotificationListResponse>(cursorUrl || `${FORUM_BASE}/notifications/`);
+  return request<NotificationListResponse>('get', cursorUrl || `${FORUM_BASE}/notifications/`);
 }
 
 export async function fetchUnreadCount(): Promise<number> {
-  const data = await authenticatedFetch<UnreadCountResponse>(
+  const data = await request<UnreadCountResponse>(
+    'get',
     `${FORUM_BASE}/notifications/unread-count/`
   );
   return data.count;
@@ -54,12 +71,10 @@ export async function fetchUnreadCount(): Promise<number> {
 
 /** Mark specific notifications read, or ALL unread ones when `ids` is omitted. */
 export async function markNotificationsRead(ids?: number[]): Promise<number> {
-  const data = await authenticatedFetch<MarkReadResponse>(
+  const data = await request<MarkReadResponse>(
+    'post',
     `${FORUM_BASE}/notifications/mark-read/`,
-    {
-      method: 'POST',
-      body: JSON.stringify(ids ? { ids } : {}),
-    }
+    ids ? { ids } : {}
   );
   return data.updated;
 }
