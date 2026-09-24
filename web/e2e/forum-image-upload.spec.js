@@ -50,6 +50,128 @@ async function openComposer(page) {
   return { form, editor };
 }
 
+const EDIT_URL = /\/api\/v1\/forum\/posts\/\d+\/$/;
+
+/**
+ * Save -> reopen round trip (todo 368): post a thread carrying one uploaded
+ * image, assert the RENDERED post, reopen it for edit, assert the rehydrated
+ * node, and re-save with the image untouched.
+ *
+ * `alt` is the alt text to author, or `null` to press Skip (decorative).
+ *
+ * Every POST to /forum/images/ is counted from the first line to the last, so a
+ * silent re-upload on edit — the regression this leg exists to catch — fails
+ * the test instead of passing unnoticed.
+ */
+async function imageRoundTrip(page, { alt }) {
+  const uploadRequests = [];
+  page.on('request', (req) => {
+    if (UPLOAD_URL.test(req.url()) && req.method() === 'POST') uploadRequests.push(req);
+  });
+
+  const stamp = `${Date.now()}`;
+  const title = `E2E image round trip ${alt === null ? 'decorative' : 'alt'} ${stamp}`;
+  const bodyText = `E2E image round trip body ${stamp}`;
+  const editedText = `E2E image round trip edited body ${stamp}`;
+  const expectedAlt = alt ?? '';
+
+  // --- 1. Compose + post -----------------------------------------------------
+  const { form, editor } = await openComposer(page);
+  // No ?category= -> the board picker (L4). The first real board will do.
+  const picker = form.locator('#board-picker');
+  await expect(picker, 'no forum board found — run: manage.py seed_default_forum').toBeVisible();
+  await picker.selectOption({ index: 1 });
+  await page.locator('#thread-title').fill(title);
+  await editor.click();
+  await page.keyboard.type(bodyText);
+
+  await page.setInputFiles(IMAGE_INPUT, {
+    name: 'leaf.jpg',
+    mimeType: 'image/jpeg',
+    buffer: ONE_PX_JPEG,
+  });
+  if (alt !== null) await page.getByLabel(/describe this image/i).fill(alt);
+  const [uploadResponse] = await Promise.all([
+    page.waitForResponse((r) => UPLOAD_URL.test(r.url()) && r.request().method() === 'POST'),
+    page.getByRole('button', { name: alt === null ? 'Skip' : 'Add image' }).click(),
+  ]);
+  expect(uploadResponse.status()).toBe(201);
+  const imageId = String((await uploadResponse.json()).id);
+  await expect(editor.locator('img[data-image-id]')).toHaveAttribute('data-image-id', imageId);
+
+  await form.getByRole('button', { name: 'Post Thread' }).click();
+  // Clean prose auto-publishes -> redirect to the new topic.
+  await expect(page).toHaveURL(/\/forum\/\d+-[^/]+\/\d+-/, { timeout: 15000 });
+  await expect(page.getByRole('heading', { name: title })).toBeVisible();
+
+  // --- 2. The rendered post ------------------------------------------------
+  const post = page.locator('[id^="post-"]').filter({ hasText: bodyText });
+  await expect(post).toHaveCount(1);
+  // The body image is the served RENDITION (`max-1200x1200`), which is also
+  // what tells it apart from the author's avatar in the same card.
+  const rendered = post.locator('img[src*="max-1200x1200"]');
+  await expect(rendered).toHaveCount(1);
+  // `toHaveAttribute('alt', '')` needs the attribute PRESENT and empty — a
+  // missing alt (screen reader reads the filename) fails it.
+  await expect(rendered).toHaveAttribute('alt', expectedAlt);
+  // Absolute, on the media path — a relative `/media/...` src would resolve
+  // against the web origin (:5174) and 404.
+  await expect(rendered).toHaveAttribute('src', /^https?:\/\/[^/]+\/media\/images\//);
+  // And it actually decodes: the browser fetched real image bytes from that
+  // URL (a 404 or HTML error page leaves naturalWidth at 0).
+  await expect
+    .poll(() => rendered.evaluate((img) => img.complete && img.naturalWidth))
+    .toBeGreaterThan(0);
+
+  // --- 3. Reopen for edit ---------------------------------------------------
+  await post.getByTitle('Edit post').click();
+  const editForm = page.locator('form').filter({ has: page.getByRole('button', { name: 'Save' }) });
+  const editEditor = editForm.locator('.ProseMirror');
+  await expect(editEditor).toContainText(bodyText);
+  const rehydrated = editEditor.locator('img[data-image-id]');
+  await expect(rehydrated).toHaveCount(1);
+  // The SAME server id — anything else means the edit would re-point (or drop)
+  // the image on save.
+  await expect(rehydrated).toHaveAttribute('data-image-id', imageId);
+  await expect(rehydrated).toHaveAttribute('alt', expectedAlt);
+  if (alt === null) {
+    await expect(rehydrated).toHaveAttribute('data-decorative', 'true');
+  } else {
+    await expect(rehydrated).not.toHaveAttribute('data-decorative', /.*/);
+  }
+
+  // --- 4. Re-save with the image untouched ----------------------------------
+  // Change only the text, so the save is a real edit that must re-send the
+  // image block; the image itself is not touched. Triple-click selects the
+  // paragraph's text only (the image is a sibling node), and typing replaces
+  // it — `End` is not a line-end key in a macOS contenteditable.
+  await editEditor.locator('p', { hasText: bodyText }).click({ clickCount: 3 });
+  await page.keyboard.type(editedText);
+  const [editRequest] = await Promise.all([
+    page.waitForRequest((r) => EDIT_URL.test(r.url()) && r.method() === 'PATCH'),
+    editForm.getByRole('button', { name: 'Save' }).click(),
+  ]);
+  const imageBlocks = editRequest.postDataJSON().body.filter((b) => b.type === 'image');
+  // The re-save carries the SAME image reference with the SAME alt pair —
+  // otherwise "zero new uploads" below could pass because the image was
+  // silently dropped from the post.
+  expect(imageBlocks).toEqual([
+    {
+      type: 'image',
+      value: { image: Number(imageId), alt_text: expectedAlt, decorative: alt === null },
+    },
+  ]);
+
+  const savedPost = page.locator('[id^="post-"]').filter({ hasText: editedText });
+  await expect(savedPost).toHaveCount(1, { timeout: 15000 });
+  const reRendered = savedPost.locator('img[src*="max-1200x1200"]');
+  await expect(reRendered).toHaveCount(1);
+  await expect(reRendered).toHaveAttribute('alt', expectedAlt);
+
+  // ONE upload for the whole flow: post + reopen + re-save issued zero more.
+  expect(uploadRequests).toHaveLength(1);
+}
+
 test.describe('Forum inline image upload', () => {
   test('uploads a chosen image in ONE authenticated multipart request and inserts a node carrying the server id', async ({
     page,
@@ -218,5 +340,18 @@ test.describe('Forum inline image upload', () => {
       return sawClick;
     });
     expect(clicked).toBe(true);
+  });
+
+  // todo 368: the save -> reopen leg. Everything above stops at insert.
+  test('a posted image renders with its stored alt, rehydrates with the same id on edit, and re-saves without re-uploading', async ({
+    page,
+  }) => {
+    await imageRoundTrip(page, { alt: 'A monstera leaf with brown edges' });
+  });
+
+  test('a decorative image round-trips as alt="" + data-decorative="true", not as a missing alt', async ({
+    page,
+  }) => {
+    await imageRoundTrip(page, { alt: null });
   });
 });
