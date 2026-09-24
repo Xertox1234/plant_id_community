@@ -12,6 +12,7 @@ import '../forum_errors.dart';
 import '../forum_format.dart';
 import '../models/models.dart';
 import '../providers/forum_providers.dart';
+import '../services/forum_link_launcher.dart';
 import '../widgets/forum_edit_history_sheet.dart';
 import '../widgets/forum_report_sheet.dart';
 import '../widgets/identification_card.dart';
@@ -100,7 +101,7 @@ class ForumThreadScreen extends ConsumerWidget {
                 : null,
             onLoadMore: () =>
                 ref.read(topicPostsProvider(topicId).notifier).loadMore(),
-            onOpenLink: (href) => _showLink(context, href),
+            onOpenLink: (href) => _openLink(context, ref, href),
             onEdit: (post) => _openEdit(context, ref, post),
             onDelete: (post) => _confirmDelete(context, ref, post),
             onReport: isAuthenticated
@@ -399,8 +400,29 @@ class ForumThreadScreen extends ConsumerWidget {
     }
   }
 
-  void _showLink(BuildContext context, String href) {
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(href)));
+  /// Opens a post link or video card in the in-app browser (todo 424). Only
+  /// absolute http(s) URLs reach the launcher. Anything refused or failing
+  /// gets a short message, never the raw URL: VoiceOver spells a URL out
+  /// character by character.
+  Future<void> _openLink(
+    BuildContext context,
+    WidgetRef ref,
+    String href,
+  ) async {
+    final uri = openableForumLink(href);
+    var opened = false;
+    if (uri != null) {
+      try {
+        opened = await ref.read(forumLinkLauncherProvider)(uri);
+      } catch (_) {
+        opened = false;
+      }
+    }
+    if (!opened && context.mounted) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text("Couldn't open this link.")));
+    }
   }
 }
 

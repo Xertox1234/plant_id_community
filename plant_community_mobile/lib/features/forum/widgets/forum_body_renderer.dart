@@ -374,8 +374,8 @@ class _Image extends StatelessWidget {
 
 /// A video embed as a thumbnail card (todo 344): provider, title and the
 /// link — never an inline player or provider HTML. Tapping hands the URL to
-/// the same [onOpenLink] the paragraph links use (the thread screen shows
-/// it in a SnackBar; a real launcher is todo 341 parity work). A blank
+/// the same [onOpenLink] the paragraph links use (the thread screen opens it
+/// in the in-app browser, todo 424). A blank
 /// envelope (no url, no title) renders the unavailable placeholder, like a
 /// deleted image, rather than an empty card.
 class _EmbedCard extends StatelessWidget {
