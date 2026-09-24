@@ -590,7 +590,8 @@ def dashboard_stats(request: Request) -> Response:
 
     Returns ``forum_stats`` (live topic/post totals and 30-day counts) and
     ``recent_activity`` (up to 2 recent topics + 2 recent replies, newest
-    first). Four queries: two aggregates and two ``select_related`` lists.
+    first). Five queries: the view-restriction lookup behind ``.public()``,
+    two aggregates and two ``select_related`` lists.
 
     Todo 411 removed ``plant_stats``, the ``plant_identification`` activity
     entries and ``total_activity_score``. They read
@@ -602,16 +603,31 @@ def dashboard_stats(request: Request) -> Response:
 
     from django.db.models import Count, Q
     from django.utils import timezone
-    from wagtail_forum.models import Post, Topic
+    from wagtail_forum.models import ForumBoard, Post, Topic
 
     thirty_days_ago = timezone.now() - timedelta(days=30)
+    # Only what the forum itself would show (PR #821 review): a topic on a
+    # live, unrestricted board, and a post in such a live topic. Mirrors the
+    # package's api.views._visible_boards() and its own post recount
+    # (live=True, topic__live=True), so a taken-down topic's replies stop
+    # counting and never link to a 404.
+    visible_boards = ForumBoard.objects.live().public()
+    my_topics = Topic.objects.filter(
+        author=request.user, live=True, board__in=visible_boards
+    )
+    my_posts = Post.objects.filter(
+        author=request.user,
+        live=True,
+        topic__live=True,
+        topic__board__in=visible_boards,
+    )
 
     # One aggregation query per model.
-    forum_aggregation = Topic.objects.filter(author=request.user, live=True).aggregate(
+    forum_aggregation = my_topics.aggregate(
         total_topics=Count("pk"),
         topics_this_month=Count("pk", filter=Q(created_at__gte=thirty_days_ago)),
     )
-    post_aggregation = Post.objects.filter(author=request.user, live=True).aggregate(
+    post_aggregation = my_posts.aggregate(
         total_posts=Count("pk"),
         posts_this_month=Count("pk", filter=Q(created_at__gte=thirty_days_ago)),
     )
@@ -630,11 +646,7 @@ def dashboard_stats(request: Request) -> Response:
         return f"/forum/{board.id}-{board.slug}/{topic.id}-{topic.slug}"
 
     # select_related prevents an N+1 on the board FK.
-    recent_topics = (
-        Topic.objects.filter(author=request.user, live=True)
-        .select_related("board")
-        .order_by("-created_at", "-pk")[:2]
-    )
+    recent_topics = my_topics.select_related("board").order_by("-created_at", "-pk")[:2]
 
     for topic in recent_topics:
         recent_activity.append(
@@ -650,7 +662,7 @@ def dashboard_stats(request: Request) -> Response:
 
     # select_related prevents an N+1 on the topic/board FKs.
     recent_posts = (
-        Post.objects.filter(author=request.user, live=True, is_opening_post=False)
+        my_posts.filter(is_opening_post=False)
         .select_related("topic", "topic__board")
         .order_by("-created_at", "-pk")[:2]
     )
@@ -662,7 +674,7 @@ def dashboard_stats(request: Request) -> Response:
                 "title": f"Replied to: {post.topic.title}",
                 "description": f"in {post.topic.board.title}",
                 "timestamp": post.created_at,
-                "url": _forum_topic_url(post.topic),
+                "url": f"{_forum_topic_url(post.topic)}#post-{post.pk}",
                 "icon": "message-square",
             }
         )

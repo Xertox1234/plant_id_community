@@ -6,8 +6,16 @@ import ProfilePage from './ProfilePage';
 import * as profileService from '../services/profileService';
 import type { UserProfile } from '../types/auth';
 
+const authState = vi.hoisted(() => ({
+  user: { id: 7, email: 'ada@example.com', name: 'Ada' } as {
+    id: number;
+    email: string;
+    name: string;
+  },
+}));
+
 vi.mock('../contexts/AuthContext', () => ({
-  useAuth: () => ({ user: { id: 7, email: 'ada@example.com', name: 'Ada' } }),
+  useAuth: () => ({ user: authState.user }),
 }));
 
 vi.mock('../services/profileService', () => ({
@@ -39,6 +47,7 @@ const profile: UserProfile = {
 
 describe('ProfilePage (web dead-code audit M3)', () => {
   beforeEach(() => {
+    authState.user = { id: 7, email: 'ada@example.com', name: 'Ada' };
     vi.mocked(profileService.fetchProfile).mockReset().mockResolvedValue(profile);
     vi.mocked(profileService.updateProfile).mockReset();
     vi.mocked(profileService.fetchDashboardStats)
@@ -126,5 +135,28 @@ describe('ProfilePage (web dead-code audit M3)', () => {
 
     expect(await screen.findByRole('alert')).toHaveTextContent('Stats down');
     expect(await screen.findByLabelText('First name')).toHaveValue('Ada');
+  });
+
+  it('remounts the whole page when the signed-in account changes (PR #821)', async () => {
+    const { rerender } = renderPage();
+    expect(await screen.findByLabelText('First name')).toHaveValue('Ada');
+    expect(profileService.fetchProfile).toHaveBeenCalledTimes(1);
+
+    // A tab-focus identity check swaps the session to another account.
+    authState.user = { id: 8, email: 'bea@example.com', name: 'Bea' };
+    vi.mocked(profileService.fetchProfile).mockResolvedValue({
+      ...profile,
+      id: 8,
+      first_name: 'Bea',
+    });
+    rerender(
+      <MemoryRouter>
+        <ProfilePage />
+      </MemoryRouter>
+    );
+
+    await waitFor(() => expect(screen.getByLabelText('First name')).toHaveValue('Bea'));
+    expect(profileService.fetchProfile).toHaveBeenCalledTimes(2);
+    expect(profileService.fetchDashboardStats).toHaveBeenCalledTimes(2);
   });
 });

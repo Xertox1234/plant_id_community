@@ -94,6 +94,13 @@ function isForumStats(value: unknown): value is DashboardForumStats {
  * older server also sent `plant_identification` items linking to
  * `/identify/<id>`; todo 411 removed them because nothing writes that table.
  */
+/**
+ * A topic link, optionally deep-linked to a post: `/forum/<id>-<slug>/<id>-<slug>`
+ * plus `#post-<id>`. A whole-path match, not a prefix: `/forum/../identify/x`
+ * starts with `/forum/` but react-router resolves it elsewhere (PR #821).
+ */
+const FORUM_ACTIVITY_PATH = /^\/forum\/\d+-[^/?#\s]*\/\d+-[^/?#\s]*(#post-\d+)?$/;
+
 function isForumActivity(value: unknown): value is DashboardActivityItem {
   return (
     isRecord(value) &&
@@ -102,7 +109,7 @@ function isForumActivity(value: unknown): value is DashboardActivityItem {
     typeof value.description === 'string' &&
     typeof value.timestamp === 'string' &&
     typeof value.url === 'string' &&
-    value.url.startsWith('/forum/')
+    FORUM_ACTIVITY_PATH.test(value.url)
   );
 }
 

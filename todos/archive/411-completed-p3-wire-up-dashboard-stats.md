@@ -109,3 +109,28 @@ link target; the wrong month sublabel; and the page omitting the section.
 `npx vitest run`: 103 files, 1406 tests, all passed. `npm run type-check`,
 `npm run lint` and `npm run check:classes` (134 files, 5764 tokens) were all
 clean.
+
+### 2026-09-24 - Review round 1 (bundled /code-review, PR #821): 4 repaired
+
+- **Taken-down and hidden content still counted and linked.** Posts now need
+  `topic__live=True`, and topics/posts must sit on a live, unrestricted board
+  (`ForumBoard.objects.live().public()`, the package's `_visible_boards()`),
+  so a reply in a moderated-away topic neither counts nor links to a 404.
+  Tests red with `topic__live` removed and with the board filter removed. The
+  endpoint is now a constant 5 queries (`.public()` looks up view
+  restrictions eagerly).
+- **The activity-link guard was a prefix match.** `/forum/../identify/x`
+  passed `startsWith('/forum/')` and react-router resolved it elsewhere. A
+  whole-path pattern now allows only `/forum/<id>-<slug>/<id>-<slug>` plus
+  an optional `#post-<id>`. Red with the prefix check restored.
+- **Only the stats were keyed on the account.** An identity swap left the
+  previous account's profile in the form, and a save would diff against it.
+  The whole page now remounts on `user.id` (`ProfilePageContent`). Red with
+  the key removed.
+- Reply items deep-link to `#post-<id>` (the thread page already scrolls to
+  it).
+- Deferred to todo 439: the Posts card counting opening posts beside a Topics
+  card, reusing `ForumProfile.post_count`, the stale pattern-library example,
+  the field-by-field copy in `fetchDashboardStats`, and a retry for the
+  error state.
+- `pytest apps/users apps/core`: 1592 passed; touched web files 26/26.

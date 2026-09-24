@@ -189,6 +189,10 @@ describe('profileService', () => {
             topicItem,
             { ...topicItem, type: 'forum_post', url: 'https://evil.example/forum/1-x/2-y' },
             { ...topicItem, type: 'badge_award', url: '/forum/4-general/99-badges' },
+            // PR #821: a prefix match let dot-segments resolve elsewhere.
+            { ...topicItem, url: '/forum/../identify/0b8e' },
+            { ...topicItem, url: '/forum/4-general/../../logout' },
+            { ...topicItem, type: 'forum_post', url: '/forum/4-general/12-fern-help#post-9' },
           ],
         })
       );
@@ -198,6 +202,7 @@ describe('profileService', () => {
       expect(Object.keys(stats).sort()).toEqual(['forum_stats', 'recent_activity']);
       expect(stats.recent_activity.map((item) => item.url)).toEqual([
         '/forum/4-general/12-fern-help',
+        '/forum/4-general/12-fern-help#post-9',
       ]);
     });
 

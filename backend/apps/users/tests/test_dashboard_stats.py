@@ -122,6 +122,57 @@ class DashboardStatsForumTests(TestCase):
         self.assertTrue(all(ada_fragment in item["url"] for item in forum_items))
         self.assertFalse(any(bob_fragment in item["url"] for item in forum_items))
 
+    def test_a_taken_down_topics_reply_neither_counts_nor_lists(self):
+        # PR #821: the reply stays live=True when a moderator takes the TOPIC
+        # down; the forum hides it, so the dashboard must too.
+        other = User.objects.create_user(username="bea", password="TestPass123!")
+        gone = Topic.objects.create(
+            board=self.board, title="Gone", slug="gone", author=other, live=False
+        )
+        Post.objects.create(
+            topic=gone, author=self.user, is_opening_post=False, live=True
+        )
+
+        self.client.force_authenticate(user=self.user)
+        resp = self.client.get(DASHBOARD_URL)
+
+        self.assertEqual(resp.data["forum_stats"]["total_posts"], 0)
+        self.assertEqual(resp.data["recent_activity"], [])
+
+    def test_content_on_an_unpublished_board_is_hidden(self):
+        hidden = self.board.get_parent().add_child(
+            instance=ForumBoard(title="Staff", slug="staff")
+        )
+        hidden.unpublish()
+        topic = Topic.objects.create(
+            board=hidden, title="Secret", slug="secret", author=self.user, live=True
+        )
+        Post.objects.create(
+            topic=topic, author=self.user, is_opening_post=False, live=True
+        )
+
+        self.client.force_authenticate(user=self.user)
+        resp = self.client.get(DASHBOARD_URL)
+
+        self.assertEqual(resp.data["forum_stats"]["total_topics"], 0)
+        self.assertEqual(resp.data["forum_stats"]["total_posts"], 0)
+        self.assertEqual(resp.data["recent_activity"], [])
+
+    def test_a_reply_links_to_the_post_itself(self):
+        topic = self._topic("deep", live=True)
+        reply = Post.objects.create(
+            topic=topic, author=self.user, is_opening_post=False, live=True
+        )
+
+        self.client.force_authenticate(user=self.user)
+        resp = self.client.get(DASHBOARD_URL)
+
+        (item,) = [a for a in resp.data["recent_activity"] if a["type"] == "forum_post"]
+        self.assertEqual(
+            item["url"],
+            f"/forum/{self.board.id}-{self.board.slug}/{topic.id}-{topic.slug}#post-{reply.pk}",
+        )
+
     def test_payload_carries_no_plant_fields(self):
         # A row the old view would have counted and listed: an identified
         # request. Nothing in the app writes these (todo 411), so the payload
@@ -160,7 +211,9 @@ class DashboardStatsForumTests(TestCase):
             )
 
         self.client.force_authenticate(user=self.user)
-        with self.assertNumQueries(4):
+        # Five: the view-restriction lookup behind .public() (PR #821), two
+        # aggregates, two select_related lists.
+        with self.assertNumQueries(5):
             resp = self.client.get(DASHBOARD_URL)
 
         self.assertEqual(resp.status_code, 200)
