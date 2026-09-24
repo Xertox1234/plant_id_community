@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { E2E_TIMEOUTS, E2E_URLS } from './config.js';
 
 /**
  * Inline image upload in a REAL mounted composer — todo 357, AC 7/8
@@ -51,6 +52,8 @@ async function openComposer(page) {
 }
 
 const EDIT_URL = /\/api\/v1\/forum\/posts\/\d+\/$/;
+// Every request under the images API, detail routes included (PR #823).
+const IMAGES_API = /\/api\/v1\/forum\/images\//;
 
 /**
  * Save -> reopen round trip (todo 368): post a thread carrying one uploaded
@@ -64,9 +67,12 @@ const EDIT_URL = /\/api\/v1\/forum\/posts\/\d+\/$/;
  * the test instead of passing unnoticed.
  */
 async function imageRoundTrip(page, { alt }) {
-  const uploadRequests = [];
+  // ANY method, ANY images route: a PATCH/DELETE to images/<id>/ on edit is
+  // as much a regression as a second upload (AC 4, PR #823 review).
+  const imageRequests = [];
   page.on('request', (req) => {
-    if (UPLOAD_URL.test(req.url()) && req.method() === 'POST') uploadRequests.push(req);
+    if (IMAGES_API.test(req.url()))
+      imageRequests.push(`${req.method()} ${new URL(req.url()).pathname}`);
   });
 
   const stamp = `${Date.now()}`;
@@ -79,7 +85,9 @@ async function imageRoundTrip(page, { alt }) {
   const { form, editor } = await openComposer(page);
   // No ?category= -> the board picker (L4). The first real board will do.
   const picker = form.locator('#board-picker');
-  await expect(picker, 'no forum board found — run: manage.py seed_default_forum').toBeVisible();
+  await expect(picker, 'no forum board found — run: manage.py seed_default_forum').toBeVisible({
+    timeout: E2E_TIMEOUTS.PAGE_LOAD,
+  });
   await picker.selectOption({ index: 1 });
   await page.locator('#thread-title').fill(title);
   await editor.click();
@@ -101,8 +109,10 @@ async function imageRoundTrip(page, { alt }) {
 
   await form.getByRole('button', { name: 'Post Thread' }).click();
   // Clean prose auto-publishes -> redirect to the new topic.
-  await expect(page).toHaveURL(/\/forum\/\d+-[^/]+\/\d+-/, { timeout: 15000 });
-  await expect(page.getByRole('heading', { name: title })).toBeVisible();
+  await expect(page).toHaveURL(/\/forum\/\d+-[^/]+\/\d+-/, { timeout: E2E_TIMEOUTS.PAGE_LOAD });
+  await expect(page.getByRole('heading', { name: title })).toBeVisible({
+    timeout: E2E_TIMEOUTS.PAGE_LOAD,
+  });
 
   // --- 2. The rendered post ------------------------------------------------
   const post = page.locator('[id^="post-"]').filter({ hasText: bodyText });
@@ -114,9 +124,12 @@ async function imageRoundTrip(page, { alt }) {
   // `toHaveAttribute('alt', '')` needs the attribute PRESENT and empty — a
   // missing alt (screen reader reads the filename) fails it.
   await expect(rendered).toHaveAttribute('alt', expectedAlt);
-  // Absolute, on the media path — a relative `/media/...` src would resolve
-  // against the web origin (:5174) and 404.
-  await expect(rendered).toHaveAttribute('src', /^https?:\/\/[^/]+\/media\/images\//);
+  // Absolute, and NOT on the web origin — a relative `/media/...` src would
+  // resolve against :5174 and 404. Not pinned to `/media/`: with USE_R2 the
+  // rendition lives on the R2 custom domain (PR #823 review).
+  const src = await rendered.getAttribute('src');
+  expect(src).toMatch(/^https?:\/\//);
+  expect(new URL(src).origin).not.toBe(new URL(E2E_URLS.FRONTEND).origin);
   // And it actually decodes: the browser fetched real image bytes from that
   // URL (a 404 or HTML error page leaves naturalWidth at 0).
   await expect
@@ -125,7 +138,9 @@ async function imageRoundTrip(page, { alt }) {
 
   // --- 3. Reopen for edit ---------------------------------------------------
   await post.getByTitle('Edit post').click();
-  const editForm = page.locator('form').filter({ has: page.getByRole('button', { name: 'Save' }) });
+  const editForm = page
+    .locator('form')
+    .filter({ has: page.getByRole('button', { name: 'Save', exact: true }) });
   const editEditor = editForm.locator('.ProseMirror');
   await expect(editEditor).toContainText(bodyText);
   const rehydrated = editEditor.locator('img[data-image-id]');
@@ -149,7 +164,7 @@ async function imageRoundTrip(page, { alt }) {
   await page.keyboard.type(editedText);
   const [editRequest] = await Promise.all([
     page.waitForRequest((r) => EDIT_URL.test(r.url()) && r.method() === 'PATCH'),
-    editForm.getByRole('button', { name: 'Save' }).click(),
+    editForm.getByRole('button', { name: 'Save', exact: true }).click(),
   ]);
   const imageBlocks = editRequest.postDataJSON().body.filter((b) => b.type === 'image');
   // The re-save carries the SAME image reference with the SAME alt pair —
@@ -163,13 +178,24 @@ async function imageRoundTrip(page, { alt }) {
   ]);
 
   const savedPost = page.locator('[id^="post-"]').filter({ hasText: editedText });
-  await expect(savedPost).toHaveCount(1, { timeout: 15000 });
-  const reRendered = savedPost.locator('img[src*="max-1200x1200"]');
+  await expect(savedPost).toHaveCount(1, { timeout: E2E_TIMEOUTS.PAGE_LOAD });
+
+  // Reload: the PATCH response is what the page shows until now, so only a
+  // fresh GET exercises the list serializer's image map after an edit.
+  await page.reload();
+  const reloaded = page.locator('[id^="post-"]').filter({ hasText: editedText });
+  await expect(reloaded).toHaveCount(1, { timeout: E2E_TIMEOUTS.PAGE_LOAD });
+  // The text was REPLACED, not appended (a missed triple-click would append).
+  await expect(page.locator('[id^="post-"]').filter({ hasText: bodyText })).toHaveCount(0);
+  const reRendered = reloaded.locator('img[src*="max-1200x1200"]');
   await expect(reRendered).toHaveCount(1);
   await expect(reRendered).toHaveAttribute('alt', expectedAlt);
+  await expect
+    .poll(() => reRendered.evaluate((img) => img.complete && img.naturalWidth))
+    .toBeGreaterThan(0);
 
-  // ONE upload for the whole flow: post + reopen + re-save issued zero more.
-  expect(uploadRequests).toHaveLength(1);
+  // ONE images-API request for the whole flow — the upload — and nothing else.
+  expect(imageRequests).toEqual(['POST /api/v1/forum/images/']);
 }
 
 test.describe('Forum inline image upload', () => {

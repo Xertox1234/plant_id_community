@@ -152,3 +152,24 @@ already cost this feature once.
   line-end key in a macOS Chromium contenteditable, so the appended text landed
   one character early. Replaced with a triple-click-and-retype of the text
   paragraph.
+
+### 2026-09-24 - Review round 1 (bundled /code-review, PR #823): 5 repaired
+
+- **AC 4 was enforced more narrowly than written.** The count covered only
+  `POST /forum/images/`; a PATCH/DELETE to `images/<id>/` on edit would have
+  passed. The helper now records EVERY request under `/api/v1/forum/images/`
+  and asserts the whole flow made exactly `['POST /api/v1/forum/images/']`.
+- **The re-save check read the PATCH response, not a fresh GET.** It now
+  reloads, re-asserts the alt and that the image decodes, and asserts the
+  original text is gone (a missed triple-click would have appended).
+- The src check no longer pins `/media/images/` (R2 serves renditions from
+  its custom domain): absolute and not on the web origin.
+- Waits on fetched data use `E2E_TIMEOUTS.PAGE_LOAD` (docs/rules/testing.md);
+  `Save` is matched `exact: true` (the composer also renders "Save alt text").
+- Ran BOTH authenticated projects (the spec is registered in both):
+  `--project=chromium-authenticated` → `7 passed (10.9s)`;
+  `--project=firefox-authenticated` → `7 passed (15.4s)`.
+- Filed todo 441: the review found `bodyBlocksToHtml` escapes only `"` in
+  alt text, so an alt containing `&amp;`-style entities is rewritten on
+  edit (a real bug this ASCII-alt test can't see), plus the duplicated
+  request-counting/attach helpers in this spec.
