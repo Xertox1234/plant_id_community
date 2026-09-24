@@ -337,7 +337,13 @@ Compact checklist auto-injected before edits. Long-form: `backend/docs/patterns/
   production requirements without checking for a stable sibling — Dependabot
   proposed `Twisted==26.4.0rc2` with green CI while 26.4.0 stable existed.
   `pip install --dry-run -r <file>` proves resolution in seconds without
-  touching the venv; it does not prove behaviour (todo 354).
+  touching the venv; it does not prove behaviour (todo 354). The reverse also
+  happens: a Dependabot PR bumps ONE line of the flat freeze, so when the fix
+  version raises a transitive's floor or adds dependencies it fails
+  `ResolutionImpossible` and the advisory stays open. Pin every new or raised
+  entry from its `requires_dist` in the same PR (#784: autobahn 26.7.1 needed
+  txaio, cbor2, ujson). There, a red "No new dependency advisories" means
+  pip-audit could not install, not that it found a new advisory.
 - **In `validate_environment()`, classify by consequence, not confidence:
   anything that lets the service boot and serve wrong or empty data goes in
   `critical_errors` (fatal when `not DEBUG`), never `warnings`.** "SQLite while

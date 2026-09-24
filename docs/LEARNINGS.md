@@ -6416,3 +6416,40 @@ nothing when every use is prefixed. Treat a "does not exist" finding as a claim
 to reproduce, the same as any other.
 
 **Agent**: react-typescript-reviewer
+
+## 2026-09-24 — A Dependabot security fix sat red for two days on a flat freeze (#784)
+
+Dependabot opened #784 to fix GHSA-hxp9-w8x3-p566, a WebSocket
+decompression-bomb DoS in autobahn. The patched version, `autobahn==26.7.1`, is
+a major. The PR changed one line of `backend/requirements.txt`, and three
+checks failed at install:
+`autobahn 26.7.1 depends on txaio>=25.12.2` against the frozen
+`txaio==25.9.2`. Its siblings #781 (soupsieve) and #782 (anyio, a *critical*
+GHSA-82r6-8w77-94w6) were green but had been open since 2026-09-18. They merged
+the moment someone read them.
+
+**Root cause.** `requirements.txt` is a flat freeze. Every transitive is pinned
+exactly and nothing floats. Dependabot's security updates edit only the
+vulnerable package's line. When the fix version raises a transitive's floor or
+adds new dependencies, the PR is unresolvable by construction. Here
+autobahn 26.7.1 also added `cbor2` and `ujson`, which were not pinned at all.
+The 2026-09-07 (todo 363) "check the new major's whole `requires_dist` at once" lesson
+applies here too, but it was written for a hand-driven upgrade. This is the
+same trap arriving from the bot.
+
+**Misleading signal.** "No new dependency advisories" was red too. Its log
+ended in `pip-audit produced no report`: pip-audit resolves the requirements
+in a throwaway venv, hit the same `ResolutionImpossible`, and emitted nothing.
+Read the end of that job's log before treating it as a new advisory.
+
+**Fix.** On the Dependabot branch, pin `txaio==26.6.1`, `cbor2==6.1.4` and
+`ujson==6.0.0`. That set came from diffing 26.7.1's `requires_dist` against the
+freeze, recursively for the new entries. It was verified with
+`pip install -r` in a fresh 3.13 venv, then `pip check`, then a `pip freeze`
+comparison showing no unpinned transitive crept in.
+
+**Also:** the alerts are reported twice, once against `requirements.txt` and
+once against `requirements-dev.txt`. The dev file has no pins; it is a
+`-r requirements.txt` overlay, so fixing the one pin closes both alerts. And
+`gh pr merge --auto` refuses a PR that is already `CLEAN`
+(`Pull request is in clean status`). Merge it directly.
