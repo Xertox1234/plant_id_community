@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: p3
 issue_id: "419"
 tags: [backend, security, middleware, cleanup]
@@ -59,12 +59,12 @@ findings. The two blockers were fixed in the slice: comments rendered through
 
 ## Acceptance Criteria
 
-- [ ] Tracked failed logins carry the attempted username, and a test asserts
+- [x] Tracked failed logins carry the attempted username, and a test asserts
       the argument.
-- [ ] The security-metrics write is bounded (or removed), with a test.
-- [ ] The Firebase token exchange is covered by tracking, or its exclusion is
+- [x] The security-metrics write is bounded (or removed), with a test.
+- [x] The Firebase token exchange is covered by tracking, or its exclusion is
       stated.
-- [ ] Items 4–6 are done, or each is closed with a reason.
+- [x] Items 4–6 are done, or each is closed with a reason.
 
 ## Work Log
 
@@ -73,3 +73,43 @@ findings. The two blockers were fixed in the slice: comments rendered through
 Round 1 of bundled `/code-review`: 10 findings. Two were blocking and fixed in
 the slice PR; findings 3–8 are collected here. Finding 9 (the template-fetch
 test did not pin the `pk` kwarg) was a one-line test fix, done in the slice.
+
+### 2026-09-24 - Done: items 1-5 fixed, item 6 closed with a reason
+
+- **Item 1 (hypothesis confirmed, then fixed).** Before the change, a JSON
+  login 401 reached `track_failed_login('127.0.0.1', None)`. Two causes: the
+  extraction's `elif` chain gave up once the stream was read, and nothing
+  guaranteed the body was still readable. `SecurityMiddleware` now reads
+  `request.body` for a tracked auth POST before the view runs (Django caches
+  it, DRF parses from the cache). `_attempted_username` then reads form or
+  JSON, returns only a non-empty `str`, and caps it at 150 characters.
+  Tests: `test_rejected_v1_login_is_tracked` now asserts `(ANY, "nobody")`
+  and failed before; `test_middleware_keeps_the_username_when_the_view_consumes_the_stream`
+  pins the pre-read itself, because the end-to-end test also passed with the
+  pre-read removed (something upstream in the test client caches the body).
+  Mutation, dropping the pre-read: the stream test goes red.
+- **Item 2.** The `security_metrics:*` cache write is removed. Nothing read
+  it, and it was unbounded (TTL reset per write, growing raw-IP set, lost
+  updates). The middleware keeps only its slow-request warning. Test:
+  `test_security_metrics_keep_no_per_endpoint_cache_state` failed before
+  (the key held `unique_ips: ['127.0.0.1']`).
+- **Item 3.** `/api/v1/auth/firebase-token-exchange/` is in both lists. Its
+  401s count per IP (there is no username). Test:
+  `test_rejected_firebase_token_exchange_is_tracked` failed before; mutation,
+  dropping it from the tuple: red.
+- **Item 4.** Both tuples moved to `apps/core/constants.py` (re-exported from
+  their old modules). Matching `view_name` instead of literals: **not done**.
+  The pin test already fails CI for any entry that isn't a real route, which
+  is the drift this item was about; changing the matching strategy of two
+  security middlewares is more risk than that residue is worth.
+- **Item 5.** Deleted `backend/static/blog/js/plant_block_autopop.js`
+  (`git grep` found no loader). Fixed the `api_schema.py` docstring and the
+  two `/api/auth/login/` request paths in `test_ip_spoofing_protection.py`.
+- **Item 6: closed, not changed.** `BlogSeriesSerializer.posts_url` reverses
+  `v1:blog:blog-series-posts`. The route exists only under the `v1`
+  namespace (v2 is Wagtail's), so following `request.version` changes
+  nothing today. DRF's `reverse(..., request=request)` also falls back to
+  the unversioned name when the request has no versioning scheme (the
+  serializer's own test passes a plain `RequestFactory` request), and that
+  name doesn't exist.
+- `pytest apps/core apps/users --create-db`: 1580 passed. flake8 clean.

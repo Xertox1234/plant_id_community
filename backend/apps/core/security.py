@@ -23,6 +23,9 @@ from django.core.mail import send_mail
 from django.http import HttpRequest, HttpResponse
 from django.utils import timezone
 
+# Defined in constants (todo 419); re-exported for existing importers.
+from .constants import FAILED_AUTH_TRACKED_PATHS
+
 # Import security constants
 try:
     from .constants import (
@@ -64,12 +67,10 @@ except ImportError:
 
 logger = logging.getLogger(__name__)
 
-# Exact paths whose 401 responses SecurityMiddleware counts as a failed login
-# (SecurityMonitor.track_failed_login). Each must be a real route (pinned in
-# apps/core/tests/test_legacy_api_mount_removed.py). Only a 401 is a rejected
-# credential: register's 400s are form validation and a 403 is CSRF, and
-# counting either would raise false brute-force alerts.
-FAILED_AUTH_TRACKED_PATHS = ("/api/v1/auth/login/",)
+
+# Longest attempted username passed to the tracker; anything longer is not a
+# username anyone has, and it lands in log lines.
+MAX_TRACKED_USERNAME_LENGTH = 150
 
 User = get_user_model()
 
@@ -604,6 +605,22 @@ class SecurityMiddleware:
 
     def _pre_request_checks(self, request: HttpRequest) -> None:
         """Perform security checks before processing request."""
+        # Cache the body of a tracked auth POST before DRF consumes the
+        # stream. Django keeps it on the request (HttpRequest.body), and DRF
+        # then parses from that cached copy; without this, the view reads the
+        # stream and the 401 tracking below can never see the username
+        # (todo 419 item 1). Tracked bodies are small JSON credentials.
+        if request.method == "POST" and request.path in FAILED_AUTH_TRACKED_PATHS:
+            try:
+                request.body
+            except Exception as exc:
+                # Too big / unreadable: the view reports its own error; the
+                # tracker just gets no username.
+                logger.debug(
+                    "%s could not cache auth request body: %s",
+                    LOG_PREFIX_SECURITY,
+                    exc,
+                )
         # Track API requests for rate limiting
         if request.path.startswith("/api/"):
             SecurityMonitor.track_api_request(
@@ -624,43 +641,29 @@ class SecurityMiddleware:
         if request.path in FAILED_AUTH_TRACKED_PATHS and response.status_code == 401:
             ip_address = SecurityMonitor._get_client_ip(request)
 
-            # Safely extract username from request data
-            username = None
-            try:
-                # Try POST data first (form data)
-                if hasattr(request, "POST") and request.POST:
-                    username = request.POST.get("username")
-                # Try parsed JSON data (if available from DRF)
-                elif hasattr(request, "data") and hasattr(request.data, "get"):
-                    try:
-                        username = request.data.get("username")
-                    except (AttributeError, TypeError):
-                        pass
-                # Only try body access if request stream hasn't been read yet
-                elif hasattr(request, "_read_started") and not request._read_started:
-                    try:
-                        if hasattr(request, "body") and request.body:
-                            import json
+            SecurityMonitor.track_failed_login(
+                ip_address, self._attempted_username(request)
+            )
 
-                            data = json.loads(request.body.decode("utf-8"))
-                            username = data.get("username")
-                    except Exception as exc:
-                        # Best-effort body parse (may be non-JSON / already
-                        # consumed). Swallow so tracking never breaks the
-                        # response, but don't do it silently.
-                        logger.debug(
-                            "%s username extraction from request body failed: %s",
-                            LOG_PREFIX_SECURITY,
-                            exc,
-                        )
-            except Exception as exc:
-                # Fallback: never let username extraction break the response.
-                logger.debug(
-                    "%s username extraction failed: %s", LOG_PREFIX_SECURITY, exc
-                )
-                username = None
+    @staticmethod
+    def _attempted_username(request: HttpRequest) -> Optional[str]:
+        """The username a rejected auth request tried, or None.
 
-            SecurityMonitor.track_failed_login(ip_address, username)
+        Reads the body cached by _pre_request_checks (form or JSON). Never
+        raises: tracking must not break the response.
+        """
+        try:
+            if request.POST:
+                value = request.POST.get("username")
+            else:
+                data = json.loads(request.body.decode("utf-8"))
+                value = data.get("username") if isinstance(data, dict) else None
+        except Exception as exc:
+            logger.debug("%s username extraction failed: %s", LOG_PREFIX_SECURITY, exc)
+            return None
+        if not isinstance(value, str) or not value:
+            return None
+        return value[:MAX_TRACKED_USERNAME_LENGTH]
 
 
 # Utility functions for use in views

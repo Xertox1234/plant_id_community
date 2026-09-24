@@ -186,7 +186,10 @@ class SecurityPathListsTests(TestCase):
         )
 
         self.assertEqual(response.status_code, 401)
-        track.assert_called_once()
+        # Todo 419 item 1: the attempted username reaches the tracker. The
+        # middleware sees a WSGIRequest whose JSON body DRF has already read,
+        # so without caching the body first this was always None.
+        track.assert_called_once_with(mock.ANY, "nobody")
 
     def test_login_validation_error_is_not_tracked(self):
         # A 400 is a malformed form, not a rejected credential.
@@ -204,3 +207,51 @@ class SecurityPathListsTests(TestCase):
 
         self.assertEqual(response.status_code, 400)
         track.assert_not_called()
+
+    def test_rejected_firebase_token_exchange_is_tracked(self):
+        # Todo 419 item 3: every mobile sign-in goes through the exchange, so
+        # a stream of rejected tokens from one IP is the mobile brute force.
+        response, track = self._post_tracked(
+            "/api/v1/auth/firebase-token-exchange/",
+            {"firebase_token": "not-a-real-token", "email": "a@example.com"},
+        )
+
+        self.assertEqual(response.status_code, 401)
+        track.assert_called_once_with(mock.ANY, None)  # no username to report
+
+    def test_security_metrics_keep_no_per_endpoint_cache_state(self):
+        # Todo 419 item 2: the write was unbounded (TTL reset on every hit, a
+        # growing raw-IP set, lost updates) and nothing read it.
+        cache.clear()
+        APIClient().post(
+            "/api/v1/auth/login/",
+            {"username": "nobody", "password": "wrong"},  # pragma: allowlist secret
+            format="json",
+        )
+
+        self.assertIsNone(cache.get("security_metrics:/api/v1/auth/login/:POST"))
+
+    def test_middleware_keeps_the_username_when_the_view_consumes_the_stream(self):
+        # Pins the pre-read (todo 419 item 1) independently of the test
+        # client: a view that reads the raw stream, as DRF's parser does,
+        # leaves request.body unreadable unless the middleware cached it.
+        import json as _json
+
+        from apps.core.security import SecurityMiddleware
+        from django.http import HttpResponse
+
+        def view(request):
+            request.read()  # consume the stream, like DRF's JSONParser
+            return HttpResponse(status=401)
+
+        request = RequestFactory().post(
+            "/api/v1/auth/login/",
+            data=_json.dumps({"username": "stream-reader"}),
+            content_type="application/json",
+        )
+        with mock.patch(
+            "apps.core.security.SecurityMonitor.track_failed_login"
+        ) as track:
+            SecurityMiddleware(view)(request)
+
+        track.assert_called_once_with(mock.ANY, "stream-reader")
