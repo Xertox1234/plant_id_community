@@ -228,6 +228,56 @@ describe('CommandPalette', () => {
     }
   });
 
+  // --- focus trap (todo 400) --------------------------------------------------
+
+  it('Tab from the last row wraps to the input', async () => {
+    renderPalette();
+    const input = getInput();
+    expect(input).toHaveFocus();
+    screen.getByRole('link', { name: 'Start a thread' }).focus();
+
+    await userEvent.tab();
+    expect(input).toHaveFocus();
+  });
+
+  it('Shift+Tab from the input wraps to the last row', async () => {
+    renderPalette();
+    expect(getInput()).toHaveFocus();
+
+    await userEvent.tab({ shift: true });
+    expect(screen.getByRole('link', { name: 'Start a thread' })).toHaveFocus();
+  });
+
+  it('Tab with focus outside the panel (e.g. on <body>) pulls it back inside', async () => {
+    render(
+      <MemoryRouter>
+        <button>Behind the palette</button>
+        <CommandPalette open onClose={vi.fn()} />
+      </MemoryRouter>
+    );
+    (document.activeElement as HTMLElement).blur();
+    expect(document.body).toHaveFocus();
+
+    await userEvent.tab();
+    expect(getInput()).toHaveFocus();
+  });
+
+  it('returns focus to the trigger on close', () => {
+    const trigger = document.createElement('button');
+    document.body.appendChild(trigger);
+    trigger.focus();
+    const { rerender } = renderPalette();
+    expect(getInput()).toHaveFocus();
+
+    rerender(
+      <MemoryRouter>
+        <CommandPalette open={false} onClose={vi.fn()} />
+      </MemoryRouter>
+    );
+    expect(trigger).toHaveFocus();
+    trigger.remove();
+  });
+
   it('Escape calls onClose', () => {
     const { onClose } = renderPalette();
     fireEvent.keyDown(document, { key: 'Escape' });

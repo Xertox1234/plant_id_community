@@ -85,6 +85,21 @@ const renderPage = () =>
     </ThemeProvider>
   );
 
+/**
+ * Every section fetches on mount. A whole-page test that asserts and returns
+ * before those fetches land gets their state updates after it ends, outside
+ * act() (todo 400 item 3). Wait for each section's settled state, with the
+ * defaults the theme-control beforeEach seeds.
+ */
+const renderPageSettled = async () => {
+  renderPage();
+  expect(await screen.findByText("You haven't blocked anyone.")).toBeInTheDocument();
+  expect(await screen.findByText("You haven't muted anyone.")).toBeInTheDocument();
+  expect(await screen.findByLabelText('Frequency')).toHaveValue('off');
+  expect(await screen.findByRole('checkbox', { name: 'Push for Mentions' })).toBeInTheDocument();
+  expect(await screen.findByTestId('forum-images-empty')).toBeInTheDocument();
+};
+
 describe('SettingsPage theme controls', () => {
   beforeEach(() => {
     localStorage.clear();
@@ -98,19 +113,19 @@ describe('SettingsPage theme controls', () => {
     vi.mocked(forumService.fetchMyForumProfile).mockResolvedValue({ ...myProfile });
   });
 
-  it('renders no palette controls', () => {
-    renderPage();
+  it('renders no palette controls', async () => {
+    await renderPageSettled();
     expect(screen.queryByRole('button', { name: /loam/i })).toBeNull();
   });
 
   it('changing density applies it to <html>', async () => {
-    renderPage();
+    await renderPageSettled();
     await userEvent.click(screen.getByRole('button', { name: /compact/i }));
     expect(document.documentElement).toHaveAttribute('data-density', 'compact');
   });
 
   it('dark toggle flips mode on <html>', async () => {
-    renderPage();
+    await renderPageSettled();
     await userEvent.click(screen.getByRole('button', { name: /light/i }));
     expect(document.documentElement).toHaveAttribute('data-mode', 'light');
   });

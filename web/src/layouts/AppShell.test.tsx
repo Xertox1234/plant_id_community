@@ -190,6 +190,41 @@ describe('AppShell', () => {
     expect(screen.queryByRole('dialog', { name: 'Menu' })).not.toBeInTheDocument();
   });
 
+  // --- drawer focus trap (todo 400) -------------------------------------------
+
+  it('drawer: Tab from the last control wraps to the first instead of leaving', async () => {
+    renderShell();
+    await userEvent.click(screen.getByRole('button', { name: 'Open menu' }));
+    const dialog = screen.getByRole('dialog', { name: 'Menu' });
+    within(dialog)
+      .getByRole('link', { name: /log in/i })
+      .focus();
+
+    await userEvent.tab();
+    expect(within(dialog).getByRole('link', { name: 'Houseplant MD home' })).toHaveFocus();
+  });
+
+  it('drawer: Shift+Tab from the first control wraps to the last', async () => {
+    renderShell();
+    await userEvent.click(screen.getByRole('button', { name: 'Open menu' }));
+    const dialog = screen.getByRole('dialog', { name: 'Menu' });
+    within(dialog).getByRole('link', { name: 'Houseplant MD home' }).focus();
+
+    await userEvent.tab({ shift: true });
+    expect(within(dialog).getByRole('link', { name: /log in/i })).toHaveFocus();
+  });
+
+  it('drawer: focus moves to Close menu on open and back to Open menu on Escape', async () => {
+    renderShell();
+    const trigger = screen.getByRole('button', { name: 'Open menu' });
+    await userEvent.click(trigger);
+    expect(screen.getByRole('button', { name: 'Close menu' })).toHaveFocus();
+
+    await userEvent.keyboard('{Escape}');
+    expect(screen.queryByRole('dialog', { name: 'Menu' })).not.toBeInTheDocument();
+    expect(trigger).toHaveFocus();
+  });
+
   it('open drawer has dialog role with aria-modal', async () => {
     renderShell();
     await userEvent.click(screen.getByRole('button', { name: 'Open menu' }));

@@ -1,5 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { useState } from 'react';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import EditHistoryDialog from './EditHistoryDialog';
 import { ForumApiError } from '../../services/forumService';
 
@@ -117,5 +119,67 @@ describe('EditHistoryDialog', () => {
     fireEvent.keyDown(document, { key: 'Escape' });
 
     expect(onClose).toHaveBeenCalled();
+  });
+
+  // --- focus: trapped, restored once per open (todo 400) ----------------------
+
+  // Controls on BOTH sides of the dialog, so a Tab that escapes has somewhere to
+  // land. Rendered alone, jsdom's Tab wraps to the dialog's first control by
+  // itself and the trap tests would pass without a trap.
+  function Harness() {
+    const [open, setOpen] = useState(false);
+    const [ticks, setTicks] = useState(0);
+    return (
+      <>
+        <button onClick={() => setOpen(true)}>Open history</button>
+        <span data-testid="ticks">{ticks}</span>
+        {/* Inline onClose: a new identity on every parent render. */}
+        <EditHistoryDialog open={open} postId="7" onClose={() => setOpen(false)} />
+        {open && <button onClick={() => setTicks((t) => t + 1)}>Rerender parent</button>}
+      </>
+    );
+  }
+
+  const openHarness = async () => {
+    render(<Harness />);
+    const trigger = screen.getByRole('button', { name: 'Open history' });
+    trigger.focus();
+    await userEvent.click(trigger);
+    await screen.findAllByRole('button', { name: /View/ });
+    return trigger;
+  };
+
+  it('Tab from the last revision row wraps to Close instead of leaving the dialog', async () => {
+    await openHarness();
+    const rows = screen.getAllByRole('button', { name: /View/ });
+    rows[rows.length - 1].focus();
+
+    await userEvent.tab();
+    expect(screen.getByRole('button', { name: 'Close' })).toHaveFocus();
+  });
+
+  it('Shift+Tab from Close wraps to the last revision row', async () => {
+    await openHarness();
+    expect(screen.getByRole('button', { name: 'Close' })).toHaveFocus();
+
+    await userEvent.tab({ shift: true });
+    const rows = screen.getAllByRole('button', { name: /View/ });
+    expect(rows[rows.length - 1]).toHaveFocus();
+  });
+
+  it('a parent re-render while open neither moves focus nor loses the trigger', async () => {
+    const trigger = await openHarness();
+    const row = screen.getAllByRole('button', { name: /View/ })[0];
+    row.focus();
+
+    // fireEvent, not userEvent: the click must not move focus by itself, so
+    // any focus change is the effect re-running on the new onClose identity.
+    fireEvent.click(screen.getByRole('button', { name: 'Rerender parent' }));
+    expect(screen.getByTestId('ticks')).toHaveTextContent('1');
+    expect(row).toHaveFocus();
+
+    fireEvent.keyDown(document, { key: 'Escape' });
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(trigger).toHaveFocus();
   });
 });
