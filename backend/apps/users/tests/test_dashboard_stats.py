@@ -1,5 +1,12 @@
-"""Tests for the dashboard_stats endpoint's forum portion (wagtail_forum)."""
+"""Tests for the dashboard_stats endpoint (wagtail_forum aggregates only).
 
+Todo 411 removed the plant block (``plant_stats``, ``plant_identification``
+activity entries and ``total_activity_score``): it read
+``PlantIdentificationRequest`` / ``SavedCareInstructions``, whose only writer
+is the broken demo seeder (todo 412), so every value was a permanent zero.
+"""
+
+from apps.plant_identification.models import PlantIdentificationRequest
 from django.contrib.auth import get_user_model
 from django.test import TestCase
 from rest_framework.test import APIClient
@@ -114,3 +121,101 @@ class DashboardStatsForumTests(TestCase):
         bob_fragment = f"{bob_topic.id}-{bob_topic.slug}"
         self.assertTrue(all(ada_fragment in item["url"] for item in forum_items))
         self.assertFalse(any(bob_fragment in item["url"] for item in forum_items))
+
+    def test_a_taken_down_topics_reply_neither_counts_nor_lists(self):
+        # PR #821: the reply stays live=True when a moderator takes the TOPIC
+        # down; the forum hides it, so the dashboard must too.
+        other = User.objects.create_user(username="bea", password="TestPass123!")
+        gone = Topic.objects.create(
+            board=self.board, title="Gone", slug="gone", author=other, live=False
+        )
+        Post.objects.create(
+            topic=gone, author=self.user, is_opening_post=False, live=True
+        )
+
+        self.client.force_authenticate(user=self.user)
+        resp = self.client.get(DASHBOARD_URL)
+
+        self.assertEqual(resp.data["forum_stats"]["total_posts"], 0)
+        self.assertEqual(resp.data["recent_activity"], [])
+
+    def test_content_on_an_unpublished_board_is_hidden(self):
+        hidden = self.board.get_parent().add_child(
+            instance=ForumBoard(title="Staff", slug="staff")
+        )
+        hidden.unpublish()
+        topic = Topic.objects.create(
+            board=hidden, title="Secret", slug="secret", author=self.user, live=True
+        )
+        Post.objects.create(
+            topic=topic, author=self.user, is_opening_post=False, live=True
+        )
+
+        self.client.force_authenticate(user=self.user)
+        resp = self.client.get(DASHBOARD_URL)
+
+        self.assertEqual(resp.data["forum_stats"]["total_topics"], 0)
+        self.assertEqual(resp.data["forum_stats"]["total_posts"], 0)
+        self.assertEqual(resp.data["recent_activity"], [])
+
+    def test_a_reply_links_to_the_post_itself(self):
+        topic = self._topic("deep", live=True)
+        reply = Post.objects.create(
+            topic=topic, author=self.user, is_opening_post=False, live=True
+        )
+
+        self.client.force_authenticate(user=self.user)
+        resp = self.client.get(DASHBOARD_URL)
+
+        (item,) = [a for a in resp.data["recent_activity"] if a["type"] == "forum_post"]
+        self.assertEqual(
+            item["url"],
+            f"/forum/{self.board.id}-{self.board.slug}/{topic.id}-{topic.slug}#post-{reply.pk}",
+        )
+
+    def test_payload_carries_no_plant_fields(self):
+        # A row the old view would have counted and listed: an identified
+        # request. Nothing in the app writes these (todo 411), so the payload
+        # must not expose fields that can only ever read zero.
+        PlantIdentificationRequest.objects.create(
+            user=self.user,
+            image_1="plants/identifications/never-written.jpg",
+            status="identified",
+        )
+        live_topic = self._topic("with-plant", live=True)
+        Post.objects.create(
+            topic=live_topic, author=self.user, is_opening_post=True, live=True
+        )
+
+        self.client.force_authenticate(user=self.user)
+        resp = self.client.get(DASHBOARD_URL)
+
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(set(resp.data), {"forum_stats", "recent_activity"})
+        self.assertNotIn("plant_stats", resp.data)
+        self.assertNotIn("total_activity_score", resp.data)
+        self.assertEqual(
+            {item["type"] for item in resp.data["recent_activity"]}, {"forum_topic"}
+        )
+
+    def test_query_count_is_constant(self):
+        # Several topics and replies: select_related keeps the recent-activity
+        # lists from issuing a query per row. Restriction lookup + 2 aggregates +
+        # 2 recent lists.
+        for n in range(3):
+            topic = self._topic(f"topic-{n}", live=True)
+            Post.objects.create(
+                topic=topic, author=self.user, is_opening_post=True, live=True
+            )
+            Post.objects.create(
+                topic=topic, author=self.user, is_opening_post=False, live=True
+            )
+
+        self.client.force_authenticate(user=self.user)
+        # Five: the view-restriction lookup behind .public() (PR #821), two
+        # aggregates, two select_related lists.
+        with self.assertNumQueries(5):
+            resp = self.client.get(DASHBOARD_URL)
+
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(len(resp.data["recent_activity"]), 4)

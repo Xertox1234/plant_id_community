@@ -2,6 +2,7 @@ import { useEffect, useState, type FormEvent } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import Input from '../components/ui/Input';
 import Button from '../components/ui/Button';
+import ProfileStats from '../components/profile/ProfileStats';
 import { fetchProfile, updateProfile } from '../services/profileService';
 import type { ProfileUpdate, UserProfile } from '../types/auth';
 
@@ -33,7 +34,17 @@ function formFrom(profile: UserProfile): Required<ProfileUpdate> {
  * Soon"). Email is shown read-only on purpose. Changing it needs
  * re-verification, which the backend does not do yet.
  */
+/**
+ * Keyed on the signed-in user (docs/rules/react.md): an account switch
+ * remounts the form AND the stats, so a save can never diff against the
+ * previous account's profile (PR #821 review).
+ */
 export default function ProfilePage() {
+  const { user } = useAuth();
+  return <ProfilePageContent key={user?.id} />;
+}
+
+function ProfilePageContent() {
   const { user } = useAuth();
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [form, setForm] = useState<Required<ProfileUpdate>>(EMPTY_FORM);
@@ -197,6 +208,8 @@ export default function ProfilePage() {
           </form>
         )}
       </div>
+
+      <ProfileStats />
     </div>
   );
 }

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { fetchProfile, updateProfile } from './profileService';
+import { fetchDashboardStats, fetchProfile, updateProfile } from './profileService';
 import { clearCsrfToken, getCsrfToken } from '../utils/csrf';
 import {
   CSRF_FAILED_BODY,
@@ -130,5 +130,96 @@ describe('profileService', () => {
     adapter.mockImplementation(async (config) => ok(config, '<html>challenge</html>'));
 
     await expect(fetchProfile()).rejects.toThrow();
+  });
+
+  describe('fetchDashboardStats (todo 411)', () => {
+    const forumStats = {
+      total_topics: 3,
+      total_posts: 7,
+      topics_this_month: 1,
+      posts_this_month: 2,
+    };
+    const topicItem = {
+      type: 'forum_topic',
+      title: 'Created topic: Fern help',
+      description: 'in General',
+      timestamp: '2026-09-20T10:00:00Z',
+      url: '/forum/4-general/12-fern-help',
+      icon: 'message-circle',
+    };
+
+    it('reads /api/v1/auth/me/dashboard-stats/ with cookies', async () => {
+      adapter.mockImplementation(async (config) =>
+        ok(config, { forum_stats: forumStats, recent_activity: [topicItem] })
+      );
+
+      await expect(fetchDashboardStats()).resolves.toEqual({
+        forum_stats: forumStats,
+        recent_activity: [
+          {
+            type: 'forum_topic',
+            title: 'Created topic: Fern help',
+            description: 'in General',
+            timestamp: '2026-09-20T10:00:00Z',
+            url: '/forum/4-general/12-fern-help',
+          },
+        ],
+      });
+      const config = adapter.mock.calls[0][0];
+      expect(config.method).toBe('get');
+      expect(fullUrl(config)).toMatch(/\/api\/v1\/auth\/me\/dashboard-stats\/$/);
+      expect(config.withCredentials).toBe(true);
+    });
+
+    it('never passes on the removed plant fields or non-forum activity', async () => {
+      // An older server still sends the plant block. None of it may reach the page.
+      adapter.mockImplementation(async (config) =>
+        ok(config, {
+          plant_stats: { total_identified: 5, saved_care_cards: 2 },
+          total_activity_score: 99,
+          forum_stats: forumStats,
+          recent_activity: [
+            {
+              type: 'plant_identification',
+              title: 'Identified plant',
+              description: 'Successfully identified a plant species',
+              timestamp: '2026-09-21T10:00:00Z',
+              url: '/identify/0b8e',
+            },
+            topicItem,
+            { ...topicItem, type: 'forum_post', url: 'https://evil.example/forum/1-x/2-y' },
+            { ...topicItem, type: 'badge_award', url: '/forum/4-general/99-badges' },
+            // PR #821: a prefix match let dot-segments resolve elsewhere.
+            { ...topicItem, url: '/forum/../identify/0b8e' },
+            { ...topicItem, url: '/forum/4-general/../../logout' },
+            { ...topicItem, type: 'forum_post', url: '/forum/4-general/12-fern-help#post-9' },
+          ],
+        })
+      );
+
+      const stats = await fetchDashboardStats();
+
+      expect(Object.keys(stats).sort()).toEqual(['forum_stats', 'recent_activity']);
+      expect(stats.recent_activity.map((item) => item.url)).toEqual([
+        '/forum/4-general/12-fern-help',
+        '/forum/4-general/12-fern-help#post-9',
+      ]);
+    });
+
+    it('rejects a body that is not the stats shape', async () => {
+      adapter.mockImplementation(async (config) => ok(config, { recent_activity: [] }));
+
+      await expect(fetchDashboardStats()).rejects.toThrow(/unexpected/i);
+    });
+
+    it('surfaces the server error message', async () => {
+      adapter.mockImplementation(async (config) => {
+        throw httpError(config, 401, { detail: 'Authentication credentials were not provided.' });
+      });
+
+      await expect(fetchDashboardStats()).rejects.toThrow(
+        'Authentication credentials were not provided.'
+      );
+    });
   });
 });
