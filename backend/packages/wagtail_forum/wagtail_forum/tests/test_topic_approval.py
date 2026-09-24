@@ -161,3 +161,103 @@ def test_dashboard_moderation_link_lands_on_the_posts_list(client, moderator):
 
     expected = reverse(Post.snippet_viewset.get_url_name("list"))
     assert f'href="{expected}?live=false"'.encode() in resp.content
+
+
+# --- Review round 1 (PR #815) ---
+
+
+@pytest.mark.django_db
+def test_admin_publishing_a_topic_never_revives_a_taken_down_opening_post(
+    client, moderator
+):
+    # Finding 3: the gate is "never published", not "not live".
+    author = User.objects.create_user(username="plantadmin")
+    topic, post = _pending_thread(author, _board())
+    Topic.objects.filter(pk=topic.pk).update(author=None)  # decouple the halves
+    post.save_revision(user=moderator).publish(user=moderator)
+    post.refresh_from_db()
+    post.unpublish(user=moderator)  # a moderator takes the body down
+    Topic.objects.filter(pk=topic.pk).update(author=author)
+    topic.refresh_from_db()
+
+    _admin_publish_topic(client, topic)
+
+    post.refresh_from_db()
+    assert post.live is False
+
+
+@pytest.mark.django_db
+def test_republishing_the_opening_post_repairs_a_never_published_topic(moderator):
+    # Finding 2: a live body under a never-published topic (the pre-fix admin
+    # path, or a failed link) is repaired by publishing the post again.
+    author = User.objects.create_user(username="plantadmin")
+    topic, post = _pending_thread(author, _board())
+    Post.objects.filter(pk=post.pk).update(
+        live=True, first_published_at=post.created_at, last_published_at=post.created_at
+    )
+    post.refresh_from_db()
+
+    post.save_revision(user=moderator).publish(user=moderator)
+
+    topic.refresh_from_db()
+    assert topic.live is True
+
+
+@pytest.mark.django_db
+def test_a_failed_topic_link_never_aborts_the_opening_posts_publish(moderator):
+    # Finding 1: the link runs inside the post's `published` receiver; if it
+    # raises, the post's own publish must still finish (its activity row
+    # comes after the signal).
+    from unittest import mock
+
+    from wagtail_forum.models import ForumActivityDate
+
+    author = User.objects.create_user(username="plantadmin")
+    topic, post = _pending_thread(author, _board())
+
+    with mock.patch.object(Topic, "save_revision", side_effect=RuntimeError("boom")):
+        post.save_revision(user=moderator).publish(user=moderator)
+
+    post.refresh_from_db()
+    topic.refresh_from_db()
+    assert post.live is True
+    assert topic.live is False
+    assert ForumActivityDate.objects.filter(user=author).count() == 1
+
+
+@pytest.mark.django_db
+def test_admin_approval_is_attributed_to_the_moderator_not_the_author(moderator):
+    # Finding 5: the workflow Approve action republishes the AUTHOR's
+    # revision; the topic's publish must still be logged as the moderator's.
+    from wagtail.log_actions import LogContext
+    from wagtail.models import ModelLogEntry
+
+    author = User.objects.create_user(username="plantadmin")
+    topic, post = _pending_thread(author, _board())
+    authors_revision = post.get_latest_revision()
+    assert authors_revision.user_id == author.pk
+
+    with LogContext(user=moderator):
+        authors_revision.publish(user=moderator)
+
+    entry = ModelLogEntry.objects.get(
+        content_type__model="topic", object_id=str(topic.pk), action="wagtail.publish"
+    )
+    assert entry.user_id == moderator.pk
+
+
+@pytest.mark.django_db
+def test_two_deleted_authors_are_not_the_same_author(client, moderator):
+    # Finding 6: SET_NULL makes both author_ids None; None == None must not
+    # pass the IDOR guard.
+    owner = User.objects.create_user(username="owner")
+    other = User.objects.create_user(username="other")
+    topic, post = _pending_thread(owner, _board(), post_author=other)
+    Topic.objects.filter(pk=topic.pk).update(author=None)
+    Post.objects.filter(pk=post.pk).update(author=None)
+    topic.refresh_from_db()
+
+    topic.save_revision(user=moderator).publish(user=moderator)
+
+    post.refresh_from_db()
+    assert post.live is False

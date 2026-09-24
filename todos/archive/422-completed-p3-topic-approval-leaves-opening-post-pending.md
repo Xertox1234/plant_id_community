@@ -98,3 +98,36 @@ list, or to a list that shows both topics and posts.
   plus the `topic_created` test after its `refresh_from_db` fix.
 - Not changed: the Forum sidebar group placement (Findings bullet 3). The
   dashboard link now lands on the right list, which is the part AC 4 needs.
+
+### 2026-09-24 - Review round 1 (bundled /code-review, PR #815): 5 repaired
+
+- **Nested publish could abort the trigger's publish.** The counterpart publish
+  runs inside the trigger's `published` receiver; a raise there skipped the
+  trigger's activity row, badges, audit log and workflow cancel.
+  `_publish_counterpart` now never raises: a savepoint plus `logger.exception`.
+  The reverse link also moved to the end of the post branch.
+- **Wrong gate: "first publish of the trigger".** A live post under a
+  never-published topic could never be repaired. Both directions now gate on
+  the OTHER half: `not live` and `first_published_at is None`. So a taken-down
+  half stays down, and republishing repairs a stuck thread.
+- **Forward link could revive a taken-down opening post** (it checked only
+  `not live`). Fixed by the same never-published gate.
+- **Attribution on the workflow Approve action** was the author (it republishes
+  the author's revision). Now the admin's active LogContext user wins, falling
+  back to the revision's user on the API path.
+- **`None == None` passed the IDOR guard** for two account-deleted authors.
+  `_same_author` requires a non-NULL id.
+- Accepted, not changed: **publishing a topic approves a spam-flagged opening
+  post the moderator hasn't seen** (the Topic form shows no body). That is the
+  behavior this todo asked for; approving a thread approves its body. The
+  dashboard now points moderators at the Posts list, where the body is visible.
+- Deferred to todo 431: chained publishes recount board and profile twice
+  (efficiency only).
+- Tests: 5 new in `test_topic_approval.py` (11 total). Mutation-checked, one
+  red each: the NULL guard, the forward never-published gate, the savepoint's
+  except, the LogContext preference, the reverse never-published gate.
+- A first full run caught one more: dropping the `not live` check republished
+  a born-live topic and fired `topic_created` twice
+  (`test_reconciliation.py`). Both gates keep `not live` beside
+  `first_published_at is None`.
+- `pytest packages/wagtail_forum apps/forum_host --create-db`: 1504 passed.

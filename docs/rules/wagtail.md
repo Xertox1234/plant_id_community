@@ -261,3 +261,13 @@ Compact checklist auto-injected before edits. Long-form:
   still-unknown name), and a README contract entry. Gate a host-optional
   block with a package setting rather than making the block list vary per
   host (todo 344).
+- **A `published` receiver that publishes ANOTHER object is nested inside the
+  trigger's publish, before its tail runs** (Wagtail sends `published` after
+  the save but before the audit log, `WorkflowState.cancel`, and whatever your
+  own receiver does next). Make the nested publish never raise (a savepoint
+  plus `logger.exception`), and gate it on the OTHER object's state
+  (`not live and first_published_at is None`), not on "first publish of the
+  trigger", or a half-published pair can never be repaired by publishing
+  again. Attribute it to `get_active_log_context().user` first: the workflow
+  Approve action republishes the AUTHOR's revision, so `revision.user` names
+  the wrong person (todo 422, PR #815).
