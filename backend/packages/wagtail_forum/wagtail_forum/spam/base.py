@@ -1,5 +1,7 @@
 from dataclasses import dataclass
 
+from wagtail.embeds.blocks import EmbedValue
+
 
 @dataclass
 class SpamResult:
@@ -26,7 +28,14 @@ def extract_text(obj) -> str:
     body = getattr(obj, "body", None)
     if body is not None:
         for block in body:
-            parts.append(str(getattr(block, "value", "")))
+            value = getattr(block, "value", "")
+            # str(EmbedValue) is the provider's iframe HTML, fetched through
+            # the embed finder on a cache miss — a second network call inside
+            # the request, screening markup the author never wrote (todo 426).
+            # The URL is what they wrote, and the link heuristic counts it.
+            if isinstance(value, EmbedValue):
+                value = value.url
+            parts.append(str(value))
     return " ".join(parts)
 
 
