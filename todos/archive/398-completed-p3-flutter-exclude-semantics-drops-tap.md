@@ -124,3 +124,24 @@ copy.
   clean.
 - Review: bundled `/code-review` round 1 found 0 blocking and 0 non-blocking.
   No round 2 was needed.
+
+### 2026-09-24 - Verified on a device (TestFlight build 13)
+
+The owner tested both fixed sites with VoiceOver on an iPhone, on build 13.
+That build was made from `main` `277a1d6d` and was VALID in App Store Connect
+at 07:47 PT; its delivery id is `48accf3f-c1f1-4037-978e-1c901559b72e`. This
+closes the gap noted above ("no real VoiceOver check").
+
+- **Experts strip (`_ExpertTile`): passes.** On the forum home, a single tap
+  selects an expert and a double-tap opens their profile.
+- **Embed card (`_EmbedCard`): passes.** A single tap reads the video title
+  once, not twice. A double-tap now runs the card's tap action. Before the
+  fix, VoiceOver's double-tap did nothing.
+- **Separate from this todo, found while testing:** the tap action goes to
+  `_showLink` (`forum_thread_screen.dart`), which only shows the raw URL in a
+  SnackBar, and VoiceOver then spells the URL out. That is how the app handles
+  every forum link: it has no `url_launcher`, so links in posts never open for
+  anyone. Tracked as todo 424.
+- Also found getting a video post to test with: todo 421 (video links posted
+  from the mobile app never become embeds), 422 (approving a topic leaves its
+  opening post pending) and 423 (streamline moderation).
