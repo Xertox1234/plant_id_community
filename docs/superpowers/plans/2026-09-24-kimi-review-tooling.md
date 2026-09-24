@@ -266,11 +266,25 @@ together. Test against the dev engine with
 
 ### Phase 2 — Profiles v2
 
-- [ ] Loader accepting legacy strings and v2 objects; schema validation.
-- [ ] Convert `plant_id` and `ocrecipes` to v2 with the same guidance text.
-- [ ] Move detection markers from code into profile `detect` blocks.
-- [ ] Tests: each profile resolves explicitly and by `auto` from a fake repo root; mismatch
-      handling; broken file handling.
+- [x] Loader accepting legacy strings and v2 objects; schema validation.
+      `kimi_runtime/profiles.py` (commit `1df5a27`). Unknown fields, bad types, invalid
+      ids (`auto` is reserved) and unknown `enabled_tools` groups fail with a message that
+      names the profile and field. The one-shot CLI still fails open to `generic` on a
+      broken file, now with a stderr warning, because the commit gates fail open.
+- [x] Convert `plant_id` and `ocrecipes` to v2 with the same guidance text (checked
+      byte-for-byte). Only fields verified today were added: `detect`, `languages`,
+      `rules_dir`, and `rules_router` for Plant ID. `lsp`, `docs_libraries`,
+      `excluded_paths`, `enabled_tools` and `partition` are filled in by the phases that
+      use them. `ocrecipes.excluded_paths` waits for the Phase 10 checkpoint.
+- [x] Move detection markers from code into profile `detect` blocks. The first matching
+      profile in file order wins. A legacy string profile has no `detect`, so `auto` only
+      finds it by explicit `--profile`. Every Plant ID caller passes `--profile plant_id`,
+      and Plant ID's vendored file converts to v2 in Phase 9.
+- [x] Tests: each profile resolves explicitly and by `auto` from a fake repo root; mismatch
+      handling; broken file handling. A mismatch only counts when both profiles are project
+      profiles. Explicit `generic` never conflicts. The CLI tests check that each profile's
+      guidance reaches the prompt. Plant ID hook tests pass 20/20 against the live and dev
+      engines, and Plant ID's legacy `scripts/kimi-profiles.json` loads in the new loader.
 
 ### Phase 3 — Egress guard
 
