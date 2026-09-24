@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: p3
 issue_id: "417"
 tags: [backend, email, users, security]
@@ -49,8 +49,8 @@ in the new unsubscribe endpoints.
 
 ## Acceptance Criteria
 
-- [ ] POSTing a JSON array or string body to either endpoint returns 400 `invalid` (test).
-- [ ] The comment matches the actual exposure.
+- [x] POSTing a JSON array or string body to either endpoint returns 400 `invalid` (test).
+- [x] The comment matches the actual exposure.
 
 ## Work Log
 
@@ -58,3 +58,25 @@ in the new unsubscribe endpoints.
 
 Non-blocking under the two-round review budget. The third finding (not
 RFC 8058 one-click) is already todo 416.
+
+### 2026-09-24 - Completed (goal run, todo-next → completing-todos), with 415
+
+- **Test first:** `test_non_object_json_body_is_invalid_not_a_500` POSTs
+  `[]`, `["token"]`, `"x"` and `7` to both endpoints. Before the fix it
+  failed with `AttributeError: 'list' object has no attribute 'get'`
+  (status 500 on `/api/v1/auth/unsubscribe/check/`).
+- **Fix:** `_body_token(request)` returns `request.data.get("token")` only
+  when `request.data` is a `dict`, else `None`, which `read_token` already
+  turns into `UnsubscribeTokenInvalid` → 400 `invalid`. After:
+  `27 passed` in `test_email_unsubscribe.py`.
+- **Comment:** it now says POST keeps the token out of this API's logs only.
+  The email link is a GET to the web `/unsubscribe?token=…`, so the token
+  reaches the web host's logs, history and Referer. It is signed, not
+  encrypted. It says why that is accepted: it only turns off one user's reply
+  emails, the user can undo it in Settings, and it expires after
+  `UNSUBSCRIBE_MAX_AGE` (90 days).
+- The optional `history.replaceState` on the web page was not done. Reason:
+  React Router's `useSearchParams` does not observe a raw `replaceState`,
+  so the page would keep reading the token from the router's location while
+  the address bar no longer shows it. That is a mismatch to design, not a
+  one-liner, and the comment already records the exposure as accepted.

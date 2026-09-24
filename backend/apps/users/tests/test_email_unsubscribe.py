@@ -30,7 +30,7 @@ from django.contrib.auth import get_user_model
 from django.core import mail, signing
 from django.core.cache import cache
 from django.test import TestCase, override_settings
-from django.urls import reverse
+from django.urls import NoReverseMatch, reverse
 from rest_framework.test import APIClient
 from wagtail_forum.models import ForumProfile
 from wagtail_forum.preferences import wants_channel
@@ -234,6 +234,23 @@ class UnsubscribeEndpointTests(TestCase):
             response = self.client.post(self.unsub_url, body, format="json")
             self.assertEqual(response.status_code, 400, body)
             self.assertEqual(response.data["code"], "invalid")
+        self._assert_nothing_changed()
+
+    def test_removed_session_preference_views_have_no_route(self):
+        # Todo 415: `email_preferences` rendered a template that does not
+        # exist and `ajax_update_preference` had no client. Both are gone.
+        for name in ("email_preferences", "ajax_update_preference"):
+            with self.assertRaises(NoReverseMatch):
+                reverse(f"v1:users:{name}")
+
+    def test_non_object_json_body_is_invalid_not_a_500(self):
+        # Todo 417: DRF parses a JSON array or bare string to a list/str, and
+        # `.get("token")` on it raised AttributeError → 500, with no token.
+        for url in (self.check_url, self.unsub_url):
+            for body in ([], ["token"], "x", 7):
+                response = self.client.post(url, body, format="json")
+                self.assertEqual(response.status_code, 400, (url, body))
+                self.assertEqual(response.data["code"], "invalid", (url, body))
         self._assert_nothing_changed()
 
     def test_the_old_bare_uuid_link_no_longer_works(self):

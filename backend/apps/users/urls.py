@@ -99,17 +99,6 @@ urlpatterns = [
         name="track_onboarding_event",
     ),
     path("me/onboarding/demo-data/", views.delete_demo_data, name="delete_demo_data"),
-    # Email preferences endpoints
-    path(
-        "me/email-preferences/",
-        email_preferences_views.email_preferences,
-        name="email_preferences",
-    ),
-    path(
-        "me/email-preferences/ajax-update/",
-        email_preferences_views.ajax_update_preference,
-        name="ajax_update_preference",
-    ),
     # Signed-link unsubscribe (todo 408) — the web app's /unsubscribe page
     # calls these; email links are built by apps/users/email_unsubscribe.py.
     path(
