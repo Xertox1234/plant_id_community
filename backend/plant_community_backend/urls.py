@@ -161,22 +161,6 @@ urlpatterns = [
             )
         ),
     ),
-    # Legacy Unversioned API (Deprecated - redirects to v1)
-    # TODO: Remove after 2025-07-01 (6 months deprecation period)
-    path(
-        "api/",
-        include(
-            [
-                path("auth/", include("apps.users.urls")),
-                path(
-                    "plant-identification/", include("apps.plant_identification.urls")
-                ),
-                path("blog/", include("apps.blog.urls")),
-                path("blog-api/", include("apps.blog.api_urls")),
-                path("calendar/", include("apps.garden_calendar.urls")),
-            ]
-        ),
-    ),
     # Blog Administration Interface
     path("blog-admin/", include("apps.blog.admin_urls")),
     # React SPA routes (Issue #013 - Meta tag pattern for CSRF)

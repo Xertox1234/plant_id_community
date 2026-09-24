@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: p3
 issue_id: "405"
 tags: [backend, dead-code, product, api]
@@ -77,10 +77,15 @@ paths without `v1`/`v2` before removing it.
 - [x] Every family listed above has a recorded decision (wire up, mobile
       roadmap, or remove) with a reason. See the 2026-09-23 decision table
       in the Work Log (owner decisions; the evidence is quoted per row).
-- [ ] The legacy unversioned `/api/` mount is removed, or kept with evidence
-      of a live caller.
-- [ ] The "Mobile (Flutter)" preview mode is either made to work or removed
-      from `preview_modes`.
+- [x] The legacy unversioned `/api/` mount is removed, or kept with evidence
+      of a live caller. Removed in slice 4. The 2026-09-24 Railway
+      `http-requests` check over 7 days showed 0 requests to the legacy
+      `/api/auth/user/`, `/api/auth/login/`, `/api/auth/token/refresh/` and
+      `/api/auth/firebase-token-exchange/`, against 127 to `/api/v1/auth/user/`.
+      Pinned by `apps/core/tests/test_legacy_api_mount_removed.py`.
+- [x] The "Mobile (Flutter)" preview mode is either made to work or removed
+      from `preview_modes`. Removed in slice 2 (PR #800). `blog/models.py`
+      keeps only the web default mode, with a comment at the old site.
 
 ## Work Log
 
@@ -293,3 +298,103 @@ the app calls them. Fix or delete them in a later cleanup.
   both from the earlier route walk. Also `templates/emails/forum_digest.html`'s
   `{% url 'users:email_preferences' %}`, which is not a live template (todo
   415).
+
+### 2026-09-23 - Slice 4: legacy unversioned `/api/` mount removed
+
+**The mount did less than it looked.** It carried 187 routes at removal, not
+299, because slices 1–3 removed the rest. DRF's `NamespaceVersioning` already
+answered every DRF view under it with 404 ("Invalid version in URL path").
+Only its 23 plain-Django views (blog admin, `blog-api/*`, the email-preferences
+views) still answered, with a 302 to login. A resolver walk found that every
+named legacy route has a `v1:` twin, so no route name had to move.
+
+**What had to move with it:**
+
+- `apps/users/oauth_adapters.py`: `reverse("users:oauth_callback")` → the root
+  `oauth_callback` name. The emitted URL is byte-identical
+  (`/api/auth/oauth/<provider>/callback/`, served by the root OAuth mount that
+  stays). It would have raised NoReverseMatch otherwise. The adapter is
+  unreachable today and broken if reached → **todo 418**.
+- `apps/blog/serializers.py`: `BlogSeriesSerializer.posts_url` handed v1
+  clients a legacy URL that already 404'd. It now reverses
+  `v1:blog:blog-series-posts`.
+- `templates/blog/blog_post_page.html`: the comments `fetch()` pointed at the
+  already-dead `/api/blog/posts/<pk>/comments/`, and now uses `/api/v1/`. Its
+  render now builds DOM nodes with `textContent` (review blocker 1).
+- `apps/core/middleware.py` and `apps/core/security.py`: the security path
+  lists named only `/api/auth/...`. They have never matched real traffic, so
+  failed-login tracking and security metrics were dormant. The lists are now
+  module constants on `/api/v1/auth/...`. The nonexistent `password/*` entries
+  are gone, and each listed path must be a real route. **Behavior change:** a
+  **401 from v1 login** (a rejected credential) now feeds
+  `SecurityMonitor.track_failed_login`, which logs, and at 5 attempts per IP
+  window raises an ERROR-level alert that reaches Sentry. It blocks nothing;
+  the per-user lockout in the login view is unchanged. Register 400s and CSRF
+  403s are deliberately *not* counted (review blocker 2; see below).
+- `apps/blog/tests/test_plant_data_stats.py` → `v1:blog_api:plant_stats`.
+
+**Left alone:**
+
+- `templates/emails/{forum_digest,seasonal_care,disease_alert}.html` already
+  fail to render because of dead `forum:`/`diagnosis` namespaces
+  (`test_email_service_silent_failures.py`), so this cannot regress them.
+  Todo 415 covers the digest.
+- `simple_urls.py` is a standalone dev server with its own URLconf.
+- `backend/docs/patterns/security/authentication.md:535/669` are an
+  anti-pattern example and a historical incident.
+
+**Callers checked:**
+
+- `web/src`, `plant_community_mobile/lib` and `firebase/functions/src` have no
+  unversioned `/api/<app>/` paths.
+- Mobile release builds (build 12's `.env.production` and the build-13
+  worktree) use `API_BASE_URL=https://api.houseplant-md.com/api/v1`.
+- Production, from the Railway `http-requests` check over 7 days to 2026-09-24:
+  - 0 requests each to `/api/auth/user/`, `/api/auth/login/`,
+    `/api/auth/token/refresh/`, `/api/auth/firebase-token-exchange/`,
+    `/api/auth/oauth/unknown/callback/` and `/api/auth/oauth/google/login/`;
+  - 127 to `/api/v1/auth/user/` (the positive control).
+- The Railway HTTP log `@path:` filter has no wildcard support; a positive
+  control returned empty. The exact-path metrics are the evidence.
+
+**Pins:** `apps/core/tests/test_legacy_api_mount_removed.py`, 10 tests.
+**7 of 7 mutants killed** (copy-aside restore, verified with `filecmp`):
+
+- the mount restored (13 failed);
+- the adapter on `users:` or on `v1:`;
+- the legacy `posts_url` literal;
+- the legacy template fetch;
+- either path list reverted.
+
+**Verification:**
+
+- Full backend pytest (`--create-db`): **3601 passed, 8 skipped**, 0 failed.
+- `check`: no issues. `makemigrations --check`: "No changes detected".
+- `spectacular --validate` exits 0 with 34 unique error names, unchanged. The
+  legacy routes pointed at the same views, so they added no names of their own.
+
+**Review (bundled `/code-review` high, 2 rounds): 10 findings, 2 blocking,
+both fixed.**
+
+1. **Stored HTML injection.** The template fetch used to 404, so its render
+   code never ran. Now it does, and it interpolated `comment.content` and
+   `author.display_name` into `innerHTML`. Fixed with `textContent`.
+2. **False brute-force alerts.** The newly live failed-login tracking counted
+   register 400s and CSRF 403s. Fixed: `/api/v1/auth/login/` with status 401
+   only.
+
+Round 2 pins: a login 401 is tracked; login and register 400s are not; no
+`${comment.` template literal remains, and `textContent` assignments are
+present. **Mutants: 3 of 4 killed.** The survivor puts register back in the
+list; it is equivalent, because register never returns 401. The finding-9
+test fix (pin the `pk` kwarg) is done. Findings 3–8 → **todo 419**.
+
+### 2026-09-23 - Completed (slice 4; all acceptance criteria met)
+
+- Verification: all three acceptance criteria are checked with evidence. The
+  full backend suite passed 3601 before the review fixes and **3604 passed,
+  8 skipped, 0 failed** after them (`--create-db`).
+- Review: 10 findings, 2 blocking (fixed in the slice), 1 inline test fix,
+  6 → todo 419. The pre-existing allauth adapter issue → todo 418.
+- Audit `docs/audits/2026-09-23-web-dead-code.md` #L13 and #L14 are checked
+  off. Other findings there are still open, so the doc is not renamed.

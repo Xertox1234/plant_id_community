@@ -64,6 +64,13 @@ except ImportError:
 
 logger = logging.getLogger(__name__)
 
+# Exact paths whose 401 responses SecurityMiddleware counts as a failed login
+# (SecurityMonitor.track_failed_login). Each must be a real route (pinned in
+# apps/core/tests/test_legacy_api_mount_removed.py). Only a 401 is a rejected
+# credential: register's 400s are form validation and a 403 is CSRF, and
+# counting either would raise false brute-force alerts.
+FAILED_AUTH_TRACKED_PATHS = ("/api/v1/auth/login/",)
+
 User = get_user_model()
 
 
@@ -614,10 +621,7 @@ class SecurityMiddleware:
     ) -> None:
         """Track security-relevant information after request processing."""
         # Track failed authentication attempts
-        if request.path in [
-            "/api/auth/login/",
-            "/api/auth/register/",
-        ] and response.status_code in [400, 401, 403]:
+        if request.path in FAILED_AUTH_TRACKED_PATHS and response.status_code == 401:
             ip_address = SecurityMonitor._get_client_ip(request)
 
             # Safely extract username from request data

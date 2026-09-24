@@ -6,6 +6,7 @@ from plant identification and forum APIs.
 """
 
 from django.contrib.auth import get_user_model
+from django.urls import reverse
 from rest_framework import serializers
 from taggit.serializers import TaggitSerializer, TagListSerializerField
 
@@ -99,7 +100,9 @@ class BlogSeriesSerializer(serializers.ModelSerializer):
         """Get URL to fetch posts in this series."""
         request = self.context.get("request")
         if request:
-            return request.build_absolute_uri(f"/api/blog/series/{obj.slug}/posts/")
+            return request.build_absolute_uri(
+                reverse("v1:blog:blog-series-posts", kwargs={"slug": obj.slug})
+            )
         return None
 
 
