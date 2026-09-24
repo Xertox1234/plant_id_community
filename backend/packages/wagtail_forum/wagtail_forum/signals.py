@@ -241,6 +241,19 @@ def _refresh_topic_authors(topic_id):
         _refresh_profile(author_id)
 
 
+def _publish_counterpart(obj, trigger_revision):
+    """Publish the other half of a thread (topic <-> opening post).
+
+    Attributed to whoever made the revision that triggered it: the author on
+    the API path, the moderator when they publish from the admin. With no
+    user, Wagtail's log() falls back to the admin's active LogContext.
+    ``skip_permission_checks``: the trust/moderation logic that published the
+    trigger is the authority here, as in workflow._route_revision_by_trust.
+    """
+    user = getattr(trigger_revision, "user", None)
+    obj.save_revision(user=user).publish(user=user, skip_permission_checks=True)
+
+
 @receiver(published)
 def update_counters_on_publish(sender, instance, **kwargs):
     from .models import ForumActivityDate, Post, Topic
@@ -257,6 +270,18 @@ def update_counters_on_publish(sender, instance, **kwargs):
             # is already live when a host deep-links to it. `post` is None for
             # admin-created topics that have no opening post yet.
             opening = instance.posts.filter(is_opening_post=True).first()
+            if (
+                opening is not None
+                and not opening.live
+                and opening.author_id == instance.author_id
+            ):
+                # A moderator approving the topic approves the thread: publish
+                # its pending opening post too, or the thread goes live empty
+                # (todo 422). Same-author only (IDOR, audit M18).
+                _publish_counterpart(opening, kwargs.get("revision"))
+                # revision.publish() saves a copy built from the revision, so
+                # this instance still reads live=False; hosts get the live row.
+                opening.refresh_from_db()
             notify(topic_created, sender=Topic, post=opening, topic=instance)
             # Badges (todo 348): a topic going live is what makes its
             # identification attachment count (`identifications_shared`).
@@ -268,6 +293,17 @@ def update_counters_on_publish(sender, instance, **kwargs):
     if _is_first_publish(post) and not post.is_opening_post:
         notify(reply_added, sender=Post, post=post, topic=post.topic)
     _refresh_for_post(post)
+    if _is_first_publish(post) and post.is_opening_post:
+        # The opening post going live publishes its author's draft topic, on
+        # every path: the API's moderation routing and a moderator's admin
+        # publish alike (todo 422). After _refresh_for_post, so the topic's
+        # new revision snapshots fresh counters. First publish only: a later
+        # edit being published must never revive a topic a moderator took
+        # down. Same-author only, so one user can never force someone else's
+        # draft topic live (IDOR, audit M18).
+        topic = Topic.objects.get(pk=post.topic_id)
+        if not topic.live and topic.author_id == post.author_id:
+            _publish_counterpart(topic, kwargs.get("revision"))
     # Day-streak activity (todo 300) — HERE only, not in _refresh_for_post
     # (which unpublish/delete also call): a takedown must never count as a
     # day of activity, or a moderated-away post would fabricate a streak

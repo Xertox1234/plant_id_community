@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: p3
 issue_id: "422"
 tags: [forum, moderation, wagtail, backend]
@@ -49,14 +49,14 @@ list, or to a list that shows both topics and posts.
 
 ## Acceptance Criteria
 
-- [ ] Test: a topic with a draft opening post by a trust-1 author. Publishing
+- [x] Test: a topic with a draft opening post by a trust-1 author. Publishing
       the topic through the admin (snippet publish) makes the opening post
       live too. The test fails before the fix.
-- [ ] Test: publishing a topic never publishes an opening post by a
+- [x] Test: publishing a topic never publishes an opening post by a
       *different* author (the IDOR guard).
-- [ ] `topic_created` receives the opening post, not `None`, when a
+- [x] `topic_created` receives the opening post, not `None`, when a
       user-created topic is approved from the admin.
-- [ ] A moderator can find pending forum content from the dashboard without
+- [x] A moderator can find pending forum content from the dashboard without
       knowing the model split.
 
 ## Work Log
@@ -64,3 +64,37 @@ list, or to a list that shows both topics and posts.
 ### 2026-09-24 - Filed during build 13's device check
 
 - Reproduced on production: topic 44, post 289.
+
+### 2026-09-24 - Done: either half of a thread publishes the other
+
+- `signals.update_counters_on_publish` now links both directions, first
+  publish only, same author only (the IDOR guard from `workflow.py`):
+  - **Topic first publish → its draft opening post.** A moderator approving
+    the topic in the admin approves the thread. Publishing the post cancels
+    its NEEDS_CHANGES workflow state (`WAGTAIL_WORKFLOW_CANCEL_ON_PUBLISH`),
+    so the dashboard count drops.
+  - **Opening post first publish → its draft topic.** This moved here from
+    `submit_for_moderation`, so the admin path gets it too. It runs after
+    `_refresh_for_post`, so the topic's new revision snapshots fresh
+    counters. First publish only: publishing a later edit never revives a
+    topic a moderator took down.
+  - `_publish_counterpart` attributes the publish to the triggering
+    revision's user (the author on the API path, the moderator in the admin),
+    so `test_actor_attribution.py` still holds.
+- The dashboard "awaiting forum moderation" link now opens the **Posts** list:
+  the count is posts (topics never run the workflow), pending replies exist
+  only there, and publishing an opening post there now publishes its topic.
+- Hypothesis in Findings was half right: `topic_created` did get the opening
+  post, not `None` (the query ignores `live`), but as a **draft**. It now
+  gets the live row.
+- Tests: `tests/test_topic_approval.py` (6). The admin test POSTs the real
+  Topic snippet edit view with `action-publish`. 4 failed before the change
+  (admin publish, `topic_created`, post→topic via revision publish, dashboard
+  link); the IDOR and takedown guards passed trivially before and still pass.
+  Mutation checks, each caught by one failing test: dropping the forward
+  author guard, dropping the reverse first-publish gate, dropping the reverse
+  author guard.
+- `pytest packages/wagtail_forum apps/forum_host --create-db`: 1498 passed,
+  plus the `topic_created` test after its `refresh_from_db` fix.
+- Not changed: the Forum sidebar group placement (Findings bullet 3). The
+  dashboard link now lands on the right list, which is the part AC 4 needs.
