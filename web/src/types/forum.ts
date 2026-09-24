@@ -413,6 +413,16 @@ export type PlantCareAnswer =
       referral: { reason: PlantCareReferralReason; message: string };
     };
 
+/**
+ * GET /forum/topics/{id}/summary/ (todo 414; backend apps/forum_host/summary.py).
+ * Status-discriminated: `pending` (HTTP 202) means a background task is
+ * generating it — poll; `too_short` is a result (fewer than 3 live posts).
+ */
+export type TopicSummary =
+  | { status: 'ready'; summary: string; post_count: number; generated_at: string }
+  | { status: 'pending' }
+  | { status: 'too_short'; post_count: number };
+
 /** Result of toggling a reaction on a post (backend toggle endpoint). */
 export interface ReactionToggleResult {
   /** Map of reaction_type -> count, e.g. { like: 5, love: 2 } */

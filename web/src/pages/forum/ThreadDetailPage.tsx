@@ -42,6 +42,7 @@ import { specimenAvatar } from '../../utils/forumAvatars';
 import PostCard from '../../components/forum/PostCard';
 import IdentificationCard from '../../components/forum/IdentificationCard';
 import PollCard from '../../components/forum/PollCard';
+import ThreadSummaryPanel from '../../components/forum/ThreadSummaryPanel';
 import ForumErrorState from '../../components/forum/ForumErrorState';
 import TipTapEditor from '../../components/forum/TipTapEditor';
 import { ThreadDetailSkeleton } from '../../components/forum/ForumSkeleton';
@@ -1115,6 +1116,12 @@ export default function ThreadDetailPage() {
       >
         {notice}
       </div>
+
+      {/* Premium AI thread summary (todo 414). Signed-in only — the server
+          decides premium (403 latches the panel off for the session). Keyed on
+          the topic so navigating threads resets its state and stops any
+          in-flight poll for the thread no longer shown. */}
+      {isAuthenticated && topicId != null && <ThreadSummaryPanel key={topicId} topicId={topicId} />}
 
       {/* The plant-ID snapshot, above the opening post (audit M6). Outside the
           posts list on purpose: it belongs to the TOPIC, so it must survive the
