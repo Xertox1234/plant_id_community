@@ -111,3 +111,8 @@ DEFAULT_COMMENT_AUTO_APPROVE_TRUST_LEVEL = 2
 # One user's repeat flags on the same comment count once (cache-deduped).
 COMMENT_FLAG_DEDUP_SECONDS = 24 * 60 * 60
 COMMENT_AUTO_FLAG_THRESHOLD = 5
+
+# Headless preview tokens (todo 407): the library never expires one, so a
+# leaked preview URL (history, Referer, logs) kept working. An hour is long
+# enough to read and reload a draft; every Preview click mints a new token.
+PREVIEW_TOKEN_MAX_AGE = 60 * 60

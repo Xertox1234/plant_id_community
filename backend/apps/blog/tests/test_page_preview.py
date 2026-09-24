@@ -9,17 +9,25 @@ read of the library's settings raised RuntimeError and the button errored.
 These tests hit the real URLconf through the Django test client.
 """
 
+import ast
+import inspect
+import time
 from datetime import date
+from unittest import mock
 from urllib.parse import parse_qs, urlsplit
 
 from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.core.cache import cache
+from django.core.signing import TimestampSigner, b62_encode
 from django.test import RequestFactory, TestCase
+from plant_community_backend import settings as settings_module
 from wagtail.models import Page
+from wagtail_headless_preview.models import HeadlessPreviewMixin
 from wagtail_headless_preview.settings import headless_preview_settings
 
-from ..models import BlogIndexPage, BlogPostPage
+from ..api.viewsets import BlogPostPreviewAPIViewSet
+from ..models import BlogCategory, BlogIndexPage, BlogPostPage
 
 User = get_user_model()
 
@@ -44,6 +52,50 @@ class HeadlessPreviewSettingsTestCase(TestCase):
             settings.HEADLESS_PREVIEW_CLIENT_ORIGIN,
             policy["DIRECTIVES"]["frame-src"],
         )
+
+    def test_both_csp_dicts_take_frame_src_from_the_shared_constant(self):
+        # Tests run with one DEBUG value, so only one CSP dict is ever built;
+        # the enforcing production dict can't be read at runtime. Pin the
+        # source instead: every "frame-src" entry is the PREVIEW_FRAME_SRC name,
+        # and that constant carries the preview origin (todo 407, item 7).
+        self.assertIn(
+            settings.HEADLESS_PREVIEW_CLIENT_ORIGIN, settings.PREVIEW_FRAME_SRC
+        )
+        tree = ast.parse(inspect.getsource(settings_module))
+        values = [
+            value
+            for node in ast.walk(tree)
+            if isinstance(node, ast.Dict)
+            for key, value in zip(node.keys, node.values)
+            if isinstance(key, ast.Constant) and key.value == "frame-src"
+        ]
+        self.assertEqual(len(values), 2)  # report-only (DEBUG) + enforcing
+        for value in values:
+            self.assertIsInstance(value, ast.Name)
+            self.assertEqual(value.id, "PREVIEW_FRAME_SRC")
+
+    def test_bad_client_urls_are_reported_not_raised(self):
+        # Item 2 + PR #817: a bad value is a startup WARNING, never an
+        # exception that stops the whole backend from booting.
+        check = settings_module.validate_preview_client_url
+        self.assertIn(
+            "old path-template", check("https://web.example/{content_type}/{token}/")
+        )
+        self.assertIn("no scheme or host", check("web.example/blog/preview"))
+        self.assertIn("no scheme or host", check(""))
+        self.assertIsNone(check("https://web.example/blog/preview"))
+
+    def test_a_bad_client_url_surfaces_as_an_environment_warning(self):
+        # validate_environment() raises outside DEBUG on unrelated gaps, so
+        # pin its wiring from source: the problem lands in `warnings`
+        # (logged at startup), never in `critical_errors`.
+        source = inspect.getsource(settings_module.validate_environment)
+        self.assertIn(
+            "preview_problem = validate_preview_client_url(HEADLESS_PREVIEW_CLIENT_URL)",
+            source,
+        )
+        self.assertIn("warnings.append(preview_problem)", source)
+        self.assertNotIn("critical_errors.append(preview_problem)", source)
 
 
 class BlogPostPreviewAPITestCase(TestCase):
@@ -127,6 +179,110 @@ class BlogPostPreviewAPITestCase(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["title"], "Brand new draft")
+
+    def test_never_saved_draft_serializes_a_populated_relation(self):
+        # Round 2 (item 11): mirror the get_form() step too, which gives the
+        # pk-less draft its relations. A category must serialize, not 500.
+        category = BlogCategory.objects.create(name="Ferns", slug="ferns")
+        draft = BlogPostPage(
+            title="Draft with category",
+            slug="draft-with-category",
+            author=self.user,
+            publish_date=date.today(),
+            introduction="<p>first words</p>",
+            content_blocks=[],
+        )
+        draft.categories = [category]
+        parent = self.blog_index
+        draft.depth = parent.depth + 1
+        if parent.is_leaf():
+            draft.path = draft._get_path(parent.path, draft.depth, 1)
+        else:
+            draft.path = parent.get_last_child()._inc_path()
+        token = draft.create_page_preview().token
+
+        response = self.client.get(
+            ENDPOINT, {"content_type": "blog.blogpostpage", "token": token}
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual([c["slug"] for c in response.json()["categories"]], ["ferns"])
+
+    def test_preview_response_is_never_cached(self):
+        token = self._draft_token()
+        response = self.client.get(
+            ENDPOINT, {"content_type": "blog.blogpostpage", "token": token}
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("no-store", response["Cache-Control"])
+        self.assertIn("private", response["Cache-Control"])
+
+    def test_expired_token_is_404(self):
+        # The library never expires a token (todo 407, item 1).
+        # Mint the token in the past by stamping ONLY the signer's clock
+        # (patching time.time would move every clock in the process).
+        max_age = BlogPostPreviewAPIViewSet.PREVIEW_TOKEN_MAX_AGE
+        old_stamp = b62_encode(int(time.time()) - max_age - 5)
+        with mock.patch.object(TimestampSigner, "timestamp", return_value=old_stamp):
+            token = self._draft_token()
+        response = self.client.get(
+            ENDPOINT, {"content_type": "blog.blogpostpage", "token": token}
+        )
+        self.assertEqual(response.status_code, 404)
+        # And a fresh token for the same draft still works.
+        fresh = self.client.get(
+            ENDPOINT,
+            {"content_type": "blog.blogpostpage", "token": self._draft_token()},
+        )
+        self.assertEqual(fresh.status_code, 200)
+
+    def test_only_the_listing_route_is_exposed(self):
+        # The inherited <int:pk>/ route ignored pk and find/ searched live
+        # pages (todo 407, item 3).
+        token = self._draft_token()
+        params = {"content_type": "blog.blogpostpage", "token": token}
+        self.assertEqual(
+            self.client.get(f"{ENDPOINT}{self.post.pk}/", params).status_code, 404
+        )
+        self.assertEqual(self.client.get(f"{ENDPOINT}find/", params).status_code, 404)
+
+    def test_a_warm_live_post_cache_does_not_leak_into_the_preview(self):
+        # Read direction of the cache bypass (item 5): warm the live post's
+        # cache entry first, then the preview must still serve the draft.
+        live = self.client.get(f"/api/v2/blog-posts/{self.post.pk}/")
+        self.assertEqual(live.json()["title"], "Live title")
+        token = self._draft_token()
+
+        response = self.client.get(
+            ENDPOINT, {"content_type": "blog.blogpostpage", "token": token}
+        )
+
+        self.assertEqual(response.json()["title"], "Draft title")
+
+    def test_a_preview_model_that_is_not_a_blog_post_is_404(self):
+        # BlogPostPage is the only HeadlessPreviewMixin model, so nothing
+        # exercised the issubclass(model, BlogPostPage) half (item 4).
+        other_draft = BlogPostPage.objects.get(pk=self.post.pk)
+
+        class OtherPreviewable(HeadlessPreviewMixin):
+            @classmethod
+            def get_page_from_preview_token(cls, token):
+                return other_draft
+
+        fake_ct = mock.Mock()
+        fake_ct.model_class.return_value = OtherPreviewable
+        with mock.patch(
+            "django.contrib.contenttypes.models.ContentTypeManager.get_by_natural_key",
+            return_value=fake_ct,
+        ):
+            # The model guard runs before any unsign, so this pins the guard
+            # alone: with it removed, the mocked lookup below serves a page
+            # (200). Mutation-checked in todo 407.
+            token = OtherPreviewable.get_preview_signer().sign("id=1")
+            response = self.client.get(
+                ENDPOINT, {"content_type": "other.previewable", "token": token}
+            )
+        self.assertEqual(response.status_code, 404)
 
     def test_does_not_poison_the_live_post_cache(self):
         token = self._draft_token()
