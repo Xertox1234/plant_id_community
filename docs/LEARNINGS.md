@@ -6453,3 +6453,22 @@ once against `requirements-dev.txt`. The dev file has no pins; it is a
 `-r requirements.txt` overlay, so fixing the one pin closes both alerts. And
 `gh pr merge --auto` refuses a PR that is already `CLEAN`
 (`Pull request is in clean status`). Merge it directly.
+
+## 2026-09-24 — A scripted conflict resolution committed a conflict marker (PR #819)
+
+**What happened.** Resolving a `settings.py` merge conflict, a Python regex
+`<<<<<<< HEAD\n(.*?)=======\n(.*?)>>>>>>> origin/main` split the hunk at the
+wrong place: `=======\n` also matches the END of a comment ruler like
+`# ========================================`. The "resolved" file kept a bare
+`=======` line and half of each side, and the merge commit went in with
+`git -c core.hooksPath=/dev/null commit --no-edit`, which skipped the
+`check-merge-conflict` hook that exists to catch exactly this. It surfaced
+only because the next test run produced no output.
+
+**Rules.**
+
+- Never resolve a conflict with a regex over `=======`: anchor on whole
+  lines (`^=======$`) or edit the hunk by line numbers after reading it.
+- Never skip hooks on a merge commit. A merge is the commit most likely to
+  carry a marker; let `check-merge-conflict` run.
+- After resolving a Python file, `ast.parse` it before committing.
