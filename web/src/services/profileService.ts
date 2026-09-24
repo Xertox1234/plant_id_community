@@ -9,7 +9,13 @@
  */
 import axios from 'axios';
 import apiClient from '../utils/httpClient';
-import type { ProfileUpdate, UserProfile } from '../types/auth';
+import type {
+  DashboardActivityItem,
+  DashboardForumStats,
+  DashboardStats,
+  ProfileUpdate,
+  UserProfile,
+} from '../types/auth';
 
 const AUTH_BASE = '/api/v1/auth';
 
@@ -66,4 +72,76 @@ export async function updateProfile(changes: ProfileUpdate): Promise<UserProfile
   } catch (error) {
     throw toProfileError(error);
   }
+}
+
+const FORUM_STAT_KEYS: (keyof DashboardForumStats)[] = [
+  'total_topics',
+  'total_posts',
+  'topics_this_month',
+  'posts_this_month',
+];
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function isForumStats(value: unknown): value is DashboardForumStats {
+  return isRecord(value) && FORUM_STAT_KEYS.every((key) => typeof value[key] === 'number');
+}
+
+/**
+ * Keep only the two forum activity kinds, and only internal forum paths. An
+ * older server also sent `plant_identification` items linking to
+ * `/identify/<id>`; todo 411 removed them because nothing writes that table.
+ */
+/**
+ * A topic link, optionally deep-linked to a post: `/forum/<id>-<slug>/<id>-<slug>`
+ * plus `#post-<id>`. A whole-path match, not a prefix: `/forum/../identify/x`
+ * starts with `/forum/` but react-router resolves it elsewhere (PR #821).
+ */
+const FORUM_ACTIVITY_PATH = /^\/forum\/\d+-[^/?#\s]*\/\d+-[^/?#\s]*(#post-\d+)?$/;
+
+function isForumActivity(value: unknown): value is DashboardActivityItem {
+  return (
+    isRecord(value) &&
+    (value.type === 'forum_topic' || value.type === 'forum_post') &&
+    typeof value.title === 'string' &&
+    typeof value.description === 'string' &&
+    typeof value.timestamp === 'string' &&
+    typeof value.url === 'string' &&
+    FORUM_ACTIVITY_PATH.test(value.url)
+  );
+}
+
+/**
+ * The signed-in user's forum totals and recent activity. Only the typed forum
+ * fields are passed on, so a stray key (the removed plant block) never reaches
+ * the page.
+ */
+export async function fetchDashboardStats(): Promise<DashboardStats> {
+  let data: unknown;
+  try {
+    data = (await apiClient.get<unknown>(`${AUTH_BASE}/me/dashboard-stats/`)).data;
+  } catch (error) {
+    throw toProfileError(error);
+  }
+  if (!isRecord(data) || !isForumStats(data.forum_stats) || !Array.isArray(data.recent_activity)) {
+    throw new Error('Unexpected response from the activity stats endpoint.');
+  }
+  const stats = data.forum_stats;
+  return {
+    forum_stats: {
+      total_topics: stats.total_topics,
+      total_posts: stats.total_posts,
+      topics_this_month: stats.topics_this_month,
+      posts_this_month: stats.posts_this_month,
+    },
+    recent_activity: data.recent_activity.filter(isForumActivity).map((item) => ({
+      type: item.type,
+      title: item.title,
+      description: item.description,
+      timestamp: item.timestamp,
+      url: item.url,
+    })),
+  };
 }

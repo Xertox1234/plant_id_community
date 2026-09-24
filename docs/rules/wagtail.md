@@ -275,3 +275,9 @@ Compact checklist auto-injected before edits. Long-form:
   again. Attribute it to `get_active_log_context().user` first: the workflow
   Approve action republishes the AUTHOR's revision, so `revision.user` names
   the wrong person (todo 422, PR #815).
+- **A URL stored in a StreamField is not proof of a safe URL.** Management
+  commands and imports write blocks directly, past `URLBlock` form
+  validation. Vet at render with the shared
+  `apps.core.utils.urls.safe_http_url` (http(s), a host, no credentials), the
+  backend twin of the web's `safeExternalUrl` — never a hand-rolled
+  `startswith("http")` (PR #820).

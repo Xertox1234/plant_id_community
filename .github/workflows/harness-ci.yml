@@ -23,6 +23,8 @@ name: Harness CI
 #   python3 scripts/inject/test_match_triggers.py && \
 #   python3 scripts/inject/test_capture_trigger.py && \
 #   python3 scripts/inject/test_capture_from_review.py && \
+#   python3 scripts/inject/test_budget_rules.py && \
+#   bash plant_community_mobile/scripts/test_run_archive.sh && \
 #   python3 scripts/test_check_firebase_rules_drift.py && \
 #   python3 scripts/test_check_archived_todo_status.py && \
 #   python3 scripts/check_archived_todo_status.py --fail-over 0
@@ -42,6 +44,8 @@ name: Harness CI
       - 'scripts/test_check_firebase_rules_drift.py'
       - 'scripts/check_archived_todo_status.py'
       - 'scripts/test_check_archived_todo_status.py'
+      - 'plant_community_mobile/run_archive.sh'
+      - 'plant_community_mobile/scripts/test_run_archive.sh'
       - 'todos/archive-status-allowlist.yml'
       - '.github/security-suppressions.yml'
       - '.github/workflows/harness-ci.yml'
@@ -81,6 +85,12 @@ jobs:
           python3 scripts/inject/test_match_triggers.py
           python3 scripts/inject/test_capture_trigger.py
           python3 scripts/inject/test_capture_from_review.py
+          python3 scripts/inject/test_budget_rules.py
+
+      # Offline: runs a COPY of run_archive.sh against fake release config, a
+      # stubbed App Store Connect query and a `flutter` that refuses to run.
+      - name: iOS release script self-test
+        run: bash plant_community_mobile/scripts/test_run_archive.sh
 
       - name: Security suppression validator
         run: |

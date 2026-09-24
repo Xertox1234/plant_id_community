@@ -123,26 +123,43 @@ fi
 # the die never fires, and the build proceeds with NO duplicate check while the
 # banner still prints a reassuring "highest on App Store Connect" line. Validate
 # both operands first; refuse rather than silently skip.
-is_uint() { case "$1" in ("" | *[!0-9]*) return 1 ;; (*) return 0 ;; esac }
+#
+# All-digits is not enough: `[ -le ]` also errors on a number too long for a
+# 64-bit integer (19+ digits), which lands in the same set -e-exempt elif and
+# skips the check the same way. Cap the length so the validator and the
+# comparison agree on what a number is (todo 391).
+is_uint() {
+  case "$1" in ("" | *[!0-9]*) return 1 ;; esac
+  [ "${#1}" -le 18 ]
+}
 
 if [ -n "$HIGHEST" ] && ! is_uint "$HIGHEST"; then
   die "App Store Connect returned a non-numeric highest build number: '$HIGHEST'."
 fi
 
-if [ -z "$WANT_NEXT" ] && ! is_uint "$EFFECTIVE_BUILD"; then
+# Not under SKIP_BUILD: that run re-verifies an IPA whose number is already
+# baked in (see HIGHEST above), and run_upload.sh reports ANY failure here as
+# "$IPA FAILED verification" -- so a malformed pubspec must not fail it.
+if [ -z "${SKIP_BUILD:-}" ] && [ -z "$WANT_NEXT" ] && ! is_uint "$EFFECTIVE_BUILD"; then
   die "build number must be a bare integer, got '$EFFECTIVE_BUILD'.
        Pass the build number alone -- BUILD_NUMBER=11, not BUILD_NUMBER=1.0.0+11.
        If it came from pubspec.yaml, its version line needs a '+N' suffix.
        Or run './run_archive.sh --next' to take the next free number."
 fi
 
-if [ -n "$WANT_NEXT" ]; then
+# Not under SKIP_BUILD either: BUILD_NUMBER=next inherited by run_upload.sh's
+# `SKIP_BUILD=1 ./run_archive.sh` must not die for want of a query that run
+# deliberately skips (PR #822 review) -- the IPA's number is already baked in.
+if [ -z "${SKIP_BUILD:-}" ] && [ -n "$WANT_NEXT" ]; then
   [ -n "$HIGHEST" ] || die "--next needs App Store Connect, and the query did not run (see above)."
   EFFECTIVE_BUILD=$((HIGHEST + 1))
   echo "==> --next      : highest on App Store Connect is $HIGHEST, using $EFFECTIVE_BUILD"
 elif [ -n "$HIGHEST" ] && [ "$EFFECTIVE_BUILD" -le "$HIGHEST" ]; then
   # Expiring a build does NOT free its number: every number ever uploaded stays
   # taken forever, so this compares against the highest, not the highest live.
+  # It is also the highest across ALL marketing versions, although Apple only
+  # requires uniqueness within one. Deliberate: it fails closed. Restarting at
+  # +1 after a bump to 1.1.0 is refused here; use a higher number instead.
   die "build number $EFFECTIVE_BUILD is already taken -- App Store Connect holds up to $HIGHEST.
        Next free number is $((HIGHEST + 1)). Expiring old builds does not free their numbers.
        Fix: bump pubspec.yaml to 1.0.0+$((HIGHEST + 1)), or run './run_archive.sh --next'."

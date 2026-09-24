@@ -1381,5 +1381,41 @@ class TestFirebaseRulesDeployTrigger(unittest.TestCase):
         self.assertNotIn(self.TRIGGER_ID, ids(mt.find_matches(tn, ti, self.real, None)))
 
 
+
+class TestShellNumericCompareReachesRootScripts(unittest.TestCase):
+    """Todo 391 (#751 round 2) — asserted against the REAL docs/rules/triggers.json.
+
+    `**/*.sh` needs at least one `/` before the filename, so it could not reach
+    the three repo-root scripts (create_github_issues.sh,
+    create_github_labels.sh, setup_project_board.sh). fnmatch's `*` crosses `/`,
+    so `*.sh` reaches every depth.
+    """
+
+    TRIGGER_ID = "shell-numeric-compare-without-validation"
+    LINE = 'if [ "$COUNT" -le "$LIMIT" ]; then\n'
+
+    @classmethod
+    def setUpClass(cls):
+        root = os.path.dirname(
+            os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        )
+        cls.real = mt.load_triggers(root)
+
+    def test_repo_root_script_fires(self):
+        tn, ti = write("create_github_issues.sh", self.LINE)
+        self.assertIn(self.TRIGGER_ID, ids(mt.find_matches(tn, ti, self.real, None)))
+
+    def test_nested_script_still_fires(self):
+        tn, ti = write("plant_community_mobile/run_archive.sh", self.LINE)
+        self.assertIn(self.TRIGGER_ID, ids(mt.find_matches(tn, ti, self.real, None)))
+
+    def test_same_line_in_a_non_shell_file_stays_silent(self):
+        # Proves the glob is doing work, not the content regex alone.
+        tn, ti = write("docs/notes.md", self.LINE)
+        self.assertNotIn(
+            self.TRIGGER_ID, ids(mt.find_matches(tn, ti, self.real, None))
+        )
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

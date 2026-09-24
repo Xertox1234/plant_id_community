@@ -448,6 +448,95 @@ def test_the_guard_flags_a_planted_violation(tmp_path):
 RESPONSE_ERROR_KEYS = {"error", "detail", "message", "error_message", "reason"}
 
 
+def _tainted_names(scope, is_source):
+    """Local names assigned, anywhere in ``scope``, from a value reaching a source.
+
+    Closes the one-hop bypass (todo 391): ``body = response.text[:100]`` then
+    ``{"error": f"...{body}"}`` carries the body while no dict value mentions
+    ``.text`` or the exception name -- and assigning to a local first is exactly
+    the refactor a repair commit performs. Iterated to a fixpoint, so
+    ``msg = body[:50]`` is tainted too.
+
+    Flow-insensitive on purpose: a name tainted once is tainted throughout the
+    scope. Only plain-name targets are tainted -- ``results[name] = ...`` must
+    not taint ``results`` or ``name``.
+
+    Taint follows VALUE-PRESERVING expressions only (see ``_carried``): slices,
+    f-strings, concatenation, method calls on the value, ``str()``/``repr()``/
+    ``.format()``. An argument to any other call is opaque. Measured, not
+    assumed: following every call found 2 false positives on the tree --
+    ``error = readable_message(e)`` (the todo-320 sanitiser, simple_views.py)
+    and ``data = json.loads(request.body)`` (the CLIENT's body, blog
+    api_views.py). With calls opaque the sweep finds 0. The price is the
+    "helper call" shape todo 391 already lists as out of scope.
+    """
+    assigns = [
+        n
+        for n in ast.walk(scope)
+        if isinstance(n, (ast.Assign, ast.AnnAssign, ast.AugAssign, ast.NamedExpr))
+        and n.value is not None
+    ]
+    tainted = set()
+    changed = True
+    while changed:
+        changed = False
+        for node in assigns:
+            if not any(
+                is_source(n) or (isinstance(n, ast.Name) and n.id in tainted)
+                for n in _carried(node.value)
+            ):
+                continue
+            targets = node.targets if isinstance(node, ast.Assign) else [node.target]
+            for target in targets:
+                elts = (
+                    target.elts
+                    if isinstance(target, (ast.Tuple, ast.List))
+                    else [target]
+                )
+                for elt in elts:
+                    if isinstance(elt, ast.Starred):
+                        elt = elt.value
+                    if isinstance(elt, ast.Name) and elt.id not in tainted:
+                        tainted.add(elt.id)
+                        changed = True
+    return tainted
+
+
+# Calls that return their argument's content rather than something derived.
+VALUE_PRESERVING_FUNCS = {"str", "repr"}
+VALUE_PRESERVING_METHODS = {"format"}
+
+
+def _carried(expr):
+    """Nodes whose content can flow into ``expr``'s value.
+
+    Like ``ast.walk``, except that the ARGUMENTS of a call are skipped unless
+    the call preserves them (``str(x)``, ``"...".format(x)``). The receiver of a
+    method call is always followed: ``response.text.strip()`` still carries
+    the body.
+    """
+    stack = [expr]
+    while stack:
+        node = stack.pop()
+        yield node
+        if isinstance(node, ast.Call):
+            stack.append(node.func)
+            func = node.func
+            if (isinstance(func, ast.Name) and func.id in VALUE_PRESERVING_FUNCS) or (
+                isinstance(func, ast.Attribute)
+                and func.attr in VALUE_PRESERVING_METHODS
+            ):
+                stack.extend(node.args)
+                stack.extend(kw.value for kw in node.keywords)
+            continue
+        stack.extend(ast.iter_child_nodes(node))
+
+
+def _mentions(value, tainted):
+    """Does ``value`` reference any name in ``tainted``?"""
+    return any(isinstance(n, ast.Name) and n.id in tainted for n in ast.walk(value))
+
+
 def _exception_details_in_response_dicts(path):
     """Yield ``(lineno, source)`` for exception detail reaching a response dict.
 
@@ -463,6 +552,11 @@ def _exception_details_in_response_dicts(path):
     for handler in (n for n in ast.walk(tree) if isinstance(n, ast.ExceptHandler)):
         if not handler.name:
             continue
+        # The exception itself, plus any local derived from it in the handler.
+        tainted = {handler.name} | _tainted_names(
+            handler,
+            lambda n, name=handler.name: isinstance(n, ast.Name) and n.id == name,
+        )
         for dict_node in (n for n in ast.walk(handler) if isinstance(n, ast.Dict)):
             if id(dict_node) in logging_dicts:
                 # `logger.error(..., extra={"error": str(e)})` is structured
@@ -475,10 +569,7 @@ def _exception_details_in_response_dicts(path):
                     isinstance(key, ast.Constant) and key.value in RESPONSE_ERROR_KEYS
                 ):
                     continue
-                if any(
-                    isinstance(n, ast.Name) and n.id == handler.name
-                    for n in ast.walk(value)
-                ):
+                if _mentions(value, tainted):
                     yield value.lineno, ast.unparse(value)
 
 
@@ -512,11 +603,41 @@ def _provider_body_in_response_dicts(path):
     """
     tree = ast.parse(pathlib.Path(path).read_text(encoding="utf-8"))
     logging_dicts = _logging_extra_dicts(tree)
+
+    # A body routed through a local first (todo 391). Scoped per function so a
+    # `body` tainted in one function does not taint an unrelated `body` in
+    # another; module-level code gets no taint pass (no response is built there).
+    is_body = (
+        lambda n: isinstance(n, ast.Attribute) and n.attr in BODY_ATTRS
+    )  # noqa: E731
+    via_local = set()
+    for func in (
+        n
+        for n in ast.walk(tree)
+        if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))
+    ):
+        tainted = _tainted_names(func, is_body)
+        if not tainted:
+            continue
+        for dict_node in (n for n in ast.walk(func) if isinstance(n, ast.Dict)):
+            if id(dict_node) in logging_dicts:
+                continue
+            for key, value in zip(dict_node.keys, dict_node.values):
+                if (
+                    isinstance(key, ast.Constant)
+                    and key.value in RESPONSE_ERROR_KEYS
+                    and _mentions(value, tainted)
+                ):
+                    via_local.add(id(value))
+
     for dict_node in (n for n in ast.walk(tree) if isinstance(n, ast.Dict)):
         if id(dict_node) in logging_dicts:
             continue
         for key, value in zip(dict_node.keys, dict_node.values):
             if not (isinstance(key, ast.Constant) and key.value in RESPONSE_ERROR_KEYS):
+                continue
+            if id(value) in via_local:
+                yield value.lineno, ast.unparse(value)
                 continue
             for node in ast.walk(value):
                 if isinstance(node, ast.Attribute) and node.attr in BODY_ATTRS:
@@ -688,6 +809,72 @@ def test_the_body_guard_flags_a_planted_violation(tmp_path):
     # Exactly those two: the approved constant, the non-error key and the
     # logged-body shape must all stay quiet.
     assert len(flagged) == 2, flagged
+
+
+PLANTED_VIA_LOCAL = """
+import logging
+import requests
+
+logger = logging.getLogger(__name__)
+
+
+def exception_through_a_local():
+    try:
+        requests.get("https://example.invalid")
+    except Exception as e:
+        msg = f"call failed: {e}"
+        return {"error": msg}
+
+
+def body_through_a_local(response):
+    # The repair commit's own shape: truncate into a local, then interpolate.
+    body = response.text[:100]
+    return {"error": f"HTTP {response.status_code}: {body}"}
+
+
+def body_through_two_locals(response):
+    raw = response.text
+    snippet = raw[:50]
+    return {"detail": snippet}
+
+
+def approved_body_logged_via_local(response):
+    body = response.text[:200]
+    logger.error("[PLANT_HEALTH] HTTP %s: %s", response.status_code, body)
+    return {"status": "unavailable", "error": f"HTTP {response.status_code}"}
+
+
+def approved_subscript_target_taints_nothing(results, name, response):
+    # `results[name] = <body>` must not taint `results` or `name`.
+    results[name] = response.text
+    return {"error": f"lookup {name} failed"}
+
+
+def approved_same_name_other_function():
+    # `body` is tainted in the functions above, not here.
+    body = "Service unavailable"
+    return {"error": body}
+"""
+
+
+def test_the_guards_follow_a_local_one_hop_and_further(tmp_path):
+    """Assigning to a local first is not a bypass (todo 391).
+
+    ``body = response.text[:100]`` then ``{"error": f"...{body}"}`` is the
+    refactor todo 377's repair commit performed, so the next person fixing a
+    sibling leak had a working bypass sitting in the diff.
+    """
+    planted = tmp_path / "planted_via_local.py"
+    planted.write_text(PLANTED_VIA_LOCAL, encoding="utf-8")
+
+    exc = {src for _, src in _exception_details_in_response_dicts(planted)}
+    body = {src for _, src in _provider_body_in_response_dicts(planted)}
+
+    assert exc == {"msg"}, exc
+    assert body == {
+        "f'HTTP {response.status_code}: {body}'",
+        "snippet",
+    }, body
 
 
 def test_the_response_sweep_is_not_vacuous():
