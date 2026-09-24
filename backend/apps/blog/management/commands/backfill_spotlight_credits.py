@@ -47,11 +47,14 @@ class Command(BaseCommand):
 
         for page_id in BlogPostPage.objects.order_by("pk").values_list("pk", flat=True):
             base = load_spotlight_base(page_id)
+            if base is None:
+                continue  # deleted since the id list was read
             page = base.page
             candidates = [
                 block
                 for block in page.content_blocks
                 if block.block_type == "plant_spotlight"
+                and block.id is not None  # id-less legacy blocks can't be targeted
                 and block.value.get("image")
                 and not (block.value.get("image_credit") or "").strip()
             ]

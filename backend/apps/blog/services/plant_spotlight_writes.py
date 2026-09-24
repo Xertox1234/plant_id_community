@@ -53,6 +53,7 @@ DRAFT_SAVED = "draft_saved"
 SKIPPED_UNPUBLISHED_CHANGES = "skipped_unpublished_changes"
 SKIPPED_IN_WORKFLOW = "skipped_in_workflow"
 SKIPPED_ALIAS = "skipped_alias"
+SKIPPED_LOCKED = "skipped_locked"
 SKIPPED_CHANGED_DURING_RUN = "skipped_changed_during_run"
 BLOCK_NOT_FOUND = "block_not_found"
 NO_CHANGES = "no_changes"
@@ -66,6 +67,10 @@ SKIP_MESSAGES = {
     ),
     SKIPPED_IN_WORKFLOW: "is in a moderation workflow; finish it, then re-run",
     SKIPPED_ALIAS: "is an alias; its source page is updated instead",
+    SKIPPED_LOCKED: (
+        "is locked (by an editor, a workflow, or a scheduled publish); unlock "
+        "it or let the schedule run, then re-run"
+    ),
     SKIPPED_CHANGED_DURING_RUN: "was edited while this command ran; re-run",
     BLOCK_NOT_FOUND: "no longer has the spotlight block; re-run",
 }
@@ -94,12 +99,15 @@ def _page_state(page):
 def load_spotlight_base(page_id):
     """Load the page content a programmatic spotlight write must start from.
 
-    Always returns a `SpotlightBase`; `skip_reason` is set when the page must
-    not be written (see the module docstring). Callers decide what to fetch
-    from `base.page.content_blocks` and pass the result to
-    `save_spotlight_updates`.
+    Returns a `SpotlightBase` (`skip_reason` set when the page must not be
+    written; see the module docstring), or None when the page no longer
+    exists, e.g. deleted while a long run was on earlier pages (PR #825).
+    Callers decide what to fetch from `base.page.content_blocks` and pass the
+    result to `save_spotlight_updates`.
     """
-    page = BlogPostPage.objects.get(pk=page_id)
+    page = BlogPostPage.objects.filter(pk=page_id).first()
+    if page is None:
+        return None
     state = _page_state(page)
     skip_reason = None
     if page.alias_of_id:
@@ -108,6 +116,11 @@ def load_spotlight_base(page_id):
         skip_reason = SKIPPED_UNPUBLISHED_CHANGES
     elif page.workflow_in_progress:
         skip_reason = SKIPPED_IN_WORKFLOW
+    elif page.get_lock() is not None:
+        # Editor lock, workflow lock, or a revision scheduled to go live: a
+        # new revision would bypass the lock, or be superseded by the older
+        # scheduled one publishing without the credit (PR #825).
+        skip_reason = SKIPPED_LOCKED
 
     base = page
     if not page.live and page.latest_revision_id:
@@ -131,6 +144,10 @@ def save_spotlight_updates(base, updates):
     stream = page.content_blocks
     found = set()
     for index, block in enumerate(stream):
+        if block.id is None:
+            # Legacy data without ids: str(None) would make every such block
+            # the same key (PR #825). Callers never target them.
+            continue
         block_id = str(block.id)
         if block.block_type != "plant_spotlight" or block_id not in updates:
             continue

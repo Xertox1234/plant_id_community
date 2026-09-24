@@ -96,6 +96,9 @@ class Command(BaseCommand):
             # must not write (unpublished draft changes, in moderation) costs
             # no API call and no AI spend (todo 438).
             base = load_spotlight_base(post.pk)
+            if base is None:
+                self.stdout.write("  Skipped: page was deleted during the run")
+                continue
             plants_in_post = self._extract_plants_from_post(base.page)
             if not plants_in_post:
                 self.stdout.write("  No plant spotlight blocks found")
@@ -245,7 +248,8 @@ class Command(BaseCommand):
         plants = []
 
         for block in post.content_blocks:
-            if block.block_type == "plant_spotlight":
+            # Id-less legacy blocks can't be targeted by id (PR #825).
+            if block.block_type == "plant_spotlight" and block.id is not None:
                 block_value = block.value
                 plant_name = block_value.get("plant_name", "").strip()
 

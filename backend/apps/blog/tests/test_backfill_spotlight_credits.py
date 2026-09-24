@@ -174,3 +174,40 @@ class BackfillSpotlightCreditsTest(TestCase):
         self.assertEqual(post.latest_revision_id, draft_revision_id)
         self.assertFalse(self.spotlight(post).value["image_credit"])
         invalidate.assert_not_called()
+
+    # --- PR #825 review round 1 ---
+
+    def test_locked_page_is_skipped_and_reported(self):
+        post = self.make_post("locked", image=self.unsplash_image.pk)
+        BlogPostPage.objects.filter(pk=post.pk).update(locked=True)
+
+        out, invalidate = self.run_command()
+
+        self.assertIn("is locked", out)
+        self.assertFalse(self.spotlight(post).value["image_credit"])
+        invalidate.assert_not_called()
+
+    def test_a_page_deleted_during_the_run_loads_as_none(self):
+        from apps.blog.services.plant_spotlight_writes import load_spotlight_base
+
+        post = self.make_post("gone", image=self.unsplash_image.pk)
+        page_id = post.pk
+        post.delete()
+
+        self.assertIsNone(load_spotlight_base(page_id))
+
+    def test_id_less_spotlight_blocks_are_never_targeted(self):
+        from types import SimpleNamespace
+
+        from apps.blog.management.commands.populate_plant_images import Command
+
+        fake = SimpleNamespace(
+            content_blocks=[
+                SimpleNamespace(
+                    block_type="plant_spotlight",
+                    id=None,
+                    value={"plant_name": "Fern", "image": None},
+                )
+            ]
+        )
+        self.assertEqual(Command()._extract_plants_from_post(fake), [])

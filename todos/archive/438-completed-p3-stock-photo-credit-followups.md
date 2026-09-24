@@ -157,3 +157,26 @@ site and pinned by a test:
   `javascript:` URL has no host. `ftp://` cases were added and now catch it.
 - The touched suites pass 237/237, and `src/components/forum` passes
   474/474. `type-check`, `lint` and `check:classes` are clean.
+
+### 2026-09-24 - Review round 1 (bundled /code-review, PR #825): 3 repaired
+
+- **Locked and scheduled pages were written.** `load_spotlight_base` now
+  skips any page with `get_lock()`: an editor lock, a workflow lock, or a
+  revision scheduled to go live (a new draft revision would be superseded by
+  the older scheduled one publishing WITHOUT the credit). Test red with the
+  check removed.
+- **A page deleted mid-run aborted both commands.** `load_spotlight_base`
+  returns None for a missing page; both commands skip it. Test red with the
+  old `.get()`.
+- **Id-less legacy blocks collided on the key `"None"`.** Both commands skip
+  spotlight blocks without an id, and the writer never targets one. Test red
+  with the populate filter removed.
+- Orchestrator note: the backfill tests' `make_post` passed the raw spotlight
+  dict as a native `(type, value)` tuple (`'int' object has no attribute
+  'pk'`); switched to the raw JSON form before the first DB run.
+- Deferred to todo 442: images fetched for a page whose write is then
+  refused are orphaned; rebuilt Unsplash credits show the username (the
+  photo id could fetch the name); `page_published` cache invalidation runs
+  inside the command's transaction; the web duplicates the Unsplash
+  suffix/UTM constants; a redundant full-page load per post; duplicated
+  outcome reporting.
