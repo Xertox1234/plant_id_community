@@ -17,12 +17,14 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import {
   fetchBlogPosts,
   fetchBlogPost,
+  fetchBlogPreview,
   fetchPopularPosts,
   fetchCategories,
   mediaUrl,
 } from './blogService';
 import type { BlogPost, BlogPostListResponse, BlogCategory } from '../types/blog';
 import apiClient from '../utils/httpClient';
+import { AxiosError, type InternalAxiosRequestConfig } from 'axios';
 
 // Mock logger to prevent console noise
 vi.mock('../utils/logger', () => ({
@@ -326,6 +328,56 @@ describe('blogService', () => {
 
       // Act & Assert
       await expect(fetchBlogPost('test-post')).rejects.toThrow('Network error');
+    });
+  });
+
+  // ============================================================================
+  // FETCH BLOG PREVIEW TESTS (todo 407 item 6)
+  // ============================================================================
+
+  describe('fetchBlogPreview', () => {
+    function axiosErrorWithStatus(status: number): AxiosError {
+      const config = { headers: {} } as InternalAxiosRequestConfig;
+      return new AxiosError(
+        `Request failed with status code ${status}`,
+        AxiosError.ERR_BAD_REQUEST,
+        config,
+        {},
+        { data: { message: 'Not found.' }, status, statusText: '', headers: {}, config }
+      );
+    }
+
+    it('GETs the page_preview route with the content type and signed token', async () => {
+      vi.mocked(apiClient.get).mockResolvedValueOnce({ data: mockBlogPost });
+
+      const result = await fetchBlogPreview('blog.blogpostpage', 'id:42:sig/+=');
+
+      expect(result).toEqual(mockBlogPost);
+      expect(apiClient.get).toHaveBeenCalledTimes(1);
+      const url = vi.mocked(apiClient.get).mock.calls[0][0];
+      const [path, query] = url.split('?');
+      expect(path).toBe('/api/v2/page_preview/');
+      const params = new URLSearchParams(query);
+      expect(params.get('content_type')).toBe('blog.blogpostpage');
+      // The signed token round-trips intact — URLSearchParams encodes `/+=`.
+      expect(params.get('token')).toBe('id:42:sig/+=');
+    });
+
+    it('maps a 404 (bad or expired token) to "Preview not found or expired", keeping the cause', async () => {
+      const notFound = axiosErrorWithStatus(404);
+      vi.mocked(apiClient.get).mockRejectedValueOnce(notFound);
+
+      const rejection = fetchBlogPreview('blog.blogpostpage', 'expired');
+
+      await expect(rejection).rejects.toThrow('Preview not found or expired');
+      await expect(rejection).rejects.toMatchObject({ cause: notFound });
+    });
+
+    it('rethrows any other failure unchanged', async () => {
+      const serverError = axiosErrorWithStatus(500);
+      vi.mocked(apiClient.get).mockRejectedValueOnce(serverError);
+
+      await expect(fetchBlogPreview('blog.blogpostpage', 'tok')).rejects.toBe(serverError);
     });
   });
 

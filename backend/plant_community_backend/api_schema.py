@@ -20,7 +20,6 @@ def preprocess_exclude_wagtail(endpoints):
 
     We only include /api/v1/* endpoints in the OpenAPI schema since:
     - Wagtail API (/api/v2/*) uses its own schema system
-    - Non-versioned auth endpoints (/api/auth/*) are duplicates of /api/v1/auth/*
     - OAuth endpoints (/accounts/*) are handled by allauth
 
     Args:
