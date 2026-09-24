@@ -586,44 +586,27 @@ def search_detail(request: Request, request_id: int) -> Response:
 @permission_classes([permissions.IsAuthenticated])
 def dashboard_stats(request: Request) -> Response:
     """
-    Get comprehensive dashboard statistics for the user.
+    Get the signed-in user's forum dashboard statistics.
 
-    PERFORMANCE OPTIMIZED: Uses Django aggregation to reduce from 15-20 queries to 3-4 queries.
+    Returns ``forum_stats`` (live topic/post totals and 30-day counts) and
+    ``recent_activity`` (up to 2 recent topics + 2 recent replies, newest
+    first). Four queries: two aggregates and two ``select_related`` lists.
+
+    Todo 411 removed ``plant_stats``, the ``plant_identification`` activity
+    entries and ``total_activity_score``. They read
+    ``PlantIdentificationRequest`` / ``SavedCareInstructions``, whose only
+    writer is the broken demo seeder (todo 412), so every value was a
+    permanent zero. Re-add them together with a real write path.
     """
     from datetime import timedelta
 
-    from apps.plant_identification.models import (
-        PlantIdentificationRequest,
-        SavedCareInstructions,
-    )
     from django.db.models import Count, Q
     from django.utils import timezone
     from wagtail_forum.models import Post, Topic
 
-    # Date ranges
     thirty_days_ago = timezone.now() - timedelta(days=30)
-    seven_days_ago = timezone.now() - timedelta(days=7)
 
-    # OPTIMIZATION: Single aggregation query for all plant stats (1 query instead of 4)
-    plant_aggregation = PlantIdentificationRequest.objects.filter(
-        user=request.user
-    ).aggregate(
-        total_identified=Count("id", filter=Q(status="identified")),
-        total_searches=Count("id"),
-        searches_this_week=Count("id", filter=Q(created_at__gte=seven_days_ago)),
-    )
-
-    # Separate query for saved care cards (different model)
-    saved_care_count = SavedCareInstructions.objects.filter(user=request.user).count()
-
-    plant_stats = {
-        "total_identified": plant_aggregation["total_identified"],
-        "total_searches": plant_aggregation["total_searches"],
-        "searches_this_week": plant_aggregation["searches_this_week"],
-        "saved_care_cards": saved_care_count,
-    }
-
-    # OPTIMIZATION: Single aggregation query per model for forum stats
+    # One aggregation query per model.
     forum_aggregation = Topic.objects.filter(author=request.user, live=True).aggregate(
         total_topics=Count("pk"),
         topics_this_month=Count("pk", filter=Q(created_at__gte=thirty_days_ago)),
@@ -640,39 +623,17 @@ def dashboard_stats(request: Request) -> Response:
         "posts_this_month": post_aggregation["posts_this_month"],
     }
 
-    # Recent activity summary
     recent_activity = []
-
-    # OPTIMIZATION: Use only() to fetch minimal fields (prevents unnecessary column fetches)
-    recent_identifications = (
-        PlantIdentificationRequest.objects.filter(
-            user=request.user, status="identified"
-        )
-        .only("request_id", "created_at")
-        .order_by("-created_at")[:3]
-    )
-
-    for identification in recent_identifications:
-        recent_activity.append(
-            {
-                "type": "plant_identification",
-                "title": f"Identified plant",
-                "description": f"Successfully identified a plant species",
-                "timestamp": identification.created_at,
-                "url": f"/identify/{identification.request_id}",
-                "icon": "leaf",
-            }
-        )
 
     def _forum_topic_url(topic):
         board = topic.board
         return f"/forum/{board.id}-{board.slug}/{topic.id}-{topic.slug}"
 
-    # OPTIMIZATION: Use select_related to prevent N+1 on forum foreign key access
+    # select_related prevents an N+1 on the board FK.
     recent_topics = (
         Topic.objects.filter(author=request.user, live=True)
         .select_related("board")
-        .order_by("-created_at")[:2]
+        .order_by("-created_at", "-pk")[:2]
     )
 
     for topic in recent_topics:
@@ -687,11 +648,11 @@ def dashboard_stats(request: Request) -> Response:
             }
         )
 
-    # OPTIMIZATION: Use select_related to prevent N+1 on topic/board foreign key access
+    # select_related prevents an N+1 on the topic/board FKs.
     recent_posts = (
         Post.objects.filter(author=request.user, live=True, is_opening_post=False)
         .select_related("topic", "topic__board")
-        .order_by("-created_at")[:2]
+        .order_by("-created_at", "-pk")[:2]
     )
 
     for post in recent_posts:
@@ -706,21 +667,12 @@ def dashboard_stats(request: Request) -> Response:
             }
         )
 
-    # Sort recent activity by timestamp
     recent_activity.sort(key=lambda x: x["timestamp"], reverse=True)
-    recent_activity = recent_activity[:8]  # Limit to 8 most recent items
 
     return Response(
         {
-            "plant_stats": plant_stats,
             "forum_stats": forum_stats,
             "recent_activity": recent_activity,
-            "total_activity_score": (
-                plant_stats["total_identified"] * 10
-                + forum_stats["total_topics"] * 5
-                + forum_stats["total_posts"] * 2
-                + plant_stats["saved_care_cards"] * 3
-            ),
         }
     )
 

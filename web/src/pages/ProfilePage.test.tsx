@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { MemoryRouter } from 'react-router-dom';
 import ProfilePage from './ProfilePage';
 import * as profileService from '../services/profileService';
 import type { UserProfile } from '../types/auth';
@@ -12,7 +13,17 @@ vi.mock('../contexts/AuthContext', () => ({
 vi.mock('../services/profileService', () => ({
   fetchProfile: vi.fn(),
   updateProfile: vi.fn(),
+  fetchDashboardStats: vi.fn(),
 }));
+
+// The stats section links into the forum, so the page needs a router.
+function renderPage() {
+  return render(
+    <MemoryRouter>
+      <ProfilePage />
+    </MemoryRouter>
+  );
+}
 
 const profile: UserProfile = {
   id: 7,
@@ -30,10 +41,16 @@ describe('ProfilePage (web dead-code audit M3)', () => {
   beforeEach(() => {
     vi.mocked(profileService.fetchProfile).mockReset().mockResolvedValue(profile);
     vi.mocked(profileService.updateProfile).mockReset();
+    vi.mocked(profileService.fetchDashboardStats)
+      .mockReset()
+      .mockResolvedValue({
+        forum_stats: { total_topics: 2, total_posts: 5, topics_this_month: 1, posts_this_month: 3 },
+        recent_activity: [],
+      });
   });
 
   it('loads the profile into an editable form, with email read-only', async () => {
-    render(<ProfilePage />);
+    renderPage();
 
     expect(await screen.findByLabelText('First name')).toHaveValue('Ada');
     expect(screen.getByLabelText('Last name')).toHaveValue('Lovelace');
@@ -46,7 +63,7 @@ describe('ProfilePage (web dead-code audit M3)', () => {
   });
 
   it('keeps Save disabled until something changes', async () => {
-    render(<ProfilePage />);
+    renderPage();
     await screen.findByLabelText('First name');
     expect(screen.getByRole('button', { name: 'Save changes' })).toBeDisabled();
 
@@ -59,7 +76,7 @@ describe('ProfilePage (web dead-code audit M3)', () => {
       ...profile,
       bio: 'Ferns and mosses.',
     });
-    render(<ProfilePage />);
+    renderPage();
     const bio = await screen.findByLabelText('Bio');
 
     await userEvent.clear(bio);
@@ -77,7 +94,7 @@ describe('ProfilePage (web dead-code audit M3)', () => {
     vi.mocked(profileService.updateProfile).mockRejectedValue(
       new Error('website: Enter a valid URL.')
     );
-    render(<ProfilePage />);
+    renderPage();
     const website = await screen.findByLabelText('Website');
 
     await userEvent.type(website, 'not a url');
@@ -88,9 +105,26 @@ describe('ProfilePage (web dead-code audit M3)', () => {
 
   it('shows an error instead of the form when the profile cannot load', async () => {
     vi.mocked(profileService.fetchProfile).mockRejectedValue(new Error('HTTP 500'));
-    render(<ProfilePage />);
+    renderPage();
 
     expect(await screen.findByRole('alert')).toHaveTextContent('HTTP 500');
     expect(screen.queryByRole('button', { name: 'Save changes' })).not.toBeInTheDocument();
+  });
+
+  it('shows the forum activity section below the form (todo 411)', async () => {
+    renderPage();
+
+    expect(await screen.findByRole('heading', { name: 'Forum activity' })).toBeInTheDocument();
+    expect(await screen.findByText('Topics')).toBeInTheDocument();
+    expect(screen.getByText('3 in the last 30 days')).toBeInTheDocument();
+    expect(profileService.fetchDashboardStats).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps the form usable when only the stats fail to load', async () => {
+    vi.mocked(profileService.fetchDashboardStats).mockRejectedValue(new Error('Stats down'));
+    renderPage();
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('Stats down');
+    expect(await screen.findByLabelText('First name')).toHaveValue('Ada');
   });
 });

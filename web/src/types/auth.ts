@@ -46,6 +46,39 @@ export type ProfileUpdate = Partial<
 >;
 
 /**
+ * The signed-in user's forum totals from GET /api/v1/auth/me/dashboard-stats/.
+ * "This month" is the last 30 days. Posts include each topic's opening post.
+ */
+export interface DashboardForumStats {
+  total_topics: number;
+  total_posts: number;
+  topics_this_month: number;
+  posts_this_month: number;
+}
+
+/**
+ * One `recent_activity` entry: a topic the user started or a reply they wrote.
+ * `url` is a web forum path (`/forum/{boardId}-{slug}/{topicId}-{slug}`).
+ */
+export interface DashboardActivityItem {
+  type: 'forum_topic' | 'forum_post';
+  title: string;
+  description: string;
+  timestamp: string;
+  url: string;
+}
+
+/**
+ * GET /api/v1/auth/me/dashboard-stats/. Forum data only: todo 411 removed the
+ * plant block (plant_stats, plant_identification activity, total_activity_score)
+ * because nothing writes the tables it read.
+ */
+export interface DashboardStats {
+  forum_stats: DashboardForumStats;
+  recent_activity: DashboardActivityItem[];
+}
+
+/**
  * Login credentials
  */
 export interface LoginCredentials {

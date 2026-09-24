@@ -2,6 +2,7 @@ import { useEffect, useState, type FormEvent } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import Input from '../components/ui/Input';
 import Button from '../components/ui/Button';
+import ProfileStats from '../components/profile/ProfileStats';
 import { fetchProfile, updateProfile } from '../services/profileService';
 import type { ProfileUpdate, UserProfile } from '../types/auth';
 
@@ -197,6 +198,9 @@ export default function ProfilePage() {
           </form>
         )}
       </div>
+
+      {/* Keyed on the user so an account switch refetches (docs/rules/react.md). */}
+      <ProfileStats key={user?.id} />
     </div>
   );
 }
