@@ -8,12 +8,13 @@ plant images with smart fallback logic and cost optimization.
 import logging
 from typing import Dict, List, Optional, Tuple, Union
 
+from apps.core.utils.urls import safe_http_url
 from django.conf import settings
 from wagtail.images.models import Image
 
 from .ai_image_service import AIBotanicalImageService
 from .pexels_service import PexelsImageService
-from .unsplash_service import UnsplashImageService
+from .unsplash_service import UnsplashImageService, with_unsplash_utm
 
 logger = logging.getLogger(__name__)
 
@@ -205,14 +206,17 @@ class PlantImageService:
         Returns:
             Formatted attribution text
         """
+        # `or {}`: a provider can send "photographer": null, and this now
+        # runs BEFORE the block is saved, so a crash would drop the image
+        # (PR #820 review).
         if source == "unsplash":
-            photographer = image_data.get("photographer", {})
-            photographer_name = photographer.get("name", "Unknown")
+            photographer = image_data.get("photographer") or {}
+            photographer_name = photographer.get("name") or "Unknown"
             return f"Photo by {photographer_name} on Unsplash"
 
         elif source == "pexels":
-            photographer = image_data.get("photographer", {})
-            photographer_name = photographer.get("name", "Unknown")
+            photographer = image_data.get("photographer") or {}
+            photographer_name = photographer.get("name") or "Unknown"
             return f"Photo by {photographer_name} from Pexels"
 
         elif source == "ai":
@@ -220,6 +224,36 @@ class PlantImageService:
 
         else:
             return "Image attribution unknown"
+
+    @staticmethod
+    def get_attribution_url(source: str, image_data: Dict) -> str:
+        """
+        Link for the displayed credit (todo 376): the photographer's page.
+
+        Unsplash links carry the referral UTM parameters its API guidelines
+        require. Returns "" when there is nothing to link (AI images) or the
+        provider value is not an absolute http(s) URL — the credit then
+        renders as plain text rather than as an unsafe or dead link.
+
+        Args:
+            source: Source name ('unsplash', 'pexels', 'ai')
+            image_data: Image metadata
+
+        Returns:
+            An http(s) URL, or ""
+        """
+        photographer = image_data.get("photographer") or {}
+        if source == "unsplash":
+            url = photographer.get("profile_url") or ""
+        elif source == "pexels":
+            url = photographer.get("url") or ""
+        else:
+            return ""
+
+        url = safe_http_url(url)
+        if not url:
+            return ""
+        return with_unsplash_utm(url) if source == "unsplash" else url
 
     def get_source_stats(self) -> Dict:
         """

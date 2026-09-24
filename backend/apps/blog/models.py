@@ -25,7 +25,7 @@ from wagtail.snippets.models import register_snippet
 from wagtail_ai.panels import AIDescriptionFieldPanel, AIFieldPanel, AITitleFieldPanel
 from wagtail_headless_preview.models import HeadlessPreviewMixin
 
-from .blocks import APIImageChooserBlock
+from .blocks import APIImageChooserBlock, PlantSpotlightBlock
 
 User = get_user_model()
 
@@ -89,7 +89,7 @@ class BlogStreamBlocks(blocks.StreamBlock):
         template="blog/blocks/code.html",
     )
 
-    plant_spotlight = blocks.StructBlock(
+    plant_spotlight = PlantSpotlightBlock(
         [
             (
                 "plant_name",
@@ -126,6 +126,28 @@ class BlogStreamBlocks(blocks.StreamBlock):
                 APIImageChooserBlock(
                     required=False,
                     help_text="Plant image (suggestions provided from database)",
+                ),
+            ),
+            # Stock-photo credit (todo 376). Unsplash/Pexels require it on
+            # display; populate_plant_images fills both from the provider.
+            # required=False is load-bearing: existing spotlight blocks have
+            # no credit and must still validate when edited.
+            (
+                "image_credit",
+                blocks.CharBlock(
+                    required=False,
+                    max_length=255,
+                    help_text=(
+                        'Photo credit shown under the image, e.g. "Photo by Jane Doe on '
+                        'Unsplash". Update or clear it whenever you change the image.'
+                    ),
+                ),
+            ),
+            (
+                "image_credit_url",
+                blocks.URLBlock(
+                    required=False,
+                    help_text="Link for the photo credit (photographer or source page)",
                 ),
             ),
         ],

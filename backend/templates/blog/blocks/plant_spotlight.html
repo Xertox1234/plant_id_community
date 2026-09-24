@@ -7,19 +7,25 @@
             <div class="plant-image">
                 {% image value.image fill-300x200 as plant_img %}
                 <img src="{{ plant_img.url }}" alt="{{ plant_img.alt }}">
+                {% if value.image_credit %}
+                    {# Stock-photo credit (todo 376). credit_href is vetted to http(s) by PlantSpotlightBlock.get_context. #}
+                    <p class="image-credit">
+                        {% if credit_href %}<a href="{{ credit_href }}" target="_blank" rel="noopener noreferrer">{{ value.image_credit }}</a>{% else %}{{ value.image_credit }}{% endif %}
+                    </p>
+                {% endif %}
             </div>
         {% endif %}
-        
+
         <div class="plant-info">
             <h3 class="plant-name">{{ value.plant_name }}</h3>
             {% if value.scientific_name %}
                 <p class="scientific-name"><em>{{ value.scientific_name }}</em></p>
             {% endif %}
-            
+
             <div class="plant-description">
                 {{ value.description|richtext }}
             </div>
-            
+
             <div class="care-difficulty difficulty-{{ value.care_difficulty }}">
                 <strong>Care Level:</strong> {{ value.care_difficulty|title }}
             </div>
