@@ -238,13 +238,31 @@ Each phase ends with its tests passing. Phases 1–8 are in the coworker repo.
 
 ### Phase 1 — Package split without behavior change
 
-- [ ] Move engine internals into `kimi_runtime/`; `tools/kimi-review` becomes a thin CLI.
-- [ ] Same flags, same output text, same exit codes (`0` clean/warnings, `1` tool error,
-      `2` verified CRITICAL).
-- [ ] Make argument errors exit `64`, not argparse's `2`, so an unknown flag can never look
-      like a verified CRITICAL to the hooks (todo 369 deferred finding).
-- [ ] Log usage to `usage.jsonl` like `ask-kimi` and `kimi-write`, so `kimi-gain` counts it.
-- [ ] Existing tests pass unchanged against the split.
+**Where the work happens (decided 2026-09-24):** changing the live canonical
+`tools/kimi-review` would make Plant ID's drift check fail on every commit until Phase 9.
+So Phases 1–8 are built in a separate worktree, `~/.local/share/claude-coworker-dev`,
+on branch `kimi-runtime-dev` (branched from `kimi-review-tooling`). The live checkout
+and the PATH tool stay on the single-file engine until Phase 9 switches both sides
+together. Test against the dev engine with
+`KIMI_ENGINE_CANONICAL=~/.local/share/claude-coworker-dev/tools/kimi-review`.
+
+- [x] Move engine internals into `kimi_runtime/`; `tools/kimi-review` becomes a thin CLI.
+      Package: `engine.py` (the old file, moved with history) and `usage.py`. The CLI
+      forwards module attributes to the engine, so tests that import the CLI file still
+      work. `kimi-profiles.json` still resolves beside the CLI. Commit `43d84e7`.
+- [x] Same flags, same output text, same exit codes (`0` clean/warnings, `1` tool error,
+      `2` verified CRITICAL). `--help` output is byte-identical to the live engine.
+- [x] Make argument errors exit `64`, not argparse's `2`, so an unknown flag can never look
+      like a verified CRITICAL to the hooks (todo 369 deferred finding). An invalid or
+      empty `--tiers` also exited `2` and now exits `64`.
+- [x] Log usage to `usage.jsonl` like `ask-kimi` and `kimi-write`, so `kimi-gain` counts it.
+      One row per run for the draft call, written before the truncation check because a
+      truncated draft is still billed. Agentic-verify calls are not logged yet.
+- [x] Existing tests pass unchanged against the split. Coworker suite adds offline tests:
+      profile resolution for all three profiles, ledger records and fail-silence, and CLI
+      end-to-end runs with a fake `openai` module (exit `0`/`1`/`2`/`64`, output strings,
+      ledger rows). Plant ID hook tests pass 20/20 against both the live and the dev
+      engine. One live smoke run through the dev CLI returned exit `0` and wrote one row.
 
 ### Phase 2 — Profiles v2
 
@@ -337,6 +355,8 @@ Each phase ends with its tests passing. Phases 1–8 are in the coworker repo.
 
 ### Phase 9 — Plant ID integration
 
+- [ ] Merge `kimi-runtime-dev` into the live coworker checkout in the same step as the
+      sync below, so the drift check never sees a half-switched state.
 - [ ] Sync and drift check cover the CLI **and** the `kimi_runtime/` package (CI runs
       `python3 scripts/kimi-review`, so the package must be vendored beside it). Profiles
       stay hand-maintained per repo.
