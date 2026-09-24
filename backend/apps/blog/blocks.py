@@ -19,8 +19,15 @@ URL it built resolved to `http://localhost/...` in production (todo 308).
 That file now uses `request.build_absolute_uri()` too, for the same reason
 this block always has: it reads the actual incoming request's host
 directly, no Site involved.
+
+`PlantSpotlightBlock` (todo 376) carries the stock-photo credit that
+Unsplash's and Pexels' terms require on display: `image_credit` text plus an
+optional `image_credit_url`. The URL is rendered as a link only when it is an
+absolute http(s) URL — see `safe_http_url`.
 """
 
+from apps.core.utils.urls import safe_http_url  # noqa: F401  (re-exported)
+from wagtail import blocks
 from wagtail.images.blocks import ImageChooserBlock
 from wagtail.images.models import SourceImageIOError
 
@@ -59,3 +66,12 @@ class APIImageChooserBlock(ImageChooserBlock):
             "width": rendition.width,
             "height": rendition.height,
         }
+
+
+class PlantSpotlightBlock(blocks.StructBlock):
+    """`plant_spotlight` StructBlock; exposes a vetted credit link to templates."""
+
+    def get_context(self, value, parent_context=None):
+        context = super().get_context(value, parent_context=parent_context)
+        context["credit_href"] = safe_http_url(value.get("image_credit_url") or "")
+        return context

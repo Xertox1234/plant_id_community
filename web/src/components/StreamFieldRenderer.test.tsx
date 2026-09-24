@@ -10,7 +10,7 @@ import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import StreamFieldRenderer from './StreamFieldRenderer';
-import type { PostQuoteBlockValue, StreamFieldBlock } from '@/types/blog';
+import type { PlantSpotlightBlockValue, PostQuoteBlockValue, StreamFieldBlock } from '@/types/blog';
 
 describe('StreamFieldRenderer', () => {
   describe('Block anchors (todo 289 / M13)', () => {
@@ -418,6 +418,80 @@ describe('StreamFieldRenderer', () => {
 
       expect(screen.getByText('Unsupported block type')).toBeInTheDocument();
       expect(screen.getByText('unknown_block_type')).toBeInTheDocument();
+    });
+  });
+
+  describe('plant_spotlight photo credit (todo 376)', () => {
+    const CREDIT = 'Photo by Jane Doe on Unsplash';
+    const CREDIT_URL =
+      'https://unsplash.com/@janedoe?utm_source=plant_community&utm_medium=referral';
+
+    function spotlight(extra: Partial<PlantSpotlightBlockValue>): StreamFieldBlock[] {
+      return [
+        {
+          id: '1',
+          type: 'plant_spotlight',
+          value: {
+            plant_name: 'Monstera',
+            description: '<p>A climbing aroid</p>',
+            image: { id: 3, url: 'https://example.com/monstera.jpg', alt: 'Monstera leaf' },
+            ...extra,
+          },
+        },
+      ];
+    }
+
+    it('renders the credit under the image as a safe external link', () => {
+      render(
+        <StreamFieldRenderer
+          blocks={spotlight({ image_credit: CREDIT, image_credit_url: CREDIT_URL })}
+        />
+      );
+
+      const link = screen.getByRole('link', { name: CREDIT });
+      expect(link).toHaveAttribute('href', CREDIT_URL);
+      expect(link).toHaveAttribute('target', '_blank');
+      expect(link).toHaveAttribute('rel', 'noopener noreferrer');
+      // The credit belongs to the image: it is the image's figure caption.
+      expect(link.closest('figure')).toContainElement(screen.getByAltText('Monstera leaf'));
+    });
+
+    it('renders the credit as plain text when there is no link', () => {
+      render(<StreamFieldRenderer blocks={spotlight({ image_credit: CREDIT })} />);
+
+      expect(screen.getByText(CREDIT)).toBeInTheDocument();
+      expect(screen.queryByRole('link')).not.toBeInTheDocument();
+    });
+
+    it('never renders a javascript: credit URL as a link', () => {
+      render(
+        <StreamFieldRenderer
+          blocks={spotlight({ image_credit: CREDIT, image_credit_url: 'javascript:alert(1)' })}
+        />
+      );
+
+      expect(screen.getByText(CREDIT)).toBeInTheDocument();
+      expect(screen.queryByRole('link')).not.toBeInTheDocument();
+      expect(document.querySelector('a[href^="javascript"]')).toBeNull();
+    });
+
+    it('renders no credit when the block has none (pre-credit payloads)', () => {
+      const { container } = render(
+        <StreamFieldRenderer blocks={spotlight({ image_credit: null, image_credit_url: null })} />
+      );
+
+      expect(screen.getByAltText('Monstera leaf')).toBeInTheDocument();
+      expect(container.querySelector('figcaption')).toBeNull();
+    });
+
+    it('drops the credit with the image when the image is gone', () => {
+      render(
+        <StreamFieldRenderer
+          blocks={spotlight({ image: null, image_credit: CREDIT, image_credit_url: CREDIT_URL })}
+        />
+      );
+
+      expect(screen.queryByText(CREDIT)).not.toBeInTheDocument();
     });
   });
 

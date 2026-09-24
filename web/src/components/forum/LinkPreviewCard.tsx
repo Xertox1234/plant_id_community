@@ -1,27 +1,9 @@
 import { useState } from 'react';
 import type { LinkPreview } from '@/types/forum';
+import { safeExternalUrl } from '@/utils/externalUrl';
 
 interface LinkPreviewCardProps {
   preview: LinkPreview;
-}
-
-function safeExternalUrl(value: string | null, httpsOnly = false): string | null {
-  if (!value) return null;
-  try {
-    const parsed = new URL(value);
-    if (
-      !['http:', 'https:'].includes(parsed.protocol) ||
-      (httpsOnly && parsed.protocol !== 'https:') ||
-      !parsed.hostname ||
-      parsed.username ||
-      parsed.password
-    ) {
-      return null;
-    }
-    return parsed.toString();
-  } catch {
-    return null;
-  }
 }
 
 export default function LinkPreviewCard({ preview }: LinkPreviewCardProps) {
