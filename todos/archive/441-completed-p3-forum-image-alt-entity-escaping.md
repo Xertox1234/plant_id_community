@@ -73,3 +73,15 @@ such alt.
   29 files / 518 tests passed, check:classes 0.
 - Not done (from Findings): the spec's repeated request-counting listener /
   `setInputFiles` block helper extraction — cosmetic, out of this todo's AC.
+
+### 2026-09-24 - Review round 1 (bundled /code-review, PR #826): 2 repaired
+
+- `escapeAttr(url)` threw on a nullish url where the old `${url}` degraded,
+  which would block re-editing the post; it now takes `url || ''` like alt.
+  Test red without the guard.
+- `data-image-id` was the last raw interpolation; it is escaped too (a
+  string id with `"` could otherwise add attributes). Test red without it.
+- Deferred to todo 443: the HTML parser still normalizes CR/CRLF → LF and NUL
+  → U+FFFD inside attributes, so an alt carrying those (only via a direct API
+  write) still changes on re-save; building the nodes through the DOM or
+  TipTap JSON instead of strings would remove that and manual escaping.

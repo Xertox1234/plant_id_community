@@ -363,11 +363,14 @@ export function bodyBlocksToHtml(body: StreamFieldBlock[] | null | undefined): s
         // unescaped `"` in it could still break out of the attribute. `id` is
         // a number; htmlToBodyBlocks drops any non-digit id on the way back.
         const safeAlt = escapeAttr(alt || '');
-        const safeUrl = escapeAttr(url);
+        // `|| ''` like alt: a nullish url must degrade, not throw and block
+        // re-editing the post (PR #826 review).
+        const safeUrl = escapeAttr(url || '');
+        const safeId = escapeAttr(String(id ?? ''));
         // data-decorative round-trips the flag so re-saving an untouched
         // decorative image does not downgrade it to the pair the CMS refuses.
         const decorativeAttr = decorative ? ' data-decorative="true"' : '';
-        return `<img src="${safeUrl}" alt="${safeAlt}" data-image-id="${id}"${decorativeAttr}>`;
+        return `<img src="${safeUrl}" alt="${safeAlt}" data-image-id="${safeId}"${decorativeAttr}>`;
       }
       if (block.type === 'paragraph') {
         return typeof block.value === 'string' ? block.value : '';

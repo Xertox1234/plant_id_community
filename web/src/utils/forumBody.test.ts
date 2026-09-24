@@ -730,4 +730,31 @@ describe('image attribute escaping on rehydrate (todo 441)', () => {
       `<img src="https://cdn/p.jpg" alt="it's a fern" data-image-id="42">`
     );
   });
+
+  // PR #826 review round 1.
+  it('an image block with a missing url degrades instead of throwing', () => {
+    const html = bodyBlocksToHtml([
+      {
+        type: 'image',
+        value: { id: 5, url: undefined as unknown as string, alt: 'x', decorative: false },
+      },
+    ] as never);
+    expect(html).toContain('data-image-id="5"');
+  });
+
+  it('escapes a non-numeric image id instead of letting it break out of the attribute', () => {
+    const html = bodyBlocksToHtml([
+      {
+        type: 'image',
+        value: {
+          id: '1" onerror="x' as unknown as number,
+          url: '/m.jpg',
+          alt: '',
+          decorative: true,
+        },
+      },
+    ] as never);
+    expect(html).not.toContain('onerror="x"');
+    expect(html).toContain('&quot;');
+  });
 });
