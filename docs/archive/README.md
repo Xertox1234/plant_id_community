@@ -51,6 +51,7 @@ dependency security now lives in `.github/workflows/security-scan.yml`,
 - `WEEK2_PERFORMANCE.md` - Week 2 performance optimization completion report
 - `WEEK2_IMPLEMENTATION_PLAN.md` - Week 2 implementation plan
 - `IMPLEMENTATION_PLAN_ISSUE_5.md` - Type hints implementation plan
+- `PII_ENCRYPTION_IMPLEMENTATION.md` - Email encryption-at-rest guide (October 2025; archived 2026-09-24 by todo 391). **Never implemented** despite saying so: no model used `EncryptedEmailField`, and todo 367 (PR #748) removed `FIELD_ENCRYPTION_KEY` and `django-encrypted-model-fields`. It carries an ARCHIVED banner naming what exists instead.
 
 ## Active Documentation
 

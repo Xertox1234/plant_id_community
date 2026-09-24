@@ -174,6 +174,29 @@ def test_a_verbatim_placeholder_refuses_to_boot(key, value):
     )
 
 
+@pytest.mark.parametrize("key,value", _placeholders(), ids=lambda v: str(v)[:30])
+def test_a_padded_placeholder_refuses_to_boot(key, value):
+    """A leading space or quotes must not slip the prefix check (todo 391).
+
+    python-decouple strips values read from a `.env` FILE but not from
+    `os.environ`, which is where Railway puts them -- so a paste with a leading
+    space reached a bare `startswith("REQUIRED__")` intact. PLANT_ID/PLANTNET
+    go through `validate_environment()`'s loop rather than
+    `reject_insecure_value()`, so both sites are exercised here.
+    """
+    # Every paste shape PR #822 found slipping the stripped-prefix check.
+    for padded in (f" '{value}' ", f"' {value}'", f"`{value}`", f"{key}={value}"):
+        result = _boot({key: padded})
+        combined = result.stdout + result.stderr
+        assert (
+            result.returncode != 0
+        ), f"{key}={padded!r} booted cleanly:\n{result.stdout[-2000:]}"
+        assert any(
+            m in combined for m in PLACEHOLDER_MARKERS
+        ), f"{key}={padded!r} was not rejected as a placeholder:\n{combined[-2500:]}"
+        assert key in combined, combined[-3000:]
+
+
 def test_the_removed_encryption_setting_is_gone():
     """`FIELD_ENCRYPTION_KEY` was accepted and never read (todo 367).
 

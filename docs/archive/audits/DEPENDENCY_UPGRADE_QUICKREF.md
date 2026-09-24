@@ -376,7 +376,7 @@ redis-cli keys "*"
 - Architecture: `/backend/docs/README.md`
 - Authentication Security: `/backend/docs/security/AUTHENTICATION_SECURITY.md`
 - Testing Guide: `/backend/docs/testing/AUTHENTICATION_TESTS.md`
-- API Key Rotation: `/KEY_ROTATION_INSTRUCTIONS.md`
+- API Key Rotation: `/docs/archive/2025-11/KEY_ROTATION_INSTRUCTIONS.md` (moved from repo root; re-pointed by todo 391)
 
 **External Resources**:
 - Django Security Releases: https://www.djangoproject.com/weblog/

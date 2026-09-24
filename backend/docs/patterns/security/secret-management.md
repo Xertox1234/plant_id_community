@@ -351,7 +351,11 @@ The mechanism, in one place:
 `reject_insecure_value(name, value)` in
 `backend/plant_community_backend/settings.py` raises `ImproperlyConfigured` when
 a value starts with `REQUIRED_PLACEHOLDER_PREFIX` (`"REQUIRED__"`), or contains
-any `INSECURE_PATTERNS` substring. The prefix is reported separately because its
+any `INSECURE_PATTERNS` substring. The prefix test is `is_required_placeholder()`,
+which strips surrounding whitespace and quotes first (todo 391): python-decouple
+strips `.env` file lines but not `os.environ`, so a placeholder pasted into
+Railway with a leading space slipped a bare `startswith`. The `api_key_checks`
+loop in `validate_environment()` calls the same helper. The prefix is reported separately because its
 remedy differs — "you copied `.env.example` and did not fill this in" is a
 different mistake from "you chose a weak value".
 

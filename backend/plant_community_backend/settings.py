@@ -63,6 +63,19 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # disappears silently. A guard that works by coincidence is not a guard.
 REQUIRED_PLACEHOLDER_PREFIX = "REQUIRED__"
 
+
+def is_required_placeholder(value):
+    """True if `value` is a `.env.example` REQUIRED__ placeholder.
+
+    A substring test, not a prefix (todo 391, PR #822): python-decouple
+    strips values read from a `.env` FILE but not from `os.environ`, so a
+    paste into Railway can carry padding, quotes in either order, backticks,
+    or a whole `KEY=REQUIRED__...` line. No real key contains `REQUIRED__`,
+    so matching anywhere can only widen what is rejected.
+    """
+    return bool(value) and REQUIRED_PLACEHOLDER_PREFIX in value
+
+
 # Substrings that mark a value as an example rather than a real secret. Matched
 # case-insensitively against the whole value.
 INSECURE_PATTERNS = [
@@ -88,7 +101,7 @@ def reject_insecure_value(name, value):
     """
     if not value:
         return
-    if value.startswith(REQUIRED_PLACEHOLDER_PREFIX):
+    if is_required_placeholder(value):
         raise ImproperlyConfigured(
             f"{name} is still the unmodified .env.example placeholder "
             f"({value[:40]}...).\n"
@@ -1709,7 +1722,7 @@ def validate_environment():
     for key_name, key_value, min_length, description in api_key_checks:
         # Placeholder first: both placeholders are longer than their floor (41
         # and 44 chars vs 32 and 20), so a length check alone accepts them.
-        if key_value and key_value.startswith(REQUIRED_PLACEHOLDER_PREFIX):
+        if is_required_placeholder(key_value):
             critical_errors.append(
                 f"{key_name} is still the unmodified .env.example placeholder. "
                 f"Get a real key: {description}."

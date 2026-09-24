@@ -162,11 +162,11 @@ def excerpt(text: str, share: int, path: str) -> str:
     split_cost = nbytes(split_marker(total))
     tail_cost = nbytes(tail_marker(total))
 
-    if share - split_cost < MIN_TAIL * 2 or share < MIN_SPLIT:
-        # Too tight to carry both ends. Carry the tail.
-        body = fit_bytes(text, max(share - tail_cost, 0), from_end=True)
-        start = boundary_after(text, len(text) - len(body))
+    def tail_only() -> str:
+        """The file's ending alone -- or nothing. Never the head alone."""
         room = max(share - tail_cost, 0)
+        body = fit_bytes(text, room, from_end=True)
+        start = boundary_after(text, len(text) - len(body))
         rule_start = rule_start_before(text, start)
         if rule_start != -1 and nbytes(text[rule_start:]) <= room:
             start = rule_start
@@ -174,6 +174,10 @@ def excerpt(text: str, share: int, path: str) -> str:
         if not body:
             return ""
         return tail_marker(total - nbytes(body)) + body
+
+    if share - split_cost < MIN_TAIL * 2 or share < MIN_SPLIT:
+        # Too tight to carry both ends. Carry the tail.
+        return tail_only()
 
     content = share - split_cost
     head = fit_bytes(text, int(content * HEAD_FRACTION))
@@ -195,14 +199,17 @@ def excerpt(text: str, share: int, path: str) -> str:
     if tail_start <= head_end:
         # The halves met, so nothing is actually skipped -- but the file did not
         # fit, so emitting it whole would blow the budget. Fall back to the tail.
-        body = fit_bytes(text, max(share - tail_cost, 0), from_end=True)
-        start = boundary_after(text, len(text) - len(body))
-        room = max(share - tail_cost, 0)
-        rule_start = rule_start_before(text, start)
-        if rule_start != -1 and nbytes(text[rule_start:]) <= room:
-            start = rule_start
-        body = fit_bytes(text[start:], room, from_end=True)
-        return tail_marker(total - nbytes(body)) + body
+        return tail_only()
+
+    if not text[tail_start:].strip():
+        # The tail's share landed inside the file's final line: no boundary
+        # (or only trailing blank lines) follows it, so the tail is EMPTY and
+        # this would emit head + marker + nothing -- head-only, the exact
+        # bias this module removes. `.strip()`, not `>= len(text)`: a final
+        # rule ending in a blank line left a lone "\n" tail (PR #822). Latent with
+        # today's files (final lines 14-83 B against a 286-486 B tail share),
+        # but nothing caps a rule's length (todo 391).
+        return tail_only()
 
     return text[:head_end] + split_marker(tail_start - head_end) + text[tail_start:]
 

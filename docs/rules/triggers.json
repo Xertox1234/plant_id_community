@@ -1753,8 +1753,8 @@
       "security"
     ],
     "path_glob": [
-      "**/*.sh",
-      "**/*.bash",
+      "*.sh",
+      "*.bash",
       ".claude/hooks/*"
     ],
     "content_present": "\\[\\s+\"?\\$\\{?[A-Za-z_][A-Za-z0-9_]*\\}?\"?\\s+-(?:eq|ne|lt|le|gt|ge)\\s+\"?\\$\\{?[A-Za-z_][A-Za-z0-9_]*\\}?\"?",
