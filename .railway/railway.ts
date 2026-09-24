@@ -32,7 +32,11 @@ export default defineRailway(() => {
     // restartPolicyType is omitted: ON_FAILURE is Railway's default and is
     // stored as null. The cap of 5 is what matters, since start.sh exits 1
     // when gunicorn dies and every container restart spends from it.
-    deploy: { drainingSeconds: 60, restartPolicyMaxRetries: 5 },
+    //
+    // limitOverride caps each container at 21 vCPU. It was set in the
+    // dashboard, and the first CI plan (PR #805) proposed resetting it because
+    // this file left it out. It is kept here deliberately.
+    deploy: { drainingSeconds: 60, restartPolicyMaxRetries: 5, limitOverride: { containers: { cpu: 21 } } },
     replicas: { "sfo": 1 },
     domains: ["api.houseplant-md.com"],
     networking: { privateNetworkEndpoint: "plantidcommunity" },
