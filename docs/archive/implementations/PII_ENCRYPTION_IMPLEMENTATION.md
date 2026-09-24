@@ -1,6 +1,34 @@
 # PII Encryption Implementation Guide
 
-**Status**: Implementation Ready
+> **ARCHIVED — never implemented; not current guidance.**
+>
+> This guide says email encryption at rest was implemented on 2025-10-27. **It
+> never was.** No model ever used `EncryptedEmailField`: `apps.users.models.User`
+> inherits Django's plain `EmailField` from `AbstractUser`, and no migration
+> changes it. `FIELD_ENCRYPTION_KEY` was accepted by settings and read by
+> nothing, so **todo 367 (PR #748) removed the setting and uninstalled
+> `django-encrypted-model-fields`**. Following the steps below would reinstall a
+> dependency the project dropped on purpose and add a key that nothing reads.
+>
+> Individual lines are annotated `SUPERSEDED (todo 367)`, but the annotations are
+> not exhaustive: treat the whole file as history. Moved here from
+> `backend/docs/security/` by todo 391 on 2026-09-24, because under that path it
+> read as current security guidance.
+>
+> **What exists instead:**
+>
+> | What this document proposed | Where that stands now |
+> | --- | --- |
+> | Encrypt `User.email` at rest | Not done. Removed from scope with the package by todo 367 (PR #748). Encryption at rest, if revisited, is a new decision, not a resumption of this guide |
+> | `FIELD_ENCRYPTION_KEY` | Removed. `backend/docs/patterns/security/secret-management.md` records it as removed; `apps/core/tests/test_env_example_placeholders.py::test_the_removed_encryption_setting_is_gone` pins that it stays removed |
+> | Keep PII out of logs | `backend/apps/core/utils/pii_safe_logging.py`; see `backend/docs/security/PII_LOGGING_RESOLUTION.md` |
+> | Handle secrets and keys | `backend/docs/patterns/security/secret-management.md` and `docs/rules/security.md` |
+>
+> Kept for the audit trail — todo 023 (`todos/archive/023-completed-p3-pii-encryption.md`)
+> cites this file at its old path, and this is the only record of the approach
+> it considered. That citation is left as written: it is a point-in-time record.
+
+**Status**: Implementation Ready — **SUPERSEDED (todo 367): never implemented; the package and setting were removed.**
 **Priority**: P3 (Medium - GDPR Compliance)
 **CVSS Score**: 5.3 (Medium)
 **Related TODO**: #023
@@ -14,17 +42,17 @@ This document provides the complete implementation guide for encrypting PII fiel
 
 ### Completed Steps
 
-1. **Package Installation** ✅
+1. **Package Installation** ✅ **SUPERSEDED (todo 367): never implemented; the package and setting were removed.**
    - `django-encrypted-model-fields==0.6.5` installed
    - Added to `requirements.txt`
    - Uses `cryptography==46.0.3` (already installed)
 
-2. **Environment Configuration** ✅
+2. **Environment Configuration** ✅ **SUPERSEDED (todo 367): never implemented; the package and setting were removed.**
    - `.env.example` updated with FIELD_ENCRYPTION_KEY instructions
    - Fernet key generation command provided
    - Documentation added for production deployment
 
-3. **Code Changes Required** (Ready to Apply)
+3. **Code Changes Required** (Ready to Apply) **SUPERSEDED (todo 367): never implemented; the package and setting were removed.**
    - User model update to use `EncryptedEmailField`
    - Settings.py configuration for encryption key validation
    - Migration creation for field type change
@@ -36,6 +64,7 @@ This document provides the complete implementation guide for encrypting PII fiel
 If you have no existing user data or can recreate users:
 
 ```bash
+# SUPERSEDED (todo 367): never implemented; the package and setting were removed. Do not run.
 # 1. Add encryption key to .env
 cd backend
 python -c 'from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())' >> .env.local
@@ -61,7 +90,7 @@ python manage.py shell
 For systems with existing user data:
 
 1. **Add New Encrypted Field** (non-destructive)
-   - Add `email_encrypted = EncryptedEmailField()` alongside existing email
+   - Add `email_encrypted = EncryptedEmailField()` alongside existing email — **SUPERSEDED (todo 367): never implemented; the package and setting were removed.**
    - Copy data: `UPDATE auth_user SET email_encrypted = email`
    - Verify all data copied correctly
 
@@ -87,6 +116,7 @@ If application-level encryption is not immediately feasible:
 ### 1. Update `backend/apps/users/models.py`
 
 ```python
+# SUPERSEDED (todo 367): never implemented; the package and setting were removed. Do not apply.
 # Add import at top
 from encrypted_model_fields.fields import EncryptedEmailField
 
@@ -123,6 +153,7 @@ class User(AbstractUser):
 Add after JWT_SECRET_KEY validation (around line 537):
 
 ```python
+# SUPERSEDED (todo 367): never implemented; the package and setting were removed. Do not apply.
 # FIELD_ENCRYPTION_KEY Validation (PII Encryption - GDPR Article 32)
 # Used for encrypting PII fields (email, phone, etc.) at rest in the database
 # IMPORTANT: Uses Fernet encryption (32 url-safe base64-encoded bytes)
@@ -165,6 +196,7 @@ else:
 ### 3. Update `.env` file
 
 ```bash
+# SUPERSEDED (todo 367): never implemented; the package and setting were removed. Do not run.
 # PII Encryption Settings (GDPR Article 32 Compliance)
 # Generate with: python -c 'from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())'
 FIELD_ENCRYPTION_KEY=<your-generated-fernet-key-here>
@@ -177,6 +209,7 @@ FIELD_ENCRYPTION_KEY=<your-generated-fernet-key-here>
 Create `backend/apps/users/tests/test_email_encryption.py`:
 
 ```python
+# SUPERSEDED (todo 367): never implemented; the package and setting were removed. Do not apply.
 from django.test import TestCase
 from django.contrib.auth import get_user_model
 from django.db import connection
@@ -248,6 +281,7 @@ class EmailEncryptionTestCase(TestCase):
 ### Manual Verification
 
 ```bash
+# SUPERSEDED (todo 367): never implemented; the package and setting were removed. Do not run.
 # 1. Start Django shell
 python manage.py shell
 
@@ -274,7 +308,7 @@ print(f"Decryption works: {user_check.email == 'encrypt@test.com'}")
 
 ### Production Deployment Checklist
 
-- [ ] Generate unique FIELD_ENCRYPTION_KEY for production
+- [ ] Generate unique FIELD_ENCRYPTION_KEY for production **SUPERSEDED (todo 367): never implemented; the package and setting were removed.**
 - [ ] Store key in secure secret management system (AWS Secrets Manager, HashiCorp Vault, etc.)
 - [ ] Never commit key to git
 - [ ] Document key rotation procedure
@@ -307,7 +341,7 @@ See `KEY_ROTATION_PROCEDURE.md` for detailed instructions on rotating encryption
 
 ### Article 32 Requirements Met
 
-✅ **Encryption of personal data at rest**
+✅ **Encryption of personal data at rest** **SUPERSEDED (todo 367): never implemented; the package and setting were removed; this was never true.**
 - Email addresses encrypted using Fernet (AES-128-CBC + HMAC)
 - Separate encryption key from application secret key
 - Key stored securely outside codebase
@@ -322,7 +356,7 @@ See `KEY_ROTATION_PROCEDURE.md` for detailed instructions on rotating encryption
 
 ### Audit Trail
 
-- Encryption implemented: 2025-10-27
+- Encryption implemented: 2025-10-27 — **SUPERSEDED (todo 367): never implemented; the package and setting were removed; this was never true.**
 - Library: django-encrypted-model-fields v0.6.5
 - Algorithm: Fernet (AES-128-CBC + HMAC-SHA256)
 - Key length: 32 bytes (256 bits)
@@ -335,6 +369,7 @@ See `KEY_ROTATION_PROCEDURE.md` for detailed instructions on rotating encryption
 
 **Solution**: Ensure key is valid Fernet format (44 characters, base64-encoded):
 ```bash
+# SUPERSEDED (todo 367): never implemented; the package and setting were removed. Do not run.
 python -c 'from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())'
 ```
 

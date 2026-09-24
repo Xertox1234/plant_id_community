@@ -1753,7 +1753,7 @@
       "security"
     ],
     "path_glob": [
-      "**/*.sh",
+      "*.sh",
       "**/*.bash",
       ".claude/hooks/*"
     ],
