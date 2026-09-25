@@ -167,6 +167,10 @@ class UserProfileSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = [
             "username",
+            # Identity, not profile data (todo 404): web OAuth, password login and
+            # the Firebase legacy fallback all look accounts up by email, and
+            # email is not DB-unique. A change needs re-auth + verification.
+            "email",
             "date_joined",
             "last_login",
             "plants_identified",

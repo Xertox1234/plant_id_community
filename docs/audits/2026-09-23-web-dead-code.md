@@ -113,7 +113,7 @@ files.
 
 ## Finding Status
 
-- [ ] #S1 profile update changes email without verification → todo 404
+- [x] #S1 profile update changes email without verification → todo 404 (completed 2026-09-25)
 - [x] #L13 backend endpoints no client calls → todo 405 (completed 2026-09-23)
 - [x] #L14 dead "Mobile (Flutter)" preview mode → todo 405 (completed 2026-09-23)
 - [ ] #M2 production preview checks → todo 406

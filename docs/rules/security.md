@@ -398,3 +398,11 @@ Compact checklist auto-injected before edits. Long-form: `backend/docs/patterns/
   redirects to the confirming web page and changes nothing (mail scanners
   prefetch GETs); mint ONE token per email for the header and body links
   (PR #819).
+- **An identity field is read-only on a self-service serializer.** `email`
+  is the lookup key for web OAuth, password login and the Firebase legacy
+  fallback, and `User.email` is not DB-unique, so a writable `email` on the
+  profile PATCH let any user claim ANOTHER person's address. That pre-hijacks
+  their first Google sign-in, or 500s their email login on
+  `MultipleObjectsReturned`. Changing an identity field needs its own endpoint
+  with re-auth and verification, never a partial update. Pin it with a test
+  that PATCHes the field and asserts the stored value is unchanged (todo 404).
