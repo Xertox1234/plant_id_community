@@ -6472,3 +6472,48 @@ only because the next test run produced no output.
 - Never skip hooks on a merge commit. A merge is the commit most likely to
   carry a marker; let `check-merge-conflict` run.
 - After resolving a Python file, `ast.parse` it before committing.
+
+## 2026-09-24 — An owner action written from a todo's plan, not its progress (todo 387, #829)
+
+**What happened.** While turning gated todos into owner actions, the agent
+wrote a Work Log entry on todo 387 telling the owner to "create an upload
+keystore", then write `key.properties`, then register the SHA-1. It worked
+from the todo's **Recommended Action**, which was written at filing time. The
+same file's `## Progress 2026-09-14` section already recorded all of it done:
+the keystore at `~/keys/houseplant-md-release.jks`, the SHA-1 on Firebase, the
+signing wiring. The wrong instruction merged in #829. It was caught only when
+the owner handed the step back and `ls` showed the keystore had existed for
+ten days. #831 corrected it.
+
+**Rule.** A todo's Recommended Action is its plan **at filing time**. Before
+writing an owner action, a "remaining" list, or any "not done yet" claim for a
+todo, read its Work Log / Progress sections and its checked ACs, and check the
+artifact itself (file, variable, record) when it is cheap to look. A todo that
+has been worked on is described by its newest entry, not its first section.
+
+## 2026-09-24 — A production CMS preview check left an edit in a real page's editor (todo 406)
+
+**What happened.** To check the headless preview in a browser, the agent typed
+" [browser preview check]" into the title of a **live** blog post in the
+production `/cms/` editor, without saving, and opened the preview panel and
+"Preview in new tab". The check passed. Two things then went wrong:
+
+- The editor header showed **"Saved"** after the edit, which may mean Wagtail
+  autosaved a draft revision carrying the test title. Hypothesis, not
+  verified: the live API still showed the old title, but the revision history
+  was not read.
+- The agent's attempt to type the title back was refused by the auto-mode
+  permission classifier ("Modify Shared Resources"), so the edit stayed in the
+  owner's open tab for them to discard.
+
+**Rule.** Never probe production preview (or any editor behaviour) by editing
+a real page. Use, in order of preference:
+
+1. the HTTP-level check: a preview token against the preview API, then
+   `GET` the web preview route, then read the CMS CSP `frame-src`. It has no
+   editor state and leaves nothing behind;
+2. a throwaway **draft** page created for the check and deleted afterwards.
+
+If a browser check must touch a real page, treat every keystroke as a write:
+an editor that autosaves makes "without saving" untrue, and cleanup may be
+blocked after the fact.
