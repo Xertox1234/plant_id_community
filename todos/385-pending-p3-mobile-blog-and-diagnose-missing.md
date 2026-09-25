@@ -7,7 +7,7 @@ dependencies: []
 source_review: "todos/384-mobile-navigation-shell-missing"
 ---
 
-# Mobile has no Blog or Diagnose; the web has both
+# Mobile has no Blog (Diagnose split to todo 444)
 
 ## Problem
 
@@ -48,3 +48,11 @@ estimating; neither was checked in depth here.
 
 p3: nothing is broken. This is absent functionality, not a defect — unlike
 todo 384, where the UI existed and could not be opened.
+
+## Work Log
+
+### 2026-09-24 - Owner decision: build both, as two slices (gate removed)
+
+The owner wants both built, as separate slices. **This todo is now the Blog
+slice** (mobile `/blog` list + `/blog/:slug` detail against the existing
+Wagtail API). **Diagnose moved to todo 444.** Ready for a sweep.

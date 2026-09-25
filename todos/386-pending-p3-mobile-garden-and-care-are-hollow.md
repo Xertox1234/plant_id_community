@@ -77,3 +77,18 @@ the mobile `/garden` feature is built against `/api/v1/calendar/api/*`.
   houseplant core is CareTask, CareLog and reminders. Decide which models the
   mobile screens need before wiring a bed or hardiness-zone picker into a
   houseplant app.
+
+## Work Log
+
+### 2026-09-24 - Owner decisions: houseplant-core garden; care guides from the CMS (gate removed)
+
+Decided by the owner:
+
+- **Garden:** build only the houseplant core of `garden_calendar` — CareTask,
+  CareLog and reminders (reminders delivery is todo 410). No garden beds,
+  harvests, hardiness zones or weather.
+- **Care:** BUILD the guides (not "drop the chevron"). Each card opens guide
+  content from **Wagtail blog posts** in the CMS (a post, or a tag/category
+  listing), so guides are editable without an app release. Content comes from
+  todo 445 (AI-drafted care articles the owner spot-checks).
+Ready for a sweep (garden and care can be separate slices).

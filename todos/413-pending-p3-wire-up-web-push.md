@@ -46,3 +46,11 @@ See the file references above, and todo 405's Work Log.
 
 The owner decided, during the endpoint triage, to wire this up rather than
 remove it.
+
+### 2026-09-24 - Owner action needed: VAPID keys
+
+Everything but the keys is sweep work. Owner step: generate a VAPID key pair in
+your own terminal (NOT with the `!` prefix, so the private key never enters a
+transcript), e.g. `npx web-push generate-vapid-keys`, and set
+`VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY` on the `plant_id_community` Railway
+service and in `backend/.env`. Then this is ready for a sweep.

@@ -46,3 +46,11 @@ decides whether it lives), so apply it there only if it is kept.
 
 Found by the new CI class check (review round 1). Not fixed there because
 it is a design decision, not a dead-class removal.
+
+### 2026-09-24 - Owner decision: hand-written rich-text class (gate removed)
+
+Decided by the owner: add a small hand-written `.rich-text` class in
+`web/src/index.css` on the `--gt-*` tokens, like `.forum-editor-content`
+already does. Do NOT install `@tailwindcss/typography`. Apply it to the
+category intro (`CategoryListPage.tsx`) and the diagnosis care blocks
+(`DiagnosisDetailPage.tsx`). Ready for a sweep.

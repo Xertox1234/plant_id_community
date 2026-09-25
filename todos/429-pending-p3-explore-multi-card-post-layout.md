@@ -47,3 +47,10 @@ must not trap VoiceOver focus.
 ## Work Log
 
 ### 2026-09-24 - Filed at the owner's request, deferred
+
+### 2026-09-24 - Owner: reopened; pick from mockups
+
+The owner reopened this and wants to choose from mockups. A web page showing
+the four layouts (carousel, compact list, grid, collapse-after-N) at web and
+phone widths is being prepared; the owner's pick gets recorded here, then this
+todo is rewritten into the implementation todo (AC 2).

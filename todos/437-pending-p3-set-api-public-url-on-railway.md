@@ -38,3 +38,11 @@ messages a day).
 
 Operator-gated: setting a Railway variable and merging a `.railway` edit are
 the owner's.
+
+### 2026-09-24 - API_PUBLIC_URL set on Railway
+
+Set `API_PUBLIC_URL=https://api.houseplant-md.com` on the `plant_id_community`
+service on 2026-09-24 (Railway MCP, owner approved). The `.railway/railway.ts`
+declaration is in its own PR for the owner to merge. Remaining (owner): the
+AC 2 check — a production reply email's raw headers show both one-click
+headers.

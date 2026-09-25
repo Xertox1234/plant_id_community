@@ -56,3 +56,10 @@ as won't-fix and keep the refusal. If there are some, choose one:
 ## Work Log
 
 ### 2026-09-24 - Filed from todo 424's review
+
+### 2026-09-24 - Owner action needed: production count
+
+The count is a production read, which the auto-mode classifier denies an
+agent. Owner step: run the read-only query given in the session (counts posts
+whose body holds `href="/`) and record the number here. Zero → close as
+won't-fix; non-zero → a sweep routes `/forum/topics/<id>/` in-app.

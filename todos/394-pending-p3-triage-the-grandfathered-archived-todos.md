@@ -100,3 +100,11 @@ resolved covered the ones that were cheap to settle.
 
 Related: todo 390 (the tripwire), `scripts/check_archived_todo_status.py`,
 `todos/archive-status-allowlist.yml`.
+
+## Work Log
+
+### 2026-09-24 - Owner: cleared for a sweep
+
+Not blocked — research work. The owner cleared it for the next sweep. Mind the
+three traps in Recommended Action (allowlist paths, `.secrets.baseline`
+filename edits — never regenerate it — and `/usr/bin/git commit`).
