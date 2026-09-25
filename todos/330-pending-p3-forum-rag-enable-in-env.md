@@ -176,3 +176,11 @@ the reports.
   within `RAG_BUDGET_LIMIT`.
 Still operator-ordered (Recommended Action steps 3, 5, 6); a sweep can only do
 todo 445's drafting.
+
+### 2026-09-24 - Gate 1 done: indexes built, vector search live
+
+`FORUM_VECTOR_SEARCH_ENABLED` is declared in `.railway/railway.ts` (#828) and
+live. `manage.py rebuild_indexes SimilarTopics BlogChunks` ran in production
+2026-09-25 03:52 UTC: both rebuilt (1.59 s and 1.61 s), exit 0. The
+similar-topics endpoint then returned relevant results. Remaining: gate 2 (the
+corpus, via todo 445), then `FORUM_RAG_ENABLED` per steps 5–6.

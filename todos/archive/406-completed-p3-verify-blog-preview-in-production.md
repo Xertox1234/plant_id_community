@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: p3
 issue_id: "406"
 tags: [blog, wagtail, ops, verification]
@@ -58,11 +58,11 @@ test run.
 
 ## Acceptance Criteria
 
-- [ ] `HEADLESS_PREVIEW_CLIENT_URL` is confirmed on Railway (the variable name
+- [x] `HEADLESS_PREVIEW_CLIENT_URL` is confirmed on Railway (the variable name
       and host only; never paste a secret).
-- [ ] "Preview in new tab" shows an unsaved draft in production. Record the
+- [x] "Preview in new tab" shows an unsaved draft in production. Record the
       date and what was observed.
-- [ ] The editor's preview panel renders the draft in production, or a
+- [x] The editor's preview panel renders the draft in production, or a
       follow-up is filed with the blocking header quoted.
 
 ## Work Log
@@ -79,3 +79,23 @@ Set `HEADLESS_PREVIEW_CLIENT_URL=https://houseplant-md.com/blog/preview` on the
 origin was confirmed by `GET https://houseplant-md.com/blog/preview` → 200).
 Remaining (owner, in production `/cms/`): AC 2 "Preview in new tab" and AC 3
 the side-panel preview, each recorded here with the date.
+
+### 2026-09-24 - Verified in production, in a browser (all criteria)
+
+- **AC 1:** `HEADLESS_PREVIEW_CLIENT_URL` host is `houseplant-md.com`
+  (`/blog/preview`), set on `plant_id_community` and declared in
+  `.railway/railway.ts` (#828).
+- **HTTP level first:** the preview API returned an unsaved title change with
+  `cache-control: ... no-store ...`; `GET https://houseplant-md.com/blog/preview`
+  → 200; the CMS CSP carries `frame-src 'self' https://houseplant-md.com`; the web
+  sends no `X-Frame-Options`.
+- **AC 3, preview panel:** in production `/cms/pages/17/edit/` the title was
+  changed to "Killed by kindness [browser preview check]" WITHOUT saving; the side
+  panel rendered the web app with that title under the banner "Preview: this
+  draft is not published."
+- **AC 2, new tab:** "Preview in new tab" opened
+  `https://houseplant-md.com/blog/preview?content_type=blog.blogpostpage&token=…`,
+  titled "Preview: Killed by kindness [browser preview check] — Houseplant MD".
+- The live post still reads "Killed by kindness" (`/api/v2/blog-posts/`). The
+  editor showed a "Saved" indicator after the edit; if Wagtail autosaved a draft
+  revision carrying the test title, discard it from the page's History.

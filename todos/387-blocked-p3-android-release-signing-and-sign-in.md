@@ -287,3 +287,16 @@ keep it and its passwords out of the repo, write `android/key.properties`
 in Firebase. A physical Android device is needed for AC 5. After the keystore
 exists, the build.gradle signing wiring is sweep work — flip this todo to
 `pending` then.
+
+### 2026-09-24 - Correction: the keystore already existed; still blocked on hardware
+
+The "Owner action needed: release keystore" entry above (same date) was wrong:
+it was written from the todo's original Recommended Action without reading the
+2026-09-14 progress. The keystore (`~/keys/houseplant-md-release.jks`),
+`android/key.properties`, the release SHA-1 on Firebase, the Android OAuth
+client and the `build.gradle.kts` signing wiring all exist and were verified
+again on 2026-09-24. Nothing here is sweep work.
+
+The two open criteria still need what an agent cannot supply: a **physical
+Android device** (AC 4) and a **first Play upload** (AC 5). Status stays
+`blocked`.

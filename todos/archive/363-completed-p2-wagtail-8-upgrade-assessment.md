@@ -60,9 +60,9 @@ untested upstream. Wagtail 8.0 is the first release classifying Django 6.1.
 - [x] `/cms/` login, dashboard, explorer listing and page-edit smoke tests all pass
 - [x] Forum admin views exercised — 24 admin tests + `test_moderation_queue.py`,
       plus the menu-order render checked empirically
-- [~] `USE_R2` rendition path manually exercised once — **retired from this todo,
-      re-pointed to [todo 371]**. Not done here and not claimed as done: no R2
-      credentials exist locally. `[~]` means moved, not shipped.
+- [x] `USE_R2` rendition path manually exercised once — done in todo 371
+      against production R2 (completed 2026-09-24). It was re-pointed there
+      because no R2 credentials existed locally.
 - [x] Any new deprecation warnings triaged, not merely observed
 
 ## Work Log
