@@ -18,7 +18,8 @@ const ERROR_MESSAGES: Record<string, string> = {
   access_denied: 'You cancelled the Google sign-in.',
   account_unverified:
     'An account with this email already exists but has not confirmed its email address. ' +
-    'Sign in with its password and confirm the email, then Google sign-in will work.',
+    'If it is yours, sign in with its password and confirm your email from there. ' +
+    'If you did not create it, do not confirm any email about it.',
 };
 
 function messageForError(code: string | null): string {

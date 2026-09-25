@@ -160,7 +160,7 @@ RATE_LIMITS = {
         "token_refresh": "10/h",  # Token refresh
         "password_reset": "3/h",  # Password reset (not implemented)
         "firebase_token_exchange": "10/m",  # Firebase token -> JWT exchange (mobile)
-        "verify_email": "20/h",  # Email verification link confirm (todo 446)
+        "verify_email": "20/h",  # Email verification confirm, per user (todo 446)
         "verify_email_resend": "3/h",  # Resend verification email, per user
     },
     # User Feature Endpoints (user-based)

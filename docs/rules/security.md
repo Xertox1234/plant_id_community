@@ -413,5 +413,8 @@ Compact checklist auto-injected before edits. Long-form: `backend/docs/patterns/
   Google/Firebase sign-in. Gate every email match on
   `email_verification.is_email_verified(user)`. Have every creation path that
   starts from a provider-verified email write the verified row, or returning
-  users get refused. Confirm verification links by POST from a page, never by
-  GET (scanner prefetch) (todo 446).
+  users get refused. **Verifying proves the inbox AND the account:** require the
+  key plus a session for the key's own account (POST, never GET), not the key
+  alone. A key-only confirm lets a victim who clicks the link in their inbox
+  verify an attacker's pre-registered account. Sign keys under your own salt so
+  a library's session-less confirm view cannot redeem them (todo 446).

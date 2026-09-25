@@ -76,13 +76,13 @@ The owner chose email verification (option b) over refusing all auto-linking.
 - **Store:** allauth `EmailAddress.verified`, not a new `User` flag. allauth
   65.19 with `ACCOUNT_UNIQUE_EMAIL=True` adds a DB `UniqueConstraint(email,
   condition=verified)`, so a verified address belongs to one account only.
-  Only public allauth API is used (`EmailAddress`, `EmailConfirmationHMAC`,
-  the `email_confirmed` signal, which already sends the welcome email); no
-  `allauth.account.internal` flows.
+  Public allauth API only (`EmailAddress`, the `email_confirmed` signal that
+  already sends the welcome email). Keys are our own `django.core.signing`
+  under an own salt (changed in review round 1; see below).
 - **Registration:** `register` still logs the user in at once (no UX change) and
-  emails a link to web `/verify-email?key=…`. Confirming takes a **button click
-  that POSTs**. A GET changes nothing, because mail scanners prefetch links, and a
-  prefetch would otherwise verify an attacker's account using the victim's inbox.
+  emails a link to web `/verify-email?key=…`. Confirming takes a **button POST
+  by the signed-in owner of the key's account** (review round 1). A GET changes
+  nothing, because mail scanners prefetch links.
 - **Guards (three local checks, per `docs/rules/security.md`):**
   - `oauth_views._get_or_create_user`
   - `oauth_adapters.pre_social_login`
@@ -154,3 +154,58 @@ requires a verified email, and the new refusal reuses the existing 409 path.
   new service test (3 more after).
 - `spectacular --validate` exits 0. `check_log_prefixes` is at baseline (7);
   `check_suppressions` passes. `makemigrations --check`: no changes.
+
+### 2026-09-25 - Review round 1: key-only confirm was still hijackable (fixed)
+
+Bundled `/code-review` and `code-review-orchestrator` both found it. With a
+key-only confirm, the attacker registers `victim@…`, the victim's Google
+sign-in is refused (and the old message told them to "confirm the email"), and
+the victim clicks the link already in their inbox. That verifies the
+attacker's account, so the victim's next Google sign-in lands in it. The
+attacker's resend (3/h) keeps a live link there. Treated as BLOCKING.
+
+**Fix:**
+
+- `POST /verify-email/` now requires `IsAuthenticated`, and the key's address
+  must belong to `request.user`. The victim cannot sign in to the squatter's
+  account, and the squatter cannot read the victim's inbox. Rate limit is now
+  per user.
+- Keys are signed with `django.core.signing` under the salt
+  `apps.users.email_verification`, not allauth's `EmailConfirmationHMAC`, so
+  allauth's session-less `/accounts/confirm-email/<key>/` rejects them.
+- `CustomAccountAdapter.send_confirmation_mail` now routes allauth's own
+  verification mails (from its `/accounts/` signup and login) through ours. An
+  existing pass-through override further down the class silently shadowed the
+  first version; the test caught it.
+- The email names the account and says "if it wasn't you, don't open the link".
+  The confirm card names the account and email. A signed-out visitor is asked to
+  sign in. The `account_unverified` message no longer tells anyone to confirm.
+- One-liners on the rewritten lines: `on_commit(..., robust=True)`, so a failed
+  send after commit no longer 500s a created registration; a non-string key
+  returns 400, not 500.
+
+**Tests:**
+
+- anonymous POST with a valid key → 401/403, row unverified;
+- signed in as a different account whose email differs only in case → 400;
+- the owner → 200 + welcome mail;
+- allauth's confirm view with our key → unverified;
+- the adapter sends our link.
+
+**Mutation check:**
+
+- owner match removed → the different-account test fails. It first survived,
+  because the email-equality check covered a different-email fixture; the
+  fixture is now a case variant;
+- `IsAuthenticated` → `AllowAny` → the key-alone test fails;
+- adapter routing reverted → the adapter test fails.
+
+`apps/users` 227 passed; web 107 files / 1489 tests.
+
+**Residual, named:** a victim who forwards the email to the attacker, or signs
+in with a password the attacker gives them, still completes it. That is social
+engineering at the bar every verified-email system accepts. Revoking the
+password and sessions at an account's first provider link would close even
+that; it is item 1 of todo 447.
+
+Non-blocking review findings are in todo 447.

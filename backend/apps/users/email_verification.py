@@ -11,24 +11,37 @@ only an account whose email is verified here.
 
 The store is allauth's ``EmailAddress.verified``. With ``ACCOUNT_UNIQUE_EMAIL``
 allauth adds a DB constraint that a verified address belongs to one account,
-which ``User.email`` (not unique) never had. Only public allauth API is used.
+which ``User.email`` (not unique) never had.
 
-Confirming is a POST from the web page the email links to, never a GET: mail
-scanners prefetch links, and a prefetch of an attacker's link would verify the
-attacker's account from the victim's inbox.
+Confirming takes BOTH halves of the proof: the key from the inbox AND a
+session signed in to the account the key names. The key alone is not enough.
+If it were, an attacker could register the victim's address, and a victim who
+clicked the link in their inbox (steered there by a refused Google sign-in)
+would verify the attacker's account for them. Also:
+
+- Confirming is a POST, never a GET, because mail scanners prefetch links.
+- Keys are signed under this module's own salt, so allauth's
+  ``/accounts/confirm-email/<key>/`` (which needs no session) rejects them.
+  allauth's own verification mails are routed here too
+  (``CustomAccountAdapter.send_confirmation_mail``).
 """
 
 import logging
+from datetime import timedelta
 
-from allauth.account.models import EmailAddress, EmailConfirmationHMAC
+from allauth.account.models import EmailAddress
 from allauth.account.signals import email_confirmed
 from apps.core.services.email_service import EmailService
 from apps.core.utils.pii_safe_logging import log_safe_user_context
 from django.conf import settings
+from django.core import signing
 from django.db import IntegrityError, transaction
 from django.utils.html import escape
 
 logger = logging.getLogger(__name__)
+
+VERIFY_SALT = "apps.users.email_verification"
+VERIFY_MAX_AGE = timedelta(days=3)
 
 
 def is_email_verified(user) -> bool:
@@ -68,7 +81,7 @@ def mark_email_verified(user) -> bool:
 
 def verification_url(user) -> str:
     """The web page that confirms ``user``'s current email (a signed key)."""
-    key = EmailConfirmationHMAC(_address_for(user)).key
+    key = signing.dumps({"address": _address_for(user).pk}, salt=VERIFY_SALT)
     return f"{settings.SITE_URL.rstrip('/')}/verify-email?key={key}"
 
 
@@ -77,19 +90,25 @@ def send_verification_email(user) -> bool:
     if not user.email or is_email_verified(user):
         return False
     url = verification_url(user)
-    name = user.first_name or user.username
+    account = user.username
     text = (
-        f"Hi {name},\n\n"
-        f"Confirm the email address for your Houseplant MD account:\n\n{url}\n\n"
-        "The link works for 3 days. If you didn't create this account, ignore "
-        "this email; nothing happens until someone confirms it.\n"
+        f'Someone created the Houseplant MD account "{account}" with this email '
+        "address.\n\n"
+        f'If that was you, sign in as "{account}" and open this link to confirm '
+        f"the address:\n\n{url}\n\n"
+        "The link works for 3 days, and only while signed in to that account.\n\n"
+        "If it wasn't you, don't open the link. Nobody can use this address to sign "
+        "in with Google until the account's owner confirms it.\n"
     )
     html = (
-        f"<p>Hi {escape(name)},</p>"
-        "<p>Confirm the email address for your Houseplant MD account:</p>"
+        f"<p>Someone created the Houseplant MD account <strong>{escape(account)}</strong> "
+        "with this email address.</p>"
+        f"<p>If that was you, sign in as <strong>{escape(account)}</strong> and open "
+        "this link to confirm the address:</p>"
         f'<p><a href="{escape(url)}">Confirm my email</a></p>'
-        "<p>The link works for 3 days. If you didn't create this account, ignore "
-        "this email; nothing happens until someone confirms it.</p>"
+        "<p>The link works for 3 days, and only while signed in to that account.</p>"
+        "<p>If it wasn't you, don't open the link. Nobody can use this address to sign "
+        "in with Google until the account's owner confirms it.</p>"
     )
     return EmailService().send_transactional_email(
         recipient=user,
@@ -100,20 +119,31 @@ def send_verification_email(user) -> bool:
 
 
 class VerificationKeyInvalid(Exception):
-    """Forged, expired, already used, or for an email the account no longer has."""
+    """Forged, expired, already used, for another account, or for an email the
+    account no longer has. One exception on purpose: callers must not tell a
+    stranger which of these it was."""
 
 
-def confirm_verification_key(key: str, request=None):
-    """Verify the address a key names and return its user.
+def confirm_verification_key(key, user, request=None):
+    """Verify the address ``key`` names, for the signed-in ``user`` only.
 
-    Raises ``VerificationKeyInvalid`` for a bad key, a key for an address that is
-    no longer the account's email, or an address another account has verified.
+    Raises ``VerificationKeyInvalid`` unless the key is genuine and unexpired,
+    names an unverified address that belongs to ``user`` and is still their
+    email, and no other account holds that address verified.
     """
-    confirmation = EmailConfirmationHMAC.from_key(key or "")
-    if confirmation is None:
+    if not isinstance(key, str):
         raise VerificationKeyInvalid()
-    address = confirmation.email_address
-    user = address.user
+    try:
+        payload = signing.loads(
+            key, salt=VERIFY_SALT, max_age=VERIFY_MAX_AGE.total_seconds()
+        )
+        address = EmailAddress.objects.select_related("user").get(
+            pk=payload["address"], verified=False
+        )
+    except (signing.BadSignature, EmailAddress.DoesNotExist, KeyError, TypeError):
+        raise VerificationKeyInvalid()
+    if address.user_id != user.pk:
+        raise VerificationKeyInvalid()
     if address.email.lower() != (user.email or "").lower():
         raise VerificationKeyInvalid()
     try:

@@ -1,9 +1,19 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { VerificationError, confirmEmailVerification } from './emailVerificationService';
+import { getCsrfToken } from '../utils/csrf';
+import {
+  fullUrl,
+  httpError,
+  installAdapter,
+  ok,
+  restoreAdapter,
+  type AdapterMock,
+} from '../tests/apiClientHarness';
 
-function jsonResponse(body: unknown, status = 200) {
-  return { ok: status < 400, status, json: () => Promise.resolve(body) } as Response;
-}
+vi.mock('../utils/csrf', () => ({ getCsrfToken: vi.fn(), clearCsrfToken: vi.fn() }));
+vi.mock('../utils/logger', () => ({
+  logger: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+}));
 
 async function reasonOf(promise: Promise<unknown>) {
   const err = await promise.then(
@@ -15,36 +25,50 @@ async function reasonOf(promise: Promise<unknown>) {
 }
 
 describe('emailVerificationService', () => {
-  let fetchMock: ReturnType<typeof vi.fn>;
+  let adapter: AdapterMock;
 
   beforeEach(() => {
-    fetchMock = vi.fn();
-    global.fetch = fetchMock as unknown as typeof fetch;
+    vi.mocked(getCsrfToken).mockResolvedValue('csrf-123');
+    adapter = installAdapter();
   });
 
-  it('confirms by POSTing the key, without cookies', async () => {
-    fetchMock.mockResolvedValue(jsonResponse({ verified: true }));
+  afterEach(() => {
+    restoreAdapter();
+  });
+
+  it('confirms WITH the session: the key alone must not be enough', async () => {
+    adapter.mockImplementation(async (config) => ok(config, { verified: true }));
 
     await expect(confirmEmailVerification('k1')).resolves.toBeUndefined();
-    const [url, init] = fetchMock.mock.calls[0];
-    expect(url).toMatch(/\/api\/v1\/auth\/verify-email\/$/);
-    expect(init.method).toBe('POST');
-    // The key is the credential: a signed-in session must not ride along.
-    expect(init.credentials).toBe('omit');
-    expect(JSON.parse(init.body)).toEqual({ key: 'k1' });
+    const config = adapter.mock.calls[0][0];
+    expect(config.method).toBe('post');
+    expect(fullUrl(config)).toMatch(/\/api\/v1\/auth\/verify-email\/$/);
+    expect(config.withCredentials).toBe(true);
+    expect(config.headers.get('X-CSRFToken')).toBe('csrf-123');
+    expect(JSON.parse(config.data as string)).toEqual({ key: 'k1' });
   });
 
   it('reports a 400 as an invalid link', async () => {
-    fetchMock.mockResolvedValue(jsonResponse({ code: 'VERIFICATION_KEY_INVALID' }, 400));
+    adapter.mockImplementation(async (config) => {
+      throw httpError(config, 400, { code: 'VERIFICATION_KEY_INVALID' });
+    });
 
     expect(await reasonOf(confirmEmailVerification('bad'))).toBe('invalid');
   });
 
-  it('reports a server or network failure as retryable', async () => {
-    fetchMock.mockResolvedValueOnce(jsonResponse({}, 503));
-    expect(await reasonOf(confirmEmailVerification('k'))).toBe('error');
+  it('reports a missing session as sign-in needed', async () => {
+    adapter.mockImplementation(async (config) => {
+      throw httpError(config, 401, { detail: 'Authentication credentials were not provided.' });
+    });
 
-    fetchMock.mockRejectedValueOnce(new TypeError('offline'));
+    expect(await reasonOf(confirmEmailVerification('k'))).toBe('signin');
+  });
+
+  it('reports a server failure as retryable', async () => {
+    adapter.mockImplementation(async (config) => {
+      throw httpError(config, 503, {});
+    });
+
     expect(await reasonOf(confirmEmailVerification('k'))).toBe('error');
   });
 });

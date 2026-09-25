@@ -421,10 +421,18 @@ email-matching paths refuse unless `email_verification.is_email_verified(user)`:
   verified row** (`mark_email_verified`), or its users are refused on their
   next sign-in. Migration `users.0012` backfilled existing accounts
   (`firebase_uid`, a `SocialAccount`, or an unusable password → verified).
-- **Password accounts** verify through an emailed link to web `/verify-email`,
-  which confirms only on a button **POST**. Mail scanners prefetch GETs, and a
-  prefetch of an attacker's link would verify the attacker's account from the
-  victim's inbox.
+- **Password accounts** verify through an emailed link to web `/verify-email`.
+  Confirming needs **both halves**: the key from the inbox, and a session
+  signed in to the account the key names (a button **POST**). The key alone is
+  not enough. If it were, an attacker could register the victim's address, and
+  a victim who clicked the link in their own inbox (for example after a refused
+  Google sign-in) would verify the attacker's account for them. Found in review,
+  before merge.
+  - Keys are signed under our own salt, so allauth's session-less
+    `/accounts/confirm-email/<key>/` rejects them.
+  - `CustomAccountAdapter.send_confirmation_mail` routes allauth's own
+    verification mails through ours.
+  - GET changes nothing, because mail scanners prefetch links.
 - **Known limit:** a collision with an unverified local account is refused,
   not merged, so the address's real owner cannot use Google until that
   account verifies. It fails closed.

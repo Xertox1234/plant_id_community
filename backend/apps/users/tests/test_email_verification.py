@@ -21,7 +21,7 @@ from apps.users.email_verification import (
     verification_url,
 )
 from apps.users.firebase_auth_views import get_or_create_user_from_firebase
-from apps.users.oauth_adapters import CustomSocialAccountAdapter
+from apps.users.oauth_adapters import CustomAccountAdapter, CustomSocialAccountAdapter
 from django.apps import apps as django_apps
 from django.contrib.auth import get_user_model
 from django.core import mail
@@ -71,6 +71,10 @@ class RegistrationSendsVerificationTest(TestCase):
 
 
 class VerifyEmailEndpointTest(TestCase):
+    """Confirming needs the key AND a session for the key's account. The key
+    alone would let a victim who clicks the link in their inbox verify an
+    attacker's pre-registered account."""
+
     def setUp(self):
         cache.clear()
         self.client = APIClient()
@@ -78,13 +82,40 @@ class VerifyEmailEndpointTest(TestCase):
             username="ada", email="ada@example.com", password=PASSWORD
         )
         self.key = _key_from(verification_url(self.user))
+        self.client.force_authenticate(user=self.user)
 
-    def test_post_with_the_key_verifies_and_sends_the_welcome_email(self):
+    def test_owner_signed_in_verifies_and_gets_the_welcome_email(self):
         response = self.client.post(VERIFY_URL, {"key": self.key}, format="json")
 
         self.assertEqual(response.status_code, 200)
         self.assertTrue(is_email_verified(self.user))
         self.assertEqual(len(mail.outbox), 1)  # welcome, via email_confirmed
+
+    def test_key_alone_is_not_enough(self):
+        # The victim clicking the link from their inbox, not signed in.
+        response = APIClient().post(VERIFY_URL, {"key": self.key}, format="json")
+
+        self.assertIn(response.status_code, (401, 403))
+        self.assertFalse(is_email_verified(self.user))
+
+    def test_signed_in_as_another_account_is_refused(self):
+        # The victim signed in to their own account, clicking the attacker's link.
+        # Same address in another case: registration's duplicate check is
+        # exact-case, so only the owner check can tell these accounts apart.
+        other = User.objects.create_user(username="victim", email="ADA@example.com")
+        client = APIClient()
+        client.force_authenticate(user=other)
+
+        response = client.post(VERIFY_URL, {"key": self.key}, format="json")
+
+        self.assertEqual(response.status_code, 400)
+        self.assertFalse(is_email_verified(self.user))
+
+    def test_allauth_confirm_view_rejects_our_key(self):
+        # /accounts/confirm-email/<key>/ needs no session; our salt keeps it out.
+        self.client.post(f"/accounts/confirm-email/{self.key}/")
+
+        self.assertFalse(is_email_verified(self.user))
 
     def test_get_changes_nothing(self):
         response = self.client.get(VERIFY_URL, {"key": self.key})
@@ -92,10 +123,10 @@ class VerifyEmailEndpointTest(TestCase):
         self.assertEqual(response.status_code, 405)
         self.assertFalse(is_email_verified(self.user))
 
-    def test_bad_key_is_refused(self):
-        response = self.client.post(VERIFY_URL, {"key": "forged"}, format="json")
-
-        self.assertEqual(response.status_code, 400)
+    def test_bad_or_non_string_key_is_refused(self):
+        for key in ("forged", 1, ["x"], None):
+            response = self.client.post(VERIFY_URL, {"key": key}, format="json")
+            self.assertEqual(response.status_code, 400, key)
         self.assertFalse(is_email_verified(self.user))
 
     def test_key_for_a_previous_email_is_refused(self):
@@ -122,6 +153,27 @@ class VerifyEmailEndpointTest(TestCase):
         response = self.client.post(VERIFY_URL, {"key": self.key}, format="json")
 
         self.assertEqual(response.status_code, 400)
+
+
+class AllauthMailIsRoutedTest(TestCase):
+    """allauth's own verification mails (its /accounts/ signup and login) carry
+    our link, so they obey the same session rule."""
+
+    def test_adapter_sends_our_link(self):
+        user = User.objects.create_user(
+            username="ada", email="ada@example.com", password=PASSWORD
+        )
+        address = EmailAddress.objects.create(
+            user=user, email=user.email, verified=False, primary=True
+        )
+        confirmation = MagicMock()
+        confirmation.email_address = address
+
+        CustomAccountAdapter().send_confirmation_mail(None, confirmation, True)
+
+        self.assertEqual(len(mail.outbox), 1)
+        self.assertIn("/verify-email?key=", mail.outbox[0].body)
+        self.assertNotIn("/accounts/confirm-email/", mail.outbox[0].body)
 
 
 class ResendVerificationTest(TestCase):

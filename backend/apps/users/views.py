@@ -19,11 +19,7 @@ from django.views.decorators.csrf import csrf_protect, ensure_csrf_cookie
 from django_ratelimit.decorators import ratelimit
 from rest_framework import permissions, status
 from rest_framework.authentication import CSRFCheck
-from rest_framework.decorators import (
-    api_view,
-    authentication_classes,
-    permission_classes,
-)
+from rest_framework.decorators import api_view, permission_classes
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework_simplejwt.tokens import RefreshToken
@@ -133,7 +129,9 @@ def register(request: Request) -> Response:
 
                 # The account is usable at once, but no sign-in path will match
                 # it by email until the owner confirms the address (todo 446).
-                transaction.on_commit(lambda: send_verification_email(user))
+                transaction.on_commit(
+                    lambda: send_verification_email(user), robust=True
+                )
 
                 # Create response with user data
                 response = Response(
@@ -168,27 +166,30 @@ def register(request: Request) -> Response:
 
 
 @api_view(["POST"])
-@authentication_classes([])  # the signed key is the credential; no session needed
-@permission_classes([permissions.AllowAny])
+@permission_classes([permissions.IsAuthenticated])
 @ratelimit(
-    key=client_ip_key,
+    key="user",
     rate=RATE_LIMITS["auth_endpoints"]["verify_email"],
     method="POST",
     block=True,
 )
 def verify_email(request: Request) -> Response:
-    """Confirm an email address from the signed key in a verification link.
+    """Confirm the signed-in user's email from the key in their verification link.
 
-    POST only: the email links to a web page that posts here on a button click,
-    because mail scanners prefetch GET links (todo 446).
+    Needs BOTH the key (proves the inbox) and a session for the key's account
+    (proves the account): the key alone would let a victim who clicks the link
+    verify an attacker's pre-registered account. POST only, because mail
+    scanners prefetch GET links (todo 446).
     """
+    key = request.data.get("key") if isinstance(request.data, dict) else None
     try:
-        confirm_verification_key(request.data.get("key"), request=request._request)
+        confirm_verification_key(key, request.user, request=request._request)
     except VerificationKeyInvalid:
         return create_error_response(
             "VERIFICATION_KEY_INVALID",
             "Invalid verification link",
-            "This link is invalid, expired or already used. Sign in and request a new one.",
+            "This link is invalid, expired, already used, or for a different "
+            "account than the one you are signed in to.",
             status.HTTP_400_BAD_REQUEST,
         )
     return Response({"verified": True})

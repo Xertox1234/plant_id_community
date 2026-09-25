@@ -2,9 +2,11 @@
  * Email verification (todo 446).
  *
  * - /verify-email?key=<signed key> — where the link in the verification email
- *   lands. Opening the page changes nothing (mail scanners open links too, and
- *   a scanner confirming a stranger's sign-up is exactly the attack this
- *   closes); only the button confirms. Public: the key is the credential.
+ *   lands. Opening the page changes nothing, because mail scanners open links
+ *   too; only the button confirms. Confirming also needs the session of the
+ *   account the key names. Otherwise a victim clicking the link in their inbox
+ *   would verify an attacker's pre-registered account. So a signed-out visitor
+ *   is asked to sign in, and the card names the account being confirmed.
  * - /verify-email (no key) — where signup lands: "check your inbox", plus a
  *   resend button for the signed-in user.
  */
@@ -83,9 +85,24 @@ function CheckInbox() {
   );
 }
 
-type ConfirmView = 'ask' | 'done' | 'invalid';
+type ConfirmView = 'ask' | 'done' | 'invalid' | 'signin';
+
+function SignInFirst() {
+  return (
+    <>
+      <h1 className="gt-h1 text-balance">Sign in to confirm your email</h1>
+      <p className="text-ink-2">
+        <Link to="/login" className="font-semibold text-ink underline">
+          Sign in
+        </Link>{' '}
+        to the account this email is for, then open the link in the email again.
+      </p>
+    </>
+  );
+}
 
 function ConfirmKey({ verificationKey }: { verificationKey: string }) {
+  const { user } = useAuth();
   const [view, setView] = useState<ConfirmView>('ask');
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState(false);
@@ -98,6 +115,7 @@ function ConfirmKey({ verificationKey }: { verificationKey: string }) {
       setView('done');
     } catch (err) {
       if (err instanceof VerificationError && err.reason === 'invalid') setView('invalid');
+      else if (err instanceof VerificationError && err.reason === 'signin') setView('signin');
       else setSaveError(true);
     } finally {
       setSaving(false);
@@ -118,12 +136,15 @@ function ConfirmKey({ verificationKey }: { verificationKey: string }) {
     );
   }
 
+  if (!user || view === 'signin') return <SignInFirst />;
+
   if (view === 'invalid') {
     return (
       <>
         <h1 className="gt-h1 text-balance">This link doesn&apos;t work</h1>
         <p className="text-ink-2">
-          It may have expired (links last 3 days), already been used, or been copied incompletely.
+          It may have expired (links last 3 days), already been used, or be for a different account
+          than the one you&apos;re signed in to.
         </p>
         <ResendLink />
       </>
@@ -134,7 +155,13 @@ function ConfirmKey({ verificationKey }: { verificationKey: string }) {
     <>
       <h1 className="gt-h1 text-balance">Confirm your email address?</h1>
       <p className="text-ink-2">
-        Press the button to confirm this email address belongs to your Houseplant MD account.
+        Confirm that <strong>{user.email}</strong> belongs to the account you&apos;re signed in to
+        {user.username ? (
+          <>
+            , <strong>{user.username}</strong>
+          </>
+        ) : null}
+        .
       </p>
       {saveError && (
         <p role="alert" className="text-body-sm text-error">

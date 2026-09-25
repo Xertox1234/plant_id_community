@@ -10,7 +10,11 @@ import {
 } from '../services/emailVerificationService';
 
 const authState = vi.hoisted(() => ({
-  user: { id: 7, email: 'ada@example.com' } as { id: number; email: string } | null,
+  user: { id: 7, email: 'ada@example.com', username: 'ada' } as {
+    id: number;
+    email: string;
+    username?: string;
+  } | null,
 }));
 
 vi.mock('../contexts/AuthContext', () => ({
@@ -39,7 +43,7 @@ describe('VerifyEmailPage', () => {
   beforeEach(() => {
     confirm.mockReset();
     resend.mockReset();
-    authState.user = { id: 7, email: 'ada@example.com' };
+    authState.user = { id: 7, email: 'ada@example.com', username: 'ada' };
   });
 
   it('does nothing on open; only the button confirms (mail scanners open links)', async () => {
@@ -87,14 +91,29 @@ describe('VerifyEmailPage', () => {
     expect(confirm).not.toHaveBeenCalled();
   });
 
-  it('asks a signed-out visitor to sign in before resending', async () => {
+  it('names the account being confirmed', () => {
+    renderAt('/verify-email?key=abc');
+
+    expect(screen.getByText('ada')).toBeInTheDocument();
+    expect(screen.getByText('ada@example.com')).toBeInTheDocument();
+  });
+
+  it('signed out, asks to sign in and offers no confirm button (the key alone is not enough)', () => {
     authState.user = null;
-    confirm.mockRejectedValue(new VerificationError('invalid', 'bad'));
+    renderAt('/verify-email?key=abc');
+
+    expect(screen.getByRole('heading', { name: /sign in to confirm/i })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: /sign in/i })).toHaveAttribute('href', '/login');
+    expect(screen.queryByRole('button', { name: /confirm my email/i })).not.toBeInTheDocument();
+    expect(confirm).not.toHaveBeenCalled();
+  });
+
+  it('a session that lapsed before the click also asks to sign in', async () => {
+    confirm.mockRejectedValue(new VerificationError('signin', 'no session'));
     renderAt('/verify-email?key=abc');
 
     await userEvent.click(screen.getByRole('button', { name: /confirm my email/i }));
 
-    expect(await screen.findByRole('link', { name: /sign in/i })).toHaveAttribute('href', '/login');
-    expect(screen.queryByRole('button', { name: /send a new link/i })).not.toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: /sign in to confirm/i })).toBeInTheDocument();
   });
 });
