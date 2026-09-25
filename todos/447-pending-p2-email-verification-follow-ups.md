@@ -70,6 +70,29 @@ so none is lost. Paths are relative to `backend/` unless shown otherwise.
     `verify-email` (welcome mail via `email_confirmed`), so mail-server latency
     (`EMAIL_TIMEOUT=30`) lands on those requests. Consider the Celery worker.
 
+12. **Pin the allauth settings the fix depends on** (round-2 review). The
+    "key alone cannot verify" closure holds only while these stay unset or at
+    their defaults:
+    - `ACCOUNT_EMAIL_VERIFICATION_BY_CODE_ENABLED`,
+      `ACCOUNT_LOGIN_BY_CODE_ENABLED`, `ACCOUNT_PASSWORD_RESET_BY_CODE_ENABLED`;
+    - `ACCOUNT_SALT` (never equal to `apps.users.email_verification`);
+    - `ACCOUNT_EMAIL_CONFIRMATION_HMAC`, `ACCOUNT_CONFIRM_EMAIL_ON_GET`;
+    - `allauth.headless` not installed.
+
+    Add a guard test that fails if any of them changes.
+13. **allauth password reset may re-open the squat (inferred, not
+    reproduced).** `/accounts/password/reset/` is mounted. For an address
+    nobody holds verified, it resets the squatter's account; the victim then
+    signs in and confirms, which is legitimate (key + session). The attacker's
+    simplejwt refresh token probably survives: no revoke-on-password-change
+    hook was found in `apps/users`. Revoke outstanding tokens on password
+    reset/change, or unmount allauth's reset route. Reproduce it first.
+14. **Adapter ignores the confirmation's address.**
+    `CustomAccountAdapter.send_confirmation_mail` mints for the user's
+    *current* email, so allauth's add-email flow can never verify a secondary
+    address, and nothing is sent when the current email is already verified.
+    Functional, not security. Resolve together with item 6.
+
 ## Acceptance Criteria
 
 - [ ] Each finding is fixed with a test, or closed with a recorded reason.
