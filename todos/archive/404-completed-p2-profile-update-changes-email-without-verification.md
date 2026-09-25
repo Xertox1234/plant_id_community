@@ -97,7 +97,11 @@ no stolen session needed:
   email-keyed lookups hit `MultipleObjectsReturned`. Password login-by-email
   catches only `DoesNotExist`.
 
-Making the field read-only closes all of these paths.
+Making the field read-only closes the **profile-PATCH** route to both. It does
+NOT close the same pre-hijack through **registration**: `register`
+(`views.py:112-134`) accepts any not-yet-used email, logs the account in with
+no ownership check, and web OAuth / the Firebase legacy fallback then match it
+by email. Filed as todo 446 (found in review round 1).
 
 **Fix:** `"email"` added to `UserProfileSerializer.Meta.read_only_fields`. DRF
 drops read-only input silently, so a PATCH carrying `email` returns **200 with
@@ -122,6 +126,4 @@ baseline.
 - No change-email endpoint. No client offers email editing, so it is a product
   decision; file it if wanted (re-auth + confirm the new address + notify the
   old one).
-- Optional owner check: whether any production accounts already share an email
-  (case-insensitive), which would be a trace of this hole. That is a production
-  read, so it stays with the owner.
+- The production duplicate-email check is tracked in todo 446 (owner step).
