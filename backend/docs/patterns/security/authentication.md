@@ -401,6 +401,34 @@ What is single-sourced is this policy.
 | allauth (web) | `oauth_adapters.pre_social_login` / `_provider_email_verified` | `sociallogin.email_addresses[].verified` (case-folded match) | raise `ImmediateHttpResponse` → `?error=unverified_email`; never auto-link or fall through to auto-signup |
 | Firebase (mobile) | `firebase_auth_views` | `email_verified` claim, or `sign_in_provider` in the trusted federated set (Google, Apple) | 403 at token exchange; `ValueError` before binding a UID onto an existing account |
 
+**The other side of the match: the LOCAL account must have proven its email
+too (todo 446).** A provider-verified email proves who the *caller* is, not
+who owns the existing account it matches. Password registration
+(`views.register`) accepts any email nobody holds yet and logs in at once, so
+without this, anyone could register a victim's address first and inherit the
+victim's first Google or Firebase sign-in (an account pre-hijack). All three
+email-matching paths refuse unless `email_verification.is_email_verified(user)`:
+
+| Path | Where it lives | Enforcement on an unverified local account |
+|------|----------------|--------------------------------------------|
+| Google/GitHub (web) | `oauth_views._find_or_create_user` | raise `UnverifiedLocalAccount` → `?error=account_unverified` |
+| allauth (web) | `oauth_adapters.pre_social_login` | `ImmediateHttpResponse` → `?error=account_unverified` |
+| Firebase (mobile) | `get_or_create_user_from_firebase` email fallback | `ValueError` → 409 |
+
+- **Store:** allauth `EmailAddress.verified`. With `ACCOUNT_UNIQUE_EMAIL`,
+  allauth adds a DB constraint that a verified address belongs to one account.
+- **Every creation path that starts from a provider-verified email writes a
+  verified row** (`mark_email_verified`), or its users are refused on their
+  next sign-in. Migration `users.0012` backfilled existing accounts
+  (`firebase_uid`, a `SocialAccount`, or an unusable password → verified).
+- **Password accounts** verify through an emailed link to web `/verify-email`,
+  which confirms only on a button **POST**. Mail scanners prefetch GETs, and a
+  prefetch of an attacker's link would verify the attacker's account from the
+  victim's inbox.
+- **Known limit:** a collision with an unverified local account is refused,
+  not merged, so the address's real owner cannot use Google until that
+  account verifies. It fails closed.
+
 **GDPR**: when refusing an unverified email, log the decision but **never the
 address** — log the provider and a redacted form only. See
 `firebase_auth_views.redact_email`.

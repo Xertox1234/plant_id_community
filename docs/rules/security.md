@@ -406,3 +406,12 @@ Compact checklist auto-injected before edits. Long-form: `backend/docs/patterns/
   `MultipleObjectsReturned`. Changing an identity field needs its own endpoint
   with re-auth and verification, never a partial update. Pin it with a test
   that PATCHes the field and asserts the stored value is unchanged (todo 404).
+- **Match an existing account by email only when the LOCAL account proved that
+  email too.** A provider-verified email proves the caller, not the owner of
+  the row it matches. Password sign-up that logs in without confirming the
+  address let anyone pre-register a victim's email and inherit their first
+  Google/Firebase sign-in. Gate every email match on
+  `email_verification.is_email_verified(user)`. Have every creation path that
+  starts from a provider-verified email write the verified row, or returning
+  users get refused. Confirm verification links by POST from a page, never by
+  GET (scanner prefetch) (todo 446).

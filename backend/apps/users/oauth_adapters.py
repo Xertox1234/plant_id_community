@@ -10,6 +10,7 @@ from allauth.core.exceptions import ImmediateHttpResponse
 from allauth.socialaccount.adapter import DefaultSocialAccountAdapter
 from allauth.socialaccount.models import SocialLogin
 from apps.core.utils.pii_safe_logging import log_safe_user_context
+from apps.users.email_verification import is_email_verified
 from apps.users.oauth_views import get_oauth_redirect_url
 from django.contrib.auth import get_user_model
 from django.http import HttpRequest, HttpResponseRedirect
@@ -73,6 +74,20 @@ class CustomSocialAccountAdapter(DefaultSocialAccountAdapter):
             error_url = (
                 f"{get_oauth_redirect_url(sociallogin.account.provider)}"
                 f"?error=unverified_email"
+            )
+            raise ImmediateHttpResponse(HttpResponseRedirect(error_url))
+
+        # The provider proved the email; the local account must have too, or
+        # this links the provider user into an account a stranger registered
+        # with their address (todo 446).
+        if not is_email_verified(existing_user):
+            logger.warning(
+                f"[SECURITY] Refused {sociallogin.account.provider} login: email "
+                f"matches an unverified local account"
+            )
+            error_url = (
+                f"{get_oauth_redirect_url(sociallogin.account.provider)}"
+                f"?error=account_unverified"
             )
             raise ImmediateHttpResponse(HttpResponseRedirect(error_url))
 

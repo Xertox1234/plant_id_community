@@ -18,6 +18,7 @@ from apps.core.ratelimit import (  # rate-preserving wrapper (Retry-After)
     ratelimit,
 )
 from apps.plant_identification.constants import RATE_LIMITS
+from apps.users.email_verification import is_email_verified, mark_email_verified
 from apps.users.signup import create_default_plant_collection, join_forum_members_group
 from django.contrib.auth import get_user_model
 from django.db import IntegrityError
@@ -434,6 +435,16 @@ def get_or_create_user_from_firebase(
                 "Email must be verified before linking to an existing account"
             )
 
+        # The Firebase user proved the email; the local account must have too,
+        # or a stranger who registered this address on the web would receive
+        # the Firebase user's first sign-in (todo 446).
+        if not is_email_verified(user):
+            logger.warning(
+                f"[FIREBASE AUTH] Refused to bind to unverified local account "
+                f"{redact_email(firebase_email)}"
+            )
+            raise ValueError("Existing account has not verified this email")
+
         # Backfill the binding on first sign-in for a legacy email account.
         update_fields = []
         if not user.firebase_uid:
@@ -484,6 +495,8 @@ def get_or_create_user_from_firebase(
             is_active=True,
             firebase_uid=firebase_uid,
         )
+        if email_verified:
+            mark_email_verified(user)
         # Shared signup side-effects — Firebase users previously did NOT get the
         # default "My Plants" collection that registration/OAuth create (M7).
         create_default_plant_collection(user)

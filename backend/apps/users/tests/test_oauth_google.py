@@ -16,6 +16,7 @@ from unittest.mock import MagicMock, patch
 from allauth.account.models import EmailAddress
 from allauth.core.exceptions import ImmediateHttpResponse
 from apps.users import oauth_views
+from apps.users.email_verification import mark_email_verified
 from apps.users.oauth_adapters import CustomSocialAccountAdapter
 from django.contrib.auth import get_user_model
 from django.http import HttpResponseRedirect
@@ -119,6 +120,7 @@ class FindOrCreateUserGuardTest(TestCase):
 
     def test_verified_email_matches_existing_account(self):
         existing = User.objects.create_user(username="real", email="real@example.com")
+        mark_email_verified(existing)  # it proved its email (todo 446)
 
         result = oauth_views._find_or_create_user(
             "google", {"email": "real@example.com"}
@@ -173,6 +175,7 @@ class PreSocialLoginVerifiedEmailTest(TestCase):
 
     def test_verified_email_is_linked(self):
         existing = User.objects.create_user(username="real", email="real@example.com")
+        mark_email_verified(existing)  # it proved its email (todo 446)
         sociallogin = self._sociallogin(email="real@example.com", verified=True)
 
         self.adapter.pre_social_login(self.request, sociallogin)

@@ -19,13 +19,23 @@ from django.views.decorators.csrf import csrf_protect, ensure_csrf_cookie
 from django_ratelimit.decorators import ratelimit
 from rest_framework import permissions, status
 from rest_framework.authentication import CSRFCheck
-from rest_framework.decorators import api_view, permission_classes
+from rest_framework.decorators import (
+    api_view,
+    authentication_classes,
+    permission_classes,
+)
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework_simplejwt.tokens import RefreshToken
 
 from .authentication import RefreshTokenFromCookie, clear_jwt_cookies, set_jwt_cookies
 from .constants import RATE_LIMIT_DEMO_DATA_CREATE, RATE_LIMIT_ONBOARDING_EVENT
+from .email_verification import (
+    VerificationKeyInvalid,
+    confirm_verification_key,
+    is_email_verified,
+    send_verification_email,
+)
 from .models import User, UserPlantCollection
 from .serializers import (
     UserProfileSerializer,
@@ -121,6 +131,10 @@ def register(request: Request) -> Response:
                 create_default_plant_collection(user)
                 join_forum_members_group(user)
 
+                # The account is usable at once, but no sign-in path will match
+                # it by email until the owner confirms the address (todo 446).
+                transaction.on_commit(lambda: send_verification_email(user))
+
                 # Create response with user data
                 response = Response(
                     {
@@ -151,6 +165,49 @@ def register(request: Request) -> Response:
         f"[SIGNUP] Registration validation failed for user: {log_safe_username(username)}, fields: {error_fields}"
     )
     return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+
+@api_view(["POST"])
+@authentication_classes([])  # the signed key is the credential; no session needed
+@permission_classes([permissions.AllowAny])
+@ratelimit(
+    key=client_ip_key,
+    rate=RATE_LIMITS["auth_endpoints"]["verify_email"],
+    method="POST",
+    block=True,
+)
+def verify_email(request: Request) -> Response:
+    """Confirm an email address from the signed key in a verification link.
+
+    POST only: the email links to a web page that posts here on a button click,
+    because mail scanners prefetch GET links (todo 446).
+    """
+    try:
+        confirm_verification_key(request.data.get("key"), request=request._request)
+    except VerificationKeyInvalid:
+        return create_error_response(
+            "VERIFICATION_KEY_INVALID",
+            "Invalid verification link",
+            "This link is invalid, expired or already used. Sign in and request a new one.",
+            status.HTTP_400_BAD_REQUEST,
+        )
+    return Response({"verified": True})
+
+
+@api_view(["POST"])
+@permission_classes([permissions.IsAuthenticated])
+@ratelimit(
+    key="user",
+    rate=RATE_LIMITS["auth_endpoints"]["verify_email_resend"],
+    method="POST",
+    block=True,
+)
+def resend_verification_email(request: Request) -> Response:
+    """Send the signed-in user a fresh verification link (todo 446)."""
+    if is_email_verified(request.user):
+        return Response({"verified": True, "sent": False})
+    sent = send_verification_email(request.user)
+    return Response({"verified": False, "sent": sent})
 
 
 @api_view(["POST"])

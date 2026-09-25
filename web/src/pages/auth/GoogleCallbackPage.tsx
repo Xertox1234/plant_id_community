@@ -16,6 +16,9 @@ const ERROR_MESSAGES: Record<string, string> = {
   unsupported_provider: 'This sign-in method is not supported.',
   callback_failed: 'Something went wrong while signing you in. Please try again.',
   access_denied: 'You cancelled the Google sign-in.',
+  account_unverified:
+    'An account with this email already exists but has not confirmed its email address. ' +
+    'Sign in with its password and confirm the email, then Google sign-in will work.',
 };
 
 function messageForError(code: string | null): string {
