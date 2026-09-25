@@ -29,7 +29,7 @@ messages a day).
 
 ## Acceptance Criteria
 
-- [ ] `API_PUBLIC_URL` is set in production and declared in `.railway/railway.ts`.
+- [x] `API_PUBLIC_URL` is set in production and declared in `.railway/railway.ts`.
 - [ ] A production reply email carries both one-click headers.
 
 ## Work Log
@@ -46,3 +46,19 @@ service on 2026-09-24 (Railway MCP, owner approved). The `.railway/railway.ts`
 declaration is in its own PR for the owner to merge. Remaining (owner): the
 AC 2 check — a production reply email's raw headers show both one-click
 headers.
+
+### 2026-09-24 - AC 1 done; AC 2 checked up to the send, not on a received email
+
+- **AC 1:** `API_PUBLIC_URL=https://api.houseplant-md.com` on Railway, declared
+  in `.railway/railway.ts` (#828, Railway apply succeeded 2026-09-25T03:59Z).
+- **Toward AC 2:** in a production shell, `unsubscribe_headers()` for a real user
+  returned `List-Unsubscribe: <https://api.houseplant-md.com/api/v1/auth/unsubscribe/one-click/?token=…>`
+  and `List-Unsubscribe-Post: List-Unsubscribe=One-Click`, and `send_email`
+  passes that dict to `EmailMultiAlternatives(headers=...)` unchanged. The
+  endpoint: `POST ?token=bogus` → 400, `GET` → 302 to the web page. Production
+  mail is Django's SMTP backend to `smtp.resend.com:587`.
+- **Not done:** a sent email's raw headers. The agent's attempt to send a test
+  message to the owner over production SMTP was refused by the auto-mode
+  permission classifier, so AC 2 stays open. Owner step (one minute): on the
+  next forum reply or digest email, Gmail → "Show original", confirm both
+  headers, record the date here, archive.

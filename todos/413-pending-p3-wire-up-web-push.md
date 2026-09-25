@@ -38,7 +38,7 @@ See the file references above, and todo 405's Work Log.
 ## Acceptance Criteria
 
 - [ ] A subscribed browser receives a forum notification. Record the date and what was observed.
-- [ ] The VAPID private key lives only in Railway and `.env`.
+- [x] The VAPID private key lives only in Railway and `.env`. (completed 2026-09-24)
 
 ## Work Log
 
@@ -54,3 +54,23 @@ your own terminal (NOT with the `!` prefix, so the private key never enters a
 transcript), e.g. `npx web-push generate-vapid-keys`, and set
 `VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY` on the `plant_id_community` Railway
 service and in `backend/.env`. Then this is ready for a sweep.
+
+### 2026-09-24 - VAPID keys generated and set (owner gate removed)
+
+A P-256 key pair was generated locally by a script that never printed the
+private key. Both halves are set on the `plant_id_community` Railway service
+(read back: `VAPID_PRIVATE_KEY` 43 chars, `VAPID_PUBLIC_KEY` 87 chars; raw
+base64url, the format `npx web-push generate-vapid-keys` emits and
+`py_vapid.Vapid.from_string` accepts) and in `backend/.env` (gitignored).
+Declared `preserve()` in `.railway/railway.ts` (#830). Public key:
+`BLrbiiidfpiAWj4ZHexQggpVCJue5b5tIjZ9KsgobEuNVz4wwNxPKsLmqHB1ANm31--xeXyulD-js65NgCr17G4`.
+
+**Sweep notes, found while doing this:**
+
+- `settings.py` reads NO `VAPID_*` value today. `apps/users/services.py` does
+  `getattr(settings, "VAPID_PRIVATE_KEY", None)`, so setting the env var alone
+  changes nothing: add `VAPID_PRIVATE_KEY` / `VAPID_PUBLIC_KEY = config(..., default="")`.
+- `VAPID_CLAIMS_EMAIL` defaults to `admin@plantcommunity.com`, the old domain.
+  Default it to `DEFAULT_FROM_EMAIL` instead.
+
+Ready for a sweep.

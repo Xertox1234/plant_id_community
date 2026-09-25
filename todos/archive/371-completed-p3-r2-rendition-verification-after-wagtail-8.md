@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: p3
 issue_id: "371"
 tags: [r2, wagtail, media, verification]
@@ -65,14 +65,14 @@ This todo exists so that unchecked box does not become invisible debt.
 
 ## Acceptance Criteria
 
-- [ ] A WebP original uploaded with `USE_R2=True` produces a `.webp` rendition
+- [x] A WebP original uploaded with `USE_R2=True` produces a `.webp` rendition
       object in the bucket, served as `Content-Type: image/webp`
-- [ ] The same holds for an AVIF original (`image/avif`)
-- [ ] Rendition URLs resolve through `R2_CUSTOM_DOMAIN` with `R2_CACHE_CONTROL`
+- [x] The same holds for an AVIF original (`image/avif`)
+- [x] Rendition URLs resolve through `R2_CUSTOM_DOMAIN` with `R2_CACHE_CONTROL`
       applied
-- [ ] A pre-existing WebP original still serves its cached PNG rendition without
+- [x] A pre-existing WebP original still serves its cached PNG rendition without
       error
-- [ ] Todo 363's acceptance criterion 4 is checked off (or explicitly retired)
+- [x] Todo 363's acceptance criterion 4 is checked off (or explicitly retired)
       and 363 archived
 
 ## Work Log
@@ -111,3 +111,27 @@ than leave both todos open indefinitely.
 Needs real R2. Owner step: in production `/cms/`, upload a WebP and an AVIF
 image and open a page that renders them; then `curl -sI <rendition url>` for
 each and record the key extension, `Content-Type` and `Cache-Control` here.
+
+### 2026-09-24 - Verified against production R2 (all criteria)
+
+Run from a production `manage.py shell` (`railway ssh`), `USE_R2=True`, Pillow
+AVIF support `True`:
+
+- Uploaded a 64x48 WebP (image 25) and AVIF (image 26), requested
+  `fill-32x24`. Keys: `images/r2-check.2e16d0ba.fill-32x24.webp` and `.avif`.
+- `curl -sI https://media.houseplant-md.com/images/r2-check.2e16d0ba.fill-32x24.webp`
+  → `HTTP/2 200`, `content-type: image/webp`,
+  `cache-control: public, max-age=31536000, immutable`. The `.avif` →
+  `content-type: image/avif`, same cache-control. So `R2_CUSTOM_DOMAIN` and
+  `R2_CACHE_CONTROL` both apply.
+- **Pre-existing WebP originals:** all six blog covers
+  (`original_images/cover-{fiddle,jungle,kindness,mites,pruning,variegation}.webp`,
+  each `200`) serve their cached renditions as `.png`
+  (`images/cover-*.2e16d0ba.fill-800x400.png` → `200`, `content-type: image/png`).
+  The mixed-format state behaves as the Findings predicted.
+- Cleanup: images 25 and 26 deleted (`LEFT 0`); their originals now 404. The
+  deleted rendition still answers 200 from Cloudflare's edge cache
+  (`cf-cache-status: HIT`) until it ages out. Expected, and harmless: a
+  32x24 green rectangle.
+
+Todo 363's re-pointed criterion is checked off in the archived file.

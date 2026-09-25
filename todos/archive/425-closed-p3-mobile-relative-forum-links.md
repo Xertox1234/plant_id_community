@@ -1,5 +1,6 @@
 ---
-status: pending
+status: closed
+resolution: wont-fix
 priority: p3
 issue_id: "425"
 tags: [forum, flutter, mobile]
@@ -48,8 +49,8 @@ as won't-fix and keep the refusal. If there are some, choose one:
 
 ## Acceptance Criteria
 
-- [ ] The production count of posts holding a relative href is recorded here.
-- [ ] Either a decision to keep the refusal (with that count as the reason),
+- [x] The production count of posts holding a relative href is recorded here.
+- [x] Either a decision to keep the refusal (with that count as the reason),
       or a fix pinned by a widget test that a relative forum link opens or
       navigates.
 
@@ -63,3 +64,10 @@ The count is a production read, which the auto-mode classifier denies an
 agent. Owner step: run the read-only query given in the session (counts posts
 whose body holds `href="/`) and record the number here. Zero → close as
 won't-fix; non-zero → a sweep routes `/forum/topics/<id>/` in-app.
+
+### 2026-09-24 - Production count: 0 — closed, keep the refusal
+
+Production read (`railway ssh` → `manage.py shell`): **0 of 148** forum posts
+hold a relative href (`href="/`). Decision per AC 2's first branch: keep the
+mobile http(s)-only refusal; there is nothing to route. Reopen if a relative
+link ever appears in a post.
