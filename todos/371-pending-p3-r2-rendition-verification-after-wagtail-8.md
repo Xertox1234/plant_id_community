@@ -105,3 +105,9 @@ Needs an operator with R2 credentials — it cannot be completed from a local
 checkout. If R2 verification is not going to happen in a reasonable window, the
 honest alternative is to retire 363's criterion 4 with the reasoning above rather
 than leave both todos open indefinitely.
+
+### 2026-09-24 - Owner action needed: R2 round trip
+
+Needs real R2. Owner step: in production `/cms/`, upload a WebP and an AVIF
+image and open a page that renders them; then `curl -sI <rendition url>` for
+each and record the key extension, `Content-Type` and `Cache-Control` here.

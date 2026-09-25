@@ -53,9 +53,10 @@ before flipping anything:
 2. **Gate 2 — FAIL as of 2026-08-29.** Corpus: 16/200 live topics (~8%),
    0/50 blog articles (`/api/v2/blog-posts/` total 0; 6 seeded on 2026-08-31),
    0 care guides. Threshold: ≥200 live topics **or** ≥50 blog articles covering
-   the common care questions. **This is a content problem** — do not
-   AI-generate articles to ground a RAG in (circular; hallucinated "site
-   data").
+   the common care questions. **This is a content problem.** AI-generated
+   articles ARE allowed (owner, 2026-09-24): an earlier "do not AI-generate"
+   rule here was agent-written, not the owner's. The owner spot-checks each
+   before it is published (todo 445).
 3. **Gate 3 — OPEN.** A named owner for the wrong-answer review queue. Without
    a human reading "AI answer reports", guardrails 1–4 are unfalsifiable in
    production. Deliberately left to the user, never forced by an automated
@@ -150,10 +151,28 @@ change. Measured today so the next pickup starts from current numbers:
 Source: Railway `list-variables` on `plant_id_community` (variable names
 only) and the public API, both read-only. Re-file trigger unchanged: 200 live
 topics **or** 50 articles, plus a named owner for `/cms/` → "AI answer
-reports". Do not AI-generate articles to reach the threshold (circular).
+reports". AI-generated articles may fill the corpus, spot-checked by the owner (todo 445).
 
 ## Notes
 
 Highest harm ceiling of any AI feature in the repo. Do not flip step 5 before
 step 4 — layers 1–4 of the guardrails are only falsifiable if someone reads
 the reports.
+
+### 2026-09-24 - Owner decisions: gates 1 and 3 settled, gate 2 has a plan
+
+- **Gate 3 — SETTLED.** The owner reads `/cms/` → "AI answer reports"
+  **weekly**. "Actioned" = the answer is corrected, its source fixed, or the
+  report dismissed with a note.
+- **Gate 1 — IN PROGRESS.** `FORUM_VECTOR_SEARCH_ENABLED=True` set on the
+  `plant_id_community` Railway service on 2026-09-24 (Railway MCP, owner
+  approved). Remaining: confirm it took effect, then the owner builds the
+  indexes (`railway ssh ... python manage.py rebuild_indexes SimilarTopics BlogChunks`).
+- **Gate 2 — PLAN.** The owner allows AI-generated care articles (the earlier
+  "do not AI-generate" rule was agent-written; corrected above). Todo 445
+  drafts ~50 care articles in the CMS; the owner spot-checks and publishes
+  them. Re-measure the corpus before flipping `FORUM_RAG_ENABLED`.
+- **Spend:** accepted by the owner for the index build and, later, answers
+  within `RAG_BUDGET_LIMIT`.
+Still operator-ordered (Recommended Action steps 3, 5, 6); a sweep can only do
+todo 445's drafting.

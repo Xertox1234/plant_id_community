@@ -71,3 +71,11 @@ test run.
 
 The code shipped in the audit PR; these are the production checks it could not
 make.
+
+### 2026-09-24 - HEADLESS_PREVIEW_CLIENT_URL set on Railway
+
+Set `HEADLESS_PREVIEW_CLIENT_URL=https://houseplant-md.com/blog/preview` on the
+`plant_id_community` service on 2026-09-24 (Railway MCP, owner approved; the web
+origin was confirmed by `GET https://houseplant-md.com/blog/preview` → 200).
+Remaining (owner, in production `/cms/`): AC 2 "Preview in new tab" and AC 3
+the side-panel preview, each recorded here with the date.

@@ -124,3 +124,9 @@ answers in the Work Log:
 Todo 398 (PR #796) classified these 6 sites as decorative from what the code
 does today. The user asked for a deeper look: why is each one decorative, and
 is it meant to be, or is it a tap that was never wired up?
+
+### 2026-09-24 - Owner: cleared for a sweep
+
+Not blocked — investigation work. The owner cleared it for the next sweep.
+Where a site's intent is genuinely unclear after the checklist, record the
+question in this Work Log for the owner instead of guessing.

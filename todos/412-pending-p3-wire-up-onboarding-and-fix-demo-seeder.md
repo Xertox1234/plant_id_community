@@ -56,3 +56,12 @@ See the file references above, and todo 405's Work Log.
 
 The owner decided, during the endpoint triage, to wire this up rather than
 remove it.
+
+### 2026-09-24 - Owner decision: checklist onboarding, no demo data (gate removed)
+
+Decided by the owner: onboarding is a **progress checklist** (e.g. first plant
+ID, first forum post, profile filled in) on the existing `OnboardingProgress`
+model, shown by a client. **Delete** the demo-data seeder and both demo-data
+endpoints (`POST me/onboarding/create-demo-data/`, `DELETE me/onboarding/demo-data/`)
+instead of rebuilding them — that satisfies AC 1's "or are removed" branch.
+Ready for a sweep.

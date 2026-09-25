@@ -275,3 +275,15 @@ is re-pointed, never checked off.
 Deliberately filed p3: nothing is distributed on Android, so there is no
 exposure and no user waiting on it. The trigger to raise the priority is the
 decision to ship an Android build.
+
+## Work Log
+
+### 2026-09-24 - Owner action needed: release keystore
+
+Owner steps (signing secrets stay with the owner): create an upload keystore
+(`keytool -genkey -v -keystore ~/houseplant-upload.jks -keyalg RSA -keysize 2048 -validity 10000 -alias upload`),
+keep it and its passwords out of the repo, write `android/key.properties`
+(gitignored), and register the release SHA-1 (`keytool -list -v -keystore ...`)
+in Firebase. A physical Android device is needed for AC 5. After the keystore
+exists, the build.gradle signing wiring is sweep work — flip this todo to
+`pending` then.

@@ -65,3 +65,11 @@ not enforced.
 p3: nothing breaks until Django 7.0, and 6.2 LTS (April 2027) still supports the old
 settings. But doing it before the LTS jump means the gate is live for that upgrade,
 which is exactly when it pays off.
+
+### 2026-09-24 - Owner decision: proceed; owner verifies mail after deploy (gate removed)
+
+The owner approved the `EMAIL_*` → `MAILERS` migration. A sweep does ACs 1–2
+(code + the `error::` pytest gate). AC 3 stays with the owner: after the deploy,
+they confirm a forum reply email and the Monday digest arrived. So a sweep
+merges the PR but leaves this todo **open** (not archived) until the owner
+records AC 3 here.

@@ -52,3 +52,15 @@ See the file references above, and todo 405's Work Log.
 
 The owner decided, during the endpoint triage, to wire this up rather than
 remove it.
+
+### 2026-09-24 - Owner decisions: Celery beat + FCM push (gate removed)
+
+Decided by the owner:
+
+- **Scheduling:** a periodic Celery beat task finds due reminders (not
+  per-reminder ETA tasks). The worker already runs in prod (todo 335).
+- **Delivery:** FCM push only (the live mobile path, `apps/core/firebase_config.py`).
+  No email.
+- **UI:** mobile care hub (todo 386) and/or web My Plants, as the sweep sees
+  fit; the backend + beat task + push are the core of this todo.
+Ready for a sweep.
