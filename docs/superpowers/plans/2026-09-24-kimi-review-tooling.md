@@ -288,9 +288,46 @@ together. Test against the dev engine with
 
 ### Phase 3 — Egress guard
 
-- [ ] Default denies plus profile `excluded_paths`, applied to diff hunks and tool results.
-- [ ] Tests with a fake repo containing `.env`, a key file, and an excluded directory:
+- [x] Default denies plus profile `excluded_paths`, applied to diff hunks and tool results.
+      `kimi_runtime/egress.py` (commit `dfd673d`) holds one `Guard` used by every surface:
+      diff sections (a section is dropped if its old, new, rename or copy path is denied),
+      `--paths`/`--patterns`/`--rules` context files, and the `read_file`/`grep` tools on
+      both the working tree and `KIMI_REVIEW_HEAD_SHA`. `run_tool` applies the default denies
+      even when no guard is passed. Denied diff files are named in `<changed-files>` with
+      `(excluded by policy)`, added to the block if `--changed-files` did not list them.
+      - **Pattern rules:** case-insensitive and gitignore-like. A pattern with no inner `/`
+        matches any path component; an inner or leading `/` anchors it at the repo root.
+        Symlinks are checked after resolving, so a link to `.env` is refused.
+        `.env.example` is exempt from the default denies only.
+      - **Over-exclusion, accepted as fail-safe:** `*secrets*` and `.env*` also catch
+        `.secrets.baseline`, `backend/.env.template`, a few `*secrets*` scripts and todo
+        files in Plant ID, and 3 `*secrets*` files in OCRecipes. Their names still reach
+        the model; their content does not.
+      - **Refusal log (decided):** each refusal calls `on_refusal(surface, path)`. The
+        default writes one `[kimi egress: refused <surface>: <path>]` line to stderr, one
+        per diff file, context file, `read_file` call, and path dropped from a `grep`.
+        The Phase 8 run dir passes a callback that writes `tools.jsonl` instead.
+      - **Whole diff denied (decided):** no model call and no usage row. The CLI prints
+        the normal `No findings in requested tiers: …` line, adds a stderr line saying
+        every file was excluded, and exits `0`. Exit `1` would fail CI on any change that
+        only touches denied files. Those files are for human review.
+- [x] Tests with a fake repo containing `.env`, a key file, and an excluded directory:
       nothing from them reaches the fake model, and each refusal is logged.
+      - The fake `openai` module can now follow a scripted list of responses, including
+        tool calls, and record every request.
+      - For each of `generic`, `plant_id` and `ocrecipes`, the fake repo has `.env`,
+        `deploy/server.key`, `node_modules/`, and a symlink to `.env`. None of their bytes
+        reach the model through the diff, `--paths`, or an agentic verify run that asks for
+        them with `read_file` (including a `./x/../.env` path) and `grep`.
+      - `.env.example` and `app.py` do get through.
+      - The exact set of stderr refusal lines is checked.
+      - A diff made only of denied files exits `0` without calling the model.
+      - In-process tests cover a profile `excluded_paths` directory on every surface. No
+        shipped profile sets `excluded_paths` yet.
+      - Removing the guard from the diff, the context files or `grep` each makes the suite
+        fail.
+      - Plant ID hook tests pass 20/20 against the live and dev engines, and `--help` is
+        unchanged.
 
 ### Phase 4 — Tool registry and repo tools
 
