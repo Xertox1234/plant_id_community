@@ -379,7 +379,9 @@ together. Test against the dev engine with
 
 ### Phase 7 — Tool-assisted draft
 
-- [ ] New flag `--tool-mode off|local` (default `off`, so gates keep today's behavior).
+- [ ] New flag `--tool-mode off|local`, default `local` (open decision 3). The Plant ID
+      hooks and CI pass `--tool-mode off` explicitly, in the same change, so gates keep
+      today's behavior.
 - [ ] Loop: send diff + guidance + tool schemas; run requested tools; repeat until Kimi
       stops calling tools or limits hit (max turns, max tool calls, group deadline).
 - [ ] Then a separate final call with the strict findings JSON schema, so tool calls and
@@ -395,7 +397,8 @@ together. Test against the dev engine with
       `max_group_chars`; never split a file's hunks across groups.
 - [ ] Every group gets the full `<changed-files>` manifest, so it knows the rest of the
       change exists.
-- [ ] Groups run sequentially by default; `--jobs N` for bounded parallelism.
+- [ ] Groups run 3 at a time by default (open decision 4); `--jobs N` changes it and
+      `--jobs 1` runs them in order.
 - [ ] On a length-truncated group: split it once and retry the halves; if that still
       fails, record the group as errored and continue.
 - [ ] Final pass: deduplicate findings across groups by file + line + symbol; no extra model
@@ -411,12 +414,14 @@ together. Test against the dev engine with
 - [ ] Sync and drift check cover the CLI **and** the `kimi_runtime/` package (CI runs
       `python3 scripts/kimi-review`, so the package must be vendored beside it). Profiles
       stay hand-maintained per repo.
-- [ ] Convert the vendored `scripts/kimi-profiles.json` to v2 (plant_id + generic only).
+- [ ] Convert the vendored `scripts/kimi-profiles.json` to v2 (plant_id + generic only),
+      including `plant_id.excluded_paths` from open decision 1.
 - [ ] Extend `.claude/hooks/test-kimi-review.sh` parity checks to the package.
 - [ ] Hooks unchanged in behavior: one-shot, deterministic verify, synchronous.
 - [ ] Update root `CLAUDE.md` Cheap-Worker section: when to use `kimi-review-batch`, and the
       start-then-poll rule for agents.
-- [ ] Decide the auth/permissions question below before enabling tools by default here.
+- [x] Decide the auth/permissions question below before enabling tools by default here.
+      Decided: exclude by path (open decision 1).
 
 ### Phase 10 — OCRecipes integration
 
@@ -463,16 +468,36 @@ it as a gate would reverse that decision, so this phase is deliberately narrow:
    pointed at authentication, permissions, input validation, migrations, or security logic,
    yet Plant ID's commit gate reviews every staged diff. Tools that read beyond the diff
    widen that. Choose: add those paths to `plant_id.excluded_paths`, or explicitly accept the
-   commit-gate exception for review only.
+   commit-gate exception for review only. **Decided 2026-09-24:** exclude them. They go in
+   `plant_id.excluded_paths`, so the commit gate and every tool see their names only, and
+   humans review their content. The user confirmed the drafted list, which is 189 of 2,193
+   tracked files beyond the defaults (coworker commit `431b7ac`):
+   - `backend/apps/users/`, all `migrations/`, and `permissions.py` / `test_permissions.py`
+     at any depth;
+   - the core security, validator and sanitizer modules, and the forum sanitize and
+     upload-validation modules;
+   - the JWT WebSocket middleware, `firebase/firestore.rules`, and the web and mobile auth
+     screens, services and CSRF / sanitize helpers;
+   - the tests for all of the above.
+
+   Input validation spread through serializers and views can't be excluded by path.
+   `docs/rules/security.md` stays allowed because the gate loads it as its checklist.
+   Plant ID's vendored `scripts/kimi-profiles.json` gets the list in Phase 9.
 2. **Context7 API key.** The API works without a key, but with low rate limits. A
    tool-assisted batch run can make many lookups, so a key from the Context7 dashboard,
    exported as `CONTEXT7_API_KEY`, is recommended. **Decided 2026-09-24:** the user is
    generating a key; Phase 6 verifies it is visible to the engine before live tests.
 3. **Default `--tool-mode` for manual `kimi-review`.** Proposed: `off` until Phase 7 has been
-   used for a while, then `local`.
+   used for a while, then `local`. **Decided 2026-09-24:** `local` from the start for
+   manual runs. The commit gates pass `--tool-mode off` explicitly, so their behavior does
+   not change.
 4. **Parallelism default.** Sequential is cheaper and gentler on rate limits; `--jobs` is
-   faster.
-5. **OCRecipes role**, per the Phase 10 checkpoint.
+   faster. **Decided 2026-09-24:** small parallel by default (`--jobs 3`), which
+   `--jobs 1` makes sequential.
+5. **OCRecipes role**, per the Phase 10 checkpoint. **Decided 2026-09-24:** an extra
+   advisory reviewer, run only on explicit request, with no hooks, gates or CI. The JWT
+   auth, IAP receipt validation and health-data paths still need listing and confirming
+   before Phase 10 writes `ocrecipes.excluded_paths`.
 
 ## Risks
 
