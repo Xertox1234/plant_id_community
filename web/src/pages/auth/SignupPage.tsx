@@ -147,8 +147,8 @@ export default function SignupPage() {
       });
 
       if (result.success) {
-        // Redirect to home page after successful signup
-        navigate('/', { replace: true });
+        // Signed in already; ask them to confirm the emailed link (todo 446).
+        navigate('/verify-email', { replace: true });
       } else {
         // Show the readable message from the structured AuthError, not the whole
         // object — String({message,code,...}) renders the literal "[object Object]".

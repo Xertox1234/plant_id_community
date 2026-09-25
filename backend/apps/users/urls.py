@@ -13,6 +13,12 @@ urlpatterns = [
     path("csrf/", views.get_csrf_token, name="get_csrf_token"),
     # Authentication endpoints
     path("register/", views.register, name="register"),
+    path("verify-email/", views.verify_email, name="verify_email"),
+    path(
+        "verify-email/resend/",
+        views.resend_verification_email,
+        name="resend_verification_email",
+    ),
     path("login/", views.login, name="login"),
     path("logout/", views.logout, name="logout"),
     # Firebase authentication (mobile app)

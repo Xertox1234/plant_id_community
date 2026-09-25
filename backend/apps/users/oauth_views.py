@@ -18,6 +18,7 @@ from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 
 from .authentication import set_jwt_cookies
+from .email_verification import is_email_verified, mark_email_verified
 
 logger = logging.getLogger(__name__)
 
@@ -200,7 +201,11 @@ def oauth_callback(request, provider):
             return HttpResponseRedirect(f"{frontend_url}?error=user_data_failed")
 
         # Find or create user
-        user = _find_or_create_user(provider, user_data)
+        try:
+            user = _find_or_create_user(provider, user_data)
+        except UnverifiedLocalAccount:
+            frontend_url = get_oauth_redirect_url(provider)
+            return HttpResponseRedirect(f"{frontend_url}?error=account_unverified")
 
         if not user:
             logger.error(f"[AUTH] Failed to create/find user for {provider}")
@@ -359,6 +364,13 @@ def _handle_github_callback(request, code):
         return None
 
 
+class UnverifiedLocalAccount(Exception):
+    """The provider's email matches a local account that never proved it owns
+    that email. Linking would hand the provider user an account someone else
+    may control (a registration pre-hijack, todo 446), so the login is refused.
+    """
+
+
 def _find_or_create_user(provider, user_data):
     """
     Find existing user or create new user from OAuth data.
@@ -382,10 +394,17 @@ def _find_or_create_user(provider, user_data):
         # Check if user exists with this email
         try:
             user = User.objects.get(email=email)
-            logger.info(f"[AUTH] Found existing {log_safe_user_context(user)}")
-            return user
         except User.DoesNotExist:
             pass
+        else:
+            if not is_email_verified(user):
+                logger.warning(
+                    f"[SECURITY] Refused {provider} login: email matches an "
+                    f"unverified local {log_safe_user_context(user)}"
+                )
+                raise UnverifiedLocalAccount()
+            logger.info(f"[AUTH] Found existing {log_safe_user_context(user)}")
+            return user
 
         # Create new user
         if provider == "google":
@@ -418,6 +437,10 @@ def _find_or_create_user(provider, user_data):
             last_name=last_name,
         )
 
+        # The provider verified this email (unverified ones are stripped
+        # upstream), so later sign-ins may match the account by it (todo 446).
+        mark_email_verified(user)
+
         # Shared signup side-effects
         create_default_plant_collection(user)
         join_forum_members_group(user)
@@ -435,6 +458,8 @@ def _find_or_create_user(provider, user_data):
         logger.info(f"[AUTH] Created new {log_safe_user_context(user)} via {provider}")
         return user
 
+    except UnverifiedLocalAccount:
+        raise
     except Exception as e:
         logger.error(f"[AUTH] User creation error for {provider}: {str(e)}")
         return None

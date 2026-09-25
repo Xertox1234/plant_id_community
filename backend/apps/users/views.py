@@ -26,6 +26,12 @@ from rest_framework_simplejwt.tokens import RefreshToken
 
 from .authentication import RefreshTokenFromCookie, clear_jwt_cookies, set_jwt_cookies
 from .constants import RATE_LIMIT_DEMO_DATA_CREATE, RATE_LIMIT_ONBOARDING_EVENT
+from .email_verification import (
+    VerificationKeyInvalid,
+    confirm_verification_key,
+    is_email_verified,
+    send_verification_email,
+)
 from .models import User, UserPlantCollection
 from .serializers import (
     UserProfileSerializer,
@@ -121,6 +127,12 @@ def register(request: Request) -> Response:
                 create_default_plant_collection(user)
                 join_forum_members_group(user)
 
+                # The account is usable at once, but no sign-in path will match
+                # it by email until the owner confirms the address (todo 446).
+                transaction.on_commit(
+                    lambda: send_verification_email(user), robust=True
+                )
+
                 # Create response with user data
                 response = Response(
                     {
@@ -151,6 +163,52 @@ def register(request: Request) -> Response:
         f"[SIGNUP] Registration validation failed for user: {log_safe_username(username)}, fields: {error_fields}"
     )
     return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+
+@api_view(["POST"])
+@permission_classes([permissions.IsAuthenticated])
+@ratelimit(
+    key="user",
+    rate=RATE_LIMITS["auth_endpoints"]["verify_email"],
+    method="POST",
+    block=True,
+)
+def verify_email(request: Request) -> Response:
+    """Confirm the signed-in user's email from the key in their verification link.
+
+    Needs BOTH the key (proves the inbox) and a session for the key's account
+    (proves the account): the key alone would let a victim who clicks the link
+    verify an attacker's pre-registered account. POST only, because mail
+    scanners prefetch GET links (todo 446).
+    """
+    key = request.data.get("key") if isinstance(request.data, dict) else None
+    try:
+        confirm_verification_key(key, request.user, request=request._request)
+    except VerificationKeyInvalid:
+        return create_error_response(
+            "VERIFICATION_KEY_INVALID",
+            "Invalid verification link",
+            "This link is invalid, expired, already used, or for a different "
+            "account than the one you are signed in to.",
+            status.HTTP_400_BAD_REQUEST,
+        )
+    return Response({"verified": True})
+
+
+@api_view(["POST"])
+@permission_classes([permissions.IsAuthenticated])
+@ratelimit(
+    key="user",
+    rate=RATE_LIMITS["auth_endpoints"]["verify_email_resend"],
+    method="POST",
+    block=True,
+)
+def resend_verification_email(request: Request) -> Response:
+    """Send the signed-in user a fresh verification link (todo 446)."""
+    if is_email_verified(request.user):
+        return Response({"verified": True, "sent": False})
+    sent = send_verification_email(request.user)
+    return Response({"verified": False, "sent": sent})
 
 
 @api_view(["POST"])

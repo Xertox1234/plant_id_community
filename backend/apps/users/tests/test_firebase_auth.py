@@ -7,6 +7,7 @@ and exchanges them for Django JWT tokens.
 
 from unittest.mock import patch
 
+from apps.users.email_verification import mark_email_verified
 from django.contrib.auth import get_user_model
 from django.core.cache import cache
 from django.test import TestCase, override_settings
@@ -115,6 +116,7 @@ class FirebaseTokenExchangeTestCase(TestCase):
         existing_user = User.objects.create_user(
             username="testuser", email="test@example.com", password="testpass123"
         )
+        mark_email_verified(existing_user)  # it proved its email (todo 446)
 
         # Mock Firebase token verification
         mock_verify.return_value = self.decoded_token
@@ -220,12 +222,13 @@ class FirebaseTokenExchangeTestCase(TestCase):
     def test_update_display_name_for_existing_user(self, mock_verify):
         """Test that display name is updated for existing user if not set."""
         # Create user without first_name
-        User.objects.create_user(
+        verified_local = User.objects.create_user(
             username="testuser",
             email="test@example.com",
             password="testpass123",
             first_name="",
         )
+        mark_email_verified(verified_local)  # it proved its email (todo 446)
 
         # Mock Firebase token verification — display name comes from the
         # verified token's `name` claim, not from client-supplied request data.
@@ -250,12 +253,13 @@ class FirebaseTokenExchangeTestCase(TestCase):
     def test_dont_override_existing_display_name(self, mock_verify):
         """Test that existing display name is not overridden."""
         # Create user with first_name already set
-        User.objects.create_user(
+        verified_local = User.objects.create_user(
             username="testuser",
             email="test@example.com",
             password="testpass123",
             first_name="Original Name",
         )
+        mark_email_verified(verified_local)  # it proved its email (todo 446)
 
         # Mock Firebase token verification
         mock_verify.return_value = self.decoded_token
@@ -521,6 +525,7 @@ class FirebaseTrustedProviderTestCase(TestCase):
             email="webuser@example.com",
             password="unused-here",  # noqa: S106  # pragma: allowlist secret
         )
+        mark_email_verified(existing)  # it proved its email (todo 446)
         self.assertFalse(existing.firebase_uid)
 
         mock_verify.return_value = self._decoded(
@@ -608,6 +613,7 @@ class GetOrCreateUserFromFirebaseTestCase(TestCase):
             email="existing@example.com",
             password="testpass123",
         )
+        mark_email_verified(existing_user)  # it proved its email (todo 446)
 
         user, created = get_or_create_user_from_firebase(
             firebase_uid="firebase-uid-456",
@@ -625,12 +631,13 @@ class GetOrCreateUserFromFirebaseTestCase(TestCase):
         from apps.users.firebase_auth_views import get_or_create_user_from_firebase
 
         # Create user without first_name
-        User.objects.create_user(
+        verified_local = User.objects.create_user(
             username="testuser",
             email="test@example.com",
             password="testpass123",
             first_name="",
         )
+        mark_email_verified(verified_local)  # it proved its email (todo 446)
 
         user, created = get_or_create_user_from_firebase(
             firebase_uid="firebase-uid-789",
@@ -647,12 +654,13 @@ class GetOrCreateUserFromFirebaseTestCase(TestCase):
         from apps.users.firebase_auth_views import get_or_create_user_from_firebase
 
         # Create user with first_name
-        User.objects.create_user(
+        verified_local = User.objects.create_user(
             username="testuser",
             email="test@example.com",
             password="testpass123",
             first_name="Original Name",
         )
+        mark_email_verified(verified_local)  # it proved its email (todo 446)
 
         user, created = get_or_create_user_from_firebase(
             firebase_uid="firebase-uid-789",
