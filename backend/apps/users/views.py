@@ -25,16 +25,13 @@ from rest_framework.response import Response
 from rest_framework_simplejwt.tokens import RefreshToken
 
 from .authentication import RefreshTokenFromCookie, clear_jwt_cookies, set_jwt_cookies
-from .constants import (
-    RATE_LIMIT_DEMO_DATA_CREATE,
-    RATE_LIMIT_ONBOARDING_EVENT,
-    VERIFICATION_EMAIL_CAP,
-)
+from .constants import RATE_LIMIT_DEMO_DATA_CREATE, RATE_LIMIT_ONBOARDING_EVENT
 from .email_verification import (
     VerificationKeyInvalid,
     confirm_verification_key,
     is_email_verified,
     send_verification_email,
+    verification_cap_reached,
 )
 from .models import User, UserPlantCollection
 from .serializers import (
@@ -210,16 +207,16 @@ def resend_verification_email(request: Request) -> Response:
     """Queue a fresh verification link for the signed-in user (todo 446).
 
     ``sent`` means queued; the mail goes out from Celery. ``limit_reached``
-    means the account has had its ``VERIFICATION_EMAIL_CAP`` mails and none
-    was queued (todo 447 item 9).
+    means the account has had its ``VERIFICATION_EMAIL_CAP`` mails for this
+    window and none was queued (todo 447 item 9).
     """
     if is_email_verified(request.user):
         return Response({"verified": True, "sent": False})
     sent = send_verification_email(request.user)
-    request.user.refresh_from_db(fields=["verification_emails_sent"])
-    limit_reached = (
-        not sent and request.user.verification_emails_sent >= VERIFICATION_EMAIL_CAP
+    request.user.refresh_from_db(
+        fields=["verification_emails_sent", "verification_window_started_at"]
     )
+    limit_reached = not sent and verification_cap_reached(request.user)
     return Response({"verified": False, "sent": sent, "limit_reached": limit_reached})
 
 

@@ -260,12 +260,15 @@ Fixed (tests in `test_email_verification_hardening.py`):
   `email_verified: false` is refused (403) whatever the provider. Firebase
   documents that a Google sign-in sets the claim true; the mobile Google test
   now asserts the true-claim path.
-- **9:** `User.verification_emails_sent` (migration 0013) is claimed with one
-  conditional UPDATE, so concurrent resends cannot overshoot. The cap is
-  `VERIFICATION_EMAIL_CAP = 5` per account for life, registration mail
-  included, and it covers allauth's mails too (they route through
+- **9:** `User.verification_emails_sent` and `verification_window_started_at`
+  (migration 0013) are claimed with one conditional UPDATE, so concurrent
+  resends cannot overshoot. The cap is `VERIFICATION_EMAIL_CAP = 5` per
+  `VERIFICATION_EMAIL_WINDOW_DAYS = 30` window, registration mail included,
+  and it covers allauth's mails too (they route through
   `send_verification_email`). Resend then answers `limit_reached: true`, and
-  the web page says so.
+  the web page says so. It is a window, not a lifetime cap (review round 1):
+  each link expires after 3 days, so a lifetime cap could leave a real owner
+  with no working link, ever.
 - **11:** `apps/users/tasks.py`: verification, welcome and link-notice mails
   are queued with `transaction.on_commit`. A broker failure is logged, never
   raised. A send that reports failure retries after 1, 2 and 4 minutes (pinned
@@ -306,3 +309,36 @@ mutants were each caught:
 The migration's explicit collision checks SURVIVE alone, as expected: the
 `IntegrityError` fallback backstops them, and they exist for the log line.
 Removing both is caught.
+
+**Review round 1.** The code-review-orchestrator found nothing blocking. The
+bundled `/code-review` found four issues. Each was probed before fixing:
+
+- **Firebase-created accounts counted as "having a password".** Firebase
+  creates users with `password=""`, and Django's `is_password_usable("")`
+  returns True (read in `hashers.py`). A mobile Google user's first web Google
+  sign-in would therefore have revoked their mobile session and mailed them
+  "reset the password". Fix: `account_links.has_password` also requires a
+  non-empty hash. Tested with a real Firebase-created user.
+- **A changed provider email locked the identity out.** Web OAuth matched by
+  email first. After a GitHub primary-email change, the new email created a
+  user, `_record_provider_link` found the identity on the old account, and
+  the transaction rolled back. That user could never sign in with GitHub
+  again. Fix: `_linked_account` resolves the `(provider, id)` link BEFORE the
+  email, as allauth does. An identity linked to account A signs in to A
+  whatever email it reports now. The "linked elsewhere" refusal remains as the
+  backstop for a race between the lookup and the insert.
+- **The lifetime cap outlived every link.** allauth's link-based password
+  reset does NOT verify the address (`finalize_password_reset` only clears
+  login attempts and sends `password_reset`). So a capped owner had no way
+  back. Fix: the 30-day window above.
+- **Raw provider names in the notice.** "password sign-in was connected" now
+  reads "Email and password sign-in", and anything unmapped reads "Another
+  sign-in".
+
+Mutants for the fixes, all caught: `has_password` back to
+`has_usable_password()` alone; the identity-first return removed; the
+window's count reset; the window reopen; the notice fallback. The earlier
+mutants were re-anchored and rerun, and all are still caught. The migration's
+collision checks still SURVIVE on their own, as explained above.
+
+Non-blocking findings are in todo 449.

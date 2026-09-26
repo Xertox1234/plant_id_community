@@ -82,7 +82,7 @@ describe('VerifyEmailPage', () => {
     await userEvent.click(screen.getByRole('button', { name: /confirm my email/i }));
     await userEvent.click(await screen.findByRole('button', { name: /send a new link/i }));
 
-    expect(await screen.findByText(/as many links as we can/i)).toBeInTheDocument();
+    expect(await screen.findByText(/as many links as we can for now/i)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /send a new link/i })).toBeDisabled();
   });
 

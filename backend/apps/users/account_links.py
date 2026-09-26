@@ -42,7 +42,18 @@ PROVIDER_NAMES = {
     "github": "GitHub",
     "google.com": "Google",
     "apple.com": "Apple",
+    "password": "Email and password",  # pragma: allowlist secret
 }
+
+
+def has_password(user) -> bool:
+    """True if ``user`` can sign in with a password.
+
+    ``has_usable_password()`` alone is not enough: the Firebase path creates
+    users with ``password=""``, which Django counts as usable although no
+    password can match it.
+    """
+    return bool(user.password) and user.has_usable_password()
 
 
 def revoke_refresh_tokens(user) -> int:
@@ -63,7 +74,7 @@ def on_first_provider_link(user, provider: str) -> None:
     An account without a usable password was created by a provider, so there
     is no second credential a squatter could hold.
     """
-    if not user.has_usable_password():
+    if not has_password(user):
         return
     from .email_verification import enqueue_on_commit
 
@@ -88,7 +99,7 @@ def password_reset_url() -> str:
 
 def deliver_provider_linked_notice(user, provider: str) -> bool:
     """Send the notice now. Called by the Celery task only."""
-    name = PROVIDER_NAMES.get(provider, provider)
+    name = PROVIDER_NAMES.get(provider, "Another")
     account = user.username
     reset = password_reset_url()
     if reset:

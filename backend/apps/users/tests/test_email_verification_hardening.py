@@ -10,16 +10,19 @@
 """
 
 import importlib
+from datetime import timedelta
 from unittest.mock import MagicMock, patch
 
 from allauth.account.models import EmailAddress
 from allauth.core.exceptions import ImmediateHttpResponse
 from allauth.socialaccount.models import SocialAccount
 from apps.users import oauth_views, tasks
+from apps.users.account_links import deliver_provider_linked_notice
 from apps.users.constants import (
     ACCOUNT_MAIL_MAX_RETRIES,
     ACCOUNT_MAIL_RETRY_DELAY,
     VERIFICATION_EMAIL_CAP,
+    VERIFICATION_EMAIL_WINDOW_DAYS,
 )
 from apps.users.email_verification import (
     is_email_verified,
@@ -35,6 +38,7 @@ from django.core import mail
 from django.core.cache import cache
 from django.test import RequestFactory, TestCase, override_settings
 from django.urls import reverse
+from django.utils import timezone
 from rest_framework.test import APIClient
 from rest_framework_simplejwt.token_blacklist.models import BlacklistedToken
 from rest_framework_simplejwt.tokens import RefreshToken
@@ -109,12 +113,41 @@ class WebOAuthFirstLinkTest(TestCase):
         self.assertFalse(_is_revoked(session))
         self.assertEqual(_notices(), [])
 
-    def test_identity_linked_to_another_account_is_refused(self):
-        _verified_password_account()
+    def test_firebase_created_account_has_no_password_to_warn_about(self):
+        # Review round 1: Firebase creates users with password="", which
+        # Django counts as usable.
+        user, _ = get_or_create_user_from_firebase(
+            firebase_uid="fb-owner",
+            firebase_email="owner@example.com",
+            email_verified=True,
+            provider="google.com",
+        )
+        session = RefreshToken.for_user(user)
+
+        self.assertEqual(self._sign_in(), user)
+
+        self.assertFalse(_is_revoked(session))
+        self.assertEqual(_notices(), [])
+
+    def test_linked_identity_follows_a_changed_provider_email(self):
+        # Review round 1: matching by email first refused this identity as
+        # "linked elsewhere" once its GitHub/Google email changed.
+        user = _verified_password_account()
+        self._sign_in()
+
+        self.assertEqual(self._sign_in(email="renamed@example.com"), user)
+        self.assertFalse(User.objects.filter(email="renamed@example.com").exists())
+
+    def test_linked_identity_signs_in_to_its_own_account(self):
+        # The identity, not the email, decides: this Google account was
+        # linked to "other", so it never lands in the owner's account.
+        owner = _verified_password_account()
         other = User.objects.create_user(username="other", email="other@example.com")
         SocialAccount.objects.create(user=other, provider="google", uid="g-owner")
+        session = RefreshToken.for_user(owner)
 
-        self.assertIsNone(self._sign_in())
+        self.assertEqual(self._sign_in(), other)
+        self.assertFalse(_is_revoked(session))
         self.assertEqual(_notices(), [])
 
     def test_missing_provider_id_is_refused(self):
@@ -128,10 +161,14 @@ class WebOAuthFirstLinkTest(TestCase):
         self.assertIsNone(result)
 
     def test_refused_identity_on_signup_leaves_no_account(self):
+        # A concurrent first sign-in linked the identity between the lookup
+        # and the insert: the creation rolls back instead of leaving an
+        # account nobody can sign in to.
         other = User.objects.create_user(username="other", email="other@example.com")
         SocialAccount.objects.create(user=other, provider="google", uid="g-new")
 
-        self.assertIsNone(self._sign_in(email="new@example.com", uid="g-new"))
+        with patch.object(oauth_views, "_linked_account", return_value=None):
+            self.assertIsNone(self._sign_in(email="new@example.com", uid="g-new"))
         self.assertFalse(User.objects.filter(email="new@example.com").exists())
 
     def test_created_account_records_its_identity(self):
@@ -235,6 +272,20 @@ class FirebaseFirstLinkTest(TestCase):
 
         self.assertFalse(_is_revoked(session))
         self.assertEqual(_notices(), [])
+
+
+class NoticeWordingTest(TestCase):
+    def test_sign_in_method_names_read_as_words(self):
+        user = _verified_password_account()
+        for provider, subject_start in (
+            ("password", "Email and password sign-in"),
+            ("", "Another sign-in"),
+            ("microsoft.com", "Another sign-in"),
+        ):
+            with self.subTest(provider=provider):
+                mail.outbox.clear()
+                deliver_provider_linked_notice(user, provider)
+                self.assertTrue(mail.outbox[0].subject.startswith(subject_start))
 
 
 # --- item 4: lowercase rows ------------------------------------------------------
@@ -407,9 +458,31 @@ class VerificationCapTest(TestCase):
         self.user.refresh_from_db()
         self.assertEqual(self.user.verification_emails_sent, VERIFICATION_EMAIL_CAP)
 
+    def test_a_new_window_opens_after_the_last_one_passed(self):
+        # Review round 1: a lifetime cap outlived every 3-day link, leaving a
+        # real owner no way to verify, ever.
+        for _ in range(VERIFICATION_EMAIL_CAP):
+            self._resend()
+        self.assertTrue(self._resend().data["limit_reached"])
+        User.objects.filter(pk=self.user.pk).update(
+            verification_window_started_at=timezone.now()
+            - timedelta(days=VERIFICATION_EMAIL_WINDOW_DAYS, minutes=1)
+        )
+        mail.outbox.clear()
+
+        response = self._resend()
+
+        self.assertTrue(response.data["sent"])
+        self.assertEqual(len(mail.outbox), 1)
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.verification_emails_sent, 1)
+
     def test_allauth_mails_are_capped_too(self):
         self.user.verification_emails_sent = VERIFICATION_EMAIL_CAP
-        self.user.save(update_fields=["verification_emails_sent"])
+        self.user.verification_window_started_at = timezone.now()
+        self.user.save(
+            update_fields=["verification_emails_sent", "verification_window_started_at"]
+        )
         confirmation = MagicMock()
         confirmation.email_address.user = self.user
 

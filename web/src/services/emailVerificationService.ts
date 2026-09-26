@@ -49,7 +49,7 @@ export interface ResendResult {
   verified: boolean;
   /** Queued: the mail goes out from the backend's worker. */
   sent: boolean;
-  /** The account has had the most links the backend sends; none was queued. */
+  /** The account has had the most links the backend sends for now; none was queued. */
   limit_reached?: boolean;
 }
 

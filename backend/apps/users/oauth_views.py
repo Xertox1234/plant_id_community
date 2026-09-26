@@ -382,6 +382,21 @@ class ProviderIdentityConflict(Exception):
     """The provider identity is already linked to a different account."""
 
 
+def _linked_account(provider, user_data):
+    """The account this provider identity was linked to, or None."""
+    from allauth.socialaccount.models import SocialAccount
+
+    uid = str(user_data.get("id") or "")
+    if not uid:
+        return None
+    linked = (
+        SocialAccount.objects.select_related("user")
+        .filter(provider=provider, uid=uid)
+        .first()
+    )
+    return linked.user if linked is not None else None
+
+
 def _record_provider_link(provider, user_data, user) -> bool:
     """Record that this provider identity signs in to ``user``.
 
@@ -433,6 +448,15 @@ def _find_or_create_user(provider, user_data):
                 f"[AUTH] No email provided by {provider} (GDPR: no email logged)"
             )
             return None
+
+        # A provider identity already linked to an account signs in to that
+        # account, whatever email the provider reports now: the id is stable,
+        # the email is not (a GitHub primary email can change). Matching by
+        # email first would refuse the identity as "linked elsewhere".
+        linked = _linked_account(provider, user_data)
+        if linked is not None:
+            logger.info(f"[AUTH] Found linked {log_safe_user_context(linked)}")
+            return linked
 
         # Check if user exists with this email
         try:

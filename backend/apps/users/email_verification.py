@@ -33,12 +33,13 @@ from allauth.account.models import EmailAddress
 from allauth.account.signals import email_confirmed
 from apps.core.services.email_service import EmailService
 from apps.core.utils.pii_safe_logging import log_safe_user_context
-from apps.users.constants import VERIFICATION_EMAIL_CAP
+from apps.users.constants import VERIFICATION_EMAIL_CAP, VERIFICATION_EMAIL_WINDOW_DAYS
 from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.core import signing
 from django.db import IntegrityError, transaction
-from django.db.models import F
+from django.db.models import Case, F, Q, Value, When
+from django.utils import timezone
 from django.utils.html import escape
 
 logger = logging.getLogger(__name__)
@@ -128,19 +129,34 @@ def send_verification_email(user) -> bool:
     """Queue a mail with a link that confirms ``user``'s address.
 
     False, with nothing queued, when there is no email, it is already
-    verified, or the account has used its ``VERIFICATION_EMAIL_CAP`` mails:
-    a squatter must not be able to keep mailing the address's real owner
-    (todo 447 item 9). The slot is claimed atomically, so concurrent resends
-    cannot overshoot the cap. The mail itself is sent by a Celery task after
-    the transaction commits, so SMTP latency never lands on the request
-    (item 11).
+    verified, or the account has used its ``VERIFICATION_EMAIL_CAP`` mails in
+    the current window: a squatter must not be able to keep mailing the
+    address's real owner (todo 447 item 9). The slot is claimed in one UPDATE,
+    so concurrent resends cannot overshoot the cap; a window that has passed
+    restarts at this mail. The mail itself is sent by a Celery task after the
+    transaction commits, so SMTP latency never lands on the request (item 11).
     """
     if not user.email or is_email_verified(user):
         return False
     User = get_user_model()
-    claimed = User.objects.filter(
-        pk=user.pk, verification_emails_sent__lt=VERIFICATION_EMAIL_CAP
-    ).update(verification_emails_sent=F("verification_emails_sent") + 1)
+    now = timezone.now()
+    new_window = Q(verification_window_started_at__isnull=True) | Q(
+        verification_window_started_at__lt=_window_opened_before(now)
+    )
+    claimed = (
+        User.objects.filter(pk=user.pk)
+        .filter(new_window | Q(verification_emails_sent__lt=VERIFICATION_EMAIL_CAP))
+        .update(
+            verification_emails_sent=Case(
+                When(new_window, then=Value(1)),
+                default=F("verification_emails_sent") + 1,
+            ),
+            verification_window_started_at=Case(
+                When(new_window, then=Value(now)),
+                default=F("verification_window_started_at"),
+            ),
+        )
+    )
     if not claimed:
         logger.warning(
             f"[AUTH] Verification mail cap reached for {log_safe_user_context(user)}"
@@ -150,6 +166,20 @@ def send_verification_email(user) -> bool:
         "send_verification_email_task", user.pk, context=log_safe_user_context(user)
     )
     return True
+
+
+def verification_cap_reached(user) -> bool:
+    """True while ``user`` has no verification mail left in this window."""
+    started = user.verification_window_started_at
+    return (
+        started is not None
+        and started >= _window_opened_before(timezone.now())
+        and user.verification_emails_sent >= VERIFICATION_EMAIL_CAP
+    )
+
+
+def _window_opened_before(now):
+    return now - timedelta(days=VERIFICATION_EMAIL_WINDOW_DAYS)
 
 
 def deliver_verification_email(user) -> bool:
@@ -186,7 +216,10 @@ def deliver_verification_email(user) -> bool:
 
 
 def enqueue_on_commit(task_name, *args, context=""):
-    """Queue ``apps.users.tasks.<task_name>`` once the transaction commits.
+    """Queue ``apps.users.tasks.<task_name>`` once the surrounding transaction
+    commits. With no transaction open (``ATOMIC_REQUESTS`` is off) the
+    ``.delay()`` runs at once, in the request; only the send is deferred, to
+    the worker.
 
     A broker failure is logged, never raised: the request that asked for the
     mail has already succeeded and must not turn into a 500 (todo 447 item 11).

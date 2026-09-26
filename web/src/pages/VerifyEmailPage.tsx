@@ -75,7 +75,7 @@ function ResendLink() {
         {state === 'already' && 'Your email is already confirmed.'}
         {state === 'failed' && "We couldn't send a new link just now. Please try again later."}
         {state === 'limit' &&
-          "We've already sent this account as many links as we can. Check your spam folder for an earlier one."}
+          "We've sent as many links as we can for now. The latest one works for 3 days, so check your spam folder, or try again in a few weeks."}
       </p>
     </div>
   );

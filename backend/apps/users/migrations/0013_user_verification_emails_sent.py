@@ -15,7 +15,16 @@ class Migration(migrations.Migration):
             name="verification_emails_sent",
             field=models.PositiveSmallIntegerField(
                 default=0,
-                help_text="Verification mails queued for this account (capped)",
+                help_text="Verification mails queued in the current window (capped)",
+            ),
+        ),
+        migrations.AddField(
+            model_name="user",
+            name="verification_window_started_at",
+            field=models.DateTimeField(
+                blank=True,
+                help_text="When the current verification-mail window began",
+                null=True,
             ),
         ),
     ]
