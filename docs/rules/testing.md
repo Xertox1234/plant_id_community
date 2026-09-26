@@ -644,3 +644,9 @@ Compact checklist auto-injected before edits.
   that showed up on one run in four). Block the fake on a
   `threading.Event` that the test sets in `finally`, and have the late path
   record nothing (todo 428).
+- When a guard is enforced twice (a read size bounded to limit + 1 AND a
+  `total > limit` check; a loop `range` AND a `>=` redirect check), removing
+  either half alone is an equivalent mutant that "survives". Mutation-check the
+  property ("no cap") by removing both halves together, and keep a fixture
+  that would succeed without the guard (a VALID image over the cap, not junk
+  that fails to decode anyway) (todo 428 slice B).

@@ -252,6 +252,19 @@ one session pinned nothing)
   never reach the person editing it (all four `scripts/*.py` security scanners
   routed to nothing until todo 356).
 
+### Outbound-fetch additions (2026-09-25, todo 428 slice B)
+
+- **A read from an untrusted server needs a wall clock, not only a socket
+  timeout.** `timeout=` bounds each `recv`. Flag a loop over `response.read(n)`
+  or a `readline`-driven parse (status line, headers, chunked) of a
+  third-party response that has no `read1` + deadline check + socket-shutdown
+  watchdog. Also flag a read loop that accepts `b""` as the end of body
+  without checking `response.length` and the deadline afterwards: an early EOF
+  does not raise.
+- **Do not flag the TLS handshake as unbounded.** CPython bounds the whole
+  handshake by the socket timeout (probed in todo 428). The check is only
+  that the timeout passed to the connection is capped at the time left.
+
 ## Output Format (Review Mode)
 
 Return ONLY this JSON structure (no surrounding prose, no markdown fences in the actual response — the example fences below show the schema):

@@ -700,6 +700,55 @@ model.image = file
 
 ---
 
+## Server-Fetched Images (link-preview og:image, todo 428)
+
+An image the **server** downloads is less trusted than a member's upload: the
+URL is chosen by whoever runs the linked site. The same four layers apply,
+adapted to a stream, plus a deadline. The reference implementation is
+`apps/forum_host/link_preview.py` (`_fetch_image`, `_read_image`,
+`_reencode_image`, `_cache_preview_image`).
+
+1. **Fetch through the SSRF-pinned path.** `_target_for_url` resolves and pins
+   a public address; every redirect goes back through it, stays HTTPS, and is
+   counted (at most 3).
+2. **Header checks before reading.** `Content-Type` must be in the upload
+   allowlist (`IMAGE_ALLOWED_MIME_TYPES`, plus `image/jpg`, which CDNs send).
+   Refuse a missing type, and refuse a `Content-Length` over the cap.
+3. **Stream with a cap and a wall clock.** See `docs/rules/security.md`: a
+   socket timeout bounds each `recv`, not the request.
+
+   ```python
+   while True:
+       if time.monotonic() >= deadline:
+           return None
+       chunk = response.read1(min(CHUNK, limit - total + 1))  # read1: ONE recv
+       if not chunk:
+           break
+       ...
+   # An early EOF (watchdog shutdown, short body) does not raise:
+   if time.monotonic() >= deadline or getattr(response, "length", None):
+       return None
+   ```
+
+4. **Decode only allowed formats, and check the size before decoding.**
+   `Image.open(buf, formats=("JPEG", "PNG", "GIF", "WEBP"))` keeps every
+   other PIL plugin away from the bytes. `img.size` comes from the header, so
+   the side and pixel caps refuse a decompression bomb before `load()`
+   allocates it. Keep the pixel cap below side squared, so each guard can be
+   mutation-checked on its own.
+5. **Re-encode from pixels.** Apply `ImageOps.exif_transpose`, convert to RGB
+   or RGBA, then `thumbnail`. Rebuild with
+   `Image.frombytes(mode, size, img.tobytes())` and save as WebP. Pillow 12's
+   WebP encoder copies no EXIF from `info` unless asked; the rebuild keeps
+   that true if a future encoder does. To make a mutation check meaningful,
+   pass `exif=` explicitly.
+6. **Content-address the stored name** (`<prefix><sha256(url)>.webp`), check
+   `exists()` before downloading, and treat a suffixed name from `save()` as
+   a lost race: delete it and use the canonical one. Serve only names that
+   match the pattern.
+
+Any failure yields "no image". Never fail the surrounding write.
+
 ## Related Patterns
 
 - **Input Validation**: See `input-validation.md`
