@@ -124,6 +124,27 @@ LINK_PREVIEW_MAX_DESCRIPTION_CHARS = 500
 LINK_PREVIEW_MAX_SITE_NAME_CHARS = 100
 LINK_PREVIEW_MAX_IMAGE_URL_LENGTH = 2048
 
+# Preview-card images (todo 428 slice B): the page's og:image, downloaded once
+# at write time, validated, re-encoded and stored on our own media storage.
+# Tighter than a member's upload (10 MB, 5000 px, wagtail_forum.conf): an
+# og:image is a thumbnail, and the URL is chosen by whoever runs the linked
+# site, so the bytes are less trusted than a signed-in member's file.
+LINK_PREVIEW_IMAGE_MAX_BYTES = 2 * 1024 * 1024
+LINK_PREVIEW_IMAGE_MAX_SIDE = 4096
+# The decompression-bomb guard: checked from the header BEFORE decoding.
+# Deliberately below MAX_SIDE squared, so a 3000x3000 image fails here while a
+# 4096x100 banner passes.
+LINK_PREVIEW_IMAGE_MAX_PIXELS = 8 * 1024 * 1024
+LINK_PREVIEW_IMAGE_STORED_MAX_SIDE = 1200
+LINK_PREVIEW_IMAGE_WEBP_QUALITY = 80
+# The snapshot hook runs inside the package's LINK_PREVIEW_FETCH_TIMEOUT_SECONDS
+# window. It stops downloading this long before the window closes, leaving
+# time to decode, re-encode and store; a fetch that overruns the window loses
+# its whole card, not just the image.
+LINK_PREVIEW_SNAPSHOT_MARGIN_SECONDS = 1.0
+# An image download is not started with less than this left in the budget.
+LINK_PREVIEW_IMAGE_MIN_SECONDS = 1.0
+
 # Reply-notification email body excerpt length (todo 253 slice 2, H1).
 # Matches the package's own MAX_EXCERPT_CHARS precedent
 # (wagtail_forum/api/views.py) as an independent host-side choice.

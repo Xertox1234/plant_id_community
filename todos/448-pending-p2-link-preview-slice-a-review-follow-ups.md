@@ -71,10 +71,22 @@ but rare.
      allowed". Run after any DB test, they pass. The full suite is unaffected.
    - Fix: give those tests the `db` mark, or stub the provider for non-DB
      tests.
+9. **The image budget starts late when the pool is backed up (slice B,
+   gate for slice C with item 1).**
+   - Where: `apps/forum_host/link_preview.py::link_preview_snapshot`, which
+     computes its deadline when the snapshot starts running. The package's
+     5 s window starts when the job is submitted.
+   - A job that waits 2 s in the 8-thread queue still gets its full 4 s, so
+     it ends about 6 s after submit, past the window, and the whole card is
+     lost. Any image it stores becomes an orphan for slice D's prune.
+   - Fix together with item 1: pass the fetcher a deadline (or the submit
+     time). That changes the package's `fetcher(url)` contract, so it is a
+     package change.
+   - Found by the bundled `/code-review` in todo 428 slice B round 1.
 
 ## Acceptance Criteria
 
-- [ ] Items 1–3 are fixed and pinned by tests (each mutation-checked) before
+- [ ] Items 1–3 and 9 are fixed and pinned by tests (each mutation-checked) before
       the host setting is turned on in todo 428 slice C.
 - [ ] Items 4–7 are fixed or closed with a reason.
 

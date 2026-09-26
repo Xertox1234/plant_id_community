@@ -6551,3 +6551,46 @@ found while building it, before it shipped.
   slice C adds both edit round trips.
 - A submitted card is reduced to its URL on every write, and reused from the
   stored body on edit, so the client never supplies card content.
+
+## 2026-09-25 — A "blocking" review finding, disproved only after its fix was built (todo 428 slice B)
+
+**What happened.**
+
+- Round 1 of `/code-review` on the link-preview image download reported as
+  blocking: "the deadline watchdog starts after the TLS handshake, so a server
+  dripping its certificate chain holds a pool thread for hours".
+- I built the fix: an fd-based watchdog armed on the raw socket before the TLS
+  wrap, with an inode check against fd reuse. It added about 40 lines of
+  concurrency code.
+- Its mutation check then **survived**: arming the watchdog after `connect()`
+  still passed the new handshake-drip test.
+- A 10-line probe explained why. CPython bounds the **whole** handshake by the
+  socket timeout: a dripped handshake failed at 0.31 s with a 0.3 s timeout. The
+  code already capped that timeout at the time left, so the finding was false.
+  I reverted to the simpler watchdog and kept the test as a pin.
+
+**Also in this slice.**
+
+- **Two guards on one limit hide each other from mutation checks.** A read
+  sized to limit + 1 plus an explicit `total > limit` check made each single
+  mutant "survive"; so did a loop `range` plus a `>=` redirect check. Each
+  guard is complete alone. The real mutant removes both.
+- **An early EOF is silent.** `http.client`'s `read1` returning `b""` does not
+  raise when a body stops short of its `Content-Length`, or when a watchdog
+  shuts the socket down. Without a check after the loop, partial bytes would
+  have reached PIL. That part of the review was real, and was fixed.
+- **Pillow 12's WebP encoder already drops EXIF.** Removing the pixels-only
+  rebuild alone is therefore an equivalent mutant. The EXIF mutant has to pass
+  `exif=` explicitly to test anything.
+
+**Root cause.** A reviewer's failure scenario was treated as established fact.
+It was actually a claim about CPython's `ssl` internals, and it was cheaper to
+test than to fix.
+
+**Fix and rule.**
+
+- Before building a fix for a reviewed failure mode that rests on how a
+  library or runtime behaves, reproduce it with the smallest probe.
+- A fix whose own mutation check survives is the signal to stop and probe.
+- See `docs/rules/security.md` (deadlines on untrusted reads) and
+  `docs/rules/testing.md` (double guards).

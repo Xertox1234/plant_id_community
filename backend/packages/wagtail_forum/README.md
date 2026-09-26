@@ -505,9 +505,12 @@ the host's job. Unset, nothing converts. The rules (`wagtail_forum/link_previews
 - **Nothing in a card is the client's word.** A submitted `link_preview`
   block is reduced to its URL. On edit, a URL the stored body already shows as
   a card keeps that stored card (no refetch); every other field comes from the
-  fetcher. `image` is kept only if it is a name under
-  `WAGTAILFORUM_LINK_PREVIEW_IMAGE_PREFIX`, so a card can only show an image
-  the host downloaded and re-encoded — never a third-party address.
+  fetcher. `image` is kept only if it is a default-storage name of the form
+  `<WAGTAILFORUM_LINK_PREVIEW_IMAGE_PREFIX><64 hex chars>.webp` (or `.jpg`),
+  so a card can only show an image the host downloaded and re-encoded — never
+  a third-party address. A host that caches images writes exactly that shape;
+  this project's host names the file by the sha256 of the image's URL, so a
+  second post showing the same image reuses the stored file.
 - **Reads never fetch.** The card is served from the stored snapshot; a
   stored `url` that is not `http(s)` (a CMS edit or an import) serves as
   `null`.

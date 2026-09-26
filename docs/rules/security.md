@@ -435,3 +435,12 @@ Compact checklist auto-injected before edits. Long-form: `backend/docs/patterns/
   an owner out by registering a case variant, because registration compared
   case-exactly. Match case-insensitively, let the single VERIFIED holder win,
   and refuse only when that is ambiguous (todo 447).
+- A socket timeout bounds each `recv`, not a request: a server that drips a
+  byte at a time keeps `http.client`'s `readline` (status line, headers) and
+  `read(n)` alive indefinitely. A read from an untrusted server needs a
+  wall-clock deadline: `response.read1` with a deadline check before each
+  chunk, a watchdog `threading.Timer` that shuts the socket down, and, after
+  the loop, a refusal when the deadline passed or `response.length` is still
+  non-zero (an early EOF does not raise). CPython bounds the whole TLS
+  handshake by the socket timeout, so capping that timeout at the time left
+  covers `connect()` (todo 428 slice B).
