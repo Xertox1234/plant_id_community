@@ -463,6 +463,34 @@ HTTP (`apps/users/tests/test_allauth_surface.py`):
   no confirm-on-GET, mandatory verification, no login on reset, no
   `CHANGE_EMAIL`, no `allauth.headless`.
 
+- **Resolve a provider sign-in by its stable account id before its email**
+  (todo 447 slice B). Web OAuth reads the `SocialAccount` row for
+  `(provider, id)` first (`oauth_views._linked_account`), as allauth does. A
+  GitHub or Google email can change; matching by email first found a
+  different account (or none) for an identity already linked, and refused it
+  forever as "linked elsewhere".
+- **The first provider link to a password account revokes and notifies**
+  (`account_links.on_first_provider_link`). It closes the cooperative-victim
+  residual: the squatter keeps the password, so the address is told and every
+  outstanding refresh token is blacklisted, BEFORE the path mints its own. Each
+  path needs a durable "first" marker, or it fires on every sign-in: a new
+  `SocialAccount` row (web OAuth), `sociallogin.connect` (allauth), or the first
+  `firebase_uid` bind (Firebase).
+- **"Has a password" is `bool(user.password) and user.has_usable_password()`.**
+  Django's `is_password_usable("")` is True, and the Firebase path creates
+  users with `password=""`. `has_usable_password()` alone called every mobile
+  Google user a password account.
+- **allauth's link-based password reset does NOT verify the address.**
+  `finalize_password_reset` clears login attempts and sends `password_reset`,
+  nothing more; only the by-code flow calls `verify_email_indirectly`. So a
+  reset is not a recovery path for verification, and the verification-mail
+  cap is a 30-day window, not a lifetime: every link expires after 3 days, and
+  a lifetime cap would strand a real owner with no working link.
+- **No Firebase provider bypasses a false `email_verified` claim.** Firebase
+  sets it true for a verified federated email; web Google already required
+  `verified_email`. A "trusted provider" exemption fed unverified addresses
+  into the verified store.
+
 **GDPR**: when refusing an unverified email, log the decision but **never the
 address** — log the provider and a redacted form only. See
 `firebase_auth_views.redact_email`.

@@ -1826,5 +1826,21 @@
     "source": "codify: feat/428-prune-link-preview-images",
     "added": "2026-09-26",
     "severity": "warn"
+  },
+  {
+    "id": "has-usable-password-empty-hash",
+    "domains": [
+      "security"
+    ],
+    "path_glob": [
+      "backend/apps/**/*.py"
+    ],
+    "content_present": "(?<!is False and )\\.has_usable_password\\(\\)(?!\\s+is False)",
+    "content_absent": "bool\\([\\w.]*\\.password\\)\\s+and\\s+[\\w.]*\\.has_usable_password\\(\\)",
+    "message": "has_usable_password() is True for password=\"\" (Firebase-created users have exactly that). To ask \"can this account sign in with a password\", use bool(user.password) and user.has_usable_password() (apps.users.account_links.has_password).",
+    "pattern_ref": "backend/docs/patterns/security/authentication.md",
+    "source": "codify: fix/447b-email-verification-hardening",
+    "added": "2026-09-26",
+    "severity": "warn"
   }
 ]

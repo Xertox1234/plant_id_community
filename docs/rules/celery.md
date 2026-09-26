@@ -90,3 +90,7 @@ Compact checklist auto-injected before edits. Long-form:
   row is already in hand**, not in the enqueueing request; map event names to
   preference verbs explicitly and leave unmapped events UNGATED so a future
   event cannot be silently dropped by an old preference row (todo 343).
+- **A test package whose views enqueue tasks runs `.delay` as `.apply` in an
+  autouse fixture** (`apps/users/tests/conftest.py`). Without one, a test
+  that executes `on_commit` callbacks publishes to the dev Redis broker (the
+  settings default, never eager in tests), and the send assertions go quiet.

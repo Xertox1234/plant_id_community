@@ -449,3 +449,9 @@ Compact checklist auto-injected before edits. Long-form: `backend/docs/patterns/
   the dotted path in its own setting a test pins with `import_string`, and let
   a test that needs it `override_settings` it
   (`WAGTAILFORUM_LINK_PREVIEW_FETCHER`, todo 428).
+- **"Has a password" is `bool(user.password) and user.has_usable_password()`.**
+  Django counts `password=""` as usable, and Firebase-created users have
+  exactly that (todo 447).
+- **Resolve an OAuth sign-in by the provider's stable account id before its
+  email**, and cap a mail whose link expires per time window, never for life:
+  a lifetime cap outlives every link and strands the real owner (todo 447).
