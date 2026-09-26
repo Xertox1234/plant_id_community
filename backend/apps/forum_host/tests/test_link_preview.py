@@ -350,6 +350,8 @@ def test_link_preview_endpoint_is_rate_limited():
 
 
 def test_snapshot_hook_returns_the_card_text_and_never_a_third_party_image():
+    """The page's og:image goes to the image cache (todo 428 slice B); the
+    snapshot carries only the cache's answer, never the third-party URL."""
     from apps.forum_host.link_preview import link_preview_snapshot
 
     preview = {
@@ -361,12 +363,18 @@ def test_snapshot_hook_returns_the_card_text_and_never_a_third_party_image():
         "domain": "example.com",
         "available": True,
     }
-    with patch(
-        "apps.forum_host.link_preview.fetch_link_preview", return_value=preview
-    ) as fetch:
+    with (
+        patch(
+            "apps.forum_host.link_preview.fetch_link_preview", return_value=preview
+        ) as fetch,
+        patch(
+            "apps.forum_host.link_preview._cache_preview_image", return_value=""
+        ) as cache_image,
+    ):
         snapshot = link_preview_snapshot("https://example.com/")
 
     fetch.assert_called_once_with("https://example.com/")
+    cache_image.assert_called_once_with("https://cdn.example.com/og.png", ANY)
     assert snapshot == {
         "title": "Title",
         "description": "Description",

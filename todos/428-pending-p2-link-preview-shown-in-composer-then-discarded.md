@@ -283,3 +283,104 @@ So the preview is built and it works; it just isn't used where it matters.
 - **Full backend suite: 3865 passed, 8 skipped, 1 failed.** The failure was
   an expected change: a video link past the cap is now stored auto-linked.
   I updated that assertion, and the embed autoconvert file passes (20/20).
+
+### 2026-09-25 - Slice B (preview images) built; the host fetcher stays UNSET
+
+- **Host only** (`apps/forum_host/link_preview.py`); the package is unchanged
+  apart from one README sentence giving the exact image-name shape.
+  `link_preview_snapshot` now fills `image` with the name of **our** copy of
+  the page's og:image, or `""`.
+- **Download:** once, at write time, through the same SSRF-pinned path as the
+  page (`_target_for_url` + `_open_connection`):
+  - HTTPS only, on the first hop and every redirect; each redirect is
+    re-validated as a public address; at most 3 redirects;
+  - `Content-Type` must be the upload allowlist (`IMAGE_ALLOWED_MIME_TYPES`)
+    or `image/jpg`, which CDNs send; a missing type is refused;
+  - 2 MB cap, checked on `Content-Length` and while streaming.
+- **Validation, then re-encode:** `Image.open(..., formats=JPEG/PNG/GIF/WEBP)`
+  (no other decoder sees the bytes); the size from the header is checked
+  before decoding: each side at most 4096, and at most 8,388,608 pixels (the
+  decompression-bomb guard). Then a full decode (a truncated file fails
+  here), EXIF orientation applied, converted to RGB or RGBA, shrunk to at
+  most 1200 px, rebuilt from pixels alone and saved as WebP (quality 80).
+  Stored bytes carry no EXIF, XMP or ICC.
+- **Storage:** plain `default_storage` files (R2 in prod), not Wagtail
+  Images, at `forum/link-previews/<sha256 of the image URL>.webp`. Only WebP
+  is written; the read pattern also allows `.jpg`, which nothing writes. A
+  name that already exists is reused with no download, so a second post with
+  the same image costs nothing. If two posts race, R2's
+  `file_overwrite=False` gives the second a suffixed name; that copy is
+  deleted and the canonical name used.
+- **Any image failure gives a card without an image**, never a broken card
+  and never a lost card.
+- **The time budget (the constants decision).** The page and the image share
+  one deadline: the package's `LINK_PREVIEW_FETCH_TIMEOUT_SECONDS` (5 s)
+  minus `LINK_PREVIEW_SNAPSHOT_MARGIN_SECONDS` (1 s, left for decoding,
+  encoding and the storage write). The deadline is read from the package
+  setting, so changing the window moves the budget with it. No download
+  starts with less than `LINK_PREVIEW_IMAGE_MIN_SECONDS` (1 s) left. The
+  page's own constants (4 s socket timeout, 2 s DNS) are unchanged; the
+  composer's preview request usually leaves the page in the 1 h cache, so the
+  image typically gets most of the budget.
+  - The image deadline is **hard**: DNS is capped at the time left, reads use
+    `read1` with a deadline check before each chunk, and a watchdog timer
+    shuts the socket down at the deadline. A socket timeout alone bounds each
+    `recv`, not the request, so a server dripping one byte at a time kept
+    `readline` (status line, headers) alive indefinitely. A loopback test
+    drives exactly that.
+  - The TLS handshake needs no watchdog: CPython bounds the **whole**
+    handshake by the socket timeout (probed: a dripped handshake failed at
+    0.31 s with a 0.3 s timeout), and the timeout is capped at the time
+    left. A loopback test pins it.
+  - Not covered: the page fetch, which still has todo 448 item 5's
+    per-`recv` timeout.
+- **For slice D:** a fetcher still running when the package's window closes
+  keeps going. The post saves the link as a paragraph, but the image may still
+  be written, leaving a file nothing references. The prune command's 24 h
+  grace and reference check cover it.
+- **Tests:** `apps/forum_host/tests/test_link_preview_images.py` (30 tests, no
+  network: page previews patched, image connections faked, a loopback server
+  for the watchdog, Django's in-memory storage on a media origin of our own).
+  One test turns the fetcher on for itself only and posts through the real
+  `/api/v1/forum/` mount. It asserts the served `image_url` is
+  `MEDIA_URL + forum/link-previews/<sha256>.webp`, never the source host. That
+  is the backend half of the "no third-party image host" acceptance criterion;
+  the client half is slice C.
+- **Mutation checks: 26 of 26 guards caught** on the final code, each run against a `cp`
+  backup, restored, and confirmed with `cmp`. The guards: declared and
+  streamed size cap, redirect limit, HTTPS-only redirect, SSRF re-check on
+  redirect, entry HTTPS check, content type, 2xx status, decode and
+  re-encode, format allowlist, bomb (pixels), side limit, EXIF strip, EXIF
+  orientation, name pattern, dedupe, read-loop deadline, `read1` vs `read`,
+  watchdog, minimum budget, race delete, race canonical-only, and the
+  snapshot swallowing an image bug.
+  - The streamed cap and the redirect limit are each enforced twice: the
+    read size never exceeds limit + 1, and the loop's `range` stops a 4th
+    redirect. Removing one half alone is an equivalent mutation, so each was
+    checked with both halves removed.
+  - Added after review: the TLS/connect timeout cap, the post-loop
+    deadline check, and the `Content-Length` shortfall check.
+  - Pillow 12's WebP encoder copies no EXIF unless asked, so the pixels-only
+    rebuild is defence in depth. The EXIF mutation passes EXIF through
+    explicitly, and the test catches it.
+- **Review round 1** (bundled `/code-review` + `code-review-orchestrator`):
+  - **Fixed (blocking):** a body cut off by the watchdog, or closed before its
+    `Content-Length`, read as a normal end of body. Neither raises in
+    `http.client`, so the partial bytes went to PIL. PIL rejects most such
+    files today, but a half image stored under the URL's hash would be reused
+    forever. `_read_image` now refuses both.
+  - **False positive, disproved:** "the watchdog starts after the TLS
+    handshake, so a dripped certificate chain holds a thread for hours". I
+    first built an fd-based watchdog armed before the handshake. Its mutation
+    check then survived (arming after `connect` still passed), and the probe
+    above showed why: CPython already bounds the whole handshake. I reverted
+    to the simpler watchdog and kept the test.
+  - **Non-blocking, in todo 448 (item 9):** the snapshot's budget starts when
+    a pool thread picks the job up, not when the package starts its 5 s
+    window, so a queued job can overrun it.
+  - The orchestrator found no blocking issue.
+- **Round 2** (targeted check of the fix): the new checks are mutation-pinned
+  (in the 26 above), and both host test files pass (54/54).
+- **Full backend suite:** 3895 passed, 8 skipped, 0 failed. It ran before the
+  round-1 fix; that fix touches only `link_preview.py`, and its two test
+  files were rerun.
