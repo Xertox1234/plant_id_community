@@ -11,12 +11,14 @@ from apps.core.ratelimit import client_ip_key, ratelimit
 from apps.core.utils.pii_safe_logging import log_safe_user_context
 from django.conf import settings
 from django.contrib.auth import login as django_login
+from django.db import transaction
 from django.http import HttpResponseRedirect
 from rest_framework import status
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 
+from .account_links import on_first_provider_link
 from .authentication import set_jwt_cookies
 from .email_verification import (
     get_account_by_email,
@@ -376,6 +378,57 @@ class UnverifiedLocalAccount(Exception):
     """
 
 
+class ProviderIdentityConflict(Exception):
+    """The provider identity is already linked to a different account."""
+
+
+def _linked_account(provider, user_data):
+    """The account this provider identity was linked to, or None."""
+    from allauth.socialaccount.models import SocialAccount
+
+    uid = str(user_data.get("id") or "")
+    if not uid:
+        return None
+    linked = (
+        SocialAccount.objects.select_related("user")
+        .filter(provider=provider, uid=uid)
+        .first()
+    )
+    return linked.user if linked is not None else None
+
+
+def _record_provider_link(provider, user_data, user) -> bool:
+    """Record that this provider identity signs in to ``user``.
+
+    The ``SocialAccount`` row (the same row allauth writes, keyed by the
+    provider's stable account id) is what makes a link the FIRST one: a new
+    row means a new identity on this account, so ``on_first_provider_link``
+    revokes its sessions and notifies it when it has a password (todo 447
+    item 1). Without a durable marker that would fire on every sign-in.
+
+    False, refusing the sign-in, when the provider sent no account id or the
+    identity already belongs to another account.
+    """
+    from allauth.socialaccount.models import SocialAccount
+
+    uid = str(user_data.get("id") or "")
+    if not uid:
+        logger.error(f"[AUTH] Refused {provider} login: no provider account id")
+        return False
+    linked = SocialAccount.objects.filter(provider=provider, uid=uid).first()
+    if linked is not None:
+        if linked.user_id == user.pk:
+            return True
+        logger.warning(
+            f"[SECURITY] Refused {provider} login: this {provider} identity is "
+            f"linked to a different account than {log_safe_user_context(user)}"
+        )
+        return False
+    SocialAccount.objects.create(user=user, provider=provider, uid=uid, extra_data={})
+    on_first_provider_link(user, provider)
+    return True
+
+
 def _find_or_create_user(provider, user_data):
     """
     Find existing user or create new user from OAuth data.
@@ -396,6 +449,15 @@ def _find_or_create_user(provider, user_data):
             )
             return None
 
+        # A provider identity already linked to an account signs in to that
+        # account, whatever email the provider reports now: the id is stable,
+        # the email is not (a GitHub primary email can change). Matching by
+        # email first would refuse the identity as "linked elsewhere".
+        linked = _linked_account(provider, user_data)
+        if linked is not None:
+            logger.info(f"[AUTH] Found linked {log_safe_user_context(linked)}")
+            return linked
+
         # Check if user exists with this email
         try:
             user = get_account_by_email(email)
@@ -415,6 +477,8 @@ def _find_or_create_user(provider, user_data):
                     f"unverified local {log_safe_user_context(user)}"
                 )
                 raise UnverifiedLocalAccount()
+            if not _record_provider_link(provider, user_data, user):
+                return None
             logger.info(f"[AUTH] Found existing {log_safe_user_context(user)}")
             return user
 
@@ -451,17 +515,22 @@ def _find_or_create_user(provider, user_data):
             username = f"{original_username}{counter}"
             counter += 1
 
-        # Create user
-        user = User.objects.create_user(
-            username=username,
-            email=email,
-            first_name=first_name,
-            last_name=last_name,
-        )
+        # One transaction, so a refused identity link leaves no account behind.
+        with transaction.atomic():
+            user = User.objects.create_user(
+                username=username,
+                email=email,
+                first_name=first_name,
+                last_name=last_name,
+            )
 
-        # The provider verified this email (unverified ones are stripped
-        # upstream), so later sign-ins may match the account by it (todo 446).
-        mark_email_verified(user)
+            # The provider verified this email (unverified ones are stripped
+            # upstream), so later sign-ins may match the account by it (todo 446).
+            mark_email_verified(user)
+            # A provider-created account has no password, so this link revokes
+            # and notifies nothing; it records the identity for later sign-ins.
+            if not _record_provider_link(provider, user_data, user):
+                raise ProviderIdentityConflict()
 
         # Shared signup side-effects
         create_default_plant_collection(user)

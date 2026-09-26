@@ -7,7 +7,7 @@ and exchanges them for Django JWT tokens.
 
 from unittest.mock import patch
 
-from apps.users.email_verification import mark_email_verified
+from apps.users.email_verification import is_email_verified, mark_email_verified
 from django.contrib.auth import get_user_model
 from django.core.cache import cache
 from django.test import TestCase, override_settings
@@ -448,7 +448,7 @@ class FirebaseProjectIdOnlyInitTestCase(TestCase):
 
 
 class FirebaseTrustedProviderTestCase(TestCase):
-    """The `email_verified` gate, and the federated providers that bypass it.
+    """The `email_verified` gate, which no provider bypasses (todo 447 item 8).
 
     Filed because this gate had NO test while being the single thing standing
     between the mobile app and a signed-in user. The mobile app ships only
@@ -458,9 +458,10 @@ class FirebaseTrustedProviderTestCase(TestCase):
     device is a sign-in that appears to work and then silently does nothing,
     because Firebase itself succeeded and only the exchange refused.
 
-    Google is in `_TRUSTED_FIREBASE_PROVIDERS` precisely so it does not have
-    that problem, which is what makes "Continue with Google" the fix rather
-    than a second broken path.
+    Google and Apple used to bypass the gate as "self-verifying" providers.
+    Firebase sets the claim true for a verified federated email, so the
+    mobile Google button still works; a token that says false is refused like
+    any other, matching web Google's `verified_email` rule.
     """
 
     def setUp(self):
@@ -492,14 +493,10 @@ class FirebaseTrustedProviderTestCase(TestCase):
         self.assertFalse(User.objects.filter(email="newcomer@example.com").exists())
 
     @patch("apps.users.firebase_auth_views.firebase_auth.verify_id_token")
-    def test_google_provider_bypasses_the_verification_gate(self, mock_verify):
-        """Google self-verifies, so an unverified claim must NOT block it.
-
-        This is the assertion the mobile Google button depends on. If the
-        trusted-provider set is ever narrowed, this fails here rather than on
-        a TestFlight build.
-        """
-        mock_verify.return_value = self._decoded("google.com", False)
+    def test_google_with_a_verified_email_signs_in(self, mock_verify):
+        """The assertion the mobile Google button depends on: Firebase marks a
+        Google email verified, and that token signs in and creates the user."""
+        mock_verify.return_value = self._decoded("google.com", True)
 
         response = self.client.post(
             self.url, {"firebase_token": self.token}, format="json"
@@ -507,7 +504,24 @@ class FirebaseTrustedProviderTestCase(TestCase):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertIn("access_token", response.data)
-        self.assertTrue(User.objects.filter(email="newcomer@example.com").exists())
+        user = User.objects.get(email="newcomer@example.com")
+        self.assertTrue(is_email_verified(user))
+
+    @patch("apps.users.firebase_auth_views.firebase_auth.verify_id_token")
+    def test_federated_provider_with_an_unverified_email_is_refused(self, mock_verify):
+        """Todo 447 item 8: no provider is trusted over its own claim."""
+        for provider in ("google.com", "apple.com"):
+            with self.subTest(provider=provider):
+                mock_verify.return_value = self._decoded(provider, False)
+
+                response = self.client.post(
+                    self.url, {"firebase_token": self.token}, format="json"
+                )
+
+                self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+                self.assertFalse(
+                    User.objects.filter(email="newcomer@example.com").exists()
+                )
 
     @patch("apps.users.firebase_auth_views.firebase_auth.verify_id_token")
     def test_google_links_to_an_existing_account_instead_of_duplicating(

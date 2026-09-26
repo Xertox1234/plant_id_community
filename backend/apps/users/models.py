@@ -41,6 +41,21 @@ class User(AbstractUser):
         help_text="Firebase Authentication UID bound to this account",
     )
 
+    # Verification mails queued in the current window, capped at
+    # VERIFICATION_EMAIL_CAP per VERIFICATION_EMAIL_WINDOW so a squatter cannot
+    # keep mailing the address's real owner (todo 447). A window, not a
+    # lifetime: each link expires after 3 days, so a lifetime cap could leave
+    # a real owner with no working link, ever.
+    verification_emails_sent = models.PositiveSmallIntegerField(
+        default=0,
+        help_text="Verification mails queued in the current window (capped)",
+    )
+    verification_window_started_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="When the current verification-mail window began",
+    )
+
     # Profile Information
     bio = models.TextField(
         max_length=500,

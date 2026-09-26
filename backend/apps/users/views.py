@@ -31,6 +31,7 @@ from .email_verification import (
     confirm_verification_key,
     is_email_verified,
     send_verification_email,
+    verification_cap_reached,
 )
 from .models import User, UserPlantCollection
 from .serializers import (
@@ -129,9 +130,8 @@ def register(request: Request) -> Response:
 
                 # The account is usable at once, but no sign-in path will match
                 # it by email until the owner confirms the address (todo 446).
-                transaction.on_commit(
-                    lambda: send_verification_email(user), robust=True
-                )
+                # Queued for Celery once this transaction commits (todo 447).
+                send_verification_email(user)
 
                 # Create response with user data
                 response = Response(
@@ -204,11 +204,20 @@ def verify_email(request: Request) -> Response:
     block=True,
 )
 def resend_verification_email(request: Request) -> Response:
-    """Send the signed-in user a fresh verification link (todo 446)."""
+    """Queue a fresh verification link for the signed-in user (todo 446).
+
+    ``sent`` means queued; the mail goes out from Celery. ``limit_reached``
+    means the account has had its ``VERIFICATION_EMAIL_CAP`` mails for this
+    window and none was queued (todo 447 item 9).
+    """
     if is_email_verified(request.user):
         return Response({"verified": True, "sent": False})
     sent = send_verification_email(request.user)
-    return Response({"verified": False, "sent": sent})
+    request.user.refresh_from_db(
+        fields=["verification_emails_sent", "verification_window_started_at"]
+    )
+    limit_reached = not sent and verification_cap_reached(request.user)
+    return Response({"verified": False, "sent": sent, "limit_reached": limit_reached})
 
 
 @api_view(["POST"])

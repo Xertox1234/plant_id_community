@@ -10,7 +10,12 @@ from allauth.core.exceptions import ImmediateHttpResponse
 from allauth.socialaccount.adapter import DefaultSocialAccountAdapter
 from allauth.socialaccount.models import SocialLogin
 from apps.core.utils.pii_safe_logging import log_safe_user_context
-from apps.users.email_verification import is_email_verified, send_verification_email
+from apps.users.account_links import on_first_provider_link
+from apps.users.email_verification import (
+    get_account_by_email,
+    is_email_verified,
+    send_verification_email,
+)
 from apps.users.oauth_views import get_oauth_redirect_url
 from django.contrib.auth import get_user_model
 from django.http import HttpRequest, HttpResponseRedirect
@@ -41,17 +46,29 @@ class CustomSocialAccountAdapter(DefaultSocialAccountAdapter):
         if not email:
             return
 
-        try:
-            existing_user = User.objects.get(email=email)
-        except User.DoesNotExist:
-            # No local account owns this email. allauth's auto-signup (gated by
-            # the mandatory ACCOUNT_EMAIL_VERIFICATION) handles new users safely.
-            return
-
         # The social account is already linked to a user (a returning login):
         # nothing to link, and no takeover surface.
         if sociallogin.is_existing:
             return
+
+        try:
+            # Case-insensitive, and the verified holder wins among case
+            # variants, like the web and Firebase paths (todo 447).
+            existing_user = get_account_by_email(email)
+        except User.DoesNotExist:
+            # No local account owns this email. allauth's auto-signup (gated by
+            # the mandatory ACCOUNT_EMAIL_VERIFICATION) handles new users safely.
+            return
+        except User.MultipleObjectsReturned:
+            logger.warning(
+                f"[SECURITY] Refused {sociallogin.account.provider} login: "
+                f"several accounts share this email"
+            )
+            error_url = (
+                f"{get_oauth_redirect_url(sociallogin.account.provider)}"
+                f"?error=user_creation_failed"
+            )
+            raise ImmediateHttpResponse(HttpResponseRedirect(error_url))
 
         # A local account already owns this email and this social account is not
         # yet linked. Only proceed when the provider has VERIFIED the email —
@@ -91,7 +108,9 @@ class CustomSocialAccountAdapter(DefaultSocialAccountAdapter):
             )
             raise ImmediateHttpResponse(HttpResponseRedirect(error_url))
 
-        # Verified: link the social account to the existing local user.
+        # Verified: link the social account to the existing local user. It is
+        # a new link (is_existing returned above): revoke and notify first.
+        on_first_provider_link(existing_user, sociallogin.account.provider)
         sociallogin.connect(request, existing_user)
         logger.info(
             f"[AUTH] Connected {sociallogin.account.provider} account "

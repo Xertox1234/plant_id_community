@@ -6656,3 +6656,29 @@ description of a link that has none) is in `docs/rules/react.md`.
 **Lesson:** a command string in IaC is not a shell line until something makes
 it one. Check how the platform executes it before adding `&&`, even when the
 brief spells the command out.
+
+## 2026-09-26 — Email verification follow-ups: three review catches (todo 447 slice B)
+
+- **`has_usable_password()` is True for an empty password.** The Firebase path
+  creates users with `User.objects.create(...)` and no password, so the hash
+  is `""`, and Django's `is_password_usable("")` returns True. The new
+  "revoke and notify on the first provider link to a password account" would
+  have signed every mobile Google user out on their first web Google sign-in
+  and mailed them "reset the password" for a password they never had. Found
+  by `/code-review`, confirmed in `hashers.py`. Fix: `bool(user.password) and
+  user.has_usable_password()`.
+- **Matching an OAuth identity by email first locked it out after a provider
+  email change.** Adding a `SocialAccount` marker (so "first link" is durable)
+  made the old email-first lookup refuse a linked identity whose GitHub
+  primary email had moved: the new email created a user, the identity was
+  "linked elsewhere", and the creation rolled back, on every sign-in. Resolve
+  `(provider, id)` first, then the email.
+- **A lifetime cap on a mail whose link expires strands the real owner.** Five
+  verification mails for life, and 3-day links: after both ran out the owner
+  had no way to verify. allauth's link-based password reset does not verify
+  the address either (`finalize_password_reset`), so it is no escape hatch.
+  The cap is now 5 per 30-day window, claimed in one conditional `UPDATE`
+  with `Case/When` so a passed window restarts atomically.
+- Also: Firebase's "trusted providers" (Google, Apple) skipped the
+  `email_verified` claim and fed the verified store. Removed; web Google
+  already required `verified_email`.

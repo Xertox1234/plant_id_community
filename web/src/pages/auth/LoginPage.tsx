@@ -9,6 +9,9 @@ import { getEmailError } from '../../utils/validation';
 import { sanitizeInput, sanitizeError } from '../../utils/sanitize';
 import { logger } from '../../utils/logger';
 
+const API_URL = (import.meta.env.VITE_API_URL || 'http://localhost:8000').replace(/\/+$/, '');
+const PASSWORD_RESET_URL = `${API_URL}/accounts/password/reset/`;
+
 interface FormData {
   email: string;
   password: string;
@@ -199,6 +202,18 @@ export default function LoginPage() {
               autoComplete="current-password"
               disabled={isSubmitting}
             />
+
+            {/* Password reset is allauth's page on the API origin (todo 447). It
+                is also how the owner of an address someone else registered
+                takes the account back. */}
+            <div className="-mt-2 text-right text-sm">
+              <a
+                href={PASSWORD_RESET_URL}
+                className="font-medium text-primary hover:text-primary/80 transition-colors"
+              >
+                Forgot password?
+              </a>
+            </div>
 
             {/* Submit Button */}
             <Button

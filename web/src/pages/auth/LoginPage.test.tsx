@@ -41,12 +41,14 @@ describe('LoginPage', () => {
     mockLogin.mockReset();
   });
 
-  // Web dead-code audit M4: a permanently disabled "Forgot your password?"
-  // button hovered like a link and did nothing (no reset flow exists on either
-  // end). Offer it again only with a working flow behind it.
-  it('renders no dead "Forgot your password?" control', () => {
+  // Web dead-code audit M4 removed a disabled "Forgot your password?" button
+  // that did nothing. Todo 447 brings it back as a real link: allauth's reset
+  // page on the API origin, which works end to end (driven in slice A).
+  it('links "Forgot password?" to the password reset page on the API origin', () => {
     renderLoginPage();
-    expect(screen.queryByText(/forgot your password/i)).not.toBeInTheDocument();
+    const link = screen.getByRole('link', { name: 'Forgot password?' });
+    const origin = (import.meta.env.VITE_API_URL || 'http://localhost:8000').replace(/\/+$/, '');
+    expect(link).toHaveAttribute('href', `${origin}/accounts/password/reset/`);
   });
 
   // Regression for PR #379: the login form wrongly ran the 14-char *new-password*

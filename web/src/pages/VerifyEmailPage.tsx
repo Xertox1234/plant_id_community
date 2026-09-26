@@ -22,7 +22,7 @@ import {
   resendVerificationEmail,
 } from '../services/emailVerificationService';
 
-type ResendState = 'idle' | 'sending' | 'sent' | 'already' | 'failed';
+type ResendState = 'idle' | 'sending' | 'sent' | 'already' | 'failed' | 'limit';
 
 function ResendLink() {
   const { user } = useAuth();
@@ -43,7 +43,15 @@ function ResendLink() {
     setState('sending');
     try {
       const result = await resendVerificationEmail();
-      setState(result.verified ? 'already' : result.sent ? 'sent' : 'failed');
+      setState(
+        result.verified
+          ? 'already'
+          : result.sent
+            ? 'sent'
+            : result.limit_reached
+              ? 'limit'
+              : 'failed'
+      );
     } catch {
       setState('failed');
     }
@@ -57,7 +65,7 @@ function ResendLink() {
           onClick={resend}
           loading={state === 'sending'}
           loadingText="Sending…"
-          disabled={state === 'sent' || state === 'already'}
+          disabled={state === 'sent' || state === 'already' || state === 'limit'}
         >
           Send a new link
         </Button>
@@ -66,6 +74,8 @@ function ResendLink() {
         {state === 'sent' && `We sent a new link to ${user.email}.`}
         {state === 'already' && 'Your email is already confirmed.'}
         {state === 'failed' && "We couldn't send a new link just now. Please try again later."}
+        {state === 'limit' &&
+          "We've sent as many links as we can for now. The latest one works for 3 days, so check your spam folder, or try again in a few weeks."}
       </p>
     </div>
   );
