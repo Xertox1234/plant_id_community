@@ -41,6 +41,19 @@ otherwise.
    `backend/docs/patterns/domain/celery.md` shows `[CELERY]`. The binding rule
    (`docs/rules/celery.md`) asks only for a bracketed domain prefix, so this is
    drift in the pattern doc, not a rule break. Align one or the other.
+6. **Only one plain-`ValueError` 409 reason is pinned to `account_conflict`**
+   (slice C review round 2). `test_firebase_auth.py` asserts the code for the
+   several-accounts case; the uid-mismatch and verified-elsewhere cases rely
+   on the `isinstance` default in `firebase_token_exchange`. Add one assertion
+   each so a future subclass cannot slip into the reset path.
+7. **No widget test drives sign-out ending the conflict SnackBar** (slice C
+   round 2). `account_conflict_snackbar_test.dart` covers a successful
+   sign-in; sign-out (`AuthState()` with no error) takes the same branch in
+   `main.dart`, so it holds by reasoning only.
+8. **Stale doc comment** on `AuthService.signInWithGoogle`
+   (`plant_community_mobile/lib/services/auth_service.dart`) still cites
+   `_TRUSTED_FIREBASE_PROVIDERS`, which slice B removed: every token with a
+   false `email_verified` claim is now refused, whatever the provider.
 
 ## Acceptance Criteria
 
@@ -49,3 +62,5 @@ otherwise.
 ## Work Log
 
 ### 2026-09-26 - Filed from todo 447 slice B review round 1
+
+### 2026-09-26 - Items 6-8 added from todo 447 slice C review round 2

@@ -117,6 +117,22 @@ void main() {
         expect(result.message, isNotEmpty);
       });
 
+      test('carries the body code, e.g. the 409 unverified_account', () {
+        final e = makeBadResponse({
+          'error': 'Account linking conflict',
+          'code': 'unverified_account',
+        }, 409);
+        final result = apiService.handleDioException(e) as ApiException;
+        expect(result.code, 'unverified_account');
+        expect(result.statusCode, 409);
+      });
+
+      test('a body without a string code has none', () {
+        final e = makeBadResponse({'error': 'x', 'code': 7}, 409);
+        final result = apiService.handleDioException(e) as ApiException;
+        expect(result.code, isNull);
+      });
+
       test('still reads legacy DRF detail field when message is absent', () {
         final e = makeBadResponse({'detail': 'Not found.'}, 404);
         final result = apiService.handleDioException(e) as ApiException;

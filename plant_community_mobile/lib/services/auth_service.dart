@@ -19,11 +19,19 @@ class AuthState {
   final bool isLoading;
   final String? error;
 
+  /// True when [error] is the token exchange's 409 with code
+  /// `unverified_account`: a Django account holds this email but never
+  /// verified it, so the sign-in cannot link to it. The one conflict the user
+  /// can clear, so the error offers a password reset link. Cleared with
+  /// [error].
+  final bool unverifiedAccountConflict;
+
   const AuthState({
     this.firebaseUser,
     this.jwtToken,
     this.isLoading = false,
     this.error,
+    this.unverifiedAccountConflict = false,
   });
 
   bool get isAuthenticated => jwtToken != null;
@@ -42,6 +50,21 @@ class AuthState {
     );
   }
 }
+
+/// Shown for the 409 `unverified_account`: the address was registered on the
+/// web and never confirmed, so sign-in will not link to it until its holder
+/// proves the inbox (todo 446). Resetting the password, signing in on the web
+/// and confirming the email unblocks it.
+const accountConflictMessage =
+    'An account with this email already exists and could not be linked to '
+    'this sign-in. If it is yours, reset its password, sign in on the web '
+    'and confirm your email, then try again.';
+
+/// Any other 409: the email is tied to another sign-in, or held by several
+/// accounts. A password reset would not help, so no link is offered.
+const accountLinkFailedMessage =
+    'This sign-in could not be linked to the existing account for this '
+    'email.';
 
 /// Current Firebase user id, or `null` when signed out.
 ///
@@ -468,9 +491,15 @@ class AuthService extends _$AuthService {
 
       // Don't throw - allow user to stay signed in to Firebase
       // They can retry later or we can implement retry logic
+      final unverified = e.statusCode == 409 && e.code == 'unverified_account';
       state = AuthState(
         firebaseUser: _firebaseAuth.currentUser,
-        error: 'Failed to connect to server. Some features may be unavailable.',
+        error: unverified
+            ? accountConflictMessage
+            : e.statusCode == 409
+            ? accountLinkFailedMessage
+            : 'Failed to connect to server. Some features may be unavailable.',
+        unverifiedAccountConflict: unverified,
       );
     } catch (e) {
       if (!_isCurrentExchange(user, exchangeGeneration)) {

@@ -8,6 +8,8 @@ import 'config/density_notifier.dart';
 import 'config/theme_provider.dart';
 import 'core/constants/app_brand.dart';
 import 'core/routing/app_router.dart';
+import 'features/auth/password_reset_link.dart';
+import 'features/forum/services/forum_link_launcher.dart';
 import 'services/auth_service.dart';
 import 'services/push_message_router_service.dart';
 
@@ -80,14 +82,40 @@ class MyApp extends ConsumerWidget {
     ref.listen<AuthState>(authServiceProvider, (previous, next) {
       final error = next.error;
       if (error == null || error == previous?.error) {
+        // The conflict SnackBar has an action, so it persists until closed.
+        // Take it down once the conflict is over (signed out, or in).
+        if (previous?.unverifiedAccountConflict == true &&
+            !next.unverifiedAccountConflict) {
+          WidgetsBinding.instance.addPostFrameCallback(
+            (_) => _rootScaffoldMessengerKey.currentState?.clearSnackBars(),
+          );
+        }
         return;
       }
+
+      // An unverified-account 409 carries the way out: allauth's password reset
+      // page, in the in-app browser (todo 447). With an action the SnackBar
+      // persists until tapped or closed.
+      final resetAction = next.unverifiedAccountConflict
+          ? SnackBarAction(
+              label: 'Forgot password?',
+              onPressed: () => ref.read(forumLinkLauncherProvider)(
+                ref.read(passwordResetUriProvider),
+              ),
+            )
+          : null;
 
       WidgetsBinding.instance.addPostFrameCallback((_) {
         final messenger = _rootScaffoldMessengerKey.currentState;
         messenger
           ?..clearSnackBars()
-          ..showSnackBar(SnackBar(content: Text(error)));
+          ..showSnackBar(
+            SnackBar(
+              content: Text(error),
+              action: resetAction,
+              showCloseIcon: resetAction != null,
+            ),
+          );
       });
     });
 

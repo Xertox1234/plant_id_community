@@ -342,3 +342,110 @@ mutants were re-anchored and rerun, and all are still caught. The migration's
 collision checks still SURVIVE on their own, as explained above.
 
 Non-blocking findings are in todo 449.
+
+### 2026-09-26 - Slice C: unverified-account expiry; mobile reset link
+
+**Expiry command** (`manage.py expire_unverified_accounts`, `--dry-run`).
+It deletes an account only when every rule holds:
+
+- a password (`has_password`, so a Firebase `""` hash never counts);
+- no verified `EmailAddress` at all;
+- no `firebase_uid` and no `SocialAccount`;
+- not staff or a superuser;
+- older than 7 days;
+- no sign-in after registering: `last_login` empty or within 60 s of
+  `date_joined`, and no refresh token issued after that. The refresh view
+  issues a new token on every rotation, so a kept-alive session counts
+  although `last_login` never moves;
+- no forum post, topic or Wagtail revision.
+
+One rule goes beyond the brief, in the safe direction. Registration returns a
+15-minute access token, so "never signed in" does not mean "did nothing": a
+user can post a DM, comment on the blog or run a plant ID in that first
+session. Several of those relations CASCADE (other users' threads would lose
+rows). So every relation to the user, hidden `related_name='+'` ones included,
+is counted against what a real registration leaves behind. That baseline was
+measured by driving `/api/v1/auth/register/`: one refresh token, one unverified
+`EmailAddress`, the default "My Plants" collection, the Forum Members group.
+Anything else keeps the account, with a `[PRUNE] account N has <model> rows;
+kept` line. A model added later is covered without editing the command.
+
+Candidates are listed first. Each is re-checked and deleted in its own
+transaction under a row lock, so an account that signs in mid-run is kept.
+The user's `OutstandingToken` rows are deleted with it (the FK is SET_NULL, so
+they would otherwise linger with no user). Logs carry the account id, never
+the email or username. Summary line:
+`[PRUNE] unverified accounts: N candidate(s) older than 7d, K kept, deleted D, F failed.`
+
+Tests (`test_expire_unverified_accounts.py`, 29): the real registration aged 8
+days is deleted; each rule broken on an otherwise deletable account; dry run;
+the mid-run sign-in; a failed delete rolls back its own tokens and the rest
+still go. The summary separates "not a candidate" (SQL rules) from "kept"
+(per-row checks), which is what lets each overlapping rule fail its own test.
+
+Mutation checks (backup, apply, run, restore, `cmp`): 26 of 26 caught. That
+covers each SQL filter, both margins, `has_password`, the backstop and each
+of its parts (hidden relations, the through-table skip, the collection name,
+the group allowlist, forward m2m), the locked re-check, the transaction, dry
+run, the token cleanup and the failure exit.
+
+**Mobile "Forgot password?"** (owner decision 2026-09-26: inside the 409, not
+on the sign-in form, which checks Firebase's password). The token exchange
+used to report a 409 as "Failed to connect to server". It now sets
+`AuthState.accountConflict` with its own message, and the root SnackBar
+carries a "Forgot password?" action. The action opens
+`<API origin>/accounts/password/reset/` in the in-app browser. The URL is
+derived from `API_BASE_URL`, and the SnackBar persists because it has an
+action. Tests: the 409 and non-409 states, the URL derivation, and a widget
+test through `MyApp`. Mutants, 6 of 6 caught: no action, wrong URL, conflict
+never or always, wrong path, `copyWith` keeping the flag.
+
+It ships in the next TestFlight build (not built in this slice).
+
+**Review round 1.** The bundled `/code-review` found nothing in the command
+and two mobile issues. Both were probed and are now fixed:
+
+- **The conflict SnackBar outlived the conflict.** A SnackBar with an action
+  persists (`persist = action != null` in this SDK), and the root listener
+  returned early when the error cleared. So after a sign-out and a successful
+  sign-in, "reset its password" stayed on screen. The listener now clears
+  SnackBars when the conflict flag goes from true to false (widget test).
+- **Every 409 offered the reset.** The backend returns 409 for five reasons,
+  and only "Existing account has not verified this email" is fixed by a
+  reset. The others (email bound to another Firebase uid, several accounts,
+  verified on another account) would send the user round the loop again.
+  Fix:
+  - `UnverifiedAccountConflict(ValueError)` makes that one case answer
+    `code: "unverified_account"`; every other conflict answers
+    `account_conflict`;
+  - `ApiException` carries the body's `code`;
+  - only that code sets `AuthState.unverifiedAccountConflict` (renamed) and
+    shows the link. Other 409s now say "could not be linked" with no link.
+
+  The code is shown only after the token's `email_verified` claim is
+  required, so only the address's proven owner learns that an unverified
+  account holds it.
+
+Mutants for the fixes, all caught: no stale clear; the code ignored; the
+status ignored; the code not parsed; the generic 409 message; a plain
+`ValueError`; the code constant; no code in the body. The earlier mobile
+mutants were re-anchored after the rename and are all still caught.
+
+The code-review-orchestrator reported one BLOCKING finding: the reset URL
+resolved to `https://example.com/`. That was my own "wrong launch" mutant,
+applied while its Flutter run was in progress; the real tests pass. Its
+non-blocking claim that the SnackBar times out after 4 s is contradicted by
+the SDK source (`snack_bar.dart:303`). No change for either.
+
+Full backend suite on the pre-fix code: 4023 passed, 8 skipped.
+
+**Still open:** the `.railway/` schedule, a separate PR the owner merges.
+Its first run is `--dry-run`, and dropping the flag is a later owner PR.
+
+**Review round 2** (targeted check of the two fixes): both are CLOSED, with
+no new blocking regression. The conflict ends on every path through
+`copyWith` or a fresh `AuthState`, and a new error replaces the SnackBar
+anyway. The 409 code is reachable only past the view's `email_verified`
+403. Its two non-blocking notes (only one plain-`ValueError` reason pinned to
+`account_conflict`; sign-out covered by reasoning, not a widget test) are todo
+449 items 6 and 7, with a stale doc comment as item 8.

@@ -16,3 +16,11 @@ VERIFICATION_EMAIL_WINDOW_DAYS = 30
 # after 1, 2 and 4 minutes, then is logged and dropped.
 ACCOUNT_MAIL_MAX_RETRIES = 3
 ACCOUNT_MAIL_RETRY_DELAY = 60
+# Unverified-account expiry (todo 447 slice C, `expire_unverified_accounts`).
+# A password account that never verified its email and never came back is
+# deleted once it is this old.
+UNVERIFIED_ACCOUNT_EXPIRY_DAYS = 7
+# Registration itself issues a refresh token and may stamp last_login. Anything
+# later than date_joined plus this margin counts as a sign-in. The registration
+# token lands a fraction of a second after the row.
+UNVERIFIED_ACCOUNT_SIGNUP_MARGIN_SECONDS = 60

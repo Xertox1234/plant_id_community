@@ -62,6 +62,18 @@ class _VerifyOnlyCredential(firebase_credentials.Base):
 
 
 logger = logging.getLogger(__name__)
+
+
+class UnverifiedAccountConflict(ValueError):
+    """A local account holds the address but never verified it.
+
+    The one linking conflict the user can clear themselves: reset that
+    account's password, sign in and confirm the email. The 409 says so with
+    ``code: "unverified_account"``, and the mobile app then offers the reset
+    link (todo 447 slice C). Every other conflict is ``account_conflict``.
+    """
+
+
 User = get_user_model()
 
 
@@ -353,8 +365,14 @@ def firebase_token_exchange(request: Request) -> Response:
         # Account-linking conflict (e.g., the email is already bound to a different
         # Firebase UID). Fail closed with a 409 rather than an opaque 500.
         logger.warning(f"[FIREBASE AUTH] Account linking conflict: {str(e)}")
+        code = (
+            "unverified_account"
+            if isinstance(e, UnverifiedAccountConflict)
+            else "account_conflict"
+        )
         return Response(
-            {"error": "Account linking conflict"}, status=status.HTTP_409_CONFLICT
+            {"error": "Account linking conflict", "code": code},
+            status=status.HTTP_409_CONFLICT,
         )
 
     except Exception as e:
@@ -448,7 +466,9 @@ def get_or_create_user_from_firebase(
                 f"[FIREBASE AUTH] Refused to bind to unverified local account "
                 f"{redact_email(firebase_email)}"
             )
-            raise ValueError("Existing account has not verified this email")
+            raise UnverifiedAccountConflict(
+                "Existing account has not verified this email"
+            )
 
         # Backfill the binding on first sign-in for a legacy email account.
         update_fields = []
