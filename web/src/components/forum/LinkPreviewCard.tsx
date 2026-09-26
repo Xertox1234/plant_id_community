@@ -43,11 +43,7 @@ export default function LinkPreviewCard({ preview, variant = 'composer' }: LinkP
   const label = title === address ? address : `${title}, ${address}`;
 
   return (
-    <div
-      className={
-        variant === 'post' ? 'not-prose my-5' : 'border-t border-line-2 bg-surface p-3 sm:p-4'
-      }
-    >
+    <div className={variant === 'post' ? 'my-5' : 'border-t border-line-2 bg-surface p-3 sm:p-4'}>
       <a
         href={href}
         target="_blank"
