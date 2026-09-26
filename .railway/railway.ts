@@ -45,7 +45,13 @@ export default defineRailway(() => {
   const forumPruneCron = service("forum-prune-cron", {
     source: plant_id_community,
     // Builder left null for the same reason as plant_id_community above.
-    start: "python manage.py prune_forum_tombstones",
+    //
+    // A Dockerfile service's start command runs in exec form, with no shell
+    // (docs.railway.com/deployments/start-command), so `&&` needs the
+    // /bin/sh -c wrapper, like Redis's start command above. Without it `&&`
+    // reaches manage.py as an argument and the tombstone prune fails too.
+    // `&&` means a failed tombstone prune skips the image prune that night.
+    start: "/bin/sh -c \"python manage.py prune_forum_tombstones && python manage.py prune_link_preview_images\"",
     replicas: { "us-west2": 1 },
     deploy: { cronSchedule: "0 3 * * *", restartPolicyType: "NEVER" },
     env: { ALLOWED_HOSTS: preserve(), CORS_ALLOWED_ORIGINS: preserve(), CSRF_TRUSTED_ORIGINS: preserve(), DATABASE_URL: preserve(), DEBUG: preserve(), JWT_SECRET_KEY: preserve(), PLANT_ID_API_KEY: preserve(), R2_ACCESS_KEY_ID: preserve(), R2_BUCKET_NAME: preserve(), R2_CUSTOM_DOMAIN: preserve(), R2_ENDPOINT_URL: preserve(), R2_SECRET_ACCESS_KEY: preserve(), REDIS_URL: preserve(), SECRET_KEY: preserve(), SITE_URL: preserve(), USE_R2: preserve() },
