@@ -144,6 +144,10 @@ LINK_PREVIEW_IMAGE_WEBP_QUALITY = 80
 LINK_PREVIEW_SNAPSHOT_MARGIN_SECONDS = 1.0
 # An image download is not started with less than this left in the budget.
 LINK_PREVIEW_IMAGE_MIN_SECONDS = 1.0
+# prune_link_preview_images (todo 428 slice D) never deletes a cached image
+# younger than this: a post being saved right now can hold an image that no
+# stored body refers to yet.
+LINK_PREVIEW_IMAGE_PRUNE_GRACE_HOURS = 24
 
 # Reply-notification email body excerpt length (todo 253 slice 2, H1).
 # Matches the package's own MAX_EXCERPT_CHARS precedent
