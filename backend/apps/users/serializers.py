@@ -67,7 +67,7 @@ class UserRegistrationSerializer(serializers.ModelSerializer):
                 "Please use a different username or email."
             )
 
-        if email and User.objects.filter(email=email).exists():
+        if email and User.objects.filter(email__iexact=email).exists():
             raise serializers.ValidationError(
                 "An account with these credentials already exists. "
                 "Please use a different username or email."

@@ -69,6 +69,14 @@ class RegistrationSendsVerificationTest(TestCase):
         self.assertEqual(mail.outbox[0].to, ["new@example.com"])
         self.assertIn("/verify-email?key=", mail.outbox[0].body)
 
+    def test_a_case_variant_of_a_taken_email_is_refused(self):
+        User.objects.create_user(username="alice", email="alice@example.com")
+
+        response = self._register(email="Alice@example.com")
+
+        self.assertEqual(response.status_code, 400)
+        self.assertFalse(User.objects.filter(username="newbie").exists())
+
 
 class VerifyEmailEndpointTest(TestCase):
     """Confirming needs the key AND a session for the key's account. The key
@@ -238,6 +246,66 @@ class WebOAuthGuardTest(TestCase):
 
         self.assertEqual(again, first)
 
+    def test_address_verified_on_another_account_creates_nobody(self):
+        # todo 447: the new account could never verify it (one verified holder)
+        # and would be refused on its next sign-in. Refuse before creating it.
+        # The holder's row differs in case: the check must ignore case.
+        _holder_who_moved_on("Taken@example.com")
+
+        result = oauth_views._find_or_create_user(
+            "google", {"email": "taken@example.com", "given_name": "T"}
+        )
+
+        self.assertIsNone(result)
+        self.assertFalse(User.objects.filter(email="taken@example.com").exists())
+
+    def test_verified_account_is_matched_whatever_the_case(self):
+        # Review round 1: a case-exact lookup missed this account, and the
+        # case-insensitive creation check then refused its own owner.
+        user = User.objects.create_user(username="john", email="John@Example.com")
+        mark_email_verified(user)
+
+        result = oauth_views._find_or_create_user(
+            "google", {"email": "john@example.com"}
+        )
+
+        self.assertEqual(result, user)
+        self.assertEqual(User.objects.count(), 1)
+
+    def test_verified_owner_wins_over_a_parked_case_variant(self):
+        # Review round 2: registration compared case-exactly, so a stranger
+        # could park "Alice@" beside the real "alice@". Refusing on the
+        # ambiguity would lock the owner out; the verified account wins.
+        owner = User.objects.create_user(username="alice", email="alice@example.com")
+        mark_email_verified(owner)
+        User.objects.create_user(username="parked", email="Alice@example.com")
+
+        result = oauth_views._find_or_create_user(
+            "google", {"email": "alice@example.com"}
+        )
+
+        self.assertEqual(result, owner)
+
+    def test_case_variants_with_no_verified_holder_are_refused(self):
+        User.objects.create_user(username="a", email="Dup@example.com")
+        User.objects.create_user(username="b", email="dup@example.com")
+
+        result = oauth_views._find_or_create_user(
+            "google", {"email": "dup@example.com"}
+        )
+
+        self.assertIsNone(result)
+        self.assertEqual(User.objects.count(), 2)
+
+
+def _holder_who_moved_on(email):
+    """An account holding ``email`` verified whose User.email has changed."""
+    holder = User.objects.create_user(username="holder", email=email)
+    mark_email_verified(holder)
+    holder.email = "moved@example.com"
+    holder.save(update_fields=["email"])
+    return holder
+
 
 class AllauthAdapterGuardTest(TestCase):
     """``oauth_adapters.pre_social_login`` (allauth under /accounts/)."""
@@ -295,6 +363,45 @@ class FirebaseGuardTest(TestCase):
 
         self.assertTrue(created)
         self.assertTrue(is_email_verified(user))
+
+    def test_address_verified_on_another_account_creates_nobody(self):
+        _holder_who_moved_on("taken@example.com")
+
+        with self.assertRaises(ValueError):
+            get_or_create_user_from_firebase(
+                firebase_uid="taken-uid",
+                firebase_email="taken@example.com",
+                email_verified=True,
+            )
+
+        self.assertFalse(User.objects.filter(firebase_uid="taken-uid").exists())
+
+    def test_verified_account_is_matched_whatever_the_case(self):
+        user = User.objects.create_user(username="john", email="John@Example.com")
+        mark_email_verified(user)
+
+        matched, created = get_or_create_user_from_firebase(
+            firebase_uid="john-uid",
+            firebase_email="john@example.com",
+            email_verified=True,
+        )
+
+        self.assertFalse(created)
+        self.assertEqual(matched, user)
+
+    def test_verified_owner_wins_over_a_parked_case_variant(self):
+        owner = User.objects.create_user(username="alice", email="alice@example.com")
+        mark_email_verified(owner)
+        User.objects.create_user(username="parked", email="Alice@example.com")
+
+        matched, created = get_or_create_user_from_firebase(
+            firebase_uid="alice-uid",
+            firebase_email="alice@example.com",
+            email_verified=True,
+        )
+
+        self.assertFalse(created)
+        self.assertEqual(matched, owner)
 
 
 class BackfillMigrationTest(TestCase):

@@ -18,7 +18,12 @@ from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 
 from .authentication import set_jwt_cookies
-from .email_verification import is_email_verified, mark_email_verified
+from .email_verification import (
+    get_account_by_email,
+    is_address_verified,
+    is_email_verified,
+    mark_email_verified,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -393,9 +398,16 @@ def _find_or_create_user(provider, user_data):
 
         # Check if user exists with this email
         try:
-            user = User.objects.get(email=email)
+            user = get_account_by_email(email)
         except User.DoesNotExist:
             pass
+        except User.MultipleObjectsReturned:
+            # Case variants on several accounts and not exactly one verified
+            # holder (get_account_by_email): ambiguous, refuse.
+            logger.error(
+                f"[AUTH] Refused {provider} login: several accounts share this email"
+            )
+            return None
         else:
             if not is_email_verified(user):
                 logger.warning(
@@ -405,6 +417,16 @@ def _find_or_create_user(provider, user_data):
                 raise UnverifiedLocalAccount()
             logger.info(f"[AUTH] Found existing {log_safe_user_context(user)}")
             return user
+
+        # Another account holds this address verified while its User.email has
+        # moved on. A new account could never verify it (one verified holder),
+        # so refuse instead of creating one that is locked out (todo 447).
+        if is_address_verified(email):
+            logger.warning(
+                f"[SECURITY] Refused {provider} signup: email is verified on "
+                f"another account"
+            )
+            return None
 
         # Create new user
         if provider == "google":

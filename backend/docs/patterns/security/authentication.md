@@ -437,6 +437,32 @@ email-matching paths refuse unless `email_verification.is_email_verified(user)`:
   not merged, so the address's real owner cannot use Google until that
   account verifies. It fails closed.
 
+**allauth's `/accounts/` views are still mounted (todo 447).** No client
+uses them, but they are reachable, and its password reset is today the only
+way the owner of a squatted address can take it back. Each one was driven over
+HTTP (`apps/users/tests/test_allauth_surface.py`):
+
+| View | What it could do | What stops it |
+|------|------------------|---------------|
+| `/accounts/signup/` | create accounts that skip `register`'s checks, rate limit and side effects | `CustomAccountAdapter.is_open_for_signup → False` (social signup kept open explicitly, because allauth's social default defers to the account adapter) |
+| `/accounts/password/reset/` | the owner resets a squatter's account and verifies it, while the squatter's refresh token keeps refreshing into it (reproduced) | `signals.revoke_refresh_tokens_on_password_change` blacklists every outstanding refresh token on allauth's `password_reset` / `password_changed` / `password_set` |
+| `/accounts/email/` | add an address and make it primary → allauth rewrites `User.email`, around todo 404's read-only field | allauth refuses a primary move onto an unverified address once any address is verified, and nothing verifies a secondary address, because our mail confirms only the CURRENT email. An unverified account gets no allauth session (`ACCOUNT_EMAIL_VERIFICATION = "mandatory"`). Do not "fix" secondary-address verification without re-closing this |
+
+- **Creation paths refuse an address verified on another account**
+  (`email_verification.is_address_verified`, case-insensitive): the new account
+  could never verify it, so its owner would be refused on the next sign-in.
+- **Existing accounts are matched case-insensitively through
+  `email_verification.get_account_by_email`.** When case variants sit on
+  several accounts, the one account that verified the address wins; with none
+  or several verified, the sign-in is refused. Refusing on every ambiguity
+  would be a lockout lever: registration compared emails case-exactly until
+  todo 447, so a stranger could park `Alice@x` beside the real `alice@x`.
+  Registration's uniqueness check is now case-insensitive too.
+- **The allauth settings the closure depends on are pinned** by
+  `AllauthSettingsGuardTest`: no code-based flows, `SALT` ≠ ours, HMAC keys,
+  no confirm-on-GET, mandatory verification, no login on reset, no
+  `CHANGE_EMAIL`, no `allauth.headless`.
+
 **GDPR**: when refusing an unverified email, log the decision but **never the
 address** — log the provider and a redacted form only. See
 `firebase_auth_views.redact_email`.
