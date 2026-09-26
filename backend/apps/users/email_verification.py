@@ -53,6 +53,13 @@ def is_email_verified(user) -> bool:
     ).exists()
 
 
+def is_address_verified(email) -> bool:
+    """True if ANY account holds ``email`` verified. Creation paths refuse such
+    an address: a new account could never verify it, so its owner would be
+    refused on their next sign-in (todo 447)."""
+    return EmailAddress.objects.filter(email__iexact=email, verified=True).exists()
+
+
 def mark_email_verified(user) -> bool:
     """Record ``user.email`` as verified, for accounts created from an email a
     provider has already verified (Google OAuth, Firebase).

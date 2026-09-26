@@ -62,10 +62,10 @@ class CustomSocialAccountAdapter(DefaultSocialAccountAdapter):
         #
         # A bare `return` here is NOT safe: under SOCIALACCOUNT_AUTO_SIGNUP allauth
         # would then auto-create a SECOND account holding the victim's email
-        # (User.email is not DB-unique, and accounts created via the custom
-        # oauth_views flow have no allauth EmailAddress row to trip the uniqueness
-        # check). Raise ImmediateHttpResponse to abort the whole login pipeline
-        # before allauth's signup/save_user runs.
+        # (User.email is not DB-unique, and allauth's uniqueness check only
+        # sees EmailAddress rows, which an account may lack). Raise
+        # ImmediateHttpResponse to abort the whole login pipeline before
+        # allauth's signup/save_user runs.
         if not self._provider_email_verified(sociallogin, email):
             logger.warning(
                 f"[SECURITY] Refused {sociallogin.account.provider} login: "
@@ -97,6 +97,13 @@ class CustomSocialAccountAdapter(DefaultSocialAccountAdapter):
             f"[AUTH] Connected {sociallogin.account.provider} account "
             f"to existing {log_safe_user_context(existing_user)}"
         )
+
+    def is_open_for_signup(
+        self, request: HttpRequest, sociallogin: SocialLogin
+    ) -> bool:
+        """allauth's default asks the ACCOUNT adapter, which is closed below
+        for local signup only. Social signup stays as it was."""
+        return True
 
     @staticmethod
     def _provider_email_verified(sociallogin: SocialLogin, email: str) -> bool:
@@ -186,6 +193,12 @@ class CustomAccountAdapter(DefaultAccountAdapter):
     """
     Custom account adapter for regular authentication flow.
     """
+
+    def is_open_for_signup(self, request: HttpRequest) -> bool:
+        """Closed: accounts are created by ``POST /api/v1/auth/register/``.
+        allauth's ``/accounts/signup/`` skipped its checks, rate limit and
+        side effects (todo 447)."""
+        return False
 
     def get_login_redirect_url(self, request: HttpRequest) -> str:
         """

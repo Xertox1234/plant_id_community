@@ -18,7 +18,11 @@ from apps.core.ratelimit import (  # rate-preserving wrapper (Retry-After)
     ratelimit,
 )
 from apps.plant_identification.constants import RATE_LIMITS
-from apps.users.email_verification import is_email_verified, mark_email_verified
+from apps.users.email_verification import (
+    is_address_verified,
+    is_email_verified,
+    mark_email_verified,
+)
 from apps.users.signup import create_default_plant_collection, join_forum_members_group
 from django.contrib.auth import get_user_model
 from django.db import IntegrityError
@@ -412,7 +416,7 @@ def get_or_create_user_from_firebase(
 
     # Fall back to email for accounts created before UID binding existed.
     try:
-        user = User.objects.get(email=firebase_email)
+        user = User.objects.get(email__iexact=firebase_email)
 
         if user.firebase_uid and user.firebase_uid != firebase_uid:
             # This email is already bound to a different Firebase identity.
@@ -472,6 +476,16 @@ def get_or_create_user_from_firebase(
             f"{redact_email(firebase_email)} — refusing ambiguous login"
         )
         raise ValueError("Multiple accounts exist for this email")
+
+    # Another account holds this address verified while its email has moved
+    # on. A new account could never verify it, so refuse (→ 409) rather than
+    # create one (todo 447).
+    if is_address_verified(firebase_email):
+        logger.warning(
+            f"[FIREBASE AUTH] Refused signup: {redact_email(firebase_email)} "
+            f"is verified on another account"
+        )
+        raise ValueError("Email is verified on another account")
 
     # User doesn't exist - create new user with collision-safe username
     base_username = firebase_email.split("@")[0]

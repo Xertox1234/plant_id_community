@@ -102,3 +102,75 @@ so none is lost. Paths are relative to `backend/` unless shown otherwise.
 ## Work Log
 
 ### 2026-09-25 - Filed from todo 446 review round 1
+
+### 2026-09-25 - Slice A: allauth surface (items 3, 6, 7, 12, 13, 14; signup)
+
+**Premise correction (a finding in its own right).** Items 1 and 2 say "no
+password-reset path exists". That is false: allauth's `/accounts/password/reset/`
+is mounted and works end to end (driven over HTTP: request → mail → set
+password → 302 done). It is the only way the owner of a squatted address can
+take it back today, so unmounting `/accounts/` is an item 2 decision (owner),
+not a cleanup.
+
+Reproduced before fixing (throwaway HTTP test, not committed):
+
+- **Item 13, reproduced.** Squatter registers `victim@`, keeps the refresh
+  cookie. Owner resets that account at `/accounts/password/reset/`, signs in
+  through `/api/v1/auth/login/`, resends and confirms (key + session): verified.
+  The squatter's refresh token then returned **200**.
+- **Item 6, partly.** A verified account: `action_add` works, `action_primary`
+  is refused (unverified target) and `User.email` stays. An unverified account
+  gets no allauth session (`/accounts/login/` → 302 `/accounts/confirm-email/`).
+  But an unverified account WITH any Django session (`force_login`) did move
+  `User.email` to an arbitrary address. The live route to such a session was
+  item 3: `oauth_callback` calls `django_login`, and a created account whose
+  `mark_email_verified` failed was unverified.
+- **allauth signup was open**: `/accounts/signup/` created a user, skipping
+  `register`'s checks, rate limit and side effects.
+
+Fixed:
+
+- **13:** `signals.revoke_refresh_tokens_on_password_change` blacklists every
+  outstanding refresh token on allauth `password_reset` / `password_changed` /
+  `password_set`. The e2e test now gets **401** for the squatter's token.
+  Access tokens live out their short lifetime.
+- **3:** both creation sites refuse an address verified on another account
+  (`is_address_verified`, case-insensitive) BEFORE creating: web OAuth →
+  `?error=user_creation_failed`, Firebase → `ValueError` → 409.
+- **6 / 14:** closed with evidence (`test_allauth_surface.py`
+  `AllauthEmailManagementTest`, driven over HTTP). 14 is load-bearing for 6:
+  allauth refuses a primary move onto an unverified address, and nothing can
+  verify a secondary one because our mail confirms only the current email.
+  "Fixing" 14 would reopen 6. **Closed, not fixed, on purpose.** Pinned by
+  the test asserting no mail and an unverified secondary row.
+- **Signup:** `CustomAccountAdapter.is_open_for_signup → False`.
+  `CustomSocialAccountAdapter.is_open_for_signup → True` keeps allauth social
+  signup as it was (its default defers to the account adapter).
+- **12:** `AllauthSettingsGuardTest` pins no code flows, `SALT` ≠ ours, HMAC,
+  no confirm-on-GET, mandatory verification, `LOGIN_ON_PASSWORD_RESET` False,
+  `CHANGE_EMAIL` False, no `allauth.headless`.
+- **7:** stale comment in `pre_social_login` corrected.
+
+Mutation checks (file copied aside, restored, `cmp`-verified): receiver removed
+(4 failed); oauth pre-create check off; firebase pre-create check off; account
+signup reopened; social override removed; `email__iexact` → `email` (caught by a
+case-variant holder). All caught.
+
+Still open: 4, 5, 8 (slice B); 10 (close with reason); 1, 2, 9, 11 and whether
+`/accounts/` stays mounted (owner).
+
+**Review round 1.** code-review-orchestrator found nothing blocking. Bundled
+`/code-review` found one BLOCKING regression, now fixed: the new creation check
+ignores case, but the account lookup before it (`get(email=...)`) did not. A
+verified `John@Example.com` signing in with Google as `john@example.com` would
+have been refused on every sign-in. Before this slice they got a duplicate
+account instead, which was also wrong. Fix: both lookups are `email__iexact`.
+Web OAuth refuses explicitly on `MultipleObjectsReturned`, as Firebase already
+did. Tests: a case-variant verified account is matched (web and Firebase);
+case variants on two accounts are refused. Mutants: each lookup back to
+case-exact, caught. Removing the explicit `MultipleObjectsReturned` branch
+SURVIVED, as expected, because the outer `except Exception` already returns
+`None`. The branch exists for an accurate log line; the test pins the refusal.
+
+Full backend suite (before the round-1 fix): 3796 passed, 8 skipped. After the
+fix, `apps/users` + `apps/core`: 1671 passed.

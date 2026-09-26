@@ -418,3 +418,13 @@ Compact checklist auto-injected before edits. Long-form: `backend/docs/patterns/
   alone. A key-only confirm lets a victim who clicks the link in their inbox
   verify an attacker's pre-registered account. Sign keys under your own salt so
   a library's session-less confirm view cannot redeem them (todo 446).
+- **A mounted auth library's views are a second auth surface, even when no
+  client calls them.** Drive each one over HTTP before trusting that the
+  custom endpoints are the only way in. allauth's `/accounts/signup/` created
+  users that skipped `register`'s checks. Its password reset let an owner
+  reclaim a squatted account while the squatter's JWT refresh token kept
+  refreshing into it. Its `/accounts/email/` rewrites `User.email` on a
+  primary change. Close signup in the adapter. Blacklist every outstanding
+  refresh token when a password is reset, changed or set (JWTs do not die with
+  the session auth hash). Pin the library settings a closure depends on with a
+  guard test (todo 447).

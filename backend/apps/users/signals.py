@@ -7,14 +7,49 @@ email verification, password resets, and profile updates.
 
 import logging
 
-from allauth.account.signals import email_confirmed, user_signed_up
+from allauth.account.signals import (
+    email_confirmed,
+    password_changed,
+    password_reset,
+    password_set,
+    user_signed_up,
+)
 from apps.core.services.email_service import EmailService
 from apps.core.utils.pii_safe_logging import log_safe_email, log_safe_user_context
 from django.contrib.auth import get_user_model
 from django.dispatch import receiver
+from rest_framework_simplejwt.token_blacklist.models import (
+    BlacklistedToken,
+    OutstandingToken,
+)
 
 User = get_user_model()
 logger = logging.getLogger(__name__)
+
+
+@receiver(password_reset)
+@receiver(password_changed)
+@receiver(password_set)
+def revoke_refresh_tokens_on_password_change(sender, request, user, **kwargs):
+    """Blacklist every outstanding refresh token when allauth changes a password.
+
+    Without this, a squatter keeps their session through the address owner's
+    reset: owner resets the squatter's account at /accounts/password/reset/,
+    signs in and verifies, and the squatter's refresh token still refreshes
+    into the now-verified account (todo 447, reproduced). Access tokens are not
+    revocable and live out their short lifetime.
+    """
+    outstanding = OutstandingToken.objects.filter(user=user).exclude(
+        blacklistedtoken__isnull=False
+    )
+    BlacklistedToken.objects.bulk_create(
+        [BlacklistedToken(token=token) for token in outstanding],
+        ignore_conflicts=True,
+    )
+    logger.info(
+        f"[AUTH] Revoked refresh tokens after a password change for "
+        f"{log_safe_user_context(user)}"
+    )
 
 
 @receiver(email_confirmed)
