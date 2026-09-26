@@ -351,3 +351,31 @@ the SVG rather than hardcoding them, and asserts each diagonal corner against
 both gradient stops — one corner against one colour cannot distinguish "tile
 fills the canvas" from "tile is inset over a similar backdrop", and cannot see
 a reversed gradient at all when the stops sit inside the colour tolerance.
+
+## A tappable card whose full target stays out of the spoken label
+
+Used by the forum link card (todo 428, `_LinkPreviewCard` in
+`forum_body_renderer.dart`). The card shows and speaks a SHORT form of its
+target (a URL spelled out by VoiceOver is unusable); the full target is one
+deliberate step away.
+
+```dart
+Semantics(
+  label: 'Link: $title, $shortAddress', // never the full URL
+  button: onTap != null,
+  onTap: onTap,
+  onLongPress: showFullAddressSheet,
+  customSemanticsActions: {
+    const CustomSemanticsAction(label: 'Show full address'): showFullAddressSheet,
+    const CustomSemanticsAction(label: 'Copy link'): copyLink,
+  },
+  excludeSemantics: true, // ONE node: else the InkWell adds an unlabeled button
+  child: Material(child: InkWell(onTap: onTap, onLongPress: showFullAddressSheet, child: ...)),
+)
+```
+
+- Long-press opens a bottom sheet (full value as `SelectableText` plus "Copy
+  link"); a `Tooltip` cannot hold a tappable action.
+- Test with `tester.semantics.customAction(finder, action)`, assert the node
+  has no children, and assert no semantics label anywhere matches the full
+  target.

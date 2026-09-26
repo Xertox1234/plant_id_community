@@ -180,3 +180,12 @@ Compact checklist auto-injected before edits to the forum code. Long-form:
   collapsing a link whose text equals its href; never loosen the counter.
   Screen and mention-scan only what the author wrote: a link card flattens to
   its URL, never the fetched title (todo 428).
+- **A kill switch stops NEW production, never reuse of stored results.** A
+  write path that reuses stored derived data (a stored link card, a cached
+  embed) must not gate the reuse on the producer being configured: gating it
+  on the link-preview fetcher stripped every stored card on its post's next
+  edit once the switch was off (todo 428 slice C).
+- **A read envelope that serves a `default_storage.url()` makes it absolute
+  against the request**, as `serialize_image_for_api` does. Local storage
+  answers a relative `/media/...`; the web masks it with `mediaUrl`, but
+  Flutter's `CachedNetworkImage` cannot resolve it (`link_preview_envelope`).

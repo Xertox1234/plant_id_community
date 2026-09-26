@@ -1794,5 +1794,22 @@
     "source": "codify: feat/todo-374-forum-image-picker",
     "added": "2026-09-14",
     "severity": "warn"
+  },
+  {
+    "id": "storage-url-envelope-not-absolute",
+    "domains": [
+      "forum",
+      "api"
+    ],
+    "path_glob": [
+      "backend/*.py"
+    ],
+    "content_present": "default_storage\\.url\\(",
+    "content_absent": "build_absolute_uri",
+    "message": "A read envelope serving default_storage.url() must make it absolute with request.build_absolute_uri(): local storage answers a relative /media/ that the mobile client cannot resolve (todo 428 slice C).",
+    "pattern_ref": "docs/rules/forum.md",
+    "source": "codify: feat/428-link-preview-readers",
+    "added": "2026-09-26",
+    "severity": "warn"
   }
 ]

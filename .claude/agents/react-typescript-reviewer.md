@@ -158,6 +158,15 @@ build, the linter, nor a careful read will flag them.
   genuinely cannot discriminate, require that the limitation be stated in the
   test rather than left to imply coverage.
 
+### Link card additions (2026-09-26, todo 428 slice C)
+
+- A link carrying a `title` (e.g. the full URL, for hover) with no
+  `aria-describedby`/`aria-description`: its `title` becomes the accessible
+  description and is read aloud. Require a describedby hint and a
+  `toHaveAccessibleDescription` assertion.
+- A server media URL rendered as `src` without `mediaUrl()` (dev storage
+  answers a relative `/media/...`).
+
 ## Output Format (Review Mode)
 
 Return ONLY this JSON structure (no surrounding prose, no markdown fences in the actual response — the example fences below show the schema):

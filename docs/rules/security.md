@@ -444,3 +444,8 @@ Compact checklist auto-injected before edits. Long-form: `backend/docs/patterns/
   non-zero (an early EOF does not raise). CPython bounds the whole TLS
   handshake by the socket timeout, so capping that timeout at the time left
   covers `connect()` (todo 428 slice B).
+- **A host hook that reaches the network is off under test runs.** Turn it on
+  in settings behind `and not _IS_TEST_RUN` (plus an env kill switch), keep
+  the dotted path in its own setting a test pins with `import_string`, and let
+  a test that needs it `override_settings` it
+  (`WAGTAILFORUM_LINK_PREVIEW_FETCHER`, todo 428).

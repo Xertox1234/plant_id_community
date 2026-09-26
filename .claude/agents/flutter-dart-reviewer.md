@@ -107,6 +107,15 @@ Review only the files passed to you. Do not read the full repo.
 - [ ] **Two colours that must DIFFER are asserted by their distance apart**, not each against its own expectation — the Canopy tile's gradient stops sit ~15 units apart, inside a `tol=12` colour check, so a reversed gradient satisfied every per-corner assertion (see also the DM-bubble finding)
 - [ ] **A mutation test names the revision it restores from** — `git show HEAD:<file>` silently compares a file to itself once the fix is committed, reporting zero failures from a guard that works
 
+### Link card additions (2026-09-26, todo 428 slice C)
+
+- A `Semantics` label wrapping an `InkWell` without `excludeSemantics: true`:
+  the InkWell adds an unlabeled, focusable child with its own tap. Require a
+  test asserting the node has no children.
+- A "long-press to see/copy" built on `Tooltip` (it cannot hold a tappable
+  action); expect a sheet plus matching `customSemanticsActions`.
+- A spoken label containing a full URL; VoiceOver spells it out.
+
 ## Output Format (Review Mode)
 
 Return ONLY this JSON structure (no surrounding prose, no markdown fences in the actual response — the example fences below show the schema):
