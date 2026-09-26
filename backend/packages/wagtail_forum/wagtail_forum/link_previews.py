@@ -6,7 +6,11 @@ title, description and site name, taken once at write time. Four rules:
 
 1. **The host fetches, the package decides.** The page is fetched by a host
    callable named in ``WAGTAILFORUM_LINK_PREVIEW_FETCHER`` (a dotted path),
-   ``fetcher(url) -> dict | None``. The package never imports the host, and
+   ``fetcher(url, *, deadline) -> dict | None``. ``deadline`` is a
+   ``time.monotonic()`` value: when the package stops waiting, counted from
+   SUBMIT, not from when a pool thread picks the job up, so a fetcher that
+   budgets its own work (an image download) can finish inside the window
+   even after queueing. The package never imports the host, and
    never learns how the fetch is secured — SSRF hardening is the host's job
    (``apps.forum_host.link_preview`` here). Unset, nothing converts: links
    stay links.
@@ -14,7 +18,9 @@ title, description and site name, taken once at write time. Four rules:
    are fetched CONCURRENTLY inside ONE ``LINK_PREVIEW_FETCH_TIMEOUT_SECONDS``
    window (the ``warm_embeds`` shape). A URL that fails, raises, answers
    ``None`` or is still running when the window closes stays a paragraph,
-   and the post still saves.
+   and the post still saves. A fetch still QUEUED then is cancelled, so a
+   burst of posts cannot build a backlog that times out the posts after
+   it.
 3. **Reads never touch the network.** The snapshot lives in the block, so
    ``link_preview_envelope`` is pure data; the card does not change when the
    linked page later does.
@@ -28,11 +34,14 @@ title, description and site name, taken once at write time. Four rules:
 import logging
 import re
 import threading
+import time
 from concurrent.futures import ThreadPoolExecutor
 from concurrent.futures import wait as wait_futures
 from urllib.parse import urlsplit
 
+from django.core.exceptions import ValidationError
 from django.core.files.storage import default_storage
+from django.core.validators import URLValidator
 from django.utils.module_loading import import_string
 
 from .conf import get_setting
@@ -62,6 +71,13 @@ _TEXT_FIELDS = (
 _executor = None
 _executor_lock = threading.Lock()
 
+# The check the block's own ``URLBlock`` runs (Django's ``URLValidator``, via
+# ``forms.URLField``). ``is_card_url`` must never accept a URL the block would
+# refuse: the API only runs ``to_python``, so such a card would save, and a
+# moderator's later /cms/ save of the post would fail on a block they never
+# touched (todo 448 item 3). An underscore in a host is the common case.
+_block_url_validator = URLValidator(schemes=["http", "https"])
+
 
 def _get_executor():
     global _executor
@@ -89,12 +105,18 @@ def is_card_url(url) -> bool:
         hostname = parts.hostname
     except ValueError:
         return False
-    return (
+    if not (
         parts.scheme.lower() in {"http", "https"}
         and bool(hostname)
         and parts.username is None
         and parts.password is None
-    )
+    ):
+        return False
+    try:
+        _block_url_validator(url)
+    except ValidationError:
+        return False
+    return True
 
 
 def _image_name_pattern():
@@ -140,14 +162,14 @@ def _snapshot(url, fetched):
     return value
 
 
-def _fetch_and_close(fetcher, url):
+def _fetch_and_close(fetcher, url, deadline):
     # Runs on a pool thread. The fetcher may touch the DB (a host's cache or
     # storage backend could); close the thread's connection when done so
     # pool threads never hold idle connections (docs/rules/database.md).
     from django.db import connection
 
     try:
-        return fetcher(url)
+        return fetcher(url, deadline=deadline)
     finally:
         connection.close()
 
@@ -163,17 +185,30 @@ def fetch_snapshots(fetcher, urls) -> dict:
     time. All are fetched concurrently and the author waits at most ONE
     ``LINK_PREVIEW_FETCH_TIMEOUT_SECONDS`` window for the lot; a fetch still
     running then is left to finish in the background and its URL stays a
-    link. Nothing here raises."""
+    link. A fetch still queued then (the pool was busy) is cancelled rather
+    than left to run for nobody (todo 448 item 1). Every fetcher gets the
+    same ``deadline``, the window's end counted from submit (item 9).
+    Nothing here raises."""
     urls = list(dict.fromkeys(urls))
     if not urls:
         return {}
     timeout = get_setting("LINK_PREVIEW_FETCH_TIMEOUT_SECONDS")
+    deadline = time.monotonic() + timeout
     futures = {
-        _get_executor().submit(_fetch_and_close, fetcher, url): url for url in urls
+        _get_executor().submit(_fetch_and_close, fetcher, url, deadline): url
+        for url in urls
     }
     done, pending = wait_futures(futures, timeout=timeout)
     for future in pending:
         url = futures[future]
+        if future.cancel():
+            logger.warning(
+                "[LINK_PREVIEW] fetch never started in %ss (pool busy), "
+                "saving as a link: %s",
+                timeout,
+                url,
+            )
+            continue
         logger.warning(
             "[LINK_PREVIEW] fetch still running after %ss, saving as a link: %s",
             timeout,
@@ -222,20 +257,21 @@ def link_preview_snapshots(raw_data) -> dict:
     return stored
 
 
-def link_preview_envelope(raw_value):
+def link_preview_envelope(raw_value, request=None):
     """The API shape of a ``link_preview`` block, or ``None`` when the stored
     value holds no usable link (clients skip a null card). Pure data: no
     fetch, no query. ``image_url`` is our own storage's URL for a cached
-    image, else ``None`` — never a third-party address."""
+    image, else ``None`` — never a third-party address. Made absolute against
+    ``request`` like an image block's URL: local storage answers a relative
+    ``/media/...``, which the mobile client cannot resolve on its own."""
     value = raw_value if isinstance(raw_value, dict) else {}
     url = value.get("url")
     if not is_card_url(url):
         return None
     image = value.get("image")
-    return {
-        "url": url,
-        **_stored_text(value),
-        "image_url": (
-            default_storage.url(image) if is_cached_image_name(image) else None
-        ),
-    }
+    image_url = None
+    if is_cached_image_name(image):
+        image_url = default_storage.url(image)
+        if request is not None:
+            image_url = request.build_absolute_uri(image_url)
+    return {"url": url, **_stored_text(value), "image_url": image_url}

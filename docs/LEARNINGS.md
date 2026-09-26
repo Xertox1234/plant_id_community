@@ -6594,3 +6594,36 @@ test than to fix.
 - A fix whose own mutation check survives is the signal to stop and probe.
 - See `docs/rules/security.md` (deadlines on untrusted reads) and
   `docs/rules/testing.md` (double guards).
+
+## 2026-09-26 — A kill switch that stripped data, a relative image URL, and a semantics comment that was wrong (todo 428 slice C)
+
+**What broke (caught in review, never shipped):**
+
+- **The kill switch deleted cards.** Slice C added `FORUM_LINK_PREVIEWS_ENABLED`
+  so link cards could be turned off without a deploy. `_convert_link_previews`
+  reused a post's stored cards only `if fetcher is not None`, so with the switch
+  off every edit of a post, even a typo fix elsewhere, turned its card back into
+  a paragraph and orphaned its cached image. The settings comment and the
+  `CLAUDE.md` row said "stored cards still render". **Root cause:** reuse needs
+  no fetch, but it sat inside the fetcher's branch. **Fix:** reuse first,
+  unconditionally; fetch only the rest, only with a fetcher. Reproduced with a
+  failing test (web, mobile and echoed-block edit shapes) before the fix.
+- **A relative image URL.** `link_preview_envelope` served
+  `default_storage.url(name)`, which is `/media/...` with local storage. The web
+  resolves it with `mediaUrl`, so web tests stayed green; Flutter's
+  `CachedNetworkImage` cannot. Image blocks already call
+  `request.build_absolute_uri`; the envelope now does too.
+- **A code comment that described the wrong failure.** The Flutter card's
+  `excludeSemantics: true` was commented "else a screen reader reads the
+  children too". Its mutant survived every test. A `debugDumpSemanticsTree`
+  probe showed the real effect: without it, the InkWell adds a second,
+  focusable node with tap and long-press and an EMPTY label, an unlabeled
+  button. The test now asserts the card node has no children, and the comment
+  says what actually happens.
+
+**Lessons:** a switch that stops a producer must not gate reuse of what was
+already produced; a URL envelope is absolute against the request whenever a
+client other than the web reads it; and when a mutant survives a UI guard,
+probe what the guard really prevents before writing a test for what you assumed
+it prevents. The web half of the same card (`title` becomes the accessible
+description of a link that has none) is in `docs/rules/react.md`.

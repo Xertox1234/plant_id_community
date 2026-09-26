@@ -457,8 +457,8 @@ def test_a_racing_duplicate_is_dropped_for_the_canonical_name(canonical_exists):
 )
 @pytest.mark.django_db
 def test_a_posted_link_card_serves_our_image_through_the_host_mount():
-    """The fetcher is turned on for this test only: the host settings leave
-    it unset until slice C ships the readers and both edit round trips."""
+    """The fetcher is turned on for this test only: the host settings keep
+    it off under test runs so no other test reaches the network."""
     from wagtail.models import Page
     from wagtail_forum.models import ForumBoard, ForumIndex, ForumProfile, TrustLevel
     from wagtail_forum.workflow import ensure_default_workflow

@@ -384,3 +384,90 @@ So the preview is built and it works; it just isn't used where it matters.
 - **Full backend suite:** 3895 passed, 8 skipped, 0 failed. It ran before the
   round-1 fix; that fix touches only `link_preview.py`, and its two test
   files were rerun.
+
+### 2026-09-26 - Slice C (readers, both edit round trips) built; cards are ON
+
+- **Gate first (todo 448 items 1–3 and 9), package + host:** queued fetches
+  are cancelled when the window closes; the fetcher gets `deadline`, the
+  window's end counted from submit, and the host budgets the image from it; a
+  sole `<code>` URL is never a card; `is_card_url` runs the block's own
+  `URLValidator`. Details and the 8/8 mutation result are in todo 448.
+- **Turned on:** host settings set `WAGTAILFORUM_LINK_PREVIEW_FETCHER` to
+  `apps.forum_host.link_preview.link_preview_snapshot` (`LINK_PREVIEW_FETCHER_PATH`,
+  pinned by a test that imports it). Two additions to the owner's brief,
+  following the `FORUM_EMBEDS_ENABLED` precedent:
+  - `FORUM_LINK_PREVIEWS_ENABLED` (default `True`) is a kill switch: `False`
+    leaves links as auto-linked paragraphs and stored cards still render.
+  - The setting is always off under test runs (`_IS_TEST_RUN`), so no test
+    reaches the network; a test that wants cards overrides it.
+- **Web:** `StreamFieldRenderer` renders `link_preview` with `LinkPreviewCard`
+  (a new `post` variant); a `null` card renders nothing.
+  - Address line: `shortLinkAddress`, the origin plus `/…` when anything
+    follows the root (`https://microsoft.com/…`).
+  - Full URL: only the `href` and the `title` attribute (hover).
+  - Spoken label: `aria-label` is the title plus the short address.
+    `aria-describedby` points at a hidden "Opens in a new tab" hint, because
+    a link with no description of its own exposes its `title` as the
+    accessible description, and a screen reader would read the full URL
+    after all. Pinned with `toHaveAccessibleName` and
+    `toHaveAccessibleDescription`.
+  - Tap: the existing plain `<a target="_blank" rel="noopener noreferrer">`
+    (nothing in the post view intercepts link clicks).
+  - Image: `mediaUrl(image_url)` (our storage; relative `/media/…` in dev),
+    not the composer's https-only rule for third-party images.
+  - Edit round trip: `bodyBlocksToHtml` turns `link_preview` into
+    `<p><a href=url>url</a></p>`, sharing the embed branch's http(s) guard.
+    Saved unchanged, the server re-derives the same stored card, no fetch.
+- **Flutter:** `LinkPreviewBlock` (a hand-written sealed-class case like the
+  other blocks; no codegen, so no build_runner) and `linkPreviewShortAddress`,
+  tested against the same table as the web.
+  - The card: image, site, title, description, short address; tap goes to
+    `onOpenLink` (the in-app browser, todo 424).
+  - Spoken label `Link: {title}, {short address}`, one semantics node.
+  - **Deviation from the brief: long-press opens a bottom sheet, not a
+    Tooltip.** A Flutter tooltip overlay cannot hold a tappable "Copy
+    link". The sheet shows the full address (selectable) and a "Copy link"
+    button.
+  - Screen readers get "Show full address" (opens the sheet) and "Copy
+    link" as custom semantics actions, which VoiceOver offers with no
+    gesture.
+  - Edit round trip: `ForumComposeArgs.edit` offers the URL of a lone card,
+    as it does for a lone video embed.
+- **Both platforms:** when the page gave no title, site or domain, the title
+  falls back to the short address, and the address line is not repeated.
+- **Mutation checks:** web 15 of 15 and Flutter 13 of 13 caught, each against
+  a `cp` backup, restored, and confirmed with `cmp`.
+  - One Flutter survivor on the first pass, `excludeSemantics: false`. A
+    semantics-tree probe showed the real effect: the InkWell adds a second,
+    focusable node with tap and long-press but **no label**, an unlabeled
+    button. The full URL was never spoken either way. The test now asserts
+    the card is one node, and the mutant is caught.
+- **Review round 1** (bundled `/code-review` + `code-review-orchestrator`):
+  - **Fixed (blocking): the kill switch stripped stored cards on edit.** Both
+    reviewers found it. Stored cards were reused only when a fetcher was
+    set, so with `FORUM_LINK_PREVIEWS_ENABLED=False` any edit of a post (even
+    a typo elsewhere) turned its card back into a paragraph and orphaned its
+    image. That contradicted the documented "stored cards still render".
+    Reproduced first with a failing test (web, mobile and echoed-block edit
+    shapes, 3 of 3 failed), then fixed in `_convert_link_previews`: reuse
+    needs no fetch, so it no longer waits for a fetcher.
+  - **Fixed (blocking per the orchestrator, low per `/code-review`): a
+    relative image URL on mobile.** With local storage,
+    `link_preview_envelope` served `/media/…`, which the web resolves with
+    `mediaUrl` but Flutter's `CachedNetworkImage` cannot. It now takes the
+    request and makes the URL absolute, as `serialize_image_for_api` does
+    for image blocks. Production (R2) already served absolute URLs.
+  - **Checked and not an issue:** E2E posts reaching real sites (no forum
+    E2E spec posts a URL).
+  - **Non-blocking, to todo 448:** item 10 (a sole `<code>` video URL still
+    becomes an embed, pre-existing) and item 11 (a card-only topic has an
+    empty list excerpt). The page fetch's own timeout is item 5 there.
+- **Round 2** (targeted check of the fixes): 3 of 3 mutants caught (reuse
+  gated on a fetcher, request not passed, URL not made absolute), each
+  restored and confirmed with `cmp`.
+- **Suites on the final code:** backend 3926 passed, 8 skipped, 0 failed
+  (run after the round-1 fixes); web Vitest 1514 of 1514; Flutter forum tests
+  529 of 529, `flutter analyze` clean; `tsc --noEmit` clean.
+- **Left for later slices:** D (the prune command; the owner merges the
+  `.railway/` change) and the on-device check. E (the mobile composer preview)
+  stays optional.

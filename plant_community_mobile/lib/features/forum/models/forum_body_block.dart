@@ -3,7 +3,8 @@
 /// Mirrors the backend on-read shape (`FORUM_BODY_SCHEMA`,
 /// `wagtail_forum/api/serializers.py`): a JSON array of
 /// `{type, value, id}`. The permitted block types are
-/// `heading`, `paragraph`, `quote`, `code`, `image`, `embed` (`blocks.py`).
+/// `heading`, `paragraph`, `quote`, `post_quote`, `code`, `image`, `embed`,
+/// `link_preview` (`blocks.py`).
 ///
 /// Per-type `value` on read:
 /// - `heading`  → plain string
@@ -25,6 +26,12 @@
 /// - `embed`    → `{url, provider_name, title, thumbnail_url, embed_url}`
 ///                (todo 344): a video link the server unfurled. Mobile
 ///                renders a thumbnail card — no WebView, no provider HTML.
+/// - `link_preview` → `{url, title, description, site_name, domain,
+///                image_url}` (todo 428): a link posted on its own, stored as
+///                a card at write time, so reading never contacts the linked
+///                site. `image_url` is our own storage's copy or `null`; the
+///                whole value is `null` for a stored link the server will not
+///                serve.
 ///
 /// Unknown block types are preserved as [UnknownBlock] and rendered as a
 /// graceful fallback, mirroring the web renderer's `default:` case, rather
@@ -84,6 +91,18 @@ sealed class ForumBodyBlock {
         }
         // A pre-unfurl client could only have sent the bare URL.
         return EmbedBlock(url: value is String ? value : '');
+      case 'link_preview':
+        final map = value is Map<String, dynamic>
+            ? value
+            : const <String, dynamic>{};
+        return LinkPreviewBlock(
+          url: map['url'] as String? ?? '',
+          title: map['title'] as String? ?? '',
+          description: map['description'] as String? ?? '',
+          siteName: map['site_name'] as String? ?? '',
+          domain: map['domain'] as String? ?? '',
+          imageUrl: map['image_url'] as String? ?? '',
+        );
       default:
         return UnknownBlock(type);
     }
@@ -227,6 +246,60 @@ class EmbedBlock extends ForumBodyBlock {
   final String thumbnailUrl;
 }
 
+/// A link posted on its own, stored as a card (todo 428). The server took the
+/// snapshot once at write time; [imageUrl] is our own storage's re-encoded
+/// copy of the page's image, never a third-party address, or empty. A `null`
+/// read value parses with an empty [url]: the renderer shows nothing and the
+/// edit composer offers nothing for it.
+class LinkPreviewBlock extends ForumBodyBlock {
+  const LinkPreviewBlock({
+    required this.url,
+    this.title = '',
+    this.description = '',
+    this.siteName = '',
+    this.domain = '',
+    this.imageUrl = '',
+  });
+  final String url;
+  final String title;
+  final String description;
+  final String siteName;
+  final String domain;
+  final String imageUrl;
+}
+
+/// The address line of a link preview card (todo 428, owner decision
+/// 2026-09-24): the link's origin, plus "/…" when anything follows the root
+/// — `https://microsoft.com/…` for `https://microsoft.com/en-us/windows?x=1`.
+/// A card's visible text and its spoken label carry only this, never the
+/// full URL: VoiceOver spells a URL out character by character (the build 13
+/// bug from todo 424). The full URL is reachable by long-press and by the
+/// "Show full address" screen-reader action. `null` for anything that is not
+/// an `http(s)` URL with a host and no credentials.
+///
+/// The web twin is `shortLinkAddress` (web/src/utils/externalUrl.ts); both
+/// are tested against the same table. They differ on an internationalised
+/// host: the web's `URL` shows it as punycode, Dart's `Uri` as written.
+String? linkPreviewShortAddress(String url) {
+  final Uri uri;
+  try {
+    uri = Uri.parse(url.trim());
+  } on FormatException {
+    return null;
+  }
+  if (!(uri.isScheme('http') || uri.isScheme('https')) ||
+      uri.host.isEmpty ||
+      uri.userInfo.isNotEmpty) {
+    return null;
+  }
+  final rest = [
+    uri.path,
+    if (uri.query.isNotEmpty) '?${uri.query}',
+    if (uri.fragment.isNotEmpty) '#${uri.fragment}',
+  ].join();
+  return rest.isNotEmpty && rest != '/' ? '${uri.origin}/…' : uri.origin;
+}
+
 /// A block type the client does not recognise — preserved for a fallback
 /// render instead of dropping the whole body.
 class UnknownBlock extends ForumBodyBlock {
@@ -282,8 +355,8 @@ Map<String, dynamic> buildPostQuoteBlockBody(int postId, String text) {
 /// code blocks contribute their text, joined by blank lines. Everything else
 /// is dropped: an existing `quote`/`post_quote` block (quoting a reply must
 /// not nest its own quotation — the same convention Discourse applies),
-/// images, embeds, deleted images and unknown blocks (nothing a reader
-/// could re-read).
+/// images, embeds, link cards, deleted images and unknown blocks (nothing a
+/// reader could re-read).
 String forumBodyPlainText(List<ForumBodyBlock> blocks) {
   final parts = <String>[];
   for (final block in blocks) {
@@ -296,6 +369,7 @@ String forumBodyPlainText(List<ForumBodyBlock> blocks) {
       ForumImageBlock() ||
       DeletedImageBlock() ||
       EmbedBlock() ||
+      LinkPreviewBlock() ||
       UnknownBlock() => '',
     }.trim();
     if (text.isNotEmpty) parts.add(text);

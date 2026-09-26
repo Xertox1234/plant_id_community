@@ -6,6 +6,7 @@ import { postAnchor, userProfilePath } from '../utils/forumUrls';
 import { DELETED_AUTHOR_USERNAME } from '../utils/forumAuthor';
 import { mediaUrl } from '../services/blogService';
 import { safeExternalUrl } from '../utils/externalUrl';
+import LinkPreviewCard from './forum/LinkPreviewCard';
 import type { PostQuoteBlockValue, StreamFieldBlock as StreamFieldBlockType } from '@/types/blog';
 
 // Mirrors backend/apps/plant_identification/services/unsplash_service.py
@@ -256,6 +257,13 @@ function StreamFieldBlock({ block, mentionHighlight, currentTopicId }: StreamFie
         </a>
       );
     }
+
+    case 'link_preview':
+      // A link posted on its own, stored as a card at write time (todo 428):
+      // pure data, so reading the post never contacts the linked site. A
+      // null value is a stored link the server will not serve — nothing to
+      // show, and not the "Unsupported block" box either.
+      return block.value ? <LinkPreviewCard preview={block.value} variant="post" /> : null;
 
     case 'quote': {
       // Backend: StructBlock with quote_text (RichTextBlock) and attribution (CharBlock)

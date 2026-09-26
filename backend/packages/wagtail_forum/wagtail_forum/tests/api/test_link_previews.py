@@ -34,7 +34,7 @@ def _record(url):
         CALLS.append(url)
 
 
-def fake_fetcher(url):
+def fake_fetcher(url, *, deadline=None):
     _record(url)
     host = url.split("/")[2]
     return {
@@ -46,12 +46,12 @@ def fake_fetcher(url):
     }
 
 
-def none_fetcher(url):
+def none_fetcher(url, *, deadline=None):
     _record(url)
     return None
 
 
-def raising_fetcher(url):
+def raising_fetcher(url, *, deadline=None):
     _record(url)
     raise RuntimeError("fetcher bug")
 
@@ -61,17 +61,17 @@ def raising_fetcher(url):
 _release_slow = threading.Event()
 
 
-def slow_fetcher(url):
+def slow_fetcher(url, *, deadline=None):
     _record(url)
     _release_slow.wait(5)
     return {"title": "late"}
 
 
-def image_fetcher(url):
+def image_fetcher(url, *, deadline=None):
     return {**fake_fetcher(url), "image": IMAGE}
 
 
-def hotlink_fetcher(url):
+def hotlink_fetcher(url, *, deadline=None):
     return {**fake_fetcher(url), "image": "https://cdn.example.org/og.png"}
 
 
@@ -390,6 +390,42 @@ def test_an_edit_that_keeps_a_card_reuses_it_without_fetching(resend):
     assert CALLS == []
 
 
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    "resend",
+    [
+        # Web: the card goes back into the editor as its link.
+        lambda url, _card: _paragraph(f'<p><a href="{url}">{url}</a></p>'),
+        # Mobile: the edit field holds the bare URL.
+        lambda url, _card: _paragraph(url),
+        # A client that echoes the block it read.
+        lambda url, card: {"type": "link_preview", "value": card},
+    ],
+)
+def test_an_edit_keeps_a_stored_card_while_no_fetcher_is_set(resend):
+    """The host's kill switch (or a host that later drops its fetcher) stops
+    NEW cards. It must not strip the cards already stored the next time their
+    post is edited for an unrelated typo: reusing a stored card needs no
+    fetch (slice C review)."""
+    url = "https://example.com/"
+    user = _member()
+    with _fetcher("fake_fetcher"):
+        _create(_client(user), _board(), [_paragraph(url)])
+    post = Post.objects.get()
+    stored = post.body.raw_data[0]["value"]
+
+    with override_settings(WAGTAILFORUM_LINK_PREVIEW_FETCHER=None):
+        resp = _client(user).patch(
+            f"/forum/posts/{post.id}/",
+            {"body": [resend(url, stored), _paragraph("A fixed typo.")]},
+            format="json",
+        )
+
+    assert resp.status_code == 200, resp.data
+    post.refresh_from_db()
+    assert _stored(post)[0] == ("link_preview", _card(url, "example.com"))
+
+
 # --- read ---------------------------------------------------------------
 
 
@@ -432,7 +468,10 @@ def test_a_cached_image_is_served_from_our_storage():
 
     from django.core.files.storage import default_storage
 
-    assert value["image_url"] == default_storage.url(IMAGE)
+    # Absolute against the request, like an image block's URL: local storage
+    # answers a relative /media/... the mobile client cannot resolve.
+    assert default_storage.url(IMAGE).startswith("/")
+    assert value["image_url"] == "http://testserver" + default_storage.url(IMAGE)
 
 
 def _read_stored_card(stored):
@@ -472,3 +511,161 @@ def test_a_stored_card_serves_only_a_cached_image(image):
 
     assert value["url"] == "https://example.com/"
     assert value["image_url"] is None
+
+
+# --- todo 448 items 1-3 and 9: the gate before a host turns the fetcher on ---
+
+
+@pytest.fixture
+def one_worker_pool(monkeypatch):
+    """A private one-thread pool in place of the process-wide one, so a test
+    can make the queue back up without touching other tests' fetches."""
+    from concurrent.futures import ThreadPoolExecutor
+
+    from wagtail_forum import link_previews
+
+    pool = ThreadPoolExecutor(max_workers=1)
+    monkeypatch.setattr(link_previews, "_executor", pool)
+    yield pool
+    pool.shutdown(wait=True)
+
+
+@pytest.mark.django_db
+@override_settings(WAGTAILFORUM_LINK_PREVIEW_FETCH_TIMEOUT_SECONDS=0.2)
+def test_a_fetch_still_queued_when_the_window_closes_is_cancelled(one_worker_pool):
+    """Item 1: the pool was busy, so the second link never started inside
+    the window. It must be dropped, not run later for nobody — a burst of
+    posts would otherwise build a backlog that times out every post after."""
+    from wagtail_forum.link_previews import fetch_snapshots
+
+    release = threading.Event()
+    started = []
+
+    def blocking_fetcher(url, *, deadline=None):
+        started.append(url)
+        release.wait(5)
+        return {"title": url}
+
+    try:
+        snapshots = fetch_snapshots(
+            blocking_fetcher, ["https://a.example.com/", "https://b.example.com/"]
+        )
+    finally:
+        release.set()
+    one_worker_pool.shutdown(wait=True)  # anything still queued runs now
+
+    assert snapshots == {}
+    assert started == ["https://a.example.com/"]
+
+
+@pytest.mark.django_db
+@override_settings(WAGTAILFORUM_LINK_PREVIEW_FETCH_TIMEOUT_SECONDS=2)
+def test_every_fetcher_gets_the_window_end_counted_from_submit(one_worker_pool):
+    """Item 9: the second fetch waits ~0.3 s for the one thread, yet gets the
+    SAME deadline as the first — the package's window, not a fresh one from
+    when a thread picked it up."""
+    from wagtail_forum.link_previews import fetch_snapshots
+
+    deadlines = {}
+
+    def recording_fetcher(url, *, deadline=None):
+        deadlines[url] = deadline
+        if url.startswith("https://a."):
+            time.sleep(0.3)
+        return {"title": url}
+
+    submitted = time.monotonic()
+    snapshots = fetch_snapshots(
+        recording_fetcher, ["https://a.example.com/", "https://b.example.com/"]
+    )
+
+    assert set(snapshots) == {"https://a.example.com/", "https://b.example.com/"}
+    first, second = (
+        deadlines["https://a.example.com/"],
+        deadlines["https://b.example.com/"],
+    )
+    assert first == second
+    assert submitted + 2 <= first <= submitted + 2.1
+
+
+@pytest.mark.django_db
+@_fetcher("fake_fetcher")
+@pytest.mark.parametrize(
+    "html",
+    [
+        "<p><code>https://api.example.com/v1/things</code></p>",
+        '<p><a href="https://api.example.com/v1/x"><code>https://api.example.com/v1/x</code></a></p>',
+    ],
+)
+def test_a_link_written_as_code_is_never_a_card(html):
+    """Item 2: a URL in a code sample is code. It is not fetched and stays
+    in its paragraph as the author wrote it."""
+    resp = _create(_client(_member()), _board(), [_paragraph(html)])
+
+    assert resp.status_code == 201, resp.data
+    [(block_type, value)] = _stored()
+    assert block_type == "paragraph"
+    assert "<code>" in value
+    assert CALLS == []
+
+
+# Every shape is_card_url might meet. Whatever it accepts, the block's own
+# URLBlock must accept too (item 3).
+CARD_URL_SHAPES = [
+    "https://example.com/",
+    "https://example.com",
+    "http://example.com:8080/a?b=1#c",
+    "https://sub.example.co.uk/path/to/page",
+    "https://bücher.example/",
+    "https://xn--bcher-kva.example/",
+    "http://93.184.216.34/",
+    "http://[2001:db8::1]/",
+    "https://localhost/",
+    "https://example.com./",
+    "https://my_site.example.com/",
+    "https://-leading.example.com/",
+    "https://trailing-.example.com/",
+    "http://intranet/",
+    "https://example.com/" + "a" * 2000,
+    "https://exa mple.com/",
+    "https://example.com/%zz",
+]
+
+
+@pytest.mark.parametrize("url", CARD_URL_SHAPES)
+def test_is_card_url_never_accepts_what_the_block_refuses(url):
+    from django.core.exceptions import ValidationError
+    from wagtail_forum.blocks import LinkPreviewBlock
+    from wagtail_forum.link_previews import is_card_url
+
+    if not is_card_url(url):
+        return
+    try:
+        LinkPreviewBlock().child_blocks["url"].clean(url)
+    except ValidationError as exc:  # pragma: no cover - the failure message
+        pytest.fail(f"is_card_url accepts {url!r} but URLBlock refuses it: {exc}")
+
+
+def test_an_underscore_host_is_not_a_card_url():
+    from wagtail_forum.link_previews import is_card_url
+
+    assert is_card_url("https://example.com/")
+    assert not is_card_url("https://my_site.example.com/")
+
+
+@pytest.mark.django_db
+@_fetcher("fake_fetcher")
+def test_a_host_the_block_refuses_stays_a_link_and_the_post_still_cleans():
+    """Item 3 end to end: before the fix this saved as a card, and a
+    moderator's later /cms/ save of the post failed with "Enter a valid URL"
+    on a block they never touched. The stored body must clean as the CMS
+    form would clean it."""
+    from wagtail_forum.blocks import ForumBodyBlock
+
+    url = "https://my_site.example.com/page"
+    resp = _create(_client(_member()), _board(), [_paragraph(url)])
+
+    assert resp.status_code == 201, resp.data
+    assert [t for t, _ in _stored()] == ["paragraph"]
+    assert CALLS == []
+    ForumBodyBlock().clean(Post.objects.get().body)

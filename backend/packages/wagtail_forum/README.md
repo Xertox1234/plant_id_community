@@ -489,19 +489,25 @@ once at write time, that replaces the URL for every reader.
 ```
 
 The package never fetches anything itself. The host names a callable in
-`WAGTAILFORUM_LINK_PREVIEW_FETCHER`, `fetcher(url) -> dict | None`, answering
-`{title, description, site_name, domain, image}` or `None` for "no card".
-Securing the fetch (public addresses only, redirects, size and time caps) is
-the host's job. Unset, nothing converts. The rules (`wagtail_forum/link_previews.py`):
+`WAGTAILFORUM_LINK_PREVIEW_FETCHER`, `fetcher(url, *, deadline) -> dict | None`,
+answering `{title, description, site_name, domain, image}` or `None` for "no
+card". `deadline` is the `time.monotonic()` value at which the package stops
+waiting, counted from when it submitted the fetch, not from when a pool thread
+picked it up, so a fetcher that budgets its own work finishes inside the
+window. Securing the fetch (public addresses only, redirects, size and time
+caps) is the host's job. Unset, no new card is made; a card the stored body
+already shows is still kept when its post is edited (reuse needs no fetch). The rules (`wagtail_forum/link_previews.py`):
 
 - **Which links.** On create, reply and edit, a `paragraph` whose only text is
-  one `http(s)` URL — after the video conversion above, so a URL the embed
+  one `http(s)` URL that Django's `URLValidator` (the block's own check)
+  accepts and that is not written as `<code>` — after the video conversion above, so a URL the embed
   finders accept is never a card while embeds are on — and any submitted
   `link_preview` block. The first `WAGTAILFORUM_MAX_LINK_PREVIEWS_PER_BODY`
   distinct URLs are fetched concurrently inside one
   `WAGTAILFORUM_LINK_PREVIEW_FETCH_TIMEOUT_SECONDS` window. A link past the
   cap, a fetch that fails, raises, answers `None` or runs past the window, and
-  a host with no fetcher all leave the link as a paragraph.
+  a host with no fetcher all leave the link as a paragraph. A fetch still
+  queued when the window closes (the pool was busy) is cancelled, never run.
 - **Nothing in a card is the client's word.** A submitted `link_preview`
   block is reduced to its URL. On edit, a URL the stored body already shows as
   a card keeps that stored card (no refetch); every other field comes from the
@@ -513,7 +519,8 @@ the host's job. Unset, nothing converts. The rules (`wagtail_forum/link_previews
   second post showing the same image reuses the stored file.
 - **Reads never fetch.** The card is served from the stored snapshot; a
   stored `url` that is not `http(s)` (a CMS edit or an import) serves as
-  `null`.
+  `null`. `image_url` is made absolute against the request, like an image
+  block's URL.
 - **Spam and mentions read the URL, not the card.** The linked page wrote the
   title and description; they are never screened or scanned for `@mentions`.
 

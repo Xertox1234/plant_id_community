@@ -60,31 +60,44 @@ def sanitize_rich_text(html):
 class _TextWithTagBreaks(HTMLParser):
     """Collects an HTML fragment's text with every tag read as a space, so
     two links on two lines (``url<br>url``, ``<p>url</p><p>url</p>``) can
-    never glue into one token. Character references are decoded."""
+    never glue into one token. Character references are decoded.
+    ``in_code`` records whether any non-blank text sat inside a ``<code>``."""
 
     def __init__(self):
         super().__init__(convert_charrefs=True)
         self.parts = []
+        self._code_depth = 0
+        self.in_code = False
 
     def handle_starttag(self, tag, attrs):
         self.parts.append(" ")
+        if tag == "code":
+            self._code_depth += 1
 
     def handle_endtag(self, tag):
         self.parts.append(" ")
+        if tag == "code" and self._code_depth:
+            self._code_depth -= 1
 
     def handle_data(self, data):
         self.parts.append(data)
+        if self._code_depth and data.strip():
+            self.in_code = True
 
 
-def _sole_url(html):
+def _sole_url(html, *, skip_code=False):
     """The text when a paragraph's ONLY content is one whitespace-free token
     (a candidate link), else ``None``. The mobile composer sends a bare
     ``url`` with no ``<p>`` wrapper, so the test is on the text, not the
     markup; an autolinked ``<a>`` counts too, and it is the TEXT a reader
-    saw that is returned, never a differing ``href``."""
+    saw that is returned, never a differing ``href``. ``skip_code``: a token
+    written as code (``<code>https://api.example.com/v1</code>``) is a code
+    sample, not a link to preview — the auto-linker skips ``<code>`` too."""
     parser = _TextWithTagBreaks()
     parser.feed(sanitize_rich_text(html))
     parser.close()
+    if skip_code and parser.in_code:
+        return None
     text = "".join(parser.parts).strip()
     if not text or any(ch.isspace() for ch in text):
         return None
@@ -135,10 +148,10 @@ def _convert_link_previews(value, link_type, existing):
     first and "video wins"), and a resubmitted ``link_preview`` block, which
     is reduced to its URL. The first ``MAX_LINK_PREVIEWS_PER_BODY`` distinct
     URLs get a card: from ``existing`` (the stored body's cards, on edit —
-    reused as stored, never refetched) or from ONE bounded concurrent fetch.
-    Any other candidate — past the cap (never fetched), failed, or with no
-    fetcher configured — stays or becomes a paragraph, which the auto-link
-    pass then makes tappable.
+    reused as stored, never refetched, with or without a fetcher) or from ONE
+    bounded concurrent fetch. Any other candidate — past the cap (never
+    fetched), failed, or new while no fetcher is configured — stays or
+    becomes a paragraph, which the auto-link pass then makes tappable.
     """
     embeds_on = get_setting("ALLOW_EMBED_BLOCKS")
     candidates = []
@@ -147,7 +160,7 @@ def _convert_link_previews(value, link_type, existing):
         if block["type"] == link_type:
             url = block["value"]["url"].strip()
         elif block["type"] == "paragraph":
-            url = _sole_url(block["value"])
+            url = _sole_url(block["value"], skip_code=True)
             if not is_card_url(url) or (embeds_on and is_supported_url(url)):
                 url = None
         candidates.append(url)
@@ -155,13 +168,14 @@ def _convert_link_previews(value, link_type, existing):
     chosen = [
         url for url in dict.fromkeys(u for u in candidates if u) if is_card_url(url)
     ][: get_setting("MAX_LINK_PREVIEWS_PER_BODY")]
+    # A card the stored body already shows is reused even with NO fetcher:
+    # reuse needs no fetch, and a host that turns cards off (its kill
+    # switch) must stop new cards, not strip existing ones on the next edit.
+    cards = {url: existing[url] for url in chosen if url in existing}
     fetcher = get_fetcher()
-    cards = {}
-    if fetcher is not None and chosen:
-        cards = {url: existing[url] for url in chosen if url in existing}
-        cards.update(
-            fetch_snapshots(fetcher, [url for url in chosen if url not in cards])
-        )
+    to_fetch = [url for url in chosen if url not in cards]
+    if fetcher is not None and to_fetch:
+        cards.update(fetch_snapshots(fetcher, to_fetch))
 
     converted = []
     for block, url in zip(value, candidates):

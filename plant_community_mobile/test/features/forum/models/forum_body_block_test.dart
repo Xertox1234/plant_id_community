@@ -313,4 +313,86 @@ void main() {
       expect(plainTextFromParagraphHtml('&amp;lt;'), '&lt;');
     });
   });
+
+  group('link_preview blocks (todo 428)', () {
+    test('parses a stored link card', () {
+      final blocks = parseForumBody([
+        {
+          'type': 'link_preview',
+          'value': {
+            'url': 'https://example.com/a',
+            'title': 'A',
+            'description': 'About A',
+            'site_name': 'Example',
+            'domain': 'example.com',
+            'image_url': 'https://media.example.org/forum/link-previews/x.webp',
+          },
+        },
+      ]);
+
+      final card = blocks.single as LinkPreviewBlock;
+      expect(card.url, 'https://example.com/a');
+      expect(card.title, 'A');
+      expect(card.description, 'About A');
+      expect(card.siteName, 'Example');
+      expect(card.domain, 'example.com');
+      expect(
+        card.imageUrl,
+        'https://media.example.org/forum/link-previews/x.webp',
+      );
+    });
+
+    test(
+      'a null card (a stored link the server will not serve) has no url',
+      () {
+        final blocks = parseForumBody([
+          {'type': 'link_preview', 'value': null},
+        ]);
+
+        expect((blocks.single as LinkPreviewBlock).url, isEmpty);
+      },
+    );
+
+    test('a card contributes no quotable text', () {
+      expect(
+        forumBodyPlainText(const [
+          ParagraphBlock('<p>Look:</p>'),
+          LinkPreviewBlock(url: 'https://example.com/', title: 'Example'),
+        ]),
+        'Look:',
+      );
+    });
+  });
+
+  group('linkPreviewShortAddress (todo 428)', () {
+    // The same table as the web twin's test (web/src/utils/externalUrl.test.ts,
+    // `shortLinkAddress`), so a card shows the same address line on both.
+    const table = {
+      'https://example.com': 'https://example.com',
+      'https://example.com/': 'https://example.com',
+      'https://microsoft.com/en-us/windows/some/long/path?x=1':
+          'https://microsoft.com/…',
+      'https://example.com/?q=1': 'https://example.com/…',
+      'https://example.com/#top': 'https://example.com/…',
+      'http://example.com:8080/a': 'http://example.com:8080/…',
+      'https://example.com:443/': 'https://example.com',
+      'HTTPS://Example.COM/Path': 'https://example.com/…',
+    };
+    for (final MapEntry(key: url, value: expected) in table.entries) {
+      test('$url -> $expected', () {
+        expect(linkPreviewShortAddress(url), expected);
+      });
+    }
+
+    for (final url in [
+      'javascript:alert(1)',
+      'https://user:pw@example.com/', // pragma: allowlist secret
+      '',
+      'not a url',
+    ]) {
+      test('refuses "$url"', () {
+        expect(linkPreviewShortAddress(url), isNull);
+      });
+    }
+  });
 }

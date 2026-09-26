@@ -265,6 +265,17 @@ one session pinned nothing)
   handshake by the socket timeout (probed in todo 428). The check is only
   that the timeout passed to the connection is capped at the time left.
 
+### Kill-switch and envelope additions (2026-09-26, todo 428 slice C)
+
+- A write path that reuses stored derived data (stored cards, cached
+  embeds) inside the branch that checks the producer is configured: turning
+  the producer off then strips the stored data on the next edit. Reuse must
+  not depend on the producer.
+- A read envelope returning `default_storage.url()` without
+  `request.build_absolute_uri` (mobile cannot resolve a relative `/media/`).
+- A network-reaching host hook enabled in settings without `not
+  _IS_TEST_RUN` (tests would reach the network).
+
 ## Output Format (Review Mode)
 
 Return ONLY this JSON structure (no surrounding prose, no markdown fences in the actual response — the example fences below show the schema):

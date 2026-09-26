@@ -794,3 +794,46 @@ describe('image attribute escaping on rehydrate (todo 441)', () => {
     expect(html).toContain('&quot;');
   });
 });
+
+describe('forumBody link_preview blocks (todo 428)', () => {
+  const card = {
+    url: 'https://example.com/a?b=1&c=2',
+    title: 'T',
+    description: '',
+    site_name: '',
+    domain: 'example.com',
+    image_url: null,
+  };
+
+  it('puts a link card back into the composer as the link the author posted', () => {
+    const html = bodyBlocksToHtml([{ type: 'link_preview', value: card }]);
+
+    expect(html).toBe(
+      '<p><a href="https://example.com/a?b=1&amp;c=2">https://example.com/a?b=1&amp;c=2</a></p>'
+    );
+    // Saved unchanged, it goes back as a link-only paragraph, which the
+    // server turns into the same stored card without fetching.
+    expect(htmlToBodyBlocks(html)).toEqual([{ type: 'paragraph', value: html }]);
+  });
+
+  it('keeps the rest of the post around a card', () => {
+    const html = bodyBlocksToHtml([
+      { type: 'paragraph', value: '<p>before</p>' },
+      { type: 'link_preview', value: card },
+      { type: 'paragraph', value: '<p>after</p>' },
+    ]);
+
+    expect(html).toContain('<p>before</p>');
+    expect(html).toContain('>https://example.com/a?b=1&amp;c=2</a></p>');
+    expect(html).toContain('<p>after</p>');
+  });
+
+  it('drops a null card and a card whose stored link is not http(s)', () => {
+    expect(
+      bodyBlocksToHtml([
+        { type: 'link_preview', value: null },
+        { type: 'link_preview', value: { ...card, url: 'javascript:alert(1)' } },
+      ])
+    ).toBe('');
+  });
+});

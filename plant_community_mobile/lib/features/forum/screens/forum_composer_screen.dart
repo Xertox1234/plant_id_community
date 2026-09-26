@@ -57,14 +57,19 @@ class ForumComposeArgs {
   /// rather than silently discard it on submit.
   factory ForumComposeArgs.edit({required ForumPost post}) {
     final body = post.body;
-    // The server stores a paragraph that is only a video link as one embed
-    // block (todo 421), so a link-only post comes back as a video card.
-    // Offer the URL itself: saving it unchanged converts it back.
+    // The server stores a paragraph that is only a link as one card: an
+    // embed block for a video (todo 421), a link_preview block for any other
+    // page (todo 428). Offer the URL itself: saving it unchanged converts it
+    // back — a stored link card is reused as stored, with no refetch.
     final onlyBlock = body.length == 1 ? body.first : null;
-    if (onlyBlock is EmbedBlock && onlyBlock.url.isNotEmpty) {
+    final onlyLink = switch (onlyBlock) {
+      EmbedBlock(:final url) || LinkPreviewBlock(:final url) => url,
+      _ => '',
+    };
+    if (onlyLink.isNotEmpty) {
       return ForumComposeArgs._edit(
         postId: post.id,
-        initialBodyText: escapeMarkerChars(onlyBlock.url),
+        initialBodyText: escapeMarkerChars(onlyLink),
         hasNonTextContent: false,
       );
     }

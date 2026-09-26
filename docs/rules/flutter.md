@@ -206,3 +206,13 @@ Compact checklist auto-injected before edits. Long-form:
   `CODE_SIGN_STYLE = Manual` + the distribution profile *before* spending 20
   minutes on an archive — automatic signing can resolve the development profile
   and yield an artifact that cannot prove anything (todo 286).
+- **`Semantics(excludeSemantics: true)` around an `InkWell` is what keeps a card
+  ONE node.** Without it the InkWell adds a focusable child carrying its own
+  tap/long-press and an EMPTY label, an unlabeled button (not a double
+  reading). Assert `node.childrenCount == 0`, and when a semantics mutant
+  survives, dump the tree (`debugDumpSemanticsTree`) instead of guessing
+  (todo 428 slice C).
+- **A `Tooltip` cannot hold a tappable action.** "Long-press shows X plus Copy"
+  is a bottom sheet, with the same actions as `customSemanticsActions` so a
+  screen reader reaches them without the gesture (`_LinkPreviewCard`, todo
+  428).

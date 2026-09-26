@@ -310,3 +310,9 @@ Compact checklist auto-injected before edits. Long-form:
   (`web/src/utils/forumBody.ts`) on alt, src, href and ids alike, guard
   nullish values (`x || ''`), and prefer building nodes via the DOM/TipTap JSON
   when adding a new branch (PR #826).
+- **A link with a `title` and no accessible description reads the `title` aloud.**
+  With no `aria-describedby`/`aria-description`, a link's `title` becomes its
+  accessible description, so a full URL put in `title` for hover is spelled out
+  by screen readers after all. Point `aria-describedby` at a short hint (an
+  `sr-only` "Opens in a new tab") and pin both with `toHaveAccessibleName` and
+  `toHaveAccessibleDescription` (`LinkPreviewCard.tsx`, todo 428).

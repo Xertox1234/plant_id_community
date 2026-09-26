@@ -658,7 +658,9 @@ def _cache_preview_image(image_url: str, deadline: float) -> str:
     return stored if is_cached_image_name(stored) else ""
 
 
-def link_preview_snapshot(raw_url: str) -> dict[str, str] | None:
+def link_preview_snapshot(
+    raw_url: str, *, deadline: float | None = None
+) -> dict[str, str] | None:
     """The forum package's ``WAGTAILFORUM_LINK_PREVIEW_FETCHER`` hook (todo 428).
 
     Called once per link at write time, when a post stores a link as a card.
@@ -672,11 +674,14 @@ def link_preview_snapshot(raw_url: str) -> dict[str, str] | None:
     2026-09-24). Any image failure still returns the card, without an image.
     The page and the image share one budget that ends
     ``LINK_PREVIEW_SNAPSHOT_MARGIN_SECONDS`` before the package's window.
+    ``deadline`` is that window's end as the package passes it, counted from
+    when it SUBMITTED the job (todo 448 item 9): a job that waited in a busy
+    pool gets only what is left, not a fresh budget. ``None`` (a direct
+    call) starts the window now.
     """
-    deadline = time.monotonic() + (
-        get_setting("LINK_PREVIEW_FETCH_TIMEOUT_SECONDS")
-        - constants.LINK_PREVIEW_SNAPSHOT_MARGIN_SECONDS
-    )
+    if deadline is None:
+        deadline = time.monotonic() + get_setting("LINK_PREVIEW_FETCH_TIMEOUT_SECONDS")
+    deadline -= constants.LINK_PREVIEW_SNAPSHOT_MARGIN_SECONDS
     try:
         preview = fetch_link_preview(raw_url)
     except InvalidPreviewURL:
