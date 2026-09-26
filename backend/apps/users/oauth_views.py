@@ -19,6 +19,7 @@ from rest_framework.response import Response
 
 from .authentication import set_jwt_cookies
 from .email_verification import (
+    get_account_by_email,
     is_address_verified,
     is_email_verified,
     mark_email_verified,
@@ -397,11 +398,12 @@ def _find_or_create_user(provider, user_data):
 
         # Check if user exists with this email
         try:
-            user = User.objects.get(email__iexact=email)
+            user = get_account_by_email(email)
         except User.DoesNotExist:
             pass
         except User.MultipleObjectsReturned:
-            # Case variants of one address on two accounts: ambiguous, refuse.
+            # Case variants on several accounts and not exactly one verified
+            # holder (get_account_by_email): ambiguous, refuse.
             logger.error(
                 f"[AUTH] Refused {provider} login: several accounts share this email"
             )

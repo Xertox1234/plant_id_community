@@ -174,3 +174,31 @@ SURVIVED, as expected, because the outer `except Exception` already returns
 
 Full backend suite (before the round-1 fix): 3796 passed, 8 skipped. After the
 fix, `apps/users` + `apps/core`: 1671 passed.
+
+**Review round 2** (targeted check of the round-1 fix): the round-1 bug is
+CLOSED on both paths, and iexact grants no wrong match (each newly reachable
+account is still refused by the uid-mismatch and verified checks). But it
+found one NEW BLOCKING regression, now fixed. Registration's uniqueness check
+was case-exact (`serializers.py:70`), so a stranger could register
+`Alice@example.com` beside the verified `alice@example.com`. The round-1
+`MultipleObjectsReturned` refusal then locked the owner out of web Google (and
+Firebase until their uid is bound). Before this slice the exact lookup had
+matched the owner. Fix:
+
+- registration checks `email__iexact`;
+- both paths look up through `email_verification.get_account_by_email`: among
+  case variants, the single verified holder wins; none or several verified →
+  refused.
+
+Tests: owner wins over a parked variant (web + Firebase), variants with no
+verified holder are refused, and registering a case variant of a taken email
+gets 400. Mutants, all caught: the verified holder no longer wins; the
+registration check back to case-exact; the ambiguity case picks the first
+match instead of refusing. `apps/users`: 245 passed.
+
+Non-blocking, into slice B (item 4): `oauth_adapters.pre_social_login` still
+matches with a case-exact `User.objects.get(email=...)` and has no
+`MultipleObjectsReturned` handler. Duplicates there would 500. Move it onto
+`get_account_by_email`.
+
+Full backend suite on the final code (after round 2): 3802 passed, 8 skipped.

@@ -428,3 +428,10 @@ Compact checklist auto-injected before edits. Long-form: `backend/docs/patterns/
   refresh token when a password is reset, changed or set (JWTs do not die with
   the session auth hash). Pin the library settings a closure depends on with a
   guard test (todo 447).
+- **Case-fold an email lookup and the uniqueness check that feeds it
+  together, and never make an ambiguity refusal the owner's problem.** A
+  case-exact lookup ahead of a case-insensitive guard refused verified users
+  as strangers. Refusing whenever several accounts matched then let anyone lock
+  an owner out by registering a case variant, because registration compared
+  case-exactly. Match case-insensitively, let the single VERIFIED holder win,
+  and refuse only when that is ambiguous (todo 447).

@@ -451,6 +451,13 @@ HTTP (`apps/users/tests/test_allauth_surface.py`):
 - **Creation paths refuse an address verified on another account**
   (`email_verification.is_address_verified`, case-insensitive): the new account
   could never verify it, so its owner would be refused on the next sign-in.
+- **Existing accounts are matched case-insensitively through
+  `email_verification.get_account_by_email`.** When case variants sit on
+  several accounts, the one account that verified the address wins; with none
+  or several verified, the sign-in is refused. Refusing on every ambiguity
+  would be a lockout lever: registration compared emails case-exactly until
+  todo 447, so a stranger could park `Alice@x` beside the real `alice@x`.
+  Registration's uniqueness check is now case-insensitive too.
 - **The allauth settings the closure depends on are pinned** by
   `AllauthSettingsGuardTest`: no code-based flows, `SALT` ≠ ours, HMAC keys,
   no confirm-on-GET, mandatory verification, no login on reset, no

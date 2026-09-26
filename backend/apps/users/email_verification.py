@@ -34,6 +34,7 @@ from allauth.account.signals import email_confirmed
 from apps.core.services.email_service import EmailService
 from apps.core.utils.pii_safe_logging import log_safe_user_context
 from django.conf import settings
+from django.contrib.auth import get_user_model
 from django.core import signing
 from django.db import IntegrityError, transaction
 from django.utils.html import escape
@@ -51,6 +52,25 @@ def is_email_verified(user) -> bool:
     return EmailAddress.objects.filter(
         user=user, email__iexact=user.email, verified=True
     ).exists()
+
+
+def get_account_by_email(email):
+    """``User.objects.get(email__iexact=email)``, except that when case variants
+    of the address sit on several accounts, the one account that verified it
+    wins. Registration compared emails case-exactly until todo 447, so a
+    stranger could park ``Alice@x`` beside the real ``alice@x``; a plain
+    ``get`` would then refuse the owner. Raises ``DoesNotExist`` /
+    ``MultipleObjectsReturned`` like ``get``."""
+    User = get_user_model()
+    matches = list(User.objects.filter(email__iexact=email))
+    if not matches:
+        raise User.DoesNotExist()
+    if len(matches) == 1:
+        return matches[0]
+    verified = [user for user in matches if is_email_verified(user)]
+    if len(verified) != 1:
+        raise User.MultipleObjectsReturned()
+    return verified[0]
 
 
 def is_address_verified(email) -> bool:

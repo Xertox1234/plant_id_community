@@ -19,6 +19,7 @@ from apps.core.ratelimit import (  # rate-preserving wrapper (Retry-After)
 )
 from apps.plant_identification.constants import RATE_LIMITS
 from apps.users.email_verification import (
+    get_account_by_email,
     is_address_verified,
     is_email_verified,
     mark_email_verified,
@@ -416,7 +417,7 @@ def get_or_create_user_from_firebase(
 
     # Fall back to email for accounts created before UID binding existed.
     try:
-        user = User.objects.get(email__iexact=firebase_email)
+        user = get_account_by_email(firebase_email)
 
         if user.firebase_uid and user.firebase_uid != firebase_uid:
             # This email is already bound to a different Firebase identity.
