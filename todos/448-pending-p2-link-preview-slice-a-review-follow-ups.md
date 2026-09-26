@@ -102,11 +102,42 @@ but rare.
       excerpt should show something, the short address is the safer choice.
     - Noted during todo 428 slice C.
 
+12. **A failed page fetch logs nothing (found on device, 2026-09-26).**
+    - Where: `apps/forum_host/link_preview.py::fetch_link_preview` returns
+      `available: False` for a timeout, an HTTP error, a refused redirect or
+      a page with no usable title, and none of these is logged. The package
+      logs only a fetch still running when its window closes.
+    - Why it matters: the owner's device check posted a CBC article and got a
+      plain link. Production logs held no `[LINK_PREVIEW]` line, so it took
+      local reproduction to find the cause. CBC's bot protection holds a
+      request with our User-Agent open without answering (Slack's and
+      Discord's bots too; Twitterbot gets a 403), our 4 s timeout fires, and
+      the post keeps the link, as designed.
+    - Fix: one `[LINK_PREVIEW]` info line per failed fetch naming the reason
+      (timeout, HTTP status, redirect refused, no title) and the host, never
+      the full URL's query. Pin it with `assertLogs` per reason.
+    - Out of scope (owner, 2026-09-26): no browser User-Agent or omitted
+      User-Agent to get past a site's bot blocking. A site that refuses
+      preview bots stays a plain link.
+13. **Plain links in a web post body open in the same tab.**
+    - Where: `web/src/components/StreamFieldRenderer.tsx` renders a
+      `paragraph` block's sanitized HTML as is, so an auto-linked or written
+      `<a>` has no `target`. Link cards open in a new tab
+      (`target="_blank"`, `rel="noopener noreferrer"`), so a card and the same
+      link as text behave differently. The owner noticed this during the
+      device check.
+    - Fix: give body links `target="_blank"` with `rel="noopener noreferrer
+      nofollow"`, either server-side where the package's sanitizer and
+      auto-linker write `<a>` (so the mobile renderer is unaffected; it
+      always opens the in-app browser), or in the web renderer. Keep internal
+      forum links (mentions, "in topic" quote links) in the same tab. Vitest
+      for both kinds.
+
 ## Acceptance Criteria
 
 - [x] Items 1–3 and 9 are fixed and pinned by tests (each mutation-checked) before
       the host setting is turned on in todo 428 slice C. (2026-09-26, slice C.)
-- [ ] Items 4–8, 10 and 11 are fixed or closed with a reason.
+- [ ] Items 4–8 and 10–13 are fixed or closed with a reason.
 
 ## Work Log
 
@@ -138,3 +169,8 @@ but rare.
   `URLValidator`; host ignores the deadline; host drops the margin). Each ran
   against a `cp` backup, was restored, and confirmed with `cmp`.
 - Items 4–8 are still open. Items 10 and 11 were added from slice C's review.
+
+### 2026-09-26 - Items 12 and 13 added from the todo 428 device check
+
+- The owner asked for both. Item 12 is the diagnosis gap behind the CBC post;
+  item 13 is the same-tab behavior the owner saw on the web.

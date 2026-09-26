@@ -509,3 +509,19 @@ So the preview is built and it works; it just isn't used where it matters.
 - **Left:** the owner merges the `.railway/` PR, then the next 03:00 UTC run is
   confirmed to log both commands (the last part of this slice's AC); then the
   on-device check. E stays optional.
+
+### 2026-09-26 - On-device check (TestFlight build 15)
+
+- Build 15 (main `e4f868cc`, slice C) was uploaded, came back VALID, and was
+  installed by the owner.
+- The first test post, a CBC article, stayed a plain tappable link. Production
+  logs (read with the owner's approval) showed the POST took 6 s with no
+  `[LINK_PREVIEW]` line. Running the fetcher locally reproduced it: CBC's bot
+  protection never answers our User-Agent, the 4 s timeout fires, and the link
+  is kept as designed. Silent failures are todo 448 item 12. Getting past the
+  blocking with a browser User-Agent is out of scope.
+- A Wikipedia link posted on its own from the app shows a card for readers in
+  the app. Whether the web reader also showed the card was not confirmed in
+  the session. Tick the device-check box once that is confirmed.
+- Still open: the cron criterion. The owner merges #841, then the first
+  03:00 UTC run's logs must show both commands. Then archive this todo.
