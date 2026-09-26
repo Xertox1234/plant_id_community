@@ -471,3 +471,41 @@ So the preview is built and it works; it just isn't used where it matters.
 - **Left for later slices:** D (the prune command; the owner merges the
   `.railway/` change) and the on-device check. E (the mobile composer preview)
   stays optional.
+
+### 2026-09-26 - Slice D (prune command) built; the cron change is a separate owner-merged PR
+
+- **`manage.py prune_link_preview_images`** (`apps/forum_host/management/commands/`):
+  lists `forum/link-previews/` and reads each file's age, THEN scans every
+  `Post.body` (no `live` filter) and every post revision (`base_content_type`,
+  the JSON-string body) for any string under the prefix, and deletes old
+  unreferenced files. Never a file younger than
+  `LINK_PREVIEW_IMAGE_PRUNE_GRACE_HOURS` (24); `--dry-run`; one `[PRUNE]` line
+  per deletion plus a summary line that prints even at zero. It refuses a
+  blank, root or unterminated prefix, keeps a file whose age can't be read,
+  aborts with nothing deleted when a revision body won't parse, and fails the
+  run (after trying the rest) when a delete fails. Orphaned suffixed
+  duplicates from a concurrent store are reaped too.
+- **Residual window, documented, not closed:** the fetcher reuses an existing
+  file without touching it, so a post that re-shares an image older than 24 h
+  and commits between the reference scan and the delete gets a card without
+  an image. Closing it means changing slice B's store path.
+- **Deviation from the brief: the cron command is wrapped in `/bin/sh -c`.**
+  Railway runs a Dockerfile service's start command in exec form with no shell
+  (docs.railway.com/deployments/start-command), so the brief's bare `&&` would
+  have reached `manage.py` as an argument and broken the tombstone prune too.
+  Same wrapper as Redis's start command in `.railway/railway.ts`. `&&` is kept:
+  a failed tombstone prune skips the image prune that night.
+- **Merge order:** the command PR first, the `.railway/` PR (owner merges,
+  production IaC apply) after the command has deployed.
+- **Full backend suite:** 3945 passed, 8 skipped, 0 failed.
+- **Tests:** 15 in `apps/forum_host/tests/test_prune_link_preview_images.py`
+  (in-memory storage, ages via `freeze_time`, real posts and revisions).
+  11 of 11 guard mutants caught, each restored and confirmed with `cmp`.
+  A local dry run and real run against the dev DB and disk storage deleted
+  only the aged unreferenced file.
+- **Review round 1** (bundled `/code-review` + `code-review-orchestrator`): no
+  blocking findings. The only actionable note was the merge order above. No
+  round-2 fixes to verify.
+- **Left:** the owner merges the `.railway/` PR, then the next 03:00 UTC run is
+  confirmed to log both commands (the last part of this slice's AC); then the
+  on-device check. E stays optional.
