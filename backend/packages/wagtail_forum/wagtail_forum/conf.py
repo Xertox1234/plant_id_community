@@ -149,6 +149,23 @@ DEFAULTS = {
     # inside ONE timeout window at write time, so this bounds worker-pool
     # pressure per write (and reader-side iframes per post), not wall time.
     "MAX_EMBED_URLS_PER_BODY": 5,
+    # Link preview cards (todo 428). Dotted path to a host callable
+    # ``fetcher(url) -> {title, description, site_name, domain, image} | None``
+    # that fetches a page's metadata at write time. None (the default) = no
+    # cards: a link-only paragraph stays an auto-linked paragraph. The
+    # package never fetches anything itself; SSRF hardening is the host's.
+    "LINK_PREVIEW_FETCHER": None,
+    # One window for ALL of a body's page fetches (they run concurrently);
+    # a fetch still running when it closes leaves that link a link.
+    "LINK_PREVIEW_FETCH_TIMEOUT_SECONDS": 5,
+    # Distinct links per body that become cards. Counted separately from
+    # MAX_EMBED_URLS_PER_BODY (owner decision, todo 428); links past it are
+    # never fetched and stay tappable links.
+    "MAX_LINK_PREVIEWS_PER_BODY": 5,
+    # Storage prefix of the host's cached preview images. A card serves an
+    # image only when its stored name is under this prefix with a sha256
+    # stem, so it can never point at a third-party host or another file.
+    "LINK_PREVIEW_IMAGE_PREFIX": "forum/link-previews/",
     # Structured post quotes (todo 342): distinct quoted posts per body, and
     # the quoted text's length — the API rejects, never truncates.
     "QUOTES_MAX_PER_POST": 3,

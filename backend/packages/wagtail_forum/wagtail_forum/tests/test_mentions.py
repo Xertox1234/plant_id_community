@@ -220,3 +220,26 @@ def test_reply_does_not_parse_topic_title():
     resolved = resolve_mentioned_users(reply)
 
     assert resolved == []
+
+
+@pytest.mark.django_db
+def test_a_link_cards_fetched_title_mentions_nobody():
+    # Todo 428: the linked page wrote the card's title, not the author.
+    author = User.objects.create_user(username="author")
+    User.objects.create_user(username="victim")
+    topic, post = _topic_and_post(author)
+    post.body = [
+        {
+            "type": "link_preview",
+            "value": {
+                "url": "https://example.com/",
+                "title": "@victim look",
+                "description": "@victim",
+                "image": "",
+                "site_name": "",
+                "domain": "",
+            },
+        }
+    ]
+    post.save()
+    assert resolve_mentioned_users(post) == []

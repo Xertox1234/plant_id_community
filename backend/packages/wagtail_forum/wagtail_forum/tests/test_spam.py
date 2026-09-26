@@ -6,6 +6,7 @@ from wagtail_forum.blocks import ForumBodyBlock
 from wagtail_forum.conf import get_setting
 from wagtail_forum.spam import get_spam_backend
 from wagtail_forum.spam.base import extract_text
+from wagtail_forum.spam.heuristic import URL_RE as URL_COUNT
 from wagtail_forum.spam.heuristic import HeuristicSpamBackend
 
 
@@ -113,3 +114,62 @@ def test_get_setting_returns_isolated_copies():
     first = get_setting("SPAM_BANNED_WORDS")
     first.append("injected")
     assert get_setting("SPAM_BANNED_WORDS") == []
+
+
+def _card_body(*blocks):
+    return SimpleNamespace(body=ForumBodyBlock().to_python(list(blocks)))
+
+
+def test_extract_text_flattens_a_link_card_to_its_url():
+    # Todo 428: a card's title and description were written by the linked
+    # page, not the author — screening them could reject a post for a
+    # stranger's words (and the page chose them, not the member).
+    url = "https://example.com/page"
+    post = _card_body(
+        {
+            "type": "link_preview",
+            "value": {
+                "url": url,
+                "title": "casino jackpot",
+                "description": "casino",
+                "image": "",
+                "site_name": "x",
+                "domain": "example.com",
+            },
+        }
+    )
+    text = extract_text(post)
+    assert url in text
+    assert "casino" not in text
+
+
+def test_an_autolinked_url_counts_as_one_link():
+    # The server auto-links bare URLs (todo 428), storing each as
+    # <a href="X">X</a>: two typed links must not read as four.
+    html = (
+        '<p><a href="https://a.example/" rel="nofollow">https://a.example/</a> and '
+        '<a href="https://b.example/?x=1&amp;y=2">https://b.example/?x=1&amp;y=2</a>'
+        "</p>"
+    )
+    post = _card_body({"type": "paragraph", "value": html})
+    text = extract_text(post)
+    assert len(URL_COUNT.findall(text)) == 2
+    assert HeuristicSpamBackend().check(post).is_clean is True
+
+
+def test_a_link_hiding_its_address_still_counts():
+    html = (
+        '<p><a href="https://spam.example/">click</a> '
+        '<a href="https://spam.example/2">https://other.example/</a></p>'
+    )
+    text = extract_text(_card_body({"type": "paragraph", "value": html}))
+    assert "https://spam.example/" in text
+    assert "https://spam.example/2" in text
+
+
+def test_four_distinct_autolinked_urls_are_still_too_many():
+    links = " ".join(
+        f'<a href="https://s{n}.example/">https://s{n}.example/</a>' for n in range(4)
+    )
+    post = _card_body({"type": "paragraph", "value": f"<p>{links}</p>"})
+    assert HeuristicSpamBackend().check(post).is_clean is False

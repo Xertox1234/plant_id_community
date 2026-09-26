@@ -74,7 +74,9 @@ class _MetadataParser(HTMLParser):
         if tag.lower() != "meta":
             return
         attributes = {name.lower(): value for name, value in attrs if name}
-        key = (attributes.get("property") or attributes.get("name") or "").strip().lower()
+        key = (
+            (attributes.get("property") or attributes.get("name") or "").strip().lower()
+        )
         value = attributes.get("content")
         if key in self._META_KEYS and value and key not in self.values:
             self.values[key] = value
@@ -164,7 +166,10 @@ def _target_for_url(raw_url: str) -> _Target:
     if (
         not value
         or len(value) > constants.LINK_PREVIEW_MAX_URL_LENGTH
-        or any(character.isspace() or ord(character) < 32 or ord(character) == 127 for character in value)
+        or any(
+            character.isspace() or ord(character) < 32 or ord(character) == 127
+            for character in value
+        )
     ):
         raise InvalidPreviewURL
     try:
@@ -174,9 +179,18 @@ def _target_for_url(raw_url: str) -> _Target:
         explicit_port = parts.port
     except ValueError as exc:
         raise InvalidPreviewURL from exc
-    if scheme not in {"http", "https"} or not host or parts.username is not None or parts.password is not None:
+    if (
+        scheme not in {"http", "https"}
+        or not host
+        or parts.username is not None
+        or parts.password is not None
+    ):
         raise InvalidPreviewURL
-    port = explicit_port if explicit_port is not None else (443 if scheme == "https" else 80)
+    port = (
+        explicit_port
+        if explicit_port is not None
+        else (443 if scheme == "https" else 80)
+    )
     if port not in constants.LINK_PREVIEW_ALLOWED_PORTS:
         raise InvalidPreviewURL
     normalized_host, address = _resolve_public_address(host, port)
@@ -223,14 +237,19 @@ def _safe_image_url(base_url: str, image_value: str | None) -> str | None:
     return image_url
 
 
-def _parse_document(body: bytes, original_url: str, final_url: str) -> dict[str, object]:
+def _parse_document(
+    body: bytes, original_url: str, final_url: str
+) -> dict[str, object]:
     parser = _MetadataParser()
     parser.feed(body.decode("utf-8", errors="replace"))
     final_parts = urlsplit(final_url)
     domain = (final_parts.hostname or "").lower()
     values = parser.values
     title = _clean_text(
-        values.get("og:title") or values.get("twitter:title") or "".join(parser.title_parts) or domain,
+        values.get("og:title")
+        or values.get("twitter:title")
+        or "".join(parser.title_parts)
+        or domain,
         constants.LINK_PREVIEW_MAX_TITLE_CHARS,
     )
     description = _clean_text(
@@ -295,12 +314,17 @@ def _request_path(target: _Target) -> str:
 
 
 def _read_document(response) -> bytes | None:
-    content_type = (response.getheader("Content-Type") or "").split(";", 1)[0].strip().lower()
+    content_type = (
+        (response.getheader("Content-Type") or "").split(";", 1)[0].strip().lower()
+    )
     if content_type and content_type not in {"text/html", "application/xhtml+xml"}:
         return None
     content_length = response.getheader("Content-Length")
     try:
-        if content_length is not None and int(content_length) > constants.LINK_PREVIEW_MAX_BODY_BYTES:
+        if (
+            content_length is not None
+            and int(content_length) > constants.LINK_PREVIEW_MAX_BODY_BYTES
+        ):
             return None
     except (TypeError, ValueError):
         pass
@@ -393,6 +417,34 @@ def fetch_link_preview(raw_url: str) -> dict[str, object]:
     except Exception:
         logger.warning("[CACHE] link preview write failed")
     return preview
+
+
+def link_preview_snapshot(raw_url: str) -> dict[str, str] | None:
+    """The forum package's ``WAGTAILFORUM_LINK_PREVIEW_FETCHER`` hook (todo 428).
+
+    Called once per link at write time, when a post stores a link as a card.
+    Returns the card's text fields, or ``None`` for "no card" (not a public
+    HTTP(S) URL, unreachable, not HTML), so the link stays a link. Goes
+    through the same SSRF-pinned, cached ``fetch_link_preview`` as the
+    composer endpoint, so a composer preview and the card agree.
+
+    ``image`` is always blank here: a reader's device must never load the
+    linked site's ``og:image`` (owner decision 2026-09-24), and caching our
+    own copy is todo 428 slice B.
+    """
+    try:
+        preview = fetch_link_preview(raw_url)
+    except InvalidPreviewURL:
+        return None
+    if preview.get("available") is not True:
+        return None
+    return {
+        "title": str(preview.get("title") or ""),
+        "description": str(preview.get("description") or ""),
+        "site_name": str(preview.get("site_name") or ""),
+        "domain": str(preview.get("domain") or ""),
+        "image": "",
+    }
 
 
 @_throttled("link_preview", "GET")
