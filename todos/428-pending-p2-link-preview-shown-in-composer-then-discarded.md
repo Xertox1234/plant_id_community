@@ -200,3 +200,86 @@ So the preview is built and it works; it just isn't used where it matters.
 - The owner asked for the image cleanup job (now part of this todo) and
   confirmed the 5-card cap is separate from videos. A better layout for many
   cards or videos in one post, instead of a vertical stack, is todo 429.
+
+### 2026-09-25 - Slice A (backend core) built; the host fetcher stays UNSET
+
+- **Package (`wagtail_forum`):**
+  - The `link_preview` block (`LinkPreviewBlock`: `url`, `title`, `description`,
+    `image`, `site_name`, `domain`), plus migration 0039.
+  - The `WAGTAILFORUM_LINK_PREVIEW_FETCHER` hook, `fetcher(url) -> dict | None`,
+    with its own timeout, cap and image-prefix settings.
+  - Conversion in `validate_forum_body`. It runs after everything that can
+    return a 400, so a body that is refused costs no fetch, and before the
+    `to_python` dry-run.
+  - `link_previews.py`: concurrent fetches in one window, the stored-card
+    reuse on edit, and the read envelope.
+  - Auto-linking of bare URLs in every paragraph.
+  - The serializer branch and the README "Link previews" section.
+- **Host:** `apps/forum_host/link_preview.py::link_preview_snapshot` adapts
+  `fetch_link_preview` to the hook. It answers `None` for "no card", and its
+  `image` is always blank until slice B caches our own copy.
+- **Decisions made while building, not in the owner's list:**
+  - **A submitted card keeps only its URL.** Its other fields come from the
+    stored body (the edit reuse) or from the fetcher, so no member can forge a
+    card's title or image.
+  - **A video URL is never a card while embeds are on**, so the caps stay
+    separate. A 6th video stays a link.
+  - **The first 5 distinct candidates are fetched; later ones never are.** A
+    failed fetch does not give its slot to link #6.
+  - **Heuristic spam check:** it counted `https?://` in raw markup, so an
+    auto-linked `<a href="X">X</a>` counted twice. Two links in a post would
+    have read as four against `SPAM_MAX_LINKS=3`. `extract_text` now
+    collapses a link whose text equals its href. A link hiding its address
+    (`<a href="spam">click</a>`) still counts. Web posts (TipTap autolinks)
+    already had this double count before this change.
+  - **Spam and mentions read the card's URL**, never the fetched title or
+    description.
+- **Why the setting stays unset (slice C gate).** Today the web editor's
+  `bodyBlocksToHtml` returns `''` for an unknown block type, so the first
+  web edit of a post holding a card would silently drop the link. The
+  mobile `ForumComposeArgs.edit` would send a single-card post to the
+  `hasNonTextContent` warning. Slice C must therefore add, beside the
+  renderers:
+  - web `bodyBlocksToHtml`: `link_preview` becomes `<p><a href=url>url</a></p>`
+    (the same as the embed branch);
+  - mobile: a single `LinkPreviewBlock` offers its URL (the same as the
+    `EmbedBlock` branch);
+
+  and only then set `WAGTAILFORUM_LINK_PREVIEW_FETCHER =
+  "apps.forum_host.link_preview.link_preview_snapshot"` in host settings.
+  The server re-derives the same card from the stored one on save, with no
+  fetch.
+- **Live in slice A:** auto-linking only. New mobile posts now store `<a>` for
+  bare URLs.
+- **Mutation checks: 22 of 22 caught**, each restored from a `cp` backup and
+  confirmed with `cmp`:
+  - cap;
+  - linked-paragraph fallback;
+  - read never fetches;
+  - client fields ignored;
+  - edit reuse;
+  - video wins;
+  - card-URL gate;
+  - fetch only after validation;
+  - write-side and read-side image vetting;
+  - read-side URL vetting;
+  - timeout window;
+  - fetcher raises;
+  - a dotted path that does not import;
+  - spam self-link collapse, hidden href still counted, card counted by URL;
+  - auto-link skipping `<a>`/`<code>`, trailing-punctuation trim, and the
+    host check;
+  - host adapter: no hotlinked image, unavailable page.
+- **A test flake fixed in development:** the timeout test's fetcher finished
+  late and recorded a call into a later test. That cause is a hypothesis
+  from the timing; I could not reproduce the failure on demand. The fetcher
+  now blocks on an event that the test releases.
+- **Review round 1 found no blocking issue** (bundled `/code-review` and
+  `code-review-orchestrator`), so no round 2 was needed. The seven
+  non-blocking findings are in **todo 448**. Its items 1–3 (fetch-queue
+  backlog, a sole `<code>` URL becoming a card, `URLBlock` rejecting hosts
+  that `is_card_url` accepts) are a **gate for slice C**: fix them before
+  the host setting is turned on.
+- **Full backend suite: 3865 passed, 8 skipped, 1 failed.** The failure was
+  an expected change: a video link past the cap is now stored auto-linked.
+  I updated that assertion, and the embed autoconvert file passes (20/20).

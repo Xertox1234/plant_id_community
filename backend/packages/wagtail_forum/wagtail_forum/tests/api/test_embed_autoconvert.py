@@ -232,7 +232,11 @@ def test_conversion_stops_at_the_embed_cap_instead_of_rejecting_the_post(no_fetc
     assert [t for t, _ in stored] == (
         ["embed"] + ["embed"] * (cap - 1) + ["paragraph"] + ["embed"]
     )
-    assert stored[cap][1] == bare[-1]  # the one over the cap keeps its text
+    # The one over the cap keeps its link, auto-linked so it stays tappable
+    # (todo 428).
+    assert stored[cap][1] == (
+        f'<a href="{bare[-1]}" rel="noopener noreferrer nofollow">{bare[-1]}</a>'
+    )
 
 
 @pytest.mark.django_db

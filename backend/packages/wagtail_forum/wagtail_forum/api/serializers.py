@@ -8,9 +8,11 @@ from wagtail.embeds.blocks import EmbedBlock
 from wagtail.images import get_image_model
 from wagtail.rich_text import expand_db_html
 
+from ..blocks import LinkPreviewBlock
 from ..collections import get_forum_image_collection
 from ..conf import get_setting
 from ..embeds import embed_envelope
+from ..link_previews import link_preview_envelope
 from ..models import (
     ForumBoard,
     ForumProfile,
@@ -216,16 +218,19 @@ FORUM_BODY_SCHEMA = {
             # (audit 2026-07-11 H25): HTML string (paragraph), plain string
             # (heading/quote), {language, code} (code block), the
             # {id, url, alt, width, height} rendition dict (image), the embed
-            # envelope (todo 344) or the {text, post_id, available, topic_id,
-            # author, is_blocked, is_muted} quote envelope (todo 342) — see
-            # serialize_forum_body for the authoritative shapes.
+            # envelope (todo 344), the {text, post_id, available, topic_id,
+            # author, is_blocked, is_muted} quote envelope (todo 342) or the
+            # {url, title, description, site_name, domain, image_url} link
+            # card (todo 428) — see serialize_forum_body for the
+            # authoritative shapes.
             "value": {
                 "oneOf": [
                     {"type": "string"},
                     {"type": "object", "additionalProperties": True},
                 ],
                 # null when an image block's Image row was deleted after
-                # publish (serialize_forum_body emits value=None) — mirrors id.
+                # publish, or a link card holds no usable link
+                # (serialize_forum_body emits value=None) — mirrors id.
                 "nullable": True,
             },
             "id": {"type": "string", "nullable": True},
@@ -825,6 +830,11 @@ def serialize_forum_body(
             value = embed_envelope(
                 url, cached=embed_map.get(url) if embed_map is not None else _UNSET
             )
+        elif isinstance(child, LinkPreviewBlock):
+            # The snapshot stored at write time (todo 428) — pure data, so a
+            # read never contacts the linked site. None when the stored value
+            # holds no usable link (a CMS edit or import wrote it).
+            value = link_preview_envelope(raw_value)
         elif isinstance(child, RichTextBlock):
             value = expand_db_html(raw_value or "")
         elif block_type == "post_quote":
@@ -1072,6 +1082,8 @@ class _ForumBodyContract(serializers.Serializer):
             # Edit only: quotes the stored body already carries (set by the
             # edit call site, like `existing_author_id`).
             existing_quote_ids=self.context.get("existing_quote_ids", ()),
+            # Edit only: the stored body's link cards, reused without a fetch.
+            existing_link_previews=self.context.get("existing_link_previews"),
         )
 
     def _allowed_uploader_ids(self):

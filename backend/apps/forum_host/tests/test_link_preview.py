@@ -2,12 +2,6 @@ import time
 from unittest.mock import ANY, patch
 
 import pytest
-from django.contrib.auth import get_user_model
-from django.core.cache import cache
-from django.test import override_settings
-from freezegun import freeze_time
-from rest_framework.test import APIClient
-
 from apps.forum_host import constants
 from apps.forum_host.link_preview import (
     InvalidPreviewURL,
@@ -19,6 +13,11 @@ from apps.forum_host.link_preview import (
     fetch_link_preview,
     normalize_public_url,
 )
+from django.contrib.auth import get_user_model
+from django.core.cache import cache
+from django.test import override_settings
+from freezegun import freeze_time
+from rest_framework.test import APIClient
 
 User = get_user_model()
 
@@ -74,7 +73,7 @@ def test_fetch_link_preview_extracts_open_graph_metadata_and_caches_result():
         "https://93.184.216.34:8443/",
         "http://93.184.216.34:22/",
         "ftp://93.184.216.34/file",
-        "https://user:pass@93.184.216.34/",
+        "https://user:pass@93.184.216.34/",  # pragma: allowlist secret
     ],
 )
 def test_normalize_public_url_rejects_non_public_targets(url):
@@ -142,7 +141,9 @@ def test_read_document_rejects_non_html_and_oversized_content():
             chunk, self.body = self.body[:size], self.body[size:]
             return chunk
 
-    assert _read_document(Response({"Content-Type": "application/pdf"}, b"data")) is None
+    assert (
+        _read_document(Response({"Content-Type": "application/pdf"}, b"data")) is None
+    )
     with patch.object(constants, "LINK_PREVIEW_MAX_BODY_BYTES", 4):
         assert (
             _read_document(
@@ -266,7 +267,9 @@ def test_fetch_html_does_not_follow_redirect_to_private_target():
         443,
         "93.184.216.34",
     )
-    with patch("apps.forum_host.link_preview._open_connection", return_value=Connection()) as open_connection:
+    with patch(
+        "apps.forum_host.link_preview._open_connection", return_value=Connection()
+    ) as open_connection:
         assert _fetch_html(target) is None
 
     open_connection.assert_called_once_with(target)
@@ -341,3 +344,52 @@ def test_link_preview_endpoint_is_rate_limited():
     assert first.status_code == 200
     assert second.status_code == 429
     assert second["Retry-After"] == "60"
+
+
+# --- the forum package's LINK_PREVIEW_FETCHER hook (todo 428) -----------------
+
+
+def test_snapshot_hook_returns_the_card_text_and_never_a_third_party_image():
+    from apps.forum_host.link_preview import link_preview_snapshot
+
+    preview = {
+        "url": "https://example.com/",
+        "title": "Title",
+        "description": "Description",
+        "image_url": "https://cdn.example.com/og.png",
+        "site_name": "Example",
+        "domain": "example.com",
+        "available": True,
+    }
+    with patch(
+        "apps.forum_host.link_preview.fetch_link_preview", return_value=preview
+    ) as fetch:
+        snapshot = link_preview_snapshot("https://example.com/")
+
+    fetch.assert_called_once_with("https://example.com/")
+    assert snapshot == {
+        "title": "Title",
+        "description": "Description",
+        "site_name": "Example",
+        "domain": "example.com",
+        "image": "",
+    }
+
+
+@pytest.mark.parametrize(
+    "outcome",
+    [
+        InvalidPreviewURL(),
+        {"url": "https://example.com/", "available": False},
+    ],
+)
+def test_snapshot_hook_answers_none_when_there_is_no_card(outcome):
+    from apps.forum_host.link_preview import link_preview_snapshot
+
+    kwargs = (
+        {"side_effect": outcome}
+        if isinstance(outcome, Exception)
+        else {"return_value": outcome}
+    )
+    with patch("apps.forum_host.link_preview.fetch_link_preview", **kwargs):
+        assert link_preview_snapshot("http://10.0.0.1/") is None

@@ -6517,3 +6517,37 @@ a real page. Use, in order of preference:
 If a browser check must touch a real page, treat every keystroke as a write:
 an editor that autosaves makes "without saving" untrue, and cleanup may be
 blocked after the fact.
+
+## 2026-09-25 — Auto-linking would have doubled the spam link count; a new block would have been deleted on web edit (todo 428 slice A)
+
+**What happened.** Todo 428 slice A adds `link_preview` cards and
+auto-links bare URLs in forum paragraphs on write. Two regressions were
+found while building it, before it shipped.
+
+- **Spam link count.** `HeuristicSpamBackend` counts `https?://` in
+  `extract_text`, which is the raw paragraph markup. An auto-linked URL is
+  stored as `<a href="X">X</a>`, so it counted twice. A mobile post with two
+  links would have read as four against `SPAM_MAX_LINKS=3` and been held.
+  Web posts already had this problem, because TipTap autolinks.
+- **Edit round trip.** The web editor's `bodyBlocksToHtml` returns `''` for
+  any block type it doesn't know. Turning the new block on with only the
+  renderers in place would have deleted a card, and its link, on the post's
+  first web edit, with no error anywhere.
+
+**Root cause.**
+
+- A change to *stored markup* reaches every consumer that reads markup, not
+  only the renderers.
+- The four-change rule for a new block names a renderer on each client, but
+  not the edit converters, which are a separate path.
+
+**Fix.**
+
+- `extract_text` collapses a link whose text equals its href. Links that hide
+  their destination still count, and the counter itself is unchanged.
+- A card flattens to its URL for spam and mentions, never to the title the
+  linked page wrote.
+- The block ships dark behind `WAGTAILFORUM_LINK_PREVIEW_FETCHER` until
+  slice C adds both edit round trips.
+- A submitted card is reduced to its URL on every write, and reused from the
+  stored body on edit, so the client never supplies card content.

@@ -638,3 +638,9 @@ Compact checklist auto-injected before edits.
 - **A persistence e2e reloads before asserting.** After a save, the page shows
   the mutation's RESPONSE; only `page.reload()` exercises the read path. Also
   assert the old content is gone, or an append passes as a replace (PR #823).
+- **A fake that runs on a shared thread pool must finish inside its own
+  test.** A fake fetcher that slept past the write's timeout window recorded
+  its call a second later, into whichever test was running then (a flake
+  that showed up on one run in four). Block the fake on a
+  `threading.Event` that the test sets in `finally`, and have the late path
+  record nothing (todo 428).

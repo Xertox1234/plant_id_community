@@ -11,8 +11,11 @@ The body is also bounded (block count + total size) to keep validation/parse
 cost and storage in check.
 """
 
+import html
 import json
+import re
 from html.parser import HTMLParser
+from urllib.parse import urlsplit
 
 import nh3
 from django.db.models import Q
@@ -24,10 +27,11 @@ from wagtail.images import get_image_model
 from wagtail.images.blocks import ImageBlock, ImageChooserBlock
 from wagtail.rich_text import expand_db_html
 
-from ..blocks import ForumBodyBlock
+from ..blocks import ForumBodyBlock, LinkPreviewBlock
 from ..collections import get_forum_image_collection
 from ..conf import get_setting
 from ..embeds import is_supported_url, warm_embeds
+from ..link_previews import fetch_snapshots, get_fetcher, is_card_url
 from ..quotes import resolve_quotable_posts
 
 # Allowlist scoped to ForumBodyBlock's RichTextBlock features (bold, italic, link,
@@ -72,25 +76,33 @@ class _TextWithTagBreaks(HTMLParser):
         self.parts.append(data)
 
 
-def _sole_video_url(html):
-    """The URL when a paragraph's ONLY content is one video link the host's
-    finders accept, else ``None`` (todo 421).
-
-    The same rule the web composer applies before submit
-    (``web/src/utils/forumBody.ts`` ``embedUrlOf``), moved to the server so
-    every client gets it. The mobile composer sends a bare ``url`` with no
-    ``<p>`` wrapper, so the test is on the text, not the markup. The allowlist
-    is ``is_supported_url`` (the host's ``WAGTAILEMBEDS_FINDERS``), not a copy
-    of the web's regex, so a link that converts is exactly a link the embed
-    validation below accepts.
-    """
+def _sole_url(html):
+    """The text when a paragraph's ONLY content is one whitespace-free token
+    (a candidate link), else ``None``. The mobile composer sends a bare
+    ``url`` with no ``<p>`` wrapper, so the test is on the text, not the
+    markup; an autolinked ``<a>`` counts too, and it is the TEXT a reader
+    saw that is returned, never a differing ``href``."""
     parser = _TextWithTagBreaks()
     parser.feed(sanitize_rich_text(html))
     parser.close()
     text = "".join(parser.parts).strip()
     if not text or any(ch.isspace() for ch in text):
         return None
-    return text if is_supported_url(text) else None
+    return text
+
+
+def _sole_video_url(html):
+    """The URL when a paragraph's ONLY content is one video link the host's
+    finders accept, else ``None`` (todo 421).
+
+    The same rule the web composer applies before submit
+    (``web/src/utils/forumBody.ts`` ``embedUrlOf``), moved to the server so
+    every client gets it. The allowlist is ``is_supported_url`` (the host's
+    ``WAGTAILEMBEDS_FINDERS``), not a copy of the web's regex, so a link that
+    converts is exactly a link the embed validation below accepts.
+    """
+    text = _sole_url(html)
+    return text if text and is_supported_url(text) else None
 
 
 def _convert_video_paragraphs(value, embed_type):
@@ -113,6 +125,144 @@ def _convert_video_paragraphs(value, embed_type):
                 block = {**block, "type": embed_type, "value": url}
         converted.append(block)
     return converted
+
+
+def _convert_link_previews(value, link_type, existing):
+    """Turn each link posted on its own into a ``link_preview`` card (todo 428).
+
+    Candidates, in body order: a ``paragraph`` whose only content is one
+    card URL (not a video the host embeds — the video conversion above runs
+    first and "video wins"), and a resubmitted ``link_preview`` block, which
+    is reduced to its URL. The first ``MAX_LINK_PREVIEWS_PER_BODY`` distinct
+    URLs get a card: from ``existing`` (the stored body's cards, on edit —
+    reused as stored, never refetched) or from ONE bounded concurrent fetch.
+    Any other candidate — past the cap (never fetched), failed, or with no
+    fetcher configured — stays or becomes a paragraph, which the auto-link
+    pass then makes tappable.
+    """
+    embeds_on = get_setting("ALLOW_EMBED_BLOCKS")
+    candidates = []
+    for block in value:
+        url = None
+        if block["type"] == link_type:
+            url = block["value"]["url"].strip()
+        elif block["type"] == "paragraph":
+            url = _sole_url(block["value"])
+            if not is_card_url(url) or (embeds_on and is_supported_url(url)):
+                url = None
+        candidates.append(url)
+
+    chosen = [
+        url for url in dict.fromkeys(u for u in candidates if u) if is_card_url(url)
+    ][: get_setting("MAX_LINK_PREVIEWS_PER_BODY")]
+    fetcher = get_fetcher()
+    cards = {}
+    if fetcher is not None and chosen:
+        cards = {url: existing[url] for url in chosen if url in existing}
+        cards.update(
+            fetch_snapshots(fetcher, [url for url in chosen if url not in cards])
+        )
+
+    converted = []
+    for block, url in zip(value, candidates):
+        if url in cards:
+            block = {**block, "type": link_type, "value": cards[url]}
+        elif block["type"] == link_type:
+            if not url:
+                continue  # a card with no link left has nothing to show
+            block = {
+                **block,
+                "type": "paragraph",
+                "value": f"<p>{html.escape(url, quote=False)}</p>",
+            }
+        converted.append(block)
+    return converted
+
+
+# Characters that end a sentence rather than a link: "see https://x.com."
+_URL_TRAILING_PUNCTUATION = ".,;:!?"
+_URL_BRACKETS = {")": "(", "]": "[", "}": "{"}
+_URL_IN_TEXT = re.compile(r"https?://[^\s<>\"']+", re.IGNORECASE)
+
+
+def _trim_url(url):
+    """Drop sentence punctuation and closing brackets that belong to the
+    prose around a link, not to the link: ``(https://x.com/a).`` links
+    ``https://x.com/a``, while ``https://en.wikipedia.org/wiki/Foo_(bar)``
+    keeps its balanced ``)``."""
+    while url:
+        last = url[-1]
+        if last in _URL_TRAILING_PUNCTUATION:
+            url = url[:-1]
+        elif last in _URL_BRACKETS and url.count(last) > url.count(_URL_BRACKETS[last]):
+            url = url[:-1]
+        else:
+            break
+    return url
+
+
+def _link_urls(text):
+    """``text`` HTML-escaped, with each bare ``http(s)`` URL wrapped in an
+    ``<a>``."""
+    out = []
+    position = 0
+    for match in _URL_IN_TEXT.finditer(text):
+        url = _trim_url(match.group())
+        try:
+            has_host = bool(urlsplit(url).hostname)
+        except ValueError:
+            has_host = False
+        if not has_host:
+            continue
+        out.append(html.escape(text[position : match.start()], quote=False))
+        out.append(f'<a href="{html.escape(url)}">{html.escape(url, quote=False)}</a>')
+        position = match.start() + len(url)
+    out.append(html.escape(text[position:], quote=False))
+    return "".join(out)
+
+
+class _AutoLinker(HTMLParser):
+    """Re-emits sanitized paragraph HTML with every bare URL in its text
+    turned into a link — except text already inside an ``<a>`` (it IS a
+    link) or a ``<code>`` (a URL in a code sample is code). Tags are
+    re-emitted as parsed; the result is sanitized again by the caller."""
+
+    _SKIP = {"a", "code"}
+
+    def __init__(self):
+        super().__init__(convert_charrefs=True)
+        self.out = []
+        self.skip_depth = 0
+
+    def handle_starttag(self, tag, attrs):
+        self.out.append(self.get_starttag_text())
+        if tag in self._SKIP:
+            self.skip_depth += 1
+
+    def handle_startendtag(self, tag, attrs):
+        self.out.append(self.get_starttag_text())
+
+    def handle_endtag(self, tag):
+        self.out.append(f"</{tag}>")
+        if tag in self._SKIP and self.skip_depth:
+            self.skip_depth -= 1
+
+    def handle_data(self, data):
+        if self.skip_depth:
+            self.out.append(html.escape(data, quote=False))
+        else:
+            self.out.append(_link_urls(data))
+
+
+def autolink_rich_text(html_fragment):
+    """Sanitized paragraph HTML with its bare ``http(s)`` URLs linked (todo
+    428), so a link typed in prose is tappable on every client — the mobile
+    composer never links, and a failed card falls back to this. Input and
+    output are both passed through ``sanitize_rich_text``."""
+    parser = _AutoLinker()
+    parser.feed(sanitize_rich_text(html_fragment))
+    parser.close()
+    return sanitize_rich_text("".join(parser.out))
 
 
 # The forum index's welcome copy is CMS-authored, not user-submitted, so the
@@ -279,7 +429,13 @@ def _normalise_image_value(block_value, descriptions):
     return {"image": pk, "alt_text": alt, "decorative": decorative}
 
 
-def validate_forum_body(value, allowed_uploader_ids, user=None, existing_quote_ids=()):
+def validate_forum_body(
+    value,
+    allowed_uploader_ids,
+    user=None,
+    existing_quote_ids=(),
+    existing_link_previews=None,
+):
     """Validate + sanitize a forum post body (raw StreamField list-of-dicts).
 
     1. Reject an oversized body (block count / total size) — bounds parse cost.
@@ -303,6 +459,10 @@ def validate_forum_body(value, allowed_uploader_ids, user=None, existing_quote_i
     (or whose author has since blocked the editor) must not lock the author
     — or a moderator — out of saving any other change. Shape and caps still
     apply to every block; only NEWLY added quotes must resolve (todo 342).
+
+    ``existing_link_previews`` (edit only) maps each URL the stored body
+    already shows as a card to its stored value (``link_preview_snapshots``):
+    an edit that keeps the link keeps that card as stored, with no fetch.
 
     Returns the cleaned value so the caller stores the safe version.
     """
@@ -333,10 +493,18 @@ def validate_forum_body(value, allowed_uploader_ids, user=None, existing_quote_i
     # enforce value types here — to_python/clean do NOT: an int paragraph
     # value reaches nh3.clean() and raises TypeError (500), and an int heading
     # persists, breaking the text-by-contract render assumption.
+    # A link_preview card is re-derived from its URL on every write (see
+    # _convert_link_previews), so only the URL's type is checked here — the
+    # read envelope (image_url: null) sent straight back must not 400.
+    link_types = {
+        name
+        for name, block in body_block.child_blocks.items()
+        if isinstance(block, LinkPreviewBlock)
+    }
     struct_types = {
         name
         for name, block in body_block.child_blocks.items()
-        if isinstance(block, StructBlock) and name not in image_types
+        if isinstance(block, StructBlock) and name not in image_types | link_types
     }
     for block in value:
         if (
@@ -364,6 +532,11 @@ def validate_forum_body(value, allowed_uploader_ids, user=None, existing_quote_i
             # Either the ImageBlock dict or the pre-0037 bare PK. Membership and
             # uploader identity are verified below; shape only, here.
             if not _valid_image_block_value(block_value):
+                raise serializers.ValidationError(_("Invalid post body."))
+        elif block["type"] in link_types:
+            if not isinstance(block_value, dict) or not isinstance(
+                block_value.get("url"), str
+            ):
                 raise serializers.ValidationError(_("Invalid post body."))
         elif not isinstance(block_value, str):
             raise serializers.ValidationError(_("Invalid post body."))
@@ -510,6 +683,14 @@ def validate_forum_body(value, allowed_uploader_ids, user=None, existing_quote_i
                 )
             )
 
+    # Link cards (todo 428) last, after everything that can 400, so a body
+    # that is about to be refused never costs a page fetch — but before the
+    # dry-run, which then validates the blocks this produced.
+    if link_types:
+        value = _convert_link_previews(
+            value, min(link_types), existing_link_previews or {}
+        )
+
     try:
         body_block.to_python(value)
     except Exception as exc:  # malformed StreamField payload
@@ -525,7 +706,7 @@ def validate_forum_body(value, allowed_uploader_ids, user=None, existing_quote_i
     cleaned = []
     for block in value:
         if isinstance(block, dict) and block.get("type") in rich_text_types:
-            block = {**block, "value": sanitize_rich_text(block.get("value") or "")}
+            block = {**block, "value": autolink_rich_text(block.get("value") or "")}
         elif isinstance(block, dict) and block.get("type") in image_types:
             # Normalise to the ImageBlock dict on the way in, so a body written
             # by a pre-0037 client never persists a bare PK. That keeps

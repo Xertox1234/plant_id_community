@@ -416,6 +416,10 @@ Things worth knowing before changing this:
 | `WAGTAILFORUM_QUOTES_MAX_PER_POST` | `3` | Distinct posts one body may quote with the structured `post_quote` block (todo 342). |
 | `WAGTAILFORUM_QUOTE_MAX_CHARS` | `1000` | Max characters of a `post_quote` block's text; longer is a 400, never silently truncated. |
 | `WAGTAILFORUM_MAX_EMBED_URLS_PER_BODY` | `5` | Distinct embed URLs one body may carry (they resolve concurrently, so this bounds pool pressure per write and iframes per post, not wall time). |
+| `WAGTAILFORUM_LINK_PREVIEW_FETCHER` | `None` | Dotted path to the host callable that fetches a linked page's metadata for a `link_preview` card (see [Link previews](#link-previews)). `None` = no cards; links stay links. |
+| `WAGTAILFORUM_LINK_PREVIEW_FETCH_TIMEOUT_SECONDS` | `5` | One window for ALL of a body's page fetches at write time (they run concurrently). A fetch still running when it closes leaves that link a link. |
+| `WAGTAILFORUM_MAX_LINK_PREVIEWS_PER_BODY` | `5` | Distinct links per body that become cards, counted separately from `MAX_EMBED_URLS_PER_BODY`. Links past it are never fetched and stay links. |
+| `WAGTAILFORUM_LINK_PREVIEW_IMAGE_PREFIX` | `"forum/link-previews/"` | Storage prefix of the host's cached preview images. A card serves `image_url` only for a stored name under it with a sha256 stem and a `.jpg`/`.webp` suffix. |
 
 ## Embeds
 
@@ -464,6 +468,57 @@ so does a URL on its own line after other text. Once
 (explicit embed blocks first), any further link stays a paragraph rather than
 failing the post. With `WAGTAILFORUM_ALLOW_EMBED_BLOCKS` off, nothing
 converts (todo 421).
+
+## Link previews
+
+A link posted on its own becomes a `link_preview` card (todo 428): a
+**snapshot** of the linked page's title, description and site name, taken
+once at write time, that replaces the URL for every reader.
+
+```jsonc
+// write:  {"type": "paragraph", "value": "https://example.com/some/page"}
+//         (or a link_preview block — only its "url" is read)
+// stored: {"type": "link_preview", "value": {
+//   "url": "https://example.com/some/page", "title": "…", "description": "…",
+//   "site_name": "…", "domain": "example.com", "image": ""   // a storage name
+// }}
+// read:   {"type": "link_preview", "value": {
+//   "url": "…", "title": "…", "description": "…", "site_name": "…",
+//   "domain": "…", "image_url": "https://<your media>/…" // or null
+// }}      // value is null when the stored link is not http(s)
+```
+
+The package never fetches anything itself. The host names a callable in
+`WAGTAILFORUM_LINK_PREVIEW_FETCHER`, `fetcher(url) -> dict | None`, answering
+`{title, description, site_name, domain, image}` or `None` for "no card".
+Securing the fetch (public addresses only, redirects, size and time caps) is
+the host's job. Unset, nothing converts. The rules (`wagtail_forum/link_previews.py`):
+
+- **Which links.** On create, reply and edit, a `paragraph` whose only text is
+  one `http(s)` URL — after the video conversion above, so a URL the embed
+  finders accept is never a card while embeds are on — and any submitted
+  `link_preview` block. The first `WAGTAILFORUM_MAX_LINK_PREVIEWS_PER_BODY`
+  distinct URLs are fetched concurrently inside one
+  `WAGTAILFORUM_LINK_PREVIEW_FETCH_TIMEOUT_SECONDS` window. A link past the
+  cap, a fetch that fails, raises, answers `None` or runs past the window, and
+  a host with no fetcher all leave the link as a paragraph.
+- **Nothing in a card is the client's word.** A submitted `link_preview`
+  block is reduced to its URL. On edit, a URL the stored body already shows as
+  a card keeps that stored card (no refetch); every other field comes from the
+  fetcher. `image` is kept only if it is a name under
+  `WAGTAILFORUM_LINK_PREVIEW_IMAGE_PREFIX`, so a card can only show an image
+  the host downloaded and re-encoded — never a third-party address.
+- **Reads never fetch.** The card is served from the stored snapshot; a
+  stored `url` that is not `http(s)` (a CMS edit or an import) serves as
+  `null`.
+- **Spam and mentions read the URL, not the card.** The linked page wrote the
+  title and description; they are never screened or scanned for `@mentions`.
+
+Bare `http(s)` URLs inside any paragraph are also **auto-linked** on write
+(text already inside `<a>` or `<code>` is left alone; trailing sentence
+punctuation stays outside the link), so a link in prose is tappable on every
+client whether or not the host has a fetcher. The heuristic spam backend
+counts such a link — `<a href="X">X</a>` — once.
 
 ## Polls
 

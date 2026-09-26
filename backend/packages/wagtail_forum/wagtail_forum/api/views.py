@@ -75,6 +75,7 @@ except ImportError:  # pragma: no cover
 from ..blocks import ForumBodyBlock
 from ..collections import get_forum_image_collection
 from ..conf import get_setting
+from ..link_previews import link_preview_snapshots
 from ..models import (
     ForumBoard,
     ForumIdentificationAttachment,
@@ -1154,6 +1155,9 @@ class PostWriteView(UnversionedForumAPIMixin, APIView):
                 # Quotes the stored body already carries stay editable even
                 # if their target has since gone away (django review, 342).
                 "existing_quote_ids": quoted_post_ids(post.body.raw_data),
+                # A link card the author keeps is reused as stored — no
+                # refetch, and no change because the page changed (428).
+                "existing_link_previews": link_preview_snapshots(post.body.raw_data),
             },
         )
         serializer.is_valid(raise_exception=True)

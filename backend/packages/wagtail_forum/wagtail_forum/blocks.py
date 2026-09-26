@@ -2,6 +2,8 @@ from wagtail import blocks
 from wagtail.embeds.blocks import EmbedBlock
 from wagtail.images.blocks import ImageBlock
 
+from . import link_previews
+
 
 class CodeBlock(blocks.StructBlock):
     language = blocks.CharBlock(required=False)
@@ -25,6 +27,31 @@ class PostQuoteBlock(blocks.StructBlock):
 
     class Meta:
         icon = "openquote"
+
+
+class LinkPreviewBlock(blocks.StructBlock):
+    """A link posted on its own, stored as a card (todo 428): a SNAPSHOT of
+    the linked page taken once at write time by the host's fetcher, so a
+    read never fetches. ``image`` is a storage name under
+    ``WAGTAILFORUM_LINK_PREVIEW_IMAGE_PREFIX`` (the host's cached copy),
+    never a third-party URL; blank = a card without an image. The API
+    re-derives every field but ``url`` on write (api/sanitize.py)."""
+
+    url = blocks.URLBlock(max_length=link_previews.URL_MAX_LENGTH)
+    title = blocks.CharBlock(required=False, max_length=link_previews.TITLE_MAX_LENGTH)
+    description = blocks.TextBlock(
+        required=False, max_length=link_previews.DESCRIPTION_MAX_LENGTH
+    )
+    image = blocks.CharBlock(required=False, max_length=link_previews.IMAGE_MAX_LENGTH)
+    site_name = blocks.CharBlock(
+        required=False, max_length=link_previews.SITE_NAME_MAX_LENGTH
+    )
+    domain = blocks.CharBlock(
+        required=False, max_length=link_previews.DOMAIN_MAX_LENGTH
+    )
+
+    class Meta:
+        icon = "link"
 
 
 class ForumBodyBlock(blocks.StreamBlock):
@@ -66,6 +93,10 @@ class ForumBodyBlock(blocks.StreamBlock):
     # URL, so a CMS-inserted embed on a host that has not opted in renders
     # as a plain link. See wagtail_forum/embeds.py for the posture.
     embed = EmbedBlock(help_text="A video URL from a provider the site allows")
+    # A link posted on its own (todo 428). Declared unconditionally like
+    # `embed` (the block list is schema, migration 0039); only a host that
+    # sets WAGTAILFORUM_LINK_PREVIEW_FETCHER ever produces one.
+    link_preview = LinkPreviewBlock()
 
     class Meta:
         required = False
