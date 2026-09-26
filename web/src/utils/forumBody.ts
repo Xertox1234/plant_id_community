@@ -373,14 +373,17 @@ export function bodyBlocksToHtml(body: StreamFieldBlock[] | null | undefined): s
       }
       if (block.type === 'embed') {
         // The read shape is an envelope; only the original URL goes back
-        // into the composer, as a link paragraph htmlToBodyBlocks recognises.
-        // SECURITY: this is a hand-built HTML string later parsed into the
-        // live composer DOM — React's own href guard does not apply here —
-        // so a persisted URL with a non-http(s) scheme (a direct API POST
-        // that skipped the composer) is dropped, not linked (review).
+        // into the composer, as a link paragraph htmlToBodyBlocks recognises
+        // (see linkParagraphHtml for the scheme guard).
         const url = typeof block.value === 'string' ? block.value : block.value.url;
-        if (!url || !/^https?:\/\//i.test(url)) return '';
-        return `<p><a href="${escapeAttr(url)}">${escapeHtml(url)}</a></p>`;
+        return linkParagraphHtml(url);
+      }
+      if (block.type === 'link_preview') {
+        // A link card (todo 428) goes back into the composer as the link the
+        // author posted — the same <p><a> form as an embed. Saving it
+        // unchanged re-derives the same stored card server-side, with no
+        // fetch. A null value (an unusable stored link) has nothing to keep.
+        return block.value ? linkParagraphHtml(block.value.url) : '';
       }
       if (block.type === 'quote') {
         // Plain text in, escaped markup out — see escapeHtml. One <p> per
@@ -409,6 +412,19 @@ export function bodyBlocksToHtml(body: StreamFieldBlock[] | null | undefined): s
       return '';
     })
     .join('');
+}
+
+/**
+ * A stored link (an embed or a link card) as composer HTML: a paragraph
+ * holding only that link, which htmlToBodyBlocks and the server both read as
+ * "a link posted on its own". SECURITY: this is a hand-built HTML string
+ * later parsed into the live composer DOM — React's own href guard does not
+ * apply here — so a persisted URL with a non-http(s) scheme (a direct API
+ * POST that skipped the composer) is dropped, not linked (review).
+ */
+function linkParagraphHtml(url: string | null | undefined): string {
+  if (!url || !/^https?:\/\//i.test(url)) return '';
+  return `<p><a href="${escapeAttr(url)}">${escapeHtml(url)}</a></p>`;
 }
 
 /**

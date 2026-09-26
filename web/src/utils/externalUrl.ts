@@ -28,3 +28,24 @@ export function safeExternalUrl(
     return null;
   }
 }
+
+/**
+ * The address line of a link preview card (todo 428, owner decision
+ * 2026-09-24): the link's origin, plus "/…" when anything follows the root —
+ * `https://microsoft.com/…` for `https://microsoft.com/en-us/windows?x=1`.
+ * A card's visible text and its spoken label carry only this, never the
+ * full URL (a screen reader spells a URL out character by character, the
+ * build 13 bug from todo 424); the full URL is the card's `href` and its
+ * `title` (hover). Null when `safeExternalUrl` refuses the URL.
+ *
+ * The mobile twin is `linkPreviewShortAddress` (forum_body_block.dart); both
+ * are tested against the same table. They differ on an internationalised
+ * host: `URL` shows it as punycode, Dart's `Uri` as written.
+ */
+export function shortLinkAddress(value: string | null | undefined): string | null {
+  const safe = safeExternalUrl(value);
+  if (!safe) return null;
+  const parsed = new URL(safe);
+  const rest = `${parsed.pathname}${parsed.search}${parsed.hash}`;
+  return rest && rest !== '/' ? `${parsed.origin}/…` : parsed.origin;
+}

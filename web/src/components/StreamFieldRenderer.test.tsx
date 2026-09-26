@@ -1044,3 +1044,43 @@ describe('StreamFieldRenderer', () => {
     });
   });
 });
+
+describe('StreamFieldRenderer link_preview blocks (todo 428)', () => {
+  const url = 'https://example.com/articles/growing-basil?utm=x';
+
+  it('renders a stored link card with the short address, not the URL', () => {
+    const { container } = render(
+      <StreamFieldRenderer
+        mentionHighlight
+        blocks={[
+          {
+            id: 'lp',
+            type: 'link_preview',
+            value: {
+              url,
+              title: 'Growing basil',
+              description: 'Sun and water.',
+              site_name: 'Example',
+              domain: 'example.com',
+              image_url: null,
+            },
+          },
+        ]}
+      />
+    );
+
+    const link = screen.getByRole('link', { name: 'Growing basil, https://example.com/…' });
+    expect(link).toHaveAttribute('href', url);
+    expect(container.textContent).not.toContain(url);
+    expect(screen.queryByText('Unsupported block type')).toBeNull();
+  });
+
+  it('renders nothing for a card the server served as null', () => {
+    const { container } = render(
+      <StreamFieldRenderer blocks={[{ id: 'lp', type: 'link_preview', value: null }]} />
+    );
+
+    expect(screen.queryByText('Unsupported block type')).toBeNull();
+    expect(container.querySelector('a')).toBeNull();
+  });
+});

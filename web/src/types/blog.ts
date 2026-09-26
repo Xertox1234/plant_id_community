@@ -152,6 +152,30 @@ export interface EmbedBlock extends BaseStreamFieldBlock {
 }
 
 /**
+ * A link posted on its own, stored as a card (todo 428) — the READ envelope
+ * of a `link_preview` block (backend `link_preview_envelope`). A snapshot the
+ * server took once at write time: reading a post never contacts the linked
+ * site. `image_url` is OUR media storage's re-encoded copy of the page's
+ * image (relative `/media/...` in dev), never a third-party address, or null.
+ * `value` is null when the stored link is not a usable http(s) URL — render
+ * nothing. The composer's live preview is the similar `LinkPreview`
+ * (types/forum.ts), which carries `available` and a third-party image.
+ */
+export interface LinkPreviewBlockValue {
+  url: string;
+  title: string;
+  description: string;
+  site_name: string;
+  domain: string;
+  image_url: string | null;
+}
+
+export interface LinkPreviewBlock extends BaseStreamFieldBlock {
+  type: 'link_preview';
+  value: LinkPreviewBlockValue | null;
+}
+
+/**
  * A quote OF A SPECIFIC FORUM POST (todo 342) — the READ envelope of a
  * `post_quote` block (backend `serialize_post_quote`). `text` is PLAIN TEXT
  * by the same contract as the legacy `quote` block: the server leaves it
@@ -189,6 +213,7 @@ export type StreamFieldBlock =
   | CodeBlock
   | ImageBlock
   | EmbedBlock
+  | LinkPreviewBlock
   | PlantSpotlightBlock
   | CallToActionBlock;
 
