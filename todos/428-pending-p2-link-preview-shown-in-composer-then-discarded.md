@@ -274,3 +274,12 @@ So the preview is built and it works; it just isn't used where it matters.
   late and recorded a call into a later test. That cause is a hypothesis
   from the timing; I could not reproduce the failure on demand. The fetcher
   now blocks on an event that the test releases.
+- **Review round 1 found no blocking issue** (bundled `/code-review` and
+  `code-review-orchestrator`), so no round 2 was needed. The seven
+  non-blocking findings are in **todo 448**. Its items 1–3 (fetch-queue
+  backlog, a sole `<code>` URL becoming a card, `URLBlock` rejecting hosts
+  that `is_card_url` accepts) are a **gate for slice C**: fix them before
+  the host setting is turned on.
+- **Full backend suite: 3865 passed, 8 skipped, 1 failed.** The failure was
+  an expected change: a video link past the cap is now stored auto-linked.
+  I updated that assertion, and the embed autoconvert file passes (20/20).

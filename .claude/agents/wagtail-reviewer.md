@@ -224,6 +224,16 @@ You review: `apps/blog/`, Wagtail page models, StreamField blocks, signals, Wagt
   and isolate each create in a savepoint; a CMS-editable unique field
   (`name`) is a collision waiting to block deploys.
 
+### Link preview additions (2026-09-25, todo 428)
+
+- A new forum body block type: check that the web `bodyBlocksToHtml` and the
+  mobile `ForumComposeArgs.edit` handle it, not only the renderers. An
+  unhandled type is dropped on the first web edit (silent data loss). Until
+  both are handled, the block must stay behind a host setting that is unset.
+- A block the server derives (a snapshot or card) that a client can resend:
+  check that the write path re-derives it from its key and never stores
+  client-supplied fields.
+
 ## Output Format (Review Mode)
 
 Return ONLY this JSON structure (no surrounding prose, no markdown fences in the actual response — the example fences below show the schema):

@@ -167,3 +167,16 @@ Compact checklist auto-injected before edits to the forum code. Long-form:
   `_visible_boards()` / `_get_visible_post`). A reply stays `live=True` when a
   moderator takes its TOPIC down, so filtering on the row's own `live` alone
   counts it and links it to a 404 (PR #821).
+- **A server-derived body block is re-derived on every write, never trusted
+  from the request.** A client can resend any block it read, so a card or
+  snapshot is reduced to its key (a `link_preview` to its URL). Its other
+  fields come from the stored body (the edit path passes them, as
+  `existing_quote_ids` does) or from the server's own fetch. Otherwise any
+  member can post a card whose title and image say one thing while the link
+  goes elsewhere (todo 428).
+- **Changing stored markup changes every raw-markup counter over it.** The
+  heuristic spam check counts `https?://` in flattened HTML, so auto-linking
+  made `<a href="X">X</a>` count twice. Fix it in the text walker by
+  collapsing a link whose text equals its href; never loosen the counter.
+  Screen and mention-scan only what the author wrote: a link card flattens to
+  its URL, never the fetched title (todo 428).
