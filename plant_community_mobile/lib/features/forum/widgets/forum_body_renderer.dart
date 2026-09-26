@@ -1,5 +1,7 @@
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/semantics.dart';
+import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
@@ -11,8 +13,8 @@ import 'forum_html_text.dart';
 
 /// Renders a parsed forum body (list of [ForumBodyBlock]) with block parity to
 /// the web `StreamFieldRenderer`: heading, paragraph (HTML), quote, post
-/// quote, code, image, plus graceful fallbacks for deleted images and
-/// unknown block types.
+/// quote, code, image, video embed, link card, plus graceful fallbacks for
+/// deleted images and unknown block types.
 class ForumBodyRenderer extends StatelessWidget {
   const ForumBodyRenderer(
     this.blocks, {
@@ -80,6 +82,10 @@ class ForumBodyRenderer extends StatelessWidget {
           thumbnailUrl: thumbnailUrl,
           onOpenLink: onOpenLink,
         ),
+      LinkPreviewBlock card => _LinkPreviewCard(
+        card: card,
+        onOpenLink: onOpenLink,
+      ),
       DeletedImageBlock() => _Placeholder(
         icon: LucideIcons.imageOff,
         label: 'Image unavailable',
@@ -481,6 +487,167 @@ class _EmbedCard extends StatelessWidget {
       ),
     );
   }
+}
+
+/// A link posted on its own, as a card (todo 428): image, site, title,
+/// description and the SHORTENED address ([linkPreviewShortAddress]) — never
+/// the full URL on screen or in the spoken label. Tapping hands the URL to
+/// [onOpenLink], like a paragraph link (the thread opens it in the in-app
+/// browser, todo 424). The full URL is reachable two ways (owner decision
+/// 2026-09-24): a long-press opens a sheet showing it with "Copy link", and
+/// a screen reader gets "Show full address" and "Copy link" as custom
+/// actions, which VoiceOver offers without any gesture. The owner's brief
+/// said a Tooltip; a tooltip overlay cannot hold a tappable "Copy link", so
+/// the long-press opens a sheet instead. A card with no usable link (a
+/// `null` envelope) renders nothing, as the web does.
+class _LinkPreviewCard extends StatelessWidget {
+  const _LinkPreviewCard({required this.card, this.onOpenLink});
+  final LinkPreviewBlock card;
+  final void Function(String href)? onOpenLink;
+
+  @override
+  Widget build(BuildContext context) {
+    final address = linkPreviewShortAddress(card.url);
+    if (address == null) return const SizedBox.shrink();
+    final theme = Theme.of(context);
+    final title = [
+      card.title,
+      card.siteName,
+      card.domain,
+    ].firstWhere((text) => text.isNotEmpty, orElse: () => address);
+    final source = card.siteName.isNotEmpty ? card.siteName : card.domain;
+    final url = card.url;
+    final onOpenLink = this.onOpenLink;
+    final onTap = onOpenLink == null ? null : () => onOpenLink(url);
+    void showAddress() => _showLinkAddressSheet(context, url);
+    return Semantics(
+      label: title == address ? 'Link: $address' : 'Link: $title, $address',
+      button: onTap != null,
+      onTap: onTap,
+      onLongPress: showAddress,
+      customSemanticsActions: {
+        const CustomSemanticsAction(label: 'Show full address'): showAddress,
+        const CustomSemanticsAction(label: 'Copy link'): () =>
+            _copyLink(context, url),
+      },
+      // One node: the label already says what the Text children say, and
+      // without this the InkWell adds a focusable child carrying its own
+      // tap and long-press but no label — an unlabeled button.
+      excludeSemantics: true,
+      child: Material(
+        color: theme.colorScheme.surfaceContainerHighest,
+        borderRadius: BorderRadius.circular(AppSpacing.rXs),
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          onTap: onTap,
+          onLongPress: showAddress,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              if (card.imageUrl.isNotEmpty)
+                AspectRatio(
+                  aspectRatio: 1.91,
+                  child: CachedNetworkImage(
+                    imageUrl: card.imageUrl,
+                    fit: BoxFit.cover,
+                    placeholder: (context, _) => ColoredBox(
+                      color: theme.colorScheme.surfaceContainerHigh,
+                    ),
+                    errorWidget: (context, _, _) => const SizedBox.shrink(),
+                  ),
+                ),
+              Padding(
+                padding: const EdgeInsets.all(AppSpacing.sm),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    if (source.isNotEmpty)
+                      Text(
+                        source.toUpperCase(),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: theme.textTheme.labelSmall?.copyWith(
+                          color: theme.colorScheme.onSurfaceVariant,
+                        ),
+                      ),
+                    Text(
+                      title,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: theme.textTheme.bodyMedium?.copyWith(
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    if (card.description.isNotEmpty)
+                      Text(
+                        card.description,
+                        maxLines: 3,
+                        overflow: TextOverflow.ellipsis,
+                        style: theme.textTheme.bodySmall,
+                      ),
+                    if (title != address)
+                      Text(
+                        address,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: theme.colorScheme.onSurfaceVariant,
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+Future<void> _copyLink(BuildContext context, String url) async {
+  final messenger = ScaffoldMessenger.maybeOf(context);
+  await Clipboard.setData(ClipboardData(text: url));
+  messenger?.showSnackBar(const SnackBar(content: Text('Link copied')));
+}
+
+/// The long-press sheet of a link card: the full address, selectable, and
+/// "Copy link".
+Future<void> _showLinkAddressSheet(BuildContext context, String url) {
+  return showModalBottomSheet<void>(
+    context: context,
+    showDragHandle: true,
+    useSafeArea: true,
+    builder: (sheetContext) {
+      final theme = Theme.of(sheetContext);
+      return Padding(
+        padding: const EdgeInsets.fromLTRB(
+          AppSpacing.md,
+          0,
+          AppSpacing.md,
+          AppSpacing.md,
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Full address', style: theme.textTheme.titleSmall),
+            const SizedBox(height: AppSpacing.xs),
+            SelectableText(url, style: theme.textTheme.bodyMedium),
+            const SizedBox(height: AppSpacing.sm),
+            FilledButton.tonalIcon(
+              icon: const Icon(LucideIcons.copy, size: 18),
+              label: const Text('Copy link'),
+              onPressed: () {
+                Navigator.of(sheetContext).pop();
+                _copyLink(context, url);
+              },
+            ),
+          ],
+        ),
+      );
+    },
+  );
 }
 
 class _Placeholder extends StatelessWidget {

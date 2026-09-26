@@ -58,6 +58,8 @@ describe('LinkPreviewCard (todo 428)', () => {
 
     expect(screen.getByRole('link')).toHaveAccessibleName(SHORT);
     expect(container.textContent).not.toContain(FULL_URL);
+    // The title already is the address; the address line is not repeated.
+    expect(screen.getAllByText(SHORT)).toHaveLength(1);
   });
 
   it('shows a stored card image from our own media origin', () => {

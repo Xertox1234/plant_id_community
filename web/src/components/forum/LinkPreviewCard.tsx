@@ -78,7 +78,7 @@ export default function LinkPreviewCard({ preview, variant = 'composer' }: LinkP
           {preview.description && (
             <p className="line-clamp-3 text-sm leading-5 text-ink-2">{preview.description}</p>
           )}
-          <p className="truncate text-xs text-ink-3">{address}</p>
+          {title !== address && <p className="truncate text-xs text-ink-3">{address}</p>}
         </div>
         <span id={hintId} className="sr-only">
           Opens in a new tab

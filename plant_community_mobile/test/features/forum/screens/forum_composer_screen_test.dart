@@ -599,4 +599,46 @@ void _backGuardTests() {
       expect(find.byType(ForumComposerScreen), findsNothing);
     });
   });
+
+  group('editing a post the server turned into a link card (todo 428)', () {
+    test('a single card offers its URL, like a video card', () {
+      const url = 'https://example.com/a_b?c=1';
+      final args = ForumComposeArgs.edit(
+        post: post(
+          id: 7,
+          body: const [LinkPreviewBlock(url: url, title: 'A page')],
+          canEdit: true,
+        ),
+      );
+
+      expect(args.initialBodyText, escapeMarkerChars(url));
+      expect(args.hasNonTextContent, isFalse);
+      // Re-posting the field sends back exactly the URL.
+      expect(generateForumRichHtml(args.initialBodyText), url);
+    });
+
+    test('a card next to other blocks still warns', () {
+      final args = ForumComposeArgs.edit(
+        post: post(
+          id: 7,
+          body: const [
+            ParagraphBlock('Look at this'),
+            LinkPreviewBlock(url: 'https://example.com/'),
+          ],
+        ),
+      );
+
+      expect(args.hasNonTextContent, isTrue);
+      expect(args.initialBodyText, isEmpty);
+    });
+
+    test('a card with no usable link offers nothing and warns', () {
+      final args = ForumComposeArgs.edit(
+        post: post(id: 7, body: const [LinkPreviewBlock(url: '')]),
+      );
+
+      expect(args.hasNonTextContent, isTrue);
+      expect(args.initialBodyText, isEmpty);
+    });
+  });
 }
