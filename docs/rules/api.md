@@ -232,3 +232,7 @@ Compact checklist auto-injected before edits. Long-form:
   `extend_schema(request=...)` can be interpreted as a content map and produce
   an invalid OpenAPI document; add a generated-schema regression assertion and
   run `spectacular --validate` in CI.
+- **Give every refusal reason behind one status its own `code` before a client
+  offers a remedy.** The Firebase exchange answered 409 for five reasons; a
+  "reset your password" link fixes one of them and loops the user on the rest
+  (todo 447).

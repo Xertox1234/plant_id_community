@@ -793,6 +793,59 @@ def test_cross_site_deploy_gets_samesite_none_and_secure(self): ...
 
 See `docs/LEARNINGS.md` 2026-08-13 for the full incident.
 
+## Expiring Unverified Accounts
+
+`manage.py expire_unverified_accounts` (todo 447 slice C) deletes password
+accounts that never verified their email and never came back. Deleting a user
+is the most destructive thing a job can do here: foreign keys to `User` are
+CASCADE in some places (DMs, blog comments, plant IDs) and SET_NULL in others
+(forum posts, topics, revisions, refresh tokens). So the rules err towards
+keeping the account.
+
+1. **SQL filters for the owner-named rules.** Password, no verified address,
+   no provider link, not staff, age, no sign-in after registering, no forum
+   post, topic or revision.
+2. **"Never signed in" checks two signals.** `last_login` moves on a password
+   sign-in only. The refresh view rotates through `RefreshToken.for_user`,
+   which writes an `OutstandingToken`, so a kept-alive session shows up as a
+   token created after `date_joined` plus a small margin. Registration's own
+   token lands a fraction of a second after the row.
+3. **A backstop against a measured baseline.** Registration hands back a
+   15-minute access token, so an account that "never signed in" can still own
+   data. Count every relation, hidden ones included, and allow only what a
+   real registration leaves behind:
+
+   ```python
+   for field in user._meta.get_fields(include_hidden=True):
+       if field.auto_created and not field.concrete:          # reverse relations
+           model = field.related_model
+           if model._meta.auto_created:                        # m2m through table
+               continue
+           rows = model._base_manager.filter(**{field.field.name: user})
+           if rows.count() > SIGNUP_ROWS.get(model._meta.label, 0):
+               return model._meta.label                        # keep the account
+       elif field.many_to_many or field.one_to_many:           # forward m2m, generic
+           ...
+   ```
+
+   Measure `SIGNUP_ROWS` by posting to `/api/v1/auth/register/` in a test and
+   listing the non-empty relations. Do not write it from memory. A model added
+   later is then covered automatically.
+4. **List, then re-check under a lock.** Collect candidate ids first. Then, per
+   account, in its own `transaction.atomic()`, re-run the candidate query with
+   `select_for_update().filter(pk=pk)` and delete. An account that signs in
+   mid-run is kept, and a failed delete rolls back only itself.
+5. **Delete the account's `OutstandingToken` rows explicitly.** The FK is
+   SET_NULL, so they would otherwise stay behind with no user.
+6. **Make the overlapping guards testable.** The backstop also catches a forum
+   post, so removing the explicit post filter would survive a plain "was it
+   kept?" test. The summary line counts "candidates" (SQL) apart from "kept"
+   (per-row checks), and each test asserts the whole line, so every guard
+   fails its own test under mutation.
+
+`--dry-run` reports without deleting. The first scheduled run in production is
+a dry run.
+
 ---
 
 ## Related Patterns

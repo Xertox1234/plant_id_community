@@ -474,7 +474,14 @@ class ApiService {
               'Request failed with status $statusCode';
         }
 
-        return ApiException(message, statusCode: statusCode);
+        final code = responseData is Map<String, dynamic>
+            ? responseData['code']
+            : null;
+        return ApiException(
+          message,
+          statusCode: statusCode,
+          code: code is String ? code : null,
+        );
 
       case DioExceptionType.cancel:
         return ApiException('Request was cancelled', statusCode: null);
@@ -505,7 +512,11 @@ class ApiException implements Exception {
   final String message;
   final int? statusCode;
 
-  ApiException(this.message, {this.statusCode});
+  /// The response body's machine-readable `code`, when it has one (e.g. the
+  /// token exchange's 409 `unverified_account`).
+  final String? code;
+
+  ApiException(this.message, {this.statusCode, this.code});
 
   @override
   String toString() => statusCode != null

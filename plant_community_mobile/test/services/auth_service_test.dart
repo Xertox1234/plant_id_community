@@ -113,6 +113,78 @@ void main() {
     });
   });
 
+  group('account conflict (todo 447)', () {
+    test('a 409 unverified_account offers the reset link', () async {
+      // A Django account holds the email unverified: the one conflict the
+      // user can clear by resetting its password, so main.dart shows the
+      // link.
+      final harness = _Harness();
+      addTearDown(harness.dispose);
+      harness.api.postError = ApiException(
+        'Account linking conflict',
+        statusCode: 409,
+        code: 'unverified_account',
+      );
+      harness.container.read(authServiceProvider);
+
+      await harness.signIn(_FakeUser(uid: 'ada'));
+
+      final state = harness.container.read(authServiceProvider);
+      expect(state.unverifiedAccountConflict, isTrue);
+      expect(state.error, accountConflictMessage);
+      expect(state.isAuthenticated, isFalse);
+    });
+
+    test('any other 409 says so without the reset link', () async {
+      // Linked to another Firebase identity, or several accounts: a reset
+      // would not help, so no link.
+      final harness = _Harness();
+      addTearDown(harness.dispose);
+      harness.api.postError = ApiException(
+        'Account linking conflict',
+        statusCode: 409,
+        code: 'account_conflict',
+      );
+      harness.container.read(authServiceProvider);
+
+      await harness.signIn(_FakeUser(uid: 'ada'));
+
+      final state = harness.container.read(authServiceProvider);
+      expect(state.unverifiedAccountConflict, isFalse);
+      expect(state.error, accountLinkFailedMessage);
+    });
+
+    test('a non-409 failure is not a conflict', () async {
+      final harness = _Harness();
+      addTearDown(harness.dispose);
+      harness.api.postError = ApiException(
+        'server down',
+        statusCode: 500,
+        code: 'unverified_account',
+      );
+      harness.container.read(authServiceProvider);
+
+      await harness.signIn(_FakeUser(uid: 'ada'));
+
+      final state = harness.container.read(authServiceProvider);
+      expect(state.unverifiedAccountConflict, isFalse);
+      expect(state.error, isNot(accountConflictMessage));
+      expect(state.error, isNot(accountLinkFailedMessage));
+    });
+
+    test('copyWith clears the flag with the error', () {
+      const conflicted = AuthState(
+        error: accountConflictMessage,
+        unverifiedAccountConflict: true,
+      );
+
+      expect(
+        conflicted.copyWith(isLoading: true).unverifiedAccountConflict,
+        isFalse,
+      );
+    });
+  });
+
   group('ordering', () {
     test('clearOnLogout runs BEFORE Firebase sign-out', () async {
       // The clear PATCH authenticates with the Django JWT, which sign-out

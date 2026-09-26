@@ -108,6 +108,34 @@ class FirebaseTokenExchangeTestCase(TestCase):
         self.assertEqual(response.status_code, status.HTTP_409_CONFLICT)
         # Generic message to the client; the specific reason stays in logs only.
         self.assertEqual(response.data["error"], "Account linking conflict")
+        self.assertEqual(response.data["code"], "account_conflict")
+
+    @patch("apps.users.firebase_auth_views.firebase_auth.verify_id_token")
+    def test_unverified_local_account_409_says_so(self, mock_verify):
+        """The one conflict the caller can clear (reset, sign in, confirm)
+        carries its own code, so the app offers the reset link only then
+        (todo 447 slice C). Only the address's proven owner sees it: the
+        token's email_verified claim is required before this point."""
+        User.objects.create_user(
+            username="squat",
+            email="owner@example.com",
+            password="x-Password-1",  # pragma: allowlist secret
+        )
+        mock_verify.return_value = {
+            "uid": "owner-uid",
+            "email": "owner@example.com",
+            "email_verified": True,
+        }
+
+        response = self.client.post(
+            self.url,
+            {"firebase_token": self.firebase_token},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_409_CONFLICT)
+        self.assertEqual(response.data["error"], "Account linking conflict")
+        self.assertEqual(response.data["code"], "unverified_account")
 
     @patch("apps.users.firebase_auth_views.firebase_auth.verify_id_token")
     def test_successful_token_exchange_existing_user(self, mock_verify):

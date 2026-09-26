@@ -455,3 +455,9 @@ Compact checklist auto-injected before edits. Long-form: `backend/docs/patterns/
 - **Resolve an OAuth sign-in by the provider's stable account id before its
   email**, and cap a mail whose link expires per time window, never for life:
   a lifetime cap outlives every link and strands the real owner (todo 447).
+- **A job that deletes user accounts keeps any account holding a row it did
+  not expect.** Count every relation to `User` (`get_fields(include_hidden=True)`,
+  base managers) against a baseline measured by driving the real signup
+  endpoint; re-check each account under `select_for_update` before deleting.
+  "Never signed in" means no later `last_login` AND no later refresh token:
+  rotation issues tokens without moving `last_login` (todo 447).

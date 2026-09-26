@@ -24,6 +24,7 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_COLLECTION_NAME = "My Plants"
 DEFAULT_COLLECTION_DESCRIPTION = "My personal plant collection"
+FORUM_MEMBERS_GROUP_NAME = "Forum Members"
 
 
 def create_default_plant_collection(user) -> UserPlantCollection:
@@ -64,5 +65,5 @@ def join_forum_members_group(user) -> None:
     collection`` above uses ``get_or_create`` rather than assuming its target
     already exists.
     """
-    group, _ = Group.objects.get_or_create(name="Forum Members")
+    group, _ = Group.objects.get_or_create(name=FORUM_MEMBERS_GROUP_NAME)
     group.user_set.add(user)
