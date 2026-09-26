@@ -63,6 +63,15 @@ but rare.
      candidate with the dot kept. `_trim_url` could apply before the card
      check.
 
+8. **`test_spam.py` fails when run on its own (pre-existing).**
+   - Where: `test_spam.py`. Its non-DB tests call `get_setting`, and the
+     host override provider (`apps/forum_host/forum_settings.py::_load_values`)
+     reads the DB whenever its cached values are cold.
+   - Run alone with a cold cache, 10 of 14 fail with "Database access not
+     allowed". Run after any DB test, they pass. The full suite is unaffected.
+   - Fix: give those tests the `db` mark, or stub the provider for non-DB
+     tests.
+
 ## Acceptance Criteria
 
 - [ ] Items 1–3 are fixed and pinned by tests (each mutation-checked) before

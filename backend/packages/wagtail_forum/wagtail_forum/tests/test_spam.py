@@ -163,8 +163,8 @@ def test_a_link_hiding_its_address_still_counts():
         '<a href="https://spam.example/2">https://other.example/</a></p>'
     )
     text = extract_text(_card_body({"type": "paragraph", "value": html}))
-    assert "https://spam.example/" in text
-    assert "https://spam.example/2" in text
+    # Both hidden destinations count, plus the visible (different) address.
+    assert len(URL_COUNT.findall(text)) == 3
 
 
 def test_four_distinct_autolinked_urls_are_still_too_many():
