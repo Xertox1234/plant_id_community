@@ -495,7 +495,8 @@ card". `deadline` is the `time.monotonic()` value at which the package stops
 waiting, counted from when it submitted the fetch, not from when a pool thread
 picked it up, so a fetcher that budgets its own work finishes inside the
 window. Securing the fetch (public addresses only, redirects, size and time
-caps) is the host's job. Unset, nothing converts. The rules (`wagtail_forum/link_previews.py`):
+caps) is the host's job. Unset, no new card is made; a card the stored body
+already shows is still kept when its post is edited (reuse needs no fetch). The rules (`wagtail_forum/link_previews.py`):
 
 - **Which links.** On create, reply and edit, a `paragraph` whose only text is
   one `http(s)` URL that Django's `URLValidator` (the block's own check)
@@ -518,7 +519,8 @@ caps) is the host's job. Unset, nothing converts. The rules (`wagtail_forum/link
   second post showing the same image reuses the stored file.
 - **Reads never fetch.** The card is served from the stored snapshot; a
   stored `url` that is not `http(s)` (a CMS edit or an import) serves as
-  `null`.
+  `null`. `image_url` is made absolute against the request, like an image
+  block's URL.
 - **Spam and mentions read the URL, not the card.** The linked page wrote the
   title and description; they are never screened or scanned for `@mentions`.
 

@@ -834,7 +834,7 @@ def serialize_forum_body(
             # The snapshot stored at write time (todo 428) — pure data, so a
             # read never contacts the linked site. None when the stored value
             # holds no usable link (a CMS edit or import wrote it).
-            value = link_preview_envelope(raw_value)
+            value = link_preview_envelope(raw_value, request)
         elif isinstance(child, RichTextBlock):
             value = expand_db_html(raw_value or "")
         elif block_type == "post_quote":

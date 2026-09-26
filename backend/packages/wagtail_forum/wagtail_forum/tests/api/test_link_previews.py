@@ -390,6 +390,42 @@ def test_an_edit_that_keeps_a_card_reuses_it_without_fetching(resend):
     assert CALLS == []
 
 
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    "resend",
+    [
+        # Web: the card goes back into the editor as its link.
+        lambda url, _card: _paragraph(f'<p><a href="{url}">{url}</a></p>'),
+        # Mobile: the edit field holds the bare URL.
+        lambda url, _card: _paragraph(url),
+        # A client that echoes the block it read.
+        lambda url, card: {"type": "link_preview", "value": card},
+    ],
+)
+def test_an_edit_keeps_a_stored_card_while_no_fetcher_is_set(resend):
+    """The host's kill switch (or a host that later drops its fetcher) stops
+    NEW cards. It must not strip the cards already stored the next time their
+    post is edited for an unrelated typo: reusing a stored card needs no
+    fetch (slice C review)."""
+    url = "https://example.com/"
+    user = _member()
+    with _fetcher("fake_fetcher"):
+        _create(_client(user), _board(), [_paragraph(url)])
+    post = Post.objects.get()
+    stored = post.body.raw_data[0]["value"]
+
+    with override_settings(WAGTAILFORUM_LINK_PREVIEW_FETCHER=None):
+        resp = _client(user).patch(
+            f"/forum/posts/{post.id}/",
+            {"body": [resend(url, stored), _paragraph("A fixed typo.")]},
+            format="json",
+        )
+
+    assert resp.status_code == 200, resp.data
+    post.refresh_from_db()
+    assert _stored(post)[0] == ("link_preview", _card(url, "example.com"))
+
+
 # --- read ---------------------------------------------------------------
 
 
@@ -432,7 +468,10 @@ def test_a_cached_image_is_served_from_our_storage():
 
     from django.core.files.storage import default_storage
 
-    assert value["image_url"] == default_storage.url(IMAGE)
+    # Absolute against the request, like an image block's URL: local storage
+    # answers a relative /media/... the mobile client cannot resolve.
+    assert default_storage.url(IMAGE).startswith("/")
+    assert value["image_url"] == "http://testserver" + default_storage.url(IMAGE)
 
 
 def _read_stored_card(stored):

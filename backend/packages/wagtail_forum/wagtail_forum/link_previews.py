@@ -257,20 +257,21 @@ def link_preview_snapshots(raw_data) -> dict:
     return stored
 
 
-def link_preview_envelope(raw_value):
+def link_preview_envelope(raw_value, request=None):
     """The API shape of a ``link_preview`` block, or ``None`` when the stored
     value holds no usable link (clients skip a null card). Pure data: no
     fetch, no query. ``image_url`` is our own storage's URL for a cached
-    image, else ``None`` — never a third-party address."""
+    image, else ``None`` — never a third-party address. Made absolute against
+    ``request`` like an image block's URL: local storage answers a relative
+    ``/media/...``, which the mobile client cannot resolve on its own."""
     value = raw_value if isinstance(raw_value, dict) else {}
     url = value.get("url")
     if not is_card_url(url):
         return None
     image = value.get("image")
-    return {
-        "url": url,
-        **_stored_text(value),
-        "image_url": (
-            default_storage.url(image) if is_cached_image_name(image) else None
-        ),
-    }
+    image_url = None
+    if is_cached_image_name(image):
+        image_url = default_storage.url(image)
+        if request is not None:
+            image_url = request.build_absolute_uri(image_url)
+    return {"url": url, **_stored_text(value), "image_url": image_url}

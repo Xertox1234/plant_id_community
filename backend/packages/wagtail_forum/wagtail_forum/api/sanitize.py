@@ -148,10 +148,10 @@ def _convert_link_previews(value, link_type, existing):
     first and "video wins"), and a resubmitted ``link_preview`` block, which
     is reduced to its URL. The first ``MAX_LINK_PREVIEWS_PER_BODY`` distinct
     URLs get a card: from ``existing`` (the stored body's cards, on edit —
-    reused as stored, never refetched) or from ONE bounded concurrent fetch.
-    Any other candidate — past the cap (never fetched), failed, or with no
-    fetcher configured — stays or becomes a paragraph, which the auto-link
-    pass then makes tappable.
+    reused as stored, never refetched, with or without a fetcher) or from ONE
+    bounded concurrent fetch. Any other candidate — past the cap (never
+    fetched), failed, or new while no fetcher is configured — stays or
+    becomes a paragraph, which the auto-link pass then makes tappable.
     """
     embeds_on = get_setting("ALLOW_EMBED_BLOCKS")
     candidates = []
@@ -168,13 +168,14 @@ def _convert_link_previews(value, link_type, existing):
     chosen = [
         url for url in dict.fromkeys(u for u in candidates if u) if is_card_url(url)
     ][: get_setting("MAX_LINK_PREVIEWS_PER_BODY")]
+    # A card the stored body already shows is reused even with NO fetcher:
+    # reuse needs no fetch, and a host that turns cards off (its kill
+    # switch) must stop new cards, not strip existing ones on the next edit.
+    cards = {url: existing[url] for url in chosen if url in existing}
     fetcher = get_fetcher()
-    cards = {}
-    if fetcher is not None and chosen:
-        cards = {url: existing[url] for url in chosen if url in existing}
-        cards.update(
-            fetch_snapshots(fetcher, [url for url in chosen if url not in cards])
-        )
+    to_fetch = [url for url in chosen if url not in cards]
+    if fetcher is not None and to_fetch:
+        cards.update(fetch_snapshots(fetcher, to_fetch))
 
     converted = []
     for block, url in zip(value, candidates):

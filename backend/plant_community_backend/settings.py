@@ -1039,8 +1039,9 @@ API_PUBLIC_URL = config("API_PUBLIC_URL", default="")
 # a card (title, description, site, and OUR re-encoded copy of its image),
 # fetched once at write time through the SSRF-pinned host fetcher; reads never
 # fetch. FORUM_LINK_PREVIEWS_ENABLED=False is the kill switch (links then stay
-# auto-linked paragraphs; stored cards still render). Off under test runs so
-# no test reaches the network: a test that wants cards overrides the setting.
+# auto-linked paragraphs; stored cards still render and survive edits). Off
+# under test runs so no test reaches the network: a test that wants cards
+# overrides the setting.
 LINK_PREVIEW_FETCHER_PATH = "apps.forum_host.link_preview.link_preview_snapshot"
 WAGTAILFORUM_LINK_PREVIEW_FETCHER = (
     LINK_PREVIEW_FETCHER_PATH
