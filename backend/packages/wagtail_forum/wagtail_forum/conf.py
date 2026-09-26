@@ -150,8 +150,10 @@ DEFAULTS = {
     # pressure per write (and reader-side iframes per post), not wall time.
     "MAX_EMBED_URLS_PER_BODY": 5,
     # Link preview cards (todo 428). Dotted path to a host callable
-    # ``fetcher(url) -> {title, description, site_name, domain, image} | None``
-    # that fetches a page's metadata at write time. None (the default) = no
+    # ``fetcher(url, *, deadline) -> {title, description, site_name, domain,
+    # image} | None`` that fetches a page's metadata at write time;
+    # ``deadline`` is the ``time.monotonic()`` at which the package stops
+    # waiting (the window below, counted from submit). None (the default) = no
     # cards: a link-only paragraph stays an auto-linked paragraph. The
     # package never fetches anything itself; SSRF hardening is the host's.
     "LINK_PREVIEW_FETCHER": None,

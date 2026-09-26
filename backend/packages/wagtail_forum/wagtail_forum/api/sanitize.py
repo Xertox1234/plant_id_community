@@ -60,31 +60,44 @@ def sanitize_rich_text(html):
 class _TextWithTagBreaks(HTMLParser):
     """Collects an HTML fragment's text with every tag read as a space, so
     two links on two lines (``url<br>url``, ``<p>url</p><p>url</p>``) can
-    never glue into one token. Character references are decoded."""
+    never glue into one token. Character references are decoded.
+    ``in_code`` records whether any non-blank text sat inside a ``<code>``."""
 
     def __init__(self):
         super().__init__(convert_charrefs=True)
         self.parts = []
+        self._code_depth = 0
+        self.in_code = False
 
     def handle_starttag(self, tag, attrs):
         self.parts.append(" ")
+        if tag == "code":
+            self._code_depth += 1
 
     def handle_endtag(self, tag):
         self.parts.append(" ")
+        if tag == "code" and self._code_depth:
+            self._code_depth -= 1
 
     def handle_data(self, data):
         self.parts.append(data)
+        if self._code_depth and data.strip():
+            self.in_code = True
 
 
-def _sole_url(html):
+def _sole_url(html, *, skip_code=False):
     """The text when a paragraph's ONLY content is one whitespace-free token
     (a candidate link), else ``None``. The mobile composer sends a bare
     ``url`` with no ``<p>`` wrapper, so the test is on the text, not the
     markup; an autolinked ``<a>`` counts too, and it is the TEXT a reader
-    saw that is returned, never a differing ``href``."""
+    saw that is returned, never a differing ``href``. ``skip_code``: a token
+    written as code (``<code>https://api.example.com/v1</code>``) is a code
+    sample, not a link to preview — the auto-linker skips ``<code>`` too."""
     parser = _TextWithTagBreaks()
     parser.feed(sanitize_rich_text(html))
     parser.close()
+    if skip_code and parser.in_code:
+        return None
     text = "".join(parser.parts).strip()
     if not text or any(ch.isspace() for ch in text):
         return None
@@ -147,7 +160,7 @@ def _convert_link_previews(value, link_type, existing):
         if block["type"] == link_type:
             url = block["value"]["url"].strip()
         elif block["type"] == "paragraph":
-            url = _sole_url(block["value"])
+            url = _sole_url(block["value"], skip_code=True)
             if not is_card_url(url) or (embeds_on and is_supported_url(url)):
                 url = None
         candidates.append(url)

@@ -1035,6 +1035,20 @@ WAGTAILFORUM_DIGEST_UNSUBSCRIBE = "apps.users.email_unsubscribe.digest_unsubscri
 # header points at the web /unsubscribe page and one-click is off (todo 416).
 API_PUBLIC_URL = config("API_PUBLIC_URL", default="")
 
+# Forum link preview cards (todo 428): a link posted on its own is stored as
+# a card (title, description, site, and OUR re-encoded copy of its image),
+# fetched once at write time through the SSRF-pinned host fetcher; reads never
+# fetch. FORUM_LINK_PREVIEWS_ENABLED=False is the kill switch (links then stay
+# auto-linked paragraphs; stored cards still render). Off under test runs so
+# no test reaches the network: a test that wants cards overrides the setting.
+LINK_PREVIEW_FETCHER_PATH = "apps.forum_host.link_preview.link_preview_snapshot"
+WAGTAILFORUM_LINK_PREVIEW_FETCHER = (
+    LINK_PREVIEW_FETCHER_PATH
+    if config("FORUM_LINK_PREVIEWS_ENABLED", default=True, cast=bool)
+    and not _IS_TEST_RUN
+    else None
+)
+
 # Forum video embeds (todo 344). The package's embed block is inert until this
 # is True; the provider allowlist below is Wagtail's own finder config and is
 # deliberately SHORT — every provider is an external oEmbed endpoint the write

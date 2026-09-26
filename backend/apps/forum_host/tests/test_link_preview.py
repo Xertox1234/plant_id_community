@@ -401,3 +401,43 @@ def test_snapshot_hook_answers_none_when_there_is_no_card(outcome):
     )
     with patch("apps.forum_host.link_preview.fetch_link_preview", **kwargs):
         assert link_preview_snapshot("http://10.0.0.1/") is None
+
+
+def test_snapshot_hook_budgets_the_image_from_the_package_deadline():
+    """Todo 448 item 9: the image gets what is left of the package's window
+    (its deadline, counted from submit) minus the margin, not a fresh budget
+    from when the pool thread started."""
+    from apps.forum_host import constants
+    from apps.forum_host.link_preview import link_preview_snapshot
+
+    preview = {
+        "url": "https://example.com/",
+        "title": "Title",
+        "image_url": "https://cdn.example.com/og.png",
+        "available": True,
+    }
+    with (
+        patch("apps.forum_host.link_preview.fetch_link_preview", return_value=preview),
+        patch(
+            "apps.forum_host.link_preview._cache_preview_image", return_value=""
+        ) as cache_image,
+    ):
+        link_preview_snapshot("https://example.com/", deadline=1000.0)
+
+    cache_image.assert_called_once_with(
+        "https://cdn.example.com/og.png",
+        1000.0 - constants.LINK_PREVIEW_SNAPSHOT_MARGIN_SECONDS,
+    )
+
+
+def test_the_host_names_this_snapshot_hook_as_the_package_fetcher():
+    """Production turns cards on with this path (todo 428 slice C); test runs
+    keep the setting itself off. A rename here must fail a test, not quietly
+    degrade every card to a link (the package logs a non-importing path and
+    treats it as unset)."""
+    from apps.forum_host.link_preview import link_preview_snapshot
+    from django.conf import settings
+    from django.utils.module_loading import import_string
+
+    assert import_string(settings.LINK_PREVIEW_FETCHER_PATH) is link_preview_snapshot
+    assert settings.WAGTAILFORUM_LINK_PREVIEW_FETCHER is None
