@@ -465,3 +465,9 @@ So the preview is built and it works; it just isn't used where it matters.
 - **Round 2** (targeted check of the fixes): 3 of 3 mutants caught (reuse
   gated on a fetcher, request not passed, URL not made absolute), each
   restored and confirmed with `cmp`.
+- **Suites on the final code:** backend 3926 passed, 8 skipped, 0 failed
+  (run after the round-1 fixes); web Vitest 1514 of 1514; Flutter forum tests
+  529 of 529, `flutter analyze` clean; `tsc --noEmit` clean.
+- **Left for later slices:** D (the prune command; the owner merges the
+  `.railway/` change) and the on-device check. E (the mobile composer preview)
+  stays optional.
