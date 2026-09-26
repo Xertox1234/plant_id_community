@@ -123,7 +123,7 @@ class FindOrCreateUserGuardTest(TestCase):
         mark_email_verified(existing)  # it proved its email (todo 446)
 
         result = oauth_views._find_or_create_user(
-            "google", {"email": "real@example.com"}
+            "google", {"email": "real@example.com", "id": "g-real"}
         )
 
         self.assertEqual(result, existing)

@@ -18,6 +18,7 @@ from apps.core.ratelimit import (  # rate-preserving wrapper (Retry-After)
     ratelimit,
 )
 from apps.plant_identification.constants import RATE_LIMITS
+from apps.users.account_links import on_first_provider_link
 from apps.users.email_verification import (
     get_account_by_email,
     is_address_verified,
@@ -35,9 +36,6 @@ from rest_framework.permissions import AllowAny
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework_simplejwt.tokens import RefreshToken
-
-# Federated providers that self-verify email — no explicit email_verified check needed.
-_TRUSTED_FIREBASE_PROVIDERS = frozenset({"google.com", "apple.com"})
 
 
 class _VerifyOnlyCredential(firebase_credentials.Base):
@@ -276,12 +274,11 @@ def firebase_token_exchange(request: Request) -> Response:
 
             # Reject unverified-email tokens to prevent account takeover via Firebase
             # email/password sign-up to a never-verified address that collides with an
-            # existing Django user. Federated providers (Google, Apple) self-verify.
-            if (
-                firebase_email
-                and not email_verified
-                and sign_in_provider not in _TRUSTED_FIREBASE_PROVIDERS
-            ):
+            # existing Django user. Google and Apple get no exemption (todo 447
+            # item 8): Firebase sets the claim true for a verified federated
+            # email, and web Google already requires `verified_email`, so a
+            # false claim is refused on every provider alike.
+            if firebase_email and not email_verified:
                 logger.warning(
                     f"[FIREBASE AUTH] Rejected unverified email login "
                     f"(provider={sign_in_provider}, email={redact_email(firebase_email)})"
@@ -321,8 +318,8 @@ def firebase_token_exchange(request: Request) -> Response:
             firebase_uid=firebase_uid,
             firebase_email=firebase_email,
             display_name=decoded_token.get("name"),
-            email_verified=email_verified
-            or sign_in_provider in _TRUSTED_FIREBASE_PROVIDERS,
+            email_verified=email_verified,
+            provider=sign_in_provider,
         )
 
         if created:
@@ -373,6 +370,7 @@ def get_or_create_user_from_firebase(
     firebase_email: str,
     display_name: Optional[str] = None,
     email_verified: bool = False,
+    provider: str = "firebase",
 ) -> Tuple[User, bool]:
     """
     Get or create a Django user from Firebase credentials.
@@ -386,7 +384,9 @@ def get_or_create_user_from_firebase(
         firebase_email: User's email from Firebase
         display_name: Optional display name for new users
         email_verified: Whether the caller has proven control of the email
-            (Firebase `email_verified` claim, or a trusted federated provider).
+            (the Firebase `email_verified` claim).
+        provider: The token's `sign_in_provider`, named in the notice sent
+            when this binds a Firebase identity to a password account.
             Required before linking/backfilling a UID onto an existing email
             account — prevents account takeover via an unverified email.
 
@@ -453,6 +453,8 @@ def get_or_create_user_from_firebase(
         # Backfill the binding on first sign-in for a legacy email account.
         update_fields = []
         if not user.firebase_uid:
+            # The first Firebase link to this account (todo 447 item 1).
+            on_first_provider_link(user, provider)
             user.firebase_uid = firebase_uid
             update_fields.append("firebase_uid")
         if display_name and not user.first_name:

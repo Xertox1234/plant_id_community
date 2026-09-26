@@ -47,7 +47,10 @@ export async function confirmEmailVerification(key: string): Promise<void> {
 
 export interface ResendResult {
   verified: boolean;
+  /** Queued: the mail goes out from the backend's worker. */
   sent: boolean;
+  /** The account has had the most links the backend sends; none was queued. */
+  limit_reached?: boolean;
 }
 
 /** Email the signed-in user a fresh link. `verified` means there is nothing to do. */

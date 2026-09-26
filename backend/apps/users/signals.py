@@ -14,14 +14,11 @@ from allauth.account.signals import (
     password_set,
     user_signed_up,
 )
-from apps.core.services.email_service import EmailService
-from apps.core.utils.pii_safe_logging import log_safe_email, log_safe_user_context
+from apps.core.utils.pii_safe_logging import log_safe_user_context
+from apps.users.account_links import revoke_refresh_tokens
+from apps.users.email_verification import enqueue_on_commit
 from django.contrib.auth import get_user_model
 from django.dispatch import receiver
-from rest_framework_simplejwt.token_blacklist.models import (
-    BlacklistedToken,
-    OutstandingToken,
-)
 
 User = get_user_model()
 logger = logging.getLogger(__name__)
@@ -39,13 +36,7 @@ def revoke_refresh_tokens_on_password_change(sender, request, user, **kwargs):
     into the now-verified account (todo 447, reproduced). Access tokens are not
     revocable and live out their short lifetime.
     """
-    outstanding = OutstandingToken.objects.filter(user=user).exclude(
-        blacklistedtoken__isnull=False
-    )
-    BlacklistedToken.objects.bulk_create(
-        [BlacklistedToken(token=token) for token in outstanding],
-        ignore_conflicts=True,
-    )
+    revoke_refresh_tokens(user)
     logger.info(
         f"[AUTH] Revoked refresh tokens after a password change for "
         f"{log_safe_user_context(user)}"
@@ -54,29 +45,15 @@ def revoke_refresh_tokens_on_password_change(sender, request, user, **kwargs):
 
 @receiver(email_confirmed)
 def send_welcome_email_on_verification(sender, request, email_address, **kwargs):
+    """Queue the welcome mail once the address is confirmed.
+
+    Sent by Celery after the transaction commits, so SMTP latency never lands
+    on the confirming request (todo 447 item 11).
     """
-    Send welcome email when user verifies their email address.
-
-    This is triggered after successful email verification via Allauth.
-    """
-    try:
-        user = email_address.user
-        email_service = EmailService()
-
-        # Send welcome email
-        success = email_service.send_welcome_email(user)
-
-        if success:
-            logger.info(
-                f"[EMAIL] Welcome email sent to {log_safe_user_context(user)} ({log_safe_email(email_address.email)})"
-            )
-        else:
-            logger.error(
-                f"[EMAIL] Failed to send welcome email to {log_safe_user_context(user)}"
-            )
-
-    except Exception as e:
-        logger.error(f"[EMAIL] Error sending welcome email: {e}")
+    user = email_address.user
+    enqueue_on_commit(
+        "send_welcome_email_task", user.pk, context=log_safe_user_context(user)
+    )
 
 
 @receiver(user_signed_up)

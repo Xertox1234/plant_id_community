@@ -41,6 +41,15 @@ class User(AbstractUser):
         help_text="Firebase Authentication UID bound to this account",
     )
 
+    # Lifetime count of verification mails queued for this account, capped at
+    # VERIFICATION_EMAIL_CAP so a squatter cannot keep mailing the address's
+    # real owner (todo 447). `email` is read-only after signup, so the count
+    # never needs resetting.
+    verification_emails_sent = models.PositiveSmallIntegerField(
+        default=0,
+        help_text="Verification mails queued for this account (capped)",
+    )
+
     # Profile Information
     bio = models.TextField(
         max_length=500,

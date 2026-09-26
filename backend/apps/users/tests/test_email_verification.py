@@ -93,7 +93,8 @@ class VerifyEmailEndpointTest(TestCase):
         self.client.force_authenticate(user=self.user)
 
     def test_owner_signed_in_verifies_and_gets_the_welcome_email(self):
-        response = self.client.post(VERIFY_URL, {"key": self.key}, format="json")
+        with self.captureOnCommitCallbacks(execute=True):
+            response = self.client.post(VERIFY_URL, {"key": self.key}, format="json")
 
         self.assertEqual(response.status_code, 200)
         self.assertTrue(is_email_verified(self.user))
@@ -177,7 +178,8 @@ class AllauthMailIsRoutedTest(TestCase):
         confirmation = MagicMock()
         confirmation.email_address = address
 
-        CustomAccountAdapter().send_confirmation_mail(None, confirmation, True)
+        with self.captureOnCommitCallbacks(execute=True):
+            CustomAccountAdapter().send_confirmation_mail(None, confirmation, True)
 
         self.assertEqual(len(mail.outbox), 1)
         self.assertIn("/verify-email?key=", mail.outbox[0].body)
@@ -194,9 +196,12 @@ class ResendVerificationTest(TestCase):
         self.client.force_authenticate(user=self.user)
 
     def test_unverified_user_gets_a_new_link(self):
-        response = self.client.post(RESEND_URL)
+        with self.captureOnCommitCallbacks(execute=True):
+            response = self.client.post(RESEND_URL)
 
-        self.assertEqual(response.data, {"verified": False, "sent": True})
+        self.assertEqual(
+            response.data, {"verified": False, "sent": True, "limit_reached": False}
+        )
         self.assertEqual(len(mail.outbox), 1)
 
     def test_verified_user_gets_nothing(self):
@@ -222,26 +227,28 @@ class WebOAuthGuardTest(TestCase):
         )
 
         with self.assertRaises(oauth_views.UnverifiedLocalAccount):
-            oauth_views._find_or_create_user("google", {"email": "victim@example.com"})
+            oauth_views._find_or_create_user(
+                "google", {"email": "victim@example.com", "id": "g-victim"}
+            )
 
     def test_verified_local_account_is_matched(self):
         user = User.objects.create_user(username="real", email="real@example.com")
         mark_email_verified(user)
 
         result = oauth_views._find_or_create_user(
-            "google", {"email": "real@example.com"}
+            "google", {"email": "real@example.com", "id": "g-real"}
         )
 
         self.assertEqual(result, user)
 
     def test_created_account_is_verified_so_the_next_login_matches(self):
         first = oauth_views._find_or_create_user(
-            "google", {"email": "fresh@example.com", "given_name": "F"}
+            "google", {"email": "fresh@example.com", "id": "g-fresh", "given_name": "F"}
         )
         self.assertTrue(is_email_verified(first))
 
         again = oauth_views._find_or_create_user(
-            "google", {"email": "fresh@example.com", "given_name": "F"}
+            "google", {"email": "fresh@example.com", "id": "g-fresh", "given_name": "F"}
         )
 
         self.assertEqual(again, first)
@@ -253,7 +260,7 @@ class WebOAuthGuardTest(TestCase):
         _holder_who_moved_on("Taken@example.com")
 
         result = oauth_views._find_or_create_user(
-            "google", {"email": "taken@example.com", "given_name": "T"}
+            "google", {"email": "taken@example.com", "id": "g-taken", "given_name": "T"}
         )
 
         self.assertIsNone(result)
@@ -266,7 +273,7 @@ class WebOAuthGuardTest(TestCase):
         mark_email_verified(user)
 
         result = oauth_views._find_or_create_user(
-            "google", {"email": "john@example.com"}
+            "google", {"email": "john@example.com", "id": "g-john"}
         )
 
         self.assertEqual(result, user)
@@ -281,7 +288,7 @@ class WebOAuthGuardTest(TestCase):
         User.objects.create_user(username="parked", email="Alice@example.com")
 
         result = oauth_views._find_or_create_user(
-            "google", {"email": "alice@example.com"}
+            "google", {"email": "alice@example.com", "id": "g-alice"}
         )
 
         self.assertEqual(result, owner)
@@ -291,7 +298,7 @@ class WebOAuthGuardTest(TestCase):
         User.objects.create_user(username="b", email="dup@example.com")
 
         result = oauth_views._find_or_create_user(
-            "google", {"email": "dup@example.com"}
+            "google", {"email": "dup@example.com", "id": "g-dup"}
         )
 
         self.assertIsNone(result)

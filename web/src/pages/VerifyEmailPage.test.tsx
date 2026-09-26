@@ -73,6 +73,19 @@ describe('VerifyEmailPage', () => {
     expect(await screen.findByText(/sent a new link to ada@example.com/i)).toBeInTheDocument();
   });
 
+  it('says so when the account has had every link it gets', async () => {
+    // Todo 447 item 9: the backend caps verification mails per account.
+    confirm.mockRejectedValue(new VerificationError('invalid', 'bad'));
+    resend.mockResolvedValue({ verified: false, sent: false, limit_reached: true });
+    renderAt('/verify-email?key=abc');
+
+    await userEvent.click(screen.getByRole('button', { name: /confirm my email/i }));
+    await userEvent.click(await screen.findByRole('button', { name: /send a new link/i }));
+
+    expect(await screen.findByText(/as many links as we can/i)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /send a new link/i })).toBeDisabled();
+  });
+
   it('keeps the button after a transient failure', async () => {
     confirm.mockRejectedValue(new VerificationError('error', 'down'));
     renderAt('/verify-email?key=abc');

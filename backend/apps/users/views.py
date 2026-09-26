@@ -25,7 +25,11 @@ from rest_framework.response import Response
 from rest_framework_simplejwt.tokens import RefreshToken
 
 from .authentication import RefreshTokenFromCookie, clear_jwt_cookies, set_jwt_cookies
-from .constants import RATE_LIMIT_DEMO_DATA_CREATE, RATE_LIMIT_ONBOARDING_EVENT
+from .constants import (
+    RATE_LIMIT_DEMO_DATA_CREATE,
+    RATE_LIMIT_ONBOARDING_EVENT,
+    VERIFICATION_EMAIL_CAP,
+)
 from .email_verification import (
     VerificationKeyInvalid,
     confirm_verification_key,
@@ -129,9 +133,8 @@ def register(request: Request) -> Response:
 
                 # The account is usable at once, but no sign-in path will match
                 # it by email until the owner confirms the address (todo 446).
-                transaction.on_commit(
-                    lambda: send_verification_email(user), robust=True
-                )
+                # Queued for Celery once this transaction commits (todo 447).
+                send_verification_email(user)
 
                 # Create response with user data
                 response = Response(
@@ -204,11 +207,20 @@ def verify_email(request: Request) -> Response:
     block=True,
 )
 def resend_verification_email(request: Request) -> Response:
-    """Send the signed-in user a fresh verification link (todo 446)."""
+    """Queue a fresh verification link for the signed-in user (todo 446).
+
+    ``sent`` means queued; the mail goes out from Celery. ``limit_reached``
+    means the account has had its ``VERIFICATION_EMAIL_CAP`` mails and none
+    was queued (todo 447 item 9).
+    """
     if is_email_verified(request.user):
         return Response({"verified": True, "sent": False})
     sent = send_verification_email(request.user)
-    return Response({"verified": False, "sent": sent})
+    request.user.refresh_from_db(fields=["verification_emails_sent"])
+    limit_reached = (
+        not sent and request.user.verification_emails_sent >= VERIFICATION_EMAIL_CAP
+    )
+    return Response({"verified": False, "sent": sent, "limit_reached": limit_reached})
 
 
 @api_view(["POST"])

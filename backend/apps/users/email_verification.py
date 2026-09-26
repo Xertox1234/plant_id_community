@@ -33,10 +33,12 @@ from allauth.account.models import EmailAddress
 from allauth.account.signals import email_confirmed
 from apps.core.services.email_service import EmailService
 from apps.core.utils.pii_safe_logging import log_safe_user_context
+from apps.users.constants import VERIFICATION_EMAIL_CAP
 from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.core import signing
 from django.db import IntegrityError, transaction
+from django.db.models import F
 from django.utils.html import escape
 
 logger = logging.getLogger(__name__)
@@ -85,24 +87,34 @@ def mark_email_verified(user) -> bool:
     provider has already verified (Google OAuth, Firebase).
 
     Returns False, and leaves the record unverified, when another account
-    already holds this address verified: the DB allows only one.
+    already holds this address verified: the DB allows only one. Goes through
+    allauth's ``set_verified`` and never takes ``primary`` from another address
+    (todo 447 item 5).
     """
     if not user.email:
         return False
     address = _address_for(user)
     if address.verified:
         return True
+    # allauth's own conflict check compares case-exactly (``email=``); rows
+    # stored before migration 0014 may differ from ours only in case.
+    taken = (
+        EmailAddress.objects.filter(email__iexact=address.email, verified=True)
+        .exclude(pk=address.pk)
+        .exists()
+    )
     try:
         with transaction.atomic():
-            address.verified = True
-            address.primary = True
-            address.save(update_fields=["verified", "primary"])
+            verified = not taken and address.set_verified(commit=True)
     except IntegrityError:
+        verified = False
+    if not verified:
         logger.warning(
             f"[AUTH] Email already verified on another account; left unverified "
             f"for {log_safe_user_context(user)}"
         )
         return False
+    address.set_as_primary(conditional=True)
     return True
 
 
@@ -113,9 +125,37 @@ def verification_url(user) -> str:
 
 
 def send_verification_email(user) -> bool:
-    """Email ``user`` a link to confirm their address. False if not sent."""
+    """Queue a mail with a link that confirms ``user``'s address.
+
+    False, with nothing queued, when there is no email, it is already
+    verified, or the account has used its ``VERIFICATION_EMAIL_CAP`` mails:
+    a squatter must not be able to keep mailing the address's real owner
+    (todo 447 item 9). The slot is claimed atomically, so concurrent resends
+    cannot overshoot the cap. The mail itself is sent by a Celery task after
+    the transaction commits, so SMTP latency never lands on the request
+    (item 11).
+    """
     if not user.email or is_email_verified(user):
         return False
+    User = get_user_model()
+    claimed = User.objects.filter(
+        pk=user.pk, verification_emails_sent__lt=VERIFICATION_EMAIL_CAP
+    ).update(verification_emails_sent=F("verification_emails_sent") + 1)
+    if not claimed:
+        logger.warning(
+            f"[AUTH] Verification mail cap reached for {log_safe_user_context(user)}"
+        )
+        return False
+    enqueue_on_commit(
+        "send_verification_email_task", user.pk, context=log_safe_user_context(user)
+    )
+    return True
+
+
+def deliver_verification_email(user) -> bool:
+    """Send the verification mail now. Called by the Celery task only, which
+    skips an address verified meanwhile: a False here means the send failed
+    and is retried."""
     url = verification_url(user)
     account = user.username
     text = (
@@ -143,6 +183,24 @@ def send_verification_email(user) -> bool:
         message=text,
         html_message=html,
     )
+
+
+def enqueue_on_commit(task_name, *args, context=""):
+    """Queue ``apps.users.tasks.<task_name>`` once the transaction commits.
+
+    A broker failure is logged, never raised: the request that asked for the
+    mail has already succeeded and must not turn into a 500 (todo 447 item 11).
+    """
+
+    def _enqueue():
+        from apps.users import tasks
+
+        try:
+            getattr(tasks, task_name).delay(*args)
+        except Exception as exc:
+            logger.error(f"[EMAIL] Could not queue {task_name} for {context}: {exc}")
+
+    transaction.on_commit(_enqueue)
 
 
 class VerificationKeyInvalid(Exception):
@@ -190,7 +248,7 @@ def _address_for(user) -> EmailAddress:
     if address is None:
         address = EmailAddress.objects.create(
             user=user,
-            email=user.email,
+            email=user.email.lower(),
             verified=False,
             primary=not EmailAddress.objects.filter(user=user, primary=True).exists(),
         )
