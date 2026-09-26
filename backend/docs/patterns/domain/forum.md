@@ -1058,3 +1058,28 @@ kind, `message_send`), `POST/DELETE conversations/<id>/participants[/<user>]`
 (8 incl. creator); a block pair in the room refuses sends (403) and hides that
 member's messages from the blocker; the creator cannot leave while others
 remain (no transfer in v1); no DM push/email exists for any kind.
+
+## Pruning derived files from storage (todo 428 slice D)
+
+`manage.py prune_link_preview_images` deletes cached link-card images that no
+stored body refers to. Any job that deletes files which stored data points at
+follows the same shape:
+
+1. **List the storage prefix first**, then read references. Anything committed
+   before the reference scan is seen.
+2. **References are every body that can still be shown:** every row (no `live`
+   filter) and every Wagtail revision. A revision stores the StreamField as a
+   JSON string: `json.loads(revision.content["body"])`. Filter revisions by
+   `base_content_type`, like the model's `revisions` GenericRelation.
+3. **Keep on doubt:** any string under the prefix anywhere in a body counts; a
+   file with no readable modified time is kept; a reference source that will
+   not parse aborts the run with nothing deleted.
+4. **Refuse a blank or root prefix** (`""`, `"/"`, or one without a trailing
+   `/`): it would make every media file a candidate.
+5. **Grace period** (`LINK_PREVIEW_IMAGE_PRUNE_GRACE_HOURS`), `--dry-run`, one
+   `[PRUNE]` line per deletion and a summary line that prints even at zero, so
+   the cron log always shows the run.
+
+Tests use `InMemoryStorage` and age a file by saving it under `freeze_time`.
+The `apps` logger does not propagate, so attach `caplog.handler` to the
+command's logger (see `docs/rules/testing.md`).
