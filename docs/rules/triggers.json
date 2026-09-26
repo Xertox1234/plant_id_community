@@ -1811,5 +1811,20 @@
     "source": "codify: feat/428-link-preview-readers",
     "added": "2026-09-26",
     "severity": "warn"
+  },
+  {
+    "id": "railway-start-command-needs-shell",
+    "domains": [
+      "typescript"
+    ],
+    "path_glob": [
+      ".railway/railway.ts"
+    ],
+    "content_present": "(?:\\bstart|\\bstartCommand)\\s*:\\s*\"(?!/bin/(?:ba)?sh -c )[^\"\\n]*(?:&&|\\|\\||;|\\$)",
+    "message": "Railway runs a Dockerfile service start command in exec form (no shell): &&, ||, ; or $VAR in start/startCommand reach the program as literal arguments. Wrap it: \"/bin/sh -c \\\"a && b\\\"\" like the Redis startCommand.",
+    "pattern_ref": "docs/LEARNINGS.md",
+    "source": "codify: feat/428-prune-link-preview-images",
+    "added": "2026-09-26",
+    "severity": "warn"
   }
 ]

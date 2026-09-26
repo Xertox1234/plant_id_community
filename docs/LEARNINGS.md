@@ -6627,3 +6627,32 @@ client other than the web reads it; and when a mutant survives a UI guard,
 probe what the guard really prevents before writing a test for what you assumed
 it prevents. The web half of the same card (`title` becomes the accessible
 description of a link that has none) is in `docs/rules/react.md`.
+
+## 2026-09-26 — A Railway start command runs with no shell; pruning derived files from storage (todo 428 slice D)
+
+- **The brief's cron command would have broken the cron.** The slice asked for
+  `forum-prune-cron`'s start command to become `python manage.py
+  prune_forum_tombstones && python manage.py prune_link_preview_images`. Railway
+  runs a Dockerfile (or image) service's start command in **exec form**, with no
+  shell (docs.railway.com/deployments/start-command). A bare `&&` reaches
+  `manage.py` as an argument, so the existing tombstone prune would have failed
+  too, and nothing alarms on a cron. **Fix:** wrap it,
+  `/bin/sh -c "… && …"`, as the Redis start command in the same file already
+  did. The same holds for `;`, `||` and `$VAR` in a start command. A write-time
+  trigger (`railway-start-command-needs-shell`) now fires on an unwrapped one.
+- **A command PR and the IaC PR that calls it merge in order.** The IaC applies
+  the moment its PR merges; if it lands first, the next 03:00 run calls a
+  command the deployed image does not have.
+- **Pruning files that stored data refers to.** The safe shape, in
+  `apps/forum_host/management/commands/prune_link_preview_images.py`: list the
+  storage prefix FIRST, then read references, so anything committed before the
+  scan is seen; count every body that can still be shown (every row, no `live`
+  filter, AND every Wagtail revision, whose body is a JSON string); refuse a
+  blank or root prefix; abort with nothing deleted if a reference source cannot
+  be read; never delete inside a grace period. A content-addressed file that is
+  reused without being touched still leaves a window between the scan and the
+  delete; say so in the docstring rather than claim it is closed.
+
+**Lesson:** a command string in IaC is not a shell line until something makes
+it one. Check how the platform executes it before adding `&&`, even when the
+brief spells the command out.
