@@ -84,11 +84,29 @@ but rare.
      package change.
    - Found by the bundled `/code-review` in todo 428 slice B round 1.
 
+10. **A sole `<code>` video URL still becomes an embed (pre-existing,
+    todo 421).**
+    - Where: `api/sanitize.py::_sole_video_url`, which calls `_sole_url`
+      without `skip_code`. The video conversion runs before the card
+      conversion, so `<p><code>https://www.youtube.com/watch?v=x</code></p>`
+      becomes an embed, while the same thing with a non-video URL now stays
+      code (item 2).
+    - The web composer does the same client-side (`embedUrlOf` reads
+      `textContent`), so fixing only the server leaves the web converting.
+    - Found by the bundled `/code-review` in todo 428 slice C round 1.
+11. **A topic whose body is only a card has an empty list excerpt.**
+    - Where: `api/views.py::plain_text_excerpt`, which skips dict-valued
+      blocks without `code` or `text`, as it already does for a lone video
+      embed.
+    - The card's title is the linked page's words, not the author's; if an
+      excerpt should show something, the short address is the safer choice.
+    - Noted during todo 428 slice C.
+
 ## Acceptance Criteria
 
-- [ ] Items 1–3 and 9 are fixed and pinned by tests (each mutation-checked) before
-      the host setting is turned on in todo 428 slice C.
-- [ ] Items 4–7 are fixed or closed with a reason.
+- [x] Items 1–3 and 9 are fixed and pinned by tests (each mutation-checked) before
+      the host setting is turned on in todo 428 slice C. (2026-09-26, slice C.)
+- [ ] Items 4–8, 10 and 11 are fixed or closed with a reason.
 
 ## Work Log
 
@@ -96,3 +114,27 @@ but rare.
 
 - Neither reviewer found a blocking issue, so round 2 was not needed. Findings
   above were copied from both reports and checked against the code.
+
+### 2026-09-26 - Items 1–3 and 9 fixed in todo 428 slice C
+
+- **Item 1:** `fetch_snapshots` calls `future.cancel()` on every future still
+  pending when the window closes. A queued fetch is dropped (logged "never
+  started"); only one already running gets the late-failure log callback.
+- **Item 9:** the fetcher contract is now `fetcher(url, *, deadline)`. The
+  package computes `deadline = time.monotonic() + timeout` once, before
+  submitting, so every fetch in a body shares the window's real end. The host's
+  `link_preview_snapshot` budgets the image as `deadline - margin`. A direct
+  call without `deadline` starts its own window, as before.
+- **Item 2:** the card path calls `_sole_url(..., skip_code=True)`; any
+  non-blank text inside `<code>` means "not a card". The video path is
+  unchanged (a sole `<code>` video URL still becomes an embed, on web too).
+- **Item 3:** `is_card_url` also runs Django's `URLValidator(schemes=http,
+  https)`, the check `URLBlock` runs. No block schema change, no migration.
+  A test runs 17 URL shapes through both and fails if `is_card_url` accepts one
+  the block's `clean` refuses; an end-to-end test cleans the stored body the
+  way a `/cms/` save would.
+- **Mutation checks: 8 of 8 caught** (no cancel; deadline from pickup;
+  deadline not passed; card path allows code; code flag never set; no
+  `URLValidator`; host ignores the deadline; host drops the margin). Each ran
+  against a `cp` backup, was restored, and confirmed with `cmp`.
+- Items 4–8 are still open. Items 10 and 11 were added from slice C's review.
