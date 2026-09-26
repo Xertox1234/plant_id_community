@@ -216,3 +216,7 @@ Compact checklist auto-injected before edits. Long-form:
   is a bottom sheet, with the same actions as `customSemanticsActions` so a
   screen reader reaches them without the gesture (`_LinkPreviewCard`, todo
   428).
+- **A `SnackBar` with an `action` persists until tapped or closed** (the SDK
+  defaults `persist` to `action != null`). Whoever shows one clears it when
+  its condition ends (`clearSnackBars()`), or it outlives the state it
+  describes (todo 447, `main.dart` auth listener).

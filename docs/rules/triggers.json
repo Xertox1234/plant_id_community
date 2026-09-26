@@ -1842,5 +1842,21 @@
     "source": "codify: fix/447b-email-verification-hardening",
     "added": "2026-09-26",
     "severity": "warn"
+  },
+  {
+    "id": "snackbar-action-persists",
+    "domains": [
+      "flutter"
+    ],
+    "path_glob": [
+      "plant_community_mobile/lib/**.dart"
+    ],
+    "content_present": "SnackBarAction\\(",
+    "content_absent": "persist:",
+    "message": "A SnackBar with an action PERSISTS until tapped or closed (SDK: persist defaults to action != null). Clear it when the condition it describes ends (clearSnackBars()/hideCurrentSnackBar() on that transition, not only before showing), or pass persist: false with a duration.",
+    "pattern_ref": "docs/rules/flutter.md",
+    "source": "codify: feat/447-slice-c-expiry-mobile-reset",
+    "added": "2026-09-26",
+    "severity": "warn"
   }
 ]

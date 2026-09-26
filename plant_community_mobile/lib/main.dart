@@ -113,6 +113,9 @@ class MyApp extends ConsumerWidget {
             SnackBar(
               content: Text(error),
               action: resetAction,
+              // Explicit: the SDK default with an action. Cleared above when
+              // the conflict ends.
+              persist: resetAction != null,
               showCloseIcon: resetAction != null,
             ),
           );

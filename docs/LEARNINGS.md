@@ -6682,3 +6682,35 @@ brief spells the command out.
 - Also: Firebase's "trusted providers" (Google, Apple) skipped the
   `email_verified` claim and fed the verified store. Removed; web Google
   already required `verified_email`.
+
+## 2026-09-26 — Todo 447 slice C: expiring unverified accounts; the mobile 409 reset link
+
+- **"Never signed in" does not mean "owns nothing".** Registration returns a
+  15-minute access token, so a user can DM, comment on the blog or run plant
+  IDs without signing in again. Several of those FKs CASCADE into other
+  users' threads. The expiry command therefore keeps an account with ANY row
+  beyond a registration's measured baseline, hidden `related_name='+'`
+  relations included (auditlog actor, `Topic.last_post_author`, wagtail log
+  entries). The owner's brief named only forum content; this is stricter, in
+  the safe direction.
+- **Refresh rotation never moves `last_login`.** Our refresh view issues a new
+  `OutstandingToken` per rotation, so activity is a token newer than
+  `date_joined` plus a margin, as well as `last_login`.
+- **A SnackBar with an action persists.** Flutter defaults
+  `persist = action != null`, and the root auth listener returned early once
+  the error cleared. So the "reset your password" SnackBar would have stayed
+  up over a later successful sign-in. The listener now clears it when the
+  conflict flag drops. A reviewer claimed the opposite (a 4-second timeout);
+  the SDK source settled it.
+- **One 409, five reasons.** The Firebase exchange mapped every `ValueError`
+  to `409 Account linking conflict`. Offering a password reset on all of them
+  would loop the user whenever the email is bound to another Firebase uid or
+  held by several accounts. `UnverifiedAccountConflict` now answers
+  `code: "unverified_account"` (only after the token's `email_verified` claim
+  is required, so only the address's owner sees it). `ApiException` carries
+  `code`, and only that code shows the link.
+- **A review agent read my mutant as a bug.** The checklist reviewer ran
+  Flutter tests while my "wrong launch" mutant was applied and reported the
+  reset URL as `https://example.com/`, BLOCKING. Probe a claimed failure
+  against the current tree before fixing it; don't run mutants while a
+  reviewer is running tests in the same worktree.
