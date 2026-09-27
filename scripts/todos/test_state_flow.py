@@ -110,6 +110,9 @@ def main():
     check("a voided verdict moves to failed with the reason",
           all(run["todos"][i]["stage"] == "failed" and "tree changed" in run["todos"][i]["reason"] for i in ids_bad))
     check("worktree and branch are recorded", run["todos"][ids_ok[0]]["worktree"] == "/wt/g1")
+    # F9: land.py's flip_acs reads verified_ac off the run entry (state.py, not tested until now).
+    check("ingest_execute stores the verdict's ac list as verified_ac",
+          run["todos"][ids_ok[0]]["verified_ac"] == verdict(ids_ok)["ac"], run["todos"][ids_ok[0]])
 
     briefs1 = state.execute_args(run, 1, "/main")
     check("wave 1 uses the second slot bank", [b["slot"] for b in briefs1] == [3, 4][:len(briefs1)], briefs1)
@@ -137,6 +140,11 @@ def main():
                                      "verdict": verdict(ids_ok, before="T5", after="T5", edits=["tests/test_a.py"])}],
                               1)
     check("a verified round-1 repair is staged for the main session to commit", res[g_ok] == "repair-staged")
+    # F9: the round-1 repair-staged path must update verified_ac from the repair's own verdict, not the original.
+    check("a round-1 repair updates verified_ac from the repair's verdict",
+          run["todos"][ids_ok[0]]["verified_ac"]
+          == verdict(ids_ok, before="T5", after="T5", edits=["tests/test_a.py"])["ac"],
+          run["todos"][ids_ok[0]])
     check("a round-1 repair's flagged test edits carry into round 2",
           "tests/test_a.py" in state.review_args(run, 2, 0)[0]["test_edits"])
     check("an invalid round number is refused", raises(lambda: state.review_args(run, 3, 0), ValueError))
