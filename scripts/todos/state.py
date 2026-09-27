@@ -83,6 +83,9 @@ def save(run, path):
 
 
 def transition(run, todo_id, to, **fields):
+    for name in {"stage", "attempts"}:
+        if name in fields:
+            raise TransitionError(f"{todo_id}: {name} cannot be set as a field")
     entry = run["todos"].get(todo_id)
     if entry is None:
         raise TransitionError(f"{todo_id}: not in this run")
@@ -246,8 +249,8 @@ def build_parser():
 
 def main(argv=None):
     args = build_parser().parse_args(argv)
-    run = load(args.runfile)
     try:
+        run = load(args.runfile)
         if args.cmd == "show":
             print(json.dumps(summary(run), indent=1))
             return 0
@@ -275,7 +278,7 @@ def main(argv=None):
             _cmd_decide(run, args)
         elif args.cmd == "apply-triage":
             print("\n".join(apply_triage(run, args.repo, args.today)))
-    except (TransitionError, KeyError, ValueError, RuntimeError) as exc:
+    except (TransitionError, KeyError, ValueError, RuntimeError, FileNotFoundError, json.JSONDecodeError) as exc:
         print(f"state: {exc}", file=sys.stderr)
         return 2
     save(run, args.runfile)

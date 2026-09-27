@@ -144,6 +144,20 @@ def main():
     state.transition(done, "1", "blocked", reason="x")
     check("is_complete when every todo is terminal", state.is_complete(done))
 
+    run = state.new_run("r6", "sweep", 3, [todo("1")], ["1"])
+    state.transition(run, "1", "triaged")
+    original_stage = run["todos"]["1"]["stage"]
+    check("transition refuses to set reserved field 'stage'",
+          raises(lambda: state.transition(run, "1", "ready", stage="merged")))
+    check("the entry's stage is unchanged after a rejected field",
+          run["todos"]["1"]["stage"] == original_stage)
+
+    with tempfile.TemporaryDirectory() as tmp:
+        result = subprocess.run(["python3", "scripts/todos/state.py", "show", "/nonexistent/run.json"],
+                                capture_output=True, text=True, cwd="/private/tmp/claude-501/-Users-williamtower-projects-plant-id-community/37a59bb2-61f6-4bb0-9e9a-db73bfc21cc8/scratchpad/wt-sweep-engine")
+        check("CLI on a missing run file exits 2", result.returncode == 2)
+        check("the error is reported as 'state: <message>'", result.stderr.startswith("state: "))
+
     print()
     if FAILURES:
         print(f"FAILED: {len(FAILURES)} check(s): {', '.join(FAILURES)}")
