@@ -10,7 +10,6 @@ from apps.core.utils.pii_safe_logging import log_safe_user_context, log_safe_use
 from apps.plant_identification.constants import RATE_LIMITS
 from django.contrib.auth import authenticate
 from django.db import transaction
-from django.http import HttpResponse
 from django.views.decorators.cache import cache_page
 from django.views.decorators.csrf import csrf_protect, ensure_csrf_cookie
 
@@ -41,11 +40,6 @@ from .serializers import (
 from .signup import create_default_plant_collection, join_forum_members_group
 
 logger = logging.getLogger(__name__)
-
-
-def _sanitize_ics_field(value: str) -> str:
-    """Strip CR and LF from ICS field values to prevent CRLF injection."""
-    return str(value).replace("\r", "").replace("\n", " ")
 
 
 def create_error_response(

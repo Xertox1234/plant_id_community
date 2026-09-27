@@ -92,3 +92,50 @@ class CarePreferenceTest(TestCase):
         self.assertFalse(hasattr(user, "care_reminder_email"))
         prefs = NotificationService().get_user_notification_preferences(user)
         self.assertNotIn("care_reminder_email", prefs)
+
+    def test_the_push_opt_out_is_settable_by_the_user(self):
+        """PR #854 review: with the email preference gone, the push opt-out
+        must be reachable, or care pushes cannot be turned off."""
+        user = User.objects.create_user(username="q", email="q@example.com")
+        client = APIClient()
+        client.force_authenticate(user)
+
+        response = client.patch(
+            "/api/v1/auth/user/update/",
+            {"care_reminder_notifications": False},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.data)
+        user.refresh_from_db()
+        self.assertFalse(user.care_reminder_notifications)
+        self.assertIs(
+            client.get("/api/v1/auth/user/").data["care_reminder_notifications"], False
+        )
+
+
+class ExpandContractColumnsTest(TestCase):
+    """The dropped fields leave Django state only; their columns stay, with a
+    DB default, until todo 458 drops them. The old container still reads them
+    during a rolling deploy (PR #854 review)."""
+
+    def test_the_columns_remain_with_a_db_default(self):
+        from django.db import connection
+
+        with connection.cursor() as cursor:
+            for table, column in (
+                ("auth_user", "care_reminder_email"),
+                ("users_onboardingprogress", "first_care_reminder_created"),
+            ):
+                cursor.execute(
+                    "SELECT column_default FROM information_schema.columns "
+                    "WHERE table_name = %s AND column_name = %s",
+                    [table, column],
+                )
+                row = cursor.fetchone()
+                with self.subTest(column=column):
+                    self.assertIsNotNone(row, "column was dropped too early")
+                    self.assertEqual(row[0], "false")
+        # And a row inserted by the new code (which no longer knows the
+        # column) still satisfies NOT NULL.
+        User.objects.create_user(username="n", email="n@example.com")
