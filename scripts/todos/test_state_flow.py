@@ -198,6 +198,79 @@ def main():
           len(run1["waves"]) == 5 and new_g not in (fg0, fg1) and run1["waves"][4] == [new_g], run1["waves"])
     check("execute_args refuses a wave whose earlier same-parity wave is still pr_open",
           raises(lambda: state.execute_args(run1, 2, "/m"), state.TransitionError))
+    # R1(d): the emptied wave 1 (W-2 for wave 3) must not hide wave 0, still further back and unresolved.
+    check("execute_args refuses a wave even further out while an emptied wave hides an earlier blocker",
+          raises(lambda: state.execute_args(run1, 3, "/m"), state.TransitionError))
+    # R1(d), isolated from R4's W-1 check: wave 0 stuck at pr_open, wave 1 emptied, wave
+    # 2 independently resolved past ready/executing (so R4's own W-1 check is satisfied)
+    # -- only the "waves 0..W-2" range check can still catch wave 0 here.
+    run1d = ready_run([("d0", ["dd0.py"]), ("d1", ["dd1.py"]), ("d2", ["dd2.py"]), ("d3", ["dd3.py"])], workers=1)
+    state.apply_grouping(run1d)
+    g0d, g1d, g2d = (run1d["waves"][w][0] for w in (0, 1, 2))
+    state.transition(run1d, "d0", "executing", group=g0d, slot=1, wave=0, main_root="/m")
+    state.transition(run1d, "d0", "staged", worktree="/wt0", branch="b0", tree_id="T0", ac_file="a0")
+    state.transition(run1d, "d0", "verified", test_edits=[], verified_ac=[])
+    state.transition(run1d, "d0", "pr_open", pr=1)  # left unresolved
+    run1d["todos"]["d1"].pop("group", None)  # simulates: d1 retried, its group now empty
+    state.transition(run1d, "d2", "executing", group=g2d, slot=1, wave=2, main_root="/m")
+    state.transition(run1d, "d2", "staged", worktree="/wt2", branch="b2", tree_id="T2", ac_file="a2")
+    state.transition(run1d, "d2", "verified", test_edits=[], verified_ac=[])
+    state.transition(run1d, "d2", "pr_open", pr=2)
+    state.transition(run1d, "d2", "reviewed", review_round=2)
+    state.transition(run1d, "d2", "merged")  # past ready/executing, so R4's W-1 check is quiet
+    check("R1(d) isolated: a far-earlier unresolved wave still blocks past an emptied, resolved one",
+          raises(lambda: state.execute_args(run1d, 3, "/m"), state.TransitionError))
+    # R1(c): once wave 0 clears, the emptied wave 1 must dispatch nothing (not raise, not include fid1).
+    state.set_group(run1, fg0, "reviewed")
+    state.set_group(run1, fg0, "merged")
+    check("an emptied wave dispatches nothing once its blocker clears",
+          state.execute_args(run1, 1, "/m") == [])
+
+    # R2: a retry must not let a dependent group keep running in the wrong order.
+    # X (g1) <- Y (g2, independent) <- Z (g3, depends on X). X fails and retries;
+    # Z's group must be dropped too (its dep group is now empty) and rescheduled
+    # at least 2 waves after X's new placement.
+    run2 = ready_run([("x1", ["dep_x.py"]), ("y1", ["dep_y.py"]), ("z1", ["dep_z.py"])], workers=1)
+    run2["todos"]["z1"]["dependencies"] = ["x1"]
+    state.apply_grouping(run2)
+    check("r2 setup: 3 waves, Z's group depends on X's group",
+          len(run2["waves"]) == 3
+          and run2["groups"][run2["waves"][2][0]]["deps"] == [run2["waves"][0][0]], run2["waves"])
+    bx = state.execute_args(run2, 0, "/m")
+    gx, idx = bx[0]["group"], bx[0]["ids"]
+    state.ingest_execute(run2, [{"group": gx, "ids": idx, "worker": None, "verdict": None, "retried": False}])
+    for i in idx:
+        state.transition(run2, i, "ready")
+    by = state.execute_args(run2, 1, "/m")
+    gy, idy = by[0]["group"], by[0]["ids"]
+    state.ingest_execute(run2, [{"group": gy, "ids": idy, "worker": worker(idy), "verdict": verdict(idy),
+                                 "retried": False}])
+    old_z_group = run2["todos"]["z1"]["group"]
+    state.apply_grouping(run2)
+    check("R2: Z's group is dropped once its dependency's group is empty",
+          run2["todos"]["z1"]["group"] != old_z_group)
+    new_x_wave = next(w for w, gids in enumerate(run2["waves"]) if run2["todos"][idx[0]]["group"] in gids)
+    new_z_wave = next(w for w, gids in enumerate(run2["waves"]) if run2["todos"]["z1"]["group"] in gids)
+    check("R2: Z's new wave comes at least 2 waves after X's new wave",
+          new_z_wave >= new_x_wave + 2, (new_x_wave, new_z_wave))
+    check("R2: execute_args for Z's old wave no longer dispatches Z",
+          "z1" not in [i for b in state.execute_args(run2, 2, "/m") for i in b["ids"]])
+    check("R2: Y (no dependency) is untouched by the ungrouping",
+          run2["todos"]["y1"]["group"] == gy)
+
+    # R4: evaluate() compares verdict/worker ids order-insensitively.
+    reordered = verdict(["1", "2"])
+    reordered["ids"] = ["2", "1"]
+    reordered["ac"] = [{"todo": "1", "index": 0, "verified": True, "note": ""},
+                        {"todo": "2", "index": 0, "verified": True, "note": ""}]
+    check("evaluate compares verdict/worker ids order-insensitively",
+          state.evaluate(worker(["1", "2"]), reordered) is None)
+
+    # R4: dispatch order restored -- W-1 still "ready" (never executed) refuses the next wave.
+    run_order = ready_run([("o1", ["oo1.py"]), ("o2", ["oo2.py"])], workers=1)
+    state.apply_grouping(run_order)
+    check("execute_args refuses a wave while the previous wave is still ready, not just executing",
+          raises(lambda: state.execute_args(run_order, 1, "/m"), state.TransitionError))
 
     # F6: followups are capped at 10 in total across review rounds, not per call.
     run6 = ready_run([("f6", ["z.py"])], workers=1)
@@ -214,6 +287,30 @@ def main():
                                 "reviewers_ok": True, "repair": None, "verdict": None}], 2)
     check("followups are capped at 10 total across rounds, not per call",
           len(run6["todos"]["f6"]["followups"]) <= 10, run6["todos"]["f6"]["followups"])
+
+    # R4: within-call duplicate findings are stored once, and two rounds with the
+    # same 3 findings store 3 (not 6).
+    run_dup = ready_run([("fd", ["dup.py"])], workers=1)
+    state.apply_grouping(run_dup)
+    gd = run_dup["waves"][0][0]
+    state.execute_args(run_dup, 0, "/m")
+    state.ingest_execute(run_dup, [{"group": gd, "ids": ["fd"], "worker": worker(["fd"]), "verdict": verdict(["fd"]),
+                                    "retried": False}])
+    state.set_group(run_dup, gd, "pr_open", pr=7)
+    within_call_dup = [{"severity": "low", "file": "a.py", "line": 5, "summary": "dup", "suggested_fix": ""}] * 2
+    state.ingest_review(run_dup, [{"group": gd, "ids": ["fd"], "findings": within_call_dup, "blocking": [],
+                                   "reviewers_ok": True, "repair": None, "verdict": None}], 1)
+    check("within-call duplicate findings are stored once",
+          run_dup["todos"]["fd"]["followups"] == ["a.py:5 dup"], run_dup["todos"]["fd"]["followups"])
+    three = [{"severity": "low", "file": f"f{n}.py", "line": n, "summary": "x", "suggested_fix": ""}
+             for n in range(3)]
+    run_dup["todos"]["fd"]["followups"] = []
+    state.ingest_review(run_dup, [{"group": gd, "ids": ["fd"], "findings": three, "blocking": [],
+                                   "reviewers_ok": True, "repair": None, "verdict": None}], 1)
+    state.ingest_review(run_dup, [{"group": gd, "ids": ["fd"], "findings": three, "blocking": [],
+                                   "reviewers_ok": True, "repair": None, "verdict": None}], 2)
+    check("two rounds with the same 3 findings store 3, not 6",
+          len(run_dup["todos"]["fd"]["followups"]) == 3, run_dup["todos"]["fd"]["followups"])
 
     # F3: ensure_worktree must run git against the real repo, recover a worktree whose
     # directory vanished but whose branch still holds the commit, and refuse to trust
@@ -242,6 +339,25 @@ def main():
         check("an existing worktree whose tree still matches is left alone",
               state.ensure_worktree(run_c, "gc", Path(tmp) / "scratch") == path)
 
+        # R3: a resumed Land stages and commits its own edits (todos/, docs/reviews/,
+        # .secrets.baseline) on top of the recorded tree_id -- that must be accepted,
+        # not read as lost work; any other changed path must still raise.
+        land_wt = Path(tmp) / "scratch" / "gc"
+        (land_wt / "todos").mkdir(exist_ok=True)
+        (land_wt / "todos" / "100-completed-p3-x.md").write_text("archived by land\n")
+        subprocess.run(["git", "-C", str(land_wt), "add", "-A"], check=True)
+        check("a resumed Land's todos/ edit is accepted, not read as lost work",
+              state.ensure_worktree(run_c, "gc", Path(tmp) / "scratch") == str(land_wt))
+
+        source_wt = Path(tmp) / "worker-wt3"
+        subprocess.run(["git", "-C", str(repo), "worktree", "add", "-q", "-b", "worktree-g1-src", str(source_wt),
+                        "worktree-g1"], check=True)
+        (source_wt / "a.py").write_text("x = 2\n")
+        subprocess.run(["git", "-C", str(source_wt), "add", "-A"], check=True)
+        run_src = worktree_run("src1", "gsrc", "worktree-g1-src", worktree=str(source_wt), tree_id=committed_tree)
+        check("a change to a source file outside Land's write-set still raises",
+              raises(lambda: state.ensure_worktree(run_src, "gsrc", Path(tmp) / "scratch"), RuntimeError))
+
         wt2 = Path(tmp) / "worker-wt2"
         subprocess.run(["git", "-C", str(repo), "worktree", "add", "-q", "-b", "worktree-g2", str(wt2)], check=True)
         (wt2 / "b.py").write_text("y = 2\n")
@@ -252,6 +368,9 @@ def main():
         run_s = worktree_run("s1", "gs", "worktree-g2", worktree=str(wt2), tree_id=staged_tree)
         check("a worktree that lost its only (uncommitted) staged work raises",
               raises(lambda: state.ensure_worktree(run_s, "gs", Path(tmp) / "scratch", git=git), RuntimeError))
+        # R4: a failed tree check must not leave a changed worktree path recorded.
+        check("a failed tree check leaves the entry's worktree unchanged",
+              run_s["todos"]["s1"]["worktree"] == str(wt2))
 
         existing = Path(tmp) / "scratch3" / "gd"
         existing.mkdir(parents=True)
@@ -260,6 +379,27 @@ def main():
         check("a non-empty target directory is never touched",
               raises(lambda: state.ensure_worktree(run_d, "gd", Path(tmp) / "scratch3", git=git), RuntimeError)
               and (existing / "keep.txt").exists())
+
+    # R4: ensure_worktree must use the entry's main_root for -C, not the process cwd.
+    # Uses the real run_git (no override) and runs from a cwd outside the repo, so a
+    # regression to a hardcoded "." would fail (that cwd is not a git repo at all).
+    with tempfile.TemporaryDirectory() as tmp:
+        repo = Path(tmp) / "repo"
+        subprocess.run(["git", "init", "-q", "-b", "main", str(repo)], check=True)
+        subprocess.run(["git", "-C", str(repo), "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q",
+                        "--allow-empty", "-m", "init"], check=True)
+        subprocess.run(["git", "-C", str(repo), "branch", "worktree-mr"], check=True)
+        run_mr = worktree_run("m1", "gmr", "worktree-mr", worktree=str(Path(tmp) / "gone-mr"), main_root=str(repo))
+        elsewhere = Path(tmp) / "elsewhere"
+        elsewhere.mkdir()
+        prev_cwd = os.getcwd()
+        os.chdir(elsewhere)
+        try:
+            path = state.ensure_worktree(run_mr, "gmr", Path(tmp) / "scratch-mr")
+        finally:
+            os.chdir(prev_cwd)
+        check("ensure_worktree uses the entry's main_root for -C, not the process cwd",
+              Path(path).is_dir() and path.endswith("gmr"))
 
     # F6 (CLI): an out-of-range wave must exit 2 with a message, not an uncaught traceback.
     with tempfile.TemporaryDirectory() as tmp:

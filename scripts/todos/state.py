@@ -226,6 +226,7 @@ def apply_grouping(run):
     Appending (never replacing) is what lets a retried todo be regrouped
     without erasing the groups and waves that already have PRs.
     """
+    _ungroup_stale_deps(run)
     todos = [
         {"id": i, "priority": e["priority"], "dependencies": e["dependencies"],
          "verify_only": e.get("verify_only", False), "triage": e["triage"]}
@@ -255,13 +256,31 @@ def _group_entries(run, gid):
     return [(i, run["todos"][i]) for i in run["groups"][gid]["ids"] if run["todos"][i].get("group") == gid]
 
 
+def _ungroup_stale_deps(run):
+    """Drop the group of any ready todo whose group depends, directly or
+    transitively, on a group a retry has emptied (spec R2): its wave was
+    placed relative to a dependency that has since moved to a later wave, so
+    its own placement can no longer be trusted and must be recomputed.
+    """
+    changed = True
+    while changed:
+        changed = False
+        for todo_id, entry in sorted(run["todos"].items()):
+            gid = entry.get("group")
+            if entry["stage"] != "ready" or gid is None:
+                continue
+            if any(not _group_entries(run, dep) for dep in run["groups"][gid]["deps"]):
+                entry.pop("group", None)
+                changed = True
+
+
 def execute_args(run, wave, main_root):
     if wave >= len(run["waves"]):
         raise ValueError(f"wave {wave} does not exist ({len(run['waves'])} waves)")
     if wave >= 1:
         for gid in run["waves"][wave - 1]:
             for todo_id, entry in _group_entries(run, gid):
-                if entry["stage"] == "executing":
+                if entry["stage"] in {"ready", "executing"}:
                     raise TransitionError(f"wave {wave - 1} has not finished executing ({todo_id})")
     for w in range(wave - 1):  # every earlier wave, not just wave-2: it may hold a same-parity slot
         for gid in run["waves"][w]:
@@ -306,7 +325,7 @@ def evaluate(worker, verdict):
         return "staged tree changed during verification"
     if not verdict["clean_after"]:
         return "working tree not clean after verification"
-    if "ids" in verdict and list(verdict["ids"]) != list(worker["ids"]):
+    if "ids" in verdict and sorted(verdict["ids"]) != sorted(worker["ids"]):
         return "verdict covers different todos than the worker"
     ac_ids = {item["todo"] for item in verdict["ac"]}
     if not verdict["ac"] or any(i not in ac_ids for i in worker["ids"]):
@@ -386,8 +405,10 @@ def ingest_review(run, results, round_no):
         if not result["reviewers_ok"]:
             outcome[gid] = "rerun"
             continue
-        follow = [f"{f['file']}:{f['line']} {f['summary']}" for f in result["findings"]
-                  if f["severity"] not in {"critical", "high"}]
+        follow = list(dict.fromkeys(  # de-dupe within this call too, preserve order
+            f"{f['file']}:{f['line']} {f['summary']}" for f in result["findings"]
+            if f["severity"] not in {"critical", "high"}
+        ))
         for _, entry in entries:
             existing = entry.get("followups", [])
             entry["followups"] = (existing + [f for f in follow if f not in existing])[:10]
@@ -419,12 +440,28 @@ def ingest_review(run, results, round_no):
     return outcome
 
 
+def _land_only_diff(path, tree_id, actual):
+    """True when every path git diff reports between tree_id and actual is one
+    Land itself writes (todos/, docs/reviews/, .secrets.baseline) -- R3: a
+    resumed Land staging and committing its own edits must not read as lost
+    work. An empty current tree against a non-empty recorded one is never
+    accepted, whatever the diff says.
+    """
+    if not run_git(path, "ls-tree", "-r", "--name-only", actual).strip():
+        return False
+    changed = [p for p in run_git(path, "diff", "--no-renames", "--name-only", tree_id, actual).splitlines() if p]
+    return bool(changed) and all(
+        p.startswith("todos/") or p.startswith("docs/reviews/") or p == ".secrets.baseline" for p in changed
+    )
+
+
 def ensure_worktree(run, gid, scratch, git=run_git):
     entries = _group_entries(run, gid)
     first = entries[0][1]
     main_root = first.get("main_root") or "."
     current = first.get("worktree", "")
-    if current and Path(current).is_dir():
+    reused = bool(current) and Path(current).is_dir()
+    if reused:
         path = current
     else:
         target = Path(scratch) / gid
@@ -438,15 +475,16 @@ def ensure_worktree(run, gid, scratch, git=run_git):
             # git may still have the old (now-vanished) worktree registered under this branch.
             git(main_root, "worktree", "prune")
             git(main_root, "worktree", "add", str(target), branch)
-        for _, entry in entries:
-            entry["worktree"] = str(target)
         path = str(target)
     tree_id = first.get("tree_id")
     if tree_id:
         actual = run_git(path, "write-tree").strip()
-        if actual != tree_id:
+        if actual != tree_id and not _land_only_diff(path, tree_id, actual):
             raise RuntimeError(f"{gid}: worktree at {path} lost its staged work "
                                f"(has {actual[:8]}, expected {tree_id[:8]}); the group must be rerun")
+    if not reused:
+        for _, entry in entries:
+            entry["worktree"] = path
     return path
 
 
