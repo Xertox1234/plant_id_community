@@ -97,3 +97,11 @@ The owner chose **garden_calendar only**:
   to "first care task".
 - Order: todo 412 goes first, since both edit `users/views.py` and
   `users/services.py`.
+
+### 2026-09-26 - Note from todo 412: no care step in the onboarding checklist
+
+Todo 412 shipped the checklist with `identify_plant`, `forum_post` and
+`save_topic`. It dropped `first_care_reminder_created` instead of
+re-pointing it, because the mobile garden (todo 386) does not exist yet.
+Once 386 ships care tasks, a "first care task" step can be added to
+`apps/users/onboarding.CHECKLIST_STEPS`, derived from `CareTask.created_by`.

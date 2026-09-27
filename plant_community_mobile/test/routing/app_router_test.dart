@@ -2,6 +2,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:plant_community_mobile/features/onboarding/onboarding_checklist_service.dart';
 import 'package:plant_community_mobile/core/routing/app_router.dart';
 import 'package:plant_community_mobile/features/forum/models/models.dart';
 import 'package:plant_community_mobile/features/forum/screens/forum_composer_screen.dart';
@@ -49,7 +50,14 @@ void main() {
 
       final router = container.read(appRouterProvider);
 
-      await tester.pumpWidget(MaterialApp.router(routerConfig: router));
+      // Screens may be Consumers (HomePage's onboarding card, todo 412), so
+      // the router's own container must be in scope.
+      await tester.pumpWidget(
+        UncontrolledProviderScope(
+          container: container,
+          child: MaterialApp.router(routerConfig: router),
+        ),
+      );
 
       // One frame to build the initial route (without settling timers)
       await tester.pump();
@@ -73,7 +81,14 @@ void main() {
 
       final router = container.read(appRouterProvider);
 
-      await tester.pumpWidget(MaterialApp.router(routerConfig: router));
+      // Screens may be Consumers (HomePage's onboarding card, todo 412), so
+      // the router's own container must be in scope.
+      await tester.pumpWidget(
+        UncontrolledProviderScope(
+          container: container,
+          child: MaterialApp.router(routerConfig: router),
+        ),
+      );
 
       // Navigate to home
       router.go(AppRoutes.home);
@@ -102,7 +117,14 @@ void main() {
 
         final router = container.read(appRouterProvider);
 
-        await tester.pumpWidget(MaterialApp.router(routerConfig: router));
+        // Screens may be Consumers (HomePage's onboarding card, todo 412), so
+        // the router's own container must be in scope.
+        await tester.pumpWidget(
+          UncontrolledProviderScope(
+            container: container,
+            child: MaterialApp.router(routerConfig: router),
+          ),
+        );
 
         router.go(AppRoutes.forumNotifications);
         await tester.pump(const Duration(milliseconds: 100));
@@ -130,7 +152,14 @@ void main() {
         container.listen(appRouterProvider, (_, _) {});
         final router = container.read(appRouterProvider);
 
-        await tester.pumpWidget(MaterialApp.router(routerConfig: router));
+        // Screens may be Consumers (HomePage's onboarding card, todo 412), so
+        // the router's own container must be in scope.
+        await tester.pumpWidget(
+          UncontrolledProviderScope(
+            container: container,
+            child: MaterialApp.router(routerConfig: router),
+          ),
+        );
 
         router.go(AppRoutes.forumMessages);
         await tester.pump(const Duration(milliseconds: 100));
@@ -165,7 +194,14 @@ void main() {
       container.listen(appRouterProvider, (_, _) {});
       final router = container.read(appRouterProvider);
 
-      await tester.pumpWidget(MaterialApp.router(routerConfig: router));
+      // Screens may be Consumers (HomePage's onboarding card, todo 412), so
+      // the router's own container must be in scope.
+      await tester.pumpWidget(
+        UncontrolledProviderScope(
+          container: container,
+          child: MaterialApp.router(routerConfig: router),
+        ),
+      );
 
       // Both live under the `/forum/groups` prefix guard, not the
       // exact-path set — `new` and a numeric id have to be covered alike.
@@ -200,6 +236,9 @@ void main() {
             ),
             forumApiProvider.overrideWithValue(api),
             forumSyncStoreProvider.overrideWithValue(InMemoryForumSyncStore()),
+            // Home (passed through on the way) shows the onboarding card to a
+            // signed-in user; without this it fetches over real Dio (todo 412).
+            onboardingChecklistServiceProvider.overrideWith(_NoChecklist.new),
           ],
         );
         addTearDown(container.dispose);
@@ -292,7 +331,14 @@ void main() {
 
       final router = container.read(appRouterProvider);
 
-      await tester.pumpWidget(MaterialApp.router(routerConfig: router));
+      // Screens may be Consumers (HomePage's onboarding card, todo 412), so
+      // the router's own container must be in scope.
+      await tester.pumpWidget(
+        UncontrolledProviderScope(
+          container: container,
+          child: MaterialApp.router(routerConfig: router),
+        ),
+      );
 
       // Navigate to camera
       router.go(AppRoutes.camera);
@@ -331,7 +377,14 @@ void main() {
         timestamp: DateTime.now(),
       );
 
-      await tester.pumpWidget(MaterialApp.router(routerConfig: router));
+      // Screens may be Consumers (HomePage's onboarding card, todo 412), so
+      // the router's own container must be in scope.
+      await tester.pumpWidget(
+        UncontrolledProviderScope(
+          container: container,
+          child: MaterialApp.router(routerConfig: router),
+        ),
+      );
 
       // Navigate to results with plant data
       router.go(AppRoutes.results, extra: testPlant);
@@ -359,7 +412,14 @@ void main() {
 
         final router = container.read(appRouterProvider);
 
-        await tester.pumpWidget(MaterialApp.router(routerConfig: router));
+        // Screens may be Consumers (HomePage's onboarding card, todo 412), so
+        // the router's own container must be in scope.
+        await tester.pumpWidget(
+          UncontrolledProviderScope(
+            container: container,
+            child: MaterialApp.router(routerConfig: router),
+          ),
+        );
 
         // Navigate to results WITHOUT plant data
         router.go(AppRoutes.results);
@@ -387,7 +447,14 @@ void main() {
 
       final router = container.read(appRouterProvider);
 
-      await tester.pumpWidget(MaterialApp.router(routerConfig: router));
+      // Screens may be Consumers (HomePage's onboarding card, todo 412), so
+      // the router's own container must be in scope.
+      await tester.pumpWidget(
+        UncontrolledProviderScope(
+          container: container,
+          child: MaterialApp.router(routerConfig: router),
+        ),
+      );
 
       // Navigate to invalid route
       router.go('/this-route-does-not-exist');
@@ -1327,4 +1394,10 @@ class _MockAuthenticatedAuthNotifier extends AuthService {
       isLoading: false,
     );
   }
+}
+
+/// No onboarding checklist, without touching the network (todo 412).
+class _NoChecklist extends OnboardingChecklistService {
+  @override
+  Future<OnboardingChecklist?> build() async => null;
 }

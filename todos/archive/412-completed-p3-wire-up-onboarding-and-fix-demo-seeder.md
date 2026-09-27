@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: p3
 issue_id: "412"
 tags: [backend, web, mobile, users]
@@ -47,8 +47,8 @@ See the file references above, and todo 405's Work Log.
 
 ## Acceptance Criteria
 
-- [ ] Both demo-data endpoints return 2xx or are removed. Tests pin them.
-- [ ] A client shows onboarding progress.
+- [x] Both demo-data endpoints return 2xx or are removed. Tests pin them. (removed; `test_the_demo_data_endpoints_are_gone`)
+- [x] A client shows onboarding progress. (mobile home `OnboardingChecklistCard`, see Work Log)
 
 ## Work Log
 
@@ -76,3 +76,44 @@ todo 410 deletes (`users.CareReminder`), so re-point that step to "first care
 task" or drop it. Deleting the `DemoData` model and the `demo_*` fields is a
 migration and a scope call: leave them unless the endpoint removal entails
 it, and say so in the PR. Do this todo before todo 410 (shared files).
+
+### 2026-09-26 - Completed (PR #851, P3 sweep)
+
+- **Backend.** `apps/users/onboarding.py` derives three steps from what the
+  user did:
+  - `identify_plant`: recorded by the identify endpoint on an answer with a
+    suggestion, since results are not persisted (todo 411). Pre-405 request
+    rows also count.
+  - `forum_post`: a live post.
+  - `save_topic`: a `TopicBookmark`. This replaced "profile" (owner,
+    2026-09-26), because mobile cannot edit a profile yet. **Todo 455**
+    restores it.
+
+  Completion is recorded once in `onboarding_completed_at`, so undoing a
+  step does not bring the card back (review round 2). PATCH accepts JSON
+  booleans only, the derived flags are not client-settable, and a bad
+  `onboarding_completed_at` is a 400. The demo seeder and both demo
+  endpoints are deleted; the `DemoData` model and the `demo_*` fields stay
+  (a migration, out of scope).
+- **Mobile.** `OnboardingChecklistCard` on `HomePage` shows "N of 3 done",
+  with one semantics node per row. Each step opens its screen: `push` for
+  the camera, `go` for the forum tab. The card refreshes when the router
+  lands on Home and when the app resumes. Dismiss is optimistic and guarded
+  against a sign-out mid-flight. Nothing renders when signed out, complete
+  or dismissed.
+- **Verified.**
+  - pytest `apps/users apps/core apps/plant_identification`: 1923 passed
+    before the repairs; `apps/users apps/plant_identification`: 464 after.
+    The onboarding tests are 15.
+  - `flutter test`: 824 passed. The 9 card tests are mutation-checked: the
+    row container, the dismiss rollback, go vs push, and refresh-on-Home
+    inside a real `StatefulShellRoute`.
+  - Backend mutation checks: the identify hook, boolean validation, live
+    posts only, "Unknown" not counting, and stored completion.
+  - `spectacular --validate` passes.
+- **Reviews.**
+  - Round 1: bundled `/code-review` (10 findings), django-drf (10) and
+    flutter-dart (7). Fixed in d8ff68ad.
+  - Round 2: `/code-review` found 1 (a completed checklist reappeared),
+    fixed in this commit.
+  - Codified in `flutter.md` and `api.md`.

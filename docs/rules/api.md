@@ -236,3 +236,8 @@ Compact checklist auto-injected before edits. Long-form:
   offers a remedy.** The Firebase exchange answered 409 for five reasons; a
   "reset your password" link fixes one of them and loops the user on the rest
   (todo 447).
+- **`django.utils.dateparse.parse_datetime` RAISES `ValueError` for a
+  well-formed but impossible value (`2026-13-01T00:00:00`) and returns `None`
+  for garbage.** Handle both as a 400 on the field, and accept only a string.
+  `parse_datetime(str(x))` turned a number into a silently cleared timestamp
+  (todo 412).
