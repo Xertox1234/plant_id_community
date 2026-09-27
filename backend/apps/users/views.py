@@ -772,11 +772,17 @@ def subscribe_push_notifications(request: Request) -> Response:
     Subscribe user to push notifications.
     """
     from .services import NotificationService
+    from .web_push import clean_subscription
 
-    subscription_data = request.data.get("subscription")
+    # Validated before storing: sending a push POSTs to the endpoint, so an
+    # unchecked one is SSRF (todo 413).
+    subscription_data = clean_subscription(request.data.get("subscription"))
     if not subscription_data:
         return Response(
-            {"error": "Subscription data is required"},
+            {
+                "error": "A browser push subscription (an https endpoint on a "
+                "known push service, with p256dh and auth keys) is required."
+            },
             status=status.HTTP_400_BAD_REQUEST,
         )
 
@@ -831,6 +837,22 @@ def unsubscribe_push_notifications(request: Request) -> Response:
         return Response(
             {"error": "Subscription not found"}, status=status.HTTP_404_NOT_FOUND
         )
+
+
+@api_view(["GET"])
+@permission_classes([permissions.IsAuthenticated])
+def push_public_key(request: Request) -> Response:
+    """The VAPID public key a browser subscribes with (todo 413).
+
+    ``enabled`` is false when either half of the key pair is missing: the web
+    app then offers no browser notifications rather than a subscription the
+    server could never send to.
+    """
+    from django.conf import settings
+
+    public_key = getattr(settings, "VAPID_PUBLIC_KEY", "")
+    enabled = bool(public_key and getattr(settings, "VAPID_PRIVATE_KEY", ""))
+    return Response({"enabled": enabled, "public_key": public_key if enabled else ""})
 
 
 @api_view(["GET"])

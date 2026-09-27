@@ -8,6 +8,7 @@ Built with Django 5.2 LTS, Wagtail 7.0 LTS, and modern web technologies.
 import os
 import sys
 from datetime import timedelta
+from email.utils import parseaddr
 from pathlib import Path
 from urllib.parse import urlsplit
 
@@ -1144,6 +1145,18 @@ DEFAULT_FROM_EMAIL = config(
 )
 SERVER_EMAIL = config(
     "SERVER_EMAIL", default="Plant Community <server@plantcommunity.com>"
+)
+
+# Browser (Web Push) notifications (todo 413). The key pair is the one set on
+# Railway and in backend/.env: raw base64url, the format
+# `npx web-push generate-vapid-keys` prints. Empty = web push disabled: the
+# public-key endpoint says so and no send is attempted. The claims email is
+# the push services' contact for this sender; it follows DEFAULT_FROM_EMAIL
+# (the old default named a domain this app no longer uses).
+VAPID_PUBLIC_KEY = config("VAPID_PUBLIC_KEY", default="")
+VAPID_PRIVATE_KEY = config("VAPID_PRIVATE_KEY", default="")
+VAPID_CLAIMS_EMAIL = config(
+    "VAPID_CLAIMS_EMAIL", default=parseaddr(DEFAULT_FROM_EMAIL)[1]
 )
 
 # Email timeout and connection settings

@@ -31,6 +31,7 @@ import { logger } from '../utils/logger';
 import Eyebrow from '../components/ui/Eyebrow';
 import Avatar from '../components/ui/Avatar';
 import ConfirmDialog from '../components/ui/ConfirmDialog';
+import BrowserNotificationsSection from '../components/settings/BrowserNotificationsSection';
 import type {
   BlockedUser,
   MutedUser,
@@ -853,6 +854,9 @@ export default function SettingsPage() {
 
       {/* Notification preferences (todo 343) */}
       <NotificationPreferencesSection />
+
+      {/* Browser (Web Push) notifications for this device (todo 413) */}
+      <BrowserNotificationsSection />
 
       {/* Blocked users (todo 284/M9) */}
       <BlockedUsersSection />
