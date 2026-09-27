@@ -656,3 +656,10 @@ Compact checklist auto-injected before edits.
   removed that class, and three XSS checks passed on nothing until todo 401.
   Assert `querySelector('.scope')` is non-null first, then mutation-check by
   dropping the class from the component.
+- **Don't put `password`/`secret`/`token` in the name of a test helper whose
+  return value is not a secret.** CodeQL's sensitive-data heuristic reads the
+  identifier itself: `_verified_password_account()` returned a `User`, and the
+  new tests passing it into a view that logs via `log_safe_user_context` failed
+  CodeQL `py/weak-sensitive-data-hashing` on a PR with no real finding. Name
+  the helper for what it returns (`_verified_login_account`) (todo 449,
+  PR #848).
