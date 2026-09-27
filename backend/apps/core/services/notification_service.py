@@ -239,7 +239,6 @@ class NotificationService:
     def _get_email_template_for_type(self, notification_type: str) -> str:
         """Get default email template name for notification type."""
         template_map = {
-            EmailType.PLANT_CARE_REMINDER: "plant_care_reminder",
             EmailType.DISEASE_ALERT: "disease_alert",
             EmailType.SEASONAL_CARE: "seasonal_care",
             EmailType.FORUM_REPLY: "forum_reply",
@@ -255,36 +254,6 @@ class NotificationService:
         return template_map.get(notification_type, "generic_notification")
 
     # Convenience methods for common notification types
-
-    def send_plant_care_reminder(
-        self,
-        user: User,
-        plant_name: str,
-        care_type: str,
-        care_instructions: str,
-        care_data: Optional[Dict] = None,
-    ) -> bool:
-        """Send a plant care reminder notification."""
-        context = {
-            "plant_name": plant_name,
-            "care_type": care_type,
-            "care_instructions": care_instructions,
-            "care_data": care_data or {},
-        }
-
-        subject = f"Time to care for your {plant_name}"
-        message = f"It's time to {care_type.lower()} your {plant_name}!"
-
-        results = self.send_notification(
-            notification_type=EmailType.PLANT_CARE_REMINDER,
-            recipient=user,
-            title=subject,
-            message=message,
-            context=context,
-            channels=[NotificationChannel.EMAIL, NotificationChannel.IN_APP],
-        )
-
-        return results.get("email", False)
 
     def send_forum_reply_notification(
         self,
@@ -408,7 +377,6 @@ class NotificationService:
             "email_notifications": user.email_notifications,
             "plant_id_notifications": user.plant_id_notifications,
             "forum_notifications": user.forum_notifications,
-            "care_reminder_email": user.care_reminder_email,
             "newsletter_subscribed": hasattr(user, "newsletter_subscription"),
         }
 
@@ -423,8 +391,6 @@ class NotificationService:
                 user.plant_id_notifications = preferences["plant_id_notifications"]
             if "forum_notifications" in preferences:
                 user.forum_notifications = preferences["forum_notifications"]
-            if "care_reminder_email" in preferences:
-                user.care_reminder_email = preferences["care_reminder_email"]
 
             user.save()
 
