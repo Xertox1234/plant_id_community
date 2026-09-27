@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: p1
 issue_id: "002"
 tags: [code-review, data-integrity, django, cascade-policy]
@@ -120,6 +120,21 @@ identified_disease = models.ForeignKey(
 - CASCADE policies should preserve historical user data
 - SET_NULL allows database cleanup without destroying history
 - Consistent pattern with identified_species field
+
+### 2026-09-27 - Triage verdict (todo 394)
+
+**Verdict: completed.**
+
+- The CASCADE → SET_NULL migration is
+  `0024_change_disease_result_cascade_to_set_null.py` (a81416c4), with
+  `null=True` at `backend/apps/plant_identification/models.py:1241-1248`.
+- The name fallback landed as the `display_name` property (`:1386-1392`),
+  which falls back to `suggested_disease_name`.
+- Tests: `tests/test_disease_cascade_behavior.py` (4 tests, including
+  preserve-on-delete and the fallback).
+- The admin AC has nothing to update: `PlantDiseaseResult` is not
+  registered in `admin.py`. It stays unchecked on purpose.
+- "Code review" cannot be verified after the fact.
 
 ## Notes
 

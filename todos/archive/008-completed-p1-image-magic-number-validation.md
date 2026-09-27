@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: p1
 issue_id: "008"
 tags: [code-review, security, file-upload, django, forum]
@@ -166,6 +166,24 @@ MAX_IMAGE_DIMENSION = 10000  # Max width or height in pixels
 - Magic number/content validation is required
 - Decompression bombs are real attack vector
 - Pillow Image.verify() is industry standard
+
+### 2026-09-27 - Triage verdict (todo 394)
+
+**Verdict: completed (landed, then rebuilt).**
+
+- It landed in the old `apps/forum` (a81416c4, with magic-number, bomb and
+  corrupt-file tests), which was deleted in a7b61b7c (#271).
+- The live equivalent is `wagtail_forum/api/upload_validation.py` (29a0f5aa,
+  #406), called at `api/views.py:1486`:
+  - `Image.verify()` at line 58;
+  - a decompression-bomb guard (`MAX_IMAGE_PIXELS`, `conf.py:23`) at 72-79;
+  - an allowlist format check, per the todo's own snippet;
+  - translated error strings;
+  - `[SECURITY]` logs at 74 and 81.
+- Tests: `tests/api/test_post_image_upload.py`
+  (`test_non_image_bytes_rejected`, `test_decompression_bomb_rejected`,
+  `test_oversized_dimensions_rejected`).
+- "Code review" cannot be verified after the fact.
 
 ## Notes
 

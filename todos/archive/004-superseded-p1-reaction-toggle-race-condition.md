@@ -1,5 +1,5 @@
 ---
-status: pending
+status: superseded
 priority: p1
 issue_id: "004"
 tags: [code-review, data-integrity, django, race-condition, forum]
@@ -154,6 +154,23 @@ def toggle_reaction(cls, post_id: uuid.UUID, user_id: int, reaction_type: str):
 - get_or_create + toggle pattern is vulnerable to races
 - select_for_update() provides row-level locking
 - Frontend debouncing is defense-in-depth, not primary fix
+
+### 2026-09-27 - Triage verdict (todo 394)
+
+**Verdict: superseded.**
+
+- It landed in the old headless `apps/forum` (a81416c4: `atomic()` +
+  `select_for_update()`, threaded tests including 50 concurrent toggles).
+  That app was deleted in a7b61b7c (#271, "dead code in every running
+  configuration").
+- The live equivalent is `wagtail_forum`'s `ReactionToggleView`
+  (`api/views.py:1566-1584`): a `UniqueConstraint(post, user,
+  reaction_type)` (`models/reactions.py:32`), plus an atomic create that
+  catches `IntegrityError`, plus `Reaction.recount` locking the Post row.
+- Residue in the live code is filed as todos:
+  - no concurrency test for `ReactionToggleView` → todo 464;
+  - no in-flight tap guard on web or mobile, so a double tap flips the
+    reaction on then off → todo 465.
 
 ## Notes
 

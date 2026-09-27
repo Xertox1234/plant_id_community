@@ -1,5 +1,5 @@
 ---
-status: pending
+status: superseded
 priority: p2
 issue_id: "020"
 tags: [performance, database, search, postgresql, medium]
@@ -248,6 +248,25 @@ def search(self, request: Request) -> Response:
 - Test with synthetic large dataset
 - Deploy to production during low traffic
 - Monitor performance improvement
+
+### 2026-09-27 - Triage verdict (todo 394)
+
+**Verdict: superseded. The empty grep was a false negative.**
+
+- The migration landed: a81416c4 added
+  `backend/apps/forum/migrations/0008_add_post_search_gin_indexes.py`, with
+  a tsvector GIN index and a trigram GIN index on `content_raw`, and a
+  reverse step. The grep only looked at `wagtail_forum`. The old app was
+  deleted in a7b61b7c (#271).
+- Forum post search today uses the default `modelsearch` database backend
+  (Postgres). `Post.search_fields` declares `SearchField("body")` and
+  `AutocompleteField("body")` (`wagtail_forum/models/posts.py:77-86`).
+- The GIN indexes live on the shared `wagtailsearch_indexentry` tsvector
+  columns (`wagtail/search/migrations/0006_customise_indexentry.py`), not
+  on the post table.
+- There is no trigram index. pgvector is the separate, flag-gated semantic
+  path.
+- The EXPLAIN and latency ACs are moot now that the target is gone.
 
 ## Notes
 

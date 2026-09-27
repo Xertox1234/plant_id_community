@@ -1,5 +1,5 @@
 ---
-status: pending
+status: superseded
 priority: p1
 issue_id: "005"
 tags: [code-review, data-integrity, django, soft-delete, forum]
@@ -136,6 +136,19 @@ Keep current behavior but document it clearly.
 - Soft delete patterns should be consistent across related models
 - Hard deletes prevent restoration of parent objects
 - Audit trail requires preserving all related data
+
+### 2026-09-27 - Triage verdict (todo 394)
+
+**Verdict: superseded.**
+
+- It landed in #122 (e1b77438): the `is_active` migration, a soft
+  `delete()`, the `perform_destroy` cascade, an `Attachment.active`
+  prefetch, 10 tests and a 30-day `cleanup_attachments` command.
+- The admin grayed-out AC never landed.
+- The whole `apps/forum` was deleted in a7b61b7c (#271). The live
+  `wagtail_forum` has no Attachment model: images are StreamField
+  `ImageBlock`s (`blocks.py:88`) backed by Wagtail Images, so nothing like
+  it is needed.
 
 ## Notes
 

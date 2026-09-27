@@ -6918,3 +6918,26 @@ spec "calling the stat cards readouts" that did not say that (it lists four
 `StatCard`s with no action). The review then caught a wrong path. A verdict
 table is only as good as its citations, so re-grep a sample before quoting
 them.
+
+## 2026-09-27 — Settling 13 grandfathered archived todos: hints lied, and "completed" crept back (todo 394, PR #859)
+
+**What happened.** Two read-only investigators checked every AC of the 13
+`allow` entries against the code and `git log`. The result: 3 completed, 10
+superseded (renamed `-superseded-`), and the live residue filed as todos
+464–467.
+
+**Lessons.**
+
+- **A hint is not a verdict, and 5 of 13 were wrong.** Four pointed at the
+  wrong code, and 031's pointed at the wrong file.
+  - The "one negative grep" (020, the GIN index) was a false negative. The
+    migration had landed in the old `apps/forum`, which the grep never
+    searched, and #271 later deleted that app.
+  - Most of the forum-era ACs landed, were deleted with #271, and were
+    rebuilt in `wagtail_forum`. The right verdict for those is `superseded`
+    with pointers, not `completed`.
+- **The "never mark a not-done file completed" rule held only because the
+  reviewer checked it.** 031 went out `completed` with a partial AC noted
+  as "Not re-filed". Round 1 caught it, and it is now `superseded` →
+  todo 466. When a verdict says "partial", the status must say
+  `superseded`, and every open AC needs a live pointer.

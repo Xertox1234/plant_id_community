@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: p2
 issue_id: "009"
 tags: [code-review, security, performance, rate-limiting, forum]
@@ -145,6 +145,20 @@ RATELIMIT_VIEW = 'apps.forum.views.rate_limit_exceeded'  # Custom error view
 - File upload endpoints need rate limiting for DOS prevention
 - Per-post limits don't prevent cross-post abuse
 - Redis-backed rate limiting is production-ready pattern
+
+### 2026-09-27 - Triage verdict (todo 394)
+
+**Verdict: completed (landed, then rebuilt).**
+
+- It landed in a38c83ff on the old `apps/forum` `post_viewset.py`: upload
+  at 10/h, delete at 20/h, a 429 with `Retry-After`, and tests including a
+  window-reset test (3ad067c0). That app was deleted in a7b61b7c (#271).
+- The live equivalent is `forum_host/api.py:81,86`: `image_upload` at 30/h
+  and `image_delete` at 20/h (`forum_host/constants.py:45,49`), tested by
+  `forum_host/tests/test_ratelimits.py`
+  (`test_image_upload_is_throttled_per_user`).
+- The upload rate drifted from the AC's 10/h to 30/h on purpose in the
+  rebuild. The live suite has no upload-specific reset test.
 
 ## Notes
 
