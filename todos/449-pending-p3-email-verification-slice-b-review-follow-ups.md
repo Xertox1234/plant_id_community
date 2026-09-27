@@ -64,3 +64,11 @@ otherwise.
 ### 2026-09-26 - Filed from todo 447 slice B review round 1
 
 ### 2026-09-26 - Items 6-8 added from todo 447 slice C review round 2
+
+### 2026-09-26 - Owner decision on item 1: a bound uid skips the claim check
+
+The `email_verified` claim only guards email matching. A Firebase uid that is
+**already bound** to an account signs in by uid, so the claim is not checked
+for it. Precondition, verified in the PR: sign-in never copies the token's
+email onto the account. If it does, stop and ask. Security-sensitive: run
+`/security-review` on the PR; no cheap-worker tools.

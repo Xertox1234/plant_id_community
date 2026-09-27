@@ -36,3 +36,13 @@ articles are allowed, spot-checked by the owner before publishing.
 ## Work Log
 
 ### 2026-09-24 - Filed from the gate-removal decisions (todos 330, 386)
+
+### 2026-09-26 - Owner decision: the agent runs it in production
+
+Ship a `generate_care_drafts` management command in a normal PR: the topic
+list, drafts only, never published, tagged `care-guide`, and todo 330's
+hard-blocked classes excluded. Prove it locally first. After merge, the
+agent runs it on Railway (`railway ssh … python manage.py
+generate_care_drafts`). **If the auto-mode classifier refuses, stop, and hand
+the owner the exact command**; do not re-route. The owner then spot-checks
+and publishes (AC 3).

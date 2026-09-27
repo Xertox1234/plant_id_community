@@ -65,3 +65,14 @@ model, shown by a client. **Delete** the demo-data seeder and both demo-data
 endpoints (`POST me/onboarding/create-demo-data/`, `DELETE me/onboarding/demo-data/`)
 instead of rebuilding them — that satisfies AC 1's "or are removed" branch.
 Ready for a sweep.
+
+### 2026-09-26 - Owner decision: the checklist lives on mobile home
+
+The onboarding checklist is shown on the **mobile home screen** (primary
+platform) as a dismissible card; there is no web UI. Steps come from
+`OnboardingProgress` flags (first identification, first forum post, profile
+filled in, and so on). `first_care_reminder_created` refers to a model that
+todo 410 deletes (`users.CareReminder`), so re-point that step to "first care
+task" or drop it. Deleting the `DemoData` model and the `demo_*` fields is a
+migration and a scope call: leave them unless the endpoint removal entails
+it, and say so in the PR. Do this todo before todo 410 (shared files).
