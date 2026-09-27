@@ -75,15 +75,24 @@ class OnboardingChecklistService extends _$OnboardingChecklistService {
   }
 
   /// Hide the card for good. Optimistic: the card goes at once and comes
-  /// back if the server refuses.
+  /// back if the server refuses. Each result applies only while the state is
+  /// still the optimistic one this call set, so a sign-out (build() -> null)
+  /// or a newer load in the meantime is never overwritten.
   Future<void> dismiss() async {
     final previous = state.value;
     if (previous == null) return;
-    state = AsyncData(previous.copyWith(dismissed: true));
+    final optimistic = previous.copyWith(dismissed: true);
+    state = AsyncData(optimistic);
+    bool stillOurs() => ref.mounted && identical(state.value, optimistic);
     try {
       final response = await ref
           .read(apiServiceProvider)
-          .patch(onboardingProgressPath, data: {'completed_checklist': true});
+          .patch(
+            onboardingProgressPath,
+            // The server's name for "dismissed" (OnboardingProgress field).
+            data: {'completed_checklist': true},
+          );
+      if (!stillOurs()) return;
       state = AsyncData(
         OnboardingChecklist.fromJson(
           (response.data as Map<String, dynamic>)['checklist']
@@ -96,7 +105,7 @@ class OnboardingChecklistService extends _$OnboardingChecklistService {
       if (kDebugMode) {
         debugPrint('[ONBOARDING] Dismiss failed: $e');
       }
-      state = AsyncData(previous);
+      if (stillOurs()) state = AsyncData(previous);
     }
   }
 }

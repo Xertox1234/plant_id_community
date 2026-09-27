@@ -10,7 +10,7 @@ from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase
 from rest_framework.test import APIClient
 from wagtail.models import Page
-from wagtail_forum.models import ForumBoard, ForumIndex, Post, Topic
+from wagtail_forum.models import ForumBoard, ForumIndex, Post, Topic, TopicBookmark
 
 User = get_user_model()
 
@@ -26,6 +26,16 @@ class OnboardingChecklistTests(TestCase):
         self.client = APIClient()
         self.user = User.objects.create_user(username="ada", password="TestPass123!")
         self.client.force_authenticate(user=self.user)
+        root = Page.objects.get(id=1)
+        index = root.add_child(instance=ForumIndex(title="Forum", slug="forum"))
+        self.board = index.add_child(
+            instance=ForumBoard(title="General", slug="general")
+        )
+
+    def _topic(self, slug="hi"):
+        return Topic.objects.create(
+            board=self.board, title=slug.title(), slug=slug, author=self.user, live=True
+        )
 
     def test_a_new_user_has_every_step_open(self):
         resp = self.client.get(PROGRESS_URL)
@@ -38,36 +48,36 @@ class OnboardingChecklistTests(TestCase):
         self.assertFalse(resp.data["checklist"]["complete"])
         self.assertFalse(resp.data["checklist"]["dismissed"])
 
-    def test_a_forum_post_ticks_its_step(self):
-        root = Page.objects.get(id=1)
-        index = root.add_child(instance=ForumIndex(title="Forum", slug="forum"))
-        board = index.add_child(instance=ForumBoard(title="General", slug="general"))
-        topic = Topic.objects.create(
-            board=board, title="Hi", slug="hi", author=self.user, live=True
-        )
+    def test_a_live_forum_post_ticks_its_step(self):
         Post.objects.create(
-            topic=topic, author=self.user, is_opening_post=True, live=True
+            topic=self._topic(), author=self.user, is_opening_post=True, live=True
         )
 
         self.assertTrue(_steps(self.client.get(PROGRESS_URL))["forum_post"])
 
-    def test_a_bio_ticks_the_profile_step_and_whitespace_does_not(self):
-        self.user.bio = "   "
-        self.user.save(update_fields=["bio"])
-        self.assertFalse(_steps(self.client.get(PROGRESS_URL))["profile"])
+    def test_a_post_held_for_moderation_does_not_count(self):
+        Post.objects.create(
+            topic=self._topic(), author=self.user, is_opening_post=True, live=False
+        )
 
-        self.user.bio = "Fern person."
-        self.user.save(update_fields=["bio"])
-        self.assertTrue(_steps(self.client.get(PROGRESS_URL))["profile"])
+        self.assertFalse(_steps(self.client.get(PROGRESS_URL))["forum_post"])
+
+    def test_saving_a_topic_ticks_its_step(self):
+        TopicBookmark.objects.create(user=self.user, topic=self._topic())
+
+        self.assertTrue(_steps(self.client.get(PROGRESS_URL))["save_topic"])
 
     def test_every_step_done_is_complete(self):
-        self.user.bio = "Fern person."
-        self.user.save(update_fields=["bio"])
+        topic = self._topic()
+        Post.objects.create(
+            topic=topic, author=self.user, is_opening_post=True, live=True
+        )
+        TopicBookmark.objects.create(user=self.user, topic=topic)
         record_first_identification(self.user)
-        with patch("wagtail_forum.models.Post.objects") as posts:
-            posts.filter.return_value.exists.return_value = True
-            resp = self.client.get(PROGRESS_URL)
 
+        resp = self.client.get(PROGRESS_URL)
+
+        self.assertEqual(_steps(resp), {key: True for key in CHECKLIST_STEPS})
         self.assertTrue(resp.data["checklist"]["complete"])
 
     def test_dismissing_the_card(self):
@@ -101,6 +111,26 @@ class OnboardingChecklistTests(TestCase):
         self.assertFalse(_steps(resp)["identify_plant"])
         self.assertFalse(_steps(resp)["forum_post"])
 
+    def test_a_bad_completed_at_is_a_400_and_keeps_the_stored_value(self):
+        ok = self.client.patch(
+            PROGRESS_URL,
+            {"onboarding_completed_at": "2026-09-26T10:00:00Z"},
+            format="json",
+        )
+        self.assertEqual(ok.status_code, 200)
+
+        # Impossible date (parse_datetime RAISES), garbage (returns None), a
+        # number: each a 400, none clearing the stored timestamp.
+        for bad in ("2026-13-01T00:00:00", "garbage", 5):
+            with self.subTest(value=bad):
+                resp = self.client.patch(
+                    PROGRESS_URL, {"onboarding_completed_at": bad}, format="json"
+                )
+                self.assertEqual(resp.status_code, 400)
+                self.assertEqual(resp.data["fields"], ["onboarding_completed_at"])
+        progress = OnboardingProgress.objects.get(user=self.user)
+        self.assertIsNotNone(progress.onboarding_completed_at)
+
     def test_the_demo_data_endpoints_are_gone(self):
         for method, path in (
             ("post", "/api/v1/auth/me/onboarding/create-demo-data/"),
@@ -120,39 +150,57 @@ class IdentifyTicksTheChecklistTests(TestCase):
     def setUp(self):
         self.client = APIClient()
         self.user = User.objects.create_user(username="bo", password="TestPass123!")
-
-    def _identify(self):
-        image = SimpleUploadedFile(
-            "leaf.jpg", b"\\xff\\xd8\\xff\\xe0fake", content_type="image/jpeg"
-        )
-        return self.client.post(self.URL, {"image": image}, format="multipart")
-
-    def test_a_successful_identification_ticks_identify_plant(self):
         self.client.force_authenticate(user=self.user)
-        result = {
-            "combined_suggestions": [
-                {
-                    "plant_name": "Monstera",
-                    "scientific_name": "Monstera deliciosa",
-                    "probability": 0.9,
-                }
-            ],
-            "confidence_score": 0.9,
-        }
+
+    def _identify(self, suggestions):
+        result = {"combined_suggestions": suggestions, "confidence_score": 0.9}
+        image = SimpleUploadedFile(
+            "leaf.jpg", b"\xff\xd8\xff\xe0fake", content_type="image/jpeg"
+        )
         with patch("apps.plant_identification.utils.validate_image_file"), patch(
             "apps.plant_identification.api.simple_views.CombinedPlantIdentificationService"
         ) as service:
             service.return_value.identify_plant.return_value = result
-            service.return_value.get_identification_summary.return_value = "Monstera"
-            resp = self._identify()
+            service.return_value.get_identification_summary.return_value = "summary"
+            return self.client.post(self.URL, {"image": image}, format="multipart")
+
+    def test_a_successful_identification_ticks_identify_plant(self):
+        resp = self._identify(
+            [{"plant_name": "Monstera", "scientific_name": "Monstera deliciosa"}]
+        )
 
         self.assertEqual(resp.status_code, 200, resp.data)
-        progress = OnboardingProgress.objects.get(user=self.user)
-        self.assertTrue(progress.first_identification_completed)
+        self.assertTrue(
+            OnboardingProgress.objects.get(
+                user=self.user
+            ).first_identification_completed
+        )
+
+    def test_an_answer_with_no_suggestion_does_not_count(self):
+        resp = self._identify([])
+
+        self.assertEqual(resp.status_code, 200, resp.data)
+        self.assertEqual(resp.data["plant_name"], "Unknown")
+        self.assertFalse(
+            OnboardingProgress.objects.filter(
+                user=self.user, first_identification_completed=True
+            ).exists()
+        )
+
+    def test_recording_creates_a_missing_progress_row(self):
+        OnboardingProgress.objects.filter(user=self.user).delete()
+
+        record_first_identification(self.user)
+
+        self.assertTrue(
+            OnboardingProgress.objects.get(
+                user=self.user
+            ).first_identification_completed
+        )
 
     def test_recording_never_raises(self):
         with patch(
-            "apps.users.models.OnboardingProgress.objects.get_or_create",
+            "apps.users.models.OnboardingProgress.objects.filter",
             side_effect=RuntimeError("db down"),
         ):
             record_first_identification(self.user)  # no exception

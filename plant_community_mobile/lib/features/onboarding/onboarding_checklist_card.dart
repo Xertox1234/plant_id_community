@@ -12,24 +12,87 @@ import '../../shared/widgets/canopy_surfaces.dart';
 import 'onboarding_checklist_service.dart';
 
 /// What each server step key reads as, and where doing it happens.
-/// A key the app does not know (a newer server) is skipped.
-const Map<String, ({String label, String route})> onboardingSteps = {
+/// [push] is for a route outside the tab shell (the camera); a tab's root is
+/// switched to with `go`, never pushed on top of another branch. A key the
+/// app does not know (a newer server) is skipped.
+const Map<String, ({String label, String route, bool push})> onboardingSteps = {
   'identify_plant': (
     label: 'Identify your first plant',
     route: AppRoutes.camera,
+    push: true,
   ),
-  'forum_post': (label: 'Say hello in the forum', route: AppRoutes.forum),
-  'profile': (label: 'Add a photo or a short bio', route: AppRoutes.profile),
+  'forum_post': (
+    label: 'Say hello in the forum',
+    route: AppRoutes.forum,
+    push: false,
+  ),
+  'save_topic': (
+    label: 'Save a topic to read later',
+    route: AppRoutes.forum,
+    push: false,
+  ),
 };
 
-/// The onboarding checklist on the home screen (todo 412, owner decision
+/// The onboarding checklist on the home screen (todo 412, owner decisions
 /// 2026-09-26). Shown to a signed-in user until every step is done or they
 /// dismiss it; otherwise it takes no space at all.
-class OnboardingChecklistCard extends ConsumerWidget {
+///
+/// Home stays mounted in the tab shell, and a step can be done anywhere
+/// (the camera replaces itself with the results screen; the forum is another
+/// tab), so the card refreshes whenever the router lands on Home and when
+/// the app resumes, rather than waiting on a pushed route's result.
+class OnboardingChecklistCard extends ConsumerStatefulWidget {
   const OnboardingChecklistCard({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<OnboardingChecklistCard> createState() =>
+      _OnboardingChecklistCardState();
+}
+
+class _OnboardingChecklistCardState
+    extends ConsumerState<OnboardingChecklistCard> {
+  GoRouter? _router;
+  late final AppLifecycleListener _lifecycle;
+
+  @override
+  void initState() {
+    super.initState();
+    _lifecycle = AppLifecycleListener(onResume: _refresh);
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final router = GoRouter.maybeOf(context);
+    if (!identical(router, _router)) {
+      _router?.routerDelegate.removeListener(_onRouteChanged);
+      _router = router;
+      _router?.routerDelegate.addListener(_onRouteChanged);
+    }
+  }
+
+  @override
+  void dispose() {
+    _router?.routerDelegate.removeListener(_onRouteChanged);
+    _lifecycle.dispose();
+    super.dispose();
+  }
+
+  void _onRouteChanged() {
+    final path = _router?.routerDelegate.currentConfiguration.uri.path;
+    if (path == AppRoutes.home) _refresh();
+  }
+
+  void _refresh() {
+    if (!mounted) return;
+    final current = ref.read(onboardingChecklistServiceProvider).value;
+    // Complete or dismissed never comes back: no need to ask again.
+    if (current != null && !current.visible) return;
+    ref.invalidate(onboardingChecklistServiceProvider);
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final checklist = ref.watch(onboardingChecklistServiceProvider).value;
     if (checklist == null || !checklist.visible) return const SizedBox.shrink();
 
@@ -71,10 +134,13 @@ class OnboardingChecklistCard extends ConsumerWidget {
                 done: step.done,
                 onTap: step.done
                     ? null
-                    : () async {
-                        await context.push(onboardingSteps[step.key]!.route);
-                        // Back from the step: the server may now call it done.
-                        ref.invalidate(onboardingChecklistServiceProvider);
+                    : () {
+                        final spec = onboardingSteps[step.key]!;
+                        if (spec.push) {
+                          context.push(spec.route);
+                        } else {
+                          context.go(spec.route);
+                        }
                       },
               ),
           ],

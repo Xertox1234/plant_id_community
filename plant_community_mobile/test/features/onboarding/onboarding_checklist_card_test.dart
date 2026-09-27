@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/semantics.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:go_router/go_router.dart';
 import 'package:plant_community_mobile/features/onboarding/onboarding_checklist_card.dart';
 import 'package:plant_community_mobile/features/onboarding/onboarding_checklist_service.dart';
 import 'package:plant_community_mobile/services/api_service.dart';
@@ -17,15 +18,15 @@ import 'package:plant_community_mobile/services/auth_service.dart';
 Map<String, dynamic> _checklist({
   bool identify = false,
   bool forum = false,
-  bool profile = false,
+  bool save = false,
   bool dismissed = false,
 }) => {
   'steps': [
     {'key': 'identify_plant', 'done': identify},
     {'key': 'forum_post', 'done': forum},
-    {'key': 'profile', 'done': profile},
+    {'key': 'save_topic', 'done': save},
   ],
-  'complete': identify && forum && profile,
+  'complete': identify && forum && save,
   'dismissed': dismissed,
 };
 
@@ -36,6 +37,7 @@ class _FakeApi extends ApiService {
   Map<String, dynamic> checklist;
   final bool failPatch;
   final patches = <Object?>[];
+  var gets = 0;
 
   Response<dynamic> _ok(String path) => Response(
     requestOptions: RequestOptions(path: path),
@@ -48,7 +50,10 @@ class _FakeApi extends ApiService {
     String path, {
     Map<String, dynamic>? queryParameters,
     Options? options,
-  }) async => _ok(path);
+  }) async {
+    gets++;
+    return _ok(path);
+  }
 
   @override
   Future<Response> patch(
@@ -96,7 +101,7 @@ void main() {
     expect(find.text('1 of 3 done'), findsOneWidget);
     expect(find.text('Identify your first plant'), findsOneWidget);
     expect(find.text('Say hello in the forum'), findsOneWidget);
-    expect(find.text('Add a photo or a short bio'), findsOneWidget);
+    expect(find.text('Save a topic to read later'), findsOneWidget);
   });
 
   testWidgets('a done step is announced as done and is not a button', (
@@ -121,7 +126,7 @@ void main() {
   testWidgets('shows nothing when every step is done', (tester) async {
     await _pump(
       tester,
-      _FakeApi(_checklist(identify: true, forum: true, profile: true)),
+      _FakeApi(_checklist(identify: true, forum: true, save: true)),
     );
 
     expect(find.text('Dismiss'), findsNothing);
@@ -140,7 +145,68 @@ void main() {
     await _pump(tester, api, signedIn: false);
 
     expect(find.text('Dismiss'), findsNothing);
+    expect(api.gets, 0);
   });
+
+  testWidgets(
+    'a tab step switches branch, and landing on Home again refreshes the card',
+    (tester) async {
+      final api = _FakeApi(_checklist());
+      // The real shell keeps Home MOUNTED in an indexed stack while another
+      // tab shows, so the card cannot rely on remounting to refresh.
+      final router = GoRouter(
+        initialLocation: '/home',
+        routes: [
+          StatefulShellRoute.indexedStack(
+            builder: (_, _, shell) => Scaffold(body: shell),
+            branches: [
+              StatefulShellBranch(
+                routes: [
+                  GoRoute(
+                    path: '/home',
+                    builder: (_, _) => const OnboardingChecklistCard(),
+                  ),
+                ],
+              ),
+              StatefulShellBranch(
+                routes: [
+                  GoRoute(
+                    path: '/forum',
+                    builder: (_, _) => const Text('forum screen'),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ],
+      );
+      addTearDown(router.dispose);
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            apiServiceProvider.overrideWithValue(api),
+            authServiceProvider.overrideWith(() => _Auth(true)),
+          ],
+          child: MaterialApp.router(routerConfig: router),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('0 of 3 done'), findsOneWidget);
+
+      await tester.tap(find.text('Say hello in the forum'));
+      await tester.pumpAndSettle();
+      expect(find.text('forum screen'), findsOneWidget);
+      // `go`, not `push`: nothing to pop back to on another branch.
+      expect(router.canPop(), isFalse);
+
+      // The user posts on the forum tab; the server now says so.
+      api.checklist = _checklist(forum: true);
+      router.go('/home');
+      await tester.pumpAndSettle();
+
+      expect(find.text('1 of 3 done'), findsOneWidget);
+    },
+  );
 
   testWidgets('Dismiss hides the card and tells the server', (tester) async {
     final api = _FakeApi(_checklist());

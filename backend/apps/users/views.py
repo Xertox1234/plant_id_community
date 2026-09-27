@@ -1274,7 +1274,6 @@ def onboarding_progress(request: Request) -> Response:
                 "completed_tours": progress.completed_tours,
                 "completed_checklist": progress.completed_checklist,
                 "first_identification_completed": progress.first_identification_completed,
-                "first_forum_post_created": progress.first_forum_post_created,
                 "push_notifications_enabled": progress.push_notifications_enabled,
                 "batch_identification_tried": progress.batch_identification_tried,
                 "onboarding_completed_at": progress.onboarding_completed_at,
@@ -1284,9 +1283,9 @@ def onboarding_progress(request: Request) -> Response:
             }
         )
 
-    # first_identification_completed / first_forum_post_created are the
-    # server's to set (the checklist derives them), so a client cannot tick
-    # a step it did not do.
+    # first_identification_completed / first_forum_post_created are not
+    # client-settable: the checklist derives its steps, so a client cannot
+    # tick a step it did not do.
     boolean_fields = (
         "completed_welcome",
         "completed_first_tour",
@@ -1326,9 +1325,23 @@ def onboarding_progress(request: Request) -> Response:
     if "onboarding_completed_at" in request.data:
         from django.utils.dateparse import parse_datetime
 
-        progress.onboarding_completed_at = parse_datetime(
-            str(request.data["onboarding_completed_at"])
-        )
+        raw = request.data["onboarding_completed_at"]
+        try:
+            # parse_datetime returns None for garbage and RAISES for a
+            # well-formed but impossible date (2026-13-01): both are a 400,
+            # never a 500 or a silently cleared timestamp.
+            completed_at = parse_datetime(raw) if isinstance(raw, str) else None
+        except ValueError:
+            completed_at = None
+        if completed_at is None:
+            return Response(
+                {
+                    "error": "onboarding_completed_at must be an ISO 8601 datetime.",
+                    "fields": ["onboarding_completed_at"],
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        progress.onboarding_completed_at = completed_at
         update_fields.append("onboarding_completed_at")
 
     if update_fields:

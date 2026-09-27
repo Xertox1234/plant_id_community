@@ -229,8 +229,9 @@ def identify_plant(request: Request) -> Response:
             f"[IDENTIFY] Identification successful: {response_data['plant_name']} ({response_data['confidence']:.2%})"
         )
 
-        if request.user.is_authenticated:
-            # The onboarding checklist's "identify a plant" step (todo 412).
+        if request.user.is_authenticated and top_suggestion:
+            # The onboarding checklist's "identify a plant" step (todo 412):
+            # only an answer with a suggestion counts, not an "Unknown".
             from apps.users.onboarding import record_first_identification
 
             record_first_identification(request.user)
