@@ -8,6 +8,7 @@ import 'package:plant_community_mobile/features/auth/login_screen.dart';
 import 'package:plant_community_mobile/features/auth/register_screen.dart';
 import 'package:plant_community_mobile/features/camera/camera_screen.dart';
 import 'package:plant_community_mobile/features/collection/collection_screen.dart';
+import 'package:plant_community_mobile/features/diagnose/diagnose_screen.dart';
 import 'package:plant_community_mobile/features/forum/forum_screen.dart';
 import 'package:plant_community_mobile/features/forum/services/forum_api.dart';
 import 'package:plant_community_mobile/features/forum/services/forum_sync_store.dart';
@@ -328,6 +329,41 @@ void main() {
       // The Home FAB used to be the ONLY way to open Settings; the shell's
       // Identify FAB replaced it, so Profile has to carry it now.
       expect(h.path, AppRoutes.settings);
+
+      await tester.pump(const Duration(seconds: 4));
+    });
+  });
+
+  group('Diagnose is reachable from Home (todo 444)', () {
+    Future<void> tapDiagnoseCard(WidgetTester tester) async {
+      final card = find.text('Diagnose a Sick Plant');
+      await tester.ensureVisible(card);
+      await tester.pump();
+      await tester.tap(card);
+      await settle(tester);
+    }
+
+    testWidgets('signed in, the Home card opens the screen and keeps the bar', (
+      tester,
+    ) async {
+      final h = await pumpShell(tester, loggedIn: true);
+      await tapDiagnoseCard(tester);
+
+      expect(h.path, AppRoutes.diagnose);
+      expect(find.byType(DiagnoseScreen), findsOneWidget);
+      expect(find.byType(NavigationBar), findsOneWidget);
+      expect(h.router.canPop(), isTrue);
+
+      await tester.pump(const Duration(seconds: 4));
+    });
+
+    testWidgets('signed out, the Home card goes to sign-in (the API is '
+        'IsAuthenticated)', (tester) async {
+      final h = await pumpShell(tester, loggedIn: false);
+      await tapDiagnoseCard(tester);
+
+      expect(h.path, AppRoutes.login);
+      expect(find.byType(DiagnoseScreen), findsNothing);
 
       await tester.pump(const Duration(seconds: 4));
     });

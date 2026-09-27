@@ -41,6 +41,10 @@
 	<false/>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
+	<key>NSCameraUsageDescription</key>
+	<string>Take a photo of a plant to identify it or diagnose a problem.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>Choose a plant photo from your library to identify it, diagnose it or share it in the forum.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string>Houseplant MD uses your location to show local weather conditions that affect your plants' care recommendations.</string>
 	<key>UIApplicationSceneManifest</key>
