@@ -270,3 +270,12 @@ Compact checklist auto-injected before edits. Long-form:
   removes the row this request inserted, so no row on re-read means the error
   came from the side effects: re-raise. Only a row owned by someone else is a
   lost race (todo 449, `_record_provider_link`).
+- **Never drop a column in the deploy that stops reading it.** Railway runs
+  `migrate` (preDeploy) while the OLD container is still serving, and that
+  container SELECTs every model column on each fetch. Removing
+  `User.care_reminder_email` with a plain `RemoveField` would have 500'd auth
+  until cutover. Expand/contract instead: give the column a `db_default` and
+  remove it from state only (`SeparateDatabaseAndState`), then drop it in a
+  LATER deploy. Dropped TABLES carry the same exposure through Python-side
+  cascades: old code deleting a User walks the reverse FKs to the dropped
+  table (todo 410 slice B, PR #854; the drop itself is todo 458).

@@ -25,7 +25,6 @@ class EmailType:
     """Email type constants for categorization and preferences."""
 
     # Plant care related emails
-    PLANT_CARE_REMINDER = "plant_care_reminder"
     DISEASE_ALERT = "disease_alert"
     SEASONAL_CARE = "seasonal_care"
 
@@ -187,9 +186,8 @@ class EmailService:
             # delivered, and returns 0 WITHOUT raising when every recipient
             # address is filtered out (e.g. a blank/empty To). Treat 0 as a
             # failure instead of tracking + logging a phantom success (todo 267,
-            # finding 1): callers act on this bool — e.g.
-            # PlantCareReminderService.send_reminder advances next_reminder_date
-            # on a True, silently consuming a reminder a user never received.
+            # finding 1): callers act on this bool, so a phantom True would
+            # record a send the user never received.
             if not sent_count:
                 logger.warning(
                     f"[EMAIL] Email {email_type} to {log_safe_email(recipient_email)} "
@@ -296,7 +294,6 @@ class EmailService:
 
         # Check specific email type preferences
         email_preference_map = {
-            EmailType.PLANT_CARE_REMINDER: user.plant_id_notifications,
             EmailType.DISEASE_ALERT: user.plant_id_notifications,
             EmailType.SEASONAL_CARE: user.plant_id_notifications,
             EmailType.FORUM_REPLY: user.forum_notifications,

@@ -4,7 +4,7 @@ Django management command to test email functionality.
 Usage:
     python manage.py test_email recipient@example.com
     python manage.py test_email recipient@example.com --template welcome
-    python manage.py test_email recipient@example.com --type plant_care_reminder
+    python manage.py test_email recipient@example.com --type forum_reply
 """
 
 from apps.core.services.email_service import EmailService, EmailType
@@ -122,7 +122,6 @@ class Command(BaseCommand):
         templates = [
             "generic_notification",
             "welcome_email",
-            "plant_care_reminder",
             "forum_reply",
             "forum_mention",
             "identification_result",
@@ -133,7 +132,6 @@ class Command(BaseCommand):
 
         self.stdout.write("\nAvailable email types:")
         types = [
-            EmailType.PLANT_CARE_REMINDER,
             EmailType.FORUM_REPLY,
             EmailType.FORUM_MENTION,
             EmailType.IDENTIFICATION_RESULT,

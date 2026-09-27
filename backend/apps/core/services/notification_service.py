@@ -239,7 +239,6 @@ class NotificationService:
     def _get_email_template_for_type(self, notification_type: str) -> str:
         """Get default email template name for notification type."""
         template_map = {
-            EmailType.PLANT_CARE_REMINDER: "plant_care_reminder",
             EmailType.DISEASE_ALERT: "disease_alert",
             EmailType.SEASONAL_CARE: "seasonal_care",
             EmailType.FORUM_REPLY: "forum_reply",
@@ -256,36 +255,6 @@ class NotificationService:
 
     # Convenience methods for common notification types
 
-    def send_plant_care_reminder(
-        self,
-        user: User,
-        plant_name: str,
-        care_type: str,
-        care_instructions: str,
-        care_data: Optional[Dict] = None,
-    ) -> bool:
-        """Send a plant care reminder notification."""
-        context = {
-            "plant_name": plant_name,
-            "care_type": care_type,
-            "care_instructions": care_instructions,
-            "care_data": care_data or {},
-        }
-
-        subject = f"Time to care for your {plant_name}"
-        message = f"It's time to {care_type.lower()} your {plant_name}!"
-
-        results = self.send_notification(
-            notification_type=EmailType.PLANT_CARE_REMINDER,
-            recipient=user,
-            title=subject,
-            message=message,
-            context=context,
-            channels=[NotificationChannel.EMAIL, NotificationChannel.IN_APP],
-        )
-
-        return results.get("email", False)
-
     def send_forum_reply_notification(
         self,
         user: User,
@@ -301,8 +270,8 @@ class NotificationService:
         read — this email path and the FCM tray
         (``apps/forum_host/tasks.py::_notification_content``). Edit copy there.
         The import is function-level and one-directional on purpose: this
-        service is NOT forum-specific (it also serves plant-care reminders,
-        identification results and newsletters), so the forum owns its copy and
+        service is NOT forum-specific (it also serves identification results
+        and newsletters), so the forum owns its copy and
         this reads it, never the reverse.
 
         This is the ONLY live forum email path — it is called from
@@ -408,7 +377,8 @@ class NotificationService:
             "email_notifications": user.email_notifications,
             "plant_id_notifications": user.plant_id_notifications,
             "forum_notifications": user.forum_notifications,
-            "care_reminder_email": user.care_reminder_email,
+            # The care-task push opt-out read by the reminder sweep (todo 410).
+            "care_reminder_notifications": user.care_reminder_notifications,
             "newsletter_subscribed": hasattr(user, "newsletter_subscription"),
         }
 
@@ -423,8 +393,10 @@ class NotificationService:
                 user.plant_id_notifications = preferences["plant_id_notifications"]
             if "forum_notifications" in preferences:
                 user.forum_notifications = preferences["forum_notifications"]
-            if "care_reminder_email" in preferences:
-                user.care_reminder_email = preferences["care_reminder_email"]
+            if "care_reminder_notifications" in preferences:
+                user.care_reminder_notifications = preferences[
+                    "care_reminder_notifications"
+                ]
 
             user.save()
 
