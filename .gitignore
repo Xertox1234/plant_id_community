@@ -220,6 +220,12 @@ docs/reviews/.*-partial.json
 # Completing-todos run checkpoints (per-run, transient)
 todos/.completing-todos-run-*.json
 
+# Todo sweep v2 (docs/superpowers/specs/2026-09-27-todo-sweep-multi-agent-design.md):
+# per-run state, and per-group evidence inside worker worktrees.
+todos/.sweep-run-*.json
+todos/.sweep-run-*.tmp
+.sweep-evidence/
+
 # Local coworking notes (not tracked)
 docs/cowork/
 backend/docs/cowork/
