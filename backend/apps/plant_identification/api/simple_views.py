@@ -229,6 +229,12 @@ def identify_plant(request: Request) -> Response:
             f"[IDENTIFY] Identification successful: {response_data['plant_name']} ({response_data['confidence']:.2%})"
         )
 
+        if request.user.is_authenticated:
+            # The onboarding checklist's "identify a plant" step (todo 412).
+            from apps.users.onboarding import record_first_identification
+
+            record_first_identification(request.user)
+
         return Response(response_data, status=status.HTTP_200_OK)
 
     except Exception as e:

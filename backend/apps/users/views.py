@@ -25,7 +25,7 @@ from rest_framework.response import Response
 from rest_framework_simplejwt.tokens import RefreshToken
 
 from .authentication import RefreshTokenFromCookie, clear_jwt_cookies, set_jwt_cookies
-from .constants import RATE_LIMIT_DEMO_DATA_CREATE, RATE_LIMIT_ONBOARDING_EVENT
+from .constants import RATE_LIMIT_ONBOARDING_EVENT
 from .email_verification import (
     VerificationKeyInvalid,
     confirm_verification_key,
@@ -1252,12 +1252,18 @@ def care_reminder_stats(request: Request) -> Response:
 @permission_classes([permissions.IsAuthenticated])
 def onboarding_progress(request: Request) -> Response:
     """
-    Get or update user's onboarding progress.
+    Get or update the user's onboarding progress.
+
+    GET includes ``checklist`` (todo 412): the mobile home checklist, each
+    step DERIVED from what the user has actually done, never from a flag the
+    client sets. PATCH updates the stored flags, of which the client needs
+    only ``completed_checklist`` (dismiss). Every flag must be a JSON boolean:
+    a string "false" is truthy and used to be stored as True.
     """
     from .models import OnboardingProgress
+    from .onboarding import onboarding_checklist
 
-    # Get or create onboarding progress
-    progress, created = OnboardingProgress.objects.get_or_create(user=request.user)
+    progress, _ = OnboardingProgress.objects.get_or_create(user=request.user)
 
     if request.method == "GET":
         return Response(
@@ -1267,111 +1273,74 @@ def onboarding_progress(request: Request) -> Response:
                 "completed_first_tour": progress.completed_first_tour,
                 "completed_tours": progress.completed_tours,
                 "completed_checklist": progress.completed_checklist,
-                "demo_data_created": progress.demo_data_created,
-                "demo_data_skipped": progress.demo_data_skipped,
                 "first_identification_completed": progress.first_identification_completed,
-                "first_care_reminder_created": progress.first_care_reminder_created,
                 "first_forum_post_created": progress.first_forum_post_created,
                 "push_notifications_enabled": progress.push_notifications_enabled,
                 "batch_identification_tried": progress.batch_identification_tried,
                 "onboarding_completed_at": progress.onboarding_completed_at,
+                "checklist": onboarding_checklist(request.user, progress),
                 "created_at": progress.created_at,
                 "updated_at": progress.updated_at,
             }
         )
 
-    elif request.method == "PATCH":
-        # Update progress fields
-        update_fields = []
+    # first_identification_completed / first_forum_post_created are the
+    # server's to set (the checklist derives them), so a client cannot tick
+    # a step it did not do.
+    boolean_fields = (
+        "completed_welcome",
+        "completed_first_tour",
+        "completed_checklist",
+        "push_notifications_enabled",
+        "batch_identification_tried",
+    )
+    invalid = [
+        field
+        for field in boolean_fields
+        if field in request.data and not isinstance(request.data[field], bool)
+    ]
+    if invalid:
+        return Response(
+            {"error": "These fields must be true or false.", "fields": invalid},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
 
-        for field in [
-            "completed_welcome",
-            "completed_first_tour",
-            "completed_checklist",
-            "demo_data_created",
-            "demo_data_skipped",
-            "first_identification_completed",
-            "first_care_reminder_created",
-            "first_forum_post_created",
-            "push_notifications_enabled",
-            "batch_identification_tried",
-        ]:
-            if field in request.data:
-                setattr(progress, field, request.data[field])
-                update_fields.append(field)
+    update_fields = []
+    for field in boolean_fields:
+        if field in request.data:
+            setattr(progress, field, request.data[field])
+            update_fields.append(field)
 
-        if "completed_tours" in request.data:
-            progress.completed_tours = request.data["completed_tours"]
-            update_fields.append("completed_tours")
-
-        if "onboarding_completed_at" in request.data:
-            from django.utils.dateparse import parse_datetime
-
-            progress.onboarding_completed_at = parse_datetime(
-                request.data["onboarding_completed_at"]
-            )
-            update_fields.append("onboarding_completed_at")
-
-        if update_fields:
-            update_fields.append("updated_at")
-            progress.save(update_fields=update_fields)
-
-        return Response({"message": "Onboarding progress updated successfully"})
-
-
-@api_view(["POST"])
-@permission_classes([permissions.IsAuthenticated])
-@ratelimit(key="user", rate=RATE_LIMIT_DEMO_DATA_CREATE, method="POST", block=True)
-def create_demo_data(request: Request) -> Response:
-    """
-    Create demo data for new users to explore the platform.
-    """
-    from .models import OnboardingProgress
-    from .services import DemoDataService
-
-    include_care_reminders = request.data.get("include_care_reminders", True)
-
-    try:
-        with transaction.atomic():
-            # Create demo data using the service
-            demo_service = DemoDataService(request.user)
-            demo_data = demo_service.create_demo_data(
-                include_care_reminders=include_care_reminders
-            )
-
-            # Update onboarding progress
-            progress, _ = OnboardingProgress.objects.get_or_create(user=request.user)
-            progress.demo_data_created = True
-            progress.completed_welcome = True
-            progress.save(
-                update_fields=["demo_data_created", "completed_welcome", "updated_at"]
-            )
-
+    if "completed_tours" in request.data:
+        if not isinstance(request.data["completed_tours"], list):
             return Response(
                 {
-                    "message": "Demo data created successfully",
-                    "created_items": {
-                        "identifications": demo_data.created_data.get(
-                            "identifications_count", 0
-                        ),
-                        "forum_posts": demo_data.created_data.get(
-                            "forum_posts_count", 0
-                        ),
-                        "care_reminders": demo_data.created_data.get(
-                            "care_reminders_count", 0
-                        ),
-                    },
-                }
+                    "error": "completed_tours must be a list.",
+                    "fields": ["completed_tours"],
+                },
+                status=status.HTTP_400_BAD_REQUEST,
             )
+        progress.completed_tours = request.data["completed_tours"]
+        update_fields.append("completed_tours")
 
-    except Exception as e:
-        logger.error(
-            f"[DEMO] Error creating demo data for user {request.user.id}: {str(e)}"
+    if "onboarding_completed_at" in request.data:
+        from django.utils.dateparse import parse_datetime
+
+        progress.onboarding_completed_at = parse_datetime(
+            str(request.data["onboarding_completed_at"])
         )
-        return Response(
-            {"error": "Failed to create demo data. Please try again."},
-            status=status.HTTP_500_INTERNAL_SERVER_ERROR,
-        )
+        update_fields.append("onboarding_completed_at")
+
+    if update_fields:
+        update_fields.append("updated_at")
+        progress.save(update_fields=update_fields)
+
+    return Response(
+        {
+            "message": "Onboarding progress updated successfully",
+            "checklist": onboarding_checklist(request.user, progress),
+        }
+    )
 
 
 @api_view(["POST"])
@@ -1406,37 +1375,6 @@ def track_onboarding_event(request: Request) -> Response:
         logger.error(f"[ONBOARDING] Error tracking onboarding event: {str(e)}")
         return Response(
             {"error": "Failed to track event"},
-            status=status.HTTP_500_INTERNAL_SERVER_ERROR,
-        )
-
-
-@api_view(["DELETE"])
-@permission_classes([permissions.IsAuthenticated])
-def delete_demo_data(request: Request) -> Response:
-    """
-    Delete all demo data for a user.
-    """
-    from .models import DemoData
-    from .services import DemoDataService
-
-    try:
-        demo_data = DemoData.objects.filter(user=request.user).first()
-        if demo_data:
-            demo_service = DemoDataService(request.user)
-            demo_service.cleanup_demo_data(demo_data)
-
-            return Response({"message": "Demo data deleted successfully"})
-        else:
-            return Response(
-                {"error": "No demo data found"}, status=status.HTTP_404_NOT_FOUND
-            )
-
-    except Exception as e:
-        logger.error(
-            f"[DEMO] Error deleting demo data for user {request.user.id}: {str(e)}"
-        )
-        return Response(
-            {"error": "Failed to delete demo data"},
             status=status.HTTP_500_INTERNAL_SERVER_ERROR,
         )
 
