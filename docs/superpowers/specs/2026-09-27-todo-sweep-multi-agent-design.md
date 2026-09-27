@@ -213,9 +213,12 @@ Land runs in the main session, one group at a time, in wave order:
    far in the wave: bundled code-review (bugs) + `code-review-orchestrator`
    (checklist; only for groups sized `m` or larger). Blocking findings → repair
    worker in the PR's worktree → verifier. Main session commits the repair.
-5. **Round 2** — `todo-review` with `round: 2` (no repair). Clean → main session
-   reviews the PR diff and runs
-   `gh pr merge --auto --squash --delete-branch`. Still blocking → stop that PR
+5. **Round 2** — `todo-review` with `round: 2` (no repair). Clean → the main session
+   runs `gh pr merge --auto --squash --delete-branch`. The "review the diff
+   before arming" rule is met by the round-2 reviewers, which read the full PR
+   diff in fresh contexts. The main session reads only `--stat` and their
+   compact verdicts, never the full diff, because reading ~18 full diffs is the
+   context fill this design removes. Still blocking → stop that PR
    and report. Non-blocking findings from either round → a follow-up todo file
    (CLAUDE.md review-loop budget: two rounds, never three).
 6. After merge is confirmed, remove the worktree (work is pushed and merged, so
@@ -335,6 +338,10 @@ Worker slot `N` (1–3) gets:
 - `REDIS_URL=redis://127.0.0.1:6379/<10+N>` (dev uses DBs 1 and 3).
 - File caches and `MEDIA_ROOT` are `BASE_DIR`-relative, so already per-worktree.
 - Vitest and scripts are safe in parallel; Playwright is the `e2e` lane.
+- Slot values are set as **process environment** on the worker's commands,
+  never written into `.env`. `.worktreeinclude` copies `backend/.env` in, and
+  python-decouple lets environment variables override `.env`, which is what
+  makes the override work.
 
 ## 8. State model (run file)
 
@@ -373,7 +380,7 @@ every todo is terminal. Cross-session resume is from this file plus git and
 | Commit hook `[CRITICAL]` | Treated as a blocking review finding → round-1 repair path. |
 | CI failure after push | That PR stops and is reported; other groups continue. |
 | Non-mechanical rebase conflict | That group stops, is reported, and returns to `pending`. |
-| Kimi gate hang | Gate self-caps at 150 s (`timeout` installed); if exceeded, stop and report. |
+| Kimi gate timeout | The gate self-caps at 150 s and then **skips itself**. A skipped gate is not a passed gate: record `kimi: skipped` in the PR body and the run summary. Round-1/2 review still runs. |
 | Owner-gated step inside a todo (prod read, dashboard) | Never attempted; becomes an owner hand-off in the summary. |
 | Session ends mid-run | `todo-resume` reads the run file; every stage is idempotent because the source of truth is git + PR state. |
 
@@ -391,6 +398,9 @@ several workflow runs. Hence:
 - `code-review-orchestrator` runs only for groups sized `m`+; bundled
   code-review runs for all.
 - Tiny todos are bundled (§7.1).
+- The kimi commit gate is on Land's serial critical path: up to 150 s per
+  commit, and a PR usually has two commits (initial + repair), so ~5 min per
+  group in the worst case (observed 2026-09-27: 150 s, then timed out).
 - Model tiering is **not** decided (no surviving evidence); agents inherit the
   session model, and the pilot measures triage accuracy before any downgrade.
 
@@ -428,7 +438,11 @@ several workflow runs. Hence:
    - P2 two slots run backend pytest concurrently with no cross-talk.
    - P3 the verifier (no isolation) can run commands in the worker's worktree.
    - P4 the hook blocks worker commits; the main session can commit in the
-     worker's worktree with `git -C`.
+     worker's worktree with `git -C`, **and** can Edit/Write todo files inside a
+     worktree under `.claude/worktrees/`: neither `guard-main-branch-edit.sh`
+     (if the main checkout sits on `main`) nor the native cross-worktree block
+     fires. Unpinned Write into a *scratchpad* worktree is proven; under
+     `.claude/worktrees/` it is not.
    - P5 `.worktreeinclude` delivers `backend/.env`.
    - P6 every returned record is within its schema caps; record main-context
      growth per group.
