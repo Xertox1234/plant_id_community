@@ -143,7 +143,7 @@ def send_due_care_task_reminders() -> None:
         sent = _push_to_owners(fcm, by_owner, done, retry_later)
         if retry_later:
             _release(retry_later)
-    except BaseException:
+    except BaseException:  # re-raised below; a worker shutdown must un-claim too
         unfinished = [t for o, ts in by_owner.items() if o not in done for t in ts]
         try:
             _release(unfinished + retry_later)
