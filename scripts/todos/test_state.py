@@ -151,10 +151,14 @@ def main():
           raises(lambda: state.transition(run, "1", "ready", stage="merged")))
     check("the entry's stage is unchanged after a rejected field",
           run["todos"]["1"]["stage"] == original_stage)
+    check("transition refuses to set reserved field 'attempts'",
+          raises(lambda: state.transition(run, "1", "ready", attempts=5)))
 
     with tempfile.TemporaryDirectory() as tmp:
-        result = subprocess.run(["python3", "scripts/todos/state.py", "show", "/nonexistent/run.json"],
-                                capture_output=True, text=True, cwd="/private/tmp/claude-501/-Users-williamtower-projects-plant-id-community/37a59bb2-61f6-4bb0-9e9a-db73bfc21cc8/scratchpad/wt-sweep-engine")
+        missing_path = Path(tmp) / "nonexistent.json"
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        result = subprocess.run([sys.executable, os.path.join(script_dir, "state.py"), "show", str(missing_path)],
+                                capture_output=True, text=True)
         check("CLI on a missing run file exits 2", result.returncode == 2)
         check("the error is reported as 'state: <message>'", result.stderr.startswith("state: "))
 
