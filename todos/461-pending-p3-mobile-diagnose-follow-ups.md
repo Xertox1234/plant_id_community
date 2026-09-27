@@ -4,7 +4,7 @@ priority: p3
 issue_id: "461"
 tags: [mobile, flutter, diagnosis, follow-up]
 dependencies: []
-source_review: "todos/444-pending-p3-mobile-diagnose-missing.md"
+source_review: "todos/archive/444-completed-p3-mobile-diagnose-missing.md"
 ---
 
 # Mobile Diagnose: non-blocking follow-ups from the PR #857 review
@@ -45,6 +45,11 @@ Paths are under `plant_community_mobile/lib/features/diagnose/`.
   - no screen test shows the chosen condition and the trimmed location
     reaching `diagnose()`;
   - the real multipart path is never exercised.
+- **Android HEIC** (round 2): image_picker_android copies a HEIC gallery
+  pick as `*.heic` (`FileUtils.java`), and the resized file keeps the name
+  although it is now JPEG. The upload uses the path's basename
+  (`api_service.dart` `uploadFile`), and the backend refuses a `.heic`
+  extension. This predates the resize fix. Send a `.jpg` filename.
 - **Nit:** `home_page.dart`'s doc comment still counts "4 feature cards".
 
 ## Acceptance Criteria
@@ -55,4 +60,5 @@ Paths are under `plant_community_mobile/lib/features/diagnose/`.
       moves to create-then-poll.
 - [ ] `pending`/`processing` are handled or the coupling is documented.
 - [ ] The EXIF question is answered (strip on the server, or record why not).
+- [ ] An Android HEIC pick uploads with a `.jpg` name.
 - [ ] The test gaps above are covered.

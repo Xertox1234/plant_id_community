@@ -4,7 +4,7 @@ priority: p2
 issue_id: "462"
 tags: [mobile, flutter, auth, bug]
 dependencies: []
-source_review: "todos/444-pending-p3-mobile-diagnose-missing.md"
+source_review: "todos/archive/444-completed-p3-mobile-diagnose-missing.md"
 ---
 
 # Mobile signs the user out when the access JWT expires, and never refreshes it

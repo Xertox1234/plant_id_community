@@ -4,7 +4,7 @@ priority: p3
 issue_id: "459"
 tags: [web, diagnosis, bug]
 dependencies: []
-source_review: "todos/444-pending-p3-mobile-diagnose-missing.md"
+source_review: "todos/archive/444-completed-p3-mobile-diagnose-missing.md"
 ---
 
 # Web `/diagnose` sends free-text plant condition to a choices field

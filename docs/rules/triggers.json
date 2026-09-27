@@ -1906,5 +1906,20 @@
     "severity": "warn",
     "added": "2026-09-27",
     "source": "todo 413 / PR #852 round 1"
+  },
+  {
+    "id": "image-picker-unbounded-pick",
+    "domains": [
+      "flutter"
+    ],
+    "path_glob": [
+      "plant_community_mobile/lib/**/*.dart"
+    ],
+    "content_present": "pickImage\\(\\s*source:\\s*[\\w.]+\\s*,?\\s*\\)",
+    "message": "Unbounded pickImage: iOS returns a 24 MP photo as a q=1.0 JPEG, which the backend refuses over 4096 px / 10 MB. Pass maxWidth/maxHeight/imageQuality unless the bytes must stay exact (todo 444 / PR #857).",
+    "pattern_ref": "docs/rules/flutter.md",
+    "severity": "warn",
+    "added": "2026-09-27",
+    "source": "todo 444 / PR #857 round 1"
   }
 ]

@@ -6854,3 +6854,27 @@ not. The general lesson is in `docs/rules/security.md`.
 - The AI layer caches each prompt's reply for 30 days, bad ones included, so
   a screened-out topic cannot be refilled by re-running. That is recorded in
   todo 445.
+
+## 2026-09-27 — Mobile Diagnose: an unbounded pick and a missing camera string (todo 444, PR #857)
+
+**What shipped.** A signed-in `/diagnose` screen on the web's own
+disease-requests API: photo, symptoms, condition and location, then the
+result.
+
+**What the review caught.**
+
+- **Unbounded picks.** The picker passed no size bounds. iOS returns a 24 MP
+  photo as a quality-1.0 JPEG, and the backend validates the ORIGINAL
+  (≤ 4096 px, ≤ 10 MB) before resizing to 1200 px. A current iPhone's photo
+  would be refused. The identify flow already bounded its picks; the new
+  code copied the forum picker, which is unbounded on purpose (it keeps
+  GIF/PNG bytes exact). Copy the precedent whose constraints match yours.
+- **No `NSCameraUsageDescription`.** `ios/Runner/Info.plist` lacked it, so
+  asking for the camera kills the app with no Dart error. That was already
+  true of Identify → Take photo on main, and no test could see it. A plist
+  guard test now maps each plugin to the usage strings it needs.
+
+**Also found.** The app never refreshes its Django access JWT: a 401 signs
+the user out, and the stored refresh token is unused. Filed as todo 462
+(P2). And the web's diagnose form sends free text to the `plant_condition`
+choices field (todo 459).

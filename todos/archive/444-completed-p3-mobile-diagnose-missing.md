@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: p3
 issue_id: "444"
 tags: [mobile, flutter, feature-parity]
@@ -74,3 +74,13 @@ Blocking, fixed:
 Non-blocking findings: todo 461. The review also found that the app never
 refreshes its access JWT and signs users out when it expires. That affects
 the whole app and predates this PR; filed as todo 462 (P2).
+
+### 2026-09-27 - PR #857 round 2: verified; archived
+
+Round 2 verified both fixes. Picks now fit inside 2048 px (image_picker's
+iOS and Android resizers read from the pub cache). The only way past 10 MB
+is a noisy PNG with alpha, and the client check catches it. The plist lints
+clean and needs no other key. Codified: two `docs/rules/flutter.md` rules,
+the `image-picker-unbounded-pick` trigger, and a plist guard test
+(`test/platform/ios_usage_strings_test.dart`, mutation-checked).
+Round 2's Android HEIC note is added to todo 461.
