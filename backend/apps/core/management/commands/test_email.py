@@ -8,7 +8,6 @@ Usage:
 """
 
 from apps.core.services.email_service import EmailService, EmailType
-from apps.core.services.notification_service import NotificationService
 from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.core.management.base import BaseCommand, CommandError
@@ -47,7 +46,7 @@ class Command(BaseCommand):
         email_type = options["type"]
         user_identifier = options.get("user")
 
-        self.stdout.write(f"Testing email functionality...")
+        self.stdout.write("Testing email functionality...")
         self.stdout.write(f"Recipient: {recipient}")
         self.stdout.write(f"Template: {template}")
         self.stdout.write(f"Type: {email_type}")
@@ -83,7 +82,7 @@ class Command(BaseCommand):
             success = email_service.send_email(
                 email_type=email_type,
                 recipient=recipient,
-                subject=f"🌱 Test Email from Plant Community",
+                subject="🌱 Test Email from Plant Community",
                 template_name=template,
                 context=context,
                 priority="normal",
@@ -101,7 +100,7 @@ class Command(BaseCommand):
                 )
 
                 # Also show console output if using console backend
-                if "console" in settings.EMAIL_BACKEND:
+                if "console" in settings.MAILERS["default"].get("BACKEND", ""):
                     self.stdout.write(
                         self.style.WARNING(
                             "📧 Note: Using console email backend - check server logs for email content."

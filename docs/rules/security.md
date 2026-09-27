@@ -467,3 +467,15 @@ Compact checklist auto-injected before edits. Long-form: `backend/docs/patterns/
   premise, but binds before #285 had no claim check and Google/Apple bypassed
   it until #842. A state reached through any past window without the check
   proves nothing (todo 449).
+- **Under Django 6.1 `MAILERS`, a legacy `get_connection(**kwargs)` call's
+  kwargs are merged OVER the mailer's OPTIONS, including `None`s.** Wagtail's
+  `admin/mail.py` `send_mail` passes `username=None, password=None`, so plain
+  OPTIONS credentials vanish and SMTP never logs in. Configure Django's SMTP
+  backend through `apps.core.mail_backends.ConfiguredSMTPBackend`, built by
+  `apps/core/mail_config.build_default_mailer`, never by hand-written OPTIONS
+  (todo 364).
+- **A config the app can only use at send time gets a system check that
+  builds it at deploy.** A mailer with an unknown option or `use_tls` +
+  `use_ssl` raises only at the first send, and every mail call site catches
+  and logs it. `core.E364` builds `mail.mailers["default"]` during
+  `manage.py check` and the deploy's migrate (todo 364).

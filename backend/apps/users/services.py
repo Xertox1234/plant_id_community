@@ -270,7 +270,6 @@ The Plant Community Team
                 message=text_message,
                 from_email=settings.DEFAULT_FROM_EMAIL,
                 recipient_list=[reminder.user.email],
-                fail_silently=False,
             )
 
             logger.info(
