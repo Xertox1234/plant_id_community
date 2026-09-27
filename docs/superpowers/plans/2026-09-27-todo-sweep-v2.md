@@ -1853,7 +1853,9 @@ def main():
     check("an invalid round number is refused", raises(lambda: state.review_args(run, 3, 0), ValueError))
     low = [{"severity": "low", "file": "a.py", "line": 2, "summary": "nit", "suggested_fix": ""}]
     res = state.ingest_review(run, [{"group": g_ok, "ids": ids_ok, "findings": low, "blocking": [],
-                                     "reviewers_ok": True, "repair": None, "verdict": None}], 2)
+                                     "reviewers_ok": True, "checklist_skipped": True, "repair": None,
+                                     "verdict": None}], 2)
+    check("a skipped checklist review is recorded", run["todos"][ids_ok[0]]["checklist_skipped"] is True)
     check("a clean round 2 moves to reviewed", res[g_ok] == "clean"
           and all(run["todos"][i]["stage"] == "reviewed" for i in ids_ok))
     check("non-blocking findings are kept as follow-ups", run["todos"][ids_ok[0]]["followups"] == ["a.py:2 nit"])
@@ -2076,6 +2078,7 @@ def ingest_review(run, results, round_no):
                   if f["severity"] not in {"critical", "high"}][:10]
         for _, entry in entries:
             entry.setdefault("followups", []).extend(follow)
+            entry["checklist_skipped"] = bool(result.get("checklist_skipped"))
         if not result["reviewers_ok"]:
             outcome[gid] = "rerun"
             continue
@@ -3087,6 +3090,8 @@ archive a todo, or change its `status:`. The main session lands your work.
 - `MODE: implement` — you are in a fresh worktree cut from origin/main. The prompt has a `BRIEF:` (JSON) and a `PLAN:`.
 - `MODE: retry` — the verifier failed your earlier attempt. Work in the given `WORKTREE`. Fix what `VERIFIER NOTES` say and nothing else.
 - `MODE: repair` — round-1 review found blocking issues. Work in the given `WORKTREE`. Fix only the listed `FINDINGS`.
+  If `WORKTREE/EVIDENCE_DIR` is missing (the harness swept the worktree after push, and Land re-created it from the
+  branch), regenerate `ac.json` and the evidence for every criterion before you finish. The verifier needs them.
 - `BRIEF.verify_only: true` — change no code. Gather evidence for every criterion and add the Work Log entry.
 
 ## Setup
@@ -3207,7 +3212,7 @@ Expected: three `ok` lines (every frontmatter line is a single-line `key: value`
 - Produces (read by `state.py record-triage` / `ingest-execute` / `ingest-review`):
   - `todo-triage` → `{records: TRIAGE[], missing: string[]}`
   - `todo-execute` → `{results: [{group, ids, worker: WORKER|null, verdict: VERDICT|null, retried}]}`
-  - `todo-review` → `{results: [{group, ids, findings, ranges, reviewers_ok, blocking, repair: WORKER|null, verdict: VERDICT|null}]}`
+  - `todo-review` → `{results: [{group, ids, findings, ranges, reviewers_ok, checklist_skipped, blocking, repair: WORKER|null, verdict: VERDICT|null}]}`. `reviewers_ok` means the bug review returned; the checklist review is best-effort (`checklist_skipped`).
 
 The WORKER and VERDICT schemas appear in both `todo-execute.js` and `todo-review.js`, because workflow scripts cannot import. Keep them identical. `test_workflows.js` asserts it.
 
@@ -3339,8 +3344,13 @@ async function main() {
   check('review: round 2 never repairs', byType(r.calls, 'todo-worker').length === 0)
   check('review: blocking findings are reported', r.result.results[0].blocking.length === 2, r.result)
 
+  r = await run('todo-review', { round: 2, prs: [pr({ round: 2, size: 'm' })] },
+    (p, o) => (o.agentType === 'code-review-orchestrator' ? null : { reviewed_range: 'x', findings: [] }))
+  check('review: a dead checklist reviewer is flagged, not blocking',
+    r.result.results[0].reviewers_ok === true && r.result.results[0].checklist_skipped === true, r.result)
+
   r = await run('todo-review', { round: 1, prs: [pr()] }, () => null)
-  check('review: a dead reviewer marks the review incomplete', r.result.results[0].reviewers_ok === false, r.result)
+  check('review: a dead bug reviewer marks the review incomplete', r.result.results[0].reviewers_ok === false, r.result)
   check('review: an incomplete review never repairs', byType(r.calls, 'todo-worker').length === 0)
 
   // --- schemas stay identical across files
@@ -3604,7 +3614,9 @@ function checklistPrompt(p) {
 function repairPrompt(p, blocking) {
   return ['MODE: repair', `WORKTREE: ${p.worktree}`, `SLOT: ${p.slot}`, `MAIN_ROOT: ${p.main_root}`,
     `EVIDENCE_DIR: ${p.evidence_dir}`, `TODOS: ${p.ids.join(', ')}`, 'FINDINGS:', JSON.stringify(blocking, null, 1),
-    'Fix only these. Re-run the affected criteria and update ac.json and its evidence. Return the WORKER record.'].join('\n')
+    'Fix only these. Re-run the affected criteria and update ac.json and its evidence.',
+    'If EVIDENCE_DIR is missing in the worktree, regenerate ac.json and evidence for EVERY criterion first.',
+    'Return the WORKER record.'].join('\n')
 }
 
 function verifyPrompt(p, w) {
@@ -3625,9 +3637,12 @@ const results = await pipeline(
       reviewers.push(() => agent(checklistPrompt(p),
         { label: `checklist:${p.group}`, phase: 'Review', agentType: 'code-review-orchestrator', schema: FINDINGS }))
     }
-    const found = (await parallel(reviewers)).filter(Boolean)
-    return { findings: found.flatMap(f => f.findings), ranges: found.map(f => f.reviewed_range),
-      reviewers_ok: found.length === reviewers.length }
+    // The bug review gates. The checklist review is best-effort: if it cannot run (e.g. it cannot
+    // dispatch nested reviewers from inside a workflow) the PR is flagged, not blocked.
+    const found = await parallel(reviewers)
+    const ok = found.filter(Boolean)
+    return { findings: ok.flatMap(f => f.findings), ranges: ok.map(f => f.reviewed_range),
+      reviewers_ok: Boolean(found[0]), checklist_skipped: reviewers.length > 1 && !found[1] }
   },
   async (rev, p) => {
     const blocking = rev.findings.filter(f => BLOCKING.has(f.severity))
@@ -3644,7 +3659,7 @@ const results = await pipeline(
 
 return {
   results: results.map((r, i) => r || { group: prs[i].group, ids: prs[i].ids, findings: [], ranges: [],
-    reviewers_ok: false, blocking: [], repair: null, verdict: null }),
+    reviewers_ok: false, checklist_skipped: false, blocking: [], repair: null, verdict: null }),
 }
 ```
 
@@ -3776,13 +3791,17 @@ Write `docs/superpowers/specs/2026-09-27-todo-sweep-pilot-results.md` with one s
 - **P5** — `.worktreeinclude` delivered `backend/.env`: `test -f <WT>/backend/.env && echo present`.
 - **P6** — records within caps, and the main session's growth: `state.py record-triage` / `ingest-execute` / `ingest-review` read the task output files directly. Note the main session's context use before and after each wave from `/context`.
 - **P7** — both PRs merged with their todos archived in the same PR: `gh pr view <n> --json state,files`.
-- **P8** — the review workflow's bug reviewer: quote `ranges` from the review result (`skill:code-review` or the fallback).
+- **P8** — the review workflow: quote `ranges` (`skill:code-review` or the fallback) and `checklist_skipped` for any size-`m`
+  PR. If the checklist reviewer never runs inside a workflow, record that. It is flagged, not blocking.
+- **P10** — tools-restricted custom agents still return structured output: the first `todo-triage` run returns
+  `records` (not every id under `missing`). A flood of nulls means StructuredOutput is unreachable for
+  `tools: Read, Grep, Glob`. Fix it by adding `StructuredOutput` to the triager's `tools` line. Do not debug the triager.
 - **P9** — tree-hash detection works on a real worktree. Before Land, `/usr/bin/git -C <WT> write-tree` equals the recorded `tree_id`. Then `cp <WT>/<tracked file> $TMPDIR/p9.bak && echo >> <WT>/<tracked file> && /usr/bin/git -C <WT> status --porcelain --untracked-files=no` prints the file. Restore it with `cp $TMPDIR/p9.bak <WT>/<tracked file>` and confirm the porcelain output is empty again.
 
 - [ ] **Step 5: Gate**
 
-All of P0–P9 `PASS` → commit the results file on a branch, open a PR, merge it, and continue to Part B.
-**P1 or P3 `FAIL`** → apply the spec §12 fallback before Part B: Execute agents run without `isolation`, and a new `state.py prepare-worktrees` creates `git worktree add <scratchpad>/<group> -b sweep/<run>-<group> origin/main` per brief (add to Task 7 with a test). Then re-run the pilot.
+All of P0–P10 `PASS` → commit the results file on a branch, open a PR, merge it, and continue to Part B.
+**P1 or P3 `FAIL`** → apply the spec §12 fallback before Part B: Execute agents run without `isolation`, and a new `state.py prepare-worktrees` creates `git worktree add --no-track -b sweep/<run>-<group> <scratchpad>/<group> origin/main` per brief (add to Task 7 with a test). Then re-run the pilot.
 Any other `FAIL` → fix the owning task, add a regression test there, and re-run the failed check only.
 
 ---
@@ -3865,8 +3884,11 @@ answer one yourself. Record each answer with `python3 scripts/todos/state.py dec
 ## Triage PR (skip for selector `next`)
 
 1. `/usr/bin/git -C REPO fetch origin main`, then
-   `/usr/bin/git -C REPO worktree add -b chore/todo-triage-$RUN_ID $SCRATCH/triage-$RUN_ID origin/main`
-2. `python3 scripts/todos/state.py apply-triage $RUN --repo $SCRATCH/triage-$RUN_ID --today $TODAY`
+   `/usr/bin/git -C REPO worktree add --no-track -b chore/todo-triage-$RUN_ID $SCRATCH/triage-$RUN_ID origin/main`
+   (`--no-track`: without it git writes upstream config to `.git/config`, which the sandbox denies)
+2. `python3 scripts/todos/state.py apply-triage $RUN --repo $SCRATCH/triage-$RUN_ID --today $TODAY`.
+   Only **after** this, do the `stale` → supersede edits and moves from Decide. `apply-triage` writes to each
+   todo's current path, so a todo moved first makes it fail.
 3. `/usr/bin/git -C $SCRATCH/triage-$RUN_ID add todos` → `git diff --cached --stat` must list only `todos/`
    → commit `chore(todos): triage run $RUN_ID` → push → `gh pr create` → `gh pr merge --auto --squash --delete-branch`.
 4. Execute does not start until `gh pr view <n> --json state` says `MERGED`. Then `git -C REPO fetch origin main`
@@ -3917,7 +3939,8 @@ With `--limit N`, execute only the first ⌈N / workers⌉ waves and list the de
 2. Round 2: `review-args --round 2` → workflow → `ingest-review --round 2`. `clean` →
    `gh pr merge <n> --auto --squash --delete-branch`. The round-2 reviewers read the full diff in fresh
    contexts; that is the "review before arming" step. You read `--stat` and their verdicts only.
-   `blocked` → stop that PR and report it.
+   `blocked` → stop that PR and report it. When a group has `checklist_skipped`, add a PR comment saying the
+   checklist review could not run (`gh pr comment <n> --body …`), and list it in the wrap-up.
 3. Follow-ups: todos with `followups` get one follow-up todo file per PR (next free id, `p4`, the PR number
    in its Findings), all committed together in a closing `chore(todos): follow-ups from run $RUN_ID` PR.
 
