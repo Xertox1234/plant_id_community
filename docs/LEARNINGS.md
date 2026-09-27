@@ -6733,3 +6733,27 @@ component fails the test. Separately, `npm run check:classes` did not flag
 `prose prose-lg max-w-none` inside a ternary in `StreamFieldRenderer`, so its
 green result was not a clean bill. That is filed as todo 450, which also found
 that forum and blog paragraph lists render with no markers.
+
+## 2026-09-26 — MAILERS migration: a None override dropped SMTP credentials (todo 364, PR #850)
+
+**What broke (caught in review, before merge).** The first cut of the
+`EMAIL_*` → `MAILERS` migration put `username`/`password` in
+`MAILERS["default"]["OPTIONS"]`. Django 6.1's `get_connection(**kwargs)`
+shim merges the caller's kwargs OVER the options (`options |
+_deprecated_kwargs`), and Wagtail's `admin/mail.py` `send_mail` (CMS
+comment and moderation notices) calls `get_connection(username=None,
+password=None)`. Result: the SMTP backend held `None` credentials, never
+called `login()`, and an authenticated relay would have refused every CMS
+notification. The bundled `/code-review` reproduced it against the installed
+Django.
+
+**Root cause.** Before `MAILERS`, a `None` username fell back to
+`settings.EMAIL_HOST_USER` inside the backend. Under `MAILERS` there is no
+setting to fall back to, and the merge does not skip `None`.
+
+**Fix.** `ConfiguredSMTPBackend` takes `configured_username/password` and
+treats a `None` override as "use the configured one". A new system check,
+`core.E364`, builds the mailer at deploy, so a bad option fails
+`manage.py check` instead of every send. Also from the review: once
+`fail_silently=True` was gone, the lockout mail's error path became
+reachable, and it logged the raw username. It now uses `log_safe_username`.

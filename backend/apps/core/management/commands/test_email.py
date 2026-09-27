@@ -100,7 +100,7 @@ class Command(BaseCommand):
                 )
 
                 # Also show console output if using console backend
-                if "console" in settings.MAILERS["default"]["BACKEND"]:
+                if "console" in settings.MAILERS["default"].get("BACKEND", ""):
                     self.stdout.write(
                         self.style.WARNING(
                             "📧 Note: Using console email backend - check server logs for email content."

@@ -461,3 +461,15 @@ Compact checklist auto-injected before edits. Long-form: `backend/docs/patterns/
   endpoint; re-check each account under `select_for_update` before deleting.
   "Never signed in" means no later `last_login` AND no later refresh token:
   rotation issues tokens without moving `last_login` (todo 447).
+- **Under Django 6.1 `MAILERS`, a legacy `get_connection(**kwargs)` call's
+  kwargs are merged OVER the mailer's OPTIONS, including `None`s.** Wagtail's
+  `admin/mail.py` `send_mail` passes `username=None, password=None`, so plain
+  OPTIONS credentials vanish and SMTP never logs in. Configure Django's SMTP
+  backend through `apps.core.mail_backends.ConfiguredSMTPBackend`, built by
+  `apps/core/mail_config.build_default_mailer`, never by hand-written OPTIONS
+  (todo 364).
+- **A config the app can only use at send time gets a system check that
+  builds it at deploy.** A mailer with an unknown option or `use_tls` +
+  `use_ssl` raises only at the first send, and every mail call site catches
+  and logs it. `core.E364` builds `mail.mailers["default"]` during
+  `manage.py check` and the deploy's migrate (todo 364).
