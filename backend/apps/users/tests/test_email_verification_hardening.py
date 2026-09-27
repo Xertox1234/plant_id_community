@@ -593,3 +593,65 @@ class MailTaskRetryTest(TestCase):
             self._run(0)
 
         retry.assert_not_called()
+
+
+# --- todo 449 items 2 and 3: the provider link is atomic and race-safe ------
+
+
+class ProviderLinkRaceTest(TestCase):
+    def _concurrent_insert(self, winner, uid="g-owner"):
+        """As if another request linked the same identity between our lookup
+        and our insert: the winner's row is already committed, but our first
+        lookup missed it, so our real insert hits the unique constraint."""
+        SocialAccount.objects.create(
+            user=winner, provider="google", uid=uid, extra_data={}
+        )
+        real_filter = SocialAccount.objects.filter
+        calls = []
+
+        def lookup(*args, **kwargs):
+            calls.append(kwargs)
+            if len(calls) == 1:
+                return SocialAccount.objects.none()
+            return real_filter(*args, **kwargs)
+
+        return patch.object(SocialAccount.objects, "filter", side_effect=lookup)
+
+    def test_losing_the_race_to_our_own_account_signs_in(self):
+        user = _verified_password_account()
+
+        with self._concurrent_insert(winner=user):
+            with self.captureOnCommitCallbacks(execute=True):
+                linked = oauth_views._record_provider_link(
+                    "google", {"id": "g-owner"}, user
+                )
+
+        self.assertTrue(linked)
+        # The winning request sent the notice; this one must not send another.
+        self.assertEqual(_notices(), [])
+        self.assertEqual(
+            SocialAccount.objects.filter(provider="google", uid="g-owner").count(), 1
+        )
+
+    def test_losing_the_race_to_another_account_is_refused(self):
+        user = _verified_password_account()
+        other = User.objects.create_user(username="other", email="other@example.com")
+
+        with self._concurrent_insert(winner=other):
+            linked = oauth_views._record_provider_link(
+                "google", {"id": "g-owner"}, user
+            )
+
+        self.assertFalse(linked)
+        self.assertFalse(SocialAccount.objects.filter(user=user).exists())
+
+    def test_a_failed_notice_leaves_no_link(self):
+        user = _verified_password_account()
+
+        with patch.object(
+            oauth_views, "on_first_provider_link", side_effect=RuntimeError("boom")
+        ):
+            with self.assertRaises(RuntimeError):
+                oauth_views._record_provider_link("google", {"id": "g-owner"}, user)
+
+        self.assertFalse(SocialAccount.objects.filter(user=user).exists())

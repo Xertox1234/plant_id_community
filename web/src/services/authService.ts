@@ -21,8 +21,9 @@ import { getOrCreateRequestId } from '../utils/requestId';
 import { clearAllDrafts } from '../utils/forumDrafts';
 import type { User, LoginCredentials, SignupData, AuthResponse } from '../types/auth';
 import type { ApiError } from '../types/api';
+import { API_ORIGIN } from '@/config/api';
 
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+const API_URL = API_ORIGIN;
 
 // HTTPS enforcement for production
 if (import.meta.env.PROD && API_URL.startsWith('http://')) {

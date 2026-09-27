@@ -13,8 +13,9 @@ import type {
   PaginatedUserPlants,
   SavePlantInput,
 } from '../types/plantId';
+import { API_ORIGIN } from '@/config/api';
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+const API_BASE_URL = API_ORIGIN;
 const API_VERSION = 'v1';
 
 function extractErrorMessage(data: unknown): string | undefined {

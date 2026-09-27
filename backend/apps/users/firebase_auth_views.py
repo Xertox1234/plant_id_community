@@ -290,7 +290,17 @@ def firebase_token_exchange(request: Request) -> Response:
             # item 8): Firebase sets the claim true for a verified federated
             # email, and web Google already requires `verified_email`, so a
             # false claim is refused on every provider alike.
-            if firebase_email and not email_verified:
+            #
+            # A uid ALREADY bound to an account is exempt (todo 449 item 1):
+            # it signs in by uid, the token's email is never matched or copied
+            # onto the account, and binding itself required a true claim. So
+            # the claim guards nothing for it, and refusing would only lock out
+            # a user whose provider later reports it false.
+            if (
+                firebase_email
+                and not email_verified
+                and not User.objects.filter(firebase_uid=firebase_uid).exists()
+            ):
                 logger.warning(
                     f"[FIREBASE AUTH] Rejected unverified email login "
                     f"(provider={sign_in_provider}, email={redact_email(firebase_email)})"

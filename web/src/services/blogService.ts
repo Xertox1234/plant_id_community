@@ -18,8 +18,9 @@ import type {
   FetchBlogPostsOptions,
   FetchPopularPostsOptions,
 } from '../types/blog';
+import { API_ORIGIN } from '@/config/api';
 
-export const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+export const API_URL = API_ORIGIN;
 
 /**
  * Resolve a media path against the API origin.

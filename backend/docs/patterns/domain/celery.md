@@ -51,7 +51,10 @@ except ValueError as exc:
 ## Error Handling
 
 - `on_failure` handler required for tasks that interact with external services.
-- All failures logged with `[CELERY]` prefix + task ID.
+- All failures logged with a bracketed prefix for the task's **domain** plus the
+  task ID: `[EMAIL]` for account mail, `[FCM]` for push, `[CELERY]` only for a
+  task with no narrower domain. This matches `docs/rules/celery.md`, and grepping
+  a domain finds its task failures next to its request-path logs (todo 449 item 5).
 
 ```python
 @shared_task(bind=True)
