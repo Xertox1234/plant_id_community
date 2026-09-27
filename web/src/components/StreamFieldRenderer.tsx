@@ -7,6 +7,8 @@ import { DELETED_AUTHOR_USERNAME } from '../utils/forumAuthor';
 import { mediaUrl } from '../services/blogService';
 import { safeExternalUrl } from '../utils/externalUrl';
 import LinkPreviewCard from './forum/LinkPreviewCard';
+import CompactCardRow from './forum/CompactCardRow';
+import { groupCardRuns } from './forum/cardRuns';
 import type { PostQuoteBlockValue, StreamFieldBlock as StreamFieldBlockType } from '@/types/blog';
 
 // Mirrors backend/apps/plant_identification/services/unsplash_service.py
@@ -125,22 +127,50 @@ export default function StreamFieldRenderer({
       ? 'mx-auto w-full max-w-[70ch] text-body-lg'
       : 'prose prose-lg max-w-none';
 
+  const full = (block: StreamFieldBlockType, index: number) => (
+    <StreamFieldBlock
+      key={block.id || index}
+      block={block}
+      mentionHighlight={mentionHighlight}
+      currentTopicId={currentTopicId}
+    />
+  );
+  const anchored = (index: number, key: string | number, node: React.ReactNode) =>
+    anchorPrefix ? (
+      // scroll-mt keeps the anchored block clear of the sticky header.
+      <div key={key} id={`${anchorPrefix}-${index}`} className="scroll-mt-24">
+        {node}
+      </div>
+    ) : (
+      node
+    );
+
   return (
     <div className={wrapper}>
-      {blocks.map((block, index) => {
-        const rendered = (
-          <StreamFieldBlock
-            key={block.id || index}
-            block={block}
-            mentionHighlight={mentionHighlight}
-            currentTopicId={currentTopicId}
-          />
-        );
-        if (!anchorPrefix) return rendered;
-        // scroll-mt keeps the anchored block clear of the sticky header.
+      {groupCardRuns(blocks).map((item) => {
+        if (item.kind === 'block') {
+          const { block, index } = item.item;
+          return anchored(index, block.id || index, full(block, index));
+        }
+        // A run of 2+ cards (todo 429): the first keeps its full card, the
+        // rest become compact rows.
+        const { first, rest } = item;
         return (
-          <div key={block.id || index} id={`${anchorPrefix}-${index}`} className="scroll-mt-24">
-            {rendered}
+          <div key={`run-${first.block.id || first.index}`}>
+            {anchored(first.index, first.block.id || first.index, full(first.block, first.index))}
+            <div className="-mt-3 mb-5 flex flex-col gap-2">
+              {rest.map(({ block, index }) =>
+                anchored(
+                  index,
+                  block.id || index,
+                  <CompactCardRow
+                    key={block.id || index}
+                    block={block}
+                    renderFull={() => full(block, index)}
+                  />
+                )
+              )}
+            </div>
           </div>
         );
       })}

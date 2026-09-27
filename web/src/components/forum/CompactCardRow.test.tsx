@@ -1,0 +1,134 @@
+import { describe, expect, it } from 'vitest';
+import { fireEvent, render, screen } from '@testing-library/react';
+import StreamFieldRenderer from '../StreamFieldRenderer';
+import { CARD_BLOCK_TYPES, groupCardRuns, isCardBlock } from './cardRuns';
+import type { StreamFieldBlock } from '@/types/blog';
+
+// Todo 429: a run of 2+ consecutive cards renders the first as its full card
+// and each later one as a compact row.
+
+function embed(id: string, title: string, provider: string, player = true): StreamFieldBlock {
+  return {
+    id,
+    type: 'embed',
+    value: {
+      url: `https://youtu.be/${id}`,
+      title,
+      provider_name: provider,
+      thumbnail_url: `https://i.ytimg.com/${id}.jpg`,
+      embed_url: player ? `https://www.youtube-nocookie.com/embed/${id}` : null,
+    },
+  };
+}
+
+const link: StreamFieldBlock = {
+  id: 'lp',
+  type: 'link_preview',
+  value: {
+    url: 'https://example.org/guide',
+    title: 'Delta guide',
+    description: 'How to',
+    site_name: 'Example',
+    domain: 'example.org',
+    image_url: null,
+  },
+};
+
+const paragraph: StreamFieldBlock = { id: 'p', type: 'paragraph', value: '<p>between</p>' };
+
+const iframes = () => document.querySelectorAll('iframe');
+
+describe('card runs', () => {
+  it('renders 3 consecutive embeds as 1 full card + 2 compact rows', () => {
+    render(
+      <StreamFieldRenderer
+        blocks={[
+          embed('a', 'Alpha', 'YouTube'),
+          embed('b', 'Bravo', 'YouTube'),
+          embed('c', 'Charlie', 'Vimeo'),
+        ]}
+      />
+    );
+
+    // Only the first loads its player; the rows are named "title, site".
+    expect(iframes()).toHaveLength(1);
+    expect(iframes()[0].getAttribute('title')).toBe('Alpha');
+    expect(screen.getByRole('button', { name: 'Bravo, YouTube' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Charlie, Vimeo' })).toBeInTheDocument();
+  });
+
+  it('renders a lone embed as today, with no row', () => {
+    render(<StreamFieldRenderer blocks={[embed('a', 'Alpha', 'YouTube')]} />);
+
+    expect(iframes()).toHaveLength(1);
+    expect(screen.queryByRole('button')).toBeNull();
+  });
+
+  it('renders 2 embeds separated by a paragraph as 2 full cards', () => {
+    render(
+      <StreamFieldRenderer
+        blocks={[embed('a', 'Alpha', 'YouTube'), paragraph, embed('b', 'Bravo', 'YouTube')]}
+      />
+    );
+
+    expect(iframes()).toHaveLength(2);
+    expect(screen.queryByRole('button', { name: 'Bravo, YouTube' })).toBeNull();
+  });
+
+  it('replaces a clicked video row with its sandboxed player', () => {
+    render(
+      <StreamFieldRenderer
+        blocks={[embed('a', 'Alpha', 'YouTube'), embed('b', 'Bravo', 'YouTube')]}
+      />
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Bravo, YouTube' }));
+
+    expect(screen.queryByRole('button', { name: 'Bravo, YouTube' })).toBeNull();
+    const players = iframes();
+    expect(players).toHaveLength(2);
+    expect(players[1].getAttribute('src')).toBe('https://www.youtube-nocookie.com/embed/b');
+    expect(players[1].getAttribute('sandbox')).toContain('allow-scripts');
+  });
+
+  it('makes each row a separately focusable element', () => {
+    render(
+      <StreamFieldRenderer
+        blocks={[embed('a', 'Alpha', 'YouTube'), embed('b', 'Bravo', 'YouTube'), link]}
+      />
+    );
+
+    const video = screen.getByRole('button', { name: 'Bravo, YouTube' });
+    const card = screen.getByRole('link', { name: 'Delta guide, Example' });
+    expect(video).not.toBe(card);
+    expect(card.getAttribute('href')).toBe('https://example.org/guide');
+    expect(card.className).toContain('min-h-11');
+    video.focus();
+    expect(document.activeElement).toBe(video);
+    card.focus();
+    expect(document.activeElement).toBe(card);
+  });
+
+  it('makes a video row with no player a link, like its full card', () => {
+    render(
+      <StreamFieldRenderer
+        blocks={[embed('a', 'Alpha', 'YouTube'), embed('b', 'Bravo', 'Vimeo', false)]}
+      />
+    );
+
+    expect(screen.getByRole('link', { name: 'Bravo, Vimeo' }).getAttribute('href')).toBe(
+      'https://youtu.be/b'
+    );
+  });
+
+  it('keeps a null link card out of a run (it renders nothing)', () => {
+    const blank: StreamFieldBlock = { id: 'x', type: 'link_preview', value: null };
+    expect(isCardBlock(blank)).toBe(false);
+    const items = groupCardRuns([embed('a', 'A', 'YouTube'), blank, embed('b', 'B', 'YouTube')]);
+    expect(items.map((item) => item.kind)).toEqual(['block', 'block', 'block']);
+  });
+
+  it('keeps the card-type set in one constant', () => {
+    expect([...CARD_BLOCK_TYPES].sort()).toEqual(['embed', 'link_preview']);
+  });
+});
