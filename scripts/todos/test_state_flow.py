@@ -46,8 +46,8 @@ def worker(ids, tree="T1", status="staged"):
             "blockers": "", "discoveries": "", "summary": "done"}
 
 
-def verdict(ids, before="T1", after="T1", clean=True, result="pass", ac_ok=True, edits=()):
-    return {"ids": ids, "verdict": result, "ac": [{"todo": ids[0], "index": 0, "verified": ac_ok, "note": ""}],
+def verdict(ids, before="T1", after="T1", clean=True, result="pass", ac_ok=True, edits=(), note=""):
+    return {"ids": ids, "verdict": result, "ac": [{"todo": ids[0], "index": 0, "verified": ac_ok, "note": note}],
             "test_edits_flagged": list(edits), "commands_rerun": 1,
             "tree_id_before": before, "tree_id_after": after, "clean_after": clean}
 
@@ -135,16 +135,18 @@ def main():
           res[g_ok] == "rerun" and run["todos"][ids_ok[0]].get("review_round", 0) == 0
           and run["todos"][ids_ok[0]].get("followups", []) == [])
     blocking = [{"severity": "high", "file": "a.py", "line": 1, "summary": "bug", "suggested_fix": ""}]
+    # G2: the repair verdict's ac carries a distinct note from the original ingest_execute
+    # verdict (which used the default note=""), so this can tell "updated from the repair"
+    # apart from "still holding the value the first ingest_execute call set" -- the same
+    # ids/ac_ok would otherwise make an identical ac list either way, proving nothing.
+    repair_verdict = verdict(ids_ok, before="T5", after="T5", edits=["tests/test_a.py"], note="repair")
     res = state.ingest_review(run, [{"group": g_ok, "ids": ids_ok, "findings": blocking, "blocking": blocking,
                                      "reviewers_ok": True, "repair": worker(ids_ok, tree="T5"),
-                                     "verdict": verdict(ids_ok, before="T5", after="T5", edits=["tests/test_a.py"])}],
+                                     "verdict": repair_verdict}],
                               1)
     check("a verified round-1 repair is staged for the main session to commit", res[g_ok] == "repair-staged")
-    # F9: the round-1 repair-staged path must update verified_ac from the repair's own verdict, not the original.
-    check("a round-1 repair updates verified_ac from the repair's verdict",
-          run["todos"][ids_ok[0]]["verified_ac"]
-          == verdict(ids_ok, before="T5", after="T5", edits=["tests/test_a.py"])["ac"],
-          run["todos"][ids_ok[0]])
+    check("a round-1 repair updates verified_ac from the repair's (distinct) verdict",
+          run["todos"][ids_ok[0]]["verified_ac"] == repair_verdict["ac"], run["todos"][ids_ok[0]])
     check("a round-1 repair's flagged test edits carry into round 2",
           "tests/test_a.py" in state.review_args(run, 2, 0)[0]["test_edits"])
     check("an invalid round number is refused", raises(lambda: state.review_args(run, 3, 0), ValueError))

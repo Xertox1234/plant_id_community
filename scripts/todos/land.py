@@ -24,7 +24,12 @@ Status line is checked off by its arrow target alone (fix round 1, F2): a
 (CLAUDE.md Review Doc Tracking rule 4) and stays open; a target naming THIS
 todo, or no target at all (a legacy line), is checked off regardless of
 "re-pointed" wording. The review doc is renamed COMPLETED only when nothing
-left in its Finding Status is open.
+left in its Finding Status is open, and a planned rename is itself validated
+in phase 1 (fix round 2, G3): a `-COMPLETED` destination that already exists
+or a review doc git doesn't track downgrades to "checked off, no rename",
+never a phase-2 `git mv` failure. `source_review` only ever resolves inside
+`docs/reviews/` (fix round 2, G4) -- a path that escapes it, by `..` or
+otherwise, is just another "not a review doc" value, never read or written.
 """
 
 import argparse
@@ -38,10 +43,11 @@ from pathlib import Path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import state  # noqa: E402
 import todofile  # noqa: E402
+# todofile's own import already inserted scripts/ (its parent) onto sys.path as a
+# side effect, which is what lets this resolve with no sys.path change of its own.
 import check_archived_todo_status  # noqa: E402
 
 EVIDENCE_TAIL = 5
-REVIEW_DOC_RE = re.compile(r"^docs/reviews/.+\.md$")
 ARROW_TARGET_RE = re.compile(r"(?:→|->)\s*todo\s*0*(\d+)", re.I)
 
 
@@ -62,8 +68,12 @@ def _tail(path):
 
 
 def _sanitize(value):
-    """Flatten to one line so a quoted value can never forge a new heading."""
-    return str(value).replace("\r", " ").replace("\n", " ")
+    """Flatten to one line so a quoted value can never forge a new heading.
+
+    str.splitlines() (fix round 2, G5) -- not a literal \\r/\\n replace -- so
+    every separator a parser might treat as a line break (\\x85, \\x0c,
+    \\x1e, \\u2028, ...) is flattened too, not just the two ASCII ones."""
+    return " ".join(str(value).splitlines())
 
 
 _CHECKBOX_PREFIX_RE = re.compile(r"^\s*-\s\[[ xX]\]\s*")
@@ -163,22 +173,48 @@ def _same_todo(a, b):
         return str(a) == str(b)
 
 
+def _review_path(repo, rel):
+    """The resolved Path for `rel` if it names a real .md file inside
+    <repo>/docs/reviews/, else None (fix round 2, G4). A `source_review` that
+    resolves outside docs/reviews/ -- e.g. via '../../' -- is never read or
+    written; it is treated exactly like any other "not a review doc" value."""
+    if not rel or not str(rel).endswith(".md"):
+        return None
+    reviews_dir = (Path(repo) / "docs" / "reviews").resolve()
+    candidate = (Path(repo) / rel).resolve()
+    if not candidate.is_relative_to(reviews_dir):
+        return None
+    return candidate if candidate.is_file() else None
+
+
+def _tracked(repo, rel):
+    """True when git already has `rel` staged/committed (fix round 2, G3) --
+    an untracked review doc can't be `git mv`-ed, so a planned rename must
+    check this before phase 2, not discover it via a failed mv."""
+    proc = subprocess.run(["git", "-C", str(repo), "ls-files", "--error-unmatch", rel], capture_output=True)
+    return proc.returncode == 0
+
+
 def plan_review(repo, todo_path, date):
     """Read-only: decide what archive's write phase should do to the source
     review doc. Never writes and never raises -- F1 is explicit that none of
     these resolutions is an error, only a no-op, a leave-open, or a checkoff,
-    each carrying a note. Returns None when the todo has no
-    source_review/source_finding at all (no review step)."""
+    each carrying a note. Returns None when the todo has no source_review at
+    all (no review step); source_review with no source_finding is instead a
+    no-op with a note (G7), since that is an actionable data problem, not an
+    absent field."""
     data = todofile.read_frontmatter(todo_path) or {}
     source, finding, todo_id = data.get("source_review"), data.get("source_finding"), data.get("issue_id")
-    if not source or not finding:
+    if not source:
         return None
-    review = Path(repo) / source
-    if not (REVIEW_DOC_RE.match(source) and review.is_file()):
-        if REVIEW_DOC_RE.match(source):
-            twin = source[:-3] + "-COMPLETED.md"
-            if (Path(repo) / twin).is_file():
-                return {"finding": finding, "action": "noop", "note": f"source_review already completed: {twin}"}
+    if not finding:
+        return {"finding": None, "action": "noop",
+                "note": f"source_review {source!r} is set but source_finding is missing"}
+    review = _review_path(repo, source)
+    if review is None:
+        twin_rel = source[:-3] + "-COMPLETED.md" if source.endswith(".md") else None
+        if twin_rel is not None and _review_path(repo, twin_rel) is not None:
+            return {"finding": finding, "action": "noop", "note": f"source_review already completed: {twin_rel}"}
         return {"finding": finding, "action": "noop", "note": f"source_review is not a review doc: {source}"}
     lines = review.read_text().splitlines(keepends=True)
     start = next((i for i, line in enumerate(lines) if line.rstrip("\n") == "## Finding Status"), None)
@@ -187,9 +223,23 @@ def plan_review(repo, todo_path, date):
     end = next((i for i in range(start + 1, len(lines)) if lines[i].startswith("## ")), len(lines))
     key = re.escape(str(finding))
     line_re = re.compile(rf"^\s*-\s\[([ xX])\]\s*#{key}(?=\s|$)")
-    hit = next((i for i in range(start + 1, end) if line_re.match(lines[i])), None)
-    if hit is None:
+    matches = [i for i in range(start + 1, end) if line_re.match(lines[i])]
+    if not matches:
         return {"finding": finding, "action": "noop", "note": f"{source}: no line for finding #{finding}"}
+    # G7: several lines can name the same finding (a stale one plus a live one).
+    # Prefer the first OPEN line that is actually checkable BY THIS TODO (no arrow
+    # target, or a target matching todo_id) -- an open line re-pointed to someone
+    # ELSE is not "the line for this archive" even if it happens to come first among
+    # the open matches (rule 4: X's own already-checked line must still read as
+    # "already checked", not get shadowed by a later re-point of the same finding
+    # number to a different todo). Only fall back to the first match overall (which
+    # may be an already-checked line, or an open-but-irrelevant one) when no match
+    # is checkable by this todo.
+    def _checkable(i):
+        return line_re.match(lines[i]).group(1) == " " and (
+            (t := _target_todo(lines[i])) is None or _same_todo(t, todo_id))
+    checkable = [i for i in matches if _checkable(i)]
+    hit = checkable[0] if checkable else matches[0]
     if line_re.match(lines[hit]).group(1) != " ":
         return {"finding": finding, "action": "noop", "note": "already checked"}
     target = _target_todo(lines[hit])
@@ -199,10 +249,25 @@ def plan_review(repo, todo_path, date):
     new_lines = list(lines)
     new_lines[hit] = new_lines[hit].rstrip("\n").replace("- [ ]", "- [x]", 1) + f" (completed {date})\n"
     open_re = re.compile(r"^\s*-\s\[ \]")
-    renamed = not any(open_re.match(new_lines[i]) for i in range(start + 1, end))
-    completed = source[:-3] + "-COMPLETED.md"
-    return {"finding": finding, "action": "checkoff", "note": "checked off", "source": source,
-            "new_lines": new_lines, "renamed": renamed, "completed": completed if renamed else None}
+    all_closed = not any(open_re.match(new_lines[i]) for i in range(start + 1, end))
+    renamed, completed, note = False, None, "checked off"
+    if all_closed:
+        if source.endswith("-COMPLETED.md"):
+            note = "checked off; already a -COMPLETED doc, no further rename"
+        else:
+            candidate_rel = source[:-3] + "-COMPLETED.md"
+            # G3: a planned rename must be fully validated here, in phase 1 -- a
+            # destination collision or an untracked source only surfaces as a git
+            # failure in phase 2, by which point archive() has already git-mv'd the
+            # todo and rewritten the review doc, so LandError there is not an option.
+            if (Path(repo) / candidate_rel).is_file():
+                note = f"all findings resolved, but {candidate_rel} already exists; rename skipped"
+            elif not _tracked(repo, source):
+                note = f"all findings resolved, but {source} is not tracked in git; rename skipped"
+            else:
+                renamed, completed, note = True, candidate_rel, "all findings resolved"
+    return {"finding": finding, "action": "checkoff", "note": note, "source": source,
+            "new_lines": new_lines, "renamed": renamed, "completed": completed}
 
 
 def apply_review(repo, plan, todo_path, git=run_git):
@@ -218,7 +283,7 @@ def apply_review(repo, plan, todo_path, git=run_git):
         completed = plan["completed"]
         git(repo, "mv", source, completed)
         todofile.set_fields(todo_path, {"source_review": completed})
-        return {"finding": plan["finding"], "renamed": True, "paths": [completed], "note": "all findings resolved"}
+        return {"finding": plan["finding"], "renamed": True, "paths": [completed], "note": plan["note"]}
     return {"finding": plan["finding"], "renamed": False, "paths": [source], "note": plan["note"]}
 
 
@@ -243,12 +308,15 @@ def archive(repo, todo_rel, run_id, date, git=run_git):
         raise LandError(f"{todo_rel}: {len(bare_acs)} unchecked criteria; "
                         "flip them with evidence or re-point them first")
     review_plan = plan_review(repo, src, date)
-    any_checked = any(checked for _, checked, _ in todofile.ac_lines(text))
+    # G1: whether THIS land wrote a Verified note with evidence for this run_id --
+    # not merely whether some box happens to be [x], which is also true for a box
+    # that was already checked (by hand, or a past run) with no evidence ever quoted.
+    has_verified_note = f"Verified by the todo sweep (run {run_id})" in text
 
     # Phase 2: write.
     git(repo, "mv", todo_rel, dest_rel)
     todofile.set_fields(dest, {"status": "completed"})
-    tail_note = "evidence is quoted above, review is on the PR." if any_checked else "review is on the PR."
+    tail_note = "evidence is quoted above, review is on the PR." if has_verified_note else "review is on the PR."
     todofile.append_work_log(dest, f"### {date} - Completed by the todo sweep (run {run_id})\n\n"
                                    f"- Archived by `land.py archive`; {tail_note}\n")
     baseline = fix_baseline(repo, todo_rel, dest_rel)
