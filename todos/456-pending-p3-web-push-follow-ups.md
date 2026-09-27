@@ -57,3 +57,21 @@ merge and were left for later:
 
 The django-drf reviewer, the react-typescript reviewer and the bundled
 `/code-review` on PR #852 (todo 413) raised these. They are not blocking.
+
+### 2026-09-27 - Round-2 notes added (PR #852 verification)
+
+The round-2 verifier on PR #852 raised these. None is blocking. Fold them into
+the items above.
+
+- A rotated-key resubscribe unsubscribes in the browser but never tells the
+  server. The old row stays active until a 404/410 deactivates it (item 2).
+- `subscription.options.applicationServerKey` can be null in some browsers.
+  Every enable then unsubscribes and resubscribes, which churns the endpoint.
+- The public key is cached at mount, so a key rotated while Settings is open
+  applies only after a reload.
+- The 3 s timer in `releaseBrowserPushOnLogout` is never cleared. Cosmetic.
+- Anyone who knows another user's endpoint URL (a capability URL) can
+  deactivate that user's row by subscribing it themselves.
+- The release UPDATE and `update_or_create` in `subscribe_to_push` are not in
+  one transaction. Two concurrent subscribes of one endpoint could leave two
+  active rows (item 3).

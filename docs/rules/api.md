@@ -241,3 +241,8 @@ Compact checklist auto-injected before edits. Long-form:
   for garbage.** Handle both as a 400 on the field, and accept only a string.
   `parse_datetime(str(x))` turned a number into a silently cleared timestamp
   (todo 412).
+- **A `requests.Response` is falsy for every 4xx/5xx** (`__bool__` returns
+  `self.ok`). `if e.response and e.response.status_code in (...)` never fires
+  for an error response, so web push never deactivated a dead subscription.
+  Test `e.response is not None`. Only 404/410 mean a push subscription is gone;
+  413 and 429 are the sender's problem (todo 413).
