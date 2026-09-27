@@ -64,3 +64,36 @@ Decided by the owner:
 - **UI:** mobile care hub (todo 386) and/or web My Plants, as the sweep sees
   fit; the backend + beat task + push are the core of this todo.
 Ready for a sweep.
+
+### 2026-09-26 - Owner decision: one reminder model, garden_calendar (supersedes "wire up users me/care-reminders")
+
+Two reminder systems exist, and neither fit the 2026-09-24 decisions as
+written:
+
+- `users.CareReminder` has a required FK to
+  `plant_identification.SavedCareInstructions`. No client can create one of
+  those.
+- `garden_calendar.CareTask` hangs off `Plant`, which has a required
+  `garden_bed` FK. Todo 386 ruled beds out.
+
+The owner chose **garden_calendar only**:
+
+- **Houseplants without beds.** Add a direct `Plant.owner` FK, backfilled from
+  `garden_bed.owner`. Make `Plant.garden_bed` nullable. Re-scope every
+  queryset, permission and serializer check that goes through
+  `garden_bed__owner` (about 8 sites in `garden_calendar/api/views.py`,
+  `api/serializers.py` and `permissions.py`, plus the admin search field) to
+  the plant's owner.
+- **Reminders are CareTask due dates.** `CareTask` already has
+  `scheduled_date`, `is_recurring` and `recurrence_interval_days`. The
+  periodic Celery beat task finds due, incomplete CareTasks and sends FCM
+  push. Delivery stays FCM only.
+- **Delete `users.CareReminder`, `CareReminderLog` and the six
+  `me/care-reminders/*` routes.** Survey and remove what references them:
+  `plant_identification/services/plant_care_reminder_service.py`, the
+  care-reminder rows and preferences in `apps/core` (`models.py`,
+  `services/email_service.py`), the users services, and
+  `OnboardingProgress.first_care_reminder_created`, which todo 412 re-points
+  to "first care task".
+- Order: todo 412 goes first, since both edit `users/views.py` and
+  `users/services.py`.
