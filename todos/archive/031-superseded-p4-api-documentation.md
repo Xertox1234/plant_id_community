@@ -1,5 +1,5 @@
 ---
-status: completed
+status: superseded
 priority: p4
 issue_id: "031"
 tags: [documentation, api, openapi]
@@ -152,7 +152,9 @@ class PlantIdentificationViewSet(viewsets.ViewSet):
 
 ### 2026-09-27 - Triage verdict (todo 394)
 
-**Verdict: completed. One residual gate is re-filed.**
+**Verdict: partial → `superseded` by todo 466 for the residue.** (Corrected
+in the PR #859 review: this file was first marked `completed` while an AC
+was still open.)
 
 - The allowlist hint was wrong: `SpectacularAPIView` is at
   `backend/plant_community_backend/urls.py:122`, along with `/api/docs/`
@@ -167,7 +169,7 @@ class PlantIdentificationViewSet(viewsets.ViewSet):
     serializer" warnings, with no `--fail-on-warn`. Filed with the mypy
     gate as todo 466.
   - Request examples exist only in the garden and forum views (13 uses).
-    Not re-filed.
+    Re-pointed to todo 466.
 
 ## Notes
 

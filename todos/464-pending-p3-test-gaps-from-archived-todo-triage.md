@@ -4,10 +4,10 @@ priority: p3
 issue_id: "464"
 tags: [testing, tech-debt]
 dependencies: []
-source_review: "todos/394-pending-p3-triage-the-grandfathered-archived-todos.md"
+source_review: "todos/archive/394-completed-p3-triage-the-grandfathered-archived-todos.md"
 ---
 
-# Three behaviours whose code landed but was never tested
+# Four behaviours whose code landed but was never tested (or lost its test)
 
 ## Problem
 
@@ -27,6 +27,9 @@ here.
 - **TipTap destroy on unmount** (from 015):
   `web/src/components/forum/TipTapEditor.tsx:633-640` calls `destroy()` in
   cleanup, but no test spies on it.
+- **Upload throttle window reset** (from 009-upload, PR #859 review): the
+  old forum had `test_rate_limit_resets_after_timeout` (3ad067c0). The
+  rebuilt `forum_host` throttle (`api.py:81`) is tested only for the 429.
 
 ## Acceptance Criteria
 
@@ -36,4 +39,6 @@ here.
       `TransactionTestCase`): two simultaneous toggles leave a consistent
       count and at most one row.
 - [ ] A TipTap test asserting `destroy()` runs on unmount.
+- [ ] A `forum_host` image-upload throttle test: after the window passes,
+      uploads are allowed again.
 - [ ] Each test fails with its guard removed (mutation-checked).

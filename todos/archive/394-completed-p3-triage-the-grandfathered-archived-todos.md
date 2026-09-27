@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: p3
 issue_id: "394"
 tags: [todo-hygiene, tech-debt, verification]
@@ -87,7 +87,7 @@ a row, while doing exactly this work.
       2026-09-27)
 - [x] Any of the 13 found **not** done is either marked `superseded` with a
       pointer to what did the work, or re-filed as a live todo — never marked
-      `completed` (completed 2026-09-27: 9 superseded, open ACs re-filed as
+      `completed` (completed 2026-09-27: 10 superseded, open ACs re-filed as
       todos 464–467)
 - [x] `todos/archive/020-superseded-p2-post-search-gin-index.md` is settled
       against the actual migrations, since it is the one negative grep result
@@ -134,7 +134,7 @@ verdict and evidence is in its own Work Log.
 | 015 TipTap memory leak | partial → `superseded`; destroy test → 464 |
 | 016 moderation dashboard | `superseded` (#271) |
 | 020 post search GIN index | `superseded`; **the empty grep was a false negative** |
-| 031 API documentation | `completed`; the `--fail-on-warn` residue → 466 |
+| 031 API documentation | partial → `superseded`; `--fail-on-warn` and request examples → 466 |
 
 On 020: a81416c4 added `apps/forum/migrations/0008_add_post_search_gin_indexes.py`
 (tsvector and trigram GIN on `content_raw`). The grep only searched
@@ -142,7 +142,7 @@ On 020: a81416c4 added `apps/forum/migrations/0008_add_post_search_gin_indexes.p
 through `modelsearch`'s Postgres backend, and its GIN indexes live on
 `wagtailsearch_indexentry`.
 
-Nine files were renamed `-completed-` → `-superseded-` to match their
+Ten files were renamed `-completed-` → `-superseded-` to match their
 status (the tripwire's filename check). Their paths were updated in the
 allowlist's `grandfathered_unchecked_acs`. None is keyed in
 `.secrets.baseline`. `docs/archive/2025-11/SECURITY_AUDIT_COMPLETION_REPORT.md`
@@ -153,3 +153,13 @@ shrinks opportunistically.
 Four of the thirteen hints pointed at the wrong code (002-views, 004-vote,
 004-reaction, 008), and 031's hint was simply wrong. That confirms the
 allowlist's warning: a hint is a starting point, never a verdict.
+
+### 2026-09-27 - PR #859 review round 1; archived
+
+The review confirmed the tripwire exits 0, the allowlist YAML is valid, the
+paths resolve, and every spot-checked evidence claim held. One blocking
+finding: 031 was `completed` with an open AC (request examples) that was
+neither done nor re-pointed, against this todo's own rule. 031 is now
+`superseded` (renamed; allowlist path updated), with the residue re-pointed
+to todo 466. Non-blocking: the rebuilt upload throttle lost its
+window-reset test, now added to todo 464.

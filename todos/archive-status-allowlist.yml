@@ -92,7 +92,7 @@ grandfathered_unchecked_acs:
   - todos/archive/026-completed-p4-hsts-preload.md
   - todos/archive/027-completed-p4-jwt-lifetime.md
   - todos/archive/029-completed-p4-rate-limiting-consistency.md
-  - todos/archive/031-completed-p4-api-documentation.md
+  - todos/archive/031-superseded-p4-api-documentation.md
   - todos/archive/032-completed-p4-component-tests.md
   - todos/archive/034-completed-p4-duplicate-dompurify.md
   - todos/archive/046-completed-p1-backend-syntax-error.md

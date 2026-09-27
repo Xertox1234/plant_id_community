@@ -4,7 +4,7 @@ priority: p3
 issue_id: "465"
 tags: [web, mobile, forum, bug]
 dependencies: []
-source_review: "todos/394-pending-p3-triage-the-grandfathered-archived-todos.md"
+source_review: "todos/archive/394-completed-p3-triage-the-grandfathered-archived-todos.md"
 ---
 
 # A fast double tap on a forum reaction adds it and removes it again
