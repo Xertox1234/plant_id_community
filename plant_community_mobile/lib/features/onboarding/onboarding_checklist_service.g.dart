@@ -45,7 +45,7 @@ final class OnboardingChecklistServiceProvider
 }
 
 String _$onboardingChecklistServiceHash() =>
-    r'64dd33e7dafb87c486b9f24e4b35f999ca75ade3';
+    r'ac1318447223e7179cbdbd93d5abdd0343529b2e';
 
 /// The signed-in user's onboarding checklist, or null when signed out.
 /// A failed fetch is an [AsyncError]; the home card then shows nothing.
