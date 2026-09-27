@@ -165,23 +165,21 @@ def _same_todo(a, b):
 
 def plan_review(repo, todo_path, date):
     """Read-only: decide what archive's write phase should do to the source
-    review doc. Never writes, and raises only for a genuinely unresolvable
-    reference (a docs/reviews path that is plain missing, with no
-    -COMPLETED twin) -- every other case (F1) is a no-op or a leave-open,
-    each carrying a note, not an error. Returns None when the todo has no
+    review doc. Never writes and never raises -- F1 is explicit that none of
+    these resolutions is an error, only a no-op, a leave-open, or a checkoff,
+    each carrying a note. Returns None when the todo has no
     source_review/source_finding at all (no review step)."""
     data = todofile.read_frontmatter(todo_path) or {}
     source, finding, todo_id = data.get("source_review"), data.get("source_finding"), data.get("issue_id")
     if not source or not finding:
         return None
-    if not REVIEW_DOC_RE.match(source):
-        return {"finding": finding, "action": "noop", "note": f"source_review is not a review doc: {source}"}
     review = Path(repo) / source
-    if not review.is_file():
-        twin = source[:-3] + "-COMPLETED.md"
-        if (Path(repo) / twin).is_file():
-            return {"finding": finding, "action": "noop", "note": f"source_review already completed: {twin}"}
-        raise LandError(f"source_review {source} not found")
+    if not (REVIEW_DOC_RE.match(source) and review.is_file()):
+        if REVIEW_DOC_RE.match(source):
+            twin = source[:-3] + "-COMPLETED.md"
+            if (Path(repo) / twin).is_file():
+                return {"finding": finding, "action": "noop", "note": f"source_review already completed: {twin}"}
+        return {"finding": finding, "action": "noop", "note": f"source_review is not a review doc: {source}"}
     lines = review.read_text().splitlines(keepends=True)
     start = next((i for i, line in enumerate(lines) if line.rstrip("\n") == "## Finding Status"), None)
     if start is None:

@@ -129,6 +129,7 @@ REVIEW_CASES = {
     "427": ("docs/reviews/into-this.md", "M3"),          # arrow targets THIS todo -> checked off despite wording
     "428": ("docs/reviews/indented.md", "77"),           # indented, uppercase [X] -> already checked
     "431": ("docs/reviews/mixed-indent.md", "60"),       # checked off, but an indented sibling blocks the rename
+    "433": ("docs/reviews/gone.md", "4"),                # a docs/reviews path, but missing with no twin either
 }
 
 
@@ -258,6 +259,11 @@ def main():
         r422 = review_of("422")
         check("F1: a missing path with a -COMPLETED twin is a no-op naming the twin",
               "missing-COMPLETED.md" in r422["review"]["note"] and r422["review"]["renamed"] is False, r422)
+
+        r433 = review_of("433")
+        check("F1: a docs/reviews path that is plain missing (no twin either) is a no-op, not a raise",
+              r433["review"]["note"] == "source_review is not a review doc: docs/reviews/gone.md"
+              and r433["review"]["renamed"] is False, r433)
 
         r423 = review_of("423")
         check("F1: no '## Finding Status' section is a no-op",
