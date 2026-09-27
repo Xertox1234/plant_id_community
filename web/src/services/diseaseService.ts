@@ -8,8 +8,9 @@
 
 import { getCsrfToken } from '../utils/csrf';
 import type { DiseaseDiagnosisCreated, DiseaseDiagnosisResults } from '../types/diagnosis';
+import { API_ORIGIN } from '@/config/api';
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+const API_BASE_URL = API_ORIGIN;
 const API_VERSION = 'v1';
 const BASE = `${API_BASE_URL}/api/${API_VERSION}/plant-identification/disease-requests`;
 

@@ -87,6 +87,26 @@ void main() {
     expect(find.text(accountConflictMessage), findsNothing);
   });
 
+  testWidgets('signing out also ends the conflict SnackBar', (tester) async {
+    // Todo 449 item 7: sign-out is `AuthState()` with no error, the same
+    // branch as a successful sign-in, pinned so it holds by test, not reasoning.
+    final auth = await pumpApp(tester);
+    auth.emit(
+      const AuthState(
+        error: accountConflictMessage,
+        unverifiedAccountConflict: true,
+      ),
+    );
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 500));
+    expect(find.text(accountConflictMessage), findsOneWidget);
+
+    auth.emit(const AuthState());
+    await tester.pumpAndSettle();
+
+    expect(find.text(accountConflictMessage), findsNothing);
+  });
+
   testWidgets('any other auth error has no reset link', (tester) async {
     final auth = await pumpApp(tester);
 

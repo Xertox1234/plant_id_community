@@ -1874,5 +1874,22 @@
     "source": "codify: fix/401-rich-text-class",
     "added": "2026-09-26",
     "severity": "warn"
+  },
+  {
+    "id": "raw-vite-api-url-read",
+    "domains": [
+      "react",
+      "typescript"
+    ],
+    "path_glob": [
+      "web/src/**/*.ts*"
+    ],
+    "content_present": "import\\.meta\\.env\\.VITE_API_URL",
+    "message": "Read the API origin from API_ORIGIN in web/src/config/api.ts, not import.meta.env.VITE_API_URL directly (todo 449): it strips trailing slashes and enforces HTTPS in production for every consumer.",
+    "pattern_ref": "web/docs/patterns/react-typescript.md",
+    "source": "codify: fix/449-email-verification-followups",
+    "added": "2026-09-26",
+    "severity": "warn",
+    "content_absent": "export const API_ORIGIN\\b"
   }
 ]

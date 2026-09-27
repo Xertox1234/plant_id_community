@@ -32,6 +32,7 @@ import axios, { AxiosError, InternalAxiosRequestConfig, AxiosResponse } from 'ax
 import { logger } from './logger';
 import { getCsrfToken, clearCsrfToken } from './csrf';
 import { getOrCreateRequestId } from './requestId';
+import { API_ORIGIN } from '@/config/api';
 
 type RetriableRequestConfig = InternalAxiosRequestConfig & {
   _csrfRetried?: boolean;
@@ -55,7 +56,7 @@ function getSafeAxiosError(error: AxiosError): {
  * Create axios instance with base configuration
  */
 const apiClient = axios.create({
-  baseURL: import.meta.env.VITE_API_URL || 'http://localhost:8000',
+  baseURL: API_ORIGIN,
   timeout: 30000, // 30 second timeout
   withCredentials: true, // Include cookies for Django session auth
   headers: {
