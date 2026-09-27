@@ -225,3 +225,13 @@ Compact checklist auto-injected before edits. Long-form:
   `linkPreviewShortAddress(url)`, never `siteName`.** It also guards locally
   and renders nothing when there's no short address, so the raw URL is never
   shown or spoken (todo 429 `_CompactCardRow`, mirroring `_LinkPreviewCard`).
+- **A widget on a tab that stays mounted (`StatefulShellRoute.indexedStack`)
+  refreshes on route change or app resume, never on `await context.push(...)`.**
+  The awaited future never completes when the pushed screen
+  `pushReplacement`s itself (camera → results) or the user leaves by the tab
+  bar. Listen to `GoRouter.of(context).routerDelegate` for the tab's path.
+  Test it inside a `StatefulShellRoute`: a plain route unmounts and remounts,
+  and an autoDispose provider refetches, which hides the bug (todo 412).
+- **Switch to a tab's root with `context.go`, never `context.push`** from
+  another branch. Pushing a branch root stacks a second copy with a back
+  arrow on the wrong branch (todo 412).

@@ -10,6 +10,7 @@ import '../../shared/widgets/canopy_surfaces.dart';
 import '../../core/theme/green_thumb_extension.dart';
 import '../../shared/widgets/clay_button.dart';
 import '../../shared/widgets/feature_card.dart';
+import '../onboarding/onboarding_checklist_card.dart';
 
 /// Home page with hero section and feature cards
 ///
@@ -50,6 +51,10 @@ class HomePage extends StatelessWidget {
                   // Hero Section
                   _buildHeroSection(context),
                   SizedBox(height: ext.gapY * 2),
+
+                  // Onboarding checklist (todo 412): signed in and not yet
+                  // done or dismissed; otherwise it takes no space.
+                  const OnboardingChecklistCard(),
 
                   // Features Grid
                   _buildFeaturesGrid(context),

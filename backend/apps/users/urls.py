@@ -95,16 +95,10 @@ urlpatterns = [
         "me/onboarding/progress/", views.onboarding_progress, name="onboarding_progress"
     ),
     path(
-        "me/onboarding/create-demo-data/",
-        views.create_demo_data,
-        name="create_demo_data",
-    ),
-    path(
         "me/onboarding/track-event/",
         views.track_onboarding_event,
         name="track_onboarding_event",
     ),
-    path("me/onboarding/demo-data/", views.delete_demo_data, name="delete_demo_data"),
     # Signed-link unsubscribe (todo 408) — the web app's /unsubscribe page
     # calls these; email links are built by apps/users/email_unsubscribe.py.
     path(
