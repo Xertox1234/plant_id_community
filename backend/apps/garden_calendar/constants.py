@@ -356,3 +356,27 @@ LOG_PREFIX_ANALYTICS = "[ANALYTICS]"
 LOG_PREFIX_CACHE = "[CACHE]"
 LOG_PREFIX_PERF = "[PERF]"
 LOG_PREFIX_ERROR = "[ERROR]"
+
+# =============================================================================
+# Care Reminders (todo 410)
+# =============================================================================
+
+# The beat sweep that pushes due CareTasks runs every 15 minutes
+# (settings.CELERY_BEAT_SCHEDULE["care-task-reminders"]).
+
+# Only tasks that fell due within this window are pushed (owner decision
+# 2026-09-27). An older overdue task never pushes; it still shows as overdue
+# in the app. It also bounds the catch-up after a worker outage.
+CARE_REMINDER_LOOKBACK_HOURS = 24
+
+# Due tasks claimed per sweep. The rest wait for the next sweep.
+CARE_REMINDER_BATCH_SIZE = 500
+
+# One collapse key for every care push: a newer reminder replaces an older
+# one in the tray instead of stacking (docs/rules/celery.md).
+CARE_REMINDER_COLLAPSE_KEY = "care-task-due"
+CARE_REMINDER_EVENT = "care_task_due"
+
+# Task titles are user-written; cap them in the tray.
+CARE_REMINDER_TITLE_MAX_CHARS = 60
+CARE_REMINDER_BODY_MAX_TASKS = 3

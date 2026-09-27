@@ -479,3 +479,11 @@ Compact checklist auto-injected before edits. Long-form: `backend/docs/patterns/
   `use_ssl` raises only at the first send, and every mail call site catches
   and logs it. `core.E364` builds `mail.mailers["default"]` during
   `manage.py check` and the deploy's migrate (todo 364).
+- **An object permission never runs on create, so a writable FK to an owned
+  model needs its own ownership check.** `has_object_permission` guards the
+  detail routes of the row being written, not the row its FK points at. So a
+  create (or an update that changes the FK) can attach data to another user's
+  object by UUID unless the serializer refuses it: a `validate_<fk>` that
+  compares the target's owner, or a queryset scoped to `request.user`. In
+  garden_calendar the care-task serializer had one and the care-log and
+  harvest serializers did not; all three now share `OwnPlantMixin` (todo 410).

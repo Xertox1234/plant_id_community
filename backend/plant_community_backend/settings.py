@@ -1343,6 +1343,12 @@ CELERY_BEAT_SCHEDULE = {
         "task": "apps.forum_host.tasks.send_forum_weekly_digest",
         "schedule": crontab(hour=9, minute=0, day_of_week="monday"),
     },
+    # Todo 410: push CareTasks that fell due, so a reminder lands within 15
+    # minutes of its time (the lookback is in garden_calendar/constants.py).
+    "care-task-reminders": {
+        "task": "apps.garden_calendar.tasks.send_due_care_task_reminders",
+        "schedule": crontab(minute="*/15"),
+    },
 }
 
 # Security settings - Apply to both development and production (Issue #014)

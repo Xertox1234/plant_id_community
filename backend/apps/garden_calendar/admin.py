@@ -6,9 +6,7 @@ and weather alerts.
 """
 
 from django.contrib import admin
-from django.urls import reverse
 from django.utils.html import format_html
-from django.utils.safestring import mark_safe
 
 from .models import (
     CareLog,
@@ -398,6 +396,7 @@ class PlantAdmin(admin.ModelAdmin):
 
     list_display = [
         "common_name",
+        "owner",
         "garden_bed",
         "health_status_display",
         "growth_stage",
@@ -417,7 +416,7 @@ class PlantAdmin(admin.ModelAdmin):
         "scientific_name",
         "variety",
         "garden_bed__name",
-        "garden_bed__owner__username",
+        "owner__username",
     ]
     readonly_fields = [
         "uuid",
@@ -434,6 +433,7 @@ class PlantAdmin(admin.ModelAdmin):
             "Basic Information",
             {
                 "fields": (
+                    "owner",
                     "garden_bed",
                     "common_name",
                     "scientific_name",

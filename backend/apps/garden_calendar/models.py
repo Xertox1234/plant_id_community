@@ -829,11 +829,25 @@ class Plant(models.Model):
     )
 
     # Relationships
+    # The plant's owner (todo 410). A houseplant has no bed, so ownership no
+    # longer runs through garden_bed: every queryset and permission check
+    # scopes on this field.
+    owner = models.ForeignKey(
+        User,
+        on_delete=models.CASCADE,
+        related_name="garden_plants",
+        help_text="User who owns this plant",
+    )
+
+    # Optional since todo 410. Deleting a bed keeps its plants (owner
+    # decision 2026-09-27): they stay the owner's, bedless.
     garden_bed = models.ForeignKey(
         GardenBed,
-        on_delete=models.CASCADE,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
         related_name="plants",
-        help_text="Garden bed this plant is in",
+        help_text="Garden bed this plant is in (optional)",
     )
 
     plant_species = models.ForeignKey(
@@ -912,18 +926,28 @@ class Plant(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
-        ordering = ["garden_bed", "-planted_date"]
+        ordering = ["owner", "-planted_date"]
         verbose_name = "Plant"
         verbose_name_plural = "Plants"
         indexes = [
-            models.Index(fields=["garden_bed", "-planted_date"]),
+            models.Index(fields=["owner", "-planted_date"]),
+            models.Index(fields=["owner", "is_active"]),
             models.Index(fields=["garden_bed", "is_active"]),
             models.Index(fields=["health_status"]),
             models.Index(fields=["common_name"]),
         ]
 
     def __str__(self):
+        if self.garden_bed_id is None:
+            return self.common_name
         return f"{self.common_name} in {self.garden_bed.name}"
+
+    def save(self, *args, **kwargs):
+        # A plant created in a bed without an explicit owner belongs to the
+        # bed's owner, so bed-first callers keep working (todo 410).
+        if self.owner_id is None and self.garden_bed_id is not None:
+            self.owner_id = self.garden_bed.owner_id
+        super().save(*args, **kwargs)
 
     @property
     def days_since_planted(self):

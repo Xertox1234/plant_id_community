@@ -385,6 +385,21 @@ class GardenOwnerSerializer(serializers.ModelSerializer):
         read_only_fields = ["uuid", "username", "first_name", "last_name"]
 
 
+class OwnPlantMixin:
+    """Refuses a `plant` the requesting user does not own (todo 410).
+
+    The object permission only guards detail routes, so without this a
+    create or update could attach a row to anyone's plant by UUID.
+    """
+
+    def validate_plant(self, value):
+        request = self.context.get("request")
+        if request and request.user.is_authenticated:
+            if value.owner_id != request.user.pk:
+                raise serializers.ValidationError("You can only use your own plants.")
+        return value
+
+
 class PlantImageSerializer(serializers.ModelSerializer):
     """Serializer for plant images."""
 
@@ -421,7 +436,10 @@ class PlantImageSerializer(serializers.ModelSerializer):
 class PlantListSerializer(serializers.ModelSerializer):
     """Lightweight serializer for plant listings."""
 
-    garden_bed_name = serializers.CharField(source="garden_bed.name", read_only=True)
+    # Null for a plant with no bed (todo 410); the key is always present.
+    garden_bed_name = serializers.CharField(
+        source="garden_bed.name", read_only=True, allow_null=True
+    )
     primary_image = serializers.SerializerMethodField()
     health_status_display = serializers.CharField(
         source="get_health_status_display", read_only=True
@@ -508,7 +526,7 @@ class PlantDetailSerializer(PlantListSerializer):
         """Check if current user can edit this plant."""
         request = self.context.get("request")
         if request and request.user.is_authenticated:
-            return obj.garden_bed.owner == request.user
+            return obj.owner_id == request.user.pk
         return False
 
 
@@ -534,7 +552,9 @@ class PlantCreateUpdateSerializer(serializers.ModelSerializer):
         read_only_fields = ["uuid"]
 
     def validate_garden_bed(self, value):
-        """Ensure user owns the garden bed."""
+        """Ensure user owns the garden bed. A bed is optional (todo 410)."""
+        if value is None:
+            return value
         request = self.context.get("request")
         if request and request.user.is_authenticated:
             if value.owner != request.user:
@@ -624,11 +644,11 @@ class CareTaskDetailSerializer(CareTaskListSerializer):
         """Check if current user can edit this task."""
         request = self.context.get("request")
         if request and request.user.is_authenticated:
-            return obj.plant.garden_bed.owner == request.user
+            return obj.plant.owner_id == request.user.pk
         return False
 
 
-class CareTaskCreateUpdateSerializer(serializers.ModelSerializer):
+class CareTaskCreateUpdateSerializer(OwnPlantMixin, serializers.ModelSerializer):
     """Serializer for creating and updating care tasks."""
 
     class Meta:
@@ -645,16 +665,6 @@ class CareTaskCreateUpdateSerializer(serializers.ModelSerializer):
             "notes",
         ]
         read_only_fields = ["uuid"]
-
-    def validate_plant(self, value):
-        """Ensure user owns the plant."""
-        request = self.context.get("request")
-        if request and request.user.is_authenticated:
-            if value.garden_bed.owner != request.user:
-                raise serializers.ValidationError(
-                    "You can only create tasks for your own plants."
-                )
-        return value
 
     def validate(self, data):
         """Validate recurring task configuration."""
@@ -677,8 +687,16 @@ class CareTaskCreateUpdateSerializer(serializers.ModelSerializer):
 
         return data
 
+    def update(self, instance, validated_data):
+        # A rescheduled task is a new reminder: clear the sent flag so the
+        # reminder sweep pushes it again when the new time falls due (todo 410).
+        new_date = validated_data.get("scheduled_date")
+        if new_date is not None and new_date != instance.scheduled_date:
+            validated_data["notification_sent"] = False
+        return super().update(instance, validated_data)
 
-class CareLogSerializer(serializers.ModelSerializer):
+
+class CareLogSerializer(OwnPlantMixin, serializers.ModelSerializer):
     """Serializer for care logs."""
 
     logged_by = GardenOwnerSerializer(source="user", read_only=True)
@@ -714,7 +732,7 @@ class CareLogSerializer(serializers.ModelSerializer):
         ]
 
 
-class HarvestSerializer(serializers.ModelSerializer):
+class HarvestSerializer(OwnPlantMixin, serializers.ModelSerializer):
     """Serializer for harvest records."""
 
     plant_name = serializers.CharField(source="plant.common_name", read_only=True)

@@ -97,3 +97,33 @@ The owner chose **garden_calendar only**:
   to "first care task".
 - Order: todo 412 goes first, since both edit `users/views.py` and
   `users/services.py`.
+
+### 2026-09-27 - Owner decisions (bed delete, backlog) and the slice split
+
+Decided by the owner:
+
+- **Deleting a bed keeps its plants.** `Plant.garden_bed` is `SET_NULL`, so
+  the plants stay the owner's, bedless.
+- **The reminder sweep looks back 24 hours.** Only tasks that fell due in the
+  last 24 hours push. An older overdue task never pushes, but still shows as
+  overdue in the app. The migration also stamps tasks that were already
+  overdue at deploy as notified.
+
+Split into two PRs:
+
+- **Slice A (garden_calendar):** `Plant.owner` plus the backfill, an optional
+  `garden_bed`, every ownership check re-scoped to the owner, and the
+  15-minute beat sweep `send_due_care_task_reminders` (FCM only; the opt-out
+  is `User.care_reminder_notifications`). The FCM helpers moved to
+  `apps/core/fcm.py`. Care-log and harvest creation now refuse another user's
+  plant; they had no check.
+- **Slice B (delete the old model):** `users.CareReminder`,
+  `CareReminderLog`, the six `me/care-reminders/*` routes,
+  `plant_care_reminder_service`, `core.PlantCareReminder` and the email
+  preference. Starts after #851 (412) and #852 (413) merge, since both edit
+  `users/services.py` and `users/views.py`.
+
+AC 1 ("a reminder created in a client fires") needs a client that creates
+CareTasks. That client is todo 386's mobile garden, which is built on slice
+A. Until then the push has no tap destination (the mobile router ignores a
+payload without `topic_id`), so 386 adds the `care_task_due` route.

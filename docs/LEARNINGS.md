@@ -6757,3 +6757,34 @@ treats a `None` override as "use the configured one". A new system check,
 `manage.py check` instead of every send. Also from the review: once
 `fail_silently=True` was gone, the lockout mail's error path became
 reachable, and it logged the raw username. It now uses `log_safe_username`.
+
+## 2026-09-27 — Re-anchoring ownership: plants without beds, care reminders (todo 410 slice A)
+
+**The change.** `garden_calendar.Plant` was owned only through its required
+`garden_bed`. Houseplants have no bed, so `Plant.owner` became the anchor,
+backfilled from `garden_bed.owner`, and `garden_bed` became `SET_NULL`.
+The grep for `garden_bed__owner|garden_bed.owner` found 17 sites (views 5,
+serializers 3, permissions 3, services 5, admin 1); all 17 were moved.
+
+**What a re-scope turns up.**
+
+- **A branch order in a permission.** `IsPlantOwner` tested
+  `hasattr(obj, "garden_bed")` first. Once every Plant has both `owner` and
+  a nullable bed, that branch still reads the bed and raises on a bedless
+  plant. Test the model type, not the presence of an attribute.
+- **A missing check next to a present one.** The care-task serializer
+  validated its `plant` FK's owner; the care-log and harvest serializers did
+  not, so any user could log care against another's plant by UUID. The
+  object permission never runs on create. Rule: `docs/rules/security.md`.
+- **`bulk_create` skips `save()`.** The transitional default (`owner` from the
+  bed when unset) lives in `Plant.save()`, so a `bulk_create` of bed-only
+  plants hits the NOT NULL. One performance test did exactly that.
+
+**The sweep.** `send_due_care_task_reminders` claims due tasks with
+`select_for_update(skip_locked=True)` and sets `notification_sent` in the
+same transaction, so two overlapping beats never push the same task.
+Claim-before-send means a crash loses a reminder rather than doubling it; a
+transient FCM failure un-claims the owner's tasks for the next sweep. Two
+owner decisions bound the first run: a 24-hour lookback, and the migration
+stamps tasks already overdue at deploy. Without either, the first sweep
+would push every overdue task ever created.
