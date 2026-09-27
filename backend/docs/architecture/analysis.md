@@ -13,6 +13,7 @@
 The Plant Community backend is a **well-architected Django 5.2 application** that demonstrates enterprise-level design patterns for a multi-platform plant identification system. The architecture prioritizes **performance, scalability, and maintainability** through a modular multi-app structure, service-oriented design, and sophisticated integration patterns.
 
 **Key Architectural Strengths**:
+
 - Clean separation of concerns via Django multi-app architecture
 - Service layer abstraction with external API facade pattern
 - Advanced performance optimizations (parallel processing, caching, indexes)
@@ -45,6 +46,7 @@ backend/
 ```
 
 **Design Decision Rationale**:
+
 - **Single Responsibility Principle**: Each app has one primary domain concern
 - **Low Coupling**: Apps communicate via service interfaces, not direct model imports
 - **High Cohesion**: Related functionality grouped within app boundaries
@@ -87,6 +89,7 @@ The system implements a **4-tier layered architecture**:
 ```
 
 **Architectural Benefits**:
+
 - Clear dependency direction (top-down, no circular dependencies)
 - Testability: Each layer can be tested independently with mocks
 - Flexibility: Infrastructure can be swapped without changing business logic
@@ -112,8 +115,7 @@ services/
 ├── disease_diagnosis_service.py          # Health analysis
 ├── ai_care_service.py                    # OpenAI care instructions
 ├── ai_image_service.py                   # Image processing
-├── monitoring_service.py                 # Performance tracking
-└── plant_care_reminder_service.py        # Notification scheduling
+└── monitoring_service.py                 # Performance tracking
 ```
 
 **Design Pattern Analysis**:
@@ -159,6 +161,7 @@ services/
 **Performance Optimization**: Week 2 parallel processing implementation
 
 **Before (Sequential)**:
+
 ```python
 # SLOW: 4-9 seconds
 plant_id_results = self.plant_id.identify_plant(image)  # 2-5s
@@ -166,6 +169,7 @@ plantnet_results = self.plantnet.identify_plant(image)  # 2-4s
 ```
 
 **After (Parallel with ThreadPoolExecutor)**:
+
 ```python
 # FAST: 2-5 seconds (60% improvement)
 executor = get_executor()  # Module-level singleton
@@ -178,6 +182,7 @@ plantnet_results = future2.result(timeout=20)
 **Critical Implementation Details**:
 
 1. **Thread Pool Singleton Pattern**:
+
    ```python
    _EXECUTOR: Optional[ThreadPoolExecutor] = None
    _EXECUTOR_LOCK = threading.Lock()
@@ -203,6 +208,7 @@ plantnet_results = future2.result(timeout=20)
    - Critical for production deployment
 
 3. **Configuration via Constants**:
+
    ```python
    # constants.py - Centralized configuration
    MAX_WORKER_THREADS = 10              # Prevent API rate limits
@@ -212,6 +218,7 @@ plantnet_results = future2.result(timeout=20)
    ```
 
 **Architectural Risk Mitigation**:
+
 - Timeout per API prevents cascading failures
 - Executor capped at 10 workers to prevent rate limit issues
 - Graceful degradation: one API failure doesn't block the other
@@ -238,18 +245,22 @@ UserPlant (user collection)
 **Key Design Decisions**:
 
 1. **UUID for External References**:
+
    ```python
    uuid = models.UUIDField(default=uuid.uuid4, editable=False, unique=True)
    ```
+
    - Prevents IDOR (Insecure Direct Object Reference) attacks
    - Safe for public APIs without leaking internal IDs
    - Globally unique across distributed systems
 
 2. **Audit Timestamps**:
+
    ```python
    created_at = models.DateTimeField(auto_now_add=True)
    updated_at = models.DateTimeField(auto_now=True)
    ```
+
    - Required for performance monitoring
    - Enables time-based queries and analytics
    - Supports compliance/audit requirements
@@ -307,11 +318,13 @@ operations = [
 ```
 
 **Advanced PostgreSQL Features**:
+
 - **pg_trgm extension**: Enables fuzzy text matching (e.g., "monstera" → "Monstera deliciosa")
 - **GIN indexes**: Optimized for text search operations
 - **PostgreSQL-specific conditionals**: Gracefully skips on SQLite for dev environment
 
 **Architectural Compliance Check**: ✅ PASS
+
 - Follows PostgreSQL best practices for text search
 - Graceful degradation for development (SQLite fallback)
 - Proper migration reversibility
@@ -356,6 +369,7 @@ path('identify/health/', simple_views.health_check)
    - Example: Plant identification (no database writes until success)
 
 **API Versioning Strategy**: Currently implicit via URL structure
+
 - Wagtail API: `/api/v2/` (explicit versioning)
 - DRF API: `/api/plant-identification/` (no version in URL)
 - **Recommendation**: Add explicit versioning (e.g., `/api/v1/identify/`) for future compatibility
@@ -416,6 +430,7 @@ SOCIALACCOUNT_PROVIDERS = {
    - Custom adapters for JWT integration post-OAuth
 
 **Architectural Risk**: OAuth redirect URL handling
+
 - **Current**: `FRONTEND_BASE_URL` configurable via environment
 - **Recommendation**: Validate redirect URLs against whitelist
 
@@ -434,12 +449,14 @@ def run_identification(self, request_uuid: str):
 ```
 
 **Rate Limiting Strategy**:
+
 - **django-ratelimit**: Decorator-based, Redis-backed
 - **IP-based limiting**: Prevents abuse from single sources
 - **Per-endpoint customization**: Different limits for different operations
 - **Celery task throttling**: Prevents backend queue saturation
 
 **Architectural Improvement Opportunity**:
+
 - Add user-based rate limiting for authenticated requests
 - Implement tiered limits (free vs. paid users)
 - Add circuit breaker pattern for external API failures
@@ -490,6 +507,7 @@ CACHES = {
 ### 5.2 Cache Key Strategy
 
 **Plant.id Service Caching**:
+
 ```python
 # Cache key includes all request parameters for uniqueness
 image_hash = hashlib.sha256(image_data).hexdigest()
@@ -514,6 +532,7 @@ cache.set(cache_key, result, timeout=CACHE_TIMEOUT_24_HOURS)
 5. **Namespaced**: Prefix prevents key conflicts
 
 **Performance Impact**:
+
 - Cache hit: <10ms response time
 - Cache miss: 2-5s (API call required)
 - **Achieved 40% cache hit rate** after Week 2 optimizations
@@ -532,11 +551,13 @@ AI_IMAGE_CACHE_TIMEOUT = 604800      # 7 days (generated images rarely change)
 ```
 
 **TTL Selection Rationale**:
+
 - Plant.id (30 min): API models update regularly, shorter TTL ensures accuracy
 - PlantNet (24h): Botanical data is stable, longer TTL reduces API load
 - AI images (7 days): Generated content is deterministic, longest TTL
 
 **Architectural Limitation**: No proactive invalidation
+
 - **Risk**: Stale data if external APIs update faster than TTL
 - **Mitigation**: Short TTLs for critical data (Plant.id)
 - **Recommendation**: Implement cache tags for manual invalidation
@@ -567,6 +588,7 @@ The backend implements **two async patterns** for different use cases:
 ### 6.2 Celery Task Architecture
 
 **Celery Configuration**:
+
 ```python
 # celery.py
 app = Celery('plant_community_backend')
@@ -619,6 +641,7 @@ def run_identification(self, request_uuid: str) -> Dict:
 ✅ **Graceful Degradation**: RateLimitExceeded exception with retry_after hint
 
 **Architectural Concern**: Task result storage
+
 - **Current**: Results stored in database (not Redis backend)
 - **Reason**: Long-term persistence, query capability
 - **Trade-off**: Slightly slower result retrieval vs. queryability
@@ -626,6 +649,7 @@ def run_identification(self, request_uuid: str) -> Dict:
 ### 6.3 Django Channels WebSocket Architecture
 
 **Channel Layer Configuration**:
+
 ```python
 CHANNEL_LAYERS = {
     'default': {
@@ -638,6 +662,7 @@ CHANNEL_LAYERS = {
 ```
 
 **WebSocket Consumer Pattern**:
+
 ```python
 class IdentificationConsumer(AsyncJsonWebsocketConsumer):
     """Streams progress updates for a single PlantIdentificationRequest."""
@@ -666,12 +691,14 @@ Celery Task                Channel Layer               WebSocket Client
 ```
 
 **Security Architecture**:
+
 - **Authentication**: User must be authenticated to connect
 - **Authorization**: User must own the request to receive updates
 - **Group Isolation**: Each request has separate channel group
 - **Close Codes**: Standard WebSocket close codes (4401=Unauthorized, 4403=Forbidden)
 
 **Architectural Strength**: Clean separation of concerns
+
 - Celery task focuses on business logic
 - Consumer focuses on message routing
 - Channel layer handles message distribution
@@ -683,6 +710,7 @@ Celery Task                Channel Layer               WebSocket Client
 ### 7.1 External API Integration Architecture
 
 **API Inventory**:
+
 ```
 Plant Identification:
 ├── Plant.id (Kindwise)      - Primary identification, disease detection
@@ -731,6 +759,7 @@ class BaseAPIService:
 ```
 
 **Architectural Benefits**:
+
 - DRY: Common patterns extracted to base class
 - Consistency: All API clients follow same error handling
 - Maintainability: Changes to HTTP client propagate to all services
@@ -764,6 +793,7 @@ class CombinedPlantIdentificationService:
 ```
 
 **Facade Benefits**:
+
 - **Simplicity**: Views only import one service, not multiple APIs
 - **Flexibility**: Can change API mix without breaking clients
 - **Consistency**: Unified response format regardless of source
@@ -787,6 +817,7 @@ if self.plant_id:
 ```
 
 **Architectural Gap**: No formal circuit breaker
+
 - **Current**: Service fails on every request during outage
 - **Recommended**: Implement circuit breaker to "fail fast" after threshold
 - **Library**: Consider `pybreaker` or custom implementation
@@ -840,6 +871,7 @@ if self.plant_id:
 ### 8.2 Content Security Policy (CSP)
 
 **Development CSP** (Report-Only):
+
 ```python
 CONTENT_SECURITY_POLICY_REPORT_ONLY = {
     'DIRECTIVES': {
@@ -852,6 +884,7 @@ CONTENT_SECURITY_POLICY_REPORT_ONLY = {
 ```
 
 **Production CSP** (Enforced):
+
 ```python
 CONTENT_SECURITY_POLICY = {
     'DIRECTIVES': {
@@ -888,6 +921,7 @@ class PlantSpecies(models.Model):
 ```
 
 **Security Benefit**:
+
 - Prevents enumeration attacks (can't guess next UUID)
 - No information leakage about database size
 - Safe for public APIs and webhooks
@@ -909,6 +943,7 @@ logger.error("[ERROR] Plant.id failed: {error}")
 ```
 
 **Log Categories**:
+
 - `[CACHE]` - Cache hit/miss events (performance analysis)
 - `[PARALLEL]` - Parallel execution tracking
 - `[PERF]` - Performance metrics
@@ -918,6 +953,7 @@ logger.error("[ERROR] Plant.id failed: {error}")
 - `[SHUTDOWN]` - Cleanup events
 
 **Logging Configuration**:
+
 ```python
 LOGGING = {
     'formatters': {
@@ -936,6 +972,7 @@ LOGGING = {
 ```
 
 **Observability Features**:
+
 - Request ID tracking (django-request-id)
 - Performance timing in log messages
 - Contextual data (image hash, user ID, request ID)
@@ -944,6 +981,7 @@ LOGGING = {
 ### 9.2 Performance Monitoring Service
 
 **MonitoringService Pattern**:
+
 ```python
 # apps/plant_identification/services/monitoring_service.py
 class PerformanceMonitor:
@@ -959,6 +997,7 @@ class PerformanceMonitor:
 ```
 
 **Metrics Collected**:
+
 - API call success/failure rates
 - Response time histograms
 - Cache hit rates
@@ -966,6 +1005,7 @@ class PerformanceMonitor:
 - Database query counts
 
 **Architectural Strength**: Service-based monitoring
+
 - Decoupled from business logic
 - Reusable across services
 - Easy to add new metrics
@@ -973,6 +1013,7 @@ class PerformanceMonitor:
 ### 9.3 Error Tracking (Sentry)
 
 **Sentry Configuration**:
+
 ```python
 if SENTRY_DSN and not DEBUG:
     sentry_sdk.init(
@@ -986,6 +1027,7 @@ if SENTRY_DSN and not DEBUG:
 ```
 
 **Error Tracking Strategy**:
+
 - Automatic exception capture (Django + Celery)
 - Transaction sampling (10%) for performance monitoring
 - PII exclusion for privacy compliance
@@ -1016,6 +1058,7 @@ if SENTRY_DSN and not DEBUG:
 ```
 
 **Architectural Rationale**:
+
 - **Wagtail**: Rich content modeling, editorial workflow, SEO
 - **DRF**: Structured data, CRUD operations, real-time updates
 - **Combined**: Editorial content + user-generated data in single platform
@@ -1023,6 +1066,7 @@ if SENTRY_DSN and not DEBUG:
 ### 10.2 Wagtail Page Models
 
 **Blog Architecture**:
+
 ```python
 # Page hierarchy
 BlogIndexPage (landing)
@@ -1035,6 +1079,7 @@ BlogIndexPage (landing)
 ```
 
 **Plant Identification Pages**:
+
 ```python
 PlantCategoryIndexPage (plant database landing)
     └── PlantSpeciesPage (individual species)
@@ -1044,6 +1089,7 @@ PlantCategoryIndexPage (plant database landing)
 ```
 
 **Architectural Pattern**: Page-Model Binding
+
 - Wagtail pages reference Django models via ForeignKey
 - Allows mixing CMS richness with structured data
 - Example: PlantSpeciesPage → PlantSpecies (model)
@@ -1066,29 +1112,35 @@ PlantCategoryIndexPage (plant database landing)
 ### 11.2 Architectural Risks
 
 ⚠️ **Risk 1: Thread Pool Resource Leak**
+
 - **Issue**: ThreadPoolExecutor created per service instance (before Week 2 fix)
 - **Impact**: Memory leak, file descriptor exhaustion
 - **Mitigation**: Module-level singleton with atexit cleanup ✅ FIXED
 
 ⚠️ **Risk 2: No Circuit Breaker for External APIs**
+
 - **Issue**: Every request retries failed API during outage
 - **Impact**: Slow responses, wasted resources
 - **Recommendation**: Implement circuit breaker pattern (pybreaker)
 
 ⚠️ **Risk 3: Database Connection Pool Exhaustion**
+
 - **Issue**: High Celery concurrency could exhaust DB connections
 - **Mitigation**: Set `DATABASES['default']['CONN_MAX_AGE'] = 600` ✅ CONFIGURED
 - **Recommendation**: Monitor connection pool usage
 
 ⚠️ **Risk 4: No API Versioning Strategy**
+
 - **Issue**: Breaking API changes impact all clients
 - **Recommendation**: Add explicit versioning (e.g., /api/v1/)
 
 ⚠️ **Risk 5: Cache Invalidation Strategy is Time-Only**
+
 - **Issue**: No proactive cache invalidation when data changes
 - **Recommendation**: Implement cache tags or pub/sub invalidation
 
 ⚠️ **Risk 6: No Distributed Lock for Cache Stampede**
+
 - **Issue**: Multiple requests can trigger same API call simultaneously
 - **Recommendation**: Use Redis distributed lock during cache population
 
@@ -1129,26 +1181,31 @@ PlantCategoryIndexPage (plant database landing)
 ### 12.1 SOLID Principles
 
 ✅ **Single Responsibility Principle**
+
 - Each app has one primary domain concern
 - Services have focused responsibilities
 - Models represent single entities
 
 ✅ **Open/Closed Principle**
+
 - Service layer allows extension without modification
 - Middleware stack is pluggable
 - API clients inherit from base class
 
 ✅ **Liskov Substitution Principle**
+
 - All API services implement common interface
 - Cache backends are swappable (Redis → LocMem)
 - Authentication backends are interchangeable
 
 ✅ **Interface Segregation Principle**
+
 - Small, focused service interfaces
 - ViewSets use mixins for specific capabilities
 - No monolithic "god" services
 
 ✅ **Dependency Inversion Principle**
+
 - Services depend on Django settings abstraction
 - External APIs hidden behind service interfaces
 - Database accessed via ORM (abstraction layer)
@@ -1181,6 +1238,7 @@ PlantCategoryIndexPage (plant database landing)
 ### 13.1 Overall Architecture Grade: **A-**
 
 **Strengths**:
+
 - Clean, maintainable multi-app structure
 - Advanced performance optimizations (60% faster with parallel processing)
 - Comprehensive security layers
@@ -1188,6 +1246,7 @@ PlantCategoryIndexPage (plant database landing)
 - Production-ready with LTS framework versions
 
 **Areas for Improvement**:
+
 - Add circuit breaker pattern for external APIs
 - Implement API versioning strategy
 - Migrate media storage to cloud for horizontal scaling
@@ -1213,18 +1272,21 @@ PlantCategoryIndexPage (plant database landing)
 ### 13.3 Recommended Evolution Path
 
 **Phase 1: Production Hardening** (1-2 weeks)
+
 - Implement circuit breaker for external APIs
 - Add distributed locks for cache population
 - Set up CSP violation reporting
 - Configure cloud storage for media files
 
 **Phase 2: Scalability** (2-4 weeks)
+
 - Implement API versioning
 - Separate Celery queues by priority
 - Add database read replicas
 - Implement CDN for static files
 
 **Phase 3: Advanced Features** (4-6 weeks)
+
 - GraphQL API for mobile apps
 - Real-time collaborative features
 - Machine learning model versioning

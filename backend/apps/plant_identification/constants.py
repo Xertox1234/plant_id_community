@@ -166,7 +166,6 @@ RATE_LIMITS = {
     # User Feature Endpoints (user-based)
     "user_features": {
         "push_notifications": "10/h",  # Push notification subscriptions
-        "care_reminders": "20/h",  # Care reminder actions
         "profile_updates": "10/h",  # Profile modifications
     },
     # Blog/Content Endpoints (user_or_ip-based)

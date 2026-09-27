@@ -167,7 +167,6 @@ This email was sent by {site_name}
     def _generate_preheader(self, template_name: str, context: Dict[str, Any]) -> str:
         """Generate preheader text for email templates."""
         preheader_map = {
-            "plant_care_reminder": "Time to care for your plants!",
             "forum_reply": "New activity in the community",
             "identification_result": "Your plant has been identified",
             "newsletter": "Your weekly plant care digest",

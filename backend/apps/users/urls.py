@@ -68,33 +68,6 @@ urlpatterns = [
         name="push_public_key",
     ),
     path("me/push-notifications/", views.push_subscriptions, name="push_subscriptions"),
-    # Care reminder endpoints
-    path("me/care-reminders/", views.care_reminders, name="care_reminders"),
-    path(
-        "me/care-reminders/<uuid:reminder_uuid>/",
-        views.care_reminder_detail,
-        name="care_reminder_detail",
-    ),
-    path(
-        "me/care-reminders/<uuid:reminder_uuid>/action/",
-        views.care_reminder_action,
-        name="care_reminder_action",
-    ),
-    path(
-        "me/care-reminders/stats/",
-        views.care_reminder_stats,
-        name="care_reminder_stats",
-    ),
-    path(
-        "me/care-reminders/export/calendar/",
-        views.export_care_reminders_calendar,
-        name="export_care_reminders_calendar",
-    ),
-    path(
-        "me/care-reminders/calendar/preview/",
-        views.care_reminder_calendar_preview,
-        name="care_reminder_calendar_preview",
-    ),
     # Onboarding endpoints
     path(
         "me/onboarding/progress/", views.onboarding_progress, name="onboarding_progress"

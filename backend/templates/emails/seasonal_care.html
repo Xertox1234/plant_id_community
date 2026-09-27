@@ -30,8 +30,8 @@
 <p style="margin-bottom: 24px;">Hi {{ user.first_name|default:user.username }},</p>
 
 <p style="margin-bottom: 24px;">
-    As {{ season }} arrives, it's time to adjust your plant care routine! We've prepared personalized care tips 
-    {% if plant_count %}for your {{ plant_count }} {{ plant_count|pluralize:"plant,plants" }}{% endif %} 
+    As {{ season }} arrives, it's time to adjust your plant care routine! We've prepared personalized care tips
+    {% if plant_count %}for your {{ plant_count }} {{ plant_count|pluralize:"plant,plants" }}{% endif %}
     to help them thrive during this season.
 </p>
 
@@ -50,7 +50,7 @@
     <h2 style="color: #1F2937; font-size: 20px; font-weight: 600; margin: 0 0 20px 0; display: flex; align-items: center; gap: 8px;">
         📋 Essential {{ season|title }} Tasks
     </h2>
-    
+
     {% if seasonal_tasks %}
     <div style="display: grid; gap: 16px;">
         {% for task in seasonal_tasks %}
@@ -241,13 +241,7 @@
     <table cellspacing="0" cellpadding="0" border="0" style="margin: 0 auto;">
         <tr>
             <td style="padding: 0 8px;">
-                <a href="{{ app_url }}{% url 'users:care_reminders' %}" 
-                   style="background-color: #10B981; color: white; padding: 16px 24px; text-decoration: none; border-radius: 8px; font-weight: 600; display: inline-block;">
-                    📱 Set Reminders
-                </a>
-            </td>
-            <td style="padding: 0 8px;">
-                <a href="{{ app_url }}{% url 'forum:category' 'seasonal-care' %}" 
+                <a href="{{ app_url }}{% url 'forum:category' 'seasonal-care' %}"
                    style="background-color: #3B82F6; color: white; padding: 16px 24px; text-decoration: none; border-radius: 8px; font-weight: 600; display: inline-block;">
                     💬 Ask Questions
                 </a>
@@ -262,7 +256,7 @@
         🌟 Community Highlight
     </h3>
     <p style="color: #6B7280; font-size: 14px; margin: 0 0 16px 0; font-style: italic;">
-        "{{ season|title }} is a wonderful time to observe how plants adapt and change with the seasons. 
+        "{{ season|title }} is a wonderful time to observe how plants adapt and change with the seasons.
         Each season teaches us something new about plant care and resilience!"
     </p>
     <p style="color: #9CA3AF; font-size: 12px; margin: 0;">
@@ -284,7 +278,7 @@
 <div style="text-align: center;">
     <p style="color: #9CA3AF; font-size: 12px; margin: 0;">
         You're receiving seasonal care tips because you're subscribed to plant care notifications.<br>
-        <a href="{{ preferences_url }}" style="color: #6B7280; text-decoration: none;">Manage your email preferences</a> | 
+        <a href="{{ preferences_url }}" style="color: #6B7280; text-decoration: none;">Manage your email preferences</a> |
         <a href="{{ unsubscribe_url }}" style="color: #6B7280; text-decoration: none;">Unsubscribe from seasonal tips</a>
     </p>
 </div>
