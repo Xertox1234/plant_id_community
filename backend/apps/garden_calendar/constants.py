@@ -369,8 +369,16 @@ LOG_PREFIX_ERROR = "[ERROR]"
 # in the app. It also bounds the catch-up after a worker outage.
 CARE_REMINDER_LOOKBACK_HOURS = 24
 
-# Due tasks claimed per sweep. The rest wait for the next sweep.
-CARE_REMINDER_BATCH_SIZE = 500
+# Due tasks claimed per sweep. The rest wait for the next sweep. Sized to the
+# soft limit below at ~1 s per FCM send (the forum digest's measured budget);
+# the batch is per TASK, so owners, and therefore sends, are at most this.
+CARE_REMINDER_BATCH_SIZE = 200
+
+# A sweep sends one push per owner, one after another; the global 90 s limit
+# is request-shaped (docs/rules/celery.md). On the soft limit the sweep
+# un-claims every owner it has not reached.
+CARE_REMINDER_SOFT_TIME_LIMIT = 4 * 60
+CARE_REMINDER_TIME_LIMIT = 5 * 60
 
 # One collapse key for every care push: a newer reminder replaces an older
 # one in the tray instead of stacking (docs/rules/celery.md).

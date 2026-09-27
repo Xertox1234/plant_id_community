@@ -9,7 +9,7 @@ import math
 from typing import Optional
 
 from django.db import transaction
-from django.db.models import Count, Q
+from django.db.models import Count, F, Q
 from django.utils import timezone
 from django.utils.decorators import method_decorator
 from django_filters.rest_framework import DjangoFilterBackend
@@ -685,7 +685,14 @@ class GardenBedViewSet(viewsets.ModelViewSet):
         # annotation instead of issuing a COUNT per bed. Named `_plant_count`
         # (not `plant_count`) — annotating the property name directly raises
         # AttributeError on queryset evaluation; see GardenBed.plant_count.
-        qs = qs.annotate(_plant_count=Count("plants", filter=Q(plants__is_active=True)))
+        # Only the bed owner's plants count (todo 410: a plant's owner is its
+        # own FK, and Plant.save() keeps it equal to the bed's owner).
+        qs = qs.annotate(
+            _plant_count=Count(
+                "plants",
+                filter=Q(plants__is_active=True, plants__owner=F("owner")),
+            )
+        )
 
         # Conditional optimization based on action
         if self.action == "retrieve":
@@ -695,7 +702,9 @@ class GardenBedViewSet(viewsets.ModelViewSet):
             qs = qs.prefetch_related(
                 Prefetch(
                     "plants",
-                    queryset=Plant.objects.filter(is_active=True)
+                    queryset=Plant.objects.filter(
+                        is_active=True, owner=self.request.user
+                    )
                     .select_related("plant_species")
                     .prefetch_related("images"),
                 )
@@ -800,14 +809,16 @@ class GardenBedViewSet(viewsets.ModelViewSet):
         # Count("pk") — Plant/CareTask use a `uuid` primary key, not `id`.
         health_stats = {
             row["health_status"]: row["count"]
-            for row in garden_bed.plants.filter(is_active=True)
+            for row in garden_bed.plants.filter(is_active=True, owner=garden_bed.owner)
             .values("health_status")
             .annotate(count=Count("pk"))
         }
 
         # Care task statistics — total and overdue in one aggregate
         task_stats = CareTask.objects.filter(
-            plant__garden_bed=garden_bed, plant__is_active=True
+            plant__garden_bed=garden_bed,
+            plant__is_active=True,
+            plant__owner=garden_bed.owner,
         ).aggregate(
             total=Count("pk"),
             overdue=Count(
@@ -908,7 +919,7 @@ class GardenBedViewSet(viewsets.ModelViewSet):
     ),
     create=extend_schema(
         summary="Create a plant",
-        description="Add a new plant to a garden bed.",
+        description="Add a new plant. The garden bed is optional; a houseplant has none.",
         tags=["Plants"],
         examples=[
             OpenApiExample(

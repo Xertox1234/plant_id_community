@@ -8,10 +8,12 @@ of their due tasks.
 
 import logging
 from collections import defaultdict
-from datetime import timedelta
+from datetime import datetime, timedelta
+from typing import Any
 
 from apps.core.fcm import is_permanent_fcm_error, send_fcm_message
 from celery import shared_task
+from celery.exceptions import SoftTimeLimitExceeded
 from django.db import OperationalError, transaction
 from django.utils import timezone
 
@@ -21,14 +23,12 @@ from .constants import (
     CARE_REMINDER_COLLAPSE_KEY,
     CARE_REMINDER_EVENT,
     CARE_REMINDER_LOOKBACK_HOURS,
+    CARE_REMINDER_SOFT_TIME_LIMIT,
+    CARE_REMINDER_TIME_LIMIT,
     CARE_REMINDER_TITLE_MAX_CHARS,
 )
 
 logger = logging.getLogger(__name__)
-
-# A sweep sends one push per owner with due tasks, one after another.
-CARE_REMINDER_SOFT_TIME_LIMIT = 4 * 60
-CARE_REMINDER_TIME_LIMIT = 5 * 60
 
 
 def _truncate(text: str, limit: int) -> str:
@@ -51,7 +51,7 @@ def _reminder_content(tasks: list[dict]) -> tuple[str, str]:
     return f"{len(tasks)} plant care tasks are due", body
 
 
-def _claim_due_tasks(now) -> list[dict]:
+def _claim_due_tasks(now: datetime) -> list[dict]:
     """Mark a batch of due tasks as notified and return them.
 
     ``skip_locked`` keeps two overlapping sweeps from claiming the same rows,
@@ -113,8 +113,6 @@ def send_due_care_task_reminders() -> None:
     ``User.care_reminder_notifications``.
     """
     from apps.core.firebase_config import get_fcm_client, is_firebase_available
-    from django.contrib.auth import get_user_model
-    from wagtail_forum.models import ForumProfile
 
     if not is_firebase_available():
         # Nothing is claimed, so enabling Firebase later still delivers the
@@ -135,6 +133,51 @@ def send_due_care_task_reminders() -> None:
     for task in claimed:
         by_owner[task["plant__owner_id"]].append(task)
 
+    # Everything after the claim runs under this guard. The claim is already
+    # committed, so an escape (a DB blip that autoretry would re-run, or the
+    # soft time limit) must un-claim every owner not yet handled; otherwise the
+    # retry's claim cannot see those rows and they never push.
+    done: set[int] = set()
+    retry_later: list[dict] = []
+    try:
+        sent = _push_to_owners(fcm, by_owner, done, retry_later)
+        if retry_later:
+            _release(retry_later)
+    except BaseException:
+        unfinished = [t for o, ts in by_owner.items() if o not in done for t in ts]
+        try:
+            _release(unfinished + retry_later)
+        except Exception:
+            logger.exception(
+                "[FCM] care reminders: could not release %s claimed tasks; "
+                "they will not push",
+                len(unfinished) + len(retry_later),
+            )
+        raise
+
+    logger.info(
+        "[FCM] care reminders: %s tasks claimed, %s pushes sent, %s tasks "
+        "released for retry",
+        len(claimed),
+        sent,
+        len(retry_later),
+    )
+
+
+def _push_to_owners(
+    fcm: Any,
+    by_owner: dict[int, list[dict]],
+    done: set[int],
+    retry_later: list[dict],
+) -> int:
+    """Send one push per owner; returns the number sent.
+
+    Adds each handled owner to ``done`` and a transient failure's tasks to
+    ``retry_later``, so the caller can un-claim exactly what did not go out.
+    """
+    from django.contrib.auth import get_user_model
+    from wagtail_forum.models import ForumProfile
+
     User = get_user_model()
     opted_in = set(
         User.objects.filter(
@@ -147,12 +190,13 @@ def send_due_care_task_reminders() -> None:
         .values_list("user_id", "fcm_token")
     )
 
-    sent = released = 0
+    sent = 0
     for owner_id, tasks in by_owner.items():
         token = tokens.get(owner_id)
         if not token:
             # Opted out, or no device registered: the claim stands, so the
             # task is not re-examined every sweep.
+            done.add(owner_id)
             continue
         first = tasks[0]
         data = {
@@ -166,6 +210,9 @@ def send_due_care_task_reminders() -> None:
                 fcm, token, data, _reminder_content(tasks), CARE_REMINDER_COLLAPSE_KEY
             )
             sent += 1
+        except SoftTimeLimitExceeded:
+            # Not an FCM failure: stop, and let the caller un-claim the rest.
+            raise
         except Exception as exc:
             if is_permanent_fcm_error(exc):
                 logger.warning(
@@ -173,20 +220,13 @@ def send_due_care_task_reminders() -> None:
                     owner_id,
                     exc,
                 )
-                continue
-            logger.warning(
-                "[FCM] care reminder failed (user=%s): %s — released for the "
-                "next sweep",
-                owner_id,
-                exc,
-            )
-            _release(tasks)
-            released += 1
-
-    logger.info(
-        "[FCM] care reminders: %s tasks claimed, %s pushes sent, %s owners "
-        "released for retry",
-        len(claimed),
-        sent,
-        released,
-    )
+            else:
+                logger.warning(
+                    "[FCM] care reminder failed (user=%s): %s — released for "
+                    "the next sweep",
+                    owner_id,
+                    exc,
+                )
+                retry_later.extend(tasks)
+        done.add(owner_id)
+    return sent

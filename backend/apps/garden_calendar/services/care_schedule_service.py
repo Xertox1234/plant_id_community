@@ -479,8 +479,11 @@ class CareScheduleService:
 
         # Reschedule to tomorrow
         tomorrow = timezone.now() + timedelta(days=1)
+        # A new time is a new reminder: re-arm it (todo 410).
         overdue_tasks.update(
-            scheduled_date=tomorrow, notes="Rescheduled from overdue status"
+            scheduled_date=tomorrow,
+            notes="Rescheduled from overdue status",
+            notification_sent=False,
         )
 
         logger.info(f"[CARE_SCHEDULE] Rescheduled {count} overdue tasks")

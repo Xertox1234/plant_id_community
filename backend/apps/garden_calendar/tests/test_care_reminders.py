@@ -83,12 +83,40 @@ class BedlessPlantApiTest(TestCase):
             status.HTTP_404_NOT_FOUND,
         )
 
-    def test_plants_in_someone_elses_bed_stay_scoped_to_their_owner(self):
-        """Ownership is Plant.owner, never the bed's owner."""
+    def test_a_plant_cannot_sit_in_another_users_bed(self):
+        """Owner and bed are separate FKs; the model keeps them agreeing."""
+        from django.core.exceptions import ValidationError
+
         bed = GardenBed.objects.create(owner=self.bob, name="Bob's bed")
-        plant = _plant(self.alice, garden_bed=bed)
+        with self.assertRaises(ValidationError):
+            _plant(self.alice, garden_bed=bed)
+        plant = _plant(self.alice)
+        plant.garden_bed = bed
+        with self.assertRaises(ValidationError):
+            plant.full_clean()
+
+    def test_a_diverged_plant_never_shows_through_the_bed(self):
+        """Defense in depth (PR #853 review): even if a write bypasses save()
+        (a queryset update, raw SQL), the bed's reads filter on its owner."""
+        bed = GardenBed.objects.create(owner=self.bob, name="Bob's bed")
+        plant = _plant(self.alice)
+        Plant.objects.filter(pk=plant.pk).update(garden_bed=bed)
+        _task(plant, due=timezone.now())
         self.client.force_authenticate(self.bob)
 
+        detail = self.client.get(f"/api/v1/calendar/api/garden-beds/{bed.uuid}/")
+        listed = self.client.get("/api/v1/calendar/api/garden-beds/").data["results"]
+        stats = self.client.get(
+            f"/api/v1/calendar/api/garden-beds/{bed.uuid}/analytics/"
+        )
+
+        self.assertEqual(detail.status_code, status.HTTP_200_OK)
+        self.assertEqual(detail.data["plants"], [])
+        self.assertEqual(listed[0]["plant_count"], 0)
+        self.assertEqual(stats.status_code, status.HTTP_200_OK, stats.data)
+        self.assertEqual(stats.data["health_status_breakdown"], {})
+        self.assertEqual(stats.data["plant_count"], 0)
+        self.assertEqual(stats.data["care_tasks"]["total"], 0)
         self.assertEqual(
             self.client.get(f"{PLANTS}{plant.uuid}/").status_code,
             status.HTTP_404_NOT_FOUND,
@@ -322,6 +350,72 @@ class CareReminderSweepTest(TestCase):
 
         task.refresh_from_db()
         self.assertTrue(task.notification_sent)
+
+    def test_the_soft_time_limit_unclaims_every_owner_not_reached(self):
+        """Review finding: the per-owner `except Exception` swallowed
+        SoftTimeLimitExceeded, and the hard kill left unreached tasks claimed
+        for good."""
+        from celery.exceptions import SoftTimeLimitExceeded
+
+        bob = User.objects.create_user(username="bob", email="b@x.com")
+        cat = User.objects.create_user(username="cat", email="c@x.com")
+        self._set_token(bob, "bob-device")
+        self._set_token(cat, "cat-device")
+        tasks = {
+            "alice": _task(self.plant, due=self.now - timedelta(minutes=3)),
+            "bob": _task(_plant(bob), due=self.now - timedelta(minutes=2)),
+            "cat": _task(_plant(cat), due=self.now - timedelta(minutes=1)),
+        }
+        calls = []
+
+        def send(message):
+            calls.append(message)
+            if len(calls) == 2:
+                raise SoftTimeLimitExceeded()
+            return "ok"
+
+        with self.assertRaises(SoftTimeLimitExceeded):
+            self._run(send=send)
+
+        self.assertEqual(len(calls), 2)  # the loop stopped at the limit
+        sent_flags = {}
+        for name, task in tasks.items():
+            task.refresh_from_db()
+            sent_flags[name] = task.notification_sent
+        # Exactly one owner was pushed before the limit; the other two are
+        # released for the next sweep.
+        self.assertEqual(sorted(sent_flags.values()), [False, False, True])
+
+    def test_a_db_error_after_the_claim_unclaims_the_batch_for_the_retry(self):
+        """Review finding: autoretry re-ran the task, but the committed claim
+        hid the batch from the retry's claim query."""
+        from django.db import OperationalError
+
+        task = _task(self.plant, due=self.now)
+
+        with patch.object(
+            User.objects, "filter", side_effect=OperationalError("db blip")
+        ):
+            with self.assertRaises(OperationalError):
+                self._run()
+
+        task.refresh_from_db()
+        self.assertFalse(task.notification_sent)
+        fcm = self._run()  # the retry finds it again
+        self.assertEqual(fcm.send.call_count, 1)
+
+    def test_rescheduling_overdue_tasks_rearms_their_reminders(self):
+        from ..services.care_schedule_service import CareScheduleService
+
+        task = _task(
+            self.plant, due=self.now - timedelta(days=10), notification_sent=True
+        )
+
+        CareScheduleService.reschedule_overdue_tasks(self.alice)
+
+        task.refresh_from_db()
+        self.assertGreater(task.scheduled_date, self.now)
+        self.assertFalse(task.notification_sent)
 
     def test_nothing_is_claimed_while_firebase_is_off(self):
         task = _task(self.plant, due=self.now)

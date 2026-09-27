@@ -427,6 +427,8 @@ class PlantAdmin(admin.ModelAdmin):
         "pending_care_tasks_count",
     ]
     inlines = [PlantImageInline]
+    list_select_related = ("owner", "garden_bed")
+    raw_id_fields = ("owner",)
 
     fieldsets = (
         (

@@ -8,6 +8,7 @@ weather alerts, and location-based calendar features.
 import uuid
 
 from django.contrib.auth import get_user_model
+from django.core.exceptions import ValidationError
 from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models
 from django.utils import timezone
@@ -942,11 +943,24 @@ class Plant(models.Model):
             return self.common_name
         return f"{self.common_name} in {self.garden_bed.name}"
 
+    def clean(self):
+        super().clean()
+        self._check_bed_owner()
+
+    def _check_bed_owner(self):
+        # Owner and bed are two FKs since todo 410; a bed's plants are read
+        # through the bed, so a plant may only sit in its own owner's bed.
+        if self.garden_bed_id is not None and self.garden_bed.owner_id != self.owner_id:
+            raise ValidationError(
+                {"garden_bed": "A plant can only be in its owner's garden bed."}
+            )
+
     def save(self, *args, **kwargs):
         # A plant created in a bed without an explicit owner belongs to the
         # bed's owner, so bed-first callers keep working (todo 410).
         if self.owner_id is None and self.garden_bed_id is not None:
             self.owner_id = self.garden_bed.owner_id
+        self._check_bed_owner()
         super().save(*args, **kwargs)
 
     @property
