@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: p3
 issue_id: "429"
 tags: [forum, web, mobile, design, embeds, link-preview]
@@ -58,17 +58,19 @@ name, on the same surface and border as the card. Mockups (web and phone):
 
 ## Acceptance Criteria
 
-- [ ] Web: a body with 3 consecutive embeds renders 1 full card + 2 compact
+- [x] Web: a body with 3 consecutive embeds renders 1 full card + 2 compact
       rows; a body with 1 embed, or 2 embeds separated by a paragraph,
-      renders as today. Pinned by Vitest component tests.
-- [ ] Web: clicking a video row replaces it with the sandboxed player; each
-      row is a separately focusable element named "title, site".
-- [ ] Mobile: same grouping, pinned by widget tests. Each row is its own
+      renders as today. Pinned by Vitest component tests. (`CompactCardRow.test.tsx`)
+- [x] Web: clicking a video row replaces it with the sandboxed player; each
+      row is a separately focusable element named "title, site". A link row's
+      "site" is the short address from the URL; see the Work Log.
+- [x] Mobile: same grouping, pinned by widget tests. Each row is its own
       semantics node with a tap action that calls `onOpenLink` with that
-      row's URL.
-- [ ] The card-type set is one constant per client; the todo 428 handoff
+      row's URL. (`forum_card_runs_test.dart`)
+- [x] The card-type set is one constant per client; the todo 428 handoff
       (adding `link_preview`) is noted in 428 if 428 is still open.
-- [ ] Checked visually at desktop and phone widths against the mockup.
+- [x] Checked visually at desktop and phone widths against the mockup
+      (2026-09-26, see Work Log).
 
 ## Work Log
 
@@ -88,3 +90,47 @@ collapse-after-N). AC 1 of the exploration is done; AC 2 is met by rewriting
 this todo into the implementation above. Tap behavior per platform and the
 web click-to-load player are the agent's defaults, which follow the existing
 full-card behavior.
+
+### 2026-09-26 - Completed (PR #849, P3 sweep)
+
+- **Web.** `components/forum/cardRuns.ts` holds `CARD_BLOCK_TYPES` and
+  `groupCardRuns`. `CompactCardRow.tsx` renders each later card. A video row is
+  a `<button>` that swaps itself for the sandboxed player and moves focus to
+  it. Other rows are `<a>` links described "Opens in a new tab". Each row is
+  `min-h-11`, with a focus-visible outline and a lazy, no-referrer thumbnail
+  that falls back to a neutral tile.
+- **Mobile.** `forumCardBlockTypes`, `isForumCardBlock` and `_CompactCardRow`.
+  Each row is one semantics node (`childrenCount` 0) with a tap that calls
+  `onOpenLink`. Link rows keep the long-press sheet and both custom actions.
+  Rows are at least 48 dp tall.
+- **Deviation from the AC wording, for anti-spoofing** (review round 1): a
+  link row's second line and label use the **short address** from the URL,
+  not `og:site_name`. That is the todo 428 rule for the full card: a row
+  must not claim a site it doesn't link to. Video rows use the provider.
+  Mobile labels keep the full cards' "PROVIDER video:" and "Link:" prefixes.
+- **Run membership matches across clients.** Only a card with a usable
+  http(s) URL joins a run, so a row always renders and always has a
+  destination. A null link card, or a blank or scheme-less embed, breaks a
+  run.
+- **Visual check (2026-09-26)** at :5174, against a local post (restored
+  afterwards) with a paragraph, 3 embeds and a link card, in dark mode:
+  - at 1280 px: 1 player and 3 rows, each 66 px tall;
+  - at 390 px: titles truncate, with no horizontal overflow;
+  - clicking a row loaded its player in place.
+
+  A Flutter golden render at 390 dp, light and dark, showed the same
+  layout. These checks predate the round-1 change that replaced a link
+  row's site name with its address.
+- **Verified:**
+  - Vitest: 110 files, 1523 tests before the repairs; 13 card-run tests
+    after.
+  - `flutter test test/features/forum/`: 537 before; 127 widget tests after.
+  - `check:classes` passes, and `flutter analyze` is clean.
+  - Mutation-checked: grouping on both clients, focus, anti-spoofing on
+    both, and the single-node assertion.
+- **Reviews.**
+  - Round 1: bundled `/code-review` (10 findings), react-typescript (6) and
+    flutter-dart (11). Blocking findings were fixed in dd0449bd, and the
+    coverage gaps closed in df272307.
+  - Round 2: `/code-review` on the repairs found none.
+  - Non-blocking items are filed as **todo 453**.
