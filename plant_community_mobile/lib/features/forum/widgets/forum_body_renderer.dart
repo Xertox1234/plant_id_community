@@ -11,6 +11,26 @@ import '../models/models.dart';
 import 'author_identity.dart';
 import 'forum_html_text.dart';
 
+/// The block types that render as a card (todo 429). Runs of 2+ consecutive
+/// cards collapse to one full card plus compact rows. The web mirror is
+/// `CARD_BLOCK_TYPES`. A new card type joins by an entry here AND an arm in
+/// [isForumCardBlock] (its URL) and in `_CompactCardRow` (its row content);
+/// the set is the gate both consult first.
+const Set<Type> forumCardBlockTypes = {EmbedBlock, LinkPreviewBlock};
+
+/// Whether [block] is a card that can join a run: a card type with a usable
+/// http(s) URL, the same test the web's `isCardBlock` makes. A blank or
+/// URL-less embed (the "unavailable" placeholder) and a link card with no
+/// usable address never join a run, so a row always has somewhere to go.
+bool isForumCardBlock(ForumBodyBlock block) {
+  if (!forumCardBlockTypes.contains(block.runtimeType)) return false;
+  return switch (block) {
+    EmbedBlock(:final url) => linkPreviewShortAddress(url) != null,
+    LinkPreviewBlock(:final url) => linkPreviewShortAddress(url) != null,
+    _ => false,
+  };
+}
+
 /// Renders a parsed forum body (list of [ForumBodyBlock]) with block parity to
 /// the web `StreamFieldRenderer`: heading, paragraph (HTML), quote, post
 /// quote, code, image, video embed, link card, plus graceful fallbacks for
@@ -35,14 +55,29 @@ class ForumBodyRenderer extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (blocks.isEmpty) return const SizedBox.shrink();
+    final children = <Widget>[];
+    final card = [for (final block in blocks) isForumCardBlock(block)];
+    for (var i = 0; i < blocks.length; i++) {
+      if (children.isNotEmpty) {
+        children.add(const SizedBox(height: AppSpacing.sm));
+      }
+      // A run of 2+ consecutive cards (todo 429): the first keeps its full
+      // card, each one after it becomes a compact row.
+      var end = i;
+      while (card[i] && end + 1 < blocks.length && card[end + 1]) {
+        end++;
+      }
+      children.add(_block(context, blocks[i]));
+      for (var j = i + 1; j <= end; j++) {
+        children
+          ..add(const SizedBox(height: AppSpacing.xs))
+          ..add(_CompactCardRow(block: blocks[j], onOpenLink: onOpenLink));
+      }
+      i = end;
+    }
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        for (var i = 0; i < blocks.length; i++) ...[
-          if (i > 0) const SizedBox(height: AppSpacing.sm),
-          _block(context, blocks[i]),
-        ],
-      ],
+      children: children,
     );
   }
 
@@ -598,6 +633,161 @@ class _LinkPreviewCard extends StatelessWidget {
                 ),
               ),
             ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// A card after the first in a run (todo 429): a small thumbnail beside the
+/// title and a second line (a video's provider, a link's short address), on
+/// the card's surface. Its own semantics node, labelled like its full card
+/// ("PROVIDER video: title" / "Link: title, address"), whose tap does what the
+/// full card's tap does: hand the URL
+/// to [onOpenLink]. A link row keeps the full card's long-press sheet and
+/// "Show full address" / "Copy link" actions. At least 48 dp tall.
+class _CompactCardRow extends StatelessWidget {
+  const _CompactCardRow({required this.block, this.onOpenLink});
+  final ForumBodyBlock block;
+  final void Function(String href)? onOpenLink;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    // A link row's second line is the SHORT ADDRESS from the URL, never the
+    // page's own siteName, so a row cannot claim a site it does not link to
+    // (the todo 428 rule for the full card). Labels keep the full cards'
+    // "video:" / "Link:" prefixes so a screen reader tells the rows apart.
+    final (
+      url,
+      title,
+      detail,
+      label,
+      thumbnail,
+      fallbackIcon,
+    ) = switch (block) {
+      EmbedBlock e => (
+        e.url,
+        e.title.isNotEmpty ? e.title : e.url,
+        e.providerName,
+        e.providerName.isNotEmpty
+            ? '${e.providerName} video: ${e.title.isNotEmpty ? e.title : e.url}'
+            : 'Video: ${e.title.isNotEmpty ? e.title : e.url}',
+        e.thumbnailUrl,
+        LucideIcons.circlePlay,
+      ),
+      LinkPreviewBlock c => () {
+        // Never the raw URL: callers only pass usable cards, and a row with
+        // no short address renders nothing (see the guard below).
+        final address = linkPreviewShortAddress(c.url) ?? '';
+        final title = [
+          c.title,
+          c.siteName,
+          c.domain,
+        ].firstWhere((text) => text.isNotEmpty, orElse: () => address);
+        return (
+          c.url,
+          title,
+          title == address ? '' : address,
+          title == address ? 'Link: $address' : 'Link: $title, $address',
+          c.imageUrl,
+          LucideIcons.link,
+        );
+      }(),
+      _ => ('', '', '', '', '', LucideIcons.circleHelp),
+    };
+    if (url.isEmpty || linkPreviewShortAddress(url) == null) {
+      return const SizedBox.shrink();
+    }
+    final isLink = block is LinkPreviewBlock;
+    final onOpenLink = this.onOpenLink;
+    final onTap = onOpenLink == null || url.isEmpty
+        ? null
+        : () => onOpenLink(url);
+    void showAddress() => _showLinkAddressSheet(context, url);
+    final tile = SizedBox(
+      width: 72,
+      height: 48,
+      child: ColoredBox(
+        color: theme.colorScheme.surfaceContainerHigh,
+        child: Icon(
+          fallbackIcon,
+          size: 20,
+          color: theme.colorScheme.onSurfaceVariant,
+        ),
+      ),
+    );
+    return Semantics(
+      label: label,
+      button: onTap != null,
+      onTap: onTap,
+      onLongPress: isLink ? showAddress : null,
+      customSemanticsActions: isLink
+          ? {
+              const CustomSemanticsAction(label: 'Show full address'):
+                  showAddress,
+              const CustomSemanticsAction(label: 'Copy link'): () =>
+                  _copyLink(context, url),
+            }
+          : null,
+      // One node per row, never merged: the label says what the Texts say.
+      excludeSemantics: true,
+      child: Material(
+        color: theme.colorScheme.surfaceContainerHighest,
+        borderRadius: BorderRadius.circular(AppSpacing.rXs),
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          onTap: onTap,
+          onLongPress: isLink ? showAddress : null,
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(minHeight: 48),
+            child: Padding(
+              padding: const EdgeInsets.all(AppSpacing.xs),
+              child: Row(
+                children: [
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(AppSpacing.rXs),
+                    child: thumbnail.isEmpty
+                        ? tile
+                        : SizedBox(
+                            width: 72,
+                            height: 48,
+                            child: CachedNetworkImage(
+                              imageUrl: thumbnail,
+                              fit: BoxFit.cover,
+                              placeholder: (context, _) => tile,
+                              errorWidget: (context, _, _) => tile,
+                            ),
+                          ),
+                  ),
+                  const SizedBox(width: AppSpacing.sm),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          title,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: theme.textTheme.bodyMedium,
+                        ),
+                        if (detail.isNotEmpty)
+                          Text(
+                            detail,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: theme.textTheme.bodySmall?.copyWith(
+                              color: theme.colorScheme.onSurfaceVariant,
+                            ),
+                          ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
           ),
         ),
       ),
