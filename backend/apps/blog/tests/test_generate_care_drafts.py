@@ -293,3 +293,14 @@ def test_drafts_are_owned_by_the_author(index, author):
     with patch(AI, return_value=_reply()):
         _run("--author", "editor", "--limit", "1")
     assert BlogPostPage.objects.get().owner == author
+
+
+@pytest.mark.django_db
+def test_an_ambiguous_index_slug_asks_for_the_id(index, author):
+    root = Site.objects.get(is_default_site=True).root_page
+    other = root.add_child(instance=BlogIndexPage(title="Old", slug="old-blog"))
+    other.add_child(instance=BlogIndexPage(title="Nested", slug="blog"))
+    with pytest.raises(CommandError, match="page id"):
+        _run("--dry-run", "--index", "blog")
+    out, _ = _run("--dry-run", "--index", str(index.pk))
+    assert "to draft" in out

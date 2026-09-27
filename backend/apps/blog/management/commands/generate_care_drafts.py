@@ -177,9 +177,9 @@ class Command(BaseCommand):
         )
         parser.add_argument(
             "--index",
-            metavar="SLUG",
-            help="Slug of the BlogIndexPage to draft under (required when "
-            "there is more than one).",
+            metavar="SLUG_OR_ID",
+            help="Slug or page id of the BlogIndexPage to draft under "
+            "(required when there is more than one).",
         )
         parser.add_argument(
             "--dry-run",
@@ -289,17 +289,24 @@ class Command(BaseCommand):
     def _resolve_index(self, slug: str | None) -> BlogIndexPage:
         indexes = BlogIndexPage.objects.all()
         if slug:
-            try:
-                return indexes.get(slug=slug)
-            except BlogIndexPage.DoesNotExist as exc:
-                raise CommandError(f"No BlogIndexPage with slug {slug!r}.") from exc
+            lookup = {"pk": int(slug)} if slug.isdigit() else {"slug": slug}
+            matches = list(indexes.filter(**lookup)[:2])
+            if not matches:
+                raise CommandError(f"No BlogIndexPage matches {slug!r}.")
+            if len(matches) > 1:
+                raise CommandError(
+                    f"Several BlogIndexPages have the slug {slug!r}; pass the "
+                    "page id instead: "
+                    + ", ".join(str(p.pk) for p in indexes.filter(**lookup))
+                )
+            return matches[0]
         found = list(indexes[:2])
         if not found:
             raise CommandError("No BlogIndexPage exists to hold the drafts.")
         if len(found) > 1:
             raise CommandError(
-                "More than one BlogIndexPage exists; pick one with --index: "
-                + ", ".join(indexes.values_list("slug", flat=True))
+                "More than one BlogIndexPage exists; pick one with --index "
+                "(slug or id): " + ", ".join(f"{p.slug} (id {p.pk})" for p in indexes)
             )
         return found[0]
 
