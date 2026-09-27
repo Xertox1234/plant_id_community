@@ -104,3 +104,9 @@ and publishes (AC 3).
   - The run is sequential: 53 calls, up to about 80 minutes in the worst
     case. Use `--limit` batches over `railway ssh`; a dropped session is safe
     to re-run.
+  - **Layering.** `apps.blog` now imports
+    `apps.forum_host.rag_guardrails.classify_blocked_question`, which
+    reverses the documented blog → forum direction. The fix is to move the
+    ingestion, toxicity and chemical patterns, plus `_TREATMENT_RE`, into a
+    shared `apps/core` content-classification module that both apps import.
+    Raised by the wagtail-reviewer in PR #855.

@@ -106,6 +106,18 @@ def test_drafts_are_unpublished_tagged_and_revisioned(index, author):
         assert page.live is False
         assert page.first_published_at is None
         assert page.latest_revision is not None
+        assert page.has_unpublished_changes is True
+        assert page.draft_title == page.title
+        # The tag lands on the page row AND in the revision the editor opens.
+        revision_page = page.latest_revision.as_object()
+        assert list(revision_page.tags.names()) == [CARE_GUIDE_TAG]
+        # Exactly one "created" entry in the page history, by the author:
+        # add_child() writes it (owner = author). A second from
+        # save_revision(log_action=...) would duplicate it (PR #855 review).
+        from wagtail.models import PageLogEntry
+
+        entry = PageLogEntry.objects.get(page=page, action="wagtail.create")
+        assert entry.user == author
         assert page.author == author
         assert list(page.tags.names()) == [CARE_GUIDE_TAG]
         assert page.get_parent().specific == index
