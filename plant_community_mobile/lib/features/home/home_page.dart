@@ -188,6 +188,17 @@ class HomePage extends StatelessWidget {
         route: AppRoutes.diagnose,
         isTab: false,
       ),
+      // The blog's documented entry point: it nests under the Home tab
+      // rather than taking a fifth tab (todo 385).
+      _FeatureData(
+        icon: LucideIcons.newspaper,
+        title: 'Plant Journal',
+        description:
+            'Read care guides, plant spotlights and stories from our blog',
+        type: FeatureType.blog,
+        route: AppRoutes.blog,
+        isTab: false,
+      ),
     ];
 
     return ConstrainedBox(

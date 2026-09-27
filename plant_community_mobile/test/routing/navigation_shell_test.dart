@@ -5,6 +5,10 @@ import 'package:go_router/go_router.dart';
 import 'package:plant_community_mobile/core/routing/app_router.dart';
 import 'package:plant_community_mobile/core/routing/main_shell.dart';
 import 'package:plant_community_mobile/features/auth/login_screen.dart';
+import 'package:plant_community_mobile/features/blog/models/blog_post.dart';
+import 'package:plant_community_mobile/features/blog/screens/blog_list_screen.dart';
+import 'package:plant_community_mobile/features/blog/screens/blog_post_screen.dart';
+import 'package:plant_community_mobile/features/blog/services/blog_api.dart';
 import 'package:plant_community_mobile/features/auth/register_screen.dart';
 import 'package:plant_community_mobile/features/camera/camera_screen.dart';
 import 'package:plant_community_mobile/features/collection/collection_screen.dart';
@@ -18,6 +22,7 @@ import 'package:plant_community_mobile/services/auth_service.dart';
 import 'package:plant_community_mobile/services/user_profile_service.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
+import '../features/blog/support/fake_blog_api.dart';
 import '../features/forum/support/forum_test_support.dart';
 
 /// Longer than the 300ms fade on `_buildPageWithTransition`. At the 100ms
@@ -66,6 +71,16 @@ void main() {
           () => FakeAuthService(loggedIn: loggedIn),
         ),
         forumApiProvider.overrideWithValue(FakeForumApi()),
+        blogApiProvider.overrideWithValue(
+          FakeBlogApi(
+            pages: [
+              BlogPostPage(items: [summary(1)], totalCount: 1),
+            ],
+            posts: {
+              'post-1': const BlogPost(id: 1, slug: 'post-1', title: 'Post 1'),
+            },
+          ),
+        ),
         forumSyncStoreProvider.overrideWithValue(InMemoryForumSyncStore()),
         // Signed in, ProfileScreen fetches GET /auth/user/. Unfaked it
         // 401s and Riverpod 3.x reschedules the failed fetch forever,
@@ -329,6 +344,34 @@ void main() {
       // The Home FAB used to be the ONLY way to open Settings; the shell's
       // Identify FAB replaced it, so Profile has to carry it now.
       expect(h.path, AppRoutes.settings);
+
+      await tester.pump(const Duration(seconds: 4));
+    });
+  });
+
+  group('the blog is reachable from Home (todo 385)', () {
+    testWidgets('Home -> Plant Journal -> a post, keeping the nav bar and a '
+        'way back', (tester) async {
+      final h = await pumpShell(tester, loggedIn: false);
+
+      final card = find.text('Plant Journal');
+      await tester.ensureVisible(card);
+      await tester.pump();
+      await tester.tap(card);
+      await settle(tester);
+
+      expect(h.path, AppRoutes.blog);
+      expect(find.byType(BlogListScreen), findsOneWidget);
+      // Nested under the Home tab, not a fifth tab: the bar stays.
+      expect(find.byType(NavigationBar), findsOneWidget);
+      expect(h.router.canPop(), isTrue);
+
+      await tester.tap(find.text('Post 1'));
+      await settle(tester);
+
+      expect(h.path, '${AppRoutes.blog}/post-1');
+      expect(find.byType(BlogPostScreen), findsOneWidget);
+      expect(find.byType(NavigationBar), findsOneWidget);
 
       await tester.pump(const Duration(seconds: 4));
     });

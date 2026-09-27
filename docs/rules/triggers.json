@@ -1921,5 +1921,20 @@
     "severity": "warn",
     "added": "2026-09-27",
     "source": "todo 444 / PR #857 round 1"
+  },
+  {
+    "id": "offset-from-deduped-length",
+    "domains": [
+      "flutter"
+    ],
+    "path_glob": [
+      "plant_community_mobile/lib/**/*.dart"
+    ],
+    "content_present": "offset:\\s*[\\w.]*items\\.length",
+    "message": "Offset from the client's item count drifts once rows are de-duplicated or dropped, and a page-keyed server cache then serves already-seen rows forever. Sum the server's raw row count into a nextOffset (todo 385 / PR #856).",
+    "pattern_ref": "docs/rules/flutter.md",
+    "severity": "warn",
+    "added": "2026-09-27",
+    "source": "todo 385 / PR #856 round 1"
   }
 ]

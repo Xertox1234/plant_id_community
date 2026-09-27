@@ -6879,6 +6879,23 @@ the user out, and the stored refresh token is unused. Filed as todo 462
 (P2). And the web's diagnose form sends free text to the `plant_condition`
 choices field (todo 459).
 
+## 2026-09-27 — Mobile blog: a de-duplicated offset froze "Load more" (todo 385, PR #856)
+
+**What shipped.** A mobile blog list and post screens, nested under the Home
+tab, against the Wagtail v2 API the web already uses.
+
+**What the review caught.** `loadMore` sent `offset: items.length`, counted
+after de-duplication. Wagtail's list is offset-paged, but this project's
+`BlogCacheService` keys cached pages by `offset // limit`. After one
+duplicate, offset 39 hit the cached page at 20: all rows already shown, none
+appended, `hasMore` still true, and the button did nothing until the cache
+expired. The web never hit it because it always sends `(page-1) * limit`.
+The fix sums the server's raw row count. The rule and the
+`offset-from-deduped-length` trigger are in `docs/rules/flutter.md`.
+
+**Also.** Riverpod 3's default retry kept a deleted post behind a spinner for
+about 40 s before saying it was gone. `blogRetry` returns `null` for a 4xx.
+
 ## 2026-09-27 — Settling 13 grandfathered archived todos: hints lied, and "completed" crept back (todo 394, PR #859)
 
 **What happened.** Two read-only investigators checked every AC of the 13
