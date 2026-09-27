@@ -128,20 +128,14 @@ class _CrossBar extends StatelessWidget {
   );
 }
 
-/// The mark plus the product name — the brand block used on splash, auth and
-/// the home header. Keeps the lockup identical everywhere instead of each
-/// screen pairing its own icon and label.
+/// The mark plus the product name, side by side: the brand block in the home
+/// header. (Splash shows a bare [BrandMark]; auth shows neither.) A vertical
+/// variant existed with no caller and was removed (todo 403).
 class BrandLockup extends StatelessWidget {
-  const BrandLockup({
-    super.key,
-    this.markSize = 34,
-    this.showTagline = false,
-    this.axis = Axis.horizontal,
-  });
+  const BrandLockup({super.key, this.markSize = 34, this.showTagline = false});
 
   final double markSize;
   final bool showTagline;
-  final Axis axis;
 
   @override
   Widget build(BuildContext context) {
@@ -157,17 +151,6 @@ class BrandLockup extends StatelessWidget {
       style: AppTypography.meta.copyWith(color: ext.ink3),
     );
 
-    if (axis == Axis.vertical) {
-      return Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          BrandMark(size: markSize),
-          const SizedBox(height: 12),
-          name,
-          if (showTagline) ...[const SizedBox(height: 4), tagline],
-        ],
-      );
-    }
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [

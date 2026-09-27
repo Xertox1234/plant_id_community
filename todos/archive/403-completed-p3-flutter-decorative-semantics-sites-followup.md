@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: p3
 issue_id: "403"
 tags: [flutter, accessibility, forum, dead-code, parity]
@@ -107,15 +107,21 @@ answers in the Work Log:
 
 ## Acceptance Criteria
 
-- [ ] Each of the 6 sites has a Work Log verdict, **decorative by design** or
+- [x] Each of the 6 sites has a Work Log verdict, **decorative by design** or
       **omission**, backed by evidence from steps 1–6: a commit, a caller
       grep, a route listing, the web counterpart, or a spec reference.
-- [ ] Every omission is either wired, with a mutation-checked semantics tap
+      (completed 2026-09-27: all 6 decorative by design, see the Work Log)
+- [x] Every omission is either wired, with a mutation-checked semantics tap
       test, or re-pointed to a new todo when the destination doesn't exist.
-- [ ] Other dead code found in these files is reported as a count of found
-      vs. fixed, with anything not fixed filed as a todo.
-- [ ] Every changed site has had a VoiceOver check in the iOS simulator, with
-      the date and what was announced quoted in the Work Log.
+      (completed 2026-09-27: no omissions; the two possible taps were declined
+      by the owner)
+- [x] Other dead code found in these files is reported as a count of found
+      vs. fixed, with anything not fixed filed as a todo. (completed
+      2026-09-27: 4 found, 2 fixed, 1 filed as todo 463, 1 not dead code)
+- [x] Every changed site has had a VoiceOver check in the iOS simulator, with
+      the date and what was announced quoted in the Work Log. (completed
+      2026-09-27: vacuous. None of the 6 sites changed; the one fix inside a
+      site was deferred to todo 463 so that it gets its own check)
 
 ## Work Log
 
@@ -130,3 +136,52 @@ is it meant to be, or is it a tap that was never wired up?
 Not blocked — investigation work. The owner cleared it for the next sweep.
 Where a site's intent is genuinely unclear after the checklist, record the
 question in this Work Log for the owner instead of guessing.
+
+### 2026-09-27 - Verdicts: all 6 decorative by design
+
+Method:
+
+- History: `git log -p --follow` over the five files, grepping removed
+  `onTap`, `onPressed`, `InkWell` and `GestureDetector` lines. Every hit
+  belonged to other widgets. None of the six ever had a tap.
+- Dead wiring inside each widget: none. No unused callback, `button:` flag,
+  key or router import.
+
+| Site | Introduced | Verdict and evidence |
+|------|------------|----------------------|
+| `_SolutionChip` (`post_card.dart`) | 529d949f (#643, todo 341) | Rendered on the accepted post itself, so a tap would point where you already are. "Jump to answer" is a separate banner in `forum_thread_screen.dart`. The web shows the same label as a plain `<p>` (`PostCard.tsx`, "Accepted-answer banner (audit H6)"). Todo 341 excluded its semantics deliberately ("no double announce"). |
+| `_StatTile` (`forum_stats_grid.dart`) | 549d0a3c (#644, todo 341) | `CanopyCard` accepts `onTap`, but the one caller (`_YourSeasonSection`) has no destination to pass. The web's `StatCard.tsx` is a bare card. The Canopy forum spec specifies "four `StatCard`s" with values and no action (`docs/superpowers/specs/2026-08-15-canopy-forum-content-design.md:235`). **Owner (2026-09-27): leave as readouts.** |
+| `ForumBadgeChips` (`forum_stats_grid.dart`) | 549d0a3c | Neither caller has a handler. The web shows a `title` tooltip on an `<li>` (`UserProfilePage.tsx`). The long-press tooltip is the only gesture, and the Semantics label already carries the description. No badge-detail API exists (badges are an admin snippet). **Owner (2026-09-27): keep the tooltips; file nothing.** |
+| `AuthorAvatarCluster` (`forum_avatar_cluster.dart`) | 622b58f6 (#649, todo 350) | Its only caller puts it in `ListTile(onTap:)`'s `leading:` slot, so the whole row is the tap target. The web's `ParticipantStack` is `aria-hidden` and documented "Decorative". Its non-tap parity gap is filed as todo 463. |
+| `_ResultRow` (`poll_card.dart`) | 549d0a3c | Shown only after you vote or the poll closes. Voting is the separate ballot branch. The web's result rows have no handler (`PollCard.tsx`). A voters list would need an API that does not exist (`polls.py` only aggregates). |
+| `BrandMark` (`brand_mark.dart`) | 315f1b98 (#764) | On the web it is a home link in the sidebar on every page (`AppShell.tsx`). On mobile it renders only on the splash screen and inside the home hero (already `/home`), and navigation is the tab bar. A home tap would do nothing wherever it appears. This becomes an omission if the mark ever moves into a shared app bar. |
+
+**Other dead code in these files: 4 found, 2 fixed.**
+
+1. Fixed: `BrandLockup`'s `Axis.vertical` branch and `axis` parameter had
+   no caller; they were removed. Its doc comment claimed it was used on
+   splash and auth, which was wrong; corrected.
+2. Fixed: `_PendingChip` had no const constructor, so its call site
+   could not be const; both are const now.
+3. Filed as todo 463: a zero `Padding` inside `_StatTile`. Deferred so
+   that none of the six audited sites changes here.
+4. Not dead: `progressLabel` in `forum_stats_grid.dart` is passed when
+   `progress` is null. It is only read under `if (progress != null)`, so
+   it is harmless.
+
+Also filed in todo 463: the avatar cluster includes the viewer and has no
+"+N", unlike the web (a parity gap, not a tap).
+
+**VoiceOver (AC 4):** no site's semantics or wiring changed, so there is
+nothing to announce differently. `canopy_visual_golden_test.dart` and the
+forum widget tests pass unchanged after the two fixes.
+
+### 2026-09-27 - PR #858 reviewed; archived
+
+The flutter-dart-reviewer found nothing blocking. It confirmed that no
+caller uses the removed vertical variant, that `excludeSemantics` is
+unchanged at all six sites, and it verified six of the verdict claims
+independently (commits, `CanopyCard.onTap`, the `ListTile.leading`
+placement, the zero `Padding`, the web's `aria-hidden` `ParticipantStack`,
+and the `AppShell` home link). The one wrong path it found, in todo 463,
+is fixed.
