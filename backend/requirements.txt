@@ -1,3 +1,6 @@
+aiohappyeyeballs==2.7.1
+aiohttp==3.14.3
+aiosignal==1.4.0
 amqp==5.3.1
 annotated-types==0.7.0
 any-llm-sdk==0.20.3
@@ -73,6 +76,7 @@ Faker==40.15.0
 filetype==1.2.0
 firebase_admin==7.4.0
 freezegun==1.5.5
+frozenlist==1.8.0
 fuzzywuzzy==0.18.0
 google-api-core==2.30.3
 google-api-python-client==2.195.0
@@ -90,6 +94,7 @@ gunicorn==26.0.0
 h11==0.16.0
 h2==4.4.1
 hpack==4.2.0
+http_ece==1.2.1
 httpcore==1.0.9
 httplib2==0.32.0
 httptools==0.7.1
@@ -118,6 +123,7 @@ matplotlib-inline==0.2.1
 mdurl==0.1.2
 modelsearch==1.3.2
 msgpack==1.2.1
+multidict==6.9.1
 mypy==1.20.2
 mypy_extensions==1.1.0
 nh3==0.2.18
@@ -133,12 +139,14 @@ pillow==12.3.0
 pillow_heif==1.3.0
 pluggy==1.6.0
 prompt_toolkit==3.0.52
+propcache==0.5.4
 proto-plus==1.26.1
 protobuf==6.33.6
 psycopg2-binary==2.9.12
 ptyprocess==0.7.0
 pure_eval==0.2.3
 puremagic==1.30
+py-vapid==1.9.4
 pyasn1==0.6.4
 pyasn1_modules==0.4.2
 pybreaker==1.4.1
@@ -159,6 +167,7 @@ python-json-logger==4.1.0
 python-magic==0.4.27
 python-redis-lock==4.0.1
 python-ulid==3.1.0
+pywebpush==2.5.0
 PyYAML==6.0.3
 queryish==0.3
 redis==7.4.0
@@ -208,5 +217,6 @@ webencodings==0.5.1
 websockets==15.0.1
 whitenoise==6.12.0
 Willow==1.12.0
+yarl==1.25.1
 zope.interface==8.0.1
 -e ./packages/wagtail_forum

@@ -1891,5 +1891,20 @@
     "added": "2026-09-26",
     "severity": "warn",
     "content_absent": "export const API_ORIGIN\\b"
+  },
+  {
+    "id": "requests-response-truthiness",
+    "domains": [
+      "api"
+    ],
+    "path_glob": [
+      "backend/**/*.py"
+    ],
+    "content_present": "\\b(e|exc|err|error)\\.response and\\b",
+    "message": "`if exc.response and ...` is always False for a 4xx/5xx: requests.Response.__bool__ is `.ok`. Use `exc.response is not None` (web push never deactivated a dead subscription, todo 413).",
+    "pattern_ref": "docs/rules/api.md",
+    "severity": "warn",
+    "added": "2026-09-27",
+    "source": "todo 413 / PR #852 round 1"
   }
 ]

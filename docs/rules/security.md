@@ -479,3 +479,15 @@ Compact checklist auto-injected before edits. Long-form: `backend/docs/patterns/
   `use_ssl` raises only at the first send, and every mail call site catches
   and logs it. `core.E364` builds `mail.mailers["default"]` during
   `manage.py check` and the deploy's migrate (todo 364).
+- **A client-supplied Web Push endpoint is a server-side fetch target.**
+  Allowlist it at subscribe time: https only, a host-suffix match on a dot
+  boundary, no credentials, port 443, a length cap. Read `parts.port` inside
+  the same `try` as `urlsplit`, because the port is parsed lazily and raises
+  `ValueError` there (a bad port was a 500). An endpoint belongs to one account
+  at a time: subscribing it deactivates any other user's row, so a shared
+  browser never delivers the previous user's notifications
+  (`apps/users/web_push.py`, todo 413).
+- **Validate a URL's origin AFTER parsing it, never with a string prefix.** In
+  `sw.js`, `startsWith('/') && !startsWith('//')` let `/\evil.com` through,
+  because the WHATWG parser reads a backslash as a slash. Parse with
+  `new URL(raw, self.location.origin)` and compare `url.origin` (todo 413).

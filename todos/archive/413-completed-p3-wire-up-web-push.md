@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: p3
 issue_id: "413"
 tags: [backend, web, notifications]
@@ -37,7 +37,13 @@ See the file references above, and todo 405's Work Log.
 
 ## Acceptance Criteria
 
-- [ ] A subscribed browser receives a forum notification. Record the date and what was observed.
+- [x] A subscribed browser receives a forum notification. Record the date and what was observed.
+      2026-09-27: Chrome 153 (Playwright, local :5174 + :8000 with the .env
+      VAPID pair). Settings → "Turn on for this browser" stored an
+      fcm.googleapis.com subscription. A real reply was published by another
+      user, and the service worker showed `New reply in "Web push check (todo
+      413)"` / `push413replier replied`, linking to
+      `/forum/54-general-discussion/96-push-413-check#post-138`.
 - [x] The VAPID private key lives only in Railway and `.env`. (completed 2026-09-24)
 
 ## Work Log
@@ -74,3 +80,42 @@ Declared `preserve()` in `.railway/railway.ts` (#830). Public key:
   Default it to `DEFAULT_FROM_EMAIL` instead.
 
 Ready for a sweep.
+
+### 2026-09-27 - Completed (P3 sweep PR)
+
+- **Backend.**
+  - `pywebpush==2.5.0`, pinned with its 9 transitive packages in the flat
+    freeze. OSV shows 0 advisories for each of them. The 1.14.1 line
+    needs only 3 packages, but it stopped being maintained in 2023.
+  - `settings.py` now reads `VAPID_PUBLIC_KEY` and `VAPID_PRIVATE_KEY` (it
+    read neither before), and `VAPID_CLAIMS_EMAIL` defaults to the address in
+    `DEFAULT_FROM_EMAIL`, not the old domain. `.env.example` documents all
+    three.
+  - `GET me/push-notifications/public-key/` returns `{enabled, public_key}`;
+    it is off unless both halves of the pair are set.
+- **SSRF fix, found while wiring this up.** Sending a push makes the server
+  POST to the stored endpoint, and subscribe accepted any URL. Subscribe
+  now validates with `apps/users/web_push.clean_subscription`: the endpoint
+  must be https on a known browser push service (FCM, Mozilla, Apple, WNS,
+  with a dot-boundary suffix match), with no credentials and port 443, and
+  both keys must be present. Mutation-checked.
+- **Forum events.** `send_forum_web_push_batch` is its own Celery task,
+  enqueued beside FCM for replies, mentions, quotes and accepted answers, so
+  FCM retries never resend a browser notification. It applies the same
+  `forum_notifications` and per-event "push" preference gates (mutation-
+  checked). It sends only events that have tray copy, linked to
+  `/forum/<board>/<topic>#post-<id>`.
+- **Web.**
+  - `public/sw.js` shows the payload as text. A click opens same-origin
+    paths only.
+  - `services/pushService.ts` handles permission, subscribe with the
+    server key, and register. A subscription the server refuses is removed
+    from the browser.
+  - Settings has a "Browser notifications" section. The existing
+    Notifications table's "Push" column chooses the events.
+- **Verified.**
+  - pytest `apps/users apps/forum_host apps/core`: 2397 passed, including
+    22 new web-push tests.
+  - Vitest: 113 files, 1543 tests, including 10 new.
+  - `check:classes`, `spectacular --validate`, and the browser check above
+    all pass.

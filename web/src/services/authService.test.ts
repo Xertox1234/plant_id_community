@@ -24,10 +24,12 @@ import {
 } from './authService';
 import { clearCsrfToken } from '../utils/csrf';
 import { clearAllDrafts } from '../utils/forumDrafts';
+import { releaseBrowserPushOnLogout } from './pushService';
 import type { User, LoginCredentials, SignupData, AuthResponse } from '../types/auth';
 
 // Mock logger to prevent console noise in tests
 vi.mock('../utils/forumDrafts', () => ({ clearAllDrafts: vi.fn() }));
+vi.mock('./pushService', () => ({ releaseBrowserPushOnLogout: vi.fn(async () => undefined) }));
 vi.mock('../utils/logger', () => ({
   logger: {
     info: vi.fn(),
@@ -565,6 +567,23 @@ describe('authService', () => {
   // ============================================================================
 
   describe('logout', () => {
+    it('releases browser push BEFORE the session ends (PR #852 review)', async () => {
+      // A shared browser must not keep showing the leaving account's
+      // notifications, and the server unsubscribe needs the session.
+      const order: string[] = [];
+      vi.mocked(releaseBrowserPushOnLogout).mockImplementationOnce(async () => {
+        order.push('release');
+      });
+      fetchMock.mockImplementationOnce(async () => {
+        order.push('logout');
+        return { ok: true, json: async () => ({}) };
+      });
+
+      await logout();
+
+      expect(order).toEqual(['release', 'logout']);
+    });
+
     it('should clear sessionStorage and call logout endpoint', async () => {
       // Arrange
       fetchMock.mockResolvedValueOnce({

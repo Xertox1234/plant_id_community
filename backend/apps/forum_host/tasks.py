@@ -348,6 +348,89 @@ def send_forum_push_batch(event: str, recipient_user_ids: list[int], data: dict)
             send_forum_push.delay(event, user.pk, data)
 
 
+def _web_topic_path(topic_id: str | int | None, post_id: str | int | None) -> str:
+    """The web app's link for a forum event: the topic, at the post."""
+    from wagtail_forum.models import Topic
+
+    topic = (
+        Topic.objects.select_related("board").filter(pk=topic_id).first()
+        if str(topic_id or "").isdigit()
+        else None
+    )
+    if topic is None:
+        return "/forum"
+    path = topic.get_absolute_url()
+    return f"{path}#post-{post_id}" if str(post_id or "").isdigit() else path
+
+
+@shared_task(
+    autoretry_for=(OperationalError,),
+    retry_backoff=constants.NOTIFICATION_BATCH_RETRY_DELAY,  # factor, see above
+    max_retries=constants.NOTIFICATION_BATCH_MAX_RETRIES,
+    ignore_result=True,  # side-effect only; every call site is a bare .delay()
+)
+def send_forum_web_push_batch(event: str, recipient_user_ids: list[int], data: dict):
+    """Browser (Web Push) delivery of a forum event (todo 413).
+
+    Its own task, enqueued beside the FCM push, so FCM's retries and its
+    batch-to-single hand-off can never resend a browser notification. Same
+    gates as FCM: ``forum_notifications`` and the per-event "push" preference.
+    Only events with tray copy are shown; a data-only event (e.g.
+    moderation_decided) has nothing to render. A failed send is logged and
+    not retried, and a gone subscription (404/410) is deactivated by
+    NotificationService. autoretry covers only the up-front fetch, which runs
+    before any send.
+    """
+    from apps.users.models import PushSubscription
+    from apps.users.services import NotificationService, web_push_enabled
+    from django.contrib.auth import get_user_model
+    from wagtail_forum.models import ForumProfile
+
+    if not recipient_user_ids or not web_push_enabled():
+        return
+    content = _notification_content(event, data)
+    if content is None:
+        return
+    title, body = content
+
+    # A recipient with no ForumProfile row (e.g. a mentioned member who never
+    # posted) has default preferences, so it wants the push: default a missing
+    # row to None, as send_forum_email_batch does (PR #852 review).
+    overrides_by_user = dict(
+        ForumProfile.objects.filter(user_id__in=recipient_user_ids).values_list(
+            "user_id", "notification_preferences"
+        )
+    )
+    wanted = [
+        user.pk
+        for user in get_user_model().objects.filter(pk__in=recipient_user_ids)
+        if getattr(user, "forum_notifications", True) is True
+        and wants_channel(overrides_by_user.get(user.pk), event, "push")
+    ]
+    if not wanted:
+        return
+    subscriptions = list(
+        PushSubscription.objects.filter(
+            user_id__in=wanted, is_active=True
+        ).select_related("user")
+    )
+    if not subscriptions:
+        return
+    url = _web_topic_path(data.get("topic_id"), data.get("post_id"))
+    tag = f"forum-{event}-{data.get('post_id') or data.get('topic_id') or ''}"
+
+    for subscription in subscriptions:
+        NotificationService.send_web_push_notification(
+            subscription,
+            title=title,
+            body=body,
+            icon="/favicon.svg",
+            badge="/favicon.svg",
+            data={"url": url, "event": event},
+            tag=tag,
+        )
+
+
 @shared_task(
     autoretry_for=(OperationalError,),
     retry_backoff=constants.NOTIFICATION_BATCH_RETRY_DELAY,  # factor, see above
