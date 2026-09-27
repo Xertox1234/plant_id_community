@@ -265,3 +265,8 @@ Compact checklist auto-injected before edits. Long-form:
   CHECK constraint** (`kind=direct` ⇒ pair non-null, `kind=group` ⇒ pair null).
   Backfill in the SAME migration before dropping the columns the rows move from,
   and prove it with a MigrationExecutor test that seeds the old schema (todo 350).
+- **An `except IntegrityError` around a savepoint that also runs side-effect
+  writes must re-read before deciding it lost a race.** The rollback also
+  removes the row this request inserted, so no row on re-read means the error
+  came from the side effects: re-raise. Only a row owned by someone else is a
+  lost race (todo 449, `_record_provider_link`).

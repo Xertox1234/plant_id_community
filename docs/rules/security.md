@@ -461,3 +461,9 @@ Compact checklist auto-injected before edits. Long-form: `backend/docs/patterns/
   endpoint; re-check each account under `select_for_update` before deleting.
   "Never signed in" means no later `last_login` AND no later refresh token:
   rotation issues tokens without moving `last_login` (todo 447).
+- **Never exempt a state from a check because "reaching it required that
+  check" until `git log -S` proves the check always existed on every path in.**
+  A bound Firebase uid was nearly exempted from `email_verified` on that
+  premise, but binds before #285 had no claim check and Google/Apple bypassed
+  it until #842. A state reached through any past window without the check
+  proves nothing (todo 449).
