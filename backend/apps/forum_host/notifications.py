@@ -96,7 +96,25 @@ def dispatch(event, **kwargs):
     """
     from django.db import transaction
 
-    from .tasks import send_forum_email_batch, send_forum_push, send_forum_push_batch
+    from .tasks import (
+        send_forum_email_batch,
+        send_forum_push,
+        send_forum_push_batch,
+        send_forum_web_push_batch,
+    )
+
+    def _enqueue_web_push(event_name, pks, payload):
+        # Browser push beside FCM (todo 413): its own task, so FCM retries
+        # never resend a browser notification. Never raises into the signal.
+        if not pks:
+            return
+        try:
+            send_forum_web_push_batch.delay(event_name, list(pks), payload)
+        except Exception:
+            logger.exception(
+                "[CELERY] forum_host: failed to enqueue web push for event=%s",
+                event_name,
+            )
 
     topic = kwargs.get("topic")
     topic_id = getattr(topic, "id", None)
@@ -144,6 +162,7 @@ def dispatch(event, **kwargs):
             send_forum_push_batch.delay(NotificationVerb.QUOTE, pks, payload)
         except Exception:
             logger.exception("[CELERY] forum_host: failed to enqueue quote push batch")
+        _enqueue_web_push(NotificationVerb.QUOTE, pks, payload)
 
     def _enqueue_mention_push_for(mentioned, payload):
         from wagtail_forum.models import NotificationVerb
@@ -160,6 +179,7 @@ def dispatch(event, **kwargs):
             logger.exception(
                 "[CELERY] forum_host: failed to enqueue mention push batch"
             )
+        _enqueue_web_push(NotificationVerb.MENTION, mentioned_pks, payload)
 
     if event == "reply_added":
         post = kwargs.get("post")
@@ -185,6 +205,7 @@ def dispatch(event, **kwargs):
                         " for event=%s",
                         event,
                     )
+                _enqueue_web_push(event, reply_recipient_pks, payload)
             _enqueue_mention_push_for(mentioned, payload)
             _enqueue_quote_push_for([user for user, _ in quoted], payload)
 
@@ -380,6 +401,7 @@ def dispatch(event, **kwargs):
                     event,
                     recipient.pk,
                 )
+            _enqueue_web_push(event, [recipient.pk], payload)
 
         try:
             # Same nested-atomic/except-outside shape as reply_added: this runs

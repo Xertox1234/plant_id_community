@@ -19,6 +19,7 @@ import { getOrCreateRequestId } from '../utils/requestId';
 // outlives a logout — drop them so the next account in this tab never sees
 // the previous one's unsent text (audit 2026-09-04 L4).
 import { clearAllDrafts } from '../utils/forumDrafts';
+import { releaseBrowserPushOnLogout } from './pushService';
 import type { User, LoginCredentials, SignupData, AuthResponse } from '../types/auth';
 import type { ApiError } from '../types/api';
 import { API_ORIGIN } from '@/config/api';
@@ -210,6 +211,9 @@ export async function signup(userData: SignupData): Promise<User> {
  * Clears cookie and sessionStorage
  */
 export async function logout(): Promise<void> {
+  // Before the session ends: the server unsubscribe needs it. A shared browser
+  // must not keep showing this account's notifications (PR #852 review).
+  await releaseBrowserPushOnLogout();
   try {
     // Get CSRF token from centralized utility (handles caching + meta tag/API fallback)
     const csrfToken = await getCsrfToken();

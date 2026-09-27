@@ -62,6 +62,11 @@ urlpatterns = [
         views.unsubscribe_push_notifications,
         name="unsubscribe_push_notifications",
     ),
+    path(
+        "me/push-notifications/public-key/",
+        views.push_public_key,
+        name="push_public_key",
+    ),
     path("me/push-notifications/", views.push_subscriptions, name="push_subscriptions"),
     # Care reminder endpoints
     path("me/care-reminders/", views.care_reminders, name="care_reminders"),

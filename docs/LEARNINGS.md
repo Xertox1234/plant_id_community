@@ -6758,6 +6758,35 @@ treats a `None` override as "use the configured one". A new system check,
 `fail_silently=True` was gone, the lockout mail's error path became
 reachable, and it logged the raw username. It now uses `log_safe_username`.
 
+## 2026-09-27 — Web Push: a cleanup path that never ran, and a URL guard a backslash beat (todo 413, PR #852)
+
+**The dead-subscription cleanup never ran.** `NotificationService.send_web_push_notification`
+deactivated a subscription only `if e.response and e.response.status_code in
+[410, 413, 429]`. `requests.Response.__bool__` returns `self.ok`, so every error
+response is falsy and the branch was dead from the day it was written. The
+tests mocked the response with a `Mock`, which is truthy, so they passed. The
+regression test now builds a real `requests.Response` inside a real
+`WebPushException`. Lesson: when a branch keys on a library object's
+truthiness, the test must use the real object, not a `Mock`. A trigger now
+flags `exc.response and` in backend code.
+
+**Library defaults that drop messages.** pywebpush 2.5.0 defaults `ttl=0` (the
+push service discards the message unless the browser is connected right then)
+and `timeout=None` (a stalled push service holds the worker indefinitely). Both
+are now explicit constants.
+
+**Shared browsers.** Logging out never unsubscribed the browser, and the
+subscription key was (user, endpoint), so the next account on the same browser
+received the previous account's forum notifications. Now subscribing an
+endpoint deactivates other users' rows, and web logout releases the browser
+subscription first, best-effort and capped at 3 s.
+
+**The click-URL guard.** `sw.js` checked `startsWith('/') && !startsWith('//')`
+and then passed the string to `new URL()`, which treats `\` as `/`. So
+`/\evil.com` opened another site. It now checks the parsed origin. The service
+worker has a Vitest suite that runs the real `public/sw.js` in a node `vm`
+against a fake `self`.
+
 ## 2026-09-27 — Re-anchoring ownership: plants without beds, care reminders (todo 410 slice A)
 
 **The change.** `garden_calendar.Plant` was owned only through its required
