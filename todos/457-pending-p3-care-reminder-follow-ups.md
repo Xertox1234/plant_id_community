@@ -49,9 +49,25 @@ that PR.
 
 ## Acceptance Criteria
 
-- [ ] Items 1–7 are fixed with tests, or each is closed with a recorded reason.
+- [ ] Items 1–7 and 9–12 are fixed with tests, or each is closed with a recorded reason.
 - [ ] Item 8 is handled in todo 386. Link it there.
 
 ## Work Log
 
 ### 2026-09-27 - Filed from the PR #853 round-1 review
+
+### 2026-09-27 - Round-2 notes added (PR #853 verification)
+
+- **9. CareTaskAdmin does not re-arm on reschedule.** Staff can edit
+  `scheduled_date` without clearing `notification_sent`. Override
+  `save_model` to clear it when the date changes.
+- **10. GardenBedAdmin allows an owner change that diverges a bed's plants.**
+  Nothing leaks, because reads filter on the owner, but the old owner's
+  PATCH on such a plant fails with a generic 400. Make the owner read-only on
+  change, or refuse the change.
+- **11. The soft limit can fire after a send returns but before the owner is
+  recorded as done.** That owner is then released and pushed a second time.
+  The window is a few bytecodes wide.
+- **12. Unfiltered reads with no caller.** `GardenBed.plant_count`'s
+  non-annotated fallback and `companion_planting_service`'s bed reads do not
+  filter on the owner. Filter them, or delete the dead service.

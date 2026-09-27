@@ -94,3 +94,12 @@ Compact checklist auto-injected before edits. Long-form:
   autouse fixture** (`apps/users/tests/conftest.py`). Without one, a test
   that executes `on_commit` callbacks publishes to the dev Redis broker (the
   settings default, never eager in tests), and the send assertions go quiet.
+- **A committed claim needs a release on EVERY escape, and a per-item
+  `except Exception` must re-raise `SoftTimeLimitExceeded` first.** The
+  care-reminder sweep commits `notification_sent=True` before sending. Its
+  per-owner `except Exception` swallowed the soft limit (a subclass of
+  `Exception`), so the hard kill stranded every unreached owner. And its
+  `autoretry_for=(OperationalError,)` re-ran the task after the claim had
+  committed, so the retry's claim query could not see the batch and it was lost.
+  Run everything after the claim under one guard that un-claims what was not
+  handled, then re-raises (`apps/garden_calendar/tasks.py`, todo 410).

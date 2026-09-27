@@ -6788,3 +6788,12 @@ transient FCM failure un-claims the owner's tasks for the next sweep. Two
 owner decisions bound the first run: a 24-hour lookback, and the migration
 stamps tasks already overdue at deploy. Without either, the first sweep
 would push every overdue task ever created.
+
+**Review addendum (PR #853).** Three reviewers found the same two holes in the
+sweep, both caused by committing the claim before sending: a soft time limit
+swallowed by the per-owner `except Exception`, and autoretry re-running after
+the claim had committed. Both now go through a single un-claim guard (rule in
+`docs/rules/celery.md`). The re-anchoring also created a second source of truth:
+`Plant.owner` and `garden_bed.owner` can disagree when a write goes around the
+serializer (admin, `update()`). `Plant.save()` and `clean()` now refuse that, and every read of
+a bed's plants filters on the bed's owner.
