@@ -437,7 +437,11 @@ def _record_provider_link(provider, user_data, user) -> bool:
         # (todo 449 item 3). Re-read it: ours means that request already
         # linked and notified, so sign in; anyone else's is a refusal.
         linked = SocialAccount.objects.filter(provider=provider, uid=uid).first()
-        if linked is not None and linked.user_id == user.pk:
+        if linked is None:
+            # No row: the error came from the notice/revocation work, not a
+            # lost race. Don't report it as a conflicting link.
+            raise
+        if linked.user_id == user.pk:
             return True
         logger.warning(
             f"[SECURITY] Refused {provider} login: this {provider} identity was "

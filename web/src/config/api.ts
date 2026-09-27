@@ -8,3 +8,11 @@ export const API_ORIGIN = (import.meta.env.VITE_API_URL || 'http://localhost:800
   /\/+$/,
   ''
 );
+
+// HTTPS enforcement for production. Here, not in one service, so every module
+// that talks to the API is covered (it used to live in authService only).
+if (import.meta.env.PROD && API_ORIGIN.startsWith('http://')) {
+  throw new Error(
+    'Cannot send credentials over HTTP in production. Set VITE_API_URL to https:// endpoint.'
+  );
+}

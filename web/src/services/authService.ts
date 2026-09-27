@@ -25,13 +25,7 @@ import { API_ORIGIN } from '@/config/api';
 
 const API_URL = API_ORIGIN;
 
-// HTTPS enforcement for production
-if (import.meta.env.PROD && API_URL.startsWith('http://')) {
-  logger.error('[authService] SECURITY ERROR: API_URL must use HTTPS in production');
-  throw new Error(
-    'Cannot send credentials over HTTP in production. Set VITE_API_URL to https:// endpoint.'
-  );
-}
+// HTTPS in production is enforced where API_ORIGIN is defined (config/api.ts).
 
 /**
  * Login user with email and password

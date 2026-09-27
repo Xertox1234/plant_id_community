@@ -10,9 +10,8 @@ import '../forum/support/forum_test_support.dart';
 /// Tests for the only sign-in path that can currently complete.
 ///
 /// Email/password cannot: the backend 403s any Firebase token whose
-/// `email_verified` claim is false unless the provider is in
-/// `_TRUSTED_FIREBASE_PROVIDERS` (`{google.com, apple.com}`), and this app
-/// never calls `sendEmailVerification()`. The server half of that is asserted
+/// `email_verified` claim is false, whatever the provider (todo 447 item 8),
+/// and this app never calls `sendEmailVerification()`. The server half of that is asserted
 /// in `backend/apps/users/tests/test_firebase_auth.py`
 /// (`FirebaseTrustedProviderTestCase`); this is the client half.
 void main() {

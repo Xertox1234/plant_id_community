@@ -62,7 +62,7 @@ def process_plant_image(self, image_id: int) -> None:
     try:
         ...
     except Exception as exc:
-        logger.error("[CELERY] Task %s failed: %s", self.request.id, exc)
+        logger.error("[PLANT_ID] Task %s failed: %s", self.request.id, exc)
         raise self.retry(exc=exc)
 ```
 

@@ -594,29 +594,26 @@ class FirebaseTrustedProviderTestCase(TestCase):
                 )
 
     @patch("apps.users.firebase_auth_views.firebase_auth.verify_id_token")
-    def test_bound_uid_with_a_false_claim_signs_in_by_uid(self, mock_verify):
-        """Todo 449 item 1 (owner decision 2026-09-26): an already-bound uid
-        is exempt from the claim. It signs in to its own account, and the
-        token's email is neither matched nor copied onto the account."""
-        bound = User.objects.create_user(
+    def test_bound_uid_with_a_false_claim_is_still_refused(self, mock_verify):
+        """Todo 449 item 1 (owner decision 2026-09-26): a binding is no proof
+        of a verified claim, since uids could be bound under a false one
+        before #285 and, for Google/Apple, before #842. So a bound uid gets
+        no exemption."""
+        User.objects.create_user(
             username="bound", email="bound@example.com", firebase_uid="uid-bound"
         )
-        mark_email_verified(bound)
-        for provider in ("password", "apple.com"):
+        for provider in ("password", "google.com", "apple.com"):
             with self.subTest(provider=provider):
                 mock_verify.return_value = self._decoded(
-                    provider, False, email="relay@example.com", uid="uid-bound"
+                    provider, False, email="bound@example.com", uid="uid-bound"
                 )
 
                 response = self.client.post(
                     self.url, {"firebase_token": self.token}, format="json"
                 )
 
-                self.assertEqual(response.status_code, status.HTTP_200_OK)
-                self.assertEqual(response.data["user"]["id"], bound.pk)
-                bound.refresh_from_db()
-                self.assertEqual(bound.email, "bound@example.com")
-        self.assertFalse(User.objects.filter(email="relay@example.com").exists())
+                self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+                self.assertNotIn("access_token", response.data)
 
     @patch("apps.users.firebase_auth_views.firebase_auth.verify_id_token")
     def test_google_links_to_an_existing_account_instead_of_duplicating(

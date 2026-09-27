@@ -36,6 +36,7 @@ from django.apps import apps as django_apps
 from django.contrib.auth import get_user_model
 from django.core import mail
 from django.core.cache import cache
+from django.db import IntegrityError
 from django.test import RequestFactory, TestCase, override_settings
 from django.urls import reverse
 from django.utils import timezone
@@ -652,6 +653,22 @@ class ProviderLinkRaceTest(TestCase):
             oauth_views, "on_first_provider_link", side_effect=RuntimeError("boom")
         ):
             with self.assertRaises(RuntimeError):
+                oauth_views._record_provider_link("google", {"id": "g-owner"}, user)
+
+        self.assertFalse(SocialAccount.objects.filter(user=user).exists())
+
+    def test_an_integrity_error_from_the_notice_is_not_a_lost_race(self):
+        # Review round 1: an IntegrityError raised by the revoke/notice work
+        # rolls the savepoint back too, so the re-read finds no row. That is
+        # an error, not a conflicting link, and must surface as one.
+        user = _verified_password_account()
+
+        with patch.object(
+            oauth_views,
+            "on_first_provider_link",
+            side_effect=IntegrityError("from the notice"),
+        ):
+            with self.assertRaises(IntegrityError):
                 oauth_views._record_provider_link("google", {"id": "g-owner"}, user)
 
         self.assertFalse(SocialAccount.objects.filter(user=user).exists())

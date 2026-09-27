@@ -20,6 +20,16 @@ describe('API_ORIGIN', () => {
     expect(await load('https://api.example.test//')).toBe('https://api.example.test');
   });
 
+  it('refuses a plain-http origin in a production build', async () => {
+    vi.stubEnv('PROD', true);
+    await expect(load('http://api.example.test')).rejects.toThrow(/HTTP in production/);
+  });
+
+  it('allows an https origin in a production build', async () => {
+    vi.stubEnv('PROD', true);
+    expect(await load('https://api.example.test')).toBe('https://api.example.test');
+  });
+
   it('falls back to the local backend when unset', async () => {
     expect(await load('')).toBe('http://localhost:8000');
   });
