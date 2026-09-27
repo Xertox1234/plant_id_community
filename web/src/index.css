@@ -596,3 +596,75 @@
     font-size: 0.875rem;
   }
 }
+
+/* Rich text from the CMS (todo 401), e.g. the forum category intro. Tailwind's
+   preflight strips paragraph spacing, list markers and link styling, and the
+   app does not ship @tailwindcss/typography, so `prose` never compiled. These
+   rules mirror .forum-editor-content on the --gt-* tokens, so both themes follow. */
+.rich-text {
+  color: var(--gt-ink-2);
+  line-height: 1.65;
+  overflow-wrap: anywhere;
+}
+
+.rich-text > * + * {
+  margin-top: 0.875rem;
+}
+
+.rich-text h2,
+.rich-text h3,
+.rich-text h4 {
+  color: var(--gt-ink);
+  font-family: var(--font-display);
+  font-weight: 600;
+  line-height: 1.2;
+}
+
+.rich-text h2 {
+  font-size: 1.375rem;
+}
+
+.rich-text h3 {
+  font-size: 1.125rem;
+}
+
+.rich-text ul,
+.rich-text ol {
+  padding-inline-start: 1.5rem;
+}
+
+.rich-text ul {
+  list-style: disc;
+}
+
+.rich-text ol {
+  list-style: decimal;
+}
+
+.rich-text li + li {
+  margin-top: 0.35rem;
+}
+
+.rich-text blockquote {
+  border-left: 2px solid var(--gt-secondary);
+  padding-inline-start: 1rem;
+  font-style: italic;
+}
+
+.rich-text a {
+  color: var(--gt-primary);
+  text-decoration: underline;
+  text-decoration-thickness: 0.08em;
+  text-underline-offset: 0.16em;
+}
+
+.rich-text a:focus-visible {
+  outline: 2px solid var(--gt-secondary);
+  outline-offset: 2px;
+}
+
+.rich-text strong,
+.rich-text b {
+  color: var(--gt-ink);
+  font-weight: 600;
+}
