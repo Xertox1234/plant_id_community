@@ -240,7 +240,7 @@ def send_digest(digest: Digest) -> bool:
             headers=dict(links.get("headers") or {}),
         )
         message.attach_alternative(html, "text/html")
-        message.send(fail_silently=False)
+        message.send()
     except Exception as exc:
         # A worker's soft time limit arrives as an Exception subclass
         # (billiard's SoftTimeLimitExceeded); it is the RUN being stopped,
