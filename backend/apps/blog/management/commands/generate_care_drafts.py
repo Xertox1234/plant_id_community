@@ -49,7 +49,8 @@ Rules:
 eating, tasting or medicinal use of plants.
 - Do NOT name or recommend any pesticide, insecticide, fungicide, neem, \
 insecticidal soap, horticultural oil or other chemical treatment, and give no \
-amounts or dilutions for any product. For fertilizer, say to follow the label.
+amounts or dilutions for any product. Do not mention treatments at all, not \
+even to say one is not needed. For fertilizer, say to follow the label.
 - No links, no HTML, no markdown.
 
 Reply with ONLY a JSON object of this shape:
@@ -66,9 +67,11 @@ _TREATMENT_RE = re.compile(
     r"insecticides?|herbicides?|miticides?|acaricides?|systemic|"
     r"bacillus\s+thuringiensis|mosquito\s+(?:bits|dunks)|insecticidal|"
     r"horticultural\s+oil|dormant\s+oil|oil\s+sprays?|essential\s+oils?|"
-    r"(?:rubbing|isopropyl)\s+alcohol|alcohol|dish\s+soap|soapy\s+water|soap|"
-    r"hydrogen\s+peroxide|peroxide|diatomaceous\s+earth|vinegar|bleach|"
-    r"baking\s+soda)\b",
+    r"(?:rubbing|isopropyl)\s+alcohol|alcohol|isopropyl|dish\s+soap|"
+    r"soapy\s+water|soap|detergents?|sulfur|sulphur|hydrogen\s+peroxide|"
+    r"peroxide|diatomaceous\s+earth|vinegar|baking\s+soda|"
+    # "bleach" the product, not sun that bleaches leaves.
+    r"(?:with|of|diluted|household)\s+bleach|bleach\s+(?:solution|and\s+water))\b",
     re.I,
 )
 
@@ -124,7 +127,8 @@ def parse_article(raw: str) -> dict | None:
 
 
 def screen_article(article: dict) -> tuple[dict | None, int]:
-    """Drop every paragraph the RAG guardrail blocks (todo 330's classes).
+    """Drop every paragraph ``is_blocked`` flags: todo 330's classes (the RAG
+    guardrail) or any named treatment (``_TREATMENT_RE``).
 
     Returns ``(article, dropped)``. The article is None when the introduction
     is blocked or fewer than ``CARE_DRAFT_MIN_PARAGRAPHS`` paragraphs survive.

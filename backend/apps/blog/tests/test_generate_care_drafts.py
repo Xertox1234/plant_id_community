@@ -228,6 +228,9 @@ def test_screen_drops_a_whole_blocked_section():
         "Dab each mealybug with a cotton swab dipped in rubbing alcohol.",
         "Mix a little dish soap into water and wipe the leaves.",
         "A hydrogen peroxide drench kills the larvae.",
+        "Rub each bug with a cotton ball soaked in 70% isopropyl.",
+        "A drop of detergent in water loosens the pests.",
+        "Wipe the pot with a bleach solution first.",
     ],
 )
 def test_the_screen_flags_any_named_treatment(text):
@@ -242,6 +245,7 @@ def test_the_screen_keeps_plain_care_advice():
         "Rinse the leaves with plain water in the shower.",
         "Wipe the leaves with a damp cloth.",
         "Let the top inch of soil dry before watering.",
+        "Too much direct sun can bleach the leaves.",
     ):
         assert not is_blocked(text), text
 

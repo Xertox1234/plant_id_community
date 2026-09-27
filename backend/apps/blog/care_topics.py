@@ -4,8 +4,9 @@ About 50 common houseplant care questions: general care, problems, pests
 (cultural and mechanical control only) and per-plant guides. Todo 330's
 hard-blocked classes are left out entirely: ingestion, toxicity, edibility or
 medicinal use, and pesticide or chemical dosing. The command also screens
-every topic and every generated paragraph with the RAG guardrail's
-``classify_blocked_question``, so this list cannot drift into those classes.
+every topic and every generated paragraph with its ``is_blocked`` (the RAG
+guardrail plus a named-treatment screen), so this list cannot drift into
+those classes.
 
 Each entry is ``(slug, title, focus)``. The slug is the draft page's slug and
 makes a re-run skip what already exists.
