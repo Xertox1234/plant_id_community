@@ -63,6 +63,10 @@ def main():
             got = tf.read_frontmatter(p)["owner_decision"]
             check(f"round-trips {value!r} as a string", got == value, repr(got))
 
+        tf.set_fields(p, {"triaged": "2026-09-27"})
+        check("ISO dates read back as datetime.date; str() gives the original text",
+              str(tf.read_frontmatter(p)["triaged"]) == "2026-09-27")
+
         multi = write(tmp, "---\nstatus: pending\nblocked_on:\n  - a\n  - b\n---\n# t\n", "413-pending-p3-y.md")
         before = multi.read_text()
         try:

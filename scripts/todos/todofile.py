@@ -19,8 +19,9 @@ from check_archived_todo_status import FENCE_RE, REPOINT_RE  # noqa: E402
 
 FM_RE = re.compile(r"\A---\n(.*?\n)---\n", re.S)
 # Written unquoted: lowercase words joined by - or _ (triage classes, statuses)
-# and ISO dates. Everything else is JSON-quoted -- valid YAML -- so "yes", "412"
-# or "a: b" read back as the same string instead of a bool, int or mapping.
+# and ISO dates. ISO dates read back as datetime.date objects; consumers must str()
+# them to get the original text. Everything else is JSON-quoted -- valid YAML -- so
+# "yes", "412" or "a: b" read back as the same string instead of a bool, int or mapping.
 BARE_RE = re.compile(r"[a-z]+(?:[-_][a-z]+)*|\d{4}-\d{2}-\d{2}")
 YAML_WORDS = {"yes", "no", "on", "off", "true", "false", "null", "none", "y", "n"}
 CHECKBOX_RE = re.compile(r"^\s*-\s\[( |x|X)\]")
