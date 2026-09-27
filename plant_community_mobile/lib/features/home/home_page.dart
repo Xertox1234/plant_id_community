@@ -134,7 +134,7 @@ class HomePage extends StatelessWidget {
     );
   }
 
-  /// Features grid with 4 cards
+  /// Features grid
   Widget _buildFeaturesGrid(BuildContext context) {
     final ext =
         Theme.of(context).extension<GreenThumbExtension>() ??
@@ -176,6 +176,17 @@ class HomePage extends StatelessWidget {
         type: FeatureType.collection,
         route: AppRoutes.collection,
         isTab: true,
+      ),
+      // The Diagnose entry point (todo 444). Signed out, the router sends
+      // the tap to sign-in.
+      _FeatureData(
+        icon: LucideIcons.stethoscope,
+        title: 'Diagnose a Sick Plant',
+        description:
+            'Photograph the symptoms and get a likely cause and what to do next',
+        type: FeatureType.diagnose,
+        route: AppRoutes.diagnose,
+        isTab: false,
       ),
     ];
 

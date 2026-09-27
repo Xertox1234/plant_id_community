@@ -13,6 +13,7 @@ import '../../features/results/results_screen.dart';
 import '../../features/profile/profile_screen.dart';
 import '../../features/settings/settings_screen.dart';
 import '../../features/care/care_screen.dart';
+import '../../features/diagnose/diagnose_screen.dart';
 import '../../features/forum/forum_screen.dart';
 import '../../features/forum/screens/forum_bookmarks_screen.dart';
 import '../../features/forum/screens/forum_my_images_screen.dart';
@@ -53,6 +54,9 @@ abstract class AppRoutes {
   static const garden = '/garden';
   // Phase 2 feature routes
   static const care = '/care';
+  // Auth-only: the disease-requests API is IsAuthenticated (todo 444).
+  // Nested under the Home tab, opened from its feature grid.
+  static const diagnose = '/diagnose';
   static const forum = '/forum';
   // Auth-only: the notifications feed is the caller's own inbox and the
   // backend 401s an anonymous request, which the screen could only render as
@@ -93,6 +97,7 @@ GoRouter appRouter(Ref ref) {
   // out -- the same shape CollectionScreen already uses (todo 384).
   const protectedRoutes = {
     AppRoutes.garden,
+    AppRoutes.diagnose,
     AppRoutes.forumNotifications,
     AppRoutes.forumMessages,
     AppRoutes.forumBookmarks,
@@ -150,7 +155,8 @@ GoRouter appRouter(Ref ref) {
         builder: (context, state, navigationShell) =>
             MainShell(navigationShell: navigationShell),
         branches: [
-          // 0 Home -- /care hangs off the Home feature grid, so it keeps the bar.
+          // 0 Home -- /care and /diagnose hang off the Home feature grid, so they
+          // keep the bar.
           StatefulShellBranch(
             routes: [
               GoRoute(
@@ -169,6 +175,15 @@ GoRouter appRouter(Ref ref) {
                   context: context,
                   state: state,
                   child: const CareScreen(),
+                ),
+              ),
+              GoRoute(
+                path: AppRoutes.diagnose,
+                name: 'diagnose',
+                pageBuilder: (context, state) => _buildPageWithTransition(
+                  context: context,
+                  state: state,
+                  child: const DiagnoseScreen(),
                 ),
               ),
             ],
