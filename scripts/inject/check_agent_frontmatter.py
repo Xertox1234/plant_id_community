@@ -20,7 +20,7 @@ import sys
 from pathlib import Path
 
 AGENTS_DIR = Path(__file__).resolve().parents[2] / ".claude" / "agents"
-FIELD_RE = re.compile(r"^[a-z_][a-z0-9_]*:")
+FIELD_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*:")
 REQUIRED_KEYS = ("name", "description")
 
 
