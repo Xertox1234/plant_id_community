@@ -28,9 +28,31 @@ untracked, already-`-COMPLETED` -- so phase 2 can never fail a `git mv` (G3);
 `source_review` only ever resolves inside docs/reviews/, so a `..` escape is
 just another "not a review doc" value, never read or written (G4); sanitizing
 uses str.splitlines() so every line-break-like separator is flattened, not
-just \\r and \\n (G5); a duplicate Finding Status line prefers the first OPEN
-match, and source_review without source_finding is a no-op with a note, not a
-silent skip (G7).
+just \\r and \\n (G5); source_review without source_finding is a no-op with a
+note, not a silent skip (G7).
+
+Fix round 3 adds (H1): the planned-rename destination check is
+`os.path.lexists`, not `is_file` -- a dangling-symlink or directory twin is
+"something is there", not "nothing here yet". (H2): a plan carries the
+review doc's *normalised*, repo-relative POSIX path, derived from the already
+-resolved file `_review_path` found -- not the raw `source` string, which can
+contain a `..` segment through a directory that doesn't exist and make a
+plain `open()`/`git mv` refuse even though the resolved file is fine; an
+absolute `source_review` is rejected outright, even one that happens to
+resolve inside docs/reviews/. (H3): archive's phase 1 also refuses -- before
+any write -- a todo with no frontmatter, an untracked todo, a `status`/
+`source_review` value `set_fields` can't rewrite in place (multi-line), and a
+missing `todos/archive/`. (H4): every quoted evidence-tail line that would
+toggle the CI tripwire's naive fence detector is prefixed with a visible
+marker before quoting, so a stray fence line in a tail can never hide (or
+fake) a real unchecked box elsewhere in the file -- reversing round 2's "not
+changing" call once the reviewer showed it can fail *open*, not just closed.
+(H5, G7 corrected): a duplicate Finding Status line for this finding doesn't
+just prefer "the first open one" -- every OPEN line checkable by this todo
+(no target, or a target matching todo_id) is checked off together, since
+they're the same shipped finding; when none is checkable, the note prefers
+any line that at least names this todo (checked or not) over an arbitrary
+first match, so it reads correctly in either duplicate order.
 """
 
 import json
@@ -694,6 +716,373 @@ def main():
         result = land.archive(repo, "todos/522-pending-p3-x.md", "r", "2026-09-27")
         check("G7: source_review without source_finding is a no-op with a note",
               result["review"] is not None and "source_finding is missing" in result["review"]["note"], result)
+
+    # H1: a dangling-symlink twin at the -COMPLETED destination must skip the
+    # rename with a note, never raise (is_file() misses a dangling symlink).
+    with tempfile.TemporaryDirectory() as tmp:
+        repo = Path(tmp) / "repo"
+        (repo / "todos" / "archive").mkdir(parents=True)
+        (repo / "docs" / "reviews").mkdir(parents=True)
+        (repo / "todos" / "archive" / ".keep").write_text("")
+        (repo / "todos" / "540-pending-p3-x.md").write_text(simple_todo_text("540", "docs/reviews/h1a.md", "1"))
+        (repo / "docs/reviews/h1a.md").write_text("# R\n\n## Finding Status\n\n- [ ] #1 x → todo 540\n")
+        os.symlink("nowhere.md", repo / "docs/reviews/h1a-COMPLETED.md")
+        subprocess.run(["git", "init", "-q", "-b", "main", str(repo)], check=True)
+        subprocess.run(["git", "-C", str(repo), "add", "todos", "docs/reviews/h1a.md"], check=True)
+        subprocess.run(["git", "-C", str(repo), "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q", "-m", "x"],
+                       check=True)
+        result = land.archive(repo, "todos/540-pending-p3-x.md", "r", "2026-09-27")
+        check("H1: a dangling-symlink twin skips the rename with a note, no exception",
+              result["review"]["renamed"] is False and "already exists" in result["review"]["note"], result)
+        check("H1: the review doc itself was still checked off",
+              "- [x] #1 x" in (repo / "docs/reviews/h1a.md").read_text())
+        check("H1: the dangling symlink itself is untouched, not moved into",
+              os.path.islink(repo / "docs/reviews/h1a-COMPLETED.md"))
+
+    # H1: a directory sitting at the -COMPLETED destination must also skip the
+    # rename with a note -- not have the doc moved INTO the directory by git mv.
+    with tempfile.TemporaryDirectory() as tmp:
+        repo = Path(tmp) / "repo"
+        (repo / "todos" / "archive").mkdir(parents=True)
+        (repo / "docs" / "reviews").mkdir(parents=True)
+        (repo / "todos" / "archive" / ".keep").write_text("")
+        (repo / "todos" / "541-pending-p3-x.md").write_text(simple_todo_text("541", "docs/reviews/h1b.md", "1"))
+        (repo / "docs/reviews/h1b.md").write_text("# R\n\n## Finding Status\n\n- [ ] #1 x → todo 541\n")
+        (repo / "docs/reviews/h1b-COMPLETED.md").mkdir()
+        (repo / "docs/reviews/h1b-COMPLETED.md/keep.txt").write_text("k\n")
+        subprocess.run(["git", "init", "-q", "-b", "main", str(repo)], check=True)
+        subprocess.run(["git", "-C", str(repo), "add", "-A"], check=True)
+        subprocess.run(["git", "-C", str(repo), "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q", "-m", "x"],
+                       check=True)
+        result = land.archive(repo, "todos/541-pending-p3-x.md", "r", "2026-09-27")
+        check("H1: a directory twin skips the rename with a note, no exception",
+              result["review"]["renamed"] is False and "already exists" in result["review"]["note"], result)
+        check("H1: the review doc was checked off, not moved into the directory",
+              "- [x] #1 x" in (repo / "docs/reviews/h1b.md").read_text())
+        check("H1: the directory twin's own content is untouched",
+              (repo / "docs/reviews/h1b-COMPLETED.md/keep.txt").read_text() == "k\n")
+
+    # H2: 'docs/reviews/nope/../h2a.md' -- 'nope' does NOT exist -- must archive
+    # (not FileNotFoundError from a naive open() on the un-normalised raw string),
+    # and the returned paths must be the clean, normalised, repo-relative form.
+    with tempfile.TemporaryDirectory() as tmp:
+        repo = Path(tmp) / "repo"
+        (repo / "todos" / "archive").mkdir(parents=True)
+        (repo / "docs" / "reviews").mkdir(parents=True)
+        (repo / "todos" / "archive" / ".keep").write_text("")
+        (repo / "todos" / "550-pending-p3-x.md").write_text(
+            simple_todo_text("550", "docs/reviews/nope/../h2a.md", "1"))
+        (repo / "docs/reviews/h2a.md").write_text("# R\n\n## Finding Status\n\n- [ ] #1 x → todo 550\n")
+        subprocess.run(["git", "init", "-q", "-b", "main", str(repo)], check=True)
+        subprocess.run(["git", "-C", str(repo), "add", "-A"], check=True)
+        subprocess.run(["git", "-C", str(repo), "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q", "-m", "x"],
+                       check=True)
+        result = land.archive(repo, "todos/550-pending-p3-x.md", "r", "2026-09-27")
+        check("H2: a '..' through a NONEXISTENT directory still archives",
+              result["archived"].endswith("550-completed-p3-x.md"), result)
+        check("H2: the returned paths are normalised (no dot-segments)",
+              "docs/reviews/h2a-COMPLETED.md" in result["paths"]
+              and not any(".." in p for p in result["paths"]), result["paths"])
+
+    # H2: 'docs/reviews/sub/../h2b.md' -- 'sub' DOES exist -- returned paths (and the
+    # archived todo's own source_review) must still be the normalised form, not the
+    # literal dotted string.
+    with tempfile.TemporaryDirectory() as tmp:
+        repo = Path(tmp) / "repo"
+        (repo / "todos" / "archive").mkdir(parents=True)
+        (repo / "docs" / "reviews" / "sub").mkdir(parents=True)
+        (repo / "todos" / "archive" / ".keep").write_text("")
+        (repo / "todos" / "551-pending-p3-x.md").write_text(
+            simple_todo_text("551", "docs/reviews/sub/../h2b.md", "1"))
+        (repo / "docs/reviews/h2b.md").write_text("# R\n\n## Finding Status\n\n- [ ] #1 x → todo 551\n")
+        (repo / "docs/reviews/sub/keep.txt").write_text("k\n")
+        subprocess.run(["git", "init", "-q", "-b", "main", str(repo)], check=True)
+        subprocess.run(["git", "-C", str(repo), "add", "-A"], check=True)
+        subprocess.run(["git", "-C", str(repo), "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q", "-m", "x"],
+                       check=True)
+        result = land.archive(repo, "todos/551-pending-p3-x.md", "r", "2026-09-27")
+        check("H2: a '..' through an EXISTING directory also gets normalised paths",
+              "docs/reviews/h2b-COMPLETED.md" in result["paths"]
+              and not any(".." in p for p in result["paths"]), result["paths"])
+        check("H2: the archived todo's own source_review is normalised too",
+              todofile.read_frontmatter(repo / result["archived"])["source_review"]
+              == "docs/reviews/h2b-COMPLETED.md")
+
+    # H2: an absolute source_review, even one that resolves inside docs/reviews/, is a
+    # no-op -- never stamped into the todo's own frontmatter as a machine-specific path.
+    with tempfile.TemporaryDirectory() as tmp:
+        repo = Path(tmp) / "repo"
+        (repo / "todos" / "archive").mkdir(parents=True)
+        (repo / "docs" / "reviews").mkdir(parents=True)
+        (repo / "todos" / "archive" / ".keep").write_text("")
+        abs_review = str((repo / "docs/reviews/h2c.md").resolve())
+        (repo / "todos" / "552-pending-p3-x.md").write_text(simple_todo_text("552", abs_review, "1"))
+        (repo / "docs/reviews/h2c.md").write_text("# R\n\n## Finding Status\n\n- [ ] #1 x → todo 552\n")
+        subprocess.run(["git", "init", "-q", "-b", "main", str(repo)], check=True)
+        subprocess.run(["git", "-C", str(repo), "add", "-A"], check=True)
+        subprocess.run(["git", "-C", str(repo), "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q", "-m", "x"],
+                       check=True)
+        result = land.archive(repo, "todos/552-pending-p3-x.md", "r", "2026-09-27")
+        check("H2: an absolute source_review that resolves inside docs/reviews/ is still a no-op",
+              result["review"]["note"] == f"source_review is not a review doc: {abs_review}"
+              and result["review"]["renamed"] is False, result)
+        check("H2: the review doc itself was never touched",
+              "- [ ] #1 x" in (repo / "docs/reviews/h2c.md").read_text())
+
+    # H3: a todo with no frontmatter block at all refuses cleanly in phase 1.
+    with tempfile.TemporaryDirectory() as tmp:
+        repo = Path(tmp) / "repo"
+        (repo / "todos" / "archive").mkdir(parents=True)
+        (repo / "todos" / "archive" / ".keep").write_text("")
+        (repo / "todos" / "560-pending-p3-x.md").write_text(
+            "# T\n\n## Acceptance Criteria\n\n- [x] a\n\n## Work Log\n\n### d - created\n\n## Notes\n\nn\n")
+        subprocess.run(["git", "init", "-q", "-b", "main", str(repo)], check=True)
+        subprocess.run(["git", "-C", str(repo), "add", "todos"], check=True)
+        subprocess.run(["git", "-C", str(repo), "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q", "-m", "x"],
+                       check=True)
+        before_status = git_status(repo)
+        msg = raises(lambda: land.archive(repo, "todos/560-pending-p3-x.md", "r", "2026-09-27"))
+        check("H3: a todo with no frontmatter block refuses", "no frontmatter" in msg, msg)
+        check("H3: that refusal leaves git status unchanged", git_status(repo) == before_status)
+
+    # H3: an untracked todo refuses cleanly in phase 1 (never reaches git mv).
+    with tempfile.TemporaryDirectory() as tmp:
+        repo = Path(tmp) / "repo"
+        (repo / "todos" / "archive").mkdir(parents=True)
+        (repo / "todos" / "archive" / ".keep").write_text("")
+        subprocess.run(["git", "init", "-q", "-b", "main", str(repo)], check=True)
+        subprocess.run(["git", "-C", str(repo), "add", "todos/archive/.keep"], check=True)
+        subprocess.run(["git", "-C", str(repo), "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q", "-m", "x"],
+                       check=True)
+        (repo / "todos" / "561-pending-p3-x.md").write_text(simple_todo_text("561", None, None))
+        before_status = git_status(repo)
+        msg = raises(lambda: land.archive(repo, "todos/561-pending-p3-x.md", "r", "2026-09-27"))
+        check("H3: an untracked todo refuses", "not tracked in git" in msg, msg)
+        check("H3: that refusal leaves git status unchanged", git_status(repo) == before_status)
+
+    # H3: a multi-line 'status' value (set_fields can't rewrite it in place) refuses.
+    with tempfile.TemporaryDirectory() as tmp:
+        repo = Path(tmp) / "repo"
+        (repo / "todos" / "archive").mkdir(parents=True)
+        (repo / "todos" / "archive" / ".keep").write_text("")
+        (repo / "todos" / "562-pending-p3-x.md").write_text(
+            '---\nstatus: |\n  pending\n  weird\nissue_id: "562"\n---\n\n# T\n\n'
+            "## Acceptance Criteria\n\n- [x] a\n\n## Work Log\n\n### d - created\n\n## Notes\n\nn\n")
+        subprocess.run(["git", "init", "-q", "-b", "main", str(repo)], check=True)
+        subprocess.run(["git", "-C", str(repo), "add", "todos"], check=True)
+        subprocess.run(["git", "-C", str(repo), "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q", "-m", "x"],
+                       check=True)
+        before_status = git_status(repo)
+        msg = raises(lambda: land.archive(repo, "todos/562-pending-p3-x.md", "r", "2026-09-27"))
+        check("H3: a multi-line 'status' value refuses", "multi-line" in msg, msg)
+        check("H3: that refusal leaves git status unchanged", git_status(repo) == before_status)
+
+    # H3: a multi-line 'source_review' value refuses too -- only checked when a rename
+    # is actually planned (this fixture's only finding closes the section), since
+    # that's the only path that would later call set_fields(source_review=...).
+    with tempfile.TemporaryDirectory() as tmp:
+        repo = Path(tmp) / "repo"
+        (repo / "todos" / "archive").mkdir(parents=True)
+        (repo / "docs" / "reviews").mkdir(parents=True)
+        (repo / "todos" / "archive" / ".keep").write_text("")
+        (repo / "todos" / "593-pending-p3-x.md").write_text(
+            '---\nstatus: pending\npriority: p3\nissue_id: "593"\ndependencies: []\n'
+            'source_review: >-\n  docs/reviews/h3d.md\nsource_finding: "1"\n---\n\n# T\n\n'
+            "## Acceptance Criteria\n\n- [x] a\n\n## Work Log\n\n### d - created\n\n## Notes\n\nn\n")
+        (repo / "docs/reviews/h3d.md").write_text("# R\n\n## Finding Status\n\n- [ ] #1 x → todo 593\n")
+        subprocess.run(["git", "init", "-q", "-b", "main", str(repo)], check=True)
+        subprocess.run(["git", "-C", str(repo), "add", "-A"], check=True)
+        subprocess.run(["git", "-C", str(repo), "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q", "-m", "x"],
+                       check=True)
+        before_status = git_status(repo)
+        msg = raises(lambda: land.archive(repo, "todos/593-pending-p3-x.md", "r", "2026-09-27"))
+        check("H3: a multi-line 'source_review' value refuses when a rename is planned",
+              "source_review" in msg and "multi-line" in msg, msg)
+        check("H3: that refusal leaves git status unchanged", git_status(repo) == before_status)
+
+    # H3: a missing 'todos/archive/' directory refuses cleanly in phase 1.
+    with tempfile.TemporaryDirectory() as tmp:
+        repo = Path(tmp) / "repo"
+        (repo / "todos").mkdir(parents=True)
+        (repo / "todos" / "563-pending-p3-x.md").write_text(simple_todo_text("563", None, None))
+        subprocess.run(["git", "init", "-q", "-b", "main", str(repo)], check=True)
+        subprocess.run(["git", "-C", str(repo), "add", "todos"], check=True)
+        subprocess.run(["git", "-C", str(repo), "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q", "-m", "x"],
+                       check=True)
+        before_status = git_status(repo)
+        msg = raises(lambda: land.archive(repo, "todos/563-pending-p3-x.md", "r", "2026-09-27"))
+        check("H3: a missing todos/archive/ directory refuses", "does not exist" in msg, msg)
+        check("H3: that refusal leaves git status unchanged", git_status(repo) == before_status)
+
+    # H4: a lone fence-toggling line (``` or ~~~) in a quoted evidence tail must not
+    # hide a REAL unchecked box elsewhere in the file from the archive gate.
+    for fence in ("~~~", "```"):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp) / "repo"
+            (repo / "todos" / "archive").mkdir(parents=True)
+            (repo / "todos" / "archive" / ".keep").write_text("")
+            (repo / "todos" / "570-pending-p3-x.md").write_text(
+                '---\nstatus: pending\npriority: p3\nissue_id: "570"\ndependencies: []\n---\n\n# T\n\n'
+                "## Acceptance Criteria\n\n- [ ] a\n\n## Work Log\n\n### d - created\n\n"
+                "## Notes\n\n- [ ] real open sub-task\n")
+            (repo / ".sweep-evidence/g").mkdir(parents=True)
+            (repo / ".sweep-evidence/g/e.txt").write_text(f"ok\n{fence}\nend\n")
+            subprocess.run(["git", "init", "-q", "-b", "main", str(repo)], check=True)
+            subprocess.run(["git", "-C", str(repo), "add", "todos"], check=True)
+            subprocess.run(["git", "-C", str(repo), "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q", "-m",
+                            "x"], check=True)
+            land.flip_acs(repo, "todos/570-pending-p3-x.md",
+                          [{"todo": "570", "index": 0, "text": "a", "command": "pytest",
+                            "evidence_path": ".sweep-evidence/g/e.txt", "pass": True}],
+                          [{"todo": "570", "index": 0, "verified": True}], "r", "2026-09-27")
+            msg = raises(lambda: land.archive(repo, "todos/570-pending-p3-x.md", "r", "2026-09-27"))
+            check(f"H4: a lone {fence!r} line in a quoted tail doesn't hide a real bare box",
+                  "unchecked criteria" in msg, msg)
+
+    # H5/G1: a real flip (with a Verified note for THIS run) DOES claim "evidence is
+    # quoted above" -- the positive-path mutation-survival gap from round 2.
+    with tempfile.TemporaryDirectory() as tmp:
+        repo = setup(tmp)
+        rel = "todos/412-pending-p3-a.md"
+        (repo / ".sweep-evidence/g1/412-ac3.txt").write_text("ok\n")
+        land.flip_acs(repo, rel, [entry("412", 0), entry("412", 1), entry("412", 2)],
+                      [agree("412", 0), agree("412", 1), agree("412", 2)], "r", "2026-09-27")
+        result = land.archive(repo, rel, "r", "2026-09-27")
+        note = (repo / result["archived"]).read_text()
+        check("H5/G1: a real flip claims 'evidence is quoted above'", "evidence is quoted above" in note, note)
+
+    # H5/G1: the claim is tied to THIS run_id -- a Verified note from a different run
+    # (however real) does not count.
+    with tempfile.TemporaryDirectory() as tmp:
+        repo = setup(tmp)
+        rel = "todos/412-pending-p3-a.md"
+        (repo / ".sweep-evidence/g1/412-ac3.txt").write_text("ok\n")
+        land.flip_acs(repo, rel, [entry("412", 0), entry("412", 1), entry("412", 2)],
+                      [agree("412", 0), agree("412", 1), agree("412", 2)], "other-run", "2026-09-27")
+        result = land.archive(repo, rel, "this-run", "2026-09-27")
+        note = (repo / result["archived"]).read_text()
+        check("H5/G1: a Verified note from a DIFFERENT run_id does not count",
+              "evidence is quoted above" not in note, note)
+
+    # H5/G4: a non-.md path gives a no-op note (is_file kept -- see the directory case
+    # right after, which needs is_file specifically, not merely 'exists').
+    with tempfile.TemporaryDirectory() as tmp:
+        repo = Path(tmp) / "repo"
+        (repo / "todos" / "archive").mkdir(parents=True)
+        (repo / "docs" / "reviews").mkdir(parents=True)
+        (repo / "todos" / "archive" / ".keep").write_text("")
+        (repo / "todos" / "580-pending-p3-x.md").write_text(simple_todo_text("580", "docs/reviews/r.txt", "1"))
+        (repo / "docs/reviews/r.txt").write_text("not markdown\n")
+        subprocess.run(["git", "init", "-q", "-b", "main", str(repo)], check=True)
+        subprocess.run(["git", "-C", str(repo), "add", "-A"], check=True)
+        subprocess.run(["git", "-C", str(repo), "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q", "-m", "x"],
+                       check=True)
+        result = land.archive(repo, "todos/580-pending-p3-x.md", "r", "2026-09-27")
+        check("H5/G4: a non-.md path is a no-op, not a review doc",
+              result["review"]["note"] == "source_review is not a review doc: docs/reviews/r.txt", result)
+
+    # H5/G4: a directory sitting where the review doc would be is a no-op, not read
+    # as if it were the file -- is_file() must stay, not loosen to exists().
+    with tempfile.TemporaryDirectory() as tmp:
+        repo = Path(tmp) / "repo"
+        (repo / "todos" / "archive").mkdir(parents=True)
+        (repo / "docs" / "reviews").mkdir(parents=True)
+        (repo / "todos" / "archive" / ".keep").write_text("")
+        (repo / "todos" / "581-pending-p3-x.md").write_text(simple_todo_text("581", "docs/reviews/r.md", "1"))
+        (repo / "docs/reviews/r.md").mkdir()
+        (repo / "docs/reviews/r.md/keep").write_text("k")
+        subprocess.run(["git", "init", "-q", "-b", "main", str(repo)], check=True)
+        subprocess.run(["git", "-C", str(repo), "add", "-A"], check=True)
+        subprocess.run(["git", "-C", str(repo), "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q", "-m", "x"],
+                       check=True)
+        result = land.archive(repo, "todos/581-pending-p3-x.md", "r", "2026-09-27")
+        check("H5/G4: a directory named like the review doc is a no-op",
+              result["review"]["note"] == "source_review is not a review doc: docs/reviews/r.md", result)
+
+    # H5/G5: an evidence_path itself (not just `command`) containing an embedded
+    # newline + heading is sanitized when quoted, not injected -- and the flip that
+    # legitimately resolves to a file with that literal name still succeeds.
+    with tempfile.TemporaryDirectory() as tmp:
+        repo = setup(tmp)
+        rel = "todos/412-pending-p3-a.md"
+        (repo / ".sweep-evidence/g1/412-ac3.txt").write_text("ok\n")
+        weird_name = "412-ac1b.txt\n## injected"
+        (repo / ".sweep-evidence/g1" / weird_name).write_text("ok\n")
+        mal = entry("412", 0)
+        mal["evidence_path"] = f".sweep-evidence/g1/{weird_name}"
+        flipped, left = land.flip_acs(repo, rel, [mal, entry("412", 1), entry("412", 2)],
+                                      [agree("412", 0), agree("412", 1), agree("412", 2)], "r", "2026-09-27")
+        text = (repo / rel).read_text()
+        check("H5/G5: a flip with a newline-bearing evidence_path still succeeds", flipped == [0, 1, 2], flipped)
+        check("H5/G5: an evidence_path containing a newline+heading is sanitized, not injected",
+              sum(1 for line in text.splitlines() if line.startswith("## ")) == 3, text)
+        check("H5/G5: the sanitized evidence_path still appears, flattened to one line",
+              ".sweep-evidence/g1/412-ac1b.txt ## injected" in text, text)
+
+    # H5/G7: checked-first, open-second, BOTH targeting this todo -- the open line
+    # gets checked off (the simplest duplicate case, straight from the ruling text).
+    with tempfile.TemporaryDirectory() as tmp:
+        repo = Path(tmp) / "repo"
+        (repo / "todos" / "archive").mkdir(parents=True)
+        (repo / "docs" / "reviews").mkdir(parents=True)
+        (repo / "todos" / "archive" / ".keep").write_text("")
+        (repo / "todos" / "590-pending-p3-x.md").write_text(simple_todo_text("590", "docs/reviews/g7c.md", "1"))
+        (repo / "docs/reviews/g7c.md").write_text(
+            "# R\n\n## Finding Status\n\n- [x] #1 a → todo 590 (completed 2026-01-01)\n- [ ] #1 b → todo 590\n")
+        subprocess.run(["git", "init", "-q", "-b", "main", str(repo)], check=True)
+        subprocess.run(["git", "-C", str(repo), "add", "-A"], check=True)
+        subprocess.run(["git", "-C", str(repo), "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q", "-m", "x"],
+                       check=True)
+        result = land.archive(repo, "todos/590-pending-p3-x.md", "r", "2026-09-27")
+        g7c = (repo / "docs/reviews/g7c-COMPLETED.md").read_text()
+        check("H5/G7: checked-first, open-second (both target this todo) -- the open line is checked off",
+              "- [x] #1 b → todo 590 (completed 2026-09-27)" in g7c, g7c)
+        check("H5/G7: both lines end up checked, so the review doc renames",
+              result["review"]["renamed"] is True, result)
+
+    # H5/G7 behaviour: several OPEN lines for this finding that all target this todo
+    # ship together -- they are the same finding, not independent duplicates.
+    with tempfile.TemporaryDirectory() as tmp:
+        repo = Path(tmp) / "repo"
+        (repo / "todos" / "archive").mkdir(parents=True)
+        (repo / "docs" / "reviews").mkdir(parents=True)
+        (repo / "todos" / "archive" / ".keep").write_text("")
+        (repo / "todos" / "591-pending-p3-x.md").write_text(simple_todo_text("591", "docs/reviews/g7d.md", "1"))
+        (repo / "docs/reviews/g7d.md").write_text(
+            "# R\n\n## Finding Status\n\n- [ ] #1 a → todo 591\n- [ ] #1 b → todo 591\n")
+        subprocess.run(["git", "init", "-q", "-b", "main", str(repo)], check=True)
+        subprocess.run(["git", "-C", str(repo), "add", "-A"], check=True)
+        subprocess.run(["git", "-C", str(repo), "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q", "-m", "x"],
+                       check=True)
+        result = land.archive(repo, "todos/591-pending-p3-x.md", "r", "2026-09-27")
+        g7d = (repo / "docs/reviews/g7d-COMPLETED.md").read_text()
+        check("H5/G7: several open lines all targeting this todo are ALL checked off together",
+              "- [x] #1 a → todo 591 (completed 2026-09-27)" in g7d
+              and "- [x] #1 b → todo 591 (completed 2026-09-27)" in g7d, g7d)
+        check("H5/G7: checking off both closes the section, so it renames",
+              result["review"]["renamed"] is True, result)
+
+    # H5/G7 note fallback: an open line for someone ELSE listed FIRST, this todo's own
+    # already-checked line SECOND -- must still read "already checked" (probe's "dup h").
+    with tempfile.TemporaryDirectory() as tmp:
+        repo = Path(tmp) / "repo"
+        (repo / "todos" / "archive").mkdir(parents=True)
+        (repo / "docs" / "reviews").mkdir(parents=True)
+        (repo / "todos" / "archive" / ".keep").write_text("")
+        (repo / "todos" / "592-pending-p3-x.md").write_text(simple_todo_text("592", "docs/reviews/g7e.md", "1"))
+        (repo / "docs/reviews/g7e.md").write_text(
+            "# R\n\n## Finding Status\n\n- [ ] #1 a → todo 999 (re-pointed 2026-01-01)\n"
+            "- [x] #1 b → todo 592 (completed 2026-01-01)\n")
+        subprocess.run(["git", "init", "-q", "-b", "main", str(repo)], check=True)
+        subprocess.run(["git", "-C", str(repo), "add", "-A"], check=True)
+        subprocess.run(["git", "-C", str(repo), "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q", "-m", "x"],
+                       check=True)
+        result = land.archive(repo, "todos/592-pending-p3-x.md", "r", "2026-09-27")
+        check("H5/G7: an open-other-target line FIRST, this todo's checked line SECOND "
+              "-- still reads 'already checked'",
+              result["review"]["note"] == "already checked", result)
+        check("H5/G7: the open-other-target line is untouched",
+              "- [ ] #1 a → todo 999" in (repo / "docs/reviews/g7e.md").read_text())
 
     print()
     if FAILURES:

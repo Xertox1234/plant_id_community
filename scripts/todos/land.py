@@ -30,6 +30,30 @@ or a review doc git doesn't track downgrades to "checked off, no rename",
 never a phase-2 `git mv` failure. `source_review` only ever resolves inside
 `docs/reviews/` (fix round 2, G4) -- a path that escapes it, by `..` or
 otherwise, is just another "not a review doc" value, never read or written.
+
+Fix round 3 widens phase 1's guarantee, and reverses one earlier "not
+changing" call. The planned-rename destination check is `os.path.lexists`,
+not `is_file` (H1): a dangling symlink or a directory sitting where the
+`-COMPLETED` twin should go both count as "something is already there", not
+"go ahead". A plan carries the review doc's normalised, repo-relative POSIX
+path -- derived from the file `_review_path` already resolved, not the raw
+`source` string, which can contain a `..` through a directory that doesn't
+exist and make a plain `open()`/`git mv` refuse even though the resolved file
+is fine (H2); an absolute `source_review` is rejected outright, even one that
+happens to resolve inside `docs/reviews/`, so it never gets stamped into the
+archived todo's own frontmatter. Phase 1 also refuses -- before any write --
+a todo with no frontmatter, one git doesn't track, one whose `status` or
+`source_review` `todofile.set_fields` couldn't rewrite in place (a multi-line
+value), and a missing `todos/archive/` (H3). Every quoted evidence-tail line
+that would toggle `check_archived_todo_status`'s naive fence detector is
+prefixed with a visible marker before quoting (H4): a single stray fence line
+in a tail was shown to hide a real unchecked box for the rest of the file --
+failing OPEN, not just closed -- reversing round 2's call that this was
+acceptable. A duplicate Finding Status line for a finding no longer just
+prefers "the first open one": every open line checkable by this todo (no
+target, or a target matching todo_id) ships together, and when none is
+checkable, the note prefers any line naming this todo over an arbitrary first
+match (H5).
 """
 
 import argparse
@@ -101,9 +125,21 @@ def _valid_evidence(repo, evidence_path):
     return resolved if resolved.is_file() else None
 
 
+def _neutralize_fence(line):
+    """Prefix a line that would toggle the CI tripwire's naive fence detector
+    (fix round 3, H4) with a visible marker. check_archived_todo_status's
+    FENCE_RE toggles on ANY line starting with ``` or ~~~ regardless of how
+    many, so a single stray fence-looking line inside a quoted evidence tail
+    can flip that toggle for the rest of the file -- hiding a real bare box
+    after it (fails OPEN), or exposing a quoted line as a fake one (fails
+    closed). Neither is safe, so every such line is neutralized, always."""
+    return "| " + line if check_archived_todo_status.FENCE_RE.match(line) else line
+
+
 def _fence_quote(lines):
     """A fence marker one backtick longer than the longest run in `lines`,
     minimum 3, so the tail's own content can never close it early (F5b)."""
+    lines = [_neutralize_fence(line) for line in lines]
     text = "\n".join(lines)
     longest = max((len(run) for run in re.findall(r"`+", text)), default=0)
     fence = "`" * max(longest + 1, 3)
@@ -177,8 +213,12 @@ def _review_path(repo, rel):
     """The resolved Path for `rel` if it names a real .md file inside
     <repo>/docs/reviews/, else None (fix round 2, G4). A `source_review` that
     resolves outside docs/reviews/ -- e.g. via '../../' -- is never read or
-    written; it is treated exactly like any other "not a review doc" value."""
-    if not rel or not str(rel).endswith(".md"):
+    written; it is treated exactly like any other "not a review doc" value.
+    An absolute `rel` is rejected outright (fix round 3, H2), consistent with
+    `_valid_evidence` -- even one that happens to resolve inside docs/reviews/
+    is not a repo-relative path, and archiving would otherwise stamp that
+    absolute, machine-specific string into the todo's own frontmatter."""
+    if not rel or not str(rel).endswith(".md") or Path(rel).is_absolute():
         return None
     reviews_dir = (Path(repo) / "docs" / "reviews").resolve()
     candidate = (Path(repo) / rel).resolve()
@@ -193,6 +233,27 @@ def _tracked(repo, rel):
     check this before phase 2, not discover it via a failed mv."""
     proc = subprocess.run(["git", "-C", str(repo), "ls-files", "--error-unmatch", rel], capture_output=True)
     return proc.returncode == 0
+
+
+def _unsettable_key(path, keys):
+    """The first key among `keys` that todofile.set_fields could NOT set on
+    `path` without raising, or None if all of them are settable (fix round 3,
+    H3). Mirrors set_fields' own multi-line check, read-only, so archive()
+    can name the exact offending key and refuse in phase 1 instead of
+    discovering a pre-existing multi-line `status`/`source_review` value via
+    a phase-2 ValueError after the todo has already been git-mv'd."""
+    match = todofile.FM_RE.match(Path(path).read_text())
+    if not match:
+        return keys[0] if keys else None
+    lines = match.group(1).splitlines(keepends=True)
+    for key in keys:
+        for i, line in enumerate(lines):
+            if line.startswith(f"{key}:"):
+                following = lines[i + 1] if i + 1 < len(lines) else ""
+                if following[:1] in (" ", "\t", "-"):
+                    return key
+                break
+    return None
 
 
 def plan_review(repo, todo_path, date):
@@ -216,6 +277,14 @@ def plan_review(repo, todo_path, date):
         if twin_rel is not None and _review_path(repo, twin_rel) is not None:
             return {"finding": finding, "action": "noop", "note": f"source_review already completed: {twin_rel}"}
         return {"finding": finding, "action": "noop", "note": f"source_review is not a review doc: {source}"}
+    # H2: `source` may be an un-normalised repo-relative path (an existing-but-odd
+    # 'docs/reviews/sub/../r.md', or one naming a directory that doesn't exist,
+    # 'docs/reviews/nope/../r.md') -- `review` is already the fully resolved,
+    # real file `_review_path` found, so re-derive the clean POSIX-relative form
+    # from it and use ONLY that from here on for anything that touches disk or
+    # git (never the raw `source` string, which a naive open()/git mv can refuse
+    # on the nonexistent 'nope' segment even though the resolved path is fine).
+    norm_rel = review.relative_to(Path(repo).resolve()).as_posix()
     lines = review.read_text().splitlines(keepends=True)
     start = next((i for i, line in enumerate(lines) if line.rstrip("\n") == "## Finding Status"), None)
     if start is None:
@@ -226,47 +295,58 @@ def plan_review(repo, todo_path, date):
     matches = [i for i in range(start + 1, end) if line_re.match(lines[i])]
     if not matches:
         return {"finding": finding, "action": "noop", "note": f"{source}: no line for finding #{finding}"}
-    # G7: several lines can name the same finding (a stale one plus a live one).
-    # Prefer the first OPEN line that is actually checkable BY THIS TODO (no arrow
-    # target, or a target matching todo_id) -- an open line re-pointed to someone
-    # ELSE is not "the line for this archive" even if it happens to come first among
-    # the open matches (rule 4: X's own already-checked line must still read as
-    # "already checked", not get shadowed by a later re-point of the same finding
-    # number to a different todo). Only fall back to the first match overall (which
-    # may be an already-checked line, or an open-but-irrelevant one) when no match
-    # is checkable by this todo.
-    def _checkable(i):
-        return line_re.match(lines[i]).group(1) == " " and (
-            (t := _target_todo(lines[i])) is None or _same_todo(t, todo_id))
-    checkable = [i for i in matches if _checkable(i)]
-    hit = checkable[0] if checkable else matches[0]
-    if line_re.match(lines[hit]).group(1) != " ":
+
+    def _is_open(i):
+        return line_re.match(lines[i]).group(1) == " "
+
+    def _relevant(i):
+        target = _target_todo(lines[i])
+        return target is None or _same_todo(target, todo_id)
+
+    # H5/G7: several lines can name the same finding (a stale one plus a live one,
+    # or a legacy line plus its re-point). Every OPEN line that is checkable BY THIS
+    # TODO (no arrow target, or a target matching todo_id) ships together -- they
+    # are the same finding, shipped by the same archive. An open line targeting
+    # someone else is never touched. If no line is checkable, fall back to the
+    # first line that at least NAMES this todo (checked or not) over an arbitrary
+    # first match, so "already checked"/"left open" describes THIS todo's own line
+    # in either duplicate order, not whichever line happened to be listed first.
+    checkable = [i for i in matches if _is_open(i) and _relevant(i)]
+    if not checkable:
+        relevant_any = next((i for i in matches if _relevant(i)), None)
+        hit = relevant_any if relevant_any is not None else matches[0]
+        if _is_open(hit):
+            target = _target_todo(lines[hit])
+            return {"finding": finding, "action": "leave_open",
+                    "note": f"finding #{finding} targets todo {target}, not {todo_id}; left open"}
         return {"finding": finding, "action": "noop", "note": "already checked"}
-    target = _target_todo(lines[hit])
-    if target is not None and not _same_todo(target, todo_id):
-        return {"finding": finding, "action": "leave_open",
-                "note": f"finding #{finding} targets todo {target}, not {todo_id}; left open"}
     new_lines = list(lines)
-    new_lines[hit] = new_lines[hit].rstrip("\n").replace("- [ ]", "- [x]", 1) + f" (completed {date})\n"
+    for i in checkable:
+        new_lines[i] = new_lines[i].rstrip("\n").replace("- [ ]", "- [x]", 1) + f" (completed {date})\n"
     open_re = re.compile(r"^\s*-\s\[ \]")
     all_closed = not any(open_re.match(new_lines[i]) for i in range(start + 1, end))
     renamed, completed, note = False, None, "checked off"
     if all_closed:
-        if source.endswith("-COMPLETED.md"):
+        if norm_rel.endswith("-COMPLETED.md"):
             note = "checked off; already a -COMPLETED doc, no further rename"
         else:
-            candidate_rel = source[:-3] + "-COMPLETED.md"
-            # G3: a planned rename must be fully validated here, in phase 1 -- a
+            candidate_rel = norm_rel[:-3] + "-COMPLETED.md"
+            # G3/H1: a planned rename must be fully validated here, in phase 1 -- a
             # destination collision or an untracked source only surfaces as a git
             # failure in phase 2, by which point archive() has already git-mv'd the
             # todo and rewritten the review doc, so LandError there is not an option.
-            if (Path(repo) / candidate_rel).is_file():
+            # os.path.lexists (not is_file): a dangling symlink or a directory at the
+            # destination both count as "something is there" -- is_file() misses both
+            # (False for a broken symlink's target, False for a directory), which let
+            # git either refuse in phase 2 (symlink) or silently move the doc INTO the
+            # directory instead of onto it (directory) -- H1.
+            if os.path.lexists(Path(repo) / candidate_rel):
                 note = f"all findings resolved, but {candidate_rel} already exists; rename skipped"
-            elif not _tracked(repo, source):
-                note = f"all findings resolved, but {source} is not tracked in git; rename skipped"
+            elif not _tracked(repo, norm_rel):
+                note = f"all findings resolved, but {norm_rel} is not tracked in git; rename skipped"
             else:
                 renamed, completed, note = True, candidate_rel, "all findings resolved"
-    return {"finding": finding, "action": "checkoff", "note": note, "source": source,
+    return {"finding": finding, "action": "checkoff", "note": note, "source": norm_rel,
             "new_lines": new_lines, "renamed": renamed, "completed": completed}
 
 
@@ -298,8 +378,18 @@ def archive(repo, todo_rel, run_id, date, git=run_git):
         if dest.is_file():
             raise LandError(f"{todo_rel}: already archived at {dest_rel}")
         raise LandError(f"{todo_rel}: source todo not found")
+    if not dest.parent.is_dir():
+        raise LandError(f"{dest.parent}: does not exist")
     if dest.is_file():
         raise LandError(f"{todo_rel}: destination already exists: {dest_rel}")
+    # H3: each of these would otherwise surface as an exception mid-phase-2 -- a
+    # ValueError from set_fields (no frontmatter, or a multi-line status/source_review
+    # that can't be rewritten in place), or a git failure from mv-ing an untracked
+    # path -- by which point the todo or the review doc may already have moved.
+    if todofile.read_frontmatter(src) is None:
+        raise LandError(f"{todo_rel}: no frontmatter block")
+    if not _tracked(repo, todo_rel):
+        raise LandError(f"{todo_rel}: not tracked in git")
     text = src.read_text()
     if not any(line.rstrip("\n") == "## Acceptance Criteria" for line in text.splitlines()):
         raise LandError(f"{todo_rel}: no '## Acceptance Criteria' section; nothing verified to archive")
@@ -308,6 +398,12 @@ def archive(repo, todo_rel, run_id, date, git=run_git):
         raise LandError(f"{todo_rel}: {len(bare_acs)} unchecked criteria; "
                         "flip them with evidence or re-point them first")
     review_plan = plan_review(repo, src, date)
+    settable = ["status"]
+    if review_plan and review_plan["action"] == "checkoff" and review_plan["renamed"]:
+        settable.append("source_review")
+    bad_key = _unsettable_key(src, settable)
+    if bad_key:
+        raise LandError(f"{todo_rel}: '{bad_key}' has a multi-line value; edit it by hand")
     # G1: whether THIS land wrote a Verified note with evidence for this run_id --
     # not merely whether some box happens to be [x], which is also true for a box
     # that was already checked (by hand, or a past run) with no evidence ever quoted.
