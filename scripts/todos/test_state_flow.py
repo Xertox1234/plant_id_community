@@ -260,6 +260,60 @@ def main():
     check("R2: Y (no dependency) is untouched by the ungrouping",
           run2["todos"]["y1"]["group"] == gy)
 
+    # S1 (probe P4): a PARTLY emptied dependency group must also release its
+    # dependents. x1 and x2 share a group (same predicted file); z depends on
+    # x1. x1 is retried (ungrouped) but x2 is separately blocked, so the
+    # group still lists x2 -- it must still count as stale.
+    run4 = ready_run([("x1", ["shared4.py"]), ("x2", ["shared4.py"]), ("z1", ["depz4.py"])], workers=1)
+    run4["todos"]["z1"]["dependencies"] = ["x1"]
+    state.apply_grouping(run4)
+    g1_4 = run4["todos"]["x1"]["group"]
+    check("s1 setup: x1 and x2 share a group; z's group depends on it",
+          run4["todos"]["x2"]["group"] == g1_4
+          and run4["groups"][run4["todos"]["z1"]["group"]]["deps"] == [g1_4])
+    # Drive x1 to failed-then-ready (retried) and x2 to blocked directly via transition(),
+    # rather than through execute_args/ingest_execute: the two must diverge, and a single
+    # shared-group worker result cannot express that (one worker, one outcome, one PR).
+    state.transition(run4, "x1", "executing", group=g1_4, slot=1, wave=0, main_root="/m")
+    state.transition(run4, "x1", "staged", worktree="/wtx1", branch="bx1", tree_id="Tx1", ac_file="ax1")
+    state.transition(run4, "x1", "failed", reason="verifier disagreed")
+    state.transition(run4, "x1", "ready")
+    state.transition(run4, "x2", "blocked", reason="owner decision")
+    old_z4_group = run4["todos"]["z1"]["group"]
+    state.apply_grouping(run4)
+    check("S1: a partly emptied dependency group (x2 still present, blocked) still releases its dependent",
+          run4["todos"]["z1"]["group"] != old_z4_group)
+    new_x1_wave = next(w for w, gids in enumerate(run4["waves"]) if run4["todos"]["x1"]["group"] in gids)
+    new_z4_wave = next(w for w, gids in enumerate(run4["waves"]) if run4["todos"]["z1"]["group"] in gids)
+    check("S1: z's new wave comes at least 2 waves after x1's new wave",
+          new_z4_wave >= new_x1_wave + 2, (new_x1_wave, new_z4_wave))
+
+    # S2: the ungrouping fixpoint must be transitive, not a single pass. Chain
+    # x1 <- m1 <- a1 (a1 depends on m1, m1 depends on x1). x1 retries; both m1
+    # and a1 must be ungrouped and re-placed >= 2 waves after their dependency
+    # -- ids are chosen ("a1" sorts before "m1") so a single, non-repeating
+    # pass would ungroup m1 but miss a1 (a1 is visited before m1 in that pass).
+    run_chain = ready_run([("x1", ["chx.py"]), ("m1", ["chm.py"]), ("a1", ["cha.py"])], workers=1)
+    run_chain["todos"]["m1"]["dependencies"] = ["x1"]
+    run_chain["todos"]["a1"]["dependencies"] = ["m1"]
+    state.apply_grouping(run_chain)
+    bxc = state.execute_args(run_chain, 0, "/m")
+    gxc, idxc = bxc[0]["group"], bxc[0]["ids"]
+    state.ingest_execute(run_chain, [{"group": gxc, "ids": idxc, "worker": None, "verdict": None,
+                                      "retried": False}])
+    for i in idxc:
+        state.transition(run_chain, i, "ready")
+    old_m_group, old_a_group = run_chain["todos"]["m1"]["group"], run_chain["todos"]["a1"]["group"]
+    state.apply_grouping(run_chain)
+    check("S2: the transitive fixpoint ungroups both M and A, not just M",
+          run_chain["todos"]["m1"]["group"] != old_m_group and run_chain["todos"]["a1"]["group"] != old_a_group,
+          (run_chain["todos"]["m1"]["group"], run_chain["todos"]["a1"]["group"]))
+    new_x_wave_c = next(w for w, gids in enumerate(run_chain["waves"]) if run_chain["todos"]["x1"]["group"] in gids)
+    new_m_wave_c = next(w for w, gids in enumerate(run_chain["waves"]) if run_chain["todos"]["m1"]["group"] in gids)
+    new_a_wave_c = next(w for w, gids in enumerate(run_chain["waves"]) if run_chain["todos"]["a1"]["group"] in gids)
+    check("S2: M's new wave is at least 2 waves after X's new wave", new_m_wave_c >= new_x_wave_c + 2)
+    check("S2: A's new wave is at least 2 waves after M's new wave", new_a_wave_c >= new_m_wave_c + 2)
+
     # R4: evaluate() compares verdict/worker ids order-insensitively.
     reordered = verdict(["1", "2"])
     reordered["ids"] = ["2", "1"]
@@ -334,12 +388,12 @@ def main():
                                          text=True).stdout.strip()
         shutil.rmtree(wt)
         run_c = worktree_run("c1", "gc", "worktree-g1", worktree=str(wt), tree_id=committed_tree)
-        path = state.ensure_worktree(run_c, "gc", Path(tmp) / "scratch", git=git)
+        path, err = expect(lambda: state.ensure_worktree(run_c, "gc", Path(tmp) / "scratch", git=git))
         check("a missing worktree with committed work is re-added from its branch",
-              Path(path).is_dir() and path.endswith("gc"), path)
-        check("the run file points at the new worktree", run_c["todos"]["c1"]["worktree"] == path)
-        check("an existing worktree whose tree still matches is left alone",
-              state.ensure_worktree(run_c, "gc", Path(tmp) / "scratch") == path)
+              err is None and path is not None and Path(path).is_dir() and path.endswith("gc"), err or path)
+        check("the run file points at the new worktree", err is None and run_c["todos"]["c1"]["worktree"] == path)
+        path2, err2 = expect(lambda: state.ensure_worktree(run_c, "gc", Path(tmp) / "scratch"))
+        check("an existing worktree whose tree still matches is left alone", err2 is None and path2 == path, err2)
 
         # R3: a resumed Land stages and commits its own edits (todos/, docs/reviews/,
         # .secrets.baseline) on top of the recorded tree_id -- that must be accepted,
@@ -348,8 +402,9 @@ def main():
         (land_wt / "todos").mkdir(exist_ok=True)
         (land_wt / "todos" / "100-completed-p3-x.md").write_text("archived by land\n")
         subprocess.run(["git", "-C", str(land_wt), "add", "-A"], check=True)
+        land_path, err3 = expect(lambda: state.ensure_worktree(run_c, "gc", Path(tmp) / "scratch"))
         check("a resumed Land's todos/ edit is accepted, not read as lost work",
-              state.ensure_worktree(run_c, "gc", Path(tmp) / "scratch") == str(land_wt))
+              err3 is None and land_path == str(land_wt), err3)
 
         source_wt = Path(tmp) / "worker-wt3"
         subprocess.run(["git", "-C", str(repo), "worktree", "add", "-q", "-b", "worktree-g1-src", str(source_wt),
@@ -382,6 +437,39 @@ def main():
               raises(lambda: state.ensure_worktree(run_d, "gd", Path(tmp) / "scratch3", git=git), RuntimeError)
               and (existing / "keep.txt").exists())
 
+        # S3: an empty current tree must be rejected even when the recorded tree held
+        # only todos/ files -- the ls-tree emptiness guard, not just the path allowlist
+        # (a diff from a todos/-only tree to nothing would otherwise pass the allowlist).
+        todos_only_wt = Path(tmp) / "worker-wt4"
+        subprocess.run(["git", "-C", str(repo), "worktree", "add", "-q", "-b", "worktree-g4", str(todos_only_wt)],
+                       check=True)
+        (todos_only_wt / "todos").mkdir()
+        (todos_only_wt / "todos" / "100-x.md").write_text("hello\n")
+        subprocess.run(["git", "-C", str(todos_only_wt), "add", "-A"], check=True)
+        todos_only_tree = subprocess.run(["git", "-C", str(todos_only_wt), "write-tree"], capture_output=True,
+                                          text=True).stdout.strip()
+        (todos_only_wt / "todos" / "100-x.md").unlink()
+        subprocess.run(["git", "-C", str(todos_only_wt), "add", "-A"], check=True)
+        run_empty = worktree_run("e1", "ge", "worktree-g4", worktree=str(todos_only_wt), tree_id=todos_only_tree)
+        check("an empty current tree is rejected even though the recorded tree held only todos/ files",
+              raises(lambda: state.ensure_worktree(run_empty, "ge", Path(tmp) / "scratch"), RuntimeError))
+
+        # S4: a path that merely starts with the same letters (no slash) must still be
+        # rejected -- proves the prefix check's trailing slash is load-bearing.
+        slash_wt = Path(tmp) / "worker-wt5"
+        subprocess.run(["git", "-C", str(repo), "worktree", "add", "-q", "-b", "worktree-g5", str(slash_wt)],
+                       check=True)
+        slash_baseline = subprocess.run(["git", "-C", str(slash_wt), "write-tree"], capture_output=True,
+                                         text=True).stdout.strip()
+        (slash_wt / "todos_x").mkdir()
+        (slash_wt / "todos_x" / "f.md").write_text("not really todos/\n")
+        (slash_wt / "docs" / "reviews-old").mkdir(parents=True)
+        (slash_wt / "docs" / "reviews-old" / "r.md").write_text("not really docs/reviews/\n")
+        subprocess.run(["git", "-C", str(slash_wt), "add", "-A"], check=True)
+        run_slash = worktree_run("sl1", "gslash", "worktree-g5", worktree=str(slash_wt), tree_id=slash_baseline)
+        check("todos_x/ and docs/reviews-old/ are rejected -- the prefix check's trailing slash matters",
+              raises(lambda: state.ensure_worktree(run_slash, "gslash", Path(tmp) / "scratch"), RuntimeError))
+
     # R4: ensure_worktree must use the entry's main_root for -C, not the process cwd.
     # Uses the real run_git (no override) and runs from a cwd outside the repo, so a
     # regression to a hardcoded "." would fail (that cwd is not a git repo at all).
@@ -397,11 +485,12 @@ def main():
         prev_cwd = os.getcwd()
         os.chdir(elsewhere)
         try:
-            path = state.ensure_worktree(run_mr, "gmr", Path(tmp) / "scratch-mr")
+            path_mr, err_mr = expect(lambda: state.ensure_worktree(run_mr, "gmr", Path(tmp) / "scratch-mr"))
         finally:
             os.chdir(prev_cwd)
         check("ensure_worktree uses the entry's main_root for -C, not the process cwd",
-              Path(path).is_dir() and path.endswith("gmr"))
+              err_mr is None and path_mr is not None and Path(path_mr).is_dir() and path_mr.endswith("gmr"),
+              err_mr)
 
     # F6 (CLI): an out-of-range wave must exit 2 with a message, not an uncaught traceback.
     with tempfile.TemporaryDirectory() as tmp:
@@ -429,6 +518,17 @@ def raises(fn, exc=state.TransitionError):
     except exc:
         return True
     return False
+
+
+def expect(fn):
+    """Call fn(), returning (result, None) on success or (None, exc) on any
+    exception -- S4: a check that expects fn() to SUCCEED must still print a
+    clean FAIL when a regression makes it raise, instead of aborting the
+    whole suite with an uncaught traceback."""
+    try:
+        return fn(), None
+    except Exception as exc:  # noqa: BLE001 -- deliberately broad, see docstring
+        return None, exc
 
 
 if __name__ == "__main__":

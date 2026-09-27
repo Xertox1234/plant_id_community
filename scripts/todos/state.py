@@ -256,11 +256,23 @@ def _group_entries(run, gid):
     return [(i, run["todos"][i]) for i in run["groups"][gid]["ids"] if run["todos"][i].get("group") == gid]
 
 
+def _group_is_stale(run, gid):
+    """True when any todo originally placed in gid no longer belongs to it
+    (spec S1): a group that lost SOME of its members to a retry is just as
+    stale as one that lost all of them -- its wave was placed assuming every
+    original member would run there together, and that assumption is gone
+    the moment even one has moved elsewhere. A fully emptied group (every id
+    moved) is the special case where this is also true.
+    """
+    return any(run["todos"][i].get("group") != gid for i in run["groups"][gid]["ids"])
+
+
 def _ungroup_stale_deps(run):
     """Drop the group of any ready todo whose group depends, directly or
-    transitively, on a group a retry has emptied (spec R2): its wave was
-    placed relative to a dependency that has since moved to a later wave, so
-    its own placement can no longer be trusted and must be recomputed.
+    transitively, on a group a retry has emptied or partly emptied (spec R2,
+    S1): its wave was placed relative to a dependency that has since moved
+    to a later wave, so its own placement can no longer be trusted and must
+    be recomputed.
     """
     changed = True
     while changed:
@@ -269,7 +281,7 @@ def _ungroup_stale_deps(run):
             gid = entry.get("group")
             if entry["stage"] != "ready" or gid is None:
                 continue
-            if any(not _group_entries(run, dep) for dep in run["groups"][gid]["deps"]):
+            if any(_group_is_stale(run, dep) for dep in run["groups"][gid]["deps"]):
                 entry.pop("group", None)
                 changed = True
 
