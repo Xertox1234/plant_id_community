@@ -16,7 +16,7 @@ fi
 # Temp files, not `diff <(…) <(…)`: process substitution needs /dev/fd, which the
 # Claude Code sandbox blocks, and that made this check report a false STALE for
 # every sandboxed commit (memory: project_sandbox_devfd_false_stale_kimi).
-CANON_BODY=$(mktemp) && VENDORED_BODY=$(mktemp) || exit 1
+CANON_BODY=$(mktemp "${TMPDIR:-/tmp}/kimi-engine.XXXXXX") && VENDORED_BODY=$(mktemp "${TMPDIR:-/tmp}/kimi-engine.XXXXXX") || exit 1
 trap 'rm -f "$CANON_BODY" "$VENDORED_BODY"' EXIT
 tail -n +2 "$CANON" > "$CANON_BODY"
 tail -n +2 "$VENDORED" > "$VENDORED_BODY"
