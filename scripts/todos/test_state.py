@@ -76,8 +76,11 @@ def main():
     walk = state.new_run("r2", "sweep", 3, [todo("1")], ["1"])
     for stage in ["triaged", "ready", "executing", "failed"]:
         state.transition(walk, "1", stage, reason="r" if stage == "failed" else "")
+    walk["todos"]["1"]["group"] = "g1"
     state.transition(walk, "1", "ready")
     check("failed -> ready retries once and counts it", walk["todos"]["1"]["attempts"] == 1)
+    check("failed -> ready drops the todo's group so it can be regrouped",
+          "group" not in walk["todos"]["1"])
     for stage in ["executing", "failed"]:
         state.transition(walk, "1", stage, reason="r2" if stage == "failed" else "")
     check("a second retry is refused", raises(lambda: state.transition(walk, "1", "ready")))

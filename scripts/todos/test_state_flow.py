@@ -9,6 +9,7 @@ moved, or leaves the working tree dirty, must void the verdict.
 """
 
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -51,6 +52,13 @@ def verdict(ids, before="T1", after="T1", clean=True, result="pass", ac_ok=True,
             "tree_id_before": before, "tree_id_after": after, "clean_after": clean}
 
 
+def worktree_run(todo_id, gid, branch, worktree="", tree_id=None, main_root=""):
+    entry = {"stage": "staged", "group": gid, "worktree": worktree, "branch": branch, "main_root": main_root}
+    if tree_id is not None:
+        entry["tree_id"] = tree_id
+    return {"todos": {todo_id: entry}, "groups": {gid: {"ids": [todo_id]}}}
+
+
 def main():
     check("evaluate passes a clean, matching verdict", state.evaluate(worker(["1"]), verdict(["1"])) is None)
     check("no verdict is a problem", state.evaluate(worker(["1"]), None) == "no verdict")
@@ -63,6 +71,15 @@ def main():
           "not clean" in state.evaluate(worker(["1"]), verdict(["1"], clean=False)))
     check("a pass with an unverified criterion is a problem",
           "unverified" in state.evaluate(worker(["1"]), verdict(["1"], ac_ok=False)))
+    empty_ac = verdict(["1"])
+    empty_ac["ac"] = []
+    check("a pass with an empty ac list is a problem", "coverage" in state.evaluate(worker(["1"]), empty_ac))
+    check("a pass whose ac covers only one of two todos is a problem",
+          "coverage" in state.evaluate(worker(["1", "2"]), verdict(["1", "2"])))
+    mismatched = verdict(["1"])
+    mismatched["ids"] = ["2"]
+    check("a verdict naming different todos than the worker is a problem",
+          "different todos" in state.evaluate(worker(["1"]), mismatched))
 
     check("slots alternate between two banks", [state.slot_for(w, p, 3) for w, p in [(0, 1), (0, 3), (1, 1), (2, 2)]]
           == [1, 3, 4, 2])
@@ -108,15 +125,20 @@ def main():
     state.set_group(run, g_ok, "pr_open", pr=861)
     items = state.review_args(run, 1, 0)
     check("review_args lists open PRs in the wave", [i["group"] for i in items] == [g_ok] and items[0]["pr"] == 861)
-    res = state.ingest_review(run, [{"group": g_ok, "ids": ids_ok, "findings": [], "blocking": [],
+    rerun_finding = [{"severity": "low", "file": "a.py", "line": 9, "summary": "should not land", "suggested_fix": ""}]
+    res = state.ingest_review(run, [{"group": g_ok, "ids": ids_ok, "findings": rerun_finding, "blocking": [],
                                      "reviewers_ok": False, "repair": None, "verdict": None}], 1)
-    check("an incomplete review asks for a rerun and changes nothing",
-          res[g_ok] == "rerun" and run["todos"][ids_ok[0]].get("review_round", 0) == 0)
+    check("an incomplete review asks for a rerun and adds no followups",
+          res[g_ok] == "rerun" and run["todos"][ids_ok[0]].get("review_round", 0) == 0
+          and run["todos"][ids_ok[0]].get("followups", []) == [])
     blocking = [{"severity": "high", "file": "a.py", "line": 1, "summary": "bug", "suggested_fix": ""}]
     res = state.ingest_review(run, [{"group": g_ok, "ids": ids_ok, "findings": blocking, "blocking": blocking,
                                      "reviewers_ok": True, "repair": worker(ids_ok, tree="T5"),
-                                     "verdict": verdict(ids_ok, before="T5", after="T5")}], 1)
+                                     "verdict": verdict(ids_ok, before="T5", after="T5", edits=["tests/test_a.py"])}],
+                              1)
     check("a verified round-1 repair is staged for the main session to commit", res[g_ok] == "repair-staged")
+    check("a round-1 repair's flagged test edits carry into round 2",
+          "tests/test_a.py" in state.review_args(run, 2, 0)[0]["test_edits"])
     check("an invalid round number is refused", raises(lambda: state.review_args(run, 3, 0), ValueError))
     low = [{"severity": "low", "file": "a.py", "line": 2, "summary": "nit", "suggested_fix": ""}]
     res = state.ingest_review(run, [{"group": g_ok, "ids": ids_ok, "findings": low, "blocking": [],
@@ -130,6 +152,9 @@ def main():
     state.annotate(run, g_ok, branch="feat/1-x")
     check("annotate records a field without a stage change",
           run["todos"][ids_ok[0]]["branch"] == "feat/1-x" and run["todos"][ids_ok[0]]["stage"] == "reviewed")
+    stage_before = run["todos"][ids_ok[0]]["stage"]
+    check("annotate refuses to set 'stage'", raises(lambda: state.annotate(run, g_ok, stage="archived")))
+    check("the stage is unchanged after the rejected annotate", run["todos"][ids_ok[0]]["stage"] == stage_before)
 
     for i in ids_bad:
         state.transition(run, i, "ready")
@@ -141,22 +166,104 @@ def main():
           run["waves"])
     check("regrouping keeps the earlier groups", g_ok in run["groups"] and g_bad in run["groups"])
     check("the old group no longer counts the retried todo", state._group_entries(run, g_bad) == [])
-    for i in ids_ok:
-        run["todos"][i]["branch"] = "worktree-g1"
+    # F1: regrouping a failed-and-retried todo must not empty other waves, and the
+    # execute_args gate must see past an emptied same-parity wave to an earlier one.
+    run1 = ready_run([("f1", ["e1.py"]), ("f2", ["e2.py"]), ("f3", ["e3.py"]), ("f4", ["e4.py"])], workers=1)
+    state.apply_grouping(run1)
+    check("f1 setup: four singleton waves", len(run1["waves"]) == 4 and all(len(w) == 1 for w in run1["waves"]))
+    fb0 = state.execute_args(run1, 0, "/m")
+    fg0, fid0 = fb0[0]["group"], fb0[0]["ids"]
+    state.ingest_execute(run1, [{"group": fg0, "ids": fid0, "worker": worker(fid0), "verdict": verdict(fid0),
+                                 "retried": False}])
+    state.set_group(run1, fg0, "pr_open", pr=1)
+    fb1 = state.execute_args(run1, 1, "/m")
+    fg1, fid1 = fb1[0]["group"], fb1[0]["ids"]
+    state.ingest_execute(run1, [{"group": fg1, "ids": fid1, "worker": None, "verdict": None, "retried": False}])
+    for i in fid1:
+        state.transition(run1, i, "ready")
+    wave2_before, wave3_before = list(run1["waves"][2]), list(run1["waves"][3])
+    state.apply_grouping(run1)
+    check("waves 2 and 3 keep their original groups after an earlier wave regroups",
+          run1["waves"][2] == wave2_before and run1["waves"][3] == wave3_before, run1["waves"])
+    new_g = run1["todos"][fid1[0]]["group"]
+    check("the retried todo goes into a new, appended wave",
+          len(run1["waves"]) == 5 and new_g not in (fg0, fg1) and run1["waves"][4] == [new_g], run1["waves"])
+    check("execute_args refuses a wave whose earlier same-parity wave is still pr_open",
+          raises(lambda: state.execute_args(run1, 2, "/m"), state.TransitionError))
 
+    # F6: followups are capped at 10 in total across review rounds, not per call.
+    run6 = ready_run([("f6", ["z.py"])], workers=1)
+    state.apply_grouping(run6)
+    g6 = run6["waves"][0][0]
+    state.execute_args(run6, 0, "/m")
+    state.ingest_execute(run6, [{"group": g6, "ids": ["f6"], "worker": worker(["f6"]), "verdict": verdict(["f6"]),
+                                 "retried": False}])
+    state.set_group(run6, g6, "pr_open", pr=42)
+    many = [{"severity": "low", "file": "f.py", "line": n, "summary": "n", "suggested_fix": ""} for n in range(15)]
+    state.ingest_review(run6, [{"group": g6, "ids": ["f6"], "findings": many, "blocking": [],
+                                "reviewers_ok": True, "repair": None, "verdict": None}], 1)
+    state.ingest_review(run6, [{"group": g6, "ids": ["f6"], "findings": many, "blocking": [],
+                                "reviewers_ok": True, "repair": None, "verdict": None}], 2)
+    check("followups are capped at 10 total across rounds, not per call",
+          len(run6["todos"]["f6"]["followups"]) <= 10, run6["todos"]["f6"]["followups"])
+
+    # F3: ensure_worktree must run git against the real repo, recover a worktree whose
+    # directory vanished but whose branch still holds the commit, and refuse to trust
+    # a re-add that silently lost uncommitted (staged-only) work.
     with tempfile.TemporaryDirectory() as tmp:
         repo = Path(tmp) / "repo"
         subprocess.run(["git", "init", "-q", "-b", "main", str(repo)], check=True)
         subprocess.run(["git", "-C", str(repo), "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q",
                         "--allow-empty", "-m", "init"], check=True)
-        subprocess.run(["git", "-C", str(repo), "branch", "worktree-g1"], check=True)
-        for i in ids_ok:
-            run["todos"][i]["worktree"] = str(Path(tmp) / "gone")
-            run["todos"][i]["branch"] = "worktree-g1"
-        path = state.ensure_worktree(run, g_ok, Path(tmp) / "scratch", git=lambda *a: state.run_git(repo, *a[1:]))
-        check("a missing worktree is re-added from its branch", Path(path).is_dir() and path.endswith(g_ok), path)
-        check("the run file points at the new worktree", run["todos"][ids_ok[0]]["worktree"] == path)
-        check("an existing worktree is left alone", state.ensure_worktree(run, g_ok, Path(tmp) / "scratch") == path)
+        git = lambda *a: state.run_git(repo, *a[1:])
+
+        wt = Path(tmp) / "worker-wt"
+        subprocess.run(["git", "-C", str(repo), "worktree", "add", "-q", "-b", "worktree-g1", str(wt)], check=True)
+        (wt / "a.py").write_text("x = 1\n")
+        subprocess.run(["git", "-C", str(wt), "add", "a.py"], check=True)
+        subprocess.run(["git", "-C", str(wt), "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q",
+                        "-m", "work"], check=True)
+        committed_tree = subprocess.run(["git", "-C", str(wt), "write-tree"], capture_output=True,
+                                         text=True).stdout.strip()
+        shutil.rmtree(wt)
+        run_c = worktree_run("c1", "gc", "worktree-g1", worktree=str(wt), tree_id=committed_tree)
+        path = state.ensure_worktree(run_c, "gc", Path(tmp) / "scratch", git=git)
+        check("a missing worktree with committed work is re-added from its branch",
+              Path(path).is_dir() and path.endswith("gc"), path)
+        check("the run file points at the new worktree", run_c["todos"]["c1"]["worktree"] == path)
+        check("an existing worktree whose tree still matches is left alone",
+              state.ensure_worktree(run_c, "gc", Path(tmp) / "scratch") == path)
+
+        wt2 = Path(tmp) / "worker-wt2"
+        subprocess.run(["git", "-C", str(repo), "worktree", "add", "-q", "-b", "worktree-g2", str(wt2)], check=True)
+        (wt2 / "b.py").write_text("y = 2\n")
+        subprocess.run(["git", "-C", str(wt2), "add", "b.py"], check=True)
+        staged_tree = subprocess.run(["git", "-C", str(wt2), "write-tree"], capture_output=True,
+                                      text=True).stdout.strip()
+        shutil.rmtree(wt2)
+        run_s = worktree_run("s1", "gs", "worktree-g2", worktree=str(wt2), tree_id=staged_tree)
+        check("a worktree that lost its only (uncommitted) staged work raises",
+              raises(lambda: state.ensure_worktree(run_s, "gs", Path(tmp) / "scratch", git=git), RuntimeError))
+
+        existing = Path(tmp) / "scratch3" / "gd"
+        existing.mkdir(parents=True)
+        (existing / "keep.txt").write_text("mine")
+        run_d = worktree_run("d1", "gd", "worktree-g1", worktree=str(Path(tmp) / "gone3"))
+        check("a non-empty target directory is never touched",
+              raises(lambda: state.ensure_worktree(run_d, "gd", Path(tmp) / "scratch3", git=git), RuntimeError)
+              and (existing / "keep.txt").exists())
+
+    # F6 (CLI): an out-of-range wave must exit 2 with a message, not an uncaught traceback.
+    with tempfile.TemporaryDirectory() as tmp:
+        run9 = ready_run([("z1", ["zz.py"])], workers=1)
+        state.apply_grouping(run9)
+        runfile = Path(tmp) / "run.json"
+        state.save(run9, runfile)
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        result = subprocess.run([sys.executable, os.path.join(script_dir, "state.py"), "review-args", str(runfile),
+                                  "--round", "1", "--wave", "9"], capture_output=True, text=True)
+        check("review-args on an out-of-range wave exits 2, not a traceback", result.returncode == 2)
+        check("the error is reported as 'state: <message>'", result.stderr.startswith("state: "))
 
     print()
     if FAILURES:

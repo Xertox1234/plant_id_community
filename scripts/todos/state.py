@@ -99,6 +99,7 @@ def transition(run, todo_id, to, **fields):
         if entry["attempts"] >= MAX_RETRIES:
             raise TransitionError(f"{todo_id}: already retried once; block it with a reason")
         entry["attempts"] += 1
+        entry.pop("group", None)  # regroup from scratch; never share a group with the failed attempt
     entry["stage"] = to
     entry.update(fields)
 
@@ -228,7 +229,7 @@ def apply_grouping(run):
     todos = [
         {"id": i, "priority": e["priority"], "dependencies": e["dependencies"],
          "verify_only": e.get("verify_only", False), "triage": e["triage"]}
-        for i, e in sorted(run["todos"].items()) if e["stage"] == "ready"
+        for i, e in sorted(run["todos"].items()) if e["stage"] == "ready" and "group" not in e
     ]
     result = group.plan(todos, set(run["open_ids"]), run["workers"])
     offset = max((int(g[1:]) for g in run["groups"]), default=0)
@@ -260,16 +261,18 @@ def execute_args(run, wave, main_root):
     if wave >= 1:
         for gid in run["waves"][wave - 1]:
             for todo_id, entry in _group_entries(run, gid):
-                if entry["stage"] in {"ready", "executing"}:
+                if entry["stage"] == "executing":
                     raise TransitionError(f"wave {wave - 1} has not finished executing ({todo_id})")
-    if wave >= 2:
-        for gid in run["waves"][wave - 2]:
+    for w in range(wave - 1):  # every earlier wave, not just wave-2: it may hold a same-parity slot
+        for gid in run["waves"][w]:
             for todo_id, entry in _group_entries(run, gid):
                 if entry["stage"] not in TERMINAL | {"merged"}:
-                    raise TransitionError(f"wave {wave - 2} is not merged yet ({todo_id} is {entry['stage']})")
+                    raise TransitionError(f"wave {w} is not merged yet ({todo_id} is {entry['stage']})")
     briefs, gids = [], run["waves"][wave]
     for position, gid in enumerate(gids, start=1):
         entries = _group_entries(run, gid)
+        if not entries:
+            continue  # every todo that was here got regrouped into a later wave
         held = run["groups"][gid]["lanes"]
         forbidden = sorted({lane for other in gids if other != gid for lane in run["groups"][other]["lanes"]})
         slot = slot_for(wave, position, run["workers"])
@@ -303,6 +306,11 @@ def evaluate(worker, verdict):
         return "staged tree changed during verification"
     if not verdict["clean_after"]:
         return "working tree not clean after verification"
+    if "ids" in verdict and list(verdict["ids"]) != list(worker["ids"]):
+        return "verdict covers different todos than the worker"
+    ac_ids = {item["todo"] for item in verdict["ac"]}
+    if not verdict["ac"] or any(i not in ac_ids for i in worker["ids"]):
+        return "verifier passed without acceptance-criteria coverage for every todo"
     if not all(item["verified"] for item in verdict["ac"]):
         return "verifier passed with an unverified criterion"
     return None
@@ -339,6 +347,9 @@ def set_group(run, gid, stage, **fields):
 
 def annotate(run, gid, **fields):
     """Record fields on every todo of a group without a stage change (e.g. a renamed branch)."""
+    for name in ("stage", "attempts", "group"):
+        if name in fields:
+            raise TransitionError(f"{gid}: {name} cannot be set via annotate")
     for _, entry in _group_entries(run, gid):
         entry.update(fields)
 
@@ -370,14 +381,16 @@ def ingest_review(run, results, round_no):
     for result in results:
         gid = result["group"]
         entries = _group_entries(run, gid)
-        follow = [f"{f['file']}:{f['line']} {f['summary']}" for f in result["findings"]
-                  if f["severity"] not in {"critical", "high"}][:10]
         for _, entry in entries:
-            entry.setdefault("followups", []).extend(follow)
             entry["checklist_skipped"] = bool(result.get("checklist_skipped"))
         if not result["reviewers_ok"]:
             outcome[gid] = "rerun"
             continue
+        follow = [f"{f['file']}:{f['line']} {f['summary']}" for f in result["findings"]
+                  if f["severity"] not in {"critical", "high"}]
+        for _, entry in entries:
+            existing = entry.get("followups", [])
+            entry["followups"] = (existing + [f for f in follow if f not in existing])[:10]
         blocking = result["blocking"]
         if round_no == 1:
             if blocking:
@@ -389,6 +402,8 @@ def ingest_review(run, results, round_no):
                 for _, entry in entries:
                     entry["tree_id"] = result["repair"]["tree_id"]
                     entry["verified_ac"] = result["verdict"]["ac"]
+                    entry["test_edits"] = sorted(set(entry.get("test_edits", []))
+                                                  | set(result["verdict"]["test_edits_flagged"]))
                 outcome[gid] = "repair-staged"
             else:
                 outcome[gid] = "clean"
@@ -406,15 +421,33 @@ def ingest_review(run, results, round_no):
 
 def ensure_worktree(run, gid, scratch, git=run_git):
     entries = _group_entries(run, gid)
-    current = entries[0][1].get("worktree", "")
+    first = entries[0][1]
+    main_root = first.get("main_root") or "."
+    current = first.get("worktree", "")
     if current and Path(current).is_dir():
-        return current
-    target = Path(scratch) / gid
-    target.parent.mkdir(parents=True, exist_ok=True)
-    git(".", "worktree", "add", str(target), entries[0][1]["branch"])
-    for _, entry in entries:
-        entry["worktree"] = str(target)
-    return str(target)
+        path = current
+    else:
+        target = Path(scratch) / gid
+        if target.exists() and any(target.iterdir()):
+            raise RuntimeError(f"{target} already exists and is not empty; refusing to touch it")
+        target.parent.mkdir(parents=True, exist_ok=True)
+        branch = first["branch"]
+        try:
+            git(main_root, "worktree", "add", str(target), branch)
+        except RuntimeError:
+            # git may still have the old (now-vanished) worktree registered under this branch.
+            git(main_root, "worktree", "prune")
+            git(main_root, "worktree", "add", str(target), branch)
+        for _, entry in entries:
+            entry["worktree"] = str(target)
+        path = str(target)
+    tree_id = first.get("tree_id")
+    if tree_id:
+        actual = run_git(path, "write-tree").strip()
+        if actual != tree_id:
+            raise RuntimeError(f"{gid}: worktree at {path} lost its staged work "
+                               f"(has {actual[:8]}, expected {tree_id[:8]}); the group must be rerun")
+    return path
 
 
 def _cmd_decide(run, args):
@@ -517,7 +550,8 @@ def main(argv=None):
             print(ensure_worktree(run, args.group, args.scratch))
         elif args.cmd == "annotate":
             annotate(run, args.group, **_parse_fields(args.field))
-    except (TransitionError, KeyError, ValueError, RuntimeError, FileNotFoundError, json.JSONDecodeError) as exc:
+    except (TransitionError, KeyError, ValueError, RuntimeError, FileNotFoundError, json.JSONDecodeError,
+            IndexError) as exc:
         print(f"state: {exc}", file=sys.stderr)
         return 2
     save(run, args.runfile)
