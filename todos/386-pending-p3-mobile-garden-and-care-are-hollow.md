@@ -92,3 +92,12 @@ Decided by the owner:
   listing), so guides are editable without an app release. Content comes from
   todo 445 (AI-drafted care articles the owner spot-checks).
 Ready for a sweep (garden and care can be separate slices).
+
+### 2026-09-26 - Owner decision: garden_calendar is the one model (see todo 410)
+
+The mobile garden is built on `garden_calendar` `Plant` / `CareTask` /
+`CareLog`, with no beds. Todo 410 adds `Plant.owner`, makes `garden_bed`
+nullable, and turns CareTask due dates into FCM reminders. So this todo's
+garden slice comes **after** 410. `users.CareReminder` is deleted in 410; do
+not build on it. The care-guide cards list Wagtail blog posts tagged
+`care-guide` (drafts from todo 445).

@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: p3
 issue_id: "401"
 tags: [web, tailwind, design-system]
@@ -35,10 +35,10 @@ decides whether it lives), so apply it there only if it is kept.
 
 ## Acceptance Criteria
 
-- [ ] A category intro with paragraphs, a list and a link renders with
+- [x] A category intro with paragraphs, a list and a link renders with
       paragraph spacing, list markers and a visible link style, in both
-      `data-mode` themes, checked in a browser at :5174
-- [ ] `npm run check:classes` passes with the new class in place
+      `data-mode` themes, checked in a browser at :5174 (2026-09-26, see Work Log)
+- [x] `npm run check:classes` passes with the new class in place
 
 ## Work Log
 
@@ -54,3 +54,30 @@ Decided by the owner: add a small hand-written `.rich-text` class in
 already does. Do NOT install `@tailwindcss/typography`. Apply it to the
 category intro (`CategoryListPage.tsx`) and the diagnosis care blocks
 (`DiagnosisDetailPage.tsx`). Ready for a sweep.
+
+### 2026-09-26 - Completed (PR #847, P3 sweep)
+
+- Added `.rich-text` to `web/src/index.css`, on the `--gt-*` tokens and
+  mirroring `.forum-editor-content`. Applied it to the category intro.
+- **Diagnosis care blocks: moot.** `DiagnosisDetailPage.tsx` was deleted in
+  #798, and `DiseaseDiagnosePage` renders no HTML, so there is nowhere to
+  apply it.
+- **Found on the way:** the intro's sanitization tests queried `.prose`,
+  which todo 399 removed, so their `toBeNull()` checks had passed vacuously.
+  They now query `.rich-text`, with an anchor asserting the container exists.
+  Mutation-checked: dropping the class from the component fails
+  "sanitizes the CMS welcome copy before rendering it".
+- AC 1, browser check (2026-09-26): Playwright against :5174, with local
+  Django serving a test intro set in the **local** DB only (restored to `''`
+  after). Computed styles with `data-mode="dark"`: `p + p` margin-top 14px;
+  `ul` disc, `ol` decimal, both `padding-inline-start: 24px`; `a` underlined,
+  `rgb(218, 241, 222)`. With `data-mode="light"`: `a` `rgb(35, 83, 71)`,
+  underlined; `ul` disc. Screenshots of both themes showed spacing, bullets,
+  numbers and the underlined link.
+- AC 2: `npm run check:classes` → "138 files, 5851 class tokens checked
+  against 712 built classes". Vitest `CategoryListPage.test.tsx` 32/32.
+- Review round 1: bundled `/code-review` found 0 findings.
+  code-review-orchestrator found 1 medium and 1 low, neither blocking:
+  `StreamFieldRenderer`'s dead `prose` tokens, which the class checker also
+  missed, and `.rich-text h4` has no font-size. Both are filed as **todo 450**,
+  which found that forum post and blog paragraph lists render with no markers.

@@ -243,17 +243,20 @@ describe('CategoryListPage', () => {
     await waitFor(() => expect(screen.getByText('Hi')).toBeInTheDocument());
     // The backend sanitizes too; this is the second layer, and the one that
     // protects against a compromised/mis-implemented first layer.
-    // Scoped to `.prose` (the sanitized-intro container) — the page's own
+    // Scoped to `.rich-text` (the sanitized-intro container) — the page's own
     // hero art is a legitimate `<img>` elsewhere in the DOM, so an unscoped
     // `document.querySelector('img')` would false-fail on that, not on a
     // sanitization gap.
     // `img` at all, not just `img[onerror]` — the narrower assertion would also
     // pass under the FULL preset, which allows images outright, so it would not
     // actually pin STANDARD's "no media".
-    expect(document.querySelector('.prose img')).toBeNull();
+    // Anchor: the container must exist, or every null check below is vacuous
+    // (they were, while they still queried the long-gone `.prose` class).
+    expect(document.querySelector('.rich-text')).not.toBeNull();
+    expect(document.querySelector('.rich-text img')).toBeNull();
     // Attribute and URI stripping on tags that ARE allowed.
-    expect(document.querySelector('.prose [onclick]')).toBeNull();
-    expect(document.querySelector('.prose a[href^="javascript:"]')).toBeNull();
+    expect(document.querySelector('.rich-text [onclick]')).toBeNull();
+    expect(document.querySelector('.rich-text a[href^="javascript:"]')).toBeNull();
   });
 
   it('renders no welcome block when the intro sanitizes away to nothing', async () => {
@@ -266,7 +269,7 @@ describe('CategoryListPage', () => {
     renderCategoryListPage();
 
     await waitFor(() => expect(screen.getByText('No boards yet')).toBeInTheDocument());
-    expect(document.querySelector('.prose')).toBeNull();
+    expect(document.querySelector('.rich-text')).toBeNull();
   });
 
   it('renders no welcome block when the CMS intro is empty', async () => {
@@ -275,7 +278,7 @@ describe('CategoryListPage', () => {
     renderCategoryListPage();
 
     await waitFor(() => expect(screen.getByText('No boards yet')).toBeInTheDocument());
-    expect(document.querySelector('.prose')).toBeNull();
+    expect(document.querySelector('.rich-text')).toBeNull();
   });
 
   it('calls fetchForumIndex on mount', async () => {

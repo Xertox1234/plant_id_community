@@ -650,3 +650,9 @@ Compact checklist auto-injected before edits.
   property ("no cap") by removing both halves together, and keep a fixture
   that would succeed without the guard (a VALID image over the cap, not junk
   that fails to decode anyway) (todo 428 slice B).
+- **Anchor every absence assertion scoped by a selector with a presence
+  assertion on the scope itself.** `querySelector('.prose img')` returns `null`
+  both when sanitizing worked and when `.prose` no longer exists: todo 399
+  removed that class, and three XSS checks passed on nothing until todo 401.
+  Assert `querySelector('.scope')` is non-null first, then mutation-check by
+  dropping the class from the component.
