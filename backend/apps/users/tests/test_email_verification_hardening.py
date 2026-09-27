@@ -55,7 +55,7 @@ def _is_revoked(refresh) -> bool:
     return BlacklistedToken.objects.filter(token__jti=refresh["jti"]).exists()
 
 
-def _verified_password_account(username="owner", email="owner@example.com"):
+def _verified_login_account(username="owner", email="owner@example.com"):
     user = User.objects.create_user(username=username, email=email, password=PASSWORD)
     mark_email_verified(user)
     return user
@@ -77,7 +77,7 @@ class WebOAuthFirstLinkTest(TestCase):
             )
 
     def test_first_link_to_a_password_account_revokes_and_notifies(self):
-        user = _verified_password_account()
+        user = _verified_login_account()
         session = RefreshToken.for_user(user)
 
         self.assertEqual(self._sign_in(), user)
@@ -94,7 +94,7 @@ class WebOAuthFirstLinkTest(TestCase):
         )
 
     def test_later_sign_ins_are_not_a_first_link(self):
-        user = _verified_password_account()
+        user = _verified_login_account()
         self._sign_in()
         session = RefreshToken.for_user(user)
         mail.outbox.clear()
@@ -133,7 +133,7 @@ class WebOAuthFirstLinkTest(TestCase):
     def test_linked_identity_follows_a_changed_provider_email(self):
         # Review round 1: matching by email first refused this identity as
         # "linked elsewhere" once its GitHub/Google email changed.
-        user = _verified_password_account()
+        user = _verified_login_account()
         self._sign_in()
 
         self.assertEqual(self._sign_in(email="renamed@example.com"), user)
@@ -142,7 +142,7 @@ class WebOAuthFirstLinkTest(TestCase):
     def test_linked_identity_signs_in_to_its_own_account(self):
         # The identity, not the email, decides: this Google account was
         # linked to "other", so it never lands in the owner's account.
-        owner = _verified_password_account()
+        owner = _verified_login_account()
         other = User.objects.create_user(username="other", email="other@example.com")
         SocialAccount.objects.create(user=other, provider="google", uid="g-owner")
         session = RefreshToken.for_user(owner)
@@ -152,7 +152,7 @@ class WebOAuthFirstLinkTest(TestCase):
         self.assertEqual(_notices(), [])
 
     def test_missing_provider_id_is_refused(self):
-        _verified_password_account()
+        _verified_login_account()
 
         with self.captureOnCommitCallbacks(execute=True):
             result = oauth_views._find_or_create_user(
@@ -198,7 +198,7 @@ class AllauthFirstLinkTest(TestCase):
             CustomSocialAccountAdapter().pre_social_login(request, sociallogin)
 
     def test_connect_revokes_and_notifies(self):
-        user = _verified_password_account()
+        user = _verified_login_account()
         session = RefreshToken.for_user(user)
         sociallogin = self._sociallogin("owner@example.com")
 
@@ -210,7 +210,7 @@ class AllauthFirstLinkTest(TestCase):
 
     def test_case_variant_of_a_verified_account_is_matched(self):
         # Item 4's carry-over: this lookup was case-exact.
-        user = _verified_password_account(email="Owner@Example.com")
+        user = _verified_login_account(email="Owner@Example.com")
         sociallogin = self._sociallogin("owner@example.com")
 
         self._pre_social_login(sociallogin)
@@ -236,7 +236,7 @@ class FirebaseFirstLinkTest(TestCase):
 
     @patch("apps.users.firebase_auth_views.firebase_auth.verify_id_token")
     def test_first_bind_revokes_old_sessions_but_not_the_new_one(self, mock_verify):
-        user = _verified_password_account()
+        user = _verified_login_account()
         old = RefreshToken.for_user(user)
         mock_verify.return_value = {
             "uid": "fb-owner",
@@ -258,7 +258,7 @@ class FirebaseFirstLinkTest(TestCase):
         self.assertIn("Google", notice.subject)
 
     def test_bound_account_is_not_a_first_link(self):
-        user = _verified_password_account()
+        user = _verified_login_account()
         user.firebase_uid = "fb-owner"
         user.save(update_fields=["firebase_uid"])
         session = RefreshToken.for_user(user)
@@ -277,7 +277,7 @@ class FirebaseFirstLinkTest(TestCase):
 
 class NoticeWordingTest(TestCase):
     def test_sign_in_method_names_read_as_words(self):
-        user = _verified_password_account()
+        user = _verified_login_account()
         for provider, subject_start in (
             ("password", "Email and password sign-in"),
             ("", "Another sign-in"),
@@ -619,7 +619,7 @@ class ProviderLinkRaceTest(TestCase):
         return patch.object(SocialAccount.objects, "filter", side_effect=lookup)
 
     def test_losing_the_race_to_our_own_account_signs_in(self):
-        user = _verified_password_account()
+        user = _verified_login_account()
 
         with self._concurrent_insert(winner=user):
             with self.captureOnCommitCallbacks(execute=True):
@@ -635,7 +635,7 @@ class ProviderLinkRaceTest(TestCase):
         )
 
     def test_losing_the_race_to_another_account_is_refused(self):
-        user = _verified_password_account()
+        user = _verified_login_account()
         other = User.objects.create_user(username="other", email="other@example.com")
 
         with self._concurrent_insert(winner=other):
@@ -647,7 +647,7 @@ class ProviderLinkRaceTest(TestCase):
         self.assertFalse(SocialAccount.objects.filter(user=user).exists())
 
     def test_a_failed_notice_leaves_no_link(self):
-        user = _verified_password_account()
+        user = _verified_login_account()
 
         with patch.object(
             oauth_views, "on_first_provider_link", side_effect=RuntimeError("boom")
@@ -661,7 +661,7 @@ class ProviderLinkRaceTest(TestCase):
         # Review round 1: an IntegrityError raised by the revoke/notice work
         # rolls the savepoint back too, so the re-read finds no row. That is
         # an error, not a conflicting link, and must surface as one.
-        user = _verified_password_account()
+        user = _verified_login_account()
 
         with patch.object(
             oauth_views,
