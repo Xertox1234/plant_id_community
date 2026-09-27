@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: p3
 issue_id: "403"
 tags: [flutter, accessibility, forum, dead-code, parity]
@@ -175,3 +175,13 @@ Also filed in todo 463: the avatar cluster includes the viewer and has no
 **VoiceOver (AC 4):** no site's semantics or wiring changed, so there is
 nothing to announce differently. `canopy_visual_golden_test.dart` and the
 forum widget tests pass unchanged after the two fixes.
+
+### 2026-09-27 - PR #858 reviewed; archived
+
+The flutter-dart-reviewer found nothing blocking. It confirmed that no
+caller uses the removed vertical variant, that `excludeSemantics` is
+unchanged at all six sites, and it verified six of the verdict claims
+independently (commits, `CanopyCard.onTap`, the `ListTile.leading`
+placement, the zero `Padding`, the web's `aria-hidden` `ParticipantStack`,
+and the `AppShell` home link). The one wrong path it found, in todo 463,
+is fixed.

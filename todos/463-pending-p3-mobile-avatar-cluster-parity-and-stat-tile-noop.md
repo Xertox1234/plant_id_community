@@ -4,7 +4,7 @@ priority: p3
 issue_id: "463"
 tags: [mobile, flutter, forum, parity, dead-code]
 dependencies: []
-source_review: "todos/403-pending-p3-flutter-decorative-semantics-sites-followup.md"
+source_review: "todos/archive/403-completed-p3-flutter-decorative-semantics-sites-followup.md"
 ---
 
 # Mobile group-DM avatar cluster shows the viewer; a no-op Padding in `_StatTile`
@@ -15,7 +15,7 @@ Found during the todo 403 investigation. Neither item is a tap omission.
 
 ### 1. The avatar cluster includes the viewer and has no "+N" (parity)
 
-The web's `ParticipantStack` (`web/src/pages/MessagesPage.tsx`, about
+The web's `ParticipantStack` (`web/src/pages/forum/MessagesPage.tsx`, about
 49–75) leaves the viewer out and folds overflow into a "+N" tile. Mobile's
 only caller (`forum_conversations_screen.dart`, about line 166) passes
 `conversation.participants` as-is to `AuthorAvatarCluster`
