@@ -491,3 +491,11 @@ Compact checklist auto-injected before edits. Long-form: `backend/docs/patterns/
   `sw.js`, `startsWith('/') && !startsWith('//')` let `/\evil.com` through,
   because the WHATWG parser reads a backslash as a slash. Parse with
   `new URL(raw, self.location.origin)` and compare `url.origin` (todo 413).
+- **An object permission never runs on create, so a writable FK to an owned
+  model needs its own ownership check.** `has_object_permission` guards the
+  detail routes of the row being written, not the row its FK points at. So a
+  create (or an update that changes the FK) can attach data to another user's
+  object by UUID unless the serializer refuses it: a `validate_<fk>` that
+  compares the target's owner, or a queryset scoped to `request.user`. In
+  garden_calendar the care-task serializer had one and the care-log and
+  harvest serializers did not; all three now share `OwnPlantMixin` (todo 410).

@@ -10,6 +10,7 @@ Fired by forum_host/notifications.py dispatch() via .delay() so that:
 
 import logging
 
+from apps.core.fcm import is_permanent_fcm_error, send_fcm_message
 from celery import shared_task
 from django.db import OperationalError
 from wagtail_forum.preferences import wants_channel
@@ -72,26 +73,8 @@ def send_forum_weekly_digest(self):
 
 
 def _is_permanent_fcm_error(exc: Exception) -> bool:
-    """Permanent FCM failures must not be retried (docs/patterns/domain/celery.md;
-    audit 2026-07-11 M33): a stale/invalid device token (UnregisteredError) or a
-    malformed message can never succeed on retry. firebase_admin is an optional,
-    lazily-imported dependency, so classification is best-effort — unclassifiable
-    errors stay retryable (transient by default).
-    """
-    try:
-        from firebase_admin import exceptions as fb_exceptions
-        from firebase_admin import messaging
-    except ImportError:  # pragma: no cover — Firebase not installed
-        return False
-    return isinstance(
-        exc,
-        (
-            messaging.UnregisteredError,
-            messaging.SenderIdMismatchError,
-            messaging.ThirdPartyAuthError,
-            fb_exceptions.InvalidArgumentError,
-        ),
-    )
+    """See ``apps.core.fcm.is_permanent_fcm_error`` (shared since todo 410)."""
+    return is_permanent_fcm_error(exc)
 
 
 def _notification_content(event: str, data: dict) -> tuple[str, str] | None:
@@ -136,28 +119,14 @@ def _notification_content(event: str, data: dict) -> tuple[str, str] | None:
 
 
 def _send_fcm_message(fcm, token: str, str_data: dict, content, event: str):
-    """Build and send one FCM message (data payload + optional tray notification).
+    """Build and send one forum FCM message.
 
     Shared by send_forum_push (single) and send_forum_push_batch (todo 268) so
-    the collapse-key / notification-hybrid construction can never drift between
-    the two shapes. Raises on send failure; the caller classifies transient vs.
-    permanent (see _is_permanent_fcm_error) and decides whether to retry.
+    the message construction can never drift between the two shapes; the
+    builder itself is ``apps.core.fcm.send_fcm_message`` (todo 410). The
+    collapse key is per EVENT TYPE, not per post (see docs/rules/celery.md).
     """
-    message_kwargs = {"data": str_data, "token": token}
-    if content is not None:
-        title, body = content
-        # Stable collapse key: a retry after an accepted-but-timed-out send
-        # REPLACES the tray entry instead of stacking a duplicate. Deliberately
-        # per-EVENT-TYPE, not per-post (FCM keeps at most 4 collapse keys pending
-        # per offline device). See docs/rules/celery.md.
-        collapse_key = f"forum-{event}"
-        message_kwargs["notification"] = fcm.Notification(title=title, body=body)
-        message_kwargs["android"] = fcm.AndroidConfig(collapse_key=collapse_key)
-        message_kwargs["apns"] = fcm.APNSConfig(
-            headers={"apns-collapse-id": collapse_key}
-        )
-    message = fcm.Message(**message_kwargs)
-    return fcm.send(message)
+    return send_fcm_message(fcm, token, str_data, content, f"forum-{event}")
 
 
 @shared_task(bind=True, max_retries=3, default_retry_delay=30, ignore_result=True)

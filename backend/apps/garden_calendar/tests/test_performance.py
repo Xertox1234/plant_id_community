@@ -116,7 +116,7 @@ class PlantListPerformanceTest(TestCase):
         """Test that listing plants with garden_bed info doesn't cause N+1."""
         # Expected queries:
         # 1. COUNT query (pagination)
-        # 2. SELECT plants with select_related('garden_bed', 'garden_bed__owner', 'plant_species')
+        # 2. SELECT plants with select_related('garden_bed', 'plant_species')
         # 3. SELECT images WHERE plant_id IN (...) (prefetch for primary_image)
         # Total: 3 queries (NOT 3 + 15 for each plant's images)
         with self.assertNumQueries(3):
@@ -129,7 +129,7 @@ class PlantListPerformanceTest(TestCase):
         plant = Plant.objects.first()
 
         # Expected queries:
-        # 1. SELECT plant with select_related('garden_bed', 'garden_bed__owner', 'plant_species')
+        # 1. SELECT plant with select_related('garden_bed', 'plant_species')
         # 2. SELECT images WHERE plant_id=X (prefetch)
         # 3. SELECT care_tasks WHERE plant_id=X (prefetch for upcoming_tasks)
         # 4. SELECT care_logs WHERE plant_id=X (prefetch for recent_logs)
@@ -310,6 +310,7 @@ class BulkOperationPerformanceTest(TestCase):
         """Test that bulk_create is used for multiple plants."""
         plants_data = [
             Plant(
+                owner=self.user,  # bulk_create skips save()'s bed-owner default
                 garden_bed=self.bed,
                 common_name=f"Plant {i}",
                 health_status="healthy",

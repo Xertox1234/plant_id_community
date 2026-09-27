@@ -11,21 +11,17 @@ This service handles:
 """
 
 import logging
-from datetime import datetime, timedelta
+from datetime import timedelta
 from decimal import Decimal
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Optional
 
 from django.contrib.auth import get_user_model
 from django.core.cache import cache
-from django.db.models import Avg, Count, F, Q, Sum
+from django.db.models import Avg, Count, Sum
 from django.utils import timezone
 
-from ..constants import (
-    CACHE_KEY_GARDEN_ANALYTICS,
-    CACHE_TIMEOUT_ANALYTICS,
-    HEALTH_STATUS_CHOICES,
-)
-from ..models import CareLog, CareTask, GardenBed, Harvest, Plant
+from ..constants import CACHE_KEY_GARDEN_ANALYTICS, CACHE_TIMEOUT_ANALYTICS
+from ..models import CareTask, GardenBed, Harvest, Plant
 
 User = get_user_model()
 logger = logging.getLogger(__name__)
@@ -155,7 +151,7 @@ class GardenAnalyticsService:
         logger.info(f"[ANALYTICS] Calculating plant health for user {user.id}")
 
         # Get all active plants
-        plants = Plant.objects.filter(garden_bed__owner=user, is_active=True)
+        plants = Plant.objects.filter(owner=user, is_active=True)
 
         total_plants = plants.count()
 
@@ -224,7 +220,7 @@ class GardenAnalyticsService:
 
         # Get tasks in the time period
         tasks = CareTask.objects.filter(
-            plant__garden_bed__owner=user, scheduled_date__gte=start_date
+            plant__owner=user, scheduled_date__gte=start_date
         )
 
         total_tasks = tasks.count()
@@ -289,9 +285,7 @@ class GardenAnalyticsService:
             year = timezone.now().year
 
         # Get harvests for the year
-        harvests = Harvest.objects.filter(
-            plant__garden_bed__owner=user, harvest_date__year=year
-        )
+        harvests = Harvest.objects.filter(plant__owner=user, harvest_date__year=year)
 
         total_harvests = harvests.count()
 

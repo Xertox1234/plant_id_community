@@ -3,11 +3,9 @@ Custom permissions for garden calendar endpoints.
 
 Implements ownership-based permissions for garden resources:
 - IsGardenOwner: User owns the garden bed
-- IsPlantOwner: User owns the plant (via garden bed)
+- IsPlantOwner: User owns the plant (Plant.owner, todo 410)
 - IsCareTaskOwner: User owns the care task (via plant)
 """
-
-from typing import Any
 
 from django.db.models import Model
 from rest_framework import permissions
@@ -61,11 +59,12 @@ class IsGardenOwner(permissions.BasePermission):
 
 class IsPlantOwner(permissions.BasePermission):
     """
-    Permission check to ensure user owns the plant (via garden bed ownership).
+    Permission check to ensure user owns the plant (Plant.owner; a bed is
+    optional since todo 410, so ownership never runs through it).
 
     Works for both object-level and view-level permissions.
     For list views, allows all authenticated users.
-    For detail views, restricts to garden bed owner.
+    For detail views, restricts to the plant owner.
     """
 
     def has_permission(self, request: Request, view: APIView) -> bool:
@@ -94,15 +93,16 @@ class IsPlantOwner(permissions.BasePermission):
             obj: The Plant, Harvest, or related instance
 
         Returns:
-            True if user owns the garden bed containing this plant
+            True if user owns this plant
         """
-        # Handle different object types that relate to plants
-        if hasattr(obj, "garden_bed"):
-            # Direct Plant object
-            return obj.garden_bed.owner == request.user
-        elif hasattr(obj, "plant"):
-            # Harvest or other object related through plant
-            return obj.plant.garden_bed.owner == request.user
+        from .models import Plant
+
+        if isinstance(obj, Plant):
+            return obj.owner_id == request.user.pk
+        plant = getattr(obj, "plant", None)
+        if plant is not None:
+            # CareLog, Harvest, PlantImage: owned through their plant
+            return plant.owner_id == request.user.pk
 
         # Fallback: deny if no ownership path found
         return False
@@ -112,11 +112,11 @@ class IsPlantOwner(permissions.BasePermission):
 
 class IsCareTaskOwner(permissions.BasePermission):
     """
-    Permission check to ensure user owns the care task (via plant → garden bed).
+    Permission check to ensure user owns the care task (via its plant's owner).
 
     Works for both object-level and view-level permissions.
     For list views, allows all authenticated users.
-    For detail views, restricts to garden bed owner.
+    For detail views, restricts to the plant owner.
     """
 
     def has_permission(self, request: Request, view: APIView) -> bool:
@@ -145,10 +145,9 @@ class IsCareTaskOwner(permissions.BasePermission):
             obj: The CareTask instance
 
         Returns:
-            True if user owns the garden bed containing the plant for this task
+            True if user owns the plant for this task
         """
-        # Check ownership via plant → garden bed
-        return obj.plant.garden_bed.owner == request.user
+        return obj.plant.owner_id == request.user.pk
 
     message = "You do not have permission to access this care task."
 

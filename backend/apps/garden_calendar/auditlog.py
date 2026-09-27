@@ -38,6 +38,8 @@ auditlog.register(
 auditlog.register(
     Plant,
     include_fields=[
+        "owner",  # the access-control field since todo 410
+        "garden_bed",
         "common_name",
         "variety",
         "health_status",
