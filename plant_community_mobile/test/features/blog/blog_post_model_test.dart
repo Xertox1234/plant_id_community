@@ -48,6 +48,8 @@ void main() {
         ],
       });
       expect(page.items.map((p) => p.slug), ['ok']);
+      // The dropped row still counts toward the server offset.
+      expect(page.rowCount, 2);
     });
 
     test('tolerates wrong types and missing fields', () {

@@ -86,14 +86,27 @@ class BlogPostSummary {
 
 /// One page of the offset-paginated list: `{meta: {total_count}, items}`.
 class BlogPostPage {
-  const BlogPostPage({required this.items, required this.totalCount});
+  const BlogPostPage({
+    required this.items,
+    required this.totalCount,
+    int? rowCount,
+  }) : _rowCount = rowCount;
 
   final List<BlogPostSummary> items;
   final int totalCount;
 
+  /// Rows the SERVER returned, before any were dropped here. The next
+  /// page's offset advances by this, never by [items]' length: the server
+  /// caches list pages by `offset // limit` (`BlogCacheService`), so an
+  /// offset that is not a multiple of the page size is served a cached page
+  /// the client has already seen (PR #856 review).
+  int get rowCount => _rowCount ?? items.length;
+  final int? _rowCount;
+
   factory BlogPostPage.fromJson(Map<String, dynamic> json) {
     final meta = json['meta'];
-    final items = (json['items'] as List<dynamic>? ?? const [])
+    final rows = json['items'] as List<dynamic>? ?? const [];
+    final items = rows
         .whereType<Map<String, dynamic>>()
         .map(BlogPostSummary.fromJson)
         // A row without a slug cannot be opened; drop it rather than render
@@ -102,6 +115,7 @@ class BlogPostPage {
         .toList(growable: false);
     return BlogPostPage(
       items: items,
+      rowCount: rows.length,
       totalCount: meta is Map<String, dynamic> && meta['total_count'] is int
           ? meta['total_count'] as int
           : items.length,

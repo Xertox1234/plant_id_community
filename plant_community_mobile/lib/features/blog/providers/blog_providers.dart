@@ -25,7 +25,12 @@ class BlogPosts extends _$BlogPosts {
   @override
   Future<BlogFeed> build(String? tag) async {
     final page = await ref.watch(blogApiProvider).fetchPosts(tag: tag);
-    return BlogFeed(items: page.items, totalCount: page.totalCount);
+    return BlogFeed(
+      items: page.items,
+      totalCount: page.totalCount,
+      nextOffset: page.rowCount,
+      exhausted: page.rowCount < blogPageSize,
+    );
   }
 
   /// Fetch and append the next page. Rethrows on failure with the loading
@@ -37,7 +42,7 @@ class BlogPosts extends _$BlogPosts {
     try {
       final page = await ref
           .read(blogApiProvider)
-          .fetchPosts(tag: tag, offset: current.items.length);
+          .fetchPosts(tag: tag, offset: current.nextOffset);
       final latest = state.asData?.value ?? current;
       // Offset paging can repeat a row when a post is published between
       // pages; keep the first copy.
@@ -46,8 +51,9 @@ class BlogPosts extends _$BlogPosts {
         BlogFeed(
           items: [...latest.items, ...page.items.where((p) => seen.add(p.id))],
           totalCount: page.totalCount,
+          nextOffset: latest.nextOffset + page.rowCount,
           // A short page means the end even if total_count disagrees.
-          exhausted: page.items.length < blogPageSize,
+          exhausted: page.rowCount < blogPageSize,
         ),
       );
     } catch (_) {
@@ -68,20 +74,26 @@ class BlogFeed {
   const BlogFeed({
     required this.items,
     required this.totalCount,
+    required this.nextOffset,
     this.isLoadingMore = false,
     this.exhausted = false,
   });
 
   final List<BlogPostSummary> items;
   final int totalCount;
+
+  /// The server offset of the next page: the sum of rows the server
+  /// returned, which is always a multiple of [blogPageSize] until the end.
+  final int nextOffset;
   final bool isLoadingMore;
   final bool exhausted;
 
-  bool get hasMore => !exhausted && items.length < totalCount;
+  bool get hasMore => !exhausted && nextOffset < totalCount;
 
   BlogFeed copyWith({bool? isLoadingMore}) => BlogFeed(
     items: items,
     totalCount: totalCount,
+    nextOffset: nextOffset,
     isLoadingMore: isLoadingMore ?? this.isLoadingMore,
     exhausted: exhausted,
   );

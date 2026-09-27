@@ -84,3 +84,16 @@ Wagtail API). **Diagnose moved to todo 444.** Ready for a sweep.
   live in the Home branch and keep the nav bar.
 - Tests: 17 blog tests plus a Home → Plant Journal → post reachability test
   on the production router; 7 mutations all red. Full suite: 854 passed.
+
+### 2026-09-27 - PR #856 review round 1
+
+- **Blocking, fixed:** "Load more" sent the de-duplicated item count as the
+  offset. The backend caches list pages by `offset // limit`, so after a
+  duplicate the next request got a cached page of rows already shown, and
+  the list never advanced. `BlogFeed.nextOffset` now adds the server's row
+  count (`BlogPostPage.rowCount`, counted before any row is dropped). A
+  regression test is mutation-checked.
+- Corrected the renderer's doc comment, which claimed a paragraph "never
+  loses content": inline images are dropped.
+- Non-blocking findings from both reviewers (the deep pass and
+  flutter-dart-reviewer) are filed as todo 460.

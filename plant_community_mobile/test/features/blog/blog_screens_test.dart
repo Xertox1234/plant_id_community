@@ -82,10 +82,45 @@ void main() {
     });
   });
 
+  test('after a page with a duplicate, the next request asks for the SERVER '
+      'offset, not the deduped length (PR #856 review)', () async {
+    // The server caches list pages by offset // limit: offset 39 is served
+    // the cached page at 20, all duplicates, and Load more never advances.
+    final api = FakeBlogApi(
+      pages: [
+        BlogPostPage(items: _rows(0, blogPageSize), totalCount: 100),
+        BlogPostPage(
+          items: _rows(blogPageSize - 1, blogPageSize),
+          totalCount: 100,
+        ),
+        BlogPostPage(
+          items: _rows(2 * blogPageSize, blogPageSize),
+          totalCount: 100,
+        ),
+      ],
+    );
+    final container = ProviderContainer(
+      overrides: [blogApiProvider.overrideWithValue(api)],
+    );
+    addTearDown(container.dispose);
+    final sub = container.listen(blogPostsProvider(null), (_, _) {});
+    addTearDown(sub.close);
+    await container.read(blogPostsProvider(null).future);
+
+    final notifier = container.read(blogPostsProvider(null).notifier);
+    await notifier.loadMore();
+    await notifier.loadMore();
+
+    expect(api.calls.map((c) => c.$2), [0, blogPageSize, 2 * blogPageSize]);
+    final feed = container.read(blogPostsProvider(null)).value!;
+    expect(feed.items, hasLength(3 * blogPageSize - 1));
+    expect(feed.hasMore, isTrue);
+  });
+
   group('BlogListScreen', () {
     testWidgets('lists posts for its tag and offers Load more', (tester) async {
       final api = FakeBlogApi(
-        pages: [BlogPostPage(items: _rows(1, 2), totalCount: 30)],
+        pages: [BlogPostPage(items: _rows(1, blogPageSize), totalCount: 30)],
       );
       await tester.pumpWidget(
         _wrap(const BlogListScreen(tag: 'care-guide', title: 'Care'), api),
@@ -96,6 +131,7 @@ void main() {
       expect(find.text('Care'), findsOneWidget);
       expect(find.text('Post 1'), findsOneWidget);
       expect(find.text('Excerpt 2'), findsOneWidget);
+      await tester.scrollUntilVisible(find.text('Load more'), 400);
       expect(find.text('Load more'), findsOneWidget);
     });
 

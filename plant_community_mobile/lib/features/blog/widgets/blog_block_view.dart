@@ -10,8 +10,9 @@ import '../models/blog_post.dart';
 /// Rich text goes through [ForumHtmlText], which walks the DOM into styled
 /// spans and never renders raw markup: tags outside its small allowlist
 /// contribute their text only. The blog's server-side allowlist is wider
-/// than the forum's (headings, images), so a blog paragraph may lose
-/// formatting here, never content.
+/// than the forum's, so a blog paragraph loses formatting here (headings run
+/// into the text around them) and drops any inline image outright: the API
+/// sends Wagtail's stored format, where an image is a text-less `<embed>`.
 class BlogBlockView extends StatelessWidget {
   const BlogBlockView({
     super.key,
