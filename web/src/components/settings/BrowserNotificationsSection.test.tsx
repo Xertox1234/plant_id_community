@@ -18,10 +18,10 @@ describe('BrowserNotificationsSection', () => {
 
     fireEvent.click(await screen.findByRole('button', { name: 'Turn on for this browser' }));
 
-    expect(await screen.findByRole('button', { name: 'Turn off on this browser' })).toHaveAttribute(
-      'aria-pressed',
-      'true'
-    );
+    // The label names the action, so no aria-pressed: "Turn off…, pressed"
+    // would point two ways at once (PR #852 review).
+    const button = await screen.findByRole('button', { name: 'Turn off on this browser' });
+    expect(button).not.toHaveAttribute('aria-pressed');
   });
 
   it('explains a blocked permission and offers no button', async () => {

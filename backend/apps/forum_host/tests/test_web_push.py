@@ -16,6 +16,12 @@ FCM_ENDPOINT = "https://fcm.googleapis.com/fcm/send/abc123"
 KEYS = {"p256dh": "BPk-key", "auth": "auth-secret"}  # pragma: allowlist secret
 SUBSCRIBE_URL = "/api/v1/auth/me/push-notifications/subscribe/"
 PUBLIC_KEY_URL = "/api/v1/auth/me/push-notifications/public-key/"
+# Web push is on only with both keys and a claims email (PR #852 review).
+PUSH_ON = {
+    "VAPID_PUBLIC_KEY": "BPub",
+    "VAPID_PRIVATE_KEY": "priv",  # pragma: allowlist secret
+    "VAPID_CLAIMS_EMAIL": "ops@example.com",
+}
 
 
 @pytest.mark.parametrize(
@@ -93,9 +99,9 @@ def test_the_public_key_endpoint_reports_whether_push_is_on():
     # Half a key pair is off too: a subscription the server can never use.
     with override_settings(VAPID_PUBLIC_KEY="BPub", VAPID_PRIVATE_KEY=""):
         assert client.get(PUBLIC_KEY_URL).data["enabled"] is False
-    with override_settings(
-        VAPID_PUBLIC_KEY="BPub", VAPID_PRIVATE_KEY="priv"  # pragma: allowlist secret
-    ):
+    with override_settings(**{**PUSH_ON, "VAPID_CLAIMS_EMAIL": ""}):
+        assert client.get(PUBLIC_KEY_URL).data["enabled"] is False
+    with override_settings(**PUSH_ON):
         assert client.get(PUBLIC_KEY_URL).data == {
             "enabled": True,
             "public_key": "BPub",
@@ -120,7 +126,7 @@ def _subscribed(username, preferences=None, *, forum_notifications=True):
 
 
 @pytest.mark.django_db
-@override_settings(VAPID_PRIVATE_KEY="priv")  # pragma: allowlist secret
+@override_settings(**PUSH_ON)
 def test_a_reply_goes_to_every_subscribed_browser_that_wants_it():
     from apps.forum_host.tasks import send_forum_web_push_batch
 
@@ -161,7 +167,7 @@ def test_nothing_is_sent_without_a_vapid_key_or_for_a_data_only_event():
     ) as send:
         with override_settings(VAPID_PRIVATE_KEY=""):
             send_forum_web_push_batch("reply_added", [user.pk], {"topic_id": "1"})
-        with override_settings(VAPID_PRIVATE_KEY="priv"):  # pragma: allowlist secret
+        with override_settings(**PUSH_ON):
             # moderation_decided has no tray copy: nothing for a browser to show.
             send_forum_web_push_batch(
                 "moderation_decided", [user.pk], {"topic_id": "1"}
@@ -171,7 +177,6 @@ def test_nothing_is_sent_without_a_vapid_key_or_for_a_data_only_event():
 
 
 @pytest.mark.django_db
-@override_settings(VAPID_PRIVATE_KEY="priv")  # pragma: allowlist secret
 def test_the_link_is_the_topic_at_the_post():
     from apps.forum_host.tasks import _web_topic_path
 
@@ -215,3 +220,142 @@ def test_a_reply_enqueues_the_web_push_beside_fcm(django_capture_on_commit_callb
 
     web.assert_called_once()
     assert web.call_args.args[:2] == ("reply_added", [topic_author.pk])
+
+
+# --- PR #852 round-1 repairs -------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "endpoint",
+    [
+        "https://fcm.googleapis.com:abc/x",
+        "https://fcm.googleapis.com:99999999999/x",
+        "https://fcm.googleapis.com:-1/x",
+    ],
+)
+@pytest.mark.django_db
+def test_a_malformed_port_is_a_400_not_a_500(endpoint):
+    client = APIClient()
+    client.force_authenticate(user=User.objects.create_user(username="port"))
+
+    response = client.post(
+        SUBSCRIBE_URL,
+        {"subscription": {"endpoint": endpoint, "keys": KEYS}},
+        format="json",
+    )
+
+    assert response.status_code == 400
+    assert not PushSubscription.objects.exists()
+
+
+@pytest.mark.django_db
+def test_subscribing_a_shared_browser_releases_the_previous_account():
+    """User A subscribed this browser, then user B signs in on it and
+    subscribes: A must stop receiving pushes on B's screen."""
+    first = User.objects.create_user(username="first")
+    second = User.objects.create_user(username="second")
+    client = APIClient()
+    body = {"subscription": {"endpoint": FCM_ENDPOINT, "keys": KEYS}}
+
+    client.force_authenticate(user=first)
+    assert client.post(SUBSCRIBE_URL, body, format="json").status_code == 201
+    client.force_authenticate(user=second)
+    assert client.post(SUBSCRIBE_URL, body, format="json").status_code == 201
+
+    active = PushSubscription.objects.filter(endpoint=FCM_ENDPOINT, is_active=True)
+    assert list(active.values_list("user_id", flat=True)) == [second.pk]
+
+
+def _webpush_error(status_code):
+    import requests
+    from pywebpush import WebPushException
+
+    response = requests.Response()
+    response.status_code = status_code
+    return WebPushException("push service said no", response=response)
+
+
+@pytest.mark.parametrize(
+    "status_code,deactivated",
+    [(410, True), (404, True), (413, False), (429, False), (500, False)],
+)
+@pytest.mark.django_db
+@override_settings(**PUSH_ON)
+def test_only_a_gone_subscription_is_deactivated(status_code, deactivated):
+    """A REAL requests.Response: it is falsy for any error status, which is
+    what hid the old `if e.response and ...` check."""
+    from apps.users.services import NotificationService
+
+    user = _subscribed(f"gone{status_code}")
+    subscription = PushSubscription.objects.get(user=user)
+
+    with patch("apps.users.services.webpush", side_effect=_webpush_error(status_code)):
+        sent = NotificationService.send_web_push_notification(
+            subscription, title="t", body="b"
+        )
+
+    assert sent is False
+    subscription.refresh_from_db()
+    assert subscription.is_active is (not deactivated)
+
+
+@pytest.mark.django_db
+@override_settings(**{**PUSH_ON, "VAPID_CLAIMS_EMAIL": "mailto:ops@example.com"})
+def test_a_send_waits_for_offline_browsers_and_is_bounded():
+    from apps.users.constants import WEB_PUSH_TIMEOUT_SECONDS, WEB_PUSH_TTL_SECONDS
+    from apps.users.services import NotificationService
+
+    subscription = PushSubscription.objects.get(user=_subscribed("ttl"))
+
+    with patch("apps.users.services.webpush") as webpush:
+        assert NotificationService.send_web_push_notification(
+            subscription, title="t", body="b"
+        )
+
+    kwargs = webpush.call_args.kwargs
+    assert kwargs["ttl"] == WEB_PUSH_TTL_SECONDS > 0
+    assert kwargs["timeout"] == WEB_PUSH_TIMEOUT_SECONDS
+    # A configured "mailto:" prefix is not doubled.
+    assert kwargs["vapid_claims"] == {"sub": "mailto:ops@example.com"}
+
+
+@pytest.mark.django_db
+def test_nothing_is_sent_without_the_public_key_or_a_claims_email():
+    from apps.forum_host.tasks import send_forum_web_push_batch
+
+    user = _subscribed("half")
+    with patch(
+        "apps.users.services.NotificationService.send_web_push_notification"
+    ) as send:
+        for missing in ("VAPID_PUBLIC_KEY", "VAPID_CLAIMS_EMAIL"):
+            with override_settings(**{**PUSH_ON, missing: ""}):
+                send_forum_web_push_batch("reply_added", [user.pk], {"topic_id": "1"})
+
+    send.assert_not_called()
+
+
+@pytest.mark.django_db
+@override_settings(**PUSH_ON)
+def test_a_recipient_with_no_forum_profile_still_gets_the_push():
+    """A mentioned member who never posted has no ForumProfile row; default
+    preferences want the push."""
+    from apps.forum_host.tasks import send_forum_web_push_batch
+
+    lurker = User.objects.create_user(username="lurker")
+    PushSubscription.objects.create(
+        user=lurker,
+        endpoint=f"{FCM_ENDPOINT}-lurker",
+        p256dh_key=KEYS["p256dh"],
+        auth_key=KEYS["auth"],
+    )
+    assert not ForumProfile.objects.filter(user=lurker).exists()
+
+    with patch(
+        "apps.users.services.NotificationService.send_web_push_notification",
+        return_value=True,
+    ) as send:
+        send_forum_web_push_batch(
+            "mention", [lurker.pk], {"topic_id": "1", "actor_name": "Ada"}
+        )
+
+    assert [c.args[0].user_id for c in send.call_args_list] == [lurker.pk]

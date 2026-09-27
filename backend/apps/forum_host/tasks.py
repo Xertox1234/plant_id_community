@@ -348,7 +348,7 @@ def send_forum_push_batch(event: str, recipient_user_ids: list[int], data: dict)
             send_forum_push.delay(event, user.pk, data)
 
 
-def _web_topic_path(topic_id, post_id) -> str:
+def _web_topic_path(topic_id: str | int | None, post_id: str | int | None) -> str:
     """The web app's link for a forum event: the topic, at the post."""
     from wagtail_forum.models import Topic
 
@@ -359,7 +359,7 @@ def _web_topic_path(topic_id, post_id) -> str:
     )
     if topic is None:
         return "/forum"
-    path = f"/forum/{topic.board.id}-{topic.board.slug}/{topic.id}-{topic.slug}"
+    path = topic.get_absolute_url()
     return f"{path}#post-{post_id}" if str(post_id or "").isdigit() else path
 
 
@@ -382,24 +382,30 @@ def send_forum_web_push_batch(event: str, recipient_user_ids: list[int], data: d
     before any send.
     """
     from apps.users.models import PushSubscription
-    from apps.users.services import NotificationService
-    from django.conf import settings
+    from apps.users.services import NotificationService, web_push_enabled
+    from django.contrib.auth import get_user_model
     from wagtail_forum.models import ForumProfile
 
-    if not recipient_user_ids or not getattr(settings, "VAPID_PRIVATE_KEY", ""):
+    if not recipient_user_ids or not web_push_enabled():
         return
     content = _notification_content(event, data)
     if content is None:
         return
     title, body = content
 
+    # A recipient with no ForumProfile row (e.g. a mentioned member who never
+    # posted) has default preferences, so it wants the push: default a missing
+    # row to None, as send_forum_email_batch does (PR #852 review).
+    overrides_by_user = dict(
+        ForumProfile.objects.filter(user_id__in=recipient_user_ids).values_list(
+            "user_id", "notification_preferences"
+        )
+    )
     wanted = [
-        profile.user_id
-        for profile in ForumProfile.objects.filter(
-            user_id__in=recipient_user_ids
-        ).select_related("user")
-        if getattr(profile.user, "forum_notifications", True) is True
-        and wants_channel(profile.notification_preferences, event, "push")
+        user.pk
+        for user in get_user_model().objects.filter(pk__in=recipient_user_ids)
+        if getattr(user, "forum_notifications", True) is True
+        and wants_channel(overrides_by_user.get(user.pk), event, "push")
     ]
     if not wanted:
         return

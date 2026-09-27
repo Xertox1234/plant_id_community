@@ -69,7 +69,6 @@ export default function BrowserNotificationsSection() {
               type="button"
               onClick={toggle}
               disabled={busy}
-              aria-pressed={state === 'on'}
               className="mt-2 min-h-11 rounded-pill px-4 py-1 text-sm text-primary hover:bg-primary/10 disabled:opacity-60"
             >
               {state === 'on' ? 'Turn off on this browser' : 'Turn on for this browser'}

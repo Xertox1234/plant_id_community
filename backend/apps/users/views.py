@@ -844,14 +844,16 @@ def unsubscribe_push_notifications(request: Request) -> Response:
 def push_public_key(request: Request) -> Response:
     """The VAPID public key a browser subscribes with (todo 413).
 
-    ``enabled`` is false when either half of the key pair is missing: the web
-    app then offers no browser notifications rather than a subscription the
-    server could never send to.
+    ``enabled`` is false when either half of the key pair, or the claims
+    email, is missing: the web app then offers no browser notifications rather
+    than a subscription the server could never send to.
     """
     from django.conf import settings
 
+    from .services import web_push_enabled
+
     public_key = getattr(settings, "VAPID_PUBLIC_KEY", "")
-    enabled = bool(public_key and getattr(settings, "VAPID_PRIVATE_KEY", ""))
+    enabled = web_push_enabled()
     return Response({"enabled": enabled, "public_key": public_key if enabled else ""})
 
 

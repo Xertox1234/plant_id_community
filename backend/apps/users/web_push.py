@@ -18,12 +18,15 @@ def is_allowed_push_endpoint(endpoint: Any) -> bool:
         return False
     try:
         parts = urlsplit(endpoint)
+        # `.port` parses lazily and raises ValueError for ':abc' or an
+        # out-of-range number, so it belongs inside the try (PR #852 review).
+        port = parts.port
     except ValueError:
         return False
     host = (parts.hostname or "").lower()
     if parts.scheme != "https" or not host or parts.username or parts.password:
         return False
-    if parts.port not in (None, 443):
+    if port not in (None, 443):
         return False
     return any(
         host == suffix or host.endswith("." + suffix)

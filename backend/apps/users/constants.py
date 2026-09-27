@@ -35,3 +35,13 @@ WEB_PUSH_ALLOWED_HOST_SUFFIXES = (
     "notify.windows.com",  # legacy Edge / Windows (wns2-*.notify.windows.com)
 )
 WEB_PUSH_ENDPOINT_MAX_LENGTH = 500  # PushSubscription.endpoint max_length
+
+# How long a push service holds a message for a browser that is offline or
+# closed. pywebpush defaults to 0, which tells the service to drop the message
+# unless the browser is connected at that moment (PR #852 review).
+WEB_PUSH_TTL_SECONDS = 24 * 60 * 60
+# Bound on one push-service POST, so a stalled service cannot hold a worker.
+WEB_PUSH_TIMEOUT_SECONDS = 10
+# The push service answers these when a subscription is gone for good. 413
+# (payload too large) and 429 (rate limited) say nothing about the subscription.
+WEB_PUSH_GONE_STATUSES = (404, 410)

@@ -6,6 +6,7 @@ import {
   disableBrowserPush,
   enableBrowserPush,
   getBrowserPushState,
+  releaseBrowserPushOnLogout,
   urlBase64ToUint8Array,
 } from './pushService';
 
@@ -15,7 +16,12 @@ import {
 const KEY =
   'BLrbiiidfpiAWj4ZHexQggpVCJue5b5tIjZ9KsgobEuNVz4wwNxPKsLmqHB1ANm31--xeXyulD-js65NgCr17G4'; // pragma: allowlist secret
 
-function fakeBrowser({ permission = 'default', existing = null as unknown } = {}) {
+function fakeBrowser({
+  permission = 'default',
+  existing = null as unknown,
+  grant = 'granted' as NotificationPermission,
+  log = [] as string[],
+} = {}) {
   const subscription = {
     endpoint: 'https://fcm.googleapis.com/fcm/send/abc',
     toJSON: () => ({
@@ -26,7 +32,7 @@ function fakeBrowser({ permission = 'default', existing = null as unknown } = {}
   };
   const pushManager = {
     getSubscription: vi.fn(async () => existing),
-    subscribe: vi.fn(async () => subscription),
+    subscribe: vi.fn(async (_options?: PushSubscriptionOptionsInit) => subscription),
   };
   const registration = { pushManager };
   Object.defineProperty(window, 'PushManager', {
@@ -34,7 +40,13 @@ function fakeBrowser({ permission = 'default', existing = null as unknown } = {}
     configurable: true,
   });
   Object.defineProperty(window, 'Notification', {
-    value: { permission, requestPermission: vi.fn(async () => 'granted') },
+    value: {
+      permission,
+      requestPermission: vi.fn(async () => {
+        log.push('permission');
+        return grant;
+      }),
+    },
     configurable: true,
     writable: true,
   });
@@ -49,12 +61,17 @@ function fakeBrowser({ permission = 'default', existing = null as unknown } = {}
   return { subscription, pushManager };
 }
 
-function mockFetch(publicKey: { enabled: boolean; public_key: string }, subscribeStatus = 201) {
+function mockFetch(
+  publicKey: { enabled: boolean; public_key: string },
+  subscribeStatus = 201,
+  log: string[] = []
+) {
   const calls: { url: string; init?: RequestInit }[] = [];
   vi.stubGlobal(
     'fetch',
     vi.fn(async (url: string, init?: RequestInit) => {
       calls.push({ url, init });
+      log.push(`fetch ${url.split('/push-notifications/')[1]}`);
       if (url.endsWith('/public-key/'))
         return new Response(JSON.stringify(publicKey), { status: 200 });
       return new Response('{}', { status: url.endsWith('/subscribe/') ? subscribeStatus : 200 });
@@ -69,8 +86,7 @@ describe('pushService', () => {
   });
   afterEach(() => {
     vi.unstubAllGlobals();
-    // @ts-expect-error test cleanup of a faked global
-    delete window.PushManager;
+    Reflect.deleteProperty(window, 'PushManager'); // cleanup of a faked global
   });
 
   it('decodes the base64url VAPID key to the 65-byte P-256 point', () => {
@@ -80,8 +96,7 @@ describe('pushService', () => {
   });
 
   it('reports unsupported without the Push API', async () => {
-    // @ts-expect-error simulate a browser without push
-    delete window.PushManager;
+    Reflect.deleteProperty(window, 'PushManager'); // a browser without push
     expect(await getBrowserPushState()).toBe('unsupported');
   });
 
@@ -130,5 +145,102 @@ describe('pushService', () => {
     expect(existing.unsubscribe).toHaveBeenCalled();
     const unsubscribe = calls.find((c) => c.url.endsWith('/unsubscribe/'));
     expect(JSON.parse(String(unsubscribe?.init?.body))).toEqual({ endpoint: existing.endpoint });
+  });
+
+  // --- PR #852 round-1 repairs ----------------------------------------------
+
+  function existingSubscription(key: Uint8Array) {
+    return {
+      endpoint: 'https://fcm.googleapis.com/fcm/send/old',
+      options: { applicationServerKey: key.buffer.slice(0) },
+      toJSON: () => ({
+        endpoint: 'https://fcm.googleapis.com/fcm/send/old',
+        keys: { p256dh: 'op', auth: 'oa' },
+      }),
+      unsubscribe: vi.fn(async () => true),
+    };
+  }
+
+  it('re-registers an existing subscription made with the current key', async () => {
+    const existing = existingSubscription(urlBase64ToUint8Array(KEY));
+    const { pushManager } = fakeBrowser({ existing });
+    const calls = mockFetch({ enabled: true, public_key: KEY });
+
+    expect(await enableBrowserPush()).toBe('on');
+
+    expect(pushManager.subscribe).not.toHaveBeenCalled();
+    expect(existing.unsubscribe).not.toHaveBeenCalled();
+    const subscribe = calls.find((c) => c.url.endsWith('/subscribe/'));
+    expect(JSON.parse(String(subscribe?.init?.body)).subscription.endpoint).toBe(existing.endpoint);
+  });
+
+  it('replaces an existing subscription made with a rotated-out key', async () => {
+    const oldKey = urlBase64ToUint8Array(KEY);
+    oldKey[10] ^= 0xff;
+    const existing = existingSubscription(oldKey);
+    const { pushManager } = fakeBrowser({ existing });
+    const calls = mockFetch({ enabled: true, public_key: KEY });
+
+    expect(await enableBrowserPush()).toBe('on');
+
+    expect(existing.unsubscribe).toHaveBeenCalled();
+    expect(pushManager.subscribe).toHaveBeenCalledOnce();
+    const subscribe = calls.find((c) => c.url.endsWith('/subscribe/'));
+    expect(JSON.parse(String(subscribe?.init?.body)).subscription.endpoint).toBe(
+      'https://fcm.googleapis.com/fcm/send/abc'
+    );
+  });
+
+  it.each([
+    ['denied', 'denied'],
+    ['default', 'off'],
+  ] as const)('a %s permission answer subscribes nothing', async (grant, state) => {
+    const { pushManager } = fakeBrowser({ grant });
+    const calls = mockFetch({ enabled: true, public_key: KEY });
+
+    expect(await enableBrowserPush()).toBe(state);
+
+    expect(pushManager.subscribe).not.toHaveBeenCalled();
+    expect(calls.some((c) => c.url.endsWith('/subscribe/'))).toBe(false);
+  });
+
+  it('asks permission before any network await (Safari user activation)', async () => {
+    const log: string[] = [];
+    fakeBrowser({ log });
+    mockFetch({ enabled: true, public_key: KEY }, 201, log);
+
+    await getBrowserPushState(); // the mount-time read caches the key
+    log.length = 0;
+    expect(await enableBrowserPush()).toBe('on');
+
+    expect(log[0]).toBe('permission');
+    expect(log).not.toContain('fetch public-key/');
+  });
+
+  it('logout unsubscribes this browser and tells the server', async () => {
+    const existing = existingSubscription(urlBase64ToUint8Array(KEY));
+    fakeBrowser({ existing });
+    const calls = mockFetch({ enabled: true, public_key: KEY });
+
+    await releaseBrowserPushOnLogout();
+
+    expect(existing.unsubscribe).toHaveBeenCalled();
+    const unsubscribe = calls.find((c) => c.url.endsWith('/unsubscribe/'));
+    expect(JSON.parse(String(unsubscribe?.init?.body))).toEqual({ endpoint: existing.endpoint });
+  });
+
+  it('logout is never blocked by a hung or failing release', async () => {
+    const existing = existingSubscription(urlBase64ToUint8Array(KEY));
+    existing.unsubscribe = vi.fn(() => new Promise<boolean>(() => undefined));
+    fakeBrowser({ existing });
+    mockFetch({ enabled: true, public_key: KEY });
+    vi.useFakeTimers();
+    try {
+      const done = releaseBrowserPushOnLogout();
+      await vi.advanceTimersByTimeAsync(3000);
+      await expect(done).resolves.toBeUndefined();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

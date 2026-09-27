@@ -11,6 +11,12 @@ from django.conf import settings
 from django.core.mail import send_mail
 from django.utils import timezone
 
+from .constants import (
+    WEB_PUSH_GONE_STATUSES,
+    WEB_PUSH_TIMEOUT_SECONDS,
+    WEB_PUSH_TTL_SECONDS,
+)
+
 # External dependency for Web Push (requires: pip install pywebpush)
 try:
     from pywebpush import WebPushException, webpush
@@ -21,6 +27,23 @@ except ImportError:
     WebPushException = Exception
 
 logger = logging.getLogger(__name__)
+
+
+def vapid_claims_email() -> str:
+    """The VAPID ``sub`` contact address without a ``mailto:`` prefix, or ""."""
+    email = (getattr(settings, "VAPID_CLAIMS_EMAIL", "") or "").strip()
+    if email.lower().startswith("mailto:"):
+        email = email[len("mailto:") :].strip()
+    return email
+
+
+def web_push_enabled() -> bool:
+    """True when the server can both hand out a key and sign a push."""
+    return bool(
+        getattr(settings, "VAPID_PUBLIC_KEY", "")
+        and getattr(settings, "VAPID_PRIVATE_KEY", "")
+        and vapid_claims_email()
+    )
 
 
 class NotificationService:
@@ -83,23 +106,22 @@ class NotificationService:
                 },
             }
 
-            # Get VAPID keys from settings
             vapid_private_key = getattr(settings, "VAPID_PRIVATE_KEY", None)
-            vapid_claims = {
-                "sub": f'mailto:{getattr(settings, "VAPID_CLAIMS_EMAIL", "admin@plantcommunity.com")}'
-            }
-
-            if not vapid_private_key:
-                logger.error("[PUSH] VAPID_PRIVATE_KEY not configured in settings")
+            claims_email = vapid_claims_email()
+            if not vapid_private_key or not claims_email:
+                logger.error(
+                    "[PUSH] VAPID_PRIVATE_KEY or VAPID_CLAIMS_EMAIL not configured"
+                )
                 return False
 
-            # Send the push notification
             webpush(
                 subscription_info=subscription_info,
                 data=json.dumps(payload),
                 vapid_private_key=vapid_private_key,
-                vapid_claims=vapid_claims,
+                vapid_claims={"sub": f"mailto:{claims_email}"},
                 content_encoding="aes128gcm",
+                ttl=WEB_PUSH_TTL_SECONDS,
+                timeout=WEB_PUSH_TIMEOUT_SECONDS,
             )
 
             # Mark subscription as used
@@ -115,9 +137,12 @@ class NotificationService:
                 f"[PUSH] WebPush error for {log_safe_user_context(subscription.user)}: {e}"
             )
 
-            # Handle specific error cases
-            if e.response and e.response.status_code in [410, 413, 429]:
-                # Subscription is no longer valid or rate limited
+            # `is not None`, never truthiness: requests.Response.__bool__ is
+            # `.ok`, so an error response is falsy (PR #852 review).
+            if (
+                e.response is not None
+                and e.response.status_code in WEB_PUSH_GONE_STATUSES
+            ):
                 subscription.deactivate()
                 logger.warning(
                     f"[PUSH] Deactivated push subscription for {log_safe_user_context(subscription.user)}"
@@ -301,7 +326,20 @@ The Plant Community Team
         endpoint = subscription_data.get("endpoint")
         keys = subscription_data.get("keys", {})
 
-        # Try to get existing subscription or create new one
+        # One browser endpoint belongs to one account: a shared browser where
+        # another user subscribed last must not keep getting their
+        # notifications (PR #852 review).
+        released = (
+            PushSubscription.objects.filter(endpoint=endpoint, is_active=True)
+            .exclude(user=user)
+            .update(is_active=False)
+        )
+        if released:
+            logger.info(
+                f"[PUSH] Released {released} subscription(s) on this endpoint "
+                f"held by another account, for {log_safe_user_context(user)}"
+            )
+
         subscription, created = PushSubscription.objects.update_or_create(
             user=user,
             endpoint=endpoint,
