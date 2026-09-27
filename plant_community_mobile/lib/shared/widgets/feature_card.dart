@@ -80,7 +80,9 @@ enum FeatureType {
   camera(CanopyTileTone.sage),
   care(CanopyTileTone.orchid),
   community(CanopyTileTone.bloom),
-  collection(CanopyTileTone.pollen);
+  collection(CanopyTileTone.pollen),
+  // Four tones for five cards: the blog shares identify's sage.
+  blog(CanopyTileTone.sage);
 
   const FeatureType(this.tone);
 

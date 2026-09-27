@@ -13,6 +13,8 @@ import '../../features/results/results_screen.dart';
 import '../../features/profile/profile_screen.dart';
 import '../../features/settings/settings_screen.dart';
 import '../../features/care/care_screen.dart';
+import '../../features/blog/screens/blog_list_screen.dart';
+import '../../features/blog/screens/blog_post_screen.dart';
 import '../../features/forum/forum_screen.dart';
 import '../../features/forum/screens/forum_bookmarks_screen.dart';
 import '../../features/forum/screens/forum_my_images_screen.dart';
@@ -53,6 +55,9 @@ abstract class AppRoutes {
   static const garden = '/garden';
   // Phase 2 feature routes
   static const care = '/care';
+  // Blog (todo 385): nested under the Home tab, opened from its feature
+  // grid. `?tag=` narrows the list (the care guides use `care-guide`).
+  static const blog = '/blog';
   static const forum = '/forum';
   // Auth-only: the notifications feed is the caller's own inbox and the
   // backend 401s an anonymous request, which the screen could only render as
@@ -150,7 +155,8 @@ GoRouter appRouter(Ref ref) {
         builder: (context, state, navigationShell) =>
             MainShell(navigationShell: navigationShell),
         branches: [
-          // 0 Home -- /care hangs off the Home feature grid, so it keeps the bar.
+          // 0 Home -- /care and /blog hang off the Home feature grid, so they
+          // keep the bar.
           StatefulShellBranch(
             routes: [
               GoRoute(
@@ -169,6 +175,32 @@ GoRouter appRouter(Ref ref) {
                   context: context,
                   state: state,
                   child: const CareScreen(),
+                ),
+              ),
+              GoRoute(
+                path: AppRoutes.blog,
+                name: 'blog',
+                pageBuilder: (context, state) => _buildPageWithTransition(
+                  context: context,
+                  state: state,
+                  child: BlogListScreen(
+                    tag: state.uri.queryParameters['tag'],
+                    title: state.extra is String ? state.extra as String : null,
+                  ),
+                ),
+              ),
+              GoRoute(
+                path: '${AppRoutes.blog}/:slug',
+                name: 'blogPost',
+                pageBuilder: (context, state) => _buildPageWithTransition(
+                  context: context,
+                  state: state,
+                  child: BlogPostScreen(
+                    slug: state.pathParameters['slug'] ?? '',
+                    initialTitle: state.extra is String
+                        ? state.extra as String
+                        : null,
+                  ),
                 ),
               ),
             ],

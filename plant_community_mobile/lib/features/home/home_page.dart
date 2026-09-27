@@ -134,7 +134,8 @@ class HomePage extends StatelessWidget {
     );
   }
 
-  /// Features grid with 4 cards
+  /// Features grid. The Blog card is the blog's documented entry point:
+  /// it nests under the Home tab rather than taking a fifth tab (todo 385).
   Widget _buildFeaturesGrid(BuildContext context) {
     final ext =
         Theme.of(context).extension<GreenThumbExtension>() ??
@@ -176,6 +177,15 @@ class HomePage extends StatelessWidget {
         type: FeatureType.collection,
         route: AppRoutes.collection,
         isTab: true,
+      ),
+      _FeatureData(
+        icon: LucideIcons.newspaper,
+        title: 'Plant Journal',
+        description:
+            'Read care guides, plant spotlights and stories from our blog',
+        type: FeatureType.blog,
+        route: AppRoutes.blog,
+        isTab: false,
       ),
     ];
 
