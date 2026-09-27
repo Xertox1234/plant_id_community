@@ -6714,3 +6714,22 @@ brief spells the command out.
   reset URL as `https://example.com/`, BLOCKING. Probe a claimed failure
   against the current tree before fixing it; don't run mutants while a
   reviewer is running tests in the same worktree.
+
+## 2026-09-26 — Removing a dead CSS class made its tests vacuous (todo 401, PR #847)
+
+**What broke.** Todo 399 removed the never-compiled `prose prose-sm` tokens from
+the forum category intro. The intro's sanitization tests scoped their checks by
+that class: `expect(document.querySelector('.prose img')).toBeNull()`. Once the
+class was gone every query returned `null`, so all three XSS assertions and both
+"no welcome block" checks passed without looking at the intro at all.
+
+**Root cause.** An absence assertion cannot tell "the thing is absent" from "the
+scope is absent". Removing a class that is visually dead can still be
+load-bearing for a test selector.
+
+**Fix.** The tests now query `.rich-text` (the new class), and they first
+assert the container exists. Mutation-checked: removing the class from the
+component fails the test. Separately, `npm run check:classes` did not flag
+`prose prose-lg max-w-none` inside a ternary in `StreamFieldRenderer`, so its
+green result was not a clean bill. That is filed as todo 450, which also found
+that forum and blog paragraph lists render with no markers.
