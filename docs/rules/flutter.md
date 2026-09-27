@@ -235,6 +235,18 @@ Compact checklist auto-injected before edits. Long-form:
 - **Switch to a tab's root with `context.go`, never `context.push`** from
   another branch. Pushing a branch root stacks a second copy with a back
   arrow on the wrong branch (todo 412).
+- **Bound an `image_picker` pick whenever the server re-encodes the image
+  anyway.** Pass `maxWidth`/`maxHeight`/`imageQuality`. iOS hands back a
+  24 MP photo as a quality-1.0 JPEG, and the backend refuses an ORIGINAL
+  over 4096 px or 10 MB before it resizes. Leave a pick unbounded only when
+  the bytes must stay exact (the forum's GIF/PNG uploads) (todo 444,
+  PR #857).
+- **Every iOS permission a plugin uses needs its usage string in
+  `ios/Runner/Info.plist`.** iOS kills the app, with no Dart error, when one
+  is missing: `NSCameraUsageDescription` was absent while Identify → Take
+  photo shipped. `test/platform/ios_usage_strings_test.dart` maps each
+  plugin to its keys; add a plugin's keys there when you add the plugin
+  (todo 444).
 - **Offset paging advances by the rows the SERVER sent, never by the client's
   de-duplicated count.** The blog API caches list pages by `offset // limit`,
   so an offset that stops being a multiple of the page size is served a

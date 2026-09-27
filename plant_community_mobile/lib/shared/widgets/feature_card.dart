@@ -81,7 +81,10 @@ enum FeatureType {
   care(CanopyTileTone.orchid),
   community(CanopyTileTone.bloom),
   collection(CanopyTileTone.pollen),
-  // Four tones for five cards: the blog shares identify's sage.
+  // Four tones for more cards than tones: diagnose shares community's bloom
+  // (the web's /diagnose tile is bloom too).
+  diagnose(CanopyTileTone.bloom),
+  // The blog shares identify's sage.
   blog(CanopyTileTone.sage);
 
   const FeatureType(this.tone);

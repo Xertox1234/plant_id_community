@@ -134,8 +134,7 @@ class HomePage extends StatelessWidget {
     );
   }
 
-  /// Features grid. The Blog card is the blog's documented entry point:
-  /// it nests under the Home tab rather than taking a fifth tab (todo 385).
+  /// Features grid
   Widget _buildFeaturesGrid(BuildContext context) {
     final ext =
         Theme.of(context).extension<GreenThumbExtension>() ??
@@ -178,6 +177,19 @@ class HomePage extends StatelessWidget {
         route: AppRoutes.collection,
         isTab: true,
       ),
+      // The Diagnose entry point (todo 444). Signed out, the router sends
+      // the tap to sign-in.
+      _FeatureData(
+        icon: LucideIcons.stethoscope,
+        title: 'Diagnose a Sick Plant',
+        description:
+            'Photograph the symptoms and get a likely cause and what to do next',
+        type: FeatureType.diagnose,
+        route: AppRoutes.diagnose,
+        isTab: false,
+      ),
+      // The blog's documented entry point: it nests under the Home tab
+      // rather than taking a fifth tab (todo 385).
       _FeatureData(
         icon: LucideIcons.newspaper,
         title: 'Plant Journal',
