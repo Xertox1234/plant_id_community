@@ -104,7 +104,8 @@ with it (§7).
 | `scripts/todos/scan.py` | Stage 0 discovery (§5.0). |
 | `scripts/todos/group.py` | Deterministic lanes + waves from triage records (§7). |
 | `scripts/todos/state.py` | The only writer of the run file; enforces the stage transition table (§8). |
-| `scripts/todos/tests/` | pytest for all three scripts. |
+| `scripts/todos/todofile.py`, `slot_env.py`, `land.py`, `worker_git_guard.py` | Byte-preserving todo edits; per-slot env; Land's AC flip + archive; the hook's decision logic (added by the implementation plan). |
+| `scripts/todos/test_*.py`, `test_workflows.js` | Tests next to the code (repo convention); the workflow tests run each script with stubbed `agent()`. |
 | `.claude/hooks/guard-todo-worker-git.sh` + `test-guard-todo-worker-git.sh` | `PreToolUse` on Bash: when `agent_type` is `todo-worker` or `todo-verifier`, allow only the git subcommands `add`, `mv`, `rm`, `diff`, `status`, `log`, `show`, `fetch`, `write-tree`, `rev-parse`, and deny every other `git` subcommand (commit, push, switch, checkout, stash, rebase, reset, clean, …) and all `gh`. An allowlist, because a denylist misses branch-moving commands. |
 | `.worktreeinclude` | `backend/.env`, `web/.env` — gitignored env files copied into worker worktrees. |
 
@@ -137,8 +138,10 @@ with it (§7).
 
 `scan.py --selector <sweep|batch …|next> --run-id <id>`:
 
-- Enumerates `todos/*.md` **with a frontmatter block**, excluding `README.md`
-  and `TEMPLATE.md`. Includes every non-archived status (`pending`,
+- Reads the todos **at `origin/main`** (after `git fetch`), never the working
+  tree. The main checkout was 45 commits behind on 2026-09-27, and reading it
+  re-selected five already-archived todos. Enumerates `todos/*.md` **with a
+  frontmatter block**, excluding `README.md` and `TEMPLATE.md`. Includes every non-archived status (`pending`,
   `in_progress`, `blocked`) — never a `^status: pending` grep.
 - Flags **stranded** todos: `in_progress` with no live branch/worktree/open PR →
   offered back to `pending`. The rename (`git mv`) plus frontmatter edit and a
@@ -206,7 +209,9 @@ stages everything, so `git -C <wt> status --porcelain` is empty (evidence lives
 in the gitignored `.sweep-evidence/`), and records `git -C <wt> write-tree`. The
 verifier records both values as its first and last steps. Before Land, the main
 session checks that all three tree ids match and that the working tree is still
-clean. The staged-tree id alone would miss an unstaged `sed -i`, which is why the
+clean (`status --porcelain --untracked-files=no`: untracked test artifacts don't
+count, because Land commits only the index and stages exactly the paths `land.py`
+reports). The staged-tree id alone would miss an unstaged `sed -i`, which is why the
 clean check is also required. Any difference **voids the
 verdict** (the todo goes to `failed`), because a verifier that changed the tree
 has "fixed its way" to passing. This is the mechanism behind pain point 9; the
@@ -383,12 +388,15 @@ group (reported, returned to `pending`) instead of being resolved by guess.
 
 ### 7.3 Per-slot resources
 
-Worker slot `N` (1–3) gets:
+Worker slot `N` gets the following. Slots come in two banks, `(wave % 2) × workers + position`, because
+wave N is still in review while wave N+1 executes, so the two waves need disjoint slots. Slots
+run 1–6, which caps `--workers` at 3:
 
 - `DATABASE_URL=postgres://localhost/plant_community_w<N>` → pytest creates
   `test_plant_community_w<N>` (`settings.py` parses `DATABASE_URL` under pytest;
   `pytest.ini` does not pin `--reuse-db`). Page suites keep `--create-db`.
-- `REDIS_URL=redis://127.0.0.1:6379/<10+N>` (dev uses DBs 1 and 3).
+- `REDIS_URL=redis://127.0.0.1:6379/<9+N>`, DBs 10–15 (dev uses 1 and 3).
+- Both are applied by `scripts/todos/slot_env.py <N> -- <command>`, never typed into prompts.
 - File caches and `MEDIA_ROOT` are `BASE_DIR`-relative, so already per-worktree.
 - Vitest and scripts are safe in parallel; Playwright is the `e2e` lane.
 - Slot values are set as **process environment** on the worker's commands,
@@ -502,7 +510,7 @@ several workflow runs. Hence:
 
 ## 12. Testing and rollout
 
-1. **Unit tests** — `scripts/todos/tests/`: scan (status coverage, stranded
+1. **Unit tests** — `scripts/todos/test_*.py` and `test_workflows.js`: scan (status coverage, stranded
    detection, in-flight exclusion, README/TEMPLATE exclusion), group
    (union-find, xs bundling, lanes, dependency cycle abort), state (every
    allowed and refused transition).
