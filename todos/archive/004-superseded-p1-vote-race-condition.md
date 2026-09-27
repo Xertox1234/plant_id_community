@@ -1,5 +1,5 @@
 ---
-status: ready
+status: superseded
 priority: p1
 issue_id: "004"
 tags: [code-review, data-integrity, race-condition, concurrency]
@@ -208,6 +208,19 @@ result.save()
 - F() expressions are Django's recommended solution
 - This affects any counter field (not just votes)
 - Concurrent vote test would have caught this bug
+
+### 2026-09-27 - Triage verdict (todo 394)
+
+**Verdict: superseded.**
+
+- The F() fix landed in e48bb8c9 ("fix: replace unsafe vote increments with
+  atomic F() expressions", 6 sites). Both `vote` actions were later removed
+  as dead routes in 1b8efa66 (#800, todo 405). No code writes
+  `upvotes`/`downvotes` today.
+- No concurrent-vote test ever existed.
+- The "similar patterns" AC did not land. The only such pattern on a live
+  paid path, `disease.diagnosis_count += 1`
+  (`disease_diagnosis_service.py:90`), is filed as todo 467.
 
 ## Notes
 

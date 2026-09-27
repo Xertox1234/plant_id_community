@@ -1,5 +1,5 @@
 ---
-status: pending
+status: superseded
 priority: p1
 issue_id: "016"
 tags: [performance, backend, django, database, optimization, moderation]
@@ -285,6 +285,19 @@ stats = Model.objects.aggregate(
 - Implement aggregation query
 - Add performance regression test (assertNumQueries)
 - Document pattern in PERFORMANCE_TESTING_PATTERNS_CODIFIED.md
+
+### 2026-09-27 - Triage verdict (todo 394)
+
+**Verdict: superseded.**
+
+- The aggregate queries landed in the old `apps/forum`
+  `moderation_queue_viewset.py`: a81416c4 ("Issue #016: Optimized
+  moderation dashboard"), then 300365d9, with accuracy tests in
+  `test_moderation_dashboard.py`. No `assertNumQueries` test ever existed.
+- The whole app, which was dead code even then, was deleted in a7b61b7c
+  (#271). The live forum has no dashboard endpoint and no `FlaggedContent`
+  model; moderation is the Wagtail `ModerationQueueView`
+  (`wagtail_forum/admin_views.py:92`). Nothing to re-file.
 
 ## Notes
 

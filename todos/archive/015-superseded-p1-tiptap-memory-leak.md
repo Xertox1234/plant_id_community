@@ -1,5 +1,5 @@
 ---
-status: pending
+status: superseded
 priority: p1
 issue_id: "015"
 tags: [performance, memory-leak, react, frontend, tiptap, cleanup]
@@ -214,6 +214,23 @@ useEffect(() => () => editor?.destroy(), [editor]);
 - Test with heap snapshots
 - Document pattern for future components
 - Audit other external libraries (DOMPurify is safe)
+
+### 2026-09-27 - Triage verdict (todo 394)
+
+**Verdict: partial; the code landed. Superseded by todo 464 for the test.**
+
+- The useEffect cleanup and `destroy()` on unmount landed in a81416c4
+  ("Issue #015: Fixed TipTap memory leak …"), now at
+  `web/src/components/forum/TipTapEditor.tsx:633-640`.
+- A StrictMode guard (`:610-621`) is tested at `TipTapEditor.test.tsx:1056`.
+- **Not landed:**
+  - a test asserting `destroy()` on unmount → todo 464;
+  - the docs line in `TYPESCRIPT_MIGRATION_PATTERNS_CODIFIED.md`, which
+    that file no longer carries (not re-filed).
+- The heap-snapshot and "10 posts" ACs left no artifact and are not
+  re-filed.
+- Hypothesis, not verified: TipTap v3's `useEditor` destroys the editor on
+  its own cleanup (see the comment at `:611-613`).
 
 ## Notes
 

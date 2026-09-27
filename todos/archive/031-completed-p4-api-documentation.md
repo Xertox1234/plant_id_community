@@ -1,5 +1,5 @@
 ---
-status: ready
+status: completed
 priority: p4
 issue_id: "031"
 tags: [documentation, api, openapi]
@@ -149,6 +149,25 @@ class PlantIdentificationViewSet(viewsets.ViewSet):
 ## Work Log
 
 - 2025-10-25: Issue identified by best-practices-researcher agent
+
+### 2026-09-27 - Triage verdict (todo 394)
+
+**Verdict: completed. One residual gate is re-filed.**
+
+- The allowlist hint was wrong: `SpectacularAPIView` is at
+  `backend/plant_community_backend/urls.py:122`, along with `/api/docs/`
+  and `/api/redoc/` (21e345f6).
+- Since 617fce57 (todo 248) the docs are staff-only on purpose, pinned by
+  `apps/core/tests/test_schema_endpoint_authz.py`.
+- CI validates the schema (`.github/workflows/backend-ci.yml:92`).
+- JWT auth is documented (`apps/users/schema.py:13`, a8ec7b17), and there
+  is a README link.
+- **Partial:**
+  - "All endpoints documented": CI tolerates the "unable to guess
+    serializer" warnings, with no `--fail-on-warn`. Filed with the mypy
+    gate as todo 466.
+  - Request examples exist only in the garden and forum views (13 uses).
+    Not re-filed.
 
 ## Notes
 

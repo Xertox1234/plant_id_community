@@ -44,10 +44,10 @@ of one is the exact falsification the checker exists to prevent.
 
 Two entries are worth naming:
 
-- `todos/archive/020-completed-p2-post-search-gin-index.md` — the only one whose
+- `todos/archive/020-superseded-p2-post-search-gin-index.md` — the only one whose
   grep came back **empty** (no `GinIndex` / `gin_trgm` / `SearchVector` in the
   forum migrations). Most likely genuinely unfinished. Start here.
-- `todos/archive/009-completed-p2-dead-code-services.md` — genuinely
+- `todos/archive/009-superseded-p2-dead-code-services.md` — genuinely
   artifact-less. The deliverable was *deleting* 4,500 lines across 13 services;
   a successful deletion and never starting look identical in the tree. Only
   `git log` can answer it.
@@ -82,15 +82,18 @@ a row, while doing exactly this work.
 
 ## Acceptance Criteria
 
-- [ ] `allow:` in `todos/archive-status-allowlist.yml` is empty, and every file
-      it listed carries its verdict + evidence in its own Work Log
-- [ ] Any of the 13 found **not** done is either marked `superseded` with a
+- [x] `allow:` in `todos/archive-status-allowlist.yml` is empty, and every file
+      it listed carries its verdict + evidence in its own Work Log (completed
+      2026-09-27)
+- [x] Any of the 13 found **not** done is either marked `superseded` with a
       pointer to what did the work, or re-filed as a live todo — never marked
-      `completed`
-- [ ] `todos/archive/020-completed-p2-post-search-gin-index.md` is settled
+      `completed` (completed 2026-09-27: 9 superseded, open ACs re-filed as
+      todos 464–467)
+- [x] `todos/archive/020-superseded-p2-post-search-gin-index.md` is settled
       against the actual migrations, since it is the one negative grep result
-- [ ] `python3 scripts/check_archived_todo_status.py --fail-over 0` still exits 0
-      with no stale entries
+      (completed 2026-09-27: the grep was a false negative, see the Work Log)
+- [x] `python3 scripts/check_archived_todo_status.py --fail-over 0` still exits 0
+      with no stale entries (completed 2026-09-27)
 
 ## Notes
 
@@ -108,3 +111,45 @@ Related: todo 390 (the tripwire), `scripts/check_archived_todo_status.py`,
 Not blocked — research work. The owner cleared it for the next sweep. Mind the
 three traps in Recommended Action (allowlist paths, `.secrets.baseline`
 filename edits — never regenerate it — and `/usr/bin/git commit`).
+
+### 2026-09-27 - All 13 settled; `allow` is empty
+
+Each file was checked AC by AC against the current code and `git log`, by two
+read-only investigators. Their load-bearing claims were then spot-checked:
+the GIN migration in a81416c4, `apps/forum`'s deletion in a7b61b7c (#271, 56
+files), and `ai_care_service.py` having no code references. Each file's
+verdict and evidence is in its own Work Log.
+
+| File | Verdict |
+|------|---------|
+| 001 plantnet circuit breaker | partial → `superseded`; test AC → todo 464 |
+| 002 cascade disease result | `completed` (admin AC has nothing to update) |
+| 002 views type hints | partial → `superseded`; mypy gate → todo 466 |
+| 004 reaction toggle race | `superseded` (#271; live equivalent in `wagtail_forum`); concurrency test → 464, tap guard → 465 |
+| 004 vote race | `superseded` (F() fix e48bb8c9, routes removed in #800); `diagnosis_count` → 467 |
+| 005 attachment soft delete | `superseded` (landed #122, deleted #271, `ImageBlock` design) |
+| 008 image magic number | `completed` (rebuilt in `wagtail_forum` #406, with tests) |
+| 009 dead code services | `superseded`: 1 of 13 deleted, 8 now live; `ai_care_service.py` → 467, `plant_care_reminder_service.py` → todo 410 slice B |
+| 009 upload rate limiting | `completed` (rebuilt in `forum_host`, with tests) |
+| 015 TipTap memory leak | partial → `superseded`; destroy test → 464 |
+| 016 moderation dashboard | `superseded` (#271) |
+| 020 post search GIN index | `superseded`; **the empty grep was a false negative** |
+| 031 API documentation | `completed`; the `--fail-on-warn` residue → 466 |
+
+On 020: a81416c4 added `apps/forum/migrations/0008_add_post_search_gin_indexes.py`
+(tsvector and trigram GIN on `content_raw`). The grep only searched
+`wagtail_forum`. That app was then deleted in #271. Forum search today goes
+through `modelsearch`'s Postgres backend, and its GIN indexes live on
+`wagtailsearch_indexentry`.
+
+Nine files were renamed `-completed-` → `-superseded-` to match their
+status (the tripwire's filename check). Their paths were updated in the
+allowlist's `grandfathered_unchecked_acs`. None is keyed in
+`.secrets.baseline`. `docs/archive/2025-11/SECURITY_AUDIT_COMPLETION_REPORT.md`
+still names the old filenames and was left alone as a historical record.
+`grandfathered_unchecked_acs` still lists 62 files; per this todo, it
+shrinks opportunistically.
+
+Four of the thirteen hints pointed at the wrong code (002-views, 004-vote,
+004-reaction, 008), and 031's hint was simply wrong. That confirms the
+allowlist's warning: a hint is a starting point, never a verdict.

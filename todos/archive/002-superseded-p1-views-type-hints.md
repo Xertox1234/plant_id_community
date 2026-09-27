@@ -1,5 +1,5 @@
 ---
-status: ready
+status: superseded
 priority: p1
 issue_id: "002"
 tags: [code-review, type-safety, code-quality, mypy]
@@ -180,6 +180,20 @@ dependencies: []
 - Views layer: 3.6% (1/28) ❌
 - Models: Good (field types implicit)
 - Serializers: Good (DRF types)
+
+### 2026-09-27 - Triage verdict (todo 394)
+
+**Verdict: partial. Superseded by todo 466 for the gate.**
+
+- The hints landed in 4d40c6ff ("refactor: add type hints to all 27 view
+  functions in users app"). An AST scan of `backend/apps/users/views.py`
+  today finds one unannotated function out of 29, a nested helper
+  (`_forum_topic_url`), not a view.
+- **Not landed:** "`mypy --strict` passes". An approximate run today
+  reports 87 errors, mostly untyped decorators and missing django-stubs.
+  `pyproject.toml` sets `disallow_untyped_defs = false`, and mypy runs in no
+  CI job or hook. Whether to add a mypy gate is an owner decision, filed as
+  todo 466.
 
 ## Notes
 

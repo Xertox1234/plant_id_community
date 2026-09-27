@@ -1,5 +1,5 @@
 ---
-status: ready
+status: superseded
 priority: p1
 issue_id: "001"
 tags: [code-review, reliability, performance, circuit-breaker]
@@ -128,6 +128,26 @@ PlantNet API calls lack circuit breaker protection, causing 60-second timeouts i
 - Grep search for "circuit" in plantnet_service.py returned no results
 - Plant.id service has exemplary circuit breaker implementation to reference
 - This is documented in CLAUDE.md but not implemented in code
+
+### 2026-09-27 - Triage verdict (todo 394)
+
+**Verdict: partial. Superseded by todo 464 for the one open AC.**
+
+- The breaker landed in 1d20ae66 ("fix: add circuit breaker to PlantNet
+  service"):
+  - module-level `create_monitored_circuit("plantnet_api")` at
+    `backend/apps/plant_identification/services/plantnet_service.py:37-44`;
+  - the `circuit.call()` wrap at `:324`;
+  - CircuitMonitor integration through `circuit_monitoring.py:64`;
+  - the `[CIRCUIT]` log prefix at `:139,333`.
+- 5 failures and a 30 s reset are set as constants (`constants.py:96-99`).
+- Docs: `backend/docs/quick-wins/circuit-breaker.md:242-253`.
+- The suite passes (1b8efa66, #800: 3581 passed).
+- **Not landed:** a test that drives the PlantNet breaker.
+  `test_circuit_breaker_locks.py` covers only `_plant_id_circuit`. That AC
+  is re-filed as todo 464.
+- The < 10 ms fast-fail AC is pybreaker's behaviour, and nothing measures
+  it.
 
 ## Notes
 
