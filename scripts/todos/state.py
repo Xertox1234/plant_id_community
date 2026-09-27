@@ -326,7 +326,8 @@ def ingest_execute(run, results):
                 if problem:
                     transition(run, todo_id, "failed", reason=problem)
                 else:
-                    transition(run, todo_id, "verified", test_edits=verdict["test_edits_flagged"])
+                    transition(run, todo_id, "verified", test_edits=verdict["test_edits_flagged"],
+                               verified_ac=verdict["ac"])
             outcome[todo_id] = run["todos"][todo_id]["stage"]
     return outcome
 
@@ -387,6 +388,7 @@ def ingest_review(run, results, round_no):
                     continue
                 for _, entry in entries:
                     entry["tree_id"] = result["repair"]["tree_id"]
+                    entry["verified_ac"] = result["verdict"]["ac"]
                 outcome[gid] = "repair-staged"
             else:
                 outcome[gid] = "clean"
