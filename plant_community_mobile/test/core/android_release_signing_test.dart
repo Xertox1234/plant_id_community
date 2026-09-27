@@ -67,15 +67,17 @@ void main() {
 
   group('Firebase Android client', () {
     test('google-services.json declares an Android OAuth client', () {
-      final config = jsonDecode(
-            _read(
-              'android/app/google-services.json',
-              'the Firebase Android configuration',
-            ),
-          )
-          as Map<String, dynamic>;
+      final config =
+          jsonDecode(
+                _read(
+                  'android/app/google-services.json',
+                  'the Firebase Android configuration',
+                ),
+              )
+              as Map<String, dynamic>;
 
-      final clients = (config['client'] as List<dynamic>).cast<Map<String, dynamic>>();
+      final clients = (config['client'] as List<dynamic>)
+          .cast<Map<String, dynamic>>();
 
       expect(
         clients,
@@ -91,8 +93,9 @@ void main() {
           )
           .toList();
 
-      final androidClients =
-          oauthClients.where((client) => client['client_type'] == 1).toList();
+      final androidClients = oauthClients
+          .where((client) => client['client_type'] == 1)
+          .toList();
 
       expect(
         androidClients,
@@ -119,13 +122,14 @@ void main() {
     });
 
     test('the web OAuth client survives, because Android needs it too', () {
-      final config = jsonDecode(
-            _read(
-              'android/app/google-services.json',
-              'the Firebase Android configuration',
-            ),
-          )
-          as Map<String, dynamic>;
+      final config =
+          jsonDecode(
+                _read(
+                  'android/app/google-services.json',
+                  'the Firebase Android configuration',
+                ),
+              )
+              as Map<String, dynamic>;
 
       final webClients = (config['client'] as List<dynamic>)
           .cast<Map<String, dynamic>>()
