@@ -535,7 +535,6 @@ class OnboardingProgress(models.Model):
         ("forum_category_followed", "Forum Category Followed"),
         ("first_forum_post", "First Forum Post Created"),
         ("push_notifications_enabled", "Push Notifications Enabled"),
-        ("care_reminder_set", "Care Reminder Set"),
         ("onboarding_completed", "Onboarding Completed"),
     ]
 

@@ -113,15 +113,6 @@ PREFIXES = {
         # so a key per call would match two keys on those two. They share a
         # token, so one broader key is both correct and less to keep in sync.
         "Push subscription ": "[PUSH]",
-        "Care reminder push disabled": "[REMINDER]",
-        "Care reminder sent to": "[REMINDER]",
-        "Care reminder email sent to": "[REMINDER]",
-        "Error sending care reminder email": "[REMINDER]",
-        "Care reminder created for": "[REMINDER]",
-        "Error sending reminder ": "[REMINDER]",
-        "Processed ": "[REMINDER]",
-        "Created demo data for user": "[DEMO]",
-        "Cleaned up demo data for user": "[DEMO]",
     },
     # Welcome email, onboarding record, signup bookkeeping.
     "backend/apps/users/signals.py": {
@@ -142,10 +133,7 @@ PREFIXES = {
         "User not found for token refresh": "[AUTH]",
         "Token refresh failed": "[AUTH]",
         "Push subscription failed": "[PUSH]",
-        "Failed to create care reminder": "[REMINDER]",
-        "Error creating demo data": "[DEMO]",
         "Error tracking onboarding event": "[ONBOARDING]",
-        "Error deleting demo data": "[DEMO]",
     },
     # --- plant_identification -------------------------------------------
     # The rule for this app: a module wrapping ONE external API takes that
@@ -183,7 +171,6 @@ PREFIXES = {
     "backend/apps/plant_identification/services/monitoring_service.py": "[PERF]",
     "backend/apps/plant_identification/services/pexels_service.py": "[PEXELS]",
     "backend/apps/plant_identification/services/unsplash_service.py": "[UNSPLASH]",
-    "backend/apps/plant_identification/services/plant_care_reminder_service.py": "[REMINDER]",
     "backend/apps/plant_identification/services/plant_health_service.py": "[PLANT_HEALTH]",
     "backend/apps/plant_identification/services/plantnet_service.py": "[PLANTNET]",
     # Orchestrates Unsplash, Pexels and AI generation.

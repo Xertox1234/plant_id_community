@@ -270,8 +270,8 @@ class NotificationService:
         read — this email path and the FCM tray
         (``apps/forum_host/tasks.py::_notification_content``). Edit copy there.
         The import is function-level and one-directional on purpose: this
-        service is NOT forum-specific (it also serves plant-care reminders,
-        identification results and newsletters), so the forum owns its copy and
+        service is NOT forum-specific (it also serves identification results
+        and newsletters), so the forum owns its copy and
         this reads it, never the reverse.
 
         This is the ONLY live forum email path — it is called from
@@ -377,6 +377,8 @@ class NotificationService:
             "email_notifications": user.email_notifications,
             "plant_id_notifications": user.plant_id_notifications,
             "forum_notifications": user.forum_notifications,
+            # The care-task push opt-out read by the reminder sweep (todo 410).
+            "care_reminder_notifications": user.care_reminder_notifications,
             "newsletter_subscribed": hasattr(user, "newsletter_subscription"),
         }
 
@@ -391,6 +393,10 @@ class NotificationService:
                 user.plant_id_notifications = preferences["plant_id_notifications"]
             if "forum_notifications" in preferences:
                 user.forum_notifications = preferences["forum_notifications"]
+            if "care_reminder_notifications" in preferences:
+                user.care_reminder_notifications = preferences[
+                    "care_reminder_notifications"
+                ]
 
             user.save()
 
