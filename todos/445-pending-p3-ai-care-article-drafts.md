@@ -83,3 +83,24 @@ and publishes (AC 3).
     `railway ssh --service plant_id_community -- bash -lc 'cd /app && python manage.py generate_care_drafts --author <staff username>'`.
   - If the classifier refuses, hand this command to the owner.
   - Then the owner spot-checks and publishes (AC 3).
+
+### 2026-09-27 - PR #855 review round 1
+
+- **Fixed:**
+  - The paragraph screen now also flags any named treatment or remedy
+    (`_TREATMENT_RE`: neem, rubbing alcohol, dish soap, peroxide and so on).
+    The RAG question classifier needs a dose word next to the chemical, so
+    "spray with neem oil weekly" passed it.
+  - A failed page write now skips only its topic.
+  - "Already exists" now means a child of the chosen index, of any page
+    type.
+  - `--index` is required when there is more than one blog index.
+  - Drafts are owned by `--author`, so they show under "My pages".
+- **Known limitations** (non-blocking, not fixed):
+  - The AI layer caches each prompt's reply for 30 days, even a malformed or
+    screened-out one. A re-run cannot refill those topics, so write them by
+    hand or change the prompt.
+  - `publish_date` is the generation date. Set it when publishing.
+  - The run is sequential: 53 calls, up to about 80 minutes in the worst
+    case. Use `--limit` batches over `railway ssh`; a dropped session is safe
+    to re-run.

@@ -12,6 +12,7 @@ from unittest.mock import patch
 import pytest
 from apps.blog.care_topics import CARE_GUIDE_TAG, CARE_TOPICS
 from apps.blog.management.commands.generate_care_drafts import (
+    is_blocked,
     parse_article,
     screen_article,
 )
@@ -206,3 +207,89 @@ def test_screen_drops_a_whole_blocked_section():
     screened, dropped = screen_article(article)
     assert dropped == 1
     assert [s["heading"] for s in screened["sections"]] == ["Watering"]
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "Spray the plant with neem oil once a week.",
+        "Dab each mealybug with a cotton swab dipped in rubbing alcohol.",
+        "Mix a little dish soap into water and wipe the leaves.",
+        "A hydrogen peroxide drench kills the larvae.",
+    ],
+)
+def test_the_screen_flags_any_named_treatment(text):
+    """PR #855 review: the question classifier needs a dose word next to a
+    chemical, so these passed it. The content screen flags the name alone."""
+    assert classify_blocked_question(text) is None
+    assert is_blocked(text)
+
+
+def test_the_screen_keeps_plain_care_advice():
+    for text in (
+        "Rinse the leaves with plain water in the shower.",
+        "Wipe the leaves with a damp cloth.",
+        "Let the top inch of soil dry before watering.",
+    ):
+        assert not is_blocked(text), text
+
+
+@pytest.mark.django_db
+def test_a_failed_page_write_skips_only_that_topic(index, author):
+    three = [slug for slug, _, _ in CARE_TOPICS[:3]]
+    from apps.blog.management.commands import generate_care_drafts as module
+
+    real = module.Command._create_draft
+    calls = []
+
+    def flaky(self, *args):
+        calls.append(args[2])
+        if len(calls) == 1:
+            raise RuntimeError("slug clash")
+        return real(self, *args)
+
+    with patch(AI, return_value=_reply()), patch.object(
+        module.Command, "_create_draft", flaky
+    ):
+        out, err = _run("--author", "editor", "--only", *three)
+
+    assert sorted(BlogPostPage.objects.values_list("slug", flat=True)) == sorted(
+        three[1:]
+    )
+    assert "could not save the draft" in err
+    assert "1 failed" in out
+
+
+@pytest.mark.django_db
+def test_existing_means_a_child_of_this_index(index, author):
+    """A same-slug post under ANOTHER index does not count; any child of this
+    index with the slug (any page type) does."""
+    root = Site.objects.get(is_default_site=True).root_page
+    other = root.add_child(instance=BlogIndexPage(title="Old", slug="old-blog"))
+    slug = CARE_TOPICS[0][0]
+    with patch(AI, return_value=_reply()):
+        out, err = _run("--author", "editor", "--index", "old-blog", "--only", slug)
+    other.refresh_from_db()  # treebeard trusts a stale numchild
+    assert other.get_children().filter(slug=slug).exists(), (out, err)
+
+    with patch(AI, return_value=_reply()) as ai:
+        _run("--author", "editor", "--index", "blog", "--only", slug)
+
+    assert ai.call_count == 1
+    index.refresh_from_db()
+    assert index.get_children().filter(slug=slug).exists()
+
+
+@pytest.mark.django_db
+def test_several_indexes_need_an_explicit_one(index, author):
+    root = Site.objects.get(is_default_site=True).root_page
+    root.add_child(instance=BlogIndexPage(title="Old", slug="old-blog"))
+    with pytest.raises(CommandError, match="--index"):
+        _run("--dry-run")
+
+
+@pytest.mark.django_db
+def test_drafts_are_owned_by_the_author(index, author):
+    with patch(AI, return_value=_reply()):
+        _run("--author", "editor", "--limit", "1")
+    assert BlogPostPage.objects.get().owner == author

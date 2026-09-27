@@ -7,16 +7,20 @@ AC 3). Mobile care guides (todo 386) list published posts with that tag.
 
 Todo 330's hard-blocked classes (ingestion, toxicity, pesticide or chemical
 dosing) are kept out twice: the topic list is screened before any call, and
-every generated paragraph is screened afterwards with the RAG guardrail's
-``classify_blocked_question``. A flagged paragraph is dropped. A draft left
-with too little text is skipped and reported. It is not retried, because the
-AI layer caches identical prompts.
+every generated paragraph is screened afterwards. The screen is the RAG
+guardrail's ``classify_blocked_question`` PLUS ``_TREATMENT_RE``, which flags
+any named treatment or remedy. The guardrail was built for questions and
+only blocks a chemical when a dose word is in the same sentence, so "spray
+with neem oil weekly" passed it (PR #855 review). A flagged paragraph is
+dropped. A draft left with too little text is skipped and reported. It is not
+retried, because the AI layer caches identical prompts.
 
-Idempotent: a topic whose slug already exists is skipped, so a re-run after a
-partial failure only fills the gaps.
+Idempotent: a topic whose slug is already a child of the index is skipped, so
+a re-run after a partial failure fills the gaps the provider did not cause.
 """
 
 import json
+import re
 from typing import Any
 
 from apps.blog.care_topics import CARE_GUIDE_TAG, CARE_TOPICS
@@ -26,6 +30,7 @@ from apps.blog.constants import (
     CARE_DRAFT_MAX_SECTIONS,
     CARE_DRAFT_MAX_TEXT_CHARS,
     CARE_DRAFT_MIN_PARAGRAPHS,
+    CARE_DRAFT_TARGET_SECTIONS,
 )
 from apps.blog.models import BlogIndexPage, BlogPostPage
 from apps.forum_host.rag_guardrails import classify_blocked_question
@@ -50,7 +55,27 @@ amounts or dilutions for any product. For fertilizer, say to follow the label.
 Reply with ONLY a JSON object of this shape:
 {{"introduction": "two or three sentences", "sections": [{{"heading": \
 "short heading", "paragraphs": ["paragraph", "paragraph"]}}]}}
-Use 4 to 6 sections."""
+Use {min_sections} to {max_sections} sections."""
+
+# Any named pest, disease or weed treatment, or a household remedy used as
+# one. Content-oriented: a care article may not name one at all, dose or not.
+_TREATMENT_RE = re.compile(
+    r"\b(?:neem|pyrethr\w*|permethrin|imidacloprid|spinosad|malathion|carbaryl|"
+    r"glyphosate|roundup|captan|chlorothalonil|myclobutanil|copper\s+"
+    r"(?:fungicide|sulfate|sulphate|soap)|fungicides?|pesticides?|"
+    r"insecticides?|herbicides?|miticides?|acaricides?|systemic|"
+    r"bacillus\s+thuringiensis|mosquito\s+(?:bits|dunks)|insecticidal|"
+    r"horticultural\s+oil|dormant\s+oil|oil\s+sprays?|essential\s+oils?|"
+    r"(?:rubbing|isopropyl)\s+alcohol|alcohol|dish\s+soap|soapy\s+water|soap|"
+    r"hydrogen\s+peroxide|peroxide|diatomaceous\s+earth|vinegar|bleach|"
+    r"baking\s+soda)\b",
+    re.I,
+)
+
+
+def is_blocked(text: str) -> bool:
+    """True for text in todo 330's classes or naming any treatment."""
+    return bool(classify_blocked_question(text) or _TREATMENT_RE.search(text))
 
 
 def _text(value: Any) -> str | None:
@@ -104,15 +129,15 @@ def screen_article(article: dict) -> tuple[dict | None, int]:
     Returns ``(article, dropped)``. The article is None when the introduction
     is blocked or fewer than ``CARE_DRAFT_MIN_PARAGRAPHS`` paragraphs survive.
     """
-    if classify_blocked_question(article["introduction"]):
+    if is_blocked(article["introduction"]):
         return None, 0
     dropped = 0
     sections = []
     for section in article["sections"]:
-        if classify_blocked_question(section["heading"]):
+        if is_blocked(section["heading"]):
             dropped += len(section["paragraphs"])
             continue
-        kept = [p for p in section["paragraphs"] if not classify_blocked_question(p)]
+        kept = [p for p in section["paragraphs"] if not is_blocked(p)]
         dropped += len(section["paragraphs"]) - len(kept)
         if kept:
             sections.append({"heading": section["heading"], "paragraphs": kept})
@@ -151,6 +176,12 @@ class Command(BaseCommand):
             "--limit", type=int, help="Draft at most this many new topics."
         )
         parser.add_argument(
+            "--index",
+            metavar="SLUG",
+            help="Slug of the BlogIndexPage to draft under (required when "
+            "there is more than one).",
+        )
+        parser.add_argument(
             "--dry-run",
             action="store_true",
             help="List what would be drafted. No AI calls, no writes.",
@@ -170,9 +201,7 @@ class Command(BaseCommand):
             topics = [t for t in topics if t[0] in wanted]
 
         blocked = [
-            slug
-            for slug, title, focus in topics
-            if classify_blocked_question(f"{title}. {focus}")
+            slug for slug, title, focus in topics if is_blocked(f"{title}. {focus}")
         ]
         if blocked:
             raise CommandError(
@@ -180,10 +209,13 @@ class Command(BaseCommand):
                 + ", ".join(blocked)
             )
 
+        index = self._resolve_index(options["index"])
+        # Slugs are unique among an index's children of ANY page type, so a
+        # category or author page with a topic's slug also blocks it.
         existing = set(
-            BlogPostPage.objects.filter(
-                slug__in=[slug for slug, _, _ in topics]
-            ).values_list("slug", flat=True)
+            index.get_children()
+            .filter(slug__in=[slug for slug, _, _ in topics])
+            .values_list("slug", flat=True)
         )
         todo = [t for t in topics if t[0] not in existing]
         if options["limit"] is not None:
@@ -204,35 +236,41 @@ class Command(BaseCommand):
             author = User.objects.get(username=options["author"])
         except User.DoesNotExist as exc:
             raise CommandError(f"No user named {options['author']!r}.") from exc
-        index = BlogIndexPage.objects.first()
-        if index is None:
-            raise CommandError("No BlogIndexPage exists to hold the drafts.")
-
         created, failed, screened, dropped_total = [], [], [], 0
         for slug, title, focus in todo:
             try:
                 raw = generate_ai_text(
-                    PROMPT.format(title=title, focus=focus),
+                    PROMPT.format(
+                        title=title,
+                        focus=focus,
+                        min_sections=CARE_DRAFT_TARGET_SECTIONS[0],
+                        max_sections=CARE_DRAFT_TARGET_SECTIONS[1],
+                    ),
                     timeout=CARE_DRAFT_AI_TIMEOUT_SECONDS,
                 )
             except Exception as exc:  # one topic's failure must not stop the run
                 failed.append(slug)
-                self.stderr.write(f"[BLOG] {slug}: AI call failed: {exc}")
+                self.stderr.write(f"[ERROR] {slug}: AI call failed: {exc}")
                 continue
             article = parse_article(raw)
             if article is None:
                 failed.append(slug)
-                self.stderr.write(f"[BLOG] {slug}: the reply was not valid JSON")
+                self.stderr.write(f"[ERROR] {slug}: the reply was not valid JSON")
                 continue
             article, dropped = screen_article(article)
             dropped_total += dropped
             if article is None:
                 screened.append(slug)
                 self.stderr.write(
-                    f"[BLOG] {slug}: too little text passed the guardrail screen"
+                    f"[ERROR] {slug}: too little text passed the guardrail screen"
                 )
                 continue
-            self._create_draft(index, author, slug, title, article)
+            try:
+                self._create_draft(index, author, slug, title, article)
+            except Exception as exc:  # a page write must not stop the run
+                failed.append(slug)
+                self.stderr.write(f"[ERROR] {slug}: could not save the draft: {exc}")
+                continue
             created.append(slug)
             self.stdout.write(
                 f"drafted {slug}"
@@ -248,6 +286,23 @@ class Command(BaseCommand):
         if failed or screened:
             self.stdout.write("not drafted: " + ", ".join(failed + screened))
 
+    def _resolve_index(self, slug: str | None) -> BlogIndexPage:
+        indexes = BlogIndexPage.objects.all()
+        if slug:
+            try:
+                return indexes.get(slug=slug)
+            except BlogIndexPage.DoesNotExist as exc:
+                raise CommandError(f"No BlogIndexPage with slug {slug!r}.") from exc
+        found = list(indexes[:2])
+        if not found:
+            raise CommandError("No BlogIndexPage exists to hold the drafts.")
+        if len(found) > 1:
+            raise CommandError(
+                "More than one BlogIndexPage exists; pick one with --index: "
+                + ", ".join(indexes.values_list("slug", flat=True))
+            )
+        return found[0]
+
     def _create_draft(self, index, author, slug, title, article):
         with transaction.atomic():
             page = index.add_child(
@@ -260,6 +315,9 @@ class Command(BaseCommand):
                     content_blocks=to_blocks(article),
                     difficulty_level="beginner",
                     live=False,
+                    # Owner = author, so the drafts show under the author's
+                    # "My pages" in the CMS for the spot-check.
+                    owner=author,
                 )
             )
             page.tags.add(CARE_GUIDE_TAG)
