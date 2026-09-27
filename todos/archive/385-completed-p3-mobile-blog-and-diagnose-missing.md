@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: p3
 issue_id: "385"
 tags: [mobile, flutter, feature-parity]
@@ -97,3 +97,10 @@ Wagtail API). **Diagnose moved to todo 444.** Ready for a sweep.
   loses content": inline images are dropped.
 - Non-blocking findings from both reviewers (the deep pass and
   flutter-dart-reviewer) are filed as todo 460.
+
+### 2026-09-27 - PR #856 round 2: verified; archived
+
+Round 2 verified the offset fix: every offset stays a multiple of 20 until
+the last page, including after a duplicate, a dropped slug-less row, or a
+failed `loadMore`. The regression test fails on the old code. All three ACs
+are met. Diagnose is todo 444 (PR #857); follow-ups are todo 460.

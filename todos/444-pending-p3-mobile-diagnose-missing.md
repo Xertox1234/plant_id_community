@@ -4,7 +4,7 @@ priority: p3
 issue_id: "444"
 tags: [mobile, flutter, feature-parity]
 dependencies: []
-source_review: "todos/385-pending-p3-mobile-blog-and-diagnose-missing.md"
+source_review: "todos/archive/385-completed-p3-mobile-blog-and-diagnose-missing.md"
 ---
 
 # Mobile has no Diagnose; the web has one

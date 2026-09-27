@@ -4,7 +4,7 @@ priority: p3
 issue_id: "460"
 tags: [mobile, flutter, blog, follow-up]
 dependencies: []
-source_review: "todos/385-pending-p3-mobile-blog-and-diagnose-missing.md"
+source_review: "todos/archive/385-completed-p3-mobile-blog-and-diagnose-missing.md"
 ---
 
 # Mobile blog: non-blocking follow-ups from the PR #856 review

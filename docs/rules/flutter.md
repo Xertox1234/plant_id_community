@@ -235,3 +235,14 @@ Compact checklist auto-injected before edits. Long-form:
 - **Switch to a tab's root with `context.go`, never `context.push`** from
   another branch. Pushing a branch root stacks a second copy with a back
   arrow on the wrong branch (todo 412).
+- **Offset paging advances by the rows the SERVER sent, never by the client's
+  de-duplicated count.** The blog API caches list pages by `offset // limit`,
+  so an offset that stops being a multiple of the page size is served a
+  cached page the client has already shown, and "Load more" never advances.
+  Keep a `nextOffset` summed from each response's raw row count (todo 385,
+  PR #856).
+- **Riverpod 3 retries every failed provider up to 10 times (about 40 s)
+  behind a spinner.** For a request whose 4xx is final (a deleted post, a
+  403), pass `@Riverpod(retry: …)` returning `null` for 4xx
+  `ApiException`s, or the user waits 40 s to learn the page is gone
+  (`blogRetry`, todo 385).
