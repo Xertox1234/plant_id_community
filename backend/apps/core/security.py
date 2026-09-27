@@ -303,7 +303,6 @@ This is an automated security message from Plant Community.
                 message=message,
                 from_email=settings.DEFAULT_FROM_EMAIL,
                 recipient_list=[user.email],
-                fail_silently=True,
             )
 
             logger.info(
@@ -315,12 +314,12 @@ This is an automated security message from Plant Community.
         except User.DoesNotExist:
             logger.warning(
                 f"{LOG_PREFIX_LOCKOUT} Cannot send lockout email: "
-                f"user not found: {username}"
+                f"user not found: {log_safe_username(username)}"
             )
         except Exception as e:
             logger.error(
                 f"{LOG_PREFIX_LOCKOUT} Failed to send lockout email: "
-                f"username={username}, error={str(e)}"
+                f"username={log_safe_username(username)}, error={type(e).__name__}"
             )
 
     @classmethod

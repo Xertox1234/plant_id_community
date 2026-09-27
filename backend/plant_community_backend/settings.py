@@ -1130,16 +1130,29 @@ FIREBASE_PROJECT_ID = config("FIREBASE_PROJECT_ID", default=None)
 UNSPLASH_ACCESS_KEY = config("UNSPLASH_ACCESS_KEY", default="")
 PEXELS_API_KEY = config("PEXELS_API_KEY", default="")
 
-# Email settings
-EMAIL_BACKEND = config(
+# Email settings (todo 364). Django 6.1 deprecates the EMAIL_* settings family
+# in favour of MAILERS (removed in 7.0), and refuses to start with both. The
+# ENV VAR names are unchanged, so Railway needs no edit. See
+# apps/core/mail_config.py for which backend gets which OPTIONS, and the
+# core.E364 system check that builds the mailer at deploy. Code that needs
+# the backend reads MAILERS["default"]["BACKEND"].
+from apps.core.mail_config import build_default_mailer  # noqa: E402
+
+_EMAIL_BACKEND = config(
     "EMAIL_BACKEND", default="django.core.mail.backends.console.EmailBackend"
 )
-EMAIL_HOST = config("EMAIL_HOST", default="")
-EMAIL_PORT = config("EMAIL_PORT", default=587, cast=int)
-EMAIL_USE_TLS = config("EMAIL_USE_TLS", default=True, cast=bool)
-EMAIL_USE_SSL = config("EMAIL_USE_SSL", default=False, cast=bool)
-EMAIL_HOST_USER = config("EMAIL_HOST_USER", default="")
-EMAIL_HOST_PASSWORD = config("EMAIL_HOST_PASSWORD", default="")
+MAILERS = {
+    "default": build_default_mailer(
+        _EMAIL_BACKEND,
+        host=config("EMAIL_HOST", default=""),
+        port=config("EMAIL_PORT", default=587, cast=int),
+        use_tls=config("EMAIL_USE_TLS", default=True, cast=bool),
+        use_ssl=config("EMAIL_USE_SSL", default=False, cast=bool),
+        username=config("EMAIL_HOST_USER", default=""),
+        password=config("EMAIL_HOST_PASSWORD", default=""),
+        timeout=config("EMAIL_TIMEOUT", default=30, cast=int),
+    )
+}
 DEFAULT_FROM_EMAIL = config(
     "DEFAULT_FROM_EMAIL", default="Plant Community <noreply@plantcommunity.com>"
 )
@@ -1159,8 +1172,7 @@ VAPID_CLAIMS_EMAIL = config(
     "VAPID_CLAIMS_EMAIL", default=parseaddr(DEFAULT_FROM_EMAIL)[1]
 )
 
-# Email timeout and connection settings
-EMAIL_TIMEOUT = config("EMAIL_TIMEOUT", default=30, cast=int)
+# Not deprecated by MAILERS (a message setting, not a connection one).
 EMAIL_USE_LOCALTIME = config("EMAIL_USE_LOCALTIME", default=False, cast=bool)
 
 # Site configuration for email templates
@@ -1892,7 +1904,7 @@ def validate_environment():
     # ========================================
     # Email Configuration
     # ========================================
-    if EMAIL_BACKEND == "django.core.mail.backends.console.EmailBackend" and not DEBUG:
+    if _EMAIL_BACKEND == "django.core.mail.backends.console.EmailBackend" and not DEBUG:
         warnings.append(
             "Email backend is console in production - emails will not be sent"
         )

@@ -51,6 +51,13 @@ Two GitHub Actions workflows gate PRs:
 
 Lint (flake8/black/isort) is **pre-commit only**, not enforced in CI (≈3k pre-existing violations make a full-tree gate impractical). Note: pre-commit lints each **whole file** that appears in the staged diff (`files: ^backend/.*\.py$`), not just the changed *lines* — so touching one line in a file with pre-existing violations surfaces all of that file's violations and can block the commit. Either clean the file's violations or bypass with `SKIP=flake8 git commit …` (last resort).
 
+## Gotcha: the RemovedInDjango70Warning gate lives in pytest.ini
+
+`backend/pytest.ini` turns `RemovedInDjango70Warning` into an error (todo 364),
+and CI runs pytest. `python manage.py test` does NOT read `pytest.ini`, so a
+first-party deprecation only warns there: run `pytest` before pushing mail,
+ORM or settings changes. The two third-party exemptions are tracked by todo 452.
+
 ## Gotcha: stale test DB after migration changes
 
 If a test raises `FieldError` after you changed a migration, the test DB predates the change. Fix:

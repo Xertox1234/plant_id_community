@@ -590,10 +590,10 @@ RATE_LIMITS = {
         'regenerate': '5/m',
     },
 }
-RATE_LIMIT_DEMO_DATA_CREATE = '10/h'
+RATE_LIMIT_ONBOARDING_EVENT = '50/h'
 
 # apps/myapp/viewsets.py
-from .constants import RATE_LIMITS, RATE_LIMIT_DEMO_DATA_CREATE
+from .constants import RATE_LIMITS, RATE_LIMIT_ONBOARDING_EVENT
 
 @ratelimit(key='user', rate=RATE_LIMITS['authenticated']['regenerate'], method='POST')  # ✅
 @action(detail=False, methods=['POST'])

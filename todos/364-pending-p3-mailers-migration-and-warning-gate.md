@@ -48,9 +48,10 @@ not enforced.
 
 ## Acceptance Criteria
 
-- [ ] No first-party `RemovedInDjango70Warning` in a full suite run
-- [ ] `pytest.ini` promotes that warning class to `error::`, with any third-party
+- [x] No first-party `RemovedInDjango70Warning` in a full suite run (2026-09-26, see Work Log)
+- [x] `pytest.ini` promotes that warning class to `error::`, with any third-party
       exemption narrowly scoped and commented with its upstream tracking link
+      (2026-09-26; the two exemptions are tracked by todo 452)
 - [ ] Reply email and weekly digest verified sending after the change
 
 ## Work Log
@@ -73,3 +74,44 @@ The owner approved the `EMAIL_*` → `MAILERS` migration. A sweep does ACs 1–2
 they confirm a forum reply email and the Monday digest arrived. So a sweep
 merges the PR but leaves this todo **open** (not archived) until the owner
 records AC 3 here.
+
+### 2026-09-26 - ACs 1-2 done (P3 sweep PR); AC 3 stays with the owner
+
+- **Settings.** `EMAIL_*` became `MAILERS["default"]`. The env var names are
+  unchanged, so Railway needs no edit. Connection `OPTIONS` (host, port,
+  TLS/SSL, user, password, timeout) go to every backend except Django's
+  connectionless console, locmem and dummy backends. A mailer given an
+  option it does not take raises, and gating on an exact SMTP path would
+  drop the host for an SMTP subclass and silently fall back to
+  localhost:25. `EMAIL_USE_LOCALTIME` is not deprecated and stays. The
+  production console-backend warning reads `_EMAIL_BACKEND`, and
+  `test_email` reads `MAILERS["default"]["BACKEND"]`, because the old
+  names raise once `MAILERS` exists.
+- **`fail_silently` dropped at all 3 sites.** For the lockout notice
+  (`apps/core/security.py`), a send failure now lands in the existing
+  `except Exception` and is logged as an error. Before, `fail_silently=True`
+  hid it and the "notification sent" line fired after a failed send. The
+  care-reminder mail and the digest passed `False`, which is the default.
+- **Gate.** `backend/pytest.ini` adds
+  `error::django.utils.deprecation.RemovedInDjango70Warning`. A full run with
+  the gate (as `-W`) found 8 failures, all third-party:
+  - django-taggit `quote_name_unless_alias()` (7 tag-filter tests);
+  - Wagtail `admin/mail.py` `get_connection()` (the workflow notification
+    mail, 1 test).
+
+  Each is ignored by message + module, with its call site cited, and
+  **todo 452** tracks removing both. No upstream issue could be found.
+  `get_connection()` still works under `MAILERS` in 6.x, so Wagtail's
+  moderation mails keep sending.
+- **Tests.** `apps/core/tests/test_mailers_and_deprecation_gate.py` covers:
+  - the gate raises;
+  - no deprecated email setting is overridden;
+  - a send goes through the default mailer;
+  - SMTP and an SMTP subclass get the options, console gets none.
+
+  Mutation-checked: dropping the `error::` line fails the gate test.
+- **Full backend suite with the gate from `pytest.ini`:** 4032 passed,
+  8 skipped, 0 failed (2026-09-26).
+- **AC 3 is the owner's** (2026-09-24 decision). After this deploys,
+  confirm a forum reply email and the Monday `forum-weekly-digest` arrive,
+  then record it here and archive. This todo stays open until then.
