@@ -44,9 +44,19 @@ def onboarding_checklist(
     steps: List[Dict[str, Any]] = [
         {"key": key, "done": done[key]} for key in CHECKLIST_STEPS
     ]
+    # Completion is recorded ONCE: a step can be undone (a saved topic
+    # removed, the only live post unpublished), and a finished checklist must
+    # not reappear on the home screen because of it (review round 2).
+    if all(step["done"] for step in steps) and progress.onboarding_completed_at is None:
+        from django.utils import timezone
+
+        progress.onboarding_completed_at = timezone.now()
+        type(progress).objects.filter(
+            pk=progress.pk, onboarding_completed_at__isnull=True
+        ).update(onboarding_completed_at=progress.onboarding_completed_at)
     return {
         "steps": steps,
-        "complete": all(step["done"] for step in steps),
+        "complete": progress.onboarding_completed_at is not None,
         "dismissed": bool(progress.completed_checklist),
     }
 

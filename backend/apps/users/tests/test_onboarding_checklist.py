@@ -80,6 +80,21 @@ class OnboardingChecklistTests(TestCase):
         self.assertEqual(_steps(resp), {key: True for key in CHECKLIST_STEPS})
         self.assertTrue(resp.data["checklist"]["complete"])
 
+    def test_a_finished_checklist_stays_finished_after_a_step_is_undone(self):
+        topic = self._topic()
+        Post.objects.create(
+            topic=topic, author=self.user, is_opening_post=True, live=True
+        )
+        bookmark = TopicBookmark.objects.create(user=self.user, topic=topic)
+        record_first_identification(self.user)
+        self.assertTrue(self.client.get(PROGRESS_URL).data["checklist"]["complete"])
+
+        bookmark.delete()  # a normal thing to do once the topic is read
+
+        resp = self.client.get(PROGRESS_URL)
+        self.assertFalse(_steps(resp)["save_topic"])
+        self.assertTrue(resp.data["checklist"]["complete"])
+
     def test_dismissing_the_card(self):
         resp = self.client.patch(
             PROGRESS_URL, {"completed_checklist": True}, format="json"
