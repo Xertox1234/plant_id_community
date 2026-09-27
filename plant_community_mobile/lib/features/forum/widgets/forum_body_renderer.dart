@@ -16,13 +16,14 @@ import 'forum_html_text.dart';
 /// type joins by one entry (the web mirror is `CARD_BLOCK_TYPES`).
 const Set<Type> forumCardBlockTypes = {EmbedBlock, LinkPreviewBlock};
 
-/// Whether [block] is a card that can join a run: a card type that renders
-/// something. A blank embed shows the "unavailable" placeholder and a link
-/// card without a usable address shows nothing, so neither joins a run.
+/// Whether [block] is a card that can join a run: a card type with a usable
+/// http(s) URL, the same test the web's `isCardBlock` makes. A blank or
+/// URL-less embed (the "unavailable" placeholder) and a link card with no
+/// usable address never join a run, so a row always has somewhere to go.
 bool isForumCardBlock(ForumBodyBlock block) {
   if (!forumCardBlockTypes.contains(block.runtimeType)) return false;
   return switch (block) {
-    EmbedBlock(:final url, :final title) => url.isNotEmpty || title.isNotEmpty,
+    EmbedBlock(:final url) => linkPreviewShortAddress(url) != null,
     LinkPreviewBlock(:final url) => linkPreviewShortAddress(url) != null,
     _ => false,
   };
@@ -53,6 +54,7 @@ class ForumBodyRenderer extends StatelessWidget {
   Widget build(BuildContext context) {
     if (blocks.isEmpty) return const SizedBox.shrink();
     final children = <Widget>[];
+    final card = [for (final block in blocks) isForumCardBlock(block)];
     for (var i = 0; i < blocks.length; i++) {
       if (children.isNotEmpty) {
         children.add(const SizedBox(height: AppSpacing.sm));
@@ -60,9 +62,7 @@ class ForumBodyRenderer extends StatelessWidget {
       // A run of 2+ consecutive cards (todo 429): the first keeps its full
       // card, each one after it becomes a compact row.
       var end = i;
-      while (end + 1 < blocks.length &&
-          isForumCardBlock(blocks[i]) &&
-          isForumCardBlock(blocks[end + 1])) {
+      while (card[i] && end + 1 < blocks.length && card[end + 1]) {
         end++;
       }
       children.add(_block(context, blocks[i]));
@@ -639,8 +639,10 @@ class _LinkPreviewCard extends StatelessWidget {
 }
 
 /// A card after the first in a run (todo 429): a small thumbnail beside the
-/// title and the site, on the card's surface. Its own semantics node, named
-/// "title, site", whose tap does what the full card's tap does: hand the URL
+/// title and a second line (a video's provider, a link's short address), on
+/// the card's surface. Its own semantics node, labelled like its full card
+/// ("PROVIDER video: title" / "Link: title, address"), whose tap does what the
+/// full card's tap does: hand the URL
 /// to [onOpenLink]. A link row keeps the full card's long-press sheet and
 /// "Show full address" / "Copy link" actions. At least 48 dp tall.
 class _CompactCardRow extends StatelessWidget {
@@ -651,25 +653,45 @@ class _CompactCardRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final (url, title, site, thumbnail, fallbackIcon) = switch (block) {
+    // A link row's second line is the SHORT ADDRESS from the URL, never the
+    // page's own siteName, so a row cannot claim a site it does not link to
+    // (the todo 428 rule for the full card). Labels keep the full cards'
+    // "video:" / "Link:" prefixes so a screen reader tells the rows apart.
+    final (
+      url,
+      title,
+      detail,
+      label,
+      thumbnail,
+      fallbackIcon,
+    ) = switch (block) {
       EmbedBlock e => (
         e.url,
         e.title.isNotEmpty ? e.title : e.url,
         e.providerName,
+        e.providerName.isNotEmpty
+            ? '${e.providerName} video: ${e.title.isNotEmpty ? e.title : e.url}'
+            : 'Video: ${e.title.isNotEmpty ? e.title : e.url}',
         e.thumbnailUrl,
         LucideIcons.circlePlay,
       ),
-      LinkPreviewBlock c => (
-        c.url,
-        [c.title, c.siteName, c.domain].firstWhere(
-          (text) => text.isNotEmpty,
-          orElse: () => linkPreviewShortAddress(c.url) ?? c.url,
-        ),
-        c.siteName.isNotEmpty ? c.siteName : c.domain,
-        c.imageUrl,
-        LucideIcons.link,
-      ),
-      _ => ('', '', '', '', LucideIcons.circleHelp),
+      LinkPreviewBlock c => () {
+        final address = linkPreviewShortAddress(c.url) ?? c.url;
+        final title = [
+          c.title,
+          c.siteName,
+          c.domain,
+        ].firstWhere((text) => text.isNotEmpty, orElse: () => address);
+        return (
+          c.url,
+          title,
+          title == address ? '' : address,
+          title == address ? 'Link: $address' : 'Link: $title, $address',
+          c.imageUrl,
+          LucideIcons.link,
+        );
+      }(),
+      _ => ('', '', '', '', '', LucideIcons.circleHelp),
     };
     final isLink = block is LinkPreviewBlock;
     final onOpenLink = this.onOpenLink;
@@ -690,7 +712,7 @@ class _CompactCardRow extends StatelessWidget {
       ),
     );
     return Semantics(
-      label: site.isNotEmpty ? '$title, $site' : title,
+      label: label,
       button: onTap != null,
       onTap: onTap,
       onLongPress: isLink ? showAddress : null,
@@ -744,9 +766,9 @@ class _CompactCardRow extends StatelessWidget {
                           overflow: TextOverflow.ellipsis,
                           style: theme.textTheme.bodyMedium,
                         ),
-                        if (site.isNotEmpty)
+                        if (detail.isNotEmpty)
                           Text(
-                            site,
+                            detail,
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                             style: theme.textTheme.bodySmall?.copyWith(

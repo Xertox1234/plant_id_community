@@ -19,7 +19,8 @@ export const CARD_BLOCK_TYPES: ReadonlySet<StreamFieldBlock['type']> = new Set([
  */
 export function isCardBlock(block: StreamFieldBlock): boolean {
   if (!CARD_BLOCK_TYPES.has(block.type)) return false;
-  if (block.type === 'embed') return Boolean(block.value?.url);
+  // The same URL check the row makes, so a card joins a run only if it renders.
+  if (block.type === 'embed') return Boolean(safeExternalUrl(block.value?.url));
   if (block.type === 'link_preview') {
     return Boolean(
       block.value && safeExternalUrl(block.value.url) && shortLinkAddress(block.value.url)
@@ -40,11 +41,10 @@ export type BodyItem =
 /** Group runs of 2+ consecutive card blocks; everything else stays a block. */
 export function groupCardRuns(blocks: StreamFieldBlock[]): BodyItem[] {
   const items: BodyItem[] = [];
+  const card = blocks.map(isCardBlock);
   for (let i = 0; i < blocks.length; i++) {
     let end = i;
-    while (end + 1 < blocks.length && isCardBlock(blocks[i]) && isCardBlock(blocks[end + 1])) {
-      end++;
-    }
+    while (card[i] && end + 1 < blocks.length && card[end + 1]) end++;
     if (end === i) {
       items.push({ kind: 'block', item: { block: blocks[i], index: i } });
     } else {

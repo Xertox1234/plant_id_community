@@ -99,7 +99,7 @@ describe('card runs', () => {
     );
 
     const video = screen.getByRole('button', { name: 'Bravo, YouTube' });
-    const card = screen.getByRole('link', { name: 'Delta guide, Example' });
+    const card = screen.getByRole('link', { name: 'Delta guide, https://example.org/…' });
     expect(video).not.toBe(card);
     expect(card.getAttribute('href')).toBe('https://example.org/guide');
     expect(card.className).toContain('min-h-11');
@@ -107,6 +107,52 @@ describe('card runs', () => {
     expect(document.activeElement).toBe(video);
     card.focus();
     expect(document.activeElement).toBe(card);
+  });
+
+  it('moves focus to the player when a video row is activated', () => {
+    render(
+      <StreamFieldRenderer
+        blocks={[embed('a', 'Alpha', 'YouTube'), embed('b', 'Bravo', 'YouTube')]}
+      />
+    );
+
+    const row = screen.getByRole('button', { name: 'Bravo, YouTube' });
+    row.focus();
+    fireEvent.click(row);
+
+    // Not dropped to <body>: the player's container, named like the row, has it.
+    expect(document.activeElement).toBe(screen.getByRole('group', { name: 'Bravo, YouTube' }));
+    expect(document.activeElement?.querySelector('iframe')).not.toBeNull();
+  });
+
+  it("names a link row by its real address, never the page's own site name", () => {
+    const spoof: StreamFieldBlock = {
+      id: 'spoof',
+      type: 'link_preview',
+      value: {
+        url: 'https://evil.example/watch',
+        title: 'Watch this',
+        description: '',
+        site_name: 'YouTube',
+        domain: 'evil.example',
+        image_url: null,
+      },
+    };
+    render(<StreamFieldRenderer blocks={[embed('a', 'Alpha', 'YouTube'), spoof]} />);
+
+    const row = screen.getByRole('link', { name: 'Watch this, https://evil.example/…' });
+    expect(row).toHaveTextContent('https://evil.example/…');
+    expect(row).not.toHaveTextContent('YouTube');
+  });
+
+  it('keeps an embed whose URL is unusable out of a run', () => {
+    const bad = embed('b', 'Bravo', 'YouTube');
+    if (bad.type === 'embed') bad.value.url = 'youtube.com/watch?v=x';
+    expect(isCardBlock(bad)).toBe(false);
+    expect(groupCardRuns([embed('a', 'A', 'YouTube'), bad]).map((item) => item.kind)).toEqual([
+      'block',
+      'block',
+    ]);
   });
 
   it('makes a video row with no player a link, like its full card', () => {

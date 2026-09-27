@@ -46,12 +46,9 @@ Future<List<String>> _pump(
   return opened;
 }
 
-/// Full embed cards announce "PROVIDER video: TITLE"; compact rows
-/// announce "TITLE, SITE".
-Finder _fullCard(String title) =>
-    find.bySemanticsLabel(RegExp('video: $title\$'));
-Finder _row(String title, String site) =>
-    find.bySemanticsLabel(RegExp('^$title, $site\$'));
+/// Only a FULL embed card has the "Watch on PROVIDER" line; a compact row
+/// shows the bare provider. Rows and cards share their label format.
+int _fullEmbedCards() => find.textContaining('Watch on ').evaluate().length;
 
 void main() {
   testWidgets('three consecutive embeds: one full card, then two rows', (
@@ -60,31 +57,27 @@ void main() {
     final handle = tester.ensureSemantics();
     await _pump(tester, const [_a, _b, _c]);
 
-    expect(_fullCard('Alpha'), findsOneWidget);
-    expect(_fullCard('Bravo'), findsNothing);
-    expect(_fullCard('Charlie'), findsNothing);
-    expect(_row('Bravo', 'YouTube'), findsOneWidget);
-    expect(_row('Charlie', 'Vimeo'), findsOneWidget);
+    expect(_fullEmbedCards(), 1);
+    expect(find.text('Watch on YouTube'), findsOneWidget);
+    // The rows: provider as the bare second line, labelled like a card.
+    expect(find.text('Vimeo'), findsOneWidget);
+    expect(find.bySemanticsLabel('YouTube video: Bravo'), findsOneWidget);
+    expect(find.bySemanticsLabel('Vimeo video: Charlie'), findsOneWidget);
     handle.dispose();
   });
 
   testWidgets('a lone embed renders as today, with no row', (tester) async {
-    final handle = tester.ensureSemantics();
     await _pump(tester, const [_a]);
 
-    expect(_fullCard('Alpha'), findsOneWidget);
-    expect(_row('Alpha', 'YouTube'), findsNothing);
-    handle.dispose();
+    expect(_fullEmbedCards(), 1);
+    expect(find.text('YouTube'), findsNothing);
   });
 
   testWidgets('a paragraph between two embeds ends the run', (tester) async {
-    final handle = tester.ensureSemantics();
     await _pump(tester, const [_a, ParagraphBlock('<p>between</p>'), _b]);
 
-    expect(_fullCard('Alpha'), findsOneWidget);
-    expect(_fullCard('Bravo'), findsOneWidget);
-    expect(_row('Bravo', 'YouTube'), findsNothing);
-    handle.dispose();
+    expect(_fullEmbedCards(), 2);
+    expect(find.text('YouTube'), findsNothing);
   });
 
   testWidgets(
@@ -93,11 +86,11 @@ void main() {
       final handle = tester.ensureSemantics();
       final opened = await _pump(tester, const [_a, _b, _c]);
 
-      for (final (title, site, url) in [
-        ('Bravo', 'YouTube', 'https://youtu.be/b'),
-        ('Charlie', 'Vimeo', 'https://vimeo.com/3'),
+      for (final (label, url) in [
+        ('YouTube video: Bravo', 'https://youtu.be/b'),
+        ('Vimeo video: Charlie', 'https://vimeo.com/3'),
       ]) {
-        final node = tester.getSemantics(_row(title, site));
+        final node = tester.getSemantics(find.bySemanticsLabel(label));
         final data = node.getSemanticsData();
         expect(data.hasAction(SemanticsAction.tap), isTrue);
         expect(data.flagsCollection.isButton, isTrue);
@@ -116,7 +109,9 @@ void main() {
     final handle = tester.ensureSemantics();
     final opened = await _pump(tester, const [_a, _link]);
 
-    final node = tester.getSemantics(_row('Delta guide', 'Example'));
+    final node = tester.getSemantics(
+      find.bySemanticsLabel('Link: Delta guide, https://example.org/…'),
+    );
     final data = node.getSemanticsData();
     expect(data.hasAction(SemanticsAction.tap), isTrue);
     expect(data.hasAction(SemanticsAction.longPress), isTrue);
@@ -127,14 +122,35 @@ void main() {
     handle.dispose();
   });
 
+  testWidgets(
+    'a link row names its real address, never the page\'s own site name',
+    (tester) async {
+      final handle = tester.ensureSemantics();
+      await _pump(tester, const [
+        _c,
+        LinkPreviewBlock(
+          url: 'https://evil.example/watch',
+          title: 'Watch this',
+          siteName: 'YouTube',
+          domain: 'evil.example',
+        ),
+      ]);
+
+      expect(
+        find.bySemanticsLabel('Link: Watch this, https://evil.example/…'),
+        findsOneWidget,
+      );
+      expect(find.text('https://evil.example/…'), findsOneWidget);
+      expect(find.text('YouTube'), findsNothing);
+      handle.dispose();
+    },
+  );
+
   testWidgets('a blank embed is not a card: it breaks the run', (tester) async {
-    final handle = tester.ensureSemantics();
     await _pump(tester, const [_a, EmbedBlock(url: ''), _b]);
 
     expect(find.text('Video unavailable'), findsOneWidget);
-    expect(_fullCard('Bravo'), findsOneWidget);
-    expect(_row('Bravo', 'YouTube'), findsNothing);
-    handle.dispose();
+    expect(_fullEmbedCards(), 2);
   });
 
   testWidgets('a row is at least 48 dp tall', (tester) async {
@@ -152,6 +168,16 @@ void main() {
     expect(isForumCardBlock(_a), isTrue);
     expect(isForumCardBlock(_link), isTrue);
     expect(isForumCardBlock(const EmbedBlock(url: '')), isFalse);
+    // Same rule as the web's isCardBlock: a URL-less or scheme-less embed
+    // never joins a run, even with a title.
+    expect(
+      isForumCardBlock(const EmbedBlock(url: '', title: 'Old video')),
+      isFalse,
+    );
+    expect(
+      isForumCardBlock(const EmbedBlock(url: 'youtube.com/watch?v=x')),
+      isFalse,
+    );
     expect(isForumCardBlock(const HeadingBlock('H')), isFalse);
   });
 }

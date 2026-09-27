@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { mediaUrl } from '@/services/blogService';
 import { safeExternalUrl, shortLinkAddress } from '@/utils/externalUrl';
 import type { StreamFieldBlock } from '@/types/blog';
@@ -10,50 +10,83 @@ interface CompactCardRowProps {
 }
 
 const ROW_CLASS =
-  'flex min-h-11 w-full items-center gap-3 rounded-md border border-line bg-surface-2 p-2 text-left text-ink hover:bg-surface-3';
+  'flex min-h-11 w-full items-center gap-3 rounded-md border border-line bg-surface-2 p-2 text-left text-ink hover:bg-surface-3 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-secondary';
 
 /**
  * A card after the first in a run (todo 429): a small thumbnail beside the
- * title and the site, on the card's surface and border. Its accessible name
- * is "title, site". A video row with a player swaps itself for that player
- * when clicked, so no iframe loads until asked for; any other row is a link,
- * like its full card.
+ * title and a second line, on the card's surface and border. Its accessible
+ * name is "title, <second line>". A video row's second line is its provider;
+ * a link row's is the SHORT ADDRESS derived from the URL, never the page's own
+ * og:site_name, so a row cannot claim to be a site it does not link to (the
+ * todo 428 rule for the full card). A video row with a player swaps itself for
+ * that player when clicked, so no iframe loads until asked for, and focus
+ * moves to the player so a keyboard user is not dropped to <body>. Any other
+ * row is a link, like its full card.
  */
 export default function CompactCardRow({ block, renderFull }: CompactCardRowProps) {
   const [expanded, setExpanded] = useState(false);
-  if (expanded) return <>{renderFull()}</>;
+  const [imageFailed, setImageFailed] = useState(false);
+  const playerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (expanded) playerRef.current?.focus();
+  }, [expanded]);
 
   let href: string | null = null;
   let title = '';
-  let site = '';
+  let detail = '';
   let thumbnail: string | null = null;
   let playable = false;
   if (block.type === 'embed') {
     const { url, title: t, provider_name, thumbnail_url, embed_url } = block.value;
     href = safeExternalUrl(url);
     title = t || url;
-    site = provider_name;
+    detail = provider_name;
     thumbnail = safeExternalUrl(thumbnail_url);
     playable = Boolean(embed_url);
   } else if (block.type === 'link_preview' && block.value) {
     const preview = block.value;
     href = safeExternalUrl(preview.url);
-    const address = shortLinkAddress(preview.url) || preview.url;
+    const address = shortLinkAddress(preview.url) || '';
     title = preview.title || preview.site_name || preview.domain || address;
-    site = preview.site_name || preview.domain;
+    detail = title === address ? '' : address;
     thumbnail = preview.image_url ? safeExternalUrl(mediaUrl(preview.image_url)) : null;
   }
   if (!href) return null;
+  const label = detail ? `${title}, ${detail}` : title;
 
-  const label = site ? `${title}, ${site}` : title;
+  if (expanded) {
+    // The player replaces the button the user pressed; focus follows it.
+    return (
+      <div
+        ref={playerRef}
+        tabIndex={-1}
+        role="group"
+        aria-label={label}
+        className="outline-none [&>*]:my-0"
+      >
+        {renderFull()}
+      </div>
+    );
+  }
+
   const body = (
     <>
       <span className="h-12 w-[72px] shrink-0 overflow-hidden rounded-sm bg-surface-3">
-        {thumbnail && <img src={thumbnail} alt="" className="h-full w-full object-cover" />}
+        {thumbnail && !imageFailed && (
+          <img
+            src={thumbnail}
+            alt=""
+            className="h-full w-full object-cover"
+            loading="lazy"
+            referrerPolicy="no-referrer"
+            onError={() => setImageFailed(true)}
+          />
+        )}
       </span>
       <span className="min-w-0 flex-1">
         <span className="block truncate font-medium">{title}</span>
-        {site && <span className="block truncate text-xs text-ink-3">{site}</span>}
+        {detail && <span className="block truncate text-xs text-ink-3">{detail}</span>}
       </span>
     </>
   );
