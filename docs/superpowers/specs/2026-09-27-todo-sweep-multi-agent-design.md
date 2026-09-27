@@ -97,7 +97,7 @@ with it (§7).
 |---|---|
 | `.claude/agents/todo-triager.md` | Read-only classifier. `tools: Read, Grep, Glob`. Returns one TRIAGE record (§6.1). |
 | `.claude/agents/todo-worker.md` | Sole writer for its group. Full tools. Plans, implements, tests, writes evidence, stages, **stops at staged**. Isolation is passed per call (`isolation: 'worktree'` in Execute; omitted for repair, which must work in the PR's existing worktree) — **not** set in frontmatter, where it would force a fresh worktree on every call. |
-| `.claude/agents/todo-verifier.md` | Independent evidence checker. `disallowedTools: Edit, Write, NotebookEdit`. Re-runs every AC command in the worker's worktree. |
+| `.claude/agents/todo-verifier.md` | Independent evidence checker. `disallowedTools: Edit, Write, NotebookEdit`. Re-runs every AC command in the worker's worktree. Bash can still write, so its read-only-ness is **enforced by the tree-hash check in §5.2**, not by its tool list. |
 | `.claude/workflows/todo-triage.js` | Named workflow: `pipeline(todos, triager)`; returns records. |
 | `.claude/workflows/todo-execute.js` | Named workflow: `pipeline(groups, [planner], worker, verifier)`; returns WORKER + VERDICT records. |
 | `.claude/workflows/todo-review.js` | Named workflow: `pipeline(prs, reviewers, [repair worker], [verifier])`; `args.round` = 1 or 2 (round 2 never repairs). |
@@ -105,7 +105,7 @@ with it (§7).
 | `scripts/todos/group.py` | Deterministic lanes + waves from triage records (§7). |
 | `scripts/todos/state.py` | The only writer of the run file; enforces the stage transition table (§8). |
 | `scripts/todos/tests/` | pytest for all three scripts. |
-| `.claude/hooks/guard-todo-worker-git.sh` + `test-guard-todo-worker-git.sh` | `PreToolUse` on Bash: when `agent_type` is `todo-worker` or `todo-verifier`, deny `git commit`, `git push`, `git reset`, `git checkout --`, and `gh …`. |
+| `.claude/hooks/guard-todo-worker-git.sh` + `test-guard-todo-worker-git.sh` | `PreToolUse` on Bash: when `agent_type` is `todo-worker` or `todo-verifier`, allow only the git subcommands `add`, `mv`, `rm`, `diff`, `status`, `log`, `show`, `fetch`, `write-tree`, `rev-parse`, and deny every other `git` subcommand (commit, push, switch, checkout, stash, rebase, reset, clean, …) and all `gh`. An allowlist, because a denylist misses branch-moving commands. |
 | `.worktreeinclude` | `backend/.env`, `web/.env` — gitignored env files copied into worker worktrees. |
 
 **Changed**
@@ -115,7 +115,7 @@ with it (§7).
 | `.claude/skills/completing-todos/SKILL.md` | Rewritten as the engine: Stages 0–D, the per-todo contract (AC gospel, re-points, external-verification evidence, source-review check-off, filename/frontmatter status match). Retires "never auto-commit" and "`--parallel` reserved" **on the record**, citing this spec. |
 | `.claude/skills/todo-sweep/SKILL.md` | Selector: all eligible todos → engine. |
 | `.claude/skills/todo-batch/SKILL.md` | Selector: `--priority/--ids/--tag/--exclude-ids` → engine. |
-| `.claude/skills/todo-next/SKILL.md` | Selector: top eligible todo → engine with `--workers 1` (one wave, one group). |
+| `.claude/skills/todo-next/SKILL.md` | Selector: top eligible todo → engine with `--workers 1` (one wave, one group). **No separate triage PR**: a single-todo run writes its triage fields in the todo's own PR, so the daily driver does not pay an extra CI cycle. |
 | `.claude/skills/todo-resume/SKILL.md` | Reads `todos/.sweep-run-*.json`; offers resume / restart / discard. Legacy `.completing-todos-run-*.json` → offer discard only. |
 | `todos/TEMPLATE.md` | Documents the new optional frontmatter fields (§6.4). |
 | `.claude/settings.json` | Registers the new hook. |
@@ -141,12 +141,21 @@ with it (§7).
   and `TEMPLATE.md`. Includes every non-archived status (`pending`,
   `in_progress`, `blocked`) — never a `^status: pending` grep.
 - Flags **stranded** todos: `in_progress` with no live branch/worktree/open PR →
-  offered back to `pending` (Work Log note) before triage.
+  offered back to `pending`. The rename (`git mv`) plus frontmatter edit and a
+  Work Log note land in the triage PR.
+- Legacy `status: blocked` (e.g. todo 387) stays valid, as `TEMPLATE.md`
+  allows it. Scan includes it and triage records a `triage: blocked-*` class
+  alongside it without changing `status:` or the filename. Sweeps read the gate
+  from `triage:`; `status:` is never used to express a triage class.
 - Excludes todos that already have an in-flight branch, worktree
   (`git worktree list`), or open PR matching the issue id — they belong to a
   peer session or a prior run. Lists them in the plan.
-- Skips todos whose frontmatter says `triage: blocked-*` and whose `triaged:`
-  date is newer than the file's last commit — unless `--retriage`.
+- Skips todos whose frontmatter says `triage: blocked-*`, unless `--retriage`
+  is passed or the file has a commit dated **after** its `triaged:` date. The
+  triage PR itself is the commit that writes `triaged:`, so comparing
+  `triaged:` with the last commit would never fire.
+- `--dry-run`: Stage 0 only, then print the plan (selected, excluded and why,
+  stranded, cleanup candidates). No workflows, no file changes.
 - Lists worktrees whose branch is merged into `origin/main` as cleanup
   candidates (report only; removal is an owner-confirmed step).
 - Writes the run file with every selected todo at stage `scanned`.
@@ -192,6 +201,17 @@ archives a todo would otherwise conflict with the triage PR on the same file.
    evidence, diffs test files vs `origin/main` and flags edited or deleted
    existing tests, returns a VERDICT record.
 
+**Tree-hash check (enforces an independent verifier).** The worker's last step
+stages everything, so `git -C <wt> status --porcelain` is empty (evidence lives
+in the gitignored `.sweep-evidence/`), and records `git -C <wt> write-tree`. The
+verifier records both values as its first and last steps. Before Land, the main
+session checks that all three tree ids match and that the working tree is still
+clean. The staged-tree id alone would miss an unstaged `sed -i`, which is why the
+clean check is also required. Any difference **voids the
+verdict** (the todo goes to `failed`), because a verifier that changed the tree
+has "fixed its way" to passing. This is the mechanism behind pain point 9; the
+schema alone does not deliver it.
+
 `verdict: fail` → one retry: a new worker in the same worktree with the
 verifier's notes, then a new verifier. A second fail → stage `blocked`, reason
 recorded; the todo returns to `pending` with a Work Log entry.
@@ -209,9 +229,24 @@ Land runs in the main session, one group at a time, in wave order:
    filename-only edit, check off `source_review` findings (and rename the
    review doc to `-COMPLETED` when all are checked).
 3. Commit (hooks run, including the kimi gate), push, `gh pr create`.
+
+   **Worktree liveness.** The harness's periodic sweep may remove a worktree
+   that has no uncommitted files and no unpushed commits, which is exactly the
+   PR's worktree after step 3. Before every repair, round, or verifier retry,
+   Land checks that the worktree exists. If it is gone, Land re-adds it from
+   the pushed branch under the scratchpad directory
+   (`git worktree add <scratchpad>/<id> <branch>`, proven to work in the
+   sandbox on 2026-09-27) and updates the run file.
+
 4. **Round 1** — `todo-review` workflow with `round: 1` for every PR landed so
    far in the wave: bundled code-review (bugs) + `code-review-orchestrator`
-   (checklist; only for groups sized `m` or larger). Blocking findings → repair
+   (checklist; only for groups sized `m` or larger). Every reviewer prompt
+   names the worktree path and the diff range explicitly
+   (`git -C <wt> diff origin/main...HEAD`), because a no-isolation workflow
+   agent's cwd is the main checkout and `code-review-orchestrator` otherwise
+   reads the wrong `git diff`. Whether a workflow agent can invoke the bundled
+   code-review skill is unverified (pilot P8). The fallback is a
+   `general-purpose` reviewer with the same explicit-diff brief. Blocking findings → repair
    worker in the PR's worktree → verifier. Main session commits the repair.
 5. **Round 2** — `todo-review` with `round: 2` (no repair). Clean → the main session
    runs `gh pr merge --auto --squash --delete-branch`. The "review the diff
@@ -252,7 +287,17 @@ schema, because the parent receives the whole final message).
 ```
 
 `already-done` and `stale` carry evidence and go to the owner batch as a
-confirm-and-archive question — the triager never archives.
+confirm question. The triager never archives. `check_archived_todo_status.py`
+fails an archived todo that has any bare unchecked AC, including a `superseded`
+one, so:
+
+- **`already-done`, confirmed:** the todo runs through Execute as a
+  **verify-only** group. The worker changes no code and gathers evidence for
+  each AC, the verifier re-runs it, and Land archives it as usual.
+- **`stale`, confirmed:** each open AC is re-pointed to a numbered todo or
+  checked with evidence, then archived as `superseded` in the triage PR. If the
+  owner can do neither, it stays `pending` with `triage: stale` and the
+  `owner_decision` recorded.
 
 ### 6.2 GroupBrief (input to a worker)
 
@@ -265,6 +310,12 @@ can read the repo):
   `do_not_touch` (single-lane files held by other groups this wave)
 - `slot`: `DATABASE_URL`, `REDIS_URL` (§7.3), `needs_e2e`
 - `evidence_dir`: `.sweep-evidence/<id>/`
+- `toolchain` (§7.4): absolute interpreter path, `PYTHONPATH`, and how
+  web/Flutter dependencies are provided
+- Shell rules for worktree sessions: use `/usr/bin/git` (not the rtk wrapper),
+  one `git` call per Bash command, absolute paths, no shell variables where an
+  option could go, and no heredocs that contain `git` (memory:
+  `project_worktree_session_gotchas`)
 - Rules: no commits/pushes/`gh` (hook-enforced); never edit or delete existing
   tests to make them pass; do not flip AC boxes; report discoveries upward.
 - Context and constraints, **not** implementation steps (Cognition: prescriptive
@@ -274,7 +325,7 @@ can read the repo):
 
 ```json
 { "ids": ["412"], "status": "staged | blocked | failed | no_change",
-  "worktree": "…", "branch": "…", "files_changed": ["…"],
+  "worktree": "…", "branch": "…", "tree_id": "…", "files_changed": ["…"],
   "ac_file": ".sweep-evidence/412/ac.json", "tests_run": ["…"],
   "blockers": "≤ 300", "discoveries": "≤ 300", "summary": "≤ 600" }
 ```
@@ -282,7 +333,8 @@ can read the repo):
 ```json
 { "ids": ["412"], "verdict": "pass | fail",
   "ac": [{ "index": 0, "verified": true, "note": "≤ 200" }],
-  "test_edits_flagged": ["path::test_name"], "commands_rerun": 5 }
+  "test_edits_flagged": ["path::test_name"], "commands_rerun": 5,
+  "tree_id_before": "…", "tree_id_after": "…", "clean_after": true }
 ```
 
 `ac.json` is the machine-checkable AC ledger (research: JSON is less likely than
@@ -322,6 +374,7 @@ Execute until merge):
 - `.secrets.baseline`
 - `e2e` — any group with `needs_e2e: true` (Playwright reuses whatever is on
   :5174/:8000; memory: `project_e2e_run_from_worktree`)
+- `deps` — any group predicted to change a dependency manifest (§7.4)
 
 The lane list is configuration in `group.py`, and grows when a new hot file is
 observed. Prediction can miss, so conflicts are also caught after the fact: Land
@@ -342,6 +395,26 @@ Worker slot `N` (1–3) gets:
   never written into `.env`. `.worktreeinclude` copies `backend/.env` in, and
   python-decouple lets environment variables override `.env`, which is what
   makes the override work.
+
+### 7.4 Toolchain in a fresh worktree
+
+`backend/venv`, `web/node_modules` and Flutter `.dart_tool` are gitignored and
+are **not** copied: they are too large for `.worktreeinclude`. Each worker's
+brief states:
+
+- **Python:** the main checkout's interpreter by absolute path
+  (`<main>/backend/venv/bin/python`), with
+  `PYTHONPATH=<worktree>/backend/packages/wagtail_forum`. `wagtail_forum` is
+  installed editable from the main checkout, and without the prefix pytest
+  collects it twice and reports import-file-mismatch errors.
+- **Web:** `ln -sfn <main>/web/node_modules <worktree>/web/node_modules` (a
+  symlink in a gitignored path is never committed).
+- **Flutter:** `flutter pub get` in the worktree (served from the shared pub
+  cache).
+- **Dependency changes:** a todo that changes `backend/requirements*.txt`,
+  `web/package*.json` or `pubspec.*` cannot use the shared venv or
+  `node_modules`. It takes the single-lane resource `deps` (§7.2) and installs
+  into a worktree-local environment (`python -m venv`, `npm ci`).
 
 ## 8. State model (run file)
 
@@ -375,6 +448,8 @@ every todo is terminal. Cross-session resume is from this file plus git and
 | Failure | Response |
 |---|---|
 | Workflow agent returns `null` (died/skipped) | Stage → `failed`; offered for retry in the next wave. |
+| PR worktree removed by the harness sweep | Re-added from the pushed branch under the scratchpad (§5.3 step 3, worktree liveness). |
+| Staged tree changed between worker and verifier | Verdict void; stage → `failed` (§5.2). |
 | Verifier `fail` twice | `blocked` with reason; todo back to `pending`, Work Log entry. |
 | Worker `blocked` (new gate discovered) | Recorded as a new owner question for the next Decide batch. |
 | Commit hook `[CRITICAL]` | Treated as a blocking review finding → round-1 repair path. |
@@ -401,6 +476,10 @@ several workflow runs. Hence:
 - The kimi commit gate is on Land's serial critical path: up to 150 s per
   commit, and a PR usually has two commits (initial + repair), so ~5 min per
   group in the worst case (observed 2026-09-27: 150 s, then timed out).
+- Branch protection on `main` has `strict: false` (checked 2026-09-27), so an
+  auto-merge does not force later PRs to rebase and re-run CI one after
+  another. Throughput is bounded by Land and review, not by a merge queue. If
+  `strict` is ever turned on, the 3-worker estimate no longer holds.
 - Model tiering is **not** decided (no surviving evidence); agents inherit the
   session model, and the pilot measures triage accuracy before any downgrade.
 
@@ -431,6 +510,9 @@ several workflow runs. Hence:
    `todo-worker`/`todo-verifier`, allows for the main session and other agents.
 3. **Pilot (2 workers, 2 disjoint low-risk todos).** Must pass, each with
    recorded evidence:
+   - P0 a worker in a fresh worktree runs one backend test and one Vitest
+     file using the §7.4 toolchain. Without this, P2 and P7 can fail for
+     reasons unrelated to the design.
    - P1 `isolation: worktree` creates a working checkout under the sandbox,
      including `.claude/` files (a manual `git worktree add` under
      `.claude/worktrees/` failed on 2026-09-27 with "unable to create file
@@ -447,6 +529,11 @@ several workflow runs. Hence:
    - P6 every returned record is within its schema caps; record main-context
      growth per group.
    - P7 end to end: both PRs merged with todos archived in the same PR.
+   - P8 a `todo-review` agent can run the bundled code-review skill against an
+     explicit worktree and diff range. Otherwise use the `general-purpose`
+     fallback.
+   - P9 the tree-hash check detects a deliberate one-byte change made after
+     the worker returns (mutation test of the §5.2 guard).
 4. **3-worker run** on a p3/p4 batch; measure predicted vs actual touched files
    (the grouping accuracy question).
 5. **Full sweep.**
