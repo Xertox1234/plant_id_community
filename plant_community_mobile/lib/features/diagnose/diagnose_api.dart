@@ -146,12 +146,28 @@ abstract class DiagnoseImagePicker {
 /// Mirrors the backend cap (`MAX_IMAGE_SIZE` in `apps/core/validators.py`).
 const int diagnoseMaxUploadBytes = 10 * 1024 * 1024;
 
+/// Longest edge of a diagnosis photo. The backend refuses an ORIGINAL over
+/// 4096 px or 10 MB (`validate_plant_identification_image`) before it
+/// resizes to 1200 px, and image_picker hands back a current iPhone's 24 MP
+/// photo as a quality-1.0 JPEG. Bounding the pick keeps it inside both
+/// limits. Unlike the forum picker, nothing here needs the bytes exact: the
+/// backend re-encodes every diagnosis image to JPEG (PR #857 review).
+const double diagnoseMaxEdgePx = 2048;
+const int diagnoseImageQuality = 85;
+
 class DeviceDiagnoseImagePicker implements DiagnoseImagePicker {
-  const DeviceDiagnoseImagePicker();
+  const DeviceDiagnoseImagePicker({ImagePicker? picker}) : _picker = picker;
+
+  final ImagePicker? _picker;
 
   @override
   Future<String?> pick(ImageSource source) async {
-    final file = await ImagePicker().pickImage(source: source);
+    final file = await (_picker ?? ImagePicker()).pickImage(
+      source: source,
+      maxWidth: diagnoseMaxEdgePx,
+      maxHeight: diagnoseMaxEdgePx,
+      imageQuality: diagnoseImageQuality,
+    );
     if (file == null) return null;
     if (await file.length() > diagnoseMaxUploadBytes) {
       throw ApiException(

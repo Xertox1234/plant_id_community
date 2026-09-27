@@ -94,6 +94,30 @@ class _FakePicker implements DiagnoseImagePicker {
   }
 }
 
+/// Records the arguments image_picker was called with; the user cancels.
+class _RecordingImagePicker extends ImagePicker {
+  ImageSource? source;
+  double? maxWidth;
+  double? maxHeight;
+  int? imageQuality;
+
+  @override
+  Future<XFile?> pickImage({
+    required ImageSource source,
+    double? maxWidth,
+    double? maxHeight,
+    int? imageQuality,
+    CameraDevice preferredCameraDevice = CameraDevice.rear,
+    bool requestFullMetadata = true,
+  }) async {
+    this.source = source;
+    this.maxWidth = maxWidth;
+    this.maxHeight = maxHeight;
+    this.imageQuality = imageQuality;
+    return null;
+  }
+}
+
 Widget _wrap(_FakeDiagnoseApi api, _FakePicker picker) => ProviderScope(
   overrides: [
     diagnoseApiProvider.overrideWithValue(api),
@@ -197,6 +221,20 @@ void main() {
       );
       expect(api.getPath, isNull);
     });
+  });
+
+  test('the device picker bounds the photo inside the backend limits (PR '
+      '#857 review)', () async {
+    final picker = _RecordingImagePicker();
+    final path = await DeviceDiagnoseImagePicker(
+      picker: picker,
+    ).pick(ImageSource.gallery);
+
+    expect(path, isNull);
+    expect(picker.source, ImageSource.gallery);
+    expect(picker.maxWidth, lessThanOrEqualTo(4096));
+    expect(picker.maxHeight, lessThanOrEqualTo(4096));
+    expect(picker.imageQuality, isNotNull);
   });
 
   group('DiagnoseScreen', () {

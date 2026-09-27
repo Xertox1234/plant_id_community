@@ -57,3 +57,20 @@ image picker the identify flow already has. Keep
   non-key value is a 400; filed as todo 459. Mobile uses a dropdown.
 - Tests: 11 diagnose tests and 2 Home → Diagnose reachability tests (signed
   in and signed out) on the production router. 9 mutations, all red.
+
+### 2026-09-27 - PR #857 review round 1
+
+Blocking, fixed:
+
+- **Unbounded picks.** The backend refuses an ORIGINAL over 4096 px or
+  10 MB, and image_picker returns a current iPhone's 24 MP photo as a
+  quality-1.0 JPEG. Picks are now bounded to 2048 px at quality 85. A test
+  pins the picker arguments (mutation-checked).
+- **No `NSCameraUsageDescription` in `ios/Runner/Info.plist`.** iOS kills
+  an app that asks for the camera without it, and this was already true of
+  Identify → Take photo on main. Added it, and
+  `NSPhotoLibraryUsageDescription` too.
+
+Non-blocking findings: todo 461. The review also found that the app never
+refreshes its access JWT and signs users out when it expires. That affects
+the whole app and predates this PR; filed as todo 462 (P2).
