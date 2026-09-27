@@ -54,6 +54,16 @@ prefers "the first open one": every open line checkable by this todo (no
 target, or a target matching todo_id) ships together, and when none is
 checkable, the note prefers any line naming this todo over an arbitrary first
 match (H5).
+
+Fix round 4 closes the last phase-2 raise sites found by the round-3
+re-review. The todo's own destination check is `os.path.lexists`, not
+`is_file`: a directory or a dangling symlink at `todos/archive/<name>.md`
+refuses in phase 1, where before `git mv` would move the todo INTO the
+directory (then `set_fields` raised IsADirectoryError) or fail on the
+symlink. The `-COMPLETED` twin also counts as present when git still tracks
+it but it was deleted from disk, so the rename is skipped instead of
+clobbering the twin's index entry. The CLI maps `yaml.YAMLError` (malformed
+frontmatter) to exit 2 with a `land: ` message instead of a traceback.
 """
 
 import argparse
@@ -63,6 +73,8 @@ import re
 import subprocess
 import sys
 from pathlib import Path
+
+import yaml
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import state  # noqa: E402
@@ -340,7 +352,10 @@ def plan_review(repo, todo_path, date):
             # (False for a broken symlink's target, False for a directory), which let
             # git either refuse in phase 2 (symlink) or silently move the doc INTO the
             # directory instead of onto it (directory) -- H1.
-            if os.path.lexists(Path(repo) / candidate_rel):
+            # Fix round 4: a twin git still tracks but that was deleted from disk is
+            # present too -- lexists can't see the index, and a `git mv` onto it would
+            # replace the twin's index entry with this doc.
+            if os.path.lexists(Path(repo) / candidate_rel) or _tracked(repo, candidate_rel):
                 note = f"all findings resolved, but {candidate_rel} already exists; rename skipped"
             elif not _tracked(repo, norm_rel):
                 note = f"all findings resolved, but {norm_rel} is not tracked in git; rename skipped"
@@ -380,7 +395,10 @@ def archive(repo, todo_rel, run_id, date, git=run_git):
         raise LandError(f"{todo_rel}: source todo not found")
     if not dest.parent.is_dir():
         raise LandError(f"{dest.parent}: does not exist")
-    if dest.is_file():
+    # Fix round 4: lexists, not is_file -- a directory at dest would have `git mv`
+    # move the todo INTO it (then set_fields raises IsADirectoryError), and a
+    # dangling symlink would fail the `git mv`; both must refuse here, before any write.
+    if os.path.lexists(dest):
         raise LandError(f"{todo_rel}: destination already exists: {dest_rel}")
     # H3: each of these would otherwise surface as an exception mid-phase-2 -- a
     # ValueError from set_fields (no frontmatter, or a multi-line status/source_review
@@ -439,7 +457,7 @@ def main(argv=None):
             print(json.dumps({"flipped": flipped, "remaining": remaining}))
         else:
             print(json.dumps(archive(args.repo, entry["path"], run["run_id"], args.date)))
-    except (LandError, KeyError, ValueError, FileNotFoundError) as exc:
+    except (LandError, KeyError, ValueError, FileNotFoundError, yaml.YAMLError) as exc:
         print(f"land: {exc}", file=sys.stderr)
         return 2
     return 0

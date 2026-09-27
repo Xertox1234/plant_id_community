@@ -53,6 +53,14 @@ just prefer "the first open one" -- every OPEN line checkable by this todo
 they're the same shipped finding; when none is checkable, the note prefers
 any line that at least names this todo (checked or not) over an arbitrary
 first match, so it reads correctly in either duplicate order.
+
+Fix round 4 adds: a directory or a dangling symlink at the todo's own archive
+destination refuses in phase 1 -- asserted by a recording `git=` callback that
+must never be called, since the unfixed code's phase-2 `git mv` also fails
+cleanly on a dangling symlink; a `-COMPLETED` twin that git tracks but that
+was deleted from disk skips the rename and leaves the twin's index entry
+byte-identical; and malformed YAML frontmatter makes the CLI exit 2 with a
+`land: ` message, not a traceback.
 """
 
 import json
@@ -1083,6 +1091,109 @@ def main():
               result["review"]["note"] == "already checked", result)
         check("H5/G7: the open-other-target line is untouched",
               "- [ ] #1 a → todo 999" in (repo / "docs/reviews/g7e.md").read_text())
+
+    # Fix round 4, finding 1: a directory or a dangling symlink at the todo's own
+    # archive destination refuses in PHASE 1. A recording git= callback proves no
+    # phase-2 write started (a dangling symlink also fails the unfixed code's git mv
+    # with a LandError, so "LandError + status unchanged" alone can't tell them apart).
+    def dest_blocker_case(label, make_blocker):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp) / "repo"
+            (repo / "todos" / "archive").mkdir(parents=True)
+            (repo / "todos" / "archive" / ".keep").write_text("")
+            (repo / "todos" / "600-pending-p3-x.md").write_text(simple_todo_text("600", None, None))
+            subprocess.run(["git", "init", "-q", "-b", "main", str(repo)], check=True)
+            subprocess.run(["git", "-C", str(repo), "add", "todos"], check=True)
+            subprocess.run(["git", "-C", str(repo), "-c", "user.email=t@t", "-c", "user.name=t", "commit",
+                            "-q", "-m", "x"], check=True)
+            make_blocker(repo / "todos" / "archive" / "600-completed-p3-x.md")
+            before_status = git_status(repo)
+            calls = []
+
+            def recording_git(repo_arg, *args):
+                calls.append(args)
+                return land.run_git(repo_arg, *args)
+
+            try:
+                msg = raises(lambda: land.archive(repo, "todos/600-pending-p3-x.md", "r", "2026-09-27",
+                                                  git=recording_git))
+            except Exception as exc:  # the unfixed code dies with IsADirectoryError here
+                msg = f"UNEXPECTED {type(exc).__name__}: {exc}"
+            check(f"R4/1: a {label} at the archive destination refuses in phase 1",
+                  "destination already exists: todos/archive/600-completed-p3-x.md" in msg, msg)
+            check(f"R4/1: the {label} refusal made no git call (phase 2 never started)", calls == [], calls)
+            check(f"R4/1: the {label} refusal leaves git status unchanged", git_status(repo) == before_status,
+                  git_status(repo))
+            check(f"R4/1: the {label} refusal leaves the todo in place",
+                  (repo / "todos" / "600-pending-p3-x.md").is_file())
+
+    def make_dir(path):
+        path.mkdir()
+        (path / "keep.txt").write_text("k\n")
+
+    dest_blocker_case("directory", make_dir)
+    dest_blocker_case("dangling symlink", lambda path: os.symlink("nowhere.md", path))
+
+    # Fix round 4, finding 2: a -COMPLETED twin git still tracks but that was deleted
+    # from disk (os.remove, not git rm) is "already there" -- skip the rename, and
+    # leave the twin's index entry byte-identical.
+    with tempfile.TemporaryDirectory() as tmp:
+        repo = Path(tmp) / "repo"
+        (repo / "todos" / "archive").mkdir(parents=True)
+        (repo / "docs" / "reviews").mkdir(parents=True)
+        (repo / "todos" / "archive" / ".keep").write_text("")
+        (repo / "todos" / "601-pending-p3-x.md").write_text(simple_todo_text("601", "docs/reviews/r4b.md", "1"))
+        (repo / "docs/reviews/r4b.md").write_text("# R\n\n## Finding Status\n\n- [ ] #1 x → todo 601\n")
+        (repo / "docs/reviews/r4b-COMPLETED.md").write_text("# an older, already-completed twin\n")
+        subprocess.run(["git", "init", "-q", "-b", "main", str(repo)], check=True)
+        subprocess.run(["git", "-C", str(repo), "add", "-A"], check=True)
+        subprocess.run(["git", "-C", str(repo), "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q", "-m", "x"],
+                       check=True)
+        os.remove(repo / "docs/reviews/r4b-COMPLETED.md")
+
+        def twin_stage():
+            return subprocess.run(["git", "-C", str(repo), "ls-files", "--stage", "docs/reviews/r4b-COMPLETED.md"],
+                                  capture_output=True, text=True).stdout
+
+        before_stage = twin_stage()
+        try:
+            result = land.archive(repo, "todos/601-pending-p3-x.md", "r", "2026-09-27")
+        except Exception as exc:
+            result = {"review": {"renamed": None, "note": f"UNEXPECTED {type(exc).__name__}: {exc}"}}
+        check("R4/2: a tracked-but-deleted twin skips the rename with the skip note",
+              result["review"]["renamed"] is False
+              and result["review"]["note"] == "all findings resolved, but docs/reviews/r4b-COMPLETED.md "
+                                              "already exists; rename skipped", result)
+        check("R4/2: the twin's index entry is byte-identical", before_stage != "" and twin_stage() == before_stage,
+              (before_stage, twin_stage()))
+        check("R4/2: the review doc was checked off in place",
+              "- [x] #1 x → todo 601 (completed 2026-09-27)" in (repo / "docs/reviews/r4b.md").read_text())
+        check("R4/2: the todo itself still archived",
+              (repo / "todos/archive/601-completed-p3-x.md").is_file())
+
+    # Fix round 4, finding 3: malformed YAML frontmatter -> the CLI exits 2 with a
+    # `land: ` message, not a traceback (yaml.YAMLError is not a ValueError).
+    with tempfile.TemporaryDirectory() as tmp:
+        repo = Path(tmp) / "repo"
+        (repo / "todos" / "archive").mkdir(parents=True)
+        (repo / "todos" / "archive" / ".keep").write_text("")
+        (repo / "todos" / "602-pending-p3-x.md").write_text(
+            '---\nstatus: [unclosed\nissue_id: "602"\n---\n\n# T\n\n## Acceptance Criteria\n\n- [x] a\n\n'
+            "## Work Log\n\n### d - created\n\n## Notes\n\nn\n")
+        subprocess.run(["git", "init", "-q", "-b", "main", str(repo)], check=True)
+        subprocess.run(["git", "-C", str(repo), "add", "todos"], check=True)
+        subprocess.run(["git", "-C", str(repo), "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q", "-m", "x"],
+                       check=True)
+        run_file = Path(tmp) / "run.json"
+        run_file.write_text(json.dumps({"run_id": "r", "todos": {"602": {"path": "todos/602-pending-p3-x.md"}}}))
+        before_status = git_status(repo)
+        land_py = Path(os.path.abspath(__file__)).parent / "land.py"
+        proc = subprocess.run([sys.executable, str(land_py), "archive", "--run", str(run_file), "--id", "602",
+                               "--repo", str(repo), "--date", "2026-09-27"], capture_output=True, text=True)
+        check("R4/3: malformed frontmatter exits 2", proc.returncode == 2, (proc.returncode, proc.stderr))
+        check("R4/3: with a `land: ` message, not a traceback",
+              proc.stderr.startswith("land: ") and "Traceback" not in proc.stderr, proc.stderr)
+        check("R4/3: and nothing was written", git_status(repo) == before_status, git_status(repo))
 
     print()
     if FAILURES:
