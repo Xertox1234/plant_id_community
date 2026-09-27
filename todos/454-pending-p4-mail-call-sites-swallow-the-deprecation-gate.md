@@ -7,7 +7,7 @@ dependencies: []
 source_review: "todos/364-pending-p3-mailers-migration-and-warning-gate.md"
 ---
 
-# Mail call sites' `except Exception` swallows the RemovedInDjango70Warning gate
+# Todo 364 review follow-ups: the gate can be swallowed; SMTP subclasses lose credentials
 
 ## Problem
 
@@ -32,9 +32,23 @@ Either re-raise `Warning` subclasses from those `except` blocks
 site a test that sends through locmem and asserts `mail.outbox` has the
 message. The outbox tests prove delivery as well as the gate.
 
+## Second finding: SMTP subclasses lose credentials (django-drf review)
+
+`apps/core/mail_config.build_default_mailer` routes only the exact
+`django.core.mail.backends.smtp.EmailBackend` path through
+`ConfiguredSMTPBackend`. Any other backend, including a custom SMTP
+subclass set through `EMAIL_BACKEND`, gets plain `username`/`password`
+OPTIONS. It would lose them to Wagtail's `get_connection(username=None,
+password=None)`, the bug round 1 fixed for vanilla SMTP. Production uses
+vanilla SMTP today. Either wrap any SMTP subclass (import it and
+`issubclass`-check in `core.E364`), or refuse a non-vanilla SMTP-like
+backend in the check.
+
 ## Acceptance Criteria
 
 - [ ] Planting a deprecated argument at each remaining mail call site fails a test
+- [ ] A non-vanilla SMTP backend either keeps its configured credentials under a
+      `get_connection(username=None, password=None)` call or fails `core.E364`
 
 ## Work Log
 
