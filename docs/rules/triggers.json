@@ -1858,5 +1858,21 @@
     "source": "codify: feat/447-slice-c-expiry-mobile-reset",
     "added": "2026-09-26",
     "severity": "warn"
+  },
+  {
+    "id": "scoped-absence-needs-presence-anchor",
+    "domains": [
+      "testing"
+    ],
+    "path_glob": [
+      "web/**/*.test.ts*"
+    ],
+    "content_present": "querySelector\\(\\s*['\"]\\.[\\w-]+\\s+[^'\"]+['\"]\\s*\\)\\s*\\)\\s*\\.toBeNull",
+    "content_absent": "querySelector\\(\\s*['\"]\\.[\\w-]+['\"]\\s*\\)\\s*\\)\\s*\\.not\\.toBeNull",
+    "message": "An absence check scoped by a class (querySelector('.scope x') toBeNull) passes vacuously if '.scope' is gone. Assert querySelector('.scope') is non-null first (todo 401).",
+    "pattern_ref": "docs/rules/testing.md",
+    "source": "codify: fix/401-rich-text-class",
+    "added": "2026-09-26",
+    "severity": "warn"
   }
 ]
