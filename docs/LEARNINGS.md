@@ -6895,3 +6895,26 @@ The fix sums the server's raw row count. The rule and the
 
 **Also.** Riverpod 3's default retry kept a deleted post behind a spinner for
 about 40 s before saying it was gone. `blogRetry` returns `null` for a 4xx.
+
+## 2026-09-27 — "Decorative" held up for all six sites; check an investigator's citations (todo 403, PR #858)
+
+**What happened.** Todo 398 marked six `excludeSemantics` sites decorative
+because nothing inside them handled a tap. Todo 403 asked whether that was
+by design or an unwired tap. All six turned out decorative by design:
+
+- none was ever tappable (`git log -p` over each file);
+- none had dead wiring;
+- five match a non-interactive web counterpart;
+- the sixth (`BrandMark`) is a home link on the web only because the web
+  shows it on every page.
+
+Two possible taps (stat tile → profile, badge detail) went to the owner as
+questions and were declined. Their destinations do not exist or are not
+specified.
+
+**The lesson.** The evidence came from a read-only investigation agent.
+Spot-checking before committing caught one fabricated-looking citation: a
+spec "calling the stat cards readouts" that did not say that (it lists four
+`StatCard`s with no action). The review then caught a wrong path. A verdict
+table is only as good as its citations, so re-grep a sample before quoting
+them.

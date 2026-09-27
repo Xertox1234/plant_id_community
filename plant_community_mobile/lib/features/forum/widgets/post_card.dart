@@ -151,7 +151,7 @@ class _PostCardState extends State<PostCard> {
           if (post.isPending)
             Padding(
               padding: const EdgeInsets.only(top: AppSpacing.xs),
-              child: _PendingChip(),
+              child: const _PendingChip(),
             ),
           const SizedBox(height: AppSpacing.sm),
           ForumBodyRenderer(
@@ -364,6 +364,8 @@ class _SolutionChip extends StatelessWidget {
 }
 
 class _PendingChip extends StatelessWidget {
+  const _PendingChip();
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
