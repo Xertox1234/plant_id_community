@@ -1,5 +1,7 @@
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/semantics.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:plant_community_mobile/features/forum/models/models.dart';
 import 'package:plant_community_mobile/features/forum/widgets/forum_body_renderer.dart';
@@ -94,6 +96,11 @@ void main() {
         final data = node.getSemanticsData();
         expect(data.hasAction(SemanticsAction.tap), isTrue);
         expect(data.flagsCollection.isButton, isTrue);
+        // One node: the InkWell adds no unlabeled child (never merged/split).
+        expect(node.childrenCount, 0);
+        // A video row has no link actions.
+        expect(data.hasAction(SemanticsAction.longPress), isFalse);
+        expect(data.customSemanticsActionIds ?? const <int>[], isEmpty);
         node.owner!.performAction(node.id, SemanticsAction.tap);
         await tester.pump();
         expect(opened.last, url);
@@ -116,10 +123,80 @@ void main() {
     expect(data.hasAction(SemanticsAction.tap), isTrue);
     expect(data.hasAction(SemanticsAction.longPress), isTrue);
     expect(data.customSemanticsActionIds, hasLength(2));
+    expect(node.childrenCount, 0);
 
     await tester.tap(find.text('Delta guide'));
     expect(opened, ['https://example.org/guide']);
     handle.dispose();
+  });
+
+  testWidgets('a link row\'s custom actions show the address and copy it', (
+    tester,
+  ) async {
+    final handle = tester.ensureSemantics();
+    final writes = <String>[];
+    tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+      SystemChannels.platform,
+      (call) async {
+        if (call.method == 'Clipboard.setData') {
+          writes.add((call.arguments as Map)['text'] as String);
+        }
+        return null;
+      },
+    );
+    addTearDown(
+      () => tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+        SystemChannels.platform,
+        null,
+      ),
+    );
+    await _pump(tester, const [_a, _link]);
+    final row = find.semantics.byLabel(
+      'Link: Delta guide, https://example.org/…',
+    );
+
+    tester.semantics.customAction(
+      row,
+      const CustomSemanticsAction(label: 'Show full address'),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('https://example.org/guide'), findsOneWidget);
+    Navigator.of(tester.element(find.text('https://example.org/guide'))).pop();
+    await tester.pumpAndSettle();
+
+    tester.semantics.customAction(
+      row,
+      const CustomSemanticsAction(label: 'Copy link'),
+    );
+    await tester.pumpAndSettle();
+    expect(writes, ['https://example.org/guide']);
+    handle.dispose();
+  });
+
+  testWidgets('a row shows its thumbnail at 72x48', (tester) async {
+    await _pump(tester, const [
+      _a,
+      EmbedBlock(
+        url: 'https://youtu.be/t',
+        title: 'Thumbed',
+        providerName: 'YouTube',
+        thumbnailUrl: 'https://i.ytimg.com/t.jpg',
+      ),
+    ]);
+    await tester.pump();
+
+    final image = tester.widget<CachedNetworkImage>(
+      find.byType(CachedNetworkImage),
+    );
+    expect(image.imageUrl, 'https://i.ytimg.com/t.jpg');
+    expect(tester.getSize(find.byType(CachedNetworkImage)), const Size(72, 48));
+  });
+
+  testWidgets('a link card with no usable URL breaks the run', (tester) async {
+    await _pump(tester, const [_a, LinkPreviewBlock(url: ''), _b]);
+
+    expect(_fullEmbedCards(), 2);
+    expect(find.text('YouTube'), findsNothing);
   });
 
   testWidgets(

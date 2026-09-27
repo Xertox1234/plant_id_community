@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
 import { mediaUrl } from '@/services/blogService';
 import { safeExternalUrl, shortLinkAddress } from '@/utils/externalUrl';
 import type { StreamFieldBlock } from '@/types/blog';
@@ -27,6 +27,7 @@ export default function CompactCardRow({ block, renderFull }: CompactCardRowProp
   const [expanded, setExpanded] = useState(false);
   const [imageFailed, setImageFailed] = useState(false);
   const playerRef = useRef<HTMLDivElement>(null);
+  const hintId = useId();
 
   useEffect(() => {
     if (expanded) playerRef.current?.focus();
@@ -110,8 +111,12 @@ export default function CompactCardRow({ block, renderFull }: CompactCardRowProp
       rel="noopener noreferrer"
       className={ROW_CLASS}
       aria-label={label}
+      aria-describedby={hintId}
     >
       {body}
+      <span id={hintId} className="sr-only">
+        Opens in a new tab
+      </span>
     </a>
   );
 }

@@ -174,6 +174,31 @@ describe('card runs', () => {
     expect(items.map((item) => item.kind)).toEqual(['block', 'block', 'block']);
   });
 
+  it('keeps each block on its own anchor inside a run', () => {
+    render(
+      <StreamFieldRenderer
+        anchorPrefix="block"
+        blocks={[paragraph, embed('a', 'Alpha', 'YouTube'), embed('b', 'Bravo', 'YouTube'), link]}
+      />
+    );
+
+    expect(document.getElementById('block-1')?.querySelector('iframe')?.title).toBe('Alpha');
+    expect(document.getElementById('block-2')).toContainElement(
+      screen.getByRole('button', { name: 'Bravo, YouTube' })
+    );
+    expect(document.getElementById('block-3')).toContainElement(
+      screen.getByRole('link', { name: 'Delta guide, https://example.org/…' })
+    );
+  });
+
+  it('describes a link row as opening in a new tab, like the full card', () => {
+    render(<StreamFieldRenderer blocks={[embed('a', 'Alpha', 'YouTube'), link]} />);
+
+    expect(
+      screen.getByRole('link', { name: 'Delta guide, https://example.org/…' })
+    ).toHaveAccessibleDescription('Opens in a new tab');
+  });
+
   it('keeps the card-type set in one constant', () => {
     expect([...CARD_BLOCK_TYPES].sort()).toEqual(['embed', 'link_preview']);
   });

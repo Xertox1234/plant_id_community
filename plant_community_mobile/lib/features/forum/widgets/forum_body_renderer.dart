@@ -12,8 +12,10 @@ import 'author_identity.dart';
 import 'forum_html_text.dart';
 
 /// The block types that render as a card (todo 429). Runs of 2+ consecutive
-/// cards collapse to one full card plus compact rows. One set, so a new card
-/// type joins by one entry (the web mirror is `CARD_BLOCK_TYPES`).
+/// cards collapse to one full card plus compact rows. The web mirror is
+/// `CARD_BLOCK_TYPES`. A new card type joins by an entry here AND an arm in
+/// [isForumCardBlock] (its URL) and in `_CompactCardRow` (its row content);
+/// the set is the gate both consult first.
 const Set<Type> forumCardBlockTypes = {EmbedBlock, LinkPreviewBlock};
 
 /// Whether [block] is a card that can join a run: a card type with a usable
@@ -676,7 +678,9 @@ class _CompactCardRow extends StatelessWidget {
         LucideIcons.circlePlay,
       ),
       LinkPreviewBlock c => () {
-        final address = linkPreviewShortAddress(c.url) ?? c.url;
+        // Never the raw URL: callers only pass usable cards, and a row with
+        // no short address renders nothing (see the guard below).
+        final address = linkPreviewShortAddress(c.url) ?? '';
         final title = [
           c.title,
           c.siteName,
@@ -693,6 +697,9 @@ class _CompactCardRow extends StatelessWidget {
       }(),
       _ => ('', '', '', '', '', LucideIcons.circleHelp),
     };
+    if (url.isEmpty || linkPreviewShortAddress(url) == null) {
+      return const SizedBox.shrink();
+    }
     final isLink = block is LinkPreviewBlock;
     final onOpenLink = this.onOpenLink;
     final onTap = onOpenLink == null || url.isEmpty
