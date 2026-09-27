@@ -9,7 +9,7 @@ import math
 from typing import Optional
 
 from django.db import transaction
-from django.db.models import Count, Q
+from django.db.models import Count, F, Q
 from django.utils import timezone
 from django.utils.decorators import method_decorator
 from django_filters.rest_framework import DjangoFilterBackend
@@ -685,7 +685,14 @@ class GardenBedViewSet(viewsets.ModelViewSet):
         # annotation instead of issuing a COUNT per bed. Named `_plant_count`
         # (not `plant_count`) — annotating the property name directly raises
         # AttributeError on queryset evaluation; see GardenBed.plant_count.
-        qs = qs.annotate(_plant_count=Count("plants", filter=Q(plants__is_active=True)))
+        # Only the bed owner's plants count (todo 410: a plant's owner is its
+        # own FK, and Plant.save() keeps it equal to the bed's owner).
+        qs = qs.annotate(
+            _plant_count=Count(
+                "plants",
+                filter=Q(plants__is_active=True, plants__owner=F("owner")),
+            )
+        )
 
         # Conditional optimization based on action
         if self.action == "retrieve":
@@ -695,7 +702,9 @@ class GardenBedViewSet(viewsets.ModelViewSet):
             qs = qs.prefetch_related(
                 Prefetch(
                     "plants",
-                    queryset=Plant.objects.filter(is_active=True)
+                    queryset=Plant.objects.filter(
+                        is_active=True, owner=self.request.user
+                    )
                     .select_related("plant_species")
                     .prefetch_related("images"),
                 )
@@ -800,14 +809,16 @@ class GardenBedViewSet(viewsets.ModelViewSet):
         # Count("pk") — Plant/CareTask use a `uuid` primary key, not `id`.
         health_stats = {
             row["health_status"]: row["count"]
-            for row in garden_bed.plants.filter(is_active=True)
+            for row in garden_bed.plants.filter(is_active=True, owner=garden_bed.owner)
             .values("health_status")
             .annotate(count=Count("pk"))
         }
 
         # Care task statistics — total and overdue in one aggregate
         task_stats = CareTask.objects.filter(
-            plant__garden_bed=garden_bed, plant__is_active=True
+            plant__garden_bed=garden_bed,
+            plant__is_active=True,
+            plant__owner=garden_bed.owner,
         ).aggregate(
             total=Count("pk"),
             overdue=Count(
@@ -908,7 +919,7 @@ class GardenBedViewSet(viewsets.ModelViewSet):
     ),
     create=extend_schema(
         summary="Create a plant",
-        description="Add a new plant to a garden bed.",
+        description="Add a new plant. The garden bed is optional; a houseplant has none.",
         tags=["Plants"],
         examples=[
             OpenApiExample(
@@ -985,17 +996,17 @@ class PlantViewSet(viewsets.ModelViewSet):
         Filter plants to user's own plants with query optimization.
 
         Performance optimizations:
-        - select_related('garden_bed__owner', 'plant_species')
+        - select_related('garden_bed', 'plant_species')
         - Prefetches images and tasks for detail view
         """
         qs = super().get_queryset()
 
         # Filter to user's own plants
         if self.request.user.is_authenticated:
-            qs = qs.filter(garden_bed__owner=self.request.user)
+            qs = qs.filter(owner=self.request.user)
 
         # Always select related for performance
-        qs = qs.select_related("garden_bed", "garden_bed__owner", "plant_species")
+        qs = qs.select_related("garden_bed", "plant_species")
 
         # Always prefetch images to avoid N+1 for primary_image
         qs = qs.prefetch_related("images")
@@ -1023,6 +1034,10 @@ class PlantViewSet(viewsets.ModelViewSet):
     def create(self, request, *args, **kwargs):
         """Create a new plant with rate limiting."""
         return super().create(request, *args, **kwargs)
+
+    def perform_create(self, serializer):
+        """The creator owns the plant, with or without a bed (todo 410)."""
+        serializer.save(owner=self.request.user)
 
     @method_decorator(
         ratelimit(
@@ -1425,19 +1440,18 @@ class CareTaskViewSet(viewsets.ModelViewSet):
         Filter care tasks to user's own tasks with query optimization.
 
         Performance optimizations:
-        - select_related('plant__garden_bed__owner')
+        - select_related('plant__garden_bed')
         """
         qs = super().get_queryset()
 
         # Filter to user's own tasks
         if self.request.user.is_authenticated:
-            qs = qs.filter(plant__garden_bed__owner=self.request.user)
+            qs = qs.filter(plant__owner=self.request.user)
 
         # Always select related for performance
         qs = qs.select_related(
             "plant",
             "plant__garden_bed",
-            "plant__garden_bed__owner",
             "created_by",
             "completed_by",
         )
@@ -1697,7 +1711,7 @@ class CareLogViewSet(viewsets.ModelViewSet):
 
         # Filter to user's own logs
         if self.request.user.is_authenticated:
-            qs = qs.filter(plant__garden_bed__owner=self.request.user)
+            qs = qs.filter(plant__owner=self.request.user)
 
         # Select related for performance
         qs = qs.select_related("plant", "plant__garden_bed", "user")
@@ -1731,7 +1745,7 @@ class HarvestViewSet(viewsets.ModelViewSet):
 
         # Filter to user's own harvests
         if self.request.user.is_authenticated:
-            qs = qs.filter(plant__garden_bed__owner=self.request.user)
+            qs = qs.filter(plant__owner=self.request.user)
 
         # Select related for performance
         qs = qs.select_related("plant", "plant__garden_bed")
@@ -1805,7 +1819,7 @@ class PlantImageViewSet(viewsets.ModelViewSet):
 
         # Filter to user's own plant images
         if self.request.user.is_authenticated:
-            qs = qs.filter(plant__garden_bed__owner=self.request.user)
+            qs = qs.filter(plant__owner=self.request.user)
 
         # Select related for performance
         qs = qs.select_related("plant", "plant__garden_bed")

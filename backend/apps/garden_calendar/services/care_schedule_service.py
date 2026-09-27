@@ -16,10 +16,8 @@ from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional
 
 from django.contrib.auth import get_user_model
-from django.db.models import QuerySet
 from django.utils import timezone
 
-from ..constants import CARE_TASK_PRIORITY, CARE_TASK_TYPES
 from ..models import CareTask, GrowingZone, Plant, SeasonalTemplate
 
 User = get_user_model()
@@ -140,7 +138,7 @@ class CareScheduleService:
             notes="Auto-generated weekly pest inspection",
         )
         created_tasks.append(task)
-        logger.info(f"[CARE_SCHEDULE] Created pest check task (weekly)")
+        logger.info("[CARE_SCHEDULE] Created pest check task (weekly)")
 
         # 4. Pruning task (if applicable)
         pruning_interval = CareScheduleService.DEFAULT_INTERVALS["pruning"].get(
@@ -251,7 +249,7 @@ class CareScheduleService:
                 fertilizing_task.save()
                 updates["fertilizing_updated"] = True
                 updates["tasks_adjusted"].append("fertilizing")
-                logger.info(f"[CARE_SCHEDULE] Paused fertilizing for dormant stage")
+                logger.info("[CARE_SCHEDULE] Paused fertilizing for dormant stage")
             elif fertilizing_task.recurrence_interval_days != new_interval:
                 fertilizing_task.recurrence_interval_days = new_interval
                 fertilizing_task.notes = (
@@ -307,7 +305,7 @@ class CareScheduleService:
                 updates["harvesting_created"] = True
                 updates["tasks_adjusted"].append("harvesting")
                 logger.info(
-                    f"[CARE_SCHEDULE] Created harvesting task for fruiting stage"
+                    "[CARE_SCHEDULE] Created harvesting task for fruiting stage"
                 )
 
         logger.info(
@@ -353,7 +351,7 @@ class CareScheduleService:
         # Get user's plants
         from ..models import Plant
 
-        plants = Plant.objects.filter(garden_bed__owner=user, is_active=True)
+        plants = Plant.objects.filter(owner=user, is_active=True)
 
         # Create tasks from templates
         for template in templates:
@@ -469,7 +467,7 @@ class CareScheduleService:
         cutoff_date = timezone.now() - timedelta(days=days_overdue)
 
         overdue_tasks = CareTask.objects.filter(
-            plant__garden_bed__owner=user,
+            plant__owner=user,
             completed=False,
             skipped=False,
             scheduled_date__lt=cutoff_date,
@@ -481,8 +479,11 @@ class CareScheduleService:
 
         # Reschedule to tomorrow
         tomorrow = timezone.now() + timedelta(days=1)
+        # A new time is a new reminder: re-arm it (todo 410).
         overdue_tasks.update(
-            scheduled_date=tomorrow, notes=f"Rescheduled from overdue status"
+            scheduled_date=tomorrow,
+            notes="Rescheduled from overdue status",
+            notification_sent=False,
         )
 
         logger.info(f"[CARE_SCHEDULE] Rescheduled {count} overdue tasks")
