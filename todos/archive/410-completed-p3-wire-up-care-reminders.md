@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: p3
 issue_id: "410"
 tags: [backend, mobile, web, users, notifications]
@@ -43,8 +43,14 @@ See the file references above, and todo 405's Work Log.
 
 ## Acceptance Criteria
 
-- [ ] A reminder created in a client fires a notification when it falls due. Verify end to end.
-- [ ] The views have tests; today there are none.
+- [ ] A reminder created in a client fires a notification when it falls due → todo 386 (re-pointed 2026-09-27)
+      No client creates CareTasks yet. The mobile garden (386) is that client,
+      and 386 now carries this end-to-end check.
+- [x] The views have tests; today there are none. (completed 2026-09-27)
+      The dead `me/care-reminders/*` views were deleted (slice B, removal pinned
+      by `apps/users/tests/test_care_reminders_removed.py`). The reminder path
+      that replaced them has 23 tests in
+      `apps/garden_calendar/tests/test_care_reminders.py` (slice A, #853).
 
 ## Work Log
 
@@ -135,3 +141,17 @@ AC 1 ("a reminder created in a client fires") needs a client that creates
 CareTasks. That client is todo 386's mobile garden, which is built on slice
 A. Until then the push has no tap destination (the mobile router ignores a
 payload without `topic_id`), so 386 adds the `care_task_due` route.
+
+### 2026-09-27 - Completed: slice A (#853) and slice B
+
+- **Slice A, PR #853 (merged).** `Plant.owner`, optional `garden_bed`
+  (`SET_NULL`), all 17 ownership sites re-scoped, and the 15-minute FCM
+  sweep `send_due_care_task_reminders` (24-hour lookback, claim with
+  `skip_locked`, un-claim on any escape). Two review rounds. The
+  non-blocking findings are todo 457.
+- **Slice B (this PR).** Deleted `users.CareReminder`, `CareReminderLog`,
+  the six routes, `core.PlantCareReminder`, `plant_care_reminder_service`,
+  the email type, template and preference. The full backend suite passed:
+  4114.
+- AC 1 (end to end from a client) moves to todo 386, which builds the
+  first client that creates CareTasks.

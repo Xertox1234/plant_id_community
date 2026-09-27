@@ -58,6 +58,12 @@ Independent, either order:
 - [ ] `garden` is either built and wired into the shell, or removed along with
       its route, its models and its `ALLOWED_ORPHANS` entry
 - [ ] `python3 scripts/check_flutter_route_reachability.py` still exits 0
+- [ ] A CareTask created in the mobile garden fires an FCM push when it
+      falls due, verified end to end on a device (moved from todo 410 AC 1).
+- [ ] Tapping a `care_task_due` push opens the garden (today the push router
+      ignores a payload without `topic_id`).
+- [ ] `GardenPlant.gardenBed` is nullable: the API returns `null` for a
+      bedless plant (todo 457 item 8).
 
 ## Notes
 
