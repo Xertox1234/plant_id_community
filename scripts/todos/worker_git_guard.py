@@ -31,17 +31,20 @@ GUARDED_AGENTS = {"todo-worker", "todo-verifier"}
 GIT_ALLOWED = {"add", "mv", "rm", "diff", "status", "log", "show", "fetch", "write-tree", "rev-parse"}
 GIT_GLOBAL_WITH_VALUE = {"-C", "--git-dir", "--work-tree"}
 GIT_GLOBAL_FLAGS = {"--no-pager", "-P", "--no-optional-locks"}
-# Long options that make an allowed subcommand run a program or write a file.
-# git accepts unambiguous prefixes (--outp=x), so a 3+ letter prefix counts too.
+# Long options that make an allowed subcommand run a program, write a file or
+# read refspecs from stdin (fetch --stdin). git accepts unambiguous prefixes
+# (--outp=x), so a 3+ letter prefix counts too.
 OUTPUT_OPTIONS = ("output", "ext-diff", "textconv")
-GIT_DENIED_OPTIONS = {"fetch": ("upload-pack",), "diff": OUTPUT_OPTIONS, "log": OUTPUT_OPTIONS,
+GIT_DENIED_OPTIONS = {"fetch": ("upload-pack", "stdin"), "diff": OUTPUT_OPTIONS, "log": OUTPUT_OPTIONS,
                       "show": OUTPUT_OPTIONS}
 GIT_EXACT_OPTIONS = {"text"}  # a real option, so not a prefix of --textconv
 SHELLS = {"sh", "bash", "zsh", "dash", "ksh", "fish"}
-# Reserved words that only prefix the real command. `for`, `select` and `case`
-# start a word list or a pattern, which is data.
+SOURCES = {"source", "."}  # run a script in the current shell: same stdin risk as a shell
+# Unquoted reserved words (and zsh precommand modifiers) that only prefix the
+# real command. `for`, `select` and `case` start a word list or a pattern, which
+# is data; `function` and zsh's `repeat` are followed by a name / count.
 KEYWORDS = {"then", "do", "else", "elif", "if", "while", "until", "in", "esac", "fi", "done",
-            "{", "}", "!", "coproc", "builtin"}
+            "{", "}", "!", "coproc", "builtin", "always", "noglob", "nocorrect"}
 DATA_KEYWORDS = {"for", "select", "case"}
 # wrapper -> (options that take a separate value, operands before the command)
 WRAPPERS = {
@@ -91,7 +94,7 @@ class Lexer:
         s, depth = self.s, 0
         while self.i < len(s):
             c = s[self.i]
-            if c in " \t\r":
+            if c in " \t":  # not \r: to the shell it is part of a word (<<EOF\r)
                 self.i += 1
             elif s.startswith("\\\n", self.i):
                 self.i += 2
@@ -134,7 +137,7 @@ class Lexer:
             c = s[self.i]
             if c in "<>" and s.startswith("(", self.i + 1):
                 self.read_subst(value)
-            elif c in " \t\r\n;&|()<>":
+            elif c in " \t\n;&|()<>":
                 break
             elif c == "\\":
                 value.append(s[self.i + 1:self.i + 2].replace("\n", ""))
@@ -285,7 +288,10 @@ def segments(tokens):
     words, stdin, piped = [], False, False
     tokens = iter(tokens)
     for kind, val in tokens:
-        if kind == "word":
+        if kind == "word" and val.raw == "}":  # zsh ends a group at `}` alone: { true } always { … }
+            yield Segment(words + [val], stdin, piped, "}")
+            words, stdin, piped = [], False, False
+        elif kind == "word":
             words.append(val)
         elif kind == "redir":
             target = next(tokens, None)
@@ -302,7 +308,8 @@ def segments(tokens):
 def check_segments(segs, depth):
     cases, pattern = 0, False
     for seg in segs:
-        lead = next((w.value for w in seg.words if w.value not in KEYWORDS - {"esac"}), None)
+        first = next((w for w in seg.words if keyword(w) not in KEYWORDS - {"esac"}), None)
+        lead = keyword(first) if first else None
         if pattern:  # a case pattern such as `*)` is data
             if lead != "esac":
                 pattern = seg.end != ")"
@@ -324,15 +331,20 @@ def is_assignment(word):
     return bool(eq) and name.rstrip("+").isidentifier()
 
 
+def keyword(word):
+    """The word's text if it could be a reserved word (unquoted), else None."""
+    return word.value if word.raw == word.value else None
+
+
 def check_words(words, piped, stdin, depth, wrapped=False):
     i = 0
     while i < len(words):
-        value = words[i].value
-        if is_assignment(words[i]) or value in KEYWORDS:
+        bare = keyword(words[i])
+        if is_assignment(words[i]) or bare in KEYWORDS:
             i += 1
-        elif value == "function":
+        elif bare in ("function", "repeat"):  # function NAME / zsh repeat COUNT
             i += 2
-        elif value in DATA_KEYWORDS:
+        elif bare in DATA_KEYWORDS:
             return None
         else:
             break
@@ -341,7 +353,7 @@ def check_words(words, piped, stdin, depth, wrapped=False):
     word, rest = words[i], words[i + 1:]
     if word.value in ("[", "[["):
         return None
-    if NOT_LITERAL & set(word.raw):
+    if NOT_LITERAL & set(word.raw) or word.raw.startswith("="):  # zsh: =git is a PATH lookup
         return f"program name must be literal (got {word.raw!r})"
     program = os.path.basename(word.value)
     if program in WRAPPERS:
@@ -350,6 +362,8 @@ def check_words(words, piped, stdin, depth, wrapped=False):
         return "gh is reserved for the main session (Land)"
     if program in SHELLS:
         return check_shell(rest, piped, stdin, depth)
+    if program in SOURCES:
+        return shell_reads_stdin(rest[0] if rest else None, False, piped, stdin)
     if program == "eval":
         return decide_command(" ".join(w.value for w in rest), depth + 1)
     if program == "find":
@@ -407,10 +421,15 @@ def check_shell(args, piped, stdin, depth):
     operand = args[j] if j < len(args) else None
     if has_script:
         return decide_command(operand.value, depth + 1) if operand else "sh -c without a script"
+    return shell_reads_stdin(operand, reads_stdin, piped, stdin)
+
+
+def shell_reads_stdin(operand, reads_stdin, piped, stdin):
+    """Deny a shell or `source` fed by stdin, a pipe or `<(...)`; a plain script file is out of scope."""
     if (reads_stdin or piped or stdin or operand is None or "(" in operand.raw
-            or operand.value in ("/dev/stdin", "/dev/fd/0")):
+            or operand.value in ("-", "/dev/stdin", "/dev/fd/0")):
         return STDIN_REASON
-    return None  # a shell running a script file: out of scope
+    return None
 
 
 def check_find(args, depth):
@@ -462,7 +481,7 @@ def check_git_subcommand(sub, args):
         if sub == "fetch" and ":" in arg:
             return f"git fetch {arg}: a ':' refspec or URL can move refs; use git fetch [origin] [<branch>]"
         if denied_option(arg, GIT_DENIED_OPTIONS.get(sub, ())):
-            return f"git {sub} {arg} can run a program or write a file; drop the option"
+            return f"git {sub} {arg} can run a program, write a file or take refspecs from stdin; drop the option"
     return None
 
 

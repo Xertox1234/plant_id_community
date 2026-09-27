@@ -195,6 +195,42 @@ assert_raw   "K10: no tool_input"                    deny  '{"agent_type": "todo
 assert_raw   "K10: other agent, string tool_input"   allow '{"agent_type": "code-review-orchestrator", "tool_input": "git push"}'
 assert_raw   "K10: main session, list command"       allow '{"tool_input": {"command": ["git", "push"]}}'
 
+# R2.1 — source / . fed by stdin or a process substitution
+assert_deny  "R2.1: source <(...)"                   $W 'source <(echo git push)'
+assert_deny  "R2.1: . <(...)"                        $W '. <(echo git push)'
+assert_deny  "R2.1: source /dev/stdin <<<"           $W 'source /dev/stdin <<< "git push"'
+assert_deny  "R2.1: piped into source /dev/stdin"    $W 'echo "git push" | source /dev/stdin'
+assert_deny  "R2.1: source with no operand"          $W 'source'
+assert_allow "R2.1: source a plain file"             $W 'source .venv/bin/activate'
+assert_allow "R2.1: . a plain file"                  $W '. .venv/bin/activate && git status'
+
+# R2.2 — zsh precommand modifiers and reserved words
+assert_deny  "R2.2: noglob"                          $W 'noglob git commit -m x'
+assert_deny  "R2.2: nocorrect"                       $W 'nocorrect git push'
+assert_deny  "R2.2: repeat N"                        $W 'repeat 1 git push'
+assert_deny  "R2.2: repeat N { }"                    $W 'repeat 1 { git push }'
+assert_deny  "R2.2: =git path lookup"                $W '=git push'
+assert_deny  "R2.2: { } always { }"                  $W '{ true } always { git push }'
+assert_allow "R2.2: noglob with allowed git"         $W 'noglob git add *.py'
+
+# R2.3 — fetch --stdin reads refspecs from a pipe
+assert_deny  "R2.3: fetch --stdin"                   $W 'echo main:main | git fetch --stdin origin'
+
+# R2.4 — reserved words count only when unquoted
+assert_deny  "R2.4: quoted 'case' is not a case"     $W "'case'; git push; (true)"
+
+# R2.5 — \r is part of a word, not whitespace
+assert_deny  "R2.5: <<EOF\\r terminator"             $W $'cat <<EOF\r\nx\nEOF\r\ngit push\nEOF\n'
+
+# R2.6 — <<- heredoc, a shell script fed by stdin, find -execdir / -ok
+assert_allow "R2.6: <<- tab-stripped terminator"     $W $'cat <<-EOF\n\tgit commit -m x\n\tEOF'
+assert_deny  "R2.6: command after a <<- heredoc"     $W $'cat <<-EOF\nx\n\tEOF\ngit push'
+assert_deny  "R2.6: pipe into bash script.sh"        $W 'printf y | bash install.sh'
+assert_deny  "R2.6: stdin redirect into bash script" $W 'bash install.sh < answers.txt'
+assert_deny  "R2.6: find -execdir"                   $W 'find . -execdir git push \;'
+assert_deny  "R2.6: find -ok"                        $W 'find . -ok git commit -m x \;'
+assert_allow "R2.6: find -exec allowed git +"        $W 'find . -name "*.py" -exec git add {} +'
+
 # Everyone else is never denied, however odd the command
 assert_allow "main session: runtime program name"    "" '$(echo git) push'
 assert_allow "main session: shell reading stdin"     "" 'bash <<< "git push"'
