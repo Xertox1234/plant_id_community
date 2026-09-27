@@ -6826,3 +6826,31 @@ the claim had committed. Both now go through a single un-claim guard (rule in
 `Plant.owner` and `garden_bed.owner` can disagree when a write goes around the
 serializer (admin, `update()`). `Plant.save()` and `clean()` now refuse that, and every read of
 a bed's plants filters on the bed's owner.
+
+## 2026-09-27 — AI care drafts: a question classifier is not an article screen (todo 445, PR #855)
+
+**What shipped.** `manage.py generate_care_drafts` turns 53 care topics into
+unpublished, `care-guide`-tagged `BlogPostPage` drafts for the owner to
+spot-check. It never publishes, and a re-run skips topics that already exist.
+
+**What the review caught.** The first cut screened each generated paragraph
+with the RAG guardrail's `classify_blocked_question`, reasoning that the
+guardrail already encodes todo 330's blocked classes. But it was designed
+and signed off for user questions, and it blocks a chemical only when a dose
+word appears in the same sentence. "Spray with neem oil weekly", "dab with
+rubbing alcohol" and "a teaspoon of dish soap" all passed. The pest topics
+make exactly those replies likely, and the drafts later feed the RAG corpus.
+A content screen (`_TREATMENT_RE`) now flags any named treatment, dose or
+not. The general lesson is in `docs/rules/security.md`.
+
+**Also.**
+
+- One failed page write used to abort the whole 53-call run. It now skips
+  that topic.
+- A reviewer suggested `save_revision(log_action="wagtail.create")`. A test
+  showed it would DUPLICATE the entry `add_child()` already writes: the
+  version without it passed, and the version with it found two entries.
+  Check a reviewer's premise against the library before applying its fix.
+- The AI layer caches each prompt's reply for 30 days, bad ones included, so
+  a screened-out topic cannot be refilled by re-running. That is recorded in
+  todo 445.

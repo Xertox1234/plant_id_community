@@ -116,3 +116,16 @@ COMMENT_AUTO_FLAG_THRESHOLD = 5
 # leaked preview URL (history, Referer, logs) kept working. An hour is long
 # enough to read and reload a draft; every Preview click mints a new token.
 PREVIEW_TOKEN_MAX_AGE = 60 * 60
+
+# Care-guide drafts (todo 445, manage.py generate_care_drafts). One provider
+# call per topic; the deadline keeps a hung provider from stalling the run.
+CARE_DRAFT_AI_TIMEOUT_SECONDS = 90
+# A draft needs at least this many paragraphs left after the guardrail screen
+# drops flagged ones; fewer and it is skipped for the owner to write by hand.
+CARE_DRAFT_MIN_PARAGRAPHS = 4
+# Caps on what the model returns, so one bad response cannot flood a page.
+CARE_DRAFT_MAX_SECTIONS = 8
+CARE_DRAFT_MAX_PARAGRAPHS_PER_SECTION = 4
+CARE_DRAFT_MAX_TEXT_CHARS = 1500
+# The prompt asks for this many sections.
+CARE_DRAFT_TARGET_SECTIONS = (4, 6)

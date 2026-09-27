@@ -297,3 +297,8 @@ Compact checklist auto-injected before edits. Long-form:
   then add both round trips (a server-derived block is turned back into its
   source, as `embed` becomes its URL) before turning the setting on
   (todo 428).
+- **`add_child()` already writes the page's `wagtail.create` log entry**
+  (attributed to `owner`). Do not also pass `log_action=` to the first
+  `save_revision()` of a programmatically created draft, or the page history
+  shows two "created" entries. Set `owner=` so the entry and "My pages" name
+  the right user (todo 445, PR #855).

@@ -499,3 +499,10 @@ Compact checklist auto-injected before edits. Long-form: `backend/docs/patterns/
   compares the target's owner, or a queryset scoped to `request.user`. In
   garden_calendar the care-task serializer had one and the care-log and
   harvest serializers did not; all three now share `OwnPlantMixin` (todo 410).
+- **A content classifier is only a screen for the input shape it was built
+  for.** The RAG guardrail's `classify_blocked_question` was signed off for
+  user QUESTIONS: it blocks a chemical only with a dose word in the same
+  sentence. As a screen on AI-generated ARTICLE text it let "spray with neem
+  oil weekly" through. When you reuse a classifier on new input, test it with
+  that input's phrasing and add a screen for what it was never designed to
+  catch (`_TREATMENT_RE` in `generate_care_drafts`, todo 445).
