@@ -133,7 +133,12 @@ def _git_lines(*args):
 
 def _gh_heads(state_name, limit):
     cmd = ["gh", "pr", "list", "--state", state_name, "--json", "headRefName", "--limit", str(limit)]
-    proc = subprocess.run(cmd, capture_output=True, text=True)
+    try:
+        proc = subprocess.run(cmd, capture_output=True, text=True)
+    except FileNotFoundError:
+        raise SystemExit("scan: gh is not installed or not on PATH.\n"
+                         "Install gh (GitHub CLI) to use scan.py, or download it from "
+                         "https://github.com/cli/cli.")
     if proc.returncode != 0:
         raise SystemExit(f"scan: `{' '.join(cmd)}` failed: {proc.stderr.strip()[:200]}\n"
                          "gh needs network + TLS: run with the sandbox off, or apply "
@@ -145,7 +150,7 @@ def gather_inflight():
     worktrees = [line.split("refs/heads/", 1)[1] for line in _git_lines("worktree", "list", "--porcelain")
                  if line.startswith("branch refs/heads/")]
     local = _git_lines("for-each-ref", "--format=%(refname:short)", "refs/heads")
-    return inflight_from(worktrees, local, _gh_heads("open", 200), set(_gh_heads("merged", 300)))
+    return inflight_from(worktrees, local, _gh_heads("open", 200), set(_gh_heads("merged", 1000)))
 
 
 def main(argv=None):
@@ -167,9 +172,17 @@ def main(argv=None):
 
     split = lambda s: {x.strip() for x in s.split(",") if x.strip()} if s else None  # noqa: E731
     if args.ref.startswith("origin/"):
-        subprocess.run(["git", "fetch", "-q", "origin", args.ref.split("/", 1)[1]], check=True)
-    ref_sha = subprocess.run(["git", "rev-parse", "--short", args.ref], capture_output=True, text=True,
-                             check=True).stdout.strip()
+        try:
+            subprocess.run(["git", "fetch", "-q", "origin", args.ref.split("/", 1)[1]], check=True)
+        except subprocess.CalledProcessError:
+            raise SystemExit(f"scan: git fetch failed. scan needs network access to github.com.\n"
+                             "Run with the sandbox disabled, or apply sandbox.enableWeakerNetworkIsolation (spec §11).")
+    try:
+        ref_sha = subprocess.run(["git", "rev-parse", "--short", args.ref], capture_output=True, text=True,
+                                 check=True).stdout.strip()
+    except subprocess.CalledProcessError:
+        raise SystemExit(f"scan: git rev-parse failed for ref '{args.ref}'.\n"
+                         "Check that the ref exists in your repository.")
     todos = load_todos(args.todos_dir, ref=args.ref)
     inflight, cleanup = gather_inflight()
     selected, excluded = select(todos, selector=args.selector, inflight=inflight, priority=args.priority,

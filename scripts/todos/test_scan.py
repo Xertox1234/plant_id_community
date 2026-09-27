@@ -129,6 +129,46 @@ def main():
               ids(at_ref) == ["412"] and at_ref[0]["path"] == "todos/412-pending-p3-a.md", at_ref)
         check("the committed todo's title comes from git", at_ref[0]["title"] == "Title 412")
 
+    # Error handling tests
+    import unittest.mock as mock
+
+    # Test _gh_heads raises SystemExit when gh is missing
+    with mock.patch("subprocess.run") as mock_run:
+        mock_run.side_effect = FileNotFoundError("gh not found")
+        try:
+            scan._gh_heads("open", 200)
+            check("_gh_heads raises SystemExit when gh is missing", False)
+        except SystemExit as e:
+            check("_gh_heads raises SystemExit when gh is missing", "not installed or not on PATH" in str(e))
+
+    # Test main() raises SystemExit when git fetch fails
+    with mock.patch("subprocess.run") as mock_run:
+        def run_side_effect(cmd, *args, **kwargs):
+            if cmd[0:2] == ["git", "fetch"]:
+                raise subprocess.CalledProcessError(1, cmd)
+            if cmd[0:2] == ["git", "rev-parse"]:
+                return mock.Mock(stdout="abc123\n", returncode=0)
+            return mock.Mock(stdout="", returncode=0)
+        mock_run.side_effect = run_side_effect
+        try:
+            scan.main(["--selector", "sweep", "--run-id", "test"])
+            check("main() raises SystemExit when git fetch fails", False)
+        except SystemExit as e:
+            check("main() raises SystemExit when git fetch fails", "git fetch failed" in str(e) and "network access" in str(e))
+
+    # Test main() raises SystemExit when git rev-parse fails
+    with mock.patch("subprocess.run") as mock_run:
+        def run_side_effect(cmd, *args, **kwargs):
+            if cmd[0:2] == ["git", "rev-parse"]:
+                raise subprocess.CalledProcessError(128, cmd)
+            return mock.Mock(stdout="", returncode=0)
+        mock_run.side_effect = run_side_effect
+        try:
+            scan.main(["--selector", "sweep", "--run-id", "test", "--ref", "origin/main"])
+            check("main() raises SystemExit when git rev-parse fails", False)
+        except SystemExit as e:
+            check("main() raises SystemExit when git rev-parse fails", "rev-parse failed" in str(e))
+
     print()
     if FAILURES:
         print(f"FAILED: {len(FAILURES)} check(s): {', '.join(FAILURES)}")
