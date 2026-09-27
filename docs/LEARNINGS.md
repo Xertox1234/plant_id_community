@@ -6826,3 +6826,29 @@ the claim had committed. Both now go through a single un-claim guard (rule in
 `Plant.owner` and `garden_bed.owner` can disagree when a write goes around the
 serializer (admin, `update()`). `Plant.save()` and `clean()` now refuse that, and every read of
 a bed's plants filters on the bed's owner.
+
+## 2026-09-27 — Deleting a dead feature still needs expand/contract (todo 410 slice B, PR #854)
+
+**What the review caught.** The first cut of `users 0015` removed
+`User.care_reminder_email` with a plain `RemoveField`. Railway's `preDeploy`
+runs `migrate` while the old container still serves traffic for about 1–6
+minutes, and the old model SELECTs every column on every User fetch. So auth
+would have returned 500s until cutover, and indefinitely after a code rollback,
+because a rollback does not reverse migrations. "No client uses the feature"
+was true, and irrelevant: the column rode along on every query of a model that
+everyone uses.
+
+**The fix.** An `AlterField` adding `db_default=False`, which new code relies
+on to satisfy NOT NULL on insert, then `SeparateDatabaseAndState` with a
+state-only `RemoveField`. The actual `DROP COLUMN` is todo 458, after deploy. A
+new trigger `migration-remove-field-same-deploy` flags a bare `RemoveField`.
+
+**Tables are milder but not free.** The dropped care-reminder tables are
+reached by old code only through a User delete, whose Python-side cascade walks
+the reverse FKs. Only staff can delete users, so a short window was accepted.
+The owner counts the production rows before merge, because a DROP TABLE loses the data.
+
+**Also.** Removing the email preference left `care_reminder_notifications` as
+the only care setting, with no way to change it. It is now on
+`UserProfileSerializer`. And a stale `ONBOARDING_STEPS` entry that nothing
+could complete capped onboarding at less than 100%.
