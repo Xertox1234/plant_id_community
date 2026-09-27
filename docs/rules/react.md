@@ -316,3 +316,12 @@ Compact checklist auto-injected before edits. Long-form:
   by screen readers after all. Point `aria-describedby` at a short hint (an
   `sr-only` "Opens in a new tab") and pin both with `toHaveAccessibleName` and
   `toHaveAccessibleDescription` (`LinkPreviewCard.tsx`, todo 428).
+- **Every surface that summarizes a link names it by the address derived from
+  its URL (`shortLinkAddress`), never by page-supplied `og:site_name`/`title`
+  alone.** The todo 428 card followed this rule; its todo 429 compact row
+  first showed "Watch this / YouTube" for a link to evil.example. A row, chip or
+  tooltip is a new spoofing surface each time.
+- **A group of sibling blocks may admit a member only by the SAME predicate
+  its renderer uses to decide "renders something".** `isCardBlock` accepted
+  any truthy embed url while the row returned null for a scheme-less one, so
+  a video vanished only when it was second in a run (todo 429).

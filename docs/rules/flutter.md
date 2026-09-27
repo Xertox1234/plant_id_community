@@ -220,6 +220,11 @@ Compact checklist auto-injected before edits. Long-form:
   defaults `persist` to `action != null`). Whoever shows one clears it when
   its condition ends (`clearSnackBars()`), or it outlives the state it
   describes (todo 447, `main.dart` auth listener).
+- **A compact or secondary rendering of a link card is labelled like the
+  full card: `Link: title, <short address>`, and the address comes from
+  `linkPreviewShortAddress(url)`, never `siteName`.** It also guards locally
+  and renders nothing when there's no short address, so the raw URL is never
+  shown or spoken (todo 429 `_CompactCardRow`, mirroring `_LinkPreviewCard`).
 - **A widget on a tab that stays mounted (`StatefulShellRoute.indexedStack`)
   refreshes on route change or app resume, never on `await context.push(...)`.**
   The awaited future never completes when the pushed screen
