@@ -11,8 +11,9 @@
 import { getCsrfToken } from '../utils/csrf';
 import { ForumApiError } from './forumService';
 import type { BlogComment } from '../types/blog';
+import { API_ORIGIN } from '@/config/api';
 
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+const API_URL = API_ORIGIN;
 const BLOG_BASE = `${API_URL}/api/v1/blog`;
 
 /**

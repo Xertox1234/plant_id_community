@@ -11,7 +11,7 @@ from apps.core.ratelimit import client_ip_key, ratelimit
 from apps.core.utils.pii_safe_logging import log_safe_user_context
 from django.conf import settings
 from django.contrib.auth import login as django_login
-from django.db import transaction
+from django.db import IntegrityError, transaction
 from django.http import HttpResponseRedirect
 from rest_framework import status
 from rest_framework.decorators import api_view, permission_classes
@@ -424,8 +424,31 @@ def _record_provider_link(provider, user_data, user) -> bool:
             f"linked to a different account than {log_safe_user_context(user)}"
         )
         return False
-    SocialAccount.objects.create(user=user, provider=provider, uid=uid, extra_data={})
-    on_first_provider_link(user, provider)
+    try:
+        # One savepoint, so a link is never recorded without its notice
+        # (todo 449 item 2).
+        with transaction.atomic():
+            SocialAccount.objects.create(
+                user=user, provider=provider, uid=uid, extra_data={}
+            )
+            on_first_provider_link(user, provider)
+    except IntegrityError:
+        # A concurrent first sign-in for this identity inserted the row first
+        # (todo 449 item 3). Re-read it: ours means that request already
+        # linked and notified, so sign in; anyone else's is a refusal.
+        linked = SocialAccount.objects.filter(provider=provider, uid=uid).first()
+        if linked is None:
+            # No row: the error came from the notice/revocation work, not a
+            # lost race. Don't report it as a conflicting link.
+            raise
+        if linked.user_id == user.pk:
+            return True
+        logger.warning(
+            f"[SECURITY] Refused {provider} login: this {provider} identity was "
+            f"linked concurrently to a different account than "
+            f"{log_safe_user_context(user)}"
+        )
+        return False
     return True
 
 

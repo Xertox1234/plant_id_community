@@ -525,3 +525,12 @@ So the preview is built and it works; it just isn't used where it matters.
   the session. Tick the device-check box once that is confirmed.
 - Still open: the cron criterion. The owner merges #841, then the first
   03:00 UTC run's logs must show both commands. Then archive this todo.
+
+### 2026-09-26 - Todo 429 handoff: link cards join compact runs
+
+Todo 429 (compact list for card runs) shipped with `link_preview` already in
+both clients' card-type set (`CARD_BLOCK_TYPES` in
+`web/src/components/forum/cardRuns.ts`, `forumCardBlockTypes` in
+`forum_body_renderer.dart`), because 428 slice C had landed. There is nothing
+left to hand off. A `link_preview` with a null envelope or an unusable URL
+renders nothing, so it never joins a run.

@@ -138,6 +138,48 @@ class FirebaseTokenExchangeTestCase(TestCase):
         self.assertEqual(response.data["code"], "unverified_account")
 
     @patch("apps.users.firebase_auth_views.firebase_auth.verify_id_token")
+    def test_uid_mismatch_409_is_an_account_conflict(self, mock_verify):
+        """Todo 449 item 6: pinned, so a future ValueError subclass for this
+        reason cannot slip into the reset path (`unverified_account`)."""
+        bound = User.objects.create_user(
+            username="bound", email="bound@example.com", firebase_uid="uid-owner"
+        )
+        mark_email_verified(bound)
+        mock_verify.return_value = {
+            "uid": "uid-stranger",
+            "email": "bound@example.com",
+            "email_verified": True,
+        }
+
+        response = self.client.post(
+            self.url, {"firebase_token": self.firebase_token}, format="json"
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_409_CONFLICT)
+        self.assertEqual(response.data["code"], "account_conflict")
+
+    @patch("apps.users.firebase_auth_views.firebase_auth.verify_id_token")
+    def test_verified_elsewhere_409_is_an_account_conflict(self, mock_verify):
+        """Todo 449 item 6: another account holds the address verified while
+        its own email moved on, so no account matches and none may be made."""
+        holder = User.objects.create_user(username="holder", email="moved@example.com")
+        mark_email_verified(holder)
+        User.objects.filter(pk=holder.pk).update(email="holder-now@example.com")
+        mock_verify.return_value = {
+            "uid": "uid-newcomer",
+            "email": "moved@example.com",
+            "email_verified": True,
+        }
+
+        response = self.client.post(
+            self.url, {"firebase_token": self.firebase_token}, format="json"
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_409_CONFLICT)
+        self.assertEqual(response.data["code"], "account_conflict")
+        self.assertFalse(User.objects.filter(firebase_uid="uid-newcomer").exists())
+
+    @patch("apps.users.firebase_auth_views.firebase_auth.verify_id_token")
     def test_successful_token_exchange_existing_user(self, mock_verify):
         """Test successful token exchange for an existing user."""
         # Create existing user
@@ -550,6 +592,28 @@ class FirebaseTrustedProviderTestCase(TestCase):
                 self.assertFalse(
                     User.objects.filter(email="newcomer@example.com").exists()
                 )
+
+    @patch("apps.users.firebase_auth_views.firebase_auth.verify_id_token")
+    def test_bound_uid_with_a_false_claim_is_still_refused(self, mock_verify):
+        """Todo 449 item 1 (owner decision 2026-09-26): a binding is no proof
+        of a verified claim, since uids could be bound under a false one
+        before #285 and, for Google/Apple, before #842. So a bound uid gets
+        no exemption."""
+        User.objects.create_user(
+            username="bound", email="bound@example.com", firebase_uid="uid-bound"
+        )
+        for provider in ("password", "google.com", "apple.com"):
+            with self.subTest(provider=provider):
+                mock_verify.return_value = self._decoded(
+                    provider, False, email="bound@example.com", uid="uid-bound"
+                )
+
+                response = self.client.post(
+                    self.url, {"firebase_token": self.token}, format="json"
+                )
+
+                self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+                self.assertNotIn("access_token", response.data)
 
     @patch("apps.users.firebase_auth_views.firebase_auth.verify_id_token")
     def test_google_links_to_an_existing_account_instead_of_duplicating(

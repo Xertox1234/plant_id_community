@@ -219,12 +219,13 @@ class AuthService extends _$AuthService {
   /// Sign in with Google.
   ///
   /// **This is the only sign-in path that can actually complete.** The backend
-  /// rejects any Firebase token whose `email_verified` claim is false unless
-  /// the provider is trusted -- `firebase_auth_views.py` `_TRUSTED_FIREBASE_PROVIDERS`
-  /// is `{google.com, apple.com}` -- and returns 403 "Email address must be
-  /// verified before logging in." A freshly created email/password account is
-  /// unverified and this app sends no verification mail, so that path
-  /// dead-ends at the token exchange. Google self-verifies, so it does not.
+  /// (`firebase_auth_views.py`) refuses a Firebase token whose `email_verified`
+  /// claim is false, whatever the provider (todo 447 item 8), with 403 "Email
+  /// address must be verified before logging in.", even for a uid already
+  /// bound to an account (todo 449). A freshly created email/password account
+  /// is unverified and this app sends no verification mail, so that path
+  /// dead-ends at the token exchange. Firebase marks a Google email verified,
+  /// so this one does not.
   ///
   /// It also LINKS rather than duplicating: the exchange falls back to matching
   /// on email and backfills `firebase_uid` onto the existing Django user

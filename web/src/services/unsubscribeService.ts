@@ -5,8 +5,9 @@
  * out without cookies or a CSRF token, so whoever is signed in on this
  * browser never changes which account the link acts on.
  */
+import { API_ORIGIN } from '@/config/api';
 
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+const API_URL = API_ORIGIN;
 const UNSUBSCRIBE_BASE = `${API_URL}/api/v1/auth/unsubscribe`;
 
 export interface EmailListState {

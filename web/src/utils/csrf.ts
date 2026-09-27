@@ -28,6 +28,7 @@
  */
 
 import { logger } from './logger';
+import { API_ORIGIN } from '@/config/api';
 
 // In-memory cache for CSRF token (single source of truth)
 let csrfToken: string | null = null;
@@ -71,7 +72,7 @@ export async function getCsrfToken(): Promise<string | null> {
   // Strategy 2: Fallback to API endpoint (backward compatibility)
   logger.warn('[CSRF] Meta tag not found, falling back to API endpoint');
   try {
-    const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+    const API_URL = API_ORIGIN;
     const response = await fetch(`${API_URL}/api/csrf/`, {
       method: 'GET',
       credentials: 'include', // Required to receive CSRF cookie

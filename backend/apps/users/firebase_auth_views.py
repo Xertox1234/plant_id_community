@@ -289,7 +289,10 @@ def firebase_token_exchange(request: Request) -> Response:
             # existing Django user. Google and Apple get no exemption (todo 447
             # item 8): Firebase sets the claim true for a verified federated
             # email, and web Google already requires `verified_email`, so a
-            # false claim is refused on every provider alike.
+            # false claim is refused on every provider alike. That includes a
+            # uid already bound to an account (owner decision 2026-09-26, todo
+            # 449 item 1): before #285 and, for Google/Apple, before #842 a uid
+            # could be bound under a false claim, so a binding proves nothing.
             if firebase_email and not email_verified:
                 logger.warning(
                     f"[FIREBASE AUTH] Rejected unverified email login "

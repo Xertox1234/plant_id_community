@@ -99,6 +99,9 @@ void main() {
         title: 'Repotting a monstera',
         thumbnailUrl: 'https://i.ytimg.com/t.jpg',
       ),
+      // A paragraph between them, so both stay full cards: two adjacent
+      // embeds are a run, and the second would be a compact row (todo 429).
+      ParagraphBlock('<p>and</p>'),
       EmbedBlock(url: 'https://vimeo.com/148751763'),
     ]);
     expect(find.text('Repotting a monstera'), findsOneWidget);
