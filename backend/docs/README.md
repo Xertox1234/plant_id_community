@@ -7,11 +7,13 @@ Welcome to the Plant ID Community backend documentation. This directory contains
 ## Documentation Structure
 
 ### Wagtail Blog Implementation ✅ **NEW**
+
 **Location:** [`plan.md`](./plan.md) | [`blog/`](./blog/)
 
 Wagtail 7.0.3 CMS blog with headless API, Redis caching, and comprehensive test coverage.
 
 **Documentation:**
+
 - [Implementation Plan](./plan.md) - 7-phase plan (Phase 4 Complete - Oct 24, 2025)
 - [API Reference](./blog/API_REFERENCE.md) - Complete API endpoint documentation
 - [StreamField Blocks Reference](./blog/STREAMFIELD_BLOCKS.md) - All 10 content block types
@@ -19,6 +21,7 @@ Wagtail 7.0.3 CMS blog with headless API, Redis caching, and comprehensive test 
 - [Phase 2 Patterns Codified](../../.worktrees/wagtail-blog/backend/PHASE_2_PATTERNS_CODIFIED.md) - 5 patterns for code review
 
 **Phase 6.3 Complete (Oct 24, 2025):**
+
 - ✅ React Blog Interface with 1,354 lines of production code
 - ✅ 5 React components/pages (BlogCard, StreamFieldRenderer, BlogListPage, BlogDetailPage, blogService)
 - ✅ Complete CORS configuration (METHODS + HEADERS)
@@ -28,6 +31,7 @@ Wagtail 7.0.3 CMS blog with headless API, Redis caching, and comprehensive test 
 - ✅ 2 critical patterns codified in code-review-specialist
 
 **Phase 4 Complete (Oct 24, 2025):**
+
 - ✅ 79/79 tests passing (100% test pass rate, comprehensive coverage)
 - ✅ Wagtail API architecture properly implemented
 - ✅ Real query counting tests (no mocking)
@@ -36,6 +40,7 @@ Wagtail 7.0.3 CMS blog with headless API, Redis caching, and comprehensive test 
 - ✅ Production-ready documentation suite
 
 **Phase 2 Complete (Oct 24, 2025):**
+
 - ✅ Redis caching with 35%+ hit rate, <50ms cached responses
 - ✅ Dual-strategy cache invalidation (Redis + non-Redis fallback)
 - ✅ Conditional prefetching (memory-safe, action-based)
@@ -46,6 +51,7 @@ Wagtail 7.0.3 CMS blog with headless API, Redis caching, and comprehensive test 
 - ✅ 5 patterns codified in code-review-specialist
 
 **API Endpoints:**
+
 - `/api/v2/blog-posts/` - Blog post list/detail with filtering
 - `/api/v2/blog-categories/` - Category pages
 - `/api/v2/blog-authors/` - Author profiles
@@ -57,6 +63,7 @@ Wagtail 7.0.3 CMS blog with headless API, Redis caching, and comprehensive test 
 ---
 
 ### Quick Wins Implementation
+
 **Location:** [`quick-wins/`](./quick-wins/)
 
 Production-readiness improvements implemented in Week 3. Includes authentication, API versioning, circuit breakers, and distributed locks.
@@ -68,6 +75,7 @@ Production-readiness improvements implemented in Week 3. Includes authentication
 - [Distributed Locks](./quick-wins/distributed-locks.md) - Cache stampede prevention
 
 **Impact Summary:**
+
 - 99.97% faster failed API responses (30s → <10ms)
 - 90% reduction in duplicate API calls
 - Production authentication protecting API quota
@@ -76,6 +84,7 @@ Production-readiness improvements implemented in Week 3. Includes authentication
 ---
 
 ### System Architecture
+
 **Location:** [`architecture/`](./architecture/)
 
 System design, analysis, and recommendations for the Plant ID Community backend.
@@ -85,6 +94,7 @@ System design, analysis, and recommendations for the Plant ID Community backend.
 - [Recommendations](./architecture/recommendations.md) - Future enhancements and best practices
 
 **Key Topics:**
+
 - Multi-app Django architecture
 - Service layer patterns
 - External API integration
@@ -94,6 +104,7 @@ System design, analysis, and recommendations for the Plant ID Community backend.
 ---
 
 ### Performance Documentation
+
 **Location:** [`performance/`](./performance/)
 
 Week 2 and Week 4 performance optimizations and benchmarking results.
@@ -104,12 +115,14 @@ Week 2 and Week 4 performance optimizations and benchmarking results.
 - [Manual Configuration Steps](./performance/week2-manual-steps.md) - Deployment checklist
 
 **Week 4 Performance Improvements (N+1 Elimination):**
-- 75-98% query reduction (dashboard: 15-20 → 3-4 queries)
+
+- 75-98% query reduction (dashboard: 15-20 → 3-4 queries at the time; forum-only since todo 411, 5 queries today)
 - 10-100x faster execution (email lookup: 300-800ms → 3-8ms)
 - Thread-safe concurrent request handling
 - Database indexes on critical fields
 
 **Week 2 Performance Improvements:**
+
 - 60% faster plant identification (parallel API calls)
 - 40% cache hit rate (Redis caching)
 - 100x faster database queries (GIN indexes)
@@ -118,16 +131,19 @@ Week 2 and Week 4 performance optimizations and benchmarking results.
 ---
 
 ### Firebase Authentication Integration ✅ **NEW**
+
 **Location:** [`FIREBASE_AUTHENTICATION.md`](./FIREBASE_AUTHENTICATION.md) | [`FIREBASE_SETUP.md`](./FIREBASE_SETUP.md)
 
 Firebase Auth → Django JWT token exchange for Flutter mobile app (PR #200 - Nov 15, 2025).
 
 **Documentation:**
+
 - [Firebase Authentication Guide](./FIREBASE_AUTHENTICATION.md) - Complete architecture and implementation
 - [Firebase Setup Instructions](./FIREBASE_SETUP.md) - Configuration guide (213 lines)
 - [Test Suite](../apps/users/tests/test_firebase_auth.py) - 17 comprehensive tests
 
 **Implementation Complete (Nov 15, 2025):**
+
 - ✅ Email/password, Google, Apple authentication via Firebase Auth
 - ✅ Automatic Django JWT token exchange (firebase-admin >=6.6.0,<7.0.0)
 - ✅ Secure token storage with flutter_secure_storage
@@ -138,11 +154,13 @@ Firebase Auth → Django JWT token exchange for Flutter mobile app (PR #200 - No
 - ✅ Code Review: Grade A (All BLOCKER and IMPORTANT issues resolved)
 
 **Architecture:**
+
 - **Backend**: `apps/users/firebase_auth_views.py` (Firebase token validation + JWT generation)
 - **Flutter**: `lib/services/auth_service.dart` (Riverpod provider with memory leak prevention)
 - **API**: `lib/services/api_service.dart` (Centralized HTTP client with JWT injection)
 
 **Key Features:**
+
 - Lazy Firebase initialization (test-friendly)
 - Email redaction for GDPR compliance (te***@example.com)
 - UUID-based username collision handling
@@ -152,6 +170,7 @@ Firebase Auth → Django JWT token exchange for Flutter mobile app (PR #200 - No
 ---
 
 ### Security Documentation
+
 **Location:** [`security/`](./security/)
 
 Authentication security, hardening guides, and security best practices.
@@ -160,6 +179,7 @@ Authentication security, hardening guides, and security best practices.
 - [Authentication Testing Guide](./testing/AUTHENTICATION_TESTS.md) - **NEW** Test coverage and patterns (63+ tests)
 
 **Key Security Features:**
+
 - JWT_SECRET_KEY separation and validation
 - Account lockout (10 attempts, 1-hour duration)
 - Session timeout with activity renewal (24 hours)
@@ -171,6 +191,7 @@ Authentication security, hardening guides, and security best practices.
 ---
 
 ### Development Notes
+
 **Location:** [`development/`](./development/)
 
 Session summaries, troubleshooting guides, security best practices, and development workflow documentation.
@@ -193,17 +214,20 @@ Session summaries, troubleshooting guides, security best practices, and developm
 ## Quick Navigation
 
 ### Getting Started
+
 - [Architecture Overview](./architecture/README.md) - Start here to understand the system
 - [Quick Wins Implementation](./quick-wins/README.md) - Production-readiness improvements
 - [Week 2 Performance](./performance/week2-performance.md) - Performance optimization details
 
 ### Implementation Guides
+
 - [Authentication Strategy](./quick-wins/authentication.md) - Environment-aware auth
 - [Circuit Breaker Pattern](./quick-wins/circuit-breaker.md) - External API protection
 - [Distributed Locks](./quick-wins/distributed-locks.md) - Cache stampede prevention
 - [API Versioning](./quick-wins/api-versioning.md) - Safe API evolution
 
 ### Reference
+
 - [Architecture Analysis](./architecture/analysis.md) - Design patterns and rationale
 - [Recommendations](./architecture/recommendations.md) - Best practices and future work
 - [GitHub Issue Best Practices](./development/github-issue-best-practices.md) - Security and technical debt issue templates
@@ -228,6 +252,7 @@ All documentation in this directory follows these standards:
 ## Recent Updates
 
 **October 24, 2025** - Phase 6.3: React Blog Interface COMPLETE
+
 - **Full-featured React blog frontend** with 1,354 lines of production code
 - 5 React components/pages: BlogCard, StreamFieldRenderer, BlogListPage, BlogDetailPage, blogService.js
 - Complete CORS configuration fix (CORS_ALLOW_METHODS + CORS_ALLOW_HEADERS)
@@ -235,11 +260,12 @@ All documentation in this directory follows these standards:
 - Bug fixes: content_blocks JSON parsing, related posts integration
 - Sample data generation script (5 posts, 4 categories)
 - 2 critical patterns codified (CORS completeness, Wagtail API endpoints)
-- Blog accessible at http://localhost:5174/blog
+- Blog accessible at <http://localhost:5174/blog>
 - Commits: f31b914, 9ff5bed
 - See: [Phase 6.3 section in plan.md](./plan.md#react-blog-interface-implementation-phase-63-oct-24-2025)
 
 **October 23, 2025** - Week 4: Authentication Security Improvements COMPLETE
+
 - **Production-ready authentication system** (Grade: A, 92/100)
 - Comprehensive security fixes and optional enhancements implemented
 - 63+ test cases across 5 test files (1,810 lines of tests)
@@ -254,6 +280,7 @@ All documentation in this directory follows these standards:
 - See: [Authentication Security Guide](./security/AUTHENTICATION_SECURITY.md)
 
 **October 23, 2025** - Authentication Testing & Security Best Practices Research
+
 - Comprehensive research on Django/DRF authentication security (115+ pages)
 - NIST SP 800-63B password guidelines (2024 update)
 - OWASP authentication testing checklist
@@ -266,6 +293,7 @@ All documentation in this directory follows these standards:
 - Complete testing patterns and implementation checklist
 
 **October 22, 2025** - GitHub Issue Best Practices
+
 - Created comprehensive guide for security vulnerabilities and technical debt
 - CVSS scoring guidelines with Django-specific examples
 - Remediation timeline standards (CISA BOD 19-02)
@@ -274,6 +302,7 @@ All documentation in this directory follows these standards:
 - Quick reference templates summary
 
 **October 22, 2025** - Documentation reorganization
+
 - Created centralized `docs/` directory structure
 - Consolidated Quick Wins documentation
 - Organized architecture analysis
@@ -281,12 +310,14 @@ All documentation in this directory follows these standards:
 - Improved navigation and discoverability
 
 **October 22, 2025** - Quick Wins completion
+
 - Implemented all 4 production-readiness improvements
 - Created comprehensive implementation guide (2,469 lines)
 - Added circuit breaker monitoring and distributed locks
 - Full code review and testing complete
 
 **October 21, 2025** - Week 2 performance optimizations
+
 - Parallel API processing (60% faster)
 - Redis caching (40% hit rate)
 - Database GIN indexes (100x faster queries)
@@ -334,6 +365,7 @@ This documentation supports the **Plant ID Community** project:
 - **APIs:** Dual integration (Plant.id + PlantNet)
 
 **Key Features:**
+
 - AI-powered plant identification
 - Mobile-first architecture
 - Real-time capabilities (Django Channels)

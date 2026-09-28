@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { MessageSquare, MessagesSquare } from 'lucide-react';
+import Button from '../ui/Button';
 import Card from '../ui/Card';
 import StatCard from '../ui/StatCard';
 import Timestamp from '../ui/Timestamp';
@@ -39,7 +40,7 @@ function StatsBody({ stats }: { stats: DashboardStats }) {
         <StatCard
           icon={<MessageSquare className="h-4 w-4" aria-hidden="true" />}
           value={forum.total_posts}
-          label="Posts"
+          label="Replies"
           sublabel={`${forum.posts_this_month} in the last 30 days`}
           tone="pollen"
         />
@@ -74,9 +75,19 @@ function StatsBody({ stats }: { stats: DashboardStats }) {
  * GET /api/v1/auth/me/dashboard-stats/ (todo 411). Loads independently of the
  * profile form, so a stats failure never blocks editing. ProfilePage remounts
  * it (with the form) when the signed-in account changes.
+ *
+ * "Replies" counts replies only; opening posts are the Topics beside it
+ * (todo 439). A failed load offers "Try again", which refetches in place, so a
+ * transient 502 no longer costs a full reload and the form's unsaved edits.
  */
 export default function ProfileStats() {
   const [state, setState] = useState<StatsState>({ kind: 'loading' });
+  const [attempt, setAttempt] = useState(0);
+
+  const retry = () => {
+    setState({ kind: 'loading' });
+    setAttempt((n) => n + 1);
+  };
 
   useEffect(() => {
     let cancelled = false;
@@ -95,7 +106,7 @@ export default function ProfileStats() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [attempt]);
 
   return (
     <section aria-labelledby="profile-activity-heading" className="mt-8">
@@ -104,9 +115,14 @@ export default function ProfileStats() {
       </h2>
       {state.kind === 'loading' && <p className="text-ink-3">Loading your activity…</p>}
       {state.kind === 'error' && (
-        <p role="alert" className="text-error">
-          {state.message}
-        </p>
+        <div className="space-y-3">
+          <p role="alert" className="text-error">
+            {state.message}
+          </p>
+          <Button variant="secondary" size="sm" onClick={retry}>
+            Try again
+          </Button>
+        </div>
       )}
       {state.kind === 'ready' && <StatsBody stats={state.stats} />}
     </section>

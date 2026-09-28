@@ -54,9 +54,11 @@ class DashboardStatsForumTests(TestCase):
         self.assertEqual(resp.status_code, 200)
         forum = resp.data["forum_stats"]
         self.assertEqual(forum["total_topics"], 1)  # live topic only
-        self.assertEqual(forum["total_posts"], 2)  # 2 live posts; draft excluded
+        # The live reply only: the opening post is the topic counted above
+        # (todo 439), and the draft is excluded.
+        self.assertEqual(forum["total_posts"], 1)
         self.assertEqual(forum["topics_this_month"], 1)
-        self.assertEqual(forum["posts_this_month"], 2)
+        self.assertEqual(forum["posts_this_month"], 1)
 
     def test_recent_activity_url_uses_live_web_forum_scheme(self):
         live_topic = self._topic("hello-world", live=True)
@@ -107,7 +109,8 @@ class DashboardStatsForumTests(TestCase):
         self.assertEqual(resp.status_code, 200)
         forum = resp.data["forum_stats"]
         self.assertEqual(forum["total_topics"], 1)  # ada's topic only
-        self.assertEqual(forum["total_posts"], 2)  # ada's 2 posts only; bob's excluded
+        # ada's one reply only (todo 439: replies only); bob's excluded.
+        self.assertEqual(forum["total_posts"], 1)
 
         forum_items = [
             a for a in resp.data["recent_activity"] if a["type"].startswith("forum")
@@ -121,6 +124,29 @@ class DashboardStatsForumTests(TestCase):
         bob_fragment = f"{bob_topic.id}-{bob_topic.slug}"
         self.assertTrue(all(ada_fragment in item["url"] for item in forum_items))
         self.assertFalse(any(bob_fragment in item["url"] for item in forum_items))
+
+    def test_an_opening_post_counts_as_a_topic_not_a_reply(self):
+        # Todo 439: the "Replies" card sat next to "Topics" and counted every
+        # opening post a second time. A new topic with no replies is one
+        # topic and zero replies.
+        topic = self._topic("solo", live=True)
+        Post.objects.create(
+            topic=topic, author=self.user, is_opening_post=True, live=True
+        )
+
+        self.client.force_authenticate(user=self.user)
+        resp = self.client.get(DASHBOARD_URL)
+
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(
+            resp.data["forum_stats"],
+            {
+                "total_topics": 1,
+                "total_posts": 0,
+                "topics_this_month": 1,
+                "posts_this_month": 0,
+            },
+        )
 
     def test_a_taken_down_topics_reply_neither_counts_nor_lists(self):
         # PR #821: the reply stays live=True when a moderator takes the TOPIC

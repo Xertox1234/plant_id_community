@@ -246,12 +246,18 @@ for post in blog_posts:
 **Performance Impact**:
 
 - **Before**: 15-20 queries, 500-800ms
-- **After**: 3-4 queries, 10-20ms (97% faster)
+- **After**: 3-4 queries, 10-20ms (97% faster) — the 2025 `dashboard_stats`;
+  forum-only since todo 411, it runs 5 queries today (see "Forum Stats
+  Aggregation" below)
 - **Reduction**: 75-80% fewer queries
 
 ---
 
 ### Pattern: Dashboard Stats Aggregation
+
+> The plant block in this example is no longer in `dashboard_stats`: todo 411
+> removed `plant_stats` because nothing writes those tables. The example still
+> shows the pattern; the live endpoint's code is in "Forum Stats Aggregation".
 
 **Anti-Pattern** ❌:
 
@@ -321,39 +327,43 @@ WHERE user_id = 123;
 
 ### Pattern: Forum Stats Aggregation
 
-**Implementation** (from dashboard_stats endpoint):
+**Implementation** (from `apps/users/views.py::dashboard_stats`, todo 439):
 
 ```python
 from django.db.models import Count, Q
+from wagtail_forum.models import ForumBoard, Post, Topic
 
-# Single aggregate query for forum stats
-forum_aggregation = Topic.objects.filter(
-    poster=request.user,
-    approved=True
-).aggregate(
-    total_topics=Count('id'),
-    topics_this_month=Count('id', filter=Q(created__gte=thirty_days_ago)),
+# Only what the forum itself shows: live topics on live, unrestricted boards.
+visible_boards = ForumBoard.objects.live().public()
+my_topics = Topic.objects.filter(
+    author=request.user, live=True, board__in=visible_boards
+)
+# Replies only: an opening post is already one of the topics above.
+my_replies = Post.objects.filter(
+    author=request.user,
+    live=True,
+    is_opening_post=False,
+    topic__live=True,
+    topic__board__in=visible_boards,
 )
 
-# Combine with post stats
-post_aggregation = Post.objects.filter(
-    poster=request.user,
-    approved=True
-).aggregate(
-    total_posts=Count('id'),
-    posts_this_week=Count('id', filter=Q(created__gte=seven_days_ago)),
+forum_aggregation = my_topics.aggregate(
+    total_topics=Count('pk'),
+    topics_this_month=Count('pk', filter=Q(created_at__gte=thirty_days_ago)),
+)
+post_aggregation = my_replies.aggregate(
+    total_posts=Count('pk'),  # replies; the web card is labelled "Replies"
+    posts_this_month=Count('pk', filter=Q(created_at__gte=thirty_days_ago)),
 )
 
-forum_stats = {
-    'total_topics': forum_aggregation['total_topics'],
-    'topics_this_month': forum_aggregation['topics_this_month'],
-    'total_posts': post_aggregation['total_posts'],
-    'posts_this_week': post_aggregation['posts_this_week'],
-}
-
-# Total: 2 queries (1 for topics, 1 for posts)
-# Before: 4 queries (one per stat)
+# Total: 5 queries — the view-restriction lookup behind .public(), these 2
+# aggregates, and 2 select_related recent-activity lists. Pinned by
+# test_query_count_is_constant (apps/users/tests/test_dashboard_stats.py).
 ```
+
+Not `ForumProfile.post_count`: that denormalized counter includes opening
+posts and posts on unpublished or restricted boards, and has no 30-day window,
+so it cannot stand in for either aggregate.
 
 ---
 
@@ -1201,7 +1211,7 @@ self.assertEqual(query_count, 5)
 
 | Endpoint | Max Queries | Target Time (95th percentile) | Status |
 |----------|-------------|-------------------------------|--------|
-| dashboard_stats | ≤5 | <50ms | ✅ PASSING (3-4 queries, 10-20ms) |
+| dashboard_stats | ≤5 | <50ms | ✅ PASSING (5 queries, pinned by `test_query_count_is_constant`; todo 439) |
 | token_refresh | ≤2 | <20ms | ✅ PASSING (1 query, 10ms) |
 | forum_activity | ≤7 | <30ms | ✅ PASSING (6-7 queries, 30ms) |
 | blog_list | ≤20 | <100ms | ✅ PASSING (18 queries, 80ms) |

@@ -137,6 +137,24 @@ describe('ProfilePage (web dead-code audit M3)', () => {
     expect(await screen.findByLabelText('First name')).toHaveValue('Ada');
   });
 
+  it('retries the stats without losing unsaved form edits (todo 439)', async () => {
+    vi.mocked(profileService.fetchDashboardStats).mockRejectedValueOnce(
+      new Error('Request failed (HTTP 502)')
+    );
+    renderPage();
+
+    const location = await screen.findByLabelText('Location');
+    await userEvent.type(location, ', UK');
+    expect(await screen.findByRole('alert')).toHaveTextContent('Request failed (HTTP 502)');
+
+    await userEvent.click(screen.getByRole('button', { name: 'Try again' }));
+
+    expect(await screen.findByText('Topics')).toBeInTheDocument();
+    expect(screen.getByLabelText('Location')).toHaveValue('London, UK');
+    expect(profileService.fetchDashboardStats).toHaveBeenCalledTimes(2);
+    expect(profileService.fetchProfile).toHaveBeenCalledTimes(1);
+  });
+
   it('remounts the whole page when the signed-in account changes (PR #821)', async () => {
     const { rerender } = renderPage();
     expect(await screen.findByLabelText('First name')).toHaveValue('Ada');

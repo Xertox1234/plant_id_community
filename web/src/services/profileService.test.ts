@@ -214,12 +214,50 @@ describe('profileService', () => {
 
     it('surfaces the server error message', async () => {
       adapter.mockImplementation(async (config) => {
+        throw httpError(config, 500, { detail: 'Stats are temporarily unavailable.' });
+      });
+
+      await expect(fetchDashboardStats()).rejects.toThrow('Stats are temporarily unavailable.');
+    });
+
+    it('turns a 401 into a sign-in-again message, not DRF’s raw detail (todo 439)', async () => {
+      adapter.mockImplementation(async (config) => {
         throw httpError(config, 401, { detail: 'Authentication credentials were not provided.' });
       });
 
-      await expect(fetchDashboardStats()).rejects.toThrow(
-        'Authentication credentials were not provided.'
+      const error = await fetchDashboardStats().catch((e: unknown) => e);
+      expect(error).toBeInstanceOf(Error);
+      expect((error as Error).message).toBe(
+        'Your session has ended. Sign in again to see your forum activity.'
       );
+    });
+
+    it('keeps a 403 detail as the server sent it (todo 439)', async () => {
+      adapter.mockImplementation(async (config) => {
+        throw httpError(config, 403, { detail: 'You do not have permission.' });
+      });
+
+      await expect(fetchDashboardStats()).rejects.toThrow('You do not have permission.');
+    });
+
+    it('drops a stray field inside forum_stats and inside an activity item (todo 439)', async () => {
+      adapter.mockImplementation(async (config) =>
+        ok(config, {
+          forum_stats: { ...forumStats, total_activity_score: 99 },
+          recent_activity: [{ ...topicItem, author_email: 'ada@example.com' }],
+        })
+      );
+
+      const stats = await fetchDashboardStats();
+
+      expect(stats.forum_stats).toStrictEqual(forumStats);
+      expect(Object.keys(stats.recent_activity[0]).sort()).toEqual([
+        'description',
+        'timestamp',
+        'title',
+        'type',
+        'url',
+      ]);
     });
   });
 });

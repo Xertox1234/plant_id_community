@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import ProfileStats from './ProfileStats';
 import { getCsrfToken } from '../../utils/csrf';
@@ -78,7 +79,9 @@ describe('ProfileStats (todo 411)', () => {
     expect(await screen.findByText('Topics')).toBeInTheDocument();
     expect(screen.getByText('3')).toBeInTheDocument();
     expect(screen.getByText('1 in the last 30 days')).toBeInTheDocument();
-    expect(screen.getByText('Posts')).toBeInTheDocument();
+    // Todo 439: the count is replies only, so the card says so.
+    expect(screen.getByText('Replies')).toBeInTheDocument();
+    expect(screen.queryByText('Posts')).not.toBeInTheDocument();
     expect(screen.getByText('7')).toBeInTheDocument();
     expect(screen.getByText('2 in the last 30 days')).toBeInTheDocument();
 
@@ -99,6 +102,36 @@ describe('ProfileStats (todo 411)', () => {
 
     expect(await screen.findByRole('alert')).toHaveTextContent('Server exploded');
     expect(screen.queryByText('Topics')).not.toBeInTheDocument();
+  });
+
+  it('retries in place after a transient failure (todo 439)', async () => {
+    let calls = 0;
+    adapter.mockImplementation(async (config) => {
+      calls += 1;
+      if (calls === 1) throw httpError(config, 502, '<html>Bad gateway</html>');
+      return ok(config, { forum_stats: forumStats, recent_activity: activity });
+    });
+    renderStats();
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('Request failed (HTTP 502)');
+    await userEvent.click(screen.getByRole('button', { name: 'Try again' }));
+
+    expect(await screen.findByText('Topics')).toBeInTheDocument();
+    expect(screen.getByText('Replies')).toBeInTheDocument();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Try again' })).not.toBeInTheDocument();
+    expect(calls).toBe(2);
+  });
+
+  it('asks the user to sign in again on a 401, not DRF’s raw detail (todo 439)', async () => {
+    adapter.mockImplementation(async (config) => {
+      throw httpError(config, 401, { detail: 'Authentication credentials were not provided.' });
+    });
+    renderStats();
+
+    const alert = await screen.findByRole('alert');
+    expect(alert).toHaveTextContent('Sign in again to see your forum activity.');
+    expect(alert).not.toHaveTextContent('Authentication credentials');
   });
 
   it('shows an empty state with a way into the forum when there is no activity', async () => {
