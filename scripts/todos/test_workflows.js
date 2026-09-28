@@ -20,20 +20,30 @@ function source(name) {
   return fs.readFileSync(path.join(ROOT, '.claude', 'workflows', `${name}.js`), 'utf8')
 }
 
-// The subset of JSON Schema the workflows use: type, properties, required, enum, maxLength, items,
-// maxItems. Returns a list of problems, empty when `value` matches (todo 468).
+// The subset of JSON Schema the workflows use: type (one or a list), properties, required, enum, maxLength,
+// items, maxItems. Returns a list of problems, empty when `value` matches (todo 468). A type it does not
+// know is itself a problem, never a throw (todo 476: a throw read as "no stage threw" failing).
 const IS = { object: v => v !== null && typeof v === 'object' && !Array.isArray(v), array: Array.isArray,
-  string: v => typeof v === 'string', integer: Number.isInteger, boolean: v => typeof v === 'boolean' }
+  string: v => typeof v === 'string', integer: Number.isInteger, boolean: v => typeof v === 'boolean',
+  number: v => typeof v === 'number' && Number.isFinite(v), null: v => v === null }
 function schemaErrors(value, schema, at = '$') {
-  if (schema.type && !IS[schema.type](value)) return [`${at}: not ${schema.type}`]
+  if (schema.type !== undefined) {
+    const types = Array.isArray(schema.type) ? schema.type : [schema.type]
+    const unknown = types.filter(t => !Object.prototype.hasOwnProperty.call(IS, t))
+    if (unknown.length) return [`${at}: unknown schema type ${JSON.stringify(unknown.length === 1 ? unknown[0] : unknown)}`]
+    if (!types.some(t => IS[t](value))) return [`${at}: not ${types.join(' or ')}`]
+  }
   const errs = []
   if (schema.enum && !schema.enum.includes(value)) errs.push(`${at}: ${JSON.stringify(value)} not in enum`)
-  if (schema.maxLength !== undefined && value.length > schema.maxLength) errs.push(`${at}: longer than ${schema.maxLength}`)
-  if (schema.type === 'array') {
+  if (schema.maxLength !== undefined && typeof value === 'string' && value.length > schema.maxLength) {
+    errs.push(`${at}: longer than ${schema.maxLength}`)
+  }
+  // Todo 476: items and maxItems apply to any array value, with or without `type: 'array'`.
+  if (Array.isArray(value)) {
     if (schema.maxItems !== undefined && value.length > schema.maxItems) errs.push(`${at}: more than ${schema.maxItems} items`)
     if (schema.items) value.forEach((v, i) => errs.push(...schemaErrors(v, schema.items, `${at}[${i}]`)))
   }
-  if (schema.type === 'object') {
+  if (IS.object(value)) {
     for (const key of schema.required || []) if (!(key in value)) errs.push(`${at}.${key}: missing`)
     for (const [key, sub] of Object.entries(schema.properties || {})) {
       if (key in value) errs.push(...schemaErrors(value[key], sub, `${at}.${key}`))
@@ -46,8 +56,18 @@ function schemaErrors(value, schema, at = '$') {
 // handled dead agent. So every run asserts that nothing threw, unless the case opts out with allowErrors.
 // Every stub response must also match the schema the workflow asked for, or the test proves nothing about
 // real records (todo 468); a case that feeds a bad record on purpose opts out with badFixtures.
-async function run(name, args, respond, { allowErrors = false, badFixtures = false } = {}) {
-  const body = source(name).replace(/^export const meta/m, 'const meta')
+// parallelThrows (todo 478): a predicate on a parallel() call's results; when it holds, that call throws, as a
+// real nested parallel can. The enclosing parallel() then records a null for it, which no stub agent can do.
+// mutate: [old, new] replaces one exact string in the workflow source first, so a check can prove that a
+// test FAILS on a known-bad version (todo 478). The anchor must occur exactly once.
+async function run(name, args, respond, { allowErrors = false, badFixtures = false, parallelThrows = null,
+  mutate = null } = {}) {
+  let text = source(name)
+  if (mutate) {
+    if (text.split(mutate[0]).length !== 2) throw new Error(`mutation anchor not found once: ${mutate[0]}`)
+    text = text.replace(mutate[0], () => mutate[1])
+  }
+  const body = text.replace(/^export const meta/m, 'const meta')
   const calls = []
   const errors = []
   const logs = []
@@ -71,7 +91,11 @@ async function run(name, args, respond, { allowErrors = false, badFixtures = fal
         return null
       }
     }))
-  const parallel = async thunks => Promise.all(thunks.map(t => t().catch(e => { errors.push(String(e)); return null })))
+  const parallel = async thunks => {
+    const out = await Promise.all(thunks.map(t => t().catch(e => { errors.push(String(e)); return null })))
+    if (parallelThrows && parallelThrows(out)) throw new Error('stub: this parallel() threw')
+    return out
+  }
   const fn = new AsyncFunction('agent', 'pipeline', 'parallel', 'phase', 'log', 'args', 'budget', 'workflow', body)
   const result = await fn(agent, pipeline, parallel, () => {}, m => logs.push(m), args, { total: null }, async () => null)
   if (!allowErrors) check(`${name}: no stage threw`, errors.length === 0, errors)
@@ -252,7 +276,7 @@ async function main() {
         ? (isRefuter(o) ? refute : lens)(p, o) : (isRefuter(o) ? refute : lens)
       if (o.agentType === 'code-review-orchestrator') return route
       if (o.agentType === 'todo-worker') return repair
-      if (o.agentType === 'todo-verifier') return v
+      if (o.agentType === 'todo-verifier') return typeof v === 'function' ? v(p, o) : v
       return typeof domain === 'function' ? domain(p, o) : domain
     }
   }
@@ -274,7 +298,6 @@ async function main() {
   check('review: the result lists which reviewers ran and what was routed',
     r.result.results[0].reviewers.length === 5 && r.result.results[0].reviewers.includes('django-drf-reviewer')
     && r.result.results[0].routed.join() === 'django-drf-reviewer,cross-cutting-reviewer', r.result)
-  check('review: no range reads as an inline fallback', r.result.results[0].ranges.every(x => !/inline/.test(x)))
   check('review: a blocking finding faces two refuters', refuteCalls(r.calls).length === 2)
   const rep = byType(r.calls, 'todo-worker')
   check('review: round 1 repairs in the PR worktree', rep.length === 1 && rep[0].opts.isolation === undefined
@@ -308,10 +331,12 @@ async function main() {
     bugP.includes("/usr/bin/git -C '/wt/g1' diff origin/main...HEAD") && bugP.includes('do not use gh')
     && !/Skill|against PR|gh pr/.test(bugP), bugP)
   // A no-isolation agent's cwd is the main checkout, so every checklist prompt must point at the worktree.
+  // Todo 481 changed the router's form: the list is JSON data, and its one command is a git grep over a
+  // pathspec in the worktree, not a grep built from '<worktree>/<path>' (which a file name could escape).
   const routeP = byType(r.calls, 'code-review-orchestrator')[0].prompt
   check('review: the router gets the changed files from review-args and is told not to diff (todo 478)',
-    routeP.includes('  - backend/apps/x/views.py') && routeP.includes('do not run `git diff`')
-    && routeP.includes("'/wt/g1/<path>'"), routeP)
+    routeP.includes('["backend/apps/x/views.py"]') && routeP.includes('Do not run `git diff`')
+    && routeP.includes("/usr/bin/git -C '/wt/g1' grep -l"), routeP)
   const domP = byType(r.calls, 'django-drf-reviewer')[0].prompt
   check('review: a domain reviewer reads files from the worktree and gets the routed file list',
     domP.includes("'/wt/g1/<path>'") && domP.includes('NOT the main checkout') && domP.includes('  - backend/apps/x/views.py')
@@ -363,6 +388,8 @@ async function main() {
   check('review: a non-blocking finding is not sent to refuters', refuteCalls(r.calls).length === 0)
 
   // --- review round 1: nothing blocking, and a repair that blocks
+  // Todo 478: its own run (it used to read the previous case's `r`, which happened to be the same stub).
+  r = await run('todo-review', { round: 1, prs: [pr()] }, reviewStub({ lens: low }))
   check('review: round 1 with no blocking finding does not repair',
     byType(r.calls, 'todo-worker').length === 0 && r.result.results[0].repair === null
     && r.result.results[0].blocking.length === 0 && r.result.results[0].reviewers_ok, r.result)
@@ -476,6 +503,158 @@ async function main() {
   }
   r = await run('todo-review', { round: 1, prs: [pr()] }, () => null)
   check('review: every reviewer dead marks the review incomplete', r.result.results[0].reviewers_ok === false, r.result)
+
+  // --- todo 478: each reviewer's own range is relayed (replaces a range check the stubs could never fail)
+  r = await run('todo-review', { round: 2, prs: [pr({ round: 2 })] }, reviewStub({
+    lens: (p, o) => ({ ...none, reviewed_range: `range of ${o.label}` }),
+    domain: (p, o) => ({ ...none, reviewed_range: `range of ${o.label}` }) }))
+  const labels = r.calls.filter(c => c.opts.schema && c.opts.schema.properties.findings).map(c => c.opts.label)
+  check('478: the result relays every reviewer\'s own reviewed_range, once each',
+    labels.length === 5 && labels.every(l => r.result.results[0].ranges.filter(x => x === `range of ${l}`).length === 1),
+    { labels, ranges: r.result.results[0].ranges })
+
+  // --- todo 478 AC: a refute judgment that is null as a whole keeps ITS finding blocking. Two candidates:
+  // a.py:1's inner parallel throws (null judgment), a.py:2 is refuted by both. Dropping nulls
+  // (judged.filter(Boolean)) would shift a.py:2's votes onto a.py:1 and refute the wrong finding.
+  const two = { reviewed_range: 'x', findings: [{ severity: 'high', file: 'a.py', line: 1, summary: 'one', suggested_fix: '' },
+    { severity: 'high', file: 'a.py', line: 2, summary: 'two', suggested_fix: '' }] }
+  const nullJudgment = mutate => run('todo-review', { round: 2, prs: [pr({ round: 2 })] },
+    reviewStub({ lens: two, refute: (p, o) => (o.label.endsWith(':a.py:1') ? { refuted: true, reason: 'THROW' } : wrong) }),
+    { allowErrors: true, parallelThrows: out => out.length === 2 && out.every(v => v && v.reason === 'THROW'), mutate })
+  // The case's own verdict, so the same check can be run on the real workflow and on a known-bad one.
+  const keepsNullBlocking = rr => rr.errors.length === 1 && rr.result.results[0].blocking.map(f => f.line).join() === '1'
+    && rr.result.results[0].refuted.map(f => f.line).join() === '2'
+  r = await nullJudgment(null)
+  const res478 = r.result.results[0]
+  check('478 AC2: a null refute judgment keeps its own finding blocking, and the other is still refuted',
+    keepsNullBlocking(r), { errors: r.errors, blocking: res478.blocking, refuted: res478.refuted })
+  const dropped = await nullJudgment(['const votes = judged[i] || []', 'const votes = judged.filter(Boolean)[i] || []'])
+  check('478 AC2: that test fails when null judgments are dropped (judged.filter(Boolean))',
+    !keepsNullBlocking(dropped) && dropped.result.results[0].refuted.map(f => f.line).join() === '1',
+    dropped.result.results[0])
+
+  // --- todo 478: the critical that takes over as representative does not repeat its own words in `also`
+  const swap = (p, o) => ({ reviewed_range: 'x', findings: [{ severity: o.label.startsWith('bugs-correctness') ? 'critical' : 'high',
+    file: 'a.py', line: 1, summary: o.label.startsWith('bugs-security') || o.label.startsWith('bugs-correctness') ? 'same words' : 'first words',
+    suggested_fix: '' }] })
+  r = await run('todo-review', { round: 2, prs: [pr({ round: 2, changed_files: ['docs/x.md'] })] },
+    reviewStub({ lens: swap, route: routed() }))
+  const rep478 = r.result.results[0].blocking[0]
+  check('478: the critical representative never repeats its own summary in also',
+    rep478.severity === 'critical' && rep478.summary === 'same words' && !rep478.also.includes('same words')
+    && rep478.also.includes('first words'), rep478)
+
+  // --- todo 478: the /private/tmp alias of the worktree is the same location
+  r = await run('todo-review', { round: 2, prs: [pr({ round: 2, worktree: '/tmp/sweep/g1' })] }, reviewStub({ lens: high,
+    domain: { reviewed_range: 'x', findings: [{ ...high.findings[0], file: '/private/tmp/sweep/g1/a.py', summary: 'alias' }] } }))
+  check('478: a /private/tmp path and the /tmp worktree are one location',
+    r.result.results[0].blocking.length === 1 && r.result.results[0].blocking[0].file === 'a.py', r.result.results[0].blocking)
+
+  // --- todo 478: a style-level checklist finding is capped at medium unless it names what breaks
+  r = await run('todo-review', { round: 1, prs: [pr()] }, reviewStub())
+  check('478: domain reviewers are told a pattern deviation is at most medium without a concrete failure',
+    byType(r.calls, 'django-drf-reviewer')[0].prompt.includes('A checklist or pattern-library deviation is at most medium'))
+
+  // --- todo 478: every agent the workflow dispatches in the PR worktree is one the git guard limits
+  const guardSrc = fs.readFileSync(path.join(ROOT, 'scripts', 'todos', 'worker_git_guard.py'), 'utf8')
+  const guarded = new Set([...(guardSrc.match(/REVIEW_AGENTS = \(([^)]*)\)/) || ['', ''])[1].matchAll(/"([a-z-]+)"/g)]
+    .map(m => m[1]).concat(['todo-worker', 'todo-verifier', 'todo-reviewer']))
+  const reviewSrc = source('todo-review')
+  const declared = [...(reviewSrc.match(/const DOMAIN_REVIEWERS = \[([^\]]*)\]/) || ['', ''])[1].matchAll(/'([a-z-]+)'/g)].map(m => m[1])
+  const typed = [...reviewSrc.matchAll(/agentType: '([a-z-]+)'/g)].map(m => m[1])
+  check('478: DOMAIN_REVIEWERS, the orchestrator and every agentType in todo-review.js are guarded',
+    declared.length === 8 && [...declared, ...typed].every(id => guarded.has(id)) && guarded.size === 12,
+    { missing: [...declared, ...typed].filter(id => !guarded.has(id)), guarded: [...guarded] })
+
+  // --- todo 481: a dead router still dispatches the path-routed reviewers
+  r = await run('todo-review', { round: 1, prs: [pr({ changed_files: ['web/src/A.tsx', 'docs/x.md'] })] },
+    reviewStub({ route: null }))
+  check('481 AC1: a dead router still dispatches the path-routed reviewers, and records routing_failed',
+    byType(r.calls, 'react-typescript-reviewer').length === 1 && r.result.results[0].routing_failed === true, r.result.results[0])
+  check('481 AC1: with no .py changed, the round is complete without the router',
+    r.result.results[0].reviewers_ok === true, r.result.results[0])
+  r = await run('todo-review', { round: 1, prs: [pr({ changed_files: ['backend/apps/blog/models.py'] })] },
+    reviewStub({ route: null }))
+  check('481: a .py inside apps/blog/ is already wagtail\'s by path, so the round is complete',
+    r.result.results[0].reviewers_ok === true && byType(r.calls, 'wagtail-reviewer').length === 1, r.result.results[0])
+  r = await run('todo-review', { round: 1, prs: [pr({ changed_files: ['backend/packages/wagtail_forum/models.py'] })] },
+    reviewStub({ lens: high, route: null }))
+  check('481: a .py outside apps/blog/ could need wagtail by content, so the round is incomplete (no refute or repair)',
+    r.result.results[0].reviewers_ok === false && byType(r.calls, 'cross-cutting-reviewer').length === 1
+    && refuteCalls(r.calls).length === 0 && byType(r.calls, 'todo-worker').length === 0, r.result.results[0])
+  r = await run('todo-review', { round: 1, prs: [pr()] }, reviewStub())
+  check('481: a live router reports routing_failed false', r.result.results[0].routing_failed === false)
+
+  // --- todo 481: a changed file's name never reaches a shell through the router
+  const evil = ["backend/apps/x/a'$(touch /tmp/pwned).py", 'backend/apps/x/b`id`.py', 'backend/apps/x/c\nd.py']
+  r = await run('todo-review', { round: 1, prs: [pr({ changed_files: evil })] }, reviewStub())
+  const evilP = byType(r.calls, 'code-review-orchestrator')[0].prompt
+  const command = (evilP.match(/exactly: (.*)$/m) || ['', ''])[1]
+  check('481 AC2: the router\'s one command is a fixed git grep with no changed file name in it',
+    command === "/usr/bin/git -C '/wt/g1' grep -l -e 'import wagtail' -e 'from wagtail' -e 'from .models import.*Page' -- '*.py'"
+    && evil.every(f => !command.includes(f)) && evilP.includes('never put a file name into a command'), evilP)
+  check('481 AC2: the names reach the router only as JSON data (quoted and escaped)',
+    evilP.includes(JSON.stringify(evil)) && !evilP.includes('\nd.py'), evilP)
+  const hook = path.join(ROOT, '.claude', 'hooks', 'guard-todo-worker-git.sh')
+  const verdictFor = cmd => require('child_process').execFileSync('bash', [hook], {
+    input: JSON.stringify({ agent_type: 'code-review-orchestrator', tool_input: { command: cmd } }) }).toString()
+  check('481 AC2: the git guard allows that exact command for the router, and denies git grep -O',
+    verdictFor(command) === '' && verdictFor(command.replace('grep -l', 'grep -Otouch')).includes('"deny"'))
+
+  // --- todo 483: the repair stages only what it changed; the verifier checks nothing else is staged
+  r = await run('todo-review', { round: 1, prs: [pr({ untracked_before: ['notes.txt'] })] },
+    reviewStub({ lens: high, repair: worker({ files_changed: ['backend/apps/x/views.py'] }) }))
+  const repair483 = byType(r.calls, 'todo-worker')[0].prompt
+  const verify483 = byType(r.calls, 'todo-verifier')[0].prompt
+  check('483: the repair prompt names the untracked files and says to stage only the paths it changed',
+    repair483.includes('UNTRACKED_BEFORE: ["notes.txt"]') && repair483.includes('never `git add -A`')
+    && repair483.includes('Never stage, edit or delete a path in UNTRACKED_BEFORE'), repair483)
+  check('483: the post-repair verifier gets FILES_CHANGED and UNTRACKED_BEFORE, and fails on any other staged path',
+    verify483.includes('FILES_CHANGED: ["backend/apps/x/views.py"]') && verify483.includes('UNTRACKED_BEFORE: ["notes.txt"]')
+    && verify483.includes('staged paths the repair did not change'), verify483)
+
+  // --- todo 476: the post-repair verifier re-runs once after a null verdict, tree check first
+  let checks476 = 0
+  r = await run('todo-review', { round: 1, prs: [pr()] },
+    reviewStub({ lens: high, check: () => (++checks476 === 1 ? null : verdict('pass')) }))
+  const again476 = byType(r.calls, 'todo-verifier')
+  check('476 AC4: a null post-repair verdict re-runs the verifier once, telling it to check the tree first',
+    again476.length === 2 && !again476[0].prompt.includes('died part-way') && again476[1].prompt.includes('Check the tree first')
+    && r.result.results[0].verdict.verdict === 'pass' && byType(r.calls, 'todo-worker').length === 1, r.result.results[0])
+  r = await run('todo-review', { round: 1, prs: [pr()] }, reviewStub({ lens: high, check: null }))
+  check('476: two null post-repair verdicts give verdict null, with no third run',
+    byType(r.calls, 'todo-verifier').length === 2 && r.result.results[0].verdict === null, r.result.results[0])
+
+  // --- todo 476: the execute re-run that finds only a dirty tree does not retry the worker
+  const dirty = verdict('fail', { ac: [{ todo: '1', index: 0, verified: false, note: 'not run' }],
+    reasons: ['tree not clean before verification: out.txt'] })
+  verifies = 0
+  r = await run('todo-execute', { run_id: 'r', briefs: [brief()] },
+    (p, o) => (o.agentType === 'todo-worker' ? worker() : ++verifies === 1 ? null : dirty))
+  check('476 AC3: a re-run verdict failing only on a dirty tree is returned without a worker retry',
+    byType(r.calls, 'todo-worker').length === 1 && byType(r.calls, 'todo-verifier').length === 2
+    && byType(r.calls, 'todo-verifier')[1].prompt.includes('Check the tree first')
+    && !r.result.results[0].retried && r.result.results[0].verdict.verdict === 'fail', r.result.results[0])
+  verifies = 0
+  r = await run('todo-execute', { run_id: 'r', briefs: [brief()] }, (p, o) => (o.agentType === 'todo-worker' ? worker()
+    : ++verifies === 1 ? null : verifies === 2 ? { ...dirty, reasons: [...dirty.reasons, 'acceptance criteria were edited'] }
+      : verdict('pass')))
+  check('476: a re-run that also found a real problem still retries the worker',
+    byType(r.calls, 'todo-worker').length === 2 && r.result.results[0].retried, r.result.results[0])
+  verifies = 0
+  r = await run('todo-execute', { run_id: 'r', briefs: [brief()] },
+    (p, o) => (o.agentType === 'todo-worker' ? worker() : ++verifies === 1 ? dirty : verdict('pass')))
+  check('476: a FIRST verifier that finds a dirty tree (the worker left it) still gets the worker retry',
+    byType(r.calls, 'todo-worker').length === 2 && r.result.results[0].retried, r.result.results[0])
+
+  // --- todo 476: the fixture validator itself
+  check('476 AC1: an unknown schema type is reported, not thrown',
+    JSON.stringify(schemaErrors(1, { type: 'weird' })) === '["$: unknown schema type \\"weird\\""]'
+    && schemaErrors(1.5, { type: 'number' }).length === 0 && schemaErrors(null, { type: ['string', 'null'] }).length === 0
+    && schemaErrors(3, { type: ['string', 'null'] })[0] === '$: not string or null')
+  check('476 AC2: items are checked whenever present, even without type: array',
+    schemaErrors(['ok', 7], { items: { type: 'string' } }).join() === '$[1]: not string'
+    && schemaErrors({ a: [1] }, { properties: { a: { items: { type: 'string' } } } }).join() === '$.a[0]: not string')
 
   // --- schemas stay identical across files
   for (const name of ['WORKER', 'VERDICT']) {

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Tests for guard-todo-worker-git.sh — run from anywhere.
-# The guard limits todo-worker / todo-verifier / todo-reviewer Bash calls to limited git
-# (spec §4.1). The cases that matter are the disguises: wrappers, absolute
+# The guard limits the todo sweep's agents' Bash calls (todo-worker, todo-verifier,
+# todo-reviewer and the review agents todo-review dispatches) to limited git (spec §4.1). The cases that matter are the disguises: wrappers, absolute
 # paths, compound commands, bash -c, $(...), a second line — and the harmless
 # mention of "git commit" inside a grep, which must still be allowed.
 set -uo pipefail
@@ -296,6 +296,53 @@ if [ -n "$R" ] && git init -q "$R/main" && git -C "$R/main" -c user.email=t@t -c
   assert_deny_msg "468: git add -A after .gitignore stopped ignoring backend/.env" $W "git -C $R/wt add -A" \
     "backend/.env"
   assert_raw "468: the same from the worktree's own cwd" deny "$(cwd_event $W "$R/wt" 'git add .')"
+  # Todo 477 round-2 note: after a cd into the worktree, the unignored-.env check still runs.
+  assert_raw "477: the .env check still runs after a cd into the worktree" deny \
+    "$(cwd_event $W "$R/main" "cd $R/wt && git add -A")"
+
+  # Todo 477 finding 1: every way into the main checkout's index is checked.
+  printf 'backend/.env\nweb/.env\n' > "$R/wt/.gitignore"
+  assert_deny_msg "477: -C MAIN with --work-tree elsewhere stages into MAIN's index" $W \
+    "git -C $R/main --work-tree=$R/wt add -A" "$MAIN_MSG"
+  assert_deny_msg "477: --work-tree MAIN (separate value) from WT's -C"  $W "git -C $R/wt --work-tree $R/main add -A" "$MAIN_MSG"
+  assert_deny_msg "477: a GIT_DIR prefix"                 $W "GIT_DIR=$R/main/.git git -C $R/wt add -A" "GIT_DIR"
+  assert_deny_msg "477: a GIT_WORK_TREE prefix"           $W "GIT_WORK_TREE=$R/main git add -A" "GIT_WORK_TREE"
+  assert_deny_msg "477: GIT_DIR through env"              $W "env GIT_DIR=$R/main/.git git add -A" "GIT_DIR"
+  assert_deny_msg "477: an exported GIT_DIR"              $W "export GIT_DIR=$R/main/.git; git add -A" "GIT_DIR"
+  assert_raw "477: a git-add binary with cwd MAIN" deny "$(cwd_event $W "$R/main" 'git-add -A')"
+  assert_raw "477: a git-add binary with cwd WT" allow "$(cwd_event $W "$R/wt" 'git-add -A')"
+  assert_raw "477: cd MAIN && git add from WT's cwd" deny "$(cwd_event $W "$R/wt" "cd $R/main && git add -A")"
+  assert_raw "477: cd into MAIN/backend, then git add" deny "$(cwd_event $W "$R/wt" "cd $R/main/backend; git add x")"
+  assert_raw "477: a relative cd from WT up into MAIN" deny "$(cwd_event $W "$R/wt" 'cd ../main && git add -A')"
+  assert_raw "477: a cd inside ( ) does not move the next command" allow \
+    "$(cwd_event $W "$R/wt" "(cd $R/main && git status); git add -A")"
+  assert_raw "477: a cd inside \$( ) does not move the next command" allow \
+    "$(cwd_event $W "$R/wt" "echo \$(cd $R/main) && git add -A")"
+  assert_raw "477: a cd in a pipeline stage does not move the next command" allow \
+    "$(cwd_event $W "$R/wt" "cd $R/main | cat; git add -A")"
+  assert_raw "477: bash -c with a cd into MAIN" deny "$(cwd_event $W "$R/wt" "bash -c 'cd $R/main && git add -A'")"
+  assert_raw "477: eval of a cd moves this shell" deny "$(cwd_event $W "$R/wt" "eval cd $R/main; git add -A")"
+  assert_raw "477: a cd to a directory built at runtime is not checked" allow \
+    "$(cwd_event $W "$R/main" "cd \"\$WT\" && git add -A")"
+  assert_raw "477: an absolute -C after an unknown one is checked" deny \
+    "$(cwd_event $W "$R/wt" "git -C \"\$WT\" -C $R/main add -A")"
+  # The pilot layout: the sweep's main root is itself a linked worktree; its run file marks it.
+  if git -C "$R/main" worktree add -q -b pilot-guard "$R/pilot" 2>/dev/null && mkdir -p "$R/pilot/todos"; then
+    assert_allow    "477: a linked worktree without a run file is not a main checkout" $W "git -C $R/pilot add -A"
+    : > "$R/pilot/todos/.sweep-run-2026-09-28-0000.json"
+    assert_deny_msg "477: the pilot main root (linked, holds the run file) is a main checkout" $W \
+      "git -C $R/pilot add -A" "$MAIN_MSG"
+    assert_allow    "477: a worker worktree beside it is still fine" $W "git -C $R/wt add -A"
+  else
+    echo "FAIL: 477 pilot setup"; FAIL=$((FAIL+1))
+  fi
+  # Todo 477 finding 2: a TRACKED file that .worktreeinclude lists is ordinary content.
+  printf 'backend/.env\n' > "$R/wt/.gitignore"
+  mkdir -p "$R/wt/web" && echo 'VITE_API_URL=http://x' > "$R/wt/web/.env"
+  git -C "$R/wt" add web/.env
+  assert_allow "477: a tracked, not-ignored .worktreeinclude entry does not block staging" $W "git -C $R/wt add -A"
+  git -C "$R/wt" rm -q --cached web/.env
+  assert_deny_msg "477: the same file untracked is still refused" $W "git -C $R/wt add -A" "web/.env"
 else
   echo "FAIL: m7 setup (could not build a main checkout and a worktree)"; FAIL=$((FAIL+1))
 fi
@@ -312,13 +359,45 @@ assert_deny  "m8: reviewer git fetch"                    $V 'git fetch origin'
 assert_deny  "m8: reviewer gh"                           $V 'gh pr view 1'
 
 # Todo 472 — todo-review dispatches the orchestrator and domain reviewers: same read-only limit.
-for V in code-review-orchestrator django-drf-reviewer cross-cutting-reviewer flutter-dart-reviewer; do
+# Todo 478: every one of them, read from the guard itself (the loop used to name 4 of the 9).
+GUARD_DIR="$(cd "$(dirname "$0")/../.." && pwd)/scripts/todos"
+REVIEWERS=$(python3 -c 'import sys; sys.path.insert(0, sys.argv[1]); import worker_git_guard as g; print(" ".join(g.REVIEW_AGENTS))' "$GUARD_DIR")
+if [ "$(wc -w <<< "$REVIEWERS" | tr -d ' ')" = 9 ]; then
+  echo "PASS: 478: the guard names 9 review agents"; PASS=$((PASS+1))
+else
+  echo "FAIL: 478: the guard names 9 review agents (got: $REVIEWERS)"; FAIL=$((FAIL+1))
+fi
+for V in $REVIEWERS; do
   assert_allow "472: $V git diff in the worktree"   $V "/usr/bin/git -C '/wt/g1' diff origin/main...HEAD --name-only"
   assert_allow "472: $V git show / rev-parse"       $V 'git show HEAD:a.py && git rev-parse --short HEAD'
   assert_deny  "472: $V git stash"                  $V 'git stash'
   assert_deny  "472: $V git commit"                 $V 'git commit -m x'
   assert_deny  "472: $V gh pr comment"              $V 'gh pr comment 1 --body x'
 done
+
+# Todo 478 finding 5 — guard gaps: git grep -O and GIT_* prefixes run a program through an allowed read.
+V=todo-reviewer
+assert_deny  "478: git grep -O<cmd>"                     $V 'git grep -Ovim foo'
+assert_deny  "478: git grep -O in a short bundle"        $V 'git grep -lO foo'
+assert_deny  "478: git grep --open-files-in-pager"       $V 'git grep --open-files-in-pager=vim foo'
+assert_deny  "478: git grep --open (a prefix)"           $V 'git grep --open foo'
+assert_allow "478: a pattern holding O after -e is a value" $V "git grep -l -e 'Oops' -e -O -- '*.py'"
+assert_allow "478: the router's wagtail grep"            code-review-orchestrator \
+  "/usr/bin/git -C '/wt/g1' grep -l -e 'import wagtail' -e 'from wagtail' -e 'from .models import.*Page' -- '*.py'"
+assert_deny  "478: GIT_EXTERNAL_DIFF on diff"            $V 'GIT_EXTERNAL_DIFF=/tmp/x git diff'
+assert_deny  "478: GIT_PAGER on log"                     $V 'GIT_PAGER=/tmp/x git log -p'
+assert_deny  "478: GIT_PAGER through env"                $V 'env GIT_PAGER=/tmp/x git log'
+assert_allow "478: another variable is fine"             $V 'LC_ALL=C git log --oneline -1'
+
+# Todo 477 finding 3 — reviewers may read more of the history, and still never write refs.
+assert_allow "477: reviewer cat-file / ls-tree / rev-list" $V 'git cat-file -p HEAD && git ls-tree HEAD && git rev-list -3 HEAD'
+assert_allow "477: reviewer branch --show-current"       $V 'git branch --show-current'
+assert_allow "477: reviewer branch -a / worktree list"   $V 'git branch -a && git worktree list'
+assert_deny  "477: reviewer creating a branch"           $V 'git branch new-one'
+assert_deny  "477: reviewer deleting a branch"           $V 'git branch -D main'
+assert_deny  "477: reviewer worktree add"                $V 'git worktree add /tmp/x'
+assert_deny  "477: reviewer cat-file --textconv"         $V 'git cat-file --textconv HEAD:a.py'
+assert_deny  "477: a worker still may not list branches" $W 'git branch --show-current'
 
 # K10 — a missing script fails open (exit 0, no output) instead of blocking every Bash call
 # (a TMPDIR template, because the Bash sandbox denies mktemp's default /var/folders)

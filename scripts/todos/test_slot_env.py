@@ -184,6 +184,39 @@ def main():
                              capture_output=True, text=True)
         check("--worktree naming no directory exits 2", out.returncode == 2 and "not a directory" in out.stderr,
               (out.returncode, out.stderr))
+        # Todo 473: `--worktree .` from WT/backend named a directory inside the worktree, not its top.
+        (wt / "backend").mkdir(exist_ok=True)
+        out = subprocess.run(this_copy + ["--worktree", str(wt / "backend"), "1", "--", "true"],
+                             capture_output=True, text=True)
+        check("473 AC3: --worktree naming a directory inside a worktree exits 2, naming the top level",
+              out.returncode == 2 and "not a worktree's top level" in out.stderr and str(wt.resolve()) in out.stderr,
+              (out.returncode, out.stderr))
+        plain = Path(tmp) / "plain"
+        plain.mkdir()
+        out = subprocess.run(this_copy + ["--worktree", str(plain), "1", "--", "true"], capture_output=True, text=True)
+        check("473: --worktree naming a directory outside any checkout exits 2",
+              out.returncode == 2 and "no checkout" in out.stderr, (out.returncode, out.stderr))
+
+        # Todo 479: the harness copies .worktreeinclude files from its own main checkout, so a fresh worktree
+        # may have no web/.env. slot_env passes the main checkout's values as environment, which Vite reads first.
+        (main_root / "web").mkdir()
+        (main_root / "web" / ".env").write_text("# web\nVITE_API_URL=http://main.example # note\n")
+        probe = [sys.executable, "-c", "import os; print(os.environ.get('VITE_API_URL'))"]
+        clean_env = {k: v for k, v in os.environ.items() if k not in ("FOO", "DATABASE_URL", "VITE_API_URL")}
+        out = subprocess.run(this_copy + ["--worktree", str(wt), "1", "--"] + probe, capture_output=True, text=True,
+                             env=clean_env)
+        check("479: a worktree without web/.env gets the main checkout's web values, comments stripped as Vite does",
+              out.stdout.strip() == "http://main.example", (out.stdout, out.stderr))
+        (wt / "web").mkdir()
+        (wt / "web" / ".env").write_text("VITE_API_URL=http://own\n")
+        out = subprocess.run(this_copy + ["--worktree", str(wt), "1", "--"] + probe, capture_output=True, text=True,
+                             env=clean_env)
+        check("479: a worktree with its own web/.env gets nothing from the main checkout (Vite reads its own)",
+              out.stdout.strip() == "None", (out.stdout, out.stderr))
+        out = subprocess.run(this_copy + ["--worktree", str(wt), "1", "--"] + probe, capture_output=True, text=True,
+                             env=clean_env | {"VITE_API_URL": "http://caller"})
+        check("479: a value already in the environment wins", out.stdout.strip() == "http://caller",
+              (out.stdout, out.stderr))
 
     print()
     if FAILURES:

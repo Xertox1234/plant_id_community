@@ -20,6 +20,8 @@ A worktree with no backend/.env (the 2026-09-28 pilot: .worktreeinclude is read
 from the main checkout, which may sit on a branch without it) reads the main
 checkout's backend/.env instead, and its values become process environment too,
 because python-decouple would otherwise find nothing. Still nothing is written.
+The same goes for web/.env (todo 479): run `npm run ...` through slot_env and
+Vite, which reads VITE_* from the environment first, gets the main checkout's.
 
 The sandbox blocks loopback TCP, so a sandboxed worker cannot reach Postgres or
 Redis on localhost (pilot P2/P5; todo 469). It can reach a Unix socket that
@@ -72,12 +74,27 @@ def _dotenv_value(value):
     return re.split(r"\s#", value, maxsplit=1)[0].strip().strip("'\"")
 
 
-def dotenv_path(worktree, main_root):
-    """(path, inherited): the worktree's backend/.env, else the main checkout's."""
-    own = Path(worktree) / "backend" / ".env"
+def dotenv_path(worktree, main_root, app="backend"):
+    """(path, inherited): the worktree's <app>/.env, else the main checkout's."""
+    own = Path(worktree) / app / ".env"
     if own.is_file() or Path(main_root).resolve() == Path(worktree).resolve():
         return own, False
-    return Path(main_root) / "backend" / ".env", True
+    return Path(main_root) / app / ".env", True
+
+
+def web_env(worktree, main_root):
+    """The main checkout's web/.env values, when the worktree has no web/.env of its own (todo 479: the
+    harness copies .worktreeinclude files from ITS main checkout, which may sit on a branch without the
+    file). Vite reads VITE_* from the process environment ahead of any .env file, so a worker's Vitest
+    or `npm run build` sees them. Vite's dotenv strips an inline ` # note`, so this reading does too."""
+    path, inherited = dotenv_path(worktree, main_root, app="web")
+    return parse_dotenv(path.read_text()) if inherited and path.is_file() else {}
+
+
+def top_level(path):
+    """The worktree top level holding path, or None when path is in no git checkout."""
+    proc = subprocess.run(["git", "-C", str(path), "rev-parse", "--show-toplevel"], capture_output=True, text=True)
+    return Path(proc.stdout.strip()).resolve() if proc.returncode == 0 else None
 
 
 def main_checkout(worktree):
@@ -136,19 +153,30 @@ def main(argv):
         if not worktree.is_dir():
             print(f"slot_env: --worktree {worktree} is not a directory", file=sys.stderr)
             return 2
+        # Todo 473: `--worktree .` from WT/backend would give WT/backend/backend/packages/... on PYTHONPATH
+        # and fall back to the main checkout's .env without a word.
+        top = top_level(worktree)
+        if top != worktree:
+            print(f"slot_env: --worktree {worktree} is not a worktree's top level (git says {top or 'no checkout'})",
+                  file=sys.stderr)
+            return 2
     if len(args) < 3 or args[1] != "--" or not args[0].isdigit():
         print(__doc__, file=sys.stderr)
         return 2
     try:
-        dotenv, inherited = dotenv_path(worktree, main_checkout(worktree))
+        main_root = main_checkout(worktree)
+        dotenv, inherited = dotenv_path(worktree, main_root)
+        web = web_env(worktree, main_root)
     except subprocess.CalledProcessError:
-        dotenv, inherited = worktree / "backend" / ".env", False
+        dotenv, inherited, web = worktree / "backend" / ".env", False, {}
     try:
         env = slot_env(dict(os.environ), dotenv.read_text() if dotenv.is_file() else "", int(args[0]), worktree,
                        inherit_dotenv=inherited)
     except ValueError as exc:
         print(f"slot_env: {exc}", file=sys.stderr)
         return 2
+    for key, value in web.items():
+        env.setdefault(key, value)
     os.execvpe(args[2], args[2:], env)
     return 127  # not reached
 

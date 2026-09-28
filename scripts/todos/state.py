@@ -142,12 +142,19 @@ def summary(run):
 
 
 def recorded_worktrees(run):
-    """{todo id: [worktree, ...]} for every todo not archived, including a reopened todo's earlier
-    attempts -- `finish` deletes the run file, so the wrap-up lists these first (todo 468, F5)."""
+    """{todo id: [worktree, ...]}: every todo's recorded worktree, including a reopened todo's earlier
+    attempts -- `finish` deletes the run file, so the wrap-up lists these first (todo 468, F5). An archived
+    todo's own worktree was removed at cleanup (pushed and merged), but a blocked attempt before it never
+    is, so it stays listed for the owner (todo 473)."""
     out = {}
     for todo_id, entry in sorted(run["todos"].items()):
-        paths = [p for p in [entry.get("worktree")] + [a.get("worktree") for a in entry.get("previous", [])] if p]
-        if paths and entry["stage"] != "archived":
+        current = entry.get("worktree")
+        earlier = [a.get("worktree") for a in entry.get("previous", [])]
+        if entry["stage"] == "archived":
+            paths = [p for p in earlier if p and p != current]
+        else:
+            paths = [p for p in [current] + earlier if p]
+        if paths:
             out[todo_id] = list(dict.fromkeys(paths))
     return out
 
@@ -188,13 +195,17 @@ def _normalize_predicted_files(record, root=None):
     lanes match exact repo-relative paths; an absolute path cannot be mapped onto the repo,
     so it is dropped and listed in `dropped_files` for the plan to show. A path under the
     triage root (triage-args --root) is made relative to it first: triagers searching the
-    root get absolute hits back, and dropping them would drop their lanes (PR #868)."""
+    root get absolute hits back, and dropping them would drop their lanes (PR #868). A path reported
+    through a symlink (/tmp is /private/tmp on macOS) is matched as reported and resolved, against the
+    resolved root, so either form of either one keeps its lane (todo 473)."""
     prefix = str(Path(root).resolve()).rstrip("/") + "/" if root else None
     kept, dropped = [], []
     for path in record.get("predicted_files", []):
         path = str(path)
-        if prefix and path.startswith(prefix):
-            path = path[len(prefix):]
+        if prefix and os.path.isabs(path):
+            form = next((f for f in (path, os.path.realpath(path)) if f.startswith(prefix)), None)
+            if form:
+                path = form[len(prefix):]
         while path.startswith("./"):
             path = path[2:]
         (dropped if os.path.isabs(path) else kept).append(path)
@@ -252,6 +263,15 @@ def run_git(repo, *args):
 def apply_triage(run, repo_root, today, git=run_git):
     """Write durable triage facts into each todo's frontmatter (spec §6.4)."""
     repo_root = Path(repo_root)
+    # Todo 474: both the in_progress file and its pending name on disk is one id twice. Skipping the rename
+    # would leave the old file behind, so refuse before anything is written.
+    for todo_id, entry in sorted(run["todos"].items()):
+        if entry.get("triage") and entry.get("reset_stranded"):
+            rel = entry["path"]
+            new_rel = str(Path(rel).with_name(todofile.with_status(Path(rel).name, "pending")))
+            if new_rel != rel and (repo_root / rel).exists() and (repo_root / new_rel).exists():
+                raise RuntimeError(f"{todo_id}: both {rel} and {new_rel} exist, so the id is on disk twice; "
+                                   "keep one (git rm the other), then rerun apply-triage")
     changed = []
     for todo_id, entry in sorted(run["todos"].items()):
         record = entry.get("triage")
@@ -267,7 +287,8 @@ def apply_triage(run, repo_root, today, git=run_git):
             rel = entry["path"] = new_rel
             todofile.set_fields(repo_root / rel, {"status": "pending"})
             heading = f"### {today} - Returned to pending by the todo sweep (run {run['run_id']})"
-            if heading not in (repo_root / rel).read_text():
+            # Todo 474: matched without the date, so a rerun on a later day does not add a second entry.
+            if f" - Returned to pending by the todo sweep (run {run['run_id']})" not in (repo_root / rel).read_text():
                 todofile.append_work_log(
                     repo_root / rel,
                     f"{heading}\n\n"
@@ -661,11 +682,17 @@ def review_args(run, round_no, wave, git=run_git, run_file="", held=None):
                                              "origin/main...HEAD").split("\0") if f],
             # Todo 480: the workflow's check before the round-1 repair runs this and relays its output.
             "residue_check": f"python3 {shlex.quote(STATE_PY)} residue {shlex.quote(run_file)} {shlex.quote(gid)}",
+            # Todo 483: untracked when the round started. The repair stages only what it changed and leaves
+            # these alone, the verifier's clean checks ignore them, and ingest refuses a repair that staged one.
+            "untracked_before": sorted(p for p, v in base["files"].items() if v.startswith("?? ")),
         })
     return items
 
 
 HELD = "held for the owner"
+# The runbook's "one rerun per round", kept in the run file so it survives a resume (todo 478): the second
+# incomplete review (rerun or residue) in one round blocks the group.
+MAX_INCOMPLETE = 2
 
 
 def _holds(line):
@@ -675,6 +702,19 @@ def _holds(line):
 
 def _group_refuted(entries):
     return list(dict.fromkeys(r for _, e in entries for r in e.get("refuted", [])))
+
+
+def _open_criticals(entries):
+    """The group's dismissed criticals the owner has not cleared (todo 482: a round-1 hold is cleared
+    before round 2, which must not hold again for the same lines)."""
+    cleared = {r for _, e in entries for r in e.get("hold_cleared", [])}
+    return [r for r in _group_refuted(entries) if _holds(r) and r not in cleared]
+
+
+def held_groups(run):
+    """The groups blocked and held for the owner's decision on a dismissed critical."""
+    return sorted({e["group"] for e in run["todos"].values()
+                   if e["stage"] == "blocked" and e.get("group") and e.get("reason", "").startswith(HELD)})
 
 
 def refuted_comment(run, gid):
@@ -689,23 +729,80 @@ def refuted_comment(run, gid):
 
 
 def clear_hold(run, gid, decision):
-    """The owner cleared a held group's dismissed criticals: blocked -> reviewed, and nothing else.
-    It bypasses ALLOWED on purpose: a hold is the one blocked state that resumes at review, not at ready."""
+    """The owner cleared a held group's dismissed criticals, and nothing else. It bypasses ALLOWED on purpose:
+    a hold is the one blocked state that resumes at review, not at ready. A round-2 hold goes to reviewed; a
+    round-1 hold (todo 482) goes back to pr_open with round 1 done, so round 2 still runs, and the criticals
+    cleared here stop holding (a new one in round 2 holds again)."""
     if not decision.strip():
         raise TransitionError(f"{gid}: clearing a hold needs the owner's decision")
     entries = _group_entries(run, gid)
     if not entries or any(e["stage"] != "blocked" or not e.get("reason", "").startswith(HELD) for _, e in entries):
         raise TransitionError(f"{gid}: not held for the owner; nothing to clear")
+    cleared = _open_criticals(entries)
     for _, entry in entries:
         # Keep any triage-time decision: this one is added to it, not written over it.
         earlier = entry.get("owner_decision")
-        entry.update(stage="reviewed", review_round=2, reason="",
-                     owner_decision=f"{earlier}; hold cleared: {decision}" if earlier else f"hold cleared: {decision}")
+        if entry.pop("held_round", 2) == 1:
+            resume = {"stage": "pr_open", "review_round": 1}
+        else:
+            resume = {"stage": "reviewed", "review_round": 2}
+        entry.update(reason="", hold_cleared=list(dict.fromkeys(entry.get("hold_cleared", []) + cleared)),
+                     owner_decision=f"{earlier}; hold cleared: {decision}" if earlier else f"hold cleared: {decision}",
+                     **resume)
+
+
+def _hold(run, gid, entries, criticals, round_no, note=""):
+    set_group(run, gid, "blocked", reason=f"{HELD}: {len(criticals)} critical finding(s) dismissed only by "
+                                          f"refuters (round {round_no}){note}; first: {criticals[0]}"[:500])
+    for _, entry in entries:
+        entry["held_round"] = round_no
 
 
 def _refuted_line(f):
     line = f"{f['severity']}: {f['file']}:{f['line']} {f['summary']}"
     return line + (f" | also: {' | '.join(f['also'])}" if f.get("also") else "")
+
+
+def _merge_refuted(kept, findings):
+    """Todo 482: one line per severity and file:line across both rounds. A later round's new phrasings of the
+    same location join its line, so one dismissed bug is counted once and posted once."""
+    out = list(kept)
+    for f in findings:
+        prefix = f"{f['severity']}: {f['file']}:{f['line']} "
+        at = next((n for n, line in enumerate(out) if line.startswith(prefix)), None)
+        if at is None:
+            out.append(_refuted_line(f))
+            continue
+        head, _, also = out[at][len(prefix):].partition(" | also: ")
+        have = [head] + (also.split(" | ") if also else [])
+        merged = have + [p for p in dict.fromkeys([f["summary"], *f.get("also", [])]) if p not in have]
+        out[at] = _refuted_line({**f, "summary": merged[0], "also": merged[1:]})
+    return out
+
+
+ALIASES = (("/tmp/", "/private/tmp/"), ("/var/", "/private/var/"))
+
+
+def _rel_file(path, worktree):
+    """A reviewer's file as a repo-relative path (todo 478): the PR worktree's prefix is stripped in any of
+    its forms (macOS /tmp is /private/tmp), and so is a leading ./, so one location is one follow-up."""
+    path = str(path)
+    if worktree and os.path.isabs(path):
+        roots = {str(worktree).rstrip("/"), os.path.realpath(worktree)}
+        for root in list(roots):
+            for alias, real in ALIASES:
+                if root.startswith(alias):
+                    roots.add(real + root[len(alias):])
+                elif root.startswith(real):
+                    roots.add(alias + root[len(real):])
+        for form in dict.fromkeys((path, os.path.realpath(path))):
+            hit = next((r for r in sorted(roots, key=len, reverse=True) if form.startswith(r + "/")), None)
+            if hit:
+                path = form[len(hit) + 1:]
+                break
+    while path.startswith("./"):
+        path = path[2:]
+    return path
 
 
 def _found_residue(run, result, round_no, git):
@@ -716,6 +813,51 @@ def _found_residue(run, result, round_no, git):
     if result.get("repair") is None:
         return sorted(set((reported or []) + review_residue(run, result["group"], round_no, git)))
     return [] if reported == [] else (reported or ["the round-1 repair ran without a residue check"])
+
+
+def _incomplete(run, gid, entries, round_no, outcome, why):
+    """Count a rerun or residue outcome in the run file (todo 478); the second one in a round blocks."""
+    n = entries[0][1].get("review_reruns", {}).get(str(round_no), 0) + 1
+    for _, entry in entries:
+        entry["review_reruns"] = {**entry.get("review_reruns", {}), str(round_no): n}
+    if n < MAX_INCOMPLETE:
+        return outcome
+    set_group(run, gid, "blocked",
+              reason=f"review round {round_no} was incomplete twice (last: {outcome}, {why})"[:500])
+    return "blocked"
+
+
+def _staged_untracked_before(entries, git):
+    """Todo 483: paths that were untracked when the round started and that the round-1 repair staged. The
+    repair stages only what it changed; these were already there (a worker's artifact that Land never
+    committed), so staging one would put it in the PR."""
+    first = entries[0][1]
+    before = {p for p, v in (first.get("review_baseline") or {}).get("files", {}).items() if v.startswith("?? ")}
+    if not before:
+        return []
+    staged = git(first["worktree"], "diff", "--cached", "--name-only", "--no-renames", "-z", "HEAD").split("\0")
+    return sorted(before & set(staged))
+
+
+def _repair_problem(result, entries, git):
+    """Why a round-1 repair cannot be kept, or None."""
+    repair = result["repair"]
+    if not repair:
+        return "no repair"
+    if repair["status"] != "staged":
+        blockers = result.get("repair_blockers") or repair.get("blockers") or ""
+        return f"repair {repair['status']}: {blockers}" if blockers else f"repair {repair['status']}"
+    problem = evaluate(repair, result["verdict"])
+    if problem:
+        return _with_reasons(problem, result["verdict"])
+    try:
+        swept = _staged_untracked_before(entries, git)
+    except RuntimeError as exc:
+        swept = [f"(the check failed: {exc})"[:300]]
+    if swept:
+        return (f"the repair staged files that were untracked before the round ({', '.join(swept[:5])}); "
+                "it must stage only the paths it changed")
+    return None
 
 
 def ingest_review(run, results, round_no, git=run_git):
@@ -739,37 +881,34 @@ def ingest_review(run, results, round_no, git=run_git):
             if found:
                 entry["review_residue"] = found
         if found:
-            outcome[gid] = "residue"
+            outcome[gid] = _incomplete(run, gid, entries, round_no, "residue", ", ".join(found[:5]))
             continue
         if not result["reviewers_ok"]:
-            outcome[gid] = "rerun"
+            outcome[gid] = _incomplete(run, gid, entries, round_no, "rerun",
+                                       "a reviewer or the router returned nothing")
             continue
+        worktree = entries[0][1].get("worktree", "")
         follow = list(dict.fromkeys(  # de-dupe within this call too, preserve order
-            f"{f['file']}:{f['line']} {f['summary']}" for f in result["findings"]
+            f"{_rel_file(f['file'], worktree)}:{f['line']} {f['summary']}" for f in result["findings"]
             if f["severity"] not in {"critical", "high"}
         ))
         # Blocking findings both refuters dismissed are kept whole (severity, every phrasing, no cap): the
         # PR comment before arming, the follow-up todos and the critical hold below all read them (todo 478).
-        dismissed = [_refuted_line(f) for f in result.get("refuted", [])]
+        dismissed = [{**f, "file": _rel_file(f["file"], worktree)} for f in result.get("refuted", [])]
         for _, entry in entries:
             existing = entry.get("followups", [])
             entry["followups"] = (existing + [f for f in follow if f not in existing])[:10]
-            kept = entry.get("refuted", [])
-            entry["refuted"] = kept + [f for f in dismissed if f not in kept]
+            entry["refuted"] = _merge_refuted(entry.get("refuted", []), dismissed)
         blocking = result["blocking"]
+        # An LLM refutation alone never clears a critical, from either round: hold the PR for the owner.
+        criticals = _open_criticals(entries)
+        also = (f"; also {len(criticals)} critical finding(s) dismissed only by refuters, which the owner "
+                "must clear") if criticals else ""
         if round_no == 1:
             if blocking:
-                repair = result["repair"]
-                if not repair:
-                    problem = "no repair"
-                elif repair["status"] != "staged":
-                    blockers = result.get("repair_blockers") or repair.get("blockers") or ""
-                    problem = f"repair {repair['status']}: {blockers}" if blockers else f"repair {repair['status']}"
-                else:
-                    problem = evaluate(repair, result["verdict"])
-                    problem = problem and _with_reasons(problem, result["verdict"])
+                problem = _repair_problem(result, entries, git)
                 if problem:
-                    set_group(run, gid, "blocked", reason=f"round-1 repair failed: {problem}")
+                    set_group(run, gid, "blocked", reason=f"round-1 repair failed: {problem}{also}")
                     outcome[gid] = "blocked"
                     continue
                 for _, entry in entries:
@@ -777,26 +916,25 @@ def ingest_review(run, results, round_no, git=run_git):
                     entry["verified_ac"] = result["verdict"]["ac"]
                     entry["test_edits"] = sorted(set(entry.get("test_edits", []))
                                                   | set(result["verdict"]["test_edits_flagged"]))
-                outcome[gid] = "repair-staged"
-            else:
-                outcome[gid] = "clean"
+            # Todo 482: a dismissed critical would hold the PR at round 2 anyway, so hold it now and save the
+            # commit, push and round 2. A verified repair stays staged, uncommitted, for the owner.
+            if criticals:
+                note = "; a verified repair waits staged, uncommitted" if blocking else ""
+                _hold(run, gid, entries, criticals, 1, note)
+                outcome[gid] = "held"
+                continue
+            outcome[gid] = "repair-staged" if blocking else "clean"
             for _, entry in entries:
                 entry["review_round"] = 1
+        elif blocking:
+            set_group(run, gid, "blocked", reason=f"{len(blocking)} blocking findings after round 2{also}")
+            outcome[gid] = "blocked"
+        elif criticals:
+            _hold(run, gid, entries, criticals, 2)
+            outcome[gid] = "held"
         else:
-            # An LLM refutation alone never clears a critical, from either round: hold the PR for the owner.
-            criticals = [r for r in _group_refuted(entries) if _holds(r)]
-            if blocking:
-                also = (f"; also {len(criticals)} critical finding(s) dismissed only by refuters, which the "
-                        "owner must clear") if criticals else ""
-                set_group(run, gid, "blocked", reason=f"{len(blocking)} blocking findings after round 2{also}")
-                outcome[gid] = "blocked"
-            elif criticals:
-                set_group(run, gid, "blocked", reason=f"{HELD}: {len(criticals)} critical finding(s) "
-                                                      f"dismissed only by refuters; first: {criticals[0]}"[:500])
-                outcome[gid] = "held"
-            else:
-                set_group(run, gid, "reviewed", review_round=2)
-                outcome[gid] = "clean"
+            set_group(run, gid, "reviewed", review_round=2)
+            outcome[gid] = "clean"
     return outcome
 
 
@@ -846,20 +984,24 @@ def _force_staged_ignored(path, base="origin/main"):
     error can name the real cause. Limited to added paths, so a file already tracked at the base
     that happens to match an ignore rule never trips it. A missing base makes git fail, and run_git
     raises: the check fails closed."""
-    ignored = set(run_git(path, "ls-files", "--cached", "--ignored", "--exclude-standard").splitlines())
+    # -z everywhere: git C-quotes a path with a tab, a quote or a non-ASCII byte otherwise, and the error
+    # would name "a\tb" instead of the file (todo 477).
+    ignored = {p for p in run_git(path, "ls-files", "-z", "--cached", "--ignored", "--exclude-standard").split("\0")
+               if p}
     include = _worktreeinclude(path, base)
     if not ignored and not include:
         return [], {}
-    added = run_git(path, "diff", "--cached", "--name-only", "--no-renames", "--diff-filter=A",
-                    "--merge-base", base).splitlines()
+    added = [p for p in run_git(path, "diff", "--cached", "--name-only", "-z", "--no-renames", "--diff-filter=A",
+                                "--merge-base", base).split("\0") if p]
     flagged = sorted(p for p in added if p in ignored or any(fnmatch.fnmatch(p, pat) for pat in include))
     renamed = {}
     if flagged:
-        for line in run_git(path, "diff", "--cached", "--name-status", "-M", "--diff-filter=R",
-                            "--merge-base", base).splitlines():
-            parts = line.split("\t")
-            if len(parts) == 3 and parts[2] in flagged:
-                renamed[parts[2]] = parts[1]
+        # With -z, each rename is three fields: status (R<score>), source, destination.
+        fields = run_git(path, "diff", "--cached", "--name-status", "-z", "-M", "--diff-filter=R",
+                         "--merge-base", base).split("\0")
+        for i in range(0, len(fields) - 2, 3):
+            if fields[i].startswith("R") and fields[i + 2] in flagged:
+                renamed[fields[i + 2]] = fields[i + 1]
     return flagged, renamed
 
 
@@ -1042,6 +1184,12 @@ def main(argv=None):
             print(json.dumps(recorded_worktrees(run), indent=1))
             return 0
         if args.cmd == "finish":
+            held = held_groups(run)
+            if held:
+                # Todo 482: clear-hold needs the run file, and the owner must not have to merge by hand.
+                print(f"state: {', '.join(held)} held for the owner (a dismissed critical); keep the run file until "
+                      f"`clear-hold` resolves each", file=sys.stderr)
+                return 1
             if is_complete(run):
                 Path(args.runfile).unlink()
                 print("run complete; run file removed")

@@ -135,7 +135,13 @@ Steps 1–8 run with the sandbox off (see **Sandbox**).
 4. For each todo id: `python3 scripts/todos/land.py archive --run $RUN --id <id> --repo $WT --date $TODAY`
    → stage exactly its `paths`: `/usr/bin/git -C $WT add <paths…>` (after `git mv`, re-add the new path).
 5. Rename the branch to the repo convention: `/usr/bin/git -C $WT branch -m <type>/<id>-<slug>`, then
-   `state.py annotate $RUN G --field branch=<new>`.
+   `state.py annotate $RUN G --field branch=<new>`. A reopened todo (todo 473) may find that name taken: an
+   earlier attempt already renamed its branch, and that attempt's worktree (under `previous`) still has it
+   checked out, so `branch -m` fails. Never delete or force-move it. If `/usr/bin/git -C $WT rev-parse
+   --abbrev-ref HEAD` already prints the name, skip the rename. Otherwise, when
+   `/usr/bin/git -C REPO rev-parse --verify --quiet refs/heads/<type>/<id>-<slug>` succeeds, rename to
+   `<type>/<id>-<slug>-<n>` instead, with `<n>` = the todo's attempts so far + 1 (the first free one), and name
+   the old branch and its worktree in the wrap-up.
 6. Commit the index only (never `-a`): `/usr/bin/git -C $WT commit -m "<type>(<scope>): <summary> (todo <id>)" -m "<2–4 bullets from the WORKER summary>" -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"`.
    If the kimi gate prints `timed out; skipping gate`, record `kimi: skipped` (never "passed").
 7. Rebase when origin/main moved (spec §7.2): `/usr/bin/git -C $WT fetch origin main`; if
@@ -156,13 +162,22 @@ Steps 1–8 run with the sandbox off (see **Sandbox**).
    swept away makes it exit 2 for the whole wave.
 1. `python3 scripts/todos/state.py review-args $RUN --round 1 --wave W` → `Workflow({name: "todo-review", args})`
    → `python3 scripts/todos/state.py ingest-review $RUN --output <file> --round 1`.
+   Read `review-args`' `residue` key first (todo 484): a group listed there still holds what an earlier attempt
+   at this round left, so it was left out of `prs` and gets no review. Handle each one per step 5.
    - `clean` → round 2.
    - `repair-staged` → `ensure-worktree`, `git -C $WT diff --cached --stat`, commit `fix: address review round 1 (todo <id>)`,
      `ensure-worktree` again, push, then round 2.
-   - `rerun` → run round 1 again once. A second `rerun`: `set-group … blocked`.
+   - `rerun` → run round 1 again once. The run file counts it (`review_reruns`, todo 478), so a second
+     incomplete round (`rerun` or `residue`) comes back `blocked` from `ingest-review` itself.
    - `residue` → see step 5. Nothing was repaired.
+   - `held` (todo 482) → a critical was dismissed only by the refuters, so the PR would be held at round 2 anyway;
+     `ingest-review` has already blocked the group. Do not commit, push or run round 2. Report it as in step 2's
+     `held`. If the reason says a verified repair waits staged, it stays uncommitted for the owner. When the
+     owner clears it, `clear-hold` moves the group back to `pr_open` with round 1 done: commit and push a staged
+     repair as for `repair-staged`, then round 2. The cleared lines do not hold again; a new critical does.
    - `blocked` → report it.
-2. Round 2: `review-args --round 2` → workflow → `ingest-review --round 2`. For every outcome except
+2. Round 2: `review-args --round 2` → workflow → `ingest-review --round 2`. Read `review-args`' `residue` key
+   first, as in step 1, and handle each group in it per step 5. For every outcome except
    `rerun` and `residue`, first post the refuter-dismissed findings: run `state.py refuted-comment $RUN G --out
    $SCRATCH/refuted-G.md`. If it prints a path, run `gh pr comment <n> --body-file <that path>`. Never
    build `--body` from the findings: they are LLM text, and this step runs with the sandbox off.
@@ -173,18 +188,21 @@ Steps 1–8 run with the sandbox off (see **Sandbox**).
    already blocked the group. Do NOT arm. Report the PR to the owner as held. Only the owner can clear a
    critical. When they do, run `state.py clear-hold $RUN G --decision "<their words, dated>"`, which moves the
    group to `reviewed`, then arm.
-   `rerun` → run round 2 again once. A second `rerun`: `set-group … blocked` and report it.
+   `rerun` → run round 2 again once. A second incomplete round 2 comes back `blocked`; report it.
    `residue` → do NOT arm; see step 5.
    `blocked` → stop that PR and report it. Its reason also names any dismissed critical the owner must clear.
 3. What a round runs, for every size: three `todo-reviewer` bug lenses, plus the checklist lane.
    `review-args` computes each PR's `changed_files` from its worktree's diff. The workflow applies the
    orchestrator table's path rules to that list and always dispatches those reviewers, each with its own
    files. `code-review-orchestrator` (Phase 1 only) can add reviewers, never remove them; `floor_added`
-   names the ones it missed. No subagent can spawn subagents (pilot P8), so all fan-out is in the workflow
+   names the ones it missed. A dead router (todo 481) still leaves the path-routed reviewers to run
+   (`routing_failed: true`); the round counts as complete only when no changed `.py` outside `apps/blog/` could
+   need wagtail-reviewer by content. The router greps through `git -C WT grep` over a pathspec, so no changed
+   file's name reaches a shell. No subagent can spawn subagents (pilot P8), so all fan-out is in the workflow
    script. Each critical/high file:line then faces two refuters and stops blocking only if both refute every
    phrasing reported there. A dead reviewer makes the round `rerun`, never a partial pass. The run file keeps each
-   todo's `refuted` findings whole (`<severity>: file:line summary | also: …`, never capped). List them in the
-   wrap-up, so the owner can see what the refuters dismissed.
+   todo's `refuted` findings whole (`<severity>: file:line summary | also: …`, never capped, one line per severity
+   and file:line across both rounds). List them in the wrap-up, so the owner can see what the refuters dismissed.
 4. Follow-ups: todos with `followups` or `refuted` get one follow-up todo file per PR (next free id, `p4`, the
    PR number in its Findings, refuted ones under their own heading so the owner can re-judge them), all
    committed together in a closing `chore(todos): follow-ups from run $RUN_ID` PR. A group still held or
@@ -199,6 +217,10 @@ Steps 1–8 run with the sandbox off (see **Sandbox**).
    When `residue` prints `{"changed": []}`, rerun the round; that counts as its one rerun. A rerun keeps the
    round's baseline, so until the worktree matches it again, `review-args` leaves the group out of `prs` and
    lists it with its paths under `residue`. The wave's other groups carry on.
+   Files that were already untracked when the round started (a worker's artifact; Land commits only the index)
+   are in the baseline, so they are not residue. The round-1 repair stages only the paths it changed and leaves
+   them alone (todo 483): `review-args` lists them as `untracked_before`, the repair and its verifier are told
+   about them, and `ingest-review` blocks a repair that staged one.
 
 ## Merge confirmation and cleanup
 
@@ -210,9 +232,12 @@ Both git steps run with the sandbox off. Finish with `/usr/bin/git -C REPO workt
 ## Wrap-up
 
 1. `python3 scripts/todos/state.py worktrees $RUN` lists every unarchived todo's recorded worktree,
-   earlier blocked attempts included. Put each in the summary. `finish` deletes RUN, and with it the only
-   record of where that staged work is.
-2. `python3 scripts/todos/state.py finish $RUN` removes the run file only when every todo is terminal.
+   earlier blocked attempts included, and a landed todo's earlier blocked attempts too (todo 473: cleanup
+   removes only the worktree that landed; the others are left for the owner). Put each in the summary.
+   `finish` deletes RUN, and with it the only record of where that staged work is.
+2. `python3 scripts/todos/state.py finish $RUN` removes the run file only when every todo is terminal, and
+   refuses (exit 1, naming them) while any group is held for the owner (todo 482): `clear-hold` needs the run
+   file. Leave it in place and report the held PRs.
 
 The summary lists: merged PRs, blocked todos with reasons, skipped todos, the worktrees from step 1,
 owner hand-offs (prod, device and vendor steps are never attempted), the `kimi: skipped` count,

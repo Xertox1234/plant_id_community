@@ -50,6 +50,11 @@ The todo sweep's `todo-review` workflow mirrors this table's path rules (`ROUTES
 routing misses one. `scripts/todos/test_workflows.js` fails when this table and `ROUTES` differ, so
 edit both.
 
+In a sweep, the prompt gives the changed files as a JSON list and the one command to run for the
+wagtail content rule, a `git -C <worktree> grep` over the `'*.py'` pathspec. Run exactly that and keep
+its hits that are in the list. Never put a changed file's name into a command: a name can hold `'` or
+`$(...)` (todo 481).
+
 Return a JSON block:
 
 ```json

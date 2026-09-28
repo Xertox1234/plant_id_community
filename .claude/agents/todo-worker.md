@@ -32,7 +32,10 @@ archive a todo, or change its `status:`. The main session lands your work. You n
 2. `MAIN` = `BRIEF.main_root` (or `MAIN_ROOT`), `SLOT` = `BRIEF.slot` (or `SLOT`).
 3. Toolchain — never write DATABASE_URL, REDIS_URL or PYTHONPATH into `.env`:
    - Backend tests, from `WT/backend`: `python3 WT/scripts/todos/slot_env.py SLOT -- MAIN/backend/venv/bin/python -m pytest <nodes> --create-db`
-   - Web: once, `ln -sfn MAIN/web/node_modules WT/web/node_modules`; then `npm run …` from `WT/web`.
+   - Web: once, `ln -sfn MAIN/web/node_modules WT/web/node_modules`; then `npm run …` from `WT/web`. When
+     `WT/web/.env` is missing (the harness copies it only from its own main checkout), run it as
+     `python3 WT/scripts/todos/slot_env.py SLOT -- npm run …`: Vite then reads MAIN's `web/.env` values from the
+     environment (todo 479).
    - Flutter: `flutter pub get` in `WT/plant_community_mobile`.
    - Changing a dependency manifest needs the deps lane: if `BRIEF.lanes_held` does not mention dependency
      manifests, stop with status `blocked` and blockers `needs the deps lane`.
@@ -92,10 +95,14 @@ quoted. Do not edit Acceptance Criteria.
 
 ## Finish
 
-1. `/usr/bin/git -C WT add -A`
+1. `/usr/bin/git -C WT add -A` — except in `MODE: repair` (todo 483): there, stage only the paths you
+   changed, `/usr/bin/git -C WT add -- <path>...` (and `git rm` / `git mv` for a delete or a move), list every
+   one in `files_changed`, and never stage, edit or delete a path in the prompt's `UNTRACKED_BEFORE`: those
+   were untracked before the review round, and staging one would commit it into the PR.
 2. Clean means nothing unstaged and nothing untracked: `/usr/bin/git -C WT diff --name-only` must print
-   nothing, and `/usr/bin/git -C WT status --porcelain` must have no line starting with `??`. Fix it if
-   either does — staged lines (`A`, `M`, ...) are expected and fine.
+   nothing, and `/usr/bin/git -C WT status --porcelain` must have no line starting with `??` (in `MODE:
+   repair`, none but the `UNTRACKED_BEFORE` paths). Fix it if either does — staged lines (`A`, `M`, ...) are
+   expected and fine.
 3. `/usr/bin/git -C WT write-tree` → `tree_id`.
 4. Return the WORKER record: `ids` (= `BRIEF.ids` in `MODE: implement` and `MODE: retry` — both carry
    `BRIEF`; the prompt's `IDS` line in `MODE: repair`, which has none), `status` — `staged` only when

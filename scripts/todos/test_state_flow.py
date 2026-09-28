@@ -178,16 +178,55 @@ def main():
     # apart from "still holding the value the first ingest_execute call set" -- the same
     # ids/ac_ok would otherwise make an identical ac list either way, proving nothing.
     repair_verdict = verdict(ids_ok, before="T5", after="T5", edits=["tests/test_a.py"], note="repair")
-    # Todo 478: a critical refuted in a REAL round-1 ingest still holds the PR at a clean round 2.
+    # Todo 478: a critical refuted in a REAL round-1 ingest holds the PR. Todo 482 changed WHEN: the round-1
+    # ingest holds it itself (it used to return clean and hold at round 2), so the engine no longer pays for
+    # a commit, a push and a whole round 2 whose outcome is already fixed.
     via_r1 = copy.deepcopy(run)
     crit = {"severity": "critical", "file": "d.py", "line": 4, "summary": "dismissed in round 1", "suggested_fix": "",
             "also": [], "refutations": ["no", "no"]}
     r1 = ingest(via_r1, [{"group": g_ok, "ids": ids_ok, "findings": [], "blocking": [],
                                        "reviewers_ok": True, "repair": None, "verdict": None, "refuted": [crit]}], 1)
+    e_r1 = via_r1["todos"][ids_ok[0]]
+    check("482 AC1: a critical dismissed in round 1 returns held from the round-1 ingest",
+          r1[g_ok] == "held" and e_r1["stage"] == "blocked" and e_r1["reason"].startswith("held for the owner")
+          and "(round 1)" in e_r1["reason"] and e_r1.get("held_round") == 1, (r1, e_r1))
+    state.clear_hold(via_r1, g_ok, "owner: a false positive (2026-09-28)")
+    check("482: clearing a round-1 hold resumes at round 2 (pr_open, round 1 done), not at reviewed",
+          all(via_r1["todos"][i]["stage"] == "pr_open" and via_r1["todos"][i]["review_round"] == 1
+              and "held_round" not in via_r1["todos"][i] for i in ids_ok), via_r1["todos"][ids_ok[0]])
+    again = copy.deepcopy(via_r1)
     r2 = ingest(via_r1, [{"group": g_ok, "ids": ids_ok, "findings": [], "blocking": [],
-                                       "reviewers_ok": True, "repair": None, "verdict": None, "refuted": []}], 2)
-    check("a critical refuted through a real round-1 ingest holds the PR at round 2",
-          r1[g_ok] == "clean" and r2[g_ok] == "held", (r1, r2, via_r1["todos"][ids_ok[0]].get("refuted")))
+                                       "reviewers_ok": True, "repair": None, "verdict": None, "refuted": [crit]}], 2)
+    check("482: the cleared critical, dismissed again in round 2, does not hold again",
+          r2[g_ok] == "clean" and via_r1["todos"][ids_ok[0]]["stage"] == "reviewed", (r2, via_r1["todos"][ids_ok[0]]))
+    fresh = dict(crit, line=5, summary="a new critical in round 2")
+    r2b = ingest(again, [{"group": g_ok, "ids": ids_ok, "findings": [], "blocking": [],
+                                       "reviewers_ok": True, "repair": None, "verdict": None, "refuted": [fresh]}], 2)
+    check("482: a new critical dismissed in round 2 still holds after a round-1 hold was cleared",
+          r2b[g_ok] == "held" and "d.py:5" in again["todos"][ids_ok[0]]["reason"], again["todos"][ids_ok[0]])
+    state.clear_hold(again, g_ok, "owner: also fine (2026-09-28)")
+    check("482: clearing a round-2 hold still goes to reviewed",
+          again["todos"][ids_ok[0]]["stage"] == "reviewed" and again["todos"][ids_ok[0]]["review_round"] == 2,
+          again["todos"][ids_ok[0]])
+    staged_hold = copy.deepcopy(run)
+    got = ingest(staged_hold, [{"group": g_ok, "ids": ids_ok, "findings": [], "reviewers_ok": True, "residue": [],
+                                "blocking": [{"severity": "high", "file": "a.py", "line": 1, "summary": "bug",
+                                              "suggested_fix": ""}], "refuted": [crit],
+                                "repair": worker(ids_ok, tree="T7"),
+                                "verdict": verdict(ids_ok, before="T7", after="T7")}], 1)[g_ok]
+    e_sh = staged_hold["todos"][ids_ok[0]]
+    check("482: a round-1 hold with a verified repair records the repair's tree and says it waits uncommitted",
+          got == "held" and e_sh["tree_id"] == "T7" and "a verified repair waits staged, uncommitted" in e_sh["reason"],
+          (got, e_sh))
+    failed_hold = copy.deepcopy(run)
+    got = ingest(failed_hold, [{"group": g_ok, "ids": ids_ok, "findings": [], "reviewers_ok": True, "residue": [],
+                                "blocking": [{"severity": "high", "file": "a.py", "line": 1, "summary": "bug",
+                                              "suggested_fix": ""}], "refuted": [crit],
+                                "repair": worker(ids_ok, status="failed"), "verdict": None}], 1)[g_ok]
+    reason = failed_hold["todos"][ids_ok[0]]["reason"]
+    check("482: a failed round-1 repair blocks (not a hold) and its reason still names the dismissed critical",
+          got == "blocked" and reason.startswith("round-1 repair failed")
+          and "1 critical finding(s) dismissed only by refuters" in reason, reason)
 
     res = ingest(run, [{"group": g_ok, "ids": ids_ok, "findings": blocking, "blocking": blocking,
                                      "reviewers_ok": True, "residue": [], "repair": worker(ids_ok, tree="T5"),
@@ -1174,6 +1213,8 @@ def main():
           (run_rv["waves"], brv))
 
     residue_tests()
+    bookkeeping_tests()
+    rename_quoting_test()
     print()
     if FAILURES:
         print(f"FAILED: {len(FAILURES)} check(s): {', '.join(FAILURES)}")
@@ -1227,6 +1268,28 @@ def residue_tests():
                                                      verdict=verdict(["1"], before="T5", after="T5"))], 1)
         check("480 AC3: an unchanged worktree still repairs normally", got == {"g1": "repair-staged"}
               and "review_residue" not in clean_run["todos"]["1"], (got, clean_run["todos"]["1"]))
+
+        # Todo 483: notes.txt was untracked when round 1 started (Land commits only the index). The repair
+        # stages only what it changed; one that stages notes.txt too would put it in the PR, so it is refused.
+        check("483: review_args lists the files that were untracked when the round started",
+              items[0]["untracked_before"] == ["notes.txt"], items[0])
+        repaired = {"blocking": [{"severity": "high"}], "residue": [], "repair": worker(["1"], tree="T5"),
+                    "verdict": verdict(["1"], before="T5", after="T5")}
+        (wt / "a.py").write_text("a = 5\n")
+        sh("add", "a.py", "notes.txt")  # what `git add -A` would do
+        swept = copy.deepcopy(run)
+        got = state.ingest_review(swept, [result(1, **repaired)], 1)
+        check("483 AC1: a repair that stages a file untracked before round 1 is refused, naming it, so it is "
+              "never committed", got == {"g1": "blocked"} and "notes.txt" in swept["todos"]["1"]["reason"]
+              and "stage only the paths it changed" in swept["todos"]["1"]["reason"]
+              and "tree_id" not in swept["todos"]["1"], (got, swept["todos"]["1"]))
+        sh("rm", "-q", "--cached", "notes.txt")
+        only = copy.deepcopy(run)
+        got = state.ingest_review(only, [result(1, **repaired)], 1)
+        check("483: a repair that stages only the paths it changed is kept", got == {"g1": "repair-staged"}
+              and only["todos"]["1"]["tree_id"] == "T5", (got, only["todos"]["1"]))
+        sh("reset", "-q", "--", "a.py")
+        (wt / "a.py").write_text("a = 2\n")
         missing = copy.deepcopy(run)
         got = state.ingest_review(missing, [result(1, blocking=[{"severity": "high"}], repair=worker(["1"], tree="T5"),
                                                    verdict=verdict(["1"], before="T5", after="T5"))], 1)
@@ -1325,6 +1388,120 @@ def residue_tests():
         gone["todos"]["1"].update(worktree=str(Path(tmp) / "nope"), review_baseline=base)
         check("480: a git error is itself residue, never a pass",
               (state.review_residue(gone, "g1", 1) or [""])[0].startswith("residue check failed:"))
+
+
+def pr_open_run(worktree="/wt/g1"):
+    """One todo in one group, its PR open and due for round 1, baseline taken from clean_git."""
+    entry = {"stage": "pr_open", "group": "g1", "worktree": worktree, "branch": "b", "pr": 900, "slot": 1,
+             "path": "todos/1-pending-p3-x.md", "triage": {"size": "s"}}
+    return {"run_id": "r", "waves": [["g1"]], "groups": {"g1": {"ids": ["1"]}}, "todos": {"1": entry}}
+
+
+def review_result(**over):
+    return {"group": "g1", "ids": ["1"], "findings": [], "blocking": [], "refuted": [], "reviewers_ok": True,
+            "residue": None, "repair": None, "verdict": None, **over}
+
+
+def bookkeeping_tests():
+    """Todos 473, 478 and 482: what the run file keeps about a review, and what `finish` may delete."""
+    def finding(file, line=2, summary="nit", severity="low"):
+        return {"severity": severity, "file": file, "line": line, "summary": summary, "suggested_fix": ""}
+
+    # Todo 478: a reviewer's path in any form (worktree-absolute, the /private/tmp alias, ./) is one follow-up.
+    run = pr_open_run(worktree="/tmp/sweep-wt/g1")
+    forms = ["a.py", "./a.py", "/tmp/sweep-wt/g1/a.py", "/private/tmp/sweep-wt/g1/a.py"]
+    ingest(run, [review_result(findings=[finding(f) for f in forms])], 1)
+    check("478: follow-ups are path-normalised (absolute, /private alias and ./ forms are one location)",
+          run["todos"]["1"]["followups"] == ["a.py:2 nit"], run["todos"]["1"]["followups"])
+    run = pr_open_run(worktree="/private/tmp/sweep-wt/g1")
+    ingest(run, [review_result(refuted=[dict(finding("/tmp/sweep-wt/g1/b.py", 3, "maybe", "high"), also=["other"],
+                                             refutations=["no", "no"])])], 1)
+    check("478: a refuted record is path-normalised and keeps its also phrasings",
+          run["todos"]["1"]["refuted"] == ["high: b.py:3 maybe | also: other"], run["todos"]["1"]["refuted"])
+
+    # Todo 482: the same file:line dismissed in both rounds is one line, its phrasings merged.
+    run = pr_open_run()
+    first = dict(finding("c.py", 3, "the cache key drops the user", "high"), also=["keyed per site"],
+                 refutations=["no", "no"])
+    second = dict(finding("c.py", 3, "cache key ignores the user", "high"), also=["the cache key drops the user"],
+                  refutations=["no", "no"])
+    ingest(run, [review_result(refuted=[first])], 1)
+    ingest(run, [review_result(refuted=[second, dict(finding("c.py", 30, "elsewhere", "high"), also=[],
+                                                      refutations=["no", "no"])])], 2)
+    check("482 AC2: the same file:line dismissed in both rounds is one refuted line, phrasings merged",
+          run["todos"]["1"]["refuted"] == ["high: c.py:3 the cache key drops the user | also: keyed per site | "
+                                           "cache key ignores the user", "high: c.py:30 elsewhere"],
+          run["todos"]["1"]["refuted"])
+    run = pr_open_run()
+    crit = dict(finding("d.py", 4, "auth bypass", "critical"), also=[], refutations=["no", "no"])
+    ingest(run, [review_result(refuted=[crit, dict(crit, summary="auth skipped", also=["auth bypass"])])], 1)
+    check("482: one critical location phrased twice in a round counts once in the hold reason",
+          run["todos"]["1"]["refuted"] == ["critical: d.py:4 auth bypass | also: auth skipped"]
+          and "1 critical finding(s)" in run["todos"]["1"]["reason"], run["todos"]["1"])
+
+    # Todo 478: the runbook's one rerun per round is counted in the run file, so it survives a resume.
+    run = pr_open_run()
+    first_rerun = ingest(run, [review_result(reviewers_ok=False)], 1)["g1"]
+    counted = copy.deepcopy(run["todos"]["1"].get("review_reruns"))
+    second_rerun = ingest(run, [review_result(reviewers_ok=False)], 1)["g1"]
+    check("478: the first rerun in a round is a rerun, and the run file counts it",
+          first_rerun == "rerun" and counted == {"1": 1}, (first_rerun, counted))
+    check("478: the second rerun in the same round blocks the group, naming why",
+          second_rerun == "blocked" and run["todos"]["1"]["stage"] == "blocked"
+          and "review round 1 was incomplete twice" in run["todos"]["1"]["reason"], run["todos"]["1"])
+    run = pr_open_run()
+    once = ingest(run, [review_result(reviewers_ok=False)], 1)["g1"]
+    ingest(run, [review_result()], 1)
+    later = ingest(run, [review_result(reviewers_ok=False)], 2)["g1"]
+    check("478: each round has its own rerun (round 1's does not count against round 2)",
+          once == "rerun" and later == "rerun" and run["todos"]["1"]["review_reruns"] == {"1": 1, "2": 1},
+          run["todos"]["1"])
+
+    # Todo 482 AC3: `finish` keeps the run file while any group is held, since clear-hold needs it.
+    with tempfile.TemporaryDirectory() as tmp:
+        run = pr_open_run()
+        ingest(run, [review_result(refuted=[crit])], 1)
+        runfile = Path(tmp) / "run.json"
+        state.save(run, runfile)
+        out = subprocess.run([sys.executable, state.STATE_PY, "finish", str(runfile)], capture_output=True, text=True)
+        check("482 AC3: finish refuses while a group is held, names it, and keeps the run file",
+              out.returncode == 1 and "g1 held for the owner" in out.stderr and runfile.exists(),
+              (out.returncode, out.stderr))
+        run["todos"]["1"].update(reason="round-1 repair failed: no repair")
+        state.save(run, runfile)
+        out = subprocess.run([sys.executable, state.STATE_PY, "finish", str(runfile)], capture_output=True, text=True)
+        check("482: finish still removes the run file when every todo is terminal and none is held",
+              out.returncode == 0 and not runfile.exists(), (out.returncode, out.stdout, out.stderr))
+
+    # Todo 473: a todo that landed after a blocked attempt still lists that attempt's worktree.
+    run = {"todos": {"1": {"stage": "archived", "worktree": "/wt/landed", "previous": [{"worktree": "/wt/blocked"}]},
+                     "2": {"stage": "archived", "worktree": "/wt/only"},
+                     "3": {"stage": "blocked", "worktree": "/wt/three", "previous": [{"worktree": "/wt/three-a"}]}}}
+    check("473 AC1: the wrap-up lists a landed todo's earlier blocked worktree (not its removed own one)",
+          state.recorded_worktrees(run) == {"1": ["/wt/blocked"], "3": ["/wt/three", "/wt/three-a"]},
+          state.recorded_worktrees(run))
+
+
+def rename_quoting_test():
+    """Todo 477: the rename refusal names the paths as they are, not in git's C-quoted form."""
+    with tempfile.TemporaryDirectory() as tmp:
+        repo = Path(tmp) / "repo"
+
+        def g(*args):
+            return subprocess.run(["git", "-C", str(repo), "-c", "user.email=t@t", "-c", "user.name=t", *args],
+                                  capture_output=True, text=True, check=True).stdout
+
+        subprocess.run(["git", "init", "-q", "-b", "main", str(repo)], check=True)
+        (repo / ".gitignore").write_text("*.log\n")
+        source = 'odd\t"name".txt'
+        (repo / source).write_text("tracked\n")
+        g("add", ".gitignore", source)
+        g("commit", "-q", "-m", "base")
+        g("update-ref", "refs/remotes/origin/main", "HEAD")
+        g("mv", source, "moved\there.log")
+        err = expect(lambda: state._check_worktree("gq", str(repo), None))[1]
+        check("477 AC4: the rename message prints the source and destination unquoted",
+              isinstance(err, RuntimeError) and 'moved\there.log (renamed from odd\t"name".txt)' in str(err), err)
 
 
 def raises(fn, exc=state.TransitionError):

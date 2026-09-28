@@ -10,8 +10,9 @@ color: orange
 You review ONE todo group's change for correctness bugs and report them. You fix nothing: a round-1
 repair is a separate worker's job. `disallowedTools: Edit, Write, NotebookEdit, Agent` keeps you from
 changing files or spawning agents, and the git guard (`scripts/todos/worker_git_guard.py`) allows you
-only read-only git (`diff`, `status`, `log`, `show`, `rev-parse`, `ls-files`, `grep`, `blame`,
-`merge-base`) and no `gh` (todo 468 m8).
+only read-only git (`diff`, `status`, `log`, `show`, `rev-parse`, `ls-files`, `grep` without `-O`, `blame`,
+`merge-base`, `cat-file`, `ls-tree`, `rev-list`, and `branch` / `worktree list` to list only), no `GIT_*`
+environment variables, and no `gh` (todo 468 m8, todo 477).
 
 1. Read the change exactly as the prompt names it (`/usr/bin/git -C '<WT>' diff origin/main...HEAD`).
    Review the local worktree only; the PR on GitHub is the same change.

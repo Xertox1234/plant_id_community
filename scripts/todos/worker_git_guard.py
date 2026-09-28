@@ -1,13 +1,19 @@
 #!/usr/bin/env python3
-"""PreToolUse decision for Bash calls from todo-worker / todo-verifier / todo-reviewer agents.
+"""PreToolUse decision for Bash calls from the todo sweep's agents.
+
+The guarded agents (ALLOWED_BY_AGENT): todo-worker and todo-verifier, which may stage; todo-reviewer,
+code-review-orchestrator and every domain reviewer that todo-review.js dispatches (REVIEW_AGENTS), which
+get read-only git.
 
 Workers write and stage; only the main session commits, pushes and opens PRs
 (spec §4.1). Agent frontmatter cannot say that -- `disallowedTools:
 Bash(git push *)` removes Bash entirely -- so this hook does: for those agent
 types it allows a short list of git subcommands (read-only ones for the
-reviewer) and denies every other git subcommand and all of gh. add/mv/rm are
+reviewers) and denies every other git subcommand, all of gh, and any GIT_*
+environment variable (GIT_DIR, GIT_EXTERNAL_DIFF, GIT_PAGER, ...). add/mv/rm are
 also denied when they would land in a main checkout rather than a worktree
-(todo 468 m7). Every other caller passes through untouched.
+(todo 468 m7): the checkout is followed through -C, --work-tree, a `cd` and a
+`git-add` binary (todo 477). Every other caller passes through untouched.
 
 It tokenizes the command the way a shell does -- quotes, escapes, `$(...)`,
 backticks, `<(...)`, redirections, heredocs, compound commands and reserved
@@ -24,6 +30,7 @@ or a script file that runs git inside is not visible here.
 Tests: .claude/hooks/test-guard-todo-worker-git.sh
 """
 
+import glob
 import json
 import os
 import shlex
@@ -31,8 +38,17 @@ import subprocess
 import sys
 
 GIT_ALLOWED = {"add", "mv", "rm", "diff", "status", "log", "show", "fetch", "write-tree", "rev-parse"}
-# Review-stage reviewers read the diff and report; they never stage (todo 468 m8).
-GIT_READONLY = {"diff", "status", "log", "show", "rev-parse", "ls-files", "grep", "blame", "merge-base"}
+# Review-stage reviewers read the diff and report; they never stage (todo 468 m8). branch and worktree
+# only list (READ_ONLY_ARGS); todo 477 widened the set for reviewers exploring the history.
+GIT_READONLY = {"diff", "status", "log", "show", "rev-parse", "ls-files", "grep", "blame", "merge-base",
+                "cat-file", "ls-tree", "rev-list", "branch", "worktree"}
+BRANCH_LIST_FLAGS = {"--show-current", "--list", "-l", "-a", "--all", "-r", "--remotes", "-v", "-vv", "--verbose",
+                     "--no-color", "--no-column"}
+# git grep options whose value is the next word (or the rest of a short bundle), so an O in it is not -O.
+GREP_VALUE_SHORT = set("efABCm")
+GREP_VALUE_LONG = {"--regexp", "--file", "--after-context", "--before-context", "--context", "--max-count",
+                   "--max-depth", "--threads"}
+DECLARERS = {"export", "declare", "typeset", "local", "readonly"}
 ALLOWED_BY_AGENT = {"todo-worker": GIT_ALLOWED, "todo-verifier": GIT_ALLOWED, "todo-reviewer": GIT_READONLY}
 # todo-review dispatches the orchestrator and its domain reviewers in the PR worktree (todo 472): they
 # get the same read-only limit, which also covers their interactive use (they only diff, show, rev-parse).
@@ -52,7 +68,8 @@ GIT_GLOBAL_FLAGS = {"--no-pager", "-P", "--no-optional-locks"}
 # (--outp=x), so a 3+ letter prefix counts too.
 OUTPUT_OPTIONS = ("output", "ext-diff", "textconv")
 GIT_DENIED_OPTIONS = {"fetch": ("upload-pack", "stdin"), "diff": OUTPUT_OPTIONS, "log": OUTPUT_OPTIONS,
-                      "show": OUTPUT_OPTIONS}
+                      "show": OUTPUT_OPTIONS, "grep": ("open-files-in-pager",),
+                      "cat-file": ("textconv", "filters")}
 GIT_EXACT_OPTIONS = {"text"}  # a real option, so not a prefix of --textconv
 FORCE_SUBCOMMANDS = {"add", "mv", "rm"}
 FORCE_REASON = "force-staging ignored files is not allowed (git add/mv/rm -f / --force)"
@@ -324,7 +341,7 @@ def segments(tokens):
 
 
 def check_segments(segs, depth):
-    cases, pattern = 0, False
+    cases, pattern, subshells = 0, False, []
     for seg in segs:
         first = next((w for w in seg.words if keyword(w) not in KEYWORDS - {"esac"}), None)
         lead = keyword(first) if first else None
@@ -336,9 +353,18 @@ def check_segments(segs, depth):
         elif lead == "case":
             cases, pattern = cases + 1, seg.end != ")"
             continue
+        # Todo 477: a `cd` moves the directory the next git runs in, but not out of a ( subshell ), a
+        # pipeline stage or a background job: those run in a child shell, so the directory is restored.
+        before = CONTEXT["cwd"]
         reason = check_words(seg.words, seg.piped, seg.stdin, depth)
         if reason:
             return reason
+        if seg.piped or seg.end in ("|", "|&", "&"):
+            CONTEXT["cwd"] = before
+        if seg.end == "(":
+            subshells.append(CONTEXT["cwd"])
+        elif seg.end == ")":
+            CONTEXT["cwd"] = subshells.pop() if subshells else UNKNOWN
         if cases and seg.end in CASE_ENDS:
             pattern = True
     return None
@@ -354,6 +380,16 @@ def keyword(word):
     return word.value if word.raw == word.value else None
 
 
+def git_env(word):
+    """True for an assignment to a GIT_* variable: GIT_DIR or GIT_WORK_TREE move where git stages,
+    GIT_EXTERNAL_DIFF or GIT_PAGER make an allowed read run a program (todos 477, 478)."""
+    return is_assignment(word) and word.raw.partition("=")[0].rstrip("+").startswith("GIT_")
+
+
+GIT_ENV_REASON = ("git environment variables ({names}) are not allowed for this agent; "
+                  "use git -C <WT> and --no-pager instead")
+
+
 def check_words(words, piped, stdin, depth, wrapped=False):
     i = 0
     while i < len(words):
@@ -366,6 +402,10 @@ def check_words(words, piped, stdin, depth, wrapped=False):
             return None
         else:
             break
+    program = os.path.basename(words[i].value) if i < len(words) else ""
+    exported = [w for w in words[:i] + (words[i + 1:] if program in DECLARERS else []) if git_env(w)]
+    if exported:
+        return GIT_ENV_REASON.format(names=", ".join(w.raw.partition("=")[0] for w in exported))
     if i >= len(words):
         return None
     word, rest = words[i], words[i + 1:]
@@ -373,11 +413,10 @@ def check_words(words, piped, stdin, depth, wrapped=False):
         return None
     if NOT_LITERAL & set(word.raw) or word.raw.startswith("="):  # zsh: =git is a PATH lookup
         return f"program name must be literal (got {word.raw!r})"
-    program = os.path.basename(word.value)
     if program in ("cd", "pushd", "popd"):
-        # The directory is no longer the event's cwd, and this parser does not follow it: later git calls
-        # without a literal -C are not checked against the main checkout (PR #872 round 1).
-        CONTEXT["cwd"] = None
+        # Todo 477: follow the directory, so a later bare `git add` is checked where it really runs. A
+        # target built at runtime, `-`, `~` or popd leave it unknown, and unknown is not checked (PR #872).
+        CONTEXT["cwd"] = cd_target(rest) if program != "popd" else UNKNOWN
         return None
     if program in WRAPPERS:
         return check_wrapper(program, rest, piped, stdin, depth)
@@ -386,16 +425,33 @@ def check_words(words, piped, stdin, depth, wrapped=False):
     if program in SHELLS:
         return check_shell(rest, piped, stdin, depth)
     if program in SOURCES:
+        CONTEXT["cwd"] = UNKNOWN  # a sourced script runs in this shell and may cd
         return shell_reads_stdin(rest[0] if rest else None, False, piped, stdin)
     if program == "eval":
-        return decide_command(" ".join(w.value for w in rest), depth + 1)
+        # eval runs in this shell, so a cd inside it moves this command's directory too: no restore.
+        return decide_command(" ".join(w.value for w in rest), depth + 1, keep_cwd=True)
     if program == "find":
         return check_find(rest, depth)
     if program == "git":
         return check_git(rest, wrapped)
     if program.startswith("git-"):
-        return check_git_subcommand(program[4:], rest)
+        # Todo 477: a git-add binary stages exactly like `git add`, in this command's directory.
+        return check_staging(program[4:], CONTEXT["cwd"], None, False) or check_git_subcommand(program[4:], rest)
     return None
+
+
+def cd_target(args):
+    """The directory a `cd`/`pushd` with these operands moves to, or UNKNOWN."""
+    operands = [w for w in args if not (w.value.startswith("-") and w.value != "-")]
+    if len(operands) != 1:  # no operand is $HOME; two is zsh's substitution form
+        return UNKNOWN
+    target = operands[0]
+    if NOT_LITERAL & set(target.raw) or target.value.startswith(("~", "-")):
+        return UNKNOWN
+    if os.path.isabs(target.value):
+        return target.value
+    base = CONTEXT["cwd"]
+    return os.path.join(base, target.value) if isinstance(base, str) else UNKNOWN
 
 
 def check_wrapper(name, args, piped, stdin, depth):
@@ -442,7 +498,7 @@ def check_shell(args, piped, stdin, depth):
         else:
             break
     operand = args[j] if j < len(args) else None
-    if has_script:
+    if has_script:  # a child shell: a cd in its script does not move this one (decide_command restores)
         return decide_command(operand.value, depth + 1) if operand else "sh -c without a script"
     return shell_reads_stdin(operand, reads_stdin, piped, stdin)
 
@@ -471,21 +527,25 @@ def check_find(args, depth):
 
 
 def check_git(args, wrapped):
-    j, where, git_dir = 0, CONTEXT["cwd"], False
+    # Todo 477: -C moves where git finds the repository (and so the index it stages into); --work-tree only
+    # names the tree. Both are checked: `git -C MAIN --work-tree=S add` still stages into MAIN's index.
+    j, where, tree, git_dir = 0, CONTEXT["cwd"], None, False
     while j < len(args):
         arg = args[j].value
         if arg in GIT_GLOBAL_WITH_VALUE:
             value = args[j + 1] if j + 1 < len(args) else Word("", "")
             if arg == "--git-dir":
                 git_dir = True
-            else:  # -C composes like cd; --work-tree names the tree directly
+            elif arg == "-C":  # composes like cd
                 where = _join(where, value)
+            else:  # --work-tree VALUE, relative to the directory -C has reached
+                tree = _join(where, value)
             j += 2
         elif arg in GIT_GLOBAL_FLAGS or arg.startswith(("--git-dir=", "--work-tree=")):
             git_dir = git_dir or arg.startswith("--git-dir=")
             if arg.startswith("--work-tree="):
                 raw = args[j].raw.partition("=")[2]
-                where = _join(where, Word(arg.partition("=")[2], raw))
+                tree = _join(where, Word(arg.partition("=")[2], raw))
             j += 1
         elif arg == "--version":
             return None
@@ -497,19 +557,26 @@ def check_git(args, wrapped):
     if j >= len(args):
         return "bare git after a wrapper or xargs; run git <subcommand> directly" if wrapped else None
     sub = args[j].value
-    if sub in FORCE_SUBCOMMANDS and sub in CONTEXT["allowed"]:
-        # Todo 468 m7: a worker that confuses MAIN_ROOT with WT would stage into the owner's checkout.
-        if git_dir:
-            return f"git --git-dir with {sub} is not allowed; use git -C WT {sub}"
-        where = None if where is UNKNOWN else where
-        main = where and main_checkout(where)
+    return check_staging(sub, where, tree, git_dir) or check_git_subcommand(sub, args[j + 1:])
+
+
+def check_staging(sub, where, tree, git_dir):
+    """Todo 468 m7: a worker that confuses MAIN_ROOT with WT would stage into the owner's checkout. `where`
+    is the directory git finds the repository from, `tree` a --work-tree; UNKNOWN or None is not checked."""
+    if sub not in FORCE_SUBCOMMANDS or sub not in CONTEXT["allowed"]:
+        return None
+    if git_dir:
+        return f"git --git-dir with {sub} is not allowed; use git -C WT {sub}"
+    for path in (where, tree):
+        main = isinstance(path, str) and main_checkout(path)
         if main:
             return MAIN_REASON.format(sub=sub, path=main)
-        exposed = where and sub == "add" and unignored_includes(where)
-        if exposed:
-            return (f"{', '.join(exposed)} is no longer ignored in this worktree, so git add would stage it; "
-                    "restore its .gitignore rule first (todo 468)")
-    return check_git_subcommand(sub, args[j + 1:])
+    path = tree if isinstance(tree, str) else where
+    exposed = isinstance(path, str) and sub == "add" and unignored_includes(path)
+    if exposed:
+        return (f"{', '.join(exposed)} is no longer ignored in this worktree, so git add would stage it; "
+                "restore its .gitignore rule first (todo 468)")
+    return None
 
 
 def unignored_includes(path):
@@ -532,7 +599,12 @@ def unignored_includes(path):
         if set(rel) & set("*?[") or not os.path.isfile(os.path.join(top, rel)):
             continue
         proc = subprocess.run(["git", "-C", top, "check-ignore", "-q", "--no-index", rel], capture_output=True)
-        if proc.returncode == 1:  # 0 = ignored, 128 = error
+        if proc.returncode != 1:  # 0 = ignored, 128 = error
+            continue
+        # Todo 477: a TRACKED listed file is ordinary content (the repo already has it), not a copied-in
+        # secret, so it must not block every `git add` in the tree.
+        tracked = subprocess.run(["git", "-C", top, "ls-files", "--error-unmatch", "--", rel], capture_output=True)
+        if tracked.returncode != 0:
             out.append(rel)
     return out
 
@@ -541,22 +613,29 @@ UNKNOWN = object()  # a directory built at runtime ($WT, `...`): cannot tell, so
 
 
 def _join(where, word):
-    """`where` after a -C / --work-tree operand; UNKNOWN once any operand is not literal."""
-    if where is UNKNOWN or NOT_LITERAL & set(word.raw):
+    """`where` after a -C / --work-tree operand; UNKNOWN when the operand is not literal. An absolute
+    literal starts over, even from UNKNOWN: `git -C "$WT" -C MAIN add` runs in MAIN (todo 477)."""
+    if NOT_LITERAL & set(word.raw) or word.value.startswith("~"):
+        return UNKNOWN
+    if os.path.isabs(word.value):
+        return word.value
+    if where is UNKNOWN:
         return UNKNOWN
     return os.path.join(where or "", word.value)
 
 
 def main_checkout(path):
-    """The top of the checkout holding `path` when it is a MAIN checkout (its .git is a directory;
-    a linked worktree's .git is a file), else None. A path that does not exist is left to git."""
+    """The top of the checkout holding `path` when it is a MAIN checkout, else None. A main checkout's
+    .git is a directory; a linked worktree's is a file. In the pilot layout the sweep's own main root is a
+    linked worktree (todo 477), so a checkout holding the sweep's run file (todos/.sweep-run-*.json, which
+    only REPO has) counts as main too. A path that does not exist is left to git."""
     here = os.path.realpath(path)
     while True:
         dot_git = os.path.join(here, ".git")
         if os.path.isdir(dot_git):
             return here
         if os.path.exists(dot_git):
-            return None
+            return here if glob.glob(os.path.join(glob.escape(here), "todos", ".sweep-run-*.json")) else None
         parent = os.path.dirname(here)
         if parent == here:
             return None
@@ -594,7 +673,15 @@ def check_git_subcommand(sub, args):
                 f"(allowed for this agent: {', '.join(sorted(allowed))})")
     if sub in FORCE_SUBCOMMANDS and forces(args):
         return FORCE_REASON
-    for arg in (w.value for w in args):
+    values = [w.value for w in args]
+    # Todo 477: reviewers may list branches and worktrees, never create, move or delete one.
+    if sub == "branch" and any(v not in BRANCH_LIST_FLAGS for v in values):
+        return f"git branch may only list here (allowed: {', '.join(sorted(BRANCH_LIST_FLAGS))})"
+    if sub == "worktree" and values[:1] != ["list"]:
+        return "git worktree may only list here (git worktree list)"
+    if sub == "grep" and grep_opens_pager(values):
+        return "git grep -O runs a program on the matching files; drop the option"
+    for arg in values:
         if sub == "fetch" and ":" in arg:
             return f"git fetch {arg}: a ':' refspec or URL can move refs; use git fetch [origin] [<branch>]"
         if denied_option(arg, GIT_DENIED_OPTIONS.get(sub, ())):
@@ -602,7 +689,30 @@ def check_git_subcommand(sub, args):
     return None
 
 
-def decide_command(command, depth=0):
+def grep_opens_pager(values):
+    """True when git grep's options hold -O (--open-files-in-pager takes the long-option route), alone or in
+    a short bundle such as -lO<cmd>. A value (the pattern after -e, a count after -A) is skipped (todo 478)."""
+    k = 0
+    while k < len(values):
+        arg = values[k]
+        k += 1
+        if arg == "--":
+            return False
+        if arg in GREP_VALUE_LONG:
+            k += 1
+        elif arg.startswith("-") and not arg.startswith("--") and len(arg) > 1:
+            for n, c in enumerate(arg[1:], start=1):
+                if c == "O":
+                    return True
+                if c in GREP_VALUE_SHORT:
+                    k += 1 if n == len(arg) - 1 else 0  # a value glued on (-efoo) or the next word (-e foo)
+                    break
+    return False
+
+
+def decide_command(command, depth=0, keep_cwd=False):
+    """The reason to deny `command`, or None. A nested command ($(...), `sh -c`) runs in a child shell,
+    so a cd inside it does not move the caller's directory; eval (keep_cwd) runs in this one."""
     if depth > MAX_DEPTH:
         return "command nests too deeply; simplify it"
     try:
@@ -611,11 +721,16 @@ def decide_command(command, depth=0):
         segs = list(segments(lexer.tokens))
     except (ValueError, RecursionError):
         return PARSE_REASON
-    for inner in lexer.nested:
-        reason = decide_command(inner, depth + 1)
-        if reason:
-            return reason
-    return check_segments(segs, depth)
+    outer = CONTEXT["cwd"]
+    try:
+        for inner in lexer.nested:
+            reason = decide_command(inner, depth + 1)
+            if reason:
+                return reason
+        return check_segments(segs, depth)
+    finally:
+        if not keep_cwd and depth > 0:
+            CONTEXT["cwd"] = outer
 
 
 def decide(event):
