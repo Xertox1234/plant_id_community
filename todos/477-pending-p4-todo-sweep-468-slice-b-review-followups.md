@@ -31,7 +31,15 @@ items were left for later. The guard is a mistake guard, not a security boundary
 3. **The reviewer's read-only set is narrow.** `cat-file`, `ls-tree`, `rev-list`,
    `branch --show-current` and `worktree list` are denied. The bug prompt needs only
    `diff`, so the review stage works, but a reviewer may hit a denial while exploring.
-4. **The rename message shows git's C-quoting** for a source path that has a tab or a
+4. **Round 2 notes.**
+   - A `cd` inside `$(...)`, a subshell or `eval` also leaves the outer command's
+     directory unknown. That misses catches; it never adds a wrong denial.
+   - An UNKNOWN `-C` stays unknown even after a later absolute literal
+     (`git -C "$WT" -C MAIN add` is allowed). `_join` could restart from an absolute
+     path.
+   - After a `cd`, the unignored-`.env` staging check is skipped too. Land's backstop
+     still refuses the `.env`.
+5. **The rename message shows git's C-quoting** for a source path that has a tab or a
    quote in it. This is cosmetic.
 
 ## Acceptance Criteria
