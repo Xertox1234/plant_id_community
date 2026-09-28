@@ -137,6 +137,17 @@ def summary(run):
     return out
 
 
+def recorded_worktrees(run):
+    """{todo id: [worktree, ...]} for every todo not archived, including a reopened todo's earlier
+    attempts -- `finish` deletes the run file, so the wrap-up lists these first (todo 468, F5)."""
+    out = {}
+    for todo_id, entry in sorted(run["todos"].items()):
+        paths = [p for p in [entry.get("worktree")] + [a.get("worktree") for a in entry.get("previous", [])] if p]
+        if paths and entry["stage"] != "archived":
+            out[todo_id] = list(dict.fromkeys(paths))
+    return out
+
+
 def is_complete(run):
     return all(entry["stage"] in TERMINAL for entry in run["todos"].values())
 
@@ -685,7 +696,7 @@ def _parse_fields(pairs):
 def build_parser():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = parser.add_subparsers(dest="cmd", required=True)
-    for name in ("show", "accept-ready", "questions", "finish"):
+    for name in ("show", "accept-ready", "questions", "finish", "worktrees"):
         sub.add_parser(name).add_argument("runfile")
     p = sub.add_parser("triage-args")
     p.add_argument("runfile")
@@ -737,6 +748,9 @@ def main(argv=None):
             return 0
         if args.cmd == "questions":
             print(json.dumps(questions(run), indent=1))
+            return 0
+        if args.cmd == "worktrees":
+            print(json.dumps(recorded_worktrees(run), indent=1))
             return 0
         if args.cmd == "finish":
             if is_complete(run):

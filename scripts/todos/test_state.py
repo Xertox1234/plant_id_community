@@ -174,6 +174,11 @@ def main():
     state.transition(run, "3", "blocked", reason="set by hand")
     check("a blocked todo with no triage record is not reopened",
           raises(lambda: state.transition(run, "3", "ready", reason="fixed")))
+    run["todos"]["1"]["worktree"] = "/wt/g4"
+    run["todos"]["2"]["worktree"] = "/wt/g2"
+    run["todos"]["3"].update(stage="archived", worktree="/wt/g3")
+    check("worktrees lists every unarchived todo's worktrees, earlier attempts included (todo 468 F5)",
+          state.recorded_worktrees(run) == {"1": ["/wt/g4", "/wt/g1"], "2": ["/wt/g2"]}, state.recorded_worktrees(run))
 
     run = state.new_run("r6", "sweep", 3, [todo("1")], ["1"])
     state.transition(run, "1", "triaged")
