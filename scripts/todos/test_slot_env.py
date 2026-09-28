@@ -9,7 +9,11 @@ gets its own database and Redis DB, and that nothing leaks into .env.
 """
 
 import os
+import shutil
+import subprocess
 import sys
+import tempfile
+from pathlib import Path
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import slot_env as se  # noqa: E402
@@ -62,6 +66,64 @@ def main():
     check("no DATABASE_URL anywhere is refused, not defaulted", raised)
     check("Redis defaults to localhost when unset",
           se.slot_env({}, "DATABASE_URL=postgres://h/db\n", 1, "/wt")["REDIS_URL"] == "redis://127.0.0.1:6379/10")
+
+    # Pilot 2026-09-28: .worktreeinclude delivered no backend/.env to either harness worktree,
+    # so python-decouple had nothing to read. The main checkout's values come in as process env.
+    env = se.slot_env({"PATH": "/bin"}, DOTENV, 1, "/wt")
+    check("a worktree's own .env is not copied into the environment", "SECRET_KEY" not in env, env)
+    env = se.slot_env({"PATH": "/bin", "DEBUG": "False"}, DOTENV + "DEBUG=True\nALLOWED_HOSTS=x\n", 1, "/wt",
+                      inherit_dotenv=True)
+    check("an inherited .env reaches the environment", env.get("ALLOWED_HOSTS") == "x", env)
+    check("an inherited .env never overrides the environment", env["DEBUG"] == "False", env)
+    check("an inherited DATABASE_URL is still re-slotted",
+          env["DATABASE_URL"] == "postgresql://u:p@localhost:5432/plant_community_w1?sslmode=disable", env)
+
+    with tempfile.TemporaryDirectory() as tmp:
+        main_root, wt = Path(tmp) / "main", Path(tmp) / "wt"
+        (main_root / "backend").mkdir(parents=True)
+        (wt / "backend").mkdir(parents=True)
+        (main_root / "backend" / ".env").write_text("DATABASE_URL=postgres://h/main\n")
+        path, inherited = se.dotenv_path(wt, main_root)
+        check("a worktree without backend/.env reads the main checkout's",
+              path == main_root / "backend" / ".env" and inherited, (path, inherited))
+        (wt / "backend" / ".env").write_text("DATABASE_URL=postgres://h/wt\n")
+        path, inherited = se.dotenv_path(wt, main_root)
+        check("a worktree's own backend/.env wins", path == wt / "backend" / ".env" and not inherited,
+              (path, inherited))
+        path, inherited = se.dotenv_path(wt, wt)
+        check("the main checkout itself never inherits from itself", not inherited, (path, inherited))
+
+    # End to end through a real `git worktree add` (review round 1 of PR #864): the flag must reach
+    # slot_env, and main_checkout must name the main checkout from either side, whatever the cwd.
+    with tempfile.TemporaryDirectory() as tmp:
+        main_root, wt = Path(tmp) / "main", Path(tmp) / "wt"
+        (main_root / "scripts" / "todos").mkdir(parents=True)
+        shutil.copy(Path(__file__).with_name("slot_env.py"), main_root / "scripts" / "todos" / "slot_env.py")
+        git = ["git", "-c", "user.name=x", "-c", "user.email=x@x", "-C", str(main_root)]
+        subprocess.run(git + ["init", "-q"], check=True)
+        subprocess.run(git + ["add", "."], check=True)
+        subprocess.run(git + ["commit", "-q", "-m", "init"], check=True)
+        subprocess.run(git + ["worktree", "add", "-q", str(wt)], check=True)
+        (main_root / "backend").mkdir()
+        (main_root / "backend" / ".env").write_text("DATABASE_URL=postgres://h/main\nFOO=bar\n")
+
+        cwd = os.getcwd()
+        os.chdir(tmp)
+        try:
+            check("main_checkout names the main checkout from a worktree",
+                  se.main_checkout(wt).resolve() == main_root.resolve(), se.main_checkout(wt))
+            check("main_checkout names the main checkout from itself, cwd elsewhere",
+                  se.main_checkout(main_root).resolve() == main_root.resolve(), se.main_checkout(main_root))
+        finally:
+            os.chdir(cwd)
+
+        out = subprocess.run(
+            [sys.executable, str(wt / "scripts" / "todos" / "slot_env.py"), "1", "--", sys.executable, "-c",
+             "import os; print(os.environ.get('FOO'), os.environ['DATABASE_URL'])"],
+            capture_output=True, text=True, env={k: v for k, v in os.environ.items()
+                                                 if k not in ("FOO", "DATABASE_URL")})
+        check("a worktree without backend/.env runs with the main checkout's values",
+              out.stdout.split() == ["bar", "postgres://h/plant_community_w1"], (out.stdout, out.stderr))
 
     print()
     if FAILURES:
