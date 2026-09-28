@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:plant_community_mobile/features/forum/widgets/forum_stats_grid.dart';
+import 'package:plant_community_mobile/shared/widgets/canopy_surfaces.dart';
 
 import '../support/forum_test_support.dart';
 
@@ -73,6 +74,66 @@ void main() {
 
       expect(find.text('Botanist badge complete'), findsOneWidget);
       expect(find.text('Post to start a streak'), findsOneWidget);
+    });
+
+    testWidgets('each tile is ONE semantics node carrying the whole label, '
+        'sized to its card (todo 463: the zero Padding came out and the '
+        'tree must not change)', (tester) async {
+      final handle = tester.ensureSemantics();
+      await _pump(
+        tester,
+        ForumStatsGrid(
+          stats: myStats(
+            posts: 12,
+            solutionsAccepted: 3,
+            identificationsShared: 4,
+            streakDays: 2,
+            badgeProgress: 4,
+            badgeTarget: 10,
+          ),
+        ),
+      );
+
+      const labels = [
+        'Identifications: 4, 6 to Botanist badge',
+        'Posts: 12, all time',
+        'Solutions: 3, accepted answers',
+        'Day streak: 2, days in a row',
+      ];
+      for (final label in labels) {
+        expect(find.bySemanticsLabel(label), findsOneWidget, reason: label);
+        final node = tester.getSemantics(find.bySemanticsLabel(label));
+        // excludeSemantics: the tile's texts and the badge bar's own label
+        // are folded into this one node, never read a second time.
+        expect(node.mergeAllDescendantsIntoThisNode, isFalse);
+        var children = 0;
+        node.visitChildren((_) {
+          children++;
+          return true;
+        });
+        expect(children, 0, reason: label);
+      }
+      // Nothing inside a tile surfaces as its own node.
+      for (final inner in [
+        'Posts',
+        '12',
+        'all time',
+        'Botanist badge progress',
+      ]) {
+        expect(find.bySemanticsLabel(inner), findsNothing, reason: inner);
+      }
+      // The node covers exactly its card — no invisible inset around it.
+      final cards = find.descendant(
+        of: find.byType(ForumStatsGrid),
+        matching: find.byType(CanopyCard),
+      );
+      expect(cards, findsNWidgets(4));
+      for (var i = 0; i < labels.length; i++) {
+        final node = tester.getSemantics(find.bySemanticsLabel(labels[i]));
+        expect(node.rect.size, tester.getSize(cards.at(i)), reason: labels[i]);
+      }
+
+      handle.dispose();
     });
 
     testWidgets('one-day streak and a host with no badge track', (
