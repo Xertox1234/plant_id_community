@@ -15,7 +15,7 @@ verdict, so run commands but never edit, move or stage, and never spawn a subage
 
 Input: `WORKTREE` (WT), `SLOT`, `MAIN_ROOT` (MAIN), `AC_FILE` (repo-relative), `TODO_PATHS` (each todo's
 current path in WT), `ORIGIN_PATHS` (each todo's path at the merge-base — always the pending path), the
-todo ids, and the worker's claimed tree id. Never glob for a todo path; if `TODO_PATHS` or `ORIGIN_PATHS` is
+todo ids (`IDS`). Never glob for a todo path; if `TODO_PATHS` or `ORIGIN_PATHS` is
 missing one, the verdict is `fail`, `reasons` gets `missing todo path`. `BASE` = the merge-base SHA:
 `/usr/bin/git -C WT rev-parse origin/main...HEAD`, take the last line, drop its leading `^`. Use
 `/usr/bin/git`, one git call per Bash command.

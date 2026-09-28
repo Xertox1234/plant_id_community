@@ -133,7 +133,7 @@ function verifyPrompt(p, w) {
     `Verify todo group ${p.group} after a round-1 review repair.`,
     `IDS: ${p.ids.join(', ')}`,
     `WORKTREE: ${w.worktree}`, `SLOT: ${p.slot}`, `MAIN_ROOT: ${p.main_root}`,
-    `AC_FILE: ${w.ac_file}`, ...pathLines(p), `CLAIMED_TREE: ${w.tree_id}`,
+    `AC_FILE: ${w.ac_file}`, ...pathLines(p),  // no tree id: state.evaluate compares it (todo 468)
     `${LANDED} Ignore \`[ ]\` vs \`[x]\` in the unchanged-criteria check. Every criterion that is not ` +
       'already-checked-at-merge-base or re-pointed must carry a non-empty `command`; re-run each yourself.',
     'Return the VERDICT record.',

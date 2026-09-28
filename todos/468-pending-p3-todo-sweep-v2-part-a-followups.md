@@ -197,7 +197,7 @@ the spec):
       worktree.
 - [ ] A failed tree check in `ensure-worktree` leaves no new worktree behind,
       or the wrap-up lists it.
-- [ ] `test_workflows.js` rejects a fixture that does not match its schema.
+- [x] `test_workflows.js` rejects a fixture that does not match its schema.
 - [ ] Archiving the last finding of a review doc updates every archived
       todo's `source_review` that named it.
 - [ ] A `needs-design` or `stale` todo the owner already answered is not
@@ -209,9 +209,9 @@ the spec):
 - [ ] Review-stage reviewers run as a guarded agent type, or the decision
       not to is recorded here.
 - [x] The Task 15 runbook text carries the three m12 carry-forwards.
-- [ ] The verifier either consumes `CLAIMED_TREE` or the prompt drops it,
+- [x] The verifier either consumes `CLAIMED_TREE` or the prompt drops it,
       and the decision is recorded here.
-- [ ] The retry-on-null-verdict decision is recorded here.
+- [x] The retry-on-null-verdict decision is recorded here.
 - [ ] A wrapped continuation line starting with `#42` or `10.` stays part
       of its criterion, with a test.
 - [ ] A test fails when the fence stop in `_continues` is removed.
@@ -288,3 +288,22 @@ m12 and the triage-root item should land before Part B's first real sweep.
   entries are still listed.
 - **ensure-worktree.** Stage D step 1 runs it before the commit and step 8 before
   the push (after any rebase); a Stage C repair runs it before its commit and again before its push.
+
+### 2026-09-28 - Slice D: workflow fixtures and two owner decisions (branch fix/todo-468-workflows)
+
+- **Fixture validator.** The stub `agent()` in `test_workflows.js` checks every
+  non-null response against the schema the workflow asked for, and each run asserts
+  there are no mismatches. That covers the subset of JSON Schema the workflows use:
+  type, properties, required, enum, maxLength, items and maxItems. The old triage stub
+  `{ id: 'WRONG', class: 'ready' }` is now a deliberate negative case: the harness
+  reports its missing fields, and a bad enum value is rejected too. Every other
+  existing stub already matched.
+- **Decision (owner, 2026-09-28): drop `CLAIMED_TREE`.** `state.evaluate` stays the
+  one place that compares the worker's tree id with the verdict's. The execute and
+  post-repair verifier prompts no longer carry it, `todo-verifier.md` no longer lists
+  it, and two checks pin its absence.
+- **Decision (owner, 2026-09-28): a null verdict re-runs the verifier once, on the same
+  worktree,** before the group can fail. A second null still yields `verdict: null`,
+  so the group goes to `failed` as before, and the worker is not re-run. This applies
+  to the first verification and to the one after a retry. Two checks cover it.
+- All nine engine suites pass.

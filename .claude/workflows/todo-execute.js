@@ -87,9 +87,20 @@ function verifyPrompt(b, w) {
     `Verify todo group ${b.group}.`,
     `IDS: ${b.ids.join(', ')}`,
     `WORKTREE: ${w.worktree}`, `SLOT: ${b.slot}`, `MAIN_ROOT: ${b.main_root}`,
-    `AC_FILE: ${w.ac_file}`, ...pathLines(b), `CLAIMED_TREE: ${w.tree_id}`,
+    `AC_FILE: ${w.ac_file}`, ...pathLines(b),
     'Return the VERDICT record.',
   ].join('\n')
+}
+
+// A verifier that returns nothing says nothing about the work, so it runs once more on the same
+// worktree before the group can fail (owner decision 2026-09-28, todo 468). The worker's tree id is
+// not in the prompt: state.evaluate compares it with the verdict's tree ids.
+async function verify(b, w, label) {
+  const opts = { label, phase: 'Verify', agentType: 'todo-verifier', schema: VERDICT }
+  const first = await agent(verifyPrompt(b, w), opts)
+  if (first) return first
+  log(`Verifier returned nothing for ${b.group}; running it once more`)
+  return agent(verifyPrompt(b, w), { ...opts, label: `${label}-again` })
 }
 
 function retryPrompt(b, w, v) {
@@ -118,15 +129,13 @@ const results = await pipeline(
     // tells ingest-execute where the staged work is.
     const base = { group: b.group, ids: b.ids, worktree: worker ? worker.worktree : null }
     if (!worker || worker.status !== 'staged') return { ...base, worker, verdict: null, retried: false }
-    const verdict = await agent(verifyPrompt(b, worker),
-      { label: `verify:${b.group}`, phase: 'Verify', agentType: 'todo-verifier', schema: VERDICT })
+    const verdict = await verify(b, worker, `verify:${b.group}`)
     if (!verdict || verdict.verdict === 'pass') return { ...base, worker, verdict, retried: false }
     const retry = await agent(retryPrompt(b, worker, verdict),
       { label: `retry:${b.group}`, phase: 'Verify', agentType: 'todo-worker', schema: WORKER })
     // A dead or non-staged retry is the result: never pass the first attempt off as the retry's.
     if (!retry || retry.status !== 'staged') return { ...base, worker: retry, verdict: null, retried: true }
-    const second = await agent(verifyPrompt(b, retry),
-      { label: `verify2:${b.group}`, phase: 'Verify', agentType: 'todo-verifier', schema: VERDICT })
+    const second = await verify(b, retry, `verify2:${b.group}`)
     return { ...base, worker: retry, verdict: second, retried: true }
   },
 )

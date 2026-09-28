@@ -20,16 +20,45 @@ function source(name) {
   return fs.readFileSync(path.join(ROOT, '.claude', 'workflows', `${name}.js`), 'utf8')
 }
 
+// The subset of JSON Schema the workflows use: type, properties, required, enum, maxLength, items,
+// maxItems. Returns a list of problems, empty when `value` matches (todo 468).
+const IS = { object: v => v !== null && typeof v === 'object' && !Array.isArray(v), array: Array.isArray,
+  string: v => typeof v === 'string', integer: Number.isInteger, boolean: v => typeof v === 'boolean' }
+function schemaErrors(value, schema, at = '$') {
+  if (schema.type && !IS[schema.type](value)) return [`${at}: not ${schema.type}`]
+  const errs = []
+  if (schema.enum && !schema.enum.includes(value)) errs.push(`${at}: ${JSON.stringify(value)} not in enum`)
+  if (schema.maxLength !== undefined && value.length > schema.maxLength) errs.push(`${at}: longer than ${schema.maxLength}`)
+  if (schema.type === 'array') {
+    if (schema.maxItems !== undefined && value.length > schema.maxItems) errs.push(`${at}: more than ${schema.maxItems} items`)
+    if (schema.items) value.forEach((v, i) => errs.push(...schemaErrors(v, schema.items, `${at}[${i}]`)))
+  }
+  if (schema.type === 'object') {
+    for (const key of schema.required || []) if (!(key in value)) errs.push(`${at}.${key}: missing`)
+    for (const [key, sub] of Object.entries(schema.properties || {})) {
+      if (key in value) errs.push(...schemaErrors(value[key], sub, `${at}.${key}`))
+    }
+  }
+  return errs
+}
+
 // A stage that throws is swallowed into a null row by pipeline()/parallel(), which reads exactly like a
 // handled dead agent. So every run asserts that nothing threw, unless the case opts out with allowErrors.
-async function run(name, args, respond, { allowErrors = false } = {}) {
+// Every stub response must also match the schema the workflow asked for, or the test proves nothing about
+// real records (todo 468); a case that feeds a bad record on purpose opts out with badFixtures.
+async function run(name, args, respond, { allowErrors = false, badFixtures = false } = {}) {
   const body = source(name).replace(/^export const meta/m, 'const meta')
   const calls = []
   const errors = []
   const logs = []
+  const fixtureErrors = []
   const agent = async (prompt, opts = {}) => {
     calls.push({ prompt, opts })
-    return respond(prompt, opts, calls)
+    const out = await respond(prompt, opts, calls)
+    if (out !== null && out !== undefined && opts.schema) {
+      fixtureErrors.push(...schemaErrors(out, opts.schema).map(e => `${opts.label}: ${e}`))
+    }
+    return out
   }
   const pipeline = async (items, ...stages) =>
     Promise.all(items.map(async (item, i) => {
@@ -46,7 +75,8 @@ async function run(name, args, respond, { allowErrors = false } = {}) {
   const fn = new AsyncFunction('agent', 'pipeline', 'parallel', 'phase', 'log', 'args', 'budget', 'workflow', body)
   const result = await fn(agent, pipeline, parallel, () => {}, m => logs.push(m), args, { total: null }, async () => null)
   if (!allowErrors) check(`${name}: no stage threw`, errors.length === 0, errors)
-  return { result, calls, errors, logs }
+  if (!badFixtures) check(`${name}: every stub response matches its schema`, fixtureErrors.length === 0, fixtureErrors)
+  return { result, calls, errors, logs, fixtureErrors }
 }
 
 const worker = (over = {}) => ({ ids: ['1'], status: 'staged', worktree: '/wt/g1', branch: 'b', tree_id: 'T',
@@ -59,6 +89,8 @@ const brief = (over = {}) => ({ run_id: 'r', group: 'g1', ids: ['1'], todo_paths
 const pr = (over = {}) => ({ run_id: 'r', round: 1, group: 'g1', ids: ['1'], worktree: '/wt/g1', branch: 'b', pr: 861,
   size: 's', slot: 1, evidence_dir: '.sweep-evidence/g1', main_root: '/main', test_edits: [],
   todo_paths: ['todos/archive/1-completed-p3-x.md'], origin_paths: ['todos/1-pending-p3-x.md'], ...over })
+const triage = (over = {}) => ({ id: '1', class: 'ready', evidence: 'e', blocked_on: '', owner_question: '',
+  predicted_files: ['a.py'], size: 's', needs_e2e: false, notes_for_siblings: '', ...over })
 const byType = (calls, type) => calls.filter(c => c.opts.agentType === type)
 const firstLine = c => c.prompt.split('\n')[0]
 
@@ -75,12 +107,22 @@ function schemaBlock(src, name) {
 async function main() {
   // --- triage
   let r = await run('todo-triage', { todos: [{ id: '1', path: 'a' }, { id: '2', path: 'b' }] },
-    (p, o) => (p.includes('id: 2') ? null : { id: 'WRONG', class: 'ready' }))
+    (p, o) => (p.includes('id: 2') ? null : triage({ id: 'WRONG' })))
   check('triage: one todo-triager per todo', byType(r.calls, 'todo-triager').length === 2)
   check('triage: record ids are forced to the input id', r.result.records[0].id === '1', r.result)
   check('triage: a dead agent is reported missing', r.result.missing.join() === '2', r.result)
   check('triage: no root line unless a root is given', !byType(r.calls, 'todo-triager')[0].prompt.includes('root:'))
-  r = await run('todo-triage', { todos: [{ id: '1', path: 'a' }], root: '/scratch/triage-r' }, () => ({ class: 'ready' }))
+  // Todo 468: the harness itself rejects a stub that is not a valid record (the old triage stub).
+  r = await run('todo-triage', { todos: [{ id: '1', path: 'a' }] }, () => ({ id: 'WRONG', class: 'ready' }),
+    { badFixtures: true })
+  check('fixtures: a stub that does not match its schema is rejected (todo 468)',
+    r.fixtureErrors.some(e => e.includes('$.evidence: missing')) && r.fixtureErrors.some(e => e.includes('$.size: missing')),
+    r.fixtureErrors)
+  r = await run('todo-triage', { todos: [{ id: '1', path: 'a' }] }, () => triage({ class: 'maybe', size: 'xl' }),
+    { badFixtures: true })
+  check('fixtures: an enum value outside the schema is rejected',
+    r.fixtureErrors.length === 2 && r.fixtureErrors.every(e => e.includes('not in enum')), r.fixtureErrors)
+  r = await run('todo-triage', { todos: [{ id: '1', path: 'a' }], root: '/scratch/triage-r' }, () => triage())
   check('triage: a root reaches every triager prompt (todo 468)',
     byType(r.calls, 'todo-triager')[0].prompt.includes('\nroot: /scratch/triage-r\n'))
 
@@ -174,6 +216,22 @@ async function main() {
   check('execute: a dead second verifier yields verdict null on the retried result',
     r.result.results[0].verdict === null && r.result.results[0].retried && r.result.results[0].worker !== null, r.result)
 
+  // --- execute: owner decisions 2026-09-28 (todo 468)
+  check('execute: verifier prompts carry no CLAIMED_TREE (evaluate() compares tree ids)',
+    execVerifies.every(c => !c.prompt.includes('CLAIMED_TREE')), execVerifies.map(c => c.prompt))
+  verifies = 0
+  r = await run('todo-execute', { run_id: 'r', briefs: [brief()] },
+    (p, o) => (o.agentType === 'todo-worker' ? worker() : ++verifies === 1 ? null : verdict('pass')))
+  check('execute: a null verdict re-runs only the verifier, on the same worktree',
+    byType(r.calls, 'todo-verifier').length === 2 && byType(r.calls, 'todo-worker').length === 1
+    && byType(r.calls, 'todo-verifier')[1].prompt.includes('WORKTREE: /wt/g1')
+    && r.result.results[0].verdict.verdict === 'pass' && !r.result.results[0].retried, r.result)
+  r = await run('todo-execute', { run_id: 'r', briefs: [brief()] },
+    (p, o) => (o.agentType === 'todo-worker' ? worker() : null))
+  check('execute: two null verdicts give verdict null, with no worker retry',
+    byType(r.calls, 'todo-verifier').length === 2 && byType(r.calls, 'todo-worker').length === 1
+    && r.result.results[0].verdict === null && !r.result.results[0].retried, r.result)
+
   // --- review round 1, size s, blocking finding
   const high = { reviewed_range: 'skill:code-review', findings: [{ severity: 'high', file: 'a.py', line: 1, summary: 'bug', suggested_fix: '' }] }
   r = await run('todo-review', { round: 1, prs: [pr()] },
@@ -200,6 +258,7 @@ async function main() {
   check('review: the post-repair verifier opens with MODE: repair', firstLine(repairV) === 'MODE: repair', firstLine(repairV))
   check('review: the post-repair verifier gets IDS and both path lists', repairV.prompt.includes('\nIDS: 1\n')
     && repairV.prompt.includes(`TODO_PATHS: ${archived}`) && repairV.prompt.includes(`ORIGIN_PATHS: ${pending}`))
+  check('review: the post-repair verifier gets no CLAIMED_TREE (todo 468)', !repairV.prompt.includes('CLAIMED_TREE'))
   check('review: the post-repair verifier ignores box state and knows Land ran',
     repairV.prompt.includes('Ignore `[ ]` vs `[x]`') && repairV.prompt.includes('Land has already flipped'), repairV.prompt)
   check('review: the post-repair verifier requires a command on every open criterion and re-runs each',
