@@ -70,8 +70,9 @@ def main():
     state.transition(run, "412", "triaged")
     check("scanned -> triaged is allowed", run["todos"]["412"]["stage"] == "triaged")
     check("every non-terminal stage may block",
-          all("blocked" in targets for targets in state.ALLOWED.values()))
-    check("terminal stages have no exits", not (state.TERMINAL & set(state.ALLOWED)))
+          all("blocked" in targets for name, targets in state.ALLOWED.items() if name not in state.TERMINAL))
+    check("only blocked leaves a terminal stage, and only to ready",
+          state.TERMINAL & set(state.ALLOWED) == {"blocked"} and state.ALLOWED["blocked"] == {"ready"})
 
     walk = state.new_run("r2", "sweep", 3, [todo("1")], ["1"])
     for stage in ["triaged", "ready", "executing", "failed"]:
@@ -146,6 +147,33 @@ def main():
     done = state.new_run("r5", "sweep", 3, [todo("1")], ["1"])
     state.transition(done, "1", "blocked", reason="x")
     check("is_complete when every todo is terminal", state.is_complete(done))
+
+    # todo 469: the pilot's 432 blocked on a missing .env; once #864 cleared it, nothing could re-brief it.
+    run = state.new_run("r7", "sweep", 3, [todo("1"), todo("2"), todo("3")], ["1", "2", "3"])
+    state.record_triage(run, [rec("1"), rec("2")])
+    state.accept_ready(run)
+    for stage, fields in [("executing", {}), ("blocked", {"reason": "no backend/.env"})]:
+        state.transition(run, "1", stage, **fields)
+    run["todos"]["1"].update(group="g1", worktree="/wt/g1", branch="worktree-g1", tree_id="T1")
+    run["unschedulable"]["1"] = "stale reason"
+    check("blocked -> ready needs a reason", raises(lambda: state.transition(run, "1", "ready")))
+    check("blocked -> blocked stays refused", raises(lambda: state.transition(run, "1", "blocked", reason="again")))
+    state.transition(run, "1", "ready", reason="blocker cleared by #864")
+    one = run["todos"]["1"]
+    check("blocked -> ready reopens the todo", one["stage"] == "ready" and one["reason"] == "blocker cleared by #864")
+    check("reopening drops the group so the todo is regrouped", "group" not in one)
+    check("the blocked attempt's worktree, branch and reason move to previous",
+          one["previous"] == [{"reason": "no backend/.env", "group": "g1", "worktree": "/wt/g1",
+                               "branch": "worktree-g1", "tree_id": "T1"}], one.get("previous"))
+    check("reopening does not spend the retry", one["attempts"] == 0)
+    check("reopening clears a stale unschedulable reason", "1" not in run["unschedulable"])
+    check("a reopened todo makes the run incomplete again", not state.is_complete(run))
+    state.transition(run, "2", "blocked", reason="review round 2", pr=870)
+    check("a blocked todo with a PR is not reopened",
+          raises(lambda: state.transition(run, "2", "ready", reason="fixed")) and run["todos"]["2"]["stage"] == "blocked")
+    state.transition(run, "3", "blocked", reason="set by hand")
+    check("a blocked todo with no triage record is not reopened",
+          raises(lambda: state.transition(run, "3", "ready", reason="fixed")))
 
     run = state.new_run("r6", "sweep", 3, [todo("1")], ["1"])
     state.transition(run, "1", "triaged")

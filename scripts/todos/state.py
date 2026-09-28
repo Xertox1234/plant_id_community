@@ -36,11 +36,16 @@ ALLOWED = {
 }
 for _targets in ALLOWED.values():
     _targets.add("blocked")  # spec §8: any non-terminal stage may block, with a reason
+# The one exit from a terminal stage (todo 469): the owner cleared the blocker. Added after the
+# loop above, so blocked -> blocked stays refused. blocked is still terminal for is_complete().
+ALLOWED["blocked"] = {"ready"}
 MAX_RETRIES = 1
 OUTCOMES = {"ready", "blocked", "skipped"}
 NOT_PLANNED = {"scanned", "triaged", "blocked", "skipped"}
 LANDED = {"merged", "archived"}
 WORK_FIELDS = ("worktree", "branch", "tree_id", "ac_file")
+# What a blocked attempt leaves on its entry; reopening moves it to `previous` (see _reopen).
+ATTEMPT_FIELDS = ("reason", "group", "slot", "wave", *WORK_FIELDS, "verified_ac", "test_edits", "review_round")
 
 
 class TransitionError(Exception):
@@ -96,15 +101,33 @@ def transition(run, todo_id, to, **fields):
     frm = entry["stage"]
     if to not in ALLOWED.get(frm, set()):
         raise TransitionError(f"{todo_id}: {frm} -> {to} is not allowed")
-    if to in {"blocked", "failed"} and not fields.get("reason"):
-        raise TransitionError(f"{todo_id}: {to} needs a reason")
-    if frm == "failed" and to == "ready":
+    if (to in {"blocked", "failed"} or frm == "blocked") and not fields.get("reason"):
+        raise TransitionError(f"{todo_id}: {frm} -> {to} needs a reason")
+    if frm == "blocked":
+        _reopen(run, todo_id, entry)
+    elif frm == "failed" and to == "ready":
         if entry["attempts"] >= MAX_RETRIES:
             raise TransitionError(f"{todo_id}: already retried once; block it with a reason")
         entry["attempts"] += 1
         entry.pop("group", None)  # regroup from scratch; never share a group with the failed attempt
     entry["stage"] = to
     entry.update(fields)
+
+
+def _reopen(run, todo_id, entry):
+    """blocked -> ready once the blocker is cleared (todo 469; the pilot's 432 had no way back).
+
+    Refused for a todo with a PR: the fix belongs on that PR, not in a second attempt. Refused
+    without a triage record, which regrouping needs. The blocked attempt's group, worktree,
+    branch and verdict move to `previous`, so its staged work stays findable while the todo is
+    regrouped like a retry. attempts is not spent: a cleared blocker is not a failed attempt.
+    """
+    if entry.get("pr"):
+        raise TransitionError(f"{todo_id}: PR #{entry['pr']} is open for it; fix it on that PR")
+    if not entry.get("triage"):
+        raise TransitionError(f"{todo_id}: no triage record to regroup from; triage it first")
+    entry.setdefault("previous", []).append({k: entry.pop(k) for k in ATTEMPT_FIELDS if k in entry})
+    run.get("unschedulable", {}).pop(todo_id, None)
 
 
 def summary(run):

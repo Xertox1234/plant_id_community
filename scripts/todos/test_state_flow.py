@@ -844,6 +844,22 @@ def main():
         check("review-args on an out-of-range wave exits 2, not a traceback", result.returncode == 2)
         check("the error is reported as 'state: <message>'", result.stderr.startswith("state: "))
 
+    # todo 469: the pilot's 432 -- a worker blocks, the owner clears the blocker, the todo is re-briefed.
+    run = ready_run([("432", ["backend/a.py"])], workers=1)
+    state.apply_grouping(run)
+    first = state.execute_args(run, 0, "/main")[0]
+    state.ingest_execute(run, [{"group": first["group"], "ids": ["432"], "retried": False, "verdict": None,
+                                "worker": worker(["432"], status="blocked") | {"blockers": "no backend/.env"}}])
+    check("a blocked worker leaves the todo blocked", run["todos"]["432"]["stage"] == "blocked")
+    state.transition(run, "432", "ready", reason="blocker cleared by #864")
+    regrouped = state.apply_grouping(run)
+    again, err = expect(lambda: state.execute_args(run, len(run["waves"]) - 1, "/main"))
+    check("a reopened todo is re-briefed in a new group and wave",
+          err is None and len(again) == 1 and again[0]["ids"] == ["432"] and again[0]["group"] != first["group"]
+          and regrouped["waves"] == [[again[0]["group"]]], err or again)
+    check("the re-brief keeps the blocked attempt's worktree findable",
+          run["todos"]["432"]["previous"][0]["worktree"] == "/wt/g1", run["todos"]["432"].get("previous"))
+
     print()
     if FAILURES:
         print(f"FAILED: {len(FAILURES)} check(s): {', '.join(FAILURES)}")

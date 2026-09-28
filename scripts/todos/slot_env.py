@@ -2,6 +2,11 @@
 """Run a command with one todo-sweep worker slot's test resources.
 
     python3 <worktree>/scripts/todos/slot_env.py <slot> -- <command> [args...]
+    python3 slot_env.py --worktree <worktree> <slot> -- <command> [args...]
+
+The worktree defaults to the one this file lives in. --worktree points a newer
+copy at a worktree cut before a slot_env fix (todo 469), which would otherwise
+keep running its own old copy.
 
 Slot N (1..6) gets its own Postgres database -- pytest then creates
 test_plant_community_wN -- and Redis DB 9+N, so the six slots of two
@@ -110,21 +115,26 @@ def slot_env(environ, dotenv_text, slot, worktree, inherit_dotenv=False, exists=
 
 
 def main(argv):
-    if len(argv) < 4 or argv[2] != "--" or not argv[1].isdigit():
+    args, worktree = argv[1:], Path(__file__).resolve().parents[2]
+    if args[:1] == ["--worktree"] and len(args) > 1:
+        worktree, args = Path(args[1]).resolve(), args[2:]
+        if not worktree.is_dir():
+            print(f"slot_env: --worktree {worktree} is not a directory", file=sys.stderr)
+            return 2
+    if len(args) < 3 or args[1] != "--" or not args[0].isdigit():
         print(__doc__, file=sys.stderr)
         return 2
-    worktree = Path(__file__).resolve().parents[2]
     try:
         dotenv, inherited = dotenv_path(worktree, main_checkout(worktree))
     except subprocess.CalledProcessError:
         dotenv, inherited = worktree / "backend" / ".env", False
     try:
-        env = slot_env(dict(os.environ), dotenv.read_text() if dotenv.is_file() else "", int(argv[1]), worktree,
+        env = slot_env(dict(os.environ), dotenv.read_text() if dotenv.is_file() else "", int(args[0]), worktree,
                        inherit_dotenv=inherited)
     except ValueError as exc:
         print(f"slot_env: {exc}", file=sys.stderr)
         return 2
-    os.execvpe(argv[3], argv[3:], env)
+    os.execvpe(args[2], args[2:], env)
     return 127  # not reached
 
 
