@@ -161,16 +161,19 @@ Steps 1–8 run with the sandbox off (see **Sandbox**).
      `ensure-worktree` again, push, then round 2.
    - `rerun` → run round 1 again once. A second `rerun`: `set-group … blocked`.
    - `blocked` → report it.
-2. Round 2: `review-args --round 2` → workflow → `ingest-review --round 2`. `clean` → if any todo in the
-   group has `refuted` entries in the run file, first post them with `gh pr comment <n> --body …`, one per
-   line, headed "Dismissed by refuters, not fixed". Then `gh pr merge <n> --auto --squash --delete-branch`.
-   The round-2 reviewers read the full diff in fresh contexts; that is the "review before arming" step.
-   You read `--stat` and their verdicts only.
+2. Round 2: `review-args --round 2` → workflow → `ingest-review --round 2`. For every outcome except
+   `rerun`, first post the refuter-dismissed findings: run `state.py refuted-comment $RUN G --out
+   $SCRATCH/refuted-G.md`. If it prints a path, run `gh pr comment <n> --body-file <that path>`. Never
+   build `--body` from the findings: they are LLM text, and this step runs with the sandbox off.
+   `clean` → then `gh pr merge <n> --auto --squash --delete-branch`. The round-2 reviewers read the full
+   diff in fresh contexts; that is the "review before arming" step. You read `--stat` and their verdicts
+   only.
    `held` → a critical finding was dismissed only by the refuters (in either round). `ingest-review` has
-   already blocked the group. Do NOT arm. Post the `refuted` list as a PR comment, and report the PR to the
-   owner as held. Only the owner can clear a critical.
+   already blocked the group. Do NOT arm. Report the PR to the owner as held. Only the owner can clear a
+   critical. When they do, run `state.py clear-hold $RUN G --decision "<their words, dated>"`, which moves the
+   group to `reviewed`, then arm.
    `rerun` → run round 2 again once. A second `rerun`: `set-group … blocked` and report it.
-   `blocked` → stop that PR and report it.
+   `blocked` → stop that PR and report it. Its reason also names any dismissed critical the owner must clear.
 3. What a round runs, for every size: three `todo-reviewer` bug lenses, plus the checklist lane.
    `review-args` computes each PR's `changed_files` from its worktree's diff. The workflow applies the
    orchestrator table's path rules to that list and always dispatches those reviewers, each with its own
@@ -182,7 +185,9 @@ Steps 1–8 run with the sandbox off (see **Sandbox**).
    wrap-up, so the owner can see what the refuters dismissed.
 4. Follow-ups: todos with `followups` or `refuted` get one follow-up todo file per PR (next free id, `p4`, the
    PR number in its Findings, refuted ones under their own heading so the owner can re-judge them), all
-   committed together in a closing `chore(todos): follow-ups from run $RUN_ID` PR.
+   committed together in a closing `chore(todos): follow-ups from run $RUN_ID` PR. A group still held or
+   blocked is an owner hand-off in the wrap-up, not a p4 follow-up. Its dismissed criticals are already on
+   the PR and in its block reason.
 
 ## Merge confirmation and cleanup
 

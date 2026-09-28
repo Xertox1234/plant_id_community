@@ -159,3 +159,22 @@ These were left for later.
   critical. Three mutations each fail 1–2 checks: removing the hold, restoring the
   `[:10]` cap, and matching only one critical.
 - The residue and router items went to their own todos, 480 and 481, as the owner asked.
+
+### 2026-09-28 - PR #874 review round 1 (bundled /code-review high)
+
+- Fixed, blocking:
+  - A hold had no exit. New `state.py clear-hold G --decision …` is the only path out:
+    blocked-and-held → reviewed, with the owner's decision recorded. It refuses a group
+    blocked for any other reason.
+  - The PR comment was built with `--body` from LLM text. New
+    `state.py refuted-comment G --out FILE` writes the body for `gh pr comment --body-file`,
+    so the main session no longer reads the run file by hand.
+  - A refuted line without a severity (a run file from before this change) fails
+    closed and counts as critical.
+  - When round 2 still has blocking findings, the reason also names any dismissed
+    critical.
+- Also: held groups are owner hand-offs, not p4 follow-ups, and there is a real round-1
+  ingest → round-2 hold test.
+- Not fixed: holding already at round 1, which would save a repair and a round 2
+  (cost only), and deduplicating `refuted` by file:line across rounds (a count can
+  double). Both → todo 482.
