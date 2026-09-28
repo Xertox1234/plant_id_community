@@ -359,6 +359,11 @@ def execute_args(run, wave, main_root):
                                           "(run `group` first if it was retried)")
     for todo_id, reason in to_block.items():
         transition(run, todo_id, "blocked", reason=reason)
+        # N1: a gate-blocked todo never ran, so it leaves its group entirely -- both the entry's
+        # group and the recorded ids -- or set_group/ensure_worktree/review_args would read it as
+        # the group's first member, and _dependencies_of would count it against the group's dependents.
+        gid = run["todos"][todo_id].pop("group")
+        run["groups"][gid]["ids"] = [i for i in run["groups"][gid]["ids"] if i != todo_id]
     briefs = []
     for position, gid in enumerate(gids, start=1):
         entries = [(i, e) for i, e in _group_entries(run, gid) if i not in to_block and e["stage"] not in TERMINAL]

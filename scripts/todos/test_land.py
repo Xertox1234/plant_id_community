@@ -1267,7 +1267,8 @@ def main():
         (main_root / "web" / ".env").write_text("export VITE_TOKEN=\"main-web-token-123\"\n")
         (repo / ".sweep-evidence/g1/412-ac1.txt").write_text(
             "SECRET_KEY=repo-secret-value-xyz\nurl https://x/?t=main-web-token-123\nSHORT=abc1234 DEBUG=True\n")
-        land.flip_acs(repo, "todos/412-pending-p3-a.md", [entry("412", 0)] + [entry("412", i) for i in (1, 2)],
+        leaky = dict(entry("412", 0), command="curl -H 'X-Token: main-web-token-123' https://x/health")
+        land.flip_acs(repo, "todos/412-pending-p3-a.md", [leaky] + [entry("412", i) for i in (1, 2)],
                       [agree("412", 0)], "r", "2026-09-27", main_root=str(main_root))
         text = (repo / "todos/412-pending-p3-a.md").read_text()
         check("m5: a backend/.env value in the repo is masked in the quoted tail",
@@ -1275,6 +1276,8 @@ def main():
         check("m5: a web/.env value under MAIN_ROOT is masked too",
               "main-web-token-123" not in text and "?t=***" in text, text)
         check("m5: values shorter than 8 characters are left alone", "SHORT=abc1234 DEBUG=True" in text, text)
+        check("m5 residual: a .env value in the AC command is masked before it is quoted",
+              "`curl -H 'X-Token: ***' https://x/health`" in text, text)
 
     # Final review m9: no Work Log heading a worker is told to write may satisfy Land's
     # "evidence is quoted above" check -- only flip_acs's own heading does.

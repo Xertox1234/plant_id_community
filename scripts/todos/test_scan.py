@@ -173,6 +173,19 @@ def main():
               scan.git_changed_since("todos/413-pending-p3-b.md", "2026-09-27", "HEAD", repo=repo) is False
               and scan.git_changed_since("todos/413-pending-p3-b.md", "2026-09-25", "HEAD", repo=repo) is True)
 
+        # Re-review N4: a rename commit "adds" every line, so without --follow it became the stamp,
+        # hiding an owner answer made in the same commit as the rename.
+        write(repo / "todos", "414-pending-p3-c.md", "pending", "414",
+              extra="triage: blocked-owner\ntriaged: 2026-09-27\n")
+        commit("triage 414", "2026-09-27T18:00:00 +0000")
+        subprocess.run(["git", "-C", str(repo), "mv", "todos/414-pending-p3-c.md", "todos/414-pending-p2-c.md"],
+                       check=True)
+        renamed = repo / "todos" / "414-pending-p2-c.md"
+        renamed.write_text(renamed.read_text() + "\nOwner: the key is rotated; go ahead.\n")
+        commit("owner: reprioritise to p2 and answer", "2026-09-28T03:00:00 +0000")
+        check("N4: a rename plus an owner answer in one commit counts as changed since triage",
+              scan.git_changed_since("todos/414-pending-p2-c.md", "2026-09-27", "HEAD", repo=repo) is True)
+
     # Error handling tests
     import unittest.mock as mock
 

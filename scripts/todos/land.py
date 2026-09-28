@@ -120,9 +120,14 @@ def _tail(path, secrets=()):
     """The last EVIDENCE_TAIL lines, with every .env value masked as *** -- the tail is
     committed into the Work Log of a public repo."""
     lines = Path(path).read_text(errors="replace").rstrip("\n").splitlines()[-EVIDENCE_TAIL:]
+    return [_mask(line, secrets) for line in lines]
+
+
+def _mask(text, secrets):
+    """`text` with every secret (longest first, as _env_secrets orders them) replaced by ***."""
     for secret in secrets:
-        lines = [line.replace(secret, "***") for line in lines]
-    return lines
+        text = text.replace(secret, "***")
+    return text
 
 
 def _sanitize(value):
@@ -209,7 +214,7 @@ def flip_acs(repo, todo_rel, ac_entries, verdict_ac, run_id, date, main_root="")
             continue
         lines[line_no] = lines[line_no].replace("[ ]", "[x]", 1)
         flipped.append(index)
-        command, evidence_display = _sanitize(entry["command"]), _sanitize(entry["evidence_path"])
+        command, evidence_display = _sanitize(_mask(entry["command"], secrets)), _sanitize(entry["evidence_path"])
         fence, quoted = _fence_quote(_tail(evidence, secrets))
         notes.append(f"- AC {index + 1}: `{command}` — evidence `{evidence_display}`, "
                      f"last lines:\n\n  {fence}text\n{quoted}\n  {fence}\n")

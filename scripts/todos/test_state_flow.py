@@ -618,6 +618,67 @@ def main():
     check("I3: a dependent is regrouped with its retried dependency and placed after it",
           run_d["todos"]["602"]["group"] != g602 and w602 >= w601 + 2, (w601, w602, run_d["waves"]))
 
+    # Re-review N1: the gate blocks ONE member of a two-member group (402, bundled xs with 403).
+    # The blocked member must leave the group entirely, or Land and review read it as the group's
+    # first member, and a dependent of the member that ran (404 <- 403) is blocked on it.
+    with tempfile.TemporaryDirectory() as tmp:
+        repo = Path(tmp) / "repo"
+        subprocess.run(["git", "init", "-q", "-b", "main", str(repo)], check=True)
+        subprocess.run(["git", "-C", str(repo), "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q",
+                        "--allow-empty", "-m", "init"], check=True)
+        wt = Path(tmp) / "wt403"
+        subprocess.run(["git", "-C", str(repo), "worktree", "add", "-q", "-b", "worktree-n1", str(wt)], check=True)
+        (wt / "backend").mkdir()
+        (wt / "backend" / "n403.py").write_text("x = 1\n")
+        subprocess.run(["git", "-C", str(wt), "add", "-A"], check=True)
+        tree403 = subprocess.run(["git", "-C", str(wt), "write-tree"], capture_output=True, text=True).stdout.strip()
+
+        todos_n1 = [{"id": i, "path": f"todos/{i}-pending-p3-x.md", "priority": "p3"} for i in ("401", "402", "403",
+                                                                                                "404")]
+        run_n1 = state.new_run("r", "sweep", 1, todos_n1, ["401", "402", "403", "404"])
+        state.record_triage(run_n1, [rec("401", ["n401.py"]), rec("402", ["backend/n402.py"], size="xs"),
+                                     rec("403", ["backend/n403.py"], size="xs"), rec("404", ["n404.py"])])
+        state.accept_ready(run_n1)
+        run_n1["todos"]["402"]["dependencies"] = ["401"]
+        run_n1["todos"]["404"]["dependencies"] = ["403"]
+        state.apply_grouping(run_n1)
+        g2 = run_n1["todos"]["403"]["group"]
+        check("N1 setup: 402 and 403 share one group", run_n1["todos"]["402"].get("group") == g2
+              and sorted(run_n1["groups"][g2]["ids"]) == ["402", "403"], run_n1["groups"])
+        wave_of_n1 = {i: next(w for w, gids in enumerate(run_n1["waves"]) if run_n1["todos"][i]["group"] in gids)
+                      for i in ("401", "403", "404")}
+        b0 = state.execute_args(run_n1, 0, "/m")
+        state.ingest_execute(run_n1, [{"group": b0[0]["group"], "ids": ["401"], "retried": False, "verdict": None,
+                                       "worker": worker(["401"], status="blocked") | {"blockers": "owner"}}])
+        briefs_n1 = []
+        for w in range(1, wave_of_n1["403"] + 1):
+            briefs_n1 = state.execute_args(run_n1, w, "/m")
+        check("N1: the gate blocks 402 and dispatches only 403",
+              [b["ids"] for b in briefs_n1] == [["403"]] and run_n1["todos"]["402"]["stage"] == "blocked", briefs_n1)
+        check("N1: the gate-blocked member leaves the group (entry and recorded ids)",
+              "group" not in run_n1["todos"]["402"] and run_n1["groups"][g2]["ids"] == ["403"],
+              (run_n1["todos"]["402"].get("group"), run_n1["groups"][g2]["ids"]))
+        state.ingest_execute(run_n1, [{"group": g2, "ids": ["403"], "retried": False,
+                                       "worker": worker(["403"], tree=tree403) | {"worktree": str(wt),
+                                                                                  "branch": "worktree-n1"},
+                                       "verdict": verdict(["403"], before=tree403, after=tree403)}])
+        _, err = expect(lambda: state.set_group(run_n1, g2, "pr_open", pr=9))
+        check("N1: set_group moves the group that ran to pr_open", err is None
+              and run_n1["todos"]["403"]["stage"] == "pr_open", err)
+        path_n1, err = expect(lambda: state.ensure_worktree(run_n1, g2, Path(tmp) / "scratch"))
+        check("N1: ensure_worktree finds the member that ran", err is None and path_n1 == str(wt), err)
+        items, err = expect(lambda: state.review_args(run_n1, 1, wave_of_n1["403"]))
+        check("N1: review_args lists the group", err is None and [i["group"] for i in (items or [])] == [g2]
+              and items[0]["ids"] == ["403"], err or items)
+        _, err = expect(lambda: (state.set_group(run_n1, g2, "reviewed"), state.set_group(run_n1, g2, "merged")))
+        briefs_404 = []
+        for w in range(wave_of_n1["403"] + 1, wave_of_n1["404"] + 1):
+            got, err = expect(lambda: state.execute_args(run_n1, w, "/m"))
+            briefs_404 = got or []
+        check("N1: a dependent of the member that ran is dispatched, not blocked on the gate-blocked member",
+              err is None and [b["ids"] for b in briefs_404] == [["404"]]
+              and run_n1["todos"]["404"]["stage"] == "executing", err or run_n1["todos"]["404"])
+
     # Final review I5: a worker that stops short still has a worktree; record it.
     run_w = ready_run([("701", ["w701.py"]), ("702", ["w702.py"]), ("703", ["w703.py"])], workers=3)
     state.apply_grouping(run_w)

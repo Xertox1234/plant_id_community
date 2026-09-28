@@ -12,23 +12,24 @@ dependencies: []
 
 The final whole-branch review of the todo sweep v2 engine (Part A) fixed its
 Critical, Important and cheap Minor findings in one wave. Fifteen smaller
-items were ruled follow-up, not fixed. None is reachable on today's backlog
-or in the first pilot, but each is a real gap in a later sweep.
+items were ruled follow-up, not fixed, and the re-review of that wave added
+eight more. None is reachable on today's backlog or in the first pilot, but
+each is a real gap in a later sweep.
 
 ## Findings
 
 Source: the final review of `feat/todo-sweep-v2-engine` (2026-09-27), and
-the controller rulings on it. Line numbers are at the fix-wave commit.
+the controller rulings on it. Line numbers are at the residual fix commit.
 
 - **apply_triage is not transactional.** A mid-batch failure leaves earlier
   todos renamed, and the reset-stranded `git mv` is not idempotent on re-run
   (`scripts/todos/state.py:220`).
 - **ingest_review does not validate stage or round order.** A re-ingest of a
   stale round-1 output can overwrite `tree_id` and `verified_ac` on a group
-  that is already reviewed (`scripts/todos/state.py:486`).
+  that is already reviewed (`scripts/todos/state.py:491`).
 - **The review doc is not a single-lane resource.** Two groups sourced from
   one `docs/reviews/*.md` can both check it off and race the `-COMPLETED`
-  rename (`scripts/todos/group.py:18`, `scripts/todos/land.py:391`).
+  rename (`scripts/todos/group.py:18`, `scripts/todos/land.py:396`).
 - **The triager reads the local checkout.** `triage_args` passes no root, so
   the triager reads the main checkout, which can be behind origin/main
   (`scripts/todos/state.py:133`, `.claude/workflows/todo-triage.js:33`). The
@@ -38,20 +39,20 @@ the controller rulings on it. Line numbers are at the fix-wave commit.
   (`.worktreeinclude:5-6`). This is pilot check P5.
 - **A failed tree check leaves the re-added worktree on disk.** It is
   non-destructive, and the message names the path
-  (`scripts/todos/state.py:600-605`).
+  (`scripts/todos/state.py:605-610`).
 - **The workflow harness does not schema-validate its fixtures.** The triage
   stub `{ id: 'WRONG', class: 'ready' }` is not a valid TRIAGE record
   (`scripts/todos/test_workflows.js:78`).
 - **`source_review` dangles after a COMPLETED rename.** Only the archiving
   todo's own `source_review` follows the rename. Other archived todos that
-  name the same review doc keep the old path (`scripts/todos/land.py:403`).
+  name the same review doc keep the old path (`scripts/todos/land.py:408`).
 - **m1: `needs-design` and `stale` todos are re-asked every sweep.** Scan
-  skips only `triage: blocked-*` (`scripts/todos/scan.py:139`), and
+  skips only `triage: blocked-*` (`scripts/todos/scan.py:141`), and
   apply-triage writes the triager's class verbatim
   (`scripts/todos/state.py:229`).
 - **m6: worktree re-add has no `origin/<branch>` fallback.** When the local
   branch is gone, recovery fails even though the branch is pushed
-  (`scripts/todos/state.py:590-594`).
+  (`scripts/todos/state.py:595-599`).
 - **m7: the guard allows `git -C <MAIN> add/mv/rm`.** A worker that confuses
   MAIN with WT can stage into the owner's main checkout
   (`scripts/todos/worker_git_guard.py:31`).
@@ -72,6 +73,40 @@ the controller rulings on it. Line numbers are at the fix-wave commit.
 - **Retry fires only on an explicit `fail`.** A null verdict goes to
   `failed`, and the runbook retries it in a fresh worktree instead of the
   same one (`.claude/workflows/todo-execute.js:123`).
+
+Added from the fix-wave re-review (N2, N3, the m5, m3 and F5 residuals, and
+the spec):
+
+- **N2: `_continues` ends a criterion early at a wrapped `#42` or `10.`
+  line.** It treats the first as a heading and the second as a bullet, so the
+  joined text differs from what a model copies and Land refuses (fails
+  closed) (`scripts/todos/todofile.py:111-112`). A stricter heading test
+  (`^\s*#{1,6}(\s|$)`) would close it.
+- **N3: the fence stop in `_continues` is unpinned.** No test fails when the
+  `FENCE_RE` clause is removed (`scripts/todos/todofile.py:112`).
+- **m5 residual: `parse_dotenv` keeps an inline `# comment` in the value.**
+  A secret written `KEY=value # note` masks `value # note`, and the bare
+  value leaks (`scripts/todos/slot_env.py:34`).
+- **m5 residual: a component printed alone is not masked.** The password
+  inside `DATABASE_URL`, printed by itself, matches no whole `.env` value
+  (`scripts/todos/land.py:106-116`).
+- **m5 residual: a DB name that is not a prefix of the slot name is not
+  masked.** `slot_env` rewrites the path to `/plant_community_w<N>`, so a
+  local DB name that is not a prefix of it breaks the substring match, and
+  the slotted `DATABASE_URL` with its password is quoted whole
+  (`scripts/todos/land.py:106-116`, `scripts/todos/slot_env.py:47`).
+- **m3 residual: `fix/todo412` shapes are no longer matched.** An id with no
+  delimiter before it is missed, which fails open (the todo can be selected
+  while in flight). No local ref has this shape today
+  (`scripts/todos/scan.py:32`).
+- **F5 residual: recorded worktrees are lost at `finish`.** `finish` deletes
+  the run file once every todo is terminal (`scripts/todos/state.py:682-684`),
+  so Part B must list every non-staged todo's recorded worktree at wrap-up,
+  before `finish`.
+- **Spec §5.2 says `status --porcelain` is empty after staging.** Staged
+  entries are listed by porcelain, so the sentence is wrong; the engine's
+  clean check reads the worktree column only
+  (`docs/superpowers/specs/2026-09-27-todo-sweep-multi-agent-design.md:208`).
 
 ## Recommended Action
 
@@ -140,6 +175,20 @@ the controller rulings on it. Line numbers are at the fix-wave commit.
 - [ ] The verifier either consumes `CLAIMED_TREE` or the prompt drops it,
       and the decision is recorded here.
 - [ ] The retry-on-null-verdict decision is recorded here.
+- [ ] A wrapped continuation line starting with `#42` or `10.` stays part
+      of its criterion, with a test.
+- [ ] A test fails when the fence stop in `_continues` is removed.
+- [ ] `parse_dotenv` strips an inline `# comment` from unquoted values, with
+      a test.
+- [ ] A `DATABASE_URL` password printed on its own is masked in a quoted
+      evidence tail, with a test.
+- [ ] A slotted `DATABASE_URL` is masked whatever the local DB name, with a
+      test.
+- [ ] `fix/todo412`-style branch names count as in flight, or the decision
+      not to is recorded here.
+- [ ] The Part B wrap-up lists every non-staged todo's recorded worktree
+      before `state.py finish`.
+- [ ] Spec §5.2 no longer says `status --porcelain` is empty after staging.
 
 ## Work Log
 
@@ -148,6 +197,12 @@ the controller rulings on it. Line numbers are at the fix-wave commit.
 - The final review of todo sweep v2 Part A ruled these fifteen items
   follow-up. The fix wave on `feat/todo-sweep-v2-engine` fixed C1, I2-I5
   and m2-m5, m9-m11.
+
+### 2026-09-27 - Residuals added from the fix-wave re-review
+
+- Added N2, N3, three m5 leak paths, the m3 delimiter-less shape, the F5
+  wrap-up step and the spec §5.2 correction. N1, N4 and the m5 command leak
+  were fixed in the same commit that added these.
 
 ## Notes
 

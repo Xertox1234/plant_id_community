@@ -106,7 +106,9 @@ def git_changed_since(path, triaged, ref="HEAD", repo="."):
     def git(*args):
         return subprocess.run(["git", "-C", str(repo), *args], capture_output=True, text=True).stdout.strip()
 
-    stamp = git("log", "-1", "--format=%H", "-G^triaged:", ref, "--", path)
+    # --follow (N4): without it a later rename commit "adds" every line, triaged: included, and
+    # becomes the stamp -- hiding an owner answer made in that same commit.
+    stamp = git("log", "-1", "--follow", "--format=%H", "-G^triaged:", ref, "--", path)
     if stamp:
         return bool(git("rev-list", f"{stamp}..{ref}", "--", path))
     out = git("log", "-1", "--format=%cs", ref, "--", path)
