@@ -100,6 +100,15 @@ def main():
     # Review focus 3: ids and branch state.
     check("ids_in finds three-digit ids", scan.ids_in(["feat/412-onboarding"]) == {"412"})
     check("ids_in ignores longer numbers", scan.ids_in(["fix/1234-x", "pr-4120"]) == {"1234", "4120"})
+    # Final review m3: a harness agent branch's hex name is not a list of todo ids.
+    check("ids_in skips worktree-agent-* branches", scan.ids_in(["worktree-agent-a367c0a10e427e588"]) == set(),
+          scan.ids_in(["worktree-agent-a367c0a10e427e588"]))
+    check("ids_in reads an id only as a whole token", scan.ids_in(["pr819", "x1234y", "feat/12345-x"]) == set(),
+          scan.ids_in(["pr819", "x1234y", "feat/12345-x"]))
+    check("ids_in keeps real branch shapes: <type>/<id>-, a slice letter, a mid-name id, wt<id>",
+          scan.ids_in(["feat/412-a", "feat/410b-remove", "release/testflight-428-link-cards", "worktree-wt429"])
+          == {"412", "410", "428", "429"})
+    check("merged heads are fetched with a limit above the repo's PR count", getattr(scan, "MERGED_PR_LIMIT", 0) >= 5000)
     inflight, cleanup = scan.inflight_from(
         worktree_branches=["feat/447-slice-c", "fix/364-mailers"],
         local_branches=["feat/447-slice-c", "fix/364-mailers", "docs/kimi-plan"],
@@ -128,6 +137,41 @@ def main():
         check("with a ref, scan reads the committed tree, not the working tree",
               ids(at_ref) == ["412"] and at_ref[0]["path"] == "todos/412-pending-p3-a.md", at_ref)
         check("the committed todo's title comes from git", at_ref[0]["title"] == "Title 412")
+
+    # Final review I2: "changed since triage" compares commits, not dates. GitHub squash-merges
+    # commit in +0000, so a triage merged at 19:30 -0600 on 2026-09-27 is dated 2026-09-28.
+    with tempfile.TemporaryDirectory() as tmp:
+        repo = Path(tmp)
+        (repo / "todos").mkdir()
+        subprocess.run(["git", "init", "-q", "-b", "main", str(repo)], check=True)
+        rel = "todos/412-pending-p3-a.md"
+
+        def commit(message, date):
+            env = dict(os.environ, GIT_COMMITTER_DATE=date, GIT_AUTHOR_DATE=date)
+            subprocess.run(["git", "-C", str(repo), "add", "-A"], check=True)
+            subprocess.run(["git", "-C", str(repo), "-c", "user.email=t@t", "-c", "user.name=t",
+                            "commit", "-q", "-m", message], check=True, env=env)
+
+        write(repo / "todos", "412-pending-p3-a.md", "pending", "412")
+        commit("create", "2026-09-20T10:00:00 +0000")
+        write(repo / "todos", "412-pending-p3-a.md", "pending", "412",
+              extra="triage: blocked-owner\ntriaged: 2026-09-27\n")
+        commit("triage (evening merge, 19:30 -0600)", "2026-09-28T01:30:00 +0000")
+        check("I2: an evening triage merge dated the next day in UTC is not 'changed since triage'",
+              scan.git_changed_since(rel, "2026-09-27", "HEAD", repo=repo) is False)
+        (repo / "other.md").write_text("x\n")
+        commit("unrelated", "2026-09-28T02:00:00 +0000")
+        check("I2: a later commit to another file does not count",
+              scan.git_changed_since(rel, "2026-09-27", "HEAD", repo=repo) is False)
+        (repo / rel).write_text((repo / rel).read_text() + "\nOwner: unblocked, the key is rotated.\n")
+        commit("owner edit, same local day", "2026-09-28T03:00:00 +0000")
+        check("I2: an edit after the triage commit counts, even on the same day",
+              scan.git_changed_since(rel, "2026-09-27", "HEAD", repo=repo) is True)
+        write(repo / "todos", "413-pending-p3-b.md", "pending", "413")
+        commit("no triaged line ever written", "2026-09-26T10:00:00 +0000")
+        check("I2: with no commit writing a triaged: line, the date comparison is the fallback",
+              scan.git_changed_since("todos/413-pending-p3-b.md", "2026-09-27", "HEAD", repo=repo) is False
+              and scan.git_changed_since("todos/413-pending-p3-b.md", "2026-09-25", "HEAD", repo=repo) is True)
 
     # Error handling tests
     import unittest.mock as mock

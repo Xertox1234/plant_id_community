@@ -1195,6 +1195,101 @@ def main():
               proc.stderr.startswith("land: ") and "Traceback" not in proc.stderr, proc.stderr)
         check("R4/3: and nothing was written", git_status(repo) == before_status, git_status(repo))
 
+    # Final review C1: a criterion wrapped onto an indented continuation line (29 of 47
+    # open todos at origin/main) is matched on its WHOLE text. The body is verbatim from
+    # origin/main:todos/467-pending-p3-delete-ai-care-service-and-diagnosis-count-race.md.
+    with tempfile.TemporaryDirectory() as tmp:
+        repo = Path(tmp) / "repo"
+        (repo / "todos" / "archive").mkdir(parents=True)
+        (repo / "todos" / "archive" / ".keep").write_text("")
+        rel = "todos/467-pending-p3-x.md"
+        (repo / rel).write_text(
+            '---\nstatus: pending\npriority: p3\nissue_id: "467"\ndependencies: []\n---\n\n# T\n\n'
+            "## Acceptance Criteria\n\n"
+            "- [ ] `ai_care_service.py` is deleted, and the architecture doc's tree no\n"
+            "      longer lists it; the full backend suite passes.\n"
+            "- [ ] `diagnosis_count` is incremented with `F()`, with a test that fails on\n"
+            "      the read-modify-write version.\n"
+            "- [ ] The other read-modify-write counters are listed with a keep or fix\n"
+            "      verdict each.\n"
+            "\n```markdown\n- [ ] fenced example that\n      wraps\n```\n\n## Work Log\n\n### d - created\n\n")
+        whole = ["`ai_care_service.py` is deleted, and the architecture doc's tree no longer lists it; "
+                 "the full backend suite passes.",
+                 "`diagnosis_count` is incremented with `F()`, with a test that fails on the read-modify-write "
+                 "version.",
+                 "The other read-modify-write counters are listed with a keep or fix verdict each."]
+        ev = repo / ".sweep-evidence" / "g1"
+        ev.mkdir(parents=True)
+        entries = []
+        for n, text in enumerate(whole):
+            (ev / f"467-ac{n}.txt").write_text("ok\n")
+            entries.append({"todo": "467", "index": n, "text": text, "command": f"c{n}",
+                            "evidence_path": f".sweep-evidence/g1/467-ac{n}.txt", "pass": True})
+        subprocess.run(["git", "init", "-q", "-b", "main", str(repo)], check=True)
+        subprocess.run(["git", "-C", str(repo), "add", "todos"], check=True)
+        subprocess.run(["git", "-C", str(repo), "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q",
+                        "-m", "x"], check=True)
+        before = (repo / rel).read_text()
+        first_only = [dict(e, text=e["text"].split(" longer")[0]) if e["index"] == 0 else e for e in entries]
+        msg = raises(lambda: land.flip_acs(repo, rel, first_only, [agree("467", n) for n in range(3)], "r", "d"))
+        check("C1: ac.json text holding only the first physical line of a wrapped criterion refuses",
+              "does not match" in msg and (repo / rel).read_text() == before, msg)
+        try:
+            flipped, left = land.flip_acs(repo, rel, entries, [agree("467", n) for n in range(3)], "r", "d")
+            err = None
+        except land.LandError as exc:
+            flipped, left, err = [], [], exc
+        text = (repo / rel).read_text()
+        check("C1: ac.json text holding the whole wrapped bullet flips every criterion",
+              err is None and flipped == [0, 1, 2] and left == [], err or (flipped, left))
+        check("C1: the flip edits only the checkbox line; the continuation stays put",
+              "- [x] `ai_care_service.py` is deleted, and the architecture doc's tree no\n"
+              "      longer lists it;" in text, text)
+        check("C1: the fenced wrapped example is still not a criterion", "- [ ] fenced example that" in text)
+        check("C1: the CI tripwire sees no bare box once the wrapped criteria are flipped",
+              check_archived_todo_status.parse(str(repo / rel))[3] == [])
+        try:
+            result = land.archive(repo, rel, "r", "d")
+        except land.LandError as exc:
+            result = {"error": str(exc)}
+        check("C1: the flipped wrapped todo archives",
+              result.get("archived") == "todos/archive/467-completed-p3-x.md", result)
+
+    # Final review m5: an evidence tail that echoes a .env value (repo or MAIN_ROOT,
+    # backend/ or web/) is masked before it is quoted into the committed Work Log.
+    with tempfile.TemporaryDirectory() as tmp:
+        repo = setup(tmp)
+        main_root = Path(tmp) / "main"
+        (main_root / "web").mkdir(parents=True)
+        (repo / "backend").mkdir()
+        (repo / "backend" / ".env").write_text(
+            "SECRET_KEY='repo-secret-value-xyz'\nDEBUG=True\nSHORT=abc1234\n")  # pragma: allowlist secret (fake)
+        (main_root / "web" / ".env").write_text("export VITE_TOKEN=\"main-web-token-123\"\n")
+        (repo / ".sweep-evidence/g1/412-ac1.txt").write_text(
+            "SECRET_KEY=repo-secret-value-xyz\nurl https://x/?t=main-web-token-123\nSHORT=abc1234 DEBUG=True\n")
+        land.flip_acs(repo, "todos/412-pending-p3-a.md", [entry("412", 0)] + [entry("412", i) for i in (1, 2)],
+                      [agree("412", 0)], "r", "2026-09-27", main_root=str(main_root))
+        text = (repo / "todos/412-pending-p3-a.md").read_text()
+        check("m5: a backend/.env value in the repo is masked in the quoted tail",
+              "repo-secret-value-xyz" not in text and "SECRET_KEY=***" in text, text)
+        check("m5: a web/.env value under MAIN_ROOT is masked too",
+              "main-web-token-123" not in text and "?t=***" in text, text)
+        check("m5: values shorter than 8 characters are left alone", "SHORT=abc1234 DEBUG=True" in text, text)
+
+    # Final review m9: no Work Log heading a worker is told to write may satisfy Land's
+    # "evidence is quoted above" check -- only flip_acs's own heading does.
+    worker_md = (Path(os.path.abspath(__file__)).parents[2] / ".claude" / "agents" / "todo-worker.md").read_text()
+    section = worker_md.split("## Work Log", 1)[1].split("\n## ", 1)[0]
+    headings = re.findall(r'"([A-Z][a-z]+ by)"', section)
+    check("m9: the worker names its three Work Log headings", len(headings) >= 3, headings)
+    check("m9: the verify-only heading is 'Checked by'", "Checked by" in headings, headings)
+    colliding = [h for h in headings
+                 if land.has_verified_note_for(f"### d - {h} the todo sweep (run r1)\n", "r1")
+                 and not re.search(rf"Never write \"{h}\"", section)]
+    check("m9: no worker Work Log heading satisfies Land's Verified-note check", colliding == [], colliding)
+    check("m9: flip_acs's own heading still does",
+          land.has_verified_note_for("### d - Verified by the todo sweep (run r1)\n", "r1"))
+
     print()
     if FAILURES:
         print(f"FAILED: {len(FAILURES)} check(s): {', '.join(FAILURES)}")

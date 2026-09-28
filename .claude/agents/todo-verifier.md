@@ -26,12 +26,14 @@ missing one, the verdict is `fail`, `reasons` gets `missing todo path`. `BASE` =
    gets `tree not clean before verification` — this check has no VERDICT field of its own (only
    `clean_after` does, see step 7).
 2. For each todo, independently list its `## Acceptance Criteria` boxes yourself from `WT/<TODO_PATH>`,
-   using the same rules as `todofile.ac_lines`: only `- [ ]` / `- [x]` bullets under that heading; a line
-   inside a ```` ``` ```` or `~~~` fence (indented or not) is an example, not a criterion. The count must
-   match `WT/AC_FILE`'s entries for that todo, in order, and each entry's `text` must match the box's line
+   using the same rules as `todofile.ac_lines`: only `- [ ]` / `- [x]` bullets under that heading, each
+   together with the indented lines that wrap it (up to the next bullet, blank line, heading or fence); a
+   bullet inside a ```` ``` ```` or `~~~` fence (indented or not) is an example, not a criterion. A
+   criterion's text is that whole bullet, its lines joined with single spaces. The count must match
+   `WT/AC_FILE`'s entries for that todo, in order, and each entry's `text` must match the whole criterion
    after stripping a leading checkbox marker and collapsing runs of whitespace — the same normalization as
-   `land._normalize_ac_text` (`land.py:118-121`), not a byte-exact match. Any mismatch → the verdict is
-   `fail`, `reasons` gets a line naming it.
+   `land._normalize_ac_text`, not a byte-exact match. Any mismatch → the verdict is `fail`, `reasons` gets a
+   line naming it.
 3. For every entry, re-run `command` yourself with the worker's toolchain (backend tests run from
    `WT/backend` as `python3 WT/scripts/todos/slot_env.py SLOT -- MAIN/backend/venv/bin/python -m pytest …
    --create-db`). Redirect its output to a file under `$TMPDIR`, never inside WT — create it with
@@ -45,10 +47,10 @@ missing one, the verdict is `fail`, `reasons` gets `missing todo path`. `BASE` =
      it doesn't (the merge-base box was `[ ]`): re-run it yourself if `command` is non-empty; if `command`
      is empty (the worker skipped it), `verified: false`, note `already-checked mismatch`.
    - A re-pointed criterion (`→ todo NNN`, `-> todo NNN`, or "re-pointed … todo NNN") has no command:
-     confirm its `text` matches the line and `pass` is false, then `verified: true`, note `re-pointed` —
+     confirm its `text` matches the criterion and `pass` is false, then `verified: true`, note `re-pointed` —
      land never checks it.
    - An external or owner-only criterion gets `verified: false`, note `external`.
-4. Acceptance Criteria unchanged: for each todo, take its AC lines from the merge-base version
+4. Acceptance Criteria unchanged: for each todo, take its criteria from the merge-base version
    (`/usr/bin/git -C WT show BASE:<ORIGIN_PATH>`) and from the current file (`WT/<TODO_PATH>`), both using
    step 2's rules. They must be the same count and the same text (step 2's normalization), in the same order; in execute mode the
    box state (`[ ]`/`[x]`) must match too — ignore `[ ]` vs `[x]` in repair mode and when re-verifying after

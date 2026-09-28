@@ -55,16 +55,18 @@ archive a todo, or change its `status:`. The main session lands your work. You n
 under `WT` everywhere" in Setup. `BASE` = the merge-base SHA: `/usr/bin/git -C WT rev-parse
 origin/main...HEAD`, take the last line, drop its leading `^`.
 
-- A checkbox line is only a `- [ ]` or `- [x]` bullet under a todo's `## Acceptance Criteria`; a line inside
-  a ```` ``` ```` or `~~~` fence (indented or not) is an example, not a criterion. For every such line,
+- A criterion is only a `- [ ]` or `- [x]` bullet under a todo's `## Acceptance Criteria`, together with
+  the indented lines that wrap it (up to the next bullet, blank line, heading or fence); a bullet inside a
+  ```` ``` ```` or `~~~` fence (indented or not) is an example, not a criterion. For every criterion,
   checked or not, in file order, run the command that proves it and save the full output to
   `EVIDENCE/<todo>-ac<index>.txt`, where `<index>` is the same 0-based index as the entry below. `command`
   is the bare command with no redirect — you redirect its output to the evidence file yourself; the
   verifier re-runs the same bare command into its own file and never overwrites yours.
 - Write `EVIDENCE/ac.json`: a JSON list, one object per criterion, `index` from 0 in file order per todo:
   `{"todo": "412", "index": 0, "text": "…", "command": "…", "evidence_path": ".sweep-evidence/g1/412-ac0.txt", "pass": true}`.
-  `text` is the criterion line with its `- [ ]` / `- [x]` marker removed. `pass` is true only when the
-  output proves the criterion as written.
+  `text` is the whole criterion: the checkbox line and its wrapped continuation lines joined with single
+  spaces, with the `- [ ]` / `- [x]` marker removed. `pass` is true only when the output proves the
+  criterion as written.
 - A criterion that was already checked (`- [x]`) **in the merge-base version** (`/usr/bin/git -C WT show
   BASE:<ORIGIN_PATH>`, same checkbox rules) gets `pass: true`, `command: ""`, `evidence_path: ""`,
   `note: "already checked"` — do not re-run anything for it. A box that is `[x]` in the current file but
@@ -82,8 +84,9 @@ origin/main...HEAD`, take the last line, drop its leading `^`.
 Append one entry per todo at the end of `## Work Log` (before `## Notes`): `### <date> - <Heading> the todo
 sweep (run <run_id>)` with 2–5 bullets on what changed and why. `<run_id>` is `BRIEF.run_id`, or the
 prompt's `RUN_ID` line in retry/repair mode. `<Heading>` is "Implemented by"
-(`MODE: implement` or `MODE: retry`), "Repaired by" (`MODE: repair`), or "Verified by"
-(`BRIEF.verify_only: true`). Do not edit Acceptance Criteria.
+(`MODE: implement` or `MODE: retry`), "Repaired by" (`MODE: repair`), or "Checked by"
+(`BRIEF.verify_only: true`). Never write "Verified by": that heading is Land's, and it means evidence was
+quoted. Do not edit Acceptance Criteria.
 
 ## Finish
 

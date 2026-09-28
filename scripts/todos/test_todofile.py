@@ -34,6 +34,19 @@ BODY = (
 )
 
 
+WRAPPED_BODY = (
+    "\n# Delete the orphaned `ai_care_service.py`\n\n## Acceptance Criteria\n\n"
+    "- [ ] `ai_care_service.py` is deleted, and the architecture doc's tree no\n"
+    "      longer lists it; the full backend suite passes.\n"
+    "- [ ] `diagnosis_count` is incremented with `F()`, with a test that fails on\n"
+    "      the read-modify-write version.\n"
+    "\n```markdown\n- [ ] an example criterion inside a fence that\n      wraps onto a second line\n```\n\n"
+    "- [ ] The other read-modify-write counters are listed with a keep or fix\n"
+    "      verdict each.\n"
+    "\nnot part of any criterion\n\n## Work Log\n\n### 2026-09-27 - Created\n\n- filed.\n"
+)
+
+
 def write(tmp, text, name="412-pending-p3-x.md"):
     path = Path(tmp) / name
     path.write_text(text)
@@ -87,6 +100,23 @@ def main():
         check("ac_lines reports checked state", [b[1] for b in boxes] == [False, True, False], boxes)
         check("is_repoint accepts the arrow convention", tf.is_repoint(boxes[2][2]))
         check("is_repoint rejects plain prose", not tf.is_repoint("- [ ] see todo notes"))
+
+        # Final review C1: a criterion wrapped onto indented continuation lines is ONE
+        # criterion, and its text is the whole bullet. Taken verbatim from
+        # origin/main:todos/467-pending-p3-delete-ai-care-service-and-diagnosis-count-race.md
+        # (29 of the 47 open todos wrap like this), plus a wrapped example inside a fence.
+        wrapped = write(tmp, HEAD + WRAPPED_BODY, "467-pending-p3-w.md")
+        boxes = tf.ac_lines(wrapped.read_text())
+        check("ac_lines counts a wrapped criterion once and skips the fenced one", len(boxes) == 3, boxes)
+        check("ac_lines keeps line_no on the checkbox line",
+              [wrapped.read_text().splitlines()[b[0]].lstrip().startswith("- [ ]") for b in boxes] == [True] * 3,
+              boxes)
+        check("ac_lines joins continuation lines with one space",
+              boxes and boxes[0][2] == "- [ ] `ai_care_service.py` is deleted, and the architecture doc's tree no "
+              "longer lists it; the full backend suite passes.", boxes[:1])
+        check("ac_lines does not swallow the next bullet or a following paragraph",
+              len(boxes) == 3 and boxes[2][2] == "- [ ] The other read-modify-write counters are listed with a keep "
+              "or fix verdict each.", boxes[2:])
 
         tf.append_work_log(p, "### 2026-09-27 - Verified\n\n- ok.\n")
         text = p.read_text()

@@ -27,7 +27,11 @@ import todofile  # noqa: E402
 
 OPEN_STATUSES = {s for s, cls in chk.CLASS_OF_STATUS.items() if cls == "open"}
 PRIORITIES = ["p1", "p2", "p3", "p4"]
-ID_RE = re.compile(r"(?<!\d)(\d{3,4})(?!\d)")
+# An id is a whole token: after the start, / - _ or "wt" (a worktree name), and before
+# - _ / or the end, allowing one slice letter ("feat/410b-...").
+ID_RE = re.compile(r"(?:^|(?<=[/_-])|(?<=wt))(\d{3,4})(?=[a-z]?(?:[-_/]|$))")
+AGENT_BRANCH_PREFIX = "worktree-agent-"
+MERGED_PR_LIMIT = 5000
 MAX_WORKERS = 3  # six slots across two overlapping waves; Redis has 16 DBs
 
 
@@ -69,7 +73,11 @@ def load_todos(todos_dir, ref=None, repo="."):
 
 
 def ids_in(names):
-    return {found for name in names for found in ID_RE.findall(name)}
+    """Todo ids named by branch names. Harness `worktree-agent-<hex>` branches are skipped
+    (their hex holds digit runs: a367c0a10e427e588 read as 367, 427 and 588), and an id
+    counts only as a whole delimited token (final review m3)."""
+    return {found for name in names if not name.startswith(AGENT_BRANCH_PREFIX)
+            for found in ID_RE.findall(name)}
 
 
 def inflight_from(worktree_branches, local_branches, open_heads, merged_heads):
@@ -84,12 +92,24 @@ def _rank(todo):
     return (PRIORITIES.index(todo["priority"]) if todo["priority"] in PRIORITIES else len(PRIORITIES), todo["id"])
 
 
-def git_changed_since(path, triaged, ref="HEAD"):
-    """True when the file has a commit (reachable from ref) dated after its triage date."""
+def git_changed_since(path, triaged, ref="HEAD", repo="."):
+    """True when the file changed after the commit that wrote its `triaged:` line.
+
+    Commits are compared, not dates (final review I2): `triaged:` is the owner's
+    local date, but GitHub squash-merges commit in +0000, so an evening triage
+    merge at -0600 is dated the next day and read as "changed since". Only when
+    no reachable commit ever wrote a `triaged:` line does the date comparison run.
+    """
     if not triaged:
         return True
-    out = subprocess.run(["git", "log", "-1", "--format=%cs", ref, "--", path],
-                         capture_output=True, text=True).stdout.strip()
+
+    def git(*args):
+        return subprocess.run(["git", "-C", str(repo), *args], capture_output=True, text=True).stdout.strip()
+
+    stamp = git("log", "-1", "--format=%H", "-G^triaged:", ref, "--", path)
+    if stamp:
+        return bool(git("rev-list", f"{stamp}..{ref}", "--", path))
+    out = git("log", "-1", "--format=%cs", ref, "--", path)
     return bool(out) and out > triaged
 
 
@@ -150,7 +170,10 @@ def gather_inflight():
     worktrees = [line.split("refs/heads/", 1)[1] for line in _git_lines("worktree", "list", "--porcelain")
                  if line.startswith("branch refs/heads/")]
     local = _git_lines("for-each-ref", "--format=%(refname:short)", "refs/heads")
-    return inflight_from(worktrees, local, _gh_heads("open", 200), set(_gh_heads("merged", 1000)))
+    # The repo has ~860 PRs. A cap below the merged-PR count silently drops the oldest merged heads, and a
+    # stale local branch whose PR merged long ago would then re-exclude its todo (final review m3).
+    # 5000 is comfortably above today's count; `gh` paginates up to --limit itself.
+    return inflight_from(worktrees, local, _gh_heads("open", 200), set(_gh_heads("merged", MERGED_PR_LIMIT)))
 
 
 def main(argv=None):

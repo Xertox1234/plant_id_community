@@ -25,6 +25,7 @@ FM_RE = re.compile(r"\A---\n(.*?\n)---\n", re.S)
 BARE_RE = re.compile(r"[a-z]+(?:[-_][a-z]+)*|\d{4}-\d{2}-\d{2}")
 YAML_WORDS = {"yes", "no", "on", "off", "true", "false", "null", "none", "y", "n"}
 CHECKBOX_RE = re.compile(r"^\s*-\s\[( |x|X)\]")
+BULLET_RE = re.compile(r"^\s*(?:[-*+]|\d+[.)])\s")
 FILENAME_RE = re.compile(r"^((?:\d{4}-\d{2}-\d{2}-)?\d+-)([a-z_]+)(-.+)$")
 
 
@@ -104,21 +105,41 @@ def append_work_log(path, block):
     path.write_text(text)
 
 
+def _continues(line):
+    """True when `line` wraps the bullet above it: indented, non-blank, and not a
+    new bullet, a heading or a fence (a fence must still reach the toggle)."""
+    return (line[:1] in (" ", "\t") and bool(line.strip()) and not BULLET_RE.match(line)
+            and not line.lstrip().startswith("#") and not FENCE_RE.match(line))
+
+
 def ac_lines(text):
-    """Checkbox lines under ## Acceptance Criteria, skipping fenced examples."""
+    """Criteria under ## Acceptance Criteria, skipping fenced examples.
+
+    Each is (line_no, checked, text): line_no is the checkbox line, and text is the
+    whole bullet -- the checkbox line plus its indented continuation lines, joined
+    by one space (29 of 47 open todos wrap a criterion onto a second line)."""
     lines = text.splitlines()
     bounds = _section_bounds([line + "\n" for line in lines], "Acceptance Criteria")
     if bounds is None:
         return []
     found, in_fence = [], False
-    for i in range(*bounds):
+    i, end = bounds
+    while i < end:
         line = lines[i]
         if FENCE_RE.match(line):
             in_fence = not in_fence
+            i += 1
             continue
         match = None if in_fence else CHECKBOX_RE.match(line)
-        if match:
-            found.append((i, match.group(1) != " ", line))
+        if not match:
+            i += 1
+            continue
+        parts, j = [line.rstrip()], i + 1
+        while j < end and _continues(lines[j]):
+            parts.append(lines[j].strip())
+            j += 1
+        found.append((i, match.group(1) != " ", " ".join(parts)))
+        i = j
     return found
 
 

@@ -77,6 +77,7 @@ from pathlib import Path
 import yaml
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import slot_env  # noqa: E402
 import state  # noqa: E402
 import todofile  # noqa: E402
 # todofile's own import already inserted scripts/ (its parent) onto sys.path as a
@@ -98,9 +99,30 @@ def run_git(repo, *args):
     return proc.stdout
 
 
-def _tail(path):
-    lines = Path(path).read_text(errors="replace").rstrip("\n").splitlines()
-    return lines[-EVIDENCE_TAIL:]
+SECRET_MIN_LEN = 8
+ENV_FILES = ("backend/.env", "web/.env")
+
+
+def _env_secrets(*roots):
+    """Every value of at least SECRET_MIN_LEN characters in <root>/backend/.env and
+    <root>/web/.env, longest first (final review m5)."""
+    values = set()
+    for root in roots:
+        for rel in ENV_FILES if root else ():
+            path = Path(root) / rel
+            if path.is_file():
+                values.update(v for v in slot_env.parse_dotenv(path.read_text(errors="replace")).values()
+                              if len(v) >= SECRET_MIN_LEN)
+    return sorted(values, key=len, reverse=True)
+
+
+def _tail(path, secrets=()):
+    """The last EVIDENCE_TAIL lines, with every .env value masked as *** -- the tail is
+    committed into the Work Log of a public repo."""
+    lines = Path(path).read_text(errors="replace").rstrip("\n").splitlines()[-EVIDENCE_TAIL:]
+    for secret in secrets:
+        lines = [line.replace(secret, "***") for line in lines]
+    return lines
 
 
 def _sanitize(value):
@@ -159,8 +181,9 @@ def _fence_quote(lines):
     return fence, quoted
 
 
-def flip_acs(repo, todo_rel, ac_entries, verdict_ac, run_id, date):
+def flip_acs(repo, todo_rel, ac_entries, verdict_ac, run_id, date, main_root=""):
     repo = Path(repo)
+    secrets = _env_secrets(repo, main_root)
     path = repo / todo_rel
     todo_id = str((todofile.read_frontmatter(path) or {}).get("issue_id", ""))
     text = path.read_text()
@@ -187,7 +210,7 @@ def flip_acs(repo, todo_rel, ac_entries, verdict_ac, run_id, date):
         lines[line_no] = lines[line_no].replace("[ ]", "[x]", 1)
         flipped.append(index)
         command, evidence_display = _sanitize(entry["command"]), _sanitize(entry["evidence_path"])
-        fence, quoted = _fence_quote(_tail(evidence))
+        fence, quoted = _fence_quote(_tail(evidence, secrets))
         notes.append(f"- AC {index + 1}: `{command}` — evidence `{evidence_display}`, "
                      f"last lines:\n\n  {fence}text\n{quoted}\n  {fence}\n")
     path.write_text("".join(lines))
@@ -382,6 +405,13 @@ def apply_review(repo, plan, todo_path, git=run_git):
     return {"finding": plan["finding"], "renamed": False, "paths": [source], "note": plan["note"]}
 
 
+def has_verified_note_for(text, run_id):
+    """True when flip_acs wrote its evidence-quoting Work Log heading for run_id. A
+    worker never writes "Verified by" (a verify-only worker writes "Checked by"), so
+    this cannot be satisfied by a note that quoted nothing (final review m9)."""
+    return f"Verified by the todo sweep (run {run_id})" in text
+
+
 def archive(repo, todo_rel, run_id, date, git=run_git):
     repo = Path(repo)
     src = repo / todo_rel
@@ -425,7 +455,7 @@ def archive(repo, todo_rel, run_id, date, git=run_git):
     # G1: whether THIS land wrote a Verified note with evidence for this run_id --
     # not merely whether some box happens to be [x], which is also true for a box
     # that was already checked (by hand, or a past run) with no evidence ever quoted.
-    has_verified_note = f"Verified by the todo sweep (run {run_id})" in text
+    has_verified_note = has_verified_note_for(text, run_id)
 
     # Phase 2: write.
     git(repo, "mv", todo_rel, dest_rel)
@@ -453,7 +483,7 @@ def main(argv=None):
         if args.cmd == "flip-acs":
             ac_entries = json.loads((Path(args.repo) / entry["ac_file"]).read_text())
             flipped, remaining = flip_acs(args.repo, entry["path"], ac_entries, entry.get("verified_ac", []),
-                                          run["run_id"], args.date)
+                                          run["run_id"], args.date, main_root=entry.get("main_root", ""))
             print(json.dumps({"flipped": flipped, "remaining": remaining}))
         else:
             print(json.dumps(archive(args.repo, entry["path"], run["run_id"], args.date)))
