@@ -48,6 +48,7 @@ name: Harness CI
     paths:
       - '.claude/hooks/**'
       - '.claude/workflows/**'
+      - '.claude/agents/**'  # test_land.py reads .claude/agents/todo-worker.md (todo 468)
       - 'scripts/inject/**'
       - 'scripts/todos/**'
       - 'docs/rules/**'

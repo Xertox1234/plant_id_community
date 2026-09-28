@@ -11,6 +11,7 @@ main session never re-types them.
 """
 
 import argparse
+import fnmatch
 import json
 import os
 import subprocess
@@ -69,6 +70,7 @@ def new_run(run_id, selector, workers, todos, open_ids):
                 "priority": t["priority"],
                 "dependencies": list(t.get("dependencies", [])),
                 "stranded": bool(t.get("stranded", False)),
+                "source_review": str(t.get("source_review") or ""),  # a lane (group.review_lane)
                 "attempts": 0,
                 "reason": "",
             }
@@ -256,18 +258,31 @@ def apply_triage(run, repo_root, today, git=run_git):
         rel = entry["path"]
         if entry.get("reset_stranded"):
             new_rel = str(Path(rel).with_name(todofile.with_status(Path(rel).name, "pending")))
-            git(repo_root, "mv", rel, new_rel)  # rename first: git mv stages the pre-edit content
+            # Todo 468: a rerun after a mid-batch failure finds this rename already done (the run file
+            # was not saved), or rel already the pending path; git mv would refuse either way.
+            if not (repo_root / new_rel).exists():
+                git(repo_root, "mv", rel, new_rel)  # rename first: git mv stages the pre-edit content
             rel = entry["path"] = new_rel
             todofile.set_fields(repo_root / rel, {"status": "pending"})
-            todofile.append_work_log(
-                repo_root / rel,
-                f"### {today} - Returned to pending by the todo sweep (run {run['run_id']})\n\n"
-                "- Was `in_progress` with no branch, worktree or open PR; the owner confirmed the reset.\n",
-            )
-            entry["stranded"] = False
+            heading = f"### {today} - Returned to pending by the todo sweep (run {run['run_id']})"
+            if heading not in (repo_root / rel).read_text():
+                todofile.append_work_log(
+                    repo_root / rel,
+                    f"{heading}\n\n"
+                    "- Was `in_progress` with no branch, worktree or open PR; the owner confirmed the reset.\n",
+                )
+            entry["stranded"] = entry["reset_stranded"] = False
         fields = {"triage": record["class"], "triaged": today}
         if record.get("blocked_on"):
             fields["blocked_on"] = record["blocked_on"]
+        # Todo 468: an owner who blocked a needs-design or stale todo has answered it. blocked-owner makes
+        # the next scan skip it until the file changes, instead of asking the same question again.
+        # Only the owner's own block counts (decide stores the decision as the reason): a worker that
+        # blocks after an owner's "ready" answer has not been answered by the owner (PR #869 round 1).
+        if (entry["stage"] == "blocked" and entry.get("owner_decision")
+                and entry.get("reason") == entry["owner_decision"] and not record["class"].startswith("blocked-")):
+            fields["triage"] = "blocked-owner"
+            fields.setdefault("blocked_on", entry["owner_decision"])
         if entry.get("owner_decision"):
             fields["owner_decision"] = entry["owner_decision"]
         todofile.set_fields(repo_root / rel, fields)
@@ -287,14 +302,18 @@ def apply_grouping(run):
     _ungroup_stale_deps(run)
     todos = [
         {"id": i, "priority": e["priority"], "dependencies": e["dependencies"],
-         "verify_only": e.get("verify_only", False), "triage": e["triage"]}
+         "verify_only": e.get("verify_only", False), "triage": e["triage"],
+         "source_review": e.get("source_review", "")}
         for i, e in sorted(run["todos"].items()) if e["stage"] == "ready" and "group" not in e
     ]
     # A dependency already past triage in this run (grouped earlier, executing, pr_open, merged, ...)
     # is not "open outside the run": dropping it here lets its dependent wait at execute_args
     # instead of being blocked for good (final review I3). Blocked/skipped ones stay open.
     in_run = {i for i, e in run["todos"].items() if e["stage"] not in NOT_PLANNED}
-    result = group.plan(todos, set(run["open_ids"]) - in_run, run["workers"])
+    # The new waves are appended after the run's last wave, which may still be executing or in
+    # review; its lanes are busy for the first new wave (PR #869 round 1).
+    busy = set().union(*(run["groups"][g]["lanes"] for g in _unmerged(run, run["waves"][-1] if run["waves"] else [])))
+    result = group.plan(todos, set(run["open_ids"]) - in_run, run["workers"], busy_lanes=busy)
     offset = max((int(g[1:]) for g in run["groups"]), default=0)
     rename = {gid: f"g{offset + int(gid[1:])}" for gid in result["groups"]}
     for todo_id, reason in result["unschedulable"].items():
@@ -316,6 +335,11 @@ def slot_for(wave, position, workers):
 def _group_entries(run, gid):
     """The todos currently in group gid (a retried todo moves to a new group)."""
     return [(i, run["todos"][i]) for i in run["groups"][gid]["ids"] if run["todos"][i].get("group") == gid]
+
+
+def _unmerged(run, gids):
+    """The groups in gids with a todo that has not merged yet (still holding their lanes)."""
+    return [g for g in gids if any(e["stage"] not in LANDED | TERMINAL for _, e in _group_entries(run, g))]
 
 
 def _group_is_stale(run, gid):
@@ -384,6 +408,21 @@ def execute_args(run, wave, main_root):
                 if entry["stage"] not in TERMINAL | {"merged"}:
                     raise TransitionError(f"wave {w} is not merged yet ({todo_id} is {entry['stage']})")
     gids = run["waves"][wave]
+    # Todo 468: wave N-1 is still in review or Land while this wave executes, so its lanes are
+    # forbidden too, until every todo left in it has merged. A group that HOLDS such a lane would
+    # put two PRs on it at once: refuse before anything changes (PR #869 round 1).
+    previous = _unmerged(run, run["waves"][wave - 1]) if wave >= 1 else []
+    for gid in gids:
+        clash = set(run["groups"][gid]["lanes"]) & {lane for other in previous
+                                                     for lane in run["groups"][other]["lanes"]}
+        if clash and _group_entries(run, gid):
+            raise TransitionError(f"{gid} holds {', '.join(sorted(clash))}, which wave {wave - 1} still holds; "
+                                  "wait for that wave to merge")
+    # Todo 468: a member blocked or skipped after grouping (decide or `set`, not the gate below) never
+    # ran in this wave -- a retried one still carries its first attempt's `wave` (PR #869 round 1). It
+    # leaves its group like a gate-blocked one, and its in-group dependents block with it.
+    gone = {i for gid in gids for i, e in _group_entries(run, gid)
+            if e["stage"] in {"blocked", "skipped"} and e.get("wave") != wave}
     to_block = {}
     for gid in gids:
         for todo_id, entry in _group_entries(run, gid):
@@ -405,12 +444,14 @@ def execute_args(run, wave, main_root):
             for todo_id, entry in _group_entries(run, gid):
                 if entry["stage"] != "ready" or todo_id in to_block:
                     continue
-                blocked_dep = next((d for d in entry["dependencies"] if d in to_block), None)
+                blocked_dep = next((d for d in entry["dependencies"] if d in to_block or d in gone), None)
                 if blocked_dep:
-                    to_block[todo_id] = f"dependency {blocked_dep} blocked"
+                    how = "blocked" if blocked_dep in to_block else run["todos"][blocked_dep]["stage"]
+                    to_block[todo_id] = f"dependency {blocked_dep} {how}"
                     changed = True
     for todo_id, reason in to_block.items():
         transition(run, todo_id, "blocked", reason=reason)
+    for todo_id in gone | set(to_block):
         # N1: a gate-blocked todo never ran, so it leaves its group entirely -- both the entry's
         # group and the recorded ids -- or set_group/ensure_worktree/review_args would read it as
         # the group's first member, and _dependencies_of would count it against the group's dependents.
@@ -422,7 +463,8 @@ def execute_args(run, wave, main_root):
         if not entries:
             continue  # every todo that was here got regrouped into a later wave, or was just blocked
         held = run["groups"][gid]["lanes"]
-        forbidden = sorted({lane for other in gids if other != gid for lane in run["groups"][other]["lanes"]})
+        forbidden = sorted({lane for other in gids + previous if other != gid
+                            for lane in run["groups"][other]["lanes"]})
         slot = slot_for(wave, position, run["workers"])
         briefs.append({
             "run_id": run["run_id"],
@@ -433,8 +475,8 @@ def execute_args(run, wave, main_root):
             "plan_needed": any(e["triage"]["class"] == "needs-research" for _, e in entries),
             "verify_only": all(e.get("verify_only") for _, e in entries),
             "in_scope_files": sorted({f for _, e in entries for f in e["triage"]["predicted_files"]}),
-            "lanes_held": [group.LANE_DOC[lane] for lane in held],
-            "lanes_forbidden": [group.LANE_DOC[lane] for lane in forbidden],
+            "lanes_held": [group.lane_doc(lane) for lane in held],
+            "lanes_forbidden": [group.lane_doc(lane) for lane in forbidden],
             "slot": slot,
             "evidence_dir": f".sweep-evidence/{gid}",
             "main_root": main_root,
@@ -541,6 +583,14 @@ def review_args(run, round_no, wave):
 
 
 def ingest_review(run, results, round_no):
+    # Todo 468: checked for every group before anything is written, so a stale output (a round-1
+    # file re-ingested after round 1) cannot overwrite tree_id and verified_ac, even in part.
+    for result in results:
+        for _, entry in _group_entries(run, result["group"]):
+            if entry["stage"] != "pr_open" or entry.get("review_round", 0) != round_no - 1:
+                raise TransitionError(f"{result['group']}: a round-{round_no} output does not follow this group "
+                                      f"({entry['stage']}, review round {entry.get('review_round', 0)}); "
+                                      "is it a stale output file?")
     outcome = {}
     for result in results:
         gid = result["group"]
@@ -630,17 +680,56 @@ def _unstaged_outside_land(path):
 
 
 def _force_staged_ignored(path, base="origin/main"):
-    """Paths the branch ADDED (against the merge-base with `base`, renames split into
-    delete + add) that an ignore rule matches -- a force-staged backend/.env or web/.env,
-    which .worktreeinclude copies into every worktree (PR #861 B-3). Limited to added paths,
-    so a file already tracked at the base that happens to match an ignore rule never trips it.
-    A missing base makes git fail, and run_git raises: the check fails closed."""
+    """(paths, renamed): the paths the branch ADDED (against the merge-base with `base`, renames
+    split into delete + add) that an ignore rule matches or that `base`'s .worktreeinclude lists --
+    a force-staged backend/.env or web/.env, which .worktreeinclude copies into every worktree
+    (PR #861 B-3). The .worktreeinclude list is read from `base`, so a worker that deletes the .env
+    rule from its own .gitignore and stages the file with a plain `git add -A` is still caught
+    (todo 468). `renamed` maps each flagged path that is a rename destination to its source, so the
+    error can name the real cause. Limited to added paths, so a file already tracked at the base
+    that happens to match an ignore rule never trips it. A missing base makes git fail, and run_git
+    raises: the check fails closed."""
     ignored = set(run_git(path, "ls-files", "--cached", "--ignored", "--exclude-standard").splitlines())
-    if not ignored:
-        return []
+    include = _worktreeinclude(path, base)
+    if not ignored and not include:
+        return [], {}
     added = run_git(path, "diff", "--cached", "--name-only", "--no-renames", "--diff-filter=A",
                     "--merge-base", base).splitlines()
-    return sorted(p for p in added if p in ignored)
+    flagged = sorted(p for p in added if p in ignored or any(fnmatch.fnmatch(p, pat) for pat in include))
+    renamed = {}
+    if flagged:
+        for line in run_git(path, "diff", "--cached", "--name-status", "-M", "--diff-filter=R",
+                            "--merge-base", base).splitlines():
+            parts = line.split("\t")
+            if len(parts) == 3 and parts[2] in flagged:
+                renamed[parts[2]] = parts[1]
+    return flagged, renamed
+
+
+def _worktreeinclude(path, base):
+    """The patterns in `base`'s .worktreeinclude (none when it has no such file)."""
+    try:
+        text = run_git(path, "show", f"{base}:.worktreeinclude")
+    except RuntimeError:
+        return []
+    return [line.strip() for line in text.splitlines() if line.strip() and not line.lstrip().startswith("#")]
+
+
+def _add_worktree(git, main_root, target, branch):
+    """Re-add a group's worktree at `target` on `branch`. When the local branch is gone but it was
+    pushed, recover it from origin/<branch> with --no-track, because the sandbox denies the
+    .git/config write that tracking needs (todo 468 m6)."""
+    try:
+        git(main_root, "rev-parse", "--verify", "--quiet", f"refs/heads/{branch}")
+    except RuntimeError:
+        git(main_root, "worktree", "add", "--no-track", "-b", branch, str(target), f"origin/{branch}")
+        return
+    try:
+        git(main_root, "worktree", "add", str(target), branch)
+    except RuntimeError:
+        # git may still have the old (now-vanished) worktree registered under this branch.
+        git(main_root, "worktree", "prune")
+        git(main_root, "worktree", "add", str(target), branch)
 
 
 def ensure_worktree(run, gid, scratch, git=run_git):
@@ -656,15 +745,28 @@ def ensure_worktree(run, gid, scratch, git=run_git):
         if target.exists() and any(target.iterdir()):
             raise RuntimeError(f"{target} already exists and is not empty; refusing to touch it")
         target.parent.mkdir(parents=True, exist_ok=True)
-        branch = first["branch"]
-        try:
-            git(main_root, "worktree", "add", str(target), branch)
-        except RuntimeError:
-            # git may still have the old (now-vanished) worktree registered under this branch.
-            git(main_root, "worktree", "prune")
-            git(main_root, "worktree", "add", str(target), branch)
+        _add_worktree(git, main_root, target, first["branch"])
         path = str(target)
-    tree_id = first.get("tree_id")
+    try:
+        _check_worktree(gid, path, first.get("tree_id"))
+    except RuntimeError as exc:
+        if reused:
+            raise
+        # Todo 468: the worktree this call re-added holds only the branch's committed state -- the
+        # staged work it was meant to find is gone either way -- so it leaves nothing new behind.
+        try:
+            git(main_root, "worktree", "remove", path)
+        except RuntimeError:
+            raise RuntimeError(f"{exc}; the re-added worktree {path} could not be removed") from exc
+        raise RuntimeError(f"{exc} (the re-added worktree was removed again)") from exc
+    if not reused:
+        for _, entry in entries:
+            entry["worktree"] = path
+    return path
+
+
+def _check_worktree(gid, path, tree_id):
+    """spec §5.2's checks before Land commits from `path`; raises RuntimeError naming the problem."""
     if tree_id:
         actual = run_git(path, "write-tree").strip()
         if actual != tree_id and not _land_only_diff(path, tree_id, actual):
@@ -674,15 +776,19 @@ def ensure_worktree(run, gid, scratch, git=run_git):
     if unstaged:
         raise RuntimeError(f"{gid}: worktree at {path} has unstaged changes outside Land's paths "
                            f"({', '.join(unstaged[:5])}); the verified tree is not what is on disk")
-    forced = _force_staged_ignored(path)
-    if forced:
-        raise RuntimeError(f"{gid}: worktree at {path} stages ignored files the branch added "
-                           f"({', '.join(forced)}); a force-staged .env must never be committed -- "
-                           "unstage them (git rm --cached) and rerun the group")
-    if not reused:
-        for _, entry in entries:
-            entry["worktree"] = path
-    return path
+    forced, renamed = _force_staged_ignored(path)
+    added = [p for p in forced if p not in renamed]
+    moved = [f"{p} (renamed from {renamed[p]})" for p in forced if p in renamed]
+    problems = []
+    if added:
+        problems.append(f"stages files the branch added that are ignored or listed in .worktreeinclude "
+                        f"({', '.join(added)}); a .env must never be committed -- unstage them (git rm --cached)")
+    if moved:
+        # Todo 468: refused on purpose -- a rename is how a copied-in .env would slip past an add-only check.
+        problems.append(f"moves tracked files onto ignored paths ({', '.join(moved)}); Land will not commit "
+                        "that -- land the rename by hand, or change the ignore rule on main first")
+    if problems:
+        raise RuntimeError(f"{gid}: worktree at {path} " + "; it also ".join(problems) + ", then rerun the group")
 
 
 def _cmd_decide(run, args):

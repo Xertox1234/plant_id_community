@@ -27,9 +27,9 @@ import todofile  # noqa: E402
 
 OPEN_STATUSES = {s for s, cls in chk.CLASS_OF_STATUS.items() if cls == "open"}
 PRIORITIES = ["p1", "p2", "p3", "p4"]
-# An id is a whole token: after the start, / - _ or "wt" (a worktree name), and before
-# - _ / or the end, allowing one slice letter ("feat/410b-...").
-ID_RE = re.compile(r"(?:^|(?<=[/_-])|(?<=wt))(\d{3,4})(?=[a-z]?(?:[-_/]|$))")
+# An id is a whole token: after the start, / - _, "wt" (a worktree name) or "/todo" ("fix/todo412",
+# todo 468), and before - _ / or the end, allowing one slice letter ("feat/410b-...").
+ID_RE = re.compile(r"(?:^|(?<=[/_-])|(?<=wt)|(?<=/todo))(\d{3,4})(?=[a-z]?(?:[-_/]|$))")
 AGENT_BRANCH_PREFIX = "worktree-agent-"
 MERGED_PR_LIMIT = 5000
 MAX_WORKERS = 3  # six slots across two overlapping waves; Redis has 16 DBs
@@ -68,6 +68,7 @@ def load_todos(todos_dir, ref=None, repo="."):
             "triage": str(data.get("triage") or ""),
             "triaged": str(data.get("triaged") or ""),
             "blocked_on": str(data.get("blocked_on") or ""),
+            "source_review": str(data.get("source_review") or ""),
         })
     return todos
 

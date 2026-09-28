@@ -25,7 +25,8 @@ FM_RE = re.compile(r"\A---\n(.*?\n)---\n", re.S)
 BARE_RE = re.compile(r"[a-z]+(?:[-_][a-z]+)*|\d{4}-\d{2}-\d{2}")
 YAML_WORDS = {"yes", "no", "on", "off", "true", "false", "null", "none", "y", "n"}
 CHECKBOX_RE = re.compile(r"^\s*-\s\[( |x|X)\]")
-BULLET_RE = re.compile(r"^\s*(?:[-*+]|\d+[.)])\s")
+INTERRUPT_RE = re.compile(r"^\s*(?:[-*+]|1[.)])\s")  # a list item that can interrupt a paragraph
+HEADING_RE = re.compile(r"^\s*#{1,6}(?:\s|$)")
 FILENAME_RE = re.compile(r"^((?:\d{4}-\d{2}-\d{2}-)?\d+-)([a-z_]+)(-.+)$")
 
 
@@ -107,9 +108,11 @@ def append_work_log(path, block):
 
 def _continues(line):
     """True when `line` wraps the bullet above it: indented, non-blank, and not a
-    new bullet, a heading or a fence (a fence must still reach the toggle)."""
-    return (line[:1] in (" ", "\t") and bool(line.strip()) and not BULLET_RE.match(line)
-            and not line.lstrip().startswith("#") and not FENCE_RE.match(line))
+    new bullet, a heading or a fence (a fence must still reach the toggle). As in
+    CommonMark, only a `1.` item can start a list inside a paragraph, and a heading
+    needs a space after its #s, so a wrapped `10. …` or `#42 …` is text (todo 468 N2)."""
+    return (line[:1] in (" ", "\t") and bool(line.strip()) and not INTERRUPT_RE.match(line)
+            and not HEADING_RE.match(line) and not FENCE_RE.match(line))
 
 
 def ac_lines(text):
