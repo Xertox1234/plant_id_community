@@ -19,7 +19,7 @@ from urllib.parse import parse_qs, urlsplit
 from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.core.cache import cache
-from django.core.signing import TimestampSigner, b62_encode
+from django.core.signing import SignatureExpired, TimestampSigner, b62_encode
 from django.test import RequestFactory, TestCase
 from plant_community_backend import settings as settings_module
 from wagtail.models import Page
@@ -27,6 +27,7 @@ from wagtail_headless_preview.models import HeadlessPreviewMixin
 from wagtail_headless_preview.settings import headless_preview_settings
 
 from ..api.viewsets import BlogPostPreviewAPIViewSet
+from ..constants import PREVIEW_TOKEN_MAX_AGE
 from ..models import BlogCategory, BlogIndexPage, BlogPostPage
 
 User = get_user_model()
@@ -235,6 +236,22 @@ class BlogPostPreviewAPITestCase(TestCase):
             {"content_type": "blog.blogpostpage", "token": self._draft_token()},
         )
         self.assertEqual(fresh.status_code, 200)
+
+    def test_the_model_itself_refuses_an_expired_token(self):
+        # Expiry lives at the token's source, not only in the viewset, so any
+        # other caller of get_page_from_preview_token gets it too (todo 434).
+        old_stamp = b62_encode(int(time.time()) - PREVIEW_TOKEN_MAX_AGE - 5)
+        with mock.patch.object(TimestampSigner, "timestamp", return_value=old_stamp):
+            stale = self._draft_token()
+        # The library's own version would still load this stale draft.
+        self.assertIsNotNone(
+            super(BlogPostPage, BlogPostPage).get_page_from_preview_token(stale)
+        )
+        with self.assertRaises(SignatureExpired):
+            BlogPostPage.get_page_from_preview_token(stale)
+        # A fresh token still loads the draft.
+        page = BlogPostPage.get_page_from_preview_token(self._draft_token())
+        self.assertEqual(page.title, "Draft title")
 
     def test_only_the_listing_route_is_exposed(self):
         # The inherited <int:pk>/ route ignored pk and find/ searched live

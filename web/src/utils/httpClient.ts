@@ -34,6 +34,19 @@ import { getCsrfToken, clearCsrfToken } from './csrf';
 import { getOrCreateRequestId } from './requestId';
 import { API_ORIGIN } from '@/config/api';
 
+declare module 'axios' {
+  interface AxiosRequestConfig {
+    /**
+     * Log a failed response as a breadcrumb (`logger.info`) instead of
+     * `logger.error`, which is a Sentry event in production. For background
+     * polls that retry on their own: one blip or expired cookie would
+     * otherwise raise an event per tab per tick (todo 434). The caller still
+     * gets the rejection.
+     */
+    quietErrors?: boolean;
+  }
+}
+
 type RetriableRequestConfig = InternalAxiosRequestConfig & {
   _csrfRetried?: boolean;
 };
@@ -165,8 +178,9 @@ apiClient.interceptors.response.use(
       }
     }
 
-    // Log error response
-    logger.error('HTTP error', {
+    // Log error response. A quiet request is a breadcrumb, not a Sentry event.
+    const log = requestConfig?.quietErrors ? logger.info : logger.error;
+    log('HTTP error', {
       component: 'httpClient',
       error: getSafeAxiosError(error),
       status,

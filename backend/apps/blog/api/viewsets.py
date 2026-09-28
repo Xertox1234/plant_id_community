@@ -824,15 +824,18 @@ class BlogPostPreviewAPIViewSet(BlogPostPageViewSet):
     The token expires after PREVIEW_TOKEN_MAX_AGE. The library itself never
     expires one: its unsign() has no max_age, and PagePreview rows are only
     garbage-collected when an editor previews again, so a leaked preview URL
-    (history, Referer, logs) kept working indefinitely (todo 407). Every
-    Preview click signs a fresh token, so this costs editors nothing. The
-    response is never cached for the same reason.
+    (history, Referer, logs) kept working indefinitely (todo 407). The expiry
+    is enforced by ``BlogPostPage.get_page_from_preview_token``, the token's
+    source, so no other caller can skip it (todo 434). Every Preview click
+    signs a fresh token, so this costs editors nothing. The response is never
+    cached for the same reason.
 
     Only the listing route is exposed: the inherited ``<int:pk>/`` route would
     ignore pk, and ``find/`` would search live pages (todo 407).
     """
 
-    PREVIEW_TOKEN_MAX_AGE = PREVIEW_TOKEN_MAX_AGE  # apps/blog/constants.py
+    # apps/blog/constants.py; the model enforces it (todo 434).
+    PREVIEW_TOKEN_MAX_AGE = PREVIEW_TOKEN_MAX_AGE
 
     @classmethod
     def get_urlpatterns(cls):
@@ -866,8 +869,8 @@ class BlogPostPreviewAPIViewSet(BlogPostPageViewSet):
         ):
             raise Http404("Content type is not previewable here")
         try:
-            # SignatureExpired subclasses BadSignature: stale is also a 404.
-            model.get_preview_signer().unsign(token, max_age=self.PREVIEW_TOKEN_MAX_AGE)
+            # The model refuses a stale token (todo 434). SignatureExpired
+            # subclasses BadSignature: stale is also a 404.
             page = model.get_page_from_preview_token(token)
         except BadSignature:
             raise Http404("Invalid or expired preview token")

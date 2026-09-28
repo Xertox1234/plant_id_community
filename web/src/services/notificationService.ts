@@ -7,8 +7,8 @@
  * only, and its one-shot refresh-and-retry when a stale CSRF token gets a 403.
  * A bodyless GET carries no `Content-Type` (axios's xhr adapter drops it).
  */
-import axios from 'axios';
 import apiClient from '../utils/httpClient';
+import { toHttpError } from '../utils/httpError';
 import type {
   ForumNotification,
   MarkReadResponse,
@@ -19,31 +19,19 @@ import type {
 const FORUM_BASE = '/api/v1/forum';
 
 /**
- * Re-throw an HTTP failure as a plain `Error` carrying the server's
- * `message`/`detail` (falling back to `HTTP <status>`), the shape callers
- * have always received. Anything without a response propagates unchanged.
+ * One request through `apiClient`. A failure is re-thrown through the shared
+ * `toHttpError` (todo 434) as a plain `Error` carrying the server's
+ * `message`/`detail`. `quietErrors` keeps a failure out of Sentry — for the
+ * background poll only (see fetchUnreadCount).
  */
-function toNotificationError(error: unknown): unknown {
-  if (axios.isAxiosError(error) && error.response) {
-    const { data, status } = error.response;
-    const body: { message?: unknown; detail?: unknown } =
-      data && typeof data === 'object' ? data : { message: 'Request failed' };
-    const message =
-      (typeof body.message === 'string' && body.message) ||
-      (typeof body.detail === 'string' && body.detail) ||
-      `HTTP ${status}`;
-    return new Error(message, { cause: error });
-  }
-  return error;
-}
-
 async function request<T>(
   method: 'get' | 'post',
   url: string,
-  data?: Record<string, unknown>
+  data?: Record<string, unknown>,
+  quietErrors = false
 ): Promise<T> {
   try {
-    const response = await apiClient.request<T>({ method, url, data });
+    const response = await apiClient.request<T>({ method, url, data, quietErrors });
     if (response.status === 204) return undefined as T;
     // axios resolves a non-JSON body (a CDN challenge page, an SPA fallback)
     // as a string; fetch's response.json() rejected it. Keep rejecting, or
@@ -53,7 +41,7 @@ async function request<T>(
     }
     return response.data;
   } catch (error) {
-    throw toNotificationError(error);
+    throw toHttpError(error);
   }
 }
 
@@ -67,10 +55,18 @@ export async function fetchNotifications(cursorUrl?: string): Promise<Notificati
   return request<NotificationListResponse>('get', cursorUrl || `${FORUM_BASE}/notifications/`);
 }
 
+/**
+ * The unread badge count. Polled every 30s per tab (UnreadNotificationsContext),
+ * and the poll just retries on the next tick, so a failure is a breadcrumb, not
+ * a Sentry event: a backend blip or an expired cookie would otherwise raise one
+ * event per tab every 30s (todo 434).
+ */
 export async function fetchUnreadCount(): Promise<number> {
   const data = await request<UnreadCountResponse>(
     'get',
-    `${FORUM_BASE}/notifications/unread-count/`
+    `${FORUM_BASE}/notifications/unread-count/`,
+    undefined,
+    true
   );
   return data.count;
 }

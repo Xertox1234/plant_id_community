@@ -26,6 +26,7 @@ from wagtail_ai.panels import AIDescriptionFieldPanel, AIFieldPanel, AITitleFiel
 from wagtail_headless_preview.models import HeadlessPreviewMixin
 
 from .blocks import APIImageChooserBlock, PlantSpotlightBlock
+from .constants import PREVIEW_TOKEN_MAX_AGE
 
 User = get_user_model()
 
@@ -856,6 +857,21 @@ class BlogPostPage(HeadlessPreviewMixin, BlogBasePage):
         from django.conf import settings
 
         return settings.HEADLESS_PREVIEW_CLIENT_URL
+
+    @classmethod
+    def get_page_from_preview_token(cls, token: str) -> Optional[Page]:
+        """
+        Load the draft a preview token points at, refusing a stale token.
+
+        The library's own version unsigns with no ``max_age``, so a token never
+        expires and a leaked preview URL keeps working. Expiry is enforced
+        HERE, at the token's source, so every caller gets it, not only the
+        preview API (todo 434). Raises ``SignatureExpired`` (a
+        ``BadSignature``) for a token older than PREVIEW_TOKEN_MAX_AGE; the
+        library then re-checks the signature and looks the draft up.
+        """
+        cls.get_preview_signer().unsign(token, max_age=PREVIEW_TOKEN_MAX_AGE)
+        return super().get_page_from_preview_token(token)
 
     def save(self, *args, **kwargs):
         # Auto-calculate reading time
