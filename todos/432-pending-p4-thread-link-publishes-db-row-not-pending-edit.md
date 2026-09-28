@@ -5,6 +5,8 @@ issue_id: "432"
 tags: [forum, backend, moderation]
 dependencies: []
 source_review: "PR #815"
+triage: ready
+triaged: 2026-09-28
 ---
 
 # Approving a topic publishes its opening post's DB row, not a pending edit

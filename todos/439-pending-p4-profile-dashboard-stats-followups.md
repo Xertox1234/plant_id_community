@@ -5,6 +5,9 @@ issue_id: "439"
 tags: [web, backend, profile, docs]
 dependencies: []
 source_review: "PR #821"
+triage: ready
+triaged: 2026-09-28
+owner_decision: "Posts card counts replies only, relabeled \"Replies\" (2026-09-28)"
 ---
 
 # Profile dashboard stats: non-blocking review findings (todo 411)
