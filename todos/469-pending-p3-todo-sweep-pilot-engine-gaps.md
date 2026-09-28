@@ -125,3 +125,9 @@ workflow authoring docs.
   passes (`BROKER redis+socket:///tmp/redis.sock?virtual_host=11 /tmp/redis.sock db 11 cache db 11`),
   and `apps/users/tests apps/core/tests` over the sockets → `1824 passed`.
   Only the **sandboxed** run is left, and it needs `allowUnixSockets`.
+- 2026-09-28, gate PASSED **sandboxed** (the owner's `allowUnixSockets` setting
+  applied mid-session; no restart needed). Sandboxed `psql -h /tmp` → `1`,
+  `redis-cli -s /tmp/redis.sock ping` → `PONG`; the probe above via
+  `slot_env.py 1` → `BROKER redis+socket:///tmp/redis.sock?virtual_host=10 /tmp/redis.sock db 10 cache db 10`,
+  `1 passed`; `slot_env.py 2 -- pytest apps/users/tests …/test_topic_approval.py --create-db`
+  → `344 passed`, with no sandbox-off step.
