@@ -30,3 +30,6 @@ The workflow dispatches you in one of two roles, and the prompt says which:
 - **Refuter:** the prompt gives one or more findings reported at one file:line and asks you to refute them.
   Return REFUTATION instead of FINDINGS: `refuted: true` only when you can show every one is wrong, `false`
   when any holds or you cannot tell, with the reason.
+
+Before a round-1 repair, the workflow also sends you a **residue check** (todo 480). Run the one command it
+gives, and nothing else, and return RESIDUE with the command's output copied verbatim.

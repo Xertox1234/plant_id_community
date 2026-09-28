@@ -5,7 +5,7 @@ export const meta = {
   phases: [
     { title: 'Review', detail: 'every PR: three bug-lens reviewers, plus every domain reviewer the orchestrator routes to' },
     { title: 'Refute', detail: 'two skeptics per critical/high finding; it stops blocking only if both refute it' },
-    { title: 'Repair', detail: 'round 1 only: todo-worker in the PR worktree, then todo-verifier' },
+    { title: 'Repair', detail: 'round 1 only: a residue check, then todo-worker in the PR worktree, then todo-verifier' },
   ],
 }
 
@@ -112,6 +112,16 @@ const FINDINGS = {
     },
   },
   required: ['reviewed_range', 'findings'],
+}
+
+// Relayed from `state.py residue` (todo 480): the comparison is code, the agent only runs it.
+const RESIDUE = {
+  type: 'object',
+  properties: {
+    changed: { type: 'array', items: { type: 'string', maxLength: 500 }, maxItems: 60 },
+    error: { type: 'string', maxLength: 600 },
+  },
+  required: ['changed', 'error'],
 }
 
 const WORKER = {
@@ -233,6 +243,16 @@ function refutePrompt(p, f) {
   ].join('\n')
 }
 
+function residuePrompt(p) {
+  return [
+    `Residue check for todo group ${p.group} (PR #${p.pr}) before its round-1 repair. You review nothing.`,
+    `Run exactly this command, once, and nothing else: ${p.residue_check}`,
+    'It prints one JSON object, {"changed": [...]}. Return RESIDUE with changed copied from it verbatim and ' +
+      'error "". If it exits non-zero or prints anything else, return changed [] and error set to what it ' +
+      'printed, in under 300 characters.',
+  ].join('\n')
+}
+
 function repairPrompt(p, blocking) {
   return ['MODE: repair', `RUN_ID: ${p.run_id}`, `WORKTREE: ${p.worktree}`, `SLOT: ${p.slot}`,
     `MAIN_ROOT: ${p.main_root}`, `EVIDENCE_DIR: ${p.evidence_dir}`, `IDS: ${p.ids.join(', ')}`, ...pathLines(p),
@@ -327,21 +347,31 @@ const results = await pipeline(
       else blocking.push(f)
     })
     if (refuted.length) log(`${p.group}: ${refuted.length} blocking finding(s) refuted by both skeptics`)
-    const base = { group: p.group, ids: p.ids, ...rev, blocking, refuted, repair_blockers: '' }
+    const base = { group: p.group, ids: p.ids, ...rev, blocking, refuted, repair_blockers: '', residue: null }
+    // Without a repair, ingest-review compares the worktree with the round's baseline itself (todo 480).
     if (round !== 1 || !blocking.length || !rev.reviewers_ok) return { ...base, repair: null, verdict: null }
+    // The repair's `git add -A` would commit anything a reviewer left in the worktree, so check first. A dead
+    // or failed check counts as residue: the repair runs only on a check that came back empty.
+    const chk = await agent(residuePrompt(p),
+      { label: `residue:${p.group}`, phase: 'Repair', agentType: 'todo-reviewer', schema: RESIDUE })
+    const residue = !chk ? ['the residue check returned nothing'] : chk.error ? [`residue check failed: ${chk.error}`] : chk.changed
+    if (residue.length) {
+      log(`${p.group}: the review changed the PR worktree (${residue.slice(0, 5).join(', ')}); no repair`)
+      return { ...base, reviewers_ok: false, residue, repair: null, verdict: null }
+    }
     const repair = await agent(repairPrompt(p, blocking),
       { label: `repair:${p.group}`, phase: 'Repair', agentType: 'todo-worker', schema: WORKER })
     if (!repair || repair.status !== 'staged') {
-      return { ...base, repair, verdict: null, repair_blockers: repair ? repair.blockers : '' }
+      return { ...base, residue, repair, verdict: null, repair_blockers: repair ? repair.blockers : '' }
     }
     const verdict = await agent(verifyPrompt(p, repair),
       { label: `verify:${p.group}`, phase: 'Repair', agentType: 'todo-verifier', schema: VERDICT })
-    return { ...base, repair, verdict }
+    return { ...base, residue, repair, verdict }
   },
 )
 
 return {
   results: results.map((r, i) => r || { group: prs[i].group, ids: prs[i].ids, findings: [], ranges: [],
     reviewers: [], routed: null, floor_added: [], reviewers_ok: false, blocking: [], refuted: [],
-    repair_blockers: '', repair: null, verdict: null }),
+    repair_blockers: '', residue: null, repair: null, verdict: null }),
 }

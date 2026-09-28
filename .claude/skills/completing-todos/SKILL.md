@@ -160,9 +160,10 @@ Steps 1–8 run with the sandbox off (see **Sandbox**).
    - `repair-staged` → `ensure-worktree`, `git -C $WT diff --cached --stat`, commit `fix: address review round 1 (todo <id>)`,
      `ensure-worktree` again, push, then round 2.
    - `rerun` → run round 1 again once. A second `rerun`: `set-group … blocked`.
+   - `residue` → see step 5. Nothing was repaired.
    - `blocked` → report it.
 2. Round 2: `review-args --round 2` → workflow → `ingest-review --round 2`. For every outcome except
-   `rerun`, first post the refuter-dismissed findings: run `state.py refuted-comment $RUN G --out
+   `rerun` and `residue`, first post the refuter-dismissed findings: run `state.py refuted-comment $RUN G --out
    $SCRATCH/refuted-G.md`. If it prints a path, run `gh pr comment <n> --body-file <that path>`. Never
    build `--body` from the findings: they are LLM text, and this step runs with the sandbox off.
    `clean` → then `gh pr merge <n> --auto --squash --delete-branch`. The round-2 reviewers read the full
@@ -173,6 +174,7 @@ Steps 1–8 run with the sandbox off (see **Sandbox**).
    critical. When they do, run `state.py clear-hold $RUN G --decision "<their words, dated>"`, which moves the
    group to `reviewed`, then arm.
    `rerun` → run round 2 again once. A second `rerun`: `set-group … blocked` and report it.
+   `residue` → do NOT arm; see step 5.
    `blocked` → stop that PR and report it. Its reason also names any dismissed critical the owner must clear.
 3. What a round runs, for every size: three `todo-reviewer` bug lenses, plus the checklist lane.
    `review-args` computes each PR's `changed_files` from its worktree's diff. The workflow applies the
@@ -188,6 +190,15 @@ Steps 1–8 run with the sandbox off (see **Sandbox**).
    committed together in a closing `chore(todos): follow-ups from run $RUN_ID` PR. A group still held or
    blocked is an owner hand-off in the wrap-up, not a p4 follow-up. Its dismissed criticals are already on
    the PR and in its block reason.
+5. `residue` (todo 480): an agent of the review changed the PR worktree, so the reviewers did not all read what
+   ships, and a round-1 repair's `git add -A` would have committed it. `review-args` records a baseline per
+   round (HEAD, plus every path `git add -A` would take, with its content hash). The workflow checks it before
+   a round-1 repair, and `ingest-review` checks it in code whenever no repair ran. Nothing from the round is
+   kept. `state.py residue $RUN G` lists the paths that still differ (the run file keeps what was found under
+   each todo's `review_residue`). Show them to the owner, and ask before removing or restoring any of them.
+   When `residue` prints `{"changed": []}`, rerun the round; that counts as its one rerun. A rerun keeps the
+   round's baseline, so until the worktree matches it again, `review-args` leaves the group out of `prs` and
+   lists it with its paths under `residue`. The wave's other groups carry on.
 
 ## Merge confirmation and cleanup
 
