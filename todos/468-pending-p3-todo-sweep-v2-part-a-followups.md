@@ -124,6 +124,27 @@ the spec):
   clean check reads the worktree column only
   (`docs/superpowers/specs/2026-09-27-todo-sweep-multi-agent-design.md:208`).
 
+- **PR #861 round 2: a worker can unignore `.env` and then stage it.**
+  Deleting the `.env` rule from the worktree's `.gitignore` lets a plain
+  `git add -A` stage `backend/.env`. Both the guard and the
+  `ensure_worktree` backstop read the edited rules
+  (`scripts/todos/state.py:593-604`). Check the `.worktreeinclude` paths
+  directly, or read the rules from `origin/main:.gitignore`.
+- **PR #861 round 2: nothing calls `ensure-worktree` yet.** The
+  force-staged-path backstop protects nothing until the Part B Land
+  procedure runs `state.py ensure-worktree` before every commit and push.
+  Today it appears only in the plan (`scripts/todos/state.py:638-642`).
+- **PR #861 round 2: the backstop refuses a `git mv` of a tracked file that
+  matches an ignore rule.** For example, a `CLAUDE.md` file. Its message
+  also says "force-staged", which is wrong for that case
+  (`scripts/todos/state.py:593-604`). Reword the message and keep counting
+  renames as adds.
+- **PR #861 round 2: two older gaps.**
+  - A member blocked through `decide()` rather than the gate stays in its
+    group, and its in-group dependent still runs (`scripts/todos/state.py:360-372`).
+  - Todos that share a file can still form a group cycle from acyclic
+    dependencies (`scripts/todos/group.py:78-86`).
+
 ## Recommended Action
 
 1. Make `apply_triage` skip the `git mv` when the pending path already exists
@@ -210,6 +231,15 @@ the spec):
 - [ ] A test with overlapping `.env` values fails when the masking sort is
       reversed.
 - [ ] harness-ci's `push` paths include `.claude/agents/**`.
+- [ ] A worker cannot stage a `.worktreeinclude` path, even after it has
+  edited `.gitignore`.
+- [ ] The Part B Land procedure runs `state.py ensure-worktree` before
+  every commit and push.
+- [ ] The backstop's message names the real cause, and a `git mv` of a
+  tracked ignored-pattern file is handled deliberately.
+- [ ] A `decide()`-blocked member leaves its group and blocks its in-group
+  dependents. Shared-file groups cannot form cycles from acyclic
+  dependencies.
 
 ## Work Log
 
