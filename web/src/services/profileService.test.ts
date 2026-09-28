@@ -1,5 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { AxiosError } from 'axios';
 import { fetchDashboardStats, fetchProfile, updateProfile } from './profileService';
+import { NETWORK_ERROR_MESSAGE } from '../utils/httpError';
 import { clearCsrfToken, getCsrfToken } from '../utils/csrf';
 import {
   CSRF_FAILED_BODY,
@@ -74,6 +76,20 @@ describe('profileService', () => {
     });
 
     await expect(fetchProfile()).rejects.toThrow('Request failed (HTTP 502)');
+  });
+
+  // todo 434: the banner showed axios's own text for these.
+  it.each([
+    ['a network error', 'Network Error', AxiosError.ERR_NETWORK],
+    ['a timeout', 'timeout of 30000ms exceeded', AxiosError.ECONNABORTED],
+  ])('shows a connection message for %s, not the axios text', async (_label, text, code) => {
+    adapter.mockImplementation(async (config) => {
+      throw new AxiosError(text, code, config);
+    });
+
+    await expect(fetchProfile()).rejects.toThrow(NETWORK_ERROR_MESSAGE);
+    await expect(updateProfile({ bio: 'Ferns' })).rejects.toThrow(NETWORK_ERROR_MESSAGE);
+    await expect(fetchDashboardStats()).rejects.toThrow(NETWORK_ERROR_MESSAGE);
   });
 
   it('refreshes a stale CSRF token and retries the PATCH once (todo 407)', async () => {
