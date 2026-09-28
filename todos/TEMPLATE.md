@@ -20,6 +20,18 @@ under archive/ MUST carry a terminal status (completed/complete/resolved/done/
 fixed, or closed/skipped/superseded when the work was deliberately not done).
 Both are enforced by scripts/check_archived_todo_status.py on every PR.
 
+Optional triage fields, written by the todo sweep (scripts/todos/state.py
+apply-triage; spec docs/superpowers/specs/2026-09-27-todo-sweep-multi-agent-design.md
+§6.4). Don't hand-maintain them:
+  triage:          ready | blocked-owner | blocked-prod | blocked-device |
+                   blocked-external | needs-design | needs-research |
+                   already-done | stale
+  blocked_on:      one line — what would unblock it
+  owner_decision:  the owner's answer, verbatim, with its date
+  triaged:         YYYY-MM-DD
+A sweep skips `triage: blocked-*` todos until the file changes after `triaged`
+(or --retriage). Stage names never go in `status:`.
+
 Required sections: Problem, Findings, Recommended Action, Technical Details,
 Acceptance Criteria, Work Log. Optional sections (Proposed Solutions, Notes)
 may be deleted entirely if not used — never leave them blank.

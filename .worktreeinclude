@@ -1,0 +1,6 @@
+# Gitignored files Claude Code copies into every worktree it creates
+# (https://code.claude.com/docs/en/worktrees). Only files that match AND are
+# gitignored are copied. Toolchains (venv, node_modules) are deliberately NOT
+# listed — too large; workers use the main checkout's (spec §7.4).
+backend/.env
+web/.env
