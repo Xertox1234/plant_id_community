@@ -27,8 +27,9 @@ missing one, the verdict is `fail`, `reasons` gets `missing todo path`. `BASE` =
    `clean_after` does, see step 7).
 2. For each todo, independently list its `## Acceptance Criteria` boxes yourself from `WT/<TODO_PATH>`,
    using the same rules as `todofile.ac_lines`: only `- [ ]` / `- [x]` bullets under that heading, each
-   together with the indented lines that wrap it (up to the next bullet, blank line, heading or fence); a
-   bullet inside a ```` ``` ```` or `~~~` fence (indented or not) is an example, not a criterion. A
+   together with the indented lines that wrap it (up to the next bullet, blank line, heading or fence;
+   only `-`, `*`, `+` or `1.` starts a bullet and a heading needs a space after its #s, so a wrapped line
+   starting `10.` or `#42` is still text); a bullet inside a ```` ``` ```` or `~~~` fence (indented or not) is an example, not a criterion. A
    criterion's text is that whole bullet, its lines joined with single spaces. The count must match
    `WT/AC_FILE`'s entries for that todo, in order, and each entry's `text` must match the whole criterion
    after stripping a leading checkbox marker and collapsing runs of whitespace — the same normalization as

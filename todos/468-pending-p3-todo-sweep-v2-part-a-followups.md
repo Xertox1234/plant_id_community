@@ -309,3 +309,14 @@ m12 and the triage-root item should land before Part B's first real sweep.
 - **Masking order.** A new check has one secret inside another. With the sort
   reversed it fails (mutation run: only that check fails).
 - All nine engine suites pass.
+
+### 2026-09-28 - PR #870 round 1
+
+- One masking regression fixed. The backend reads `.env` through python-decouple, which
+  keeps an inline `# …`, so a secret written `KEY=abc #defghijkl` was masked only as `abc`
+  (too short to mask). Now `slot_env` inherits the decouple reading, as on main, and `land`
+  masks both readings.
+- Three cheap fixes. `_siblings` survives a NUL byte in any todo's `source_review` and
+  returns only tracked files, because Stage D stages every path it returns. The verifier
+  and worker docs state the wrapped-line rule `ac_lines` now uses.
+- The other three non-blocking findings went to todo 475.

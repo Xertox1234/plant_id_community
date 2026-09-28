@@ -44,7 +44,10 @@ PG_SOCKET_DIR = "/tmp"  # Homebrew Postgres' unix_socket_directories
 REDIS_SOCKET = "/tmp/redis.sock"
 
 
-def parse_dotenv(text):
+def parse_dotenv(text, strip_comments=True):
+    """{key: value}. strip_comments=False reads a value the way python-decouple (the backend's
+    reader) does: an inline ` # note` and inner quotes stay part of it. That form is what the app
+    sees, so slot_env inherits it; land.py masks both forms (PR #870 round 1)."""
     values = {}
     for raw in text.splitlines():
         line = raw.strip()
@@ -54,14 +57,14 @@ def parse_dotenv(text):
         key = key.strip()
         if key.startswith("export "):
             key = key[len("export "):].strip()
-        values[key] = _dotenv_value(value.strip())
+        values[key] = _dotenv_value(value.strip()) if strip_comments else value.strip().strip("'\"")
     return values
 
 
 def _dotenv_value(value):
     """A quoted value runs to its closing quote; an unquoted one stops at a ` #` comment, so
     `KEY=value # note` is `value` -- land.py masks .env values, and `value # note` never matched
-    the bare value a log prints (todo 468)."""
+    the bare value a comment-stripping reader (Vite's dotenv) prints (todo 468)."""
     if value[:1] in ("'", '"'):
         end = value.find(value[0], 1)
         if end > 0:
@@ -105,7 +108,7 @@ def redis_socket_env(redis_url, db, exists):
 def slot_env(environ, dotenv_text, slot, worktree, inherit_dotenv=False, exists=os.path.exists):
     if not 1 <= slot <= MAX_SLOT:
         raise ValueError(f"slot must be 1..{MAX_SLOT}, got {slot}")
-    dotenv = parse_dotenv(dotenv_text)
+    dotenv = parse_dotenv(dotenv_text, strip_comments=False)
     db_url = environ.get("DATABASE_URL") or dotenv.get("DATABASE_URL")
     if not db_url:
         raise ValueError("no DATABASE_URL in the environment or backend/.env")

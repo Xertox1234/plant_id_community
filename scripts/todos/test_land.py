@@ -1305,6 +1305,18 @@ def main():
         check("468: a secret containing a shorter secret is masked whole (longest first)",
               "12345678" not in text and "token *** ok" in text, text)
 
+    # PR #870 round 1: the app reads .env through python-decouple, which keeps ` # ...` and inner
+    # quotes; the value it may print must stay masked, as on main, next to the comment-stripped one.
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        (root / "backend").mkdir()
+        (root / "backend" / ".env").write_text(  # fake values, test fixture only
+            "LEGACY_PW=abc #defghijkl\n"  # pragma: allowlist secret
+            "SINGLE='it''s-a-secret'\n")  # pragma: allowlist secret
+        secrets = land._env_secrets(root)
+        check("PR #870: the raw decouple value of a secret is masked too",
+              "abc #defghijkl" in secrets and "it''s-a-secret" in secrets, secrets)
+
     # Final review m9: no Work Log heading a worker is told to write may satisfy Land's
     # "evidence is quoted above" check -- only flip_acs's own heading does.
     worker_md = (Path(os.path.abspath(__file__)).parents[2] / ".claude" / "agents" / "todo-worker.md").read_text()

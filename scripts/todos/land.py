@@ -114,7 +114,11 @@ def _env_secrets(*roots):
         for rel in ENV_FILES if root else ():
             path = Path(root) / rel
             if path.is_file():
-                for value in slot_env.parse_dotenv(path.read_text(errors="replace")).values():
+                text = path.read_text(errors="replace")
+                # Both readings: the comment-stripped one and python-decouple's, which the app
+                # itself sees and may print (PR #870 round 1).
+                for value in [*slot_env.parse_dotenv(text).values(),
+                              *slot_env.parse_dotenv(text, strip_comments=False).values()]:
                     values.update([value, *_url_password(value)])
     return sorted((v for v in values if len(v) >= SECRET_MIN_LEN), key=len, reverse=True)
 
@@ -416,13 +420,14 @@ def _siblings(repo, review, todo_path):
     for path in sorted([*(repo / "todos").glob("*.md"), *(repo / "todos" / "archive").glob("*.md")]):
         if path.resolve() == Path(todo_path).resolve():
             continue
-        try:
+        rel = path.relative_to(repo).as_posix()
+        try:  # a NUL byte in a path makes resolve() raise ValueError (PR #870 round 1)
             source = (todofile.read_frontmatter(path) or {}).get("source_review")
+            if (source and _review_path(repo, str(source)) == review
+                    and _unsettable_key(path, ["source_review"]) is None and _tracked(repo, rel)):
+                out.append(rel)  # tracked only: Stage D stages every returned path
         except (yaml.YAMLError, ValueError, OSError):
             continue
-        if (source and _review_path(repo, str(source)) == review
-                and _unsettable_key(path, ["source_review"]) is None):
-            out.append(path.relative_to(repo).as_posix())
     return out
 
 

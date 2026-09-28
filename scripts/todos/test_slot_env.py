@@ -49,6 +49,11 @@ def main():
     parsed = se.parse_dotenv("A=value-one # note\nB='quoted # kept'\nC=abc#def\nD=\"dq value\" # c\nE=x-y\t# tab\n")
     check("468: parse_dotenv strips an inline # comment from an unquoted value, and only there",
           parsed == {"A": "value-one", "B": "quoted # kept", "C": "abc#def", "D": "dq value", "E": "x-y"}, parsed)
+    # PR #870 round 1: python-decouple (what the backend reads) keeps ` # note` as part of the value,
+    # so an inherited .env value must reach the worker as the app would read it.
+    env = se.slot_env({}, DOTENV + "LEGACY_PW=abc #defghijkl\n", 1, "/wt", inherit_dotenv=True, exists=NO_SOCKETS)
+    check("PR #870: an inherited value keeps an inline # the way decouple reads it",
+          env["LEGACY_PW"] == "abc #defghijkl", env.get("LEGACY_PW"))
 
     env = se.slot_env({"PATH": "/bin"}, DOTENV, 2, "/wt/g1", exists=NO_SOCKETS)
     check("slot 2 gets its own database",
