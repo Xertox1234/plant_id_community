@@ -161,9 +161,14 @@ Steps 1–8 run with the sandbox off (see **Sandbox**).
      `ensure-worktree` again, push, then round 2.
    - `rerun` → run round 1 again once. A second `rerun`: `set-group … blocked`.
    - `blocked` → report it.
-2. Round 2: `review-args --round 2` → workflow → `ingest-review --round 2`. `clean` →
-   `gh pr merge <n> --auto --squash --delete-branch`. The round-2 reviewers read the full diff in fresh
-   contexts; that is the "review before arming" step. You read `--stat` and their verdicts only.
+2. Round 2: `review-args --round 2` → workflow → `ingest-review --round 2`. `clean` → if any todo in the
+   group has `refuted` entries in the run file, first post them with `gh pr comment <n> --body …`, one per
+   line, headed "Dismissed by refuters, not fixed". Then `gh pr merge <n> --auto --squash --delete-branch`.
+   The round-2 reviewers read the full diff in fresh contexts; that is the "review before arming" step.
+   You read `--stat` and their verdicts only.
+   `held` → a critical finding was dismissed only by the refuters (in either round). `ingest-review` has
+   already blocked the group. Do NOT arm. Post the `refuted` list as a PR comment, and report the PR to the
+   owner as held. Only the owner can clear a critical.
    `rerun` → run round 2 again once. A second `rerun`: `set-group … blocked` and report it.
    `blocked` → stop that PR and report it.
 3. What a round runs, for every size: three `todo-reviewer` bug lenses, plus the checklist lane.
@@ -172,10 +177,12 @@ Steps 1–8 run with the sandbox off (see **Sandbox**).
    files. `code-review-orchestrator` (Phase 1 only) can add reviewers, never remove them; `floor_added`
    names the ones it missed. No subagent can spawn subagents (pilot P8), so all fan-out is in the workflow
    script. Each critical/high file:line then faces two refuters and stops blocking only if both refute every
-   phrasing reported there. A dead reviewer makes the round `rerun`, never a partial pass. The run file keeps each todo's
-   `refuted` findings. List them in the wrap-up, so the owner can see what the refuters dismissed.
-4. Follow-ups: todos with `followups` get one follow-up todo file per PR (next free id, `p4`, the PR number
-   in its Findings), all committed together in a closing `chore(todos): follow-ups from run $RUN_ID` PR.
+   phrasing reported there. A dead reviewer makes the round `rerun`, never a partial pass. The run file keeps each
+   todo's `refuted` findings whole (`<severity>: file:line summary | also: …`, never capped). List them in the
+   wrap-up, so the owner can see what the refuters dismissed.
+4. Follow-ups: todos with `followups` or `refuted` get one follow-up todo file per PR (next free id, `p4`, the
+   PR number in its Findings, refuted ones under their own heading so the owner can re-judge them), all
+   committed together in a closing `chore(todos): follow-ups from run $RUN_ID` PR.
 
 ## Merge confirmation and cleanup
 

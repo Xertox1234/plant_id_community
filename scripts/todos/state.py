@@ -586,6 +586,11 @@ def review_args(run, round_no, wave, git=run_git):
     return items
 
 
+def _refuted_line(f):
+    line = f"{f['severity']}: {f['file']}:{f['line']} {f['summary']}"
+    return line + (f" | also: {' | '.join(f['also'])}" if f.get("also") else "")
+
+
 def ingest_review(run, results, round_no):
     # Todo 468: checked for every group before anything is written, so a stale output (a round-1
     # file re-ingested after round 1) cannot overwrite tree_id and verified_ac, even in part.
@@ -606,13 +611,14 @@ def ingest_review(run, results, round_no):
             f"{f['file']}:{f['line']} {f['summary']}" for f in result["findings"]
             if f["severity"] not in {"critical", "high"}
         ))
-        # Blocking findings both refuters dismissed are kept, so the wrap-up can list them even after a resume.
-        dismissed = [f"{f['file']}:{f['line']} {f['summary']}" for f in result.get("refuted", [])]
+        # Blocking findings both refuters dismissed are kept whole (severity, every phrasing, no cap): the
+        # PR comment before arming, the follow-up todos and the critical hold below all read them (todo 478).
+        dismissed = [_refuted_line(f) for f in result.get("refuted", [])]
         for _, entry in entries:
             existing = entry.get("followups", [])
             entry["followups"] = (existing + [f for f in follow if f not in existing])[:10]
             kept = entry.get("refuted", [])
-            entry["refuted"] = (kept + [f for f in dismissed if f not in kept])[:10]
+            entry["refuted"] = kept + [f for f in dismissed if f not in kept]
         blocking = result["blocking"]
         if round_no == 1:
             if blocking:
@@ -640,9 +646,15 @@ def ingest_review(run, results, round_no):
             for _, entry in entries:
                 entry["review_round"] = 1
         else:
+            # An LLM refutation alone never clears a critical, from either round: hold the PR for the owner.
+            criticals = [r for r in entries[0][1].get("refuted", []) if r.startswith("critical: ")]
             if blocking:
                 set_group(run, gid, "blocked", reason=f"{len(blocking)} blocking findings after round 2")
                 outcome[gid] = "blocked"
+            elif criticals:
+                set_group(run, gid, "blocked", reason=f"held for the owner: {len(criticals)} critical finding(s) "
+                                                      f"dismissed only by refuters; first: {criticals[0]}"[:500])
+                outcome[gid] = "held"
             else:
                 set_group(run, gid, "reviewed", review_round=2)
                 outcome[gid] = "clean"

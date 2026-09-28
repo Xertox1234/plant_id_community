@@ -172,12 +172,47 @@ def main():
           "tests/test_a.py" in state.review_args(run, 2, 0, git=fake_git)[0]["test_edits"])
     check("an invalid round number is refused", raises(lambda: state.review_args(run, 3, 0), ValueError))
     low = [{"severity": "low", "file": "a.py", "line": 2, "summary": "nit", "suggested_fix": ""}]
+
+    # Todo 478: a critical that only the refuters dismissed holds the PR for the owner, from either round.
+    import copy
+
+    def refuted(sev, line, also=()):
+        return {"severity": sev, "file": "c.py", "line": line, "summary": f"{sev} {line}", "suggested_fix": "",
+                "also": list(also), "refutations": ["no", "no"]}
+
+    def round2(r, refs, blocking_=()):
+        return state.ingest_review(r, [{"group": g_ok, "ids": ids_ok, "findings": [], "blocking": list(blocking_),
+                                        "reviewers_ok": True, "repair": None, "verdict": None,
+                                        "refuted": refs}], 2)[g_ok]
+
+    held = copy.deepcopy(run)
+    got = round2(held, [refuted("critical", 7, also=["same line, other words"])])
+    entry = held["todos"][ids_ok[0]]
+    check("a critical dismissed only by refuters in round 2 holds the PR (blocked, not reviewed)",
+          got == "held" and entry["stage"] == "blocked" and "held for the owner" in entry["reason"]
+          and "critical: c.py:7 critical 7" in entry["reason"], (got, entry))
+    check("a refuted record keeps its severity and every phrasing",
+          entry["refuted"] == ["critical: c.py:7 critical 7 | also: same line, other words"], entry["refuted"])
+    earlier = copy.deepcopy(run)
+    for i in ids_ok:
+        earlier["todos"][i]["refuted"] = ["critical: c.py:9 dismissed in round 1"]
+    check("a critical dismissed in round 1 still holds the PR at a clean round 2",
+          round2(earlier, []) == "held" and earlier["todos"][ids_ok[0]]["stage"] == "blocked")
+    many = copy.deepcopy(run)
+    check("a refuted high alone does not hold the PR, and refuted records are never capped",
+          round2(many, [refuted("high", n) for n in range(15)]) == "clean"
+          and len(many["todos"][ids_ok[0]]["refuted"]) == 15)
+    both = copy.deepcopy(run)
+    check("a still-blocking finding wins over a refuted critical (blocked, with the blocking reason)",
+          round2(both, [refuted("critical", 7)], blocking_=[refuted("high", 8)]) == "blocked"
+          and "blocking findings after round 2" in both["todos"][ids_ok[0]]["reason"])
+
     res = state.ingest_review(run, [{"group": g_ok, "ids": ids_ok, "findings": low, "blocking": [],
                                      "reviewers_ok": True, "repair": None, "verdict": None,
                                      "refuted": [{"severity": "high", "file": "b.py", "line": 3, "summary": "maybe",
                                                   "suggested_fix": "", "also": [], "refutations": ["no", "no"]}]}], 2)
     check("a finding both refuters dismissed is kept for the wrap-up",
-          run["todos"][ids_ok[0]]["refuted"] == ["b.py:3 maybe"], run["todos"][ids_ok[0]])
+          run["todos"][ids_ok[0]]["refuted"] == ["high: b.py:3 maybe"], run["todos"][ids_ok[0]])
     check("a clean round 2 moves to reviewed", res[g_ok] == "clean"
           and all(run["todos"][i]["stage"] == "reviewed" for i in ids_ok))
     check("non-blocking findings are kept as follow-ups", run["todos"][ids_ok[0]]["followups"] == ["a.py:2 nit"])
