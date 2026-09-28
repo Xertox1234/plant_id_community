@@ -5,6 +5,8 @@ issue_id: "467"
 tags: [backend, dead-code, race-condition]
 dependencies: []
 source_review: "todos/archive/394-completed-p3-triage-the-grandfathered-archived-todos.md"
+triage: ready
+triaged: 2026-09-28
 ---
 
 # Delete the orphaned `ai_care_service.py`; make `diagnosis_count` atomic

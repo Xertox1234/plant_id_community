@@ -4,6 +4,10 @@ priority: p3
 issue_id: "366"
 tags: [security, dependencies, suppressions, backend]
 dependencies: []
+triage: blocked-owner
+triaged: 2026-09-28
+blocked_on: "Timed for the 2026-11-16 expiry. The owner decides whether the re-assessment runs now or in that window."
+owner_decision: "Owner: wait for the window before the 2026-11-16 expiry (2026-09-28)"
 ---
 
 # Re-assess the two dormant pip-audit suppressions at their 2026-11-16 expiry

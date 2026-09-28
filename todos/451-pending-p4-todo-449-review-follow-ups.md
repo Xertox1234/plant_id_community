@@ -5,6 +5,8 @@ issue_id: "451"
 tags: [backend, auth, web, testing]
 dependencies: []
 source_review: "todos/archive/449-completed-p3-email-verification-slice-b-review-follow-ups.md"
+triage: ready
+triaged: 2026-09-28
 ---
 
 # Todo 449 review: non-blocking follow-ups

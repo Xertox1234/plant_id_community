@@ -4,6 +4,9 @@ priority: p4
 issue_id: "473"
 tags: [harness, todo-sweep]
 dependencies: []
+triage: ready
+triaged: 2026-09-28
+owner_decision: "List a landed todo's earlier blocked worktrees in the wrap-up; cleanup does not remove them (2026-09-28)"
 ---
 
 # Todo sweep v2 Part B: non-blocking findings from PR #868 round 1

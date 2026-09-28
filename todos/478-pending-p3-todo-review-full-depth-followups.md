@@ -4,6 +4,9 @@ priority: p3
 issue_id: "478"
 tags: [harness, todo-sweep]
 dependencies: []
+triage: ready
+triaged: 2026-09-28
+owner_decision: "Finding 5: fix all the low items (2026-09-28)"
 ---
 
 # Todo sweep: non-blocking findings from PR #873 round 1 (full-depth review)

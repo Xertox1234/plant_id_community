@@ -4,6 +4,10 @@ priority: p2
 issue_id: "448"
 tags: [forum, backend, link-preview, review-follow-up]
 dependencies: ["428"]
+triage: needs-design
+triaged: 2026-09-28
+blocked_on: "Owner picks where item 13's new-tab links go and what item 11's card-only excerpt shows"
+owner_decision: "Item 13: set target=_blank server-side in the package sanitizer. Item 11: leave a card-only excerpt empty (2026-09-28)"
 ---
 
 # Link preview slice A: non-blocking review findings

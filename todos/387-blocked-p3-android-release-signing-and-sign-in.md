@@ -6,8 +6,11 @@ tags: [android, firebase, signing, mobile, security]
 dependencies: []
 source_review: "todos/383-firebase-hardening-carryover"
 source_finding: "AC4,AC5-android"
-blocked_on: "no physical Android device is available (held 2026-09-14)"
+blocked_on: "A physical Android device with a Google account (AC4) and a first Play Console upload to get the Play App Signing SHA-1 (AC5)"
 unblock_when: "a physical Android device with a Google account can be connected over adb"
+triage: blocked-device
+triaged: 2026-09-28
+owner_decision: "Owner: still needs a physical Android device and a first Play upload (2026-09-28)"
 ---
 
 # Android: release signing, SHA-1 registration, and a verified sign-in

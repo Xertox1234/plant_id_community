@@ -5,6 +5,8 @@ issue_id: "431"
 tags: [forum, backend, performance]
 dependencies: []
 source_review: "PR #815"
+triage: ready
+triaged: 2026-09-28
 ---
 
 # Linked topic/opening-post publishes recount the board and profiles twice

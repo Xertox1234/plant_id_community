@@ -6,6 +6,10 @@ tags: [backend, web, blog, security, email]
 dependencies: []
 source_review: "todos/archive/405-completed-p3-backend-endpoints-no-client-triage.md"
 source_finding: "owner decision 2026-09-23"
+triage: blocked-owner
+triaged: 2026-09-28
+blocked_on: "Owner decision on sending cadence, content and provider (AC3). Security slice (AC1+AC2) could ship first."
+owner_decision: "Owner: keep blocked; the newsletter is not wanted yet (2026-09-28)"
 ---
 
 # Blog newsletter: close the abuse surface, then wire it up

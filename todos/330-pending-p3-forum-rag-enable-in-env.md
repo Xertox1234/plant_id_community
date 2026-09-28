@@ -6,6 +6,10 @@ tags: [forum, ai, rag, premium, safety, ops, deploy]
 dependencies: ["289"]
 source_review: "docs/audits/2026-07-11-forum-modernization-COMPLETED.md"
 source_finding: "M13"
+triage: blocked-prod
+triaged: 2026-09-28
+blocked_on: "Gate 2: todo 445's care articles published and owner-checked (≥50 articles). After that, the owner flips FORUM_RAG_ENABLED in prod and reads the prod [RAG] logs."
+owner_decision: "Owner hand-off: waits for todo 445's articles and a corpus of >=50 articles or >=200 topics; the owner flips FORUM_RAG_ENABLED in prod (2026-09-28)"
 ---
 
 # Enable RAG plant-care answers in a target environment

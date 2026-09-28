@@ -5,6 +5,9 @@ issue_id: "461"
 tags: [mobile, flutter, diagnosis, follow-up]
 dependencies: []
 source_review: "todos/archive/444-completed-p3-mobile-diagnose-missing.md"
+triage: ready
+triaged: 2026-09-28
+owner_decision: "Strip EXIF on the server for diagnosis and identify uploads; raise the per-request timeout above 60s (2026-09-28)"
 ---
 
 # Mobile Diagnose: non-blocking follow-ups from the PR #857 review

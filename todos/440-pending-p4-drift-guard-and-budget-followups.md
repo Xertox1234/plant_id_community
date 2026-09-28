@@ -5,6 +5,8 @@ issue_id: "440"
 tags: [backend, harness, guards]
 dependencies: []
 source_review: "PR #822"
+triage: ready
+triaged: 2026-09-28
 ---
 
 # Response-dict drift guards and budget_rules: remaining reach limits

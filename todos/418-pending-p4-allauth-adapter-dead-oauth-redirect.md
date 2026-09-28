@@ -6,6 +6,10 @@ tags: [backend, users, auth, dead-code]
 dependencies: []
 source_review: "todos/archive/405-completed-p3-backend-endpoints-no-client-triage.md"
 source_finding: "slice 4 discovery"
+triage: needs-design
+triaged: 2026-09-28
+blocked_on: "Owner picks: drop allauth social routes, or fix the redirect provider"
+owner_decision: "Option (b): keep the allauth social routes and derive the provider from the sociallogin (2026-09-28)"
 ---
 
 # allauth social adapter: its post-login redirect is unreachable, and broken if reached

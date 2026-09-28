@@ -4,6 +4,9 @@ priority: p4
 issue_id: "474"
 tags: [harness, todo-sweep]
 dependencies: []
+triage: ready
+triaged: 2026-09-28
+owner_decision: "AC1/AC2: keep the brief/plan alone, and refuse only the cycle's todos (2026-09-28)"
 ---
 
 # Todo sweep: non-blocking findings from PR #869 round 1 (todo 468 slice A)

@@ -4,6 +4,9 @@ priority: p4
 issue_id: "477"
 tags: [harness, todo-sweep]
 dependencies: []
+triage: ready
+triaged: 2026-09-28
+owner_decision: "Finding 1: close all the gaps, including the post-cd and pilot linked-worktree gaps (2026-09-28)"
 ---
 
 # Todo sweep: non-blocking findings from PR #872 round 1 (todo 468 slice B)

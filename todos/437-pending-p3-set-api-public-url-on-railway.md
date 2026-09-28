@@ -5,6 +5,10 @@ issue_id: "437"
 tags: [ops, email, railway]
 dependencies: []
 source_review: "todos/archive/416-completed-p3-digest-unsubscribe-and-one-click-post.md"
+triage: blocked-prod
+triaged: 2026-09-28
+blocked_on: "Owner checks the raw headers of a received production forum reply or digest email (Gmail \"Show original\")"
+owner_decision: "Owner confirmed on 2026-09-28 that the raw headers of a production reply/digest email show List-Unsubscribe (api.houseplant-md.com one-click URL) and List-Unsubscribe-Post"
 ---
 
 # Set API_PUBLIC_URL on Railway to turn on one-click unsubscribe

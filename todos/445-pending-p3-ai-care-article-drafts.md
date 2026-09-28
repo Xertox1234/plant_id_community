@@ -4,6 +4,10 @@ priority: p3
 issue_id: "445"
 tags: [blog, content, ai, rag]
 dependencies: []
+triage: blocked-owner
+triaged: 2026-09-28
+blocked_on: "Owner spot-checks and publishes the 53 prod drafts in /cms/ and records the date (AC3)"
+owner_decision: "Owner: the 53 care-guide drafts are not yet spot-checked or published (2026-09-28)"
 ---
 
 # Draft ~50 AI care articles in the CMS for the owner to spot-check

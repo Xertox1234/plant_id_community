@@ -5,6 +5,9 @@ issue_id: "450"
 tags: [web, tailwind, design-system, forum, blog]
 dependencies: []
 source_review: "todos/archive/401-completed-p3-web-rich-text-styles-for-category-intro-and-care-blocks.md"
+triage: ready
+triaged: 2026-09-28
+owner_decision: "AC2 means only the typography-plugin tokens (prose, prose-*); max-w-prose is fine (2026-09-28)"
 ---
 
 # Forum post and blog paragraphs render lists with no markers; StreamFieldRenderer keeps dead `prose` tokens

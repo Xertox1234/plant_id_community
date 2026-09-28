@@ -4,6 +4,10 @@ priority: p4
 issue_id: "481"
 tags: [harness, todo-sweep]
 dependencies: []
+triage: needs-design
+triaged: 2026-09-28
+blocked_on: "Two choices: the completeness rule when the router is dead, and git-grep vs review_args flagging for unsafe file names."
+owner_decision: "Dead router: the round counts as complete only when no .py outside apps/blog/ could need wagtail-by-content; switch the router to git -C WT grep for unsafe names (2026-09-28)"
 ---
 
 # Todo sweep: router hardening (dead-router fallback, file names in the router prompt)

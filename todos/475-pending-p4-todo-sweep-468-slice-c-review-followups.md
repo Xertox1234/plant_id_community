@@ -4,6 +4,9 @@ priority: p4
 issue_id: "475"
 tags: [harness, todo-sweep]
 dependencies: []
+triage: ready
+triaged: 2026-09-28
+owner_decision: "Finding 3: keep masking common-word passwords such as postgres and record why (2026-09-28)"
 ---
 
 # Todo sweep: non-blocking findings from PR #870 round 1 (todo 468 slice C)

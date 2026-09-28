@@ -4,6 +4,10 @@ priority: p4
 issue_id: "479"
 tags: [harness, todo-sweep, web]
 dependencies: []
+triage: blocked-owner
+triaged: 2026-09-28
+blocked_on: "A pending todo that touches web/, which the owner says starts the work. Then re-run pilot check P5 with the main checkout on main."
+owner_decision: "Re-run pilot check P5 now; .worktreeinclude on main already lists web/.env (2026-09-28)"
 ---
 
 # Todo sweep: `web/.env` in worker worktrees, once web work starts

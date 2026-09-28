@@ -6,6 +6,10 @@ tags: [web, backend, notifications, web-push]
 dependencies: []
 source_review: "PR #852 review round 1 (todo 413)"
 source_finding: "non-blocking findings"
+triage: blocked-owner
+triaged: 2026-09-28
+blocked_on: "Two choices: how the sw.js re-subscribe authenticates, and how sends fan out. Also the live /sw.js Cache-Control header needs measuring."
+owner_decision: "Owner: keep blocked; there is no web product yet (2026-09-28)"
 ---
 
 # Web Push follow-ups from the PR #852 review

@@ -4,6 +4,10 @@ priority: p2
 issue_id: "423"
 tags: [forum, moderation, wagtail, backend, ux]
 dependencies: []
+triage: needs-design
+triaged: 2026-09-28
+blocked_on: "Owner picks the bypass criterion, stored vs computed trust, and the moderator-notification policy"
+owner_decision: "Bypass: superusers plus a forum-moderator group/permission, checked at request time (no trust_level backfill); no moderator notification for pending content (2026-09-28)"
 ---
 
 # Examine and streamline forum moderation: staff are moderated, and approving a post takes a scavenger hunt

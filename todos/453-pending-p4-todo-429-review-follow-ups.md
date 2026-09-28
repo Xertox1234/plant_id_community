@@ -5,6 +5,9 @@ issue_id: "453"
 tags: [forum, web, mobile, refactor, testing]
 dependencies: []
 source_review: "todos/archive/429-completed-p3-compact-list-for-card-runs.md"
+triage: ready
+triaged: 2026-09-28
+owner_decision: "Finding 4: change the mobile labels to match web (2026-09-28)"
 ---
 
 # Todo 429 review: non-blocking follow-ups

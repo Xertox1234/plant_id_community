@@ -5,6 +5,9 @@ issue_id: "447"
 tags: [backend, security, auth, users, allauth]
 dependencies: []
 source_review: "todos/archive/446-completed-p2-registration-email-pre-hijack.md"
+triage: already-done
+triaged: 2026-09-28
+blocked_on: "The owner reads a prod night's \"[PRUNE] unverified accounts\" counts and then opens a PR that drops --dry-run in .railway/railway.ts."
 ---
 
 # Email verification follow-ups (non-blocking findings from todo 446's review)

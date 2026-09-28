@@ -5,6 +5,9 @@ issue_id: "442"
 tags: [blog, backend, web, licensing]
 dependencies: []
 source_review: "PR #825"
+triage: ready
+triaged: 2026-09-28
+owner_decision: "A refused write deletes the images it fetched; the backfill may call the Unsplash API (GET /photos/:id) for the real photographer name (2026-09-28)"
 ---
 
 # Spotlight write path: non-blocking review findings (todo 438)
