@@ -366,6 +366,7 @@ def main():
     three = [{"severity": "low", "file": f"f{n}.py", "line": n, "summary": "x", "suggested_fix": ""}
              for n in range(3)]
     run_dup["todos"]["fd"]["followups"] = []
+    run_dup["todos"]["fd"]["review_round"] = 0  # a fresh round 1 (todo 468 refuses a round-1 re-ingest)
     state.ingest_review(run_dup, [{"group": gd, "ids": ["fd"], "findings": three, "blocking": [],
                                    "reviewers_ok": True, "repair": None, "verdict": None}], 1)
     state.ingest_review(run_dup, [{"group": gd, "ids": ["fd"], "findings": three, "blocking": [],
@@ -859,6 +860,124 @@ def main():
           and regrouped["waves"] == [[again[0]["group"]]], err or again)
     check("the re-brief keeps the blocked attempt's worktree findable",
           run["todos"]["432"]["previous"][0]["worktree"] == "/wt/g1", run["todos"]["432"].get("previous"))
+
+    # Todo 468: wave N-1 is still in review or Land while wave N executes, so a worker in wave N
+    # must not touch a lane wave N-1 holds -- until that wave has merged.
+    def lane_run():
+        rl = ready_run([("l1", ["backend/plant_community_backend/settings.py"]), ("l2", ["l2.py"])], workers=1)
+        state.apply_grouping(rl)
+        bl0 = state.execute_args(rl, 0, "/m")
+        state.ingest_execute(rl, [{"group": bl0[0]["group"], "ids": ["l1"], "worker": worker(["l1"]),
+                                   "verdict": verdict(["l1"]), "retried": False}])
+        state.set_group(rl, bl0[0]["group"], "pr_open", pr=5)
+        return rl, bl0[0]["group"]
+
+    settings_doc = state.group.LANE_DOC["settings"]
+    run_l, gl1 = lane_run()
+    bl1, err = expect(lambda: state.execute_args(run_l, 1, "/m"))
+    check("468: lanes_forbidden includes the lanes of the previous wave while it is not merged",
+          err is None and bl1[0]["ids"] == ["l2"] and settings_doc in bl1[0]["lanes_forbidden"], err or bl1)
+    run_l, gl1 = lane_run()
+    state.set_group(run_l, gl1, "reviewed")
+    state.set_group(run_l, gl1, "merged")
+    bl1, err = expect(lambda: state.execute_args(run_l, 1, "/m"))
+    check("468: a merged previous wave no longer forbids its lanes",
+          err is None and settings_doc not in bl1[0]["lanes_forbidden"], err or bl1)
+
+    # Todo 468: a member blocked by the owner after grouping (decide/set, not the gate) leaves its
+    # group, and its in-group dependent is blocked with it instead of shipping without it.
+    run_x = ready_run([("x402", ["xs.py", "x402.py"]), ("x403", ["xs.py", "x403.py"]),
+                       ("x404", ["xs.py", "x404.py"])], workers=1)
+    run_x["todos"]["x403"]["dependencies"] = ["x402"]
+    state.apply_grouping(run_x)
+    gx = run_x["todos"]["x402"]["group"]
+    state.decide(run_x, "x402", "blocked", decision="Owner: not this sweep")
+    bx, err = expect(lambda: state.execute_args(run_x, 0, "/m"))
+    check("468: an owner-blocked member's in-group dependent is blocked, and only the rest is handed out",
+          err is None and [b["ids"] for b in bx] == [["x404"]] and run_x["todos"]["x403"]["stage"] == "blocked"
+          and run_x["todos"]["x403"]["reason"] == "dependency x402 blocked", err or (bx, run_x["todos"]["x403"]))
+    check("468: the owner-blocked member and its dependent leave the group",
+          "group" not in run_x["todos"]["x402"] and "group" not in run_x["todos"]["x403"]
+          and run_x["groups"][gx]["ids"] == ["x404"], (run_x["todos"]["x402"], run_x["groups"][gx]))
+
+    # PR #869 round 1: a retried member keeps its first attempt's `wave`; blocked by the owner after
+    # regrouping, it must still leave its new group, and its in-group dependent must block with it.
+    run_r2 = ready_run([("r101", ["rx.py", "r101.py"]), ("r102", ["rx.py", "r102.py"])], workers=1)
+    run_r2["todos"]["r102"]["dependencies"] = ["r101"]
+    state.apply_grouping(run_r2)
+    br = state.execute_args(run_r2, 0, "/m")[0]
+    state.ingest_execute(run_r2, [{"group": br["group"], "ids": br["ids"], "worker": None, "verdict": None,
+                                   "retried": False, "worktree": "/wt/attempt1"}])
+    for i in ("r101", "r102"):
+        state.transition(run_r2, i, "ready")
+    state.apply_grouping(run_r2)
+    g_r2 = run_r2["todos"]["r101"]["group"]
+    state.decide(run_r2, "r101", "blocked", decision="Owner: drop it")
+    got, err = expect(lambda: state.execute_args(run_r2, len(run_r2["waves"]) - 1, "/m"))
+    check("PR #869: a retried member blocked after regrouping leaves its group, and blocks its dependent",
+          err is None and got == [] and run_r2["todos"]["r102"]["reason"] == "dependency r101 blocked"
+          and "group" not in run_r2["todos"]["r101"] and run_r2["groups"][g_r2]["ids"] == [],
+          err or (got, run_r2["todos"]["r101"], run_r2["groups"][g_r2]))
+
+    # PR #869 round 1: a retried group is appended after the run's last wave, so it must not hold a lane
+    # that wave holds (both e2e here), or two PRs hold one lane at once.
+    run_e2 = ready_run([("e101", ["e101.py"]), ("e102", ["e102.py"])], workers=1)
+    for i in ("e101", "e102"):
+        run_e2["todos"][i]["triage"]["needs_e2e"] = True
+    state.apply_grouping(run_e2)
+    be = state.execute_args(run_e2, 0, "/m")[0]
+    state.ingest_execute(run_e2, [{"group": be["group"], "ids": ["e101"], "worker": None, "verdict": None,
+                                   "retried": False}])
+    state.transition(run_e2, "e101", "ready")
+    state.apply_grouping(run_e2)
+    wave_e = {i: next(w for w, gids in enumerate(run_e2["waves"]) if run_e2["todos"][i]["group"] in gids)
+              for i in ("e101", "e102")}
+    check("PR #869: a regrouped todo is placed 2+ waves after the last wave's holder of its lane",
+          wave_e["e101"] - wave_e["e102"] >= 2, (wave_e, run_e2["waves"]))
+
+    # PR #869 round 1: a group holding a lane the previous, unmerged wave still holds is refused, not
+    # briefed with that lane quietly dropped from lanes_forbidden.
+    run_l, gl1 = lane_run()
+    g_l2 = run_l["todos"]["l2"]["group"]
+    run_l["groups"][g_l2]["lanes"] = ["settings"]
+    check("PR #869: execute_args refuses a group holding a lane the previous wave still holds",
+          raises(lambda: state.execute_args(run_l, 1, "/m")) and run_l["todos"]["l2"]["stage"] == "ready")
+
+    # Todo 468: ingest_review takes a round only when it follows the group's review_round, so a stale
+    # round-1 output re-ingested later cannot overwrite tree_id and verified_ac.
+    run_g = ready_run([("rg", ["rg.py"])], workers=1)
+    state.apply_grouping(run_g)
+    bg = state.execute_args(run_g, 0, "/m")[0]
+    state.ingest_execute(run_g, [{"group": bg["group"], "ids": ["rg"], "worker": worker(["rg"]),
+                                  "verdict": verdict(["rg"]), "retried": False}])
+    state.set_group(run_g, bg["group"], "pr_open", pr=7)
+    clean = {"group": bg["group"], "ids": ["rg"], "findings": [], "blocking": [], "reviewers_ok": True,
+             "repair": None, "verdict": None}
+    check("468: a round-2 output before round 1 is refused", raises(lambda: state.ingest_review(run_g, [clean], 2)))
+    state.ingest_review(run_g, [clean], 1)
+    stale = dict(clean, blocking=[{"severity": "high", "file": "a.py", "line": 1, "summary": "old", "suggested_fix": ""}],
+                 repair=worker(["rg"], tree="TSTALE"), verdict=verdict(["rg"], before="TSTALE", after="TSTALE"))
+    check("468: a round-1 output re-ingested after round 1 is refused, and tree_id is untouched",
+          raises(lambda: state.ingest_review(run_g, [stale], 1)) and run_g["todos"]["rg"]["tree_id"] == "T1",
+          run_g["todos"]["rg"])
+    state.ingest_review(run_g, [clean], 2)
+    check("468: a round-2 output for a reviewed group is refused",
+          run_g["todos"]["rg"]["stage"] == "reviewed" and raises(lambda: state.ingest_review(run_g, [clean], 2)))
+
+    # Todo 468: the review-doc lane reaches the plan from the run file, and the brief names the doc.
+    doc = "docs/reviews/2026-05-07-1641-full-review.md"
+    todos_rv = [{"id": i, "path": f"todos/{i}-pending-p3-x.md", "priority": "p3", "source_review": doc}
+                for i in ("rv1", "rv2")]
+    run_rv = state.new_run("r", "sweep", 3, todos_rv, ["rv1", "rv2"])
+    state.record_triage(run_rv, [rec("rv1", ["rv1.py"]), rec("rv2", ["rv2.py"])])
+    state.accept_ready(run_rv)
+    state.apply_grouping(run_rv)
+    waves_rv = {i: next(w for w, gids in enumerate(run_rv["waves"]) if run_rv["todos"][i]["group"] in gids)
+                for i in ("rv1", "rv2")}
+    brv = state.execute_args(run_rv, 0, "/m")
+    check("468: two todos from one review doc are planned two waves apart, and the brief names the doc",
+          abs(waves_rv["rv1"] - waves_rv["rv2"]) >= 2 and any(doc in lane for lane in brv[0]["lanes_held"]),
+          (run_rv["waves"], brv))
 
     print()
     if FAILURES:

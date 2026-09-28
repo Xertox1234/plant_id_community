@@ -186,10 +186,10 @@ the spec):
 
 ## Acceptance Criteria
 
-- [ ] Re-running `apply-triage` after a mid-batch failure succeeds, with a test.
-- [ ] `ingest-review` refuses an output whose round does not follow the
+- [x] Re-running `apply-triage` after a mid-batch failure succeeds, with a test.
+- [x] `ingest-review` refuses an output whose round does not follow the
       group's `review_round`, with a test.
-- [ ] Two groups sourced from one review doc never share or neighbour a wave,
+- [x] Two groups sourced from one review doc never share or neighbour a wave,
       with a test.
 - [x] Triage reads todos from an origin/main tree, and the Task 15 runbook
       says so.
@@ -200,7 +200,7 @@ the spec):
 - [ ] `test_workflows.js` rejects a fixture that does not match its schema.
 - [ ] Archiving the last finding of a review doc updates every archived
       todo's `source_review` that named it.
-- [ ] A `needs-design` or `stale` todo the owner already answered is not
+- [x] A `needs-design` or `stale` todo the owner already answered is not
       re-asked by the next sweep, with a test.
 - [ ] `ensure-worktree` recovers from `origin/<branch>` when the local branch
       is gone, with a test.
@@ -221,23 +221,23 @@ the spec):
       evidence tail, with a test.
 - [ ] A slotted `DATABASE_URL` is masked whatever the local DB name, with a
       test.
-- [ ] `fix/todo412`-style branch names count as in flight, or the decision
+- [x] `fix/todo412`-style branch names count as in flight, or the decision
       not to is recorded here.
 - [x] The Part B wrap-up lists every non-staged todo's recorded worktree
       before `state.py finish`.
 - [x] Spec §5.2 no longer says `status --porcelain` is empty after staging.
-- [ ] `lanes_forbidden` includes the lanes of the previous wave while that
+- [x] `lanes_forbidden` includes the lanes of the previous wave while that
       wave is not merged, with a test.
 - [ ] A test with overlapping `.env` values fails when the masking sort is
       reversed.
-- [ ] harness-ci's `push` paths include `.claude/agents/**`.
+- [x] harness-ci's `push` paths include `.claude/agents/**`.
 - [ ] A worker cannot stage a `.worktreeinclude` path, even after it has
   edited `.gitignore`.
 - [x] The Part B Land procedure runs `state.py ensure-worktree` before
   every commit and push.
 - [ ] The backstop's message names the real cause, and a `git mv` of a
   tracked ignored-pattern file is handled deliberately.
-- [ ] A `decide()`-blocked member leaves its group and blocks its in-group
+- [x] A `decide()`-blocked member leaves its group and blocks its in-group
   dependents. Shared-file groups cannot form cycles from acyclic
   dependencies.
 
@@ -288,3 +288,44 @@ m12 and the triage-root item should land before Part B's first real sweep.
   entries are still listed.
 - **ensure-worktree.** Stage D step 1 runs it before the commit and step 8 before
   the push (after any rebase); a Stage C repair runs it before its commit and again before its push.
+
+### 2026-09-28 - Slice A: planning and ingest correctness (branch fix/todo-468-engine-state)
+
+- **apply-triage rerun.** The run file is saved only on success, so a rerun after a
+  mid-batch failure still had the in_progress path. The rename is skipped when the
+  pending file already exists, the Work Log line is not repeated, and `reset_stranded`
+  is cleared once done (`test_state.py`, three `468:` checks, red against main first).
+- **ingest-review order.** Every group must be `pr_open` at `review_round == round - 1`,
+  checked before anything is written (`test_state_flow.py`). The R4 fixture that
+  re-ingested round 1 now resets `review_round`, as a fresh round 1 would.
+- **Review-doc lane.** `scan` loads `source_review`, the run entry keeps it, and
+  `group.review_lane` adds `review:<doc>`, so two groups from one doc are never in
+  the same or a neighbouring wave. `group.lane_doc` describes it in the brief
+  (`test_group.py`, `test_state_flow.py`).
+- **needs-design / stale.** An owner who blocks one has answered it: `apply-triage`
+  writes `triage: blocked-owner` with the answer as `blocked_on`, which scan already
+  skips until the file changes. A todo skipped for this run keeps its class and is
+  asked again (`test_state.py`, through `scan.select`).
+- **`fix/todo412`.** Decision: count it. `ID_RE` also accepts an id right after
+  `/todo`; `todos412` still does not match (`test_scan.py`).
+- **Previous wave's lanes.** `execute_args` forbids the lanes of every wave N-1 group
+  with a todo not yet merged (`test_state_flow.py`, both directions).
+- **harness-ci** push paths include `.claude/agents/**`.
+- **Owner-blocked member and cycles.** A member blocked or skipped after grouping
+  leaves its group like a gate-blocked one, and its in-group dependents block with
+  it. `group.plan` refuses a cycle among the todos themselves, then merges every
+  group on a group-level cycle into one group (`test_group.py`, `test_state_flow.py`).
+- All nine engine suites pass.
+
+### 2026-09-28 - PR #869 round 1
+
+- Three blocking findings fixed. The review lane now applies only to a
+  `docs/reviews/*.md` source_review; real todos share archived-todo paths there,
+  which Land never touches. A retried member blocked after regrouping leaves its
+  group; it still carried its first attempt's `wave`. `apply_grouping` seeds the
+  planner with the lanes of the run's last unmerged wave, and `execute_args` refuses
+  a group that holds a lane the previous wave still holds. Before, it dropped that
+  lane from `lanes_forbidden`.
+- One cheap non-blocking fix: `blocked-owner` is written only when the owner's own
+  decide blocked the todo, not after a worker block that followed a "ready" answer.
+- The other four non-blocking findings went to todo 474.
