@@ -62,9 +62,22 @@ workflow authoring docs.
 - [ ] `state.py` has a tested way to re-brief a blocked group once its blocker is cleared.
 - [ ] Task 15's runbook lists every Land step that needs the sandbox off.
 - [ ] `slot_env.py` accepts an explicit worktree, with a test.
-- [ ] The owner has decided how workers run pytest (item 2), and spec §7.3 records it.
+- [x] The owner has decided how workers run pytest (item 2), and spec §7.3 records it.
 - [ ] The plan's P2 and P9 checks are corrected.
 
 ## Work Log
 
 ### 2026-09-28 - Filed from the Task 14 pilot
+
+### 2026-09-28 - Item 2: tests over Unix sockets
+
+- Owner decision: workers reach Postgres and Redis over Unix sockets listed in
+  `sandbox.network.allowUnixSockets`, not with the sandbox off. Redis gets a
+  socket too (`unixsocket /tmp/redis.sock`), so worker runs match CI instead of
+  falling back to the local-memory cache.
+- `slot_env.py` switches a local host to its socket when the socket file exists
+  (Celery via `redis+socket://`); otherwise TCP, as before. Spec §7.3 and §11 updated.
+- Proven unsandboxed: `slot_env.py 3 -- pytest …` connected with `HOST /tmp`,
+  `inet_server_addr()` NULL, database `test_plant_community_w3`, for both
+  `postgresql://localhost/…` and `…localhost:5432/…`. Still to prove: the same
+  run **sandboxed** once the owner's setting is live (new session).
