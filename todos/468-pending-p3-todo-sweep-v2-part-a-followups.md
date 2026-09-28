@@ -316,3 +316,16 @@ m12 and the triage-root item should land before Part B's first real sweep.
   it. `group.plan` refuses a cycle among the todos themselves, then merges every
   group on a group-level cycle into one group (`test_group.py`, `test_state_flow.py`).
 - All nine engine suites pass.
+
+### 2026-09-28 - PR #869 round 1
+
+- Three blocking findings fixed. The review lane now applies only to a
+  `docs/reviews/*.md` source_review; real todos share archived-todo paths there,
+  which Land never touches. A retried member blocked after regrouping leaves its
+  group; it still carried its first attempt's `wave`. `apply_grouping` seeds the
+  planner with the lanes of the run's last unmerged wave, and `execute_args` refuses
+  a group that holds a lane the previous wave still holds. Before, it dropped that
+  lane from `lanes_forbidden`.
+- One cheap non-blocking fix: `blocked-owner` is written only when the owner's own
+  decide blocked the todo, not after a worker block that followed a "ready" answer.
+- The other four non-blocking findings went to todo 474.

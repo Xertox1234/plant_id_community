@@ -276,7 +276,10 @@ def apply_triage(run, repo_root, today, git=run_git):
             fields["blocked_on"] = record["blocked_on"]
         # Todo 468: an owner who blocked a needs-design or stale todo has answered it. blocked-owner makes
         # the next scan skip it until the file changes, instead of asking the same question again.
-        if entry["stage"] == "blocked" and entry.get("owner_decision") and not record["class"].startswith("blocked-"):
+        # Only the owner's own block counts (decide stores the decision as the reason): a worker that
+        # blocks after an owner's "ready" answer has not been answered by the owner (PR #869 round 1).
+        if (entry["stage"] == "blocked" and entry.get("owner_decision")
+                and entry.get("reason") == entry["owner_decision"] and not record["class"].startswith("blocked-")):
             fields["triage"] = "blocked-owner"
             fields.setdefault("blocked_on", entry["owner_decision"])
         if entry.get("owner_decision"):
@@ -306,7 +309,10 @@ def apply_grouping(run):
     # is not "open outside the run": dropping it here lets its dependent wait at execute_args
     # instead of being blocked for good (final review I3). Blocked/skipped ones stay open.
     in_run = {i for i, e in run["todos"].items() if e["stage"] not in NOT_PLANNED}
-    result = group.plan(todos, set(run["open_ids"]) - in_run, run["workers"])
+    # The new waves are appended after the run's last wave, which may still be executing or in
+    # review; its lanes are busy for the first new wave (PR #869 round 1).
+    busy = set().union(*(run["groups"][g]["lanes"] for g in _unmerged(run, run["waves"][-1] if run["waves"] else [])))
+    result = group.plan(todos, set(run["open_ids"]) - in_run, run["workers"], busy_lanes=busy)
     offset = max((int(g[1:]) for g in run["groups"]), default=0)
     rename = {gid: f"g{offset + int(gid[1:])}" for gid in result["groups"]}
     for todo_id, reason in result["unschedulable"].items():
@@ -328,6 +334,11 @@ def slot_for(wave, position, workers):
 def _group_entries(run, gid):
     """The todos currently in group gid (a retried todo moves to a new group)."""
     return [(i, run["todos"][i]) for i in run["groups"][gid]["ids"] if run["todos"][i].get("group") == gid]
+
+
+def _unmerged(run, gids):
+    """The groups in gids with a todo that has not merged yet (still holding their lanes)."""
+    return [g for g in gids if any(e["stage"] not in LANDED | TERMINAL for _, e in _group_entries(run, g))]
 
 
 def _group_is_stale(run, gid):
@@ -396,10 +407,21 @@ def execute_args(run, wave, main_root):
                 if entry["stage"] not in TERMINAL | {"merged"}:
                     raise TransitionError(f"wave {w} is not merged yet ({todo_id} is {entry['stage']})")
     gids = run["waves"][wave]
+    # Todo 468: wave N-1 is still in review or Land while this wave executes, so its lanes are
+    # forbidden too, until every todo left in it has merged. A group that HOLDS such a lane would
+    # put two PRs on it at once: refuse before anything changes (PR #869 round 1).
+    previous = _unmerged(run, run["waves"][wave - 1]) if wave >= 1 else []
+    for gid in gids:
+        clash = set(run["groups"][gid]["lanes"]) & {lane for other in previous
+                                                     for lane in run["groups"][other]["lanes"]}
+        if clash and _group_entries(run, gid):
+            raise TransitionError(f"{gid} holds {', '.join(sorted(clash))}, which wave {wave - 1} still holds; "
+                                  "wait for that wave to merge")
     # Todo 468: a member blocked or skipped after grouping (decide or `set`, not the gate below) never
-    # ran here. It leaves its group like a gate-blocked one, and its in-group dependents block with it.
+    # ran in this wave -- a retried one still carries its first attempt's `wave` (PR #869 round 1). It
+    # leaves its group like a gate-blocked one, and its in-group dependents block with it.
     gone = {i for gid in gids for i, e in _group_entries(run, gid)
-            if e["stage"] in {"blocked", "skipped"} and "wave" not in e}
+            if e["stage"] in {"blocked", "skipped"} and e.get("wave") != wave}
     to_block = {}
     for gid in gids:
         for todo_id, entry in _group_entries(run, gid):
@@ -434,10 +456,6 @@ def execute_args(run, wave, main_root):
         # the group's first member, and _dependencies_of would count it against the group's dependents.
         gid = run["todos"][todo_id].pop("group")
         run["groups"][gid]["ids"] = [i for i in run["groups"][gid]["ids"] if i != todo_id]
-    # Todo 468: wave N-1 is still in review or Land while this wave executes, so its lanes are
-    # forbidden too, until every todo left in it has merged.
-    previous = [g for g in (run["waves"][wave - 1] if wave >= 1 else [])
-                if any(e["stage"] not in LANDED | TERMINAL for _, e in _group_entries(run, g))]
     briefs = []
     for position, gid in enumerate(gids, start=1):
         entries = [(i, e) for i, e in _group_entries(run, gid) if i not in to_block and e["stage"] not in TERMINAL]
@@ -445,7 +463,7 @@ def execute_args(run, wave, main_root):
             continue  # every todo that was here got regrouped into a later wave, or was just blocked
         held = run["groups"][gid]["lanes"]
         forbidden = sorted({lane for other in gids + previous if other != gid
-                            for lane in run["groups"][other]["lanes"]} - set(held))
+                            for lane in run["groups"][other]["lanes"]})
         slot = slot_for(wave, position, run["workers"])
         briefs.append({
             "run_id": run["run_id"],

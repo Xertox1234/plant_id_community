@@ -197,6 +197,17 @@ def main():
               fm8)
         check("468: a todo skipped for this run keeps its class (asked again next sweep)", fm9["triage"] == "stale",
               fm9)
+        # PR #869 round 1: an owner's "ready" answer, then a worker block, is not an owner block.
+        (repo / "todos/10-pending-p3-x.md").write_text(head.format(s="pending", i="10"))
+        worked = state.new_run("r4d", "sweep", 3, [todo("10")], ["10"])
+        state.record_triage(worked, [rec("10", "needs-design", "Which layout?")])
+        state.decide(worked, "10", "ready", decision="Use the two-column layout")
+        state.transition(worked, "10", "executing")
+        state.transition(worked, "10", "blocked", reason="worker: needs the design file")
+        state.apply_triage(worked, repo, "2026-09-28")
+        check("PR #869: a worker block after an owner's ready answer keeps the triage class",
+              todofile.read_frontmatter(repo / "todos/10-pending-p3-x.md")["triage"] == "needs-design")
+
         import scan  # noqa: E402 -- scan imports state, so only here
         picked, _ = scan.select(scan.load_todos(repo / "todos"), selector="sweep", inflight=set(),
                                 changed_since=lambda p, d: False)

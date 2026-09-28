@@ -12,6 +12,7 @@ wave N+2 (its worktree is cut from origin/main, which has the dependency only
 after it merges). An empty wave means "wait for the wave two back to merge".
 """
 
+import posixpath
 import re
 
 PRIORITIES = ["p1", "p2", "p3", "p4"]
@@ -45,9 +46,10 @@ def lanes_for(record):
 
 def review_lane(todo):
     """A review doc is a lane (todo 468): two groups converted from one `docs/reviews/*.md` both
-    tick its Finding Status and race its -COMPLETED rename."""
-    doc = todo.get("source_review")
-    return {f"review:{doc}"} if doc else set()
+    tick its Finding Status and race its -COMPLETED rename. Any other source_review (an archived
+    todo, "PR #812") is one Land never touches, so it is no lane (PR #869 round 1)."""
+    doc = posixpath.normpath(str(todo["source_review"])) if todo.get("source_review") else ""
+    return {f"review:{doc}"} if doc.startswith("docs/reviews/") and doc.endswith(".md") else set()
 
 
 def lane_doc(lane):
@@ -171,7 +173,9 @@ def _held(todos, open_ids):
     return held
 
 
-def plan(todos, open_ids, workers):
+def plan(todos, open_ids, workers, busy_lanes=frozenset()):
+    """busy_lanes: lanes the wave just before this plan's first wave holds (a retry's groups are
+    appended after the run's last wave, which may still be running; PR #869 round 1)."""
     by_id = {t["id"]: t for t in todos}
     # PR #861 B-2: bundles hold only xs todos with no dependency edge inside this plan, in or out.
     # A bundle then has no group deps at all, so it can never sit on a cycle; a real cycle
@@ -215,7 +219,7 @@ def plan(todos, open_ids, workers):
     empty_run = 0
     while pending:
         wave_no = len(waves)
-        previous = set().union(*(lanes[g] for g in waves[-1])) if waves else set()
+        previous = set().union(*(lanes[g] for g in waves[-1])) if waves else set(busy_lanes)
         chosen, used = [], set()
         for gid in pending:
             if len(chosen) == workers:

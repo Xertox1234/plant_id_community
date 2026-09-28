@@ -169,6 +169,15 @@ def main():
     check("468: the review-doc lane is named after the doc, and has a description for the brief",
           g131["lanes"] == [f"review:{doc}"] and doc in group.lane_doc(f"review:{doc}"), g131)
 
+    # PR #869 round 1: most real source_review values are archived-todo paths or "PR #NNN", which
+    # Land never touches; only a docs/reviews/*.md doc is a lane, or the backlog is serialized.
+    shared_src = [t(str(140 + n), [f"s{n}.py"]) | {"source_review": "todos/archive/394-completed-p2-x.md"}
+                  for n in range(3)] + [t("144", ["s4.py"]) | {"source_review": "PR #812"},
+                                        t("145", ["s5.py"]) | {"source_review": "docs/reviews/../../x.md"}]
+    result = group.plan(shared_src, open_ids=set(), workers=3)
+    check("PR #869: a source_review outside docs/reviews/*.md is not a lane",
+          all(not v["lanes"] for v in result["groups"].values()) and len(result["waves"][0]) == 3, result)
+
     again = group.plan([t("1", ["a.py"]), t("2", ["b.py"])], open_ids=set(), workers=3)
     check("planning is deterministic", again == group.plan([t("1", ["a.py"]), t("2", ["b.py"])],
                                                            open_ids=set(), workers=3))
