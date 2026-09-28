@@ -207,6 +207,17 @@ def main():
         check("triage-args --root passes an absolute origin/main tree to the triagers (todo 468)",
               rooted["root"] == str(Path(tmp).resolve()), rooted)
 
+    # PR #868 round 1: a triager searching the root returns absolute paths; they keep their lanes.
+    run = state.new_run("r9", "sweep", 3, [todo("1")], ["1"])
+    root = Path("/scratch/triage-r9").resolve()
+    record = rec("1") | {"predicted_files": [f"{root}/backend/plant_community_backend/settings.py", "/elsewhere/x.py",
+                                             "web/src/a.ts"]}
+    state.record_triage(run, [record], root=str(root))
+    triaged = run["todos"]["1"]["triage"]
+    check("record_triage makes paths under the triage root repo-relative",
+          triaged["predicted_files"] == ["backend/plant_community_backend/settings.py", "web/src/a.ts"]
+          and triaged["dropped_files"] == ["/elsewhere/x.py"], triaged)
+
     print()
     if FAILURES:
         print(f"FAILED: {len(FAILURES)} check(s): {', '.join(FAILURES)}")

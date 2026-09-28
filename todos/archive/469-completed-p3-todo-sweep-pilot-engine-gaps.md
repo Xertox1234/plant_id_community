@@ -143,7 +143,7 @@ workflow authoring docs.
   reopen → `group` → `execute_args` briefs it under a new group and wave. All four
   guards were mutation-checked; each mutation fails at least one check.
 - **Sandbox-off Land steps (AC 2).** `.claude/skills/completing-todos/SKILL.md`,
-  section "Sandbox": Stage D steps 1–6 and 8, the Stage C repair commit,
+  section "Sandbox": Stage D steps 1–8, the Stage C repair commit,
   `git worktree remove` and `git worktree prune`. Push, `gh` and the kimi gate run
   sandboxed (§11 applied). This branch's own commits ran the kimi gate sandboxed:
   `kimi-review staged-diff gate (CRITICAL blocks)....Passed`.

@@ -275,7 +275,7 @@ m12 and the triage-root item should land before Part B's first real sweep.
   runbook creates the origin/main tree before triage and passes `--root`.
 - **P5.** The pilot results table records both: "neither harness worktree had it …
   `web/.env` still not delivered". The open part moves to todo 472.
-- **m12.** The runbook's Stage A triages an origin/main tree. Stage D step 8
+- **m12.** The runbook's Stage A triages an origin/main tree. Stage D step 7
   rebases on origin/main before a push, stops the group on a non-mechanical
   conflict, and re-records `tree_id` after a clean rebase so `ensure-worktree`
   doesn't read it as lost work. The third item is a pilot record, not a runbook
@@ -286,5 +286,5 @@ m12 and the triage-root item should land before Part B's first real sweep.
   `finish`, and `todo-resume` runs it before restart or discard.
 - **Spec §5.2** now says porcelain shows nothing in the worktree column; staged
   entries are still listed.
-- **ensure-worktree.** Stage D step 1 runs it before the commit and step 7 before
-  the push; a Stage C repair runs it before its commit and again before its push.
+- **ensure-worktree.** Stage D step 1 runs it before the commit and step 8 before
+  the push (after any rebase); a Stage C repair runs it before its commit and again before its push.

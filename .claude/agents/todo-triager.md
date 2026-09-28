@@ -18,7 +18,7 @@ The prompt gives `id` and `path` (repo-relative). If its first line is `MODE: pl
 
 A `root:` line is an absolute path to a fresh origin/main checkout. When it is present, read the todo
 at `<root>/<path>` and search the code under `<root>` only, never your working directory, which may be
-another branch or behind origin/main.
+another branch or behind origin/main. `predicted_files` stay repo-relative: strip the `<root>/` prefix.
 
 ## Classify
 

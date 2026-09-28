@@ -42,7 +42,7 @@ needs the sandbox off. A worker that blocks on "no database" means a socket is m
 `REPO/.claude/worktrees/`. The sandbox allows writes there only while that workflow runs. Once it
 finishes, run these steps with the sandbox off, and no others:
 
-- Stage D steps 1–6 and 8, and a Stage C repair commit: `ensure-worktree`, `land.py`, `git add`,
+- Stage D steps 1–8 and a Stage C repair commit: `ensure-worktree`, `land.py`, `git add`,
   `git branch -m`, `git commit` and a rebase in `$WT`.
 - Cleanup: `git worktree remove $WT`, then `git worktree prune`.
 
@@ -68,7 +68,8 @@ behind origin/main (todo 468).
    (`--no-track`: without it git writes upstream config to `.git/config`, which the sandbox denies.)
 2. `python3 scripts/todos/state.py triage-args $RUN --root $TRIAGE_WT` → `{"todos": […], "root": …}`.
 3. `Workflow({name: "todo-triage", args: <that object>})`. Wait for the notification.
-4. `python3 scripts/todos/state.py record-triage $RUN --output <task output file>`
+4. `python3 scripts/todos/state.py record-triage $RUN --output <task output file> --root $TRIAGE_WT`
+   (`--root` turns a triager's absolute `$TRIAGE_WT/…` paths back into repo-relative ones, which the lanes need)
 5. `python3 scripts/todos/state.py accept-ready $RUN`
 6. `python3 scripts/todos/state.py questions $RUN`
 
@@ -115,14 +116,15 @@ With `--limit N`, execute only the first ⌈N / workers⌉ waves and list the de
 4. `failed` todos: retry once in a later wave with `state.py set $RUN <id> ready`, then `state.py group $RUN`
    (it appends new groups and waves). A second failure: `state.py set $RUN <id> blocked --field reason="…"`.
 5. `blocked` todos: report the blocker to the owner. When it is cleared (a fix merged, a decision made),
-   reopen the todo: `state.py set $RUN <id> ready --field reason="<what cleared it>"`, then
-   `state.py group $RUN`. This does not spend the retry. It is refused for a todo with a PR; fix that
-   PR instead. Reopen any todo that execute-args blocked as `dependency <id> blocked` the same way.
-   The blocked attempt's worktree stays under `previous` in RUN; `state.py worktrees $RUN` lists it.
+   reopen the todo with `state.py set $RUN <id> ready --field reason="<what cleared it>"`, and also every
+   todo that execute-args blocked as `dependency <id> blocked`. Then run `state.py group $RUN` **once**, after
+   all of them are reopened. A dependent that is grouped while its dependency is still blocked gets blocked again.
+   Reopening doesn't spend the retry. It is refused for a todo with a PR; fix that PR instead.
+   The blocked attempt's worktree stays under `previous` in RUN, and `state.py worktrees $RUN` lists it.
 
 ## Stage D — Land (per `verified` group G of wave W, one at a time)
 
-Steps 1–6 and 8 run with the sandbox off (see **Sandbox**).
+Steps 1–8 run with the sandbox off (see **Sandbox**).
 
 1. `WT=$(python3 scripts/todos/state.py ensure-worktree $RUN G --scratch $SCRATCH/worktrees)`
 2. `/usr/bin/git -C $WT diff --cached --stat` — the only view of the change you take.
@@ -135,13 +137,13 @@ Steps 1–6 and 8 run with the sandbox off (see **Sandbox**).
    `state.py annotate $RUN G --field branch=<new>`.
 6. Commit the index only (never `-a`): `/usr/bin/git -C $WT commit -m "<type>(<scope>): <summary> (todo <id>)" -m "<2–4 bullets from the WORKER summary>" -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"`.
    If the kimi gate prints `timed out; skipping gate`, record `kimi: skipped` (never "passed").
-7. Re-run step 1 (`ensure-worktree` before every push, too).
-8. Rebase when origin/main moved (spec §7.2): `/usr/bin/git -C $WT fetch origin main`; if
+7. Rebase when origin/main moved (spec §7.2): `/usr/bin/git -C $WT fetch origin main`; if
    `/usr/bin/git -C $WT merge-base --is-ancestor origin/main HEAD` fails, `/usr/bin/git -C $WT rebase origin/main`.
    A conflict outside `todos/` and append-only docs (`docs/LEARNINGS.md`, `docs/rules/*.md`) is not
    mechanical: `git rebase --abort`, then `state.py set-group $RUN G blocked --field reason="rebase conflict: <paths>"`.
    After a clean rebase, record the new tree, or the next `ensure-worktree` reads it as lost work:
    `state.py annotate $RUN G --field tree_id=$(/usr/bin/git -C $WT write-tree)`.
+8. Re-run step 1 right before the push: `ensure-worktree` runs before every commit and every push.
 9. `/usr/bin/git -C $WT push origin <branch>` (no `-u`) → `gh pr create --head <branch> --title … --body …`. The body gives
    the todo ids, the WORKER summary, verification counts, flagged test edits, the `kimi:` status and the Claude Code footer.
    Then `state.py set-group $RUN G pr_open --field pr=<n>`.

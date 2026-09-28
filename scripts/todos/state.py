@@ -168,24 +168,29 @@ def triage_args(run):
     return [{"id": i, "path": e["path"]} for i, e in sorted(run["todos"].items()) if e["stage"] == "scanned"]
 
 
-def record_triage(run, records):
+def record_triage(run, records, root=None):
     for record in records:
         if record["id"] not in run["todos"]:
             raise KeyError(f"triage record for {record['id']}, which is not in this run")
     for record in records:
-        _normalize_predicted_files(record)
+        _normalize_predicted_files(record, root)
         run["todos"][record["id"]]["triage"] = record
         transition(run, record["id"], "triaged")
     return sorted(i for i, e in run["todos"].items() if e["stage"] == "scanned")
 
 
-def _normalize_predicted_files(record):
+def _normalize_predicted_files(record, root=None):
     """Repo-relative paths only (final review m11): a leading ./ is stripped, since the
     lanes match exact repo-relative paths; an absolute path cannot be mapped onto the repo,
-    so it is dropped and listed in `dropped_files` for the plan to show."""
+    so it is dropped and listed in `dropped_files` for the plan to show. A path under the
+    triage root (triage-args --root) is made relative to it first: triagers searching the
+    root get absolute hits back, and dropping them would drop their lanes (PR #868)."""
+    prefix = str(Path(root).resolve()).rstrip("/") + "/" if root else None
     kept, dropped = [], []
     for path in record.get("predicted_files", []):
         path = str(path)
+        if prefix and path.startswith(prefix):
+            path = path[len(prefix):]
         while path.startswith("./"):
             path = path[2:]
         (dropped if os.path.isabs(path) else kept).append(path)
@@ -706,6 +711,7 @@ def build_parser():
     p.add_argument("--field", action="append", help="key=value stored on the todo entry")
     p = sub.add_parser("record-triage")
     p.add_argument("runfile"), p.add_argument("--output", required=True, help="workflow task output file")
+    p.add_argument("--root", help="the triage-args --root, stripped from predicted_files")
     p = sub.add_parser("decide")
     p.add_argument("runfile"), p.add_argument("id"), p.add_argument("outcome", choices=sorted(OUTCOMES))
     p.add_argument("--decision"), p.add_argument("--verify-only", action="store_true")
@@ -762,7 +768,7 @@ def main(argv=None):
         if args.cmd == "set":
             transition(run, args.id, args.stage, **_parse_fields(args.field))
         elif args.cmd == "record-triage":
-            left = record_triage(run, records_from_output(args.output, "records"))
+            left = record_triage(run, records_from_output(args.output, "records"), args.root)
             print(json.dumps({"without_record": left}))
         elif args.cmd == "accept-ready":
             print(json.dumps({"ready": accept_ready(run)}))
