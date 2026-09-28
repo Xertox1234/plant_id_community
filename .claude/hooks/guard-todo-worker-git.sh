@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# PreToolUse hook (Bash) — keep todo-worker / todo-verifier agents from
+# PreToolUse hook (Bash) — keep todo-worker / todo-verifier / todo-reviewer agents from
 # committing, pushing, moving branches or calling gh. The decision lives in
 # scripts/todos/worker_git_guard.py (see its docstring); every other caller
 # passes through. Fails open when python3 or the script is missing or the event
