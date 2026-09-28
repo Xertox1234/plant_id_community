@@ -73,8 +73,10 @@ const FINDINGS = {
           severity: { type: 'string', enum: ['critical', 'high', 'medium', 'low'] },
           file: { type: 'string' },
           line: { type: 'integer' },
-          summary: { type: 'string', maxLength: 300 },
-          suggested_fix: { type: 'string', maxLength: 300 },
+          // Headroom over the prompt's 300: a domain reviewer that overshot 300 five times in a row
+          // died on the schema retry cap (live run, PR #873), and a dead reviewer forces a rerun.
+          summary: { type: 'string', maxLength: 600 },
+          suggested_fix: { type: 'string', maxLength: 600 },
         },
         required: ['severity', 'file', 'line', 'summary', 'suggested_fix'],
       },
@@ -149,7 +151,7 @@ const LANDED = 'Land has already flipped the verified boxes to `[x]` and archive
   'ORIGIN_PATHS are the pending paths at the merge-base.'
 
 const SEVERITY = 'critical/high = would ship a bug, a security hole or data loss; medium = a real but contained ' +
-  'defect; style and nits are low.'
+  'defect; style and nits are low. Keep each summary and suggested_fix under 300 characters.'
 
 function bugPrompt(p, lens) {
   return [
