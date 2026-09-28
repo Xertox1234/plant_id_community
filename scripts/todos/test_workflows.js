@@ -381,6 +381,12 @@ async function main() {
       r.result.results[0].reviewers_ok === false && r.result.results[0].routing_gaps.length === 1
       && refuteCalls(r.calls).length === 0 && byType(r.calls, 'todo-worker').length === 0, r.result)
   }
+  r = await run('todo-review', { round: 1, prs: [pr()] }, reviewStub({ lens: high, route: { changed_files:
+    ['/wt/g1/web/src/A.tsx', './plant_community_mobile/lib/b.dart'], agents_to_invoke: ['cross-cutting-reviewer'],
+    routing_reasons: 'r' } }))
+  check('review: worktree-absolute and ./ paths from the router still hit the routing floor',
+    r.result.results[0].reviewers_ok === false && r.result.results[0].routing_gaps.length === 2
+    && byType(r.calls, 'cross-cutting-reviewer')[0].prompt.includes('  - web/src/A.tsx'), r.result)
   r = await run('todo-review', { round: 1, prs: [pr()] }, reviewStub({ route: { changed_files:
     ['plant_community_mobile/lib/auth/a.dart'], agents_to_invoke: ['flutter-firebase-reviewer'], routing_reasons: 'r' } }))
   check('review: flutter-firebase-reviewer alone covers a mobile .dart change', r.result.results[0].reviewers_ok === true, r.result)

@@ -227,11 +227,16 @@ function verifyPrompt(p, w) {
 // Reviewers phrase the same bug differently, so blocking findings collapse by file and line: one
 // representative (the most severe) carries the other phrasings in `also`, and all of them face the
 // same refuters, who must refute every one.
+function relPath(file, worktree) {
+  const prefix = worktree.replace(/\/+$/, '') + '/'
+  const rel = file.startsWith(prefix) ? file.slice(prefix.length) : file
+  return rel.replace(/^\.\//, '')
+}
+
 function byLocation(findings, worktree) {
   const groups = new Map()
-  const prefix = worktree.replace(/\/+$/, '') + '/'
   for (const raw of findings) {
-    const f = raw.file.startsWith(prefix) ? { ...raw, file: raw.file.slice(prefix.length) } : raw
+    const f = { ...raw, file: relPath(raw.file, worktree) }
     const key = JSON.stringify([f.file, f.line])
     const g = groups.get(key)
     if (!g) { groups.set(key, { ...f, also: [] }); continue }
@@ -251,6 +256,8 @@ const results = await pipeline(
       const routing = await agent(routingPrompt(p),
         { label: `route:${p.group}`, phase: 'Review', agentType: 'code-review-orchestrator', schema: ROUTING })
       if (!routing) return { routing: null, reviews: [] }
+      // The routing floor matches repo-relative paths, so an absolute one must not slip past it.
+      routing.changed_files = routing.changed_files.map(f => relPath(f, p.worktree))
       const ids = [...new Set(routing.agents_to_invoke)]
       const reviews = await parallel(ids.map(id => () => agent(domainPrompt(p, id, routing.changed_files),
         { label: `${id}:${p.group}`, phase: 'Review', agentType: id, schema: FINDINGS })

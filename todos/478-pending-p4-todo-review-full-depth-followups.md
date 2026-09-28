@@ -33,12 +33,18 @@ These were left for later.
    table changes, the workflow floor does not follow. A shared routing file, or a test
    that reads both, would keep them in step.
 
+4. **Round 2 lows.** Non-blocking findings are not path-normalised, so
+   `/wt/g1/a.py:2 nit` and `a.py:2 nit` can both land in `followups`
+   (`state.py` `ingest_review`). A refuted finding is recorded by its representative
+   summary only, so the wrap-up leaves out its `also` phrasings.
+
 ## Acceptance Criteria
 
 - [ ] Domain reviewers get only their routed files, or this records why not.
 - [ ] A test fails when a null refute judgment drops its finding.
 - [ ] `MUST_ROUTE` and the orchestrator's table can't drift silently (shared source or
       a test).
+- [ ] Follow-ups are path-normalised, and a refuted record keeps its `also` phrasings.
 
 ## Work Log
 

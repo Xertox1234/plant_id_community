@@ -42,8 +42,7 @@ criterion there. Both are recorded in
 
 ## Acceptance Criteria
 
-- [ ] A fresh `isolation: worktree` checkout has `web/.env`, or a worker's
-      Vitest run reads the main checkout's values; the evidence is a quoted run.
+- [ ] `web/.env` in worker worktrees → todo 479 (re-pointed 2026-09-28; owner: no web version yet)
 - [ ] A `todo-review` round's `ranges` shows the deep review ran (not
       `inline review`), or spec §5.3 records why it runs elsewhere.
 
@@ -66,5 +65,5 @@ criterion there. Both are recorded in
 - Stub tests and mutations pass. The criterion stays open until a live round-1 run
   shows `route:` and domain-reviewer results in its journal.
 - Item 1 (`web/.env`): owner, 2026-09-28: there is no web version of the app yet,
-  and no pending todo touches `web/`. Proposed re-point to a new p4 todo; waiting on
-  the owner.
+  and no pending todo touches `web/`. The owner approved the move: re-pointed to
+  todo 479 (p4). Its box stays open per the tracking convention.
