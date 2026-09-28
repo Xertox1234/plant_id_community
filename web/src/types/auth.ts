@@ -49,6 +49,10 @@ export type ProfileUpdate = Partial<
  * The signed-in user's forum totals from GET /api/v1/auth/me/dashboard-stats/.
  * "This month" is the last 30 days. Posts include each topic's opening post.
  */
+/**
+ * `total_posts` / `posts_this_month` count REPLIES only (todo 439): an opening
+ * post is already one of the topics. The wire names predate that decision.
+ */
 export interface DashboardForumStats {
   total_topics: number;
   total_posts: number;

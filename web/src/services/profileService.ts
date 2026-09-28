@@ -74,16 +74,43 @@ export async function updateProfile(changes: ProfileUpdate): Promise<UserProfile
   }
 }
 
-const FORUM_STAT_KEYS: (keyof DashboardForumStats)[] = [
+/**
+ * The fields passed on to the page. The guards check these keys and `pick`
+ * copies exactly these keys, so a new payload field is one type edit plus one
+ * entry here (todo 439).
+ */
+const FORUM_STAT_KEYS = [
   'total_topics',
   'total_posts',
   'topics_this_month',
   'posts_this_month',
-];
+] as const satisfies readonly (keyof DashboardForumStats)[];
+
+const ACTIVITY_KEYS = [
+  'type',
+  'title',
+  'description',
+  'timestamp',
+  'url',
+] as const satisfies readonly (keyof DashboardActivityItem)[];
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
+
+/** Copy only `keys` from `source`, dropping any stray field the server adds. */
+function pick<T, K extends keyof T>(source: T, keys: readonly K[]): Pick<T, K> {
+  const picked = {} as Pick<T, K>;
+  for (const key of keys) picked[key] = source[key];
+  return picked;
+}
+
+/**
+ * Shown for a 401 instead of DRF's "Authentication credentials were not
+ * provided." The JWT authenticator sends a challenge, so a missing or expired
+ * session is always a 401 here; a 403 is something else and keeps its detail.
+ */
+const SIGNED_OUT_MESSAGE = 'Your session has ended. Sign in again to see your forum activity.';
 
 function isForumStats(value: unknown): value is DashboardForumStats {
   return isRecord(value) && FORUM_STAT_KEYS.every((key) => typeof value[key] === 'number');
@@ -116,32 +143,27 @@ function isForumActivity(value: unknown): value is DashboardActivityItem {
 /**
  * The signed-in user's forum totals and recent activity. Only the typed forum
  * fields are passed on, so a stray key (the removed plant block) never reaches
- * the page.
+ * the page. A 401 becomes a plain sign-in-again message rather than DRF's
+ * raw detail (todo 439).
  */
 export async function fetchDashboardStats(): Promise<DashboardStats> {
   let data: unknown;
   try {
     data = (await apiClient.get<unknown>(`${AUTH_BASE}/me/dashboard-stats/`)).data;
   } catch (error) {
+    const status = axios.isAxiosError(error) ? error.response?.status : undefined;
+    if (status === 401) {
+      throw new Error(SIGNED_OUT_MESSAGE, { cause: error });
+    }
     throw toProfileError(error);
   }
   if (!isRecord(data) || !isForumStats(data.forum_stats) || !Array.isArray(data.recent_activity)) {
     throw new Error('Unexpected response from the activity stats endpoint.');
   }
-  const stats = data.forum_stats;
   return {
-    forum_stats: {
-      total_topics: stats.total_topics,
-      total_posts: stats.total_posts,
-      topics_this_month: stats.topics_this_month,
-      posts_this_month: stats.posts_this_month,
-    },
-    recent_activity: data.recent_activity.filter(isForumActivity).map((item) => ({
-      type: item.type,
-      title: item.title,
-      description: item.description,
-      timestamp: item.timestamp,
-      url: item.url,
-    })),
+    forum_stats: pick(data.forum_stats, FORUM_STAT_KEYS),
+    recent_activity: data.recent_activity
+      .filter(isForumActivity)
+      .map((item) => pick(item, ACTIVITY_KEYS)),
   };
 }

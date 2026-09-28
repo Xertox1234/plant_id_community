@@ -655,10 +655,15 @@ def dashboard_stats(request: Request) -> Response:
     """
     Get the signed-in user's forum dashboard statistics.
 
-    Returns ``forum_stats`` (live topic/post totals and 30-day counts) and
+    Returns ``forum_stats`` (live topic/reply totals and 30-day counts) and
     ``recent_activity`` (up to 2 recent topics + 2 recent replies, newest
     first). Five queries: the view-restriction lookup behind ``.public()``,
     two aggregates and two ``select_related`` lists.
+
+    ``total_posts`` / ``posts_this_month`` count REPLIES only (todo 439,
+    owner decision 2026-09-28): an opening post is already counted by the
+    topic totals beside them, and the web card is labelled "Replies". The
+    wire names are kept so no client breaks.
 
     Todo 411 removed ``plant_stats``, the ``plant_identification`` activity
     entries and ``total_activity_score``. They read
@@ -682,9 +687,13 @@ def dashboard_stats(request: Request) -> Response:
     my_topics = Topic.objects.filter(
         author=request.user, live=True, board__in=visible_boards
     )
-    my_posts = Post.objects.filter(
+    # Replies only (todo 439): opening posts are the topics counted above.
+    # Not ForumProfile.post_count: that counter includes opening posts and
+    # posts on unpublished/restricted boards, and has no 30-day window.
+    my_replies = Post.objects.filter(
         author=request.user,
         live=True,
+        is_opening_post=False,
         topic__live=True,
         topic__board__in=visible_boards,
     )
@@ -694,7 +703,7 @@ def dashboard_stats(request: Request) -> Response:
         total_topics=Count("pk"),
         topics_this_month=Count("pk", filter=Q(created_at__gte=thirty_days_ago)),
     )
-    post_aggregation = my_posts.aggregate(
+    post_aggregation = my_replies.aggregate(
         total_posts=Count("pk"),
         posts_this_month=Count("pk", filter=Q(created_at__gte=thirty_days_ago)),
     )
@@ -728,11 +737,9 @@ def dashboard_stats(request: Request) -> Response:
         )
 
     # select_related prevents an N+1 on the topic/board FKs.
-    recent_posts = (
-        my_posts.filter(is_opening_post=False)
-        .select_related("topic", "topic__board")
-        .order_by("-created_at", "-pk")[:2]
-    )
+    recent_posts = my_replies.select_related("topic", "topic__board").order_by(
+        "-created_at", "-pk"
+    )[:2]
 
     for post in recent_posts:
         recent_activity.append(

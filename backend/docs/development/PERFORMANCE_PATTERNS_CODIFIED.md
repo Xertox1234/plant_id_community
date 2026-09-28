@@ -16,12 +16,14 @@ This document summarizes the Django performance optimization patterns from Week 
 **Pattern**: Replace multiple separate `.count()` queries with a single `aggregate()` call using conditional counting.
 
 **Detection Rule**:
+
 ```bash
 # Flag: 3+ .count() calls in same method on same model
 grep -n "\.count()" path/to/views.py
 ```
 
 **Implementation Template**:
+
 ```python
 # BEFORE (Multiple queries)
 total_identified = Model.objects.filter(user=user, status='identified').count()
@@ -47,6 +49,7 @@ stats = {
 **Performance Impact**: 75-80% query reduction, 97% faster execution
 
 **Reviewer Integration**:
+
 - **Agent**: `code-review-specialist.md` (Section 7)
 - **Severity**: BLOCKER
 - **Automatic Detection**: Yes
@@ -58,12 +61,14 @@ stats = {
 **Pattern**: Use `select_related()` to prevent N+1 queries when accessing foreign key relationships in loops.
 
 **Detection Rule**:
+
 ```bash
 # Flag: QuerySet iteration with foreign key attribute access
 grep -A 10 "\.filter(" path/to/views.py | grep -B 5 "for .* in"
 ```
 
 **Implementation Template**:
+
 ```python
 # BEFORE (N+1 queries)
 recent_topics = Topic.objects.filter(
@@ -89,6 +94,7 @@ for topic in recent_topics:
 **Performance Impact**: 91% query reduction, 95% faster execution
 
 **Reviewer Integration**:
+
 - **Agent**: `code-review-specialist.md` (Section 7), `django-performance-reviewer.md` (Section 2)
 - **Severity**: BLOCKER
 - **Automatic Detection**: Partial (requires context analysis)
@@ -100,12 +106,14 @@ for topic in recent_topics:
 **Pattern**: Fetch objects once at the beginning with selective field loading using `only()`.
 
 **Detection Rule**:
+
 ```bash
 # Flag: Multiple User.objects.get() or similar in same method
 grep -n "User\.objects\.get\|\.for_user(" path/to/views.py
 ```
 
 **Implementation Template**:
+
 ```python
 # BEFORE (Multiple queries)
 used_refresh = RefreshToken(refresh_token)  # Query 1
@@ -125,6 +133,7 @@ response = set_jwt_cookies(response, user)  # Uses cached user object
 **Performance Impact**: 75% query reduction, 93% faster execution
 
 **Reviewer Integration**:
+
 - **Agent**: `django-performance-reviewer.md` (Section 3)
 - **Severity**: WARNING
 - **Automatic Detection**: Yes
@@ -136,6 +145,7 @@ response = set_jwt_cookies(response, user)  # Uses cached user object
 **Pattern**: Add database indexes to fields frequently used in `filter()`, `get()`, or `order_by()`.
 
 **Detection Rule**:
+
 ```bash
 # Flag: filter/get on fields without db_index
 grep -n "\.filter(.*email.*=\|\.get(.*email.*=" path/to/views.py
@@ -143,6 +153,7 @@ grep -n "\.filter(.*email.*=\|\.get(.*email.*=" path/to/views.py
 ```
 
 **Implementation Template**:
+
 ```python
 # BEFORE (Sequential scan)
 class User(AbstractUser):
@@ -163,6 +174,7 @@ class User(AbstractUser):
 ```
 
 **Migration Required**:
+
 ```python
 # migrations/0007_add_performance_indexes.py
 migrations.AlterField(
@@ -180,11 +192,13 @@ migrations.AlterField(
 **Performance Impact**: 100x faster (300-800ms → 3-8ms), O(n) → O(log n)
 
 **Reviewer Integration**:
+
 - **Agent**: `django-performance-reviewer.md` (Section 4)
 - **Severity**: BLOCKER (for high-traffic fields)
 - **Automatic Detection**: Yes
 
 **Common Fields Requiring Indexes**:
+
 - `email` (auth, notifications)
 - `trust_level` (permissions)
 - `status`/`state` (filtering)
@@ -197,12 +211,14 @@ migrations.AlterField(
 **Pattern**: Use optimistic locking with retry logic for read-modify-write patterns on shared state.
 
 **Detection Rule**:
+
 ```bash
 # Flag: cache.get() followed by modification and cache.set()
 grep -A 10 "cache\.get" path/to/file.py | grep -B 5 "cache\.set"
 ```
 
 **Implementation Template**:
+
 ```python
 # BEFORE (Race condition - lost updates)
 key = f"lockout_attempts:{username}"
@@ -251,12 +267,14 @@ return False, 0
 ```
 
 **Performance Impact**:
+
 - **Atomicity**: Ensured through Redis operations
 - **Retry Success**: 99.9% on first attempt
 - **Overhead**: <5ms for retry logic
 - **Security**: Prevents account lockout bypass
 
 **Reviewer Integration**:
+
 - **Agent**: `code-review-specialist.md` (Section 8), `django-performance-reviewer.md` (Section 5)
 - **Severity**: BLOCKER (security impact)
 - **Automatic Detection**: Yes
@@ -270,6 +288,7 @@ return False, 0
 **Issue**: Lenient assertions allow query count to creep upward (e.g., 5→19 queries would pass with `assertLess(queries, 20)`).
 
 **Detection Rule**:
+
 ```bash
 # Flag: assertLess with query count in performance tests
 grep -n "assertLess.*num_queries\|assertLess.*query_count" apps/*/tests/test_*performance*.py
@@ -277,6 +296,7 @@ grep -n "assertLess.*len(connection.queries)" apps/*/tests/*.py
 ```
 
 **Implementation Template**:
+
 ```python
 # ❌ BEFORE (Lenient - allows regressions)
 from django.db import connection
@@ -316,11 +336,13 @@ self.assertEqual(
 ```
 
 **Performance Impact**:
+
 - **Before**: Performance regressions can slip through (18→19 queries would pass ✓)
 - **After**: ANY query count increase triggers immediate test failure (18→19 would fail ✗)
 - **Confidence**: 100% regression detection (zero false negatives)
 
 **Documentation Requirements**:
+
 1. **Comment the expected query breakdown** - Document WHY that exact count is expected
 2. **Reference this pattern doc** - Include link in assertion message
 3. **Explain without optimization** - Show what query count would be without prefetch/select_related
@@ -329,6 +351,7 @@ self.assertEqual(
 **Example Test Implementations**:
 
 **Forum Posts (Conditional Annotations)**:
+
 ```python
 # apps/forum/tests/test_post_performance.py:105-111
 def test_list_view_query_count(self):
@@ -355,6 +378,7 @@ def test_list_view_query_count(self):
 ```
 
 **Blog List (Wagtail Prefetch Chain)**:
+
 ```python
 # apps/blog/tests/test_blog_viewsets_caching.py:274-286
 def test_list_action_uses_limited_prefetch(self):
@@ -380,6 +404,7 @@ def test_list_action_uses_limited_prefetch(self):
 ```
 
 **Blog Retrieve (Full Prefetch)**:
+
 ```python
 # apps/blog/tests/test_blog_viewsets_caching.py:308-319
 def test_retrieve_action_uses_full_prefetch(self):
@@ -406,11 +431,13 @@ def test_retrieve_action_uses_full_prefetch(self):
 **When to Use Lenient Assertions** (Rare Exceptions):
 
 Only use `assertLess` when:
+
 1. **Dynamic query counts** - Number of queries genuinely varies (e.g., dependent on user permissions)
 2. **External dependencies** - Third-party libraries with unpredictable query patterns
 3. **Smoke tests** - Initial rough checks before strict optimization
 
 **Even then**, prefer strict assertions with conditional logic:
+
 ```python
 # Better: Strict assertions for known cases
 if user.is_staff:
@@ -426,6 +453,7 @@ self.assertEqual(
 ```
 
 **Reviewer Integration**:
+
 - **Agent**: `code-review-specialist.md` (Section 7), `django-performance-reviewer.md` (Section 7)
 - **Severity**: IMPORTANT (prevents regressions)
 - **Automatic Detection**: Yes (grep for assertLess with query counts)
@@ -433,12 +461,14 @@ self.assertEqual(
 **Migration Guide** (Converting Lenient → Strict):
 
 **Step 1**: Run test to capture current passing query count
+
 ```bash
 python manage.py test apps.blog.tests.test_blog_viewsets_caching::test_list_action_uses_limited_prefetch --noinput -v 2
 # Output: [DEBUG] List view query count: 18
 ```
 
 **Step 2**: Replace lenient assertion with strict
+
 ```python
 # Before
 self.assertLess(num_queries, 20, f"Expected <20 queries, got {num_queries}")
@@ -451,6 +481,7 @@ self.assertEqual(num_queries, 18,
 ```
 
 **Step 3**: Document query breakdown in comment
+
 ```python
 # STRICT: Expect exactly 18 queries (regression protection)
 # Query breakdown:
@@ -461,6 +492,7 @@ self.assertEqual(num_queries, 18,
 ```
 
 **Step 4**: Run test to verify
+
 ```bash
 python manage.py test apps.blog.tests.test_blog_viewsets_caching::test_list_action_uses_limited_prefetch --noinput
 # Should pass with exact count
@@ -494,6 +526,7 @@ django-performance-reviewer (Django-Specific)
 ### When to Use Each Agent
 
 **code-review-specialist** (MANDATORY after ANY code change):
+
 - General code quality
 - Security vulnerabilities
 - Testing coverage
@@ -502,6 +535,7 @@ django-performance-reviewer (Django-Specific)
 - High-level performance checks
 
 **django-performance-reviewer** (Django views/models/services):
+
 - Deep database optimization analysis
 - N+1 query elimination
 - Index recommendations
@@ -509,6 +543,7 @@ django-performance-reviewer (Django-Specific)
 - Query count profiling
 
 **Recommended Workflow**:
+
 1. Complete coding task
 2. Run `code-review-specialist` (mandatory)
 3. If Django views/models modified: Run `django-performance-reviewer`
@@ -522,6 +557,7 @@ django-performance-reviewer (Django-Specific)
 ### 1. Query Count Verification
 
 **Django Debug Toolbar** (development):
+
 ```python
 # Install
 pip install django-debug-toolbar
@@ -534,6 +570,7 @@ pip install django-debug-toolbar
 ```
 
 **Programmatic Testing**:
+
 ```python
 from django.test import TestCase
 from django.db import connection
@@ -564,6 +601,7 @@ class PerformanceTestCase(TestCase):
 ### 2. Query Time Profiling
 
 **Enable Query Logging** (settings.py):
+
 ```python
 LOGGING = {
     'version': 1,
@@ -582,6 +620,7 @@ LOGGING = {
 ```
 
 **Performance Assertions**:
+
 ```python
 def test_dashboard_performance(self):
     import time
@@ -599,6 +638,7 @@ def test_dashboard_performance(self):
 ### 3. Index Verification
 
 **Check for Sequential Scans**:
+
 ```sql
 -- PostgreSQL: Enable query plan logging
 SET enable_seqscan = off;  -- Force index usage
@@ -610,6 +650,7 @@ SELECT * FROM auth_user WHERE email = 'user@example.com';
 ```
 
 **Monitor Slow Queries** (production):
+
 ```python
 # settings.py
 DATABASES = {
@@ -630,7 +671,7 @@ DATABASES = {
 
 | Endpoint | Max Queries | Target Time (95th %ile) | Status |
 |----------|-------------|-------------------------|--------|
-| dashboard_stats | ≤5 | <50ms | ✅ PASSING (3-4 queries, 10-20ms) |
+| dashboard_stats | ≤5 | <50ms | ✅ PASSING (5 queries, pinned by `test_query_count_is_constant`; todo 439) |
 | token_refresh | ≤2 | <20ms | ✅ PASSING (1 query, 10ms) |
 | forum_activity | ≤7 | <30ms | ✅ PASSING (6-7 queries, 30ms) |
 | previous_searches | ≤5 | <50ms | ✅ PASSING (3 queries, 50ms) |
@@ -647,11 +688,13 @@ DATABASES = {
 ### Scalability Projections
 
 **Current (1,000 users)**:
+
 - Dashboard: 10-20ms
 - Token refresh: 10ms
 - DB CPU: <10%
 
 **Projected (100,000 users)**:
+
 - Dashboard: 10-20ms (aggregation scales linearly)
 - Token refresh: 10ms (indexed lookups scale logarithmically)
 - DB CPU: <30% (with read replicas)
@@ -663,24 +706,28 @@ DATABASES = {
 ### Production Monitoring Setup
 
 **1. Query Count Alerts**:
+
 ```python
 # Alert if any endpoint exceeds baseline by 50%
 # Example: dashboard_stats should alert at 8+ queries (5 * 1.5)
 ```
 
 **2. Query Time Alerts**:
+
 ```python
 # Alert if 95th percentile exceeds target by 2x
 # Example: dashboard_stats should alert at 100ms (50ms * 2)
 ```
 
 **3. Slow Query Log**:
+
 ```sql
 -- PostgreSQL: Log queries >100ms
 ALTER DATABASE plant_community SET log_min_duration_statement = 100;
 ```
 
 **4. Index Usage Monitoring**:
+
 ```sql
 -- Check for sequential scans on indexed tables
 SELECT schemaname, tablename, seq_scan, idx_scan
@@ -696,6 +743,7 @@ ORDER BY seq_scan DESC;
 ### Pre-Commit Checks
 
 **1. Automated Performance Review**:
+
 ```bash
 # Run performance reviewer on Django files
 if git diff --cached --name-only | grep -E "apps/.*/views\.py|apps/.*/models\.py"; then
@@ -705,6 +753,7 @@ fi
 ```
 
 **2. Query Count Tests**:
+
 ```bash
 # Run performance tests in CI
 pytest backend/apps/users/tests/test_performance.py -v
@@ -713,6 +762,7 @@ pytest backend/apps/users/tests/test_performance.py -v
 ### Code Review Checklist
 
 **For Django Pull Requests**:
+
 - [ ] `code-review-specialist` review completed
 - [ ] `django-performance-reviewer` review completed (if views/models changed)
 - [ ] All BLOCKERS addressed
@@ -736,6 +786,7 @@ pytest backend/apps/users/tests/test_performance.py -v
 The N+1 query elimination and performance testing patterns have been successfully codified into the reviewer agent architecture:
 
 **Achievements**:
+
 1. ✅ 6 critical performance patterns identified and documented
 2. ✅ Automated detection rules implemented
 3. ✅ Code templates provided for each pattern
@@ -745,6 +796,7 @@ The N+1 query elimination and performance testing patterns have been successfull
 7. ✅ **Strict test assertion pattern** codified (Issue #117 - Nov 13, 2025)
 
 **Impact**:
+
 - **75-98% query reduction** across optimized endpoints
 - **10-100x faster execution** for database operations
 - **100% regression detection** with strict test assertions
@@ -752,10 +804,12 @@ The N+1 query elimination and performance testing patterns have been successfull
 - **Production-ready** performance characteristics
 
 **Pattern Timeline**:
+
 - **2025-10-23**: Patterns 1-5 codified (N+1 elimination, indexes, thread safety)
 - **2025-11-13**: Pattern 6 added (strict performance test assertions - Issue #117)
 
 **Next Steps**:
+
 1. Run `code-review-specialist` on all new code (mandatory)
 2. Run `django-performance-reviewer` on Django views/models
 3. Convert remaining lenient assertions to strict `assertEqual` pattern
