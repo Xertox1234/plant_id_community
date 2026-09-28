@@ -118,6 +118,33 @@ def main():
               len(boxes) == 3 and boxes[2][2] == "- [ ] The other read-modify-write counters are listed with a keep "
               "or fix verdict each.", boxes[2:])
 
+        # Todo 468 N2: a continuation line that starts with `#42` or `10.` is still text. A heading
+        # needs #s then a space, and only `1.` can start a list inside a paragraph (CommonMark).
+        n2 = write(tmp, HEAD + "\n# t\n\n## Acceptance Criteria\n\n"
+                   "- [ ] The status line names the finding, as in finding\n"
+                   "      #42 of the review, and the count is at most\n"
+                   "      10. More text after it.\n"
+                   "- [ ] Second criterion\n"
+                   "  1. a real numbered sub-list\n"
+                   "  ## a real heading\n", "468-pending-p3-n2.md")
+        boxes = tf.ac_lines(n2.read_text())
+        check("468 N2: a wrapped line starting with #42 or 10. stays part of its criterion",
+              len(boxes) == 2 and boxes[0][2] == "- [ ] The status line names the finding, as in finding #42 of the "
+              "review, and the count is at most 10. More text after it.", boxes)
+        check("468 N2: a `1.` item and a real heading still end a criterion",
+              len(boxes) == 2 and boxes[1][2] == "- [ ] Second criterion", boxes[1:])
+        # Todo 468 N3: an indented fence right under a criterion must reach the fence toggle, or the
+        # fenced example is read as a criterion and the real one after the fence is skipped.
+        n3 = write(tmp, HEAD + "\n# t\n\n## Acceptance Criteria\n\n"
+                   "- [ ] Criterion one\n"
+                   "  ```markdown\n"
+                   "  - [ ] an example, not a criterion\n"
+                   "  ```\n"
+                   "- [ ] Criterion two\n", "468-pending-p3-n3.md")
+        boxes = tf.ac_lines(n3.read_text())
+        check("468 N3: an indented fence under a criterion ends it, and the fenced example is skipped",
+              [b[2] for b in boxes] == ["- [ ] Criterion one", "- [ ] Criterion two"], boxes)
+
         tf.append_work_log(p, "### 2026-09-27 - Verified\n\n- ok.\n")
         text = p.read_text()
         check("work log entry lands before ## Notes",

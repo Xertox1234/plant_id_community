@@ -31,6 +31,7 @@ kombu does not read `unix://`. No socket file, or a remote host: TCP, as before.
 """
 
 import os
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -53,8 +54,19 @@ def parse_dotenv(text):
         key = key.strip()
         if key.startswith("export "):
             key = key[len("export "):].strip()
-        values[key] = value.strip().strip("'\"")
+        values[key] = _dotenv_value(value.strip())
     return values
+
+
+def _dotenv_value(value):
+    """A quoted value runs to its closing quote; an unquoted one stops at a ` #` comment, so
+    `KEY=value # note` is `value` -- land.py masks .env values, and `value # note` never matched
+    the bare value a log prints (todo 468)."""
+    if value[:1] in ("'", '"'):
+        end = value.find(value[0], 1)
+        if end > 0:
+            return value[1:end]
+    return re.split(r"\s#", value, maxsplit=1)[0].strip().strip("'\"")
 
 
 def dotenv_path(worktree, main_root):

@@ -268,6 +268,10 @@ def main():
               result["review"]["renamed"] and (repo / "docs/reviews/r-COMPLETED.md").exists(), result)
         check("the todo's source_review follows the rename",
               todofile.read_frontmatter(repo / result["archived"])["source_review"] == "docs/reviews/r-COMPLETED.md")
+        check("468: an archived sibling todo that named the review doc follows the rename, and is staged",
+              todofile.read_frontmatter(repo / "todos/archive/412-completed-p3-a.md")["source_review"]
+              == "docs/reviews/r-COMPLETED.md" and "todos/archive/412-completed-p3-a.md" in result["paths"],
+              (todofile.read_frontmatter(repo / "todos/archive/412-completed-p3-a.md"), result["paths"]))
         check("findings outside ## Finding Status are not counted",
               "- [ ] x" in (repo / "docs/reviews/r-COMPLETED.md").read_text())
 
@@ -1278,6 +1282,28 @@ def main():
         check("m5: values shorter than 8 characters are left alone", "SHORT=abc1234 DEBUG=True" in text, text)
         check("m5 residual: a .env value in the AC command is masked before it is quoted",
               "`curl -H 'X-Token: ***' https://x/health`" in text, text)
+
+    # Todo 468 m5 residuals: a DATABASE_URL password printed on its own, a slotted URL whose DB name
+    # is not the local one, and one secret inside another (the longest-first order is what masks it).
+    with tempfile.TemporaryDirectory() as tmp:
+        repo = setup(tmp)
+        (repo / "backend").mkdir()
+        (repo / "backend" / ".env").write_text(  # fake values, test fixture only
+            "DATABASE_URL=postgresql://plant:S3cretPassw0rd@localhost:5432/mydb\n"  # pragma: allowlist secret
+            "TOKEN_SHORT=abcdefgh\nTOKEN_LONG=abcdefgh12345678\n")  # pragma: allowlist secret
+        (repo / ".sweep-evidence/g1/412-ac1.txt").write_text(
+            "connecting with password S3cretPassw0rd\n"  # pragma: allowlist secret
+            "DATABASE_URL=postgresql://plant:S3cretPassw0rd@%2Ftmp:5432/plant_community_w3\n"  # pragma: allowlist secret
+            "token abcdefgh12345678 ok\n")  # pragma: allowlist secret
+        land.flip_acs(repo, "todos/412-pending-p3-a.md", [entry("412", i) for i in range(3)],
+                      [agree("412", 0)], "r", "2026-09-28")
+        text = (repo / "todos/412-pending-p3-a.md").read_text()
+        check("468: a DATABASE_URL password printed on its own is masked",
+              "S3cretPassw0rd" not in text and "connecting with password ***" in text, text)
+        check("468: a slotted DATABASE_URL is masked whatever the local DB name",
+              "postgresql://plant:***@%2Ftmp:5432/plant_community_w3" in text, text)
+        check("468: a secret containing a shorter secret is masked whole (longest first)",
+              "12345678" not in text and "token *** ok" in text, text)
 
     # Final review m9: no Work Log heading a worker is told to write may satisfy Land's
     # "evidence is quoted above" check -- only flip_acs's own heading does.

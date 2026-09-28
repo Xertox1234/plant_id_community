@@ -45,6 +45,10 @@ def main():
     parsed = se.parse_dotenv(DOTENV)
     check("parse_dotenv strips quotes and export", parsed["REDIS_URL"] == "redis://127.0.0.1:6379/1"
           and parsed["DATABASE_URL"].startswith("postgresql://"), parsed)
+    # Todo 468 m5 residual: `KEY=value # note` masked `value # note`, and the bare value leaked.
+    parsed = se.parse_dotenv("A=value-one # note\nB='quoted # kept'\nC=abc#def\nD=\"dq value\" # c\nE=x-y\t# tab\n")
+    check("468: parse_dotenv strips an inline # comment from an unquoted value, and only there",
+          parsed == {"A": "value-one", "B": "quoted # kept", "C": "abc#def", "D": "dq value", "E": "x-y"}, parsed)
 
     env = se.slot_env({"PATH": "/bin"}, DOTENV, 2, "/wt/g1", exists=NO_SOCKETS)
     check("slot 2 gets its own database",

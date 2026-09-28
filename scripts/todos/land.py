@@ -73,6 +73,7 @@ import re
 import subprocess
 import sys
 from pathlib import Path
+from urllib.parse import unquote, urlsplit
 
 import yaml
 
@@ -105,15 +106,26 @@ ENV_FILES = ("backend/.env", "web/.env")
 
 def _env_secrets(*roots):
     """Every value of at least SECRET_MIN_LEN characters in <root>/backend/.env and
-    <root>/web/.env, longest first (final review m5)."""
+    <root>/web/.env, longest first (final review m5), plus the password inside any URL value
+    (todo 468): printed alone, or inside slot_env's rewritten DATABASE_URL, it matches no
+    whole .env value."""
     values = set()
     for root in roots:
         for rel in ENV_FILES if root else ():
             path = Path(root) / rel
             if path.is_file():
-                values.update(v for v in slot_env.parse_dotenv(path.read_text(errors="replace")).values()
-                              if len(v) >= SECRET_MIN_LEN)
-    return sorted(values, key=len, reverse=True)
+                for value in slot_env.parse_dotenv(path.read_text(errors="replace")).values():
+                    values.update([value, *_url_password(value)])
+    return sorted((v for v in values if len(v) >= SECRET_MIN_LEN), key=len, reverse=True)
+
+
+def _url_password(value):
+    """The password of a URL value, as written and percent-decoded; [] when there is none."""
+    try:
+        password = urlsplit(value).password if "://" in value else None
+    except ValueError:
+        return []
+    return [password, unquote(password)] if password else []
 
 
 def _tail(path, secrets=()):
@@ -390,7 +402,28 @@ def plan_review(repo, todo_path, date):
             else:
                 renamed, completed, note = True, candidate_rel, "all findings resolved"
     return {"finding": finding, "action": "checkoff", "note": note, "source": norm_rel,
-            "new_lines": new_lines, "renamed": renamed, "completed": completed}
+            "new_lines": new_lines, "renamed": renamed, "completed": completed,
+            "siblings": _siblings(repo, review, todo_path) if renamed else []}
+
+
+def _siblings(repo, review, todo_path):
+    """Repo-relative paths of the other todos, open or archived, whose `source_review` resolves
+    to `review` and can be rewritten in place: after the -COMPLETED rename their pointer would
+    dangle (todo 468). Read-only and never raises, like plan_review; a file it cannot read or
+    rewrite is left as it is."""
+    repo = Path(repo)
+    out = []
+    for path in sorted([*(repo / "todos").glob("*.md"), *(repo / "todos" / "archive").glob("*.md")]):
+        if path.resolve() == Path(todo_path).resolve():
+            continue
+        try:
+            source = (todofile.read_frontmatter(path) or {}).get("source_review")
+        except (yaml.YAMLError, ValueError, OSError):
+            continue
+        if (source and _review_path(repo, str(source)) == review
+                and _unsettable_key(path, ["source_review"]) is None):
+            out.append(path.relative_to(repo).as_posix())
+    return out
 
 
 def apply_review(repo, plan, todo_path, git=run_git):
@@ -406,7 +439,10 @@ def apply_review(repo, plan, todo_path, git=run_git):
         completed = plan["completed"]
         git(repo, "mv", source, completed)
         todofile.set_fields(todo_path, {"source_review": completed})
-        return {"finding": plan["finding"], "renamed": True, "paths": [completed], "note": plan["note"]}
+        for rel in plan.get("siblings", []):
+            todofile.set_fields(Path(repo) / rel, {"source_review": completed})
+        return {"finding": plan["finding"], "renamed": True, "paths": [completed, *plan.get("siblings", [])],
+                "note": plan["note"]}
     return {"finding": plan["finding"], "renamed": False, "paths": [source], "note": plan["note"]}
 
 
