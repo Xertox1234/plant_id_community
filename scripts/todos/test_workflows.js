@@ -232,19 +232,50 @@ async function main() {
     byType(r.calls, 'todo-verifier').length === 2 && byType(r.calls, 'todo-worker').length === 1
     && r.result.results[0].verdict === null && !r.result.results[0].retried, r.result)
 
+  // --- review: stub responders. todo-reviewer runs both the bug lenses and the refuters; the schema tells them apart.
+  const high = { reviewed_range: 'x', findings: [{ severity: 'high', file: 'a.py', line: 1, summary: 'bug', suggested_fix: '' }] }
+  const low = { reviewed_range: 'x', findings: [{ severity: 'low', file: 'a.py', line: 2, summary: 'nit', suggested_fix: '' }] }
+  const none = { reviewed_range: 'x', findings: [] }
+  const routed = (...ids) => ({ changed_files: ['backend/apps/x/views.py'], agents_to_invoke: ids, routing_reasons: 'r' })
+  const holds = { refuted: false, reason: 'real' }
+  const wrong = { refuted: true, reason: 'input cannot reach it' }
+  const isRefuter = o => Boolean(o.schema && o.schema.properties.refuted)
+  function reviewStub({ lens = none, route = routed('django-drf-reviewer', 'cross-cutting-reviewer'), domain = none,
+    refute = holds, repair = worker(), check: v = verdict('pass') } = {}) {
+    return (p, o) => {
+      if (o.agentType === 'todo-reviewer') return typeof (isRefuter(o) ? refute : lens) === 'function'
+        ? (isRefuter(o) ? refute : lens)(p, o) : (isRefuter(o) ? refute : lens)
+      if (o.agentType === 'code-review-orchestrator') return route
+      if (o.agentType === 'todo-worker') return repair
+      if (o.agentType === 'todo-verifier') return v
+      return typeof domain === 'function' ? domain(p, o) : domain
+    }
+  }
+  const lensCalls = calls => byType(calls, 'todo-reviewer').filter(c => !isRefuter(c.opts))
+  const refuteCalls = calls => byType(calls, 'todo-reviewer').filter(c => isRefuter(c.opts))
+
   // --- review round 1, size s, blocking finding
-  const high = { reviewed_range: 'skill:code-review', findings: [{ severity: 'high', file: 'a.py', line: 1, summary: 'bug', suggested_fix: '' }] }
-  r = await run('todo-review', { round: 1, prs: [pr()] },
-    (p, o) => (o.agentType === 'todo-reviewer' ? high : o.agentType === 'todo-worker' ? worker() : verdict('pass')))
-  check('review: size s gets only the bug reviewer', byType(r.calls, 'code-review-orchestrator').length === 0)
-  check('review: the bug reviewer runs as the guarded todo-reviewer (todo 468 m8)',
-    byType(r.calls, 'todo-reviewer').length === 1 && byType(r.calls, 'general-purpose').length === 0)
+  r = await run('todo-review', { round: 1, prs: [pr()] }, reviewStub({ lens: high }))
+  check('review: every size gets three bug lenses as the guarded todo-reviewer (todo 468 m8)',
+    lensCalls(r.calls).length === 3 && byType(r.calls, 'general-purpose').length === 0
+    && new Set(lensCalls(r.calls).map(c => c.opts.label)).size === 3, r.calls.map(c => c.opts.label))
+  check('review: size s still gets the checklist lane (pre-v2 parity)', byType(r.calls, 'code-review-orchestrator').length === 1)
+  check('review: the workflow dispatches every routed domain reviewer itself',
+    byType(r.calls, 'django-drf-reviewer').length === 1 && byType(r.calls, 'cross-cutting-reviewer').length === 1)
+  check('review: the orchestrator is asked for routing only, and gets the ROUTING schema',
+    byType(r.calls, 'code-review-orchestrator')[0].prompt.includes('Phase 1 (triage) only')
+    && Boolean(byType(r.calls, 'code-review-orchestrator')[0].opts.schema.properties.agents_to_invoke))
+  check('review: the result lists which reviewers ran and what was routed',
+    r.result.results[0].reviewers.length === 5 && r.result.results[0].reviewers.includes('django-drf-reviewer')
+    && r.result.results[0].routed.join() === 'django-drf-reviewer,cross-cutting-reviewer', r.result)
+  check('review: no range reads as an inline fallback', r.result.results[0].ranges.every(x => !/inline/.test(x)))
+  check('review: a blocking finding faces two refuters', refuteCalls(r.calls).length === 2)
   const rep = byType(r.calls, 'todo-worker')
   check('review: round 1 repairs in the PR worktree', rep.length === 1 && rep[0].opts.isolation === undefined
     && rep[0].prompt.startsWith('MODE: repair') && rep[0].prompt.includes('/wt/g1'))
   check('review: the repair is re-verified', byType(r.calls, 'todo-verifier').length === 1)
   check('review: reviewer prompts name the explicit diff range',
-    byType(r.calls, 'todo-reviewer')[0].prompt.includes('diff origin/main...HEAD'))
+    lensCalls(r.calls)[0].prompt.includes('diff origin/main...HEAD'))
   const archived = 'todos/archive/1-completed-p3-x.md'
   const repairP = rep[0].prompt
   check('review: the repair prompt carries IDS, both path lists and never TODOS', repairP.includes('\nIDS: 1\n')
@@ -266,40 +297,72 @@ async function main() {
   check('review: the post-repair verifier requires a command on every open criterion and re-runs each',
     repairV.prompt.includes('not already-checked-at-merge-base or re-pointed must carry a non-empty `command`; ' +
       're-run each yourself') && !repairV.prompt.includes('must have been re-run'), repairV.prompt)
-  const bugP = byType(r.calls, 'todo-reviewer')[0].prompt
+  const bugP = lensCalls(r.calls)[0].prompt
   check('review: the bug reviewer reviews the local diff, single-quoted, never via gh',
     bugP.includes("/usr/bin/git -C '/wt/g1' diff origin/main...HEAD") && bugP.includes('do not use gh')
     && !/Skill|against PR|gh pr/.test(bugP), bugP)
+  // A no-isolation agent's cwd is the main checkout, so every checklist prompt must point at the worktree.
+  const routeP = byType(r.calls, 'code-review-orchestrator')[0].prompt
+  check('review: the routing prompt uses the worktree diff, not `git diff --name-only HEAD` in cwd',
+    routeP.includes("/usr/bin/git -C '/wt/g1' diff origin/main...HEAD --name-only") && routeP.includes("'/wt/g1/<path>'"), routeP)
+  const domP = byType(r.calls, 'django-drf-reviewer')[0].prompt
+  check('review: a domain reviewer reads files from the worktree and gets the routed file list',
+    domP.includes("'/wt/g1/<path>'") && domP.includes('NOT the main checkout') && domP.includes('  - backend/apps/x/views.py')
+    && domP.includes("/usr/bin/git -C '/wt/g1' diff origin/main...HEAD"), domP)
 
-  // --- review round 2, size m, blocking finding
-  r = await run('todo-review', { round: 2, prs: [pr({ round: 2, size: 'm' })] }, () => high)
-  check('review: size m adds the checklist reviewer', byType(r.calls, 'code-review-orchestrator').length === 1)
-  check('review: the checklist reviewer gets the single-quoted diff range',
-    byType(r.calls, 'code-review-orchestrator')[0].prompt.includes("/usr/bin/git -C '/wt/g1' diff origin/main...HEAD"))
+  // --- review round 2, blocking finding from every reviewer
+  r = await run('todo-review', { round: 2, prs: [pr({ round: 2, size: 'm' })] }, reviewStub({ lens: high, domain: high }))
   check('review: round 2 never repairs', byType(r.calls, 'todo-worker').length === 0)
-  check('review: the same blocking finding from both reviewers counts once',
-    r.result.results[0].blocking.length === 1 && r.result.results[0].findings.length === 2, r.result)
+  check('review: the same blocking finding from every reviewer counts once and is refuted once',
+    r.result.results[0].blocking.length === 1 && r.result.results[0].findings.length === 5
+    && refuteCalls(r.calls).length === 2, r.result)
+
+  // --- review: refutation
+  r = await run('todo-review', { round: 1, prs: [pr()] }, reviewStub({ lens: high, refute: wrong }))
+  check('review: a finding both refuters refute stops blocking, is kept in `refuted`, and is not repaired',
+    r.result.results[0].blocking.length === 0 && r.result.results[0].refuted.length === 1
+    && r.result.results[0].refuted[0].refutations.length === 2 && byType(r.calls, 'todo-worker').length === 0, r.result)
+  let votes = 0
+  r = await run('todo-review', { round: 1, prs: [pr()] }, reviewStub({ lens: high, refute: () => (++votes === 1 ? wrong : holds) }))
+  check('review: one refuter upholding the finding keeps it blocking', r.result.results[0].blocking.length === 1
+    && byType(r.calls, 'todo-worker').length === 1, r.result)
+  votes = 0
+  r = await run('todo-review', { round: 1, prs: [pr()] }, reviewStub({ lens: high, refute: () => (++votes === 1 ? wrong : null) }))
+  check('review: a dead refuter refutes nothing', r.result.results[0].blocking.length === 1, r.result)
+  r = await run('todo-review', { round: 1, prs: [pr()] }, reviewStub({ lens: low }))
+  check('review: a non-blocking finding is not sent to refuters', refuteCalls(r.calls).length === 0)
 
   // --- review round 1: nothing blocking, and a repair that blocks
-  const low = { reviewed_range: 'x', findings: [{ severity: 'low', file: 'a.py', line: 2, summary: 'nit', suggested_fix: '' }] }
-  r = await run('todo-review', { round: 1, prs: [pr()] }, () => low)
   check('review: round 1 with no blocking finding does not repair',
     byType(r.calls, 'todo-worker').length === 0 && r.result.results[0].repair === null
     && r.result.results[0].blocking.length === 0 && r.result.results[0].reviewers_ok, r.result)
-  r = await run('todo-review', { round: 1, prs: [pr()] }, (p, o) => (o.agentType === 'todo-reviewer' ? high
-    : o.agentType === 'todo-worker' ? worker({ status: 'blocked', blockers: 'needs the deps lane' }) : verdict('pass')))
+  r = await run('todo-review', { round: 1, prs: [pr()] },
+    reviewStub({ lens: high, repair: worker({ status: 'blocked', blockers: 'needs the deps lane' }) }))
   check('review: a blocked repair carries its blockers and is not verified',
     r.result.results[0].repair_blockers === 'needs the deps lane' && r.result.results[0].verdict === null
     && byType(r.calls, 'todo-verifier').length === 0, r.result)
 
-  r = await run('todo-review', { round: 2, prs: [pr({ round: 2, size: 'm' })] },
-    (p, o) => (o.agentType === 'code-review-orchestrator' ? null : { reviewed_range: 'x', findings: [] }))
-  check('review: a dead checklist reviewer is flagged, not blocking',
-    r.result.results[0].reviewers_ok === true && r.result.results[0].checklist_skipped === true, r.result)
+  // --- review: routing edge cases
+  r = await run('todo-review', { round: 1, prs: [pr()] }, reviewStub({ route: routed() }))
+  check('review: a change that routes to no domain reviewer is still complete',
+    r.result.results[0].reviewers_ok === true && r.result.results[0].routed.length === 0, r.result)
+  r = await run('todo-review', { round: 1, prs: [pr()] },
+    reviewStub({ route: routed('cross-cutting-reviewer', 'cross-cutting-reviewer') }))
+  check('review: a reviewer routed twice runs once', byType(r.calls, 'cross-cutting-reviewer').length === 1)
 
+  // --- review: any dead reviewer leaves part of the diff unreviewed, so the review is incomplete
+  for (const [label, stub] of [
+    ['a dead bug lens', reviewStub({ lens: (p, o) => (o.label.startsWith('bugs-security') ? null : high) })],
+    ['a dead orchestrator', reviewStub({ lens: high, route: null })],
+    ['a dead domain reviewer', reviewStub({ lens: high, domain: (p, o) => (o.agentType === 'cross-cutting-reviewer' ? null : none) })],
+  ]) {
+    r = await run('todo-review', { round: 1, prs: [pr()] }, stub)
+    check(`review: ${label} marks the review incomplete, with no refute or repair`,
+      r.result.results[0].reviewers_ok === false && byType(r.calls, 'todo-worker').length === 0
+      && refuteCalls(r.calls).length === 0 && r.result.results[0].blocking.length === 0, r.result)
+  }
   r = await run('todo-review', { round: 1, prs: [pr()] }, () => null)
-  check('review: a dead bug reviewer marks the review incomplete', r.result.results[0].reviewers_ok === false, r.result)
-  check('review: an incomplete review never repairs', byType(r.calls, 'todo-worker').length === 0)
+  check('review: every reviewer dead marks the review incomplete', r.result.results[0].reviewers_ok === false, r.result)
 
   // --- schemas stay identical across files
   for (const name of ['WORKER', 'VERDICT']) {

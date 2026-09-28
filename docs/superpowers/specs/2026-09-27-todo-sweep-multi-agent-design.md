@@ -245,16 +245,26 @@ Land runs in the main session, one group at a time, in wave order:
    sandbox on 2026-09-27) and updates the run file.
 
 4. **Round 1** — `todo-review` workflow with `round: 1` for every PR landed so
-   far in the wave: bundled code-review (bugs) + `code-review-orchestrator`
-   (checklist; only for groups sized `m` or larger). Every reviewer prompt
-   names the worktree path and the diff range explicitly
+   far in the wave. Pilot P8 showed that no workflow agent can spawn subagents
+   ("no Agent tool available"), so neither the bundled code-review skill nor
+   the orchestrator's dispatch can run inside one. Every fan-out is therefore an
+   `agent()` call in the workflow script (todo 472), for **every** size:
+   - **Bug lenses:** three read-only `todo-reviewer` finders over the whole diff,
+     each primed on one lens (correctness; security and data; contracts, state
+     and tests).
+   - **Checklist lane:** `code-review-orchestrator` runs Phase 1 only and returns
+     its routing. The workflow then dispatches every routed domain reviewer, as
+     the main session did before v2.
+   - **Refute:** each critical/high finding, deduplicated, goes to two
+     `todo-reviewer` skeptics and stops blocking only if both refute it.
+   - Any dead reviewer makes the round `rerun`, never a partial pass.
+
+   Every reviewer prompt names the worktree path and the diff range explicitly
    (`git -C <wt> diff origin/main...HEAD`), because a no-isolation workflow
-   agent's cwd is the main checkout and `code-review-orchestrator` otherwise
-   reads the wrong `git diff`. Whether a workflow agent can invoke the bundled
-   code-review skill is unverified (pilot P8). The fallback is a
-   read-only `todo-reviewer` (a guarded agent type since todo 468; it was `general-purpose`) with the
-   same explicit-diff brief. Blocking findings → repair
-   worker in the PR's worktree → verifier. Main session commits the repair.
+   agent's cwd is the main checkout. Otherwise `code-review-orchestrator`
+   reads the wrong `git diff`, and the domain reviewers read the main checkout's
+   files. Blocking findings → repair worker in the PR's worktree → verifier.
+   Main session commits the repair.
 5. **Round 2** — `todo-review` with `round: 2` (no repair). Clean → the main session
    runs `gh pr merge --auto --squash --delete-branch`. The "review the diff
    before arming" rule is met by the round-2 reviewers, which read the full PR
@@ -483,14 +493,17 @@ up" a failure.
 
 ## 10. Cost and scale
 
-Per group, roughly: 1 triager + (0–1 planner) + 1 worker + 1 verifier + 2 r1
-reviewers + (0–1 repair + 0–1 verifier) + 2 r2 reviewers ≈ 7–10 agents. A full
-36-todo sweep with about half the todos gated is on the order of 150 agents across
-several workflow runs. Hence:
+Per group, roughly: 1 triager, 0–1 planner, 1 worker and 1 verifier; per review
+round 3 bug lenses, 1 router, 1–4 domain reviewers and 2 refuters per blocking
+finding; then 0–1 repair and 0–1 verifier. That is ≈ 14–24 agents per group
+(todo 472: review depth is never traded for cost). A full 36-todo sweep with
+about half the todos gated is on the order of 300–450 agents across several
+workflow runs. Hence:
 
 - `--limit N` caps groups per run; the plan logs what was deferred (no silent caps).
-- `code-review-orchestrator` runs only for groups sized `m`+; bundled
-  code-review runs for all.
+- Review runs at full depth for every size (§5.3). The old `m`+ gate on the
+  checklist lane made small PRs shallower than the pre-v2 engine, so it was removed
+  (owner, 2026-09-28).
 - Tiny todos are bundled (§7.1).
 - The kimi commit gate is on Land's serial critical path: up to 150 s per
   commit, and a PR usually has two commits (initial + repair), so ~5 min per
@@ -551,7 +564,8 @@ several workflow runs. Hence:
    - P7 end to end: both PRs merged with todos archived in the same PR.
    - P8 a `todo-review` agent can run the bundled code-review skill against an
      explicit worktree and diff range. Otherwise use the `general-purpose`
-     fallback.
+     fallback. *(Result: it cannot, and the fallback was shallower than before
+     v2. The fan-out moved into the workflow script, §5.3, todo 472.)*
    - P9 the tree-hash check detects a deliberate one-byte change made after
      the worker returns (mutation test of the §5.2 guard).
 4. **3-worker run** on a p3/p4 batch; measure predicted vs actual touched files
@@ -587,5 +601,5 @@ architecture (1–2); "one feature per session was critical" (1–2).
 1. Model tiering for the triager (cheaper model?) — decide after pilot accuracy.
 2. Is predicted-files grouping accurate enough, or should lanes rely mostly on
    rebase-time detection? Measured in rollout step 4.
-3. Should `code-review-orchestrator` run on every PR or only `m`+? Starts at
-   `m`+; revisit after the first full sweep.
+3. ~~Should `code-review-orchestrator` run on every PR or only `m`+?~~ Every
+   PR (owner, 2026-09-28: reviews can't be shallower than before v2; todo 472).

@@ -595,8 +595,6 @@ def ingest_review(run, results, round_no):
     for result in results:
         gid = result["group"]
         entries = _group_entries(run, gid)
-        for _, entry in entries:
-            entry["checklist_skipped"] = bool(result.get("checklist_skipped"))
         if not result["reviewers_ok"]:
             outcome[gid] = "rerun"
             continue

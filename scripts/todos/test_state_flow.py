@@ -157,9 +157,7 @@ def main():
     check("an invalid round number is refused", raises(lambda: state.review_args(run, 3, 0), ValueError))
     low = [{"severity": "low", "file": "a.py", "line": 2, "summary": "nit", "suggested_fix": ""}]
     res = state.ingest_review(run, [{"group": g_ok, "ids": ids_ok, "findings": low, "blocking": [],
-                                     "reviewers_ok": True, "checklist_skipped": True, "repair": None,
-                                     "verdict": None}], 2)
-    check("a skipped checklist review is recorded", run["todos"][ids_ok[0]]["checklist_skipped"] is True)
+                                     "reviewers_ok": True, "repair": None, "verdict": None}], 2)
     check("a clean round 2 moves to reviewed", res[g_ok] == "clean"
           and all(run["todos"][i]["stage"] == "reviewed" for i in ids_ok))
     check("non-blocking findings are kept as follow-ups", run["todos"][ids_ok[0]]["followups"] == ["a.py:2 nit"])
