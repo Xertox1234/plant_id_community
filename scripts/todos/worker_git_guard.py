@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
-"""PreToolUse decision for Bash calls from todo-worker / todo-verifier agents.
+"""PreToolUse decision for Bash calls from todo-worker / todo-verifier / todo-reviewer agents.
 
 Workers write and stage; only the main session commits, pushes and opens PRs
 (spec §4.1). Agent frontmatter cannot say that -- `disallowedTools:
-Bash(git push *)` removes Bash entirely -- so this hook does: for those two
-agent types it allows a short list of git subcommands and denies every other
-git subcommand and all of gh. Every other caller passes through untouched.
+Bash(git push *)` removes Bash entirely -- so this hook does: for those agent
+types it allows a short list of git subcommands (read-only ones for the
+reviewer) and denies every other git subcommand and all of gh. add/mv/rm are
+also denied when they would land in a main checkout rather than a worktree
+(todo 468 m7). Every other caller passes through untouched.
 
 It tokenizes the command the way a shell does -- quotes, escapes, `$(...)`,
 backticks, `<(...)`, redirections, heredocs, compound commands and reserved
@@ -25,10 +27,18 @@ Tests: .claude/hooks/test-guard-todo-worker-git.sh
 import json
 import os
 import shlex
+import subprocess
 import sys
 
-GUARDED_AGENTS = {"todo-worker", "todo-verifier"}
 GIT_ALLOWED = {"add", "mv", "rm", "diff", "status", "log", "show", "fetch", "write-tree", "rev-parse"}
+# Review-stage reviewers read the diff and report; they never stage (todo 468 m8).
+GIT_READONLY = {"diff", "status", "log", "show", "rev-parse", "ls-files", "grep", "blame", "merge-base"}
+ALLOWED_BY_AGENT = {"todo-worker": GIT_ALLOWED, "todo-verifier": GIT_ALLOWED, "todo-reviewer": GIT_READONLY}
+GUARDED_AGENTS = set(ALLOWED_BY_AGENT)
+MAIN_REASON = ("git {sub} into the main checkout ({path}) is not allowed; stage in your worktree (WT), "
+               "not MAIN_ROOT")
+# The calling agent's allowed set and working directory, set by decide() for one hook call.
+CONTEXT = {"allowed": GIT_ALLOWED, "cwd": None}
 GIT_GLOBAL_WITH_VALUE = {"-C", "--git-dir", "--work-tree"}
 GIT_GLOBAL_FLAGS = {"--no-pager", "-P", "--no-optional-locks"}
 # Long options that make an allowed subcommand run a program, write a file or
@@ -450,12 +460,20 @@ def check_find(args, depth):
 
 
 def check_git(args, wrapped):
-    j = 0
+    j, where, git_dir = 0, CONTEXT["cwd"], False
     while j < len(args):
         arg = args[j].value
         if arg in GIT_GLOBAL_WITH_VALUE:
+            value = args[j + 1].value if j + 1 < len(args) else ""
+            if arg == "--git-dir":
+                git_dir = True
+            else:  # -C composes like cd; --work-tree names the tree directly
+                where = os.path.join(where or "", value)
             j += 2
         elif arg in GIT_GLOBAL_FLAGS or arg.startswith(("--git-dir=", "--work-tree=")):
+            git_dir = git_dir or arg.startswith("--git-dir=")
+            if arg.startswith("--work-tree="):
+                where = os.path.join(where or "", arg.partition("=")[2])
             j += 1
         elif arg == "--version":
             return None
@@ -466,7 +484,60 @@ def check_git(args, wrapped):
             break
     if j >= len(args):
         return "bare git after a wrapper or xargs; run git <subcommand> directly" if wrapped else None
-    return check_git_subcommand(args[j].value, args[j + 1:])
+    sub = args[j].value
+    if sub in FORCE_SUBCOMMANDS and sub in CONTEXT["allowed"]:
+        # Todo 468 m7: a worker that confuses MAIN_ROOT with WT would stage into the owner's checkout.
+        if git_dir:
+            return f"git --git-dir with {sub} is not allowed; use git -C WT {sub}"
+        main = where and main_checkout(where)
+        if main:
+            return MAIN_REASON.format(sub=sub, path=main)
+        exposed = where and sub == "add" and unignored_includes(where)
+        if exposed:
+            return (f"{', '.join(exposed)} is no longer ignored in this worktree, so git add would stage it; "
+                    "restore its .gitignore rule first (todo 468)")
+    return check_git_subcommand(sub, args[j + 1:])
+
+
+def unignored_includes(path):
+    """The .worktreeinclude files (backend/.env, web/.env: copied into every worktree) that exist in
+    the checkout holding `path` but that no ignore rule covers any more -- a worker that deleted the
+    rule from .gitignore would stage one with a plain `git add -A` (todo 468). Literal paths only; a
+    git error means "cannot tell" and is left to Land's own backstop (state.ensure_worktree)."""
+    top = os.path.realpath(path)
+    while not os.path.exists(os.path.join(top, ".git")):
+        if os.path.dirname(top) == top:
+            return []
+        top = os.path.dirname(top)
+    try:
+        with open(os.path.join(top, ".worktreeinclude")) as f:
+            rels = [line.strip() for line in f if line.strip() and not line.lstrip().startswith("#")]
+    except OSError:
+        return []
+    out = []
+    for rel in rels:
+        if set(rel) & set("*?[") or not os.path.isfile(os.path.join(top, rel)):
+            continue
+        proc = subprocess.run(["git", "-C", top, "check-ignore", "-q", "--no-index", rel], capture_output=True)
+        if proc.returncode == 1:  # 0 = ignored, 128 = error
+            out.append(rel)
+    return out
+
+
+def main_checkout(path):
+    """The top of the checkout holding `path` when it is a MAIN checkout (its .git is a directory;
+    a linked worktree's .git is a file), else None. A path that does not exist is left to git."""
+    here = os.path.realpath(path)
+    while True:
+        dot_git = os.path.join(here, ".git")
+        if os.path.isdir(dot_git):
+            return here
+        if os.path.exists(dot_git):
+            return None
+        parent = os.path.dirname(here)
+        if parent == here:
+            return None
+        here = parent
 
 
 def denied_option(arg, names):
@@ -494,9 +565,10 @@ def forces(args):
 
 
 def check_git_subcommand(sub, args):
-    if sub not in GIT_ALLOWED:
+    allowed = CONTEXT["allowed"]
+    if sub not in allowed:
         return (f"git {sub} is reserved for the main session; workers stage and stop "
-                f"(allowed: {', '.join(sorted(GIT_ALLOWED))})")
+                f"(allowed: {', '.join(sorted(allowed))})")
     if sub in FORCE_SUBCOMMANDS and forces(args):
         return FORCE_REASON
     for arg in (w.value for w in args):
@@ -531,6 +603,8 @@ def decide(event):
     command = tool_input.get("command") if isinstance(tool_input, dict) else None
     if not isinstance(command, str):
         return "unexpected hook input; tool_input.command is not a string"
+    cwd = event.get("cwd")
+    CONTEXT.update(allowed=ALLOWED_BY_AGENT[agent], cwd=cwd if isinstance(cwd, str) and cwd else None)
     try:
         return decide_command(command)
     except Exception:  # a guard bug must not wave a guarded agent through

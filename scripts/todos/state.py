@@ -11,6 +11,7 @@ main session never re-types them.
 """
 
 import argparse
+import fnmatch
 import json
 import os
 import subprocess
@@ -630,17 +631,56 @@ def _unstaged_outside_land(path):
 
 
 def _force_staged_ignored(path, base="origin/main"):
-    """Paths the branch ADDED (against the merge-base with `base`, renames split into
-    delete + add) that an ignore rule matches -- a force-staged backend/.env or web/.env,
-    which .worktreeinclude copies into every worktree (PR #861 B-3). Limited to added paths,
-    so a file already tracked at the base that happens to match an ignore rule never trips it.
-    A missing base makes git fail, and run_git raises: the check fails closed."""
+    """(paths, renamed): the paths the branch ADDED (against the merge-base with `base`, renames
+    split into delete + add) that an ignore rule matches or that `base`'s .worktreeinclude lists --
+    a force-staged backend/.env or web/.env, which .worktreeinclude copies into every worktree
+    (PR #861 B-3). The .worktreeinclude list is read from `base`, so a worker that deletes the .env
+    rule from its own .gitignore and stages the file with a plain `git add -A` is still caught
+    (todo 468). `renamed` maps each flagged path that is a rename destination to its source, so the
+    error can name the real cause. Limited to added paths, so a file already tracked at the base
+    that happens to match an ignore rule never trips it. A missing base makes git fail, and run_git
+    raises: the check fails closed."""
     ignored = set(run_git(path, "ls-files", "--cached", "--ignored", "--exclude-standard").splitlines())
-    if not ignored:
-        return []
+    include = _worktreeinclude(path, base)
+    if not ignored and not include:
+        return [], {}
     added = run_git(path, "diff", "--cached", "--name-only", "--no-renames", "--diff-filter=A",
                     "--merge-base", base).splitlines()
-    return sorted(p for p in added if p in ignored)
+    flagged = sorted(p for p in added if p in ignored or any(fnmatch.fnmatch(p, pat) for pat in include))
+    renamed = {}
+    if flagged:
+        for line in run_git(path, "diff", "--cached", "--name-status", "-M", "--diff-filter=R",
+                            "--merge-base", base).splitlines():
+            parts = line.split("\t")
+            if len(parts) == 3 and parts[2] in flagged:
+                renamed[parts[2]] = parts[1]
+    return flagged, renamed
+
+
+def _worktreeinclude(path, base):
+    """The patterns in `base`'s .worktreeinclude (none when it has no such file)."""
+    try:
+        text = run_git(path, "show", f"{base}:.worktreeinclude")
+    except RuntimeError:
+        return []
+    return [line.strip() for line in text.splitlines() if line.strip() and not line.lstrip().startswith("#")]
+
+
+def _add_worktree(git, main_root, target, branch):
+    """Re-add a group's worktree at `target` on `branch`. When the local branch is gone but it was
+    pushed, recover it from origin/<branch> with --no-track, because the sandbox denies the
+    .git/config write that tracking needs (todo 468 m6)."""
+    try:
+        git(main_root, "rev-parse", "--verify", "--quiet", f"refs/heads/{branch}")
+    except RuntimeError:
+        git(main_root, "worktree", "add", "--no-track", "-b", branch, str(target), f"origin/{branch}")
+        return
+    try:
+        git(main_root, "worktree", "add", str(target), branch)
+    except RuntimeError:
+        # git may still have the old (now-vanished) worktree registered under this branch.
+        git(main_root, "worktree", "prune")
+        git(main_root, "worktree", "add", str(target), branch)
 
 
 def ensure_worktree(run, gid, scratch, git=run_git):
@@ -656,15 +696,28 @@ def ensure_worktree(run, gid, scratch, git=run_git):
         if target.exists() and any(target.iterdir()):
             raise RuntimeError(f"{target} already exists and is not empty; refusing to touch it")
         target.parent.mkdir(parents=True, exist_ok=True)
-        branch = first["branch"]
-        try:
-            git(main_root, "worktree", "add", str(target), branch)
-        except RuntimeError:
-            # git may still have the old (now-vanished) worktree registered under this branch.
-            git(main_root, "worktree", "prune")
-            git(main_root, "worktree", "add", str(target), branch)
+        _add_worktree(git, main_root, target, first["branch"])
         path = str(target)
-    tree_id = first.get("tree_id")
+    try:
+        _check_worktree(gid, path, first.get("tree_id"))
+    except RuntimeError as exc:
+        if reused:
+            raise
+        # Todo 468: the worktree this call re-added holds only the branch's committed state -- the
+        # staged work it was meant to find is gone either way -- so it leaves nothing new behind.
+        try:
+            git(main_root, "worktree", "remove", path)
+        except RuntimeError:
+            raise RuntimeError(f"{exc}; the re-added worktree {path} could not be removed") from exc
+        raise RuntimeError(f"{exc} (the re-added worktree was removed again)") from exc
+    if not reused:
+        for _, entry in entries:
+            entry["worktree"] = path
+    return path
+
+
+def _check_worktree(gid, path, tree_id):
+    """spec §5.2's checks before Land commits from `path`; raises RuntimeError naming the problem."""
     if tree_id:
         actual = run_git(path, "write-tree").strip()
         if actual != tree_id and not _land_only_diff(path, tree_id, actual):
@@ -674,15 +727,19 @@ def ensure_worktree(run, gid, scratch, git=run_git):
     if unstaged:
         raise RuntimeError(f"{gid}: worktree at {path} has unstaged changes outside Land's paths "
                            f"({', '.join(unstaged[:5])}); the verified tree is not what is on disk")
-    forced = _force_staged_ignored(path)
-    if forced:
-        raise RuntimeError(f"{gid}: worktree at {path} stages ignored files the branch added "
-                           f"({', '.join(forced)}); a force-staged .env must never be committed -- "
-                           "unstage them (git rm --cached) and rerun the group")
-    if not reused:
-        for _, entry in entries:
-            entry["worktree"] = path
-    return path
+    forced, renamed = _force_staged_ignored(path)
+    added = [p for p in forced if p not in renamed]
+    moved = [f"{p} (renamed from {renamed[p]})" for p in forced if p in renamed]
+    problems = []
+    if added:
+        problems.append(f"stages files the branch added that are ignored or listed in .worktreeinclude "
+                        f"({', '.join(added)}); a .env must never be committed -- unstage them (git rm --cached)")
+    if moved:
+        # Todo 468: refused on purpose -- a rename is how a copied-in .env would slip past an add-only check.
+        problems.append(f"moves tracked files onto ignored paths ({', '.join(moved)}); Land will not commit "
+                        "that -- land the rename by hand, or change the ignore rule on main first")
+    if problems:
+        raise RuntimeError(f"{gid}: worktree at {path} " + "; it also ".join(problems) + ", then rerun the group")
 
 
 def _cmd_decide(run, args):

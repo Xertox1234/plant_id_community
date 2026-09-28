@@ -177,14 +177,16 @@ async function main() {
   // --- review round 1, size s, blocking finding
   const high = { reviewed_range: 'skill:code-review', findings: [{ severity: 'high', file: 'a.py', line: 1, summary: 'bug', suggested_fix: '' }] }
   r = await run('todo-review', { round: 1, prs: [pr()] },
-    (p, o) => (o.agentType === 'general-purpose' ? high : o.agentType === 'todo-worker' ? worker() : verdict('pass')))
+    (p, o) => (o.agentType === 'todo-reviewer' ? high : o.agentType === 'todo-worker' ? worker() : verdict('pass')))
   check('review: size s gets only the bug reviewer', byType(r.calls, 'code-review-orchestrator').length === 0)
+  check('review: the bug reviewer runs as the guarded todo-reviewer (todo 468 m8)',
+    byType(r.calls, 'todo-reviewer').length === 1 && byType(r.calls, 'general-purpose').length === 0)
   const rep = byType(r.calls, 'todo-worker')
   check('review: round 1 repairs in the PR worktree', rep.length === 1 && rep[0].opts.isolation === undefined
     && rep[0].prompt.startsWith('MODE: repair') && rep[0].prompt.includes('/wt/g1'))
   check('review: the repair is re-verified', byType(r.calls, 'todo-verifier').length === 1)
   check('review: reviewer prompts name the explicit diff range',
-    byType(r.calls, 'general-purpose')[0].prompt.includes('diff origin/main...HEAD'))
+    byType(r.calls, 'todo-reviewer')[0].prompt.includes('diff origin/main...HEAD'))
   const archived = 'todos/archive/1-completed-p3-x.md'
   const repairP = rep[0].prompt
   check('review: the repair prompt carries IDS, both path lists and never TODOS', repairP.includes('\nIDS: 1\n')
@@ -205,7 +207,7 @@ async function main() {
   check('review: the post-repair verifier requires a command on every open criterion and re-runs each',
     repairV.prompt.includes('not already-checked-at-merge-base or re-pointed must carry a non-empty `command`; ' +
       're-run each yourself') && !repairV.prompt.includes('must have been re-run'), repairV.prompt)
-  const bugP = byType(r.calls, 'general-purpose')[0].prompt
+  const bugP = byType(r.calls, 'todo-reviewer')[0].prompt
   check('review: the bug reviewer reviews the local diff, single-quoted, never via gh',
     bugP.includes("/usr/bin/git -C '/wt/g1' diff origin/main...HEAD") && bugP.includes('do not use gh')
     && !/Skill|against PR|gh pr/.test(bugP), bugP)
@@ -225,7 +227,7 @@ async function main() {
   check('review: round 1 with no blocking finding does not repair',
     byType(r.calls, 'todo-worker').length === 0 && r.result.results[0].repair === null
     && r.result.results[0].blocking.length === 0 && r.result.results[0].reviewers_ok, r.result)
-  r = await run('todo-review', { round: 1, prs: [pr()] }, (p, o) => (o.agentType === 'general-purpose' ? high
+  r = await run('todo-review', { round: 1, prs: [pr()] }, (p, o) => (o.agentType === 'todo-reviewer' ? high
     : o.agentType === 'todo-worker' ? worker({ status: 'blocked', blockers: 'needs the deps lane' }) : verdict('pass')))
   check('review: a blocked repair carries its blockers and is not verified',
     r.result.results[0].repair_blockers === 'needs the deps lane' && r.result.results[0].verdict === null
