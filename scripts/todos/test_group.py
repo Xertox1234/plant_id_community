@@ -139,6 +139,45 @@ def main():
         raised = str(exc)
     check("a dependency cycle aborts and names its todos", "1" in raised and "2" in raised, raised)
 
+    # Todo 468: todos that share a file are one group, so an acyclic chain through a third todo
+    # (B -> C -> A, A and B sharing x.py) used to become a group cycle and stop the whole plan.
+    shared = [t("121", ["x.py", "a.py"]), t("122", ["x.py", "b.py"], deps=["123"]), t("123", ["c.py"], deps=["121"]),
+              t("124", ["d.py"])]
+    try:
+        result, raised = group.plan(shared, open_ids={"121", "122", "123", "124"}, workers=3), ""
+    except group.CycleError as exc:
+        result, raised = None, str(exc)
+    check("468: shared-file todos with an acyclic chain through another todo plan without a cycle",
+          result is not None, raised)
+    if result is not None:
+        check("468: the todos on the would-be group cycle become one group (one worker, one PR)",
+              any(set(v["ids"]) == {"121", "122", "123"} for v in result["groups"].values())
+              and any(v["ids"] == ["124"] for v in result["groups"].values()), result["groups"])
+        check("468: the merged group has no dependency on itself", all(not v["deps"] for v in result["groups"].values()),
+              result["groups"])
+
+    # Todo 468: two todos converted from one review doc both tick its Finding Status and race the
+    # -COMPLETED rename, so the doc is a lane: never the same wave, never neighbouring waves.
+    doc = "docs/reviews/2026-05-07-1641-full-review.md"
+    reviewed = [t("131", ["r1.py"]) | {"source_review": doc}, t("132", ["r2.py"]) | {"source_review": doc},
+                t("133", ["r3.py"]) | {"source_review": "docs/reviews/other.md"}, t("134", ["r4.py"])]
+    result = group.plan(reviewed, open_ids=set(), workers=3)
+    check("468: two groups sourced from one review doc never share or neighbour a wave",
+          abs(wave_of(result, "131") - wave_of(result, "132")) >= 2, result["waves"])
+    check("468: a different review doc does not hold the lane", wave_of(result, "133") == 0, result["waves"])
+    g131 = next(v for v in result["groups"].values() if "131" in v["ids"])
+    check("468: the review-doc lane is named after the doc, and has a description for the brief",
+          g131["lanes"] == [f"review:{doc}"] and doc in group.lane_doc(f"review:{doc}"), g131)
+
+    # PR #869 round 1: most real source_review values are archived-todo paths or "PR #NNN", which
+    # Land never touches; only a docs/reviews/*.md doc is a lane, or the backlog is serialized.
+    shared_src = [t(str(140 + n), [f"s{n}.py"]) | {"source_review": "todos/archive/394-completed-p2-x.md"}
+                  for n in range(3)] + [t("144", ["s4.py"]) | {"source_review": "PR #812"},
+                                        t("145", ["s5.py"]) | {"source_review": "docs/reviews/../../x.md"}]
+    result = group.plan(shared_src, open_ids=set(), workers=3)
+    check("PR #869: a source_review outside docs/reviews/*.md is not a lane",
+          all(not v["lanes"] for v in result["groups"].values()) and len(result["waves"][0]) == 3, result)
+
     again = group.plan([t("1", ["a.py"]), t("2", ["b.py"])], open_ids=set(), workers=3)
     check("planning is deterministic", again == group.plan([t("1", ["a.py"]), t("2", ["b.py"])],
                                                            open_ids=set(), workers=3))
