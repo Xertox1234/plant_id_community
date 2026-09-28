@@ -27,9 +27,11 @@ const TRIAGE = {
 }
 
 const todos = (args && args.todos) || []
+// A fresh origin/main checkout: the main checkout can sit on another branch or behind (todo 468)
+const rootLine = args && args.root ? `root: ${args.root}\n` : ''
 phase('Triage')
 const results = await pipeline(todos, t =>
-  agent(`Triage todo ${t.id}.\nid: ${t.id}\npath: ${t.path}\nReturn the TRIAGE record.`,
+  agent(`Triage todo ${t.id}.\nid: ${t.id}\npath: ${t.path}\n${rootLine}Return the TRIAGE record.`,
     { label: `triage:${t.id}`, phase: 'Triage', agentType: 'todo-triager', schema: TRIAGE }))
 const records = results.map((r, i) => (r ? { ...r, id: todos[i].id } : null))
 const missing = todos.filter((t, i) => !records[i]).map(t => t.id)

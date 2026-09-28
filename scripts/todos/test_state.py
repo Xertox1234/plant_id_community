@@ -70,8 +70,9 @@ def main():
     state.transition(run, "412", "triaged")
     check("scanned -> triaged is allowed", run["todos"]["412"]["stage"] == "triaged")
     check("every non-terminal stage may block",
-          all("blocked" in targets for targets in state.ALLOWED.values()))
-    check("terminal stages have no exits", not (state.TERMINAL & set(state.ALLOWED)))
+          all("blocked" in targets for name, targets in state.ALLOWED.items() if name not in state.TERMINAL))
+    check("only blocked leaves a terminal stage, and only to ready",
+          state.TERMINAL & set(state.ALLOWED) == {"blocked"} and state.ALLOWED["blocked"] == {"ready"})
 
     walk = state.new_run("r2", "sweep", 3, [todo("1")], ["1"])
     for stage in ["triaged", "ready", "executing", "failed"]:
@@ -147,6 +148,38 @@ def main():
     state.transition(done, "1", "blocked", reason="x")
     check("is_complete when every todo is terminal", state.is_complete(done))
 
+    # todo 469: the pilot's 432 blocked on a missing .env; once #864 cleared it, nothing could re-brief it.
+    run = state.new_run("r7", "sweep", 3, [todo("1"), todo("2"), todo("3")], ["1", "2", "3"])
+    state.record_triage(run, [rec("1"), rec("2")])
+    state.accept_ready(run)
+    for stage, fields in [("executing", {}), ("blocked", {"reason": "no backend/.env"})]:
+        state.transition(run, "1", stage, **fields)
+    run["todos"]["1"].update(group="g1", worktree="/wt/g1", branch="worktree-g1", tree_id="T1")
+    run["unschedulable"]["1"] = "stale reason"
+    check("blocked -> ready needs a reason", raises(lambda: state.transition(run, "1", "ready")))
+    check("blocked -> blocked stays refused", raises(lambda: state.transition(run, "1", "blocked", reason="again")))
+    state.transition(run, "1", "ready", reason="blocker cleared by #864")
+    one = run["todos"]["1"]
+    check("blocked -> ready reopens the todo", one["stage"] == "ready" and one["reason"] == "blocker cleared by #864")
+    check("reopening drops the group so the todo is regrouped", "group" not in one)
+    check("the blocked attempt's worktree, branch and reason move to previous",
+          one["previous"] == [{"reason": "no backend/.env", "group": "g1", "worktree": "/wt/g1",
+                               "branch": "worktree-g1", "tree_id": "T1"}], one.get("previous"))
+    check("reopening does not spend the retry", one["attempts"] == 0)
+    check("reopening clears a stale unschedulable reason", "1" not in run["unschedulable"])
+    check("a reopened todo makes the run incomplete again", not state.is_complete(run))
+    state.transition(run, "2", "blocked", reason="review round 2", pr=870)
+    check("a blocked todo with a PR is not reopened",
+          raises(lambda: state.transition(run, "2", "ready", reason="fixed")) and run["todos"]["2"]["stage"] == "blocked")
+    state.transition(run, "3", "blocked", reason="set by hand")
+    check("a blocked todo with no triage record is not reopened",
+          raises(lambda: state.transition(run, "3", "ready", reason="fixed")))
+    run["todos"]["1"]["worktree"] = "/wt/g4"
+    run["todos"]["2"]["worktree"] = "/wt/g2"
+    run["todos"]["3"].update(stage="archived", worktree="/wt/g3")
+    check("worktrees lists every unarchived todo's worktrees, earlier attempts included (todo 468 F5)",
+          state.recorded_worktrees(run) == {"1": ["/wt/g4", "/wt/g1"], "2": ["/wt/g2"]}, state.recorded_worktrees(run))
+
     run = state.new_run("r6", "sweep", 3, [todo("1")], ["1"])
     state.transition(run, "1", "triaged")
     original_stage = run["todos"]["1"]["stage"]
@@ -164,6 +197,26 @@ def main():
                                 capture_output=True, text=True)
         check("CLI on a missing run file exits 2", result.returncode == 2)
         check("the error is reported as 'state: <message>'", result.stderr.startswith("state: "))
+
+        runfile = state.run_path(tmp, "r8")
+        state.save(state.new_run("r8", "sweep", 3, [todo("1")], ["1"]), runfile)
+        cli = [sys.executable, os.path.join(script_dir, "state.py"), "triage-args", str(runfile)]
+        plain = json.loads(subprocess.run(cli, capture_output=True, text=True).stdout)
+        rooted = json.loads(subprocess.run(cli + ["--root", tmp], capture_output=True, text=True).stdout)
+        check("triage-args adds no root unless asked", "root" not in plain and plain["todos"][0]["id"] == "1", plain)
+        check("triage-args --root passes an absolute origin/main tree to the triagers (todo 468)",
+              rooted["root"] == str(Path(tmp).resolve()), rooted)
+
+    # PR #868 round 1: a triager searching the root returns absolute paths; they keep their lanes.
+    run = state.new_run("r9", "sweep", 3, [todo("1")], ["1"])
+    root = Path("/scratch/triage-r9").resolve()
+    record = rec("1") | {"predicted_files": [f"{root}/backend/plant_community_backend/settings.py", "/elsewhere/x.py",
+                                             "web/src/a.ts"]}
+    state.record_triage(run, [record], root=str(root))
+    triaged = run["todos"]["1"]["triage"]
+    check("record_triage makes paths under the triage root repo-relative",
+          triaged["predicted_files"] == ["backend/plant_community_backend/settings.py", "web/src/a.ts"]
+          and triaged["dropped_files"] == ["/elsewhere/x.py"], triaged)
 
     print()
     if FAILURES:

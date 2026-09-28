@@ -79,6 +79,10 @@ async function main() {
   check('triage: one todo-triager per todo', byType(r.calls, 'todo-triager').length === 2)
   check('triage: record ids are forced to the input id', r.result.records[0].id === '1', r.result)
   check('triage: a dead agent is reported missing', r.result.missing.join() === '2', r.result)
+  check('triage: no root line unless a root is given', !byType(r.calls, 'todo-triager')[0].prompt.includes('root:'))
+  r = await run('todo-triage', { todos: [{ id: '1', path: 'a' }], root: '/scratch/triage-r' }, () => ({ class: 'ready' }))
+  check('triage: a root reaches every triager prompt (todo 468)',
+    byType(r.calls, 'todo-triager')[0].prompt.includes('\nroot: /scratch/triage-r\n'))
 
   // --- execute: pass first time
   r = await run('todo-execute', { run_id: 'r', briefs: [brief()] },

@@ -3785,7 +3785,7 @@ Write `docs/superpowers/specs/2026-09-27-todo-sweep-pilot-results.md` with one s
 
 - **P0** — a worker in a fresh worktree ran one backend test and one Vitest file with the §7.4 toolchain: quote `tests_run` from a WORKER record.
 - **P1** — `isolation: worktree` produced a checkout that includes `.claude/`: `/usr/bin/git -C <WT> ls-files .claude | head -3` and `ls <WT>/.claude/agents | head -3`.
-- **P2** — two slots ran pytest concurrently with no cross-talk: both WORKER `tests_run` include pytest, and `psql -d postgres -Atc "select datname from pg_database where datname like 'test_plant_community_w%'"` lists `…_w1` and `…_w2`.
+- **P2** — two slots ran pytest concurrently with no cross-talk: both WORKER `tests_run` include pytest, and `psql -d postgres -Atc "select datname from pg_database where datname like 'test_plant_community_w%'"`, **polled every 2 s while both runs are in flight**, lists `…_w1` and `…_w2` at the same time. (Corrected after the pilot, todo 469: pytest-django drops each test database at session end, so a query after the runs finds neither.)
 - **P3** — the verifier ran commands in the worker's worktree: VERDICT `commands_rerun > 0` and `tree_id_before == WORKER.tree_id`.
 - **P4** — the hook blocks worker commits: the transcript of the workflow shows no worker commit. Deliberately, dispatch `Agent(subagent_type: "todo-worker", prompt: "In <scratch git repo> run: git commit --allow-empty -m probe. Report the exact tool result.")` and quote the denial. Also confirm the main session could `git -C <WT> commit`, and could run `land.py` edits inside `.claude/worktrees/…` with `guard-main-branch-edit.sh` silent.
 - **P5** — `.worktreeinclude` delivered `backend/.env`: `test -f <WT>/backend/.env && echo present`.
@@ -3796,7 +3796,7 @@ Write `docs/superpowers/specs/2026-09-27-todo-sweep-pilot-results.md` with one s
 - **P10** — tools-restricted custom agents still return structured output: the first `todo-triage` run returns
   `records` (not every id under `missing`). A flood of nulls means StructuredOutput is unreachable for
   `tools: Read, Grep, Glob`. Fix it by adding `StructuredOutput` to the triager's `tools` line. Do not debug the triager.
-- **P9** — tree-hash detection works on a real worktree. Before Land, `/usr/bin/git -C <WT> write-tree` equals the recorded `tree_id`. Then `cp <WT>/<tracked file> $TMPDIR/p9.bak && echo >> <WT>/<tracked file> && /usr/bin/git -C <WT> status --porcelain --untracked-files=no` prints the file. Restore it with `cp $TMPDIR/p9.bak <WT>/<tracked file>` and confirm the porcelain output is empty again.
+- **P9** — tree-hash detection works on a real worktree (sandbox off: the workflow's worktree is no longer writable once it ends). Before Land, `/usr/bin/git -C <WT> write-tree` equals the recorded `tree_id`, and `/usr/bin/git -C <WT> status --porcelain --untracked-files=no > $TMPDIR/p9.base` records the baseline (never empty: the staged work is listed). Pick a tracked file with **no staged change**, then `cp <WT>/<file> $TMPDIR/p9.bak && echo >> <WT>/<file>`: porcelain now adds `<file>` with `M` in the second (worktree) column, and `write-tree` is unchanged, because it hashes the index. Restore with `cp $TMPDIR/p9.bak <WT>/<file>` and confirm porcelain equals `p9.base` again. (Corrected after the pilot, todo 469: detection needs both checks, which `ensure-worktree` runs.)
 
 - [ ] **Step 5: Gate**
 

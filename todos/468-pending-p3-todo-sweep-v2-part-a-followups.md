@@ -191,9 +191,9 @@ the spec):
       group's `review_round`, with a test.
 - [ ] Two groups sourced from one review doc never share or neighbour a wave,
       with a test.
-- [ ] Triage reads todos from an origin/main tree, and the Task 15 runbook
+- [x] Triage reads todos from an origin/main tree, and the Task 15 runbook
       says so.
-- [ ] Pilot P5 records whether `backend/.env` and `web/.env` reach a worker
+- [x] Pilot P5 records whether `backend/.env` and `web/.env` reach a worker
       worktree.
 - [ ] A failed tree check in `ensure-worktree` leaves no new worktree behind,
       or the wrap-up lists it.
@@ -208,7 +208,7 @@ the spec):
       with a test.
 - [ ] Review-stage reviewers run as a guarded agent type, or the decision
       not to is recorded here.
-- [ ] The Task 15 runbook text carries the three m12 carry-forwards.
+- [x] The Task 15 runbook text carries the three m12 carry-forwards.
 - [ ] The verifier either consumes `CLAIMED_TREE` or the prompt drops it,
       and the decision is recorded here.
 - [ ] The retry-on-null-verdict decision is recorded here.
@@ -223,9 +223,9 @@ the spec):
       test.
 - [ ] `fix/todo412`-style branch names count as in flight, or the decision
       not to is recorded here.
-- [ ] The Part B wrap-up lists every non-staged todo's recorded worktree
+- [x] The Part B wrap-up lists every non-staged todo's recorded worktree
       before `state.py finish`.
-- [ ] Spec §5.2 no longer says `status --porcelain` is empty after staging.
+- [x] Spec §5.2 no longer says `status --porcelain` is empty after staging.
 - [ ] `lanes_forbidden` includes the lanes of the previous wave while that
       wave is not merged, with a test.
 - [ ] A test with overlapping `.env` values fails when the masking sort is
@@ -233,7 +233,7 @@ the spec):
 - [ ] harness-ci's `push` paths include `.claude/agents/**`.
 - [ ] A worker cannot stage a `.worktreeinclude` path, even after it has
   edited `.gitignore`.
-- [ ] The Part B Land procedure runs `state.py ensure-worktree` before
+- [x] The Part B Land procedure runs `state.py ensure-worktree` before
   every commit and push.
 - [ ] The backstop's message names the real cause, and a `git mv` of a
   tracked ignored-pattern file is handled deliberately.
@@ -265,3 +265,26 @@ the spec):
 
 p3: none of these is reachable on today's backlog or in the first pilot.
 m12 and the triage-root item should land before Part B's first real sweep.
+
+### 2026-09-28 - Six criteria closed by Part B (branch feat/todo-sweep-v2-skills)
+
+- **Triage root.** `state.py triage-args --root <tree>` adds an absolute root,
+  `todo-triage.js` passes it as a `root:` line, and `todo-triager.md` reads the
+  todo and code under it. Checked by `test_state.py` and `test_workflows.js`
+  (`triage: a root reaches every triager prompt (todo 468)`). Stage A of the
+  runbook creates the origin/main tree before triage and passes `--root`.
+- **P5.** The pilot results table records both: "neither harness worktree had it …
+  `web/.env` still not delivered". The open part moves to todo 472.
+- **m12.** The runbook's Stage A triages an origin/main tree. Stage D step 7
+  rebases on origin/main before a push, stops the group on a non-mechanical
+  conflict, and re-records `tree_id` after a clean rebase so `ensure-worktree`
+  doesn't read it as lost work. The third item is a pilot record, not a runbook
+  step: the results doc's Stage B section has
+  `git -C <WT> merge-base HEAD origin/main` → `c478ea8d` (= origin/main).
+- **F5.** New `state.py worktrees RUN` lists every unarchived todo's recorded
+  worktree, including a reopened todo's earlier attempts. The wrap-up runs it before
+  `finish`, and `todo-resume` runs it before restart or discard.
+- **Spec §5.2** now says porcelain shows nothing in the worktree column; staged
+  entries are still listed.
+- **ensure-worktree.** Stage D step 1 runs it before the commit and step 8 before
+  the push (after any rebase); a Stage C repair runs it before its commit and again before its push.

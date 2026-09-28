@@ -3,99 +3,33 @@ name: todo-resume
 description: Resume, restart, or discard an interrupted todo run from its checkpoint file. Use when the user says "/todo-resume", "resume todos", "continue todo run", or "pick up where I left off".
 ---
 
-# Todo Resume — Interrupted Run Recovery
+# Todo Resume
 
-Detect and recover from a previous `todo-sweep`, `todo-batch`, or `todo-next` that was interrupted (killed process, IDE restart, user abort).
+1. `ls -1t todos/.sweep-run-*.json 2>/dev/null | head -1` → RUN. If none but a v1
+   `todos/.completing-todos-run-*.json` exists: explain it's from the retired v1 skill and offer
+   **discard** only. Old `in_progress` todos are picked up by the next scan as stranded.
+2. `python3 scripts/todos/state.py show $RUN` shows the todos per stage, and
+   `python3 scripts/todos/state.py worktrees $RUN` shows where their staged work is. Ask: resume / restart / discard.
+3. **resume**: re-enter `completing-todos` at the earliest stage anything is in:
+   - `scanned` → Stage A (triage) for those todos
+   - `triaged` → Decide
+   - `ready` with no group → `state.py group`; with a group → Stage B for its wave
+   - `executing` → the execute workflow was lost. In the same session, `Workflow({scriptPath, resumeFromRunId})`
+     if you have its run id. Otherwise `state.py set $RUN <id> failed --field reason="execute workflow lost"`
+     then retry it once.
+   - `verified` → Stage D (Land)
+   - `pr_open` → Stage C, at round `review_round + 1`. When `review_round` is 1, a round-1 repair may not
+     have reached the PR yet. The reviewers read the local worktree, but auto-merge ships the remote
+     branch. So before round 2, run `ensure-worktree` (sandbox off), then:
+     - if `/usr/bin/git -C $WT diff --cached --quiet` exits non-zero, the repair is still staged. Finish Stage C's
+       `repair-staged` commit, `ensure-worktree` and push.
+     - if `/usr/bin/git -C $WT rev-parse HEAD` differs from the SHA in `/usr/bin/git -C $WT ls-remote origin <branch>`,
+       the repair was committed but never pushed. Run `ensure-worktree`, then push.
 
-## Steps
-
-1. **Scan for checkpoints**
-
-   ```bash
-   ls -1t todos/.completing-todos-run-*.json 2>/dev/null
-   ```
-
-   - If **no files found**: report "No interrupted runs found. Start fresh with `/todo-next` or `/todo-sweep`." Exit.
-
-2. **Read the most recent checkpoint**
-
-   Parse the JSON. Extract:
-   - `run_id`
-   - `started_at`
-   - `plan` (array of issue_ids)
-   - `completed` (array)
-   - `skipped` (array)
-   - `aborted_at` (ISO timestamp or null)
-   - `filter_flags` (array of strings, e.g., `["--priority", "p3"]`)
-
-3. **Compute progress**
-
-   ```text
-   total = len(plan)
-   done = len(completed) + len(skipped)
-   remaining = [id for id in plan if id not in completed and id not in skipped]
-   next_up = remaining[0] if remaining else none
-   ```
-
-4. **Present status**
-
-   ```text
-   Interrupted Run Found
-   =======================
-   Run ID: <run_id>
-   Started: <started_at>
-   Status: <done>/<total> complete, <len(remaining)> remaining
-
-   Completed: <list or "none">
-   Skipped:   <list or "none">
-   Remaining: <list>
-
-   Next up: <next_up> [<priority>] <title>
-   Original filter: <filter_flags or "none">
-   ```
-
-5. **Prompt for action**
-
-   ```text
-   Choose: (resume / restart / discard / inspect)
-   ```
-
-   - **`resume`** → skip all ids in `completed` and `skipped`; invoke `completing-todos` starting at `next_up` with the same `filter_flags`.
-   - **`restart`** → delete the checkpoint file (`rm todos/.completing-todos-run-<run_id>.json`), then behave as if the user invoked the **original workflow** (`todo-sweep`, `todo-batch`, or `todo-next`) with the same filter_flags. Re-run from Phase 0 (full re-discovery and confirmation).
-   - **`discard`** → delete the checkpoint file. Ask: "Also reset any `in_progress` todos to `pending`? (yes / no)". On `yes`, for each file matching `todos/*-in_progress-*.md`, rename it back to `*-pending-*` and flip frontmatter `status: in_progress` → `status: pending`.
-   - **`inspect`** → read the checkpoint JSON in full, show the Work Log entries of the most recently completed todo, then return to step 5.
-
-6. **On `resume` — Delegate to `completing-todos` skill**
-
-   Construct the invocation: include `filter_flags` plus a mechanism to start at `next_up`. If the skill does not natively support resume-from-id, present the plan for the remaining todos and let the user confirm a normal `--ids` invocation on the remaining set.
-
-   Announce: "Resuming run <run_id> from todo <next_up>."
-
-7. **On `restart` — Clean start**
-
-   Delete checkpoint, then:
-   - If `filter_flags` was empty → invoke `todo-sweep` workflow.
-   - If `filter_flags` contained `--priority`, `--tag`, or `--ids` → invoke `todo-batch` workflow with those flags.
-   - If `filter_flags` contained `--ids` with exactly one id → invoke `todo-next` workflow.
-
-8. **Post-flight — Clean up checkpoint**
-
-   After the resumed/restarted run reaches Phase 2 (all remaining todos in terminal state):
-
-   ```bash
-   rm -f todos/.completing-todos-run-<run_id>.json
-   ```
-
-   Confirm: "Checkpoint cleaned up. Run fully resolved."
-
-## Edge Cases
-
-- **Multiple checkpoints**: Always use the most recently modified (`ls -1t`). If the user wants an older one, they must rename or delete newer ones manually.
-- **All todos completed but checkpoint remains**: On detection, report "Run <run_id> appears fully complete but checkpoint was not cleaned up." Offer to delete the stale checkpoint.
-- **`in_progress` todo not in checkpoint plan**: This means a todo was started outside the skill. Warn: "Todo `<id>` is in_progress but not tracked by any checkpoint. Manual intervention recommended."
-
-## Safety Notes
-
-- `discard` with reset is **destructive to state** (renames files, flips frontmatter). Always confirm before executing.
-- Never delete or move archived todos during recovery.
-- If a `git mv` step from a previous run left the repo in an odd state (e.g., staged rename without commit), warn the user to `git status` before proceeding.
+     When `review_round` is 0 and the round-1 output was never ingested, run `ingest-review --round 1`
+     on it first, if its task output file still exists; otherwise rerun round 1.
+   - `reviewed` / `merged` → merge confirmation and cleanup
+   - `blocked` → report each reason. One whose blocker has since cleared is reopened as in Stage B step 5.
+4. **restart**: list `state.py worktrees $RUN` in your reply, delete RUN (confirm first), then re-run the original selector.
+5. **discard**: list `state.py worktrees $RUN` in your reply, delete RUN (confirm first). No todo file on `main`
+   changes: v2 never leaves a todo `in_progress` on `main`, so there's nothing to reset.

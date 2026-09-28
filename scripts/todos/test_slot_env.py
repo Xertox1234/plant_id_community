@@ -161,6 +161,21 @@ def main():
         check("a worktree without backend/.env runs with the main checkout's values",
               out.stdout.split() == ["bar", "postgres://h/plant_community_w1"], (out.stdout, out.stderr))
 
+        # todo 469: a copy outside the worktree (this checkout's) is pointed at it explicitly.
+        this_copy = [sys.executable, str(Path(__file__).with_name("slot_env.py"))]
+        out = subprocess.run(
+            this_copy + ["--worktree", str(wt), "2", "--", sys.executable, "-c",
+                         "import os; print(os.environ.get('FOO'), os.environ['PYTHONPATH'].split(os.pathsep)[0])"],
+            capture_output=True, text=True, env={k: v for k, v in os.environ.items()
+                                                 if k not in ("FOO", "DATABASE_URL", "PYTHONPATH")})
+        check("--worktree uses that worktree's forum package and its main checkout's .env",
+              out.stdout.split() == ["bar", str(wt.resolve() / "backend" / "packages" / "wagtail_forum")],
+              (out.stdout, out.stderr))
+        out = subprocess.run(this_copy + ["--worktree", str(Path(tmp) / "missing"), "1", "--", "true"],
+                             capture_output=True, text=True)
+        check("--worktree naming no directory exits 2", out.returncode == 2 and "not a directory" in out.stderr,
+              (out.returncode, out.stderr))
+
     print()
     if FAILURES:
         print(f"FAILED: {len(FAILURES)} check(s): {', '.join(FAILURES)}")

@@ -1,340 +1,203 @@
 ---
 name: completing-todos
-description: Work through pending todo files in todos/ — one, many, or all. Drives each through implementation → verification → code review → archival. Use when the user says "complete the pending todos", "clear todos", "finish todo NNN", or invokes /completing-todos.
+description: The todo engine. Drives selected todos through scan, triage, one batch of owner decisions, parallel implementation in worktrees, independent verification, a two-round review, and a merged PR that archives each todo. Invoked by todo-sweep, todo-batch and todo-next, or directly — "finish todo NNN", "complete the pending todos", /completing-todos.
 ---
 
-# Completing Todos
+# Completing Todos — the engine (todo sweep v2)
+
+**Announce:** "I'm using the completing-todos engine (todo sweep v2)."
 
-Drive `status: pending` todo files in `todos/` through implementation, verification, code review, and archival. Reuse `code-review-orchestrator` for the review step; never reimplement its routing.
-
-**Announce at start:** "I'm using the completing-todos skill to work through pending todos."
-
-## Trigger phrases
-
-- `/completing-todos`
-- "complete the pending todos"
-- "work through the todos"
-- "clear all todos"
-- "finish todo NNN" (single-todo mode — parse `NNN` and treat as `--ids NNN`)
-
-## Filter flags
-
-Parsed from the user's invocation message:
-
-- `--priority p1` — restrict to one priority (default: all)
-- `--ids 050,052,056` — restrict to specific issue_ids
-- `--skip 053,054` — exclude specific issue_ids
-- `--dry-run` — print the plan and per-todo prompts; touch nothing
-
-Natural-language id references ("finish todo 050", "do 052 and 056") normalize to the equivalent `--ids` flag during Phase 0.
-
-## Workflow
-
-The skill runs in three phases. Phase 0 confirms scope. Phase 1 loops per todo. Phase 2 wraps up.
-
-## Phases
-
-### Phase 0 — Scope Confirmation
-
-1. **Generate a `run_id`** for this invocation:
-
-   ```bash
-   date -u +"%Y-%m-%d-%H%M"
-   ```
-
-2. **Check for an interrupted run.** Glob:
-
-   ```bash
-   ls -1 todos/.completing-todos-run-*.json 2>/dev/null
-   ```
-
-   If one or more matches exist, read the most recent and follow the **Resumability** section below; do NOT continue with steps 3–8.
-
-3. **Discover candidates:**
-
-   ```bash
-   grep -l "^status: pending" todos/*.md | grep -v -E '/(TEMPLATE|README)\.md$' | sort
-   ```
-
-4. **Parse each candidate's frontmatter** (`priority`, `issue_id`, `dependencies`) and title (the first `#` line of the file).
-
-5. **Apply filter flags** parsed from the user's invocation message:
-   - `--priority pX` — keep only matching priority
-   - `--ids A,B,C` — keep only matching issue_ids (also accept natural-language: "finish todo 050" → `--ids 050`)
-   - `--skip A,B` — exclude matching issue_ids
-   - `--dry-run` — set a flag consulted in Phase 1 (no file mutations, no agent dispatches; just print what each step would do)
-
-6. **Order:** sort by priority ascending (p1 first), then dependency-respecting topological sort within each priority. If a dependency cycle is detected, **abort** with the cycle printed; do not silently break it.
-
-7. **Print the plan and prompt for confirmation:**
-
-   ```text
-   Completing N todos sequentially [DRY-RUN]:
-     1. 050 [p1] Make Flutter App Buildable From a Fresh Checkout
-     2. 052 [p2] CI toolchain drift
-     ...
-   Skipped: 053 (--skip), 055 (--priority p2)
-   Run id: 2026-05-07-1430
-   Proceed? (yes / edit / cancel)
-   ```
-
-   On `edit`, accept a refined filter and re-plan from step 5. On `cancel`, exit without touching anything.
-
-8. **Write the initial checkpoint** (skip if `--dry-run`):
-
-   ```json
-   {
-     "run_id": "<id>",
-     "started_at": "<ISO>",
-     "plan": ["050", "052", "056"],
-     "completed": [],
-     "skipped": [],
-     "aborted_at": null,
-     "filter_flags": ["--skip", "053"]
-   }
-   ```
-
-   Path: `todos/.completing-todos-run-<run_id>.json`. Use Write.
-
-Proceed to Phase 1.
-
-### Phase 1 — Per-Todo Loop
-
-For each todo in the planned order:
-
-#### Step 1 — Mark in-progress
-
-This step is atomic from the user's perspective: any failure leaves the file in `pending` state.
-
-1. Edit the file's frontmatter: `status: pending` → `status: in_progress`.
-2. Rename the file with `git mv`:
-
-   ```bash
-   git mv todos/050-pending-p1-flutter-fresh-checkout-build.md \
-          todos/050-in_progress-p1-flutter-fresh-checkout-build.md
-   ```
-
-3. Append a Work Log entry to the renamed file:
-
-   ```markdown
-   ### YYYY-MM-DD - Started by completing-todos skill (run <run_id>)
-
-   - Picked up by automated workflow.
-   ```
-
-4. If `--dry-run`: print what each of the above would do; do not execute.
-
-#### Step 2 — Implement or verify
-
-1. Read the **Recommended Action** and **Technical Details** sections.
-2. **Verify-only path:** if every `- [ ]` in Acceptance Criteria is already `- [x]` AND `git diff --quiet HEAD -- <paths-from-Technical-Details>` returns 0 (no diff), skip implementation and proceed to Step 3 to re-confirm. State this explicitly in the Work Log: `Detected verify-only state — no implementation work needed.`
-3. **Implementation path:** otherwise, perform the work described. Use TodoWrite to track sub-steps. Delegate substantial or specialized work to subagents:
-   - `Explore` for searching the codebase
-   - `frontend-developer` for React UI work
-   - `wagtail-cms-orchestrator` for CMS data flow / Wagtail page work
-   - `general-purpose` as a fallback for cross-cutting research or multi-step work
-
-   The skill itself owns orchestration; subagents do the actual implementation. Always read the relevant pattern docs under `backend/docs/patterns/`, `web/docs/patterns/`, or `plant_community_mobile/docs/patterns/` before writing new code in those areas.
-4. If `--dry-run`: do not invoke any subagent or write any file; print the planned subagent dispatches and pattern docs that would be consulted, then continue to Step 3.
-
-#### Step 3 — Verification gate
-
-Per [verification-before-completion](https://github.com/anthropic-experimental/claude-superpowers): every `- [ ]` in Acceptance Criteria must flip to `- [x]` only when backed by quoted command output captured in the Work Log.
-
-1. For each unchecked item in Acceptance Criteria:
-   - Run the exact command implied by the criterion (test command, build command, type-check, etc.).
-   - Capture the output.
-   - If the output proves the criterion holds, flip `- [ ]` to `- [x]` and quote the relevant lines in the Work Log.
-   - If the output does NOT prove the criterion: do not flip the box. Continue to the failure handling below.
-2. **Failure handling:** if any criterion cannot be flipped, pause and ask:
-
-   ```text
-   Acceptance criterion failed for todo NNN:
-     <criterion text>
-   Last command: <command>
-   Output:
-     <relevant lines>
-   Choose: (retry / skip-todo / abort-run)
-   ```
-
-   - `retry` — re-run after the user fixes the underlying issue.
-   - `skip-todo` — do NOT mark complete. Add this id to `skipped` in the checkpoint, append a Work Log entry explaining why, leave the file in `in_progress` state with its filename also `in_progress`. Continue to the next todo.
-   - `abort-run` — stop the loop, jump to Phase 2.
-3. If `--dry-run`: print the commands that would run, do not execute them, do not flip any boxes.
-
-#### Step 4 — Code review
-
-1. Compute the changed file list:
-
-   ```bash
-   git diff --name-only HEAD
-   ```
-
-2. Dispatch the `code-review-orchestrator` agent via the Task tool with this prompt:
-
-   ```text
-   Review the following changes for todo NNN: <todo title>.
-   Changed files:
-     - <path 1>
-     - <path 2>
-   Return findings in your standard JSON shape.
-   ```
-
-3. **Severity policy:**
-   - `critical` or `high` — block. Print the findings and ask:
-
-     ```text
-     Code review surfaced N blocking findings for todo NNN:
-       [critical] <file>:<line> — <description>
-       [high]     <file>:<line> — <description>
-     Choose: (repair / accept-and-continue / abort-run)
-     ```
-
-   - `medium` or below — list in the Work Log under a `Known issues` subsection; do not block.
-4. **On `repair`:** re-dispatch the *same domain reviewer that surfaced each blocking finding* via the Task tool, one invocation per file, with this prompt:
-
-   ```text
-   Repair the following findings in this file:
-   File: <path>
-   Findings:
-     - line <N>: <description>  (suggested_fix: <text or "—">)
-     - line <M>: <description>
-   Return JSON: {"file": "...", "edits": [{"old_string": "...", "new_string": "..."}], "unrepaired": [...]}
-   ```
-
-   Apply each returned `edit` via the Edit tool. Re-run Step 3 (verification gate) on the repaired files. After repair completes, **exit the loop** so the user can review the diff before further todos run. Append a Work Log entry naming each finding repaired and any left in `unrepaired`.
-5. **On `accept-and-continue`:** record each unaddressed blocking finding in the Work Log under `Known issues — accepted at completion`. Do not silently drop them.
-6. **On `abort-run`:** stop the loop, jump to Phase 2.
-7. If `--dry-run`: print the orchestrator dispatch prompt and stop; do not actually invoke the orchestrator.
-
-#### Step 5 — Archive
-
-0. **Pre-flight.** Count bare `- [ ]` lines in the todo. If any remain, either flip it to `- [x]` with evidence or rewrite it as a re-point naming a target todo (Safety Rail 4). If a criterion was an external verification, confirm the date and observed result are in the file (Safety Rail 5). Do not proceed otherwise — `scripts/check_archived_todo_status.py` will fail the PR, and unlike this instruction it reaches every worktree.
-
-1. Edit the file's frontmatter: `status: in_progress` → `status: completed`.
-2. Append a Work Log entry:
-
-   ```markdown
-   ### YYYY-MM-DD - Completed by completing-todos skill (run <run_id>)
-
-   - Verification: <one-line summary, e.g., "all 5 acceptance criteria passed">.
-   - Review: <N findings total, M blocking — addressed via repair / accepted / none>.
-   ```
-
-3. Rename and move with `git mv`. **The filename's status segment must match the frontmatter status** — `todos/TEMPLATE.md` states this and `check_archived_todo_status.py` enforces it. Note that renaming a file makes any `.secrets.baseline` entry keyed to its old path stale, which blocks the commit; fix that with a filename-only edit to the baseline, never a regeneration.
-
-   ```bash
-   git mv todos/050-in_progress-p1-flutter-fresh-checkout-build.md \
-          todos/archive/050-completed-p1-flutter-fresh-checkout-build.md
-   ```
-
-4. **Check off the source review finding** (if `source_review` and `source_finding` are in the todo's frontmatter):
-   - Read the file at `source_review`.
-   - In the `## Finding Status` section, find the line matching `- [ ] #<source_finding>`.
-   - Replace it with `- [x] #<source_finding> (completed YYYY-MM-DD)` using Edit.
-   - Count remaining `- [ ]` lines in the `## Finding Status` section.
-   - If **zero remain**, rename the review doc:
-
-     ```bash
-     git mv <source_review_path> <source_review_path_without_.md>-COMPLETED.md
-     ```
-
-     Append to the Work Log: "Source review doc `<path>` renamed to COMPLETED — all findings resolved."
-   - If `--dry-run`: print the planned Edit and optional `git mv`; do not execute.
-5. Update the checkpoint: append the issue_id to `completed[]`, write the file back.
-6. If `--dry-run`: print the planned frontmatter edit, Work Log entry, and `git mv` command; do not execute any of them.
-
-Proceed to the next todo in the plan, or to Phase 2 if this was the last.
-
-### Phase 2 — Wrap-Up
-
-After the per-todo loop ends (cleanly, by user `abort-run`, or by an unrecoverable error):
-
-1. **Print the run summary:**
-
-   ```text
-   Run <run_id> finished.
-     Completed: 050, 052, 056
-     Skipped:   054 (verification failed: flutter analyze)
-     Aborted:   none
-   Files moved to todos/archive/. No commits made.
-   Suggested next step: review `git status`, then commit per todo or as a batch.
-   ```
-
-2. **Delete the checkpoint** if every planned id reached a terminal state (in `completed` or `skipped`). Keep it otherwise so the next invocation can resume.
-
-   ```bash
-   rm -f todos/.completing-todos-run-<run_id>.json
-   ```
-
-3. **Never run `git commit`.** The skill exits here.
-
-## Resumability
-
-A `run_id` (`YYYY-MM-DD-HHMM`) is assigned in Phase 0. The checkpoint file `todos/.completing-todos-run-<run_id>.json` carries plan + progress so a long run can resume.
-
-Checkpoint shape:
-
-```json
-{
-  "run_id": "2026-05-07-1430",
-  "started_at": "2026-05-07T14:30:00Z",
-  "plan": ["050", "052", "056", "054"],
-  "completed": ["050", "052"],
-  "skipped": [],
-  "aborted_at": null,
-  "filter_flags": ["--skip", "053"]
-}
-```
-
-When Phase 0 detects an existing checkpoint:
-
-```text
-Found in-progress run <run_id> (2/4 complete).
-Plan: 050 ✓, 052 ✓, 056 (next), 054
-Resume? (yes / restart / discard)
-```
-
-- `yes` → skip every id in `completed` and `skipped`; resume Phase 1 at the next planned id.
-- `restart` → delete the checkpoint, return to Phase 0 step 3.
-- `discard` → delete the checkpoint, exit immediately.
-
-Update the checkpoint after every per-todo terminal state (completed or skipped), using Write to overwrite (last writer wins; the checkpoint always reflects cumulative state).
-
-## Safety Rails
-
-These are non-negotiable. They override any in-the-moment judgment to "just push through".
-
-1. **Never auto-commit.** The skill never runs `git commit`. Phase 2 explicitly tells the user to commit.
-2. **Sequential by default.** A `--parallel N` flag is reserved for future work; do NOT implement it in v1. Todos can collide on shared files; serialization is the safe default.
-3. **One-time confirmation before the first file move.** After Phase 0 confirmation, before the first `git mv` of the run, prompt once:
-
-   ```text
-   About to rename + move N files via git mv across this run. Working directory: <pwd>. Continue? (yes / cancel)
-   ```
-
-   Skip this prompt if `--dry-run`.
-4. **Acceptance criteria are gospel.** A todo cannot be marked `completed` unless every `- [ ]` is flipped to `- [x]` with verification evidence quoted in the Work Log. There is no `--force-complete`.
-
-   **The one exception is a re-point, and it must name a target.** If a criterion moved rather than shipped, leave it `- [ ]` and rewrite it to say where it went — the same convention CLAUDE.md states for review findings:
-
-   ```markdown
-   - [ ] Wire the export button → todo 283 (re-pointed 2026-07-26; promoted out of 263)
-   ```
-
-   Checking off a merely-relocated criterion falsifies the record, and nobody re-audits a checked box.
-
-   **This rail is now enforced, not advised.** `scripts/check_archived_todo_status.py` fails CI when a todo under `archive/` has a bare unchecked criterion, or a non-terminal `status:`. It runs on every PR via `.github/workflows/harness-ci.yml`. This text said the same thing before the checker existed and 62 archived todos carry unchecked criteria anyway — which is the whole argument for the checker: a rule that lives only in `.claude/` reaches only NEW worktrees, and a rule nothing measures is a preference.
-
-5. **An external verification must leave evidence in the file.** If a criterion can only be settled outside the repo — a key rotated at a vendor, a DNS record, a dashboard setting, a store submission — then before archiving, the criterion line or the Work Log must carry **the date and the observed result**, quoted:
-
-   ```markdown
-   - [x] Plant.id key rotated — 2026-09-13: GET plant.id/api/v3/usage_info with the
-         old literal returns HTTP 401 "api key is not active"; the new key returns
-         200 / active: true
-   ```
-
-   "Verified" with no date and no observation is not evidence. This is the exact shape that failed: `todos/archive/005-superseded-p1-api-key-rotation-verification.md` existed only to confirm a rotation, was archived with its rotation date left as the literal template `[DATE]`, and eleven months later a key from that same incident was still live in the public repo. An external verification leaves no artifact in the tree, so the file is the only record there will ever be.
-6. **No destructive recovery.** If `git mv` or any other step fails mid-todo, stop the loop and leave state as-is for the user to inspect. Do not roll back, do not delete, do not retry silently.
-7. **Stop on review block.** If `code-review-orchestrator` returns `critical`/`high` and the user chooses `repair`, exit the loop after that todo so the user can inspect the diff before the next todo starts.
-8. **Checkpoint integrity.** Update the checkpoint after every per-todo terminal state (completed or skipped), not at the end of the run. A killed process must be resumable from the last completed todo.
+Design: `docs/superpowers/specs/2026-09-27-todo-sweep-multi-agent-design.md`. Pilot evidence:
+`docs/superpowers/specs/2026-09-27-todo-sweep-pilot-results.md`. This file is the main-session
+runbook. `scripts/todos/*.py` own every state change and file edit. The named workflows
+`todo-triage`, `todo-execute` and `todo-review` own the fan-out. Running them is sanctioned: the user invoked a
+skill whose instructions call Workflow.
+
+**Stay lean.** Hold only records and `--stat` output. Never read a worker's diff, evidence files, or
+a workflow transcript in full. The scripts read the workflow task output files for you.
+
+**Retired rails** (spec §4.1, 2026-09-27). "Never auto-commit" and "`--parallel` reserved" are replaced
+by: one committer (this session), workflows never commit (hook-enforced), and one merged PR per todo group.
+
+## Inputs
+
+From the selector skill: `selector` (sweep | batch | next); filters `--priority`, `--ids`, `--tag`,
+`--exclude-ids`; `--workers N` (1–3, default 3; next forces 1); `--limit N` (groups this run);
+`--retriage`; `--dry-run`. "finish todo NNN" means `batch --ids NNN --workers 1`.
+
+Names used below: `REPO` = the main checkout root; `RUN_ID` = `date -u +%Y-%m-%d-%H%M`;
+`RUN` = `REPO/todos/.sweep-run-$RUN_ID.json`; `SCRATCH` = the session scratchpad; `TODAY` = `date +%Y-%m-%d`;
+`TRIAGE_WT` = `$SCRATCH/triage-$RUN_ID`. Run scripts from REPO with absolute paths. Use `/usr/bin/git`
+(rtk hides pre-commit failures).
+
+## Sandbox
+
+The spec §11 settings are applied: `gh`, `git push` and the kimi gate run sandboxed. Never `push -u`:
+the upstream write to `.git/config` is denied. Workers' pytest reaches Postgres and Redis over the Unix
+sockets in `sandbox.network.allowUnixSockets` through `slot_env.py` (spec §7.3), so no worker or verifier
+needs the sandbox off. A worker that blocks on "no database" means a socket is missing:
+`ls /tmp/.s.PGSQL.5432 /tmp/redis.sock`.
+
+**Sandbox-off steps** (pilot, 2026-09-28). `todo-execute` creates each group's worktree under
+`REPO/.claude/worktrees/`. The sandbox allows writes there only while that workflow runs. Once it
+finishes, run these steps with the sandbox off, and no others:
+
+- Stage D steps 1–8 and a Stage C repair commit: `ensure-worktree`, `land.py`, `git add`,
+  `git branch -m`, `git commit` and a rebase in `$WT`.
+- Cleanup: `git worktree remove $WT`, then `git worktree prune`.
+
+A step that fails for any other reason is not a sandbox problem; stop and report it.
+
+## Stage 0 — Scan
+
+1. `git worktree list` — a peer session may hold todos; scan excludes them, but say so.
+2. `python3 scripts/todos/scan.py --selector <s> --run-id $RUN_ID [filters] --workers N [--retriage] --dry-run`
+3. Show the plan (Selected / Excluded with reasons / cleanup candidates). If `--dry-run`, stop.
+   Otherwise ask once: proceed / cancel.
+4. Re-run the same command without `--dry-run` → writes RUN.
+   An old `todos/.completing-todos-run-*.json` is from the v1 skill: point the user to `todo-resume`.
+
+## Stage A — Triage
+
+Triage reads a fresh origin/main tree, never REPO: the main checkout can sit on another branch or
+behind origin/main (todo 468).
+
+1. `/usr/bin/git -C REPO fetch origin main`, then
+   `/usr/bin/git -C REPO worktree add --no-track -b chore/todo-triage-$RUN_ID $TRIAGE_WT origin/main`.
+   For selector `next`, use `--detach` instead of `--no-track -b …`; there is no triage PR.
+   (`--no-track`: without it git writes upstream config to `.git/config`, which the sandbox denies.)
+2. `python3 scripts/todos/state.py triage-args $RUN --root $TRIAGE_WT` → `{"todos": […], "root": …}`.
+3. `Workflow({name: "todo-triage", args: <that object>})`. Wait for the notification.
+4. `python3 scripts/todos/state.py record-triage $RUN --output <task output file> --root $TRIAGE_WT`
+   (`--root` turns a triager's absolute `$TRIAGE_WT/…` paths back into repo-relative ones, which the lanes need)
+5. `python3 scripts/todos/state.py accept-ready $RUN`
+6. `python3 scripts/todos/state.py questions $RUN`
+
+## Decide — one batch of owner questions
+
+Ask every question from step 6 in as few AskUserQuestion calls as possible (≤ 4 per call). Never
+answer one yourself. Record each answer with `python3 scripts/todos/state.py decide $RUN <id> <outcome> [flags]`:
+
+| Class / situation | Options to offer | Record |
+|---|---|---|
+| `ready` with a question | the question's options | `ready --decision "<answer> ($TODAY)"` |
+| `blocked-*`, `needs-design` | "Unblocked: …" / "Still blocked" / "Skip this run" | `ready --decision …` / `blocked --decision "<why>"` / `skipped` |
+| `already-done` | "Archive as done (verify only)" / "Not done" | `ready --verify-only` / `ready` |
+| `stale` | "Supersede" / "Keep" | Supersede: re-point each open criterion (`→ todo NNN (re-pointed $TODAY)`) and archive the todo as `superseded` inside the triage PR, then `skipped --decision "superseded: …"`. Keep: `blocked --decision …` |
+| stranded (`in_progress`, nothing in flight) | "Reset to pending" / "Leave it" | `ready --reset-stranded` / `blocked --decision …` |
+| `needs-research` | none needed | `ready` (a planner runs first) |
+
+## Triage PR (skip for selector `next`)
+
+1. `python3 scripts/todos/state.py apply-triage $RUN --repo $TRIAGE_WT --today $TODAY`.
+   Only **after** this, do the `stale` → supersede edits and moves from Decide. `apply-triage` writes to each
+   todo's current path, so a todo moved first makes it fail.
+2. `/usr/bin/git -C $TRIAGE_WT add todos` → `git diff --cached --stat` must list only `todos/`
+   → commit `chore(todos): triage run $RUN_ID` → `git push origin chore/todo-triage-$RUN_ID`
+   → `gh pr create` → `gh pr merge --auto --squash --delete-branch`.
+3. Execute does not start until `gh pr view <n> --json state` says `MERGED`. Then `git -C REPO fetch origin main`
+   and `git -C REPO worktree remove $TRIAGE_WT`.
+
+For `next`: remove the detached `$TRIAGE_WT` once Decide is done. Run step 1 with `--repo <the worker's worktree>`
+during Land, before `land.py`, and commit it with the todo.
+
+## Group
+
+`python3 scripts/todos/state.py group $RUN` → waves and unschedulable todos (blocked with reasons).
+With `--limit N`, execute only the first ⌈N / workers⌉ waves and list the deferred groups in the summary.
+
+## Stage B — Execute (per wave W, in order)
+
+1. `python3 scripts/todos/state.py execute-args $RUN --wave W --main-root REPO` → `{run_id, briefs}`.
+   It refuses while wave W−1 is still executing or wave W−2 is not merged. Then Land those first.
+   An empty wave (`[]`) means wait for wave W−2 to merge, then move on.
+2. `Workflow({name: "todo-execute", args: <that object>})` runs in the background. Meanwhile, land wave W−1.
+3. On the notification: `python3 scripts/todos/state.py ingest-execute $RUN --output <task output file>`.
+4. `failed` todos: retry once in a later wave with `state.py set $RUN <id> ready`, then `state.py group $RUN`
+   (it appends new groups and waves). A second failure: `state.py set $RUN <id> blocked --field reason="…"`.
+5. `blocked` todos: report the blocker to the owner. When it is cleared (a fix merged, a decision made),
+   reopen the todo with `state.py set $RUN <id> ready --field reason="<what cleared it>"`, and also every
+   todo that execute-args blocked as `dependency <id> blocked`, transitively: in a chain A→B→C, C's reason
+   names B, not A. Then run `state.py group $RUN` **once**, after
+   all of them are reopened. A dependent that is grouped while its dependency is still blocked gets blocked again.
+   Reopening doesn't spend the retry. It is refused for a todo with a PR; fix that PR instead.
+   The blocked attempt's worktree stays under `previous` in RUN, and `state.py worktrees $RUN` lists it.
+
+## Stage D — Land (per `verified` group G of wave W, one at a time)
+
+Steps 1–8 run with the sandbox off (see **Sandbox**).
+
+1. `WT=$(python3 scripts/todos/state.py ensure-worktree $RUN G --scratch $SCRATCH/worktrees)`
+2. `/usr/bin/git -C $WT diff --cached --stat` — the only view of the change you take.
+3. For each todo id in G: `python3 scripts/todos/land.py flip-acs --run $RUN --id <id> --repo $WT --date $TODAY`.
+   If `remaining` has a criterion that is not a re-point, stop this group:
+   `state.py set-group $RUN G blocked --field reason="criteria not verified: …"`.
+4. For each todo id: `python3 scripts/todos/land.py archive --run $RUN --id <id> --repo $WT --date $TODAY`
+   → stage exactly its `paths`: `/usr/bin/git -C $WT add <paths…>` (after `git mv`, re-add the new path).
+5. Rename the branch to the repo convention: `/usr/bin/git -C $WT branch -m <type>/<id>-<slug>`, then
+   `state.py annotate $RUN G --field branch=<new>`.
+6. Commit the index only (never `-a`): `/usr/bin/git -C $WT commit -m "<type>(<scope>): <summary> (todo <id>)" -m "<2–4 bullets from the WORKER summary>" -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"`.
+   If the kimi gate prints `timed out; skipping gate`, record `kimi: skipped` (never "passed").
+7. Rebase when origin/main moved (spec §7.2): `/usr/bin/git -C $WT fetch origin main`; if
+   `/usr/bin/git -C $WT merge-base --is-ancestor origin/main HEAD` fails, `/usr/bin/git -C $WT rebase origin/main`.
+   A conflict outside `todos/` and append-only docs (`docs/LEARNINGS.md`, `docs/rules/*.md`) is not
+   mechanical: `git rebase --abort`, then `state.py set-group $RUN G blocked --field reason="rebase conflict: <paths>"`.
+   After a clean rebase, record the new tree, or the next `ensure-worktree` reads it as lost work:
+   `state.py annotate $RUN G --field tree_id=$(/usr/bin/git -C $WT write-tree)`.
+8. Re-run step 1 right before the push: `ensure-worktree` runs before every commit and every push.
+9. `/usr/bin/git -C $WT push origin <branch>` (no `-u`) → `gh pr create --head <branch> --title … --body …`. The body gives
+   the todo ids, the WORKER summary, verification counts, flagged test edits, the `kimi:` status and the Claude Code footer.
+   Then `state.py set-group $RUN G pr_open --field pr=<n>`.
+
+## Stage C — Review (per wave, after its PRs are open)
+
+1. `python3 scripts/todos/state.py review-args $RUN --round 1 --wave W` → `Workflow({name: "todo-review", args})`
+   → `python3 scripts/todos/state.py ingest-review $RUN --output <file> --round 1`.
+   - `clean` → round 2.
+   - `repair-staged` → `ensure-worktree`, `git -C $WT diff --cached --stat`, commit `fix: address review round 1 (todo <id>)`,
+     `ensure-worktree` again, push, then round 2.
+   - `rerun` → run round 1 again once. A second `rerun`: `set-group … blocked`.
+   - `blocked` → report it.
+2. Round 2: `review-args --round 2` → workflow → `ingest-review --round 2`. `clean` →
+   `gh pr merge <n> --auto --squash --delete-branch`. The round-2 reviewers read the full diff in fresh
+   contexts; that is the "review before arming" step. You read `--stat` and their verdicts only.
+   `blocked` → stop that PR and report it. When a group has `checklist_skipped`, add a PR comment saying the
+   checklist review could not run (`gh pr comment <n> --body …`), and list it in the wrap-up.
+3. Read each round's `ranges`. When one says `inline review` or `no Agent tool available`, the deep
+   `/code-review` pass did not run inside the workflow (pilot P8). The verdict still stands, but list the PR
+   in the wrap-up as "deep review fell back inline".
+4. Follow-ups: todos with `followups` get one follow-up todo file per PR (next free id, `p4`, the PR number
+   in its Findings), all committed together in a closing `chore(todos): follow-ups from run $RUN_ID` PR.
+
+## Merge confirmation and cleanup
+
+For each `reviewed` group: `gh pr view <n> --json state` → `MERGED` → `state.py set-group $RUN G merged`
+→ `/usr/bin/git -C REPO worktree remove $WT` (pushed and merged, so nothing is lost) → `state.py set-group $RUN G archived`.
+Both git steps run with the sandbox off. Finish with `/usr/bin/git -C REPO worktree prune`: in the sandbox,
+`worktree remove` deletes the directory but not `.git/worktrees/<name>`.
+
+## Wrap-up
+
+1. `python3 scripts/todos/state.py worktrees $RUN` lists every unarchived todo's recorded worktree,
+   earlier blocked attempts included. Put each in the summary. `finish` deletes RUN, and with it the only
+   record of where that staged work is.
+2. `python3 scripts/todos/state.py finish $RUN` removes the run file only when every todo is terminal.
+
+The summary lists: merged PRs, blocked todos with reasons, skipped todos, the worktrees from step 1,
+owner hand-offs (prod, device and vendor steps are never attempted), the `kimi: skipped` count,
+PRs whose deep review fell back inline, deferred groups (`--limit`), and the follow-ups PR.
+
+## Safety rails
+
+1. **Acceptance criteria are gospel.** A box flips only through `land.py flip-acs` (worker pass + verifier
+   agreement + evidence file). The only exception is a re-point naming a numbered target
+   (`→ todo NNN (re-pointed DATE)`). `scripts/check_archived_todo_status.py` enforces this in CI.
+2. **External verification leaves evidence in the file:** the date and the observed result, quoted.
+   "Verified" alone is not evidence.
+3. **No destructive recovery.** Never reset, force-push, delete or `git checkout --` to recover. Stop and report.
+4. **Two review rounds.** Round 2 never repairs; non-blocking findings become follow-up todos.
+5. **One committer.** Workflows never commit, push or call `gh`; `guard-todo-worker-git.sh` enforces it for
+   workers and verifiers.
+6. **Never read production.** A todo needing prod data is `blocked-prod` and an owner hand-off.
+7. **Only `state.py` writes the run file; stage names never go in `status:`.**
+8. **The sandbox goes off only for the steps listed under Sandbox.**

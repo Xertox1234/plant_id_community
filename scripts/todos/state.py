@@ -36,11 +36,16 @@ ALLOWED = {
 }
 for _targets in ALLOWED.values():
     _targets.add("blocked")  # spec §8: any non-terminal stage may block, with a reason
+# The one exit from a terminal stage (todo 469): the owner cleared the blocker. Added after the
+# loop above, so blocked -> blocked stays refused. blocked is still terminal for is_complete().
+ALLOWED["blocked"] = {"ready"}
 MAX_RETRIES = 1
 OUTCOMES = {"ready", "blocked", "skipped"}
 NOT_PLANNED = {"scanned", "triaged", "blocked", "skipped"}
 LANDED = {"merged", "archived"}
 WORK_FIELDS = ("worktree", "branch", "tree_id", "ac_file")
+# What a blocked attempt leaves on its entry; reopening moves it to `previous` (see _reopen).
+ATTEMPT_FIELDS = ("reason", "group", "slot", "wave", *WORK_FIELDS, "verified_ac", "test_edits", "review_round")
 
 
 class TransitionError(Exception):
@@ -96,9 +101,11 @@ def transition(run, todo_id, to, **fields):
     frm = entry["stage"]
     if to not in ALLOWED.get(frm, set()):
         raise TransitionError(f"{todo_id}: {frm} -> {to} is not allowed")
-    if to in {"blocked", "failed"} and not fields.get("reason"):
-        raise TransitionError(f"{todo_id}: {to} needs a reason")
-    if frm == "failed" and to == "ready":
+    if (to in {"blocked", "failed"} or frm == "blocked") and not fields.get("reason"):
+        raise TransitionError(f"{todo_id}: {frm} -> {to} needs a reason")
+    if frm == "blocked":
+        _reopen(run, todo_id, entry)
+    elif frm == "failed" and to == "ready":
         if entry["attempts"] >= MAX_RETRIES:
             raise TransitionError(f"{todo_id}: already retried once; block it with a reason")
         entry["attempts"] += 1
@@ -107,10 +114,37 @@ def transition(run, todo_id, to, **fields):
     entry.update(fields)
 
 
+def _reopen(run, todo_id, entry):
+    """blocked -> ready once the blocker is cleared (todo 469; the pilot's 432 had no way back).
+
+    Refused for a todo with a PR: the fix belongs on that PR, not in a second attempt. Refused
+    without a triage record, which regrouping needs. The blocked attempt's group, worktree,
+    branch and verdict move to `previous`, so its staged work stays findable while the todo is
+    regrouped like a retry. attempts is not spent: a cleared blocker is not a failed attempt.
+    """
+    if entry.get("pr"):
+        raise TransitionError(f"{todo_id}: PR #{entry['pr']} is open for it; fix it on that PR")
+    if not entry.get("triage"):
+        raise TransitionError(f"{todo_id}: no triage record to regroup from; triage it first")
+    entry.setdefault("previous", []).append({k: entry.pop(k) for k in ATTEMPT_FIELDS if k in entry})
+    run.get("unschedulable", {}).pop(todo_id, None)
+
+
 def summary(run):
     out = {}
     for todo_id, entry in sorted(run["todos"].items()):
         out.setdefault(entry["stage"], []).append(todo_id)
+    return out
+
+
+def recorded_worktrees(run):
+    """{todo id: [worktree, ...]} for every todo not archived, including a reopened todo's earlier
+    attempts -- `finish` deletes the run file, so the wrap-up lists these first (todo 468, F5)."""
+    out = {}
+    for todo_id, entry in sorted(run["todos"].items()):
+        paths = [p for p in [entry.get("worktree")] + [a.get("worktree") for a in entry.get("previous", [])] if p]
+        if paths and entry["stage"] != "archived":
+            out[todo_id] = list(dict.fromkeys(paths))
     return out
 
 
@@ -134,24 +168,29 @@ def triage_args(run):
     return [{"id": i, "path": e["path"]} for i, e in sorted(run["todos"].items()) if e["stage"] == "scanned"]
 
 
-def record_triage(run, records):
+def record_triage(run, records, root=None):
     for record in records:
         if record["id"] not in run["todos"]:
             raise KeyError(f"triage record for {record['id']}, which is not in this run")
     for record in records:
-        _normalize_predicted_files(record)
+        _normalize_predicted_files(record, root)
         run["todos"][record["id"]]["triage"] = record
         transition(run, record["id"], "triaged")
     return sorted(i for i, e in run["todos"].items() if e["stage"] == "scanned")
 
 
-def _normalize_predicted_files(record):
+def _normalize_predicted_files(record, root=None):
     """Repo-relative paths only (final review m11): a leading ./ is stripped, since the
     lanes match exact repo-relative paths; an absolute path cannot be mapped onto the repo,
-    so it is dropped and listed in `dropped_files` for the plan to show."""
+    so it is dropped and listed in `dropped_files` for the plan to show. A path under the
+    triage root (triage-args --root) is made relative to it first: triagers searching the
+    root get absolute hits back, and dropping them would drop their lanes (PR #868)."""
+    prefix = str(Path(root).resolve()).rstrip("/") + "/" if root else None
     kept, dropped = [], []
     for path in record.get("predicted_files", []):
         path = str(path)
+        if prefix and path.startswith(prefix):
+            path = path[len(prefix):]
         while path.startswith("./"):
             path = path[2:]
         (dropped if os.path.isabs(path) else kept).append(path)
@@ -662,13 +701,17 @@ def _parse_fields(pairs):
 def build_parser():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = parser.add_subparsers(dest="cmd", required=True)
-    for name in ("show", "triage-args", "accept-ready", "questions", "finish"):
+    for name in ("show", "accept-ready", "questions", "finish", "worktrees"):
         sub.add_parser(name).add_argument("runfile")
+    p = sub.add_parser("triage-args")
+    p.add_argument("runfile")
+    p.add_argument("--root", help="absolute path of a fresh origin/main checkout for the triagers to read (todo 468)")
     p = sub.add_parser("set")
     p.add_argument("runfile"), p.add_argument("id"), p.add_argument("stage")
     p.add_argument("--field", action="append", help="key=value stored on the todo entry")
     p = sub.add_parser("record-triage")
     p.add_argument("runfile"), p.add_argument("--output", required=True, help="workflow task output file")
+    p.add_argument("--root", help="the triage-args --root, stripped from predicted_files")
     p = sub.add_parser("decide")
     p.add_argument("runfile"), p.add_argument("id"), p.add_argument("outcome", choices=sorted(OUTCOMES))
     p.add_argument("--decision"), p.add_argument("--verify-only", action="store_true")
@@ -706,10 +749,14 @@ def main(argv=None):
             print(json.dumps(summary(run), indent=1))
             return 0
         if args.cmd == "triage-args":
-            print(json.dumps({"todos": triage_args(run)}))
+            root = {"root": str(Path(args.root).resolve())} if args.root else {}
+            print(json.dumps({"todos": triage_args(run), **root}))
             return 0
         if args.cmd == "questions":
             print(json.dumps(questions(run), indent=1))
+            return 0
+        if args.cmd == "worktrees":
+            print(json.dumps(recorded_worktrees(run), indent=1))
             return 0
         if args.cmd == "finish":
             if is_complete(run):
@@ -721,7 +768,7 @@ def main(argv=None):
         if args.cmd == "set":
             transition(run, args.id, args.stage, **_parse_fields(args.field))
         elif args.cmd == "record-triage":
-            left = record_triage(run, records_from_output(args.output, "records"))
+            left = record_triage(run, records_from_output(args.output, "records"), args.root)
             print(json.dumps({"without_record": left}))
         elif args.cmd == "accept-ready":
             print(json.dumps({"ready": accept_ready(run)}))

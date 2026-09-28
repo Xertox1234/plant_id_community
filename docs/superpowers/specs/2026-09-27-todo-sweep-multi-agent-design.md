@@ -205,8 +205,9 @@ archives a todo would otherwise conflict with the triage PR on the same file.
    existing tests, returns a VERDICT record.
 
 **Tree-hash check (enforces an independent verifier).** The worker's last step
-stages everything, so `git -C <wt> status --porcelain` is empty (evidence lives
-in the gitignored `.sweep-evidence/`), and records `git -C <wt> write-tree`. The
+stages everything, so `git -C <wt> status --porcelain` shows nothing in the
+worktree (second) column (staged entries are still listed; evidence lives in the
+gitignored `.sweep-evidence/`), and records `git -C <wt> write-tree`. The
 verifier records both values as its first and last steps. Before Land, the main
 session checks that all three tree ids match and that the working tree is still
 clean (`status --porcelain --untracked-files=no`: untracked test artifacts don't

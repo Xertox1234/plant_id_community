@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: p3
 issue_id: "469"
 tags: [harness, todo-sweep]
@@ -59,11 +59,11 @@ workflow authoring docs.
 
 ## Acceptance Criteria
 
-- [ ] `state.py` has a tested way to re-brief a blocked group once its blocker is cleared.
-- [ ] Task 15's runbook lists every Land step that needs the sandbox off.
-- [ ] `slot_env.py` accepts an explicit worktree, with a test.
+- [x] `state.py` has a tested way to re-brief a blocked group once its blocker is cleared.
+- [x] Task 15's runbook lists every Land step that needs the sandbox off.
+- [x] `slot_env.py` accepts an explicit worktree, with a test.
 - [x] The owner has decided how workers run pytest (item 2), and spec §7.3 records it.
-- [ ] The plan's P2 and P9 checks are corrected.
+- [x] The plan's P2 and P9 checks are corrected.
 
 ## Work Log
 
@@ -131,3 +131,28 @@ workflow authoring docs.
   `slot_env.py 1` → `BROKER redis+socket:///tmp/redis.sock?virtual_host=10 /tmp/redis.sock db 10 cache db 10`,
   `1 passed`; `slot_env.py 2 -- pytest apps/users/tests …/test_topic_approval.py --create-db`
   → `344 passed`, with no sandbox-off step.
+
+### 2026-09-28 - Completed with Part B (branch feat/todo-sweep-v2-skills)
+
+- **Re-brief a blocked todo (AC 1).** `state.py`: `blocked -> ready` is the one
+  exit from a terminal stage (`state.py set RUN <id> ready --field reason=…`). It needs
+  a reason and is refused for a todo with a PR or with no triage record. It moves the
+  blocked attempt's worktree, branch and verdict to `previous`, drops the group so
+  `group` re-places it, and doesn't spend the retry. `test_state.py` → `All checks passed.`
+  (10 new checks). `test_state_flow.py` replays the pilot's 432: blocked worker →
+  reopen → `group` → `execute_args` briefs it under a new group and wave. All four
+  guards were mutation-checked; each mutation fails at least one check.
+- **Sandbox-off Land steps (AC 2).** `.claude/skills/completing-todos/SKILL.md`,
+  section "Sandbox": Stage D steps 1–8, the Stage C repair commit,
+  `git worktree remove` and `git worktree prune`. Push, `gh` and the kimi gate run
+  sandboxed (§11 applied). This branch's own commits ran the kimi gate sandboxed:
+  `kimi-review staged-diff gate (CRITICAL blocks)....Passed`.
+- **`slot_env.py --worktree` (AC 3).** `test_slot_env.py` runs this checkout's copy
+  against a real `git worktree add` worktree: the forum package on `PYTHONPATH` and
+  the main checkout's `.env` both come from the named worktree. A missing directory
+  exits 2. `All checks passed.`
+- **P2 and P9 (AC 5).** The plan's Task 14 Step 4 now says to poll P2 during the run,
+  and to compare P9 against a porcelain baseline, using an unstaged file (`write-tree`
+  hashes the index).
+- Items 3 (`.worktreeinclude`, `web/.env`) and 8 (the review's inline fallback) had no
+  criterion here. They move to todo 472.
