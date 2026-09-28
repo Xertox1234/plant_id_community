@@ -635,8 +635,10 @@ def review_args(run, round_no, wave, git=run_git, run_file="", held=None):
         if base and base.get("round") == round_no:
             left = snapshot_changes(base, first["worktree"], git)
             if left:
-                if held is not None:
-                    held[gid] = left
+                if held is None:  # a caller that cannot report a held group must not lose it silently
+                    raise RuntimeError(f"{gid}: worktree at {first['worktree']} still holds what an earlier "
+                                       f"round-{round_no} review left ({', '.join(left[:10])})")
+                held[gid] = left
                 continue
         else:
             base = {"round": round_no, **worktree_snapshot(first["worktree"], git)}

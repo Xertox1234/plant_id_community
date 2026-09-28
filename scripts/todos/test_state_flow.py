@@ -1270,6 +1270,9 @@ def residue_tests():
         check("480: a rerun keeps the round's baseline and holds the group back while the residue is still there",
               err is None and items == [] and held == {"g1": want} and r1["todos"]["1"]["review_baseline"] == base,
               (err, items, held))
+        err = expect(lambda: state.review_args(copy.deepcopy(r1), 1, 0))[1]
+        check("480: without `held` to report into, a held group raises rather than vanishing",
+              isinstance(err, RuntimeError) and "probe.py" in str(err), err)
         wave = copy.deepcopy(r1)
         wave["waves"] = [["g1", "g2"]]
         wave["groups"]["g2"] = {"ids": ["2"]}
