@@ -18,9 +18,9 @@ const DOMAIN_REVIEWERS = ['django-drf-reviewer', 'wagtail-reviewer', 'react-type
 const ROUTING = {
   type: 'object',
   properties: {
-    changed_files: { type: 'array', items: { type: 'string' }, maxItems: 300 },
+    changed_files: { type: 'array', items: { type: 'string' }, maxItems: 3000 },
     agents_to_invoke: { type: 'array', items: { type: 'string', enum: DOMAIN_REVIEWERS }, maxItems: 8 },
-    routing_reasons: { type: 'string', maxLength: 600 },
+    routing_reasons: { type: 'string', maxLength: 2000 },
   },
   required: ['changed_files', 'agents_to_invoke', 'routing_reasons'],
 }
@@ -32,6 +32,19 @@ const REFUTATION = {
     reason: { type: 'string', maxLength: 300 },
   },
   required: ['refuted', 'reason'],
+}
+
+// The routing table's must-route rows, checked in code: a router that skips one leaves that code
+// unreviewed, so the round is incomplete rather than clean.
+const MUST_ROUTE = [
+  { test: f => f.endsWith('.py'), any: ['cross-cutting-reviewer'] },
+  { test: f => f.startsWith('plant_community_mobile/') && f.endsWith('.dart'),
+    any: ['flutter-dart-reviewer', 'flutter-firebase-reviewer'] },
+  { test: f => /^web\/src\/.*\.tsx?$/.test(f), any: ['react-typescript-reviewer'] },
+]
+
+function routingGaps(files, ids) {
+  return MUST_ROUTE.filter(r => files.some(r.test) && !r.any.some(id => ids.includes(id))).map(r => r.any.join('|'))
 }
 
 // Each lens is a separate fresh-context finder over the whole diff: one reader misses what a
@@ -175,14 +188,16 @@ function domainPrompt(p, id, files) {
 }
 
 function refutePrompt(p, f) {
+  const claims = [f.summary, ...f.also]
   return [
-    `A reviewer reported a ${f.severity} finding in todo group ${p.group} (PR #${p.pr}). Try to refute it.`,
+    `Reviewers reported ${claims.length === 1 ? 'a' : claims.length} ${f.severity} finding(s) at ${f.file}:${f.line} ` +
+      `in todo group ${p.group} (PR #${p.pr}). Try to refute them.`,
     `Worktree ${p.worktree}; the change is exactly: ${diffRange(p)}. Read the code, not just the hunk. Do not use gh.`,
-    `Finding: ${f.file}:${f.line} — ${f.summary}`,
-    f.also.length ? `Other reviewers reported the same line as: ${f.also.join(' | ')}` : '',
-    'Set refuted=true only if you can show it is wrong: the code does not do that, the input cannot reach it, ' +
-      'or something already handles it. If it holds, or you cannot tell, set refuted=false. Give the reason.',
-  ].filter(Boolean).join('\n')
+    ...claims.map((c, i) => `${i + 1}. ${c}`),
+    'These may be one bug in different words or different bugs on the same line; judge each. ' +
+      'Set refuted=true only if you can show EVERY one is wrong: the code does not do that, the input cannot ' +
+      'reach it, or something already handles it. If any holds, or you cannot tell, set refuted=false. Give the reason.',
+  ].join('\n')
 }
 
 function repairPrompt(p, blocking) {
@@ -210,10 +225,13 @@ function verifyPrompt(p, w) {
 }
 
 // Reviewers phrase the same bug differently, so blocking findings collapse by file and line: one
-// representative (the most severe) carries the other phrasings in `also`, and is refuted once.
-function byLocation(findings) {
+// representative (the most severe) carries the other phrasings in `also`, and all of them face the
+// same refuters, who must refute every one.
+function byLocation(findings, worktree) {
   const groups = new Map()
-  for (const f of findings) {
+  const prefix = worktree.replace(/\/+$/, '') + '/'
+  for (const raw of findings) {
+    const f = raw.file.startsWith(prefix) ? { ...raw, file: raw.file.slice(prefix.length) } : raw
     const key = JSON.stringify([f.file, f.line])
     const g = groups.get(key)
     if (!g) { groups.set(key, { ...f, also: [] }); continue }
@@ -244,23 +262,27 @@ const results = await pipeline(
       .then(r => r && { ...r, reviewer: `todo-reviewer/${lens.key}` }))
     const [cl, ...lensed] = await parallel([checklist, ...lensThunks])
     const done = [...lensed, ...(cl ? cl.reviews : [])].filter(Boolean)
-    // Any reviewer that died leaves part of the diff unreviewed, so the whole review reruns.
+    const routing_gaps = cl && cl.routing ? routingGaps(cl.routing.changed_files, cl.ids) : []
+    if (routing_gaps.length) log(`${p.group}: routing skipped a must-route reviewer (${routing_gaps.join(', ')})`)
+    // Any reviewer that died, or was never routed, leaves part of the diff unreviewed: the whole review reruns.
     const reviewers_ok = lensed.every(Boolean) && Boolean(cl && cl.routing) && cl.reviews.every(Boolean)
+      && !routing_gaps.length
     return { findings: done.flatMap(f => f.findings), ranges: done.map(f => f.reviewed_range),
-      reviewers: done.map(f => f.reviewer), routed: cl && cl.routing ? cl.ids : null, reviewers_ok }
+      reviewers: done.map(f => f.reviewer), routed: cl && cl.routing ? cl.ids : null, routing_gaps, reviewers_ok }
   },
   async (rev, p) => {
     // Different reviewers can report the same finding; count it once. Then each blocking finding
     // faces two skeptics, and stops blocking only if both refute it (a dead skeptic refutes nothing).
-    const candidates = rev.reviewers_ok ? byLocation(rev.findings.filter(f => BLOCKING.has(f.severity))) : []
+    const candidates = rev.reviewers_ok ? byLocation(rev.findings.filter(f => BLOCKING.has(f.severity)), p.worktree) : []
     const judged = await parallel(candidates.map(f => () => parallel([0, 1].map(n => () => agent(refutePrompt(p, f),
-      { label: `refute-${n}:${p.group}:${f.file}:${f.line}`, phase: 'Refute', agentType: 'todo-reviewer', schema: REFUTATION })))
-      .then(votes => ({ f, votes }))))
+      { label: `refute-${n}:${p.group}:${f.file}:${f.line}`, phase: 'Refute', agentType: 'todo-reviewer', schema: REFUTATION })))))
     const blocking = [], refuted = []
-    for (const j of judged.filter(Boolean)) {
-      if (j.votes.every(v => v && v.refuted)) refuted.push({ ...j.f, refutations: j.votes.map(v => v.reason) })
-      else blocking.push(j.f)
-    }
+    // Walk the candidates, not the judgments: a judgment that threw (null) must keep its finding blocking.
+    candidates.forEach((f, i) => {
+      const votes = judged[i] || []
+      if (votes.length === 2 && votes.every(v => v && v.refuted)) refuted.push({ ...f, refutations: votes.map(v => v.reason) })
+      else blocking.push(f)
+    })
     if (refuted.length) log(`${p.group}: ${refuted.length} blocking finding(s) refuted by both skeptics`)
     const base = { group: p.group, ids: p.ids, ...rev, blocking, refuted, repair_blockers: '' }
     if (round !== 1 || !blocking.length || !rev.reviewers_ok) return { ...base, repair: null, verdict: null }
@@ -277,6 +299,6 @@ const results = await pipeline(
 
 return {
   results: results.map((r, i) => r || { group: prs[i].group, ids: prs[i].ids, findings: [], ranges: [],
-    reviewers: [], routed: null, reviewers_ok: false, blocking: [], refuted: [], repair_blockers: '', repair: null,
-    verdict: null }),
+    reviewers: [], routed: null, routing_gaps: [], reviewers_ok: false, blocking: [], refuted: [],
+    repair_blockers: '', repair: null, verdict: null }),
 }

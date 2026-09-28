@@ -602,9 +602,13 @@ def ingest_review(run, results, round_no):
             f"{f['file']}:{f['line']} {f['summary']}" for f in result["findings"]
             if f["severity"] not in {"critical", "high"}
         ))
+        # Blocking findings both refuters dismissed are kept, so the wrap-up can list them even after a resume.
+        dismissed = [f"{f['file']}:{f['line']} {f['summary']}" for f in result.get("refuted", [])]
         for _, entry in entries:
             existing = entry.get("followups", [])
             entry["followups"] = (existing + [f for f in follow if f not in existing])[:10]
+            kept = entry.get("refuted", [])
+            entry["refuted"] = (kept + [f for f in dismissed if f not in kept])[:10]
         blocking = result["blocking"]
         if round_no == 1:
             if blocking:

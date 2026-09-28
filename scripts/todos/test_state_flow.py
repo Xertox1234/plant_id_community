@@ -157,7 +157,11 @@ def main():
     check("an invalid round number is refused", raises(lambda: state.review_args(run, 3, 0), ValueError))
     low = [{"severity": "low", "file": "a.py", "line": 2, "summary": "nit", "suggested_fix": ""}]
     res = state.ingest_review(run, [{"group": g_ok, "ids": ids_ok, "findings": low, "blocking": [],
-                                     "reviewers_ok": True, "repair": None, "verdict": None}], 2)
+                                     "reviewers_ok": True, "repair": None, "verdict": None,
+                                     "refuted": [{"severity": "high", "file": "b.py", "line": 3, "summary": "maybe",
+                                                  "suggested_fix": "", "also": [], "refutations": ["no", "no"]}]}], 2)
+    check("a finding both refuters dismissed is kept for the wrap-up",
+          run["todos"][ids_ok[0]]["refuted"] == ["b.py:3 maybe"], run["todos"][ids_ok[0]])
     check("a clean round 2 moves to reviewed", res[g_ok] == "clean"
           and all(run["todos"][i]["stage"] == "reviewed" for i in ids_ok))
     check("non-blocking findings are kept as follow-ups", run["todos"][ids_ok[0]]["followups"] == ["a.py:2 nit"])

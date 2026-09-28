@@ -327,8 +327,15 @@ async function main() {
     one.length === 1 && one[0].also.length === 4 && refuteCalls(r.calls).length === 2, one)
   check('review: the collapsed finding keeps the most severe representative',
     one[0].severity === 'critical' && one[0].summary === 'bug as seen by drf', one)
-  check('review: the refuters see the other phrasings',
-    refuteCalls(r.calls)[0].prompt.includes('Other reviewers reported the same line as: '), refuteCalls(r.calls)[0].prompt)
+  const refP = refuteCalls(r.calls)[0].prompt
+  check('review: the refuters get every phrasing and must refute each one',
+    ['drf', 'cc', 'bugs-correctness', 'bugs-security-data', 'bugs-contracts-tests'].every(n => refP.includes(`bug as seen by ${n}`))
+    && refP.includes('only if you can show EVERY one is wrong'), refP)
+  r = await run('todo-review', { round: 2, prs: [pr({ round: 2 })] }, reviewStub({ lens: high,
+    domain: { reviewed_range: 'x', findings: [{ ...high.findings[0], file: '/wt/g1/a.py', summary: 'abs path' }] } }))
+  check('review: a worktree-absolute path and the repo-relative one are the same location',
+    r.result.results[0].blocking.length === 1 && r.result.results[0].blocking[0].file === 'a.py'
+    && refuteCalls(r.calls).length === 2, r.result.results[0].blocking)
 
   // --- review: refutation
   r = await run('todo-review', { round: 1, prs: [pr()] }, reviewStub({ lens: high, refute: wrong }))
@@ -342,6 +349,9 @@ async function main() {
   votes = 0
   r = await run('todo-review', { round: 1, prs: [pr()] }, reviewStub({ lens: high, refute: () => (++votes === 1 ? wrong : null) }))
   check('review: a dead refuter refutes nothing', r.result.results[0].blocking.length === 1, r.result)
+  r = await run('todo-review', { round: 1, prs: [pr()] }, reviewStub({ lens: high, refute: null }))
+  check('review: two dead refuters keep the finding blocking', r.result.results[0].blocking.length === 1
+    && r.result.results[0].refuted.length === 0, r.result)
   r = await run('todo-review', { round: 1, prs: [pr()] }, reviewStub({ lens: low }))
   check('review: a non-blocking finding is not sent to refuters', refuteCalls(r.calls).length === 0)
 
@@ -356,9 +366,24 @@ async function main() {
     && byType(r.calls, 'todo-verifier').length === 0, r.result)
 
   // --- review: routing edge cases
-  r = await run('todo-review', { round: 1, prs: [pr()] }, reviewStub({ route: routed() }))
-  check('review: a change that routes to no domain reviewer is still complete',
+  const docsOnly = { changed_files: ['docs/x.md'], agents_to_invoke: [], routing_reasons: 'none' }
+  r = await run('todo-review', { round: 1, prs: [pr()] }, reviewStub({ route: docsOnly }))
+  check('review: a docs-only change that routes to no domain reviewer is still complete',
     r.result.results[0].reviewers_ok === true && r.result.results[0].routed.length === 0, r.result)
+  for (const [label, files, ids] of [
+    ['a .py change without cross-cutting-reviewer', ['backend/apps/x/views.py'], ['django-drf-reviewer']],
+    ['a mobile .dart change without a flutter reviewer', ['plant_community_mobile/lib/a.dart'], []],
+    ['a web/src .tsx change without react-typescript-reviewer', ['web/src/A.tsx'], ['cross-cutting-reviewer']],
+  ]) {
+    r = await run('todo-review', { round: 1, prs: [pr()] },
+      reviewStub({ lens: high, route: { changed_files: files, agents_to_invoke: ids, routing_reasons: 'r' } }))
+    check(`review: ${label} is a routing gap: incomplete, no refute, no repair`,
+      r.result.results[0].reviewers_ok === false && r.result.results[0].routing_gaps.length === 1
+      && refuteCalls(r.calls).length === 0 && byType(r.calls, 'todo-worker').length === 0, r.result)
+  }
+  r = await run('todo-review', { round: 1, prs: [pr()] }, reviewStub({ route: { changed_files:
+    ['plant_community_mobile/lib/auth/a.dart'], agents_to_invoke: ['flutter-firebase-reviewer'], routing_reasons: 'r' } }))
+  check('review: flutter-firebase-reviewer alone covers a mobile .dart change', r.result.results[0].reviewers_ok === true, r.result)
   r = await run('todo-review', { round: 1, prs: [pr()] },
     reviewStub({ route: routed('cross-cutting-reviewer', 'cross-cutting-reviewer') }))
   check('review: a reviewer routed twice runs once', byType(r.calls, 'cross-cutting-reviewer').length === 1)
