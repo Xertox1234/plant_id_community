@@ -96,7 +96,8 @@ function retryPrompt(b, w, v) {
   const notes = v.ac.filter(a => !a.verified).map(a => `todo ${a.todo} index ${a.index}: ${a.note}`)
   const reasons = (v.reasons || []).join('; ')
   if (reasons) notes.push(`group: ${reasons}`)
-  return ['MODE: retry', `WORKTREE: ${w.worktree}`, ...pathLines(b), 'BRIEF:', JSON.stringify(b, null, 1),
+  return ['MODE: retry', `RUN_ID: ${b.run_id}`, `WORKTREE: ${w.worktree}`, ...pathLines(b), 'BRIEF:',
+    JSON.stringify(b, null, 1),
     `VERIFIER NOTES:\n${notes.join('\n') || `verdict ${v.verdict}; tree or cleanliness check failed`}`,
     'An entry noted `external` cannot be fixed: return `status: blocked`, naming that criterion.',
     'Return the WORKER record.'].join('\n')

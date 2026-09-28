@@ -385,11 +385,6 @@ def annotate(run, gid, **fields):
         entry.update(fields)
 
 
-def archived_path(todo_rel):
-    """Where land.archive moves a pending todo: todos/archive/<name with status completed>."""
-    return f"todos/archive/{todofile.with_status(Path(todo_rel).name, 'completed')}"
-
-
 def _with_reasons(problem, verdict):
     """Append the verifier's group-level reasons (VERDICT.reasons) to a failure reason."""
     reasons = [r for r in ((verdict or {}).get("reasons") or []) if r]
@@ -416,7 +411,7 @@ def review_args(run, round_no, wave):
             "test_edits": sorted({t for _, e in entries for t in e.get("test_edits", [])}),
             # Land archives before review (spec §5.3): the todo now lives at its archived path,
             # and the pending path is what the merge-base still has.
-            "todo_paths": [archived_path(e["path"]) for _, e in entries],
+            "todo_paths": [todofile.archived_path(e["path"]) for _, e in entries],
             "origin_paths": [e["path"] for _, e in entries],
         })
     return items

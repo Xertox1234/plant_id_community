@@ -385,7 +385,7 @@ def apply_review(repo, plan, todo_path, git=run_git):
 def archive(repo, todo_rel, run_id, date, git=run_git):
     repo = Path(repo)
     src = repo / todo_rel
-    dest_rel = f"todos/archive/{todofile.with_status(Path(todo_rel).name, 'completed')}"
+    dest_rel = todofile.archived_path(todo_rel)
     dest = repo / dest_rel
 
     # Phase 1: validate; write nothing. LandError may be raised only here.

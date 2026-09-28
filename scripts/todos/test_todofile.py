@@ -107,6 +107,8 @@ def main():
         except ValueError:
             raised = True
         check("with_status refuses a name without a status segment", raised)
+        check("archived_path swaps only the status segment and moves under todos/archive/",
+              tf.archived_path("todos/412-pending-p2-some-name.md") == "todos/archive/412-completed-p2-some-name.md")
 
     print()
     if FAILURES:

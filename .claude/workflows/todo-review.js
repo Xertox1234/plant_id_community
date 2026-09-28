@@ -117,12 +117,13 @@ function checklistPrompt(p) {
 }
 
 function repairPrompt(p, blocking) {
-  return ['MODE: repair', `WORKTREE: ${p.worktree}`, `SLOT: ${p.slot}`, `MAIN_ROOT: ${p.main_root}`,
-    `EVIDENCE_DIR: ${p.evidence_dir}`, `IDS: ${p.ids.join(', ')}`, ...pathLines(p),
+  return ['MODE: repair', `RUN_ID: ${p.run_id}`, `WORKTREE: ${p.worktree}`, `SLOT: ${p.slot}`,
+    `MAIN_ROOT: ${p.main_root}`, `EVIDENCE_DIR: ${p.evidence_dir}`, `IDS: ${p.ids.join(', ')}`, ...pathLines(p),
     'FINDINGS:', JSON.stringify(blocking, null, 1),
     `Fix only these findings. ${LANDED} Do not flip, uncheck or otherwise edit any box.`,
     'Then re-run every criterion except those already `[x]` at the merge-base (ORIGIN_PATHS) or re-pointed, and ' +
-      'regenerate their evidence and ac.json (recreate EVIDENCE_DIR if it is missing).',
+      'regenerate evidence for the criteria you re-ran; ac.json still has one entry for EVERY criterion ' +
+      '(recreate EVIDENCE_DIR if it is missing).',
     'Return the WORKER record.'].join('\n')
 }
 
@@ -133,8 +134,8 @@ function verifyPrompt(p, w) {
     `IDS: ${p.ids.join(', ')}`,
     `WORKTREE: ${w.worktree}`, `SLOT: ${p.slot}`, `MAIN_ROOT: ${p.main_root}`,
     `AC_FILE: ${w.ac_file}`, ...pathLines(p), `CLAIMED_TREE: ${w.tree_id}`,
-    `${LANDED} Ignore \`[ ]\` vs \`[x]\` in the unchanged-criteria check. Every criterion except those \`[x]\` ` +
-      'at the merge-base or re-pointed must have been re-run.',
+    `${LANDED} Ignore \`[ ]\` vs \`[x]\` in the unchanged-criteria check. Every criterion that is not ` +
+      'already-checked-at-merge-base or re-pointed must carry a non-empty `command`; re-run each yourself.',
     'Return the VERDICT record.',
   ].join('\n')
 }

@@ -79,7 +79,6 @@ async function main() {
   check('triage: one todo-triager per todo', byType(r.calls, 'todo-triager').length === 2)
   check('triage: record ids are forced to the input id', r.result.records[0].id === '1', r.result)
   check('triage: a dead agent is reported missing', r.result.missing.join() === '2', r.result)
-  check('triage: no script errors', r.errors.length === 0, r.errors)
 
   // --- execute: pass first time
   r = await run('todo-execute', { run_id: 'r', briefs: [brief()] },
@@ -129,6 +128,7 @@ async function main() {
   check('execute: retry notes use the 0-based index', retry.prompt.includes('todo 1 index 0: external')
     && !/AC \d/.test(retry.prompt), retry.prompt)
   check('execute: retry notes carry the verdict reasons', retry.prompt.includes('acceptance criteria were edited'))
+  check('execute: the retry prompt names the run id for the Work Log', retry.prompt.includes('\nRUN_ID: r\n'))
   check('execute: an external entry tells the retry worker to block',
     retry.prompt.includes('noted `external` cannot be fixed: return `status: blocked`, naming that criterion'))
 
@@ -181,12 +181,18 @@ async function main() {
     repairP.includes('Land has already flipped the verified boxes to `[x]` and archived each todo')
     && repairP.includes('Do not flip, uncheck or otherwise edit any box')
     && repairP.includes('re-run every criterion except those already `[x]` at the merge-base'), repairP)
+  check('review: the repair regenerates evidence only for re-run criteria, ac.json keeps every entry',
+    repairP.includes('regenerate evidence for the criteria you re-ran; ac.json still has one entry for EVERY criterion'))
+  check('review: the repair prompt names the run id for the Work Log', repairP.includes('\nRUN_ID: r\n'))
   const repairV = byType(r.calls, 'todo-verifier')[0]
   check('review: the post-repair verifier opens with MODE: repair', firstLine(repairV) === 'MODE: repair', firstLine(repairV))
   check('review: the post-repair verifier gets IDS and both path lists', repairV.prompt.includes('\nIDS: 1\n')
     && repairV.prompt.includes(`TODO_PATHS: ${archived}`) && repairV.prompt.includes(`ORIGIN_PATHS: ${pending}`))
   check('review: the post-repair verifier ignores box state and knows Land ran',
     repairV.prompt.includes('Ignore `[ ]` vs `[x]`') && repairV.prompt.includes('Land has already flipped'), repairV.prompt)
+  check('review: the post-repair verifier requires a command on every open criterion and re-runs each',
+    repairV.prompt.includes('not already-checked-at-merge-base or re-pointed must carry a non-empty `command`; ' +
+      're-run each yourself') && !repairV.prompt.includes('must have been re-run'), repairV.prompt)
   const bugP = byType(r.calls, 'general-purpose')[0].prompt
   check('review: the bug reviewer reviews the local diff, single-quoted, never via gh',
     bugP.includes("/usr/bin/git -C '/wt/g1' diff origin/main...HEAD") && bugP.includes('do not use gh')

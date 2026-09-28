@@ -49,7 +49,7 @@ def worker(ids, tree="T1", status="staged"):
 def verdict(ids, before="T1", after="T1", clean=True, result="pass", ac_ok=True, edits=(), note=""):
     return {"ids": ids, "verdict": result, "ac": [{"todo": ids[0], "index": 0, "verified": ac_ok, "note": note}],
             "test_edits_flagged": list(edits), "commands_rerun": 1,
-            "tree_id_before": before, "tree_id_after": after, "clean_after": clean}
+            "tree_id_before": before, "tree_id_after": after, "clean_after": clean, "reasons": []}
 
 
 def worktree_run(todo_id, gid, branch, worktree="", tree_id=None, main_root=""):
@@ -133,8 +133,6 @@ def main():
           items[0]["todo_paths"] == [f"todos/archive/{i}-completed-p3-x.md" for i in ids_ok], items[0])
     check("review_args gives the pending (merge-base) paths as origin_paths",
           items[0]["origin_paths"] == [run["todos"][i]["path"] for i in ids_ok], items[0])
-    check("archived_path swaps only the status segment and moves under todos/archive/",
-          state.archived_path("todos/412-pending-p2-some-name.md") == "todos/archive/412-completed-p2-some-name.md")
     rerun_finding = [{"severity": "low", "file": "a.py", "line": 9, "summary": "should not land", "suggested_fix": ""}]
     res = state.ingest_review(run, [{"group": g_ok, "ids": ids_ok, "findings": rerun_finding, "blocking": [],
                                      "reviewers_ok": False, "repair": None, "verdict": None}], 1)

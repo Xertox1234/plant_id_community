@@ -80,7 +80,8 @@ origin/main...HEAD`, take the last line, drop its leading `^`.
 ## Work Log
 
 Append one entry per todo at the end of `## Work Log` (before `## Notes`): `### <date> - <Heading> the todo
-sweep (run <run_id>)` with 2–5 bullets on what changed and why. `<Heading>` is "Implemented by"
+sweep (run <run_id>)` with 2–5 bullets on what changed and why. `<run_id>` is `BRIEF.run_id`, or the
+prompt's `RUN_ID` line in retry/repair mode. `<Heading>` is "Implemented by"
 (`MODE: implement` or `MODE: retry`), "Repaired by" (`MODE: repair`), or "Verified by"
 (`BRIEF.verify_only: true`). Do not edit Acceptance Criteria.
 

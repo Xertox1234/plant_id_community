@@ -131,3 +131,9 @@ def with_status(filename, status):
     if not match:
         raise ValueError(f"{filename}: no status segment to replace")
     return f"{match.group(1)}{status}{match.group(3)}"
+
+
+def archived_path(todo_rel):
+    """Where land.archive moves a todo: todos/archive/<name with status completed>. The one source of
+    this rule -- land.archive writes it, state.review_args hands it to the review prompts."""
+    return f"todos/archive/{with_status(Path(todo_rel).name, 'completed')}"
