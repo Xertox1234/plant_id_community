@@ -363,7 +363,7 @@ def ingest_execute(run, results):
                            tree_id=worker["tree_id"], ac_file=worker["ac_file"])
                 problem = evaluate(worker, verdict)
                 if problem:
-                    transition(run, todo_id, "failed", reason=problem)
+                    transition(run, todo_id, "failed", reason=_with_reasons(problem, verdict))
                 else:
                     transition(run, todo_id, "verified", test_edits=verdict["test_edits_flagged"],
                                verified_ac=verdict["ac"])
@@ -385,6 +385,17 @@ def annotate(run, gid, **fields):
         entry.update(fields)
 
 
+def archived_path(todo_rel):
+    """Where land.archive moves a pending todo: todos/archive/<name with status completed>."""
+    return f"todos/archive/{todofile.with_status(Path(todo_rel).name, 'completed')}"
+
+
+def _with_reasons(problem, verdict):
+    """Append the verifier's group-level reasons (VERDICT.reasons) to a failure reason."""
+    reasons = [r for r in ((verdict or {}).get("reasons") or []) if r]
+    return f"{problem}: {'; '.join(reasons)}" if reasons else problem
+
+
 def review_args(run, round_no, wave):
     if round_no not in (1, 2):
         raise ValueError("round must be 1 or 2")
@@ -403,6 +414,10 @@ def review_args(run, round_no, wave):
             "slot": first["slot"], "evidence_dir": f".sweep-evidence/{gid}",
             "main_root": first.get("main_root", ""),
             "test_edits": sorted({t for _, e in entries for t in e.get("test_edits", [])}),
+            # Land archives before review (spec §5.3): the todo now lives at its archived path,
+            # and the pending path is what the merge-base still has.
+            "todo_paths": [archived_path(e["path"]) for _, e in entries],
+            "origin_paths": [e["path"] for _, e in entries],
         })
     return items
 
@@ -427,7 +442,15 @@ def ingest_review(run, results, round_no):
         blocking = result["blocking"]
         if round_no == 1:
             if blocking:
-                problem = evaluate(result["repair"], result["verdict"]) if result["repair"] else "no repair"
+                repair = result["repair"]
+                if not repair:
+                    problem = "no repair"
+                elif repair["status"] != "staged":
+                    blockers = result.get("repair_blockers") or repair.get("blockers") or ""
+                    problem = f"repair {repair['status']}: {blockers}" if blockers else f"repair {repair['status']}"
+                else:
+                    problem = evaluate(repair, result["verdict"])
+                    problem = problem and _with_reasons(problem, result["verdict"])
                 if problem:
                     set_group(run, gid, "blocked", reason=f"round-1 repair failed: {problem}")
                     outcome[gid] = "blocked"

@@ -20,10 +20,13 @@ function source(name) {
   return fs.readFileSync(path.join(ROOT, '.claude', 'workflows', `${name}.js`), 'utf8')
 }
 
-async function run(name, args, respond) {
+// A stage that throws is swallowed into a null row by pipeline()/parallel(), which reads exactly like a
+// handled dead agent. So every run asserts that nothing threw, unless the case opts out with allowErrors.
+async function run(name, args, respond, { allowErrors = false } = {}) {
   const body = source(name).replace(/^export const meta/m, 'const meta')
   const calls = []
   const errors = []
+  const logs = []
   const agent = async (prompt, opts = {}) => {
     calls.push({ prompt, opts })
     return respond(prompt, opts, calls)
@@ -41,20 +44,23 @@ async function run(name, args, respond) {
     }))
   const parallel = async thunks => Promise.all(thunks.map(t => t().catch(e => { errors.push(String(e)); return null })))
   const fn = new AsyncFunction('agent', 'pipeline', 'parallel', 'phase', 'log', 'args', 'budget', 'workflow', body)
-  const result = await fn(agent, pipeline, parallel, () => {}, () => {}, args, { total: null }, async () => null)
-  return { result, calls, errors }
+  const result = await fn(agent, pipeline, parallel, () => {}, m => logs.push(m), args, { total: null }, async () => null)
+  if (!allowErrors) check(`${name}: no stage threw`, errors.length === 0, errors)
+  return { result, calls, errors, logs }
 }
 
 const worker = (over = {}) => ({ ids: ['1'], status: 'staged', worktree: '/wt/g1', branch: 'b', tree_id: 'T',
   files_changed: [], ac_file: '.sweep-evidence/g1/ac.json', tests_run: [], blockers: '', discoveries: '', summary: '', ...over })
-const verdict = v => ({ ids: ['1'], verdict: v, ac: [{ todo: '1', index: 0, verified: v === 'pass', note: 'n' }],
-  test_edits_flagged: [], commands_rerun: 1, tree_id_before: 'T', tree_id_after: 'T', clean_after: true })
+const verdict = (v, over = {}) => ({ ids: ['1'], verdict: v, ac: [{ todo: '1', index: 0, verified: v === 'pass', note: 'n' }],
+  test_edits_flagged: [], commands_rerun: 1, tree_id_before: 'T', tree_id_after: 'T', clean_after: true, reasons: [], ...over })
 const brief = (over = {}) => ({ run_id: 'r', group: 'g1', ids: ['1'], todo_paths: ['todos/1-pending-p3-x.md'],
   owner_decisions: {}, plan_needed: false, verify_only: false, in_scope_files: [], lanes_held: [], lanes_forbidden: [],
   slot: 1, evidence_dir: '.sweep-evidence/g1', main_root: '/main', ...over })
 const pr = (over = {}) => ({ run_id: 'r', round: 1, group: 'g1', ids: ['1'], worktree: '/wt/g1', branch: 'b', pr: 861,
-  size: 's', slot: 1, evidence_dir: '.sweep-evidence/g1', main_root: '/main', test_edits: [], ...over })
+  size: 's', slot: 1, evidence_dir: '.sweep-evidence/g1', main_root: '/main', test_edits: [],
+  todo_paths: ['todos/archive/1-completed-p3-x.md'], origin_paths: ['todos/1-pending-p3-x.md'], ...over })
 const byType = (calls, type) => calls.filter(c => c.opts.agentType === type)
+const firstLine = c => c.prompt.split('\n')[0]
 
 function schemaBlock(src, name) {
   const start = src.indexOf(`const ${name} = {`)
@@ -103,6 +109,59 @@ async function main() {
   check('execute: a dead worker yields worker null and no verifier',
     r.result.results[0].worker === null && byType(r.calls, 'todo-verifier').length === 0, r.result)
 
+  // --- execute: the prompt contract with the Task 11 agents
+  const pending = 'todos/1-pending-p3-x.md'
+  const external = verdict('fail', { ac: [{ todo: '1', index: 0, verified: false, note: 'external' }],
+    reasons: ['acceptance criteria were edited'] })
+  verifies = 0
+  r = await run('todo-execute', { run_id: 'r', briefs: [brief()] },
+    (p, o) => (o.agentType === 'todo-worker' ? worker() : ++verifies === 1 ? external : verdict('pass')))
+  const [impl, retry] = byType(r.calls, 'todo-worker')
+  const execVerifies = byType(r.calls, 'todo-verifier')
+  check('execute: worker prompts open with MODE: implement, then MODE: retry',
+    firstLine(impl) === 'MODE: implement' && firstLine(retry) === 'MODE: retry', [firstLine(impl), firstLine(retry)])
+  check('execute: every verifier prompt opens with MODE: execute',
+    execVerifies.length === 2 && execVerifies.every(c => firstLine(c) === 'MODE: execute'), execVerifies.map(firstLine))
+  check('execute: verifier prompts carry IDS, TODO_PATHS and ORIGIN_PATHS', execVerifies.every(c =>
+    c.prompt.includes('\nIDS: 1\n') && c.prompt.includes(`TODO_PATHS: ${pending}`) && c.prompt.includes(`ORIGIN_PATHS: ${pending}`)))
+  check('execute: implement and retry prompts carry both path lists', [impl, retry].every(c =>
+    c.prompt.includes(`TODO_PATHS: ${pending}`) && c.prompt.includes(`ORIGIN_PATHS: ${pending}`)))
+  check('execute: retry notes use the 0-based index', retry.prompt.includes('todo 1 index 0: external')
+    && !/AC \d/.test(retry.prompt), retry.prompt)
+  check('execute: retry notes carry the verdict reasons', retry.prompt.includes('acceptance criteria were edited'))
+  check('execute: an external entry tells the retry worker to block',
+    retry.prompt.includes('noted `external` cannot be fixed: return `status: blocked`, naming that criterion'))
+
+  verifies = 0
+  r = await run('todo-execute', { run_id: 'r', briefs: [brief()] }, (p, o) => (o.agentType === 'todo-worker' ? worker()
+    : ++verifies === 1 ? verdict('fail', { ac: [{ todo: '1', index: 0, verified: true, note: 'ok' }] }) : verdict('pass')))
+  check('execute: with nothing unverified and no reasons, the retry gets the generic note',
+    byType(r.calls, 'todo-worker')[1].prompt.includes('tree or cleanliness check failed'))
+
+  // --- execute: dead and non-staged agents
+  r = await run('todo-execute', { run_id: 'r', briefs: [brief({ plan_needed: true })] },
+    (p, o) => (o.agentType === 'todo-triager' ? null : o.agentType === 'todo-worker' ? worker() : verdict('pass')))
+  check('execute: a dead planner is logged and the worker gets PLAN: none',
+    r.logs.some(m => m.includes('g1')) && byType(r.calls, 'todo-worker')[0].prompt.includes('PLAN: none'), r.logs)
+  let works2 = 0
+  r = await run('todo-execute', { run_id: 'r', briefs: [brief()] },
+    (p, o) => (o.agentType === 'todo-worker' ? (++works2 === 1 ? worker() : null) : verdict('fail')))
+  check('execute: a dead retry worker yields worker null, retried, no second verifier',
+    r.result.results[0].worker === null && r.result.results[0].verdict === null && r.result.results[0].retried
+    && byType(r.calls, 'todo-verifier').length === 1, r.result)
+  works2 = 0
+  r = await run('todo-execute', { run_id: 'r', briefs: [brief()] }, (p, o) => (o.agentType === 'todo-worker'
+    ? (++works2 === 1 ? worker() : worker({ status: 'blocked', blockers: 'todo 1 AC index 0 is owner-only' }))
+    : verdict('fail')))
+  check('execute: a blocked retry worker is the result, with no second verifier',
+    r.result.results[0].worker.status === 'blocked' && r.result.results[0].verdict === null
+    && r.result.results[0].retried && byType(r.calls, 'todo-verifier').length === 1, r.result)
+  verifies = 0
+  r = await run('todo-execute', { run_id: 'r', briefs: [brief()] },
+    (p, o) => (o.agentType === 'todo-worker' ? worker() : ++verifies === 1 ? verdict('fail') : null))
+  check('execute: a dead second verifier yields verdict null on the retried result',
+    r.result.results[0].verdict === null && r.result.results[0].retried && r.result.results[0].worker !== null, r.result)
+
   // --- review round 1, size s, blocking finding
   const high = { reviewed_range: 'skill:code-review', findings: [{ severity: 'high', file: 'a.py', line: 1, summary: 'bug', suggested_fix: '' }] }
   r = await run('todo-review', { round: 1, prs: [pr()] },
@@ -114,12 +173,45 @@ async function main() {
   check('review: the repair is re-verified', byType(r.calls, 'todo-verifier').length === 1)
   check('review: reviewer prompts name the explicit diff range',
     byType(r.calls, 'general-purpose')[0].prompt.includes('diff origin/main...HEAD'))
+  const archived = 'todos/archive/1-completed-p3-x.md'
+  const repairP = rep[0].prompt
+  check('review: the repair prompt carries IDS, both path lists and never TODOS', repairP.includes('\nIDS: 1\n')
+    && !repairP.includes('TODOS:') && repairP.includes(`TODO_PATHS: ${archived}`) && repairP.includes(`ORIGIN_PATHS: ${pending}`))
+  check('review: the repair prompt says Land already flipped and archived, and forbids box edits',
+    repairP.includes('Land has already flipped the verified boxes to `[x]` and archived each todo')
+    && repairP.includes('Do not flip, uncheck or otherwise edit any box')
+    && repairP.includes('re-run every criterion except those already `[x]` at the merge-base'), repairP)
+  const repairV = byType(r.calls, 'todo-verifier')[0]
+  check('review: the post-repair verifier opens with MODE: repair', firstLine(repairV) === 'MODE: repair', firstLine(repairV))
+  check('review: the post-repair verifier gets IDS and both path lists', repairV.prompt.includes('\nIDS: 1\n')
+    && repairV.prompt.includes(`TODO_PATHS: ${archived}`) && repairV.prompt.includes(`ORIGIN_PATHS: ${pending}`))
+  check('review: the post-repair verifier ignores box state and knows Land ran',
+    repairV.prompt.includes('Ignore `[ ]` vs `[x]`') && repairV.prompt.includes('Land has already flipped'), repairV.prompt)
+  const bugP = byType(r.calls, 'general-purpose')[0].prompt
+  check('review: the bug reviewer reviews the local diff, single-quoted, never via gh',
+    bugP.includes("/usr/bin/git -C '/wt/g1' diff origin/main...HEAD") && bugP.includes('do not use gh')
+    && !/Skill|against PR|gh pr/.test(bugP), bugP)
 
   // --- review round 2, size m, blocking finding
   r = await run('todo-review', { round: 2, prs: [pr({ round: 2, size: 'm' })] }, () => high)
   check('review: size m adds the checklist reviewer', byType(r.calls, 'code-review-orchestrator').length === 1)
+  check('review: the checklist reviewer gets the single-quoted diff range',
+    byType(r.calls, 'code-review-orchestrator')[0].prompt.includes("/usr/bin/git -C '/wt/g1' diff origin/main...HEAD"))
   check('review: round 2 never repairs', byType(r.calls, 'todo-worker').length === 0)
-  check('review: blocking findings are reported', r.result.results[0].blocking.length === 2, r.result)
+  check('review: the same blocking finding from both reviewers counts once',
+    r.result.results[0].blocking.length === 1 && r.result.results[0].findings.length === 2, r.result)
+
+  // --- review round 1: nothing blocking, and a repair that blocks
+  const low = { reviewed_range: 'x', findings: [{ severity: 'low', file: 'a.py', line: 2, summary: 'nit', suggested_fix: '' }] }
+  r = await run('todo-review', { round: 1, prs: [pr()] }, () => low)
+  check('review: round 1 with no blocking finding does not repair',
+    byType(r.calls, 'todo-worker').length === 0 && r.result.results[0].repair === null
+    && r.result.results[0].blocking.length === 0 && r.result.results[0].reviewers_ok, r.result)
+  r = await run('todo-review', { round: 1, prs: [pr()] }, (p, o) => (o.agentType === 'general-purpose' ? high
+    : o.agentType === 'todo-worker' ? worker({ status: 'blocked', blockers: 'needs the deps lane' }) : verdict('pass')))
+  check('review: a blocked repair carries its blockers and is not verified',
+    r.result.results[0].repair_blockers === 'needs the deps lane' && r.result.results[0].verdict === null
+    && byType(r.calls, 'todo-verifier').length === 0, r.result)
 
   r = await run('todo-review', { round: 2, prs: [pr({ round: 2, size: 'm' })] },
     (p, o) => (o.agentType === 'code-review-orchestrator' ? null : { reviewed_range: 'x', findings: [] }))

@@ -54,12 +54,18 @@ const VERDICT = {
     tree_id_before: { type: 'string' },
     tree_id_after: { type: 'string' },
     clean_after: { type: 'boolean' },
+    reasons: { type: 'array', items: { type: 'string', maxLength: 200 }, maxItems: 10 },
   },
   required: ['ids', 'verdict', 'ac', 'test_edits_flagged', 'commands_rerun', 'tree_id_before', 'tree_id_after',
-    'clean_after'],
+    'clean_after', 'reasons'],
 }
 
 const briefs = (args && args.briefs) || []
+
+// Before Land nothing is archived, so a todo's current path and its merge-base path are the same.
+function pathLines(b) {
+  return [`TODO_PATHS: ${b.todo_paths.join(', ')}`, `ORIGIN_PATHS: ${b.todo_paths.join(', ')}`]
+}
 
 function planPrompt(b) {
   return [
@@ -71,23 +77,28 @@ function planPrompt(b) {
 }
 
 function workPrompt(b, plan) {
-  return ['MODE: implement', 'BRIEF:', JSON.stringify(b, null, 1), plan ? `PLAN:\n${plan}` : 'PLAN: none',
-    'Return the WORKER record.'].join('\n')
+  return ['MODE: implement', ...pathLines(b), 'BRIEF:', JSON.stringify(b, null, 1),
+    plan ? `PLAN:\n${plan}` : 'PLAN: none', 'Return the WORKER record.'].join('\n')
 }
 
 function verifyPrompt(b, w) {
   return [
-    `Verify todo group ${b.group} (${b.ids.join(', ')}).`,
+    'MODE: execute',
+    `Verify todo group ${b.group}.`,
+    `IDS: ${b.ids.join(', ')}`,
     `WORKTREE: ${w.worktree}`, `SLOT: ${b.slot}`, `MAIN_ROOT: ${b.main_root}`,
-    `AC_FILE: ${w.ac_file}`, `CLAIMED_TREE: ${w.tree_id}`,
+    `AC_FILE: ${w.ac_file}`, ...pathLines(b), `CLAIMED_TREE: ${w.tree_id}`,
     'Return the VERDICT record.',
   ].join('\n')
 }
 
 function retryPrompt(b, w, v) {
-  const notes = v.ac.filter(a => !a.verified).map(a => `todo ${a.todo} AC ${a.index + 1}: ${a.note}`).join('\n')
-  return ['MODE: retry', `WORKTREE: ${w.worktree}`, 'BRIEF:', JSON.stringify(b, null, 1),
-    `VERIFIER NOTES:\n${notes || `verdict ${v.verdict}; tree or cleanliness check failed`}`,
+  const notes = v.ac.filter(a => !a.verified).map(a => `todo ${a.todo} index ${a.index}: ${a.note}`)
+  const reasons = (v.reasons || []).join('; ')
+  if (reasons) notes.push(`group: ${reasons}`)
+  return ['MODE: retry', `WORKTREE: ${w.worktree}`, ...pathLines(b), 'BRIEF:', JSON.stringify(b, null, 1),
+    `VERIFIER NOTES:\n${notes.join('\n') || `verdict ${v.verdict}; tree or cleanliness check failed`}`,
+    'An entry noted `external` cannot be fixed: return `status: blocked`, naming that criterion.',
     'Return the WORKER record.'].join('\n')
 }
 
@@ -96,6 +107,7 @@ const results = await pipeline(
   async b => {
     if (!b.plan_needed) return ''
     const p = await agent(planPrompt(b), { label: `plan:${b.group}`, phase: 'Plan', agentType: 'todo-triager', schema: PLAN })
+    if (!p) log(`Planner returned nothing for ${b.group}; its worker gets PLAN: none`)
     return p ? p.plan : ''
   },
   (plan, b) => agent(workPrompt(b, plan),
@@ -108,7 +120,8 @@ const results = await pipeline(
     if (!verdict || verdict.verdict === 'pass') return { ...base, worker, verdict, retried: false }
     const retry = await agent(retryPrompt(b, worker, verdict),
       { label: `retry:${b.group}`, phase: 'Verify', agentType: 'todo-worker', schema: WORKER })
-    if (!retry || retry.status !== 'staged') return { ...base, worker: retry || worker, verdict, retried: true }
+    // A dead or non-staged retry is the result: never pass the first attempt off as the retry's.
+    if (!retry || retry.status !== 'staged') return { ...base, worker: retry, verdict: null, retried: true }
     const second = await agent(verifyPrompt(b, retry),
       { label: `verify2:${b.group}`, phase: 'Verify', agentType: 'todo-verifier', schema: VERDICT })
     return { ...base, worker: retry, verdict: second, retried: true }

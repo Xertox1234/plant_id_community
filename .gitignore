@@ -179,6 +179,7 @@ pids/
 # Claude Code configuration and tools (ignore contents, not dir itself, so the exceptions work)
 .claude/*
 !.claude/agents/
+!.claude/workflows/
 !.claude/skills/
 !.claude/hooks/
 !.claude/settings.json

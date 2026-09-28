@@ -128,6 +128,13 @@ def main():
     state.set_group(run, g_ok, "pr_open", pr=861)
     items = state.review_args(run, 1, 0)
     check("review_args lists open PRs in the wave", [i["group"] for i in items] == [g_ok] and items[0]["pr"] == 861)
+    # B2: Land archived the todo before review, so the prompts need both paths.
+    check("review_args gives the archived todo paths, as land.archive writes them",
+          items[0]["todo_paths"] == [f"todos/archive/{i}-completed-p3-x.md" for i in ids_ok], items[0])
+    check("review_args gives the pending (merge-base) paths as origin_paths",
+          items[0]["origin_paths"] == [run["todos"][i]["path"] for i in ids_ok], items[0])
+    check("archived_path swaps only the status segment and moves under todos/archive/",
+          state.archived_path("todos/412-pending-p2-some-name.md") == "todos/archive/412-completed-p2-some-name.md")
     rerun_finding = [{"severity": "low", "file": "a.py", "line": 9, "summary": "should not land", "suggested_fix": ""}]
     res = state.ingest_review(run, [{"group": g_ok, "ids": ids_ok, "findings": rerun_finding, "blocking": [],
                                      "reviewers_ok": False, "repair": None, "verdict": None}], 1)
@@ -367,6 +374,56 @@ def main():
                                    "reviewers_ok": True, "repair": None, "verdict": None}], 2)
     check("two rounds with the same 3 findings store 3, not 6",
           len(run_dup["todos"]["fd"]["followups"]) == 3, run_dup["todos"]["fd"]["followups"])
+
+    # B5: the verifier's group-level reasons reach the recorded fail reason.
+    run_rs = ready_run([("rs", ["rs.py"])], workers=1)
+    state.apply_grouping(run_rs)
+    grs = run_rs["waves"][0][0]
+    state.execute_args(run_rs, 0, "/m")
+    edited = verdict(["rs"], result="fail") | {"reasons": ["acceptance criteria were edited"]}
+    state.ingest_execute(run_rs, [{"group": grs, "ids": ["rs"], "worker": worker(["rs"]), "verdict": edited,
+                                   "retried": True}])
+    check("ingest_execute appends the verdict's reasons to the fail reason",
+          run_rs["todos"]["rs"]["stage"] == "failed"
+          and run_rs["todos"]["rs"]["reason"] == "verifier: fail: acceptance criteria were edited",
+          run_rs["todos"]["rs"])
+    run_nr = ready_run([("nr", ["nr.py"])], workers=1)
+    state.apply_grouping(run_nr)
+    gnr = run_nr["waves"][0][0]
+    state.execute_args(run_nr, 0, "/m")
+    state.ingest_execute(run_nr, [{"group": gnr, "ids": ["nr"], "worker": worker(["nr"]),
+                                   "verdict": verdict(["nr"], after="T9") | {"reasons": []}, "retried": False}])
+    check("an empty reasons list leaves the fail reason unchanged",
+          run_nr["todos"]["nr"]["reason"] == "staged tree changed during verification", run_nr["todos"]["nr"])
+
+    # B5/B7: round-1 repair failures name their cause.
+    def review_run(todo_id):
+        rr = ready_run([(todo_id, [f"{todo_id}.py"])], workers=1)
+        state.apply_grouping(rr)
+        gid = rr["waves"][0][0]
+        state.execute_args(rr, 0, "/m")
+        state.ingest_execute(rr, [{"group": gid, "ids": [todo_id], "worker": worker([todo_id]),
+                                   "verdict": verdict([todo_id]), "retried": False}])
+        state.set_group(rr, gid, "pr_open", pr=5)
+        return rr, gid
+
+    high = [{"severity": "high", "file": "a.py", "line": 1, "summary": "bug", "suggested_fix": ""}]
+    run_rb, grb = review_run("rb")
+    res = state.ingest_review(run_rb, [{"group": grb, "ids": ["rb"], "findings": high, "blocking": high,
+                                        "reviewers_ok": True, "repair": worker(["rb"], status="blocked")
+                                        | {"blockers": "needs the deps lane"},
+                                        "repair_blockers": "needs the deps lane", "verdict": None}], 1)
+    check("a blocked round-1 repair records its blockers, not 'no verdict'",
+          res[grb] == "blocked" and run_rb["todos"]["rb"]["reason"]
+          == "round-1 repair failed: repair blocked: needs the deps lane", run_rb["todos"]["rb"])
+    run_rv, grv = review_run("rv")
+    state.ingest_review(run_rv, [{"group": grv, "ids": ["rv"], "findings": high, "blocking": high,
+                                  "reviewers_ok": True, "repair": worker(["rv"], tree="T5"),
+                                  "verdict": verdict(["rv"], before="T5", after="T5", result="fail")
+                                  | {"reasons": ["tree not clean before verification"]}}], 1)
+    check("a failed repair verdict's reasons reach the blocked reason",
+          run_rv["todos"]["rv"]["reason"]
+          == "round-1 repair failed: verifier: fail: tree not clean before verification", run_rv["todos"]["rv"])
 
     # F3: ensure_worktree must run git against the real repo, recover a worktree whose
     # directory vanished but whose branch still holds the commit, and refuse to trust
