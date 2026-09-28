@@ -63,7 +63,8 @@ origin/main...HEAD`, take the last line, drop its leading `^`.
   verifier re-runs the same bare command into its own file and never overwrites yours.
 - Write `EVIDENCE/ac.json`: a JSON list, one object per criterion, `index` from 0 in file order per todo:
   `{"todo": "412", "index": 0, "text": "…", "command": "…", "evidence_path": ".sweep-evidence/g1/412-ac0.txt", "pass": true}`.
-  `pass` is true only when the output proves the criterion as written.
+  `text` is the criterion line with its `- [ ]` / `- [x]` marker removed. `pass` is true only when the
+  output proves the criterion as written.
 - A criterion that was already checked (`- [x]`) **in the merge-base version** (`/usr/bin/git -C WT show
   BASE:<ORIGIN_PATH>`, same checkbox rules) gets `pass: true`, `command: ""`, `evidence_path: ""`,
   `note: "already checked"` — do not re-run anything for it. A box that is `[x]` in the current file but
@@ -90,9 +91,11 @@ sweep (run <run_id>)` with 2–5 bullets on what changed and why. `<Heading>` is
    nothing, and `/usr/bin/git -C WT status --porcelain` must have no line starting with `??`. Fix it if
    either does — staged lines (`A`, `M`, ...) are expected and fine.
 3. `/usr/bin/git -C WT write-tree` → `tree_id`.
-4. Return the WORKER record: `ids` (= `BRIEF.ids`), `status` — `staged` only when nothing is blocked;
-   `blocked` when the work is staged but at least one criterion is external or owner-only (`blockers`
-   names each verbatim and says what the owner must do); `failed` or `no_change` otherwise, each with
-   `blockers` — `worktree` WT, `branch` (`/usr/bin/git -C WT rev-parse --abbrev-ref HEAD`), `tree_id`,
-   `files_changed`, `ac_file` (repo-relative, e.g. `.sweep-evidence/g1/ac.json`), `tests_run`, `blockers`,
-   `discoveries`, `summary`. Stay within every length limit.
+4. Return the WORKER record: `ids` (= `BRIEF.ids` in `MODE: implement` and `MODE: retry` — both carry
+   `BRIEF`; the prompt's `IDS` line in `MODE: repair`, which has none), `status` — `staged` only when
+   nothing is blocked; `blocked` when the work is staged but at least one criterion is external or
+   owner-only; `failed` or `no_change` otherwise — `worktree` WT, `branch` (`/usr/bin/git -C WT rev-parse
+   --abbrev-ref HEAD`), `tree_id`, `files_changed`, `ac_file` (repo-relative, e.g.
+   `.sweep-evidence/g1/ac.json`), `tests_run`, `blockers` (for `blocked`, names each such criterion
+   verbatim and says what the owner must do; for `failed`/`no_change`, says why), `discoveries`, `summary`.
+   Stay within every length limit.

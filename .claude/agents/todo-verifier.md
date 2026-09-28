@@ -22,18 +22,23 @@ missing one, the verdict is `fail`, `reasons` gets `missing todo path`. `BASE` =
 
 1. First: `/usr/bin/git -C WT write-tree` → `tree_id_before`. Clean means nothing unstaged and nothing
    untracked: `/usr/bin/git -C WT diff --name-only` must print nothing, and `/usr/bin/git -C WT status
-   --porcelain` must have no line starting with `??`. `clean_before` is true only when both hold; when it's
-   false, the verdict is `fail`, `reasons` gets `tree not clean before verification`.
+   --porcelain` must have no line starting with `??`. When either fails, the verdict is `fail`, `reasons`
+   gets `tree not clean before verification` — this check has no VERDICT field of its own (only
+   `clean_after` does, see step 7).
 2. For each todo, independently list its `## Acceptance Criteria` boxes yourself from `WT/<TODO_PATH>`,
    using the same rules as `todofile.ac_lines`: only `- [ ]` / `- [x]` bullets under that heading; a line
-   inside a ```` ``` ```` or `~~~` fence (indented or not) is an example, not a criterion. The count and
-   each `index`/`text` pair must match `WT/AC_FILE`'s entries for that todo exactly, in order — otherwise
-   the verdict is `fail`, `reasons` gets a line naming the mismatch.
+   inside a ```` ``` ```` or `~~~` fence (indented or not) is an example, not a criterion. The count must
+   match `WT/AC_FILE`'s entries for that todo, in order, and each entry's `text` must match the box's line
+   after stripping a leading checkbox marker and collapsing runs of whitespace — the same normalization as
+   `land._normalize_ac_text` (`land.py:118-121`), not a byte-exact match. Any mismatch → the verdict is
+   `fail`, `reasons` gets a line naming it.
 3. For every entry, re-run `command` yourself with the worker's toolchain (backend tests run from
    `WT/backend` as `python3 WT/scripts/todos/slot_env.py SLOT -- MAIN/backend/venv/bin/python -m pytest …
-   --create-db`). Judge the output against the criterion itself, not against the worker's saved evidence,
-   and write your own output to your own file — the bare `command` has no redirect; never write to or
-   overwrite the worker's `evidence_path`. `verified: true` only when YOUR run proves it.
+   --create-db`). Redirect its output to a file under `$TMPDIR`, never inside WT — create it with
+   `mktemp "${TMPDIR:-/tmp}/verify.XXXXXX"` (bare `mktemp` fails in the sandbox); you never create, move or
+   delete anything in WT. Judge the output against the criterion itself, not against the worker's saved
+   evidence; the bare `command` has no redirect of its own, and you never write to or overwrite the
+   worker's `evidence_path`. `verified: true` only when YOUR run proves it.
    - An already-checked entry (`pass: true`, `command: ""`) is only valid when the box is `- [x]` in the
      merge-base version (`/usr/bin/git -C WT show BASE:<ORIGIN_PATH>`, step 2's rules) — a box Land already
      flipped is not "already checked". When it checks out: `verified: true`, note `already checked`. When
@@ -45,7 +50,7 @@ missing one, the verdict is `fail`, `reasons` gets `missing todo path`. `BASE` =
    - An external or owner-only criterion gets `verified: false`, note `external`.
 4. Acceptance Criteria unchanged: for each todo, take its AC lines from the merge-base version
    (`/usr/bin/git -C WT show BASE:<ORIGIN_PATH>`) and from the current file (`WT/<TODO_PATH>`), both using
-   step 2's rules. They must be the same count and the same text, in the same order; in execute mode the
+   step 2's rules. They must be the same count and the same text (step 2's normalization), in the same order; in execute mode the
    box state (`[ ]`/`[x]`) must match too — ignore `[ ]` vs `[x]` in repair mode and when re-verifying after
    a repair (the prompt's first line, `MODE: execute` or `MODE: repair`, says which), since Land already flipped some by then. Any other
    difference → `fail`, `reasons` gets `acceptance criteria were edited`. Work Log and status edits are
@@ -57,7 +62,7 @@ missing one, the verdict is `fail`, `reasons` gets `missing todo path`. `BASE` =
    definition as step 1 (`diff --name-only` empty and `status --porcelain` has no `??` line).
 7. `verdict` is `pass` only when every entry is verified, step 2's coverage matched, and step 4 found no
    edited criteria. Return the VERDICT record: `ids, verdict, ac [{todo, index, verified, note}],
-   test_edits_flagged, commands_rerun, tree_id_before, tree_id_after, clean_before, clean_after, reasons`
+   test_edits_flagged, commands_rerun, tree_id_before, tree_id_after, clean_after, reasons`
    (`reasons` — a top-level array of short strings for problems that fail the whole group rather than one
    criterion: an AC-coverage mismatch (step 2), an edited Acceptance Criteria section (step 4), an unclean
    tree (step 1/6), or `missing todo path`; empty when there are none).
