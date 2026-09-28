@@ -414,17 +414,20 @@ try:
     redis_client = redis.from_url(redis_url)
     redis_client.ping()  # Test connection
 
+    _redis_pool_kwargs = {"retry_on_timeout": True}
+    if not redis_url.startswith("unix://"):
+        # TCP-only: a Unix-socket connection rejects them with a TypeError that
+        # IGNORE_EXCEPTIONS then hides, silently disabling the cache. Sweep
+        # workers reach Redis over /tmp/redis.sock (todo 469).
+        _redis_pool_kwargs.update(socket_keepalive=True, socket_keepalive_options={})
+
     CACHES = {
         "default": {
             "BACKEND": "django_redis.cache.RedisCache",
             "LOCATION": redis_url,
             "OPTIONS": {
                 "CLIENT_CLASS": "django_redis.client.DefaultClient",
-                "CONNECTION_POOL_KWARGS": {
-                    "retry_on_timeout": True,
-                    "socket_keepalive": True,
-                    "socket_keepalive_options": {},
-                },
+                "CONNECTION_POOL_KWARGS": _redis_pool_kwargs,
                 "IGNORE_EXCEPTIONS": True,
             },
             "KEY_PREFIX": "plant_community",

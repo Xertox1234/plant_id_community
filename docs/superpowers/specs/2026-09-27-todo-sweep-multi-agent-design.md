@@ -396,6 +396,15 @@ run 1–6, which caps `--workers` at 3:
   `test_plant_community_w<N>` (`settings.py` parses `DATABASE_URL` under pytest;
   `pytest.ini` does not pin `--reuse-db`). Page suites keep `--create-db`.
 - `REDIS_URL=redis://127.0.0.1:6379/<9+N>`, DBs 10–15 (dev uses 1 and 3).
+- **Over Unix sockets when they exist** (todo 469). The sandbox blocks loopback
+  TCP (`allowLocalBinding` covers listening, not connecting), and whether a
+  worker may run pytest with the sandbox off is a per-call classifier call — the
+  pilot's two workers got opposite answers. A socket listed in
+  `sandbox.network.allowUnixSockets` is reachable from inside the sandbox, so
+  for a local host `slot_env.py` uses `/tmp/.s.PGSQL.<port>`
+  (`postgresql://%2Ftmp/plant_community_w<N>`) and `/tmp/redis.sock`
+  (`unix:///tmp/redis.sock?db=<9+N>`, plus `CELERY_BROKER_URL=redis+socket://…?virtual_host=<9+N>`,
+  because kombu does not read `unix://`). No socket file, or a remote host → TCP.
 - Both are applied by `scripts/todos/slot_env.py <N> -- <command>`, never typed into prompts.
 - File caches and `MEDIA_ROOT` are `BASE_DIR`-relative, so already per-worktree.
 - Vitest and scripts are safe in parallel; Playwright is the `e2e` lane.
@@ -506,6 +515,7 @@ several workflow runs. Hence:
 | `sandbox.enableWeakerNetworkIsolation: true` | `gh` TLS inside the sandbox on macOS (documented for exactly this) |
 | `sandbox.network.allowedDomains: ["openrouter.ai","api.github.com","github.com"]` | kimi gate + `gh` without per-command prompts |
 | `workflowSizeGuideline: "large"` | a 36-todo triage run is ~37 agents; default `medium` advises < 10 |
+| `sandbox.network.allowUnixSockets: ["/tmp/.s.PGSQL.5432", "/private/tmp/.s.PGSQL.5432", "/tmp/redis.sock", "/private/tmp/redis.sock"]` | workers' and verifiers' pytest reaches Postgres and Redis inside the sandbox (§7.3); both spellings because `/tmp` is a symlink. Needs `unixsocket /tmp/redis.sock` + `unixsocketperm 700` in `/opt/homebrew/etc/redis.conf` |
 | `autoMode.environment` (user settings only) | trusted context: sweeps commit to feature branches, push, open PRs, arm auto-merge; never read production |
 
 ## 12. Testing and rollout

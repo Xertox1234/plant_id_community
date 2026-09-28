@@ -62,9 +62,72 @@ workflow authoring docs.
 - [ ] `state.py` has a tested way to re-brief a blocked group once its blocker is cleared.
 - [ ] Task 15's runbook lists every Land step that needs the sandbox off.
 - [ ] `slot_env.py` accepts an explicit worktree, with a test.
-- [ ] The owner has decided how workers run pytest (item 2), and spec §7.3 records it.
+- [x] The owner has decided how workers run pytest (item 2), and spec §7.3 records it.
 - [ ] The plan's P2 and P9 checks are corrected.
 
 ## Work Log
 
 ### 2026-09-28 - Filed from the Task 14 pilot
+
+### 2026-09-28 - Item 2: tests over Unix sockets
+
+- Owner decision: workers reach Postgres and Redis over Unix sockets listed in
+  `sandbox.network.allowUnixSockets`, not with the sandbox off. Redis gets a
+  socket too (`unixsocket /tmp/redis.sock`), so worker runs match CI instead of
+  falling back to the local-memory cache.
+- `slot_env.py` switches a local host to its socket when the socket file exists
+  (Celery via `redis+socket://`); otherwise TCP, as before. Spec §7.3 and §11 updated.
+- Proven unsandboxed: `slot_env.py 3 -- pytest …` connected with `HOST /tmp`,
+  `inet_server_addr()` NULL, database `test_plant_community_w3`, for both
+  `postgresql://localhost/…` and `…localhost:5432/…`. Still to prove: the same
+  run **sandboxed** once the owner's setting is live (new session).
+- Next-session gate (after the owner's settings and the Redis socket): a green
+  run proves nothing about Redis, because `settings.py` silently falls back to
+  locmem when the ping fails. Save this probe as
+  `backend/apps/core/tests/test_zz_socket_probe.py` (delete it afterwards) and
+  run it **sandboxed** from `backend/`:
+  `python3 ../scripts/todos/slot_env.py 1 -- <main>/backend/venv/bin/python -m pytest apps/core/tests/test_zz_socket_probe.py --create-db -q`
+
+  ```python
+  import pytest
+  from django.conf import settings
+  from django.core.cache import cache, caches
+  from django.db import connection
+  from kombu import Connection
+
+
+  @pytest.mark.django_db
+  def test_sockets():
+      with connection.cursor() as cursor:
+          cursor.execute("select inet_server_addr()")
+          assert cursor.fetchone()[0] is None  # NULL only over a Unix socket
+      assert settings.CACHES["default"]["BACKEND"] == "django_redis.cache.RedisCache"
+      kwargs = cache.client.get_client().connection_pool.connection_kwargs
+      assert kwargs.get("path") == "/tmp/redis.sock", kwargs
+      for name in settings.CACHES:
+          caches[name].set("socket-probe", name, 30)
+          assert caches[name].get("socket-probe") == name, name
+      with Connection(settings.CELERY_BROKER_URL) as broker:
+          broker.ensure_connection(max_retries=1)
+          client = broker.default_channel.client
+          pool = client.connection_pool.connection_kwargs
+          print("BROKER", settings.CELERY_BROKER_URL, pool.get("path"), "db", pool.get("db"), "cache db", kwargs.get("db"))
+          assert client.ping() and pool.get("path") == "/tmp/redis.sock"
+  ```
+
+- 2026-09-28, later: the owner's `redis.conf` now has `unixsocket /tmp/redis.sock`
+  and `unixsocketperm 700` (backup of the old file in the session scratchpad; TCP
+  still answers). Running the probe unsandboxed caught a real bug: `settings.py`
+  passed `socket_keepalive` to the cache pool, `UnixDomainSocketConnection`
+  rejects it with a `TypeError`, and `IGNORE_EXCEPTIONS=True` swallowed it, so every
+  cache call silently did nothing (both caches share one pool by URL). The TCP-only
+  kwargs are now skipped for a `unix://` URL. After the fix, unsandboxed: the probe
+  passes (`BROKER redis+socket:///tmp/redis.sock?virtual_host=11 /tmp/redis.sock db 11 cache db 11`),
+  and `apps/users/tests apps/core/tests` over the sockets → `1824 passed`.
+  Only the **sandboxed** run is left, and it needs `allowUnixSockets`.
+- 2026-09-28, gate PASSED **sandboxed** (the owner's `allowUnixSockets` setting
+  applied mid-session; no restart needed). Sandboxed `psql -h /tmp` → `1`,
+  `redis-cli -s /tmp/redis.sock ping` → `PONG`; the probe above via
+  `slot_env.py 1` → `BROKER redis+socket:///tmp/redis.sock?virtual_host=10 /tmp/redis.sock db 10 cache db 10`,
+  `1 passed`; `slot_env.py 2 -- pytest apps/users/tests …/test_topic_approval.py --create-db`
+  → `344 passed`, with no sandbox-off step.
