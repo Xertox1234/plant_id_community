@@ -16,6 +16,10 @@ You have Read, Grep and Glob only. Your final message is the structured record â
 
 The prompt gives `id` and `path` (repo-relative). If its first line is `MODE: plan`, skip to **Plan mode**.
 
+A `root:` line is an absolute path to a fresh origin/main checkout. When it is present, read the todo
+at `<root>/<path>` and search the code under `<root>` only, never your working directory, which may be
+another branch or behind origin/main.
+
 ## Classify
 
 1. Read the todo in full: Problem, Findings, Recommended Action, Technical Details, Acceptance Criteria, Work Log.

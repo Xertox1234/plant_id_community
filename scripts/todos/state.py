@@ -685,8 +685,11 @@ def _parse_fields(pairs):
 def build_parser():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = parser.add_subparsers(dest="cmd", required=True)
-    for name in ("show", "triage-args", "accept-ready", "questions", "finish"):
+    for name in ("show", "accept-ready", "questions", "finish"):
         sub.add_parser(name).add_argument("runfile")
+    p = sub.add_parser("triage-args")
+    p.add_argument("runfile")
+    p.add_argument("--root", help="absolute path of a fresh origin/main checkout for the triagers to read (todo 468)")
     p = sub.add_parser("set")
     p.add_argument("runfile"), p.add_argument("id"), p.add_argument("stage")
     p.add_argument("--field", action="append", help="key=value stored on the todo entry")
@@ -729,7 +732,8 @@ def main(argv=None):
             print(json.dumps(summary(run), indent=1))
             return 0
         if args.cmd == "triage-args":
-            print(json.dumps({"todos": triage_args(run)}))
+            root = {"root": str(Path(args.root).resolve())} if args.root else {}
+            print(json.dumps({"todos": triage_args(run), **root}))
             return 0
         if args.cmd == "questions":
             print(json.dumps(questions(run), indent=1))

@@ -193,6 +193,15 @@ def main():
         check("CLI on a missing run file exits 2", result.returncode == 2)
         check("the error is reported as 'state: <message>'", result.stderr.startswith("state: "))
 
+        runfile = state.run_path(tmp, "r8")
+        state.save(state.new_run("r8", "sweep", 3, [todo("1")], ["1"]), runfile)
+        cli = [sys.executable, os.path.join(script_dir, "state.py"), "triage-args", str(runfile)]
+        plain = json.loads(subprocess.run(cli, capture_output=True, text=True).stdout)
+        rooted = json.loads(subprocess.run(cli + ["--root", tmp], capture_output=True, text=True).stdout)
+        check("triage-args adds no root unless asked", "root" not in plain and plain["todos"][0]["id"] == "1", plain)
+        check("triage-args --root passes an absolute origin/main tree to the triagers (todo 468)",
+              rooted["root"] == str(Path(tmp).resolve()), rooted)
+
     print()
     if FAILURES:
         print(f"FAILED: {len(FAILURES)} check(s): {', '.join(FAILURES)}")
