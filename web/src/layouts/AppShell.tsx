@@ -38,6 +38,9 @@ import CountBadge from '../components/ui/CountBadge';
 // on an external-keyboard iPad, and this is a display label, not a feature gate.
 const isMac = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.userAgent || '');
 
+// Tailwind's `md` breakpoint (48rem), where the drawer turns `md:hidden`.
+export const DRAWER_HIDDEN_MEDIA_QUERY = '(min-width: 48rem)';
+
 const NAV = [
   { to: '/', label: 'Home', icon: Home, end: true },
   { to: '/identify', label: 'Identify', icon: ScanSearch, end: false },
@@ -149,6 +152,19 @@ export default function AppShell({ children }: AppShellProps) {
   // the Tab trap (todo 400). Route changes close the drawer through each
   // link's onNavigate, not through this hook.
   useModalFocus(drawerOpen, drawerRef, closeDrawer);
+
+  // Close the drawer when the window widens past md (todo 420). CSS alone
+  // only hides it there, so an open drawer kept its Tab trap -- which then
+  // wrapped to hidden controls and swallowed every Tab -- and its scroll lock.
+  useEffect(() => {
+    if (!drawerOpen) return;
+    const mql = window.matchMedia(DRAWER_HIDDEN_MEDIA_QUERY);
+    const handleChange = (event: MediaQueryListEvent) => {
+      if (event.matches) setDrawerOpen(false);
+    };
+    mql.addEventListener('change', handleChange);
+    return () => mql.removeEventListener('change', handleChange);
+  }, [drawerOpen]);
 
   // Cmd/Ctrl+K opens the command palette from anywhere. The functional
   // update makes an already-open palette a no-op — the simplest guard

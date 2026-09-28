@@ -1,9 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, within, fireEvent } from '@testing-library/react';
+import { act, render, screen, within, fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import { ThemeProvider } from '../contexts/ThemeContext';
-import AppShell from './AppShell';
+import AppShell, { DRAWER_HIDDEN_MEDIA_QUERY } from './AppShell';
 import RailSlot, { RAIL_MEDIA_QUERY } from '../components/layout/RailSlot';
 import * as notificationService from '../services/notificationService';
 import * as messageService from '../services/messageService';
@@ -223,6 +223,46 @@ describe('AppShell', () => {
     await userEvent.keyboard('{Escape}');
     expect(screen.queryByRole('dialog', { name: 'Menu' })).not.toBeInTheDocument();
     expect(trigger).toHaveFocus();
+  });
+
+  it('drawer closes when the window widens past md (todo 420)', async () => {
+    // At md the drawer is only display:none, so an open drawer kept its focus
+    // trap (swallowing Tab) and its body scroll lock on the desktop layout.
+    // Stub matchMedia and keep the md query's change listeners, so the test
+    // can fire the narrow-to-wide transition.
+    const originalMatchMedia = window.matchMedia;
+    const mdListeners = new Set<(e: MediaQueryListEvent) => void>();
+    window.matchMedia = ((query: string) => ({
+      matches: false,
+      media: query,
+      onchange: null,
+      addListener: vi.fn(),
+      removeListener: vi.fn(),
+      addEventListener: (_type: string, cb: (e: MediaQueryListEvent) => void) => {
+        if (query === DRAWER_HIDDEN_MEDIA_QUERY) mdListeners.add(cb);
+      },
+      removeEventListener: (_type: string, cb: (e: MediaQueryListEvent) => void) => {
+        if (query === DRAWER_HIDDEN_MEDIA_QUERY) mdListeners.delete(cb);
+      },
+      dispatchEvent: vi.fn(),
+    })) as unknown as typeof window.matchMedia;
+    try {
+      renderShell();
+      await userEvent.click(screen.getByRole('button', { name: 'Open menu' }));
+      expect(screen.getByRole('dialog', { name: 'Menu' })).toBeInTheDocument();
+      expect(document.body.style.overflow).toBe('hidden');
+
+      act(() => {
+        mdListeners.forEach((cb) =>
+          cb({ matches: true, media: DRAWER_HIDDEN_MEDIA_QUERY } as MediaQueryListEvent)
+        );
+      });
+
+      expect(screen.queryByRole('dialog', { name: 'Menu' })).not.toBeInTheDocument();
+      expect(document.body.style.overflow).toBe('');
+    } finally {
+      window.matchMedia = originalMatchMedia;
+    }
   });
 
   it('open drawer has dialog role with aria-modal', async () => {
