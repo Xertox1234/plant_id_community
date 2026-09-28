@@ -18,11 +18,10 @@ const DOMAIN_REVIEWERS = ['django-drf-reviewer', 'wagtail-reviewer', 'react-type
 const ROUTING = {
   type: 'object',
   properties: {
-    changed_files: { type: 'array', items: { type: 'string' }, maxItems: 3000 },
     agents_to_invoke: { type: 'array', items: { type: 'string', enum: DOMAIN_REVIEWERS }, maxItems: 8 },
     routing_reasons: { type: 'string', maxLength: 2000 },
   },
-  required: ['changed_files', 'agents_to_invoke', 'routing_reasons'],
+  required: ['agents_to_invoke', 'routing_reasons'],
 }
 
 const REFUTATION = {
@@ -34,17 +33,47 @@ const REFUTATION = {
   required: ['refuted', 'reason'],
 }
 
-// The routing table's must-route rows, checked in code: a router that skips one leaves that code
-// unreviewed, so the round is incomplete rather than clean.
-const MUST_ROUTE = [
-  { test: f => f.endsWith('.py'), any: ['cross-cutting-reviewer'] },
-  { test: f => f.startsWith('plant_community_mobile/') && f.endsWith('.dart'),
-    any: ['flutter-dart-reviewer', 'flutter-firebase-reviewer'] },
-  { test: f => /^web\/src\/.*\.tsx?$/.test(f), any: ['react-typescript-reviewer'] },
+// The path rules of code-review-orchestrator.md's routing table, applied in code to the file list
+// state.py computed (todo 478). Every reviewer a row names is dispatched whatever the router says;
+// the router adds only what paths can't decide (the wagtail content grep). `row` is the table's
+// pattern cell verbatim: test_workflows.js fails if the table and this list drift apart.
+const seg = (f, re) => f.split('/').some(s => re.test(s))
+const MOBILE = 'plant_community_mobile/'
+const ROUTES = [
+  { row: '`apps/**/*.py` (excluding blog/wagtail)', agents: ['django-drf-reviewer'],
+    test: f => /(^|\/)apps\/.+\.py$/.test(f) && !/(^|\/)apps\/blog\//.test(f) },
+  { row: '`apps/blog/**` OR any `.py` file matching `grep -l "import wagtail\\|from wagtail\\|from .models import.*Page"`',
+    agents: ['wagtail-reviewer'], test: f => /(^|\/)apps\/blog\//.test(f) },
+  { row: '`web/src/**/*.tsx` or `web/src/**/*.ts`', agents: ['react-typescript-reviewer'],
+    test: f => /^web\/src\/.+\.tsx?$/.test(f) },
+  { row: '`plant_community_mobile/**/*.dart`', agents: ['flutter-dart-reviewer'],
+    test: f => /^plant_community_mobile\/.+\.dart$/.test(f) },
+  // Any path segment, not just the file name: a lib/auth/ directory holds auth code too.
+  { row: '`plant_community_mobile/**/firebase*` or `plant_community_mobile/**/auth*`', agents: ['flutter-firebase-reviewer'],
+    test: f => f.startsWith(MOBILE) && seg(f.slice(MOBILE.length), /^(firebase|auth)/) },
+  { row: '`firebase/**` or `*.rules`', agents: ['flutter-firebase-reviewer', 'cross-cutting-reviewer'],
+    test: f => f.startsWith('firebase/') || f.endsWith('.rules') },
+  { row: '`functions/**`', agents: ['firebase-cloudfunction-reviewer'], test: f => /(^|\/)functions\//.test(f) },
+  { row: '`**/tasks.py` or `**/celery*.py` or `**/beat*.py`', agents: ['celery-async-reviewer'],
+    test: f => /(^|\/)(tasks\.py|celery[^/]*\.py|beat[^/]*\.py)$/.test(f) },
+  { row: '`**/serializers.py` or `**/api/**`', agents: ['cross-cutting-reviewer'],
+    test: f => /(^|\/)serializers\.py$/.test(f) || /(^|\/)api\//.test(f) },
+  { row: '`**/tests/**` or `**/test_*.py` or `**/*.test.ts`', agents: ['cross-cutting-reviewer'],
+    test: f => /(^|\/)tests\//.test(f) || /(^|\/)test_[^/]*\.py$/.test(f) || /\.test\.tsx?$/.test(f) },
+  { row: '`**/permissions.py`, `**/auth*.py`, `**/upload*.py`, `**/*token*.py`, `**/*secret*.py` OR `grep -l "SECRET\\|API_KEY\\|upload\\|permission" <changed_py_files>`',
+    agents: ['cross-cutting-reviewer'], test: f => f.endsWith('.py') },
+  { row: 'Any `.py` file', agents: ['cross-cutting-reviewer'], test: f => f.endsWith('.py') },
 ]
 
-function routingGaps(files, ids) {
-  return MUST_ROUTE.filter(r => files.some(r.test) && !r.any.some(id => ids.includes(id))).map(r => r.any.join('|'))
+// Each reviewer gets the files its rows match; one only the router chose (wagtail by content) gets them all.
+function routeFiles(files) {
+  const byAgent = new Map()
+  for (const r of ROUTES) {
+    for (const f of files.filter(r.test)) {
+      for (const id of r.agents) byAgent.set(id, [...new Set([...(byAgent.get(id) || []), f])])
+    }
+  }
+  return byAgent
 }
 
 // Each lens is a separate fresh-context finder over the whole diff: one reader misses what a
@@ -169,10 +198,11 @@ function bugPrompt(p, lens) {
 function routingPrompt(p) {
   return [
     `Phase 1 (triage) only, for todo group ${p.group} (open as PR #${p.pr}), round ${round}. Do not use gh.`,
-    `The change is in worktree ${p.worktree}, not the main checkout. Get the file list with ${diffRange(p)} --name-only, ` +
-      `not \`git diff --name-only HEAD\`, and run any routing grep against '${p.worktree}/<path>'.`,
-    'Apply your routing table and return ROUTING: changed_files (worktree-relative), agents_to_invoke, and ' +
-      'routing_reasons as one line per agent. The workflow dispatches the reviewers; do not review anything yourself.',
+    `The change is in worktree ${p.worktree}, not the main checkout. These are its changed files (worktree-relative); ` +
+      `do not run \`git diff\` to find them, and run any routing grep against '${p.worktree}/<path>':`,
+    ...p.changed_files.map(f => `  - ${f}`),
+    'Apply your routing table and return ROUTING: agents_to_invoke, and routing_reasons as one line per agent. ' +
+      'The workflow dispatches the reviewers; do not review anything yourself.',
   ].join('\n')
 }
 
@@ -259,26 +289,26 @@ const results = await pipeline(
       const routing = await agent(routingPrompt(p),
         { label: `route:${p.group}`, phase: 'Review', agentType: 'code-review-orchestrator', schema: ROUTING })
       if (!routing) return { routing: null, reviews: [] }
-      // The routing floor matches repo-relative paths, so an absolute one must not slip past it.
-      routing.changed_files = routing.changed_files.map(f => relPath(f, p.worktree))
-      const ids = [...new Set(routing.agents_to_invoke)]
-      const reviews = await parallel(ids.map(id => () => agent(domainPrompt(p, id, routing.changed_files),
+      // The path rules decide who must review; the router can only add to them, never remove.
+      const byAgent = routeFiles(p.changed_files)
+      const ids = [...new Set([...byAgent.keys(), ...routing.agents_to_invoke])]
+      const floor_added = [...byAgent.keys()].filter(id => !routing.agents_to_invoke.includes(id))
+      if (floor_added.length) log(`${p.group}: path rules added ${floor_added.join(', ')} the router left out`)
+      const reviews = await parallel(ids.map(id => () => agent(domainPrompt(p, id, byAgent.get(id) || p.changed_files),
         { label: `${id}:${p.group}`, phase: 'Review', agentType: id, schema: FINDINGS })
         .then(r => r && { ...r, reviewer: id })))
-      return { routing, reviews, ids }
+      return { routing, reviews, ids, floor_added }
     }
     const lensThunks = LENSES.map(lens => () => agent(bugPrompt(p, lens),
       { label: `bugs-${lens.key}:${p.group}`, phase: 'Review', agentType: 'todo-reviewer', schema: FINDINGS })
       .then(r => r && { ...r, reviewer: `todo-reviewer/${lens.key}` }))
     const [cl, ...lensed] = await parallel([checklist, ...lensThunks])
     const done = [...lensed, ...(cl ? cl.reviews : [])].filter(Boolean)
-    const routing_gaps = cl && cl.routing ? routingGaps(cl.routing.changed_files, cl.ids) : []
-    if (routing_gaps.length) log(`${p.group}: routing skipped a must-route reviewer (${routing_gaps.join(', ')})`)
-    // Any reviewer that died, or was never routed, leaves part of the diff unreviewed: the whole review reruns.
+    // Any reviewer that died leaves part of the diff unreviewed: the whole review reruns.
     const reviewers_ok = lensed.every(Boolean) && Boolean(cl && cl.routing) && cl.reviews.every(Boolean)
-      && !routing_gaps.length
     return { findings: done.flatMap(f => f.findings), ranges: done.map(f => f.reviewed_range),
-      reviewers: done.map(f => f.reviewer), routed: cl && cl.routing ? cl.ids : null, routing_gaps, reviewers_ok }
+      reviewers: done.map(f => f.reviewer), routed: cl && cl.routing ? cl.ids : null,
+      floor_added: cl && cl.routing ? cl.floor_added : [], reviewers_ok }
   },
   async (rev, p) => {
     // Different reviewers can report the same finding; count it once. Then each blocking finding
@@ -309,6 +339,6 @@ const results = await pipeline(
 
 return {
   results: results.map((r, i) => r || { group: prs[i].group, ids: prs[i].ids, findings: [], ranges: [],
-    reviewers: [], routed: null, routing_gaps: [], reviewers_ok: false, blocking: [], refuted: [],
+    reviewers: [], routed: null, floor_added: [], reviewers_ok: false, blocking: [], refuted: [],
     repair_blockers: '', repair: null, verdict: null }),
 }

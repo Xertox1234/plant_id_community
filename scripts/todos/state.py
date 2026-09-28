@@ -556,7 +556,7 @@ def _with_reasons(problem, verdict):
     return f"{problem}: {'; '.join(reasons)}" if reasons else problem
 
 
-def review_args(run, round_no, wave):
+def review_args(run, round_no, wave, git=run_git):
     if round_no not in (1, 2):
         raise ValueError("round must be 1 or 2")
     items = []
@@ -578,6 +578,9 @@ def review_args(run, round_no, wave):
             # and the pending path is what the merge-base still has.
             "todo_paths": [todofile.archived_path(e["path"]) for _, e in entries],
             "origin_paths": [e["path"] for _, e in entries],
+            # Todo 478: routing reads this list, not one an LLM router reports. -z: no path quoting.
+            "changed_files": [f for f in git(first["worktree"], "diff", "--name-only", "-z",
+                                             "origin/main...HEAD").split("\0") if f],
         })
     return items
 

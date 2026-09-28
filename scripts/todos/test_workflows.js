@@ -88,7 +88,8 @@ const brief = (over = {}) => ({ run_id: 'r', group: 'g1', ids: ['1'], todo_paths
   slot: 1, evidence_dir: '.sweep-evidence/g1', main_root: '/main', ...over })
 const pr = (over = {}) => ({ run_id: 'r', round: 1, group: 'g1', ids: ['1'], worktree: '/wt/g1', branch: 'b', pr: 861,
   size: 's', slot: 1, evidence_dir: '.sweep-evidence/g1', main_root: '/main', test_edits: [],
-  todo_paths: ['todos/archive/1-completed-p3-x.md'], origin_paths: ['todos/1-pending-p3-x.md'], ...over })
+  todo_paths: ['todos/archive/1-completed-p3-x.md'], origin_paths: ['todos/1-pending-p3-x.md'],
+  changed_files: ['backend/apps/x/views.py'], ...over })
 const triage = (over = {}) => ({ id: '1', class: 'ready', evidence: 'e', blocked_on: '', owner_question: '',
   predicted_files: ['a.py'], size: 's', needs_e2e: false, notes_for_siblings: '', ...over })
 const byType = (calls, type) => calls.filter(c => c.opts.agentType === type)
@@ -236,7 +237,7 @@ async function main() {
   const high = { reviewed_range: 'x', findings: [{ severity: 'high', file: 'a.py', line: 1, summary: 'bug', suggested_fix: '' }] }
   const low = { reviewed_range: 'x', findings: [{ severity: 'low', file: 'a.py', line: 2, summary: 'nit', suggested_fix: '' }] }
   const none = { reviewed_range: 'x', findings: [] }
-  const routed = (...ids) => ({ changed_files: ['backend/apps/x/views.py'], agents_to_invoke: ids, routing_reasons: 'r' })
+  const routed = (...ids) => ({ agents_to_invoke: ids, routing_reasons: 'r' })
   const holds = { refuted: false, reason: 'real' }
   const wrong = { refuted: true, reason: 'input cannot reach it' }
   const isRefuter = o => Boolean(o.schema && o.schema.properties.refuted)
@@ -303,8 +304,9 @@ async function main() {
     && !/Skill|against PR|gh pr/.test(bugP), bugP)
   // A no-isolation agent's cwd is the main checkout, so every checklist prompt must point at the worktree.
   const routeP = byType(r.calls, 'code-review-orchestrator')[0].prompt
-  check('review: the routing prompt uses the worktree diff, not `git diff --name-only HEAD` in cwd',
-    routeP.includes("/usr/bin/git -C '/wt/g1' diff origin/main...HEAD --name-only") && routeP.includes("'/wt/g1/<path>'"), routeP)
+  check('review: the router gets the changed files from review-args and is told not to diff (todo 478)',
+    routeP.includes('  - backend/apps/x/views.py') && routeP.includes('do not run `git diff`')
+    && routeP.includes("'/wt/g1/<path>'"), routeP)
   const domP = byType(r.calls, 'django-drf-reviewer')[0].prompt
   check('review: a domain reviewer reads files from the worktree and gets the routed file list',
     domP.includes("'/wt/g1/<path>'") && domP.includes('NOT the main checkout') && domP.includes('  - backend/apps/x/views.py')
@@ -365,31 +367,59 @@ async function main() {
     r.result.results[0].repair_blockers === 'needs the deps lane' && r.result.results[0].verdict === null
     && byType(r.calls, 'todo-verifier').length === 0, r.result)
 
-  // --- review: routing edge cases
-  const docsOnly = { changed_files: ['docs/x.md'], agents_to_invoke: [], routing_reasons: 'none' }
-  r = await run('todo-review', { round: 1, prs: [pr()] }, reviewStub({ route: docsOnly }))
+  // --- review: routing (todo 478). The path rules decide who must review; the router can only add.
+  r = await run('todo-review', { round: 1, prs: [pr({ changed_files: ['docs/x.md'] })] }, reviewStub({ route: routed() }))
   check('review: a docs-only change that routes to no domain reviewer is still complete',
     r.result.results[0].reviewers_ok === true && r.result.results[0].routed.length === 0, r.result)
-  for (const [label, files, ids] of [
-    ['a .py change without cross-cutting-reviewer', ['backend/apps/x/views.py'], ['django-drf-reviewer']],
-    ['a mobile .dart change without a flutter reviewer', ['plant_community_mobile/lib/a.dart'], []],
-    ['a web/src .tsx change without react-typescript-reviewer', ['web/src/A.tsx'], ['cross-cutting-reviewer']],
+  const dispatched = calls => new Set(calls.map(c => c.opts.agentType).filter(t => !['todo-reviewer',
+    'code-review-orchestrator', 'todo-worker', 'todo-verifier'].includes(t)))
+  for (const [label, files, want] of [
+    ['an apps .py', ['backend/apps/x/views.py'], ['django-drf-reviewer', 'cross-cutting-reviewer']],
+    ['a blog page', ['backend/apps/blog/models.py'], ['wagtail-reviewer', 'cross-cutting-reviewer']],
+    ['a web/src .tsx', ['web/src/A.tsx'], ['react-typescript-reviewer']],
+    ['a mobile .dart', ['plant_community_mobile/lib/a.dart'], ['flutter-dart-reviewer']],
+    ['a mobile auth .dart', ['plant_community_mobile/lib/auth/session.dart'], ['flutter-dart-reviewer', 'flutter-firebase-reviewer']],
+    ['a mobile firebase file', ['plant_community_mobile/lib/firebase_options.dart'], ['flutter-dart-reviewer', 'flutter-firebase-reviewer']],
+    ['a firestore rules file', ['firebase/firestore.rules'], ['flutter-firebase-reviewer', 'cross-cutting-reviewer']],
+    ['a storage rules file elsewhere', ['storage.rules'], ['flutter-firebase-reviewer', 'cross-cutting-reviewer']],
+    ['a cloud function', ['firebase/functions/src/index.ts'], ['flutter-firebase-reviewer', 'cross-cutting-reviewer', 'firebase-cloudfunction-reviewer']],
+    ['a celery task', ['backend/apps/x/tasks.py'], ['django-drf-reviewer', 'celery-async-reviewer', 'cross-cutting-reviewer']],
+    ['an api module', ['web/src/api/client.ts'], ['react-typescript-reviewer', 'cross-cutting-reviewer']],
+    ['a web test', ['web/src/A.test.tsx'], ['react-typescript-reviewer', 'cross-cutting-reviewer']],
+    ['a script .py', ['scripts/todos/state.py'], ['cross-cutting-reviewer']],
   ]) {
-    r = await run('todo-review', { round: 1, prs: [pr()] },
-      reviewStub({ lens: high, route: { changed_files: files, agents_to_invoke: ids, routing_reasons: 'r' } }))
-    check(`review: ${label} is a routing gap: incomplete, no refute, no repair`,
-      r.result.results[0].reviewers_ok === false && r.result.results[0].routing_gaps.length === 1
-      && refuteCalls(r.calls).length === 0 && byType(r.calls, 'todo-worker').length === 0, r.result)
+    r = await run('todo-review', { round: 1, prs: [pr({ changed_files: files })] }, reviewStub({ route: routed() }))
+    const got = dispatched(r.calls)
+    check(`review: path rules dispatch ${want.join(' + ')} for ${label}, though the router chose none`,
+      got.size === want.length && want.every(id => got.has(id)) && r.result.results[0].reviewers_ok === true
+      && r.result.results[0].floor_added.length === want.length, [...got])
   }
-  r = await run('todo-review', { round: 1, prs: [pr()] }, reviewStub({ lens: high, route: { changed_files:
-    ['/wt/g1/web/src/A.tsx', './plant_community_mobile/lib/b.dart'], agents_to_invoke: ['cross-cutting-reviewer'],
-    routing_reasons: 'r' } }))
-  check('review: worktree-absolute and ./ paths from the router still hit the routing floor',
-    r.result.results[0].reviewers_ok === false && r.result.results[0].routing_gaps.length === 2
-    && byType(r.calls, 'cross-cutting-reviewer')[0].prompt.includes('  - web/src/A.tsx'), r.result)
-  r = await run('todo-review', { round: 1, prs: [pr()] }, reviewStub({ route: { changed_files:
-    ['plant_community_mobile/lib/auth/a.dart'], agents_to_invoke: ['flutter-firebase-reviewer'], routing_reasons: 'r' } }))
-  check('review: flutter-firebase-reviewer alone covers a mobile .dart change', r.result.results[0].reviewers_ok === true, r.result)
+  const mixed = ['backend/apps/x/views.py', 'plant_community_mobile/lib/a.dart', 'web/src/A.tsx']
+  r = await run('todo-review', { round: 1, prs: [pr({ changed_files: mixed })] },
+    reviewStub({ route: routed('flutter-dart-reviewer', 'wagtail-reviewer') }))
+  const promptOf = id => byType(r.calls, id)[0].prompt
+  check('review: each path-routed reviewer gets only its own files',
+    promptOf('flutter-dart-reviewer').includes('  - plant_community_mobile/lib/a.dart')
+    && !promptOf('flutter-dart-reviewer').includes('views.py') && !promptOf('react-typescript-reviewer').includes('.dart')
+    && !promptOf('cross-cutting-reviewer').includes('A.tsx'), promptOf('flutter-dart-reviewer'))
+  check('review: a reviewer only the router chose (wagtail, by content) gets every file',
+    mixed.every(f => promptOf('wagtail-reviewer').includes(`  - ${f}`)), promptOf('wagtail-reviewer'))
+  check('review: router choices and path rules are merged, and floor_added names only what the router missed',
+    r.result.results[0].floor_added.join() === 'django-drf-reviewer,react-typescript-reviewer,cross-cutting-reviewer'
+    && dispatched(r.calls).size === 5, r.result.results[0])
+
+  // --- review: the path rules mirror code-review-orchestrator.md's routing table, row for row
+  const table = fs.readFileSync(path.join(ROOT, '.claude', 'agents', 'code-review-orchestrator.md'), 'utf8')
+    .split('\n').filter(l => /^\| `|^\| Any /.test(l))
+    .map(l => { const [, pat, agents] = l.split(/\s*(?<!\\)\|\s*/); return { pat, agents: [...agents.matchAll(/`([a-z-]+-reviewer)`/g)].map(m => m[1]) } })
+  const src = source('todo-review')
+  const rows = [...src.matchAll(/\{ row: '((?:[^'\\]|\\.)*)',\s*agents: \[([^\]]*)\]/g)]
+    .map(m => ({ pat: m[1].replace(/\\\\/g, '\\'), agents: [...m[2].matchAll(/'([a-z-]+)'/g)].map(x => x[1]) }))
+  check('review: the routing table has 12 rows and the workflow mirrors each one (pattern and agents)',
+    table.length === 12 && rows.length === table.length
+    && table.every((t, i) => rows[i].pat === t.pat && rows[i].agents.join() === t.agents.join()),
+    { table, rows })
+
   r = await run('todo-review', { round: 1, prs: [pr()] },
     reviewStub({ route: routed('cross-cutting-reviewer', 'cross-cutting-reviewer') }))
   check('review: a reviewer routed twice runs once', byType(r.calls, 'cross-cutting-reviewer').length === 1)

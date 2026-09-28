@@ -126,8 +126,17 @@ def main():
         check("a blocked worker blocks with its blocker", run["todos"][briefs1[1]["ids"][0]]["reason"] == "needs key")
 
     state.set_group(run, g_ok, "pr_open", pr=861)
-    items = state.review_args(run, 1, 0)
+    git_calls = []
+
+    def fake_git(repo, *args):
+        git_calls.append((repo, args))
+        return "backend/apps/x/views.py\0docs/a b.md\0"
+
+    items = state.review_args(run, 1, 0, git=fake_git)
     check("review_args lists open PRs in the wave", [i["group"] for i in items] == [g_ok] and items[0]["pr"] == 861)
+    check("review_args computes changed_files from the worktree's diff, NUL-split (todo 478)",
+          items[0]["changed_files"] == ["backend/apps/x/views.py", "docs/a b.md"]
+          and git_calls == [("/wt/g1", ("diff", "--name-only", "-z", "origin/main...HEAD"))], (items[0], git_calls))
     # B2: Land archived the todo before review, so the prompts need both paths.
     check("review_args gives the archived todo paths, as land.archive writes them",
           items[0]["todo_paths"] == [f"todos/archive/{i}-completed-p3-x.md" for i in ids_ok], items[0])
@@ -153,7 +162,7 @@ def main():
     check("a round-1 repair updates verified_ac from the repair's (distinct) verdict",
           run["todos"][ids_ok[0]]["verified_ac"] == repair_verdict["ac"], run["todos"][ids_ok[0]])
     check("a round-1 repair's flagged test edits carry into round 2",
-          "tests/test_a.py" in state.review_args(run, 2, 0)[0]["test_edits"])
+          "tests/test_a.py" in state.review_args(run, 2, 0, git=fake_git)[0]["test_edits"])
     check("an invalid round number is refused", raises(lambda: state.review_args(run, 3, 0), ValueError))
     low = [{"severity": "low", "file": "a.py", "line": 2, "summary": "nit", "suggested_fix": ""}]
     res = state.ingest_review(run, [{"group": g_ok, "ids": ids_ok, "findings": low, "blocking": [],
@@ -671,7 +680,7 @@ def main():
               and run_n1["todos"]["403"]["stage"] == "pr_open", err)
         path_n1, err = expect(lambda: state.ensure_worktree(run_n1, g2, Path(tmp) / "scratch"))
         check("N1: ensure_worktree finds the member that ran", err is None and path_n1 == str(wt), err)
-        items, err = expect(lambda: state.review_args(run_n1, 1, wave_of_n1["403"]))
+        items, err = expect(lambda: state.review_args(run_n1, 1, wave_of_n1["403"], git=lambda *a: ""))
         check("N1: review_args lists the group", err is None and [i["group"] for i in (items or [])] == [g2]
               and items[0]["ids"] == ["403"], err or items)
         _, err = expect(lambda: (state.set_group(run_n1, g2, "reviewed"), state.set_group(run_n1, g2, "merged")))

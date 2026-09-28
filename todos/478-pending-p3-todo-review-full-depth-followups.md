@@ -73,15 +73,15 @@ These were left for later.
 
 ## Acceptance Criteria
 
-- [ ] Domain reviewers get only their routed files, or this records why not.
+- [x] Domain reviewers get only their routed files, or this records why not.
 - [ ] A test fails when a null refute judgment drops its finding.
-- [ ] `MUST_ROUTE` and the orchestrator's table can't drift silently (shared source or
+- [x] `MUST_ROUTE` and the orchestrator's table can't drift silently (shared source or
       a test).
 - [ ] Follow-ups are path-normalised, and a refuted record keeps its `also` phrasings.
-- [ ] Routing reads a `changed_files` list that `review_args` computes, not the router's.
+- [x] Routing reads a `changed_files` list that `review_args` computes, not the router's.
 - [ ] A refuted critical/high finding in round 2 is visible before auto-merge (a follow-up
       or a PR comment), and `refuted` is not truncated silently.
-- [ ] `MUST_ROUTE` has the firebase, rules and functions security rows, with tests.
+- [x] `MUST_ROUTE` has the firebase, rules and functions security rows, with tests.
 - [ ] A change to the PR tree during review stops the round-1 repair.
 - [ ] Each remaining item in finding 5 is fixed or recorded here as accepted.
 
@@ -97,3 +97,28 @@ These were left for later.
 - Two live `todo-review` rounds on PR #873 (finding 5). Four mediums touch sweep
   safety (routing trust, refuted criticals, security routing rows, residue before
   repair), so this is now p3.
+
+### 2026-09-28 - Routing items fixed (PR #873)
+
+- `state.review_args` sets `changed_files` from
+  `git -C WT diff --name-only -z origin/main...HEAD`, and the router is given that
+  list. The router no longer reports files, so its list can't be trusted by mistake,
+  and the /tmp and /private/tmp alias gap goes away.
+- `MUST_ROUTE` is replaced by `ROUTES`, which mirrors all 12 rows of the
+  orchestrator's table, security rows included: `firebase/**` and `*.rules` →
+  flutter-firebase and cross-cutting; `functions/**` → firebase-cloudfunction; a
+  mobile path segment starting `auth` or `firebase` → flutter-firebase. The router
+  can add reviewers but never remove them, so a missed reviewer is dispatched
+  instead of forcing a rerun (`floor_added` records it).
+- Each path-routed reviewer gets only the files its rows match. A reviewer only the
+  router chose (wagtail, found by content grep) gets every file.
+- Drift: each `ROUTES` entry carries its table cell verbatim, and
+  `test_workflows.js` compares all 12 rows (pattern and agents) with
+  `code-review-orchestrator.md`. The orchestrator doc says to edit both.
+- Evidence: `node scripts/todos/test_workflows.js`: all checks pass, with 13
+  per-path dispatch cases plus the mixed-diff, file-subset and table-mirror checks.
+  Mutations all caught: router-only ids (13 fails), dropping cross-cutting from the
+  rules row (4), every reviewer given every file (1), auth matched on the file name
+  only (1), an added table row (1).
+  `python3 scripts/todos/test_state_flow.py`: all checks pass (NUL-split and exact
+  git args).

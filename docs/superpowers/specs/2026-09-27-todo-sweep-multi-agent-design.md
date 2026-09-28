@@ -252,9 +252,13 @@ Land runs in the main session, one group at a time, in wave order:
    - **Bug lenses:** three read-only `todo-reviewer` finders over the whole diff,
      each primed on one lens (correctness; security and data; contracts, state
      and tests).
-   - **Checklist lane:** `code-review-orchestrator` runs Phase 1 only and returns
-     its routing. The workflow then dispatches every routed domain reviewer, as
-     the main session did before v2.
+   - **Checklist lane:** `review-args` computes the PR's changed files from the
+     worktree diff (never from an LLM). The workflow applies the path rules of the
+     orchestrator's routing table to that list (`ROUTES`, kept in step with the table
+     by a test) and always dispatches those reviewers, each with only its own files.
+     `code-review-orchestrator` runs Phase 1 only and can add reviewers that paths
+     can't decide, such as a wagtail import found by grep. It never removes one
+     (todo 478).
    - **Refute:** each critical/high finding, deduplicated, goes to two
      `todo-reviewer` skeptics and stops blocking only if both refute it.
    - Any dead reviewer makes the round `rerun`, never a partial pass.

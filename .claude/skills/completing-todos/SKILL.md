@@ -163,12 +163,13 @@ Steps 1–8 run with the sandbox off (see **Sandbox**).
    contexts; that is the "review before arming" step. You read `--stat` and their verdicts only.
    `rerun` → run round 2 again once. A second `rerun`: `set-group … blocked` and report it.
    `blocked` → stop that PR and report it.
-3. What a round runs, for every size: three `todo-reviewer` bug lenses, plus the checklist lane:
-   `code-review-orchestrator` routes (Phase 1 only) and the workflow dispatches every reviewer it names.
-   No subagent can spawn subagents (pilot P8), so all fan-out is in the workflow script. Each critical/high
-   file:line then faces two refuters and stops blocking only if both refute every phrasing reported there.
-   A dead reviewer, or a must-route reviewer the router skipped (`routing_gaps`, checked in the workflow
-   before any repair), makes the round `rerun`, never a partial pass. The run file keeps each todo's
+3. What a round runs, for every size: three `todo-reviewer` bug lenses, plus the checklist lane.
+   `review-args` computes each PR's `changed_files` from its worktree's diff. The workflow applies the
+   orchestrator table's path rules to that list and always dispatches those reviewers, each with its own
+   files. `code-review-orchestrator` (Phase 1 only) can add reviewers, never remove them; `floor_added`
+   names the ones it missed. No subagent can spawn subagents (pilot P8), so all fan-out is in the workflow
+   script. Each critical/high file:line then faces two refuters and stops blocking only if both refute every
+   phrasing reported there. A dead reviewer makes the round `rerun`, never a partial pass. The run file keeps each todo's
    `refuted` findings. List them in the wrap-up, so the owner can see what the refuters dismissed.
 4. Follow-ups: todos with `followups` get one follow-up todo file per PR (next free id, `p4`, the PR number
    in its Findings), all committed together in a closing `chore(todos): follow-ups from run $RUN_ID` PR.
