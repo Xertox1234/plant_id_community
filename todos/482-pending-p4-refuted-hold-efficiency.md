@@ -4,6 +4,9 @@ priority: p4
 issue_id: "482"
 tags: [harness, todo-sweep]
 dependencies: []
+triage: ready
+triaged: 2026-09-28
+owner_decision: "finish refuses to delete the run file while a held group exists (2026-09-28)"
 ---
 
 # Todo sweep: hold at round 1, and dedupe refuted findings by file:line

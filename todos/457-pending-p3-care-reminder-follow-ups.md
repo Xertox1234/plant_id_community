@@ -4,6 +4,9 @@ priority: p3
 issue_id: "457"
 tags: [backend, garden_calendar, celery, notifications]
 dependencies: ["410"]
+triage: ready
+triaged: 2026-09-28
+owner_decision: "Item 12: filter companion_planting_service by owner. Item 10: GardenBedAdmin owner read-only on change. Item 11: fix the race (2026-09-28)"
 ---
 
 # Care reminder follow-ups (PR #853 review, todo 410 slice A)

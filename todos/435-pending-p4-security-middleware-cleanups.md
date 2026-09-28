@@ -5,6 +5,8 @@ issue_id: "435"
 tags: [backend, security, cleanup]
 dependencies: []
 source_review: "PR #818"
+triage: ready
+triaged: 2026-09-28
 ---
 
 # Security middleware cleanups from the todo 419 review

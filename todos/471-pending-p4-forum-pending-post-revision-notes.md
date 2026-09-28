@@ -5,6 +5,10 @@ issue_id: "471"
 tags: [forum, backend, moderation]
 dependencies: []
 source_review: "PR #865"
+triage: blocked-owner
+triaged: 2026-09-28
+blocked_on: "Owner decision on item 2: whether an edit to a never-published opening post is re-screened"
+owner_decision: "Item 2: submit_edit_for_moderation re-screens the edit through _route_revision_by_trust (2026-09-28)"
 ---
 
 # Pending opening post edits: reachability, re-screening and full-row saves

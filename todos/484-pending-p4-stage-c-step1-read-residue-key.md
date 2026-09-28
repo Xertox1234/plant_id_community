@@ -4,6 +4,8 @@ priority: p4
 issue_id: "484"
 tags: [harness, todo-sweep]
 dependencies: []
+triage: ready
+triaged: 2026-09-28
 ---
 
 # Todo sweep: Stage C step 1 should read review-args' `residue` key

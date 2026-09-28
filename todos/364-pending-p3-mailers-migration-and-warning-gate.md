@@ -4,6 +4,10 @@ priority: p3
 issue_id: "364"
 tags: [django, email, testing]
 dependencies: []
+triage: blocked-owner
+triaged: 2026-09-28
+blocked_on: "Owner confirms that a prod forum reply email and the Monday forum-weekly-digest arrived after the MAILERS deploy."
+owner_decision: "Owner confirmed on 2026-09-28 that a prod forum reply email and the Monday forum-weekly-digest both arrived after the MAILERS deploy"
 ---
 
 # Migrate EMAIL_* to MAILERS, then make deprecation warnings a real gate

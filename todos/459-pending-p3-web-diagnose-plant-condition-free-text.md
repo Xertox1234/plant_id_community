@@ -5,6 +5,8 @@ issue_id: "459"
 tags: [web, diagnosis, bug]
 dependencies: []
 source_review: "todos/archive/444-completed-p3-mobile-diagnose-missing.md"
+triage: ready
+triaged: 2026-09-28
 ---
 
 # Web `/diagnose` sends free-text plant condition to a choices field

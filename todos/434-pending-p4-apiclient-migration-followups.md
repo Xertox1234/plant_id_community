@@ -5,6 +5,8 @@ issue_id: "434"
 tags: [web, backend, blog, observability]
 dependencies: []
 source_review: "PR #817"
+triage: ready
+triaged: 2026-09-28
 ---
 
 # Follow-ups from moving profile/notification services onto apiClient (todo 407)

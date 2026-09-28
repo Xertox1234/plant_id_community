@@ -4,6 +4,10 @@ priority: p4
 issue_id: "476"
 tags: [harness, todo-sweep]
 dependencies: []
+triage: blocked-owner
+triaged: 2026-09-28
+blocked_on: "An owner decision on whether the post-repair verifier in todo-review.js re-runs after a null verdict, as execute does (criterion 4)."
+owner_decision: "The post-repair verifier re-runs once after a null verdict, as execute does; check the tree before the re-run (2026-09-28)"
 ---
 
 # Todo sweep: non-blocking findings from PR #871 round 1 (todo 468 slice D)

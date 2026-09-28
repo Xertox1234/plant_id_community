@@ -5,6 +5,9 @@ issue_id: "433"
 tags: [web, forum, premium, ai]
 dependencies: []
 source_review: "PR #816"
+triage: ready
+triaged: 2026-09-28
+owner_decision: "Hide the button below 3 posts, and build the keyed latch registry (2026-09-28)"
 ---
 
 # Thread summary panel: non-blocking review findings

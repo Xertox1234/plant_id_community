@@ -5,6 +5,10 @@ issue_id: "452"
 tags: [django, testing, dependencies]
 dependencies: []
 source_review: "todos/364-pending-p3-mailers-migration-and-warning-gate.md"
+triage: blocked-external
+triaged: 2026-09-28
+blocked_on: "Upstream django-taggit and Wagtail releases that stop calling quote_name_unless_alias()/get_connection()."
+owner_decision: "Owner: wait for upstream django-taggit and Wagtail releases (2026-09-28)"
 ---
 
 # Remove the two third-party RemovedInDjango70Warning ignores from pytest.ini

@@ -5,6 +5,8 @@ issue_id: "464"
 tags: [testing, tech-debt]
 dependencies: []
 source_review: "todos/archive/394-completed-p3-triage-the-grandfathered-archived-todos.md"
+triage: ready
+triaged: 2026-09-28
 ---
 
 # Four behaviours whose code landed but was never tested (or lost its test)

@@ -5,6 +5,9 @@ issue_id: "386"
 tags: [mobile, flutter, dead-code]
 dependencies: []
 source_review: "todos/384-mobile-navigation-shell-missing"
+triage: ready
+triaged: 2026-09-28
+owner_decision: "Each care card opens care-guide plus its own topic tag listing (2026-09-28)"
 ---
 
 # `/garden` is dead code and `/care` is a stub that promises navigation

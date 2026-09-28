@@ -4,6 +4,9 @@ priority: p4
 issue_id: "436"
 tags: [review-followup, tech-debt]
 dependencies: []
+triage: ready
+triaged: 2026-09-28
+owner_decision: "Convert the 12 optional-integration placeholders to REQUIRED__ so production refuses to boot (2026-09-28)"
 ---
 
 # Extend two existing sweeps to the code they never covered

@@ -4,6 +4,8 @@ priority: p4
 issue_id: "420"
 tags: [web, accessibility]
 dependencies: []
+triage: ready
+triaged: 2026-09-28
 ---
 
 # Drawer focus trap may swallow Tab after the window is widened past `md`

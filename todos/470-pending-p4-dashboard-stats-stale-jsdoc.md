@@ -5,6 +5,8 @@ issue_id: "470"
 tags: [web, typescript, docs]
 dependencies: []
 source_review: "PR #863"
+triage: ready
+triaged: 2026-09-28
 ---
 
 # Stale JSDoc above `DashboardForumStats` contradicts replies-only counts

@@ -5,6 +5,10 @@ issue_id: "466"
 tags: [backend, ci, typing, api-docs, decision]
 dependencies: []
 source_review: "todos/archive/394-completed-p3-triage-the-grandfathered-archived-todos.md"
+triage: blocked-owner
+triaged: 2026-09-28
+blocked_on: "Three owner decisions: a mypy CI gate (and its scope), schema warnings plus --fail-on-warn, and request examples for the remaining apps."
+owner_decision: "Yes to all three: a mypy CI gate for one app with django-stubs; fix the auth schema warnings and add --fail-on-warn; OpenApiExample request examples for plant_identification, users and blog (2026-09-28)"
 ---
 
 # Decide whether CI gates mypy and OpenAPI schema warnings; request examples

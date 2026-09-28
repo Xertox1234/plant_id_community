@@ -5,6 +5,9 @@ issue_id: "443"
 tags: [web, forum, composer]
 dependencies: []
 source_review: "PR #826"
+triage: ready
+triaged: 2026-09-28
+owner_decision: "Move the composer to TipTap JSON/DOM nodes instead of building HTML strings (2026-09-28)"
 ---
 
 # Composer HTML is built as strings: parser normalization still alters some alts

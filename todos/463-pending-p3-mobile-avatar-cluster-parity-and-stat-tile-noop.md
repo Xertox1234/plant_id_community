@@ -5,6 +5,8 @@ issue_id: "463"
 tags: [mobile, flutter, forum, parity, dead-code]
 dependencies: []
 source_review: "todos/archive/403-completed-p3-flutter-decorative-semantics-sites-followup.md"
+triage: ready
+triaged: 2026-09-28
 ---
 
 # Mobile group-DM avatar cluster shows the viewer; a no-op Padding in `_StatTile`

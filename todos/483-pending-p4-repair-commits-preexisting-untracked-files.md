@@ -4,6 +4,10 @@ priority: p4
 issue_id: "483"
 tags: [harness, todo-sweep]
 dependencies: []
+triage: needs-design
+triaged: 2026-09-28
+blocked_on: "Owner choice between option 1 (review-args refuses untracked files) and option 2 (the repair stages only the paths it changed, and the verifier checks)."
+owner_decision: "Option 2: the repair stages only the paths it changed, and the verifier checks nothing else is staged (2026-09-28)"
 ---
 
 # Todo sweep: a round-1 repair commits untracked files the worker left before review

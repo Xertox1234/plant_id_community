@@ -5,6 +5,9 @@ issue_id: "455"
 tags: [mobile, flutter, onboarding, profile]
 dependencies: []
 source_review: "todos/archive/412-completed-p3-wire-up-onboarding-and-fix-demo-seeder.md"
+triage: ready
+triaged: 2026-09-28
+owner_decision: "Add profile as a 4th checklist step, keeping save_topic (2026-09-28)"
 ---
 
 # Mobile profile editing, then restore the onboarding "profile" step
