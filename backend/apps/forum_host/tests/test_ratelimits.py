@@ -54,9 +54,8 @@ def test_host_api_routes_match_package():
     HOST_ONLY_ROUTES allow-list, so intentional host-only AI routes are
     permitted while the real invariant (no package route left unmounted, no
     stray host route) is preserved."""
-    from wagtail_forum.api import urls as pkg
-
     from apps.forum_host import api_urls as host
+    from wagtail_forum.api import urls as pkg
 
     pkg_routes = {(str(p.pattern), p.name) for p in pkg.urlpatterns}
     host_routes = {(str(p.pattern), p.name) for p in host.urlpatterns}
@@ -343,6 +342,48 @@ def test_image_upload_is_throttled_per_user():
     assert first.status_code == 201
     assert blocked.status_code == 429  # NOT 403 — Ratelimited subclasses it
     assert "Retry-After" in blocked
+
+
+@override_settings(FORUM_RATELIMITS={"image_upload": "1/h"})
+@pytest.mark.django_db
+def test_image_upload_throttle_resets_after_the_window():
+    """The limit is per window, not a lifetime ban (todo 464; the old forum's
+    `test_rate_limit_resets_after_timeout`, 3ad067c0, was lost in the rebuild).
+
+    django-ratelimit's windows are consecutive `period`-long intervals whose
+    boundary is jittered per key, so only a jump of more than one full period
+    is guaranteed to land in a fresh window — hence +1 h 1 s, not "a bit later".
+    """
+    import io
+
+    from django.core.files.uploadedfile import SimpleUploadedFile
+    from PIL import Image as PILImage
+
+    user = User.objects.create_user(username="up-reset")
+    client = APIClient()
+    client.force_authenticate(user)
+
+    def upload():
+        buf = io.BytesIO()
+        PILImage.new("RGB", (10, 10), "red").save(buf, format="JPEG")
+        buf.seek(0)
+        return client.post(
+            "/api/v1/forum/images/",
+            {"image": SimpleUploadedFile("a.jpg", buf.read(), "image/jpeg")},
+            format="multipart",
+        )
+
+    with freeze_time("2026-06-10 12:00:00"):
+        first = upload()
+        blocked = upload()
+    with freeze_time("2026-06-10 13:00:01"):
+        after_window = upload()
+        blocked_again = upload()
+
+    assert first.status_code == 201
+    assert blocked.status_code == 429
+    assert after_window.status_code == 201  # the window passed: allowed again
+    assert blocked_again.status_code == 429  # ...and the new window re-arms
 
 
 @override_settings(FORUM_RATELIMITS={"post_update": "1/h"})

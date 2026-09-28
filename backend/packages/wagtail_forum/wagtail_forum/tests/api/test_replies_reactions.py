@@ -277,6 +277,58 @@ def test_reaction_response_reports_resulting_state():
     assert off.data["reaction_counts"] == {}
 
 
+@pytest.mark.django_db
+def test_simultaneous_reaction_toggles_leave_one_row_and_a_consistent_count(
+    monkeypatch,
+):
+    """A double-tap race: two toggles by one user both run their existence
+    SELECT before either INSERTs (todo 464, from 004-reaction).
+
+    Real threads are off the table here: they need
+    ``django_db(transaction=True)``, which ``docs/rules/testing.md`` bans
+    because its teardown flush deletes Wagtail's seeded root page. So the
+    interleaving is forced deterministically instead: request B's real SELECT
+    runs and finds nothing, then request A runs to completion (INSERT +
+    recount), then B carries on to its INSERT and hits the
+    ``(post, user, reaction_type)`` unique constraint. The view must treat the
+    loser as "already reacted" -- not a 500, and not a second row.
+    """
+    from django.db.models import QuerySet
+
+    ensure_default_workflow()
+    _, opening = _live_topic()
+    user = User.objects.create_user(username="r")
+    url = f"/forum/posts/{opening.id}/reactions/"
+
+    def client():
+        c = APIClient()
+        c.force_authenticate(user)
+        return c
+
+    real_first = QuerySet.first
+    raced = {}
+
+    def first_then_let_the_other_request_win(self):
+        found = real_first(self)
+        if self.model is Reaction and "a" not in raced:
+            raced["a"] = None  # A's own SELECT must not start a third request
+            raced["a"] = client().post(url, {"type": "like"}, format="json")
+        return found
+
+    monkeypatch.setattr(QuerySet, "first", first_then_let_the_other_request_win)
+    b = client().post(url, {"type": "like"}, format="json")
+    monkeypatch.undo()
+
+    a = raced["a"]
+    assert a.status_code == b.status_code == 200
+    assert a.data["reacted"] is True
+    assert b.data["reacted"] is True  # the loser reports the state that won
+    assert Reaction.objects.filter(post=opening, user=user).count() == 1
+    opening.refresh_from_db()
+    assert opening.reaction_counts == {"like": 1}
+    assert b.data["reaction_counts"] == opening.reaction_counts
+
+
 # --- Remaining guard branches (2026-06-10 audit L13) ---
 
 
