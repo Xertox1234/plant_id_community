@@ -81,3 +81,29 @@ workflow authoring docs.
   `inet_server_addr()` NULL, database `test_plant_community_w3`, for both
   `postgresql://localhost/…` and `…localhost:5432/…`. Still to prove: the same
   run **sandboxed** once the owner's setting is live (new session).
+- Next-session gate (after the owner's settings and the Redis socket): a green
+  run proves nothing about Redis, because `settings.py` silently falls back to
+  locmem when the ping fails. Save this probe as
+  `backend/apps/core/tests/test_zz_socket_probe.py` (delete it afterwards) and
+  run it **sandboxed** from `backend/`:
+  `python3 ../scripts/todos/slot_env.py 1 -- <main>/backend/venv/bin/python -m pytest apps/core/tests/test_zz_socket_probe.py --create-db -q`
+
+  ```python
+  import pytest
+  from django.conf import settings
+  from django.core.cache import cache
+  from django.db import connection
+
+
+  @pytest.mark.django_db
+  def test_sockets():
+      with connection.cursor() as cursor:
+          cursor.execute("select inet_server_addr()")
+          assert cursor.fetchone()[0] is None  # NULL only over a Unix socket
+      assert settings.CACHES["default"]["BACKEND"] == "django_redis.cache.RedisCache"
+      kwargs = cache.client.get_client().connection_pool.connection_kwargs
+      assert kwargs.get("path") == "/tmp/redis.sock", kwargs
+  ```
+
+  The Celery `redis+socket://` form is read-verified (kombu/celery source),
+  not run-verified.
