@@ -10,9 +10,15 @@ process environment only, never written to .env: python-decouple lets the
 environment win over backend/.env, which the worktree has via
 .worktreeinclude. PYTHONPATH puts this worktree's wagtail_forum ahead of the
 main checkout's editable install, which otherwise gets collected twice.
+
+A worktree with no backend/.env (the 2026-09-28 pilot: .worktreeinclude is read
+from the main checkout, which may sit on a branch without it) reads the main
+checkout's backend/.env instead, and its values become process environment too,
+because python-decouple would otherwise find nothing. Still nothing is written.
 """
 
 import os
+import subprocess
 import sys
 from pathlib import Path
 from urllib.parse import urlsplit, urlunsplit
@@ -35,7 +41,21 @@ def parse_dotenv(text):
     return values
 
 
-def slot_env(environ, dotenv_text, slot, worktree):
+def dotenv_path(worktree, main_root):
+    """(path, inherited): the worktree's backend/.env, else the main checkout's."""
+    own = Path(worktree) / "backend" / ".env"
+    if own.is_file() or Path(main_root).resolve() == Path(worktree).resolve():
+        return own, False
+    return Path(main_root) / "backend" / ".env", True
+
+
+def main_checkout(worktree):
+    common = subprocess.run(["git", "-C", str(worktree), "rev-parse", "--path-format=absolute",
+                             "--git-common-dir"], capture_output=True, text=True, check=True)
+    return Path(common.stdout.strip()).parent
+
+
+def slot_env(environ, dotenv_text, slot, worktree, inherit_dotenv=False):
     if not 1 <= slot <= MAX_SLOT:
         raise ValueError(f"slot must be 1..{MAX_SLOT}, got {slot}")
     dotenv = parse_dotenv(dotenv_text)
@@ -44,6 +64,9 @@ def slot_env(environ, dotenv_text, slot, worktree):
         raise ValueError("no DATABASE_URL in the environment or backend/.env")
     redis_url = environ.get("REDIS_URL") or dotenv.get("REDIS_URL") or DEFAULT_REDIS
     env = dict(environ)
+    if inherit_dotenv:
+        for key, value in dotenv.items():
+            env.setdefault(key, value)
     env["DATABASE_URL"] = urlunsplit(urlsplit(db_url)._replace(path=f"/plant_community_w{slot}"))
     env["REDIS_URL"] = urlunsplit(urlsplit(redis_url)._replace(path=f"/{9 + slot}"))
     forum = str(Path(worktree) / "backend" / "packages" / "wagtail_forum")
@@ -57,9 +80,13 @@ def main(argv):
         print(__doc__, file=sys.stderr)
         return 2
     worktree = Path(__file__).resolve().parents[2]
-    dotenv = worktree / "backend" / ".env"
     try:
-        env = slot_env(dict(os.environ), dotenv.read_text() if dotenv.is_file() else "", int(argv[1]), worktree)
+        dotenv, inherited = dotenv_path(worktree, main_checkout(worktree))
+    except subprocess.CalledProcessError:
+        dotenv, inherited = worktree / "backend" / ".env", False
+    try:
+        env = slot_env(dict(os.environ), dotenv.read_text() if dotenv.is_file() else "", int(argv[1]), worktree,
+                       inherit_dotenv=inherited)
     except ValueError as exc:
         print(f"slot_env: {exc}", file=sys.stderr)
         return 2

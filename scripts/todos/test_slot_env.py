@@ -10,6 +10,8 @@ gets its own database and Redis DB, and that nothing leaks into .env.
 
 import os
 import sys
+import tempfile
+from pathlib import Path
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import slot_env as se  # noqa: E402
@@ -62,6 +64,32 @@ def main():
     check("no DATABASE_URL anywhere is refused, not defaulted", raised)
     check("Redis defaults to localhost when unset",
           se.slot_env({}, "DATABASE_URL=postgres://h/db\n", 1, "/wt")["REDIS_URL"] == "redis://127.0.0.1:6379/10")
+
+    # Pilot 2026-09-28: .worktreeinclude delivered no backend/.env to either harness worktree,
+    # so python-decouple had nothing to read. The main checkout's values come in as process env.
+    env = se.slot_env({"PATH": "/bin"}, DOTENV, 1, "/wt")
+    check("a worktree's own .env is not copied into the environment", "SECRET_KEY" not in env, env)
+    env = se.slot_env({"PATH": "/bin", "DEBUG": "False"}, DOTENV + "DEBUG=True\nALLOWED_HOSTS=x\n", 1, "/wt",
+                      inherit_dotenv=True)
+    check("an inherited .env reaches the environment", env.get("ALLOWED_HOSTS") == "x", env)
+    check("an inherited .env never overrides the environment", env["DEBUG"] == "False", env)
+    check("an inherited DATABASE_URL is still re-slotted",
+          env["DATABASE_URL"] == "postgresql://u:p@localhost:5432/plant_community_w1?sslmode=disable", env)
+
+    with tempfile.TemporaryDirectory() as tmp:
+        main_root, wt = Path(tmp) / "main", Path(tmp) / "wt"
+        (main_root / "backend").mkdir(parents=True)
+        (wt / "backend").mkdir(parents=True)
+        (main_root / "backend" / ".env").write_text("DATABASE_URL=postgres://h/main\n")
+        path, inherited = se.dotenv_path(wt, main_root)
+        check("a worktree without backend/.env reads the main checkout's",
+              path == main_root / "backend" / ".env" and inherited, (path, inherited))
+        (wt / "backend" / ".env").write_text("DATABASE_URL=postgres://h/wt\n")
+        path, inherited = se.dotenv_path(wt, main_root)
+        check("a worktree's own backend/.env wins", path == wt / "backend" / ".env" and not inherited,
+              (path, inherited))
+        path, inherited = se.dotenv_path(wt, wt)
+        check("the main checkout itself never inherits from itself", not inherited, (path, inherited))
 
     print()
     if FAILURES:
