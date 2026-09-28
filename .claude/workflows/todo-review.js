@@ -29,7 +29,7 @@ const REFUTATION = {
   type: 'object',
   properties: {
     refuted: { type: 'boolean' },
-    reason: { type: 'string', maxLength: 300 },
+    reason: { type: 'string', maxLength: 600 },  // headroom over the prompt's 300, as for FINDINGS
   },
   required: ['refuted', 'reason'],
 }
@@ -198,7 +198,8 @@ function refutePrompt(p, f) {
     ...claims.map((c, i) => `${i + 1}. ${c}`),
     'These may be one bug in different words or different bugs on the same line; judge each. ' +
       'Set refuted=true only if you can show EVERY one is wrong: the code does not do that, the input cannot ' +
-      'reach it, or something already handles it. If any holds, or you cannot tell, set refuted=false. Give the reason.',
+      'reach it, or something already handles it. If any holds, or you cannot tell, set refuted=false. Give the ' +
+      'reason in under 300 characters.',
   ].join('\n')
 }
 

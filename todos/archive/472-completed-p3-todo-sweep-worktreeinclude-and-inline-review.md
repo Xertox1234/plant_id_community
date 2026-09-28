@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: p3
 issue_id: "472"
 tags: [harness, todo-sweep]
@@ -43,7 +43,7 @@ criterion there. Both are recorded in
 ## Acceptance Criteria
 
 - [ ] `web/.env` in worker worktrees → todo 479 (re-pointed 2026-09-28; owner: no web version yet)
-- [ ] A `todo-review` round's `ranges` shows the deep review ran (not
+- [x] A `todo-review` round's `ranges` shows the deep review ran (not
       `inline review`), or spec §5.3 records why it runs elsewhere.
 
 ## Work Log
@@ -67,3 +67,21 @@ criterion there. Both are recorded in
 - Item 1 (`web/.env`): owner, 2026-09-28: there is no web version of the app yet,
   and no pending todo touches `web/`. The owner approved the move: re-pointed to
   todo 479 (p4). Its box stays open per the tracking convention.
+
+### 2026-09-28 - Item 2 verified live; archived (PR #873)
+
+- Live `todo-review` round 2 against PR #873's worktree (run `wf_c08058cf-f8f`,
+  5 agents, 0 errors). `ranges`: `git diff origin/main...HEAD (correctness)`,
+  `(security-data)`, `(contracts-tests)`, `(cross-cutting-reviewer)`, none inline.
+  `routed: [cross-cutting-reviewer]`, `routing_gaps: []`, `reviewers_ok: true`,
+  19 findings (8 medium, 11 low), none blocking. The orchestrator returned ROUTING
+  through the schema, and the routed domain reviewer returned FINDINGS through it.
+- The first live run (`wf_25180f55-a2f`) had the same routing. There,
+  `cross-cutting-reviewer` died on the 300-char `summary` cap after 5 retries, and the
+  round correctly came back `reviewers_ok: false`. Fixed in 51a3c7bf (600-char
+  headroom, prompt asks for under 300). REFUTATION got the same fix.
+- Git guard: in the first run, reviewers made 69 Bash calls. There was one denial,
+  `git ls-tree` for a bug lens, which is already todo 477 finding 3.
+- Not proven: this run's "worktree" was the session's own checkout, so it can't
+  show that domain reviewers stay out of the main checkout. The first real sweep will.
+- Item 1 re-pointed to todo 479. Non-blocking findings → todo 478.
