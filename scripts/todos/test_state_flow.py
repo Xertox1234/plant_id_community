@@ -136,7 +136,14 @@ def main():
     check("review_args lists open PRs in the wave", [i["group"] for i in items] == [g_ok] and items[0]["pr"] == 861)
     check("review_args computes changed_files from the worktree's diff, NUL-split (todo 478)",
           items[0]["changed_files"] == ["backend/apps/x/views.py", "docs/a b.md"]
-          and git_calls == [("/wt/g1", ("diff", "--name-only", "-z", "origin/main...HEAD"))], (items[0], git_calls))
+          and git_calls == [("/wt/g1", ("diff", "--name-only", "--no-renames", "-z", "origin/main...HEAD"))],
+          (items[0], git_calls))
+
+    def gone_git(repo, *args):
+        raise RuntimeError(f"git {' '.join(args)} failed: cannot change to '{repo}'")
+
+    check("review_args fails loudly when a PR worktree is gone (runbook: ensure-worktree first)",
+          raises(lambda: state.review_args(run, 1, 0, git=gone_git), RuntimeError))
     # B2: Land archived the todo before review, so the prompts need both paths.
     check("review_args gives the archived todo paths, as land.archive writes them",
           items[0]["todo_paths"] == [f"todos/archive/{i}-completed-p3-x.md" for i in ids_ok], items[0])

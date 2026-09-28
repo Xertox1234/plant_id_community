@@ -71,9 +71,22 @@ These were left for later.
      critical-over-high swap can repeat a phrasing in `also`. The guard's docstring
      and hook header still name only three agents.
 
+6. **Live run 3 findings (`wf_f1dbd020-8ac`, the new router contract).** Fixed in the
+   PR: a router pick now gets every file, since content-grep picks were losing
+   files; `--no-renames` on the `changed_files` diff; the refuter wording in
+   `todo-reviewer.md`; and a loud-failure test for `review_args`. Left:
+   - *Low:* a dead router discards the checklist lane and forces a rerun, though the
+     path rules alone could still dispatch every row except wagtail-by-content.
+   - *Low:* `routingPrompt` puts raw file names in the router's prompt next to a
+     `grep '<wt>/<path>'` instruction, so a name holding `'` or `$(...)` could
+     escape quoting. The guard vets only git and gh.
+   - *Low:* no test runs `review_args` with the real `run_git` against a temp repo
+     that has `origin/main`.
+
 ## Acceptance Criteria
 
-- [x] Domain reviewers get only their routed files, or this records why not.
+- [x] Domain reviewers get only their routed files, or this records why not. (A router pick
+      gets every file: its choice may rest on content the path rules can't see.)
 - [ ] A test fails when a null refute judgment drops its finding.
 - [x] `MUST_ROUTE` and the orchestrator's table can't drift silently (shared source or
       a test).
@@ -124,3 +137,10 @@ These were left for later.
   only (1), an added table row (1).
   `python3 scripts/todos/test_state_flow.py`: all checks pass (NUL-split and exact
   git args).
+
+### 2026-09-28 - Live run 3: new router contract proven
+
+- Run `wf_f1dbd020-8ac`: round 2 with `changed_files` from `review_args` (14
+  files). The router returned ROUTING without a file list, `floor_added: []`
+  (it agreed with the path rules), `reviewers_ok: true`, 5 agents, 0 errors,
+  12 findings, none blocking. Fixes and leftovers are in finding 6.

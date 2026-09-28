@@ -578,8 +578,9 @@ def review_args(run, round_no, wave, git=run_git):
             # and the pending path is what the merge-base still has.
             "todo_paths": [todofile.archived_path(e["path"]) for _, e in entries],
             "origin_paths": [e["path"] for _, e in entries],
-            # Todo 478: routing reads this list, not one an LLM router reports. -z: no path quoting.
-            "changed_files": [f for f in git(first["worktree"], "diff", "--name-only", "-z",
+            # Todo 478: routing reads this list, not one an LLM router reports. -z: no path quoting;
+            # --no-renames: a moved file lists its old path too, so the old path's reviewers still see it.
+            "changed_files": [f for f in git(first["worktree"], "diff", "--name-only", "--no-renames", "-z",
                                              "origin/main...HEAD").split("\0") if f],
         })
     return items

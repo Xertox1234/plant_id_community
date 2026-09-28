@@ -396,17 +396,22 @@ async function main() {
   }
   const mixed = ['backend/apps/x/views.py', 'plant_community_mobile/lib/a.dart', 'web/src/A.tsx']
   r = await run('todo-review', { round: 1, prs: [pr({ changed_files: mixed })] },
-    reviewStub({ route: routed('flutter-dart-reviewer', 'wagtail-reviewer') }))
+    reviewStub({ route: routed('wagtail-reviewer') }))
   const promptOf = id => byType(r.calls, id)[0].prompt
-  check('review: each path-routed reviewer gets only its own files',
+  check('review: each reviewer only the path rules chose gets only its own files',
     promptOf('flutter-dart-reviewer').includes('  - plant_community_mobile/lib/a.dart')
     && !promptOf('flutter-dart-reviewer').includes('views.py') && !promptOf('react-typescript-reviewer').includes('.dart')
     && !promptOf('cross-cutting-reviewer').includes('A.tsx'), promptOf('flutter-dart-reviewer'))
   check('review: a reviewer only the router chose (wagtail, by content) gets every file',
     mixed.every(f => promptOf('wagtail-reviewer').includes(`  - ${f}`)), promptOf('wagtail-reviewer'))
   check('review: router choices and path rules are merged, and floor_added names only what the router missed',
-    r.result.results[0].floor_added.join() === 'django-drf-reviewer,react-typescript-reviewer,cross-cutting-reviewer'
+    r.result.results[0].floor_added.join() ===
+      'django-drf-reviewer,react-typescript-reviewer,flutter-dart-reviewer,cross-cutting-reviewer'
     && dispatched(r.calls).size === 5, r.result.results[0])
+  const blogPlus = ['backend/apps/blog/models.py', 'backend/packages/wagtail_forum/models.py']
+  r = await run('todo-review', { round: 1, prs: [pr({ changed_files: blogPlus })] }, reviewStub({ route: routed('wagtail-reviewer') }))
+  check('review: a reviewer both the path rules and the router chose gets every file, not just its path matches',
+    blogPlus.every(f => byType(r.calls, 'wagtail-reviewer')[0].prompt.includes(`  - ${f}`)), byType(r.calls, 'wagtail-reviewer')[0].prompt)
 
   // --- review: the path rules mirror code-review-orchestrator.md's routing table, row for row
   const table = fs.readFileSync(path.join(ROOT, '.claude', 'agents', 'code-review-orchestrator.md'), 'utf8')

@@ -65,7 +65,7 @@ const ROUTES = [
   { row: 'Any `.py` file', agents: ['cross-cutting-reviewer'], test: f => f.endsWith('.py') },
 ]
 
-// Each reviewer gets the files its rows match; one only the router chose (wagtail by content) gets them all.
+// The files each reviewer's rows match: the file list for a reviewer only the path rules chose.
 function routeFiles(files) {
   const byAgent = new Map()
   for (const r of ROUTES) {
@@ -294,7 +294,10 @@ const results = await pipeline(
       const ids = [...new Set([...byAgent.keys(), ...routing.agents_to_invoke])]
       const floor_added = [...byAgent.keys()].filter(id => !routing.agents_to_invoke.includes(id))
       if (floor_added.length) log(`${p.group}: path rules added ${floor_added.join(', ')} the router left out`)
-      const reviews = await parallel(ids.map(id => () => agent(domainPrompt(p, id, byAgent.get(id) || p.changed_files),
+      // A router pick may rest on file contents (a wagtail import outside apps/blog/), which the path rules
+      // can't see, so a reviewer the router chose gets every file; only floor-added ones get their subset.
+      const filesFor = id => (routing.agents_to_invoke.includes(id) ? p.changed_files : byAgent.get(id))
+      const reviews = await parallel(ids.map(id => () => agent(domainPrompt(p, id, filesFor(id)),
         { label: `${id}:${p.group}`, phase: 'Review', agentType: id, schema: FINDINGS })
         .then(r => r && { ...r, reviewer: id })))
       return { routing, reviews, ids, floor_added }
