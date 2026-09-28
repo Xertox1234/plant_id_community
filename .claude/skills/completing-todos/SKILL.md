@@ -151,6 +151,9 @@ Steps 1–8 run with the sandbox off (see **Sandbox**).
 
 ## Stage C — Review (per wave, after its PRs are open)
 
+0. Before `review-args` in every round, run `ensure-worktree` (Stage D step 1) for each group in the wave.
+   `review-args` runs `git diff` in each PR worktree to compute `changed_files`, so a worktree the harness
+   swept away makes it exit 2 for the whole wave.
 1. `python3 scripts/todos/state.py review-args $RUN --round 1 --wave W` → `Workflow({name: "todo-review", args})`
    → `python3 scripts/todos/state.py ingest-review $RUN --output <file> --round 1`.
    - `clean` → round 2.

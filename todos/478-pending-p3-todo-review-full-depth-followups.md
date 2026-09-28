@@ -102,8 +102,10 @@ These were left for later.
 
 - `state.review_args` sets `changed_files` from
   `git -C WT diff --name-only -z origin/main...HEAD`, and the router is given that
-  list. The router no longer reports files, so its list can't be trusted by mistake,
-  and the /tmp and /private/tmp alias gap goes away.
+  list. The router no longer reports files, so its list can't be trusted by mistake.
+  That closes the /tmp vs /private/tmp alias gap for routing, but `relPath` still
+  strips a literal prefix when deduplicating findings, so that part of finding 5
+  stays open.
 - `MUST_ROUTE` is replaced by `ROUTES`, which mirrors all 12 rows of the
   orchestrator's table, security rows included: `firebase/**` and `*.rules` →
   flutter-firebase and cross-cutting; `functions/**` → firebase-cloudfunction; a
