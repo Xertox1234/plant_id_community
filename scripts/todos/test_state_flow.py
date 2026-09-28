@@ -618,7 +618,8 @@ def main():
     check("I3: a dependent is regrouped with its retried dependency and placed after it",
           run_d["todos"]["602"]["group"] != g602 and w602 >= w601 + 2, (w601, w602, run_d["waves"]))
 
-    # Re-review N1: the gate blocks ONE member of a two-member group (402, bundled xs with 403).
+    # Re-review N1: the gate blocks ONE member of a two-member group (402, sharing a file with 403;
+    # since B-2 an xs todo with a dependency edge is never bundled, so the group is a shared-file one).
     # The blocked member must leave the group entirely, or Land and review read it as the group's
     # first member, and a dependent of the member that ran (404 <- 403) is blocked on it.
     with tempfile.TemporaryDirectory() as tmp:
@@ -636,8 +637,8 @@ def main():
         todos_n1 = [{"id": i, "path": f"todos/{i}-pending-p3-x.md", "priority": "p3"} for i in ("401", "402", "403",
                                                                                                 "404")]
         run_n1 = state.new_run("r", "sweep", 1, todos_n1, ["401", "402", "403", "404"])
-        state.record_triage(run_n1, [rec("401", ["n401.py"]), rec("402", ["backend/n402.py"], size="xs"),
-                                     rec("403", ["backend/n403.py"], size="xs"), rec("404", ["n404.py"])])
+        state.record_triage(run_n1, [rec("401", ["n401.py"]), rec("402", ["backend/n402.py", "backend/n1-shared.py"]),
+                                     rec("403", ["backend/n403.py", "backend/n1-shared.py"]), rec("404", ["n404.py"])])
         state.accept_ready(run_n1)
         run_n1["todos"]["402"]["dependencies"] = ["401"]
         run_n1["todos"]["404"]["dependencies"] = ["403"]
@@ -678,6 +679,38 @@ def main():
         check("N1: a dependent of the member that ran is dispatched, not blocked on the gate-blocked member",
               err is None and [b["ids"] for b in briefs_404] == [["404"]]
               and run_n1["todos"]["404"]["stage"] == "executing", err or run_n1["todos"]["404"])
+
+    # PR #861 B-1: a member that depends on a gate-blocked member of the SAME group (directly or
+    # through a chain inside the group) is blocked too, never handed out alone.
+    def intra_group_run(chain):
+        ids = ["x1"] + chain
+        rb1 = ready_run([("x1", ["bx.py"])] + [(i, ["b1-shared.py"]) for i in chain], workers=1)
+        rb1["todos"][chain[0]]["dependencies"] = ["x1"]
+        for dependent, dependency in zip(chain[1:], chain):
+            rb1["todos"][dependent]["dependencies"] = [dependency]
+        state.apply_grouping(rb1)
+        gid = rb1["todos"][chain[0]]["group"]
+        wave = next(w for w, gids in enumerate(rb1["waves"]) if gid in gids)
+        b0 = state.execute_args(rb1, 0, "/m")
+        state.ingest_execute(rb1, [{"group": b0[0]["group"], "ids": ["x1"], "retried": False, "verdict": None,
+                                    "worker": worker(["x1"], status="blocked") | {"blockers": "owner"}}])
+        out = []
+        for w in range(1, wave + 1):
+            got, err = expect(lambda: state.execute_args(rb1, w, "/m"))
+            out = got if err is None else [err]
+        return rb1, gid, ids, out
+
+    rb1, gb1, _, out = intra_group_run(["a1", "b1"])
+    check("B-1: A (dep X blocked) and B (dep A, same group) are both blocked; nothing is handed out",
+          out == [] and [rb1["todos"][i]["stage"] for i in ("a1", "b1")] == ["blocked", "blocked"]
+          and rb1["todos"]["b1"]["reason"] == "dependency a1 blocked" and rb1["groups"][gb1]["ids"] == [],
+          (out, {i: rb1["todos"][i].get("reason") for i in ("a1", "b1")}, rb1["groups"][gb1]["ids"]))
+    rb1, gb1, _, out = intra_group_run(["a1", "b1", "c1"])
+    check("B-1: a chain inside the group (C <- B <- A <- X) blocks all three, each naming its blocked dependency",
+          out == [] and [rb1["todos"][i]["reason"] for i in ("a1", "b1", "c1")]
+          == ["dependency x1 blocked", "dependency a1 blocked", "dependency b1 blocked"]
+          and "group" not in rb1["todos"]["c1"],
+          (out, {i: (rb1["todos"][i]["stage"], rb1["todos"][i].get("reason")) for i in ("a1", "b1", "c1")}))
 
     # Final review I5: a worker that stops short still has a worktree; record it.
     run_w = ready_run([("701", ["w701.py"]), ("702", ["w702.py"]), ("703", ["w703.py"])], workers=3)
@@ -746,6 +779,44 @@ def main():
         (wt / "a.py").write_text("x = 1\n")
         path_m2, err_m2 = expect(lambda: state.ensure_worktree(run_m2, "gm2", Path(tmp) / "scratch"))
         check("m2: an untracked test artifact does not count", err_m2 is None, err_m2)
+
+    # PR #861 B-3 (engine backstop): Land never commits a force-staged ignored file. Only paths the
+    # branch ADDED count, so a file already tracked at the base that matches an ignore rule passes.
+    with tempfile.TemporaryDirectory() as tmp:
+        repo = Path(tmp) / "repo"
+        subprocess.run(["git", "init", "-q", "-b", "main", str(repo)], check=True)
+        (repo / "backend").mkdir()
+        (repo / ".gitignore").write_text("backend/.env\n*.log\n")
+        (repo / "a.py").write_text("x = 1\n")
+        (repo / "legacy.log").write_text("tracked before the ignore rule\n")
+        subprocess.run(["git", "-C", str(repo), "add", ".gitignore", "a.py"], check=True)
+        subprocess.run(["git", "-C", str(repo), "add", "-f", "legacy.log"], check=True)
+        subprocess.run(["git", "-C", str(repo), "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q",
+                        "-m", "base"], check=True)
+        subprocess.run(["git", "-C", str(repo), "update-ref", "refs/remotes/origin/main", "HEAD"], check=True)
+        wt = Path(tmp) / "wt-b3"
+        subprocess.run(["git", "-C", str(repo), "worktree", "add", "-q", "-b", "worktree-b3", str(wt)], check=True)
+        (wt / "b.py").write_text("y = 2\n")
+        (wt / "legacy.log").write_text("edited, still tracked\n")
+        subprocess.run(["git", "-C", str(wt), "add", "b.py", "legacy.log"], check=True)
+
+        def b3_run():
+            tree = subprocess.run(["git", "-C", str(wt), "write-tree"], capture_output=True, text=True).stdout.strip()
+            return worktree_run("b3", "gb3", "worktree-b3", worktree=str(wt), tree_id=tree)
+
+        path_b3, err_b3 = expect(lambda: state.ensure_worktree(b3_run(), "gb3", Path(tmp) / "scratch"))
+        check("B-3: a normal staged change passes, even beside a base-tracked file matching an ignore rule",
+              err_b3 is None and path_b3 == str(wt), err_b3)
+        (wt / "backend").mkdir(exist_ok=True)
+        (wt / "backend" / ".env").write_text("SECRET_KEY=fake-value-for-the-test\n")  # pragma: allowlist secret
+        subprocess.run(["git", "-C", str(wt), "add", "-f", "backend/.env"], check=True)
+        _, err_b3 = expect(lambda: state.ensure_worktree(b3_run(), "gb3", Path(tmp) / "scratch"))
+        check("B-3: a force-staged backend/.env is refused, and the error names it",
+              isinstance(err_b3, RuntimeError) and "backend/.env" in str(err_b3) and "legacy.log" not in str(err_b3),
+              err_b3)
+        subprocess.run(["git", "-C", str(repo), "update-ref", "-d", "refs/remotes/origin/main"], check=True)
+        _, err_b3 = expect(lambda: state.ensure_worktree(b3_run(), "gb3", Path(tmp) / "scratch"))
+        check("B-3: with no base to compare against, the check fails closed", isinstance(err_b3, RuntimeError), err_b3)
 
     # Final review m4: a dependency cycle exits 2 with `state: dependency cycle: ...`, not a traceback.
     with tempfile.TemporaryDirectory() as tmp:

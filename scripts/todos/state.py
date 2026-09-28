@@ -357,6 +357,19 @@ def execute_args(run, wave, main_root):
                 elif stage not in LANDED:
                     raise TransitionError(f"{todo_id}: dependency {dep} is {stage}, not merged; wait for it to merge "
                                           "(run `group` first if it was retried)")
+    # PR #861 B-1: a member depending (directly or transitively) on a member blocked above cannot
+    # run either -- it would ship without the code it depends on. Block it too, naming that member.
+    changed = True
+    while changed:
+        changed = False
+        for gid in gids:
+            for todo_id, entry in _group_entries(run, gid):
+                if entry["stage"] != "ready" or todo_id in to_block:
+                    continue
+                blocked_dep = next((d for d in entry["dependencies"] if d in to_block), None)
+                if blocked_dep:
+                    to_block[todo_id] = f"dependency {blocked_dep} blocked"
+                    changed = True
     for todo_id, reason in to_block.items():
         transition(run, todo_id, "blocked", reason=reason)
         # N1: a gate-blocked todo never ran, so it leaves its group entirely -- both the entry's
@@ -577,6 +590,20 @@ def _unstaged_outside_land(path):
     return dirty
 
 
+def _force_staged_ignored(path, base="origin/main"):
+    """Paths the branch ADDED (against the merge-base with `base`, renames split into
+    delete + add) that an ignore rule matches -- a force-staged backend/.env or web/.env,
+    which .worktreeinclude copies into every worktree (PR #861 B-3). Limited to added paths,
+    so a file already tracked at the base that happens to match an ignore rule never trips it.
+    A missing base makes git fail, and run_git raises: the check fails closed."""
+    ignored = set(run_git(path, "ls-files", "--cached", "--ignored", "--exclude-standard").splitlines())
+    if not ignored:
+        return []
+    added = run_git(path, "diff", "--cached", "--name-only", "--no-renames", "--diff-filter=A",
+                    "--merge-base", base).splitlines()
+    return sorted(p for p in added if p in ignored)
+
+
 def ensure_worktree(run, gid, scratch, git=run_git):
     entries = _group_entries(run, gid)
     first = entries[0][1]
@@ -608,6 +635,11 @@ def ensure_worktree(run, gid, scratch, git=run_git):
     if unstaged:
         raise RuntimeError(f"{gid}: worktree at {path} has unstaged changes outside Land's paths "
                            f"({', '.join(unstaged[:5])}); the verified tree is not what is on disk")
+    forced = _force_staged_ignored(path)
+    if forced:
+        raise RuntimeError(f"{gid}: worktree at {path} stages ignored files the branch added "
+                           f"({', '.join(forced)}); a force-staged .env must never be committed -- "
+                           "unstage them (git rm --cached) and rerun the group")
     if not reused:
         for _, entry in entries:
             entry["worktree"] = path

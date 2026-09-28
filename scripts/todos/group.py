@@ -75,14 +75,15 @@ def _components(todos):
     return list(components.values())
 
 
-def build_groups(todos, hold=frozenset()):
-    """Groups of todo ids. A todo in `hold` (already known to be unschedulable) is never
-    bundled with tiny todos, so it cannot take its bundle-mates down with it."""
+def build_groups(todos, solo=frozenset()):
+    """Groups of todo ids. A todo in `solo` is never bundled with other tiny todos: one already
+    known to be unschedulable (so it cannot take its bundle-mates down with it), or one with an
+    in-plan dependency edge (so bundling cannot invent a cycle between bundles, PR #861 B-2)."""
     groups, tiny = [], {}
     for members in _components(todos):
         only = members[0]
         if (len(members) == 1 and only["triage"]["size"] == "xs" and not only.get("verify_only")
-                and only["id"] not in hold):
+                and only["id"] not in solo):
             files = only["triage"]["predicted_files"]
             tiny.setdefault(files[0].split("/", 1)[0] if files else "misc", []).append(only)
         else:
@@ -142,7 +143,12 @@ def _held(todos, open_ids):
 
 def plan(todos, open_ids, workers):
     by_id = {t["id"]: t for t in todos}
-    grouped = build_groups(todos, hold=_held(todos, open_ids))
+    # PR #861 B-2: bundles hold only xs todos with no dependency edge inside this plan, in or out.
+    # A bundle then has no group deps at all, so it can never sit on a cycle; a real cycle
+    # among the todos themselves still reaches _find_cycle through their singleton groups.
+    linked = {end for t in todos for dep in t.get("dependencies", []) if dep in by_id and dep != t["id"]
+              for end in (t["id"], dep)}
+    grouped = build_groups(todos, solo=_held(todos, open_ids) | linked)
     gids = [f"g{n}" for n in range(1, len(grouped) + 1)]
     gid_of = {todo_id: gid for gid, ids in zip(gids, grouped) for todo_id in ids}
     lanes = {gid: sorted(set().union(*(lanes_for(by_id[i]["triage"]) for i in ids)))

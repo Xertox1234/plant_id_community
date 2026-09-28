@@ -13,7 +13,7 @@ dependencies: []
 The final whole-branch review of the todo sweep v2 engine (Part A) fixed its
 Critical, Important and cheap Minor findings in one wave. Fifteen smaller
 items were ruled follow-up, not fixed, and the re-review of that wave added
-eight more. None is reachable on today's backlog or in the first pilot, but
+eight more, and PR #861 round 1 three more. None is reachable on today's backlog or in the first pilot, but
 each is a real gap in a later sweep.
 
 ## Findings
@@ -23,10 +23,13 @@ the controller rulings on it. Line numbers are at the residual fix commit.
 
 - **apply_triage is not transactional.** A mid-batch failure leaves earlier
   todos renamed, and the reset-stranded `git mv` is not idempotent on re-run
-  (`scripts/todos/state.py:220`).
+  (`scripts/todos/state.py:220`). Concrete repro (PR #861 round 1): the first
+  run saves `entry["path"]` as the pending path but leaves `reset_stranded`
+  set, so a rerun computes the same pending name and runs `git mv` onto
+  itself, which git refuses.
 - **ingest_review does not validate stage or round order.** A re-ingest of a
   stale round-1 output can overwrite `tree_id` and `verified_ac` on a group
-  that is already reviewed (`scripts/todos/state.py:491`).
+  that is already reviewed (`scripts/todos/state.py:504`).
 - **The review doc is not a single-lane resource.** Two groups sourced from
   one `docs/reviews/*.md` can both check it off and race the `-COMPLETED`
   rename (`scripts/todos/group.py:18`, `scripts/todos/land.py:396`).
@@ -39,7 +42,7 @@ the controller rulings on it. Line numbers are at the residual fix commit.
   (`.worktreeinclude:5-6`). This is pilot check P5.
 - **A failed tree check leaves the re-added worktree on disk.** It is
   non-destructive, and the message names the path
-  (`scripts/todos/state.py:605-610`).
+  (`scripts/todos/state.py:632-637`).
 - **The workflow harness does not schema-validate its fixtures.** The triage
   stub `{ id: 'WRONG', class: 'ready' }` is not a valid TRIAGE record
   (`scripts/todos/test_workflows.js:78`).
@@ -52,7 +55,7 @@ the controller rulings on it. Line numbers are at the residual fix commit.
   (`scripts/todos/state.py:229`).
 - **m6: worktree re-add has no `origin/<branch>` fallback.** When the local
   branch is gone, recovery fails even though the branch is pushed
-  (`scripts/todos/state.py:595-599`).
+  (`scripts/todos/state.py:622-626`).
 - **m7: the guard allows `git -C <MAIN> add/mv/rm`.** A worker that confuses
   MAIN with WT can stage into the owner's main checkout
   (`scripts/todos/worker_git_guard.py:31`).
@@ -100,9 +103,22 @@ the spec):
   while in flight). No local ref has this shape today
   (`scripts/todos/scan.py:32`).
 - **F5 residual: recorded worktrees are lost at `finish`.** `finish` deletes
-  the run file once every todo is terminal (`scripts/todos/state.py:682-684`),
+  the run file once every todo is terminal (`scripts/todos/state.py:714-716`),
   so Part B must list every non-staged todo's recorded worktree at wrap-up,
   before `finish`.
+- **`lanes_forbidden` omits the previous wave's lanes while it still runs.**
+  It lists only the lanes of other groups in the same wave
+  (`scripts/todos/state.py:386`). Wave N-1 is still executing or in review
+  when wave N starts, so a file a worker edits that triage did not predict
+  can collide with a PR in that wave (PR #861 round 1).
+- **The m5 longest-first masking order is not pinned by a test.** Reversing
+  the sort (`scripts/todos/land.py:116`) passes every test, because no
+  fixture has one secret value inside another (PR #861 round 1).
+- **harness-ci's `push` path filter lacks `.claude/agents/**`.**
+  `test_land.py` reads `.claude/agents/todo-worker.md` (the m9 check), but
+  an agent-file change pushed to main/develop does not run the job
+  (`.github/workflows/harness-ci.yml:48-60`); pull requests are unfiltered
+  (PR #861 round 1).
 - **Spec §5.2 says `status --porcelain` is empty after staging.** Staged
   entries are listed by porcelain, so the sentence is wrong; the engine's
   clean check reads the worktree column only
@@ -189,6 +205,11 @@ the spec):
 - [ ] The Part B wrap-up lists every non-staged todo's recorded worktree
       before `state.py finish`.
 - [ ] Spec §5.2 no longer says `status --porcelain` is empty after staging.
+- [ ] `lanes_forbidden` includes the lanes of the previous wave while that
+      wave is not merged, with a test.
+- [ ] A test with overlapping `.env` values fails when the masking sort is
+      reversed.
+- [ ] harness-ci's `push` paths include `.claude/agents/**`.
 
 ## Work Log
 
@@ -203,6 +224,12 @@ the spec):
 - Added N2, N3, three m5 leak paths, the m3 delimiter-less shape, the F5
   wrap-up step and the spec §5.2 correction. N1, N4 and the m5 command leak
   were fixed in the same commit that added these.
+
+### 2026-09-27 - PR #861 round 1 non-blocking findings added
+
+- Added the `lanes_forbidden`, masking-order and harness-ci path items, and
+  the apply-triage self-`git mv` repro to the existing idempotency item.
+  B-1 to B-3 were fixed in the same commit.
 
 ## Notes
 

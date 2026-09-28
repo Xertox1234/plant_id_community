@@ -38,6 +38,8 @@ OUTPUT_OPTIONS = ("output", "ext-diff", "textconv")
 GIT_DENIED_OPTIONS = {"fetch": ("upload-pack", "stdin"), "diff": OUTPUT_OPTIONS, "log": OUTPUT_OPTIONS,
                       "show": OUTPUT_OPTIONS}
 GIT_EXACT_OPTIONS = {"text"}  # a real option, so not a prefix of --textconv
+FORCE_SUBCOMMANDS = {"add", "mv", "rm"}
+FORCE_REASON = "force-staging ignored files is not allowed (git add/mv/rm -f / --force)"
 SHELLS = {"sh", "bash", "zsh", "dash", "ksh", "fish"}
 SOURCES = {"source", "."}  # run a script in the current shell: same stdin risk as a shell
 # Unquoted reserved words (and zsh precommand modifiers) that only prefix the
@@ -473,10 +475,30 @@ def denied_option(arg, names):
                for n in names)
 
 
+def forces(args):
+    """True when add/mv/rm options include -f / --force (PR #861 B-3): `.worktreeinclude`
+    copies backend/.env and web/.env into every worktree, and `add -f` would stage one for
+    Land to commit into a public repo. Any long option that is a prefix of --force counts (git
+    takes unambiguous prefixes), and so does any short-option bundle holding an f (-fA, -nf).
+    Operands after `--` are paths, so a file named -f is fine."""
+    for arg in (w.value for w in args):
+        if arg == "--":
+            return False
+        if arg.startswith("--"):
+            name = arg[2:].partition("=")[0]
+            if name and "force".startswith(name):
+                return True
+        elif arg.startswith("-") and len(arg) > 1 and "f" in arg[1:]:
+            return True
+    return False
+
+
 def check_git_subcommand(sub, args):
     if sub not in GIT_ALLOWED:
         return (f"git {sub} is reserved for the main session; workers stage and stop "
                 f"(allowed: {', '.join(sorted(GIT_ALLOWED))})")
+    if sub in FORCE_SUBCOMMANDS and forces(args):
+        return FORCE_REASON
     for arg in (w.value for w in args):
         if sub == "fetch" and ":" in arg:
             return f"git fetch {arg}: a ':' refspec or URL can move refs; use git fetch [origin] [<branch>]"

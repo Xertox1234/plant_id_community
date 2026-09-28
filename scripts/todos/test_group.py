@@ -108,6 +108,30 @@ def main():
           set(result["unschedulable"]) == {"448", "452"} and [v["ids"] for v in result["groups"].values()] == [["453"]],
           result)
 
+    # PR #861 B-2: xs bundling must not invent a cycle the todos do not have. 103 -> 104 -> 101 used
+    # to bundle as [101, 102, 103] + [104], a group cycle, and CycleError stopped the whole plan.
+    xs = [t("101", ["backend/p101.py"], size="xs"), t("102", ["backend/p102.py"], size="xs"),
+          t("103", ["backend/p103.py"], size="xs", deps=["104"]), t("104", ["backend/p104.py"], size="xs", deps=["101"])]
+    try:
+        result, raised = group.plan(xs, open_ids={"101", "102", "103", "104"}, workers=3), ""
+    except group.CycleError as exc:
+        result, raised = None, str(exc)
+    check("B-2: bundling an acyclic chain plans without a cycle", result is not None, raised)
+    if result is not None:
+        check("B-2: the plan keeps the dependency order (each dependency 2+ waves earlier)",
+              wave_of(result, "104") - wave_of(result, "101") >= 2
+              and wave_of(result, "103") - wave_of(result, "104") >= 2, result["waves"])
+        check("B-2: linked xs todos are planned singly (102 is alone in its bucket)",
+              all(len(v["ids"]) == 1 for v in result["groups"].values()) and not result["unschedulable"], result)
+    xs_cycle = [t("111", ["backend/c111.py"], size="xs", deps=["112"]),
+                t("112", ["backend/c112.py"], size="xs", deps=["111"]), t("113", ["backend/c113.py"], size="xs")]
+    try:
+        group.plan(xs_cycle, open_ids={"111", "112", "113"}, workers=3)
+        raised = ""
+    except group.CycleError as exc:
+        raised = str(exc)
+    check("B-2: a real cycle among xs todos still raises", "111" in raised and "112" in raised, raised)
+
     try:
         group.plan([t("1", ["a.py"], deps=["2"]), t("2", ["b.py"], deps=["1"])], open_ids={"1", "2"}, workers=3)
         raised = ""

@@ -239,6 +239,24 @@ assert_allow "other agent: unparseable quoting"      code-review-orchestrator 'g
 OUT=$(echo 'not json' | bash "$HOOK" 2>/dev/null)
 if [ -z "$OUT" ]; then echo "PASS: malformed JSON fails open"; PASS=$((PASS+1)); else echo "FAIL: malformed JSON"; FAIL=$((FAIL+1)); fi
 
+# PR #861 B-3 — force-staging: .worktreeinclude copies backend/.env and web/.env into every
+# worktree, and `add -f` would stage one for Land to commit into a public repo.
+FORCE='force-staging ignored files is not allowed'
+assert_deny_msg "B-3: git add -f backend/.env"           $W 'git add -f backend/.env' "$FORCE"
+assert_deny_msg "B-3: git add --force ."                 $W 'git add --force .' "$FORCE"
+assert_deny_msg "B-3: git -C /tmp/wt add -fA"            $W 'git -C /tmp/wt add -fA' "$FORCE"
+assert_deny_msg "B-3: git mv -f a b"                     $W 'git mv -f a b' "$FORCE"
+assert_deny_msg "B-3: git rm -f x"                       $W 'git rm -f x' "$FORCE"
+assert_deny_msg "B-3: git add -nf (bundle holding f)"    $W 'git add -nf backend/.env' "$FORCE"
+assert_deny_msg "B-3: git add --forc (prefix of --force)" $W 'git add --forc backend/.env' "$FORCE"
+assert_deny_msg "B-3: verifier git add -f too"           todo-verifier '/usr/bin/git -C /tmp/wt add -f web/.env' "$FORCE"
+assert_allow "B-3: git add -A"                           $W 'git add -A'
+assert_allow "B-3: an f in a file name is fine"          $W 'git add -- file-f.txt'
+assert_allow "B-3: a path named -f after -- is fine"     $W 'git add -- -f'
+assert_allow "B-3: git rm --cached x"                    $W 'git rm --cached x'
+assert_allow "B-3: /usr/bin/git -C WT add -A"            $W '/usr/bin/git -C /tmp/wt add -A'
+assert_allow "B-3: an unguarded caller may still add -f" general-purpose 'git add -f x'
+
 # K10 — a missing script fails open (exit 0, no output) instead of blocking every Bash call
 # (a TMPDIR template, because the Bash sandbox denies mktemp's default /var/folders)
 TMP=$(mktemp -d "${TMPDIR:-/tmp}/guard-todo-worker-git.XXXXXX") || TMP=""
