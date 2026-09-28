@@ -144,6 +144,65 @@ def main():
         check("apply_triage lists what it changed", sorted(changed) == ["todos/1-pending-p3-x.md",
                                                                        "todos/4-pending-p3-x.md"], changed)
 
+        # Todo 468: apply-triage saves the run file only on success, so a rerun after a mid-batch
+        # failure sees the old in_progress path while the disk already has the pending one.
+        (repo / "todos/6-in_progress-p3-x.md").write_text(head.format(s="in_progress", i="6"))
+        (repo / "todos/7-pending-p3-x.md").write_text(head.format(s="pending", i="7"))
+        commit_all(repo)
+        mid = state.new_run("r4b", "sweep", 3,
+                            [{"id": "6", "path": "todos/6-in_progress-p3-x.md", "priority": "p3", "stranded": True},
+                             todo("7")], ["6", "7"])
+        state.record_triage(mid, [rec("6"), rec("7")])
+        state.decide(mid, "6", "ready", reset_stranded=True)
+        state.decide(mid, "7", "ready")
+        saved = json.loads(json.dumps(mid))  # what the run file still holds after a failed run
+        (repo / "todos/7-pending-p3-x.md").rename(repo / "todos/7-moved-away.md")
+        check("468 setup: the first apply-triage fails part-way (todo 7's file is missing)",
+              raises(lambda: state.apply_triage(mid, repo, "2026-09-28"), FileNotFoundError)
+              and (repo / "todos/6-pending-p3-x.md").exists())
+        (repo / "todos/7-moved-away.md").rename(repo / "todos/7-pending-p3-x.md")
+        rerun, err = None, None
+        try:
+            rerun = state.apply_triage(saved, repo, "2026-09-28")
+        except Exception as exc:  # noqa: BLE001 -- the check reports it
+            err = exc
+        new6 = repo / "todos/6-pending-p3-x.md"
+        check("468: re-running apply-triage after a mid-batch failure succeeds",
+              err is None and sorted(rerun) == ["todos/6-pending-p3-x.md", "todos/7-pending-p3-x.md"]
+              and saved["todos"]["6"]["path"] == "todos/6-pending-p3-x.md", err or rerun)
+        check("468: the rerun does not repeat the Work Log entry",
+              new6.read_text().count("Returned to pending by the todo sweep") == 1, new6.read_text())
+        err = None
+        saved["todos"]["6"]["reset_stranded"] = True  # PR #861 round 1: path already pending, flag still set
+        try:
+            state.apply_triage(saved, repo, "2026-09-28")
+        except Exception as exc:  # noqa: BLE001
+            err = exc
+        check("468: re-running apply-triage after a successful run succeeds (no git mv onto itself)",
+              err is None and new6.read_text().count("Returned to pending by the todo sweep") == 1, err)
+
+        # Todo 468: an owner who blocks a needs-design or stale todo has answered it; the next scan
+        # must not ask again, so the frontmatter says blocked-owner (scan skips blocked-* unchanged).
+        (repo / "todos/8-pending-p3-x.md").write_text(head.format(s="pending", i="8"))
+        (repo / "todos/9-pending-p3-x.md").write_text(head.format(s="pending", i="9"))
+        answered = state.new_run("r4c", "sweep", 3, [todo("8"), todo("9")], ["8", "9"])
+        state.record_triage(answered, [rec("8", "needs-design", "Which layout?"), rec("9", "stale", "Keep it?")])
+        state.decide(answered, "8", "blocked", decision="Owner: wait for the redesign (2026-09-28)")
+        state.decide(answered, "9", "skipped")
+        state.apply_triage(answered, repo, "2026-09-28")
+        fm8 = todofile.read_frontmatter(repo / "todos/8-pending-p3-x.md")
+        fm9 = todofile.read_frontmatter(repo / "todos/9-pending-p3-x.md")
+        check("468: an owner-blocked needs-design todo is written as blocked-owner with the owner's answer",
+              fm8["triage"] == "blocked-owner" and fm8["blocked_on"] == "Owner: wait for the redesign (2026-09-28)",
+              fm8)
+        check("468: a todo skipped for this run keeps its class (asked again next sweep)", fm9["triage"] == "stale",
+              fm9)
+        import scan  # noqa: E402 -- scan imports state, so only here
+        picked, _ = scan.select(scan.load_todos(repo / "todos"), selector="sweep", inflight=set(),
+                                changed_since=lambda p, d: False)
+        check("468: the next sweep does not re-ask the answered todo, and does re-ask the skipped one",
+              "8" not in [t["id"] for t in picked] and "9" in [t["id"] for t in picked], [t["id"] for t in picked])
+
     done = state.new_run("r5", "sweep", 3, [todo("1")], ["1"])
     state.transition(done, "1", "blocked", reason="x")
     check("is_complete when every todo is terminal", state.is_complete(done))

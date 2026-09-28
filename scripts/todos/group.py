@@ -43,6 +43,19 @@ def lanes_for(record):
     return lanes
 
 
+def review_lane(todo):
+    """A review doc is a lane (todo 468): two groups converted from one `docs/reviews/*.md` both
+    tick its Finding Status and race its -COMPLETED rename."""
+    doc = todo.get("source_review")
+    return {f"review:{doc}"} if doc else set()
+
+
+def lane_doc(lane):
+    if lane.startswith("review:"):
+        return f"{lane[len('review:'):]} (its Finding Status and -COMPLETED rename)"
+    return LANE_DOC[lane]
+
+
 def _rank(todo):
     p = todo["priority"]
     return (PRIORITIES.index(p) if p in PRIORITIES else len(PRIORITIES), todo["id"])
@@ -121,6 +134,23 @@ def _find_cycle(deps):
     return None
 
 
+def _merge_cycles(grouped, by_id):
+    """Todos that share a file are one group, so an acyclic chain through another group (B -> C -> A,
+    A and B sharing a file) is still a group cycle. Every group on one becomes one group -- one worker,
+    one PR -- until none is left (todo 468). A cycle among the todos themselves is refused earlier."""
+    while True:
+        gid_of = {i: n for n, ids in enumerate(grouped) for i in ids}
+        deps = {n: {gid_of[d] for i in ids for d in by_id[i].get("dependencies", []) if d in gid_of} - {n}
+                for n, ids in enumerate(grouped)}
+        cycle = _find_cycle(deps)
+        if not cycle:
+            return grouped
+        on = set(cycle)
+        merged = sorted((i for n in on for i in grouped[n]), key=lambda i: _rank(by_id[i]))
+        grouped = sorted([ids for n, ids in enumerate(grouped) if n not in on] + [merged],
+                         key=lambda ids: _rank(by_id[ids[0]]))
+
+
 def _held(todos, open_ids):
     """Todos that cannot run in this plan, decided per todo BEFORE any bundling (final
     review I4): a dependency on an open todo outside this plan, a file shared with such a
@@ -145,13 +175,17 @@ def plan(todos, open_ids, workers):
     by_id = {t["id"]: t for t in todos}
     # PR #861 B-2: bundles hold only xs todos with no dependency edge inside this plan, in or out.
     # A bundle then has no group deps at all, so it can never sit on a cycle; a real cycle
-    # among the todos themselves still reaches _find_cycle through their singleton groups.
+    # among the todos themselves is refused below, before any grouping.
     linked = {end for t in todos for dep in t.get("dependencies", []) if dep in by_id and dep != t["id"]
               for end in (t["id"], dep)}
-    grouped = build_groups(todos, solo=_held(todos, open_ids) | linked)
+    todo_cycle = _find_cycle({t["id"]: {d for d in t.get("dependencies", []) if d in by_id and d != t["id"]}
+                              for t in todos})
+    if todo_cycle:
+        raise CycleError("dependency cycle: " + " -> ".join(todo_cycle))
+    grouped = _merge_cycles(build_groups(todos, solo=_held(todos, open_ids) | linked), by_id)
     gids = [f"g{n}" for n in range(1, len(grouped) + 1)]
     gid_of = {todo_id: gid for gid, ids in zip(gids, grouped) for todo_id in ids}
-    lanes = {gid: sorted(set().union(*(lanes_for(by_id[i]["triage"]) for i in ids)))
+    lanes = {gid: sorted(set().union(*(lanes_for(by_id[i]["triage"]) | review_lane(by_id[i]) for i in ids)))
              for gid, ids in zip(gids, grouped)}
     deps = {gid: set() for gid in gids}
     unschedulable = {}
@@ -163,11 +197,6 @@ def plan(todos, open_ids, workers):
                         deps[gid].add(gid_of[dep])
                 elif dep in open_ids:
                     unschedulable[todo_id] = f"depends on open todo {dep}, which is not ready in this run"
-
-    cycle = _find_cycle(deps)
-    if cycle:
-        names = [" + ".join(ids) for gid in cycle for ids in [grouped[gids.index(gid)]]]
-        raise CycleError("dependency cycle: " + " -> ".join(names))
 
     blocked_groups = {gid_of[i] for i in unschedulable}
     changed = True

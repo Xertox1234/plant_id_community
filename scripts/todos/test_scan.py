@@ -54,6 +54,14 @@ def main():
         check("the open statuses match the archive checker's", scan.OPEN_STATUSES == {"pending", "ready",
                                                                                      "in_progress", "blocked"})
         check("title comes from the H1", next(t for t in todos if t["id"] == "412")["title"] == "Title 412")
+        write(tmp, "418-pending-p3-r.md", "pending", "418",
+              extra='source_review: "docs/reviews/2026-05-07-1641-full-review.md"\nsource_finding: "42"\n')
+        loaded = {t["id"]: t for t in scan.load_todos(tmp)}
+        check("468: source_review is loaded, so the planner can give the review doc a lane",
+              loaded["418"]["source_review"] == "docs/reviews/2026-05-07-1641-full-review.md"
+              and loaded["412"]["source_review"] == "", loaded["418"])
+        (Path(tmp) / "418-pending-p3-r.md").unlink()
+        todos = scan.load_todos(tmp)
 
         selected, excluded = scan.select(todos, selector="sweep", inflight=set())
         check("sorted by priority then id", ids(selected) == ["414", "387", "412", "413"], ids(selected))
@@ -108,6 +116,11 @@ def main():
     check("ids_in keeps real branch shapes: <type>/<id>-, a slice letter, a mid-name id, wt<id>",
           scan.ids_in(["feat/412-a", "feat/410b-remove", "release/testflight-428-link-cards", "worktree-wt429"])
           == {"412", "410", "428", "429"})
+    # Todo 468 (m3 residual): an id straight after "todo" is still a whole token; missing it fails
+    # open, selecting a todo while its branch is in flight.
+    check("468: fix/todo412-style names count as in flight",
+          scan.ids_in(["fix/todo412", "chore/todo414b-x", "feat/todos412"]) == {"412", "414"},
+          scan.ids_in(["fix/todo412", "chore/todo414b-x", "feat/todos412"]))
     check("merged heads are fetched with a limit above the repo's PR count", getattr(scan, "MERGED_PR_LIMIT", 0) >= 5000)
     inflight, cleanup = scan.inflight_from(
         worktree_branches=["feat/447-slice-c", "fix/364-mailers"],

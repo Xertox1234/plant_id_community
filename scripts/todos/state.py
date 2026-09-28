@@ -69,6 +69,7 @@ def new_run(run_id, selector, workers, todos, open_ids):
                 "priority": t["priority"],
                 "dependencies": list(t.get("dependencies", [])),
                 "stranded": bool(t.get("stranded", False)),
+                "source_review": str(t.get("source_review") or ""),  # a lane (group.review_lane)
                 "attempts": 0,
                 "reason": "",
             }
@@ -256,18 +257,28 @@ def apply_triage(run, repo_root, today, git=run_git):
         rel = entry["path"]
         if entry.get("reset_stranded"):
             new_rel = str(Path(rel).with_name(todofile.with_status(Path(rel).name, "pending")))
-            git(repo_root, "mv", rel, new_rel)  # rename first: git mv stages the pre-edit content
+            # Todo 468: a rerun after a mid-batch failure finds this rename already done (the run file
+            # was not saved), or rel already the pending path; git mv would refuse either way.
+            if not (repo_root / new_rel).exists():
+                git(repo_root, "mv", rel, new_rel)  # rename first: git mv stages the pre-edit content
             rel = entry["path"] = new_rel
             todofile.set_fields(repo_root / rel, {"status": "pending"})
-            todofile.append_work_log(
-                repo_root / rel,
-                f"### {today} - Returned to pending by the todo sweep (run {run['run_id']})\n\n"
-                "- Was `in_progress` with no branch, worktree or open PR; the owner confirmed the reset.\n",
-            )
-            entry["stranded"] = False
+            heading = f"### {today} - Returned to pending by the todo sweep (run {run['run_id']})"
+            if heading not in (repo_root / rel).read_text():
+                todofile.append_work_log(
+                    repo_root / rel,
+                    f"{heading}\n\n"
+                    "- Was `in_progress` with no branch, worktree or open PR; the owner confirmed the reset.\n",
+                )
+            entry["stranded"] = entry["reset_stranded"] = False
         fields = {"triage": record["class"], "triaged": today}
         if record.get("blocked_on"):
             fields["blocked_on"] = record["blocked_on"]
+        # Todo 468: an owner who blocked a needs-design or stale todo has answered it. blocked-owner makes
+        # the next scan skip it until the file changes, instead of asking the same question again.
+        if entry["stage"] == "blocked" and entry.get("owner_decision") and not record["class"].startswith("blocked-"):
+            fields["triage"] = "blocked-owner"
+            fields.setdefault("blocked_on", entry["owner_decision"])
         if entry.get("owner_decision"):
             fields["owner_decision"] = entry["owner_decision"]
         todofile.set_fields(repo_root / rel, fields)
@@ -287,7 +298,8 @@ def apply_grouping(run):
     _ungroup_stale_deps(run)
     todos = [
         {"id": i, "priority": e["priority"], "dependencies": e["dependencies"],
-         "verify_only": e.get("verify_only", False), "triage": e["triage"]}
+         "verify_only": e.get("verify_only", False), "triage": e["triage"],
+         "source_review": e.get("source_review", "")}
         for i, e in sorted(run["todos"].items()) if e["stage"] == "ready" and "group" not in e
     ]
     # A dependency already past triage in this run (grouped earlier, executing, pr_open, merged, ...)
@@ -384,6 +396,10 @@ def execute_args(run, wave, main_root):
                 if entry["stage"] not in TERMINAL | {"merged"}:
                     raise TransitionError(f"wave {w} is not merged yet ({todo_id} is {entry['stage']})")
     gids = run["waves"][wave]
+    # Todo 468: a member blocked or skipped after grouping (decide or `set`, not the gate below) never
+    # ran here. It leaves its group like a gate-blocked one, and its in-group dependents block with it.
+    gone = {i for gid in gids for i, e in _group_entries(run, gid)
+            if e["stage"] in {"blocked", "skipped"} and "wave" not in e}
     to_block = {}
     for gid in gids:
         for todo_id, entry in _group_entries(run, gid):
@@ -405,24 +421,31 @@ def execute_args(run, wave, main_root):
             for todo_id, entry in _group_entries(run, gid):
                 if entry["stage"] != "ready" or todo_id in to_block:
                     continue
-                blocked_dep = next((d for d in entry["dependencies"] if d in to_block), None)
+                blocked_dep = next((d for d in entry["dependencies"] if d in to_block or d in gone), None)
                 if blocked_dep:
-                    to_block[todo_id] = f"dependency {blocked_dep} blocked"
+                    how = "blocked" if blocked_dep in to_block else run["todos"][blocked_dep]["stage"]
+                    to_block[todo_id] = f"dependency {blocked_dep} {how}"
                     changed = True
     for todo_id, reason in to_block.items():
         transition(run, todo_id, "blocked", reason=reason)
+    for todo_id in gone | set(to_block):
         # N1: a gate-blocked todo never ran, so it leaves its group entirely -- both the entry's
         # group and the recorded ids -- or set_group/ensure_worktree/review_args would read it as
         # the group's first member, and _dependencies_of would count it against the group's dependents.
         gid = run["todos"][todo_id].pop("group")
         run["groups"][gid]["ids"] = [i for i in run["groups"][gid]["ids"] if i != todo_id]
+    # Todo 468: wave N-1 is still in review or Land while this wave executes, so its lanes are
+    # forbidden too, until every todo left in it has merged.
+    previous = [g for g in (run["waves"][wave - 1] if wave >= 1 else [])
+                if any(e["stage"] not in LANDED | TERMINAL for _, e in _group_entries(run, g))]
     briefs = []
     for position, gid in enumerate(gids, start=1):
         entries = [(i, e) for i, e in _group_entries(run, gid) if i not in to_block and e["stage"] not in TERMINAL]
         if not entries:
             continue  # every todo that was here got regrouped into a later wave, or was just blocked
         held = run["groups"][gid]["lanes"]
-        forbidden = sorted({lane for other in gids if other != gid for lane in run["groups"][other]["lanes"]})
+        forbidden = sorted({lane for other in gids + previous if other != gid
+                            for lane in run["groups"][other]["lanes"]} - set(held))
         slot = slot_for(wave, position, run["workers"])
         briefs.append({
             "run_id": run["run_id"],
@@ -433,8 +456,8 @@ def execute_args(run, wave, main_root):
             "plan_needed": any(e["triage"]["class"] == "needs-research" for _, e in entries),
             "verify_only": all(e.get("verify_only") for _, e in entries),
             "in_scope_files": sorted({f for _, e in entries for f in e["triage"]["predicted_files"]}),
-            "lanes_held": [group.LANE_DOC[lane] for lane in held],
-            "lanes_forbidden": [group.LANE_DOC[lane] for lane in forbidden],
+            "lanes_held": [group.lane_doc(lane) for lane in held],
+            "lanes_forbidden": [group.lane_doc(lane) for lane in forbidden],
             "slot": slot,
             "evidence_dir": f".sweep-evidence/{gid}",
             "main_root": main_root,
@@ -541,6 +564,14 @@ def review_args(run, round_no, wave):
 
 
 def ingest_review(run, results, round_no):
+    # Todo 468: checked for every group before anything is written, so a stale output (a round-1
+    # file re-ingested after round 1) cannot overwrite tree_id and verified_ac, even in part.
+    for result in results:
+        for _, entry in _group_entries(run, result["group"]):
+            if entry["stage"] != "pr_open" or entry.get("review_round", 0) != round_no - 1:
+                raise TransitionError(f"{result['group']}: a round-{round_no} output does not follow this group "
+                                      f"({entry['stage']}, review round {entry.get('review_round', 0)}); "
+                                      "is it a stale output file?")
     outcome = {}
     for result in results:
         gid = result["group"]
