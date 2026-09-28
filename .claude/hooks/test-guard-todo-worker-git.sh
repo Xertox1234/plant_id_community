@@ -279,6 +279,14 @@ if [ -n "$R" ] && git init -q "$R/main" && git -C "$R/main" -c user.email=t@t -c
   assert_raw "m7: a relative -C resolving to MAIN" deny "$(cwd_event $W "$R" 'git -C main add -A')"
   assert_raw "m7: a bare git add with cwd WT" allow "$(cwd_event $W "$R/wt" 'git add -A')"
   assert_raw "m7: a relative -C into WT from MAIN's cwd" allow "$(cwd_event $W "$R/main" "git -C $R/wt add -A")"
+  # PR #872 round 1: retry and repair workers run from the main session's cwd (often MAIN) and may cd
+  # into WT or name it through a variable; the guard cannot tell the directory, so it must not deny.
+  assert_raw "PR #872: cd WT && git add -A from MAIN's cwd" allow "$(cwd_event $W "$R/main" "cd '$R/wt' && git add -A")"
+  assert_raw "PR #872: (cd WT && git add -A) from MAIN's cwd" allow "$(cwd_event $W "$R/main" "(cd '$R/wt' && git add -A)")"
+  assert_raw "PR #872: git -C \"\$WT\" add -A from MAIN's cwd" allow \
+    "$(cwd_event $W "$R/main" "WT='$R/wt'; /usr/bin/git -C \"\$WT\" add -A")"
+  assert_raw "PR #872: a literal -C MAIN is still denied after a cd" deny \
+    "$(cwd_event $W "$R/wt" "cd /tmp && git -C $R/main add -A")"
   # Todo 468: a worker that deletes the .env rule from .gitignore cannot then stage the copied-in .env.
   printf 'backend/.env\nweb/.env\n' > "$R/wt/.worktreeinclude"
   printf 'backend/.env\nweb/.env\n' > "$R/wt/.gitignore"

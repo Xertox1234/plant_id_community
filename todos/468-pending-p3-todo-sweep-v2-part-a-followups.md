@@ -361,3 +361,13 @@ m12 and the triage-root item should land before Part B's first real sweep.
   since a rename is how a copied-in `.env` could slip past an add-only check, and its
   message names the rename and says to land it by hand.
 - All nine engine suites pass on the branch merged with main.
+
+### 2026-09-28 - PR #872 round 1
+
+- One regression was fixed. Retry and repair workers run from the main session's cwd,
+  so the guard denied `cd '<WT>' && git add -A` and `git -C "$WT" add -A`, which
+  origin/main allowed. Now a `cd`, `pushd` or `popd`, or a `-C` or `--work-tree` value
+  built at runtime, leaves the directory unknown, and it is not checked. A literal
+  `-C MAIN` is still denied. The deny messages now name the resolved directory and the
+  agent's own allowed set (`test-guard-todo-worker-git.sh`, 188 checks).
+- The non-blocking findings went to todo 477.

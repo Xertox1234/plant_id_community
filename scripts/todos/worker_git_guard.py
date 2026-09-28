@@ -35,8 +35,8 @@ GIT_ALLOWED = {"add", "mv", "rm", "diff", "status", "log", "show", "fetch", "wri
 GIT_READONLY = {"diff", "status", "log", "show", "rev-parse", "ls-files", "grep", "blame", "merge-base"}
 ALLOWED_BY_AGENT = {"todo-worker": GIT_ALLOWED, "todo-verifier": GIT_ALLOWED, "todo-reviewer": GIT_READONLY}
 GUARDED_AGENTS = set(ALLOWED_BY_AGENT)
-MAIN_REASON = ("git {sub} into the main checkout ({path}) is not allowed; stage in your worktree (WT), "
-               "not MAIN_ROOT")
+MAIN_REASON = ("git {sub} would run in the main checkout at {path}; name your worktree explicitly: "
+               "git -C <WT> {sub} ...")
 # The calling agent's allowed set and working directory, set by decide() for one hook call.
 CONTEXT = {"allowed": GIT_ALLOWED, "cwd": None}
 GIT_GLOBAL_WITH_VALUE = {"-C", "--git-dir", "--work-tree"}
@@ -368,6 +368,11 @@ def check_words(words, piped, stdin, depth, wrapped=False):
     if NOT_LITERAL & set(word.raw) or word.raw.startswith("="):  # zsh: =git is a PATH lookup
         return f"program name must be literal (got {word.raw!r})"
     program = os.path.basename(word.value)
+    if program in ("cd", "pushd", "popd"):
+        # The directory is no longer the event's cwd, and this parser does not follow it: later git calls
+        # without a literal -C are not checked against the main checkout (PR #872 round 1).
+        CONTEXT["cwd"] = None
+        return None
     if program in WRAPPERS:
         return check_wrapper(program, rest, piped, stdin, depth)
     if program == "gh":
@@ -464,16 +469,17 @@ def check_git(args, wrapped):
     while j < len(args):
         arg = args[j].value
         if arg in GIT_GLOBAL_WITH_VALUE:
-            value = args[j + 1].value if j + 1 < len(args) else ""
+            value = args[j + 1] if j + 1 < len(args) else Word("", "")
             if arg == "--git-dir":
                 git_dir = True
             else:  # -C composes like cd; --work-tree names the tree directly
-                where = os.path.join(where or "", value)
+                where = _join(where, value)
             j += 2
         elif arg in GIT_GLOBAL_FLAGS or arg.startswith(("--git-dir=", "--work-tree=")):
             git_dir = git_dir or arg.startswith("--git-dir=")
             if arg.startswith("--work-tree="):
-                where = os.path.join(where or "", arg.partition("=")[2])
+                raw = args[j].raw.partition("=")[2]
+                where = _join(where, Word(arg.partition("=")[2], raw))
             j += 1
         elif arg == "--version":
             return None
@@ -489,6 +495,7 @@ def check_git(args, wrapped):
         # Todo 468 m7: a worker that confuses MAIN_ROOT with WT would stage into the owner's checkout.
         if git_dir:
             return f"git --git-dir with {sub} is not allowed; use git -C WT {sub}"
+        where = None if where is UNKNOWN else where
         main = where and main_checkout(where)
         if main:
             return MAIN_REASON.format(sub=sub, path=main)
@@ -522,6 +529,16 @@ def unignored_includes(path):
         if proc.returncode == 1:  # 0 = ignored, 128 = error
             out.append(rel)
     return out
+
+
+UNKNOWN = object()  # a directory built at runtime ($WT, `...`): cannot tell, so not checked
+
+
+def _join(where, word):
+    """`where` after a -C / --work-tree operand; UNKNOWN once any operand is not literal."""
+    if where is UNKNOWN or NOT_LITERAL & set(word.raw):
+        return UNKNOWN
+    return os.path.join(where or "", word.value)
 
 
 def main_checkout(path):
@@ -567,8 +584,8 @@ def forces(args):
 def check_git_subcommand(sub, args):
     allowed = CONTEXT["allowed"]
     if sub not in allowed:
-        return (f"git {sub} is reserved for the main session; workers stage and stop "
-                f"(allowed: {', '.join(sorted(allowed))})")
+        return (f"git {sub} is reserved for the main session "
+                f"(allowed for this agent: {', '.join(sorted(allowed))})")
     if sub in FORCE_SUBCOMMANDS and forces(args):
         return FORCE_REASON
     for arg in (w.value for w in args):
