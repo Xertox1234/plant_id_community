@@ -14,7 +14,11 @@ from django.urls import reverse
 from wagtail.models import Page
 from wagtail_forum.models import ForumBoard, ForumIndex, ForumProfile, Post, Topic
 from wagtail_forum.signals import topic_created
-from wagtail_forum.workflow import ensure_default_workflow, submit_for_moderation
+from wagtail_forum.workflow import (
+    ensure_default_workflow,
+    submit_edit_for_moderation,
+    submit_for_moderation,
+)
 
 User = get_user_model()
 
@@ -261,3 +265,48 @@ def test_two_deleted_authors_are_not_the_same_author(client, moderator):
 
     post.refresh_from_db()
     assert post.live is False
+
+
+# --- Todo 432: the approval publishes the author's pending edit ---
+
+
+@pytest.mark.django_db
+def test_admin_publishing_a_topic_publishes_its_opening_posts_pending_edit(
+    client, moderator
+):
+    # An edit to a never-published post is a revision only:
+    # submit_edit_for_moderation never writes the row of a post that is not
+    # live. Approving the topic must publish that edit, not a fresh revision
+    # built from the row, which still holds the ORIGINAL body.
+    author = User.objects.create_user(username="plantadmin")
+    topic, post = _pending_thread(author, _board())
+    post.body = [{"type": "paragraph", "value": "<p>The edited body</p>"}]
+    assert submit_edit_for_moderation(post, author) == "pending"
+    row = Post.objects.get(pk=post.pk)
+    assert SPAM in row.body.raw_data[0]["value"]  # the premise: row untouched
+    assert "edited body" not in row.body.raw_data[0]["value"]
+
+    _admin_publish_topic(client, topic)
+
+    post.refresh_from_db()
+    assert post.live is True
+    assert post.body.raw_data[0]["value"] == "<p>The edited body</p>"
+    assert post.current_workflow_state is None
+
+
+@pytest.mark.django_db
+def test_admin_publishing_a_topic_publishes_an_opening_post_row_newer_than_its_revision(
+    client, moderator
+):
+    # The other branch: a row written after its latest revision (a direct
+    # save, no revision) is the newer content, so it is what goes live.
+    author = User.objects.create_user(username="plantadmin")
+    topic, post = _pending_thread(author, _board())
+    post.body = [{"type": "paragraph", "value": "<p>Saved to the row</p>"}]
+    post.save()
+
+    _admin_publish_topic(client, topic)
+
+    post.refresh_from_db()
+    assert post.live is True
+    assert post.body.raw_data[0]["value"] == "<p>Saved to the row</p>"

@@ -247,8 +247,16 @@ def _same_author(a_id, b_id):
     return a_id is not None and a_id == b_id
 
 
-def _publish_counterpart(obj, trigger_revision):
+def _publish_counterpart(obj, trigger_revision, *, prefer_latest_revision=False):
     """Publish the other half of a thread (topic <-> opening post, todo 422).
+
+    Publishes a fresh revision of ``obj``'s row, except with
+    ``prefer_latest_revision`` (the opening post, todo 432) when the latest
+    revision is newer than the row: an edit to a never-published post exists
+    only as a revision (submit_edit_for_moderation never writes the row of a
+    post that is not live), so publishing the row would put the ORIGINAL body
+    live. The topic keeps the row: it carries freshly recounted counters that
+    a stale revision would overwrite.
 
     Attributed to the admin's acting user when there is one (a moderator's
     publish, including the workflow Approve action, which republishes the
@@ -270,7 +278,10 @@ def _publish_counterpart(obj, trigger_revision):
     user = get_active_log_context().user or getattr(trigger_revision, "user", None)
     try:
         with transaction.atomic():
-            obj.save_revision(user=user).publish(user=user, skip_permission_checks=True)
+            revision = obj.latest_revision if prefer_latest_revision else None
+            if revision is None or revision.created_at <= obj.updated_at:
+                revision = obj.save_revision(user=user)
+            revision.publish(user=user, skip_permission_checks=True)
     except Exception:
         logger.exception(
             "[ERROR] wagtail_forum could not publish %s %s with its thread",
@@ -303,7 +314,9 @@ def update_counters_on_publish(sender, instance, **kwargs):
             # never-published opening post too, or the thread goes live empty
             # (todo 422). Never-published, not merely `not live`: an opening
             # post a moderator took down stays down.
-            if _publish_counterpart(opening, kwargs.get("revision")):
+            if _publish_counterpart(
+                opening, kwargs.get("revision"), prefer_latest_revision=True
+            ):
                 # revision.publish() saves a copy built from the revision, so
                 # this instance still reads live=False; hosts get the live row.
                 opening.refresh_from_db()
