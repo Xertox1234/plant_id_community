@@ -647,7 +647,8 @@ def ingest_review(run, results, round_no):
                 entry["review_round"] = 1
         else:
             # An LLM refutation alone never clears a critical, from either round: hold the PR for the owner.
-            criticals = [r for r in entries[0][1].get("refuted", []) if r.startswith("critical: ")]
+            criticals = list(dict.fromkeys(r for _, e in entries for r in e.get("refuted", [])
+                                           if r.startswith("critical: ")))
             if blocking:
                 set_group(run, gid, "blocked", reason=f"{len(blocking)} blocking findings after round 2")
                 outcome[gid] = "blocked"

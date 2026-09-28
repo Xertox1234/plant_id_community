@@ -198,6 +198,17 @@ def main():
         earlier["todos"][i]["refuted"] = ["critical: c.py:9 dismissed in round 1"]
     check("a critical dismissed in round 1 still holds the PR at a clean round 2",
           round2(earlier, []) == "held" and earlier["todos"][ids_ok[0]]["stage"] == "blocked")
+    # A two-member group (the fixture's is one todo): the critical sits only on the second member.
+    pair = copy.deepcopy(run)
+    pair["todos"]["9998"] = copy.deepcopy(pair["todos"][ids_ok[0]])
+    pair["groups"][g_ok]["ids"] = list(ids_ok) + ["9998"]
+    pair["todos"]["9998"]["refuted"] = ["critical: c.py:11 only on the second member"]
+    res_pair = state.ingest_review(pair, [{"group": g_ok, "ids": list(ids_ok) + ["9998"], "findings": [],
+                                           "blocking": [], "reviewers_ok": True, "repair": None,
+                                           "verdict": None, "refuted": []}], 2)[g_ok]
+    check("a critical on any group member holds the PR, not just the first member's",
+          res_pair == "held" and "only on the second member" in pair["todos"][ids_ok[0]]["reason"],
+          (res_pair, pair["todos"][ids_ok[0]].get("reason")))
     many = copy.deepcopy(run)
     check("a refuted high alone does not hold the PR, and refuted records are never capped",
           round2(many, [refuted("high", n) for n in range(15)]) == "clean"
