@@ -92,11 +92,12 @@ These were left for later.
       a test).
 - [ ] Follow-ups are path-normalised, and a refuted record keeps its `also` phrasings.
 - [x] Routing reads a `changed_files` list that `review_args` computes, not the router's.
-- [ ] A refuted critical/high finding in round 2 is visible before auto-merge (a follow-up
+- [x] A refuted critical/high finding in round 2 is visible before auto-merge (a follow-up
       or a PR comment), and `refuted` is not truncated silently.
 - [x] `MUST_ROUTE` has the firebase, rules and functions security rows, with tests.
-- [ ] A change to the PR tree during review stops the round-1 repair.
+- [ ] Review residue before the repair → todo 480 (re-pointed 2026-09-28; owner asked for its own todo)
 - [ ] Each remaining item in finding 5 is fixed or recorded here as accepted.
+- [ ] Finding 6 router hardening → todo 481 (re-pointed 2026-09-28; owner asked for its own todo)
 
 ## Work Log
 
@@ -144,3 +145,36 @@ These were left for later.
   files). The router returned ROUTING without a file list, `floor_added: []`
   (it agreed with the path rules), `reviewers_ok: true`, 5 agents, 0 errors,
   12 findings, none blocking. Fixes and leftovers are in finding 6.
+
+### 2026-09-28 - Refuted criticals can no longer auto-merge; residue and router split out
+
+- `ingest_review` keeps refuted findings whole (`<severity>: file:line summary | also: …`,
+  no cap). At round 2, if any critical was dismissed only by the refuters, in either
+  round, the group is `held`: blocked and reported to the owner, never armed. A
+  refuted high doesn't hold the PR, but the runbook posts every refuted finding as a
+  PR comment before arming, and the follow-ups PR files them as a todo.
+- Evidence: `python3 scripts/todos/test_state_flow.py`: all checks pass, with new
+  cases for a round-2 critical hold, a round-1 critical still holding at round 2, 15
+  refuted highs kept uncapped and not held, and blocking winning over a refuted
+  critical. Three mutations each fail 1–2 checks: removing the hold, restoring the
+  `[:10]` cap, and matching only one critical.
+- The residue and router items went to their own todos, 480 and 481, as the owner asked.
+
+### 2026-09-28 - PR #874 review round 1 (bundled /code-review high)
+
+- Fixed, blocking:
+  - A hold had no exit. New `state.py clear-hold G --decision …` is the only path out:
+    blocked-and-held → reviewed, with the owner's decision recorded. It refuses a group
+    blocked for any other reason.
+  - The PR comment was built with `--body` from LLM text. New
+    `state.py refuted-comment G --out FILE` writes the body for `gh pr comment --body-file`,
+    so the main session no longer reads the run file by hand.
+  - A refuted line without a severity (a run file from before this change) fails
+    closed and counts as critical.
+  - When round 2 still has blocking findings, the reason also names any dismissed
+    critical.
+- Also: held groups are owner hand-offs, not p4 follow-ups, and there is a real round-1
+  ingest → round-2 hold test.
+- Not fixed: holding already at round 1, which would save a repair and a round 2
+  (cost only), and deduplicating `refuted` by file:line across rounds (a count can
+  double). Both → todo 482.

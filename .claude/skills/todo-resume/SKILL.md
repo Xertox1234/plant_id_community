@@ -29,7 +29,9 @@ description: Resume, restart, or discard an interrupted todo run from its checkp
      When `review_round` is 0 and the round-1 output was never ingested, run `ingest-review --round 1`
      on it first, if its task output file still exists; otherwise rerun round 1.
    - `reviewed` / `merged` → merge confirmation and cleanup
-   - `blocked` → report each reason. One whose blocker has since cleared is reopened as in Stage B step 5.
+   - `blocked` → report each reason. One whose reason starts `held for the owner` is a PR held for a
+     dismissed critical: only the owner clears it, with `state.py clear-hold $RUN G --decision "…"`, then arm
+     it (Stage C step 2). Any other blocked group whose blocker has since cleared is reopened as in Stage B step 5.
 4. **restart**: list `state.py worktrees $RUN` in your reply, delete RUN (confirm first), then re-run the original selector.
 5. **discard**: list `state.py worktrees $RUN` in your reply, delete RUN (confirm first). No todo file on `main`
    changes: v2 never leaves a todo `in_progress` on `main`, so there's nothing to reset.

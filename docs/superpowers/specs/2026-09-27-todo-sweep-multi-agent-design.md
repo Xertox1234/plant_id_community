@@ -270,7 +270,10 @@ Land runs in the main session, one group at a time, in wave order:
    files. Blocking findings → repair worker in the PR's worktree → verifier.
    Main session commits the repair.
 5. **Round 2** — `todo-review` with `round: 2` (no repair). Clean → the main session
-   runs `gh pr merge --auto --squash --delete-branch`. The "review the diff
+   posts any refuter-dismissed findings as a PR comment, then runs
+   `gh pr merge --auto --squash --delete-branch`. A **critical** that only the
+   refuters dismissed, in either round, is never cleared by them: the group is
+   `held` (blocked, reported to the owner, not armed; todo 478). The "review the diff
    before arming" rule is met by the round-2 reviewers, which read the full PR
    diff in fresh contexts. The main session reads only `--stat` and their
    compact verdicts, never the full diff, because reading ~18 full diffs is the

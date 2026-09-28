@@ -8,6 +8,7 @@ instead of a hope (spec §5.2): a verifier that passes while the staged tree
 moved, or leaves the working tree dirty, must void the verdict.
 """
 
+import copy
 import os
 import shutil
 import subprocess
@@ -161,6 +162,17 @@ def main():
     # apart from "still holding the value the first ingest_execute call set" -- the same
     # ids/ac_ok would otherwise make an identical ac list either way, proving nothing.
     repair_verdict = verdict(ids_ok, before="T5", after="T5", edits=["tests/test_a.py"], note="repair")
+    # Todo 478: a critical refuted in a REAL round-1 ingest still holds the PR at a clean round 2.
+    via_r1 = copy.deepcopy(run)
+    crit = {"severity": "critical", "file": "d.py", "line": 4, "summary": "dismissed in round 1", "suggested_fix": "",
+            "also": [], "refutations": ["no", "no"]}
+    r1 = state.ingest_review(via_r1, [{"group": g_ok, "ids": ids_ok, "findings": [], "blocking": [],
+                                       "reviewers_ok": True, "repair": None, "verdict": None, "refuted": [crit]}], 1)
+    r2 = state.ingest_review(via_r1, [{"group": g_ok, "ids": ids_ok, "findings": [], "blocking": [],
+                                       "reviewers_ok": True, "repair": None, "verdict": None, "refuted": []}], 2)
+    check("a critical refuted through a real round-1 ingest holds the PR at round 2",
+          r1[g_ok] == "clean" and r2[g_ok] == "held", (r1, r2, via_r1["todos"][ids_ok[0]].get("refuted")))
+
     res = state.ingest_review(run, [{"group": g_ok, "ids": ids_ok, "findings": blocking, "blocking": blocking,
                                      "reviewers_ok": True, "repair": worker(ids_ok, tree="T5"),
                                      "verdict": repair_verdict}],
@@ -172,12 +184,95 @@ def main():
           "tests/test_a.py" in state.review_args(run, 2, 0, git=fake_git)[0]["test_edits"])
     check("an invalid round number is refused", raises(lambda: state.review_args(run, 3, 0), ValueError))
     low = [{"severity": "low", "file": "a.py", "line": 2, "summary": "nit", "suggested_fix": ""}]
+
+    # Todo 478: a critical that only the refuters dismissed holds the PR for the owner, from either round.
+
+    def refuted(sev, line, also=()):
+        return {"severity": sev, "file": "c.py", "line": line, "summary": f"{sev} {line}", "suggested_fix": "",
+                "also": list(also), "refutations": ["no", "no"]}
+
+    def round2(r, refs, blocking_=()):
+        return state.ingest_review(r, [{"group": g_ok, "ids": ids_ok, "findings": [], "blocking": list(blocking_),
+                                        "reviewers_ok": True, "repair": None, "verdict": None,
+                                        "refuted": refs}], 2)[g_ok]
+
+    held = copy.deepcopy(run)
+    got = round2(held, [refuted("critical", 7, also=["same line, other words"])])
+    entry = held["todos"][ids_ok[0]]
+    check("a critical dismissed only by refuters in round 2 holds the PR (blocked, not reviewed)",
+          got == "held" and entry["stage"] == "blocked" and "held for the owner" in entry["reason"]
+          and "critical: c.py:7 critical 7" in entry["reason"], (got, entry))
+    check("a refuted record keeps its severity and every phrasing",
+          entry["refuted"] == ["critical: c.py:7 critical 7 | also: same line, other words"], entry["refuted"])
+    earlier = copy.deepcopy(run)
+    for i in ids_ok:
+        earlier["todos"][i]["refuted"] = ["critical: c.py:9 dismissed in round 1"]
+    check("a critical dismissed in round 1 still holds the PR at a clean round 2",
+          round2(earlier, []) == "held" and earlier["todos"][ids_ok[0]]["stage"] == "blocked")
+    # A two-member group (the fixture's is one todo): the critical sits only on the second member.
+    pair = copy.deepcopy(run)
+    pair["todos"]["9998"] = copy.deepcopy(pair["todos"][ids_ok[0]])
+    pair["groups"][g_ok]["ids"] = list(ids_ok) + ["9998"]
+    pair["todos"]["9998"]["refuted"] = ["critical: c.py:11 only on the second member"]
+    res_pair = state.ingest_review(pair, [{"group": g_ok, "ids": list(ids_ok) + ["9998"], "findings": [],
+                                           "blocking": [], "reviewers_ok": True, "repair": None,
+                                           "verdict": None, "refuted": []}], 2)[g_ok]
+    check("a critical on any group member holds the PR, not just the first member's",
+          res_pair == "held" and "only on the second member" in pair["todos"][ids_ok[0]]["reason"],
+          (res_pair, pair["todos"][ids_ok[0]].get("reason")))
+    old = copy.deepcopy(run)
+    for i in ids_ok:
+        old["todos"][i]["refuted"] = ["c.py:9 written before severity labels"]
+    check("an unlabelled refuted entry (older run file) fails closed: it holds the PR",
+          round2(old, []) == "held")
+
+    # The owner clears a hold; nothing else can.
+    check("clear_hold needs the owner's decision (blank or whitespace is refused)",
+          raises(lambda: state.clear_hold(held, g_ok, ""), state.TransitionError)
+          and raises(lambda: state.clear_hold(held, g_ok, "   "), state.TransitionError))
+    for i in ids_ok:
+        held["todos"][i]["owner_decision"] = "use FCM topics (2026-09-27)"
+    state.clear_hold(held, g_ok, "owner: the critical is a false positive (2026-09-28)")
+    check("clear_hold moves a held group to reviewed and adds the decision to the triage one",
+          all(held["todos"][i]["stage"] == "reviewed" and held["todos"][i]["review_round"] == 2
+              and held["todos"][i]["owner_decision"] == "use FCM topics (2026-09-27); hold cleared: owner: the "
+              "critical is a false positive (2026-09-28)" for i in ids_ok), held["todos"][ids_ok[0]])
+    check("clear_hold refuses a group that is not held",
+          raises(lambda: state.clear_hold(held, g_ok, "again"), state.TransitionError))
+    plain = copy.deepcopy(run)
+    for i in ids_ok:
+        plain["todos"][i].update(stage="blocked", reason="2 blocking findings after round 2")
+    check("clear_hold refuses a group blocked for any other reason",
+          raises(lambda: state.clear_hold(plain, g_ok, "owner: ok"), state.TransitionError))
+
+    body = state.refuted_comment(earlier, g_ok)
+    check("refuted_comment lists every dismissed finding under a heading",
+          body.startswith("**Dismissed by refuters, not fixed**") and "- critical: c.py:9 dismissed in round 1" in body, body)
+    check("refuted_comment is empty when nothing was dismissed", state.refuted_comment(run, g_ok) == "")
+    with tempfile.TemporaryDirectory() as tmp:
+        rf, out = os.path.join(tmp, "run.json"), os.path.join(tmp, "comment.md")
+        state.save(earlier, rf)
+        rc = state.main(["refuted-comment", rf, g_ok, "--out", out])
+        check("the refuted-comment command writes the body to --out for gh --body-file",
+              rc == 0 and Path(out).read_text() == body)
+
+    many = copy.deepcopy(run)
+    check("a refuted high alone does not hold the PR, and refuted records are never capped",
+          round2(many, [refuted("high", n) for n in range(15)]) == "clean"
+          and len(many["todos"][ids_ok[0]]["refuted"]) == 15)
+    both = copy.deepcopy(run)
+    check("a still-blocking finding wins over a refuted critical, and the reason still names the critical",
+          round2(both, [refuted("critical", 7)], blocking_=[refuted("high", 8)]) == "blocked"
+          and "blocking findings after round 2" in both["todos"][ids_ok[0]]["reason"]
+          and "1 critical finding(s) dismissed only by refuters" in both["todos"][ids_ok[0]]["reason"],
+          both["todos"][ids_ok[0]]["reason"])
+
     res = state.ingest_review(run, [{"group": g_ok, "ids": ids_ok, "findings": low, "blocking": [],
                                      "reviewers_ok": True, "repair": None, "verdict": None,
                                      "refuted": [{"severity": "high", "file": "b.py", "line": 3, "summary": "maybe",
                                                   "suggested_fix": "", "also": [], "refutations": ["no", "no"]}]}], 2)
     check("a finding both refuters dismissed is kept for the wrap-up",
-          run["todos"][ids_ok[0]]["refuted"] == ["b.py:3 maybe"], run["todos"][ids_ok[0]])
+          run["todos"][ids_ok[0]]["refuted"] == ["high: b.py:3 maybe"], run["todos"][ids_ok[0]])
     check("a clean round 2 moves to reviewed", res[g_ok] == "clean"
           and all(run["todos"][i]["stage"] == "reviewed" for i in ids_ok))
     check("non-blocking findings are kept as follow-ups", run["todos"][ids_ok[0]]["followups"] == ["a.py:2 nit"])

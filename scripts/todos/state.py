@@ -586,6 +586,49 @@ def review_args(run, round_no, wave, git=run_git):
     return items
 
 
+HELD = "held for the owner"
+
+
+def _holds(line):
+    # Fail closed: a refuted line without a known severity (written before todo 478) counts as critical.
+    return line.startswith("critical: ") or not line.startswith("high: ")
+
+
+def _group_refuted(entries):
+    return list(dict.fromkeys(r for _, e in entries for r in e.get("refuted", [])))
+
+
+def refuted_comment(run, gid):
+    """PR comment body for the group's refuter-dismissed findings, or "" when there are none (todo 478).
+    Written to a file for `gh pr comment --body-file`: the lines are LLM text and never meet a shell."""
+    lines = _group_refuted(_group_entries(run, gid))
+    if not lines:
+        return ""
+    return "\n".join([f"**Dismissed by refuters, not fixed** (todo sweep run {run['run_id']}, group {gid}). "
+                      "A critical here holds the PR until the owner clears it.", ""]
+                     + [f"- {r}" for r in lines]) + "\n"
+
+
+def clear_hold(run, gid, decision):
+    """The owner cleared a held group's dismissed criticals: blocked -> reviewed, and nothing else.
+    It bypasses ALLOWED on purpose: a hold is the one blocked state that resumes at review, not at ready."""
+    if not decision.strip():
+        raise TransitionError(f"{gid}: clearing a hold needs the owner's decision")
+    entries = _group_entries(run, gid)
+    if not entries or any(e["stage"] != "blocked" or not e.get("reason", "").startswith(HELD) for _, e in entries):
+        raise TransitionError(f"{gid}: not held for the owner; nothing to clear")
+    for _, entry in entries:
+        # Keep any triage-time decision: this one is added to it, not written over it.
+        earlier = entry.get("owner_decision")
+        entry.update(stage="reviewed", review_round=2, reason="",
+                     owner_decision=f"{earlier}; hold cleared: {decision}" if earlier else f"hold cleared: {decision}")
+
+
+def _refuted_line(f):
+    line = f"{f['severity']}: {f['file']}:{f['line']} {f['summary']}"
+    return line + (f" | also: {' | '.join(f['also'])}" if f.get("also") else "")
+
+
 def ingest_review(run, results, round_no):
     # Todo 468: checked for every group before anything is written, so a stale output (a round-1
     # file re-ingested after round 1) cannot overwrite tree_id and verified_ac, even in part.
@@ -606,13 +649,14 @@ def ingest_review(run, results, round_no):
             f"{f['file']}:{f['line']} {f['summary']}" for f in result["findings"]
             if f["severity"] not in {"critical", "high"}
         ))
-        # Blocking findings both refuters dismissed are kept, so the wrap-up can list them even after a resume.
-        dismissed = [f"{f['file']}:{f['line']} {f['summary']}" for f in result.get("refuted", [])]
+        # Blocking findings both refuters dismissed are kept whole (severity, every phrasing, no cap): the
+        # PR comment before arming, the follow-up todos and the critical hold below all read them (todo 478).
+        dismissed = [_refuted_line(f) for f in result.get("refuted", [])]
         for _, entry in entries:
             existing = entry.get("followups", [])
             entry["followups"] = (existing + [f for f in follow if f not in existing])[:10]
             kept = entry.get("refuted", [])
-            entry["refuted"] = (kept + [f for f in dismissed if f not in kept])[:10]
+            entry["refuted"] = kept + [f for f in dismissed if f not in kept]
         blocking = result["blocking"]
         if round_no == 1:
             if blocking:
@@ -640,9 +684,17 @@ def ingest_review(run, results, round_no):
             for _, entry in entries:
                 entry["review_round"] = 1
         else:
+            # An LLM refutation alone never clears a critical, from either round: hold the PR for the owner.
+            criticals = [r for r in _group_refuted(entries) if _holds(r)]
             if blocking:
-                set_group(run, gid, "blocked", reason=f"{len(blocking)} blocking findings after round 2")
+                also = (f"; also {len(criticals)} critical finding(s) dismissed only by refuters, which the "
+                        "owner must clear") if criticals else ""
+                set_group(run, gid, "blocked", reason=f"{len(blocking)} blocking findings after round 2{also}")
                 outcome[gid] = "blocked"
+            elif criticals:
+                set_group(run, gid, "blocked", reason=f"{HELD}: {len(criticals)} critical finding(s) "
+                                                      f"dismissed only by refuters; first: {criticals[0]}"[:500])
+                outcome[gid] = "held"
             else:
                 set_group(run, gid, "reviewed", review_round=2)
                 outcome[gid] = "clean"
@@ -846,6 +898,10 @@ def build_parser():
     p = sub.add_parser("set-group")
     p.add_argument("runfile"), p.add_argument("group"), p.add_argument("stage")
     p.add_argument("--field", action="append")
+    p = sub.add_parser("refuted-comment")
+    p.add_argument("runfile"), p.add_argument("group"), p.add_argument("--out", required=True)
+    p = sub.add_parser("clear-hold")
+    p.add_argument("runfile"), p.add_argument("group"), p.add_argument("--decision", required=True)
     p = sub.add_parser("ensure-worktree")
     p.add_argument("runfile"), p.add_argument("group"), p.add_argument("--scratch", required=True)
     p = sub.add_parser("annotate")
@@ -866,6 +922,12 @@ def main(argv=None):
             return 0
         if args.cmd == "questions":
             print(json.dumps(questions(run), indent=1))
+            return 0
+        if args.cmd == "refuted-comment":
+            body = refuted_comment(run, args.group)
+            if body:
+                Path(args.out).write_text(body)
+            print(args.out if body else "none")
             return 0
         if args.cmd == "worktrees":
             print(json.dumps(recorded_worktrees(run), indent=1))
@@ -901,6 +963,8 @@ def main(argv=None):
             print(json.dumps(ingest_review(run, records_from_output(args.output, "results"), args.round), indent=1))
         elif args.cmd == "set-group":
             set_group(run, args.group, args.stage, **_parse_fields(args.field))
+        elif args.cmd == "clear-hold":
+            clear_hold(run, args.group, args.decision)
         elif args.cmd == "ensure-worktree":
             print(ensure_worktree(run, args.group, args.scratch))
         elif args.cmd == "annotate":
