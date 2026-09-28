@@ -317,6 +317,19 @@ async function main() {
     r.result.results[0].blocking.length === 1 && r.result.results[0].findings.length === 5
     && refuteCalls(r.calls).length === 2, r.result)
 
+  // --- review: one bug phrased differently by different reviewers is refuted once
+  const phrased = n => ({ reviewed_range: 'x', findings: [{ severity: n === 'drf' ? 'critical' : 'high', file: 'a.py', line: 1,
+    summary: `bug as seen by ${n}`, suggested_fix: '' }] })
+  r = await run('todo-review', { round: 2, prs: [pr({ round: 2 })] },
+    reviewStub({ lens: (p, o) => phrased(o.label.split(':')[0]), domain: (p, o) => phrased(o.agentType === 'django-drf-reviewer' ? 'drf' : 'cc') }))
+  const one = r.result.results[0].blocking
+  check('review: blocking findings on one line collapse to one, keeping every phrasing, refuted once',
+    one.length === 1 && one[0].also.length === 4 && refuteCalls(r.calls).length === 2, one)
+  check('review: the collapsed finding keeps the most severe representative',
+    one[0].severity === 'critical' && one[0].summary === 'bug as seen by drf', one)
+  check('review: the refuters see the other phrasings',
+    refuteCalls(r.calls)[0].prompt.includes('Other reviewers reported the same line as: '), refuteCalls(r.calls)[0].prompt)
+
   // --- review: refutation
   r = await run('todo-review', { round: 1, prs: [pr()] }, reviewStub({ lens: high, refute: wrong }))
   check('review: a finding both refuters refute stops blocking, is kept in `refuted`, and is not repaired',

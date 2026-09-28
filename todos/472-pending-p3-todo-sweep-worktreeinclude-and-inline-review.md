@@ -53,3 +53,18 @@ criterion there. Both are recorded in
 
 - Todo 469 closed with Part B. These two items had no criterion there, so they
   move here instead of being lost.
+
+### 2026-09-28 - Item 2: review fan-out moved into the workflow (branch fix/todo-review-full-depth)
+
+- Owner: reviews cannot be shallower than before v2. The pre-v2 engine routed and
+  dispatched domain reviewers for every todo; v2 ran one inline bug reviewer, plus
+  a route-only orchestrator for sizes m and l.
+- `todo-review.js` now does every fan-out as `agent()` calls, for every size: three
+  `todo-reviewer` bug lenses, orchestrator Phase 1 routing, then each routed domain
+  reviewer, then two refuters per blocking file:line. Any dead reviewer → `rerun`.
+  Spec §5.3, §10, §14 and the runbook's Stage C are updated.
+- Stub tests and mutations pass. The criterion stays open until a live round-1 run
+  shows `route:` and domain-reviewer results in its journal.
+- Item 1 (`web/.env`): owner, 2026-09-28: there is no web version of the app yet,
+  and no pending todo touches `web/`. Proposed re-point to a new p4 todo; waiting on
+  the owner.

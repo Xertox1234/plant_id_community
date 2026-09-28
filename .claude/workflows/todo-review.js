@@ -179,9 +179,10 @@ function refutePrompt(p, f) {
     `A reviewer reported a ${f.severity} finding in todo group ${p.group} (PR #${p.pr}). Try to refute it.`,
     `Worktree ${p.worktree}; the change is exactly: ${diffRange(p)}. Read the code, not just the hunk. Do not use gh.`,
     `Finding: ${f.file}:${f.line} — ${f.summary}`,
+    f.also.length ? `Other reviewers reported the same line as: ${f.also.join(' | ')}` : '',
     'Set refuted=true only if you can show it is wrong: the code does not do that, the input cannot reach it, ' +
       'or something already handles it. If it holds, or you cannot tell, set refuted=false. Give the reason.',
-  ].join('\n')
+  ].filter(Boolean).join('\n')
 }
 
 function repairPrompt(p, blocking) {
@@ -208,14 +209,19 @@ function verifyPrompt(p, w) {
   ].join('\n')
 }
 
-function dedupe(findings) {
-  const seen = new Set()
-  return findings.filter(f => {
-    const key = JSON.stringify([f.file, f.line, f.summary])
-    if (seen.has(key)) return false
-    seen.add(key)
-    return true
-  })
+// Reviewers phrase the same bug differently, so blocking findings collapse by file and line: one
+// representative (the most severe) carries the other phrasings in `also`, and is refuted once.
+function byLocation(findings) {
+  const groups = new Map()
+  for (const f of findings) {
+    const key = JSON.stringify([f.file, f.line])
+    const g = groups.get(key)
+    if (!g) { groups.set(key, { ...f, also: [] }); continue }
+    const [keep, other] = f.severity === 'critical' && g.severity !== 'critical' ? [{ ...f, also: g.also }, g] : [g, f]
+    if (other.summary !== keep.summary && !keep.also.includes(other.summary)) keep.also.push(other.summary)
+    groups.set(key, keep)
+  }
+  return [...groups.values()]
 }
 
 const results = await pipeline(
@@ -246,7 +252,7 @@ const results = await pipeline(
   async (rev, p) => {
     // Different reviewers can report the same finding; count it once. Then each blocking finding
     // faces two skeptics, and stops blocking only if both refute it (a dead skeptic refutes nothing).
-    const candidates = rev.reviewers_ok ? dedupe(rev.findings.filter(f => BLOCKING.has(f.severity))) : []
+    const candidates = rev.reviewers_ok ? byLocation(rev.findings.filter(f => BLOCKING.has(f.severity))) : []
     const judged = await parallel(candidates.map(f => () => parallel([0, 1].map(n => () => agent(refutePrompt(p, f),
       { label: `refute-${n}:${p.group}:${f.file}:${f.line}`, phase: 'Refute', agentType: 'todo-reviewer', schema: REFUTATION })))
       .then(votes => ({ f, votes }))))

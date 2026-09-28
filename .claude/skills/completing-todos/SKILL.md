@@ -166,8 +166,9 @@ Steps 1–8 run with the sandbox off (see **Sandbox**).
    `code-review-orchestrator` routes (Phase 1 only) and the workflow dispatches every reviewer it names.
    No subagent can spawn subagents (pilot P8), so all fan-out is in the workflow script. Each critical/high
    finding then faces two refuters and stops blocking only if both refute it. Any dead reviewer makes the
-   round `rerun`, never a partial pass. Read each result's `reviewers` and `routed`: a `.py` change
-   with no domain reviewer in `reviewers` means routing went wrong, so treat it as `rerun`. List each group's
+   round `rerun`, never a partial pass. Before `ingest-review`, read each result's `reviewers` and `routed`:
+   a `.py` change with no domain reviewer in `reviewers` means routing went wrong, so run the round again
+   instead of ingesting it. List each group's
    `refuted` findings in the wrap-up, so the owner can see what the refuters dismissed.
 4. Follow-ups: todos with `followups` get one follow-up todo file per PR (next free id, `p4`, the PR number
    in its Findings), all committed together in a closing `chore(todos): follow-ups from run $RUN_ID` PR.
