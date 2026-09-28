@@ -118,45 +118,41 @@ class _StatTile extends StatelessWidget {
       container: true,
       label: '$label: $value, $sublabel',
       excludeSemantics: true,
-      child: Padding(
-        padding: EdgeInsets.zero,
-        child: CanopyCard(
-          padding: const EdgeInsets.all(AppSpacing.md),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Icon(icon, size: 18, color: theme.colorScheme.secondary),
+      child: CanopyCard(
+        padding: const EdgeInsets.all(AppSpacing.md),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Icon(icon, size: 18, color: theme.colorScheme.secondary),
+            const SizedBox(height: AppSpacing.xs),
+            Text(
+              '$value',
+              style: theme.textTheme.headlineSmall?.copyWith(
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+            Text(label, style: theme.textTheme.labelLarge),
+            Text(
+              sublabel,
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
+            ),
+            if (progress != null) ...[
               const SizedBox(height: AppSpacing.xs),
-              Text(
-                '$value',
-                style: theme.textTheme.headlineSmall?.copyWith(
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-              Text(label, style: theme.textTheme.labelLarge),
-              Text(
-                sublabel,
-                style: theme.textTheme.bodySmall?.copyWith(
-                  color: theme.colorScheme.onSurfaceVariant,
-                ),
-              ),
-              if (progress != null) ...[
-                const SizedBox(height: AppSpacing.xs),
-                Semantics(
-                  label: progressLabel,
-                  child: ClipRRect(
-                    borderRadius: BorderRadius.circular(AppSpacing.rPill),
-                    child: LinearProgressIndicator(
-                      value: progress,
-                      minHeight: 6,
-                      backgroundColor:
-                          theme.colorScheme.surfaceContainerHighest,
-                    ),
+              Semantics(
+                label: progressLabel,
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(AppSpacing.rPill),
+                  child: LinearProgressIndicator(
+                    value: progress,
+                    minHeight: 6,
+                    backgroundColor: theme.colorScheme.surfaceContainerHighest,
                   ),
                 ),
-              ],
+              ),
             ],
-          ),
+          ],
         ),
       ),
     );
