@@ -19,22 +19,37 @@ name: Harness CI
 #   bash .claude/hooks/test-inject-patterns.sh && \
 #   bash .claude/hooks/test-kimi-review.sh && \
 #   bash .claude/hooks/test-guard-worktree-isolation.sh && \
+#   bash .claude/hooks/test-format-on-edit.sh && \
 #   bash .claude/hooks/test-check-test-env.sh && \
+#   bash .claude/hooks/test-guard-todo-worker-git.sh && \
 #   python3 scripts/inject/test_match_triggers.py && \
 #   python3 scripts/inject/test_capture_trigger.py && \
 #   python3 scripts/inject/test_capture_from_review.py && \
 #   python3 scripts/inject/test_budget_rules.py && \
 #   bash plant_community_mobile/scripts/test_run_archive.sh && \
+#   python3 scripts/test_check_suppressions.py && \
+#   python3 scripts/check_suppressions.py --validate && \
+#   python3 scripts/test_new_vuln_gate.py && \
 #   python3 scripts/test_check_firebase_rules_drift.py && \
 #   python3 scripts/test_check_archived_todo_status.py && \
-#   python3 scripts/check_archived_todo_status.py --fail-over 0
+#   python3 scripts/check_archived_todo_status.py --fail-over 0 && \
+#   python3 scripts/todos/test_todofile.py && \
+#   python3 scripts/todos/test_state.py && \
+#   python3 scripts/todos/test_state_flow.py && \
+#   python3 scripts/todos/test_scan.py && \
+#   python3 scripts/todos/test_group.py && \
+#   python3 scripts/todos/test_slot_env.py && \
+#   python3 scripts/todos/test_land.py && \
+#   node scripts/todos/test_workflows.js
 
 'on':
   push:
     branches: [main, develop]
     paths:
       - '.claude/hooks/**'
+      - '.claude/workflows/**'
       - 'scripts/inject/**'
+      - 'scripts/todos/**'
       - 'docs/rules/**'
       - 'scripts/check_suppressions.py'
       - 'scripts/test_check_suppressions.py'
@@ -79,6 +94,7 @@ jobs:
           bash .claude/hooks/test-guard-worktree-isolation.sh
           bash .claude/hooks/test-format-on-edit.sh
           bash .claude/hooks/test-check-test-env.sh
+          bash .claude/hooks/test-guard-todo-worker-git.sh
 
       - name: Python inject tests
         run: |
@@ -113,6 +129,18 @@ jobs:
           # todos/archive-status-allowlist.yml, and a stale entry there fails
           # too, so the list can only shrink.
           python3 scripts/check_archived_todo_status.py --fail-over 0
+
+      - name: Todo sweep engine tests
+        run: |
+          pip install pyyaml
+          python3 scripts/todos/test_todofile.py
+          python3 scripts/todos/test_state.py
+          python3 scripts/todos/test_state_flow.py
+          python3 scripts/todos/test_scan.py
+          python3 scripts/todos/test_group.py
+          python3 scripts/todos/test_slot_env.py
+          python3 scripts/todos/test_land.py
+          node scripts/todos/test_workflows.js
 
       - name: New-advisory gate
         run: python3 scripts/test_new_vuln_gate.py
