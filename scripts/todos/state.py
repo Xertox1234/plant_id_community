@@ -612,13 +612,16 @@ def refuted_comment(run, gid):
 def clear_hold(run, gid, decision):
     """The owner cleared a held group's dismissed criticals: blocked -> reviewed, and nothing else.
     It bypasses ALLOWED on purpose: a hold is the one blocked state that resumes at review, not at ready."""
-    if not decision:
+    if not decision.strip():
         raise TransitionError(f"{gid}: clearing a hold needs the owner's decision")
     entries = _group_entries(run, gid)
     if not entries or any(e["stage"] != "blocked" or not e.get("reason", "").startswith(HELD) for _, e in entries):
         raise TransitionError(f"{gid}: not held for the owner; nothing to clear")
     for _, entry in entries:
-        entry.update(stage="reviewed", review_round=2, reason="", owner_decision=decision)
+        # Keep any triage-time decision: this one is added to it, not written over it.
+        earlier = entry.get("owner_decision")
+        entry.update(stage="reviewed", review_round=2, reason="",
+                     owner_decision=f"{earlier}; hold cleared: {decision}" if earlier else f"hold cleared: {decision}")
 
 
 def _refuted_line(f):

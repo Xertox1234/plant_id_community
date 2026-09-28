@@ -21,6 +21,11 @@ Two non-blocking findings from PR #874's round-1 review, about the critical hold
    twice. The hold reason then says "2 critical finding(s)" for one bug, and the PR comment
    repeats it.
 
+3. **`finish` can drop a held group's record.** `is_complete` treats `blocked` as terminal,
+   so the wrap-up's `finish` deletes the run file while a PR is still held. Then
+   `clear-hold` has nothing to act on, and the owner must merge by hand. This fails safe,
+   because nothing arms. Found in PR #874's round-2 check.
+
 ## Recommended Action
 
 1. In a round-1 ingest, if any dismissed critical exists, return `held` right away. Block the
@@ -32,6 +37,7 @@ Two non-blocking findings from PR #874's round-1 review, about the critical hold
 - [ ] A critical dismissed in round 1 returns `held` from the round-1 ingest, with a test.
 - [ ] The same file:line dismissed in both rounds is one `refuted` line with the phrasings
       merged, with a test.
+- [ ] `finish` refuses, or warns and lists, while any group is held for the owner, with a test.
 
 ## Work Log
 

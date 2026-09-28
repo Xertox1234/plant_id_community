@@ -227,11 +227,16 @@ def main():
           round2(old, []) == "held")
 
     # The owner clears a hold; nothing else can.
-    check("clear_hold needs the owner's decision", raises(lambda: state.clear_hold(held, g_ok, ""), state.TransitionError))
+    check("clear_hold needs the owner's decision (blank or whitespace is refused)",
+          raises(lambda: state.clear_hold(held, g_ok, ""), state.TransitionError)
+          and raises(lambda: state.clear_hold(held, g_ok, "   "), state.TransitionError))
+    for i in ids_ok:
+        held["todos"][i]["owner_decision"] = "use FCM topics (2026-09-27)"
     state.clear_hold(held, g_ok, "owner: the critical is a false positive (2026-09-28)")
-    check("clear_hold moves a held group to reviewed with the decision recorded",
+    check("clear_hold moves a held group to reviewed and adds the decision to the triage one",
           all(held["todos"][i]["stage"] == "reviewed" and held["todos"][i]["review_round"] == 2
-              and held["todos"][i]["owner_decision"].startswith("owner:") for i in ids_ok), held["todos"][ids_ok[0]])
+              and held["todos"][i]["owner_decision"] == "use FCM topics (2026-09-27); hold cleared: owner: the "
+              "critical is a false positive (2026-09-28)" for i in ids_ok), held["todos"][ids_ok[0]])
     check("clear_hold refuses a group that is not held",
           raises(lambda: state.clear_hold(held, g_ok, "again"), state.TransitionError))
     plain = copy.deepcopy(run)
