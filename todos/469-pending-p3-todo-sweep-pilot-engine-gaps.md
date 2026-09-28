@@ -91,8 +91,9 @@ workflow authoring docs.
   ```python
   import pytest
   from django.conf import settings
-  from django.core.cache import cache
+  from django.core.cache import cache, caches
   from django.db import connection
+  from kombu import Connection
 
 
   @pytest.mark.django_db
@@ -103,7 +104,24 @@ workflow authoring docs.
       assert settings.CACHES["default"]["BACKEND"] == "django_redis.cache.RedisCache"
       kwargs = cache.client.get_client().connection_pool.connection_kwargs
       assert kwargs.get("path") == "/tmp/redis.sock", kwargs
+      for name in settings.CACHES:
+          caches[name].set("socket-probe", name, 30)
+          assert caches[name].get("socket-probe") == name, name
+      with Connection(settings.CELERY_BROKER_URL) as broker:
+          broker.ensure_connection(max_retries=1)
+          client = broker.default_channel.client
+          pool = client.connection_pool.connection_kwargs
+          print("BROKER", settings.CELERY_BROKER_URL, pool.get("path"), "db", pool.get("db"), "cache db", kwargs.get("db"))
+          assert client.ping() and pool.get("path") == "/tmp/redis.sock"
   ```
 
-  The Celery `redis+socket://` form is read-verified (kombu/celery source),
-  not run-verified.
+- 2026-09-28, later: the owner's `redis.conf` now has `unixsocket /tmp/redis.sock`
+  and `unixsocketperm 700` (backup of the old file in the session scratchpad; TCP
+  still answers). Running the probe unsandboxed caught a real bug: `settings.py`
+  passed `socket_keepalive` to the cache pool, `UnixDomainSocketConnection`
+  rejects it with a `TypeError`, and `IGNORE_EXCEPTIONS=True` swallowed it, so every
+  cache call silently did nothing (both caches share one pool by URL). The TCP-only
+  kwargs are now skipped for a `unix://` URL. After the fix, unsandboxed: the probe
+  passes (`BROKER redis+socket:///tmp/redis.sock?virtual_host=11 /tmp/redis.sock db 11 cache db 11`),
+  and `apps/users/tests apps/core/tests` over the sockets → `1824 passed`.
+  Only the **sandboxed** run is left, and it needs `allowUnixSockets`.
