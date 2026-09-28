@@ -556,7 +556,7 @@ def _with_reasons(problem, verdict):
     return f"{problem}: {'; '.join(reasons)}" if reasons else problem
 
 
-def review_args(run, round_no, wave):
+def review_args(run, round_no, wave, git=run_git):
     if round_no not in (1, 2):
         raise ValueError("round must be 1 or 2")
     items = []
@@ -578,6 +578,10 @@ def review_args(run, round_no, wave):
             # and the pending path is what the merge-base still has.
             "todo_paths": [todofile.archived_path(e["path"]) for _, e in entries],
             "origin_paths": [e["path"] for _, e in entries],
+            # Todo 478: routing reads this list, not one an LLM router reports. -z: no path quoting;
+            # --no-renames: a moved file lists its old path too, so the old path's reviewers still see it.
+            "changed_files": [f for f in git(first["worktree"], "diff", "--name-only", "--no-renames", "-z",
+                                             "origin/main...HEAD").split("\0") if f],
         })
     return items
 
@@ -595,8 +599,6 @@ def ingest_review(run, results, round_no):
     for result in results:
         gid = result["group"]
         entries = _group_entries(run, gid)
-        for _, entry in entries:
-            entry["checklist_skipped"] = bool(result.get("checklist_skipped"))
         if not result["reviewers_ok"]:
             outcome[gid] = "rerun"
             continue
@@ -604,9 +606,13 @@ def ingest_review(run, results, round_no):
             f"{f['file']}:{f['line']} {f['summary']}" for f in result["findings"]
             if f["severity"] not in {"critical", "high"}
         ))
+        # Blocking findings both refuters dismissed are kept, so the wrap-up can list them even after a resume.
+        dismissed = [f"{f['file']}:{f['line']} {f['summary']}" for f in result.get("refuted", [])]
         for _, entry in entries:
             existing = entry.get("followups", [])
             entry["followups"] = (existing + [f for f in follow if f not in existing])[:10]
+            kept = entry.get("refuted", [])
+            entry["refuted"] = (kept + [f for f in dismissed if f not in kept])[:10]
         blocking = result["blocking"]
         if round_no == 1:
             if blocking:

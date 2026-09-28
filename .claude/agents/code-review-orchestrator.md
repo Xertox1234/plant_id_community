@@ -45,6 +45,11 @@ Map each changed file to domain agents using this routing table:
 
 Deduplicate: each agent ID appears only once in the final list.
 
+The todo sweep's `todo-review` workflow mirrors this table's path rules (`ROUTES` in
+`.claude/workflows/todo-review.js`), so a sweep dispatches every path-routed reviewer even if your
+routing misses one. `scripts/todos/test_workflows.js` fails when this table and `ROUTES` differ, so
+edit both.
+
 Return a JSON block:
 
 ```json

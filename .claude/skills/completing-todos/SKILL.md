@@ -151,6 +151,9 @@ Steps 1–8 run with the sandbox off (see **Sandbox**).
 
 ## Stage C — Review (per wave, after its PRs are open)
 
+0. Before `review-args` in every round, run `ensure-worktree` (Stage D step 1) for each group in the wave.
+   `review-args` runs `git diff` in each PR worktree to compute `changed_files`, so a worktree the harness
+   swept away makes it exit 2 for the whole wave.
 1. `python3 scripts/todos/state.py review-args $RUN --round 1 --wave W` → `Workflow({name: "todo-review", args})`
    → `python3 scripts/todos/state.py ingest-review $RUN --output <file> --round 1`.
    - `clean` → round 2.
@@ -161,11 +164,16 @@ Steps 1–8 run with the sandbox off (see **Sandbox**).
 2. Round 2: `review-args --round 2` → workflow → `ingest-review --round 2`. `clean` →
    `gh pr merge <n> --auto --squash --delete-branch`. The round-2 reviewers read the full diff in fresh
    contexts; that is the "review before arming" step. You read `--stat` and their verdicts only.
-   `blocked` → stop that PR and report it. When a group has `checklist_skipped`, add a PR comment saying the
-   checklist review could not run (`gh pr comment <n> --body …`), and list it in the wrap-up.
-3. Read each round's `ranges`. When one says `inline review` or `no Agent tool available`, the deep
-   `/code-review` pass did not run inside the workflow (pilot P8). The verdict still stands, but list the PR
-   in the wrap-up as "deep review fell back inline".
+   `rerun` → run round 2 again once. A second `rerun`: `set-group … blocked` and report it.
+   `blocked` → stop that PR and report it.
+3. What a round runs, for every size: three `todo-reviewer` bug lenses, plus the checklist lane.
+   `review-args` computes each PR's `changed_files` from its worktree's diff. The workflow applies the
+   orchestrator table's path rules to that list and always dispatches those reviewers, each with its own
+   files. `code-review-orchestrator` (Phase 1 only) can add reviewers, never remove them; `floor_added`
+   names the ones it missed. No subagent can spawn subagents (pilot P8), so all fan-out is in the workflow
+   script. Each critical/high file:line then faces two refuters and stops blocking only if both refute every
+   phrasing reported there. A dead reviewer makes the round `rerun`, never a partial pass. The run file keeps each todo's
+   `refuted` findings. List them in the wrap-up, so the owner can see what the refuters dismissed.
 4. Follow-ups: todos with `followups` get one follow-up todo file per PR (next free id, `p4`, the PR number
    in its Findings), all committed together in a closing `chore(todos): follow-ups from run $RUN_ID` PR.
 
@@ -185,7 +193,7 @@ Both git steps run with the sandbox off. Finish with `/usr/bin/git -C REPO workt
 
 The summary lists: merged PRs, blocked todos with reasons, skipped todos, the worktrees from step 1,
 owner hand-offs (prod, device and vendor steps are never attempted), the `kimi: skipped` count,
-PRs whose deep review fell back inline, deferred groups (`--limit`), and the follow-ups PR.
+findings the refuters dismissed (per PR), deferred groups (`--limit`), and the follow-ups PR.
 
 ## Safety rails
 

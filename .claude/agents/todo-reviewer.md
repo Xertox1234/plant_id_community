@@ -21,3 +21,12 @@ only read-only git (`diff`, `status`, `log`, `show`, `rev-parse`, `ls-files`, `g
    contained defect; style and nits are `low`. Give each finding a file, a line, a one-line summary and
    a suggested fix.
 4. Return the FINDINGS record, with `reviewed_range` set to the range you reviewed.
+
+The workflow dispatches you in one of two roles, and the prompt says which:
+
+- **Finder:** the prompt names a lens (correctness, security and data, or contracts, state and tests).
+  Go deep on that lens across the whole diff, since other finders cover the other lenses. Return
+  FINDINGS as above.
+- **Refuter:** the prompt gives one or more findings reported at one file:line and asks you to refute them.
+  Return REFUTATION instead of FINDINGS: `refuted: true` only when you can show every one is wrong, `false`
+  when any holds or you cannot tell, with the reason.

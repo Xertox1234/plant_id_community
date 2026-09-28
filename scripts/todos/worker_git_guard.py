@@ -34,6 +34,12 @@ GIT_ALLOWED = {"add", "mv", "rm", "diff", "status", "log", "show", "fetch", "wri
 # Review-stage reviewers read the diff and report; they never stage (todo 468 m8).
 GIT_READONLY = {"diff", "status", "log", "show", "rev-parse", "ls-files", "grep", "blame", "merge-base"}
 ALLOWED_BY_AGENT = {"todo-worker": GIT_ALLOWED, "todo-verifier": GIT_ALLOWED, "todo-reviewer": GIT_READONLY}
+# todo-review dispatches the orchestrator and its domain reviewers in the PR worktree (todo 472): they
+# get the same read-only limit, which also covers their interactive use (they only diff, show, rev-parse).
+REVIEW_AGENTS = ("code-review-orchestrator", "django-drf-reviewer", "wagtail-reviewer", "react-typescript-reviewer",
+                 "flutter-dart-reviewer", "flutter-firebase-reviewer", "firebase-cloudfunction-reviewer",
+                 "celery-async-reviewer", "cross-cutting-reviewer")
+ALLOWED_BY_AGENT.update({a: GIT_READONLY for a in REVIEW_AGENTS})
 GUARDED_AGENTS = set(ALLOWED_BY_AGENT)
 MAIN_REASON = ("git {sub} would run in the main checkout at {path}; name your worktree explicitly: "
                "git -C <WT> {sub} ...")

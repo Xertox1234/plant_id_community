@@ -78,7 +78,7 @@ assert_allow "worker: diff cached vs origin/main"    $W 'git diff --cached --nam
 assert_allow "worker: mention inside grep"           $W 'grep -rn "git commit" docs/'
 assert_allow "worker: pytest via slot_env"           $W 'python3 scripts/todos/slot_env.py 1 -- python -m pytest apps/x'
 assert_allow "main session (no agent_type)"          "" 'git commit -m x'
-assert_allow "another agent type"                    code-review-orchestrator 'git push'
+assert_allow "another agent type"                    general-purpose 'git push'
 
 # K1 — shell reserved words hide the real command
 assert_deny  "K1: if/else hides commit"              $W 'if git diff --cached --quiet; then :; else git commit -m x; fi'
@@ -192,7 +192,7 @@ assert_allow "K9: here-string into cat is data"      $W 'cat <<< "git push"'
 assert_raw   "K10: tool_input is a string"           deny  '{"agent_type": "todo-worker", "tool_input": "git push"}'
 assert_raw   "K10: command is a list"                deny  '{"agent_type": "todo-worker", "tool_input": {"command": ["git", "push"]}}'
 assert_raw   "K10: no tool_input"                    deny  '{"agent_type": "todo-verifier"}'
-assert_raw   "K10: other agent, string tool_input"   allow '{"agent_type": "code-review-orchestrator", "tool_input": "git push"}'
+assert_raw   "K10: other agent, string tool_input"   allow '{"agent_type": "general-purpose", "tool_input": "git push"}'
 assert_raw   "K10: main session, list command"       allow '{"tool_input": {"command": ["git", "push"]}}'
 
 # R2.1 — source / . fed by stdin or a process substitution
@@ -234,7 +234,7 @@ assert_allow "R2.6: find -exec allowed git +"        $W 'find . -name "*.py" -ex
 # Everyone else is never denied, however odd the command
 assert_allow "main session: runtime program name"    "" '$(echo git) push'
 assert_allow "main session: shell reading stdin"     "" 'bash <<< "git push"'
-assert_allow "other agent: unparseable quoting"      code-review-orchestrator 'git add "a.py'
+assert_allow "other agent: unparseable quoting"      general-purpose 'git add "a.py'
 
 OUT=$(echo 'not json' | bash "$HOOK" 2>/dev/null)
 if [ -z "$OUT" ]; then echo "PASS: malformed JSON fails open"; PASS=$((PASS+1)); else echo "FAIL: malformed JSON"; FAIL=$((FAIL+1)); fi
@@ -310,6 +310,15 @@ assert_deny  "m8: reviewer git commit"                   $V 'git commit -m x'
 assert_deny  "m8: reviewer git push"                     $V 'git push'
 assert_deny  "m8: reviewer git fetch"                    $V 'git fetch origin'
 assert_deny  "m8: reviewer gh"                           $V 'gh pr view 1'
+
+# Todo 472 — todo-review dispatches the orchestrator and domain reviewers: same read-only limit.
+for V in code-review-orchestrator django-drf-reviewer cross-cutting-reviewer flutter-dart-reviewer; do
+  assert_allow "472: $V git diff in the worktree"   $V "/usr/bin/git -C '/wt/g1' diff origin/main...HEAD --name-only"
+  assert_allow "472: $V git show / rev-parse"       $V 'git show HEAD:a.py && git rev-parse --short HEAD'
+  assert_deny  "472: $V git stash"                  $V 'git stash'
+  assert_deny  "472: $V git commit"                 $V 'git commit -m x'
+  assert_deny  "472: $V gh pr comment"              $V 'gh pr comment 1 --body x'
+done
 
 # K10 — a missing script fails open (exit 0, no output) instead of blocking every Bash call
 # (a TMPDIR template, because the Bash sandbox denies mktemp's default /var/folders)
