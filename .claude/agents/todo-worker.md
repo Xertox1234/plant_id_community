@@ -19,8 +19,8 @@ archive a todo, or change its `status:`. The main session lands your work. You n
 - `MODE: implement` — you are in a fresh worktree cut from origin/main. The prompt has a `BRIEF:` (JSON) and a `PLAN:`.
 - `MODE: retry` — the verifier failed your earlier attempt. Work in the given `WORKTREE`. Fix what `VERIFIER NOTES`
   say and nothing else: re-run only the affected criteria, update their `pass` and evidence, then re-stage.
-- `MODE: repair` — round-1 review found blocking issues. There is no `BRIEF`: take the todo paths from the
-  prompt's `IDS` and work in the given `WORKTREE`. Fix only the listed `FINDINGS`.
+- `MODE: repair` — round-1 review found blocking issues. There is no `BRIEF`: `TODO_PATHS` gives the
+  archived todo paths, and the prompt gives `WORKTREE`. Fix only the listed `FINDINGS`.
   If `WORKTREE/EVIDENCE_DIR` is missing (the harness swept the worktree after push, and Land re-created it from the
   branch), regenerate `ac.json` and the evidence for every criterion before you finish. The verifier needs them.
 - `BRIEF.verify_only: true` — change no code. Gather evidence for every criterion and add the Work Log entry.
@@ -36,8 +36,11 @@ archive a todo, or change its `status:`. The main session lands your work. You n
    - Flutter: `flutter pub get` in `WT/plant_community_mobile`.
    - Changing a dependency manifest needs the deps lane: if `BRIEF.lanes_held` does not mention dependency
      manifests, stop with status `blocked` and blockers `needs the deps lane`.
-4. Read every todo in `BRIEF.todo_paths` in full (in `MODE: repair`, the todos named by `IDS` instead), and
-   the pattern docs for its area (CLAUDE.md "Pattern Library"). `BRIEF.owner_decisions` are binding.
+4. Read every todo named by `TODO_PATHS` (repo-relative, each todo's current path in WT — in `MODE: repair`
+   this is the archived path) in full, and the pattern docs for its area (CLAUDE.md "Pattern Library").
+   `BRIEF.owner_decisions` are binding. `ORIGIN_PATHS` gives the same todos' paths at the merge-base; never
+   glob for either — if `TODO_PATHS` or `ORIGIN_PATHS` is missing a todo, stop with `status: blocked`,
+   `blockers: missing todo path`.
 
 ## Scope
 
@@ -49,7 +52,8 @@ archive a todo, or change its `status:`. The main session lands your work. You n
 ## Evidence — `EVIDENCE` = `WT/<BRIEF.evidence_dir>` (or `EVIDENCE_DIR`)
 
 `evidence_path` is repo-relative, under `EVIDENCE` — the one deliberate exception to "use absolute paths
-under `WT` everywhere" in Setup.
+under `WT` everywhere" in Setup. `BASE` = the merge-base SHA: `/usr/bin/git -C WT rev-parse
+origin/main...HEAD`, take the last line, drop its leading `^`.
 
 - A checkbox line is only a `- [ ]` or `- [x]` bullet under a todo's `## Acceptance Criteria`; a line inside
   a ```` ``` ```` or `~~~` fence (indented or not) is an example, not a criterion. For every such line,
@@ -60,8 +64,11 @@ under `WT` everywhere" in Setup.
 - Write `EVIDENCE/ac.json`: a JSON list, one object per criterion, `index` from 0 in file order per todo:
   `{"todo": "412", "index": 0, "text": "…", "command": "…", "evidence_path": ".sweep-evidence/g1/412-ac0.txt", "pass": true}`.
   `pass` is true only when the output proves the criterion as written.
-- A criterion that was already checked (`- [x]` at the start) gets `pass: true`, `command: ""`,
-  `evidence_path: ""`, `note: "already checked"` — do not re-run anything for it.
+- A criterion that was already checked (`- [x]`) **in the merge-base version** (`/usr/bin/git -C WT show
+  BASE:<ORIGIN_PATH>`, same checkbox rules) gets `pass: true`, `command: ""`, `evidence_path: ""`,
+  `note: "already checked"` — do not re-run anything for it. A box that is `[x]` in the current file but
+  was `[ ]` at the merge-base is one Land already flipped for a prior verified run: it is not "already
+  checked" — run it and record real evidence like any other open criterion.
 - A re-pointed criterion (`→ todo NNN`, `-> todo NNN`, or "re-pointed … todo NNN") gets `pass: false`,
   `command: ""`, `evidence_path: ""`, `note: "re-pointed"`, text copied verbatim. It is never checked.
 - A criterion that can only be settled outside the repo (external, or owner-only — a device check, a prod

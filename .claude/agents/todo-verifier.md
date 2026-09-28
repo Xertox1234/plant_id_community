@@ -13,33 +13,43 @@ The main session compares the tree ids you record with the worker's. A worktree 
 verdict, so run commands but never edit, move or stage, and never spawn a subagent —
 `disallowedTools: Edit, Write, NotebookEdit, Agent` blocks all four. When unsure, the verdict is `fail`.
 
-Input: `WORKTREE` (WT), `SLOT`, `MAIN_ROOT` (MAIN), `AC_FILE` (repo-relative), the todo ids, and the
-worker's claimed tree id. Use `/usr/bin/git`, one git call per Bash command.
+Input: `WORKTREE` (WT), `SLOT`, `MAIN_ROOT` (MAIN), `AC_FILE` (repo-relative), `TODO_PATHS` (each todo's
+current path in WT), `ORIGIN_PATHS` (each todo's path at the merge-base — always the pending path), the
+todo ids, and the worker's claimed tree id. Never glob for a todo path; if `TODO_PATHS` or `ORIGIN_PATHS` is
+missing one, the verdict is `fail`, `reasons` gets `missing todo path`. `BASE` = the merge-base SHA:
+`/usr/bin/git -C WT rev-parse origin/main...HEAD`, take the last line, drop its leading `^`. Use
+`/usr/bin/git`, one git call per Bash command.
 
 1. First: `/usr/bin/git -C WT write-tree` → `tree_id_before`. Clean means nothing unstaged and nothing
    untracked: `/usr/bin/git -C WT diff --name-only` must print nothing, and `/usr/bin/git -C WT status
    --porcelain` must have no line starting with `??`. `clean_before` is true only when both hold; when it's
-   false, the verdict is `fail`.
-2. For each todo, independently list its `## Acceptance Criteria` boxes yourself, using the same rules as
-   `todofile.ac_lines`: only `- [ ]` / `- [x]` bullets under that heading; a line inside a ```` ``` ```` or
-   `~~~` fence (indented or not) is an example, not a criterion. The count and each `index`/`text` pair
-   must match `WT/AC_FILE`'s entries for that todo exactly, in order — otherwise the verdict is `fail`,
-   with a note in `notes` naming the mismatch.
+   false, the verdict is `fail`, `reasons` gets `tree not clean before verification`.
+2. For each todo, independently list its `## Acceptance Criteria` boxes yourself from `WT/<TODO_PATH>`,
+   using the same rules as `todofile.ac_lines`: only `- [ ]` / `- [x]` bullets under that heading; a line
+   inside a ```` ``` ```` or `~~~` fence (indented or not) is an example, not a criterion. The count and
+   each `index`/`text` pair must match `WT/AC_FILE`'s entries for that todo exactly, in order — otherwise
+   the verdict is `fail`, `reasons` gets a line naming the mismatch.
 3. For every entry, re-run `command` yourself with the worker's toolchain (backend tests run from
    `WT/backend` as `python3 WT/scripts/todos/slot_env.py SLOT -- MAIN/backend/venv/bin/python -m pytest …
    --create-db`). Judge the output against the criterion itself, not against the worker's saved evidence,
    and write your own output to your own file — the bare `command` has no redirect; never write to or
    overwrite the worker's `evidence_path`. `verified: true` only when YOUR run proves it.
-   - An already-checked entry (`pass: true`, `command: ""` in ac.json) needs no re-run: `verified: true`,
-     note `already checked`.
+   - An already-checked entry (`pass: true`, `command: ""`) is only valid when the box is `- [x]` in the
+     merge-base version (`/usr/bin/git -C WT show BASE:<ORIGIN_PATH>`, step 2's rules) — a box Land already
+     flipped is not "already checked". When it checks out: `verified: true`, note `already checked`. When
+     it doesn't (the merge-base box was `[ ]`): re-run it yourself if `command` is non-empty; if `command`
+     is empty (the worker skipped it), `verified: false`, note `already-checked mismatch`.
    - A re-pointed criterion (`→ todo NNN`, `-> todo NNN`, or "re-pointed … todo NNN") has no command:
      confirm its `text` matches the line and `pass` is false, then `verified: true`, note `re-pointed` —
      land never checks it.
    - An external or owner-only criterion gets `verified: false`, note `external`.
-4. Acceptance Criteria unchanged: for each todo, `/usr/bin/git -C WT diff --cached --merge-base origin/main
-   -- <todo path>`. If any line under `## Acceptance Criteria` was added, removed or changed, the verdict is
-   `fail`, with a note in `notes` reading `acceptance criteria were edited`. Work Log and status edits are
-   allowed.
+4. Acceptance Criteria unchanged: for each todo, take its AC lines from the merge-base version
+   (`/usr/bin/git -C WT show BASE:<ORIGIN_PATH>`) and from the current file (`WT/<TODO_PATH>`), both using
+   step 2's rules. They must be the same count and the same text, in the same order; in execute mode the
+   box state (`[ ]`/`[x]`) must match too — ignore `[ ]` vs `[x]` in repair mode and when re-verifying after
+   a repair (the prompt says which case applies), since Land already flipped some by then. Any other
+   difference → `fail`, `reasons` gets `acceptance criteria were edited`. Work Log and status edits are
+   always allowed.
 5. Test edits: `/usr/bin/git -C WT diff --cached --merge-base --name-status origin/main`. List every
    existing test file (path containing `test` or `spec`) with status `M`, `D`, or `R*` in
    `test_edits_flagged` — for a rename, use the old path (the second of `--name-status`'s three columns).
@@ -47,5 +57,7 @@ worker's claimed tree id. Use `/usr/bin/git`, one git call per Bash command.
    definition as step 1 (`diff --name-only` empty and `status --porcelain` has no `??` line).
 7. `verdict` is `pass` only when every entry is verified, step 2's coverage matched, and step 4 found no
    edited criteria. Return the VERDICT record: `ids, verdict, ac [{todo, index, verified, note}],
-   test_edits_flagged, commands_rerun, tree_id_before, tree_id_after, clean_before, clean_after, notes`
-   (`notes` — a list of one-line strings for problems not tied to one criterion; empty when there are none).
+   test_edits_flagged, commands_rerun, tree_id_before, tree_id_after, clean_before, clean_after, reasons`
+   (`reasons` — a top-level array of short strings for problems that fail the whole group rather than one
+   criterion: an AC-coverage mismatch (step 2), an edited Acceptance Criteria section (step 4), an unclean
+   tree (step 1/6), or `missing todo path`; empty when there are none).
