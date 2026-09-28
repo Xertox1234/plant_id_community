@@ -1315,7 +1315,8 @@ def main():
             "SINGLE='it''s-a-secret'\n")  # pragma: allowlist secret
         secrets = land._env_secrets(root)
         check("PR #870: the raw decouple value of a secret is masked too",
-              "abc #defghijkl" in secrets and "it''s-a-secret" in secrets, secrets)
+              "abc #defghijkl" in secrets and "it''s-a-secret" in secrets,
+              f"{len(secrets)} values")  # never print secrets, even fake ones (CodeQL)
 
     # Final review m9: no Work Log heading a worker is told to write may satisfy Land's
     # "evidence is quoted above" check -- only flip_acs's own heading does.
