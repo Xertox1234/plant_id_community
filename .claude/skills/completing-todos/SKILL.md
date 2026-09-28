@@ -117,7 +117,8 @@ With `--limit N`, execute only the first ⌈N / workers⌉ waves and list the de
    (it appends new groups and waves). A second failure: `state.py set $RUN <id> blocked --field reason="…"`.
 5. `blocked` todos: report the blocker to the owner. When it is cleared (a fix merged, a decision made),
    reopen the todo with `state.py set $RUN <id> ready --field reason="<what cleared it>"`, and also every
-   todo that execute-args blocked as `dependency <id> blocked`. Then run `state.py group $RUN` **once**, after
+   todo that execute-args blocked as `dependency <id> blocked`, transitively: in a chain A→B→C, C's reason
+   names B, not A. Then run `state.py group $RUN` **once**, after
    all of them are reopened. A dependent that is grouped while its dependency is still blocked gets blocked again.
    Reopening doesn't spend the retry. It is refused for a todo with a PR; fix that PR instead.
    The blocked attempt's worktree stays under `previous` in RUN, and `state.py worktrees $RUN` lists it.

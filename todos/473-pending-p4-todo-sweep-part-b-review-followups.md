@@ -28,11 +28,17 @@ These three were left for later.
    gives `PYTHONPATH=WT/backend/backend/packages/…` and a silent `.env` fallback.
    Checking that the path is a repo top level (`git rev-parse --show-toplevel`) would catch it.
 
+4. **`record-triage --root` matches only the resolved root** (PR #868 round 2). If a
+   triager reports `/tmp/x/b.py` for root `/private/tmp/x`, that path lands in
+   `dropped_files`: it is visible there, but it loses its lane. Also matching the unresolved
+   form would close this. The risk is low, because `triage-args` emits the resolved path.
+
 ## Acceptance Criteria
 
 - [ ] The wrap-up lists a landed todo's earlier blocked worktrees, or cleanup removes them; with a test.
 - [ ] The runbook (or the engine) handles a reopened todo whose branch is already renamed and checked out.
 - [ ] `slot_env.py --worktree` refuses a path that is not a worktree's top level, with a test.
+- [ ] `record-triage --root` keeps a path reported under either form of a symlinked root, with a test.
 
 ## Work Log
 

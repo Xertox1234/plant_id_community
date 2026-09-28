@@ -18,10 +18,16 @@ description: Resume, restart, or discard an interrupted todo run from its checkp
      if you have its run id. Otherwise `state.py set $RUN <id> failed --field reason="execute workflow lost"`
      then retry it once.
    - `verified` → Stage D (Land)
-   - `pr_open` → Stage C, at round `review_round + 1`. First run `ensure-worktree` (sandbox off) and
-     `/usr/bin/git -C $WT diff --cached --quiet`. If it exits non-zero, a round-1 repair is staged but was
-     never pushed (`ingest-review` already set `review_round=1`). Finish Stage C's `repair-staged` commit,
-     `ensure-worktree` and push before any round runs; otherwise round 2 reviews the unrepaired PR.
+   - `pr_open` → Stage C, at round `review_round + 1`. When `review_round` is 1, a round-1 repair may not
+     have reached the PR yet. The reviewers read the local worktree, but auto-merge ships the remote
+     branch. So before round 2, run `ensure-worktree` (sandbox off), then:
+     - if `/usr/bin/git -C $WT diff --cached --quiet` exits non-zero, the repair is still staged. Finish Stage C's
+       `repair-staged` commit, `ensure-worktree` and push.
+     - if `/usr/bin/git -C $WT rev-parse HEAD` differs from the SHA in `/usr/bin/git -C $WT ls-remote origin <branch>`,
+       the repair was committed but never pushed. Run `ensure-worktree`, then push.
+
+     When `review_round` is 0 and the round-1 output was never ingested, run `ingest-review --round 1`
+     on it first, if its task output file still exists; otherwise rerun round 1.
    - `reviewed` / `merged` → merge confirmation and cleanup
    - `blocked` → report each reason. One whose blocker has since cleared is reopened as in Stage B step 5.
 4. **restart**: list `state.py worktrees $RUN` in your reply, delete RUN (confirm first), then re-run the original selector.
