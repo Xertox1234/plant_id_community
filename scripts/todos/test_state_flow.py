@@ -547,6 +547,159 @@ def main():
               err_mr is None and path_mr is not None and Path(path_mr).is_dir() and path_mr.endswith("gmr"),
               err_mr)
 
+    # Final review I3: the execute gate reads every in-run dependency by stage. The reviewer's
+    # probe: 401 <- 402, one worker, waves [[g1], [], [g2]].
+    def dep_run():
+        rd = ready_run([("401", ["dep401.py"]), ("402", ["dep402.py"])], workers=1)
+        rd["todos"]["402"]["dependencies"] = ["401"]
+        state.apply_grouping(rd)
+        b0 = state.execute_args(rd, 0, "/m")
+        state.ingest_execute(rd, [{"group": b0[0]["group"], "ids": ["401"], "worker": None, "verdict": None,
+                                   "retried": False}])
+        return rd, next(w for w, gids in enumerate(rd["waves"]) if rd["todos"]["402"]["group"] in gids)
+
+    run_b, w402 = dep_run()
+    state.transition(run_b, "401", "blocked", reason="owner said no")
+    for w in range(1, w402):
+        state.execute_args(run_b, w, "/m")
+    briefs_b, err_b = expect(lambda: state.execute_args(run_b, w402, "/m"))
+    check("I3: a blocked dependency blocks its dependent instead of handing it out",
+          err_b is None and briefs_b == [] and run_b["todos"]["402"]["stage"] == "blocked"
+          and run_b["todos"]["402"]["reason"] == "dependency 401 blocked", err_b or run_b["todos"]["402"])
+
+    run_r, w402 = dep_run()
+    state.transition(run_r, "401", "ready")  # retried: its group is popped, so _group_entries hides it
+    for w in range(1, w402):
+        state.execute_args(run_r, w, "/m")
+    check("I3: a retried dependency holds its dependent (execute_args refuses, nothing is handed out)",
+          raises(lambda: state.execute_args(run_r, w402, "/m")) and run_r["todos"]["402"]["stage"] == "ready",
+          run_r["todos"]["402"])
+
+    # The gate itself, isolated from the wave gate: a dependency with no group edge at all (the
+    # fold-in below drops edges to in-run todos past ready) still holds its dependent.
+    run_e = ready_run([("501", ["e501.py"]), ("502", ["e502.py"])], workers=2)
+    state.apply_grouping(run_e)
+    run_e["todos"]["502"]["dependencies"] = ["501"]
+    check("I3: a same-wave dependency with no group edge holds its dependent",
+          len(run_e["waves"][0]) == 2 and raises(lambda: state.execute_args(run_e, 0, "/m"))
+          and run_e["todos"]["501"]["stage"] == "ready", run_e["waves"])
+
+    # Fold-in (T7 P5): 403 depends on 401 and 402. 401 reaches pr_open, 402 fails and is retried.
+    # 403 is regrouped with 402, and must wait for 401 -- not be blocked for good.
+    run_p = ready_run([("401", ["p401.py"]), ("402", ["p402.py"]), ("403", ["p403.py"])], workers=2)
+    run_p["todos"]["403"]["dependencies"] = ["401", "402"]
+    state.apply_grouping(run_p)
+    bp = state.execute_args(run_p, 0, "/m")
+    by_id = {b["ids"][0]: b for b in bp}
+    state.ingest_execute(run_p, [
+        {"group": by_id["401"]["group"], "ids": ["401"], "worker": worker(["401"]), "verdict": verdict(["401"]),
+         "retried": False},
+        {"group": by_id["402"]["group"], "ids": ["402"], "worker": None, "verdict": None, "retried": False}])
+    state.set_group(run_p, by_id["401"]["group"], "pr_open", pr=9)
+    state.transition(run_p, "402", "ready")
+    result_p = state.apply_grouping(run_p)
+    check("I3: a regrouped todo whose other dependency is pr_open waits, it is not blocked",
+          run_p["todos"]["403"]["stage"] == "ready" and "group" in run_p["todos"]["403"]
+          and "403" not in result_p["unschedulable"], (run_p["todos"]["403"], result_p))
+
+    # Fold-in, deadlock guard: a dependent placed earlier must be regrouped when its dependency
+    # is retried later, or its wave would wait forever on a dependency placed after it.
+    run_d = ready_run([("601", ["d601.py"]), ("602", ["d602.py"])], workers=2)
+    run_d["todos"]["602"]["dependencies"] = ["601"]
+    state.apply_grouping(run_d)
+    g602 = run_d["todos"]["602"]["group"]
+    state.transition(run_d, "601", "executing", group=run_d["todos"]["601"]["group"], slot=1, wave=0, main_root="/m")
+    state.transition(run_d, "601", "failed", reason="x")
+    state.transition(run_d, "601", "ready")
+    run_d["groups"][g602]["deps"] = []  # as if placed with the edge dropped (dependency was past ready)
+    state.apply_grouping(run_d)
+    w601 = next(w for w, gids in enumerate(run_d["waves"]) if run_d["todos"]["601"]["group"] in gids)
+    w602 = next(w for w, gids in enumerate(run_d["waves"]) if run_d["todos"]["602"]["group"] in gids)
+    check("I3: a dependent is regrouped with its retried dependency and placed after it",
+          run_d["todos"]["602"]["group"] != g602 and w602 >= w601 + 2, (w601, w602, run_d["waves"]))
+
+    # Final review I5: a worker that stops short still has a worktree; record it.
+    run_w = ready_run([("701", ["w701.py"]), ("702", ["w702.py"]), ("703", ["w703.py"])], workers=3)
+    state.apply_grouping(run_w)
+    bw = {b["ids"][0]: b for b in state.execute_args(run_w, 0, "/m")}
+    blocked_worker = worker(["701"], status="blocked") | {"worktree": "/wt/a1", "branch": "worktree-agent-a1",
+                                                          "tree_id": "TB", "blockers": "device check"}
+    state.ingest_execute(run_w, [
+        {"group": bw["701"]["group"], "ids": ["701"], "worker": blocked_worker, "verdict": None, "retried": False},
+        {"group": bw["702"]["group"], "ids": ["702"], "worker": worker(["702"], status="failed")
+         | {"worktree": "/wt/a2", "branch": "worktree-agent-a2"}, "verdict": None, "retried": False},
+        {"group": bw["703"]["group"], "ids": ["703"], "worker": None, "verdict": None, "retried": True,
+         "worktree": "/wt/a3"}])
+    e701, e702, e703 = (run_w["todos"][i] for i in ("701", "702", "703"))
+    check("I5: a blocked worker's worktree, branch, tree and ac file are recorded",
+          e701["stage"] == "blocked" and (e701.get("worktree"), e701.get("branch"), e701.get("tree_id"),
+                                          e701.get("ac_file")) == ("/wt/a1", "worktree-agent-a1", "TB",
+                                                                   ".sweep-evidence/g1/ac.json"), e701)
+    check("I5: a failed worker's worktree is recorded", e702["stage"] == "failed" and e702.get("worktree") == "/wt/a2",
+          e702)
+    check("I5: a dead retry keeps the first attempt's worktree from the result",
+          e703["stage"] == "failed" and e703.get("worktree") == "/wt/a3", e703)
+
+    # Final review m10: only a PR number is coerced to an int.
+    check("m10: _parse_fields coerces only pr",
+          state._parse_fields(["pr=861", "tree_id=0123", "reason=404", "branch=412"])
+          == {"pr": 861, "tree_id": "0123", "reason": "404", "branch": "412"})
+
+    # Final review m11: predicted files are repo-relative, or they silently miss a lane.
+    run_n = state.new_run("r", "sweep", 1, [{"id": "801", "path": "todos/801-pending-p3-x.md", "priority": "p3"}],
+                          ["801"])
+    state.record_triage(run_n, [rec("801", ["./backend/plant_community_backend/settings.py",
+                                            "/abs/elsewhere.py", "web/a.ts"])])
+    t801 = run_n["todos"]["801"]["triage"]
+    check("m11: a leading ./ is stripped, so the settings lane is found",
+          t801["predicted_files"] == ["backend/plant_community_backend/settings.py", "web/a.ts"]
+          and state.group.lanes_for(t801) == {"settings"}, t801)
+    check("m11: an absolute path is dropped and noted on the record", t801.get("dropped_files") == ["/abs/elsewhere.py"],
+          t801)
+
+    # Final review m2: spec §5.2's clean check -- an unstaged change outside Land's paths refuses.
+    with tempfile.TemporaryDirectory() as tmp:
+        repo = Path(tmp) / "repo"
+        subprocess.run(["git", "init", "-q", "-b", "main", str(repo)], check=True)
+        (repo / "todos").mkdir()
+        (repo / "a.py").write_text("x = 1\n")
+        (repo / "todos" / "t.md").write_text("t\n")
+        subprocess.run(["git", "-C", str(repo), "add", "-A"], check=True)
+        subprocess.run(["git", "-C", str(repo), "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q",
+                        "-m", "init"], check=True)
+        wt = Path(tmp) / "wt-clean"
+        subprocess.run(["git", "-C", str(repo), "worktree", "add", "-q", "-b", "worktree-m2", str(wt)], check=True)
+        (wt / "b.py").write_text("y = 2\n")
+        subprocess.run(["git", "-C", str(wt), "add", "b.py"], check=True)
+        staged = subprocess.run(["git", "-C", str(wt), "write-tree"], capture_output=True, text=True).stdout.strip()
+        run_m2 = worktree_run("m2", "gm2", "worktree-m2", worktree=str(wt), tree_id=staged)
+        path_m2, err_m2 = expect(lambda: state.ensure_worktree(run_m2, "gm2", Path(tmp) / "scratch"))
+        check("m2: staged work alone is clean", err_m2 is None and path_m2 == str(wt), err_m2)
+        (wt / "todos" / "t.md").write_text("edited by a resumed Land, not staged yet\n")
+        path_m2, err_m2 = expect(lambda: state.ensure_worktree(run_m2, "gm2", Path(tmp) / "scratch"))
+        check("m2: an unstaged edit under todos/ (Land's own path) is accepted", err_m2 is None, err_m2)
+        (wt / "a.py").write_text("x = 'sed -i after verification'\n")
+        check("m2: an unstaged edit to a tracked file outside Land's paths refuses",
+              raises(lambda: state.ensure_worktree(run_m2, "gm2", Path(tmp) / "scratch"), RuntimeError))
+        (wt / "untracked.log").write_text("test artifact\n")
+        (wt / "a.py").write_text("x = 1\n")
+        path_m2, err_m2 = expect(lambda: state.ensure_worktree(run_m2, "gm2", Path(tmp) / "scratch"))
+        check("m2: an untracked test artifact does not count", err_m2 is None, err_m2)
+
+    # Final review m4: a dependency cycle exits 2 with `state: dependency cycle: ...`, not a traceback.
+    with tempfile.TemporaryDirectory() as tmp:
+        run_c = ready_run([("901", ["c901.py"]), ("902", ["c902.py"])], workers=1)
+        run_c["todos"]["901"]["dependencies"] = ["902"]
+        run_c["todos"]["902"]["dependencies"] = ["901"]
+        runfile = Path(tmp) / "run.json"
+        state.save(run_c, runfile)
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        result = subprocess.run([sys.executable, os.path.join(script_dir, "state.py"), "group", str(runfile)],
+                                capture_output=True, text=True)
+        check("m4: a dependency cycle exits 2 with a state: message",
+              result.returncode == 2 and result.stderr.startswith("state: dependency cycle")
+              and "Traceback" not in result.stderr, (result.returncode, result.stderr[-300:]))
+
     # F6 (CLI): an out-of-range wave must exit 2 with a message, not an uncaught traceback.
     with tempfile.TemporaryDirectory() as tmp:
         run9 = ready_run([("z1", ["zz.py"])], workers=1)

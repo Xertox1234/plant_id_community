@@ -107,6 +107,12 @@ async function main() {
   r = await run('todo-execute', { run_id: 'r', briefs: [brief()] }, () => null)
   check('execute: a dead worker yields worker null and no verifier',
     r.result.results[0].worker === null && byType(r.calls, 'todo-verifier').length === 0, r.result)
+  check('execute: a dead first worker has worktree null in its result', r.result.results[0].worktree === null, r.result)
+  r = await run('todo-execute', { run_id: 'r', briefs: [brief()] },
+    (p, o) => (o.agentType === 'todo-worker' ? worker({ status: 'blocked', blockers: 'device check' }) : verdict('pass')))
+  check('execute: a blocked first worker is the result and carries its worktree',
+    r.result.results[0].worker.status === 'blocked' && r.result.results[0].worktree === '/wt/g1'
+    && byType(r.calls, 'todo-verifier').length === 0, r.result)
 
   // --- execute: the prompt contract with the Task 11 agents
   const pending = 'todos/1-pending-p3-x.md'
@@ -149,6 +155,8 @@ async function main() {
   check('execute: a dead retry worker yields worker null, retried, no second verifier',
     r.result.results[0].worker === null && r.result.results[0].verdict === null && r.result.results[0].retried
     && byType(r.calls, 'todo-verifier').length === 1, r.result)
+  check('execute: a dead retry still carries the first attempt\'s worktree (final review I5)',
+    r.result.results[0].worktree === '/wt/g1', r.result)
   works2 = 0
   r = await run('todo-execute', { run_id: 'r', briefs: [brief()] }, (p, o) => (o.agentType === 'todo-worker'
     ? (++works2 === 1 ? worker() : worker({ status: 'blocked', blockers: 'todo 1 AC index 0 is owner-only' }))

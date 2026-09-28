@@ -86,6 +86,28 @@ def main():
     result = group.plan([t("1", ["a.py"], deps=["100"])], open_ids={"1"}, workers=3)
     check("a dependency that is no longer open is satisfied", "1" not in result["unschedulable"])
 
+    # Final review I4 (the reviewer's probe, a real edge today): xs 448 depends on 428, which
+    # is open but in flight. Bundled with xs 450 and 451 (all under backend/), it used to
+    # block both. Unschedulability is decided per todo before bundling.
+    open_now = {"428", "448", "450", "451"}
+    result = group.plan([t("448", ["backend/a.py"], size="xs", deps=["428"]), t("450", ["backend/b.py"], size="xs"),
+                         t("451", ["backend/c.py"], size="xs")], open_ids=open_now, workers=3)
+    check("I4: an unschedulable xs todo is blocked on its own", set(result["unschedulable"]) == {"448"}, result)
+    check("I4: its would-be bundle-mates are still bundled and scheduled",
+          [v["ids"] for v in result["groups"].values()] == [["450", "451"]]
+          and sum(len(w) for w in result["waves"]) == 1, result)
+    result = group.plan([t("448", ["backend/a.py"], size="xs", deps=["428"]), t("449", ["backend/d.py"], size="xs",
+                                                                                deps=["448"]),
+                         t("450", ["backend/b.py"], size="xs")], open_ids=open_now | {"449"}, workers=3)
+    check("I4: a todo depending on an unschedulable one is held out of the bundle too",
+          set(result["unschedulable"]) == {"448", "449"} and [v["ids"] for v in result["groups"].values()] == [["450"]],
+          result)
+    result = group.plan([t("448", ["backend/a.py"], deps=["428"]), t("452", ["backend/a.py"]),
+                         t("453", ["web/x.ts"])], open_ids=open_now | {"452", "453"}, workers=3)
+    check("I4: a todo sharing a real file with an unschedulable one is still blocked with it",
+          set(result["unschedulable"]) == {"448", "452"} and [v["ids"] for v in result["groups"].values()] == [["453"]],
+          result)
+
     try:
         group.plan([t("1", ["a.py"], deps=["2"]), t("2", ["b.py"], deps=["1"])], open_ids={"1", "2"}, workers=3)
         raised = ""

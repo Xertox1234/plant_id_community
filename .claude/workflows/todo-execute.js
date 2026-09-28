@@ -114,7 +114,9 @@ const results = await pipeline(
   (plan, b) => agent(workPrompt(b, plan),
     { label: `work:${b.group}`, phase: 'Implement', agentType: 'todo-worker', isolation: 'worktree', schema: WORKER }),
   async (worker, b) => {
-    const base = { group: b.group, ids: b.ids }
+    // The first attempt's worktree rides on every result, so a dead retry (worker: null) still
+    // tells ingest-execute where the staged work is.
+    const base = { group: b.group, ids: b.ids, worktree: worker ? worker.worktree : null }
     if (!worker || worker.status !== 'staged') return { ...base, worker, verdict: null, retried: false }
     const verdict = await agent(verifyPrompt(b, worker),
       { label: `verify:${b.group}`, phase: 'Verify', agentType: 'todo-verifier', schema: VERDICT })
@@ -130,5 +132,6 @@ const results = await pipeline(
 )
 
 return {
-  results: results.map((r, i) => r || { group: briefs[i].group, ids: briefs[i].ids, worker: null, verdict: null, retried: false }),
+  results: results.map((r, i) => r || { group: briefs[i].group, ids: briefs[i].ids, worktree: null, worker: null,
+    verdict: null, retried: false }),
 }

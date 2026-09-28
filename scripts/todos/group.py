@@ -48,7 +48,8 @@ def _rank(todo):
     return (PRIORITIES.index(p) if p in PRIORITIES else len(PRIORITIES), todo["id"])
 
 
-def build_groups(todos):
+def _components(todos):
+    """Union-find over predicted files: todos that share a file (transitively)."""
     todos = sorted(todos, key=_rank)
     parent = {t["id"]: t["id"] for t in todos}
 
@@ -71,11 +72,17 @@ def build_groups(todos):
     components = {}
     for todo in todos:
         components.setdefault(find(todo["id"]), []).append(todo)
+    return list(components.values())
 
+
+def build_groups(todos, hold=frozenset()):
+    """Groups of todo ids. A todo in `hold` (already known to be unschedulable) is never
+    bundled with tiny todos, so it cannot take its bundle-mates down with it."""
     groups, tiny = [], {}
-    for members in components.values():
+    for members in _components(todos):
         only = members[0]
-        if len(members) == 1 and only["triage"]["size"] == "xs" and not only.get("verify_only"):
+        if (len(members) == 1 and only["triage"]["size"] == "xs" and not only.get("verify_only")
+                and only["id"] not in hold):
             files = only["triage"]["predicted_files"]
             tiny.setdefault(files[0].split("/", 1)[0] if files else "misc", []).append(only)
         else:
@@ -113,9 +120,29 @@ def _find_cycle(deps):
     return None
 
 
+def _held(todos, open_ids):
+    """Todos that cannot run in this plan, decided per todo BEFORE any bundling (final
+    review I4): a dependency on an open todo outside this plan, a file shared with such a
+    todo (the same union-find group), or a dependency on another held todo."""
+    by_id = {t["id"]: t for t in todos}
+    held = {t["id"] for t in todos
+            if any(dep not in by_id and dep in open_ids for dep in t.get("dependencies", []))}
+    comp_of = {t["id"]: n for n, members in enumerate(_components(todos)) for t in members}
+    changed = True
+    while changed:
+        changed = False
+        bad = {comp_of[i] for i in held}
+        for t in todos:
+            if t["id"] not in held and (comp_of[t["id"]] in bad
+                                        or any(dep in held for dep in t.get("dependencies", []))):
+                held.add(t["id"])
+                changed = True
+    return held
+
+
 def plan(todos, open_ids, workers):
     by_id = {t["id"]: t for t in todos}
-    grouped = build_groups(todos)
+    grouped = build_groups(todos, hold=_held(todos, open_ids))
     gids = [f"g{n}" for n in range(1, len(grouped) + 1)]
     gid_of = {todo_id: gid for gid, ids in zip(gids, grouped) for todo_id in ids}
     lanes = {gid: sorted(set().union(*(lanes_for(by_id[i]["triage"]) for i in ids)))

@@ -38,6 +38,9 @@ for _targets in ALLOWED.values():
     _targets.add("blocked")  # spec §8: any non-terminal stage may block, with a reason
 MAX_RETRIES = 1
 OUTCOMES = {"ready", "blocked", "skipped"}
+NOT_PLANNED = {"scanned", "triaged", "blocked", "skipped"}
+LANDED = {"merged", "archived"}
+WORK_FIELDS = ("worktree", "branch", "tree_id", "ac_file")
 
 
 class TransitionError(Exception):
@@ -136,9 +139,25 @@ def record_triage(run, records):
         if record["id"] not in run["todos"]:
             raise KeyError(f"triage record for {record['id']}, which is not in this run")
     for record in records:
+        _normalize_predicted_files(record)
         run["todos"][record["id"]]["triage"] = record
         transition(run, record["id"], "triaged")
     return sorted(i for i, e in run["todos"].items() if e["stage"] == "scanned")
+
+
+def _normalize_predicted_files(record):
+    """Repo-relative paths only (final review m11): a leading ./ is stripped, since the
+    lanes match exact repo-relative paths; an absolute path cannot be mapped onto the repo,
+    so it is dropped and listed in `dropped_files` for the plan to show."""
+    kept, dropped = [], []
+    for path in record.get("predicted_files", []):
+        path = str(path)
+        while path.startswith("./"):
+            path = path[2:]
+        (dropped if os.path.isabs(path) else kept).append(path)
+    record["predicted_files"] = kept
+    if dropped:
+        record["dropped_files"] = dropped
 
 
 def accept_ready(run):
@@ -232,7 +251,11 @@ def apply_grouping(run):
          "verify_only": e.get("verify_only", False), "triage": e["triage"]}
         for i, e in sorted(run["todos"].items()) if e["stage"] == "ready" and "group" not in e
     ]
-    result = group.plan(todos, set(run["open_ids"]), run["workers"])
+    # A dependency already past triage in this run (grouped earlier, executing, pr_open, merged, ...)
+    # is not "open outside the run": dropping it here lets its dependent wait at execute_args
+    # instead of being blocked for good (final review I3). Blocked/skipped ones stay open.
+    in_run = {i for i, e in run["todos"].items() if e["stage"] not in NOT_PLANNED}
+    result = group.plan(todos, set(run["open_ids"]) - in_run, run["workers"])
     offset = max((int(g[1:]) for g in run["groups"]), default=0)
     rename = {gid: f"g{offset + int(gid[1:])}" for gid in result["groups"]}
     for todo_id, reason in result["unschedulable"].items():
@@ -267,6 +290,12 @@ def _group_is_stale(run, gid):
     return any(run["todos"][i].get("group") != gid for i in run["groups"][gid]["ids"])
 
 
+def _being_regrouped(run, todo_id):
+    """True for an in-run todo that is ready with no group: this apply_grouping plans it."""
+    entry = run["todos"].get(todo_id)
+    return entry is not None and entry["stage"] == "ready" and "group" not in entry
+
+
 def _ungroup_stale_deps(run):
     """Drop the group of any ready todo whose group depends, directly or
     transitively, on a group a retry has emptied or partly emptied (spec R2,
@@ -281,9 +310,25 @@ def _ungroup_stale_deps(run):
             gid = entry.get("group")
             if entry["stage"] != "ready" or gid is None:
                 continue
-            if any(_group_is_stale(run, dep) for dep in run["groups"][gid]["deps"]):
+            if (any(_group_is_stale(run, dep) for dep in run["groups"][gid]["deps"])
+                    or any(_being_regrouped(run, dep) for dep in entry["dependencies"])):
                 entry.pop("group", None)
                 changed = True
+
+
+def _dependencies_of(run, gid, todo_id, entry):
+    """Every in-run todo that must be merged or archived before todo_id is handed out (final
+    review I3): its own in-run dependencies, read by stage -- a retried dependency has left its
+    group, so _group_entries would hide it -- plus every todo ever placed in a dependency group
+    of gid that holds one of them (one group is one PR). Current members of gid ship with it."""
+    members = {i for i, _ in _group_entries(run, gid)}
+    direct = {d for d in entry["dependencies"] if d in run["todos"] and d not in members}
+    related = set(direct)
+    for dep_gid in run["groups"][gid]["deps"]:
+        recorded = set(run["groups"][dep_gid]["ids"])
+        if recorded & direct:
+            related |= recorded
+    return sorted(related - members - {todo_id})
 
 
 def execute_args(run, wave, main_root):
@@ -299,11 +344,26 @@ def execute_args(run, wave, main_root):
             for todo_id, entry in _group_entries(run, gid):
                 if entry["stage"] not in TERMINAL | {"merged"}:
                     raise TransitionError(f"wave {w} is not merged yet ({todo_id} is {entry['stage']})")
-    briefs, gids = [], run["waves"][wave]
+    gids = run["waves"][wave]
+    to_block = {}
+    for gid in gids:
+        for todo_id, entry in _group_entries(run, gid):
+            if entry["stage"] != "ready":
+                continue
+            for dep in _dependencies_of(run, gid, todo_id, entry):
+                stage = run["todos"][dep]["stage"]
+                if stage in {"blocked", "skipped"}:
+                    to_block.setdefault(todo_id, f"dependency {dep} {stage}")
+                elif stage not in LANDED:
+                    raise TransitionError(f"{todo_id}: dependency {dep} is {stage}, not merged; wait for it to merge "
+                                          "(run `group` first if it was retried)")
+    for todo_id, reason in to_block.items():
+        transition(run, todo_id, "blocked", reason=reason)
+    briefs = []
     for position, gid in enumerate(gids, start=1):
-        entries = _group_entries(run, gid)
+        entries = [(i, e) for i, e in _group_entries(run, gid) if i not in to_block and e["stage"] not in TERMINAL]
         if not entries:
-            continue  # every todo that was here got regrouped into a later wave
+            continue  # every todo that was here got regrouped into a later wave, or was just blocked
         held = run["groups"][gid]["lanes"]
         forbidden = sorted({lane for other in gids if other != gid for lane in run["groups"][other]["lanes"]})
         slot = slot_for(wave, position, run["workers"])
@@ -351,13 +411,19 @@ def ingest_execute(run, results):
     outcome = {}
     for result in results:
         worker, verdict = result.get("worker"), result.get("verdict")
+        # Final review I5: a blocked, failed or dead attempt may still have staged work in a worktree;
+        # record where, so the next sweep (or the owner) can find it instead of redoing it.
+        work = {k: (worker or {}).get(k) for k in WORK_FIELDS}
+        work["worktree"] = work["worktree"] or result.get("worktree")
+        work = {k: v for k, v in work.items() if v}
         for todo_id in result["ids"]:
             if worker is None:
-                transition(run, todo_id, "failed", reason="worker returned nothing")
+                transition(run, todo_id, "failed", reason="worker returned nothing", **work)
             elif worker["status"] == "blocked":
-                transition(run, todo_id, "blocked", reason=worker.get("blockers") or "worker blocked")
+                transition(run, todo_id, "blocked", reason=worker.get("blockers") or "worker blocked", **work)
             elif worker["status"] != "staged":
-                transition(run, todo_id, "failed", reason=f"worker status {worker['status']}: {worker.get('blockers', '')}")
+                transition(run, todo_id, "failed",
+                           reason=f"worker status {worker['status']}: {worker.get('blockers', '')}", **work)
             else:
                 transition(run, todo_id, "staged", worktree=worker["worktree"], branch=worker["branch"],
                            tree_id=worker["tree_id"], ac_file=worker["ac_file"])
@@ -480,9 +546,30 @@ def _land_only_diff(path, tree_id, actual):
     if not run_git(path, "ls-tree", "-r", "--name-only", actual).strip():
         return False
     changed = [p for p in run_git(path, "diff", "--no-renames", "--name-only", tree_id, actual).splitlines() if p]
-    return bool(changed) and all(
-        p.startswith("todos/") or p.startswith("docs/reviews/") or p == ".secrets.baseline" for p in changed
-    )
+    return bool(changed) and all(_is_land_path(p) for p in changed)
+
+
+def _is_land_path(p):
+    return p.startswith("todos/") or p.startswith("docs/reviews/") or p == ".secrets.baseline"
+
+
+def _unstaged_outside_land(path):
+    """Tracked paths with an unstaged change (the Y column of `status --porcelain
+    --untracked-files=no`) outside Land's own paths -- spec §5.2's clean check before Land
+    (final review m2). Staged entries (the verified work itself) are expected; untracked
+    test artifacts don't count, because Land commits only the index."""
+    fields = run_git(path, "status", "--porcelain", "-z", "--untracked-files=no").split("\0")
+    dirty, i = [], 0
+    while i < len(fields):
+        item = fields[i]
+        i += 1
+        if len(item) < 4:
+            continue
+        if item[0] in "RC":
+            i += 1  # the rename/copy source path follows as its own field
+        if item[1] != " " and not _is_land_path(item[3:]):
+            dirty.append(item[3:])
+    return dirty
 
 
 def ensure_worktree(run, gid, scratch, git=run_git):
@@ -512,6 +599,10 @@ def ensure_worktree(run, gid, scratch, git=run_git):
         if actual != tree_id and not _land_only_diff(path, tree_id, actual):
             raise RuntimeError(f"{gid}: worktree at {path} lost its staged work "
                                f"(has {actual[:8]}, expected {tree_id[:8]}); the group must be rerun")
+    unstaged = _unstaged_outside_land(path)
+    if unstaged:
+        raise RuntimeError(f"{gid}: worktree at {path} has unstaged changes outside Land's paths "
+                           f"({', '.join(unstaged[:5])}); the verified tree is not what is on disk")
     if not reused:
         for _, entry in entries:
             entry["worktree"] = path
@@ -527,7 +618,7 @@ def _parse_fields(pairs):
     fields = {}
     for pair in pairs or []:
         key, _, value = pair.partition("=")
-        fields[key] = int(value) if value.isdigit() else value
+        fields[key] = int(value) if key == "pr" and value.isdigit() else value  # only a PR number is an int
     return fields
 
 
@@ -619,7 +710,7 @@ def main(argv=None):
         elif args.cmd == "annotate":
             annotate(run, args.group, **_parse_fields(args.field))
     except (TransitionError, KeyError, ValueError, RuntimeError, FileNotFoundError, json.JSONDecodeError,
-            IndexError) as exc:
+            IndexError, group.CycleError) as exc:
         print(f"state: {exc}", file=sys.stderr)
         return 2
     save(run, args.runfile)
