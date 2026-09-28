@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: p2
 issue_id: "447"
 tags: [backend, security, auth, users, allauth]
@@ -98,8 +98,8 @@ so none is lost. Paths are relative to `backend/` unless shown otherwise.
 
 ## Acceptance Criteria
 
-- [ ] Each finding is fixed with a test, or closed with a recorded reason.
-- [ ] Finding 6 is answered with evidence (a test that drives
+- [x] Each finding is fixed with a test, or closed with a recorded reason.
+- [x] Finding 6 is answered with evidence (a test that drives
       `/accounts/email/`), not by reading the code.
 
 ## Work Log
@@ -452,3 +452,44 @@ anyway. The 409 code is reachable only past the view's `email_verified`
 403. Its two non-blocking notes (only one plain-`ValueError` reason pinned to
 `account_conflict`; sign-out covered by reasoning, not a widget test) are todo
 449 items 6 and 7, with a stale doc comment as item 8.
+
+### 2026-09-28 - Checked by the todo sweep (run 2026-09-28-2018)
+
+- No code changed. Every finding maps to a test or a recorded close: 1, 3, 4, 5,
+  8, 9, 11, 12, 13 to backend tests; 2 to the web and mobile "Forgot password?"
+  tests plus the expiry command's tests; 6 and 14 to `AllauthEmailManagementTest`
+  (14 closed, not fixed, on purpose); 7 (a corrected comment) and 10 (NXDOMAIN)
+  closed with the reasons recorded above.
+- Re-ran on origin/main 332c8793: 150 backend tests, 6 web (`LoginPage.test.tsx`)
+  and 6 mobile (`password_reset_link_test`, `account_conflict_snackbar_test`),
+  all passing. `AllauthEmailManagementTest` drives `/accounts/email/` over HTTP.
+- Still with the owner (frontmatter `blocked_on`): the nightly
+  `expire_unverified_accounts` in `.railway/railway.ts` runs with `--dry-run`.
+  Dropping the flag waits until the owner has read a prod night's
+  `[PRUNE] unverified accounts` counts. Neither criterion depends on it.
+
+### 2026-09-28 - Verified by the todo sweep (run 2026-09-28-2018)
+
+- AC 1: `cd /Users/williamtower/projects/plant_id_community/.claude/worktrees/wf_3590897f-ede-2/backend && python3 ../scripts/todos/slot_env.py 2 -- /Users/williamtower/projects/plant_id_community/backend/venv/bin/python -m pytest apps/users/tests/test_allauth_surface.py apps/users/tests/test_email_verification_hardening.py apps/users/tests/test_email_verification.py apps/users/tests/test_firebase_auth.py apps/users/tests/test_oauth_google.py apps/users/tests/test_expire_unverified_accounts.py -v --create-db -p no:cacheprovider && cd ../web && npm run test -- --run src/pages/auth/LoginPage.test.tsx && cd ../plant_community_mobile && flutter test test/features/auth/password_reset_link_test.dart test/features/auth/account_conflict_snackbar_test.dart` — evidence `.sweep-evidence/g2/447-ac0.txt`, last lines:
+
+  ```text
+  00:00 +4: /Users/williamtower/projects/plant_id_community/.claude/worktrees/wf_3590897f-ede-2/plant_community_mobile/test/features/auth/account_conflict_snackbar_test.dart: signing out also ends the conflict SnackBar
+  [PUSH] getInitialMessage check failed: [core/no-app] No Firebase App '[DEFAULT]' has been created - call Firebase.initializeApp()
+  00:00 +5: /Users/williamtower/projects/plant_id_community/.claude/worktrees/wf_3590897f-ede-2/plant_community_mobile/test/features/auth/account_conflict_snackbar_test.dart: any other auth error has no reset link
+  [PUSH] getInitialMessage check failed: [core/no-app] No Firebase App '[DEFAULT]' has been created - call Firebase.initializeApp()
+  00:00 +6: All tests passed!
+  ```
+
+- AC 2: `cd /Users/williamtower/projects/plant_id_community/.claude/worktrees/wf_3590897f-ede-2/backend && python3 ../scripts/todos/slot_env.py 2 -- /Users/williamtower/projects/plant_id_community/backend/venv/bin/python -m pytest apps/users/tests/test_allauth_surface.py::AllauthEmailManagementTest -v --create-db -p no:cacheprovider` — evidence `.sweep-evidence/g2/447-ac1.txt`, last lines:
+
+  ```text
+    /Users/williamtower/projects/plant_id_community/.claude/worktrees/wf_3590897f-ede-2/backend/packages/wagtail_forum/wagtail_forum/api/image_management.py:32: RemovedInWagtail90Warning: wagtail.images.permissions.permission_policy is deprecated. Use wagtail.permissions.policy_registry.get_by_type(get_image_model()) instead.
+      from wagtail.images import permissions as image_permissions
+
+  -- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+  ======================== 2 passed, 3 warnings in 17.18s ========================
+  ```
+
+### 2026-09-28 - Completed by the todo sweep (run 2026-09-28-2018)
+
+- Archived by `land.py archive`; evidence is quoted above, review is on the PR.
