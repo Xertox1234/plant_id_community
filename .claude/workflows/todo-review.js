@@ -154,7 +154,7 @@ const results = await pipeline(
   prs,
   async p => {
     const reviewers = [() => agent(bugPrompt(p),
-      { label: `bugs:${p.group}`, phase: 'Review', agentType: 'general-purpose', schema: FINDINGS })]
+      { label: `bugs:${p.group}`, phase: 'Review', agentType: 'todo-reviewer', schema: FINDINGS })]
     if (p.size === 'm' || p.size === 'l') {
       reviewers.push(() => agent(checklistPrompt(p),
         { label: `checklist:${p.group}`, phase: 'Review', agentType: 'code-review-orchestrator', schema: FINDINGS }))

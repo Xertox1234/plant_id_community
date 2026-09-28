@@ -819,6 +819,71 @@ def main():
         _, err_b3 = expect(lambda: state.ensure_worktree(b3_run(), "gb3", Path(tmp) / "scratch"))
         check("B-3: with no base to compare against, the check fails closed", isinstance(err_b3, RuntimeError), err_b3)
 
+    # Todo 468 (slice B): ensure_worktree's re-add path and its staging backstop.
+    def git_(repo, *args):
+        return subprocess.run(["git", "-C", str(repo), "-c", "user.email=t@t", "-c", "user.name=t", *args],
+                              capture_output=True, text=True, check=True).stdout.strip()
+
+    with tempfile.TemporaryDirectory() as tmp:
+        repo = Path(tmp) / "repo"
+        subprocess.run(["git", "init", "-q", "-b", "main", str(repo)], check=True)
+        (repo / ".gitignore").write_text("backend/.env\n*.log\n")
+        (repo / ".worktreeinclude").write_text("# copied into every worktree\nbackend/.env\nweb/.env\n")
+        (repo / "a.py").write_text("x = 1\n")
+        (repo / "legacy.log").write_text("tracked before the ignore rule\n")
+        git_(repo, "add", ".gitignore", ".worktreeinclude", "a.py")
+        git_(repo, "add", "-f", "legacy.log")
+        git_(repo, "commit", "-q", "-m", "base")
+        bare = Path(tmp) / "origin.git"
+        subprocess.run(["git", "init", "-q", "--bare", str(bare)], check=True)
+        git_(repo, "remote", "add", "origin", str(bare))
+        git_(repo, "push", "-q", "origin", "main")
+        git_(repo, "fetch", "-q", "origin")
+        git_(repo, "branch", "feat/468-b")
+        git_(repo, "push", "-q", "origin", "feat/468-b")
+        git_(repo, "fetch", "-q", "origin")
+
+        # A failed tree check after a re-add leaves no new worktree behind.
+        empty_tree = git_(repo, "hash-object", "-w", "-t", "tree", "/dev/null")  # a real tree, not the branch's
+        run_t = worktree_run("t1", "gt1", "feat/468-b", worktree=str(Path(tmp) / "gone"), tree_id=empty_tree,
+                             main_root=str(repo))
+        _, err = expect(lambda: state.ensure_worktree(run_t, "gt1", Path(tmp) / "scratch"))
+        check("468: a failed tree check after a re-add removes the new worktree again",
+              isinstance(err, RuntimeError) and "lost its staged work" in str(err)
+              and not (Path(tmp) / "scratch" / "gt1").exists()
+              and str(Path(tmp) / "scratch" / "gt1") not in git_(repo, "worktree", "list"), err)
+
+        # The local branch is gone but it was pushed: recover from origin/<branch>, with no upstream
+        # written (the sandbox denies .git/config writes, so --track would fail there).
+        git_(repo, "branch", "-D", "feat/468-b")
+        run_o = worktree_run("o1", "go1", "feat/468-b", worktree=str(Path(tmp) / "gone"), main_root=str(repo))
+        path_o, err = expect(lambda: state.ensure_worktree(run_o, "go1", Path(tmp) / "scratch"))
+        upstream = subprocess.run(["git", "-C", str(repo), "config", "branch.feat/468-b.remote"],
+                                  capture_output=True, text=True).stdout.strip()
+        check("468: a pushed branch whose local ref is gone is recovered from origin/<branch>, untracked",
+              err is None and path_o and git_(path_o, "rev-parse", "HEAD") == git_(repo, "rev-parse", "origin/feat/468-b")
+              and upstream == "", err or upstream)
+
+        # A worker that deletes the .env rule from .gitignore can `git add -A` backend/.env without -f.
+        wt = Path(path_o)
+        (wt / ".gitignore").write_text("*.log\n")
+        (wt / "backend").mkdir()
+        (wt / "backend" / ".env").write_text("SECRET_KEY=fake-value-for-the-test\n")  # pragma: allowlist secret
+        git_(wt, "add", "-A")
+        _, err = expect(lambda: state.ensure_worktree(run_o, "go1", Path(tmp) / "scratch"))
+        check("468: a .worktreeinclude path the branch adds is refused even after a .gitignore edit",
+              isinstance(err, RuntimeError) and "backend/.env" in str(err), err)
+        git_(wt, "rm", "-q", "--cached", "backend/.env")
+        git_(wt, "checkout", "--", ".gitignore")
+        git_(wt, "add", ".gitignore")
+
+        # A git mv of a tracked file onto an ignored path is refused with its real cause.
+        git_(wt, "mv", "legacy.log", "moved.log")
+        _, err = expect(lambda: state.ensure_worktree(run_o, "go1", Path(tmp) / "scratch"))
+        check("468: a rename onto an ignored path is refused, naming the rename, not a force-stage",
+              isinstance(err, RuntimeError) and "moved.log" in str(err) and "legacy.log" in str(err)
+              and "force-staged" not in str(err), err)
+
     # Final review m4: a dependency cycle exits 2 with `state: dependency cycle: ...`, not a traceback.
     with tempfile.TemporaryDirectory() as tmp:
         run_c = ready_run([("901", ["c901.py"]), ("902", ["c902.py"])], workers=1)

@@ -195,18 +195,18 @@ the spec):
       says so.
 - [x] Pilot P5 records whether `backend/.env` and `web/.env` reach a worker
       worktree.
-- [ ] A failed tree check in `ensure-worktree` leaves no new worktree behind,
+- [x] A failed tree check in `ensure-worktree` leaves no new worktree behind,
       or the wrap-up lists it.
 - [ ] `test_workflows.js` rejects a fixture that does not match its schema.
 - [ ] Archiving the last finding of a review doc updates every archived
       todo's `source_review` that named it.
 - [x] A `needs-design` or `stale` todo the owner already answered is not
       re-asked by the next sweep, with a test.
-- [ ] `ensure-worktree` recovers from `origin/<branch>` when the local branch
+- [x] `ensure-worktree` recovers from `origin/<branch>` when the local branch
       is gone, with a test.
-- [ ] The guard denies `git -C <MAIN> add`, `mv` and `rm` for guarded agents,
+- [x] The guard denies `git -C <MAIN> add`, `mv` and `rm` for guarded agents,
       with a test.
-- [ ] Review-stage reviewers run as a guarded agent type, or the decision
+- [x] Review-stage reviewers run as a guarded agent type, or the decision
       not to is recorded here.
 - [x] The Task 15 runbook text carries the three m12 carry-forwards.
 - [ ] The verifier either consumes `CLAIMED_TREE` or the prompt drops it,
@@ -231,11 +231,11 @@ the spec):
 - [ ] A test with overlapping `.env` values fails when the masking sort is
       reversed.
 - [x] harness-ci's `push` paths include `.claude/agents/**`.
-- [ ] A worker cannot stage a `.worktreeinclude` path, even after it has
+- [x] A worker cannot stage a `.worktreeinclude` path, even after it has
   edited `.gitignore`.
 - [x] The Part B Land procedure runs `state.py ensure-worktree` before
   every commit and push.
-- [ ] The backstop's message names the real cause, and a `git mv` of a
+- [x] The backstop's message names the real cause, and a `git mv` of a
   tracked ignored-pattern file is handled deliberately.
 - [x] A `decide()`-blocked member leaves its group and blocks its in-group
   dependents. Shared-file groups cannot form cycles from acyclic
@@ -329,3 +329,45 @@ m12 and the triage-root item should land before Part B's first real sweep.
 - One cheap non-blocking fix: `blocked-owner` is written only when the owner's own
   decide blocked the todo, not after a worker block that followed a "ready" answer.
 - The other four non-blocking findings went to todo 474.
+
+### 2026-09-28 - Slice B: worktree and guard safety (branch fix/todo-468-worktree-guard)
+
+- **Failed tree check.** When `ensure-worktree` re-adds a worktree and a check then
+  fails, it runs `git worktree remove` on it and says so in the error. A reused
+  worktree is never touched (`test_state_flow.py`).
+- **`origin/<branch>` fallback.** When the local branch is gone, the worktree is
+  re-added with `worktree add --no-track -b <branch> <target> origin/<branch>`. The
+  test checks that HEAD equals `origin/<branch>` and that no upstream is written,
+  because the sandbox denies `.git/config` writes.
+- **`git -C <MAIN>`.** The guard denies add, mv and rm, and `--git-dir` with them,
+  when the target resolves to a main checkout. A main checkout's `.git` is a
+  directory; a linked worktree's is a file. The target is the `-C` or `--work-tree`
+  path, resolved against the event's `cwd`, or the `cwd` itself for a bare `git add`.
+  Reads stay allowed. Checked in `test-guard-todo-worker-git.sh` with a real main
+  checkout and worktree.
+- **Decision (owner, 2026-09-28): a guarded reviewer.** A new `todo-reviewer` agent
+  replaces `general-purpose` as `todo-review.js`'s bug reviewer. The guard allows it
+  only read-only git (diff, status, log, show, rev-parse, ls-files, grep, blame and
+  merge-base) and no gh. `code-review-orchestrator` stays prompt-bound, because
+  guarding it would change it outside sweeps too.
+- **`.worktreeinclude` after a `.gitignore` edit.** Two layers:
+  - The guard denies `git add` while a `.worktreeinclude` file exists in the
+    worktree and `git check-ignore --no-index` no longer ignores it.
+  - Land's backstop also refuses any added path that `origin/main`'s
+    `.worktreeinclude` lists. It reads that list from the base, not from the
+    worktree's own edited rules.
+- **Backstop message.** An added ignored or listed path gets "a .env must never be
+  committed -- unstage it". A rename onto an ignored path is refused on purpose,
+  since a rename is how a copied-in `.env` could slip past an add-only check, and its
+  message names the rename and says to land it by hand.
+- All nine engine suites pass on the branch merged with main.
+
+### 2026-09-28 - PR #872 round 1
+
+- One regression was fixed. Retry and repair workers run from the main session's cwd,
+  so the guard denied `cd '<WT>' && git add -A` and `git -C "$WT" add -A`, which
+  origin/main allowed. Now a `cd`, `pushd` or `popd`, or a `-C` or `--work-tree` value
+  built at runtime, leaves the directory unknown, and it is not checked. A literal
+  `-C MAIN` is still denied. The deny messages now name the resolved directory and the
+  agent's own allowed set (`test-guard-todo-worker-git.sh`, 188 checks).
+- The non-blocking findings went to todo 477.

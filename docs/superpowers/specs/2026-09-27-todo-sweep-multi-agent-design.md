@@ -252,7 +252,8 @@ Land runs in the main session, one group at a time, in wave order:
    agent's cwd is the main checkout and `code-review-orchestrator` otherwise
    reads the wrong `git diff`. Whether a workflow agent can invoke the bundled
    code-review skill is unverified (pilot P8). The fallback is a
-   `general-purpose` reviewer with the same explicit-diff brief. Blocking findings → repair
+   read-only `todo-reviewer` (a guarded agent type since todo 468; it was `general-purpose`) with the
+   same explicit-diff brief. Blocking findings → repair
    worker in the PR's worktree → verifier. Main session commits the repair.
 5. **Round 2** — `todo-review` with `round: 2` (no repair). Clean → the main session
    runs `gh pr merge --auto --squash --delete-branch`. The "review the diff

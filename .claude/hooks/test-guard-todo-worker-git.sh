@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Tests for guard-todo-worker-git.sh — run from anywhere.
-# The guard limits todo-worker / todo-verifier Bash calls to staging-only git
+# The guard limits todo-worker / todo-verifier / todo-reviewer Bash calls to limited git
 # (spec §4.1). The cases that matter are the disguises: wrappers, absolute
 # paths, compound commands, bash -c, $(...), a second line — and the harmless
 # mention of "git commit" inside a grep, which must still be allowed.
@@ -256,6 +256,60 @@ assert_allow "B-3: a path named -f after -- is fine"     $W 'git add -- -f'
 assert_allow "B-3: git rm --cached x"                    $W 'git rm --cached x'
 assert_allow "B-3: /usr/bin/git -C WT add -A"            $W '/usr/bin/git -C /tmp/wt add -A'
 assert_allow "B-3: an unguarded caller may still add -f" general-purpose 'git add -f x'
+
+# Todo 468 m7 — a guarded agent that confuses MAIN with WT must not stage into the owner's main
+# checkout (its .git is a directory; a linked worktree's .git is a file). Reads stay allowed.
+R=$(mktemp -d "${TMPDIR:-/tmp}/guard-main.XXXXXX") || R=""
+if [ -n "$R" ] && git init -q "$R/main" && git -C "$R/main" -c user.email=t@t -c user.name=t commit -q --allow-empty -m i \
+   && git -C "$R/main" worktree add -q -b wt-guard "$R/wt" 2>/dev/null && mkdir -p "$R/main/backend"; then
+  MAIN_MSG='main checkout'
+  cwd_event() {  # agent cwd command
+    python3 -c 'import json, sys; print(json.dumps({"agent_type": sys.argv[1], "cwd": sys.argv[2], "tool_input": {"command": sys.argv[3]}}))' "$1" "$2" "$3"
+  }
+  assert_deny_msg "m7: git -C MAIN add -A"                 $W "/usr/bin/git -C $R/main add -A" "$MAIN_MSG"
+  assert_deny_msg "m7: git -C MAIN mv a b"                 $W "git -C $R/main mv a b" "$MAIN_MSG"
+  assert_deny_msg "m7: git -C MAIN rm --cached x"          $W "git -C $R/main rm --cached x" "$MAIN_MSG"
+  assert_deny_msg "m7: git -C MAIN/backend add x"          $W "git -C $R/main/backend add x" "$MAIN_MSG"
+  assert_deny_msg "m7: --work-tree=MAIN add"               $W "git --work-tree=$R/main add -A" "$MAIN_MSG"
+  assert_deny_msg "m7: verifier git -C MAIN add"           todo-verifier "git -C $R/main add x" "$MAIN_MSG"
+  assert_allow    "m7: git -C WT add -A"                   $W "/usr/bin/git -C $R/wt add -A"
+  assert_allow    "m7: git -C MAIN status (a read)"        $W "git -C $R/main status --porcelain"
+  assert_allow    "m7: git -C MAIN show (a read)"          $W "git -C $R/main show HEAD:x"
+  assert_raw "m7: a bare git add with cwd MAIN" deny "$(cwd_event $W "$R/main" 'git add -A')"
+  assert_raw "m7: a relative -C resolving to MAIN" deny "$(cwd_event $W "$R" 'git -C main add -A')"
+  assert_raw "m7: a bare git add with cwd WT" allow "$(cwd_event $W "$R/wt" 'git add -A')"
+  assert_raw "m7: a relative -C into WT from MAIN's cwd" allow "$(cwd_event $W "$R/main" "git -C $R/wt add -A")"
+  # PR #872 round 1: retry and repair workers run from the main session's cwd (often MAIN) and may cd
+  # into WT or name it through a variable; the guard cannot tell the directory, so it must not deny.
+  assert_raw "PR #872: cd WT && git add -A from MAIN's cwd" allow "$(cwd_event $W "$R/main" "cd '$R/wt' && git add -A")"
+  assert_raw "PR #872: (cd WT && git add -A) from MAIN's cwd" allow "$(cwd_event $W "$R/main" "(cd '$R/wt' && git add -A)")"
+  assert_raw "PR #872: git -C \"\$WT\" add -A from MAIN's cwd" allow \
+    "$(cwd_event $W "$R/main" "WT='$R/wt'; /usr/bin/git -C \"\$WT\" add -A")"
+  assert_raw "PR #872: a literal -C MAIN is still denied after a cd" deny \
+    "$(cwd_event $W "$R/wt" "cd /tmp && git -C $R/main add -A")"
+  # Todo 468: a worker that deletes the .env rule from .gitignore cannot then stage the copied-in .env.
+  printf 'backend/.env\nweb/.env\n' > "$R/wt/.worktreeinclude"
+  printf 'backend/.env\nweb/.env\n' > "$R/wt/.gitignore"
+  mkdir -p "$R/wt/backend" && echo 'SECRET_KEY=fake' > "$R/wt/backend/.env"  # pragma: allowlist secret
+  assert_allow    "468: git add -A while the copied-in .env is still ignored" $W "git -C $R/wt add -A"
+  printf 'web/.env\n' > "$R/wt/.gitignore"
+  assert_deny_msg "468: git add -A after .gitignore stopped ignoring backend/.env" $W "git -C $R/wt add -A" \
+    "backend/.env"
+  assert_raw "468: the same from the worktree's own cwd" deny "$(cwd_event $W "$R/wt" 'git add .')"
+else
+  echo "FAIL: m7 setup (could not build a main checkout and a worktree)"; FAIL=$((FAIL+1))
+fi
+[ -n "$R" ] && rm -rf "$R"
+
+# Todo 468 m8 — review-stage reviewers run as todo-reviewer: read-only git, no gh.
+V=todo-reviewer
+assert_allow "m8: reviewer git diff origin/main...HEAD"  $V "/usr/bin/git -C '/wt/g1' diff origin/main...HEAD"
+assert_allow "m8: reviewer git log / show / ls-files"    $V 'git log -3 && git show HEAD:a.py && git ls-files'
+assert_deny  "m8: reviewer git add"                      $V 'git add -A'
+assert_deny  "m8: reviewer git commit"                   $V 'git commit -m x'
+assert_deny  "m8: reviewer git push"                     $V 'git push'
+assert_deny  "m8: reviewer git fetch"                    $V 'git fetch origin'
+assert_deny  "m8: reviewer gh"                           $V 'gh pr view 1'
 
 # K10 — a missing script fails open (exit 0, no output) instead of blocking every Bash call
 # (a TMPDIR template, because the Bash sandbox denies mktemp's default /var/folders)
