@@ -57,14 +57,15 @@ Filed from todo 478 finding 5 (PR #873 live runs). The owner asked for it as its
   the baseline, which `status` alone shows unchanged. `write-tree` was dropped from the plan:
   it hashes only the index, and reviewers cannot stage (git guard).
 - A rerun keeps the round's baseline. Retaking it would absorb the residue, and the repair
-  would then commit it. `review-args` exits 2 and names the paths until the worktree matches.
+  would then commit it. Until the worktree matches, `review-args` leaves the group out of `prs`
+  and lists it under `residue`, so one held group never stalls its wave (PR #875 review round 1).
 - Round 1 with a repair: the workflow sends a `todo-reviewer` to run `state.py residue RUN G`
   (read-only, never saves the run) and relay `{"changed": [...]}`. The comparison is code. A
   dead or failed check, or any path, means no repair and `reviewers_ok: false`.
 - No repair (round 1 clean or incomplete, and all of round 2): `ingest_review` compares in
   code itself. A repair without the workflow's check fails closed. Anything found → outcome
   `residue`, the paths on each entry (`review_residue`), nothing else from the round kept.
-- Evidence: `python3 scripts/todos/test_state_flow.py` (161 checks; 18 new `480` checks against
+- Evidence: `python3 scripts/todos/test_state_flow.py` (163 checks; 20 new `480` checks against
   a real git worktree, one per AC: `480 AC1`, `480 AC2`, `480 AC3`) and
   `node scripts/todos/test_workflows.js` (207 checks; 6 new `review 480`). 13 mutants on a
   scratch copy, all killed (rerun retakes baseline, no in-code check, repair without check,

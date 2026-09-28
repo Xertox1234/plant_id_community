@@ -28,7 +28,7 @@ description: Resume, restart, or discard an interrupted todo run from its checkp
 
      When `review_round` is 0 and the round-1 output was never ingested, run `ingest-review --round 1`
      on it first, if its task output file still exists; otherwise rerun round 1.
-     A group with `review_residue` ended its last round on `residue`: follow `completing-todos` Stage C step 3a
+     A group with `review_residue` ended its last round on `residue`: follow `completing-todos` Stage C step 5
      before rerunning that round.
    - `reviewed` / `merged` → merge confirmation and cleanup
    - `blocked` → report each reason. One whose reason starts `held for the owner` is a PR held for a

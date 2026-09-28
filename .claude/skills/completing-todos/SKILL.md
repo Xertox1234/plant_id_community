@@ -197,7 +197,8 @@ Steps 1–8 run with the sandbox off (see **Sandbox**).
    kept. `state.py residue $RUN G` lists the paths that still differ (the run file keeps what was found under
    each todo's `review_residue`). Show them to the owner, and ask before removing or restoring any of them.
    When `residue` prints `{"changed": []}`, rerun the round; that counts as its one rerun. A rerun keeps the
-   round's baseline, so `review-args` exits 2, naming the paths, until the worktree matches it again.
+   round's baseline, so until the worktree matches it again, `review-args` leaves the group out of `prs` and
+   lists it with its paths under `residue`. The wave's other groups carry on.
 
 ## Merge confirmation and cleanup
 

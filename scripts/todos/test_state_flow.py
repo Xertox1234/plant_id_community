@@ -9,6 +9,7 @@ moved, or leaves the working tree dirty, must void the verdict.
 """
 
 import copy
+import json
 import os
 import shutil
 import subprocess
@@ -1264,10 +1265,27 @@ def residue_tests():
         check("480: with no repair, ingest compares in code even when the workflow reported nothing",
               got == {"g1": "residue"} and r1b["todos"]["1"]["review_residue"] == want
               and "followups" not in r1b["todos"]["1"], r1b["todos"]["1"])
-        err = expect(lambda: state.review_args(r1, 1, 0))[1]
-        check("480: a rerun keeps the round's baseline and refuses while the residue is still there",
-              isinstance(err, RuntimeError) and "probe.py" in str(err) and "notes.txt" in str(err)
-              and r1["todos"]["1"]["review_baseline"] == base, err)
+        held = {}
+        items, err = expect(lambda: state.review_args(r1, 1, 0, held=held))
+        check("480: a rerun keeps the round's baseline and holds the group back while the residue is still there",
+              err is None and items == [] and held == {"g1": want} and r1["todos"]["1"]["review_baseline"] == base,
+              (err, items, held))
+        wave = copy.deepcopy(r1)
+        wave["waves"] = [["g1", "g2"]]
+        wave["groups"]["g2"] = {"ids": ["2"]}
+        wave["todos"]["2"] = pr_run()["todos"]["1"] | {"group": "g2", "pr": 901}
+        held = {}
+        items, err = expect(lambda: state.review_args(wave, 1, 0, held=held))
+        check("480: a held group does not stall the rest of its wave",
+              err is None and [i["group"] for i in items] == ["g2"] and list(held) == ["g1"], (err, items, held))
+        wave_file = Path(tmp) / "wave.json"
+        state.save(wave, wave_file)
+        out = subprocess.run([sys.executable, state.STATE_PY, "review-args", str(wave_file), "--round", "1",
+                              "--wave", "0"], capture_output=True, text=True)
+        printed = json.loads(out.stdout or "{}")
+        check("480: `review-args` prints the held groups under residue, with exit 0",
+              out.returncode == 0 and [p["group"] for p in printed.get("prs", [])] == ["g2"]
+              and printed.get("residue") == {"g1": want}, (out.stdout, out.stderr))
 
         # Put the worktree back: the rerun proceeds on the ORIGINAL baseline, which still holds notes.txt.
         (wt / "probe.py").unlink()

@@ -615,7 +615,10 @@ def review_residue(run, gid, round_no, git=run_git):
         return [f"residue check failed: {exc}"[:300]]
 
 
-def review_args(run, round_no, wave, git=run_git, run_file=""):
+def review_args(run, round_no, wave, git=run_git, run_file="", held=None):
+    """The workflow args for the wave's open PRs due this round. A group whose worktree still holds what an
+    earlier attempt at the round left is skipped and put in `held` (group -> paths), so it never stalls
+    the rest of the wave (todo 480)."""
     if round_no not in (1, 2):
         raise ValueError("round must be 1 or 2")
     items = []
@@ -632,9 +635,9 @@ def review_args(run, round_no, wave, git=run_git, run_file=""):
         if base and base.get("round") == round_no:
             left = snapshot_changes(base, first["worktree"], git)
             if left:
-                raise RuntimeError(f"{gid}: worktree at {first['worktree']} still holds what an earlier "
-                                   f"round-{round_no} review left ({', '.join(left[:10])}); restore those "
-                                   "paths, then rerun review-args")
+                if held is not None:
+                    held[gid] = left
+                continue
         else:
             base = {"round": round_no, **worktree_snapshot(first["worktree"], git)}
             for _, entry in entries:
@@ -1062,8 +1065,9 @@ def main(argv=None):
         elif args.cmd == "ingest-execute":
             print(json.dumps(ingest_execute(run, records_from_output(args.output, "results")), indent=1))
         elif args.cmd == "review-args":
-            print(json.dumps({"round": args.round, "prs": review_args(run, args.round, args.wave,
-                                                                       run_file=str(Path(args.runfile).resolve()))}))
+            held = {}
+            prs = review_args(run, args.round, args.wave, run_file=str(Path(args.runfile).resolve()), held=held)
+            print(json.dumps({"round": args.round, "prs": prs, "residue": held}))
         elif args.cmd == "ingest-review":
             print(json.dumps(ingest_review(run, records_from_output(args.output, "results"), args.round), indent=1))
         elif args.cmd == "set-group":
