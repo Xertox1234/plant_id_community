@@ -198,7 +198,7 @@ the spec):
 - [x] A failed tree check in `ensure-worktree` leaves no new worktree behind,
       or the wrap-up lists it.
 - [ ] `test_workflows.js` rejects a fixture that does not match its schema.
-- [ ] Archiving the last finding of a review doc updates every archived
+- [x] Archiving the last finding of a review doc updates every archived
       todo's `source_review` that named it.
 - [x] A `needs-design` or `stale` todo the owner already answered is not
       re-asked by the next sweep, with a test.
@@ -212,14 +212,14 @@ the spec):
 - [ ] The verifier either consumes `CLAIMED_TREE` or the prompt drops it,
       and the decision is recorded here.
 - [ ] The retry-on-null-verdict decision is recorded here.
-- [ ] A wrapped continuation line starting with `#42` or `10.` stays part
+- [x] A wrapped continuation line starting with `#42` or `10.` stays part
       of its criterion, with a test.
-- [ ] A test fails when the fence stop in `_continues` is removed.
-- [ ] `parse_dotenv` strips an inline `# comment` from unquoted values, with
+- [x] A test fails when the fence stop in `_continues` is removed.
+- [x] `parse_dotenv` strips an inline `# comment` from unquoted values, with
       a test.
-- [ ] A `DATABASE_URL` password printed on its own is masked in a quoted
+- [x] A `DATABASE_URL` password printed on its own is masked in a quoted
       evidence tail, with a test.
-- [ ] A slotted `DATABASE_URL` is masked whatever the local DB name, with a
+- [x] A slotted `DATABASE_URL` is masked whatever the local DB name, with a
       test.
 - [x] `fix/todo412`-style branch names count as in flight, or the decision
       not to is recorded here.
@@ -228,7 +228,7 @@ the spec):
 - [x] Spec §5.2 no longer says `status --porcelain` is empty after staging.
 - [x] `lanes_forbidden` includes the lanes of the previous wave while that
       wave is not merged, with a test.
-- [ ] A test with overlapping `.env` values fails when the masking sort is
+- [x] A test with overlapping `.env` values fails when the masking sort is
       reversed.
 - [x] harness-ci's `push` paths include `.claude/agents/**`.
 - [x] A worker cannot stage a `.worktreeinclude` path, even after it has
@@ -371,3 +371,35 @@ m12 and the triage-root item should land before Part B's first real sweep.
   `-C MAIN` is still denied. The deny messages now name the resolved directory and the
   agent's own allowed set (`test-guard-todo-worker-git.sh`, 188 checks).
 - The non-blocking findings went to todo 477.
+
+### 2026-09-28 - Slice C: masking and parsing (branch fix/todo-468-masking-parsing)
+
+- **Sibling `source_review`.** When archiving renames a review doc `-COMPLETED`,
+  `land.plan_review` also lists every other todo (open or archived) whose
+  `source_review` resolves to that doc, and `apply_review` rewrites them and stages
+  them (`test_land.py`). A file it cannot read or rewrite in place is left alone.
+- **N2.** `_continues` follows CommonMark: only a `1.` item can start a list inside a
+  paragraph, and a heading needs a space after its #s, so a wrapped `#42 …` or
+  `10. …` line stays part of its criterion (`test_todofile.py`).
+- **N3.** A new check has an indented fence right under a criterion. With the fence
+  stop removed it fails (run as a mutation: only that check fails), and it passes
+  with the stop restored.
+- **parse_dotenv.** A quoted value runs to its closing quote; an unquoted one stops
+  at a `#` that follows whitespace (`test_slot_env.py`).
+- **Password and slotted URL.** `_env_secrets` adds the password of every URL value,
+  as written and percent-decoded, so it is masked when printed on its own or inside
+  slot_env's `/plant_community_w<N>` URL (`test_land.py`).
+- **Masking order.** A new check has one secret inside another. With the sort
+  reversed it fails (mutation run: only that check fails).
+- All nine engine suites pass.
+
+### 2026-09-28 - PR #870 round 1
+
+- One masking regression fixed. The backend reads `.env` through python-decouple, which
+  keeps an inline `# …`, so a secret written `KEY=abc #defghijkl` was masked only as `abc`
+  (too short to mask). Now `slot_env` inherits the decouple reading, as on main, and `land`
+  masks both readings.
+- Three cheap fixes. `_siblings` survives a NUL byte in any todo's `source_review` and
+  returns only tracked files, because Stage D stages every path it returns. The verifier
+  and worker docs state the wrapped-line rule `ac_lines` now uses.
+- The other three non-blocking findings went to todo 475.

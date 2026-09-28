@@ -56,7 +56,9 @@ under `WT` everywhere" in Setup. `BASE` = the merge-base SHA: `/usr/bin/git -C W
 origin/main...HEAD`, take the last line, drop its leading `^`.
 
 - A criterion is only a `- [ ]` or `- [x]` bullet under a todo's `## Acceptance Criteria`, together with
-  the indented lines that wrap it (up to the next bullet, blank line, heading or fence); a bullet inside a
+  the indented lines that wrap it (up to the next bullet, blank line, heading or fence; only `-`, `*`, `+`
+  or `1.` starts a bullet and a heading needs a space after its #s, so a wrapped line starting `10.` or
+  `#42` is still text); a bullet inside a
   ```` ``` ```` or `~~~` fence (indented or not) is an example, not a criterion. For every criterion,
   checked or not, in file order, run the command that proves it and save the full output to
   `EVIDENCE/<todo>-ac<index>.txt`, where `<index>` is the same 0-based index as the entry below. `command`
