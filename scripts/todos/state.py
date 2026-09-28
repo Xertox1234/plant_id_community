@@ -11,9 +11,11 @@ main session never re-types them.
 """
 
 import argparse
+import copy
 import fnmatch
 import json
 import os
+import shlex
 import subprocess
 import sys
 from pathlib import Path
@@ -556,7 +558,64 @@ def _with_reasons(problem, verdict):
     return f"{problem}: {'; '.join(reasons)}" if reasons else problem
 
 
-def review_args(run, round_no, wave, git=run_git):
+STATE_PY = os.path.abspath(__file__)
+RESIDUE_SHOWN = 50
+
+
+def worktree_snapshot(worktree, git=run_git):
+    """HEAD, plus every path `git add -A` would pick up in the worktree, with its status and content
+    hash (todo 480). Untracked files are listed one by one; ignored ones never, as `add -A` skips them
+    too. The git guard stops reviewers staging or committing, so what a review leaves shows up here.
+    The hash catches a further edit to a file that was already modified at the baseline."""
+    head = git(worktree, "rev-parse", "HEAD").strip()
+    fields = git(worktree, "status", "--porcelain=v1", "-z", "--untracked-files=all", "--no-renames").split("\0")
+    status, i = {}, 0
+    while i < len(fields):
+        item = fields[i]
+        i += 1
+        if len(item) < 4:
+            continue
+        if item[0] in "RC":
+            i += 1  # the rename/copy source path follows as its own field
+        status[item[3:]] = item[:2]
+    # A deleted path has no content to hash; a trailing / is a nested repository, which git lists whole.
+    present = [p for p, xy in status.items() if "D" not in xy and not p.endswith("/")]
+    hashes = git(worktree, "hash-object", "--", *present).split() if present else []
+    if len(hashes) != len(present):
+        raise RuntimeError(f"git hash-object returned {len(hashes)} hashes for {len(present)} paths in {worktree}")
+    content = dict(zip(present, hashes))
+    return {"head": head, "files": {p: f"{xy} {content.get(p, '-')}" for p, xy in status.items()}}
+
+
+def snapshot_changes(before, worktree, git=run_git):
+    """The paths whose status or content differ from the `before` snapshot, sorted."""
+    now = worktree_snapshot(worktree, git)
+    old, new = before["files"], now["files"]
+    changed = {p for p in set(old) | set(new) if old.get(p) != new.get(p)}
+    if now["head"] != before["head"]:
+        changed.add(f"(HEAD moved from {before['head'][:12]} to {now['head'][:12]})")
+        changed.update(p for p in git(worktree, "diff", "--name-only", "--no-renames", "-z", before["head"],
+                                      now["head"]).split("\0") if p)
+    return sorted(changed)
+
+
+def review_residue(run, gid, round_no, git=run_git):
+    """What the review changed in the group's PR worktree since review-args took the round's baseline
+    (todo 480). Fails closed: no baseline for this round, or a git error, is itself a finding."""
+    entries = _group_entries(run, gid)
+    if not entries:
+        raise KeyError(f"{gid}: no such group")
+    first = entries[0][1]
+    base = first.get("review_baseline")
+    if not base or base.get("round") != round_no:
+        return [f"no round-{round_no} review baseline recorded; review-args takes it"]
+    try:
+        return snapshot_changes(base, first["worktree"], git)
+    except RuntimeError as exc:
+        return [f"residue check failed: {exc}"[:300]]
+
+
+def review_args(run, round_no, wave, git=run_git, run_file=""):
     if round_no not in (1, 2):
         raise ValueError("round must be 1 or 2")
     items = []
@@ -567,6 +626,19 @@ def review_args(run, round_no, wave, git=run_git):
         first = entries[0][1]
         if first["stage"] != "pr_open" or first.get("review_round", 0) != round_no - 1:
             continue
+        # Todo 480: the baseline is taken once per round. A rerun keeps it, because retaking it would
+        # absorb whatever the failed attempt left, and the round-1 repair's `git add -A` would commit it.
+        base = first.get("review_baseline")
+        if base and base.get("round") == round_no:
+            left = snapshot_changes(base, first["worktree"], git)
+            if left:
+                raise RuntimeError(f"{gid}: worktree at {first['worktree']} still holds what an earlier "
+                                   f"round-{round_no} review left ({', '.join(left[:10])}); restore those "
+                                   "paths, then rerun review-args")
+        else:
+            base = {"round": round_no, **worktree_snapshot(first["worktree"], git)}
+            for _, entry in entries:
+                entry["review_baseline"] = copy.deepcopy(base)
         items.append({
             "run_id": run["run_id"], "round": round_no, "group": gid, "ids": [i for i, _ in entries],
             "worktree": first["worktree"], "branch": first["branch"], "pr": first["pr"],
@@ -582,6 +654,8 @@ def review_args(run, round_no, wave, git=run_git):
             # --no-renames: a moved file lists its old path too, so the old path's reviewers still see it.
             "changed_files": [f for f in git(first["worktree"], "diff", "--name-only", "--no-renames", "-z",
                                              "origin/main...HEAD").split("\0") if f],
+            # Todo 480: the workflow's check before the round-1 repair runs this and relays its output.
+            "residue_check": f"python3 {shlex.quote(STATE_PY)} residue {shlex.quote(run_file)} {shlex.quote(gid)}",
         })
     return items
 
@@ -629,7 +703,17 @@ def _refuted_line(f):
     return line + (f" | also: {' | '.join(f['also'])}" if f.get("also") else "")
 
 
-def ingest_review(run, results, round_no):
+def _found_residue(run, result, round_no, git):
+    """Todo 480. Without a repair, every agent of the round is done, so the worktree is compared with the
+    round's baseline here, in code. A repair changes it on purpose, so then the workflow's own check,
+    run before the repair, is the record; a repair without that check fails closed."""
+    reported = result.get("residue")
+    if result.get("repair") is None:
+        return sorted(set((reported or []) + review_residue(run, result["group"], round_no, git)))
+    return [] if reported == [] else (reported or ["the round-1 repair ran without a residue check"])
+
+
+def ingest_review(run, results, round_no, git=run_git):
     # Todo 468: checked for every group before anything is written, so a stale output (a round-1
     # file re-ingested after round 1) cannot overwrite tree_id and verified_ac, even in part.
     for result in results:
@@ -642,6 +726,16 @@ def ingest_review(run, results, round_no):
     for result in results:
         gid = result["group"]
         entries = _group_entries(run, gid)
+        # A review that changed the PR worktree reviewed something other than the PR, and a repair's
+        # `git add -A` would commit what it left: nothing from this round is kept (todo 480).
+        found = _found_residue(run, result, round_no, git)
+        for _, entry in entries:
+            entry.pop("review_residue", None)
+            if found:
+                entry["review_residue"] = found
+        if found:
+            outcome[gid] = "residue"
+            continue
         if not result["reviewers_ok"]:
             outcome[gid] = "rerun"
             continue
@@ -900,6 +994,8 @@ def build_parser():
     p.add_argument("--field", action="append")
     p = sub.add_parser("refuted-comment")
     p.add_argument("runfile"), p.add_argument("group"), p.add_argument("--out", required=True)
+    p = sub.add_parser("residue")
+    p.add_argument("runfile"), p.add_argument("group")
     p = sub.add_parser("clear-hold")
     p.add_argument("runfile"), p.add_argument("group"), p.add_argument("--decision", required=True)
     p = sub.add_parser("ensure-worktree")
@@ -928,6 +1024,14 @@ def main(argv=None):
             if body:
                 Path(args.out).write_text(body)
             print(args.out if body else "none")
+            return 0
+        if args.cmd == "residue":
+            # Read-only, run by the workflow's check agent before a round-1 repair: never saves the run.
+            entries = _group_entries(run, args.group)
+            round_no = (entries[0][1].get("review_round", 0) + 1) if entries else 1
+            changed = review_residue(run, args.group, round_no)
+            more = [f"(and {len(changed) - RESIDUE_SHOWN} more)"] if len(changed) > RESIDUE_SHOWN else []
+            print(json.dumps({"changed": changed[:RESIDUE_SHOWN] + more}))
             return 0
         if args.cmd == "worktrees":
             print(json.dumps(recorded_worktrees(run), indent=1))
@@ -958,7 +1062,8 @@ def main(argv=None):
         elif args.cmd == "ingest-execute":
             print(json.dumps(ingest_execute(run, records_from_output(args.output, "results")), indent=1))
         elif args.cmd == "review-args":
-            print(json.dumps({"round": args.round, "prs": review_args(run, args.round, args.wave)}))
+            print(json.dumps({"round": args.round, "prs": review_args(run, args.round, args.wave,
+                                                                       run_file=str(Path(args.runfile).resolve()))}))
         elif args.cmd == "ingest-review":
             print(json.dumps(ingest_review(run, records_from_output(args.output, "results"), args.round), indent=1))
         elif args.cmd == "set-group":

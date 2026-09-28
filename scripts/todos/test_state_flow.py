@@ -60,6 +60,21 @@ def worktree_run(todo_id, gid, branch, worktree="", tree_id=None, main_root=""):
     return {"todos": {todo_id: entry}, "groups": {gid: {"ids": [todo_id]}}}
 
 
+def clean_git(repo, *args):
+    """A PR worktree the review left alone: HEAD at H and nothing in `status` (todo 480)."""
+    return "H\n" if args[0] == "rev-parse" else ""
+
+
+def ingest(run, results, round_no, git=clean_git):
+    """ingest_review for a group whose round baseline review-args took from clean_git, as it would
+    before any real round. The residue tests below drive ingest_review with real git instead."""
+    for result in results:
+        for _, entry in state._group_entries(run, result["group"]):
+            if entry.get("review_baseline", {}).get("round") != round_no:
+                entry["review_baseline"] = {"round": round_no, "head": "H", "files": {}}
+    return state.ingest_review(run, results, round_no, git=git)
+
+
 def main():
     check("evaluate passes a clean, matching verdict", state.evaluate(worker(["1"]), verdict(["1"])) is None)
     check("no verdict is a problem", state.evaluate(worker(["1"]), None) == "no verdict")
@@ -131,13 +146,13 @@ def main():
 
     def fake_git(repo, *args):
         git_calls.append((repo, args))
-        return "backend/apps/x/views.py\0docs/a b.md\0"
+        return "backend/apps/x/views.py\0docs/a b.md\0" if args[0] == "diff" else clean_git(repo, *args)
 
     items = state.review_args(run, 1, 0, git=fake_git)
     check("review_args lists open PRs in the wave", [i["group"] for i in items] == [g_ok] and items[0]["pr"] == 861)
     check("review_args computes changed_files from the worktree's diff, NUL-split (todo 478)",
           items[0]["changed_files"] == ["backend/apps/x/views.py", "docs/a b.md"]
-          and git_calls == [("/wt/g1", ("diff", "--name-only", "--no-renames", "-z", "origin/main...HEAD"))],
+          and git_calls[-1] == ("/wt/g1", ("diff", "--name-only", "--no-renames", "-z", "origin/main...HEAD")),
           (items[0], git_calls))
 
     def gone_git(repo, *args):
@@ -151,7 +166,7 @@ def main():
     check("review_args gives the pending (merge-base) paths as origin_paths",
           items[0]["origin_paths"] == [run["todos"][i]["path"] for i in ids_ok], items[0])
     rerun_finding = [{"severity": "low", "file": "a.py", "line": 9, "summary": "should not land", "suggested_fix": ""}]
-    res = state.ingest_review(run, [{"group": g_ok, "ids": ids_ok, "findings": rerun_finding, "blocking": [],
+    res = ingest(run, [{"group": g_ok, "ids": ids_ok, "findings": rerun_finding, "blocking": [],
                                      "reviewers_ok": False, "repair": None, "verdict": None}], 1)
     check("an incomplete review asks for a rerun and adds no followups",
           res[g_ok] == "rerun" and run["todos"][ids_ok[0]].get("review_round", 0) == 0
@@ -166,15 +181,15 @@ def main():
     via_r1 = copy.deepcopy(run)
     crit = {"severity": "critical", "file": "d.py", "line": 4, "summary": "dismissed in round 1", "suggested_fix": "",
             "also": [], "refutations": ["no", "no"]}
-    r1 = state.ingest_review(via_r1, [{"group": g_ok, "ids": ids_ok, "findings": [], "blocking": [],
+    r1 = ingest(via_r1, [{"group": g_ok, "ids": ids_ok, "findings": [], "blocking": [],
                                        "reviewers_ok": True, "repair": None, "verdict": None, "refuted": [crit]}], 1)
-    r2 = state.ingest_review(via_r1, [{"group": g_ok, "ids": ids_ok, "findings": [], "blocking": [],
+    r2 = ingest(via_r1, [{"group": g_ok, "ids": ids_ok, "findings": [], "blocking": [],
                                        "reviewers_ok": True, "repair": None, "verdict": None, "refuted": []}], 2)
     check("a critical refuted through a real round-1 ingest holds the PR at round 2",
           r1[g_ok] == "clean" and r2[g_ok] == "held", (r1, r2, via_r1["todos"][ids_ok[0]].get("refuted")))
 
-    res = state.ingest_review(run, [{"group": g_ok, "ids": ids_ok, "findings": blocking, "blocking": blocking,
-                                     "reviewers_ok": True, "repair": worker(ids_ok, tree="T5"),
+    res = ingest(run, [{"group": g_ok, "ids": ids_ok, "findings": blocking, "blocking": blocking,
+                                     "reviewers_ok": True, "residue": [], "repair": worker(ids_ok, tree="T5"),
                                      "verdict": repair_verdict}],
                               1)
     check("a verified round-1 repair is staged for the main session to commit", res[g_ok] == "repair-staged")
@@ -192,7 +207,7 @@ def main():
                 "also": list(also), "refutations": ["no", "no"]}
 
     def round2(r, refs, blocking_=()):
-        return state.ingest_review(r, [{"group": g_ok, "ids": ids_ok, "findings": [], "blocking": list(blocking_),
+        return ingest(r, [{"group": g_ok, "ids": ids_ok, "findings": [], "blocking": list(blocking_),
                                         "reviewers_ok": True, "repair": None, "verdict": None,
                                         "refuted": refs}], 2)[g_ok]
 
@@ -214,7 +229,7 @@ def main():
     pair["todos"]["9998"] = copy.deepcopy(pair["todos"][ids_ok[0]])
     pair["groups"][g_ok]["ids"] = list(ids_ok) + ["9998"]
     pair["todos"]["9998"]["refuted"] = ["critical: c.py:11 only on the second member"]
-    res_pair = state.ingest_review(pair, [{"group": g_ok, "ids": list(ids_ok) + ["9998"], "findings": [],
+    res_pair = ingest(pair, [{"group": g_ok, "ids": list(ids_ok) + ["9998"], "findings": [],
                                            "blocking": [], "reviewers_ok": True, "repair": None,
                                            "verdict": None, "refuted": []}], 2)[g_ok]
     check("a critical on any group member holds the PR, not just the first member's",
@@ -267,7 +282,7 @@ def main():
           and "1 critical finding(s) dismissed only by refuters" in both["todos"][ids_ok[0]]["reason"],
           both["todos"][ids_ok[0]]["reason"])
 
-    res = state.ingest_review(run, [{"group": g_ok, "ids": ids_ok, "findings": low, "blocking": [],
+    res = ingest(run, [{"group": g_ok, "ids": ids_ok, "findings": low, "blocking": [],
                                      "reviewers_ok": True, "repair": None, "verdict": None,
                                      "refuted": [{"severity": "high", "file": "b.py", "line": 3, "summary": "maybe",
                                                   "suggested_fix": "", "also": [], "refutations": ["no", "no"]}]}], 2)
@@ -455,9 +470,9 @@ def main():
                                  "retried": False}])
     state.set_group(run6, g6, "pr_open", pr=42)
     many = [{"severity": "low", "file": "f.py", "line": n, "summary": "n", "suggested_fix": ""} for n in range(15)]
-    state.ingest_review(run6, [{"group": g6, "ids": ["f6"], "findings": many, "blocking": [],
+    ingest(run6, [{"group": g6, "ids": ["f6"], "findings": many, "blocking": [],
                                 "reviewers_ok": True, "repair": None, "verdict": None}], 1)
-    state.ingest_review(run6, [{"group": g6, "ids": ["f6"], "findings": many, "blocking": [],
+    ingest(run6, [{"group": g6, "ids": ["f6"], "findings": many, "blocking": [],
                                 "reviewers_ok": True, "repair": None, "verdict": None}], 2)
     check("followups are capped at 10 total across rounds, not per call",
           len(run6["todos"]["f6"]["followups"]) <= 10, run6["todos"]["f6"]["followups"])
@@ -472,7 +487,7 @@ def main():
                                     "retried": False}])
     state.set_group(run_dup, gd, "pr_open", pr=7)
     within_call_dup = [{"severity": "low", "file": "a.py", "line": 5, "summary": "dup", "suggested_fix": ""}] * 2
-    state.ingest_review(run_dup, [{"group": gd, "ids": ["fd"], "findings": within_call_dup, "blocking": [],
+    ingest(run_dup, [{"group": gd, "ids": ["fd"], "findings": within_call_dup, "blocking": [],
                                    "reviewers_ok": True, "repair": None, "verdict": None}], 1)
     check("within-call duplicate findings are stored once",
           run_dup["todos"]["fd"]["followups"] == ["a.py:5 dup"], run_dup["todos"]["fd"]["followups"])
@@ -480,9 +495,9 @@ def main():
              for n in range(3)]
     run_dup["todos"]["fd"]["followups"] = []
     run_dup["todos"]["fd"]["review_round"] = 0  # a fresh round 1 (todo 468 refuses a round-1 re-ingest)
-    state.ingest_review(run_dup, [{"group": gd, "ids": ["fd"], "findings": three, "blocking": [],
+    ingest(run_dup, [{"group": gd, "ids": ["fd"], "findings": three, "blocking": [],
                                    "reviewers_ok": True, "repair": None, "verdict": None}], 1)
-    state.ingest_review(run_dup, [{"group": gd, "ids": ["fd"], "findings": three, "blocking": [],
+    ingest(run_dup, [{"group": gd, "ids": ["fd"], "findings": three, "blocking": [],
                                    "reviewers_ok": True, "repair": None, "verdict": None}], 2)
     check("two rounds with the same 3 findings store 3, not 6",
           len(run_dup["todos"]["fd"]["followups"]) == 3, run_dup["todos"]["fd"]["followups"])
@@ -521,16 +536,16 @@ def main():
 
     high = [{"severity": "high", "file": "a.py", "line": 1, "summary": "bug", "suggested_fix": ""}]
     run_rb, grb = review_run("rb")
-    res = state.ingest_review(run_rb, [{"group": grb, "ids": ["rb"], "findings": high, "blocking": high,
-                                        "reviewers_ok": True, "repair": worker(["rb"], status="blocked")
+    res = ingest(run_rb, [{"group": grb, "ids": ["rb"], "findings": high, "blocking": high,
+                                        "reviewers_ok": True, "residue": [], "repair": worker(["rb"], status="blocked")
                                         | {"blockers": "needs the deps lane"},
                                         "repair_blockers": "needs the deps lane", "verdict": None}], 1)
     check("a blocked round-1 repair records its blockers, not 'no verdict'",
           res[grb] == "blocked" and run_rb["todos"]["rb"]["reason"]
           == "round-1 repair failed: repair blocked: needs the deps lane", run_rb["todos"]["rb"])
     run_rv, grv = review_run("rv")
-    state.ingest_review(run_rv, [{"group": grv, "ids": ["rv"], "findings": high, "blocking": high,
-                                  "reviewers_ok": True, "repair": worker(["rv"], tree="T5"),
+    ingest(run_rv, [{"group": grv, "ids": ["rv"], "findings": high, "blocking": high,
+                                  "reviewers_ok": True, "residue": [], "repair": worker(["rv"], tree="T5"),
                                   "verdict": verdict(["rv"], before="T5", after="T5", result="fail")
                                   | {"reasons": ["tree not clean before verification"]}}], 1)
     check("a failed repair verdict's reasons reach the blocked reason",
@@ -1131,16 +1146,16 @@ def main():
     state.set_group(run_g, bg["group"], "pr_open", pr=7)
     clean = {"group": bg["group"], "ids": ["rg"], "findings": [], "blocking": [], "reviewers_ok": True,
              "repair": None, "verdict": None}
-    check("468: a round-2 output before round 1 is refused", raises(lambda: state.ingest_review(run_g, [clean], 2)))
-    state.ingest_review(run_g, [clean], 1)
+    check("468: a round-2 output before round 1 is refused", raises(lambda: ingest(run_g, [clean], 2)))
+    ingest(run_g, [clean], 1)
     stale = dict(clean, blocking=[{"severity": "high", "file": "a.py", "line": 1, "summary": "old", "suggested_fix": ""}],
                  repair=worker(["rg"], tree="TSTALE"), verdict=verdict(["rg"], before="TSTALE", after="TSTALE"))
     check("468: a round-1 output re-ingested after round 1 is refused, and tree_id is untouched",
-          raises(lambda: state.ingest_review(run_g, [stale], 1)) and run_g["todos"]["rg"]["tree_id"] == "T1",
+          raises(lambda: ingest(run_g, [stale], 1)) and run_g["todos"]["rg"]["tree_id"] == "T1",
           run_g["todos"]["rg"])
-    state.ingest_review(run_g, [clean], 2)
+    ingest(run_g, [clean], 2)
     check("468: a round-2 output for a reviewed group is refused",
-          run_g["todos"]["rg"]["stage"] == "reviewed" and raises(lambda: state.ingest_review(run_g, [clean], 2)))
+          run_g["todos"]["rg"]["stage"] == "reviewed" and raises(lambda: ingest(run_g, [clean], 2)))
 
     # Todo 468: the review-doc lane reaches the plan from the run file, and the brief names the doc.
     doc = "docs/reviews/2026-05-07-1641-full-review.md"
@@ -1157,12 +1172,138 @@ def main():
           abs(waves_rv["rv1"] - waves_rv["rv2"]) >= 2 and any(doc in lane for lane in brv[0]["lanes_held"]),
           (run_rv["waves"], brv))
 
+    residue_tests()
     print()
     if FAILURES:
         print(f"FAILED: {len(FAILURES)} check(s): {', '.join(FAILURES)}")
         return 1
     print("All checks passed.")
     return 0
+
+
+def residue_tests():
+    """Todo 480, against a real git worktree: what a review leaves in the PR worktree stops the round."""
+    with tempfile.TemporaryDirectory() as tmp:
+        wt = Path(tmp) / "wt"
+        wt.mkdir()
+
+        def sh(*args):
+            return subprocess.run(["git", "-C", str(wt), "-c", "user.email=t@t", "-c", "user.name=t", *args],
+                                  check=True, capture_output=True, text=True).stdout
+
+        subprocess.run(["git", "init", "-q", "-b", "main", str(wt)], check=True)
+        (wt / "a.py").write_text("a = 1\n")
+        (wt / "notes.txt").write_text("worker artifact\n")  # untracked before the review: the baseline keeps it
+        sh("add", "a.py")
+        sh("commit", "-q", "-m", "base")
+        sh("update-ref", "refs/remotes/origin/main", "HEAD")
+        (wt / "a.py").write_text("a = 2\n")
+        sh("commit", "-q", "-am", "the PR")
+
+        def pr_run():
+            entry = {"stage": "pr_open", "group": "g1", "worktree": str(wt), "branch": "b", "pr": 900, "slot": 1,
+                     "path": "todos/1-pending-p3-x.md", "triage": {"size": "s"}}
+            return {"run_id": "r", "waves": [["g1"]], "groups": {"g1": {"ids": ["1"]}}, "todos": {"1": entry}}
+
+        def result(round_no, **over):
+            return {"group": "g1", "ids": ["1"], "findings": [], "blocking": [], "refuted": [], "reviewers_ok": True,
+                    "residue": None, "repair": None, "verdict": None, **over}
+
+        run = pr_run()
+        items = state.review_args(run, 1, 0, run_file="/runs/r.json")
+        base = run["todos"]["1"].get("review_baseline", {})
+        check("480: review_args records the round's baseline (HEAD + what `git add -A` would take)",
+              base.get("round") == 1 and base.get("head") == sh("rev-parse", "HEAD").strip()
+              and list(base.get("files", {})) == ["notes.txt"], base)
+        check("480: the PR record carries the exact residue command for the workflow's check",
+              items[0]["residue_check"] == f"python3 {state.STATE_PY} residue /runs/r.json g1", items[0])
+        check("480: an unchanged worktree has no residue", state.review_residue(run, "g1", 1) == [])
+
+        # AC3: an unchanged worktree repairs normally.
+        clean_run = copy.deepcopy(run)
+        got = state.ingest_review(clean_run, [result(1, blocking=[{"severity": "high"}], residue=[],
+                                                     repair=worker(["1"], tree="T5"),
+                                                     verdict=verdict(["1"], before="T5", after="T5"))], 1)
+        check("480 AC3: an unchanged worktree still repairs normally", got == {"g1": "repair-staged"}
+              and "review_residue" not in clean_run["todos"]["1"], (got, clean_run["todos"]["1"]))
+        missing = copy.deepcopy(run)
+        got = state.ingest_review(missing, [result(1, blocking=[{"severity": "high"}], repair=worker(["1"], tree="T5"),
+                                                   verdict=verdict(["1"], before="T5", after="T5"))], 1)
+        check("480: a repair without the workflow's residue check fails closed",
+              got == {"g1": "residue"} and missing["todos"]["1"].get("stage") == "pr_open", got)
+        check("480: a clean no-repair round-1 ingest is clean",
+              state.ingest_review(copy.deepcopy(run), [result(1)], 1) == {"g1": "clean"})
+
+        # AC1: a file a reviewer creates or edits during round 1 stops the round, with the paths named.
+        (wt / "probe.py").write_text("MUTANT\n")
+        (wt / "scratch").mkdir()
+        (wt / "scratch" / "x.py").write_text("probe\n")  # a new directory is named file by file
+        (wt / "a.py").write_text("a = 3\n")
+        (wt / "notes.txt").write_text("edited by a reviewer\n")
+        want = ["a.py", "notes.txt", "probe.py", "scratch/x.py"]
+        check("480 AC1: new, edited and already-untracked-then-edited files are all named",
+              state.review_residue(run, "g1", 1) == want, state.review_residue(run, "g1", 1))
+        runfile = Path(tmp) / "run.json"
+        state.save(run, runfile)
+        before = runfile.read_bytes()
+        out = subprocess.run([sys.executable, state.STATE_PY, "residue", str(runfile), "g1"],
+                             capture_output=True, text=True)
+        check("480: `state.py residue` prints the paths as JSON and leaves the run file byte-identical",
+              out.returncode == 0 and out.stdout.strip() == '{"changed": ["a.py", "notes.txt", "probe.py", "scratch/x.py"]}'
+              and runfile.read_bytes() == before, (out.stdout, out.stderr))
+        r1 = copy.deepcopy(run)
+        got = state.ingest_review(r1, [result(1, blocking=[{"severity": "high"}], reviewers_ok=False,
+                                              residue=["probe.py"])], 1)
+        check("480 AC1: the workflow's residue report stops the round and the entries name every path",
+              got == {"g1": "residue"} and r1["todos"]["1"]["review_residue"] == want
+              and r1["todos"]["1"].get("review_round", 0) == 0 and "followups" not in r1["todos"]["1"],
+              r1["todos"]["1"])
+        r1b = copy.deepcopy(run)
+        got = state.ingest_review(r1b, [result(1, findings=[{"severity": "low", "file": "a.py", "line": 1,
+                                                             "summary": "nit", "suggested_fix": ""}])], 1)
+        check("480: with no repair, ingest compares in code even when the workflow reported nothing",
+              got == {"g1": "residue"} and r1b["todos"]["1"]["review_residue"] == want
+              and "followups" not in r1b["todos"]["1"], r1b["todos"]["1"])
+        err = expect(lambda: state.review_args(r1, 1, 0))[1]
+        check("480: a rerun keeps the round's baseline and refuses while the residue is still there",
+              isinstance(err, RuntimeError) and "probe.py" in str(err) and "notes.txt" in str(err)
+              and r1["todos"]["1"]["review_baseline"] == base, err)
+
+        # Put the worktree back: the rerun proceeds on the ORIGINAL baseline, which still holds notes.txt.
+        (wt / "probe.py").unlink()
+        (wt / "scratch" / "x.py").unlink()
+        (wt / "scratch").rmdir()
+        (wt / "a.py").write_text("a = 2\n")
+        (wt / "notes.txt").write_text("worker artifact\n")
+        items, err = expect(lambda: state.review_args(r1, 1, 0))
+        check("480: once the paths are restored the rerun proceeds on the same baseline",
+              err is None and len(items) == 1 and r1["todos"]["1"]["review_baseline"] == base, err)
+        got = state.ingest_review(r1, [result(1)], 1)
+        check("480: the rerun's clean ingest clears review_residue",
+              got == {"g1": "clean"} and "review_residue" not in r1["todos"]["1"], r1["todos"]["1"])
+
+        # AC2: the same check at the end of round 2, which never repairs.
+        state.review_args(r1, 2, 0)
+        check("480: round 2 takes its own baseline", r1["todos"]["1"]["review_baseline"]["round"] == 2)
+        sh("commit", "-q", "--allow-empty", "-m", "a reviewer committed")
+        r2 = copy.deepcopy(r1)
+        got = state.ingest_review(r2, [result(2)], 2)
+        check("480 AC2: residue at the end of round 2 stops it; the group is not reviewed",
+              got == {"g1": "residue"} and r2["todos"]["1"]["stage"] == "pr_open"
+              and any("HEAD moved" in p for p in r2["todos"]["1"]["review_residue"]), r2["todos"]["1"])
+        sh("reset", "-q", "--soft", "HEAD~1")
+        got = state.ingest_review(r1, [result(2)], 2)
+        check("480 AC2: an unchanged worktree at the end of round 2 is clean",
+              got == {"g1": "clean"} and r1["todos"]["1"]["stage"] == "reviewed", got)
+
+        stale = pr_run()
+        stale["todos"]["1"]["review_baseline"] = {"round": 1, "head": "H", "files": {}}
+        check("480: a baseline from another round fails closed",
+              state.review_residue(stale, "g1", 2) == ["no round-2 review baseline recorded; review-args takes it"])
+        gone = pr_run()
+        gone["todos"]["1"].update(worktree=str(Path(tmp) / "nope"), review_baseline=base)
+        check("480: a git error is itself residue, never a pass",
+              (state.review_residue(gone, "g1", 1) or [""])[0].startswith("residue check failed:"))
 
 
 def raises(fn, exc=state.TransitionError):

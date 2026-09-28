@@ -262,6 +262,15 @@ Land runs in the main session, one group at a time, in wave order:
    - **Refute:** each critical/high finding, deduplicated, goes to two
      `todo-reviewer` skeptics and stops blocking only if both refute it.
    - Any dead reviewer makes the round `rerun`, never a partial pass.
+   - **Residue (todo 480):** the git guard stops review agents staging or
+     committing, but not writing files, and the repair worker runs `git add -A`.
+     So `review-args` records a baseline per round: HEAD, plus every path
+     `git add -A` would take, with its content hash. Before the repair, a
+     `todo-reviewer` runs `state.py residue` and relays its output. The
+     comparison is code; a dead or failed check counts as residue. With no
+     repair, `ingest-review` compares in code itself, in either round. Anything
+     changed makes the outcome `residue`: nothing from the round is kept, and a
+     rerun keeps the round's baseline, so residue can't be absorbed into a new one.
 
    Every reviewer prompt names the worktree path and the diff range explicitly
    (`git -C <wt> diff origin/main...HEAD`), because a no-isolation workflow

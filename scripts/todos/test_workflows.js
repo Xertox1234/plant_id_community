@@ -89,7 +89,8 @@ const brief = (over = {}) => ({ run_id: 'r', group: 'g1', ids: ['1'], todo_paths
 const pr = (over = {}) => ({ run_id: 'r', round: 1, group: 'g1', ids: ['1'], worktree: '/wt/g1', branch: 'b', pr: 861,
   size: 's', slot: 1, evidence_dir: '.sweep-evidence/g1', main_root: '/main', test_edits: [],
   todo_paths: ['todos/archive/1-completed-p3-x.md'], origin_paths: ['todos/1-pending-p3-x.md'],
-  changed_files: ['backend/apps/x/views.py'], ...over })
+  changed_files: ['backend/apps/x/views.py'], residue_check: "python3 '/main/scripts/todos/state.py' residue '/main/run.json' g1",
+  ...over })
 const triage = (over = {}) => ({ id: '1', class: 'ready', evidence: 'e', blocked_on: '', owner_question: '',
   predicted_files: ['a.py'], size: 's', needs_e2e: false, notes_for_siblings: '', ...over })
 const byType = (calls, type) => calls.filter(c => c.opts.agentType === type)
@@ -241,9 +242,12 @@ async function main() {
   const holds = { refuted: false, reason: 'real' }
   const wrong = { refuted: true, reason: 'input cannot reach it' }
   const isRefuter = o => Boolean(o.schema && o.schema.properties.refuted)
+  const isResidue = o => Boolean(o.schema && o.schema.properties.changed)
+  const clean = { changed: [], error: '' }
   function reviewStub({ lens = none, route = routed('django-drf-reviewer', 'cross-cutting-reviewer'), domain = none,
-    refute = holds, repair = worker(), check: v = verdict('pass') } = {}) {
+    refute = holds, repair = worker(), check: v = verdict('pass'), residue = clean } = {}) {
     return (p, o) => {
+      if (isResidue(o)) return typeof residue === 'function' ? residue(p, o) : residue
       if (o.agentType === 'todo-reviewer') return typeof (isRefuter(o) ? refute : lens) === 'function'
         ? (isRefuter(o) ? refute : lens)(p, o) : (isRefuter(o) ? refute : lens)
       if (o.agentType === 'code-review-orchestrator') return route
@@ -252,7 +256,8 @@ async function main() {
       return typeof domain === 'function' ? domain(p, o) : domain
     }
   }
-  const lensCalls = calls => byType(calls, 'todo-reviewer').filter(c => !isRefuter(c.opts))
+  const lensCalls = calls => byType(calls, 'todo-reviewer').filter(c => !isRefuter(c.opts) && !isResidue(c.opts))
+  const residueCalls = calls => calls.filter(c => isResidue(c.opts))
   const refuteCalls = calls => byType(calls, 'todo-reviewer').filter(c => isRefuter(c.opts))
 
   // --- review round 1, size s, blocking finding
@@ -366,6 +371,35 @@ async function main() {
   check('review: a blocked repair carries its blockers and is not verified',
     r.result.results[0].repair_blockers === 'needs the deps lane' && r.result.results[0].verdict === null
     && byType(r.calls, 'todo-verifier').length === 0, r.result)
+
+  // --- review: residue (todo 480). The repair's `git add -A` would commit what a reviewer left in the worktree.
+  r = await run('todo-review', { round: 1, prs: [pr()] }, reviewStub({ lens: high }))
+  const chk = residueCalls(r.calls)
+  check('review 480: an unchanged worktree is checked, then repaired as before', chk.length === 1
+    && chk[0].opts.agentType === 'todo-reviewer' && chk[0].prompt.includes(`Run exactly this command, once, and nothing else: ${pr().residue_check}`)
+    && byType(r.calls, 'todo-worker').length === 1 && r.result.results[0].reviewers_ok
+    && JSON.stringify(r.result.results[0].residue) === '[]', r.result)
+  check('review 480: the residue check runs after every reviewer and refuter, before the repair',
+    r.calls.findIndex(c => isResidue(c.opts)) > Math.max(...r.calls.map((c, i) => (c.opts.agentType !== 'todo-worker'
+      && c.opts.agentType !== 'todo-verifier' && !isResidue(c.opts) ? i : -1)))
+    && r.calls.findIndex(c => isResidue(c.opts)) < r.calls.findIndex(c => c.opts.agentType === 'todo-worker'))
+  r = await run('todo-review', { round: 1, prs: [pr()] },
+    reviewStub({ lens: high, residue: { changed: ['backend/probe.py', 'backend/apps/x/views.py'], error: '' } }))
+  check('review 480: a file a reviewer left stops the repair, names the paths, and marks the round incomplete',
+    byType(r.calls, 'todo-worker').length === 0 && byType(r.calls, 'todo-verifier').length === 0
+    && r.result.results[0].reviewers_ok === false && r.result.results[0].repair === null
+    && r.result.results[0].residue.join() === 'backend/probe.py,backend/apps/x/views.py', r.result)
+  r = await run('todo-review', { round: 1, prs: [pr()] }, reviewStub({ lens: high, residue: null }))
+  check('review 480: a dead residue check stops the repair (fails closed)',
+    byType(r.calls, 'todo-worker').length === 0 && r.result.results[0].reviewers_ok === false
+    && r.result.results[0].residue.length === 1, r.result)
+  r = await run('todo-review', { round: 1, prs: [pr()] }, reviewStub({ lens: high, residue: { changed: [], error: 'state: no such group' } }))
+  check('review 480: a check that reports an error stops the repair, even with an empty list',
+    byType(r.calls, 'todo-worker').length === 0 && r.result.results[0].reviewers_ok === false
+    && /residue check failed: state: no such group/.test(r.result.results[0].residue[0]), r.result)
+  r = await run('todo-review', { round: 2, prs: [pr({ round: 2 })] }, reviewStub({ lens: high }))
+  check('review 480: with no repair (round 2) the workflow leaves the check to ingest-review (residue null)',
+    residueCalls(r.calls).length === 0 && r.result.results[0].residue === null, r.result)
 
   // --- review: routing (todo 478). The path rules decide who must review; the router can only add.
   r = await run('todo-review', { round: 1, prs: [pr({ changed_files: ['docs/x.md'] })] }, reviewStub({ route: routed() }))
