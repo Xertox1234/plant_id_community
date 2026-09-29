@@ -196,10 +196,24 @@ def main():
           all(via_r1["todos"][i]["stage"] == "pr_open" and via_r1["todos"][i]["review_round"] == 1
               and "held_round" not in via_r1["todos"][i] for i in ids_ok), via_r1["todos"][ids_ok[0]])
     again = copy.deepcopy(via_r1)
+    reworded = copy.deepcopy(via_r1)
     r2 = ingest(via_r1, [{"group": g_ok, "ids": ids_ok, "findings": [], "blocking": [],
                                        "reviewers_ok": True, "repair": None, "verdict": None, "refuted": [crit]}], 2)
     check("482: the cleared critical, dismissed again in round 2, does not hold again",
           r2[g_ok] == "clean" and via_r1["todos"][ids_ok[0]]["stage"] == "reviewed", (r2, via_r1["todos"][ids_ok[0]]))
+    # #880 round 2: _merge_refuted rewrites the location's line when round 2 phrases it another way, so a hold
+    # cleared by the line's exact text held again. The owner cleared the location.
+    r2w = ingest(reworded, [{"group": g_ok, "ids": ids_ok, "findings": [], "blocking": [], "reviewers_ok": True,
+                             "repair": None, "verdict": None, "refuted": [dict(crit, summary="said another way")]}], 2)
+    e_w = reworded["todos"][ids_ok[0]]
+    check("482: a cleared critical reworded in round 2 does not hold again, though its line gained the phrasing",
+          r2w[g_ok] == "clean" and e_w["stage"] == "reviewed"
+          and e_w["refuted"] == ["critical: d.py:4 dismissed in round 1 | also: said another way"], (r2w, e_w))
+    check("482: a cleared location is keyed by severity, file and line; an unlabelled line only by its text",
+          state._location("critical: a/b c.py:12 x | also: y") == "critical: a/b c.py:12"
+          and state._location("high: d.py:4 dismissed") != state._location("critical: d.py:4 dismissed")
+          and state._location("d.py:4 written before 478") == "d.py:4 written before 478",
+          [state._location(x) for x in ("critical: a/b c.py:12 x | also: y", "d.py:4 written before 478")])
     fresh = dict(crit, line=5, summary="a new critical in round 2")
     r2b = ingest(again, [{"group": g_ok, "ids": ids_ok, "findings": [], "blocking": [],
                                        "reviewers_ok": True, "repair": None, "verdict": None, "refuted": [fresh]}], 2)

@@ -16,6 +16,7 @@ import fnmatch
 import json
 import os
 import posixpath
+import re
 import shlex
 import subprocess
 import sys
@@ -870,11 +871,23 @@ def _group_refuted(entries):
     return list(dict.fromkeys(r for _, e in entries for r in e.get("refuted", [])))
 
 
+LOCATION = re.compile(r"(?:critical|high|medium|low): .+?:\d+(?= )")
+
+
+def _location(line):
+    """A refuted line's `severity: file:line`, the key _merge_refuted merges on. A line without one (written
+    before todo 478) is its own key."""
+    m = LOCATION.match(line)
+    return m.group(0) if m else line
+
+
 def _open_criticals(entries):
     """The group's dismissed criticals the owner has not cleared (todo 482: a round-1 hold is cleared
-    before round 2, which must not hold again for the same lines)."""
-    cleared = {r for _, e in entries for r in e.get("hold_cleared", [])}
-    return [r for r in _group_refuted(entries) if _holds(r) and r not in cleared]
+    before round 2, which must not hold again for the same lines). Matched by location, not by text:
+    _merge_refuted rewrites a location's line when a later round adds a phrasing, and a cleared critical
+    reworded in round 2 must not hold again."""
+    cleared = {_location(r) for _, e in entries for r in e.get("hold_cleared", [])}
+    return [r for r in _group_refuted(entries) if _holds(r) and _location(r) not in cleared]
 
 
 def held_groups(run):
