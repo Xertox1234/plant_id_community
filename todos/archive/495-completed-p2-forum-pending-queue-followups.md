@@ -6,7 +6,7 @@ tags: [forum, moderation, wagtail, backend]
 dependencies: []
 triage: ready
 triaged: 2026-09-29
-owner_decision: "Owner picked: F1 publish the topic's latest revision so its active state clears; F2 add a pending-page clause for live posts with unpublished changes and no active state; F3 recount reactions after publishing; F9 keep a held reply in a taken-down topic listed but offer only Reject (no Approve); F10 also require publish permission on Topic (2026-09-29)"
+owner_decision: "Owner picked: F1 publish the topic's latest revision so its active state clears; F2 add a pending-page clause for live posts with unpublished changes and no active state; F3 recount reactions after publishing; F9 keep a held reply in a taken-down topic listed but offer only Reject (no Approve); F10 also require publish permission on Topic (2026-09-29). Round 3 (owner, 2026-09-29): F1 narrowed instead: a live topic's own held edit is not listed and Approve never publishes a topic published before; edits under a taken-down topic are not listed and Approve refuses any row there"
 ---
 
 # Forum pending queue: follow-ups from PR #886's review
