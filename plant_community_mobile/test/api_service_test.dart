@@ -473,6 +473,113 @@ void main() {
       expect(refreshCalls, 1);
       expect(sessionExpiredCalls, 0);
     });
+
+    test('the refresh\'s real token exchange goes out with no bearer, and the '
+        'request is retried with the new token', () async {
+      // The backend authenticates any bearer before the exchange view runs,
+      // so an exchange carrying the expired token 401s (the server here does
+      // the same) and every real expiry would still sign the user out.
+      api.setAccessTokenRefresher(() async {
+        refreshCalls++;
+        final exchange = await api.post(
+          '/auth/firebase-token-exchange/',
+          data: {'firebase_token': 'firebase-id-token'},
+          options: Options(
+            extra: {
+              ApiService.skipAuthRefreshKey: true,
+              ApiService.skipSessionExpiryKey: true,
+              ApiService.omitAuthHeaderKey: true,
+            },
+          ),
+        );
+        return exchange.data['access_token'] as String?;
+      });
+
+      final response = await api.get('/forum/topics/');
+
+      expect(response.statusCode, 200);
+      expect(refreshCalls, 1);
+      expect(sessionExpiredCalls, 0);
+      expect(server.requests.map((r) => r.path), [
+        '/forum/topics/',
+        '/auth/firebase-token-exchange/',
+        '/forum/topics/',
+      ]);
+      expect(server.requests.map((r) => r.auth), [
+        'Bearer stale',
+        null,
+        'Bearer fresh',
+      ]);
+    });
+
+    test('a 401 from a request sent before a sign-out and a new sign-in is '
+        'not retried as the new user', () async {
+      refreshTo('fresh');
+      final slowGate = Completer<void>();
+      server.hold('/forum/posts/', slowGate.future);
+
+      // Sent as user A, whose token has expired.
+      final write = api.post('/forum/posts/', data: {'body': 'from A'});
+      while (server.requests.isEmpty) {
+        await Future<void>.delayed(const Duration(milliseconds: 5));
+      }
+      // A signs out and B signs in while it is in flight.
+      api.setAuthToken(null);
+      api.setAuthToken('fresh');
+      slowGate.complete();
+
+      await expectLater(
+        write,
+        throwsA(
+          isA<ApiException>().having((e) => e.statusCode, 'statusCode', 401),
+        ),
+      );
+      expect(server.requests, hasLength(1), reason: "A's write re-sent as B");
+      expect(refreshCalls, 0);
+      expect(sessionExpiredCalls, 0, reason: "A's 401 signed B out");
+    });
+
+    test('a 401 from a request sent before a sign-out does not sign out '
+        'again', () async {
+      refreshTo('fresh');
+      final slowGate = Completer<void>();
+      server.hold('/forum/topics/', slowGate.future);
+
+      final read = api.get('/forum/topics/');
+      while (server.requests.isEmpty) {
+        await Future<void>.delayed(const Duration(milliseconds: 5));
+      }
+      api.setAuthToken(null); // the user signed out
+      slowGate.complete();
+
+      await expectLater(read, throwsA(isA<ApiException>()));
+      expect(server.requests, hasLength(1));
+      expect(refreshCalls, 0);
+      expect(sessionExpiredCalls, 0);
+    });
+
+    test('a token refreshed for a user who was switched out meanwhile is '
+        'neither installed nor used', () async {
+      api.setAccessTokenRefresher(() async {
+        refreshCalls++;
+        // A signs out and B signs in while A's refresh runs.
+        api.setAuthToken(null);
+        api.setAuthToken('fresh');
+        return 'refreshed-for-a';
+      });
+
+      await expectLater(
+        api.get('/forum/topics/'),
+        throwsA(isA<ApiException>()),
+      );
+      expect(refreshCalls, 1);
+      expect(sessionExpiredCalls, 0);
+      expect(server.requests, hasLength(1), reason: "A's request re-sent");
+
+      // B's token is still the one in use.
+      expect((await api.get('/garden/beds/')).statusCode, 200);
+      expect(server.requests.last.auth, 'Bearer fresh');
+    });
   });
 
   group('Integration Tests', () {
@@ -549,6 +656,10 @@ class _SeenRequest {
 /// A loopback backend that 401s any bearer token but [acceptedToken], and
 /// records every request (auth header and raw body bytes) so a test can prove
 /// the retry re-sent the same input.
+///
+/// `/auth/firebase-token-exchange/` answers like the real view does behind
+/// DRF's default authenticators: ANY bearer is authenticated first, and an
+/// expired one is a 401; with no bearer it issues [acceptedToken].
 class _AuthServer {
   _AuthServer._(this._server) {
     _server.listen(_handle);
@@ -578,11 +689,18 @@ class _AuthServer {
     final hold = _holds.remove(request.uri.path);
     if (hold != null) await hold;
 
-    final ok = auth == 'Bearer $acceptedToken';
+    final isExchange = request.uri.path == '/auth/firebase-token-exchange/';
+    final ok = isExchange ? auth == null : auth == 'Bearer $acceptedToken';
     request.response.statusCode = ok ? HttpStatus.ok : HttpStatus.unauthorized;
     request.response.headers.contentType = ContentType.json;
     request.response.write(
-      jsonEncode(ok ? {'ok': true} : {'detail': 'Token is expired'}),
+      jsonEncode(
+        !ok
+            ? {'detail': 'Token is expired'}
+            : isExchange
+            ? {'access_token': acceptedToken, 'refresh_token': 'refresh'}
+            : {'ok': true},
+      ),
     );
     await request.response.close();
   }

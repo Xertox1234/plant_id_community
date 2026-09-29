@@ -34,6 +34,12 @@ class ApiService {
   /// failed refresh would only repeat it.
   static const String skipAuthRefreshKey = 'skip_auth_refresh';
 
+  /// Request-extra flag: send this request with no `Authorization` header,
+  /// even while a bearer token is set. Set on the refresh's token exchange:
+  /// the backend authenticates any bearer before the view runs, so the expired
+  /// token it would otherwise carry turns the exchange into a 401 (todo 462).
+  static const String omitAuthHeaderKey = 'omit_auth_header';
+
   /// Set on a request once it has been retried after a refresh, so a second
   /// 401 signs out instead of refreshing again.
   static const String _authRetriedKey = 'auth_retried';
@@ -44,12 +50,23 @@ class ApiService {
   /// debug builds, and the bearer token must never reach a log.
   static const String _sentEpochKey = 'auth_epoch';
 
+  /// The [_authSession] the request went out under. A 401 for a request from
+  /// an ended session (sign-out, user switch) is never retried under the new
+  /// session's token, and never refreshes or signs anyone out.
+  static const String _sentSessionKey = 'auth_session';
+
   final Dio _dio;
   final String baseUrl;
   String? _authToken;
 
   /// Bumped on every token change.
   int _authEpoch = 0;
+
+  /// Bumped when the token is cleared: every sign-out, session expiry and
+  /// sign-in passes through `setAuthToken(null)` first, so one session is one
+  /// signed-in user. A refresh replaces the token without clearing it, so it
+  /// stays in the same session.
+  int _authSession = 0;
   Future<void> Function()? _onSessionExpired;
   Future<String?> Function()? _onRefreshAccessToken;
 
@@ -80,7 +97,10 @@ class ApiService {
       InterceptorsWrapper(
         onRequest: (options, handler) {
           options.extra[_sentEpochKey] = _authEpoch;
-          if (_authToken != null) {
+          options.extra[_sentSessionKey] = _authSession;
+          if (options.extra[omitAuthHeaderKey] == true) {
+            options.headers.remove('Authorization');
+          } else if (_authToken != null) {
             options.headers['Authorization'] = 'Bearer $_authToken';
           }
           return handler.next(options);
@@ -247,6 +267,14 @@ class ApiService {
     ErrorInterceptorHandler handler,
   ) async {
     final options = error.requestOptions;
+    // Sent under a session that has since ended: re-sending it would act as
+    // whoever is signed in now, and its 401 says nothing about their token.
+    if (options.extra[_sentSessionKey] != _authSession) {
+      if (kDebugMode) {
+        debugPrint('[API AUTH] 401 from an ended session; not retried');
+      }
+      return handler.next(error);
+    }
     if (_onRefreshAccessToken == null ||
         options.extra[skipAuthRefreshKey] == true ||
         options.extra[_authRetriedKey] == true) {
@@ -264,7 +292,7 @@ class ApiService {
         options.extra[_sentEpochKey] != _authEpoch && _authToken != null;
     if (!tokenReplacedSinceSent) {
       final token = await _refreshAccessTokenOnce();
-      if (token == null) {
+      if (token == null || options.extra[_sentSessionKey] != _authSession) {
         return handler.next(error);
       }
     }
@@ -299,7 +327,7 @@ class ApiService {
   }
 
   Future<String?> _runRefresh() async {
-    final epochBefore = _authEpoch;
+    final sessionBefore = _authSession;
     String? token;
     try {
       token = await _onRefreshAccessToken?.call();
@@ -310,17 +338,22 @@ class ApiService {
       token = null;
     }
 
+    // An explicit sign-out or a user switch while the refresh ran is not an
+    // expired session, and a token refreshed for the old user must not be
+    // installed for the new one.
+    if (_authSession != sessionBefore) {
+      return null;
+    }
+
     if (token != null) {
-      setAuthToken(token);
+      if (token != _authToken) {
+        setAuthToken(token);
+      }
       return token;
     }
 
-    // Signed out once, here, for every waiter. And only when the auth state
-    // did not move while the refresh ran: an explicit sign-out or a user
-    // switch meanwhile is not an expired session.
-    if (_authEpoch == epochBefore) {
-      await _handleSessionExpired();
-    }
+    // Signed out once, here, for every waiter.
+    await _handleSessionExpired();
     return null;
   }
 
@@ -346,6 +379,9 @@ class ApiService {
   void setAuthToken(String? token) {
     _authToken = token;
     _authEpoch++;
+    if (token == null) {
+      _authSession++;
+    }
   }
 
   /// Register a callback that clears local auth state after failed recovery.

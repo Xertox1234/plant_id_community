@@ -149,6 +149,13 @@ from that silently:
 Request-extra flags opt out: `ApiService.skipSessionExpiryKey` ignores the
 401 entirely (sign-out's own FCM clear), and `ApiService.skipAuthRefreshKey`
 skips the refresh and goes straight to sign-out (the token exchange itself).
+`ApiService.omitAuthHeaderKey` sends the request with no bearer. The refresh's
+exchange carries it, because DRF authenticates any `Authorization: Bearer`
+before it checks `AllowAny`, so the expired token would 401 the exchange.
+
+A 401 for a request sent before a sign-out or user switch (the token was
+cleared since, which every sign-in does first) is not retried, refreshed or
+turned into a sign-out: re-sending it would act as whoever is signed in now.
 
 **Production access lifetime: 15 minutes.** `SIMPLE_JWT["ACCESS_TOKEN_LIFETIME"]`
 reads `JWT_ACCESS_TOKEN_LIFETIME` with a default of 15

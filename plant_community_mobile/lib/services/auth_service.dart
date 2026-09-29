@@ -585,11 +585,14 @@ class AuthService extends _$AuthService {
             data: {'firebase_token': firebaseToken},
             // The exchange IS the refresh: a 401 on it must neither refresh
             // again nor sign out on its own. The original request's failed
-            // recovery signs out, exactly once.
+            // recovery signs out, exactly once. And it goes out with no
+            // bearer: the backend authenticates the expired one before the
+            // view runs and would 401 the exchange itself.
             options: Options(
               extra: {
                 ApiService.skipAuthRefreshKey: true,
                 ApiService.skipSessionExpiryKey: true,
+                ApiService.omitAuthHeaderKey: true,
               },
             ),
           );

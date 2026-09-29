@@ -126,3 +126,20 @@ single refresh, and that a multipart body can be re-sent.
 ### 2026-09-29 - Completed by the todo sweep (run 2026-09-29-1202)
 
 - Archived by `land.py archive`; evidence is quoted above, review is on the PR.
+
+### 2026-09-29 - Repaired by the todo sweep (run 2026-09-29-1202)
+
+- The refresh's token exchange now goes out with no bearer (new request flag
+  `ApiService.omitAuthHeaderKey`). It used to carry the expired token, which
+  DRF's default `JWTAuthentication` rejects before the `AllowAny` view runs,
+  so every real expiry still signed the user out. New loopback tests in both
+  test files run a real exchange against a server that 401s any bearer.
+- A 401 for a request sent before a sign-out or user switch is no longer
+  retried under the new user's token. `ApiService` stamps each request with a
+  session id that `setAuthToken(null)` bumps, and every sign-in clears the
+  token first. Such a 401 also skips the refresh and the sign-out, because
+  refreshing would still re-send the request as the new user.
+- A refresh that finishes after the session changed installs nothing.
+- Regenerated `auth_service.g.dart` (riverpod source hash) for CI's
+  generated-code gate. Mutation-checked: removing the header omission or the
+  session guard fails the new tests.

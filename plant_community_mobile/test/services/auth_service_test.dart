@@ -431,6 +431,61 @@ void main() {
         expect(harness.api.accessTokenRefresher, isNull);
       },
     );
+
+    test('over real HTTP, an expired token is refreshed through a bearer-less '
+        'exchange and the request succeeds without a sign-out', () async {
+      // The backend authenticates any bearer before the exchange view runs,
+      // so an exchange that carried the expired token would 401 and sign the
+      // user out on every real expiry. The loopback server does the same.
+      final savedOverrides = HttpOverrides.current;
+      HttpOverrides.global = null;
+      addTearDown(() => HttpOverrides.global = savedOverrides);
+      final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+      addTearDown(() => server.close(force: true));
+      final seen = <(String, String?)>[];
+      server.listen((request) async {
+        await request.drain<void>();
+        final auth = request.headers.value(HttpHeaders.authorizationHeader);
+        seen.add((request.uri.path, auth));
+        final isExchange = request.uri.path == '/auth/firebase-token-exchange/';
+        final ok = isExchange ? auth == null : auth == 'Bearer fresh';
+        request.response
+          ..statusCode = ok ? HttpStatus.ok : HttpStatus.unauthorized
+          ..headers.contentType = ContentType.json
+          ..write(
+            jsonEncode(
+              !ok
+                  ? {'detail': 'Token is expired'}
+                  : isExchange
+                  ? {'access_token': 'fresh', 'refresh_token': 'refresh'}
+                  : {'ok': true},
+            ),
+          );
+        await request.response.close();
+      });
+
+      final harness = _Harness(
+        currentUser: _FakeUser(uid: 'ada'),
+        baseUrl: 'http://${server.address.host}:${server.port}',
+      );
+      addTearDown(harness.dispose);
+      await pumpEventQueue(); // the launch exchange (faked) settles
+      harness.api.realHttp = true;
+      harness.api.setAuthToken('expired');
+
+      final response = await harness.api.get('/forum/topics/');
+
+      expect(response.statusCode, 200);
+      expect(seen, [
+        ('/forum/topics/', 'Bearer expired'),
+        ('/auth/firebase-token-exchange/', null),
+        ('/forum/topics/', 'Bearer fresh'),
+      ]);
+      final state = harness.container.read(authServiceProvider);
+      expect(state.jwtToken, 'fresh');
+      expect(state.error, isNull);
+      expect(harness.events, isNot(contains('firebase.signOut')));
+    });
   });
 
   group('session-expiry exemption', () {
@@ -514,9 +569,13 @@ void main() {
 /// Wires a [ProviderContainer] with fakes for every collaborator the notifier
 /// reaches: Firebase auth, the API, and push registration.
 class _Harness {
-  _Harness({User? currentUser, bool useRealPushService = false}) {
+  _Harness({
+    User? currentUser,
+    bool useRealPushService = false,
+    String baseUrl = 'http://fake.local',
+  }) {
     firebaseAuth = _FakeFirebaseAuth(events: events, currentUser: currentUser);
-    api = _FakeApiService(events: events);
+    api = _FakeApiService(events: events, baseUrl: baseUrl);
     if (useRealPushService) {
       messaging = _FakeMessaging();
       realPush = _TestablePushRegistrationService(api, messaging!);
@@ -646,9 +705,12 @@ class _RequestCall {
 }
 
 class _FakeApiService extends ApiService {
-  _FakeApiService({required List<String> events})
+  _FakeApiService({required List<String> events, required super.baseUrl})
     : _events = events,
-      super(baseUrl: 'http://fake.local', authToken: null);
+      super(authToken: null);
+
+  /// Send `post` over real HTTP to [baseUrl] instead of faking the response.
+  bool realHttp = false;
 
   final List<String> _events;
   final List<_RequestCall> postCalls = [];
@@ -695,6 +757,14 @@ class _FakeApiService extends ApiService {
     Options? options,
   }) async {
     _events.add('api.post $path');
+    if (realHttp) {
+      return super.post(
+        path,
+        data: data,
+        queryParameters: queryParameters,
+        options: options,
+      );
+    }
     final gate = postGate;
     if (gate != null) await gate.future;
     postCalls.add(_RequestCall(path, data as Map<String, dynamic>?, options));
