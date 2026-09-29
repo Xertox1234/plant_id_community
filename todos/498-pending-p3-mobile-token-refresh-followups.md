@@ -4,7 +4,9 @@ priority: p3
 issue_id: "498"
 tags: [mobile, flutter, auth]
 dependencies: []
-owner_decision: "Users expect to stay signed in (it is a recipe app; signing in again is tiresome): sign out only when the server definitely refuses the session, never on a transient failure. Raised to p3 (2026-09-29)"
+owner_decision: "Finding 1: users expect to stay signed in (it is a recipe app; signing in again is tiresome): sign out only when the server definitely refuses the session, never on a transient failure. Raised to p3 (2026-09-29). Finding 5: add manage.py flushexpiredtokens to the nightly forum-prune-cron in .railway/railway.ts; do not change the exchange (2026-09-29)"
+triage: ready
+triaged: 2026-09-29
 ---
 
 # Mobile token refresh: follow-ups from PR #891's review
