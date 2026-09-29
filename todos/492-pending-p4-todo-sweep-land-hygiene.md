@@ -45,3 +45,17 @@ Three engine gaps showed up in sweep run 2026-09-28-2018.
 ## Work Log
 
 ### 2026-09-28 - Filed from todo sweep run 2026-09-28-2018 (Land and review steps)
+
+### 2026-09-28 - Slice: owner re-points and verify-only reopen (for todo 423)
+
+- 423's worker stopped on an owner-only criterion, the on-device walkthrough. It left finished,
+  staged work and no verdict. The owner moved the walkthrough to a follow-up todo to do after deploy.
+  Two gaps kept 423 from landing through the engine: reopening it started a fresh worker in a new
+  worktree, and the verifier read the added re-point marker as an edited criterion.
+- `state.py repoint` records an owner-authorized re-point mid-run. It adds the marker on the checkbox
+  line, stages it, syncs `ac.json`, and records it on the run entry. `execute-args` and `review-args`
+  pass the list, and the verifier accepts only listed markers (step 4).
+- `state.py set … ready --reverify` reopens a blocked todo with its staged worktree kept. The
+  `todo-execute` workflow skips the planner and the worker and runs only the verifier on it.
+- This slice closes none of the criteria above. Owner-confirmed criteria (364 and 437) need ticks,
+  not re-points, and are still finding 1.

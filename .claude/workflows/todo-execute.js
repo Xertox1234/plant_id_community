@@ -67,6 +67,20 @@ function pathLines(b) {
   return [`TODO_PATHS: ${b.todo_paths.join(', ')}`, `ORIGIN_PATHS: ${b.todo_paths.join(', ')}`]
 }
 
+// Todo 492: the owner-authorized re-points (`state.py repoint`). The verifier accepts a criterion changed
+// only by one of these markers; any other change to a criterion is still an edit.
+function repointLines(b) {
+  const items = Object.entries(b.repoints || {}).flatMap(([id, list]) => list.map(r => `${id}#${r.index} "${r.marker}"`))
+  return items.length ? [`REPOINTS: ${items.join('; ')}`] : []
+}
+
+// Todo 492: a reopened todo whose staged worktree is verified as it is (`state.py set --reverify`).
+// No planner and no worker run; this stands in for the worker record the verifier checks against.
+function reverifyWorker(b) {
+  return { ids: b.ids, status: 'staged', ...b.reverify, files_changed: [], tests_run: [], blockers: '',
+    discoveries: '', summary: 're-verify of the staged worktree an earlier attempt left' }
+}
+
 function planPrompt(b) {
   return [
     'MODE: plan',
@@ -87,7 +101,7 @@ function verifyPrompt(b, w) {
     `Verify todo group ${b.group}.`,
     `IDS: ${b.ids.join(', ')}`,
     `WORKTREE: ${w.worktree}`, `SLOT: ${b.slot}`, `MAIN_ROOT: ${b.main_root}`,
-    `AC_FILE: ${w.ac_file}`, ...pathLines(b),
+    `AC_FILE: ${w.ac_file}`, ...pathLines(b), ...repointLines(b),
     'Return the VERDICT record.',
   ].join('\n')
 }
@@ -117,12 +131,12 @@ function retryPrompt(b, w, v) {
 const results = await pipeline(
   briefs,
   async b => {
-    if (!b.plan_needed) return ''
+    if (!b.plan_needed || b.reverify) return ''
     const p = await agent(planPrompt(b), { label: `plan:${b.group}`, phase: 'Plan', agentType: 'todo-triager', schema: PLAN })
     if (!p) log(`Planner returned nothing for ${b.group}; its worker gets PLAN: none`)
     return p ? p.plan : ''
   },
-  (plan, b) => agent(workPrompt(b, plan),
+  (plan, b) => b.reverify ? reverifyWorker(b) : agent(workPrompt(b, plan),
     { label: `work:${b.group}`, phase: 'Implement', agentType: 'todo-worker', isolation: 'worktree', schema: WORKER }),
   async (worker, b) => {
     // The first attempt's worktree rides on every result, so a dead retry (worker: null) still
