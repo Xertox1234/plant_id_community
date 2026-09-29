@@ -1176,6 +1176,7 @@ def main():
 
     residue_tests()
     reverify_tests()
+    reverify_grouping_tests()
     print()
     if FAILURES:
         print(f"FAILED: {len(FAILURES)} check(s): {', '.join(FAILURES)}")
@@ -1390,6 +1391,11 @@ def reverify_tests():
         check("492: re-pointing a checked criterion is refused, and leaves the file alone",
               raises(lambda: repoint(index=0)) and (wt / "todos" / "7-pending-p3-x.md").read_text() == checked)
         (wt / "todos" / "7-pending-p3-x.md").write_text(todo)
+        good_ac = (evidence / "ac.json").read_text()
+        (evidence / "ac.json").write_text(json.dumps(ac[:1]))
+        check("492: a re-point refused on ac.json leaves the todo file alone",
+              raises(repoint) and (wt / "todos" / "7-pending-p3-x.md").read_text() == todo)
+        (evidence / "ac.json").write_text(good_ac)
         marker, err = expect(repoint)
         text = (wt / "todos" / "7-pending-p3-x.md").read_text()
         line = next((ln for ln in text.splitlines() if "walkthrough" in ln), "")
@@ -1458,6 +1464,15 @@ def reverify_tests():
         check("492: a passing re-verify makes the todo verified", entry["stage"] == "verified", entry)
         path, err = expect(lambda: state.ensure_worktree(run, brief["group"], Path(tmp) / "scratch"))
         check("492: Land's ensure-worktree accepts the re-verified tree", path == str(wt), err)
+        check("492: the re-verify brief keeps the first attempt's evidence dir",
+              brief.get("evidence_dir") == ".sweep-evidence/g1", brief.get("evidence_dir"))
+        state.set_group(run, brief["group"], "pr_open", pr=900)
+        items, err = expect(lambda: state.review_args(run, 1, len(run["waves"]) - 1,
+                                                      git=lambda repo, *a: "a.py\0" if a[0] == "diff" else ""))
+        check("492: review-args gives a repair the re-point and the first attempt's evidence dir",
+              err is None and len(items) == 1
+              and items[0].get("repoints") == {"7": [{"index": 1, "to": "8", "marker": marker}]}
+              and items[0].get("evidence_dir") == ".sweep-evidence/g1", err or items)
 
         mixed = ready_run([("m1", ["shared.py"]), ("m2", ["shared.py"])], workers=1)
         state.apply_grouping(mixed)
@@ -1465,6 +1480,66 @@ def reverify_tests():
         check("492: a re-verified todo grouped with other work is refused, before anything changes",
               raises(lambda: state.execute_args(mixed, 0, "/m"))
               and all(e["stage"] == "ready" for e in mixed["todos"].values()))
+
+
+def reverify_grouping_tests():
+    """Todo 492, PR #885 round 1: Land commits a worktree's whole index, so a re-verify covers every todo
+    staged there, is grouped by that worktree alone, and leaves no flag behind when it is abandoned."""
+    def fake_git(repo, *args):
+        return "TREE\n"
+
+    with tempfile.TemporaryDirectory() as shared:
+        run = ready_run([("7", ["scripts/a.py"]), ("17", ["scripts/a.py"]), ("9", ["scripts/b.py"])])
+        for entry in run["todos"].values():
+            entry["triage"]["size"] = "xs"  # xs todos in one directory are what grouping bundles
+        state.transition(run, "9", "blocked", reason="held back for this test")
+        state.apply_grouping(run)
+        brief = state.execute_args(run, 0, "/m")[0]
+        state.ingest_execute(run, [{"group": brief["group"], "ids": brief["ids"], "retried": False, "verdict": None,
+                                    "worker": worker(brief["ids"], status="blocked")
+                                    | {"worktree": shared, "blockers": "owner-only"}}])
+        check("492: two todos blocked in one worktree both record it",
+              brief["ids"] == ["17", "7"] and all(run["todos"][i]["worktree"] == shared for i in ("7", "17")), brief)
+        state.reopen_reverify(run, "7", "owner re-pointed 7")
+        state.transition(run, "9", "ready", reason="back")
+        snapshot = copy.deepcopy(run)
+
+        state.apply_grouping(run)
+        g7, g9 = run["todos"]["7"]["group"], run["todos"]["9"]["group"]
+        check("492: a re-verified todo is never bundled with other ready work",
+              g7 != g9 and run["groups"][g7]["ids"] == ["7"], run["groups"])
+        wave9 = next(w for w, gids in enumerate(run["waves"]) if g9 in gids)
+        b9 = state.execute_args(run, wave9, "/m", git=fake_git)
+        state.ingest_execute(run, [{"group": g9, "ids": ["9"], "retried": False, "verdict": None,
+                                    "worker": worker(["9"], status="blocked") | {"blockers": "later"}}])
+        wave7 = next(w for w, gids in enumerate(run["waves"]) if g7 in gids)
+        _, err = expect(lambda: state.execute_args(run, wave7, "/m", git=fake_git))
+        check("492: re-verifying one of a worktree's todos is refused while another is staged there",
+              b9 and isinstance(err, state.TransitionError) and "todo 17" in str(err)
+              and run["todos"]["7"]["stage"] == "ready", err)
+
+        both = copy.deepcopy(snapshot)
+        state.reopen_reverify(both, "17", "owner re-pointed 7; 17 ships with it")
+        state.transition(both, "9", "blocked", reason="held back again")
+        state.apply_grouping(both)
+        wave = len(both["waves"]) - 1
+        briefs, err = expect(lambda: state.execute_args(both, wave, "/m", git=fake_git))
+        check("492: all of a worktree's todos re-verified together form one group and one brief",
+              err is None and len(briefs) == 1 and briefs[0]["ids"] == ["17", "7"]
+              and briefs[0]["reverify"]["worktree"] == shared and briefs[0]["evidence_dir"] == ".sweep-evidence/g1",
+              err or briefs)
+
+        dropped = copy.deepcopy(snapshot)
+        state.transition(dropped, "7", "blocked", reason="owner changed their mind")
+        state.transition(dropped, "7", "ready", reason="redo it with a fresh worker")
+        entry = dropped["todos"]["7"]
+        check("492: a plain reopen after a re-verify leaves no reverify flag behind",
+              "reverify" not in entry and "worktree" not in entry, entry)
+        state.transition(dropped, "9", "blocked", reason="held back again")
+        state.apply_grouping(dropped)
+        briefs, err = expect(lambda: state.execute_args(dropped, len(dropped["waves"]) - 1, "/m"))
+        check("492: ... so the fresh attempt is briefed for a worker",
+              err is None and briefs[0]["ids"] == ["7"] and briefs[0]["reverify"] is None, err or briefs)
 
 
 def raises(fn, exc=state.TransitionError):

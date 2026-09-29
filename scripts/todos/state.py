@@ -15,6 +15,7 @@ import copy
 import fnmatch
 import json
 import os
+import posixpath
 import shlex
 import subprocess
 import sys
@@ -49,7 +50,7 @@ LANDED = {"merged", "archived"}
 WORK_FIELDS = ("worktree", "branch", "tree_id", "ac_file")
 # What a blocked attempt leaves on its entry; reopening moves it to `previous` (see _reopen).
 ATTEMPT_FIELDS = ("reason", "group", "slot", "wave", *WORK_FIELDS, "verified_ac", "test_edits", "review_round",
-                  "repoints")
+                  "repoints", "reverify")
 
 
 class TransitionError(Exception):
@@ -313,6 +314,11 @@ def repoint(run, todo_id, index, to, decision, date, git=run_git):
     line_no, checked, _ = boxes[index]
     if checked:
         raise TransitionError(f"{todo_id}: criterion {index} is already checked")
+    acp = Path(worktree, ac_file)
+    ac = json.loads(acp.read_text())  # checked before the todo file changes, so a refusal leaves both alone
+    mine = [e for e in ac if str(e.get("todo")) == todo_id and e.get("index") == index]
+    if len(mine) != 1:
+        raise TransitionError(f"{todo_id}: {ac_file} has {len(mine)} entries for criterion {index}, not one")
     lines = text.splitlines(keepends=True)
     if todofile.is_repoint(lines[line_no]):
         if marker.strip() not in lines[line_no]:
@@ -321,11 +327,6 @@ def repoint(run, todo_id, index, to, decision, date, git=run_git):
         body = lines[line_no].rstrip("\n")
         lines[line_no] = body.rstrip() + marker + lines[line_no][len(body):]
         path.write_text("".join(lines))
-    acp = Path(worktree, ac_file)
-    ac = json.loads(acp.read_text())
-    mine = [e for e in ac if str(e.get("todo")) == todo_id and e.get("index") == index]
-    if len(mine) != 1:
-        raise TransitionError(f"{todo_id}: {ac_file} has {len(mine)} entries for criterion {index}, not one")
     mine[0].update(text=todofile.CHECKBOX_RE.sub("", todofile.ac_lines("".join(lines))[index][2], count=1).strip())
     mine[0]["pass"] = False
     acp.write_text(json.dumps(ac, indent=1) + "\n")
@@ -401,6 +402,12 @@ def apply_grouping(run):
     # The new waves are appended after the run's last wave, which may still be executing or in
     # review; its lanes are busy for the first new wave (PR #869 round 1).
     busy = set().union(*(run["groups"][g]["lanes"] for g in _unmerged(run, run["waves"][-1] if run["waves"] else [])))
+    # Todo 492: a re-verified todo is the worktree it was staged in. Its group is that worktree's todos
+    # and nothing else, never bundled or merged by file, in a wave of its own after the planned ones.
+    again = {}
+    for t in [t for t in todos if run["todos"][t["id"]].get("reverify")]:
+        again.setdefault(run["todos"][t["id"]].get("worktree", ""), []).append(t)
+        todos.remove(t)
     result = group.plan(todos, set(run["open_ids"]) - in_run, run["workers"], busy_lanes=busy)
     offset = max((int(g[1:]) for g in run["groups"]), default=0)
     rename = {gid: f"g{offset + int(gid[1:])}" for gid in result["groups"]}
@@ -411,6 +418,14 @@ def apply_grouping(run):
         for todo_id in spec["ids"]:
             run["todos"][todo_id]["group"] = rename[gid]
     new_waves = [[rename[g] for g in wave] for wave in result["waves"]]
+    offset = max((int(g[1:]) for g in run["groups"]), default=0)
+    for n, (_, members) in enumerate(sorted(again.items()), start=offset + 1):
+        ids = [t["id"] for t in sorted(members, key=group._rank)]
+        lanes = set().union(*(group.lanes_for(t["triage"]) | group.review_lane(t) for t in members))
+        run["groups"][f"g{n}"] = {"ids": ids, "lanes": sorted(lanes), "deps": []}
+        for todo_id in ids:
+            run["todos"][todo_id]["group"] = f"g{n}"
+        new_waves.append([f"g{n}"])
     run["waves"].extend(new_waves)
     run["unschedulable"].update(result["unschedulable"])
     return {"waves": new_waves, "unschedulable": result["unschedulable"]}
@@ -505,11 +520,22 @@ def execute_args(run, wave, main_root, git=run_git):
     # Todo 492: a re-verified todo is briefed as its own staged worktree, so it can share a group only
     # with todos staged in that same worktree. Refused before anything changes.
     for gid in gids:
-        live = [e for _, e in _group_entries(run, gid) if e["stage"] == "ready"]
+        members = _group_entries(run, gid)
+        live = [e for _, e in members if e["stage"] == "ready"]
         again = [e for e in live if e.get("reverify")]
-        if again and (len(again) != len(live) or len({e["worktree"] for e in again}) != 1):
-            raise TransitionError(f"{gid}: a re-verified todo shares its group with other work; "
-                                  "reopen them without --reverify")
+        if not again:
+            continue
+        worktrees = {e.get("worktree") for e in again}
+        if len(again) != len(live) or len(worktrees) != 1:
+            raise TransitionError(f"{gid}: a re-verified todo shares its group with other work; block them "
+                                  "and reopen each the plain way, or all of one worktree's todos with --reverify")
+        # Land commits the whole index, so every todo staged in that worktree ships with this group.
+        ids = {i for i, _ in members}
+        others = sorted(i for i, e in run["todos"].items() if i not in ids and e.get("worktree") in worktrees)
+        if others:
+            raise TransitionError(f"{gid}: its worktree also holds the staged work of todo {', '.join(others)}, "
+                                  "which this verifier would not check; reopen them with --reverify too, "
+                                  "before `group`")
     # Todo 468: wave N-1 is still in review or Land while this wave executes, so its lanes are
     # forbidden too, until every todo left in it has merged. A group that HOLDS such a lane would
     # put two PRs on it at once: refuse before anything changes (PR #869 round 1).
@@ -588,7 +614,7 @@ def execute_args(run, wave, main_root, git=run_git):
             "lanes_held": [group.lane_doc(lane) for lane in held],
             "lanes_forbidden": [group.lane_doc(lane) for lane in forbidden],
             "slot": slot,
-            "evidence_dir": f".sweep-evidence/{gid}",
+            "evidence_dir": posixpath.dirname(reverify["ac_file"]) if reverify else f".sweep-evidence/{gid}",
             "main_root": main_root,
             "repoints": _repoints(entries),
             "reverify": reverify,
@@ -759,7 +785,9 @@ def review_args(run, round_no, wave, git=run_git, run_file="", held=None):
             "run_id": run["run_id"], "round": round_no, "group": gid, "ids": [i for i, _ in entries],
             "worktree": first["worktree"], "branch": first["branch"], "pr": first["pr"],
             "size": max((e["triage"]["size"] for _, e in entries), key=SIZE_RANK.__getitem__),
-            "slot": first["slot"], "evidence_dir": f".sweep-evidence/{gid}",
+            "slot": first["slot"],
+            # A re-verified todo's evidence stays where its first attempt's group wrote it (todo 492).
+            "evidence_dir": posixpath.dirname(first["ac_file"]) if first.get("ac_file") else f".sweep-evidence/{gid}",
             "main_root": first.get("main_root", ""),
             "test_edits": sorted({t for _, e in entries for t in e.get("test_edits", [])}),
             # Land archives before review (spec §5.3): the todo now lives at its archived path,
