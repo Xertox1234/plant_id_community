@@ -211,9 +211,10 @@ def _ensure_firebase_initialized() -> None:
                 "existing app to adopt"
             )
     except Exception:
-        # Surface loudly, but let verification fail as a handled 401 rather
+        # Surface loudly, but let verification fail as a handled 503 rather
         # than 500ing every login over a bootstrap problem (e.g. a typo'd
-        # credentials path).
+        # credentials path). Not a 401: that would tell a refreshing client
+        # its session is refused and sign it out (todo 498).
         logger.exception("[FIREBASE AUTH ERROR] Firebase initialization failed")
 
 
@@ -269,6 +270,14 @@ def firebase_token_exchange(request: Request) -> Response:
         {
             "error": "Invalid Firebase token"
         }
+
+    Response (503 Service Unavailable): the token could not be checked, a
+    fault on our side (Google's public certs unreachable, Firebase Admin not
+    set up). The mobile client keeps the session and retries (todo 498).
+        {
+            "error": "Token verification is temporarily unavailable",
+            "code": "verifier_unavailable"
+        }
     """
     # Initialize Firebase Admin SDK (lazy initialization)
     _ensure_firebase_initialized()
@@ -281,6 +290,14 @@ def firebase_token_exchange(request: Request) -> Response:
             logger.warning("[FIREBASE AUTH] No firebase_token in request")
             return Response(
                 {"error": "firebase_token is required"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        # verify_id_token raises ValueError for a non-string, which would
+        # otherwise read as an outage (503) below.
+        if not isinstance(firebase_token, str):
+            logger.warning("[FIREBASE AUTH] firebase_token is not a string")
+            return Response(
+                {"error": "firebase_token must be a string"},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
@@ -331,10 +348,18 @@ def firebase_token_exchange(request: Request) -> Response:
                 {"error": "Invalid Firebase token"}, status=status.HTTP_401_UNAUTHORIZED
             )
         except Exception as e:
+            # Anything else is on our side, not the token's: Google's public
+            # certs could not be fetched (CertificateFetchError), or the Admin
+            # app is not set up (ValueError). A 401 here would sign every
+            # refreshing mobile user out during the outage (todo 498); 503 is
+            # a failure the client waits out.
             logger.error(f"[FIREBASE AUTH ERROR] Token verification failed: {str(e)}")
             return Response(
-                {"error": "Token verification failed"},
-                status=status.HTTP_401_UNAUTHORIZED,
+                {
+                    "error": "Token verification is temporarily unavailable",
+                    "code": "verifier_unavailable",
+                },
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
             )
 
         # Get or create Django user. display_name comes from the verified

@@ -146,3 +146,16 @@ WARNING on the round-1 repair commit, which was checked by hand and holds today.
 ### 2026-09-29 - Completed by the todo sweep (run 2026-09-29-1857)
 
 - Archived by `land.py archive`; evidence is quoted above, review is on the PR.
+
+### 2026-09-29 - Owner-approved repair after review round 2 (PR #898)
+
+- Round 2 blocked on a high: the exchange's catch-all answered 401 for faults on our side (Google cert fetch,
+  Firebase Admin not set up), and the client now signs out on an exchange 401, so an outage like 2026-09-13
+  would sign every refreshing user out. The owner chose to fix it here and run one more full-depth round.
+- `firebase_auth_views.py`: the catch-all now answers 503 `code: verifier_unavailable`, which the client
+  already waits out; 401 stays for Expired/InvalidIdTokenError only. A non-string `firebase_token` is a 400,
+  so a malformed body never reads as an outage.
+- Tests: `test_firebase_verification_exception` and `test_bad_credentials_path_yields_503_not_500` (was
+  `…_401_not_500`) now expect 503; new CertificateFetchError, uninitialized-app and non-string cases.
+  Mutation-checked: restoring the 401 turns 4 tests red, dropping the string guard turns 1 red.
+  `pytest apps/users apps/core/tests`: 1835 passed.
