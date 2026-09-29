@@ -4,6 +4,9 @@ priority: p2
 issue_id: "495"
 tags: [forum, moderation, wagtail, backend]
 dependencies: []
+triage: ready
+triaged: 2026-09-29
+owner_decision: "Owner picked: F1 publish the topic's latest revision so its active state clears; F2 add a pending-page clause for live posts with unpublished changes and no active state; F3 recount reactions after publishing; F9 keep a held reply in a taken-down topic listed but offer only Reject (no Approve); F10 also require publish permission on Topic (2026-09-29)"
 ---
 
 # Forum pending queue: follow-ups from PR #886's review
