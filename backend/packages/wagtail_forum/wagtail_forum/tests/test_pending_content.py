@@ -146,6 +146,14 @@ def _approve_url(post):
     return reverse("wagtail_forum_pending:approve", args=[post.pk])
 
 
+def _approve(client, post, revision=None):
+    """POST Approve as the page's form does: with the revision the row shows."""
+    if revision is None:
+        post.refresh_from_db()
+        revision = post.latest_revision_id or ""
+    return client.post(_approve_url(post), {"revision": revision})
+
+
 # --- One page lists every pending topic and post ----------------------------
 
 
@@ -233,7 +241,7 @@ def test_one_approve_publishes_the_topic_and_its_opening_post(client):
     moderator = _moderator()
     client.force_login(moderator)
 
-    resp = client.post(_approve_url(post))
+    resp = _approve(client, post)
 
     assert resp.status_code == 302
     assert resp["Location"] == _page_url()
@@ -264,7 +272,7 @@ def test_approve_publishes_the_thread_even_when_the_halves_have_different_author
     topic, post = _pending_topic(owner, board, post_author=other)
     client.force_login(_moderator())
 
-    client.post(_approve_url(post))
+    _approve(client, post)
 
     topic.refresh_from_db()
     post.refresh_from_db()
@@ -279,7 +287,7 @@ def test_approve_of_a_held_edit_publishes_the_submitted_body(client):
     _pending_edit(author, post, "held edit")
     client.force_login(_moderator())
 
-    client.post(_approve_url(post))
+    _approve(client, post)
 
     post.refresh_from_db()
     assert "held edit" in post.body.raw_data[0]["value"]
@@ -295,7 +303,7 @@ def test_approve_of_a_reply_publishes_only_that_reply(client):
     other = _pending_reply(author, topic, "another")
     client.force_login(_moderator())
 
-    client.post(_approve_url(reply))
+    _approve(client, reply)
 
     reply.refresh_from_db()
     other.refresh_from_db()
@@ -310,11 +318,71 @@ def test_approve_of_content_no_longer_pending_is_404_and_publishes_nothing(clien
     live.unpublish()  # a moderator's take-down: decided, not pending
     client.force_login(_moderator())
 
-    resp = client.post(_approve_url(live))
+    resp = _approve(client, live)
 
     assert resp.status_code == 404
     live.refresh_from_db()
     assert live.live is False
+
+
+def test_approve_refuses_a_revision_the_moderator_did_not_see(client):
+    # The author edits a held post again after the page loaded: the new text
+    # is held too, and the moderator's Approve is for the text they saw.
+    board = _board()
+    author = _member("newbie")
+    _topic, post = _live_topic(author, board)
+    _pending_edit(author, post, "first held edit")
+    seen = post.latest_revision_id
+    _pending_edit(author, post, "second held edit")
+    assert post.latest_revision_id != seen
+    client.force_login(_moderator())
+
+    resp = _approve(client, post, revision=seen)
+
+    assert resp.status_code == 302
+    assert resp["Location"] == _page_url()
+    post.refresh_from_db()
+    assert "held edit" not in post.body.raw_data[0]["value"]
+    assert list(pending_posts()) == [post]
+    shown = client.get(_page_url()).content.decode()
+    assert "changed after this page loaded" in shown
+    assert "second held edit" in shown
+
+
+def test_approve_without_the_revision_publishes_nothing(client):
+    board = _board()
+    _topic, post = _pending_topic(_member("newbie"), board)
+    client.force_login(_moderator())
+
+    resp = client.post(_approve_url(post))
+
+    assert resp.status_code == 302
+    post.refresh_from_db()
+    assert post.live is False
+    assert list(pending_posts()) == [post]
+
+
+def test_a_second_approve_of_the_same_row_publishes_nothing_more(client):
+    # A double-click, or a second moderator on a page loaded before the first
+    # approved: the second request finds the post no longer pending.
+    from wagtail.log_actions import registry
+
+    board = _board()
+    topic, post = _pending_topic(_member("newbie"), board)
+    client.force_login(_moderator())
+    post.refresh_from_db()
+    seen = post.latest_revision_id
+
+    first = _approve(client, post, revision=seen)
+    second = _approve(client, post, revision=seen)
+
+    assert first.status_code == 302
+    assert second.status_code == 404
+    for obj in (post, topic):
+        assert (
+            registry.get_logs_for_instance(obj).filter(action="wagtail.publish").count()
+            == 1
+        )
 
 
 def _take_down_by_moderator(post):
@@ -357,7 +425,7 @@ def test_a_held_edit_taken_down_afterwards_is_not_pending_and_approve_404s(
     client.force_login(_moderator())
     assert "held edit" not in client.get(_page_url()).content.decode()
 
-    resp = client.post(_approve_url(post))
+    resp = _approve(client, post)
 
     assert resp.status_code == 404
     post.refresh_from_db()
@@ -426,6 +494,38 @@ def test_reject_links_to_the_delete_confirmation_for_new_content_only(client):
     assert html.count(">Reject<") == 2
 
 
+def test_reject_never_targets_a_live_topic(client):
+    # A topic can go live while its opening post is still a draft: here an
+    # admin publishes the topic, and the same-author guard keeps the other
+    # author's opening post a draft. That row is still pending, but deleting
+    # the topic would remove a live thread, so it offers no Reject at all.
+    board = _board()
+    topic, opening = _pending_topic(
+        _member("owner"), board, post_author=_member("other")
+    )
+    admin = User.objects.create_superuser(username="root", email="r@x.io")
+    topic.save_revision(user=admin).publish(user=admin)
+    topic.refresh_from_db()
+    opening.refresh_from_db()
+    assert topic.live is True
+    assert opening.live is False
+    assert list(pending_posts()) == [opening]
+    client.force_login(_moderator())
+
+    html = client.get(_page_url()).content.decode()
+
+    topic_delete = reverse(
+        Topic.snippet_viewset.get_url_name("delete"), args=[topic.pk]
+    )
+    post_delete = reverse(
+        Post.snippet_viewset.get_url_name("delete"), args=[opening.pk]
+    )
+    assert html.count(">Approve<") == 1
+    assert f'href="{topic_delete}?' not in html
+    assert f'href="{post_delete}?' not in html
+    assert ">Reject<" not in html
+
+
 # --- Who can open it -------------------------------------------------------
 
 
@@ -436,7 +536,7 @@ def test_page_and_approve_need_the_publish_post_permission(client):
     client.force_login(_staff("editor", "change_post", "view_post"))
 
     page = client.get(_page_url())
-    approve = client.post(_approve_url(post))
+    approve = _approve(client, post)
 
     assert page.status_code == 302
     assert page["Location"] == reverse("wagtailadmin_home")
@@ -553,7 +653,7 @@ def test_walkthrough_trust0_posts_moderator_approves_thread_is_complete_in_api(
     client.force_login(_moderator())
     listing = client.get(_page_url()).content.decode()
     assert "Video post" in listing
-    client.post(_approve_url(opening))
+    _approve(client, opening)
 
     reader = APIClient()
     detail = reader.get(f"/api/v1/forum/topics/{topic.pk}/")

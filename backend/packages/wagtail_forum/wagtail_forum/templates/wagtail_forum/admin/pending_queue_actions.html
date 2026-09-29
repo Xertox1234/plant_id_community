@@ -3,6 +3,7 @@
     <div class="w-flex w-gap-2 w-items-center">
         <form method="post" action="{{ approve_url }}">
             {% csrf_token %}
+            <input type="hidden" name="revision" value="{{ revision_id }}">
             <button type="submit" class="button button-small">{% trans "Approve" %}</button>
         </form>
         {% if reject_url %}

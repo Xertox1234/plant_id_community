@@ -359,6 +359,23 @@ def _pending_kind(post):
     return KIND_EDIT
 
 
+def _reject_target(post):
+    """What Reject deletes, or None when it must not offer one.
+
+    A topic only while the topic itself is still pending: its delete removes
+    the thread and every reply, so it must never reach a live topic (an
+    opening post can still be a draft under a topic that went live another
+    way, for example published from the admin by a different author). A
+    never-published reply is deleted on its own. A held edit, or an opening
+    post whose topic is live, gets no Reject: deleting either would take
+    published content down, so the moderator opens it from the title link."""
+    topic = post.topic
+    if post.is_opening_post:
+        topic_pending = not topic.live and topic.first_published_at is None
+        return topic if topic_pending else None
+    return post if post.first_published_at is None else None
+
+
 def _pending_body(post):
     """The body waiting for approval: the latest revision's, not the row's.
     An edit to a live post exists only as a revision (the live row keeps its
@@ -426,10 +443,9 @@ def approve_pending_post(post, user):
 
 
 class PendingActionsColumn(Column):
-    """Approve (a POST form) and, for content never published, Reject: the
-    snippet delete view, with its own confirmation page, which returns here.
-    A held edit has no Reject: deleting would take down the live post, so a
-    moderator opens it from the title link instead."""
+    """Approve (a POST form carrying the revision the row shows) and, where
+    ``_reject_target`` allows one, Reject: the snippet delete view, with its
+    own confirmation page, which returns here."""
 
     cell_template_name = "wagtail_forum/admin/pending_queue_actions.html"
 
@@ -442,11 +458,11 @@ class PendingActionsColumn(Column):
         context["approve_url"] = reverse(
             "wagtail_forum_pending:approve", args=[instance.pk]
         )
+        # The revision this row shows: Approve publishes only that one.
+        context["revision_id"] = instance.latest_revision_id or ""
         context["reject_url"] = None
-        kind = _pending_kind(instance)
-        if kind != KIND_EDIT:
-            # Rejecting a new topic removes the whole thread, not only its body.
-            target = instance.topic if kind == KIND_NEW_TOPIC else instance
+        target = _reject_target(instance)
+        if target is not None:
             delete_url = reverse(
                 type(target).snippet_viewset.get_url_name("delete"), args=[target.pk]
             )
@@ -509,17 +525,35 @@ class ApprovePendingView(View):
     """POST only: publish one pending post, and its topic for a new topic.
 
     The lookup goes through ``pending_posts()``, so a stale form for content
-    that was already decided 404s instead of publishing it again."""
+    that was already decided 404s instead of publishing it again.
+
+    The form carries the revision its row showed, and Approve publishes only
+    that one. An author can edit a held post again after the page loaded,
+    and the moderator must not publish text they never saw. The post row is
+    locked first, and the pending lookup runs after the lock as its own query,
+    so it sees whatever a concurrent approval (a double-click, a second
+    moderator) committed: that one 404s instead of publishing twice."""
 
     http_method_names = ["post"]
 
     def post(self, request, pk):
         if not user_can_moderate_pending(request.user):
             raise PermissionDenied
-        post = get_object_or_404(
-            pending_posts().select_related("topic", "latest_revision"), pk=pk
-        )
-        approve_pending_post(post, request.user)
+        with transaction.atomic():
+            get_object_or_404(Post.objects.select_for_update(), pk=pk)
+            post = get_object_or_404(
+                pending_posts().select_related("topic", "latest_revision"), pk=pk
+            )
+            if request.POST.get("revision") != str(post.latest_revision_id or ""):
+                messages.warning(
+                    request,
+                    gettext(
+                        "“%(title)s” changed after this page loaded. Review it again."
+                    )
+                    % {"title": post.topic.title},
+                )
+                return redirect("wagtail_forum_pending:index")
+            approve_pending_post(post, request.user)
         messages.success(
             request, gettext("Published “%(title)s”.") % {"title": post.topic.title}
         )

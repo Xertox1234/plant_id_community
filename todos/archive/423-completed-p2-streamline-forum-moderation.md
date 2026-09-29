@@ -203,3 +203,13 @@ knowledge of the Topic/Post model split.
   take-down, a report auto-hide, or an author API DELETE is not pending, and
   Approve 404s without publishing the held body. All three fail with the
   guard removed.
+
+### 2026-09-28 - Owner-approved fix after review round 2 (PR #886)
+
+- Round 2 blocked on a high: Reject linked to the Topic delete view for a draft opening post under a
+  live topic, which would delete a live thread and its replies. `_reject_target` now deletes a topic
+  only while the topic itself is pending, and gives no Reject for a draft opening post of a live topic.
+- The owner also chose to fix the stale Approve. The form carries the revision its row showed, and
+  Approve publishes only that one. The post row is locked, and the pending lookup runs after the lock,
+  so a double Approve publishes once.
+- Non-blocking findings from both rounds are in todo 495.
