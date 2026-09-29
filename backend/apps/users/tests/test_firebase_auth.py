@@ -271,8 +271,11 @@ class FirebaseTokenExchangeTestCase(TestCase):
 
     @patch("apps.users.firebase_auth_views.firebase_auth.verify_id_token")
     def test_firebase_verification_exception(self, mock_verify):
-        """Test error when Firebase verification raises an exception."""
-        # Mock Firebase verification exception
+        """A verification fault that is not the token's answers 503, not 401.
+
+        The mobile client signs out on an exchange 401 and waits out a 503
+        (todo 498), so a 401 here would sign everyone out during an outage.
+        """
         mock_verify.side_effect = Exception("Firebase service unavailable")
 
         response = self.client.post(
@@ -284,9 +287,42 @@ class FirebaseTokenExchangeTestCase(TestCase):
             format="json",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
-        self.assertIn("error", response.data)
-        self.assertEqual(response.data["error"], "Token verification failed")
+        self.assertEqual(response.status_code, status.HTTP_503_SERVICE_UNAVAILABLE)
+        self.assertEqual(response.data["code"], "verifier_unavailable")
+
+    @patch("apps.users.firebase_auth_views.firebase_auth.verify_id_token")
+    def test_certificate_fetch_failure_is_503_not_401(self, mock_verify):
+        """Google's public certs unreachable: our outage, not a refused token."""
+        mock_verify.side_effect = firebase_auth.CertificateFetchError(
+            "Failed to fetch public key certificates", cause=None
+        )
+
+        response = self.client.post(
+            self.url, {"firebase_token": self.firebase_token}, format="json"
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_503_SERVICE_UNAVAILABLE)
+        self.assertEqual(response.data["code"], "verifier_unavailable")
+
+    @patch("apps.users.firebase_auth_views.firebase_auth.verify_id_token")
+    def test_uninitialized_firebase_app_is_503_not_401(self, mock_verify):
+        """A broken Admin setup (the 2026-09-13 outage shape) is 503, not 401."""
+        mock_verify.side_effect = ValueError("The default Firebase app does not exist.")
+
+        response = self.client.post(
+            self.url, {"firebase_token": self.firebase_token}, format="json"
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_503_SERVICE_UNAVAILABLE)
+        self.assertEqual(response.data["code"], "verifier_unavailable")
+
+    @patch("apps.users.firebase_auth_views.firebase_auth.verify_id_token")
+    def test_non_string_token_is_400_and_never_verified(self, mock_verify):
+        """A malformed body is the client's error, never an outage-shaped 503."""
+        response = self.client.post(self.url, {"firebase_token": 12345}, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        mock_verify.assert_not_called()
 
     @patch("apps.users.firebase_auth_views.firebase_auth.verify_id_token")
     def test_update_display_name_for_existing_user(self, mock_verify):
@@ -350,6 +386,23 @@ class FirebaseTokenExchangeTestCase(TestCase):
         # Verify display name was NOT changed
         user = User.objects.get(email="test@example.com")
         self.assertEqual(user.first_name, "Original Name")
+
+    @patch("apps.users.firebase_auth_views.firebase_auth.verify_id_token")
+    def test_stale_bearer_does_not_block_the_exchange(self, mock_verify):
+        """Todo 498 finding 9: the exchange is how a client replaces an
+        expired access token, so an expired or garbage bearer riding along
+        must not 401 it before the view verifies the Firebase token."""
+        mock_verify.return_value = self.decoded_token
+        self.client.credentials(HTTP_AUTHORIZATION="Bearer not-a-valid-jwt")
+
+        response = self.client.post(
+            self.url,
+            {"firebase_token": self.firebase_token},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIn("access_token", response.data)
 
     @patch("apps.users.firebase_auth_views.firebase_auth.verify_id_token")
     def test_jwt_tokens_are_valid(self, mock_verify):
@@ -966,7 +1019,10 @@ class FirebaseTokenExchangeRateLimitTestCase(TestCase):
 
 
 class FirebaseInitFailureTestCase(TestCase):
-    """A broken Firebase bootstrap must degrade to a handled 401, never a 500.
+    """A broken Firebase bootstrap must degrade to a handled 503, never a 500.
+
+    503, not 401 (todo 498): the mobile client signs out on an exchange 401,
+    so a bootstrap fault answered 401 would sign every refreshing user out.
 
     todo 253 slice 6 review: credentials.Certificate() raises eagerly on a
     missing/malformed file, and _ensure_firebase_initialized() runs outside
@@ -990,11 +1046,12 @@ class FirebaseInitFailureTestCase(TestCase):
         reset_firebase()
 
     @override_settings(FIREBASE_CREDENTIALS_PATH="/nonexistent/creds.json")
-    def test_bad_credentials_path_yields_401_not_500(self):
+    def test_bad_credentials_path_yields_503_not_500(self):
         response = self.client.post(
             self.url, {"firebase_token": "some-token"}, format="json"
         )
 
         # Verification legitimately fails (no usable credentials), but as the
-        # endpoint's own handled auth error — not a server error.
-        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+        # endpoint's own handled outage — not a crash, and not a refusal.
+        self.assertEqual(response.status_code, status.HTTP_503_SERVICE_UNAVAILABLE)
+        self.assertEqual(response.data["code"], "verifier_unavailable")

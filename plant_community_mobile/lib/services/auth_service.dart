@@ -1,6 +1,6 @@
 import 'dart:async';
 
-import 'package:dio/dio.dart' show Options;
+import 'package:dio/dio.dart' show Options, Response;
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
 import 'package:google_sign_in/google_sign_in.dart';
@@ -157,8 +157,9 @@ class AuthService extends _$AuthService {
         // signOut()'s own clearOnLogout). No network call (todo 253 slice 6).
         ref.read(pushRegistrationServiceProvider).detach();
         _authGeneration++;
-        await _clearJWT();
+        // Before the await, so the API session ends with the generation.
         ref.read(apiServiceProvider).setAuthToken(null);
+        await _clearJWT();
         final signedOutMessage = _pendingSignedOutMessage;
         _pendingSignedOutMessage = null;
         state = AuthState(error: signedOutMessage);
@@ -368,6 +369,11 @@ class AuthService extends _$AuthService {
       // generation check, or it could complete during the clear below and
       // fire a fresh push registration that undoes it (slice-6 review).
       _authGeneration++;
+      // And end the API session now, not at the setAuthToken(null) below: a
+      // refresh that finishes during the clear is overtaken by this sign-out
+      // and must not report "Your session expired" (todo 498). The token
+      // stays set, because the clear still needs it.
+      ref.read(apiServiceProvider).endSession();
 
       // Clear the FCM token server-side BEFORE Firebase sign-out — the PATCH
       // needs the still-valid JWT. Best-effort with an internal timeout; it
@@ -465,8 +471,11 @@ class AuthService extends _$AuthService {
         return;
       }
 
-      // Update ApiService with new token
-      apiService.setAuthToken(jwtToken);
+      // Update ApiService with new token. The setAuthToken(null) above
+      // opened this user's session; the JWT completes it rather than starting
+      // another, so a request sent in between still re-sends with it (todo
+      // 498).
+      apiService.replaceAuthToken(jwtToken);
 
       // Update state
       state = state.copyWith(firebaseUser: user, jwtToken: jwtToken);
@@ -554,17 +563,40 @@ class AuthService extends _$AuthService {
     }
   }
 
+  /// Firebase error codes that mean the account itself is gone or its
+  /// sign-in revoked: signing in again is the only way on. Every other code
+  /// (`network-request-failed`, `too-many-requests`, `internal-error`, ...)
+  /// may pass, so it keeps the user signed in (todo 498).
+  static const Set<String> _firebaseRefusalCodes = {
+    'user-disabled',
+    'user-not-found',
+    'user-token-expired',
+    'invalid-user-token',
+  };
+
+  /// Token-exchange statuses that refuse the session outright: an invalid
+  /// or unverified Firebase token (401/403) or an account that cannot be
+  /// linked (409).
+  static const Set<int> _exchangeRefusalStatuses = {401, 403, 409};
+
   /// Get a fresh Django access token after a 401, without signing out.
   ///
   /// Re-exchanges the current Firebase ID token, as launch does (owner
   /// decision on todo 462): `getIdToken()` hands back a refreshed Firebase
-  /// token when the cached one has expired. Returns the new access token, or
-  /// `null` when the session cannot be recovered, so ApiService signs out.
+  /// token when the cached one has expired.
+  ///
+  /// Returns the new access token; `null` when the session is refused
+  /// ([_firebaseRefusalCodes], [_exchangeRefusalStatuses], no Firebase user)
+  /// or overtaken by a sign-out, and ApiService signs out only for the
+  /// former. It THROWS for a failure that may pass (offline, timeout, 5xx,
+  /// 429, no Firebase token handed back), which keeps the user signed in:
+  /// "Users expect to stay logged in" (owner decision on todo 498).
   ///
   /// Deliberately NOT [_exchangeFirebaseTokenForJWT]: that one bumps
   /// [_authGeneration], clears the stored tokens and the bearer up front (so
   /// requests queued behind the refresh would go out anonymous) and re-runs
-  /// push registration, none of which a token refresh should do.
+  /// push registration, which a token refresh does only when it is what
+  /// completes the login (below).
   Future<String?> _refreshAccessToken() async {
     final user = _firebaseAuth.currentUser;
     if (user == null) {
@@ -572,19 +604,34 @@ class AuthService extends _$AuthService {
     }
     final generation = _authGeneration;
 
+    final String? firebaseToken;
     try {
-      final firebaseToken = await user.getIdToken();
-      if (firebaseToken == null || !_isCurrentExchange(user, generation)) {
+      firebaseToken = await user.getIdToken();
+    } on FirebaseAuthException catch (e) {
+      if (_firebaseRefusalCodes.contains(e.code)) {
+        if (kDebugMode) {
+          debugPrint('[AUTH] Access token refresh refused: ${e.code}');
+        }
         return null;
       }
+      rethrow;
+    }
+    if (!_isCurrentExchange(user, generation)) {
+      return null;
+    }
+    if (firebaseToken == null) {
+      throw AuthException('Firebase returned no ID token');
+    }
 
-      final response = await ref
+    final Response<dynamic> response;
+    try {
+      response = await ref
           .read(apiServiceProvider)
           .post(
             '/auth/firebase-token-exchange/',
             data: {'firebase_token': firebaseToken},
             // The exchange IS the refresh: a 401 on it must neither refresh
-            // again nor sign out on its own. The original request's failed
+            // again nor sign out on its own. The original request's refused
             // recovery signs out, exactly once. And it goes out with no
             // bearer: the backend authenticates the expired one before the
             // view runs and would 401 the exchange itself.
@@ -596,33 +643,47 @@ class AuthService extends _$AuthService {
               },
             ),
           );
-      final jwtToken = response.data['access_token'] as String?;
-      final refreshToken = response.data['refresh_token'] as String?;
-      if (jwtToken == null || !_isCurrentExchange(user, generation)) {
+    } on ApiException catch (e) {
+      if (_exchangeRefusalStatuses.contains(e.statusCode)) {
+        if (kDebugMode) {
+          debugPrint('[AUTH] Access token refresh refused: ${e.statusCode}');
+        }
         return null;
       }
-
-      await _secureStorage.write(key: _jwtKey, value: jwtToken);
-      if (refreshToken != null) {
-        await _secureStorage.write(key: _refreshTokenKey, value: refreshToken);
-      }
-      if (!_isCurrentExchange(user, generation)) {
-        await _clearJWTIfMatches(jwtToken, refreshToken);
-        return null;
-      }
-
-      ref.read(apiServiceProvider).setAuthToken(jwtToken);
-      state = state.copyWith(firebaseUser: user, jwtToken: jwtToken);
-      if (kDebugMode) {
-        debugPrint('[AUTH] Access token refreshed');
-      }
-      return jwtToken;
-    } catch (e) {
-      if (kDebugMode) {
-        debugPrint('[AUTH ERROR] Access token refresh failed: $e');
-      }
+      rethrow;
+    }
+    final jwtToken = response.data['access_token'] as String?;
+    final refreshToken = response.data['refresh_token'] as String?;
+    if (!_isCurrentExchange(user, generation)) {
       return null;
     }
+    if (jwtToken == null) {
+      throw AuthException('No JWT token in response');
+    }
+
+    await _secureStorage.write(key: _jwtKey, value: jwtToken);
+    if (refreshToken != null) {
+      await _secureStorage.write(key: _refreshTokenKey, value: refreshToken);
+    }
+    if (!_isCurrentExchange(user, generation)) {
+      await _clearJWTIfMatches(jwtToken, refreshToken);
+      return null;
+    }
+
+    // Same user, same session: the requests waiting on this refresh re-send
+    // with it (todo 498).
+    ref.read(apiServiceProvider).replaceAuthToken(jwtToken);
+    // The launch exchange failed and this refresh is what signed the user in,
+    // so it is also the login that registers push (todo 498).
+    final completesLogin = state.jwtToken == null;
+    state = state.copyWith(firebaseUser: user, jwtToken: jwtToken);
+    if (completesLogin) {
+      unawaited(ref.read(pushRegistrationServiceProvider).syncAfterLogin());
+    }
+    if (kDebugMode) {
+      debugPrint('[AUTH] Access token refreshed');
+    }
+    return jwtToken;
   }
 
   /// Clear authentication state after an unrecoverable API 401 response.
@@ -637,8 +698,11 @@ class AuthService extends _$AuthService {
     const message = 'Your session expired. Please sign in again.';
     _pendingSignedOutMessage = message;
     _authGeneration++;
-    await _clearJWT();
+    // Before any await: clearing the token ends the API session, so a 401
+    // that lands meanwhile sees the session over and does not start a second
+    // sign-out (todo 498).
     ref.read(apiServiceProvider).setAuthToken(null);
+    await _clearJWT();
     await _firebaseAuth.signOut();
 
     state = const AuthState(error: message);

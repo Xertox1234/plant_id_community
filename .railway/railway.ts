@@ -53,10 +53,15 @@ export default defineRailway(() => {
     // `&&` means a failed step skips the steps after it that night, and the
     // run shows as failed.
     //
+    // flushexpiredtokens (simplejwt's token_blacklist, todo 498) deletes
+    // the OutstandingToken rows of refresh tokens past their 7-day expiry.
+    // Every mobile token exchange mints one, about one per 15 minutes of use
+    // now that a 401 re-exchanges silently, and nothing else removes them.
+    //
     // expire_unverified_accounts (todo 447) runs with --dry-run until the
     // owner has read a night's "[PRUNE] unverified accounts: ..." counts; a
     // later owner PR drops the flag. It deletes accounts, so it goes last.
-    start: "/bin/sh -c \"python manage.py prune_forum_tombstones && python manage.py prune_link_preview_images && python manage.py expire_unverified_accounts --dry-run\"",
+    start: "/bin/sh -c \"python manage.py prune_forum_tombstones && python manage.py prune_link_preview_images && python manage.py flushexpiredtokens && python manage.py expire_unverified_accounts --dry-run\"",
     replicas: { "us-west2": 1 },
     deploy: { cronSchedule: "0 3 * * *", restartPolicyType: "NEVER" },
     env: { ALLOWED_HOSTS: preserve(), CORS_ALLOWED_ORIGINS: preserve(), CSRF_TRUSTED_ORIGINS: preserve(), DATABASE_URL: preserve(), DEBUG: preserve(), JWT_SECRET_KEY: preserve(), PLANT_ID_API_KEY: preserve(), R2_ACCESS_KEY_ID: preserve(), R2_BUCKET_NAME: preserve(), R2_CUSTOM_DOMAIN: preserve(), R2_ENDPOINT_URL: preserve(), R2_SECRET_ACCESS_KEY: preserve(), REDIS_URL: preserve(), SECRET_KEY: preserve(), SITE_URL: preserve(), USE_R2: preserve() },

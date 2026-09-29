@@ -24,14 +24,18 @@ class ApiService {
   static const String _retryAttemptKey = 'api_retry_attempt';
   static const String retryUnsafeRequestKey = 'retry_unsafe_request';
 
-  /// Request-extra flag: a 401 on this request must NOT trigger the
-  /// session-expired flow (used by sign-out's own best-effort FCM clear).
+  /// Request-extra flag: a 401 on this request never signs the user out, not
+  /// even after a refused refresh. It still refreshes the token and re-sends
+  /// the request once, unless [skipAuthRefreshKey] is also set (todo 498).
+  /// Set on sign-out's own best-effort FCM clear, which must still reach the
+  /// server when the access token expired while the app sat idle.
   static const String skipSessionExpiryKey = 'skip_session_expiry';
 
-  /// Request-extra flag: a 401 on this request goes straight to the
-  /// session-expired flow, with no silent token refresh first. Set on the
-  /// Firebase token exchange, which IS the refresh (todo 462): refreshing a
-  /// failed refresh would only repeat it.
+  /// Request-extra flag: a 401 on this request gets no silent token refresh.
+  /// Set on the Firebase token exchange, which IS the refresh (todo 462):
+  /// refreshing a failed refresh would only repeat it. On its own it goes
+  /// straight to the session-expired flow; with [skipSessionExpiryKey] the
+  /// 401 is only passed to the caller.
   static const String skipAuthRefreshKey = 'skip_auth_refresh';
 
   /// Request-extra flag: send this request with no `Authorization` header,
@@ -62,16 +66,32 @@ class ApiService {
   /// Bumped on every token change.
   int _authEpoch = 0;
 
-  /// Bumped when the token is cleared: every sign-out, session expiry and
-  /// sign-in passes through `setAuthToken(null)` first, so one session is one
-  /// signed-in user. A refresh replaces the token without clearing it, so it
-  /// stays in the same session.
+  /// One session is one signed-in user. Every [setAuthToken] call starts a
+  /// new one, whether it clears the token or sets it, so a sign-in path that
+  /// sets a token without clearing first still cannot inherit the last
+  /// user's requests (todo 498). Only [replaceAuthToken] (a refresh, or the
+  /// JWT of a sign-in that cleared first) keeps the session, and [endSession]
+  /// ends it while the token stays set.
   int _authSession = 0;
+
+  /// True only inside [replaceAuthToken], so its call to [setAuthToken] (the
+  /// one place the token changes, and what test fakes override) keeps the
+  /// session.
+  bool _replacingToken = false;
+
   Future<void> Function()? _onSessionExpired;
   Future<String?> Function()? _onRefreshAccessToken;
 
-  /// The one refresh every concurrent 401 waits on (todo 462).
-  Future<String?>? _refreshInFlight;
+  /// The one refresh every concurrent 401 of the current session waits on
+  /// (todo 462). Forgotten when the session ends, so the next user's first
+  /// 401 starts a refresh of its own instead of joining the last user's
+  /// (todo 498).
+  Future<_RefreshOutcome>? _refreshInFlight;
+
+  /// The session [_expiryInFlight] signs out, so every 401 of one session
+  /// shares a single sign-out (todo 498).
+  int? _expiringSession;
+  Future<void>? _expiryInFlight;
 
   ApiService({required this.baseUrl, String? authToken})
     : _authToken = authToken,
@@ -138,20 +158,6 @@ class ApiService {
           // Handle specific error cases
           switch (statusCode) {
             case 401:
-              // Requests that opt out (e.g. sign-out's own best-effort FCM
-              // clear on an already-expired JWT) must not convert an
-              // intentional sign-out into a "session expired" flow — the
-              // opt-out rides the REQUEST, so it also covers a response
-              // arriving after the caller's timeout abandoned it (todo 253
-              // slice 6 review sweep).
-              if (error.requestOptions.extra[skipSessionExpiryKey] == true) {
-                if (kDebugMode) {
-                  debugPrint(
-                    '[API ERROR] 401 on session-expiry-exempt request - ignored',
-                  );
-                }
-                break;
-              }
               return _recoverFromUnauthorized(error, handler);
 
             case 429:
@@ -260,8 +266,11 @@ class ApiService {
   }
 
   /// A 401 first tries to recover silently: refresh the access token, then
-  /// re-send the request once, with its body intact. Only a failed refresh (or
-  /// a second 401 on the re-sent request) signs the user out (todo 462).
+  /// re-send the request once, with its body intact (todo 462). Only a
+  /// refused refresh, or a second 401 on the re-sent request, signs the user
+  /// out. A refresh that fails for a transient reason (offline, timeout, 5xx,
+  /// 429) leaves them signed in and fails the request with that reason, so
+  /// the next 401 tries again (todo 498, owner decision).
   Future<void> _recoverFromUnauthorized(
     DioException error,
     ErrorInterceptorHandler handler,
@@ -278,10 +287,7 @@ class ApiService {
     if (_onRefreshAccessToken == null ||
         options.extra[skipAuthRefreshKey] == true ||
         options.extra[_authRetriedKey] == true) {
-      if (kDebugMode) {
-        debugPrint('[API ERROR] 401 Unauthorized - session expired');
-      }
-      await _handleSessionExpired();
+      await _expireSession(options);
       return handler.next(error);
     }
 
@@ -291,9 +297,32 @@ class ApiService {
     final tokenReplacedSinceSent =
         options.extra[_sentEpochKey] != _authEpoch && _authToken != null;
     if (!tokenReplacedSinceSent) {
-      final token = await _refreshAccessTokenOnce();
-      if (token == null || options.extra[_sentSessionKey] != _authSession) {
+      final outcome = await _refreshAccessTokenOnce();
+      // A sign-out or user switch overtook the refresh: nothing to retry, and
+      // nobody to sign out.
+      if (options.extra[_sentSessionKey] != _authSession) {
         return handler.next(error);
+      }
+      switch (outcome) {
+        case _Refreshed():
+          break;
+        case _Refused():
+          await _expireSession(options);
+          return handler.next(error);
+        case _Unavailable(:final reason):
+          // Surfaced as the refresh's own failure (a 503, a 429, no
+          // network), which handleDioException passes through as is, not as
+          // the 401's "Your session has expired".
+          return handler.next(
+            DioException(
+              requestOptions: options,
+              type: DioExceptionType.unknown,
+              error: reason,
+              message: reason.message,
+            ),
+          );
+        case _Superseded():
+          return handler.next(error);
       }
     }
 
@@ -318,43 +347,89 @@ class ApiService {
     }
   }
 
-  /// Every 401 that arrives while a refresh is running waits on that same
-  /// refresh, so N concurrent 401s cost one token exchange.
-  Future<String?> _refreshAccessTokenOnce() {
-    return _refreshInFlight ??= _runRefresh().whenComplete(() {
-      _refreshInFlight = null;
+  /// Every 401 of the current session that arrives while a refresh is
+  /// running waits on that same refresh, so N concurrent 401s cost one token
+  /// exchange.
+  Future<_RefreshOutcome> _refreshAccessTokenOnce() {
+    final running = _refreshInFlight;
+    if (running != null) {
+      return running;
+    }
+    late final Future<_RefreshOutcome> refresh;
+    refresh = _runRefresh(_authSession).whenComplete(() {
+      // A session change may already have replaced it with the next user's.
+      if (identical(_refreshInFlight, refresh)) {
+        _refreshInFlight = null;
+      }
     });
+    return _refreshInFlight = refresh;
   }
 
-  Future<String?> _runRefresh() async {
-    final sessionBefore = _authSession;
+  Future<_RefreshOutcome> _runRefresh(int session) async {
     String? token;
     try {
       token = await _onRefreshAccessToken?.call();
     } catch (error) {
       if (kDebugMode) {
-        debugPrint('[API AUTH] Token refresh failed: $error');
+        debugPrint('[API AUTH] Token refresh failed, not refused: $error');
       }
-      token = null;
-    }
-
-    // An explicit sign-out or a user switch while the refresh ran is not an
-    // expired session, and a token refreshed for the old user must not be
-    // installed for the new one.
-    if (_authSession != sessionBefore) {
-      return null;
-    }
-
-    if (token != null) {
-      if (token != _authToken) {
-        setAuthToken(token);
+      // An explicit sign-out or a user switch while the refresh ran is not a
+      // failure the user needs to hear about.
+      if (_authSession != session) {
+        return const _Superseded();
       }
-      return token;
+      return _Unavailable(
+        error is ApiException
+            ? error
+            : ApiException(
+                'Could not renew your session right now. Please check your '
+                'connection and try again.',
+              ),
+      );
     }
 
-    // Signed out once, here, for every waiter.
-    await _handleSessionExpired();
-    return null;
+    // A token refreshed for the old user must not be installed for the new
+    // one.
+    if (_authSession != session) {
+      return const _Superseded();
+    }
+
+    if (token == null) {
+      return const _Refused();
+    }
+    if (token != _authToken) {
+      replaceAuthToken(token);
+    }
+    return const _Refreshed();
+  }
+
+  /// Sign out after an unrecoverable 401 on a request sent under the current
+  /// session. Every 401 of one session shares one sign-out, however many
+  /// arrive at once (todo 498). A request marked [skipSessionExpiryKey]
+  /// never signs out.
+  Future<void> _expireSession(RequestOptions options) async {
+    if (options.extra[skipSessionExpiryKey] == true) {
+      if (kDebugMode) {
+        debugPrint(
+          '[API AUTH] 401 on a sign-out-exempt request; not signed out',
+        );
+      }
+      return;
+    }
+    final session = options.extra[_sentSessionKey] as int?;
+    if (session == _expiringSession) {
+      return _expiryInFlight ?? Future<void>.value();
+    }
+    if (kDebugMode) {
+      debugPrint('[API ERROR] 401 Unauthorized - session expired');
+    }
+    _expiringSession = session;
+    final expiry = _handleSessionExpired();
+    _expiryInFlight = expiry;
+    await expiry;
+    if (identical(_expiryInFlight, expiry)) {
+      _expiryInFlight = null;
+    }
   }
 
   Future<void> _handleSessionExpired() async {
@@ -372,16 +447,43 @@ class ApiService {
     }
   }
 
-  /// Update the authentication token
+  /// Set or clear the bearer token for a sign-in or sign-out.
   ///
-  /// Call this method after user login to inject JWT token
-  /// into all subsequent requests.
+  /// Either way this starts a new session (todo 498): a 401 on a request sent
+  /// before it is never refreshed, re-sent with this token, or turned into a
+  /// sign-out. A refreshed token for the same user goes through
+  /// [replaceAuthToken] instead.
   void setAuthToken(String? token) {
     _authToken = token;
     _authEpoch++;
-    if (token == null) {
-      _authSession++;
+    if (!_replacingToken) {
+      _startNewSession();
     }
+  }
+
+  /// Install a token for the session already under way, keeping it: a
+  /// refreshed token for the same user, so the 401s waiting on the refresh
+  /// re-send their requests with it, or the JWT of a sign-in that opened its
+  /// session with `setAuthToken(null)` first.
+  void replaceAuthToken(String token) {
+    _replacingToken = true;
+    try {
+      setAuthToken(token);
+    } finally {
+      _replacingToken = false;
+    }
+  }
+
+  /// End the signed-in session but keep the token for now. `signOut()` calls
+  /// this first: its FCM clear still needs the bearer, but from here on a
+  /// refresh that was running, or a 401 on a request already sent, is
+  /// overtaken by the sign-out and never reports an expired session (todo
+  /// 498).
+  void endSession() => _startNewSession();
+
+  void _startNewSession() {
+    _authSession++;
+    _refreshInFlight = null;
   }
 
   /// Register a callback that clears local auth state after failed recovery.
@@ -389,9 +491,13 @@ class ApiService {
     _onSessionExpired = onSessionExpired;
   }
 
-  /// Register the callback that gets a fresh access token after a 401: it
-  /// returns the new token, or `null` when the session cannot be recovered
-  /// (which signs the user out). Unset, a 401 signs out directly.
+  /// Register the callback that gets a fresh access token after a 401.
+  ///
+  /// It returns the new token, or `null` only when the server definitely
+  /// refused the session, which signs the user out. It THROWS for anything
+  /// transient (offline, timeout, 5xx, 429): the user stays signed in, the
+  /// request fails with that error, and the next 401 tries again (todo 498).
+  /// Unset, a 401 signs out directly.
   void setAccessTokenRefresher(Future<String?> Function()? refresher) {
     _onRefreshAccessToken = refresher;
   }
@@ -566,6 +672,12 @@ class ApiService {
   /// Convert DioException to user-friendly error message
   @visibleForTesting
   Exception handleDioException(DioException e) {
+    // A 401 whose refresh failed for a transient reason carries that
+    // failure, already in its final form (todo 498).
+    final carried = e.error;
+    if (carried is ApiException) {
+      return carried;
+    }
     switch (e.type) {
       case DioExceptionType.connectionTimeout:
       case DioExceptionType.sendTimeout:
@@ -671,6 +783,34 @@ class ApiException implements Exception {
   String toString() => statusCode != null
       ? 'ApiException($statusCode): $message'
       : 'ApiException: $message';
+}
+
+/// What one token refresh came to, for every 401 waiting on it (todo 498).
+sealed class _RefreshOutcome {
+  const _RefreshOutcome();
+}
+
+/// A new token is installed: re-send the request.
+final class _Refreshed extends _RefreshOutcome {
+  const _Refreshed();
+}
+
+/// The server definitely refused the session: sign out.
+final class _Refused extends _RefreshOutcome {
+  const _Refused();
+}
+
+/// The refresh failed for a reason that may pass (offline, timeout, 5xx,
+/// 429): stay signed in and fail the request with [reason].
+final class _Unavailable extends _RefreshOutcome {
+  const _Unavailable(this.reason);
+
+  final ApiException reason;
+}
+
+/// A sign-out or user switch overtook the refresh: neither.
+final class _Superseded extends _RefreshOutcome {
+  const _Superseded();
 }
 
 /// Riverpod provider for ApiService
