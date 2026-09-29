@@ -728,34 +728,111 @@ def _publish_logs(obj):
     return registry.get_logs_for_instance(obj).filter(action="wagtail.publish")
 
 
-def test_approve_clears_a_live_topics_own_held_edit_and_keeps_its_counters(client):
-    # Finding 1: the row used to stay listed after "Published" because only a
-    # never-published topic was published, so the topic's state never cleared.
+def test_a_live_topics_own_held_edit_is_not_listed_and_never_published(client):
+    # Finding 1, narrowed by the owner (2026-09-29): a row shows a post, so
+    # approving a live topic's own held edit from it would publish topic
+    # text the moderator never saw (a spam-held retitle). It used to stay
+    # listed after "Published"; now it is not a row at all, and Approve on
+    # its opening post publishes nothing.
     board = _board()
     author = _member("newbie")
     topic, opening = _live_topic(author, board)
     _hold_topic_edit(topic)
-    # A reply lands after the held edit's revision was saved: the row's
-    # reply_count is ahead of the revision's.
-    clean = Post(topic=topic, author=author, body=_body("clean reply"))
-    clean.save()
-    assert submit_for_moderation(clean, author) == "published"
+
+    assert not pending_posts().exists()
+    assert _pending_moderation_count() == 0
+    client.force_login(_moderator())
+    assert "Retitled" not in client.get(_page_url()).content.decode()
+
+    resp = _approve(client, opening)
+
+    assert resp.status_code == 302
+    assert any("already decided" in m for m in _messages(resp))
     topic.refresh_from_db()
-    assert topic.reply_count == 1
+    assert topic.title == "Live topic"  # the held retitle did not go live
+    assert topic.current_workflow_state is not None  # still held
+    assert _publish_logs(opening).count() == 1
+
+
+def test_a_live_opening_posts_held_edit_publishes_the_post_not_the_topic_edit(
+    client,
+):
+    # The opening post's own held edit is still a row. Approving it publishes
+    # that edit only: the topic's held retitle, which the row never showed,
+    # stays a draft (owner decision 2026-09-29).
+    board = _board()
+    author = _member("newbie")
+    topic, opening = _live_topic(author, board)
+    _pending_edit(author, opening, "held opening edit")
+    _hold_topic_edit(topic)
     assert list(pending_posts()) == [opening]
     client.force_login(_moderator())
 
     resp = _approve(client, opening)
 
     assert resp.status_code == 302
+    opening.refresh_from_db()
+    assert "held opening edit" in opening.body.raw_data[0]["value"]
     topic.refresh_from_db()
-    assert topic.current_workflow_state is None
-    assert topic.title.startswith("Retitled")  # the held edit is what went live
-    assert topic.reply_count == 1  # not the revision's stale 0
+    assert topic.title == "Live topic"
+    assert topic.current_workflow_state is not None
+    assert not pending_posts().exists()
+
+
+def test_a_held_edit_in_a_taken_down_topic_is_not_pending_and_approve_refuses(
+    client,
+):
+    # Approve would publish the edit into the hidden thread, and Reject has
+    # nothing it may delete (the post was published), so the edit is left
+    # out while the topic is down, and listed again once it is restored.
+    from wagtail.actions.unpublish import UnpublishAction
+
+    board = _board()
+    author = _member("newbie")
+    topic, opening = _live_topic(author, board)
+    reply = Post(topic=topic, author=author, body=_body("clean reply"))
+    reply.save()
+    assert submit_for_moderation(reply, author) == "published"
+    reply.refresh_from_db()
+    _pending_edit(author, reply, "held reply edit")
+    _pending_edit(author, opening, "held opening edit")
+    assert set(pending_posts()) == {reply, opening}
+
+    UnpublishAction(topic, user=_moderator("takedown-mod")).execute(
+        skip_permission_checks=True
+    )
+    topic.refresh_from_db()
+    assert topic.live is False
     assert not pending_posts().exists()
     assert _pending_moderation_count() == 0
-    # The opening post had nothing pending of its own (finding 4).
-    assert _publish_logs(opening).count() == 1
+    client.force_login(_moderator())
+
+    for post, text in ((reply, "held reply edit"), (opening, "held opening edit")):
+        resp = _approve(client, post)
+        assert resp.status_code == 302
+        post.refresh_from_db()
+        assert text not in post.body.raw_data[0]["value"]
+        assert post.current_workflow_state is not None
+
+    topic.save_revision().publish(skip_permission_checks=True)
+    assert set(pending_posts()) == {reply, opening}
+
+
+def test_approve_allowed_refuses_any_row_under_a_taken_down_topic():
+    # The view's second line of defence behind pending_posts(): nothing is
+    # approved into a taken-down topic, whatever the row.
+    from wagtail.actions.unpublish import UnpublishAction
+    from wagtail_forum.admin_views import _approve_allowed
+
+    board = _board()
+    author = _member("newbie")
+    topic, opening = _live_topic(author, board)
+    assert _approve_allowed(opening)
+    UnpublishAction(topic, user=_moderator("takedown-mod")).execute(
+        skip_permission_checks=True
+    )
+    opening.topic.refresh_from_db()
+    assert not _approve_allowed(opening)
 
 
 def test_a_taken_down_topic_with_a_held_edit_is_not_pending_and_stays_down(client):

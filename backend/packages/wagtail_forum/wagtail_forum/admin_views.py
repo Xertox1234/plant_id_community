@@ -300,17 +300,6 @@ KIND_OPENING_POST = _("Opening post")
 KIND_REPLY = _("Reply")
 KIND_EDIT = _("Edit")
 
-# The row-owned counters a Topic revision snapshots but no moderator edits:
-# publishing an older revision would write their old values back (todo 495).
-TOPIC_ROW_FIELDS = (
-    "reply_count",
-    "view_count",
-    "last_post_at",
-    "last_post_author",
-    "solved_post",
-    "solved_at",
-)
-
 
 def user_can_moderate_pending(user):
     """Approve publishes a post and, for an opening post, its topic, so the
@@ -348,14 +337,21 @@ def pending_posts():
       case), and approving the row publishes the topic.
     - A post with an active workflow state: a live post whose edit the spam
       check held (the live row keeps its approved body).
-    - The opening post of a topic with its own active state, for example a
-      spam-held admin edit of the topic, unless that topic was taken down:
-      approving the row publishes the topic's latest revision, which must
-      never bring back a thread someone removed (todo 495).
     - A live post with unpublished changes and no state (todo 495): an edit
       whose moderation step crashed. The workflow start is atomic, so the
       crash rolls its state back, and the API still tells the author the edit
       is pending.
+
+    A live topic's own held edit (a spam-held admin retitle, say) is not a
+    row (owner decision 2026-09-29, todo 495): a row shows a post, so Approve
+    would publish topic text the moderator never saw. It stays a draft
+    revision on the topic's own edit page.
+
+    An edit to a post that was published once is not pending while its topic
+    is taken down (todo 495): Approve would publish it into the hidden
+    thread, and Reject cannot delete published content. It is listed again
+    if the topic is restored. A never-published reply there stays listed,
+    with Reject only (``_approve_allowed``).
 
     A post that was published once and is no longer live is never pending,
     whatever else holds: a moderator took it down, the author deleted it, or
@@ -369,13 +365,8 @@ def pending_posts():
     the only states such a post can carry predate its take-down.
     """
     post_type = ContentType.objects.get_for_model(Post)
-    topic_type = ContentType.objects.get_for_model(Topic)
-    active = WorkflowState.objects.active()
-    post_state = active.filter(
+    post_state = WorkflowState.objects.active().filter(
         content_type=post_type, object_id=Cast(OuterRef("pk"), CharField())
-    )
-    topic_state = active.filter(
-        content_type=topic_type, object_id=Cast(OuterRef("topic_id"), CharField())
     )
     taken_down = Q(live=False, first_published_at__isnull=False)
     topic_taken_down = Q(topic__live=False, topic__first_published_at__isnull=False)
@@ -388,10 +379,10 @@ def pending_posts():
                 topic__first_published_at__isnull=True,
             )
             | Exists(post_state)
-            | (Q(is_opening_post=True) & Exists(topic_state) & ~topic_taken_down)
             | Q(live=True, has_unpublished_changes=True)
         )
         & ~taken_down
+        & ~(Q(first_published_at__isnull=False) & topic_taken_down)
     )
 
 
@@ -406,15 +397,11 @@ def _pending_kind(post):
 
 
 def _approve_allowed(post):
-    """False for a held reply whose topic was taken down (todo 495): Approve
-    would publish it into the hidden topic and notify subscribers with a
-    link that 404s. The row stays listed, with Reject only, so a moderator
-    still clears it."""
-    return not (
-        not post.is_opening_post
-        and post.first_published_at is None
-        and _taken_down(post.topic)
-    )
+    """False for any row whose topic was taken down (todo 495): Approve would
+    publish it into the hidden topic and notify subscribers with a link that
+    404s. Only a never-published reply is listed there (``pending_posts``),
+    and it keeps Reject, so a moderator still clears it."""
+    return not _taken_down(post.topic)
 
 
 def _reject_target(post):
@@ -489,16 +476,6 @@ def _author_trust(post):
     return _trust_level_label(post.author_trust_level)
 
 
-def _publish_topic_latest_revision(topic, user):
-    """Publish the topic's latest revision (the one its active state holds),
-    which cancels that state, and keep the row's counters: the revision
-    snapshotted them when it was saved (todo 495)."""
-    kept = {field: getattr(topic, field) for field in TOPIC_ROW_FIELDS}
-    revision = topic.latest_revision or topic.save_revision(user=user)
-    revision.publish(user=user, skip_permission_checks=True)
-    Topic.objects.filter(pk=topic.pk).update(**kept)
-
-
 def approve_pending_post(post, user):
     """Publish a pending post as ``user``. For a new topic, publish the topic
     and its opening post together.
@@ -511,18 +488,19 @@ def approve_pending_post(post, user):
     after the publish (todo 495).
 
     A live post with nothing pending of its own (a live opening post listed
-    for its topic) is not republished (todo 495): its latest revision can be
-    older than the row, and only the topic is waiting.
+    because its topic was never published) is not republished (todo 495): its
+    latest revision can be older than the row, and only the topic is waiting.
 
     The opening post going live already publishes its topic through the
     ``published`` receiver, but only for the same author: that is the IDOR
     guard an API author must not get around. Here a moderator is approving
-    the thread, so a topic still unpublished afterwards is published too. A
-    topic with its own active state (an admin edit the spam check held) has
-    its latest revision published, so the state clears and the row leaves
-    the queue (todo 495). A taken-down topic is never published.
-    ``skip_permission_checks``: the caller has checked ``publish`` on Post
-    and Topic, and approving the thread is that decision.
+    the thread, so a topic still unpublished afterwards is published too,
+    from its row: the title the page showed. A topic that was published
+    once is never published here, so neither a taken-down thread nor a live
+    topic's own held edit goes live from this page (owner decision
+    2026-09-29, todo 495). ``skip_permission_checks``: the caller has
+    checked ``publish`` on Post and Topic, and approving the thread is that
+    decision.
     """
     with transaction.atomic():
         if (
@@ -535,11 +513,7 @@ def approve_pending_post(post, user):
             Reaction.recount(post)
         if post.is_opening_post:
             topic = Topic.objects.select_for_update().get(pk=post.topic_id)
-            if _taken_down(topic):
-                return
-            if topic.current_workflow_state is not None:
-                _publish_topic_latest_revision(topic, user)
-            elif _topic_pending(topic):
+            if _topic_pending(topic):
                 topic.save_revision(user=user).publish(
                     user=user, skip_permission_checks=True
                 )

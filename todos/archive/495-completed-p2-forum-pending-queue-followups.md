@@ -143,3 +143,15 @@ fix. It found no blocking issues; PR #886 merged as 358d774a.
 ### 2026-09-29 - Completed by the todo sweep (run 2026-09-29-1448)
 
 - Archived by `land.py archive`; evidence is quoted above, review is on the PR.
+
+### 2026-09-29 - Owner-approved third round: F1 narrowed, taken-down edits closed
+
+Round 2 blocked PR #895 on a high: for a live topic with its own held edit, the row showed the live title and
+the post's body, yet Approve published the topic's held revision (a spam-held retitle the moderator never
+saw), and the stale-page check pinned only the post's revision. The owner chose to narrow F1 rather than
+patch it: a live topic's own held edit is no longer a row, and Approve never publishes a topic that was
+published before, so the held edit stays a draft on the topic's edit page. The owner also had the
+refuter-dismissed high closed: an edit to a published post under a taken-down topic is not pending (listed
+again once the topic is restored), and `_approve_allowed` refuses any row under a taken-down topic.
+Four mutation-checked tests pin both (relist the topic state, drop the exclusion, restore the old
+`_approve_allowed`, publish the topic's held revision on Approve): each caught.
