@@ -141,21 +141,50 @@ from that silently:
 3. The original request is re-sent once with the new token and its body
    intact. A multipart `FormData` is cloned first, because Dio will not send
    the same `FormData` twice.
-4. Only a failed refresh, or a second 401 on the re-sent request, signs the
-   user out, with the same "Your session expired. Please sign in again."
-   message as before. A refresh overtaken by a sign-out or user switch does
-   not report an expired session.
+4. Only a **refused** refresh, or a second 401 on the re-sent request, signs
+   the user out, with the same "Your session expired. Please sign in again."
+   message as before (todo 498, owner decision: "Users expect to stay logged
+   in"). Refused means the exchange answered 401, 403 or 409, Firebase
+   reported the account gone (`user-disabled`, `user-not-found`,
+   `user-token-expired`, `invalid-user-token`), or there is no Firebase user.
+   The refresher returns `null` for those.
+5. Any other failure is **transient**: offline, a timeout, a 5xx, a 429 from
+   the exchange's per-IP limit, a Firebase network error. The refresher
+   throws, the user stays signed in, and the request fails with that failure
+   (for example `ApiException(503)`, or a status-less "Could not renew your
+   session right now" when offline), never with the 401's "session expired".
+   The next 401 tries the refresh again.
+6. A refresh overtaken by a sign-out or user switch does not report an
+   expired session, and each session gets its own refresh: the next user's
+   first 401 never joins the last user's. All the 401s of one session share
+   a single sign-out.
 
-Request-extra flags opt out: `ApiService.skipSessionExpiryKey` ignores the
-401 entirely (sign-out's own FCM clear), and `ApiService.skipAuthRefreshKey`
-skips the refresh and goes straight to sign-out (the token exchange itself).
-`ApiService.omitAuthHeaderKey` sends the request with no bearer. The refresh's
-exchange carries it, because DRF authenticates any `Authorization: Bearer`
-before it checks `AllowAny`, so the expired token would 401 the exchange.
+Request-extra flags opt out, independently: `ApiService.skipSessionExpiryKey`
+means the 401 never signs out, though the request is still refreshed and
+re-sent once (sign-out's own FCM clear, so it still reaches the server when
+the token expired while the app sat idle). `ApiService.skipAuthRefreshKey`
+skips the refresh (the token exchange itself), and on its own goes straight
+to sign-out. `ApiService.omitAuthHeaderKey` sends the request with no bearer.
+The refresh's exchange carries it, because DRF authenticates any
+`Authorization: Bearer` before it checks `AllowAny`, so the expired token
+would 401 the exchange. The backend view now also runs no authenticator
+(`@authentication_classes([])`), so a stale bearer from any client is
+ignored there.
 
-A 401 for a request sent before a sign-out or user switch (the token was
-cleared since, which every sign-in does first) is not retried, refreshed or
-turned into a sign-out: re-sending it would act as whoever is signed in now.
+A session is one signed-in user. `setAuthToken` starts a new one every time
+it is called, with a token or with `null`, so a sign-in path that sets a
+token without clearing first cannot inherit the last user's requests. The
+refresh installs its token with `replaceAuthToken`, which keeps the session,
+and so does the sign-in exchange: its `setAuthToken(null)` opened the
+session, and the JWT completes it, so a request sent while the exchange ran
+is still re-sent with the JWT. `signOut()` calls `endSession()` first, which
+ends the session but keeps the token its FCM clear still needs. A 401 for a request sent under an ended
+session is not retried, refreshed or turned into a sign-out: re-sending it
+would act as whoever is signed in now.
+
+Each exchange mints a 7-day refresh token (an `OutstandingToken` row). The
+nightly `forum-prune-cron` runs `manage.py flushexpiredtokens` to delete the
+expired ones (`.railway/railway.ts`).
 
 **Production access lifetime: 15 minutes.** `SIMPLE_JWT["ACCESS_TOKEN_LIFETIME"]`
 reads `JWT_ACCESS_TOKEN_LIFETIME` with a default of 15
@@ -181,8 +210,9 @@ try {
   // Handle specific errors
   switch (e.statusCode) {
     case 401:
-      // Only after a failed token refresh (see above) - AuthService has
-      // already cleared local tokens and signed the user out
+      // Only after a refused token refresh (see above) - AuthService has
+      // already cleared local tokens and signed the user out. A transient
+      // refresh failure arrives as its own status (503, 429, or null).
       break;
     case 429:
       // Rate limited - show retry message

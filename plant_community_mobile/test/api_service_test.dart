@@ -350,9 +350,7 @@ void main() {
           api.get('/garden/beds/'),
         ];
         // Hold the refresh open until all three 401s have landed on it.
-        while (server.requests.length < 3) {
-          await Future<void>.delayed(const Duration(milliseconds: 5));
-        }
+        await waitUntil(() => server.requests.length >= 3, 'three 401s');
         await Future<void>.delayed(const Duration(milliseconds: 20));
         gate.complete();
         final responses = await Future.wait(calls);
@@ -370,9 +368,7 @@ void main() {
       server.hold('/slow/', slowGate.future);
 
       final slow = api.get('/slow/'); // goes out with the stale token
-      while (server.requests.isEmpty) {
-        await Future<void>.delayed(const Duration(milliseconds: 5));
-      }
+      await waitUntil(() => server.requests.isNotEmpty, 'the first request');
       expect((await api.get('/fast/')).statusCode, 200);
       expect(refreshCalls, 1);
 
@@ -412,9 +408,7 @@ void main() {
         for (var i = 0; i < 3; i++)
           api.get('/forum/topics/').then<Object?>((r) => r, onError: (e) => e),
       ];
-      while (server.requests.length < 3) {
-        await Future<void>.delayed(const Duration(milliseconds: 5));
-      }
+      await waitUntil(() => server.requests.length >= 3, 'three 401s');
       await Future<void>.delayed(const Duration(milliseconds: 20));
       gate.complete();
       final results = await Future.wait(calls);
@@ -520,9 +514,7 @@ void main() {
 
       // Sent as user A, whose token has expired.
       final write = api.post('/forum/posts/', data: {'body': 'from A'});
-      while (server.requests.isEmpty) {
-        await Future<void>.delayed(const Duration(milliseconds: 5));
-      }
+      await waitUntil(() => server.requests.isNotEmpty, 'the first request');
       // A signs out and B signs in while it is in flight.
       api.setAuthToken(null);
       api.setAuthToken('fresh');
@@ -546,9 +538,7 @@ void main() {
       server.hold('/forum/topics/', slowGate.future);
 
       final read = api.get('/forum/topics/');
-      while (server.requests.isEmpty) {
-        await Future<void>.delayed(const Duration(milliseconds: 5));
-      }
+      await waitUntil(() => server.requests.isNotEmpty, 'the first request');
       api.setAuthToken(null); // the user signed out
       slowGate.complete();
 
@@ -579,6 +569,216 @@ void main() {
       // B's token is still the one in use.
       expect((await api.get('/garden/beds/')).statusCode, 200);
       expect(server.requests.last.auth, 'Bearer fresh');
+    });
+
+    group('todo 498', () {
+      test('a transient refresh failure keeps the user signed in, fails the '
+          'request with that failure, and the next 401 refreshes '
+          'again', () async {
+        // Finding 1 (owner decision): only a refused refresh signs out.
+        var failNext = true;
+        api.setAccessTokenRefresher(() async {
+          refreshCalls++;
+          if (failNext) {
+            failNext = false;
+            throw ApiException(
+              'The server is temporarily unavailable. Please try again '
+              'shortly.',
+              statusCode: 503,
+            );
+          }
+          return 'fresh';
+        });
+
+        await expectLater(
+          api.post('/forum/topics/', data: {'title': 'my draft'}),
+          throwsA(
+            isA<ApiException>()
+                .having((e) => e.statusCode, 'statusCode', 503)
+                .having((e) => e.message, 'message', contains('try again')),
+          ),
+        );
+        expect(sessionExpiredCalls, 0, reason: 'a 503 signed the user out');
+
+        final retry = await api.post(
+          '/forum/topics/',
+          data: {'title': 'my draft'},
+        );
+        expect(retry.statusCode, 200);
+        expect(refreshCalls, 2, reason: 'the next 401 did not refresh');
+        expect(sessionExpiredCalls, 0);
+      });
+
+      test('a refresh that fails offline is a retryable error with no status, '
+          'not "session expired"', () async {
+        api.setAccessTokenRefresher(() async {
+          refreshCalls++;
+          throw const SocketException('Network is unreachable');
+        });
+
+        await expectLater(
+          api.get('/forum/topics/'),
+          throwsA(
+            isA<ApiException>()
+                .having((e) => e.statusCode, 'statusCode', isNull)
+                .having(
+                  (e) => e.message,
+                  'message',
+                  isNot(contains('session has expired')),
+                ),
+          ),
+        );
+        expect(refreshCalls, 1);
+        expect(sessionExpiredCalls, 0);
+      });
+
+      test('a refresh that finishes after the session ended (a sign-out in '
+          'progress) does not report an expired session', () async {
+        // Finding 2: signOut() ends the session before its FCM clear, and a
+        // refresh that lands during the clear is overtaken, not refused.
+        final gate = Completer<void>();
+        refreshTo(null, gate: gate.future);
+
+        final read = api.get('/forum/topics/');
+        await waitUntil(() => refreshCalls == 1, 'the refresh to start');
+        api.endSession(); // signOut() begins; the token is still set
+        gate.complete();
+
+        await expectLater(read, throwsA(isA<ApiException>()));
+        expect(sessionExpiredCalls, 0, reason: 'sign-out reported as expiry');
+        expect(server.requests, hasLength(1));
+      });
+
+      test('a request marked skipSessionExpiryKey refreshes and is re-sent, '
+          'so the logout FCM clear survives an expired token', () async {
+        // Finding 3: the flag suppresses only the sign-out.
+        refreshTo('fresh');
+
+        final response = await api.patch(
+          '/forum/me/profile/',
+          data: {'fcm_token': ''},
+          options: Options(extra: {ApiService.skipSessionExpiryKey: true}),
+        );
+
+        expect(response.statusCode, 200);
+        expect(refreshCalls, 1);
+        expect(server.requests.map((r) => r.auth), [
+          'Bearer stale',
+          'Bearer fresh',
+        ]);
+        expect(sessionExpiredCalls, 0);
+      });
+
+      test('a request marked skipSessionExpiryKey never signs out, even when '
+          'the refresh is refused', () async {
+        refreshTo(null);
+
+        await expectLater(
+          api.patch(
+            '/forum/me/profile/',
+            data: {'fcm_token': ''},
+            options: Options(extra: {ApiService.skipSessionExpiryKey: true}),
+          ),
+          throwsA(isA<ApiException>()),
+        );
+        expect(refreshCalls, 1);
+        expect(sessionExpiredCalls, 0);
+      });
+
+      test('the next user\'s first 401 starts its own refresh instead of '
+          'joining the last user\'s', () async {
+        // Finding 4: A's refresh is still running when A signs out and B
+        // signs in.
+        final gateA = Completer<void>();
+        api.setAccessTokenRefresher(() async {
+          refreshCalls++;
+          if (refreshCalls == 1) {
+            await gateA.future;
+            return 'refreshed-for-a';
+          }
+          return 'fresh';
+        });
+
+        final readA = api
+            .get('/forum/topics/')
+            .then<Object?>((r) => r, onError: (Object e) => e);
+        await waitUntil(() => refreshCalls == 1, "A's refresh to start");
+        api.setAuthToken(null); // A signs out
+        api.setAuthToken('b-expired'); // B signs in; B's token has expired
+        final readB = api
+            .get('/garden/beds/')
+            .then<Object?>((r) => r, onError: (Object e) => e);
+        await waitUntil(() => server.requests.length >= 2, "B's 401");
+        // Let B's request settle before A's refresh ends: joined to A's, it
+        // would still be waiting here.
+        await Future<void>.delayed(const Duration(milliseconds: 50));
+        gateA.complete();
+
+        final resultB = await readB;
+        expect(resultB, isA<Response>(), reason: 'B got no refresh of its own');
+        expect((resultB as Response).statusCode, 200);
+        expect(refreshCalls, 2);
+        expect(server.requests.last.auth, 'Bearer fresh');
+        expect(await readA, isA<ApiException>());
+        expect(sessionExpiredCalls, 0);
+      });
+
+      test('a token set without clearing first still starts a new session: '
+          'the last user\'s request is not re-sent with it', () async {
+        // Finding 10: setAuthToken() itself starts the session now, not only
+        // setAuthToken(null).
+        refreshTo('fresh');
+        final slowGate = Completer<void>();
+        server.hold('/forum/posts/', slowGate.future);
+
+        final write = api.post('/forum/posts/', data: {'body': 'from A'});
+        await waitUntil(() => server.requests.isNotEmpty, "A's write");
+        api.setAuthToken('fresh'); // B signs in directly, no clear first
+        slowGate.complete();
+
+        await expectLater(
+          write,
+          throwsA(
+            isA<ApiException>().having((e) => e.statusCode, 'statusCode', 401),
+          ),
+        );
+        expect(server.requests, hasLength(1), reason: "A's write re-sent as B");
+        expect(refreshCalls, 0);
+        expect(sessionExpiredCalls, 0);
+      });
+
+      test('a refreshed token keeps the session: requests waiting on the '
+          'refresh are re-sent with it', () async {
+        // The other half of finding 10: replaceAuthToken() is the refresh.
+        api.setAccessTokenRefresher(() async {
+          refreshCalls++;
+          api.replaceAuthToken('fresh');
+          return 'fresh';
+        });
+
+        final response = await api.get('/forum/topics/');
+
+        expect(response.statusCode, 200);
+        expect(server.requests.map((r) => r.auth), [
+          'Bearer stale',
+          'Bearer fresh',
+        ]);
+      });
+
+      test('concurrent 401s with no refresher sign out once', () async {
+        // Finding 7: every unrecoverable 401 of one session shares one
+        // sign-out.
+        final calls = [
+          for (var i = 0; i < 3; i++)
+            api
+                .get('/forum/topics/')
+                .then<Object?>((r) => r, onError: (Object e) => e),
+        ];
+        final results = await Future.wait(calls);
+
+        expect(results, everyElement(isA<ApiException>()));
+        expect(sessionExpiredCalls, 1);
+      });
     });
   });
 
@@ -643,6 +843,17 @@ void main() {
 ///   expect(response.data['species'], isNotNull);
 /// });
 /// ```
+
+/// Polls until [done] holds, and fails naming [what] after about two seconds
+/// instead of hanging until the suite timeout when a regression stops a
+/// request from arriving (todo 498).
+Future<void> waitUntil(bool Function() done, String what) async {
+  for (var poll = 0; poll < 400; poll++) {
+    if (done()) return;
+    await Future<void>.delayed(const Duration(milliseconds: 5));
+  }
+  fail('Timed out waiting for $what');
+}
 
 class _SeenRequest {
   _SeenRequest(this.method, this.path, this.auth, this.body);

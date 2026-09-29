@@ -159,6 +159,9 @@ class PushRegistrationService {
       // this PATCH's 401 must not convert an intentional sign-out into the
       // session-expired flow — even when the response lands after our
       // timeout abandoned it (Future.timeout abandons, Dio keeps going).
+      // It still refreshes the token and re-sends once, so a JWT that
+      // expired while the app sat idle (15 min in prod) does not leave this
+      // device receiving the signed-out user's pushes (todo 498).
       await _apiService
           .patch(
             _profilePath,

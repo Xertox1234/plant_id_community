@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: p3
 issue_id: "498"
 tags: [mobile, flutter, auth]
@@ -85,10 +85,10 @@ Line numbers are as of PR #891's head (681858bf).
 
 ## Acceptance Criteria
 
-- [ ] Findings 1–10 are fixed, or each has a line in this todo saying why not.
-- [ ] A transient refresh failure (offline, timeout, 5xx, 429) leaves the user signed in and their
+- [x] Findings 1–10 are fixed, or each has a line in this todo saying why not.
+- [x] A transient refresh failure (offline, timeout, 5xx, 429) leaves the user signed in and their
       request fails with a retryable error; only a refused refresh signs out (finding 1, owner decision).
-- [ ] Findings 1, 2, 3, 4 and 10 each have a test that fails when the fix is removed.
+- [x] Findings 1, 2, 3, 4 and 10 each have a test that fails when the fix is removed.
 
 ## Work Log
 
@@ -103,3 +103,46 @@ missing real-HTTP exchange test) were fixed by the round-1 repair's session guar
 The owner chose to keep users signed in through transient failures ("This is just a recipe app. Users
 expect to stay logged in."), and raised this todo to p3. Finding 10 was added from the kimi gate's
 WARNING on the round-1 repair commit, which was checked by hand and holds today.
+
+### 2026-09-29 - Implemented by the todo sweep (run 2026-09-29-1857)
+
+- Findings 1, 4, 7, 10 (`api_service.dart`): a refresh now ends refreshed, refused (the refresher returns `null`: exchange 401/403/409, a dead-account Firebase code, no Firebase user) or transient (the refresher throws). Only refused signs out; a transient failure fails the request with its own error (503, 429, or a status-less "Could not renew your session") and the next 401 refreshes again. `getIdToken()` returning `null` counts as transient: it is not a server refusal, and the owner chose staying signed in. The in-flight refresh is per session, every 401 of one session shares one sign-out, and `setAuthToken` starts a new session on every call. The refresh uses `replaceAuthToken`, which keeps it, and so does the launch exchange's JWT, which completes the session its own `setAuthToken(null)` opened; otherwise a request sent while the exchange ran would fail as "session expired" on a signed-in user.
+- Finding 2: `signOut()` calls the new `ApiService.endSession()` right after its generation bump, so a refresh that lands during `clearOnLogout` is overtaken, not refused. This is a session bump, not a `_signingOut` flag. Finding 3: `skipSessionExpiryKey` now suppresses only the sign-out and still refreshes and re-sends, so the logout FCM clear survives an expired token. Finding 6: a refresh that turns a failed launch into a login runs `syncAfterLogin`.
+- Finding 5: `manage.py flushexpiredtokens` added to the nightly `forum-prune-cron` in `.railway/railway.ts`, before `expire_unverified_accounts`; the exchange is unchanged (owner decision). Finding 9: `@authentication_classes([])` on `firebase_token_exchange`. Finding 8: the loopback tests poll through a bounded `waitUntil`.
+- Mutation-checked by hand, each restored from a copy: reverting each of findings 1 (both halves), 2, 3, 4, 6, 7, 10 (both halves) and 9 turns its new test red. Flutter: 918 pass, analyze clean, `auth_service.g.dart` regenerated (its source hash changed). Backend: `apps/users` + `apps/core/tests` 1832 pass.
+
+### 2026-09-29 - Verified by the todo sweep (run 2026-09-29-1857)
+
+- AC 1: `/bin/sh -c 'cd /Users/williamtower/projects/plant_id_community/.claude/worktrees/wf_a7249680-b5c-1/plant_community_mobile && flutter test test/api_service_test.dart test/services/auth_service_test.dart test/services/push_registration_service_test.dart && cd /Users/williamtower/projects/plant_id_community/.claude/worktrees/wf_a7249680-b5c-1/backend && python3 /Users/williamtower/projects/plant_id_community/.claude/worktrees/wf_a7249680-b5c-1/scripts/todos/slot_env.py 1 -- /Users/williamtower/projects/plant_id_community/backend/venv/bin/python -m pytest apps/users/tests/test_firebase_auth.py --create-db -q -p no:cacheprovider && grep -n -e flushexpiredtokens -e "authentication_classes(\[\])" /Users/williamtower/projects/plant_id_community/.claude/worktrees/wf_a7249680-b5c-1/.railway/railway.ts /Users/williamtower/projects/plant_id_community/.claude/worktrees/wf_a7249680-b5c-1/backend/apps/users/firebase_auth_views.py'` — evidence `.sweep-evidence/g1/498-ac0.txt`, last lines:
+
+  ```text
+  -- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+  ======================= 37 passed, 3 warnings in 27.77s ========================
+  /Users/williamtower/projects/plant_id_community/.claude/worktrees/wf_a7249680-b5c-1/.railway/railway.ts:56:    // flushexpiredtokens (simplejwt's token_blacklist, todo 498) deletes
+  /Users/williamtower/projects/plant_id_community/.claude/worktrees/wf_a7249680-b5c-1/.railway/railway.ts:64:    start: "/bin/sh -c \"python manage.py prune_forum_tombstones && python manage.py prune_link_preview_images && python manage.py flushexpiredtokens && python manage.py expire_unverified_accounts --dry-run\"",
+  /Users/williamtower/projects/plant_id_community/.claude/worktrees/wf_a7249680-b5c-1/backend/apps/users/firebase_auth_views.py:226:@authentication_classes([])
+  ```
+
+- AC 2: `cd /Users/williamtower/projects/plant_id_community/.claude/worktrees/wf_a7249680-b5c-1/plant_community_mobile && flutter test test/api_service_test.dart test/services/auth_service_test.dart --name "todo 498"` — evidence `.sweep-evidence/g1/498-ac1.txt`, last lines:
+
+  ```text
+
+  [API] *** Response ***
+  00:00 +20: /Users/williamtower/projects/plant_id_community/.claude/worktrees/wf_a7249680-b5c-1/plant_community_mobile/test/services/auth_service_test.dart: refused vs transient refresh failures (todo 498) over real HTTP, a request sent while the launch exchange runs is re-sent with the JWT it installs, not failed as expired
+  00:00 +21: /Users/williamtower/projects/plant_id_community/.claude/worktrees/wf_a7249680-b5c-1/plant_community_mobile/test/services/auth_service_test.dart: refused vs transient refresh failures (todo 498) a refresh that completes a login the launch exchange failed registers push
+  00:00 +22: All tests passed!
+  ```
+
+- AC 3: `python3 /Users/williamtower/projects/plant_id_community/.claude/worktrees/wf_a7249680-b5c-1/.sweep-evidence/g1/mutations_498.py` — evidence `.sweep-evidence/g1/498-ac2.txt`, last lines:
+
+  ```text
+      00:00 +100 ~3 -1: Some tests failed.
+  === F9-exchange-runs-authenticators: rc=1
+      FAILED apps/users/tests/test_firebase_auth.py::FirebaseTokenExchangeTestCase::test_stale_bearer_does_not_block_the_exchange
+      ================== 1 failed, 36 passed, 3 warnings in 27.44s ===================
+  restored all
+  ```
+
+### 2026-09-29 - Completed by the todo sweep (run 2026-09-29-1857)
+
+- Archived by `land.py archive`; evidence is quoted above, review is on the PR.

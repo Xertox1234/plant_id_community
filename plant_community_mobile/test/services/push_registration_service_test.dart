@@ -1,4 +1,6 @@
 import 'dart:async';
+import 'dart:convert';
+import 'dart:io';
 
 import 'package:dio/dio.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
@@ -214,6 +216,57 @@ void main() {
       fakeApi.patchError = ApiException('offline', statusCode: 503);
 
       await expectLater(service.clearOnLogout(), completes);
+    });
+
+    test('over real HTTP, a clear whose access token expired while the app '
+        'sat idle refreshes it and still clears, without a sign-out '
+        '(todo 498)', () async {
+      // Finding 3: skipSessionExpiryKey used to skip the refresh too, so the
+      // 401 left the FCM token registered and the device kept receiving the
+      // signed-out user's pushes.
+      final savedOverrides = HttpOverrides.current;
+      HttpOverrides.global = null;
+      addTearDown(() => HttpOverrides.global = savedOverrides);
+      final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+      addTearDown(() => server.close(force: true));
+      var accepted = 'first-token';
+      final seen = <(String, String?, Object?)>[];
+      server.listen((request) async {
+        final body = jsonDecode(await utf8.decodeStream(request));
+        final auth = request.headers.value(HttpHeaders.authorizationHeader);
+        seen.add((request.method, auth, body));
+        final ok = auth == 'Bearer $accepted';
+        request.response
+          ..statusCode = ok ? HttpStatus.ok : HttpStatus.unauthorized
+          ..headers.contentType = ContentType.json
+          ..write(jsonEncode(ok ? {} : {'detail': 'Token is expired'}));
+        await request.response.close();
+      });
+
+      final api = ApiService(
+        baseUrl: 'http://${server.address.host}:${server.port}',
+        authToken: 'first-token',
+      );
+      var refreshCalls = 0;
+      var sessionExpiredCalls = 0;
+      api.setAccessTokenRefresher(() async {
+        refreshCalls++;
+        return 'fresh';
+      });
+      api.setSessionExpiredHandler(() async => sessionExpiredCalls++);
+      final realService = _TestablePushRegistrationService(api, fakeMessaging);
+      addTearDown(realService.detach);
+      await realService.registerToken('device-token-1');
+      expect(realService.lastSyncedToken, 'device-token-1');
+
+      accepted = 'fresh'; // the access token expires server-side
+      await realService.clearOnLogout();
+
+      expect(refreshCalls, 1);
+      expect(sessionExpiredCalls, 0);
+      expect(seen.last.$1, 'PATCH');
+      expect(seen.last.$2, 'Bearer fresh', reason: 'the clear was not re-sent');
+      expect(seen.last.$3, {'fcm_token': ''});
     });
   });
 

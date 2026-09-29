@@ -352,6 +352,23 @@ class FirebaseTokenExchangeTestCase(TestCase):
         self.assertEqual(user.first_name, "Original Name")
 
     @patch("apps.users.firebase_auth_views.firebase_auth.verify_id_token")
+    def test_stale_bearer_does_not_block_the_exchange(self, mock_verify):
+        """Todo 498 finding 9: the exchange is how a client replaces an
+        expired access token, so an expired or garbage bearer riding along
+        must not 401 it before the view verifies the Firebase token."""
+        mock_verify.return_value = self.decoded_token
+        self.client.credentials(HTTP_AUTHORIZATION="Bearer not-a-valid-jwt")
+
+        response = self.client.post(
+            self.url,
+            {"firebase_token": self.firebase_token},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIn("access_token", response.data)
+
+    @patch("apps.users.firebase_auth_views.firebase_auth.verify_id_token")
     def test_jwt_tokens_are_valid(self, mock_verify):
         """Test that returned JWT tokens are valid and can be used for authentication."""
         # Mock Firebase token verification

@@ -31,7 +31,11 @@ from django.db import IntegrityError
 from firebase_admin import auth as firebase_auth
 from firebase_admin import credentials as firebase_credentials
 from rest_framework import status
-from rest_framework.decorators import api_view, permission_classes
+from rest_framework.decorators import (
+    api_view,
+    authentication_classes,
+    permission_classes,
+)
 from rest_framework.permissions import AllowAny
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -214,6 +218,12 @@ def _ensure_firebase_initialized() -> None:
 
 
 @api_view(["POST"])
+# The exchange trusts only the Firebase ID token in its body, so it runs no
+# authenticator: DRF's JWTAuthentication would otherwise reject a stale
+# bearer before the view ran and 401 the very exchange that replaces it.
+# The mobile refresh omits the header anyway; this is the server-side half
+# (todo 498 finding 9).
+@authentication_classes([])
 @permission_classes([AllowAny])
 @ratelimit(
     key=client_ip_key,

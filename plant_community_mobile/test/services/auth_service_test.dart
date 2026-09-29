@@ -488,6 +488,248 @@ void main() {
     });
   });
 
+  group('refused vs transient refresh failures (todo 498)', () {
+    Future<_Harness> signedIn({User? user}) async {
+      final harness = _Harness(currentUser: user ?? _FakeUser(uid: 'ada'));
+      addTearDown(harness.dispose);
+      await pumpEventQueue(); // the launch exchange (faked) settles
+      return harness;
+    }
+
+    for (final status in [401, 403, 409]) {
+      test('an exchange $status refuses the session: the refresher returns '
+          'null', () async {
+        final harness = await signedIn();
+        harness.api.postError = ApiException('refused', statusCode: status);
+
+        expect(await harness.api.accessTokenRefresher!(), isNull);
+      });
+    }
+
+    for (final status in [null, 429, 500, 503]) {
+      test('an exchange failing with ${status ?? 'no response'} is transient: '
+          'the refresher throws it rather than returning null', () async {
+        final harness = await signedIn();
+        final failure = ApiException('try again', statusCode: status);
+        harness.api.postError = failure;
+
+        await expectLater(
+          harness.api.accessTokenRefresher!(),
+          throwsA(same(failure)),
+        );
+        expect(harness.events, isNot(contains('firebase.signOut')));
+      });
+    }
+
+    test('a Firebase network error is transient, a disabled user is '
+        'refused', () async {
+      var code = 'network-request-failed';
+      final harness = await signedIn(
+        user: _FakeUser(
+          uid: 'ada',
+          getIdTokenOverride: () async {
+            throw FirebaseAuthException(code: code);
+          },
+        ),
+      );
+
+      await expectLater(
+        harness.api.accessTokenRefresher!(),
+        throwsA(isA<FirebaseAuthException>()),
+      );
+
+      code = 'user-disabled';
+      expect(await harness.api.accessTokenRefresher!(), isNull);
+    });
+
+    test('over real HTTP, a 503 from the exchange leaves the user signed in, '
+        'fails the request with the 503, and the next 401 refreshes '
+        'again', () async {
+      final backend = await _LoopbackBackend.start();
+      addTearDown(backend.close);
+      backend.exchangeStatus = HttpStatus.serviceUnavailable;
+      final harness = _Harness(
+        currentUser: _FakeUser(uid: 'ada'),
+        baseUrl: backend.baseUrl,
+      );
+      addTearDown(harness.dispose);
+      await pumpEventQueue();
+      var sessionExpiredCalls = 0;
+      final handler = harness.api.sessionExpiredHandler!;
+      harness.api.setSessionExpiredHandler(() async {
+        sessionExpiredCalls++;
+        await handler();
+      });
+      harness.api.realHttp = true;
+      harness.api.setAuthToken('expired');
+
+      await expectLater(
+        harness.api.get('/forum/topics/'),
+        throwsA(
+          isA<ApiException>().having((e) => e.statusCode, 'statusCode', 503),
+        ),
+      );
+      final state = harness.container.read(authServiceProvider);
+      expect(state.jwtToken, isNotNull, reason: 'a 503 signed the user out');
+      expect(state.error, isNull);
+      expect(harness.events, isNot(contains('firebase.signOut')));
+      expect(sessionExpiredCalls, 0);
+
+      backend.exchangeStatus = HttpStatus.ok;
+      final response = await harness.api.get('/forum/topics/');
+
+      expect(response.statusCode, 200);
+      expect(backend.seen.map((r) => r.$1), [
+        '/forum/topics/',
+        '/auth/firebase-token-exchange/',
+        '/forum/topics/',
+        '/auth/firebase-token-exchange/',
+        '/forum/topics/',
+      ]);
+      expect(harness.container.read(authServiceProvider).jwtToken, 'fresh');
+      expect(sessionExpiredCalls, 0);
+    });
+
+    test('over real HTTP, a refused exchange signs the user out once', () async {
+      final backend = await _LoopbackBackend.start();
+      addTearDown(backend.close);
+      backend.exchangeStatus = HttpStatus.forbidden;
+      final harness = _Harness(
+        currentUser: _FakeUser(uid: 'ada'),
+        baseUrl: backend.baseUrl,
+      );
+      addTearDown(harness.dispose);
+      await pumpEventQueue();
+      harness.api.realHttp = true;
+      harness.api.setAuthToken('expired');
+
+      await expectLater(
+        harness.api.get('/forum/topics/'),
+        throwsA(
+          isA<ApiException>().having((e) => e.statusCode, 'statusCode', 401),
+        ),
+      );
+      await pumpEventQueue();
+
+      final state = harness.container.read(authServiceProvider);
+      expect(state.jwtToken, isNull);
+      expect(state.error, 'Your session expired. Please sign in again.');
+      expect(
+        harness.events.where((e) => e == 'firebase.signOut'),
+        hasLength(1),
+      );
+    });
+
+    test('a refresh that finishes while signOut() is clearing the FCM token '
+        'does not report "session expired"', () async {
+      // Finding 2: signOut() cleared the API token only at its very end, so a
+      // refresh landing during clearOnLogout read as refused.
+      final backend = await _LoopbackBackend.start();
+      addTearDown(backend.close);
+      final exchangeGate = Completer<void>();
+      backend.holds['/auth/firebase-token-exchange/'] = exchangeGate.future;
+      final harness = _Harness(
+        currentUser: _FakeUser(uid: 'ada'),
+        baseUrl: backend.baseUrl,
+      );
+      addTearDown(harness.dispose);
+      await pumpEventQueue();
+      harness.api.realHttp = true;
+      harness.api.setAuthToken('expired');
+
+      final read = harness.api
+          .get('/forum/topics/')
+          .then<Object?>((r) => r, onError: (Object e) => e);
+      for (var poll = 0; backend.seen.length < 2; poll++) {
+        if (poll > 400) fail('the refresh never reached the exchange');
+        await Future<void>.delayed(const Duration(milliseconds: 5));
+      }
+
+      final logoutGate = Completer<void>();
+      harness.push.clearOnLogoutGate = logoutGate;
+      final signOut = harness.container
+          .read(authServiceProvider.notifier)
+          .signOut();
+      await pumpEventQueue();
+      exchangeGate.complete(); // the refresh finishes mid-clear
+      expect(await read, isA<ApiException>());
+      await pumpEventQueue();
+
+      expect(
+        harness.events,
+        isNot(contains('firebase.signOut')),
+        reason: 'the refresh signed out while signOut() held the clear',
+      );
+      expect(
+        harness.container.read(authServiceProvider).error,
+        isNot('Your session expired. Please sign in again.'),
+      );
+
+      logoutGate.complete();
+      await signOut;
+      final state = harness.container.read(authServiceProvider);
+      expect(state.error, isNull);
+      expect(state.jwtToken, isNull);
+      expect(
+        harness.events.where((e) => e == 'firebase.signOut'),
+        hasLength(1),
+      );
+    });
+
+    test('over real HTTP, a request sent while the launch exchange runs is '
+        're-sent with the JWT it installs, not failed as expired', () async {
+      // The launch exchange clears the token first (a new session). The JWT
+      // it then installs completes that session rather than starting
+      // another, or an anonymous request from the gap whose 401 lands after
+      // it would read as from an ended session.
+      final backend = await _LoopbackBackend.start();
+      addTearDown(backend.close);
+      final exchangeGate = Completer<void>();
+      final readGate = Completer<void>();
+      backend.holds['/auth/firebase-token-exchange/'] = exchangeGate.future;
+      backend.holds['/forum/topics/'] = readGate.future;
+      final harness = _Harness(baseUrl: backend.baseUrl);
+      addTearDown(harness.dispose);
+      harness.container.read(authServiceProvider);
+      harness.api.realHttp = true;
+
+      await harness.signIn(_FakeUser(uid: 'ada')); // the exchange is held
+      final read = harness.api.get('/forum/topics/'); // goes out anonymous
+      for (var poll = 0; backend.seen.length < 2; poll++) {
+        if (poll > 400) fail('the read never reached the server');
+        await Future<void>.delayed(const Duration(milliseconds: 5));
+      }
+      exchangeGate.complete();
+      for (var poll = 0; harness.api.currentToken != 'fresh'; poll++) {
+        if (poll > 400) fail('the launch exchange never installed its JWT');
+        await Future<void>.delayed(const Duration(milliseconds: 5));
+      }
+      readGate.complete(); // its 401 lands after the JWT is installed
+
+      expect((await read).statusCode, 200);
+      expect(backend.seen.last, ('/forum/topics/', 'Bearer fresh'));
+      expect(harness.events, isNot(contains('firebase.signOut')));
+    });
+
+    test('a refresh that completes a login the launch exchange failed '
+        'registers push', () async {
+      // Finding 6.
+      final harness = _Harness();
+      addTearDown(harness.dispose);
+      harness.api.postError = ApiException('server down', statusCode: 500);
+      harness.container.read(authServiceProvider);
+      await harness.signIn(_FakeUser(uid: 'ada'));
+      expect(harness.container.read(authServiceProvider).jwtToken, isNull);
+      expect(harness.push.calls, isNot(contains('syncAfterLogin')));
+
+      harness.api.postError = null;
+      expect(await harness.api.accessTokenRefresher!(), 'django-jwt');
+      await pumpEventQueue();
+
+      expect(harness.push.calls, contains('syncAfterLogin'));
+    });
+  });
+
   group('session-expiry exemption', () {
     test('signOut\'s FCM-clear PATCH carries skipSessionExpiryKey', () async {
       // Asserted through the REQUEST options, not a notifier flag — there is
@@ -843,6 +1085,66 @@ class _FakeUser implements User {
 
   @override
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
+
+/// A loopback backend for the refresh tests (todo 498): `Bearer fresh` is
+/// the only accepted token, and the token exchange answers
+/// [exchangeStatus], only when it carries no bearer, like the real view
+/// behind DRF's authenticators. [holds] delays the first response on a
+/// path.
+class _LoopbackBackend {
+  _LoopbackBackend._(this._server, this._savedOverrides) {
+    _server.listen(_handle);
+  }
+
+  static Future<_LoopbackBackend> start() async {
+    // Real loopback HTTP, not whatever HttpClient a test binding installed.
+    final saved = HttpOverrides.current;
+    HttpOverrides.global = null;
+    return _LoopbackBackend._(
+      await HttpServer.bind(InternetAddress.loopbackIPv4, 0),
+      saved,
+    );
+  }
+
+  final HttpServer _server;
+  final HttpOverrides? _savedOverrides;
+  final List<(String, String?)> seen = [];
+  int exchangeStatus = HttpStatus.ok;
+  final Map<String, Future<void>> holds = {};
+
+  String get baseUrl => 'http://${_server.address.host}:${_server.port}';
+
+  Future<void> _handle(HttpRequest request) async {
+    await request.drain<void>();
+    final auth = request.headers.value(HttpHeaders.authorizationHeader);
+    seen.add((request.uri.path, auth));
+    final hold = holds.remove(request.uri.path);
+    if (hold != null) await hold;
+    final isExchange = request.uri.path == '/auth/firebase-token-exchange/';
+    int status;
+    Object body;
+    if (isExchange) {
+      status = auth != null ? HttpStatus.unauthorized : exchangeStatus;
+      body = status == HttpStatus.ok
+          ? {'access_token': 'fresh', 'refresh_token': 'refresh'}
+          : {'error': 'exchange failed'};
+    } else {
+      final ok = auth == 'Bearer fresh';
+      status = ok ? HttpStatus.ok : HttpStatus.unauthorized;
+      body = ok ? {'ok': true} : {'detail': 'Token is expired'};
+    }
+    request.response
+      ..statusCode = status
+      ..headers.contentType = ContentType.json
+      ..write(jsonEncode(body));
+    await request.response.close();
+  }
+
+  Future<void> close() async {
+    await _server.close(force: true);
+    HttpOverrides.global = _savedOverrides;
+  }
 }
 
 /// Only the members the real [PushRegistrationService] touches; anything else
