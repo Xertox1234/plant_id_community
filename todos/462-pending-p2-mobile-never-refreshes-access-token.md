@@ -5,8 +5,8 @@ issue_id: "462"
 tags: [mobile, flutter, auth, bug]
 dependencies: []
 source_review: "todos/archive/444-completed-p3-mobile-diagnose-missing.md"
-triage: needs-design
-triaged: 2026-09-28
+triage: ready
+triaged: 2026-09-29
 blocked_on: "Owner picks the recovery path (Firebase re-exchange vs a bearer-friendly refresh endpoint) and supplies the prod JWT_ACCESS_TOKEN_LIFETIME."
 owner_decision: "Recover a 401 by re-exchanging the Firebase ID token (mobile only, reuses the launch path); prod JWT_ACCESS_TOKEN_LIFETIME not supplied, so read it from settings (2026-09-28)"
 ---
