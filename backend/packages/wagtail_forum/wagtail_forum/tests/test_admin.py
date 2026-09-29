@@ -127,11 +127,12 @@ def test_moderation_summary_item_counts_spam_rejected_post(client):
 
     # Audit 2026-07-17 M1: the panel link is resolved via the snippet
     # viewset's URL name, not hardcoded to the /cms/ mount.
-    # Todo 422: it lands on the Posts list, where the counted items live.
+    # Todo 423: it lands on the pending-content page, whose rows are exactly
+    # what the count counts (it pointed at the Posts list before).
     from django.urls import reverse
 
-    expected_url = reverse(Post.snippet_viewset.get_url_name("list"))
-    assert f'href="{expected_url}?live=false"'.encode() in resp.content
+    expected_url = reverse("wagtail_forum_pending:index")
+    assert f'href="{expected_url}"'.encode() in resp.content
 
 
 @pytest.mark.django_db
