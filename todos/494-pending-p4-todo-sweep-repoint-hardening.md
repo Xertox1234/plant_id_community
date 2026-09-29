@@ -50,7 +50,31 @@ collected here.
       `TransitionError` naming the problem.
     - A re-verify wave that clashes with a `failed` group in the wave before gets "wait for that wave
       to merge". That group never merges until it is retried or blocked, so say so.
-11. **Tests.**
+11. **`--reverify` can still re-judge a rejected tree (medium, round 2 of the second cycle).** The
+    failed → ready retry keeps the rejected attempt's work fields. If its fresh worker then blocks with
+    empty `worktree`/`tree_id` strings, `ingest_execute` keeps the old ones and records
+    `blocked_by: worker`, so `--reverify` re-judges the rejected tree after the retry was spent.
+    Require `attempts == 0` in `reopen_reverify`, and move the work fields and `repoints` to `previous`
+    on the failed → ready edge (which also closes finding 2).
+12. **Runs written before PR #885 have no `blocked_by`,** so `--reverify` refuses a todo whose first
+    worker did block it (todo 423 in run 2026-09-28-2018). Document the one-time backfill,
+    `state.py annotate $RUN <group> --field blocked_by=worker`, allowed only for attempts 0, no
+    verdict, and a reason that is the worker's blockers.
+13. **More error text.**
+    - `_refuse_shared_worktree` says "reopen it without --reverify" when `execute-args` raises it. By
+      then the todo is `ready`, so the recovery is to block it, then reopen it.
+    - `execute-args` on a re-verify whose worktree has vanished fails inside `git write-tree`. Check
+      the directory first and name the recovery.
+14. **A dead verifier strands a re-verify.** Two null verdicts make the todo `failed` ("no verdict").
+    It can then never be re-verified, although no verifier judged its tree. Allow that case, or say
+    so in the runbook.
+15. **`review_args` takes `evidence_dir` from `ac_file` for every group.** An absolute or bare
+    `ac_file` from a worker turns the repair worker's `EVIDENCE_DIR` into an absolute path or the
+    worktree root. Use `dirname(ac_file)` only when it is relative and under `.sweep-evidence/`.
+16. **Two unmerged PRs can pick the same re-point target number** (a second re-verify, or the
+    closing follow-ups PR). `repoint` checks only origin/main and HEAD. Also refuse a number another
+    todo in the run already uses as a target.
+17. **Tests.**
     - Nothing checks the record `reverifyWorker` builds against the WORKER schema. A missing `branch`
       would make `ingest_execute` raise a KeyError.
     - The non-numeric target check (`to="../8"`) would pass without the `isdigit` guard, because the
@@ -65,9 +89,11 @@ collected here.
 
 ## Acceptance Criteria
 
-- [ ] Findings 1–6 and 8–10 are fixed, or each has a line in this todo saying why not.
-- [ ] Each gap in finding 11 has a test that fails when the guard it names is removed.
+- [ ] Findings 1–6, 8–10 and 11–16 are fixed, or each has a line in this todo saying why not.
+- [ ] Each gap in finding 17 has a test that fails when the guard it names is removed.
 
 ## Work Log
 
 ### 2026-09-28 - Filed from PR #885 review rounds 1 and 2
+
+Findings 11–16 come from round 2 of the second review cycle, which never repairs.
