@@ -28,10 +28,50 @@ class ApiService {
   /// session-expired flow (used by sign-out's own best-effort FCM clear).
   static const String skipSessionExpiryKey = 'skip_session_expiry';
 
+  /// Request-extra flag: a 401 on this request goes straight to the
+  /// session-expired flow, with no silent token refresh first. Set on the
+  /// Firebase token exchange, which IS the refresh (todo 462): refreshing a
+  /// failed refresh would only repeat it.
+  static const String skipAuthRefreshKey = 'skip_auth_refresh';
+
+  /// Request-extra flag: send this request with no `Authorization` header,
+  /// even while a bearer token is set. Set on the refresh's token exchange:
+  /// the backend authenticates any bearer before the view runs, so the expired
+  /// token it would otherwise carry turns the exchange into a 401 (todo 462).
+  static const String omitAuthHeaderKey = 'omit_auth_header';
+
+  /// Set on a request once it has been retried after a refresh, so a second
+  /// 401 signs out instead of refreshing again.
+  static const String _authRetriedKey = 'auth_retried';
+
+  /// The [_authEpoch] the request went out under, so a 401 can tell "my
+  /// token is stale, someone already refreshed it" from "the current token is
+  /// rejected". An epoch, not the token: LogInterceptor prints `extra` in
+  /// debug builds, and the bearer token must never reach a log.
+  static const String _sentEpochKey = 'auth_epoch';
+
+  /// The [_authSession] the request went out under. A 401 for a request from
+  /// an ended session (sign-out, user switch) is never retried under the new
+  /// session's token, and never refreshes or signs anyone out.
+  static const String _sentSessionKey = 'auth_session';
+
   final Dio _dio;
   final String baseUrl;
   String? _authToken;
+
+  /// Bumped on every token change.
+  int _authEpoch = 0;
+
+  /// Bumped when the token is cleared: every sign-out, session expiry and
+  /// sign-in passes through `setAuthToken(null)` first, so one session is one
+  /// signed-in user. A refresh replaces the token without clearing it, so it
+  /// stays in the same session.
+  int _authSession = 0;
   Future<void> Function()? _onSessionExpired;
+  Future<String?> Function()? _onRefreshAccessToken;
+
+  /// The one refresh every concurrent 401 waits on (todo 462).
+  Future<String?>? _refreshInFlight;
 
   ApiService({required this.baseUrl, String? authToken})
     : _authToken = authToken,
@@ -56,7 +96,11 @@ class ApiService {
     _dio.interceptors.add(
       InterceptorsWrapper(
         onRequest: (options, handler) {
-          if (_authToken != null) {
+          options.extra[_sentEpochKey] = _authEpoch;
+          options.extra[_sentSessionKey] = _authSession;
+          if (options.extra[omitAuthHeaderKey] == true) {
+            options.headers.remove('Authorization');
+          } else if (_authToken != null) {
             options.headers['Authorization'] = 'Bearer $_authToken';
           }
           return handler.next(options);
@@ -108,11 +152,7 @@ class ApiService {
                 }
                 break;
               }
-              if (kDebugMode) {
-                debugPrint('[API ERROR] 401 Unauthorized - session expired');
-              }
-              await _handleSessionExpired();
-              break;
+              return _recoverFromUnauthorized(error, handler);
 
             case 429:
               // Rate limited - extract retry-after header
@@ -219,6 +259,104 @@ class ApiService {
     return Duration(milliseconds: baseDelayMs.clamp(250, 2000));
   }
 
+  /// A 401 first tries to recover silently: refresh the access token, then
+  /// re-send the request once, with its body intact. Only a failed refresh (or
+  /// a second 401 on the re-sent request) signs the user out (todo 462).
+  Future<void> _recoverFromUnauthorized(
+    DioException error,
+    ErrorInterceptorHandler handler,
+  ) async {
+    final options = error.requestOptions;
+    // Sent under a session that has since ended: re-sending it would act as
+    // whoever is signed in now, and its 401 says nothing about their token.
+    if (options.extra[_sentSessionKey] != _authSession) {
+      if (kDebugMode) {
+        debugPrint('[API AUTH] 401 from an ended session; not retried');
+      }
+      return handler.next(error);
+    }
+    if (_onRefreshAccessToken == null ||
+        options.extra[skipAuthRefreshKey] == true ||
+        options.extra[_authRetriedKey] == true) {
+      if (kDebugMode) {
+        debugPrint('[API ERROR] 401 Unauthorized - session expired');
+      }
+      await _handleSessionExpired();
+      return handler.next(error);
+    }
+
+    // A request that went out with a token which has since been replaced
+    // (a concurrent 401 already refreshed it) retries with the new one
+    // rather than refreshing again.
+    final tokenReplacedSinceSent =
+        options.extra[_sentEpochKey] != _authEpoch && _authToken != null;
+    if (!tokenReplacedSinceSent) {
+      final token = await _refreshAccessTokenOnce();
+      if (token == null || options.extra[_sentSessionKey] != _authSession) {
+        return handler.next(error);
+      }
+    }
+
+    options.extra[_authRetriedKey] = true;
+    // A multipart body is a one-shot stream: Dio refuses to send the same
+    // FormData twice, so re-send a clone (the photo, not a lost input).
+    final data = options.data;
+    if (data is FormData) {
+      options.data = data.clone();
+    }
+    if (kDebugMode) {
+      debugPrint(
+        '[API AUTH] Retrying ${options.method} ${options.path} after refresh',
+      );
+    }
+    try {
+      // fetch() re-runs onRequest, which attaches the fresh bearer token.
+      final response = await _dio.fetch<dynamic>(options);
+      return handler.resolve(response);
+    } on DioException catch (retryError) {
+      return handler.next(retryError);
+    }
+  }
+
+  /// Every 401 that arrives while a refresh is running waits on that same
+  /// refresh, so N concurrent 401s cost one token exchange.
+  Future<String?> _refreshAccessTokenOnce() {
+    return _refreshInFlight ??= _runRefresh().whenComplete(() {
+      _refreshInFlight = null;
+    });
+  }
+
+  Future<String?> _runRefresh() async {
+    final sessionBefore = _authSession;
+    String? token;
+    try {
+      token = await _onRefreshAccessToken?.call();
+    } catch (error) {
+      if (kDebugMode) {
+        debugPrint('[API AUTH] Token refresh failed: $error');
+      }
+      token = null;
+    }
+
+    // An explicit sign-out or a user switch while the refresh ran is not an
+    // expired session, and a token refreshed for the old user must not be
+    // installed for the new one.
+    if (_authSession != sessionBefore) {
+      return null;
+    }
+
+    if (token != null) {
+      if (token != _authToken) {
+        setAuthToken(token);
+      }
+      return token;
+    }
+
+    // Signed out once, here, for every waiter.
+    await _handleSessionExpired();
+    return null;
+  }
+
   Future<void> _handleSessionExpired() async {
     final onSessionExpired = _onSessionExpired;
     if (onSessionExpired == null) {
@@ -240,11 +378,22 @@ class ApiService {
   /// into all subsequent requests.
   void setAuthToken(String? token) {
     _authToken = token;
+    _authEpoch++;
+    if (token == null) {
+      _authSession++;
+    }
   }
 
   /// Register a callback that clears local auth state after failed recovery.
   void setSessionExpiredHandler(Future<void> Function()? onSessionExpired) {
     _onSessionExpired = onSessionExpired;
+  }
+
+  /// Register the callback that gets a fresh access token after a 401: it
+  /// returns the new token, or `null` when the session cannot be recovered
+  /// (which signs the user out). Unset, a 401 signs out directly.
+  void setAccessTokenRefresher(Future<String?> Function()? refresher) {
+    _onRefreshAccessToken = refresher;
   }
 
   /// GET request

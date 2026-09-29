@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:dio/dio.dart' show Options;
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
 import 'package:google_sign_in/google_sign_in.dart';
@@ -133,6 +134,7 @@ class AuthService extends _$AuthService {
     final apiService = ref.read(apiServiceProvider);
 
     apiService.setSessionExpiredHandler(_handleSessionExpired);
+    apiService.setAccessTokenRefresher(_refreshAccessToken);
 
     // Listen to Firebase auth state changes
     // Store subscription so we can cancel it on disposal
@@ -170,6 +172,7 @@ class AuthService extends _$AuthService {
       }
       _authStateSubscription?.cancel();
       apiService.setSessionExpiredHandler(null);
+      apiService.setAccessTokenRefresher(null);
     });
 
     // If user is already signed in, exchange token
@@ -426,6 +429,9 @@ class AuthService extends _$AuthService {
       final response = await apiService.post(
         '/auth/firebase-token-exchange/',
         data: {'firebase_token': firebaseToken},
+        // A 401 here is the Firebase token being refused: refreshing would
+        // only repeat this same exchange (todo 462).
+        options: Options(extra: {ApiService.skipAuthRefreshKey: true}),
       );
 
       // Extract JWT tokens from response
@@ -545,6 +551,77 @@ class AuthService extends _$AuthService {
       if (storedRefreshToken == refreshToken) {
         await _secureStorage.delete(key: _refreshTokenKey);
       }
+    }
+  }
+
+  /// Get a fresh Django access token after a 401, without signing out.
+  ///
+  /// Re-exchanges the current Firebase ID token, as launch does (owner
+  /// decision on todo 462): `getIdToken()` hands back a refreshed Firebase
+  /// token when the cached one has expired. Returns the new access token, or
+  /// `null` when the session cannot be recovered, so ApiService signs out.
+  ///
+  /// Deliberately NOT [_exchangeFirebaseTokenForJWT]: that one bumps
+  /// [_authGeneration], clears the stored tokens and the bearer up front (so
+  /// requests queued behind the refresh would go out anonymous) and re-runs
+  /// push registration, none of which a token refresh should do.
+  Future<String?> _refreshAccessToken() async {
+    final user = _firebaseAuth.currentUser;
+    if (user == null) {
+      return null;
+    }
+    final generation = _authGeneration;
+
+    try {
+      final firebaseToken = await user.getIdToken();
+      if (firebaseToken == null || !_isCurrentExchange(user, generation)) {
+        return null;
+      }
+
+      final response = await ref
+          .read(apiServiceProvider)
+          .post(
+            '/auth/firebase-token-exchange/',
+            data: {'firebase_token': firebaseToken},
+            // The exchange IS the refresh: a 401 on it must neither refresh
+            // again nor sign out on its own. The original request's failed
+            // recovery signs out, exactly once. And it goes out with no
+            // bearer: the backend authenticates the expired one before the
+            // view runs and would 401 the exchange itself.
+            options: Options(
+              extra: {
+                ApiService.skipAuthRefreshKey: true,
+                ApiService.skipSessionExpiryKey: true,
+                ApiService.omitAuthHeaderKey: true,
+              },
+            ),
+          );
+      final jwtToken = response.data['access_token'] as String?;
+      final refreshToken = response.data['refresh_token'] as String?;
+      if (jwtToken == null || !_isCurrentExchange(user, generation)) {
+        return null;
+      }
+
+      await _secureStorage.write(key: _jwtKey, value: jwtToken);
+      if (refreshToken != null) {
+        await _secureStorage.write(key: _refreshTokenKey, value: refreshToken);
+      }
+      if (!_isCurrentExchange(user, generation)) {
+        await _clearJWTIfMatches(jwtToken, refreshToken);
+        return null;
+      }
+
+      ref.read(apiServiceProvider).setAuthToken(jwtToken);
+      state = state.copyWith(firebaseUser: user, jwtToken: jwtToken);
+      if (kDebugMode) {
+        debugPrint('[AUTH] Access token refreshed');
+      }
+      return jwtToken;
+    } catch (e) {
+      if (kDebugMode) {
+        debugPrint('[AUTH ERROR] Access token refresh failed: $e');
+      }
+      return null;
     }
   }
 

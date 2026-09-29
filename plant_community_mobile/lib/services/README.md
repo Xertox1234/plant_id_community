@@ -123,6 +123,47 @@ apiService.setAuthToken(jwtToken);
 // All subsequent requests will include: Authorization: Bearer {token}
 ```
 
+#### Access-token refresh on 401 (todo 462)
+
+The Django access token is short-lived, so a user who keeps the app open
+past its lifetime gets a 401 on their next request. `ApiService` recovers
+from that silently:
+
+1. On a 401 it calls the refresher `AuthService` registered with
+   `setAccessTokenRefresher`. That re-exchanges the current Firebase ID token
+   at `/auth/firebase-token-exchange/`, as launch does. `getIdToken()` renews
+   the Firebase token itself when it has expired. The stored Django refresh
+   token is not used.
+2. Every 401 that arrives while a refresh is running waits on that same
+   refresh, so concurrent 401s cost one exchange. A 401 for a request sent
+   with a token that has since been replaced retries with the new token and
+   does not refresh again.
+3. The original request is re-sent once with the new token and its body
+   intact. A multipart `FormData` is cloned first, because Dio will not send
+   the same `FormData` twice.
+4. Only a failed refresh, or a second 401 on the re-sent request, signs the
+   user out, with the same "Your session expired. Please sign in again."
+   message as before. A refresh overtaken by a sign-out or user switch does
+   not report an expired session.
+
+Request-extra flags opt out: `ApiService.skipSessionExpiryKey` ignores the
+401 entirely (sign-out's own FCM clear), and `ApiService.skipAuthRefreshKey`
+skips the refresh and goes straight to sign-out (the token exchange itself).
+`ApiService.omitAuthHeaderKey` sends the request with no bearer. The refresh's
+exchange carries it, because DRF authenticates any `Authorization: Bearer`
+before it checks `AllowAny`, so the expired token would 401 the exchange.
+
+A 401 for a request sent before a sign-out or user switch (the token was
+cleared since, which every sign-in does first) is not retried, refreshed or
+turned into a sign-out: re-sending it would act as whoever is signed in now.
+
+**Production access lifetime: 15 minutes.** `SIMPLE_JWT["ACCESS_TOKEN_LIFETIME"]`
+reads `JWT_ACCESS_TOKEN_LIFETIME` with a default of 15
+(`backend/plant_community_backend/settings.py`), and the production service's
+variable set in `.railway/railway.ts` has no `JWT_ACCESS_TOKEN_LIFETIME`, so
+production runs the default (recorded 2026-09-29). Expect a refresh roughly
+every 15 minutes of use.
+
 ### Error Handling
 
 The `ApiService` converts all `DioException` errors into user-friendly `ApiException` objects:
@@ -140,7 +181,8 @@ try {
   // Handle specific errors
   switch (e.statusCode) {
     case 401:
-      // Token expired - AuthService clears local tokens and signs the user out
+      // Only after a failed token refresh (see above) - AuthService has
+      // already cleared local tokens and signed the user out
       break;
     case 429:
       // Rate limited - show retry message
