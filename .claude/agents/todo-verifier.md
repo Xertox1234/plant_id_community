@@ -61,7 +61,11 @@ missing one, the verdict is `fail`, `reasons` gets `missing todo path`. `BASE` =
    (`/usr/bin/git -C WT show BASE:<ORIGIN_PATH>`) and from the current file (`WT/<TODO_PATH>`), both using
    step 2's rules. They must be the same count and the same text (step 2's normalization), in the same order; in execute mode the
    box state (`[ ]`/`[x]`) must match too — ignore `[ ]` vs `[x]` in repair mode and when re-verifying after
-   a repair (the prompt's first line, `MODE: execute` or `MODE: repair`, says which), since Land already flipped some by then. Any other
+   a repair (the prompt's first line, `MODE: execute` or `MODE: repair`, says which), since Land already flipped some by then.
+   One exception, owner-authorized re-points (todo 492): the prompt may carry a `REPOINTS:` line, entries
+   `<todo>#<index> "<marker>"`, separated by a semicolon and a space. A listed criterion whose current text, with that exact
+   marker (and the one space before it) removed, equals its merge-base text is unchanged; step 3's
+   re-point rule then applies to it. A re-point marker that is not listed there is an edit. Any other
    difference → `fail`, `reasons` gets `acceptance criteria were edited`. Work Log and status edits are
    always allowed.
 5. Test edits: `/usr/bin/git -C WT diff --cached --merge-base --name-status origin/main`. List every

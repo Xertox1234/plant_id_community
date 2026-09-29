@@ -157,14 +157,16 @@ def test_republishing_an_opening_post_never_revives_a_taken_down_topic(moderator
 
 
 @pytest.mark.django_db
-def test_dashboard_moderation_link_lands_on_the_posts_list(client, moderator):
+def test_dashboard_moderation_link_lands_on_the_pending_content_page(client, moderator):
+    # Todo 423 moved the link from the Posts list to the pending-content
+    # page, where one Approve publishes the whole thread.
     author = User.objects.create_user(username="plantadmin")
     _pending_thread(author, _board())
 
     resp = client.get("/cms/")
 
-    expected = reverse(Post.snippet_viewset.get_url_name("list"))
-    assert f'href="{expected}?live=false"'.encode() in resp.content
+    expected = reverse("wagtail_forum_pending:index")
+    assert f'href="{expected}"'.encode() in resp.content
 
 
 # --- Review round 1 (PR #815) ---

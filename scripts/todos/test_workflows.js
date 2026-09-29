@@ -258,6 +258,32 @@ async function main() {
     byType(r.calls, 'todo-verifier').length === 2 && byType(r.calls, 'todo-worker').length === 1
     && r.result.results[0].verdict === null && !r.result.results[0].retried, r.result)
 
+  // --- execute: todo 492 -- a re-verified group runs only the verifier, on the staged worktree it names
+  const rv = { worktree: '/wt/old', branch: 'worktree-old', tree_id: 'T9', ac_file: '.sweep-evidence/g1/ac.json' }
+  const reps = { 1: [{ index: 1, to: '8', marker: '→ todo 8 (re-pointed 2026-09-28)' }] }
+  r = await run('todo-execute', { run_id: 'r', briefs: [brief({ reverify: rv, repoints: reps, plan_needed: true })] },
+    () => verdict('pass', { tree_id_before: 'T9', tree_id_after: 'T9' }))
+  const rvVerify = byType(r.calls, 'todo-verifier')
+  check('execute: a re-verify runs no planner and no worker (todo 492)',
+    byType(r.calls, 'todo-worker').length === 0 && byType(r.calls, 'todo-triager').length === 0, r.calls)
+  check('execute: its verifier checks the staged worktree and evidence the brief names',
+    rvVerify.length === 1 && rvVerify[0].prompt.includes('WORKTREE: /wt/old')
+    && rvVerify[0].prompt.includes('AC_FILE: .sweep-evidence/g1/ac.json'), rvVerify.map(c => c.prompt))
+  const rvResult = r.result.results[0]
+  check('execute: a re-verify result carries the brief tree as a staged worker record',
+    rvResult.worker.status === 'staged' && rvResult.worker.tree_id === 'T9' && rvResult.worktree === '/wt/old'
+    && rvResult.verdict.verdict === 'pass' && !rvResult.retried, rvResult)
+  check('execute: the verifier prompt lists the owner-authorized re-points',
+    rvVerify[0].prompt.includes('\nREPOINTS: 1#1 "→ todo 8 (re-pointed 2026-09-28)"\n'), rvVerify[0].prompt)
+  check('execute: no REPOINTS line when the brief has none', execVerifies.every(c => !c.prompt.includes('REPOINTS')))
+  verifies = 0
+  r = await run('todo-execute', { run_id: 'r', briefs: [brief({ reverify: rv })] }, (p, o) => (o.agentType === 'todo-worker'
+    ? worker({ worktree: '/wt/old', tree_id: 'T10' }) : ++verifies === 1 ? verdict('fail') : verdict('pass')))
+  const rvRetry = byType(r.calls, 'todo-worker')
+  check('execute: a failed re-verify gets the usual one retry, in that same worktree',
+    rvRetry.length === 1 && rvRetry[0].opts.isolation === undefined && rvRetry[0].prompt.startsWith('MODE: retry')
+    && rvRetry[0].prompt.includes('WORKTREE: /wt/old') && r.result.results[0].retried, rvRetry.map(c => c.prompt))
+
   // --- review: stub responders. todo-reviewer runs both the bug lenses and the refuters; the schema tells them apart.
   const high = { reviewed_range: 'x', findings: [{ severity: 'high', file: 'a.py', line: 1, summary: 'bug', suggested_fix: '' }] }
   const low = { reviewed_range: 'x', findings: [{ severity: 'low', file: 'a.py', line: 2, summary: 'nit', suggested_fix: '' }] }
@@ -321,6 +347,11 @@ async function main() {
   check('review: the post-repair verifier gets IDS and both path lists', repairV.prompt.includes('\nIDS: 1\n')
     && repairV.prompt.includes(`TODO_PATHS: ${archived}`) && repairV.prompt.includes(`ORIGIN_PATHS: ${pending}`))
   check('review: the post-repair verifier gets no CLAIMED_TREE (todo 468)', !repairV.prompt.includes('CLAIMED_TREE'))
+  check('review: no REPOINTS line when the PR has none', !repairV.prompt.includes('REPOINTS'))
+  r = await run('todo-review', { round: 1, prs: [pr({ repoints: reps })] },
+    reviewStub({ lens: high }))
+  check('review: the post-repair verifier gets the owner-authorized re-points (todo 492)',
+    byType(r.calls, 'todo-verifier')[0].prompt.includes('\nREPOINTS: 1#1 "→ todo 8 (re-pointed 2026-09-28)"\n'))
   check('review: the post-repair verifier ignores box state and knows Land ran',
     repairV.prompt.includes('Ignore `[ ]` vs `[x]`') && repairV.prompt.includes('Land has already flipped'), repairV.prompt)
   check('review: the post-repair verifier requires a command on every open criterion and re-runs each',

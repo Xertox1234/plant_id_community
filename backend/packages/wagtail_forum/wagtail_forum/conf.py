@@ -5,6 +5,14 @@ from django.conf import settings
 DEFAULTS = {
     "SPAM_BACKEND": "wagtail_forum.spam.heuristic.HeuristicSpamBackend",
     "TRUST_AUTOPUBLISH_LEVEL": 2,  # TrustLevel.MEMBER
+    # Authors who publish without moderation whatever their trust level
+    # (todo 423): superusers, plus any author holding this permission — the
+    # forum moderator's own publish right, which a host grants through its
+    # moderator group (forum_host/bootstrap.py "Forum Moderators"). Checked
+    # on the AUTHOR at request time, never stored as trust_level, so granting
+    # or revoking the group takes effect on the next post. None = superusers
+    # only. Plain ``is_staff`` alone does not bypass (owner decision).
+    "MODERATION_BYPASS_PERMISSION": "wagtail_forum.publish_post",
     "SPAM_MAX_LINKS": 3,
     "SPAM_BANNED_WORDS": [],
     "TRUST_THRESHOLDS": {1: 1, 2: 5, 3: 50, 4: 200},  # trust_level -> min post_count

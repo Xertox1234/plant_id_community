@@ -32,12 +32,47 @@ def ensure_default_workflow():
     return workflow
 
 
+def author_bypasses_moderation(author) -> bool:
+    """Whether ``author`` publishes without moderation whatever their trust
+    level (todo 423): an active superuser, or an active user holding
+    ``MODERATION_BYPASS_PERMISSION`` (default ``wagtail_forum.publish_post``,
+    which a host grants to its forum moderator group).
+
+    Computed at request time from the author's permissions, never stored in
+    ``trust_level``: granting or revoking the moderator group takes effect on
+    the next post, and nothing needs backfilling (owner decision 2026-09-28).
+    Plain ``is_staff`` does not qualify on its own.
+
+    Like trust, this is ALWAYS asked of the content's author, never of the
+    caller: a moderator acting on someone else's content must not wave that
+    content through on the moderator's own standing.
+    """
+    if author is None or not author.is_active:
+        return False
+    if author.is_superuser:
+        return True
+    permission = get_setting("MODERATION_BYPASS_PERMISSION")
+    return bool(permission) and author.has_perm(permission)
+
+
+def author_is_trusted(author) -> bool:
+    """Whether ``author``'s content autopublishes: trust at or above
+    ``TRUST_AUTOPUBLISH_LEVEL``, or a moderator/superuser
+    (:func:`author_bypasses_moderation`). The trust level is checked first so
+    an established member's post never pays for the permission lookup."""
+    profile = ForumProfile.for_user(author)
+    if profile.trust_level >= get_setting("TRUST_AUTOPUBLISH_LEVEL"):
+        return True
+    return author_bypasses_moderation(author)
+
+
 def _route_revision_by_trust(obj, revision, trusted, *, user=None, cancel_stale=False):
     """Publish a saved revision immediately when trusted, else route it through
     moderation. Shared trust-routing core for the create and edit paths.
 
-    - Trusted (author trust >= autopublish, or a moderator redacting an
-      account-deleted post) -> publish now. ``user`` is the acting user, passed
+    - Trusted (author trust >= autopublish, an author who is a superuser or
+      forum moderator, or a moderator redacting an account-deleted post) ->
+      publish now. ``user`` is the acting user, passed
       for audit-log attribution only, with ``skip_permission_checks=True``: the
       trust logic is the publish authority — forum authors are not Wagtail
       editors, and a permission-checked ``publish(user=...)`` would raise
@@ -76,7 +111,8 @@ def submit_for_moderation(obj, user):
 
     Liveness policy (Plan 1A): content is born live, so we force it to a draft
     (live=False) and only publish it here. Trusted users (trust >=
-    TRUST_AUTOPUBLISH_LEVEL) publish immediately. Others run the moderation
+    TRUST_AUTOPUBLISH_LEVEL, or a superuser/forum-moderator author — see
+    author_bypasses_moderation) publish immediately. Others run the moderation
     workflow: clean content auto-approves -> the single-task workflow finishes ->
     publish; flagged content is rejected and stays a draft (status 'pending').
 
@@ -107,16 +143,11 @@ def submit_for_moderation(obj, user):
     # Trust gates the *author's* content, so derive it from obj.author — NEVER the
     # caller. Otherwise a privileged caller (or a 1C bug) could launder an
     # untrusted author's content through their own trust level and skip screening.
-    profile = ForumProfile.for_user(obj.author)
+    trusted = author_is_trusted(obj.author)
     revision = obj.save_revision(user=user)
 
     try:
-        _route_revision_by_trust(
-            obj,
-            revision,
-            profile.trust_level >= get_setting("TRUST_AUTOPUBLISH_LEVEL"),
-            user=user,
-        )
+        _route_revision_by_trust(obj, revision, trusted, user=user)
     except Exception:
         # obj.live is still False (never set True yet on this path), so
         # 'pending' below is truthful — the revision IS saved, only the
@@ -150,11 +181,14 @@ def _edit_is_trusted(obj: Post, acting_as_moderator: bool) -> bool:
     request.user != post.author), and a redaction must take effect immediately
     rather than leave the un-redacted body live behind a pending revision — so
     the moderator's authority gates autopublish in that case (finding #2).
+
+    An author who is themselves a superuser or forum moderator is trusted
+    (author_bypasses_moderation, todo 423) — still the author's standing, so a
+    moderator editing an untrusted member's post leaves that edit screened.
     """
     if obj.author is None:
         return acting_as_moderator
-    profile = ForumProfile.for_user(obj.author)
-    return profile.trust_level >= get_setting("TRUST_AUTOPUBLISH_LEVEL")
+    return author_is_trusted(obj.author)
 
 
 def submit_edit_for_moderation(

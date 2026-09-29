@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../../../core/constants/app_spacing.dart';
+import '../../../services/user_profile_service.dart';
 import '../../../shared/widgets/canopy_surfaces.dart';
 import '../forum_format.dart';
 import '../models/models.dart';
@@ -21,6 +22,11 @@ class ForumConversationsScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final conversationsAsync = ref.watch(conversationsFeedProvider);
+    // Who "I" am, so a group row's avatar cluster can leave me out (todo
+    // 463, web `ParticipantStack` parity). Null while the account profile
+    // loads or if it failed: the cluster then shows every member, never
+    // holding the list back for a cosmetic detail.
+    final me = ref.watch(userProfileServiceProvider).asData?.value?.username;
 
     return Scaffold(
       appBar: AppBar(
@@ -55,6 +61,7 @@ class ForumConversationsScreen extends ConsumerWidget {
             },
             child: _ConversationsList(
               paged: paged,
+              myUsername: me,
               onOpen: (c) => c.isGroup
                   ? context.pushNamed(
                       'forumGroupConversation',
@@ -81,11 +88,13 @@ class ForumConversationsScreen extends ConsumerWidget {
 class _ConversationsList extends StatelessWidget {
   const _ConversationsList({
     required this.paged,
+    required this.myUsername,
     required this.onOpen,
     required this.onLoadMore,
   });
 
   final PagedList<ForumConversation> paged;
+  final String? myUsername;
   final void Function(ForumConversation) onOpen;
   final Future<void> Function() onLoadMore;
 
@@ -114,6 +123,7 @@ class _ConversationsList extends StatelessWidget {
         final conversation = paged.items[index];
         return _ConversationTile(
           conversation: conversation,
+          myUsername: myUsername,
           onTap: () => onOpen(conversation),
         );
       },
@@ -136,9 +146,14 @@ String conversationPreview(ForumConversation conversation) {
 }
 
 class _ConversationTile extends StatelessWidget {
-  const _ConversationTile({required this.conversation, required this.onTap});
+  const _ConversationTile({
+    required this.conversation,
+    required this.myUsername,
+    required this.onTap,
+  });
 
   final ForumConversation conversation;
+  final String? myUsername;
   final VoidCallback onTap;
 
   @override
@@ -163,7 +178,10 @@ class _ConversationTile extends StatelessWidget {
       child: ListTile(
         onTap: onTap,
         leading: isGroup
-            ? AuthorAvatarCluster(authors: conversation.participants)
+            ? AuthorAvatarCluster(
+                authors: conversation.participants,
+                viewerUsername: myUsername,
+              )
             : AuthorAvatar(author: other, radius: 20),
         title: Text(
           name,

@@ -4,6 +4,9 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:plant_community_mobile/features/forum/models/models.dart';
 import 'package:plant_community_mobile/features/forum/screens/forum_conversations_screen.dart';
 import 'package:plant_community_mobile/features/forum/services/forum_api.dart';
+import 'package:plant_community_mobile/features/forum/widgets/author_identity.dart';
+import 'package:plant_community_mobile/features/forum/widgets/forum_avatar_cluster.dart';
+import 'package:plant_community_mobile/services/user_profile_service.dart';
 
 import '../support/forum_test_support.dart';
 
@@ -103,6 +106,55 @@ void main() {
       expect(api.fetchConversationsCalls, [null, page1.next]);
       expect(find.byType(ListTile), findsNWidgets(2));
       expect(find.widgetWithText(OutlinedButton, 'Load more'), findsNothing);
+    });
+
+    testWidgets('a group row\'s avatar cluster leaves ME out and shows "+N" '
+        'past three others (todo 463, web ParticipantStack parity)', (
+      tester,
+    ) async {
+      final handle = tester.ensureSemantics();
+      // The fixture puts the creator ("me") first, so a cluster that does
+      // not filter the viewer draws my own avatar in the first slot.
+      final api = FakeForumApi()
+        ..conversations = [
+          groupConversation(
+            id: 12,
+            title: 'Seed swap committee',
+            memberUsernames: const ['ada', 'bob', 'carol', 'dave'],
+          ),
+        ];
+
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            forumApiProvider.overrideWithValue(api),
+            userProfileServiceProvider.overrideWith(
+              () => FakeUserProfileService(username: 'me'),
+            ),
+          ],
+          child: const MaterialApp(home: ForumConversationsScreen()),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      final cluster = find.byType(AuthorAvatarCluster);
+      final shown = tester
+          .widgetList<AuthorAvatar>(
+            find.descendant(of: cluster, matching: find.byType(AuthorAvatar)),
+          )
+          .map((a) => a.author.username)
+          .toList();
+      expect(shown, ['ada', 'bob', 'carol']);
+      expect(
+        find.descendant(of: cluster, matching: find.text('+1')),
+        findsOneWidget,
+      );
+      // Inside a ListTile the cluster's node is merged into the row's, so
+      // the row's label OPENS with the count rather than equalling it.
+      expect(tester.getSemantics(cluster).label, startsWith('4 other members'));
+      expect(tester.takeException(), isNull);
+
+      handle.dispose();
     });
 
     testWidgets('a conversation with no messages yet shows a placeholder '

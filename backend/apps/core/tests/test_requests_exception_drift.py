@@ -448,8 +448,93 @@ def test_the_guard_flags_a_planted_violation(tmp_path):
 RESPONSE_ERROR_KEYS = {"error", "detail", "message", "error_message", "reason"}
 
 
-def _tainted_names(scope, is_source):
-    """Local names assigned, anywhere in ``scope``, from a value reaching a source.
+_SCOPES = (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)
+
+
+def _own_nodes(scope):
+    """``ast.walk(scope)`` minus the INSIDE of any nested function or lambda.
+
+    Todo 440: walking into a nested def leaked taint both ways -- a child's
+    ``body = response.text`` tainted the parent's unrelated ``body`` -- and
+    scanned the child twice. A nested def's decorators and defaults run in
+    the enclosing scope, so they stay here; its body is its own scope.
+    """
+    if isinstance(scope, (ast.FunctionDef, ast.AsyncFunctionDef)):
+        stack = list(scope.body)
+    elif isinstance(scope, ast.Lambda):
+        stack = [scope.body]
+    else:
+        stack = list(ast.iter_child_nodes(scope))
+    while stack:
+        node = stack.pop()
+        yield node
+        if isinstance(node, _SCOPES):
+            stack.extend(node.args.defaults)
+            stack.extend(d for d in node.args.kw_defaults if d is not None)
+            stack.extend(getattr(node, "decorator_list", []))
+            continue
+        stack.extend(ast.iter_child_nodes(node))
+
+
+def _local_names(func):
+    """Names ``func`` binds itself, which a closure therefore does not inherit."""
+    args = func.args
+    params = (*args.posonlyargs, *args.args, *args.kwonlyargs, args.vararg, args.kwarg)
+    names = {a.arg for a in params if a is not None}
+    own = list(_own_nodes(func))
+    for node in own:
+        if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Store):
+            names.add(node.id)
+        elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            names.add(node.name)
+        elif isinstance(node, ast.ExceptHandler) and node.name:
+            names.add(node.name)
+    for node in own:
+        if isinstance(node, (ast.Nonlocal, ast.Global)):
+            names -= set(node.names)
+    return names
+
+
+def _scopes(tree, step):
+    """Visit the module, then every function and lambda, parents first.
+
+    ``step(scope, inherited)`` returns the taint to hand to the scope's nested
+    functions. A closure inherits its parent's taint for the free variables it
+    reads -- ``def inner(): return {"error": body}`` still carries the parent's
+    body -- minus every name it binds itself.
+    """
+    stack = [(tree, frozenset())]
+    while stack:
+        scope, inherited = stack.pop()
+        if scope is not tree:
+            inherited = inherited - _local_names(scope)
+        passed = frozenset(step(scope, inherited))
+        stack.extend(
+            (child, passed) for child in _own_nodes(scope) if isinstance(child, _SCOPES)
+        )
+
+
+def _bindings(scope):
+    """``(targets, value)`` for every name binding in ``scope``'s own code.
+
+    Todo 440: assignment statements were the only binding followed, so
+    ``for line in response.text.splitlines()`` -- and ``async for``, ``with
+    ... as``, comprehension targets -- walked straight past the guard.
+    """
+    for n in _own_nodes(scope):
+        if isinstance(n, ast.Assign):
+            yield n.targets, n.value
+        elif isinstance(n, (ast.AnnAssign, ast.AugAssign, ast.NamedExpr)):
+            if n.value is not None:
+                yield [n.target], n.value
+        elif isinstance(n, (ast.For, ast.AsyncFor, ast.comprehension)):
+            yield [n.target], n.iter
+        elif isinstance(n, ast.withitem) and n.optional_vars is not None:
+            yield [n.optional_vars], n.context_expr
+
+
+def _tainted_names(scope, is_source, seed=()):
+    """Local names bound, anywhere in ``scope``, from a value reaching a source.
 
     Closes the one-hop bypass (todo 391): ``body = response.text[:100]`` then
     ``{"error": f"...{body}"}`` carries the body while no dict value mentions
@@ -469,24 +554,21 @@ def _tainted_names(scope, is_source):
     and ``data = json.loads(request.body)`` (the CLIENT's body, blog
     api_views.py). With calls opaque the sweep finds 0. The price is the
     "helper call" shape todo 391 already lists as out of scope.
+
+    ``seed`` names are tainted from the start: a closure's inherited taint, or
+    the locals a handler derived from its exception (todo 440).
     """
-    assigns = [
-        n
-        for n in ast.walk(scope)
-        if isinstance(n, (ast.Assign, ast.AnnAssign, ast.AugAssign, ast.NamedExpr))
-        and n.value is not None
-    ]
-    tainted = set()
+    bindings = list(_bindings(scope))
+    tainted = set(seed)
     changed = True
     while changed:
         changed = False
-        for node in assigns:
+        for targets, value in bindings:
             if not any(
                 is_source(n) or (isinstance(n, ast.Name) and n.id in tainted)
-                for n in _carried(node.value)
+                for n in _carried(value)
             ):
                 continue
-            targets = node.targets if isinstance(node, ast.Assign) else [node.target]
             for target in targets:
                 elts = (
                     target.elts
@@ -504,7 +586,8 @@ def _tainted_names(scope, is_source):
 
 # Calls that return their argument's content rather than something derived.
 VALUE_PRESERVING_FUNCS = {"str", "repr"}
-VALUE_PRESERVING_METHODS = {"format"}
+# `join` (todo 440): `" ".join(["failed", str(e)])` carries every element.
+VALUE_PRESERVING_METHODS = {"format", "join"}
 
 
 def _carried(expr):
@@ -549,15 +632,12 @@ def _exception_details_in_response_dicts(path):
     """
     tree = ast.parse(pathlib.Path(path).read_text(encoding="utf-8"))
     logging_dicts = _logging_extra_dicts(tree)
-    for handler in (n for n in ast.walk(tree) if isinstance(n, ast.ExceptHandler)):
-        if not handler.name:
-            continue
-        # The exception itself, plus any local derived from it in the handler.
-        tainted = {handler.name} | _tainted_names(
-            handler,
-            lambda n, name=handler.name: isinstance(n, ast.Name) and n.id == name,
-        )
-        for dict_node in (n for n in ast.walk(handler) if isinstance(n, ast.Dict)):
+    # id(value) -> finding. A dict reachable from two handlers, or from a
+    # handler and its function, is one site and is reported once.
+    found = {}
+
+    def check(nodes, tainted):
+        for dict_node in (n for n in nodes if isinstance(n, ast.Dict)):
             if id(dict_node) in logging_dicts:
                 # `logger.error(..., extra={"error": str(e)})` is structured
                 # logging, not a payload -- the detail SHOULD be there. Without
@@ -570,7 +650,32 @@ def _exception_details_in_response_dicts(path):
                 ):
                     continue
                 if _mentions(value, tainted):
-                    yield value.lineno, ast.unparse(value)
+                    found.setdefault(id(value), (value.lineno, ast.unparse(value)))
+
+    def step(scope, inherited):
+        handlers = [
+            n for n in _own_nodes(scope) if isinstance(n, ast.ExceptHandler) and n.name
+        ]
+        seeds = set(inherited)
+        for handler in handlers:
+            # The exception itself, plus any local derived from it in the handler.
+            derived = _tainted_names(
+                handler,
+                lambda n, name=handler.name: isinstance(n, ast.Name) and n.id == name,
+            )
+            check(_own_nodes(handler), {handler.name} | derived)
+            # Todo 440: `err = str(e)` in the handler, `return {"error": err}`
+            # after the try. The derived locals outlive the handler, so they
+            # seed a taint pass over the whole enclosing scope. The bound name
+            # itself does not: Python unbinds it when the handler exits.
+            seeds |= derived - {handler.name}
+        tainted = _tainted_names(scope, lambda n: False, seed=seeds)
+        check(_own_nodes(scope), tainted)
+        # A closure defined inside a handler can still read its exception.
+        return tainted | {h.name for h in handlers}
+
+    _scopes(tree, step)
+    yield from found.values()
 
 
 LOGGER_METHODS = {"debug", "info", "warning", "warn", "error", "critical", "exception"}
@@ -580,6 +685,10 @@ LOGGER_METHODS = {"debug", "info", "warning", "warn", "error", "critical", "exce
 # matches the handler -- which is how plant_health_service.py:388 survived the
 # first sweep of todo 377, two branches above a site that WAS converted.
 BODY_ATTRS = {"text", "content", "body"}
+
+
+def _is_body(node):
+    return isinstance(node, ast.Attribute) and node.attr in BODY_ATTRS
 
 
 def _logging_extra_dicts(tree):
@@ -606,20 +715,15 @@ def _provider_body_in_response_dicts(path):
 
     # A body routed through a local first (todo 391). Scoped per function so a
     # `body` tainted in one function does not taint an unrelated `body` in
-    # another; module-level code gets no taint pass (no response is built there).
-    is_body = (
-        lambda n: isinstance(n, ast.Attribute) and n.attr in BODY_ATTRS
-    )  # noqa: E731
+    # another -- nor in a nested def that rebinds it, nor in its parent (todo
+    # 440); module-level code gets no taint pass (no response is built there).
     via_local = set()
-    for func in (
-        n
-        for n in ast.walk(tree)
-        if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))
-    ):
-        tainted = _tainted_names(func, is_body)
-        if not tainted:
-            continue
-        for dict_node in (n for n in ast.walk(func) if isinstance(n, ast.Dict)):
+
+    def step(scope, inherited):
+        if scope is tree:
+            return set()
+        tainted = _tainted_names(scope, _is_body, seed=inherited)
+        for dict_node in (n for n in _own_nodes(scope) if isinstance(n, ast.Dict)):
             if id(dict_node) in logging_dicts:
                 continue
             for key, value in zip(dict_node.keys, dict_node.values):
@@ -629,6 +733,9 @@ def _provider_body_in_response_dicts(path):
                     and _mentions(value, tainted)
                 ):
                     via_local.add(id(value))
+        return tainted
+
+    _scopes(tree, step)
 
     for dict_node in (n for n in ast.walk(tree) if isinstance(n, ast.Dict)):
         if id(dict_node) in logging_dicts:
@@ -893,3 +1000,172 @@ def test_the_response_sweep_is_not_vacuous():
         "apps/blog/ai_integration.py",
     ):
         assert known in scanned, f"{known} fell out of the sweep"
+
+
+# ==========================================================================
+# Reach limits of the local-taint pass (todo 440)
+# ==========================================================================
+#
+# Five gaps the review of PR #822 verified: exception taint stopped at the
+# handler, `str.join` did not carry its argument, only assignment statements
+# bound taint (not `for` / `async for` / `with ... as` / comprehension
+# targets), and `ast.walk(func)` descended into nested defs -- leaking taint
+# both ways between a closure and its parent.
+
+PLANTED_REACH = """
+import logging
+import requests
+
+logger = logging.getLogger(__name__)
+
+
+def exception_detail_after_the_handler():
+    err = None
+    try:
+        requests.get("https://example.invalid")
+    except Exception as e:
+        err = str(e)
+    return {"error": err}
+
+
+def exception_detail_two_hops_after_the_handler():
+    try:
+        requests.get("https://example.invalid")
+    except Exception as e:
+        reason = repr(e)
+    else:
+        reason = "ok"
+    summary = f"lookup failed: {reason}"
+    return {"detail": summary}
+
+
+def exception_joined():
+    try:
+        requests.get("https://example.invalid")
+    except Exception as e:
+        joined_exc = " ".join(["failed", str(e)])
+        return {"error": joined_exc}
+
+
+def body_joined(response):
+    joined_body = "".join([response.text])
+    return {"message": joined_body}
+
+
+def exception_through_a_for_target():
+    try:
+        requests.get("https://example.invalid")
+    except Exception as e:
+        for arg in e.args:
+            return {"error": arg}
+
+
+def body_through_a_for_target(response):
+    for line in response.text.splitlines():
+        return {"error": line}
+
+
+async def body_through_an_async_for_target(response):
+    async for chunk in response.content:
+        return {"error": chunk}
+
+
+def body_through_a_with_target(response):
+    with response.content as payload:
+        return {"reason": payload}
+
+
+def exception_through_a_comprehension_target():
+    try:
+        requests.get("https://example.invalid")
+    except Exception as e:
+        return [{"error": a} for a in e.args]
+
+
+def body_through_a_comprehension_target(response):
+    return [{"detail": ln} for ln in response.text.splitlines()]
+
+
+def closure_reads_the_parents_body(response):
+    captured = response.text
+
+    def inner():
+        return {"error": captured}
+
+    return inner
+
+
+def nested_handlers_report_once():
+    try:
+        requests.get("https://example.invalid")
+    except Exception as outer:
+        try:
+            requests.get("https://example.invalid")
+        except Exception as inner:
+            return {"error": f"{outer} / {inner}"}
+
+
+def approved_handler_local_not_derived_from_the_exception():
+    try:
+        requests.get("https://example.invalid")
+    except Exception as e:
+        logger.exception("ok")
+        status = "Service unavailable"
+    return {"error": status}
+
+
+def approved_parent_does_not_leak_into_a_rebinding_child(response):
+    shadow = response.text
+    logger.info("ok %s", shadow)
+
+    def inner():
+        shadow = "Service unavailable"
+        return {"error": shadow}
+
+    return inner
+
+
+def approved_child_does_not_leak_into_its_parent(response):
+    def inner():
+        leak = response.text
+        logger.info("ok %s", leak)
+
+    leak = "Service unavailable"
+    return {"error": leak}
+
+
+def approved_join_of_constants():
+    parts = ", ".join(["a", "b"])
+    return {"error": parts}
+"""
+
+
+def test_the_guards_reach_past_the_handler_and_through_every_binding(tmp_path):
+    """Todo 440: every gap has a positive case, and the nested-def leak has a
+    negative control in each direction. Exact sets, so a new false positive
+    fails as surely as a new miss."""
+    planted = tmp_path / "planted_reach.py"
+    planted.write_text(PLANTED_REACH, encoding="utf-8")
+
+    exc = list(_exception_details_in_response_dicts(planted))
+    body = list(_provider_body_in_response_dicts(planted))
+
+    assert {src for _, src in exc} == {
+        "err",  # outlives the handler
+        "summary",  # ...and keeps propagating after it
+        "joined_exc",  # str.join
+        "arg",  # for target
+        "a",  # comprehension target
+        "f'{outer} / {inner}'",  # nested handlers
+    }, exc
+    assert {src for _, src in body} == {
+        "joined_body",  # str.join
+        "line",  # for target
+        "chunk",  # async for target
+        "payload",  # with ... as target
+        "ln",  # comprehension target
+        "captured",  # a closure still inherits its parent's taint
+    }, body
+    # A dict reachable from two handlers (or two scopes) is reported once.
+    assert len(exc) == len(set(exc)), exc
+    assert len(body) == len(set(body)), body

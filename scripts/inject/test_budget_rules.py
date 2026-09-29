@@ -70,5 +70,35 @@ class NeverHeadOnlyTests(unittest.TestCase):
         self.assertTrue(out.endswith("- rule number 199\n"))
 
 
+class EveryRoutedDomainContributesTests(unittest.TestCase):
+    """Todo 440: `tail_only()` returned "" when the final rule was longer than
+    the tail room -- `boundary_after()` found no boundary before the end of the
+    file -- so a routed domain contributed nothing and no "open the file"
+    marker either. It now falls back to a raw mid-line suffix plus the marker.
+    """
+
+    def test_a_final_rule_longer_than_the_tail_room_still_contributes(self):
+        text = long_final_line_file()
+        # Below MIN_SPLIT, so tail_only() runs directly; and the split
+        # branch's own fallbacks at the shares the older test uses.
+        for share in (300, 450, 600, 1200, 1500, 1800):
+            with self.subTest(share=share):
+                out = br.excerpt(text, share, "docs/rules/x.md")
+                self.assertNotEqual(out, "", f"domain vanished at share {share}")
+                self.assertIn("were not injected", out)
+                self.assertTrue(text.endswith(out.split("...]\n\n")[-1]))
+                self.assertTrue(out.endswith("x\n"))
+                self.assertLessEqual(len(out.encode("utf-8")), share)
+
+    def test_a_share_below_the_marker_cost_never_exceeds_it(self):
+        # The marker alone is ~150 B; a share below that cannot carry it.
+        # Pinned so the fallback never trades the byte cap for "something".
+        text = long_final_line_file()
+        for share in (1, 40, 120):
+            with self.subTest(share=share):
+                out = br.excerpt(text, share, "docs/rules/x.md")
+                self.assertLessEqual(len(out.encode("utf-8")), share)
+
+
 if __name__ == "__main__":
     unittest.main()

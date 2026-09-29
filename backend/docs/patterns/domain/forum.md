@@ -789,7 +789,9 @@ def register_moderation_queue_urls():
 
 @hooks.register("register_reports_menu_item")
 def register_moderation_queue_menu_item():
-    return ModerationQueueMenuItem(_("Forum moderation queue"),
+    # Label renamed from "Forum moderation queue" (todo 423): name a listing
+    # for what it holds. Pending posts have their own page, PendingContentView.
+    return ModerationQueueMenuItem(_("Reported forum content"),
                                    reverse("wagtail_forum_reports:moderation_queue"), ...)
 ```
 

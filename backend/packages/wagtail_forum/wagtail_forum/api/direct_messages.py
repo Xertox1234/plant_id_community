@@ -49,13 +49,13 @@ from ..models import (
     Conversation,
     ConversationKind,
     ConversationParticipant,
-    ForumProfile,
     Message,
     Report,
     UserBlock,
 )
 from ..spam import get_spam_backend
 from ..spam.heuristic import HeuristicSpamBackend
+from ..workflow import author_is_trusted
 from .idempotency import fingerprint, idempotency_cache_key, remember, reserve
 from .notifications import UNREAD_COUNT_SCHEMA
 from .pagination import ConversationCursorPagination, MessageCursorPagination
@@ -131,9 +131,12 @@ def _screen_dm_body(sender, text):
 
     Untrusted senders — the actual DM-spam risk, and the same population the
     post path screens — still get the full configured backend.
+
+    "Trusted" is the post path's own test (``workflow.author_is_trusted``), so
+    a superuser or forum-moderator sender counts as trusted here exactly as
+    their posts skip moderation (todo 423).
     """
-    profile = ForumProfile.for_user(sender)
-    if profile.trust_level >= get_setting("TRUST_AUTOPUBLISH_LEVEL"):
+    if author_is_trusted(sender):
         backend = HeuristicSpamBackend()
     else:
         backend = get_spam_backend()

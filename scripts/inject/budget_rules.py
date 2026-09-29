@@ -163,14 +163,25 @@ def excerpt(text: str, share: int, path: str) -> str:
     tail_cost = nbytes(tail_marker(total))
 
     def tail_only() -> str:
-        """The file's ending alone -- or nothing. Never the head alone."""
+        """The file's ending alone. Never the head alone.
+
+        Empty only when the share cannot carry the marker itself.
+        """
         room = max(share - tail_cost, 0)
-        body = fit_bytes(text, room, from_end=True)
-        start = boundary_after(text, len(text) - len(body))
+        raw = fit_bytes(text, room, from_end=True)
+        start = boundary_after(text, len(text) - len(raw))
         rule_start = rule_start_before(text, start)
         if rule_start != -1 and nbytes(text[rule_start:]) <= room:
             start = rule_start
         body = fit_bytes(text[start:], room, from_end=True)
+        if not body.strip():
+            # The final rule is longer than the room, so no boundary follows
+            # the cut and the aligned tail is empty (todo 440). Returning ""
+            # would drop the routed domain AND its "open the file" marker.
+            # A mid-line suffix is the documented lesser evil: the marker says
+            # to read the file, and the fragment opening mid-sentence is the
+            # signal CLAUDE.md tells the reader to act on.
+            body = raw
         if not body:
             return ""
         return tail_marker(total - nbytes(body)) + body

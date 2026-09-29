@@ -1,11 +1,9 @@
-from django.contrib.contenttypes.models import ContentType
 from django.utils.translation import gettext_lazy as _
 from django.utils.translation import ngettext
 from wagtail import hooks
 from wagtail.actions.unpublish import UnpublishAction
 from wagtail.admin.search import SearchArea
 from wagtail.admin.site_summary import SummaryItem
-from wagtail.models import WorkflowState
 from wagtail.snippets.bulk_actions.snippet_bulk_action import SnippetBulkAction
 from wagtail.snippets.models import register_snippet
 from wagtail.snippets.permissions import get_permission_name
@@ -230,22 +228,23 @@ register_snippet(ForumViewSetGroup)
 
 
 def _pending_moderation_count():
-    """Topics/posts with an active workflow state.
+    """Posts waiting for a moderator: exactly the rows of the pending-content
+    page (``admin_views.pending_posts``) the summary item links to, so the
+    count never disagrees with the page it opens (todo 423).
 
     SpamCheckTask resolves synchronously within the same request, so
-    IN_PROGRESS never outlives it — Wagtail's AbstractWorkflow.start() is
-    @transaction.atomic, so a mid-check crash rolls the TaskState back too;
-    it does not orphan one. What DOES persist is NEEDS_CHANGES: content the
-    spam check rejected, which stays a draft for a moderator to review —
-    that's the "awaiting human review" signal H16 makes visible here.
+    IN_PROGRESS never outlives it. What persists is NEEDS_CHANGES content the
+    spam check held, and — counted since todo 423, missed before — a draft
+    whose spam BACKEND crashed: Wagtail's AbstractWorkflow.start() is
+    @transaction.atomic, so the crash rolls its WorkflowState back and only
+    "never published, still a draft" still finds it (see
+    test_moderation_decided_signal_still_fires_when_spam_backend_crashes).
 
-    Known scope limit: a spam-BACKEND crash (not a reject — the backend
-    itself raising) rolls back the WorkflowState too, so that post has no
-    active state and this count misses it. It stays findable via the admin
-    snippet list's live=False filter, just not in this auto-count (see
-    test_moderation_decided_signal_still_fires_when_spam_backend_crashes)."""
-    content_types = ContentType.objects.get_for_models(Topic, Post).values()
-    return WorkflowState.objects.active().filter(content_type__in=content_types).count()
+    This count and the page are the only signal: moderators are not pushed
+    or emailed when something is waiting (owner decision 2026-09-28)."""
+    from .admin_views import pending_posts
+
+    return pending_posts().count()
 
 
 class ForumModerationSummaryItem(SummaryItem):
@@ -269,10 +268,9 @@ class ForumModerationSummaryItem(SummaryItem):
             "count": self.count,
             # Resolved, not hardcoded: the admin mount (/cms/ here) is host
             # config, and this package is reusable (audit 2026-07-17 M1).
-            # The Posts list, not Topics: the count is posts (a topic never
-            # runs the workflow), pending replies exist only there, and
-            # publishing an opening post publishes its topic (todo 422).
-            "moderation_url": reverse(Post.snippet_viewset.get_url_name("list")),
+            # The pending-content page, whose rows are what this counts and
+            # where one Approve publishes a whole thread (todo 423).
+            "moderation_url": reverse("wagtail_forum_pending:index"),
         }
 
 
@@ -366,25 +364,59 @@ def register_moderation_queue_urls():
     check on top of "may enter the admin at all"."""
     from django.urls import include, path
 
-    return [path("forum/reports/", include("wagtail_forum.admin_urls"))]
+    from .admin_urls import pending_urlpatterns
+
+    return [
+        path("forum/reports/", include("wagtail_forum.admin_urls")),
+        # Pending content (todo 423): its own namespace, so the reported-
+        # content URL names above stay exactly as they were.
+        path(
+            "forum/pending/",
+            include((pending_urlpatterns, "wagtail_forum_pending")),
+        ),
+    ]
 
 
 @hooks.register("register_reports_menu_item")
 def register_moderation_queue_menu_item():
-    """ "Forum moderation queue" under the admin Reports menu, shown to users
+    """ "Reported forum content" under the admin Reports menu, shown to users
     the Report snippet views admit — any of add/change/delete/view on
     wagtail_forum.report (ModerationQueueMenuItem.is_shown) — not
     AdminOnlyMenuItem, because the trust system grants moderation below
     superuser. reverse() inside the hook body, never a hardcoded /cms/ path
-    (audit 2026-07-17 M1); the registry is lazy so the URLconf is loaded."""
+    (audit 2026-07-17 M1); the registry is lazy so the URLconf is loaded.
+
+    Named for what it lists, user-filed reports (todo 423): as "Forum
+    moderation queue" it read as the place pending posts wait, and it never
+    listed them. The ``name`` stays, so a host's menu customisation keeps
+    matching it."""
     from django.urls import reverse
 
     from .admin_views import ModerationQueueMenuItem
 
     return ModerationQueueMenuItem(
-        _("Forum moderation queue"),
+        _("Reported forum content"),
         reverse("wagtail_forum_reports:moderation_queue"),
         name="forum-moderation-queue",
         icon_name="warning",
         order=1300,
+    )
+
+
+@hooks.register("register_reports_menu_item")
+def register_pending_content_menu_item():
+    """ "Pending forum content" under the admin Reports menu (todo 423): every
+    topic and post waiting for a moderator, with Approve on each row. Shown
+    to whoever may publish a post (PendingContentMenuItem.is_shown), the
+    right Approve exercises; placed just above "Reported forum content"."""
+    from django.urls import reverse
+
+    from .admin_views import PendingContentMenuItem
+
+    return PendingContentMenuItem(
+        _("Pending forum content"),
+        reverse("wagtail_forum_pending:index"),
+        name="forum-pending-content",
+        icon_name="doc-empty-inverse",
+        order=1290,
     )

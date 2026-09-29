@@ -186,6 +186,12 @@ function pathLines(p) {
   return [`TODO_PATHS: ${p.todo_paths.join(', ')}`, `ORIGIN_PATHS: ${p.origin_paths.join(', ')}`]
 }
 
+// Todo 492: the owner-authorized re-points (`state.py repoint`), the same list todo-execute gives its verifier.
+function repointLines(p) {
+  const items = Object.entries(p.repoints || {}).flatMap(([id, list]) => list.map(r => `${id}#${r.index} "${r.marker}"`))
+  return items.length ? [`REPOINTS: ${items.join('; ')}`] : []
+}
+
 const LANDED = 'Land has already flipped the verified boxes to `[x]` and archived each todo (TODO_PATHS); ' +
   'ORIGIN_PATHS are the pending paths at the merge-base.'
 
@@ -293,7 +299,7 @@ function verifyPrompt(p, w, again = false) {
     `Verify todo group ${p.group} after a round-1 review repair.`,
     `IDS: ${p.ids.join(', ')}`,
     `WORKTREE: ${w.worktree}`, `SLOT: ${p.slot}`, `MAIN_ROOT: ${p.main_root}`,
-    `AC_FILE: ${w.ac_file}`, ...pathLines(p),  // no tree id: state.evaluate compares it (todo 468)
+    `AC_FILE: ${w.ac_file}`, ...pathLines(p), ...repointLines(p),  // no tree id: state.evaluate compares it (todo 468)
     untrackedLine(p), `FILES_CHANGED: ${JSON.stringify(w.files_changed)}`,
     `${LANDED} Ignore \`[ ]\` vs \`[x]\` in the unchanged-criteria check. Every criterion that is not ` +
       'already-checked-at-merge-base or re-pointed must carry a non-empty `command`; re-run each yourself.',

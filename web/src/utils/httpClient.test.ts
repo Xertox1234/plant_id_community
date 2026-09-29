@@ -8,12 +8,15 @@
  * the interceptor logic and configuration rather than the full axios instance.
  */
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { logger } from './logger';
+import { httpError, installAdapter, restoreAdapter } from '../tests/apiClientHarness';
 
 // Mock logger
 vi.mock('./logger', () => ({
   logger: {
     debug: vi.fn(),
+    info: vi.fn(),
     error: vi.fn(),
     warn: vi.fn(),
   },
@@ -99,6 +102,42 @@ describe('HTTP Client - Interceptor Logic', () => {
     it('can import the httpClient module', async () => {
       const httpClient = await import('./httpClient');
       expect(httpClient.default).toBeDefined();
+    });
+  });
+
+  // todo 434: logger.error is a Sentry event in production; a background poll
+  // opts out with `quietErrors` and is logged as a breadcrumb instead.
+  describe('Error logging', () => {
+    afterEach(() => {
+      restoreAdapter();
+    });
+
+    it('logs a failed request as an error by default', async () => {
+      const { default: httpClient } = await import('./httpClient');
+      installAdapter().mockImplementation(async (config) => {
+        throw httpError(config, 500, {});
+      });
+
+      await expect(httpClient.get('/api/x/')).rejects.toThrow();
+      expect(logger.error).toHaveBeenCalledWith(
+        'HTTP error',
+        expect.objectContaining({ status: 500, url: '/api/x/' })
+      );
+      expect(logger.info).not.toHaveBeenCalled();
+    });
+
+    it('logs a quietErrors request as a breadcrumb only, and still rejects', async () => {
+      const { default: httpClient } = await import('./httpClient');
+      installAdapter().mockImplementation(async (config) => {
+        throw httpError(config, 503, {});
+      });
+
+      await expect(httpClient.get('/api/x/', { quietErrors: true })).rejects.toThrow();
+      expect(logger.error).not.toHaveBeenCalled();
+      expect(logger.info).toHaveBeenCalledWith(
+        'HTTP error',
+        expect.objectContaining({ status: 503, url: '/api/x/' })
+      );
     });
   });
 });

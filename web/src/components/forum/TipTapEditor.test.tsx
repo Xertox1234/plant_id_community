@@ -2,6 +2,7 @@ import { StrictMode } from 'react';
 import { describe, it, expect, vi, beforeAll, beforeEach } from 'vitest';
 import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { Editor } from '@tiptap/core';
 import TipTapEditor from './TipTapEditor';
 import * as forumService from '../../services/forumService';
 import { logger } from '../../utils/logger';
@@ -1082,6 +1083,30 @@ describe('TipTapEditor under StrictMode', () => {
       window.removeEventListener('error', onError);
     }
     expect(errors).toEqual([]);
+  });
+});
+
+describe('TipTapEditor unmount cleanup (todo 464)', () => {
+  it('destroys the editor instance synchronously when the composer unmounts', () => {
+    // `useEditor` also destroys the editor on its own, but only from a
+    // `setTimeout` it schedules on unmount (@tiptap/react's
+    // `scheduleDestroy`). The component's cleanup effect is what makes the
+    // teardown synchronous, so the assertion runs straight after `unmount()`
+    // with no timer allowed to fire: remove that effect and this fails.
+    const destroySpy = vi.spyOn(Editor.prototype, 'destroy');
+    try {
+      const { container, unmount } = render(<TipTapEditor onChange={vi.fn()} />);
+      expect(container.querySelector('.ProseMirror')).toBeTruthy();
+      destroySpy.mockClear();
+
+      unmount();
+
+      expect(destroySpy).toHaveBeenCalledTimes(1);
+      const destroyed = destroySpy.mock.contexts[0] as Editor;
+      expect(destroyed.isDestroyed).toBe(true);
+    } finally {
+      destroySpy.mockRestore();
+    }
   });
 });
 

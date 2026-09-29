@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { fetchNotifications, fetchUnreadCount, markNotificationsRead } from './notificationService';
 import apiClient from '../utils/httpClient';
 import { clearCsrfToken, getCsrfToken } from '../utils/csrf';
+import { logger } from '../utils/logger';
 import {
   CSRF_FAILED_BODY,
   captureXhrHeaders,
@@ -99,6 +100,37 @@ describe('notificationService', () => {
     });
 
     await expect(fetchUnreadCount()).rejects.toThrow(expected);
+  });
+
+  // todo 434: the unread-count poll runs every 30s per tab, so its failures
+  // must be breadcrumbs (logger.info), not Sentry events (logger.error).
+  it('logs a failed unread-count poll as a breadcrumb, not an error', async () => {
+    vi.mocked(logger.error).mockClear();
+    vi.mocked(logger.info).mockClear();
+    adapter.mockImplementation(async (config) => {
+      throw httpError(config, 401, { detail: 'Authentication credentials were not provided.' });
+    });
+
+    await expect(fetchUnreadCount()).rejects.toThrow(
+      'Authentication credentials were not provided.'
+    );
+    expect(adapter.mock.calls[0][0].quietErrors).toBe(true);
+    expect(logger.error).not.toHaveBeenCalled();
+    expect(logger.info).toHaveBeenCalledWith(
+      'HTTP error',
+      expect.objectContaining({ status: 401 })
+    );
+  });
+
+  it('still reports a failed user-initiated request as an error', async () => {
+    vi.mocked(logger.error).mockClear();
+    adapter.mockImplementation(async (config) => {
+      throw httpError(config, 500, {});
+    });
+
+    await expect(fetchNotifications()).rejects.toThrow('HTTP 500');
+    await expect(markNotificationsRead()).rejects.toThrow('HTTP 500');
+    expect(logger.error).toHaveBeenCalledTimes(2);
   });
 
   it('refreshes a stale CSRF token and retries mark-read once (todo 407)', async () => {
