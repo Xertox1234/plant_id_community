@@ -123,6 +123,19 @@ With `--limit N`, execute only the first ⌈N / workers⌉ waves and list the de
    Reopening doesn't spend the retry. It is refused for a todo with a PR; fix that PR instead.
    The blocked attempt's worktree stays under `previous` in RUN, and `state.py worktrees $RUN` lists it.
 
+   **A worker blocked only on an owner-only criterion** (todo 492) leaves finished, staged work and no
+   verdict. A plain reopen gives the todo a fresh worker in a new worktree. When the owner moves that
+   criterion to another todo instead, keep the work:
+   - Create the target todo (`todos/<NNN>-pending-…md`) in the blocked worktree and `git add` it.
+   - `state.py repoint $RUN <id> --index <i> --to <NNN> --decision "<owner's words> ($TODAY)" --date $TODAY`.
+     It adds the marker to the criterion, stages it, fixes `ac.json`, and records the re-point. The
+     verifier accepts only re-points the brief lists, so never re-point one by hand.
+   - `state.py set $RUN <id> ready --reverify --field reason="…"`, then `group` and `execute-args` as
+     above. The workflow skips the planner and the worker and verifies the worktree as it is. Don't touch
+     the worktree after `execute-args`: it records the tree the verdict must match.
+   - A wave the run deferred (`--limit`) blocks every later wave. Block its todos with the reason
+     `deferred by --limit` first, and list them in the wrap-up.
+
 ## Stage D — Land (per `verified` group G of wave W, one at a time)
 
 Steps 1–8 run with the sandbox off (see **Sandbox**).

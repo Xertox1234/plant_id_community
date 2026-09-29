@@ -48,7 +48,8 @@ NOT_PLANNED = {"scanned", "triaged", "blocked", "skipped"}
 LANDED = {"merged", "archived"}
 WORK_FIELDS = ("worktree", "branch", "tree_id", "ac_file")
 # What a blocked attempt leaves on its entry; reopening moves it to `previous` (see _reopen).
-ATTEMPT_FIELDS = ("reason", "group", "slot", "wave", *WORK_FIELDS, "verified_ac", "test_edits", "review_round")
+ATTEMPT_FIELDS = ("reason", "group", "slot", "wave", *WORK_FIELDS, "verified_ac", "test_edits", "review_round",
+                  "repoints")
 
 
 class TransitionError(Exception):
@@ -132,6 +133,31 @@ def _reopen(run, todo_id, entry):
         raise TransitionError(f"{todo_id}: no triage record to regroup from; triage it first")
     entry.setdefault("previous", []).append({k: entry.pop(k) for k in ATTEMPT_FIELDS if k in entry})
     run.get("unschedulable", {}).pop(todo_id, None)
+
+
+def reopen_reverify(run, todo_id, reason):
+    """blocked -> ready, verifying the blocked attempt's staged worktree as it is (todo 492, the 423 case).
+
+    A worker that stopped on an owner-only criterion left finished, staged work, and no verdict. When
+    the owner clears that criterion (usually a `repoint`), a plain reopen regroups the todo onto a
+    fresh worker in a new worktree and throws the work away. This reopens it like `_reopen` (the
+    attempt is still copied to `previous`), then puts the worktree, branch, evidence and re-points
+    back on the entry and marks it `reverify`: `execute_args` re-reads the tree and briefs the
+    workflow to skip the planner and the worker and run only the verifier.
+    """
+    entry = run["todos"].get(todo_id)
+    if entry is None:
+        raise TransitionError(f"{todo_id}: not in this run")
+    if entry["stage"] != "blocked":
+        raise TransitionError(f"{todo_id}: is {entry['stage']}; only a blocked todo is re-verified in place")
+    missing = [k for k in WORK_FIELDS if not entry.get(k)]
+    if missing:
+        raise TransitionError(f"{todo_id}: no staged attempt to re-verify (missing {', '.join(missing)})")
+    if not Path(entry["worktree"]).is_dir():
+        raise TransitionError(f"{todo_id}: its worktree {entry['worktree']} is gone; reopen it without --reverify")
+    kept = {k: entry[k] for k in (*WORK_FIELDS, "repoints") if k in entry}
+    transition(run, todo_id, "ready", reason=reason)
+    entry.update(kept, reverify=True)
 
 
 def summary(run):
@@ -247,6 +273,66 @@ def run_git(repo, *args):
     if proc.returncode != 0:
         raise RuntimeError(f"git {' '.join(args)} failed: {proc.stderr.strip()}")
     return proc.stdout
+
+
+REPOINT_MARKER = " → todo {to} (re-pointed {date})"
+
+
+def repoint(run, todo_id, index, to, decision, date, git=run_git):
+    """Re-point one open criterion of a todo with staged work to another todo, on the owner's word.
+
+    Re-points normally land in the triage PR, before any worker runs. This one is for a criterion
+    found owner-only mid-run (todo 423's on-device walkthrough, moved to a follow-up todo). It
+    appends the marker to the criterion's checkbox line in the worktree (the archive tripwire reads
+    that line only), stages it, updates the criterion's `ac.json` text (flip-acs compares the two),
+    and records the re-point on the entry. The verifier treats a changed criterion as edited unless
+    the brief lists it, so this record is the only thing that lets the change through.
+    """
+    entry = run["todos"].get(todo_id)
+    if entry is None:
+        raise TransitionError(f"{todo_id}: not in this run")
+    if entry["stage"] not in {"blocked", "ready"}:
+        raise TransitionError(f"{todo_id}: is {entry['stage']}; re-point a blocked or ready todo, "
+                              "before execute-args")
+    if not decision.strip():
+        raise TransitionError(f"{todo_id}: a re-point needs the owner's decision")
+    if not str(to).isdigit():
+        raise TransitionError(f"{todo_id}: a re-point target is a todo number, not {to!r}")
+    worktree, ac_file = entry.get("worktree"), entry.get("ac_file")
+    if not worktree or not ac_file or not Path(worktree).is_dir():
+        raise TransitionError(f"{todo_id}: no staged worktree to re-point in")
+    target = sorted(Path(worktree, "todos").glob(f"{to}-*.md"))
+    if len(target) != 1 or not git(worktree, "ls-files", "--", f"todos/{target[0].name}").strip():
+        raise TransitionError(f"{todo_id}: todo {to} must be one open todo file under todos/, staged in {worktree}")
+    marker = REPOINT_MARKER.format(to=to, date=date)
+    path = Path(worktree, entry["path"])
+    text = path.read_text()
+    boxes = todofile.ac_lines(text)
+    if not 0 <= index < len(boxes):
+        raise TransitionError(f"{todo_id}: no criterion at index {index} (it has {len(boxes)})")
+    line_no, checked, _ = boxes[index]
+    if checked:
+        raise TransitionError(f"{todo_id}: criterion {index} is already checked")
+    lines = text.splitlines(keepends=True)
+    if todofile.is_repoint(lines[line_no]):
+        if marker.strip() not in lines[line_no]:
+            raise TransitionError(f"{todo_id}: criterion {index} is already re-pointed elsewhere")
+    else:
+        body = lines[line_no].rstrip("\n")
+        lines[line_no] = body.rstrip() + marker + lines[line_no][len(body):]
+        path.write_text("".join(lines))
+    acp = Path(worktree, ac_file)
+    ac = json.loads(acp.read_text())
+    mine = [e for e in ac if str(e.get("todo")) == todo_id and e.get("index") == index]
+    if len(mine) != 1:
+        raise TransitionError(f"{todo_id}: {ac_file} has {len(mine)} entries for criterion {index}, not one")
+    mine[0].update(text=todofile.CHECKBOX_RE.sub("", todofile.ac_lines("".join(lines))[index][2], count=1).strip())
+    mine[0]["pass"] = False
+    acp.write_text(json.dumps(ac, indent=1) + "\n")
+    git(worktree, "add", "--", entry["path"])
+    repoints = [r for r in entry.get("repoints", []) if r["index"] != index]
+    entry["repoints"] = repoints + [{"index": index, "to": str(to), "marker": marker.strip(), "decision": decision}]
+    return marker.strip()
 
 
 def apply_triage(run, repo_root, today, git=run_git):
@@ -396,7 +482,13 @@ def _dependencies_of(run, gid, todo_id, entry):
     return sorted(related - members - {todo_id})
 
 
-def execute_args(run, wave, main_root):
+def _repoints(entries):
+    """{todo id: [{index, to, marker}]} -- the owner-authorized re-points the verifier may accept."""
+    return {i: [{k: r[k] for k in ("index", "to", "marker")} for r in e["repoints"]]
+            for i, e in entries if e.get("repoints")}
+
+
+def execute_args(run, wave, main_root, git=run_git):
     if wave >= len(run["waves"]):
         raise ValueError(f"wave {wave} does not exist ({len(run['waves'])} waves)")
     if wave >= 1:
@@ -410,6 +502,14 @@ def execute_args(run, wave, main_root):
                 if entry["stage"] not in TERMINAL | {"merged"}:
                     raise TransitionError(f"wave {w} is not merged yet ({todo_id} is {entry['stage']})")
     gids = run["waves"][wave]
+    # Todo 492: a re-verified todo is briefed as its own staged worktree, so it can share a group only
+    # with todos staged in that same worktree. Refused before anything changes.
+    for gid in gids:
+        live = [e for _, e in _group_entries(run, gid) if e["stage"] == "ready"]
+        again = [e for e in live if e.get("reverify")]
+        if again and (len(again) != len(live) or len({e["worktree"] for e in again}) != 1):
+            raise TransitionError(f"{gid}: a re-verified todo shares its group with other work; "
+                                  "reopen them without --reverify")
     # Todo 468: wave N-1 is still in review or Land while this wave executes, so its lanes are
     # forbidden too, until every todo left in it has merged. A group that HOLDS such a lane would
     # put two PRs on it at once: refuse before anything changes (PR #869 round 1).
@@ -468,6 +568,14 @@ def execute_args(run, wave, main_root):
         forbidden = sorted({lane for other in gids + previous if other != gid
                             for lane in run["groups"][other]["lanes"]})
         slot = slot_for(wave, position, run["workers"])
+        reverify = None
+        if all(e.get("reverify") for _, e in entries):
+            first = entries[0][1]
+            tree = git(first["worktree"], "write-tree").strip()  # a re-point since the block moved it
+            for _, e in entries:
+                e["tree_id"] = tree
+            reverify = {"worktree": first["worktree"], "branch": first["branch"], "tree_id": tree,
+                        "ac_file": first["ac_file"]}
         briefs.append({
             "run_id": run["run_id"],
             "group": gid,
@@ -482,8 +590,11 @@ def execute_args(run, wave, main_root):
             "slot": slot,
             "evidence_dir": f".sweep-evidence/{gid}",
             "main_root": main_root,
+            "repoints": _repoints(entries),
+            "reverify": reverify,
         })
-        for todo_id, _ in entries:
+        for todo_id, entry in entries:
+            entry.pop("reverify", None)  # one re-verify: a failed one is retried by a worker, as usual
             transition(run, todo_id, "executing", group=gid, slot=slot, wave=wave, main_root=main_root)
     return briefs
 
@@ -655,6 +766,7 @@ def review_args(run, round_no, wave, git=run_git, run_file="", held=None):
             # and the pending path is what the merge-base still has.
             "todo_paths": [todofile.archived_path(e["path"]) for _, e in entries],
             "origin_paths": [e["path"] for _, e in entries],
+            "repoints": _repoints(entries),
             # Todo 478: routing reads this list, not one an LLM router reports. -z: no path quoting;
             # --no-renames: a moved file lists its old path too, so the old path's reviewers still see it.
             "changed_files": [f for f in git(first["worktree"], "diff", "--name-only", "--no-renames", "-z",
@@ -972,6 +1084,14 @@ def build_parser():
     p = sub.add_parser("set")
     p.add_argument("runfile"), p.add_argument("id"), p.add_argument("stage")
     p.add_argument("--field", action="append", help="key=value stored on the todo entry")
+    p.add_argument("--reverify", action="store_true",
+                   help="blocked -> ready, verifying the blocked attempt's staged worktree as it is (todo 492)")
+    p = sub.add_parser("repoint", help="owner-authorized re-point of one criterion in a todo's staged worktree")
+    p.add_argument("runfile"), p.add_argument("id")
+    p.add_argument("--index", type=int, required=True, help="0-based criterion index")
+    p.add_argument("--to", required=True, help="the open todo the criterion moves to")
+    p.add_argument("--decision", required=True, help="the owner's decision, dated")
+    p.add_argument("--date", required=True)
     p = sub.add_parser("record-triage")
     p.add_argument("runfile"), p.add_argument("--output", required=True, help="workflow task output file")
     p.add_argument("--root", help="the triage-args --root, stripped from predicted_files")
@@ -1049,7 +1169,15 @@ def main(argv=None):
             print(json.dumps({k: v for k, v in summary(run).items() if k not in TERMINAL}, indent=1))
             return 1
         if args.cmd == "set":
-            transition(run, args.id, args.stage, **_parse_fields(args.field))
+            fields = _parse_fields(args.field)
+            if args.reverify:
+                if args.stage != "ready" or set(fields) != {"reason"}:
+                    raise TransitionError("--reverify takes stage ready and exactly one --field reason=...")
+                reopen_reverify(run, args.id, fields["reason"])
+            else:
+                transition(run, args.id, args.stage, **fields)
+        elif args.cmd == "repoint":
+            print(json.dumps({"marker": repoint(run, args.id, args.index, args.to, args.decision, args.date)}))
         elif args.cmd == "record-triage":
             left = record_triage(run, records_from_output(args.output, "records"), args.root)
             print(json.dumps({"without_record": left}))

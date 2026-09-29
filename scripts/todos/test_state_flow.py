@@ -19,6 +19,7 @@ from pathlib import Path
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import state  # noqa: E402
+import land  # noqa: E402
 
 FAILURES = []
 
@@ -1174,6 +1175,7 @@ def main():
           (run_rv["waves"], brv))
 
     residue_tests()
+    reverify_tests()
     print()
     if FAILURES:
         print(f"FAILED: {len(FAILURES)} check(s): {', '.join(FAILURES)}")
@@ -1325,6 +1327,144 @@ def residue_tests():
         gone["todos"]["1"].update(worktree=str(Path(tmp) / "nope"), review_baseline=base)
         check("480: a git error is itself residue, never a pass",
               (state.review_residue(gone, "g1", 1) or [""])[0].startswith("residue check failed:"))
+
+
+def reverify_tests():
+    """Todo 492, against a real git worktree: an owner re-point and a verify-only reopen keep a blocked
+    worker's staged work, and the brief tells the workflow to run only the verifier."""
+    todo = ("---\nstatus: pending\nissue_id: \"7\"\n---\n\n# T\n\n## Acceptance Criteria\n\n"
+            "- [ ] The code works. Pinned by tests.\n"
+            "- [ ] A walkthrough from the owner's point of view: a test account\n"
+            "      posts and it shows up.\n\n## Work Log\n")
+
+    def git(*args):
+        return subprocess.run(["git", *args], check=True, capture_output=True, text=True).stdout
+
+    def norm(text):
+        return " ".join(state.todofile.CHECKBOX_RE.sub("", text, count=1).split())
+
+    with tempfile.TemporaryDirectory() as tmp:
+        repo, wt = Path(tmp) / "repo", Path(tmp) / "wt"
+        git("init", "-q", "-b", "main", str(repo))
+        (repo / "todos").mkdir()
+        (repo / "todos" / "7-pending-p3-x.md").write_text(todo)
+        (repo / ".gitignore").write_text(".sweep-evidence/\n")
+        git("-C", str(repo), "add", "-A")
+        git("-C", str(repo), "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q", "-m", "init")
+        git("-C", str(repo), "worktree", "add", "-q", "-b", "worktree-g1", str(wt))
+        (wt / "a.py").write_text("x = 1\n")
+        git("-C", str(wt), "add", "a.py")
+        evidence = wt / ".sweep-evidence" / "g1"
+        evidence.mkdir(parents=True)
+        ac = [{"todo": "7", "index": 0, "text": "The code works. Pinned by tests.", "command": "pytest a",
+               "evidence_path": ".sweep-evidence/g1/7-ac0.txt", "pass": True, "note": ""},
+              {"todo": "7", "index": 1, "text": "A walkthrough from the owner's point of view: a test account "
+               "posts and it shows up.", "command": "", "evidence_path": "", "pass": False, "note": "owner-only"}]
+        (evidence / "ac.json").write_text(json.dumps(ac))
+        tree = git("-C", str(wt), "write-tree").strip()
+
+        run = ready_run([("7", ["a.py"])], workers=1)
+        state.apply_grouping(run)
+        first = state.execute_args(run, 0, str(repo))[0]
+        blocked = worker(["7"], tree=tree, status="blocked") | {"worktree": str(wt), "blockers": "owner walkthrough"}
+        state.ingest_execute(run, [{"group": first["group"], "ids": ["7"], "retried": False, "verdict": None,
+                                    "worker": blocked}])
+        entry = run["todos"]["7"]
+        check("492: a worker blocked on an owner-only criterion leaves its worktree on the entry",
+              entry["stage"] == "blocked" and entry["worktree"] == str(wt), entry)
+
+        decision = "walkthrough after deploy (2026-09-28)"
+
+        def repoint(index=1, to="8", said=decision):
+            return state.repoint(run, "7", index, to, said, "2026-09-28")
+
+        check("492: a re-point to a todo that does not exist is refused", raises(repoint))
+        (wt / "todos" / "8-pending-p2-walkthrough.md").write_text("---\nstatus: pending\n---\n")
+        check("492: a re-point to a todo file that is not staged is refused", raises(repoint))
+        git("-C", str(wt), "add", "todos/8-pending-p2-walkthrough.md")
+        check("492: a re-point without the owner's decision is refused", raises(lambda: repoint(said=" ")))
+        check("492: a re-point past the last criterion is refused", raises(lambda: repoint(index=2)))
+        check("492: a re-point target that is not a todo number is refused", raises(lambda: repoint(to="../8")))
+        checked = todo.replace("- [ ] The code works.", "- [x] The code works.")
+        (wt / "todos" / "7-pending-p3-x.md").write_text(checked)
+        check("492: re-pointing a checked criterion is refused, and leaves the file alone",
+              raises(lambda: repoint(index=0)) and (wt / "todos" / "7-pending-p3-x.md").read_text() == checked)
+        (wt / "todos" / "7-pending-p3-x.md").write_text(todo)
+        marker, err = expect(repoint)
+        text = (wt / "todos" / "7-pending-p3-x.md").read_text()
+        line = next((ln for ln in text.splitlines() if "walkthrough" in ln), "")
+        check("492: the marker lands on the checkbox line, where the archive tripwire reads it",
+              err is None and marker == "→ todo 8 (re-pointed 2026-09-28)" and line.startswith("- [ ]")
+              and line.endswith(marker) and state.todofile.is_repoint(line), (err, line))
+        base_boxes, now_boxes = state.todofile.ac_lines(todo), state.todofile.ac_lines(text)
+        check("492: removing the marker gives back the merge-base criterion (verifier step 4)",
+              norm(now_boxes[1][2]).replace(" " + (marker or "?"), "") == norm(base_boxes[1][2])
+              and norm(now_boxes[0][2]) == norm(base_boxes[0][2]), now_boxes)
+        staged = git("-C", str(wt), "diff", "--cached", "--name-only").split()
+        unstaged = git("-C", str(wt), "diff", "--name-only").split()
+        check("492: the re-point is staged, so the verifier's clean check holds",
+              "todos/7-pending-p3-x.md" in staged and not unstaged, (staged, unstaged))
+        ac_now = json.loads((evidence / "ac.json").read_text())
+        check("492: ac.json's text follows the re-point, so flip-acs still matches the criterion",
+              ac_now[1]["text"] == norm(now_boxes[1][2]) and ac_now[1]["pass"] is False and ac_now[0] == ac[0],
+              ac_now)
+        flipped, err = expect(lambda: land.flip_acs(wt, "todos/7-pending-p3-x.md", ac_now, [], "r", "2026-09-28"))
+        check("492: flip-acs accepts the re-pointed ac.json and leaves the re-point open",
+              err is None and flipped == ([], [0, 1])
+              and (wt / "todos" / "7-pending-p3-x.md").read_text() == text, err or flipped)
+        check("492: the re-point is recorded with the owner's decision",
+              entry.get("repoints") == [{"index": 1, "to": "8", "marker": marker, "decision": decision}],
+              entry.get("repoints"))
+        _, err = expect(repoint)
+        check("492: re-pointing the same criterion again changes nothing",
+              err is None and (wt / "todos" / "7-pending-p3-x.md").read_text() == text
+              and len(entry["repoints"]) == 1, err)
+        (wt / "todos" / "9-pending-p2-other.md").write_text("---\nstatus: pending\n---\n")
+        git("-C", str(wt), "add", "todos/9-pending-p2-other.md")
+        check("492: a criterion already re-pointed elsewhere is refused", raises(lambda: repoint(to="9")))
+
+        check("492: --reverify is refused for a todo that is not blocked",
+              raises(lambda: state.reopen_reverify(ready_run([("5", ["b.py"])]), "5", "r")))
+        gone = copy.deepcopy(run)
+        gone["todos"]["7"]["worktree"] = str(Path(tmp) / "nope")
+        check("492: --reverify is refused when the worktree is gone",
+              raises(lambda: state.reopen_reverify(gone, "7", "r")))
+        state.reopen_reverify(run, "7", "owner re-pointed the walkthrough to todo 8")
+        check("492: a re-verified reopen keeps the worktree, branch, evidence and re-points",
+              entry["stage"] == "ready" and entry.get("reverify") is True and entry.get("worktree") == str(wt)
+              and entry.get("branch") == "worktree-g1" and entry.get("ac_file") == ".sweep-evidence/g1/ac.json"
+              and len(entry.get("repoints", [])) == 1 and entry["previous"][-1]["worktree"] == str(wt)
+              and "group" not in entry, entry)
+        state.apply_grouping(run)
+        briefs, err = expect(lambda: state.execute_args(run, len(run["waves"]) - 1, str(repo)))
+        now_tree = git("-C", str(wt), "write-tree").strip()
+        brief = (briefs or [{}])[0]
+        check("492: the brief asks to re-verify that worktree at its current tree",
+              err is None and now_tree != tree and entry.get("tree_id") == now_tree
+              and brief.get("reverify") == {"worktree": str(wt), "branch": "worktree-g1", "tree_id": now_tree,
+                                            "ac_file": ".sweep-evidence/g1/ac.json"}, err or brief)
+        check("492: the brief lists the re-point for the verifier",
+              brief.get("repoints") == {"7": [{"index": 1, "to": "8", "marker": marker}]}, brief.get("repoints"))
+        check("492: the reverify mark is spent once briefed",
+              "reverify" not in entry and entry["stage"] == "executing", entry)
+        check("492: a re-point after execute-args is refused (the brief holds the tree)", raises(repoint))
+        rv_worker = {"ids": ["7"], "status": "staged", **brief["reverify"], "files_changed": [], "tests_run": [],
+                     "blockers": "", "discoveries": "", "summary": "re-verify"}
+        ok = verdict(["7"], before=now_tree, after=now_tree) | {"ac": [
+            {"todo": "7", "index": 0, "verified": True, "note": "ok"},
+            {"todo": "7", "index": 1, "verified": True, "note": "re-pointed"}]}
+        state.ingest_execute(run, [{"group": brief["group"], "ids": ["7"], "retried": False, "worker": rv_worker,
+                                    "verdict": ok}])
+        check("492: a passing re-verify makes the todo verified", entry["stage"] == "verified", entry)
+        path, err = expect(lambda: state.ensure_worktree(run, brief["group"], Path(tmp) / "scratch"))
+        check("492: Land's ensure-worktree accepts the re-verified tree", path == str(wt), err)
+
+        mixed = ready_run([("m1", ["shared.py"]), ("m2", ["shared.py"])], workers=1)
+        state.apply_grouping(mixed)
+        mixed["todos"]["m1"].update(reverify=True, worktree=str(wt))
+        check("492: a re-verified todo grouped with other work is refused, before anything changes",
+              raises(lambda: state.execute_args(mixed, 0, "/m"))
+              and all(e["stage"] == "ready" for e in mixed["todos"].values()))
 
 
 def raises(fn, exc=state.TransitionError):
