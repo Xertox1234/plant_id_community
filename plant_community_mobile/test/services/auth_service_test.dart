@@ -324,6 +324,115 @@ void main() {
     });
   });
 
+  group('access-token refresh (todo 462)', () {
+    test('build() registers a refresher that re-exchanges the Firebase token '
+        'without signing out or re-running push registration', () async {
+      final harness = _Harness(currentUser: _FakeUser(uid: 'ada'));
+      addTearDown(harness.dispose);
+      await pumpEventQueue(); // let build()'s launch exchange settle
+
+      final refresher = harness.api.accessTokenRefresher;
+      expect(refresher, isNotNull, reason: 'build() registered no refresher');
+      final syncsBefore = harness.push.calls
+          .where((c) => c == 'syncAfterLogin')
+          .length;
+      harness.api.nextAccessToken = 'django-jwt-2';
+
+      final token = await refresher!();
+
+      expect(token, 'django-jwt-2');
+      final state = harness.container.read(authServiceProvider);
+      expect(state.jwtToken, 'django-jwt-2');
+      expect(state.error, isNull);
+      expect(harness.api.currentToken, 'django-jwt-2');
+      expect(harness.events, isNot(contains('firebase.signOut')));
+      expect(
+        harness.push.calls.where((c) => c == 'syncAfterLogin').length,
+        syncsBefore,
+        reason: 'a token refresh is not a login',
+      );
+
+      // The refresh's own exchange may neither refresh again nor sign out.
+      final exchange = harness.api.postCalls.last;
+      expect(exchange.path, '/auth/firebase-token-exchange/');
+      expect(exchange.data, {'firebase_token': 'firebase-id-token'});
+      expect(exchange.options?.extra?[ApiService.skipAuthRefreshKey], isTrue);
+      expect(exchange.options?.extra?[ApiService.skipSessionExpiryKey], isTrue);
+    });
+
+    test('the launch exchange 401 goes straight to sign-out, not to a '
+        'refresh', () async {
+      final harness = _Harness(currentUser: _FakeUser(uid: 'ada'));
+      addTearDown(harness.dispose);
+      await pumpEventQueue();
+
+      final launch = harness.api.postCalls.single;
+      expect(launch.options?.extra?[ApiService.skipAuthRefreshKey], isTrue);
+      expect(launch.options?.extra?[ApiService.skipSessionExpiryKey], isNull);
+    });
+
+    test('a failed re-exchange returns null, and the sign-out that follows '
+        'keeps the current message', () async {
+      final harness = _Harness(currentUser: _FakeUser(uid: 'ada'));
+      addTearDown(harness.dispose);
+      await pumpEventQueue();
+      harness.api.postError = ApiException(
+        'Invalid Firebase token',
+        statusCode: 401,
+      );
+
+      expect(await harness.api.accessTokenRefresher!(), isNull);
+      // The refresher itself does not sign out: ApiService does, once.
+      expect(harness.events, isNot(contains('firebase.signOut')));
+
+      await harness.api.sessionExpiredHandler!();
+      await pumpEventQueue();
+      final state = harness.container.read(authServiceProvider);
+      expect(state.error, 'Your session expired. Please sign in again.');
+      expect(state.jwtToken, isNull);
+      expect(harness.events, contains('firebase.signOut'));
+    });
+
+    test('with no Firebase user there is nothing to refresh', () async {
+      final harness = _Harness();
+      addTearDown(harness.dispose);
+      await pumpEventQueue();
+
+      expect(await harness.api.accessTokenRefresher!(), isNull);
+      expect(harness.api.postCalls, isEmpty);
+    });
+
+    test('a refresh overtaken by sign-out does not re-authenticate', () async {
+      final harness = _Harness(currentUser: _FakeUser(uid: 'ada'));
+      addTearDown(harness.dispose);
+      await pumpEventQueue();
+
+      final gate = Completer<void>();
+      harness.api.postGate = gate;
+      final refresh = harness.api.accessTokenRefresher!();
+      await pumpEventQueue();
+      await harness.container.read(authServiceProvider.notifier).signOut();
+      gate.complete();
+
+      expect(await refresh, isNull);
+      expect(harness.container.read(authServiceProvider).jwtToken, isNull);
+      expect(harness.api.currentToken, isNull);
+    });
+
+    test(
+      'the refresher is unregistered when the notifier is disposed',
+      () async {
+        final harness = _Harness();
+        await pumpEventQueue();
+        expect(harness.api.accessTokenRefresher, isNotNull);
+
+        harness.dispose();
+
+        expect(harness.api.accessTokenRefresher, isNull);
+      },
+    );
+  });
+
   group('session-expiry exemption', () {
     test('signOut\'s FCM-clear PATCH carries skipSessionExpiryKey', () async {
       // Asserted through the REQUEST options, not a notifier flag — there is
@@ -557,6 +666,27 @@ class _FakeApiService extends ApiService {
     super.setSessionExpiredHandler(onSessionExpired);
   }
 
+  /// Whatever AuthService.build() installed as the 401 token refresher.
+  Future<String?> Function()? accessTokenRefresher;
+
+  /// The access token the next exchange returns.
+  String nextAccessToken = 'django-jwt';
+
+  /// The bearer token AuthService last installed.
+  String? currentToken;
+
+  @override
+  void setAccessTokenRefresher(Future<String?> Function()? refresher) {
+    accessTokenRefresher = refresher;
+    super.setAccessTokenRefresher(refresher);
+  }
+
+  @override
+  void setAuthToken(String? token) {
+    currentToken = token;
+    super.setAuthToken(token);
+  }
+
   @override
   Future<Response> post(
     String path, {
@@ -572,7 +702,10 @@ class _FakeApiService extends ApiService {
     if (error != null) throw error;
     return Response<dynamic>(
       requestOptions: RequestOptions(path: path),
-      data: {'access_token': 'django-jwt', 'refresh_token': 'django-refresh'},
+      data: {
+        'access_token': nextAccessToken,
+        'refresh_token': 'django-refresh',
+      },
     );
   }
 
