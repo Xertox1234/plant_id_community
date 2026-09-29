@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: p3
 issue_id: "364"
 tags: [django, email, testing]
@@ -56,7 +56,10 @@ not enforced.
 - [x] `pytest.ini` promotes that warning class to `error::`, with any third-party
       exemption narrowly scoped and commented with its upstream tracking link
       (2026-09-26; the two exemptions are tracked by todo 452)
-- [ ] Reply email and weekly digest verified sending after the change
+- [x] Reply email and weekly digest verified sending after the change (owner-confirmed
+      2026-09-28: asked whether a prod forum reply email and the Monday
+      forum-weekly-digest arrived after the MAILERS deploy, the owner answered
+      "Yes, both arrived")
 
 ## Work Log
 
@@ -64,6 +67,28 @@ not enforced.
 
 - Raised by the PR #695 code review as the difference between an *observed* and an
   *enforced* deprecation signal. Deliberately out of scope for the Django 6.1 bump.
+
+### 2026-09-28 - Implemented by the todo sweep (run 2026-09-28-2018)
+
+- AC 3 (reply email + weekly digest sending) was the owner's check (2026-09-24
+  decision). The owner answered it in this run's Decide stage, recorded in the
+  frontmatter by the triage PR: "Owner confirmed on 2026-09-28 that a prod forum
+  reply email and the Monday forum-weekly-digest both arrived after the MAILERS
+  deploy".
+- No code changed. ACs 1–2 were already done (2026-09-26). AC 3 is an external,
+  owner-only prod check: the repo cannot prove a send, so the sweep leaves it for
+  Land to settle from the recorded owner confirmation.
+- Nothing was sent or read in production by the sweep.
+
+### 2026-09-29 - Criterion 3 ticked by hand from the owner's confirmation
+
+- `land.py flip-acs` flips a box only with a worker pass, verifier agreement and
+  an evidence file, so an owner-only check came back blocked (todo 492 finding 1).
+  The main session ticked it with the owner's recorded answer, quoted on the box.
+
+### 2026-09-29 - Completed by the todo sweep (run 2026-09-28-2018)
+
+- Archived by `land.py archive`; review is on the PR.
 
 ## Notes
 

@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: p3
 issue_id: "437"
 tags: [ops, email, railway]
@@ -34,7 +34,10 @@ messages a day).
 ## Acceptance Criteria
 
 - [x] `API_PUBLIC_URL` is set in production and declared in `.railway/railway.ts`.
-- [ ] A production reply email carries both one-click headers.
+- [x] A production reply email carries both one-click headers. (owner-confirmed
+      2026-09-28: asked whether the raw headers of a recent production reply or
+      digest email show List-Unsubscribe with the api.houseplant-md.com one-click
+      URL and List-Unsubscribe-Post, the owner answered "Yes, both present")
 
 ## Work Log
 
@@ -66,3 +69,25 @@ headers.
   permission classifier, so AC 2 stays open. Owner step (one minute): on the
   next forum reply or digest email, Gmail → "Show original", confirm both
   headers, record the date here, archive.
+
+### 2026-09-28 - Implemented by the todo sweep (run 2026-09-28-2018)
+
+- AC 2 (a production reply email carries both one-click headers) was the
+  owner's check. The owner answered it in this run's Decide stage, recorded in
+  the frontmatter by the triage PR: "Owner confirmed on 2026-09-28 that the raw
+  headers of a production reply/digest email show List-Unsubscribe
+  (api.houseplant-md.com one-click URL) and List-Unsubscribe-Post".
+- No code or `.railway/` change. AC 2 is an external, owner-only prod check:
+  the repo cannot prove the headers, so the sweep leaves it for Land to settle
+  from the recorded owner confirmation.
+- Nothing was sent or read in production by the sweep.
+
+### 2026-09-29 - Criterion 2 ticked by hand from the owner's confirmation
+
+- `land.py flip-acs` flips a box only with a worker pass, verifier agreement and
+  an evidence file, so an owner-only check came back blocked (todo 492 finding 1).
+  The main session ticked it with the owner's recorded answer, quoted on the box.
+
+### 2026-09-29 - Completed by the todo sweep (run 2026-09-28-2018)
+
+- Archived by `land.py archive`; review is on the PR.
