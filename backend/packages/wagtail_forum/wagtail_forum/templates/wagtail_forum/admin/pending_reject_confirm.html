@@ -1,0 +1,27 @@
+{% extends "wagtailadmin/generic/base.html" %}
+{% load i18n %}
+
+{% block main_content %}
+    {% if is_topic %}
+        <p>
+            {% blocktrans trimmed count counter=post_count with title=topic_title %}
+                Delete the new topic “{{ title }}” and its {{ counter }} post? This cannot be undone.
+            {% plural %}
+                Delete the new topic “{{ title }}” and all {{ counter }} of its posts? This cannot be undone.
+            {% endblocktrans %}
+        </p>
+    {% else %}
+        <p>
+            {% blocktrans trimmed with title=topic_title %}
+                Delete this held reply to “{{ title }}”? This cannot be undone.
+            {% endblocktrans %}
+        </p>
+    {% endif %}
+    <blockquote>{{ excerpt }}</blockquote>
+    <form action="{{ reject_url }}" method="POST">
+        {% csrf_token %}
+        <input type="hidden" name="revision" value="{{ revision }}">
+        <button type="submit" class="button serious">{% trans "Yes, reject and delete" %}</button>
+        <a href="{{ cancel_url }}" class="button button-secondary">{% trans "No, go back" %}</a>
+    </form>
+{% endblock %}

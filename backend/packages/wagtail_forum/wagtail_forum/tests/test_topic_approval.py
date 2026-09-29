@@ -163,7 +163,8 @@ def test_dashboard_moderation_link_lands_on_the_pending_content_page(client, mod
     author = User.objects.create_user(username="plantadmin")
     _pending_thread(author, _board())
 
-    resp = client.get("/cms/")
+    # Resolved, never a hardcoded admin path: the mount is host config (todo 495).
+    resp = client.get(reverse("wagtailadmin_home"))
 
     expected = reverse("wagtail_forum_pending:index")
     assert f'href="{expected}"'.encode() in resp.content

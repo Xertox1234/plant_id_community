@@ -278,7 +278,14 @@ class ForumModerationSummaryItem(SummaryItem):
 def add_forum_moderation_summary_item(request, items):
     """Mirrors the blog's "Pending Comments" summary item — same hook, same
     "N awaiting X" shape (apps/blog/wagtail_hooks.py) — so forum moderation
-    gets the same homepage visibility blog content already has (audit H16)."""
+    gets the same homepage visibility blog content already has (audit H16).
+
+    Only for users who can open the page it links to (todo 495): anyone else
+    got a link that bounced, and paid for the count on every dashboard load."""
+    from .admin_views import user_can_moderate_pending
+
+    if not user_can_moderate_pending(request.user):
+        return
     try:
         count = _pending_moderation_count()
     except Exception:
