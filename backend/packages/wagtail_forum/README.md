@@ -261,6 +261,7 @@ The reference implementation is the host's `apps/forum_host/forum_settings.py`
 |---|---|---|
 | `WAGTAILFORUM_SPAM_BACKEND` | `"wagtail_forum.spam.heuristic.HeuristicSpamBackend"` | Dotted path to the spam backend (see [Spam backends](#spam-backends)). |
 | `WAGTAILFORUM_TRUST_AUTOPUBLISH_LEVEL` | `2` (`TrustLevel.MEMBER`) | Minimum author trust level that publishes without moderation. |
+| `WAGTAILFORUM_MODERATION_BYPASS_PERMISSION` | `"wagtail_forum.publish_post"` | Authors who publish without moderation at any trust level: active superusers, plus any author holding this permission (grant it to your forum moderator group). Checked on the **author** at request time, never stored as `trust_level`, and applied to create, edit and DM screening alike. `None` = superusers only. Plain `is_staff` is not enough (todo 423). |
 | `WAGTAILFORUM_TRUST_THRESHOLDS` | `{1: 1, 2: 5, 3: 50, 4: 200}` | `trust_level -> minimum visible post_count`. Trust is re-derived in **both** directions, so trust funded by posts later removed as spam is revoked. Keys may be strings (JSON/env-friendly). |
 | `WAGTAILFORUM_SPAM_MAX_LINKS` | `3` | Heuristic backend: max `http(s)://` occurrences before rejection. |
 | `WAGTAILFORUM_SPAM_BANNED_WORDS` | `[]` | Heuristic backend: case-insensitive substring blocklist. |
@@ -289,10 +290,30 @@ Two member-to-member tools, deliberately different in scope (todo 347):
 (flat list, newest first) mirror the block endpoints; the host mounts them
 with the same `60/m` throttles (`mute_create`/`mute_delete`).
 
-#### Moderation queue (admin report)
+#### Pending content (admin page)
 
-The package registers a **Forum moderation queue** under the Wagtail admin
-*Reports* menu (`wagtail_forum.admin_views.ModerationQueueView`, mounted via
+The package registers **Pending forum content** under the Wagtail admin
+*Reports* menu (`wagtail_forum.admin_views.PendingContentView`, mounted at
+`<admin>/forum/pending/`, URL name `wagtail_forum_pending:index`; todo 423).
+It lists every post waiting for a moderator (a new topic's opening post, a
+held reply, a held edit to a live post, or a draft whose spam check crashed)
+with its body excerpt, kind, topic, author and author trust, oldest first.
+**Approve** (a POST to `wagtail_forum_pending:approve`) publishes the post's
+latest revision and, for a new topic, the topic with it, as one action.
+**Reject** on new content opens the snippet delete confirmation (a new topic
+deletes the thread); a held edit has no Reject, because deleting would take
+the live post down. The page, the action and the menu item need `publish` on
+`wagtail_forum.post` (superusers and the host's moderator group). The
+dashboard's "N forum posts awaiting moderation" item counts exactly these
+rows (`admin_views.pending_posts`) and links here. Moderators are not pushed
+or emailed when something is waiting; the count and this page are the
+signal.
+
+#### Reported content (admin report)
+
+The package registers **Reported forum content** (formerly "Forum moderation
+queue", renamed in todo 423 so it cannot be mistaken for the pending page)
+under the Wagtail admin *Reports* menu (`wagtail_forum.admin_views.ModerationQueueView`, mounted via
 the `register_admin_urls` hook at `<admin>/forum/reports/moderation-queue/`,
 URL name `wagtail_forum_reports:moderation_queue`). It lists reports in the
 `open` and `auto_hidden` statuses, oldest first, with the reason, reporter and
