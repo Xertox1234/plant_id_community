@@ -36,26 +36,37 @@ collected here.
    contains the date. Compare only `→ todo NNN`.
 6. **Verifier step 4 wording.** Say that `#<index>` is 0-based (the same `index` as AC_FILE), and that
    exactly one occurrence of the marker is removed; a second occurrence is an edit.
-7. **`--reverify` accepts a todo blocked at Land,** not only one a worker blocked. A step-3 block
-   ("criteria not verified") leaves flipped boxes unstaged, and a step-7 block (a rebase conflict)
-   comes after the commit. The re-verify then fails closed and uses up the retry. Record who blocked it
-   (for example `blocked_by: worker` from `ingest_execute`) and allow only a worker block.
+7. **Fixed in PR #885:** `--reverify` now needs `blocked_by: worker`, which `ingest_execute` records
+   only for a first worker's block.
 8. **The `todo-execute` pipeline stage is synchronous on the re-verify path**
    (`b.reverify ? reverifyWorker(b) : agent(…)`). Make it `async`, so a runtime that chains with `.then`
    still gets the record.
-9. **Tests.**
-   - Nothing checks the record `reverifyWorker` builds against the WORKER schema. A missing `branch`
-     would make `ingest_execute` raise a KeyError.
-   - The non-numeric target check (`to="../8"`) would pass without the `isdigit` guard, because the
-     glob refuses it too. Use a target like `8a` with a staged `8a-*.md` file.
-   - The "missing WORK_FIELDS" refusal in `reopen_reverify` is never exercised.
-   - No test calls `repoint` on a `ready` todo, so narrowing its stage check (finding 3) is unpinned
-     either way.
+9. **The staged tree is taken as it is at `execute-args`.** Anything staged between the block and
+   then becomes the verified tree, not only the re-point and its target (a broad `git add -A` would
+   stage a stray scratch file). Require `git diff-tree` between the recorded and new trees to touch
+   only the todo file and each re-point's target.
+10. **Error text.**
+    - `repoint` on a todo whose file Land already moved raises `FileNotFoundError`, not a
+      `TransitionError` naming the problem.
+    - A re-verify wave that clashes with a `failed` group in the wave before gets "wait for that wave
+      to merge". That group never merges until it is retried or blocked, so say so.
+11. **Tests.**
+    - Nothing checks the record `reverifyWorker` builds against the WORKER schema. A missing `branch`
+      would make `ingest_execute` raise a KeyError.
+    - The non-numeric target check (`to="../8"`) would pass without the `isdigit` guard, because the
+      glob refuses it too. Use a target like `8a` with a staged `8a-*.md` file.
+    - The "missing WORK_FIELDS" refusal in `reopen_reverify` is never exercised.
+    - No test calls `repoint` on a `ready` todo, so narrowing its stage check (finding 3) is unpinned
+      either way.
+    - Nothing drives the CLI `set --reverify` argument check or the `repoint` subcommand through
+      `state.main`.
+    - `busy_lanes=again_lanes[-1]` in `apply_grouping` is unpinned (it fails safe: a clash waits).
+    - `repoint`'s index-bounds check and a duplicate `ac.json` entry are caught only by a crash.
 
 ## Acceptance Criteria
 
-- [ ] Findings 1–8 are fixed, or each has a line in this todo saying why not.
-- [ ] Each gap in finding 9 has a test that fails when the guard it names is removed.
+- [ ] Findings 1–6 and 8–10 are fixed, or each has a line in this todo saying why not.
+- [ ] Each gap in finding 11 has a test that fails when the guard it names is removed.
 
 ## Work Log
 

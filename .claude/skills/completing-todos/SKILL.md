@@ -127,14 +127,17 @@ With `--limit N`, execute only the first ⌈N / workers⌉ waves and list the de
    verdict. A plain reopen gives the todo a fresh worker in a new worktree. When the owner moves that
    criterion to another todo instead, keep the work:
    - Create the target todo (`todos/<NNN>-pending-…md`) in the blocked worktree and `git add` it.
-   - `state.py repoint $RUN <id> --index <i> --to <NNN> --decision "<owner's words> ($TODAY)" --date $TODAY`.
+   - `state.py repoint $RUN <id> --index <i> --to <NNN> --decision "<owner's words> ($TODAY)" --date $TODAY`
+     (`<i>` is 0-based, as in `ac.json`; the target must be the new todo from the step above).
      It adds the marker to the criterion, stages it, fixes `ac.json`, and records the re-point. The
      verifier accepts only re-points the brief lists, so never re-point one by hand.
    - `state.py set $RUN <id> ready --reverify --field reason="…"`, then `group` and `execute-args` as
-     above. Only a one-todo attempt qualifies: Land commits the worktree's whole index, so `--reverify`
-     is refused when any other todo ever recorded that worktree. Reopen a multi-todo attempt the plain
-     way. `group` gives a re-verified todo its own group, in the first new wave; a dependent reopened
-     with it waits in `execute-args` until it merges. The workflow skips the planner and the worker and
+     above. Only a one-todo attempt its first worker blocked qualifies: Land commits the worktree's whole
+     index, and a tree a verifier already judged is never judged again. So `--reverify` is refused for
+     a multi-todo attempt, a worktree any other todo ever recorded, and a block from a retry worker, a
+     verifier, Land or the owner. Reopen those the plain way. `group` gives each re-verified todo its own
+     group and its own wave, before the planned ones; a dependent reopened with it waits in
+     `execute-args` until it merges. The workflow skips the planner and the worker and
      verifies the worktree as it is. Don't touch the worktree after `execute-args`: it records the tree
      the verdict must match.
    - A wave the run deferred (`--limit`) blocks every later wave. Block its todos with the reason

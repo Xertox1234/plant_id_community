@@ -1349,6 +1349,7 @@ def reverify_tests():
         git("init", "-q", "-b", "main", str(repo))
         (repo / "todos").mkdir()
         (repo / "todos" / "7-pending-p3-x.md").write_text(todo)
+        (repo / "todos" / "6-pending-p3-other.md").write_text("---\nstatus: pending\n---\n")
         (repo / ".gitignore").write_text(".sweep-evidence/\n")
         git("-C", str(repo), "add", "-A")
         git("-C", str(repo), "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q", "-m", "init")
@@ -1432,9 +1433,49 @@ def reverify_tests():
         (wt / "todos" / "9-pending-p2-other.md").write_text("---\nstatus: pending\n---\n")
         git("-C", str(wt), "add", "todos/9-pending-p2-other.md")
         check("492: a criterion already re-pointed elsewhere is refused", raises(lambda: repoint(to="9")))
+        check("492: a re-point to a todo already on the branch is refused (a stale copy of a done todo)",
+              raises(lambda: state.repoint(run, "7", 0, "6", decision, "2026-09-28")))
+        (wt / "todos" / "12-pending-p2-new.md").write_text("---\nstatus: pending\n---\n")
+        git("-C", str(wt), "add", "todos/12-pending-p2-new.md")
+        git("-C", str(repo), "checkout", "-q", "-b", "side")
+        (repo / "todos" / "archive").mkdir()
+        (repo / "todos" / "archive" / "12-completed-p3-old.md").write_text("done\n")
+        git("-C", str(repo), "add", "-A")
+        git("-C", str(repo), "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q", "-m", "side")
+        git("-C", str(repo), "update-ref", "refs/remotes/origin/main", "side")
+        check("492: a re-point to a number origin/main already used is refused",
+              raises(lambda: state.repoint(run, "7", 0, "12", decision, "2026-09-28")))
+        git("-C", str(repo), "update-ref", "-d", "refs/remotes/origin/main")
+        git("-C", str(wt), "rm", "-q", "--cached", "todos/12-pending-p2-new.md")
+        (wt / "todos" / "12-pending-p2-new.md").unlink()
 
-        check("492: --reverify is refused for a todo that is not blocked",
-              raises(lambda: state.reopen_reverify(ready_run([("5", ["b.py"])]), "5", "r")))
+        def judged(how):
+            """A one-todo attempt whose tree a verifier already judged, with its work fields and a real dir."""
+            one = ready_run([("5", ["b.py"])], workers=1)
+            state.apply_grouping(one)
+            b = state.execute_args(one, 0, "/m")[0]
+            staged = worker(["5"]) | {"worktree": tmp}
+            if how == "retry worker":
+                state.ingest_execute(one, [{"group": b["group"], "ids": ["5"], "retried": True, "verdict": None,
+                                            "worker": staged | {"status": "blocked", "blockers": "owner-only"}}])
+            else:
+                state.ingest_execute(one, [{"group": b["group"], "ids": ["5"], "retried": False, "worker": staged,
+                                            "verdict": verdict(["5"], result="fail")}])
+                if how == "owner":
+                    state.transition(one, "5", "blocked", reason="retried once already")
+            return one
+
+        failed = judged("failed")
+        failed["todos"]["5"]["blocked_by"] = "worker"
+        check("492: --reverify is refused for a todo that is not blocked, whatever else it carries",
+              failed["todos"]["5"]["stage"] == "failed" and raises(lambda: state.reopen_reverify(failed, "5", "r")))
+        owner = judged("owner")
+        check("492: --reverify is refused for a tree a verifier rejected, blocked afterwards by the owner",
+              owner["todos"]["5"]["stage"] == "blocked" and raises(lambda: state.reopen_reverify(owner, "5", "r")))
+        retry = judged("retry worker")
+        check("492: --reverify is refused when a retry worker blocked (its first tree was judged)",
+              retry["todos"]["5"].get("blocked_by") == "retry worker"
+              and raises(lambda: state.reopen_reverify(retry, "5", "r")), retry["todos"]["5"])
         gone = copy.deepcopy(run)
         gone["todos"]["7"]["worktree"] = str(Path(tmp) / "nope")
         check("492: --reverify is refused when the worktree is gone",
@@ -1504,6 +1545,12 @@ def reverify_grouping_tests():
 
     with tempfile.TemporaryDirectory() as shared:
         run = blocked_pair(shared)
+        overwritten = copy.deepcopy(run)
+        overwritten["todos"]["17"]["worktree"] = str(Path(shared) / "retry")  # a retry's ingest overwrote it
+        check("492: a re-verify of a multi-todo attempt is refused, even once the mate's record moved on",
+              raises(lambda: state.reopen_reverify(overwritten, "7", "r"))
+              and overwritten["todos"]["7"]["stage"] == "blocked")
+        run["groups"][run["todos"]["7"]["group"]]["ids"] = ["7"]  # past the group record: the worktree check
         check("492: a re-verify of a worktree that also holds another todo's work is refused",
               raises(lambda: state.reopen_reverify(run, "7", "r")) and run["todos"]["7"]["stage"] == "blocked")
         state.transition(run, "17", "ready", reason="plain reopen")
@@ -1511,6 +1558,7 @@ def reverify_grouping_tests():
               run["todos"]["17"]["previous"][-1]["worktree"] == shared
               and raises(lambda: state.reopen_reverify(run, "7", "r")))
         sneaky = blocked_pair(shared)
+        sneaky["groups"][sneaky["todos"]["7"]["group"]]["ids"] = ["7"]
         sneaky["todos"]["17"]["worktree"] = str(Path(shared) / "elsewhere")
         state.reopen_reverify(sneaky, "7", "r")
         sneaky["todos"]["17"]["worktree"] = shared
@@ -1560,11 +1608,12 @@ def reverify_grouping_tests():
         check("492: ... and runs once it has merged", err is None and any("8" in b["ids"] for b in briefs8), err)
 
         dropped = snapshot
+        dropped["todos"]["7"]["repoints"] = [{"index": 0, "to": "8", "marker": "m", "decision": "d"}]
         state.transition(dropped, "7", "blocked", reason="owner changed their mind")
         state.transition(dropped, "7", "ready", reason="redo it with a fresh worker")
         entry = dropped["todos"]["7"]
-        check("492: a plain reopen after a re-verify leaves no reverify flag behind",
-              "reverify" not in entry and "worktree" not in entry, entry)
+        check("492: a plain reopen after a re-verify leaves no reverify flag or re-points behind",
+              "reverify" not in entry and "worktree" not in entry and "repoints" not in entry, entry)
         for i in ("8", "9"):
             state.transition(dropped, i, "blocked", reason="held back again")
         state.apply_grouping(dropped)

@@ -50,7 +50,7 @@ LANDED = {"merged", "archived"}
 WORK_FIELDS = ("worktree", "branch", "tree_id", "ac_file")
 # What a blocked attempt leaves on its entry; reopening moves it to `previous` (see _reopen).
 ATTEMPT_FIELDS = ("reason", "group", "slot", "wave", *WORK_FIELDS, "verified_ac", "test_edits", "review_round",
-                  "repoints", "reverify")
+                  "repoints", "reverify", "blocked_by")
 
 
 class TransitionError(Exception):
@@ -151,9 +151,17 @@ def reopen_reverify(run, todo_id, reason):
         raise TransitionError(f"{todo_id}: not in this run")
     if entry["stage"] != "blocked":
         raise TransitionError(f"{todo_id}: is {entry['stage']}; only a blocked todo is re-verified in place")
+    # A tree a verifier already judged (a retry worker's, or one blocked after a failed verdict) is never
+    # re-verified: that would re-judge a rejected tree without spending a retry (PR #885 review).
+    if entry.get("blocked_by") != "worker":
+        raise TransitionError(f"{todo_id}: only a todo its first worker blocked is re-verified in place; "
+                              "reopen it without --reverify")
     missing = [k for k in WORK_FIELDS if not entry.get(k)]
     if missing:
         raise TransitionError(f"{todo_id}: no staged attempt to re-verify (missing {', '.join(missing)})")
+    if run["groups"].get(entry.get("group"), {}).get("ids") != [todo_id]:
+        raise TransitionError(f"{todo_id}: its blocked attempt was a group of several todos; only a one-todo "
+                              "attempt is re-verified in place, so reopen it without --reverify")
     if not Path(entry["worktree"]).is_dir():
         raise TransitionError(f"{todo_id}: its worktree {entry['worktree']} is gone; reopen it without --reverify")
     _refuse_shared_worktree(run, todo_id, entry["worktree"])
@@ -318,6 +326,17 @@ def repoint(run, todo_id, index, to, decision, date, git=run_git):
     target = sorted(Path(worktree, "todos").glob(f"{to}-*.md"))
     if len(target) != 1 or not git(worktree, "ls-files", "--", f"todos/{target[0].name}").strip():
         raise TransitionError(f"{todo_id}: todo {to} must be one open todo file under todos/, staged in {worktree}")
+    # A new todo made for this re-point, so the criterion can never land on a todo that is already done
+    # (a stale pending copy in an old worktree, or a number origin/main has since used; PR #885 review).
+    if git(worktree, "ls-tree", "--name-only", "HEAD", "--", f"todos/{target[0].name}").strip():
+        raise TransitionError(f"{todo_id}: todo {to} is already on the branch; re-point to a new todo created "
+                              "for it and staged in the worktree")
+    try:
+        on_main = git(worktree, "ls-tree", "-r", "--name-only", "origin/main", "--", "todos")
+    except RuntimeError:
+        on_main = ""  # no origin/main in this repo (the tests); nothing to collide with
+    if any(posixpath.basename(f).startswith(f"{to}-") for f in on_main.splitlines()):
+        raise TransitionError(f"{todo_id}: origin/main already has a todo {to}; pick the next free number")
     marker = REPOINT_MARKER.format(to=to, date=date)
     path = Path(worktree, entry["path"])
     text = path.read_text()
@@ -663,7 +682,9 @@ def ingest_execute(run, results):
             if worker is None:
                 transition(run, todo_id, "failed", reason="worker returned nothing", **work)
             elif worker["status"] == "blocked":
-                transition(run, todo_id, "blocked", reason=worker.get("blockers") or "worker blocked", **work)
+                # Todo 492: only a first worker's block leaves a tree no verifier has judged yet.
+                transition(run, todo_id, "blocked", reason=worker.get("blockers") or "worker blocked", **work,
+                           blocked_by="retry worker" if result.get("retried") else "worker")
             elif worker["status"] != "staged":
                 transition(run, todo_id, "failed",
                            reason=f"worker status {worker['status']}: {worker.get('blockers', '')}", **work)
