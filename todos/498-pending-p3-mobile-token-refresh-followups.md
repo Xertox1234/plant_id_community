@@ -1,9 +1,10 @@
 ---
 status: pending
-priority: p4
+priority: p3
 issue_id: "498"
 tags: [mobile, flutter, auth]
 dependencies: []
+owner_decision: "Users expect to stay signed in (it is a recipe app; signing in again is tiresome): sign out only when the server definitely refuses the session, never on a transient failure. Raised to p3 (2026-09-29)"
 ---
 
 # Mobile token refresh: follow-ups from PR #891's review
@@ -27,8 +28,10 @@ Line numbers are as of PR #891's head (681858bf).
    by four reviewers across both rounds.
    Suggested: sign out only on a definite refusal (401, 403 or 409 from the exchange, or a
    `FirebaseAuthException` such as user-disabled). On a transient failure, return the original 401 to the
-   caller without signing out, so the next 401 tries the refresh again. **This changes todo 462's criterion
-   "a failed refresh signs out", so the owner decides.**
+   caller without signing out, so the next 401 tries the refresh again. **Owner decision (2026-09-29):
+   do this.** "This is just a recipe app. Users expect to stay logged in. Logging in all the time gets
+   tiresome." It replaces todo 462's criterion "a failed refresh signs out" with "only a refused refresh
+   signs out".
 2. **A refresh that ends while `signOut()` runs reports "session expired"** (`api_service.dart:344`–`356`).
    `signOut()` bumps `_authGeneration` first but calls `setAuthToken(null)` last, after up to 3 s of
    `clearOnLogout` and the Firebase sign-out. A refresh that ends in that window returns `null` with
@@ -68,12 +71,22 @@ Line numbers are as of PR #891's head (681858bf).
    authentication classes, so any client that sends a stale bearer to it gets a 401 before the view runs.
    The mobile fix omits the header. Suggested: `@authentication_classes([])` on the view, since it
    verifies only the body token.
+10. **Nothing enforces the session guard's precondition** (`api_service.dart:66`, `:379`; kimi WARNING on
+    681858bf). The guard assumes every sign-in passes through `setAuthToken(null)` before it sets a new
+    token, because only that bumps `_authSession`. It holds today: the one non-null sign-in call
+    (`auth_service.dart:469`) clears first at `:409`, and the other two (`auth_service.dart:614`,
+    `api_service.dart:350`) are the same-session refresh. But a future sign-in path that sets the token
+    directly would let user A's request be re-sent as user B again. Suggested: have `setAuthToken` bump
+    the session itself whenever the token is not a refresh of the current one (for example, a separate
+    `replaceAuthToken` for the refresh), or add a test that drives each sign-in path and asserts the
+    session changed.
 
 ## Acceptance Criteria
 
-- [ ] Findings 1–9 are fixed, or each has a line in this todo saying why not (finding 1 needs the
-      owner's decision first).
-- [ ] Findings 1, 2, 3 and 4 each have a test that fails when the fix is removed.
+- [ ] Findings 1–10 are fixed, or each has a line in this todo saying why not.
+- [ ] A transient refresh failure (offline, timeout, 5xx, 429) leaves the user signed in and their
+      request fails with a retryable error; only a refused refresh signs out (finding 1, owner decision).
+- [ ] Findings 1, 2, 3, 4 and 10 each have a test that fails when the fix is removed.
 
 ## Work Log
 
@@ -82,3 +95,9 @@ Line numbers are as of PR #891's head (681858bf).
 Round 2 never repairs, and all nine were rated non-blocking. Round 1's other non-blocking findings (a
 401 after a clean sign-out still refreshing, a second 401 after a sign-out during the retry, and the
 missing real-HTTP exchange test) were fixed by the round-1 repair's session guard and loopback tests.
+
+### 2026-09-29 - Owner decision on finding 1; raised to p3
+
+The owner chose to keep users signed in through transient failures ("This is just a recipe app. Users
+expect to stay logged in."), and raised this todo to p3. Finding 10 was added from the kimi gate's
+WARNING on the round-1 repair commit, which was checked by hand and holds today.
