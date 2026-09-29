@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: p3
 issue_id: "478"
 tags: [harness, todo-sweep]
@@ -90,16 +90,16 @@ These were left for later.
 
 - [x] Domain reviewers get only their routed files, or this records why not. (A router pick
       gets every file: its choice may rest on content the path rules can't see.)
-- [ ] A test fails when a null refute judgment drops its finding.
+- [x] A test fails when a null refute judgment drops its finding.
 - [x] `MUST_ROUTE` and the orchestrator's table can't drift silently (shared source or
       a test).
-- [ ] Follow-ups are path-normalised, and a refuted record keeps its `also` phrasings.
+- [x] Follow-ups are path-normalised, and a refuted record keeps its `also` phrasings.
 - [x] Routing reads a `changed_files` list that `review_args` computes, not the router's.
 - [x] A refuted critical/high finding in round 2 is visible before auto-merge (a follow-up
       or a PR comment), and `refuted` is not truncated silently.
 - [x] `MUST_ROUTE` has the firebase, rules and functions security rows, with tests.
 - [ ] Review residue before the repair → todo 480 (re-pointed 2026-09-28; owner asked for its own todo)
-- [ ] Each remaining item in finding 5 is fixed or recorded here as accepted.
+- [x] Each remaining item in finding 5 is fixed or recorded here as accepted.
 - [ ] Finding 6 router hardening → todo 481 (re-pointed 2026-09-28; owner asked for its own todo)
 
 ## Work Log
@@ -181,3 +181,66 @@ These were left for later.
 - Not fixed: holding already at round 1, which would save a repair and a round 2
   (cost only), and deduplicating `refuted` by file:line across rounds (a count can
   double). Both → todo 482.
+
+### 2026-09-28 - Implemented by the todo sweep (run 2026-09-28-2018)
+
+- Null refute judgment (finding 2): `test_workflows.js` `run()` gained `parallelThrows` (a nested
+  `parallel()` that throws, as a real one can) and `mutate`. The new check proves a null judgment keeps its
+  own finding blocking, and a second check proves that same case fails under `judged.filter(Boolean)`.
+- Finding 4: follow-ups and refuted records are path-normalised in `state.ingest_review` (`_rel_file`: the
+  worktree prefix in either /tmp or /private/tmp form, and `./`). A refuted record keeps its `also` phrasings.
+- Finding 5, every remaining item, each fixed:
+  - relPath /tmp alias: `relPath` in `todo-review.js` and `_rel_file` in `state.py` both strip the
+    /tmp↔/private/tmp and /var↔/private/var forms.
+  - A style-level "high": the domain prompt now says a checklist or pattern deviation is at most medium
+    unless the reviewer names the input or state that makes it fail (`CHECKLIST_CAP`).
+  - `rerun` counted: `review_reruns` per round in the run file; a second `rerun` or `residue` in a round
+    blocks the group from `ingest-review` itself, so the rule survives a resume.
+  - REVIEW_AGENTS vs DOMAIN_REVIEWERS: `test_workflows.js` fails if any agentType the review workflow
+    dispatches is not guarded, and the hook test loops over all 9 review agents read from the guard.
+  - Guard gaps: `git grep -O`/`--open-files-in-pager` (alone or in a bundle) is denied, and so is any
+    `GIT_*` assignment (prefix, `env`, `export`). Accepted breadth: that denial is program-agnostic, so
+    `GIT_TERMINAL_PROMPT=0 python …` from a guarded agent is refused too.
+  - Hygiene: "round 1 with no blocking finding" has its own run; the vacuous "no inline range" check is
+    replaced by one that each reviewer's own range is relayed; the critical that takes over as
+    representative no longer repeats its summary in `also`; the guard docstring and hook headers name all
+    the guarded agents.
+- Evidence: `node scripts/todos/test_workflows.js`, `bash .claude/hooks/test-guard-todo-worker-git.sh` and
+  `python3 scripts/todos/test_state_flow.py` all pass; each new check was mutation-tested (it fails on the
+  old behaviour).
+
+### 2026-09-28 - Verified by the todo sweep (run 2026-09-28-2018)
+
+- AC 2: `node /Users/williamtower/projects/plant_id_community/.claude/worktrees/wf_82aa03f6-6f2-3/scripts/todos/test_workflows.js` — evidence `.sweep-evidence/g8/478-ac1.txt`, last lines:
+
+  ```text
+    PASS  476 AC2: items are checked whenever present, even without type: array
+    PASS  WORKER schema is identical in execute and review
+    PASS  VERDICT schema is identical in execute and review
+
+  All checks passed.
+  ```
+
+- AC 4: `python3 /Users/williamtower/projects/plant_id_community/.claude/worktrees/wf_82aa03f6-6f2-3/scripts/todos/test_state_flow.py` — evidence `.sweep-evidence/g8/478-ac3.txt`, last lines:
+
+  ```text
+    PASS  482: finish still removes the run file when every todo is terminal and none is held
+    PASS  473 AC1: the wrap-up lists a landed todo's earlier blocked worktree (not its removed own one)
+    PASS  477 AC4: the rename message prints the source and destination unquoted
+
+  All checks passed.
+  ```
+
+- AC 9: `sh -c 'node /Users/williamtower/projects/plant_id_community/.claude/worktrees/wf_82aa03f6-6f2-3/scripts/todos/test_workflows.js; bash /Users/williamtower/projects/plant_id_community/.claude/worktrees/wf_82aa03f6-6f2-3/.claude/hooks/test-guard-todo-worker-git.sh; python3 /Users/williamtower/projects/plant_id_community/.claude/worktrees/wf_82aa03f6-6f2-3/scripts/todos/test_state_flow.py; grep -n -A26 "Implemented by the todo sweep (run 2026-09-28-2018)" /Users/williamtower/projects/plant_id_community/.claude/worktrees/wf_82aa03f6-6f2-3/todos/478-pending-p3-todo-review-full-depth-followups.md'` — evidence `.sweep-evidence/g8/478-ac8.txt`, last lines:
+
+  ```text
+  206-    representative no longer repeats its summary in `also`; the guard docstring and hook headers name all
+  207-    the guarded agents.
+  208-- Evidence: `node scripts/todos/test_workflows.js`, `bash .claude/hooks/test-guard-todo-worker-git.sh` and
+  209-  `python3 scripts/todos/test_state_flow.py` all pass; each new check was mutation-tested (it fails on the
+  210-  old behaviour).
+  ```
+
+### 2026-09-28 - Completed by the todo sweep (run 2026-09-28-2018)
+
+- Archived by `land.py archive`; evidence is quoted above, review is on the PR.

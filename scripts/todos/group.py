@@ -139,18 +139,38 @@ def _find_cycle(deps):
 def _merge_cycles(grouped, by_id):
     """Todos that share a file are one group, so an acyclic chain through another group (B -> C -> A,
     A and B sharing a file) is still a group cycle. Every group on one becomes one group -- one worker,
-    one PR -- until none is left (todo 468). A cycle among the todos themselves is refused earlier."""
+    one PR -- until none is left (todo 468). A cycle among the todos themselves is refused earlier.
+
+    Returns (grouped, stuck). A verify-only todo is never merged into a code group, where its brief would
+    lose "verify only" (todo 474): a group cycle through one stops merging, and `stuck` names the todos on
+    it, for plan() to refuse. Otherwise stuck is empty."""
     while True:
         gid_of = {i: n for n, ids in enumerate(grouped) for i in ids}
         deps = {n: {gid_of[d] for i in ids for d in by_id[i].get("dependencies", []) if d in gid_of} - {n}
                 for n, ids in enumerate(grouped)}
         cycle = _find_cycle(deps)
         if not cycle:
-            return grouped
+            return grouped, []
         on = set(cycle)
+        if any(by_id[i].get("verify_only") for n in on for i in grouped[n]):
+            return grouped, sorted((i for n in on for i in grouped[n]), key=lambda i: _rank(by_id[i]))
         merged = sorted((i for n in on for i in grouped[n]), key=lambda i: _rank(by_id[i]))
         grouped = sorted([ids for n, ids in enumerate(grouped) if n not in on] + [merged],
                          key=lambda ids: _rank(by_id[ids[0]]))
+
+
+def _refuse(refused, todos, ids, reason):
+    """Refuse ids with reason, and every todo that depends on one of them, directly or not."""
+    for todo_id in ids:
+        refused.setdefault(todo_id, reason)
+    changed = True
+    while changed:
+        changed = False
+        for todo in todos:
+            dep = next((d for d in todo.get("dependencies", []) if d in refused), None)
+            if todo["id"] not in refused and dep:
+                refused[todo["id"]] = f"depends on todo {dep}, which is refused: {refused[dep]}"[:300]
+                changed = True
 
 
 def _held(todos, open_ids):
@@ -175,18 +195,35 @@ def _held(todos, open_ids):
 
 def plan(todos, open_ids, workers, busy_lanes=frozenset()):
     """busy_lanes: lanes the wave just before this plan's first wave holds (a retry's groups are
-    appended after the run's last wave, which may still be running; PR #869 round 1)."""
-    by_id = {t["id"]: t for t in todos}
-    # PR #861 B-2: bundles hold only xs todos with no dependency edge inside this plan, in or out.
-    # A bundle then has no group deps at all, so it can never sit on a cycle; a real cycle
-    # among the todos themselves is refused below, before any grouping.
-    linked = {end for t in todos for dep in t.get("dependencies", []) if dep in by_id and dep != t["id"]
-              for end in (t["id"], dep)}
-    todo_cycle = _find_cycle({t["id"]: {d for d in t.get("dependencies", []) if d in by_id and d != t["id"]}
-                              for t in todos})
-    if todo_cycle:
-        raise CycleError("dependency cycle: " + " -> ".join(todo_cycle))
-    grouped = _merge_cycles(build_groups(todos, solo=_held(todos, open_ids) | linked), by_id)
+    appended after the run's last wave, which may still be running; PR #869 round 1).
+
+    Todo 474: a cycle that cannot be planned is refused for its own todos (and their dependents) only,
+    never for the whole plan: a dependency cycle between todos that share a file (one group), and a group
+    cycle through a verify-only todo, which must not be merged. Any other todo cycle raises CycleError."""
+    refused = {}
+    while True:
+        live = [t for t in todos if t["id"] not in refused]
+        by_id = {t["id"]: t for t in live}
+        # PR #861 B-2: bundles hold only xs todos with no dependency edge inside this plan, in or out.
+        # A bundle then has no group deps at all, so it can never sit on a cycle; a real cycle
+        # among the todos themselves is refused below, before any grouping.
+        linked = {end for t in live for dep in t.get("dependencies", []) if dep in by_id and dep != t["id"]
+                  for end in (t["id"], dep)}
+        todo_cycle = _find_cycle({t["id"]: {d for d in t.get("dependencies", []) if d in by_id and d != t["id"]}
+                                  for t in live})
+        if todo_cycle:
+            comp = {t["id"]: n for n, members in enumerate(_components(live)) for t in members}
+            if len({comp[i] for i in todo_cycle}) > 1:
+                raise CycleError("dependency cycle: " + " -> ".join(todo_cycle))
+            _refuse(refused, todos, todo_cycle[:-1], "dependency cycle between todos that share a file: "
+                    + " -> ".join(todo_cycle))
+            continue
+        grouped, stuck = _merge_cycles(build_groups(live, solo=_held(live, open_ids) | linked), by_id)
+        if not stuck:
+            break
+        only = [i for i in stuck if by_id[i].get("verify_only")]
+        _refuse(refused, todos, stuck, f"dependency cycle through verify-only todo {', '.join(only)}: planning it "
+                f"would merge it into a code group ({', '.join(stuck)})")
     gids = [f"g{n}" for n in range(1, len(grouped) + 1)]
     gid_of = {todo_id: gid for gid, ids in zip(gids, grouped) for todo_id in ids}
     lanes = {gid: sorted(set().union(*(lanes_for(by_id[i]["triage"]) | review_lane(by_id[i]) for i in ids)))
@@ -242,5 +279,5 @@ def plan(todos, open_ids, workers, busy_lanes=frozenset()):
         "groups": {gid: {"ids": ids, "lanes": lanes[gid], "deps": sorted(deps[gid])}
                    for gid, ids in zip(gids, grouped) if gid not in blocked_groups},
         "waves": waves,
-        "unschedulable": unschedulable,
+        "unschedulable": {**refused, **unschedulable},
     }

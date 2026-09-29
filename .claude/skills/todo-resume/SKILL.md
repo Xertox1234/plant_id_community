@@ -32,8 +32,10 @@ description: Resume, restart, or discard an interrupted todo run from its checkp
      before rerunning that round.
    - `reviewed` / `merged` → merge confirmation and cleanup
    - `blocked` → report each reason. One whose reason starts `held for the owner` is a PR held for a
-     dismissed critical: only the owner clears it, with `state.py clear-hold $RUN G --decision "…"`, then arm
-     it (Stage C step 2). Any other blocked group whose blocker has since cleared is reopened as in Stage B step 5.
+     dismissed critical: only the owner clears it, with `state.py clear-hold $RUN G --decision "…"`. A round-2
+     hold then goes to `reviewed`: arm it (Stage C step 2). A round-1 hold (`(round 1)` in the reason) goes back
+     to `pr_open` with round 1 done: resume it as `pr_open` above. Any other blocked group whose blocker has
+     since cleared is reopened as in Stage B step 5.
 4. **restart**: list `state.py worktrees $RUN` in your reply, delete RUN (confirm first), then re-run the original selector.
 5. **discard**: list `state.py worktrees $RUN` in your reply, delete RUN (confirm first). No todo file on `main`
    changes: v2 never leaves a todo `in_progress` on `main`, so there's nothing to reset.

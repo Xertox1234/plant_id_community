@@ -95,15 +95,23 @@ function workPrompt(b, plan) {
     plan ? `PLAN:\n${plan}` : 'PLAN: none', 'Return the WORKER record.'].join('\n')
 }
 
-function verifyPrompt(b, w) {
+// A verifier that died part-way may have left files, so its re-run checks the tree before anything else
+// (todo 476). The same words are in todo-review.js.
+const AGAIN = 'A verifier before you returned nothing and may have died part-way. Check the tree first ' +
+  '(your step 1). If it is not clean, change nothing and return fail with reason `tree not clean before ' +
+  'verification`, naming the paths.'
+const DIRTY = 'tree not clean before verification'
+
+function verifyPrompt(b, w, again = false) {
   return [
     'MODE: execute',
     `Verify todo group ${b.group}.`,
     `IDS: ${b.ids.join(', ')}`,
     `WORKTREE: ${w.worktree}`, `SLOT: ${b.slot}`, `MAIN_ROOT: ${b.main_root}`,
     `AC_FILE: ${w.ac_file}`, ...pathLines(b), ...repointLines(b),
+    again ? AGAIN : '',
     'Return the VERDICT record.',
-  ].join('\n')
+  ].filter(Boolean).join('\n')
 }
 
 // A verifier that returns nothing says nothing about the work, so it runs once more on the same
@@ -113,8 +121,17 @@ async function verify(b, w, label) {
   const opts = { label, phase: 'Verify', agentType: 'todo-verifier', schema: VERDICT }
   const first = await agent(verifyPrompt(b, w), opts)
   if (first) return first
-  log(`Verifier returned nothing for ${b.group}; running it once more`)
-  return agent(verifyPrompt(b, w), { ...opts, label: `${label}-again` })
+  log(`Verifier returned nothing for ${b.group}; running it once more, tree check first`)
+  const again = await agent(verifyPrompt(b, w, true), { ...opts, label: `${label}-again` })
+  // Marks the re-run for dirtyOnly() below; state.evaluate and ingest-execute ignore the extra key.
+  return again && { ...again, rerun_after_null: true }
+}
+
+// Todo 476: a re-run that fails only because the tree was dirty before it started judged the first
+// verifier's leftovers, not the worker's work. Retrying the worker there would build on those leftovers.
+function dirtyOnly(v) {
+  return Boolean(v && v.rerun_after_null) && v.verdict === 'fail' && (v.reasons || []).length > 0
+    && v.reasons.every(r => r.startsWith(DIRTY))
 }
 
 function retryPrompt(b, w, v) {
@@ -145,6 +162,10 @@ const results = await pipeline(
     if (!worker || worker.status !== 'staged') return { ...base, worker, verdict: null, retried: false }
     const verdict = await verify(b, worker, `verify:${b.group}`)
     if (!verdict || verdict.verdict === 'pass') return { ...base, worker, verdict, retried: false }
+    if (dirtyOnly(verdict)) {
+      log(`${b.group}: the re-run verifier found the tree dirty before it started; no worker retry`)
+      return { ...base, worker, verdict, retried: false }
+    }
     const retry = await agent(retryPrompt(b, worker, verdict),
       { label: `retry:${b.group}`, phase: 'Verify', agentType: 'todo-worker', schema: WORKER })
     // A dead or non-staged retry is the result: never pass the first attempt off as the retry's.

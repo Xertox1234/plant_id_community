@@ -22,9 +22,15 @@ missing one, the verdict is `fail`, `reasons` gets `missing todo path`. `BASE` =
 
 1. First: `/usr/bin/git -C WT write-tree` → `tree_id_before`. Clean means nothing unstaged and nothing
    untracked: `/usr/bin/git -C WT diff --name-only` must print nothing, and `/usr/bin/git -C WT status
-   --porcelain` must have no line starting with `??`. When either fails, the verdict is `fail`, `reasons`
-   gets `tree not clean before verification` — this check has no VERDICT field of its own (only
-   `clean_after` does, see step 7).
+   --porcelain` must have no line starting with `??` (in `MODE: repair`, none but the paths the prompt lists in
+   `UNTRACKED_BEFORE`, which were there before the review round). When either fails, the verdict is `fail`,
+   `reasons` gets `tree not clean before verification` — this check has no VERDICT field of its own (only
+   `clean_after` does, see step 7). A prompt that says an earlier verifier returned nothing (todo 476) wants
+   exactly this check first: if it fails, change nothing, run nothing else, and return `fail` with that reason
+   naming the paths.
+   In `MODE: repair` (todo 483), also: every staged path (`/usr/bin/git -C WT diff --cached --name-only HEAD`)
+   must be in the prompt's `FILES_CHANGED`; any other is a `fail`, `reasons` gets `staged paths the repair did
+   not change: <paths>`.
 2. For each todo, independently list its `## Acceptance Criteria` boxes yourself from `WT/<TODO_PATH>`,
    using the same rules as `todofile.ac_lines`: only `- [ ]` / `- [x]` bullets under that heading, each
    together with the indented lines that wrap it (up to the next bullet, blank line, heading or fence;
@@ -66,7 +72,8 @@ missing one, the verdict is `fail`, `reasons` gets `missing todo path`. `BASE` =
    existing test file (path containing `test` or `spec`) with status `M`, `D`, or `R*` in
    `test_edits_flagged` — for a rename, use the old path (the second of `--name-status`'s three columns).
 6. Last: `/usr/bin/git -C WT write-tree` → `tree_id_after`. `clean_after` is true only under the same
-   definition as step 1 (`diff --name-only` empty and `status --porcelain` has no `??` line).
+   definition as step 1 (`diff --name-only` empty and `status --porcelain` has no `??` line but the
+   `UNTRACKED_BEFORE` ones in `MODE: repair`).
 7. `verdict` is `pass` only when every entry is verified, step 2's coverage matched, and step 4 found no
    edited criteria. Return the VERDICT record: `ids, verdict, ac [{todo, index, verified, note}],
    test_edits_flagged, commands_rerun, tree_id_before, tree_id_after, clean_after, reasons`

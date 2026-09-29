@@ -156,6 +156,43 @@ def main():
         check("468: the merged group has no dependency on itself", all(not v["deps"] for v in result["groups"].values()),
               result["groups"])
 
+    # Todo 474 AC1: 102 -> 103 (verify-only) -> 101, with 101 and 102 sharing x.py. Merging the group
+    # cycle would put 103 in a code group whose brief says verify_only: false. It is refused instead,
+    # with the todos on that cycle only; the rest of the plan goes ahead.
+    vo_chain = [t("101", ["x.py", "a.py"]), t("102", ["x.py", "b.py"], deps=["103"]),
+                t("103", ["c.py"], deps=["101"], verify_only=True), t("104", ["d.py"]),
+                t("105", ["e.py"], deps=["102"])]
+    try:
+        result, raised = group.plan(vo_chain, open_ids={"101", "102", "103", "104", "105"}, workers=3), ""
+    except (group.CycleError, RuntimeError) as exc:
+        result, raised = None, str(exc)
+    check("474 AC1: a group cycle through a verify-only todo does not stop the plan", result is not None, raised)
+    if result is not None:
+        check("474 AC1: the verify-only todo is never merged into a code group",
+              not any("103" in v["ids"] and len(v["ids"]) > 1 for v in result["groups"].values()), result["groups"])
+        check("474 AC1: the cycle's todos (and a dependent) are refused, naming the verify-only todo",
+              set(result["unschedulable"]) == {"101", "102", "103", "105"}
+              and "verify-only todo 103" in result["unschedulable"]["101"]
+              and "depends on todo 102" in result["unschedulable"]["105"], result["unschedulable"])
+        check("474 AC1: an unrelated todo is still planned", [v["ids"] for v in result["groups"].values()] == [["104"]],
+              result["groups"])
+
+    # Todo 474 AC2: two todos that share a file and depend on each other are refused, not the whole plan.
+    intra = [t("111", ["y.py", "a.py"], deps=["112"]), t("112", ["y.py", "b.py"], deps=["111"]),
+             t("113", ["c.py"], deps=["111"]), t("114", ["a.py"]), t("115", ["f.py"])]
+    try:
+        result, raised = group.plan(intra, open_ids={"111", "112", "113", "114", "115"}, workers=3), ""
+    except group.CycleError as exc:
+        result, raised = None, str(exc)
+    check("474 AC2: a dependency cycle inside one shared-file group does not stop the plan", result is not None,
+          raised)
+    if result is not None:
+        check("474 AC2: only the cycle's todos and their dependent are refused, with the cycle named",
+              set(result["unschedulable"]) == {"111", "112", "113"}
+              and "111 -> 112 -> 111" in result["unschedulable"]["111"], result["unschedulable"])
+        check("474 AC2: a todo sharing a file with the cycle, and an unrelated one, are still planned",
+              sorted(i for v in result["groups"].values() for i in v["ids"]) == ["114", "115"], result["groups"])
+
     # Todo 468: two todos converted from one review doc both tick its Finding Status and race the
     # -COMPLETED rename, so the doc is a lane: never the same wave, never neighbouring waves.
     doc = "docs/reviews/2026-05-07-1641-full-review.md"

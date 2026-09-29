@@ -288,6 +288,62 @@ def main():
           triaged["predicted_files"] == ["backend/plant_community_backend/settings.py", "web/src/a.ts"]
           and triaged["dropped_files"] == ["/elsewhere/x.py"], triaged)
 
+    # Todo 473: a symlinked root (macOS /tmp is /private/tmp) in either form, reported in either form.
+    with tempfile.TemporaryDirectory() as tmp:
+        real = Path(tmp).resolve() / "real-root"
+        (real / "backend").mkdir(parents=True)
+        link = Path(tmp) / "link-root"
+        link.symlink_to(real)
+        for label, root, reported in (("resolved root, path reported through the link", real, link),
+                                      ("linked root, path reported resolved", link, real)):
+            run = state.new_run("r10", "sweep", 3, [todo("1")], ["1"])
+            state.record_triage(run, [rec("1") | {"predicted_files": [f"{reported}/backend/a.py",
+                                                                       f"{reported}/web/new_file.ts"]}],
+                                root=str(root))
+            triaged = run["todos"]["1"]["triage"]
+            check(f"473 AC4: record-triage keeps both paths ({label})",
+                  triaged["predicted_files"] == ["backend/a.py", "web/new_file.ts"] and "dropped_files" not in triaged,
+                  triaged)
+
+    # Todo 474: apply-triage and a stranded todo.
+    with tempfile.TemporaryDirectory() as tmp:
+        repo = git_repo(tmp)
+        head = '---\nstatus: {s}\npriority: p3\nissue_id: "{i}"\ndependencies: []\n---\n\n# T{i}\n\n## Work Log\n'
+        (repo / "todos/11-in_progress-p3-x.md").write_text(head.format(s="in_progress", i="11"))
+        (repo / "todos/11-pending-p3-x.md").write_text(head.format(s="pending", i="11"))
+        (repo / "todos/12-pending-p3-x.md").write_text(head.format(s="pending", i="12"))
+        commit_all(repo)
+        both = state.new_run("r11", "sweep", 3, [{"id": "11", "path": "todos/11-in_progress-p3-x.md", "priority": "p3",
+                                                  "stranded": True}, todo("12")], ["11", "12"])
+        state.record_triage(both, [rec("11"), rec("12")])
+        state.decide(both, "11", "ready", reset_stranded=True)
+        state.decide(both, "12", "ready")
+        before12 = (repo / "todos/12-pending-p3-x.md").read_text()
+        err = None
+        try:
+            state.apply_triage(both, repo, "2026-09-28")
+        except RuntimeError as exc:
+            err = exc
+        check("474 AC3: apply-triage refuses a stranded todo whose old and new paths both exist, naming both",
+              err is not None and "todos/11-in_progress-p3-x.md" in str(err) and "todos/11-pending-p3-x.md" in str(err),
+              err)
+        check("474: the refusal comes before anything is written (the other todo is untouched)",
+              (repo / "todos/12-pending-p3-x.md").read_text() == before12
+              and (repo / "todos/11-in_progress-p3-x.md").exists())
+
+        (repo / "todos/13-in_progress-p3-x.md").write_text(head.format(s="in_progress", i="13"))
+        commit_all(repo)
+        later = state.new_run("r12", "sweep", 3, [{"id": "13", "path": "todos/13-in_progress-p3-x.md",
+                                                   "priority": "p3", "stranded": True}], ["13"])
+        state.record_triage(later, [rec("13")])
+        state.decide(later, "13", "ready", reset_stranded=True)
+        saved = json.loads(json.dumps(later))  # the run file as it was, before a failed save
+        state.apply_triage(later, repo, "2026-09-28")
+        state.apply_triage(saved, repo, "2026-09-29")
+        text = (repo / "todos/13-pending-p3-x.md").read_text()
+        check("474 AC4: a rerun of apply-triage on a later day adds no second 'Returned to pending' entry",
+              text.count("Returned to pending by the todo sweep") == 1 and "2026-09-29 - Returned" not in text, text)
+
     print()
     if FAILURES:
         print(f"FAILED: {len(FAILURES)} check(s): {', '.join(FAILURES)}")
