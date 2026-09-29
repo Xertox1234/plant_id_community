@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: p2
 issue_id: "495"
 tags: [forum, moderation, wagtail, backend]
@@ -89,9 +89,9 @@ The non-blocking findings below are still open. Every file:line is in
 
 ## Acceptance Criteria
 
-- [ ] Findings 1–12 are fixed, with a test each that fails when the fix is removed, or each has a line
+- [x] Findings 1–12 are fixed, with a test each that fails when the fix is removed, or each has a line
       here saying why not.
-- [ ] Each gap in finding 13 has a test that fails when the guard it names is removed.
+- [x] Each gap in finding 13 has a test that fails when the guard it names is removed.
 
 ## Work Log
 
@@ -99,3 +99,47 @@ The non-blocking findings below are still open. Every file:line is in
 
 Findings 7–12, and the last four test gaps, come from the final review round after the owner-approved
 fix. It found no blocking issues; PR #886 merged as 358d774a.
+
+### 2026-09-29 - Implemented by the todo sweep (run 2026-09-29-1448)
+
+- `pending_posts()` gains the crashed-edit clause (F2) and no longer lists a taken-down topic through
+  its own state. Approve publishes a topic's latest revision when it has an active state and keeps the
+  row's counters (F1), skips republishing a live post with nothing pending (F4), recounts reactions
+  (F3), and refuses a held reply in a taken-down topic, which now gets Reject only (F9).
+- Reject is now `RejectPendingView`: a confirmation page and a POST that locks the row, re-runs
+  `pending_posts()` and `_reject_target()`, compares the revision, deletes through the registered
+  delete action, and returns to the pending page (F7, F8). It needs `delete` on its target.
+- The page, Approve, menu item and dashboard item need `publish` on Post and Topic (F10, F12). A
+  second Approve redirects with "already decided" instead of 404ing (F11), which changed three
+  existing tests' 404 assertions. "Opening post" labels a draft opening post under a live topic (F5),
+  and an unreadable pending body is logged and flagged, not replaced by the live one (F6).
+- F13: per-row Kind cells, a 302-to-home permission assertion, a fixture reaching the second clause
+  alone, a Forum Moderators click-through, ordering and tie-break tests, `reverse()` in
+  `test_topic_approval.py`, and a query-order test for the row lock. Real threads are out because
+  `docs/rules/testing.md` bans `django_db(transaction=True)`.
+
+### 2026-09-29 - Verified by the todo sweep (run 2026-09-29-1448)
+
+- AC 1: `python3 /Users/williamtower/projects/plant_id_community/.claude/worktrees/wf_ea0dd9bf-e46-1/.sweep-evidence/g1/mutation_check.py ac0` — evidence `.sweep-evidence/g1/495-ac0.txt`, last lines:
+
+  ```text
+      pytest exit 1 -> CAUGHT; file restored: True
+      =========================== short test summary info ============================
+      FAILED packages/wagtail_forum/wagtail_forum/tests/test_pending_content.py::test_dashboard_pending_item_is_only_for_users_who_can_open_the_page
+      ============================== 1 failed in 0.99s ===============================
+  RESULT: ALL MUTATIONS CAUGHT
+  ```
+
+- AC 2: `python3 /Users/williamtower/projects/plant_id_community/.claude/worktrees/wf_ea0dd9bf-e46-1/.sweep-evidence/g1/mutation_check.py ac1` — evidence `.sweep-evidence/g1/495-ac1.txt`, last lines:
+
+  ```text
+      pytest exit 1 -> CAUGHT; file restored: True
+      =========================== short test summary info ============================
+      FAILED packages/wagtail_forum/wagtail_forum/tests/test_pending_content.py::test_approve_locks_the_post_row_before_it_looks_the_post_up
+      ============================== 1 failed in 0.94s ===============================
+  RESULT: ALL MUTATIONS CAUGHT
+  ```
+
+### 2026-09-29 - Completed by the todo sweep (run 2026-09-29-1448)
+
+- Archived by `land.py archive`; evidence is quoted above, review is on the PR.

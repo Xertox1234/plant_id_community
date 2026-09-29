@@ -31,7 +31,10 @@ publishes it; for a new topic, the topic and its opening post together. One
 row per POST: a topic never runs the moderation workflow itself (the API
 routes a new topic's opening post, and publishing that post publishes its
 topic), so a new topic is its opening post's row. The page is gated on the
-``publish`` permission on Post, the right Approve exercises.
+``publish`` permission on Post AND on Topic, the rights Approve exercises
+(todo 495: Approve can publish a topic too). Reject is its own POST view
+(``RejectPendingView``) that re-checks the row under a lock before it
+deletes, and needs ``delete`` on whatever it deletes.
 
 Moderators are NOT notified when content is waiting (owner decision
 2026-09-28, todo 423): no push, no email. The dashboard's pending count and
@@ -41,6 +44,7 @@ this page are the signal, which is why both read the same queryset
 
 import datetime
 import json
+import logging
 from types import SimpleNamespace
 
 import django_filters
@@ -62,21 +66,25 @@ from django.db.models import (
 )
 from django.db.models.functions import Cast
 from django.middleware.csrf import get_token
-from django.shortcuts import get_object_or_404, redirect
+from django.shortcuts import redirect
 from django.urls import reverse
 from django.utils.functional import cached_property
 from django.utils.http import urlencode
 from django.utils.translation import gettext
 from django.utils.translation import gettext_lazy as _
 from django.views import View
+from wagtail.actions import action_registry
 from wagtail.admin.filters import WagtailFilterSet
 from wagtail.admin.menu import MenuItem
 from wagtail.admin.ui.tables import Column, DateColumn, TitleColumn
+from wagtail.admin.views.generic.base import WagtailAdminTemplateMixin
 from wagtail.admin.views.reports import ReportView
 from wagtail.models import WorkflowState
 from wagtail.permission_policies import ModelPermissionPolicy
 
-from .models import Post, Report, Topic, TrustLevel
+from .models import Post, Reaction, Report, Topic, TrustLevel
+
+logger = logging.getLogger("wagtail_forum")
 
 # The two statuses that still need a human: OPEN is untouched, AUTO_HIDDEN
 # crossed REPORT_AUTO_HIDE_THRESHOLD and was unpublished by the system but a
@@ -284,22 +292,51 @@ class ModerationQueueMenuItem(MenuItem):
 # --- Pending content (todo 423) --------------------------------------------
 
 pending_permission_policy = ModelPermissionPolicy(Post)
+topic_permission_policy = ModelPermissionPolicy(Topic)
 PENDING_PERMISSION = "publish"
 
 KIND_NEW_TOPIC = _("New topic")
+KIND_OPENING_POST = _("Opening post")
 KIND_REPLY = _("Reply")
 KIND_EDIT = _("Edit")
 
+# The row-owned counters a Topic revision snapshots but no moderator edits:
+# publishing an older revision would write their old values back (todo 495).
+TOPIC_ROW_FIELDS = (
+    "reply_count",
+    "view_count",
+    "last_post_at",
+    "last_post_author",
+    "solved_post",
+    "solved_at",
+)
+
 
 def user_can_moderate_pending(user):
-    """Approve publishes a post, so the page opens for whoever may publish
-    one: superusers and the host's forum moderator group (``publish_post``)."""
-    return pending_permission_policy.user_has_permission(user, PENDING_PERMISSION)
+    """Approve publishes a post and, for an opening post, its topic, so the
+    page opens for whoever may publish both: superusers and the host's forum
+    moderator group (``publish_post`` and ``publish_topic``). ``publish_post``
+    alone is not enough (todo 495): Approve publishes the topic with
+    ``skip_permission_checks``, so it would publish topics for a user the
+    host never let publish one."""
+    return pending_permission_policy.user_has_permission(
+        user, PENDING_PERMISSION
+    ) and topic_permission_policy.user_has_permission(user, PENDING_PERMISSION)
+
+
+def _taken_down(obj):
+    """Published once and no longer live: a moderator's take-down, an author
+    delete, or a reports auto-hide."""
+    return not obj.live and obj.first_published_at is not None
+
+
+def _topic_pending(topic):
+    return not topic.live and topic.first_published_at is None
 
 
 def pending_posts():
     """Every post waiting for a moderator. The one definition the pending
-    page, its Approve action and the dashboard count all share.
+    page, its Approve and Reject actions and the dashboard count all share.
 
     - A post that was never published and is still a draft: a new topic's
       opening post or a reply that the spam check held. This also covers a
@@ -310,8 +347,15 @@ def pending_posts():
       post itself is live: the thread is still invisible (todo 422's repair
       case), and approving the row publishes the topic.
     - A post with an active workflow state: a live post whose edit the spam
-      check held (the live row keeps its approved body), or the opening post
-      of a topic whose own state a host started from the admin.
+      check held (the live row keeps its approved body).
+    - The opening post of a topic with its own active state, for example a
+      spam-held admin edit of the topic, unless that topic was taken down:
+      approving the row publishes the topic's latest revision, which must
+      never bring back a thread someone removed (todo 495).
+    - A live post with unpublished changes and no state (todo 495): an edit
+      whose moderation step crashed. The workflow start is atomic, so the
+      crash rolls its state back, and the API still tells the author the edit
+      is pending.
 
     A post that was published once and is no longer live is never pending,
     whatever else holds: a moderator took it down, the author deleted it, or
@@ -334,6 +378,7 @@ def pending_posts():
         content_type=topic_type, object_id=Cast(OuterRef("topic_id"), CharField())
     )
     taken_down = Q(live=False, first_published_at__isnull=False)
+    topic_taken_down = Q(topic__live=False, topic__first_published_at__isnull=False)
     return Post.objects.filter(
         (
             Q(live=False, first_published_at__isnull=True)
@@ -343,20 +388,33 @@ def pending_posts():
                 topic__first_published_at__isnull=True,
             )
             | Exists(post_state)
-            | (Q(is_opening_post=True) & Exists(topic_state))
+            | (Q(is_opening_post=True) & Exists(topic_state) & ~topic_taken_down)
+            | Q(live=True, has_unpublished_changes=True)
         )
         & ~taken_down
     )
 
 
 def _pending_kind(post):
-    topic = post.topic
-    topic_pending = not topic.live and topic.first_published_at is None
-    if post.is_opening_post and (topic_pending or post.first_published_at is None):
+    if post.is_opening_post and _topic_pending(post.topic):
         return KIND_NEW_TOPIC
     if post.first_published_at is None:
-        return KIND_REPLY
+        # A draft opening post under a topic that went live another way
+        # (published from the admin) is not a new topic (todo 495).
+        return KIND_OPENING_POST if post.is_opening_post else KIND_REPLY
     return KIND_EDIT
+
+
+def _approve_allowed(post):
+    """False for a held reply whose topic was taken down (todo 495): Approve
+    would publish it into the hidden topic and notify subscribers with a
+    link that 404s. The row stays listed, with Reject only, so a moderator
+    still clears it."""
+    return not (
+        not post.is_opening_post
+        and post.first_published_at is None
+        and _taken_down(post.topic)
+    )
 
 
 def _reject_target(post):
@@ -369,36 +427,52 @@ def _reject_target(post):
     never-published reply is deleted on its own. A held edit, or an opening
     post whose topic is live, gets no Reject: deleting either would take
     published content down, so the moderator opens it from the title link."""
-    topic = post.topic
     if post.is_opening_post:
-        topic_pending = not topic.live and topic.first_published_at is None
-        return topic if topic_pending else None
+        return post.topic if _topic_pending(post.topic) else None
     return post if post.first_published_at is None else None
+
+
+def _user_can_reject(user, target):
+    """Reject deletes, so it needs the same ``delete`` permission the snippet
+    delete view it replaced required."""
+    return ModelPermissionPolicy(type(target)).user_has_permission(user, "delete")
 
 
 def _pending_body(post):
     """The body waiting for approval: the latest revision's, not the row's.
     An edit to a live post exists only as a revision (the live row keeps its
-    approved body), so the row would show the moderator the wrong text."""
+    approved body), so the row would show the moderator the wrong text.
+
+    None when the revision's body cannot be read (todo 495): falling back to
+    the row would show the approved text as if it were the pending one."""
     revision = post.latest_revision
-    if revision is not None:
-        raw = revision.content.get("body")
-        if isinstance(raw, str):
-            try:
-                raw = json.loads(raw)
-            except ValueError:
-                raw = None
-        if isinstance(raw, list):
-            # plain_text_excerpt reads only .raw_data.
-            return SimpleNamespace(raw_data=raw)
-    return post.body
+    if revision is None or "body" not in revision.content:
+        return post.body
+    raw = revision.content["body"]
+    if isinstance(raw, str):
+        try:
+            raw = json.loads(raw)
+        except ValueError:
+            raw = None
+    if isinstance(raw, list):
+        # plain_text_excerpt reads only .raw_data.
+        return SimpleNamespace(raw_data=raw)
+    logger.warning(
+        "[WARN] wagtail_forum pending post %s: revision %s body is unreadable",
+        post.pk,
+        revision.pk,
+    )
+    return None
 
 
 def _pending_excerpt(post):
     # Lazy: api.views imports the models this module's callers import.
     from .api.views import plain_text_excerpt
 
-    return plain_text_excerpt(_pending_body(post), 120) or gettext("(no text)")
+    body = _pending_body(post)
+    if body is None:
+        return gettext("(the pending text could not be read)")
+    return plain_text_excerpt(body, 120) or gettext("(no text)")
 
 
 def _post_edit_url(post):
@@ -415,6 +489,16 @@ def _author_trust(post):
     return _trust_level_label(post.author_trust_level)
 
 
+def _publish_topic_latest_revision(topic, user):
+    """Publish the topic's latest revision (the one its active state holds),
+    which cancels that state, and keep the row's counters: the revision
+    snapshotted them when it was saved (todo 495)."""
+    kept = {field: getattr(topic, field) for field in TOPIC_ROW_FIELDS}
+    revision = topic.latest_revision or topic.save_revision(user=user)
+    revision.publish(user=user, skip_permission_checks=True)
+    Topic.objects.filter(pk=topic.pk).update(**kept)
+
+
 def approve_pending_post(post, user):
     """Publish a pending post as ``user``. For a new topic, publish the topic
     and its opening post together.
@@ -422,30 +506,93 @@ def approve_pending_post(post, user):
     What goes live is the latest revision, never a fresh copy of the row: a
     held edit exists only as a revision (todo 432). Publishing cancels the
     post's active workflow state (``WAGTAIL_WORKFLOW_CANCEL_ON_PUBLISH``), so
-    the row leaves the queue and the dashboard count drops.
+    the row leaves the queue and the dashboard count drops. The revision
+    snapshotted ``reaction_counts`` when it was saved, so they are recounted
+    after the publish (todo 495).
+
+    A live post with nothing pending of its own (a live opening post listed
+    for its topic) is not republished (todo 495): its latest revision can be
+    older than the row, and only the topic is waiting.
 
     The opening post going live already publishes its topic through the
     ``published`` receiver, but only for the same author: that is the IDOR
     guard an API author must not get around. Here a moderator is approving
-    the thread, so a topic still unpublished afterwards is published too.
-    ``skip_permission_checks``: the caller has checked ``publish`` on Post,
-    and approving the thread is that decision.
+    the thread, so a topic still unpublished afterwards is published too. A
+    topic with its own active state (an admin edit the spam check held) has
+    its latest revision published, so the state clears and the row leaves
+    the queue (todo 495). A taken-down topic is never published.
+    ``skip_permission_checks``: the caller has checked ``publish`` on Post
+    and Topic, and approving the thread is that decision.
     """
     with transaction.atomic():
-        revision = post.latest_revision or post.save_revision(user=user)
-        revision.publish(user=user, skip_permission_checks=True)
+        if (
+            not post.live
+            or post.has_unpublished_changes
+            or post.current_workflow_state is not None
+        ):
+            revision = post.latest_revision or post.save_revision(user=user)
+            revision.publish(user=user, skip_permission_checks=True)
+            Reaction.recount(post)
         if post.is_opening_post:
-            topic = Topic.objects.get(pk=post.topic_id)
-            if not topic.live and topic.first_published_at is None:
+            topic = Topic.objects.select_for_update().get(pk=post.topic_id)
+            if _taken_down(topic):
+                return
+            if topic.current_workflow_state is not None:
+                _publish_topic_latest_revision(topic, user)
+            elif _topic_pending(topic):
                 topic.save_revision(user=user).publish(
                     user=user, skip_permission_checks=True
                 )
 
 
+def _pending_index_url():
+    return reverse("wagtail_forum_pending:index")
+
+
+def _already_decided(request):
+    messages.info(
+        request,
+        gettext(
+            "That content was already decided, changed or removed. "
+            "Nothing was published or deleted."
+        ),
+    )
+    return redirect("wagtail_forum_pending:index")
+
+
+def _changed_since_loaded(request, post):
+    messages.warning(
+        request,
+        gettext("“%(title)s” changed after this page loaded. Review it again.")
+        % {"title": post.topic.title},
+    )
+    return redirect("wagtail_forum_pending:index")
+
+
+def _shown_revision(post):
+    return str(post.latest_revision_id or "")
+
+
+def _lock_pending_post(pk):
+    """Lock the post row, then its topic's, and only then look the post up in
+    ``pending_posts()`` as its own query, so the lookup sees whatever a
+    concurrent Approve or Reject (a double-click, a second moderator)
+    committed. Approve and Reject both lock in this order. None when the post
+    is gone or no longer pending. Call inside ``transaction.atomic()``."""
+    locked = Post.objects.select_for_update().filter(pk=pk).first()
+    if locked is None:
+        return None
+    Topic.objects.select_for_update().filter(pk=locked.topic_id).first()
+    return (
+        pending_posts().select_related("topic", "latest_revision").filter(pk=pk).first()
+    )
+
+
 class PendingActionsColumn(Column):
-    """Approve (a POST form carrying the revision the row shows) and, where
-    ``_reject_target`` allows one, Reject: the snippet delete view, with its
-    own confirmation page, which returns here."""
+    """Approve (a POST form carrying the revision the row shows), unless
+    ``_approve_allowed`` refuses it, and, where ``_reject_target`` allows one
+    and the user may delete it, Reject: ``RejectPendingView``'s confirmation
+    page, carrying the same revision. Both return to the pending page."""
 
     cell_template_name = "wagtail_forum/admin/pending_queue_actions.html"
 
@@ -455,19 +602,23 @@ class PendingActionsColumn(Column):
         # Cell templates render from a plain dict, not a RequestContext, so
         # {% csrf_token %} needs the token handed over explicitly.
         context["csrf_token"] = get_token(request) if request is not None else ""
-        context["approve_url"] = reverse(
-            "wagtail_forum_pending:approve", args=[instance.pk]
-        )
-        # The revision this row shows: Approve publishes only that one.
-        context["revision_id"] = instance.latest_revision_id or ""
+        # The revision this row shows: Approve and Reject act only on that one.
+        context["revision_id"] = _shown_revision(instance)
+        context["approve_url"] = None
+        if _approve_allowed(instance):
+            context["approve_url"] = reverse(
+                "wagtail_forum_pending:approve", args=[instance.pk]
+            )
         context["reject_url"] = None
         target = _reject_target(instance)
-        if target is not None:
-            delete_url = reverse(
-                type(target).snippet_viewset.get_url_name("delete"), args=[target.pk]
-            )
-            query = urlencode({"next": reverse("wagtail_forum_pending:index")})
-            context["reject_url"] = f"{delete_url}?{query}"
+        if (
+            target is not None
+            and request is not None
+            and _user_can_reject(request.user, target)
+        ):
+            reject_url = reverse("wagtail_forum_pending:reject", args=[instance.pk])
+            query = urlencode({"revision": context["revision_id"]})
+            context["reject_url"] = f"{reject_url}?{query}"
         return context
 
 
@@ -494,6 +645,12 @@ class PendingContentView(ReportView):
         DateColumn("submitted_at", label=_("Submitted"), sort_key="submitted_at"),
         PendingActionsColumn("actions", label=_("Actions")),
     ]
+
+    def dispatch(self, request, *args, **kwargs):
+        # publish on Topic too, not only the policy's publish on Post.
+        if not user_can_moderate_pending(request.user):
+            raise PermissionDenied
+        return super().dispatch(request, *args, **kwargs)
 
     @cached_property
     def no_results_message(self):
@@ -525,14 +682,17 @@ class ApprovePendingView(View):
     """POST only: publish one pending post, and its topic for a new topic.
 
     The lookup goes through ``pending_posts()``, so a stale form for content
-    that was already decided 404s instead of publishing it again.
+    that was already decided publishes nothing. It returns to the pending
+    page with an "already decided" message rather than a 404 (todo 495): a
+    double-click is the usual cause.
 
     The form carries the revision its row showed, and Approve publishes only
     that one. An author can edit a held post again after the page loaded,
     and the moderator must not publish text they never saw. The post row is
-    locked first, and the pending lookup runs after the lock as its own query,
-    so it sees whatever a concurrent approval (a double-click, a second
-    moderator) committed: that one 404s instead of publishing twice."""
+    locked first, and the pending lookup runs after the lock as its own query
+    (``_lock_pending_post``), so it sees whatever a concurrent approval (a
+    double-click, a second moderator) committed: that one publishes nothing
+    instead of publishing twice."""
 
     http_method_names = ["post"]
 
@@ -540,23 +700,101 @@ class ApprovePendingView(View):
         if not user_can_moderate_pending(request.user):
             raise PermissionDenied
         with transaction.atomic():
-            get_object_or_404(Post.objects.select_for_update(), pk=pk)
-            post = get_object_or_404(
-                pending_posts().select_related("topic", "latest_revision"), pk=pk
-            )
-            if request.POST.get("revision") != str(post.latest_revision_id or ""):
+            post = _lock_pending_post(pk)
+            if post is None:
+                return _already_decided(request)
+            if not _approve_allowed(post):
                 messages.warning(
                     request,
                     gettext(
-                        "“%(title)s” changed after this page loaded. Review it again."
+                        "“%(title)s” was taken down, so a reply to it cannot be "
+                        "approved. Reject it instead."
                     )
                     % {"title": post.topic.title},
                 )
                 return redirect("wagtail_forum_pending:index")
+            if request.POST.get("revision") != _shown_revision(post):
+                return _changed_since_loaded(request, post)
             approve_pending_post(post, request.user)
         messages.success(
             request, gettext("Published “%(title)s”.") % {"title": post.topic.title}
         )
+        return redirect("wagtail_forum_pending:index")
+
+
+class RejectPendingView(WagtailAdminTemplateMixin, View):
+    """Reject one pending row (todo 495): GET is the confirmation page, POST
+    deletes.
+
+    It replaced a link to Wagtail's generic snippet delete view, which
+    re-checked nothing between page load and confirmation: if another
+    moderator approved the topic in between, it hard-deleted a now-live
+    thread and all its replies. And its confirmation form posted without
+    ``next``, so a real Reject landed on the snippet index. Here the POST, like
+    Approve, locks the row, re-runs ``pending_posts()`` and ``_reject_target()``
+    and compares the revision the row showed before it deletes anything, and
+    every outcome returns to the pending page. The delete itself is the
+    model's registered delete action, so it is logged as ``wagtail.delete``
+    like the snippet view's."""
+
+    http_method_names = ["get", "post"]
+    template_name = "wagtail_forum/admin/pending_reject_confirm.html"
+    page_title = _("Reject pending content")
+    header_icon = "bin"
+
+    def get_breadcrumbs_items(self):
+        return self.breadcrumbs_items + [
+            {"url": _pending_index_url(), "label": PendingContentView.page_title},
+            {"url": "", "label": self.get_page_title()},
+        ]
+
+    def get(self, request, pk):
+        if not user_can_moderate_pending(request.user):
+            raise PermissionDenied
+        post = (
+            pending_posts()
+            .select_related("topic", "latest_revision")
+            .filter(pk=pk)
+            .first()
+        )
+        target = _reject_target(post) if post is not None else None
+        if target is None:
+            return _already_decided(request)
+        if not _user_can_reject(request.user, target):
+            raise PermissionDenied
+        revision = request.GET.get("revision", "")
+        if revision != _shown_revision(post):
+            return _changed_since_loaded(request, post)
+        is_topic = isinstance(target, Topic)
+        context = self.get_context_data(
+            topic_title=post.topic.title,
+            excerpt=_pending_excerpt(post),
+            is_topic=is_topic,
+            post_count=target.posts.count() if is_topic else 1,
+            revision=revision,
+            reject_url=reverse("wagtail_forum_pending:reject", args=[post.pk]),
+            cancel_url=_pending_index_url(),
+        )
+        return self.render_to_response(context)
+
+    def post(self, request, pk):
+        if not user_can_moderate_pending(request.user):
+            raise PermissionDenied
+        with transaction.atomic():
+            post = _lock_pending_post(pk)
+            target = _reject_target(post) if post is not None else None
+            if target is None:
+                return _already_decided(request)
+            if not _user_can_reject(request.user, target):
+                raise PermissionDenied
+            if request.POST.get("revision") != _shown_revision(post):
+                return _changed_since_loaded(request, post)
+            title = post.topic.title
+            # Permission checked above, as the generic delete view does.
+            action_registry.get_action_class(type(target), "delete")(
+                target, user=request.user
+            ).execute(skip_permission_checks=True)
+        messages.success(request, gettext("Rejected “%(title)s”.") % {"title": title})
         return redirect("wagtail_forum_pending:index")
 
 

@@ -1,11 +1,13 @@
 {% load i18n %}
 <td>
     <div class="w-flex w-gap-2 w-items-center">
-        <form method="post" action="{{ approve_url }}">
-            {% csrf_token %}
-            <input type="hidden" name="revision" value="{{ revision_id }}">
-            <button type="submit" class="button button-small">{% trans "Approve" %}</button>
-        </form>
+        {% if approve_url %}
+            <form method="post" action="{{ approve_url }}">
+                {% csrf_token %}
+                <input type="hidden" name="revision" value="{{ revision_id }}">
+                <button type="submit" class="button button-small">{% trans "Approve" %}</button>
+            </form>
+        {% endif %}
         {% if reject_url %}
             <a href="{{ reject_url }}" class="button button-small button-secondary no">{% trans "Reject" %}</a>
         {% endif %}

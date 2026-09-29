@@ -296,18 +296,24 @@ The package registers **Pending forum content** under the Wagtail admin
 *Reports* menu (`wagtail_forum.admin_views.PendingContentView`, mounted at
 `<admin>/forum/pending/`, URL name `wagtail_forum_pending:index`; todo 423).
 It lists every post waiting for a moderator (a new topic's opening post, a
-held reply, a held edit to a live post, or a draft whose spam check crashed)
-with its body excerpt, kind, topic, author and author trust, oldest first.
+held reply, a held edit to a live post, a draft or an edit whose spam check
+crashed, or the opening post of a topic whose own admin edit was held) with
+its body excerpt, kind, topic, author and author trust, oldest first.
 **Approve** (a POST to `wagtail_forum_pending:approve`) publishes the post's
-latest revision and, for a new topic, the topic with it, as one action.
-**Reject** on new content opens the snippet delete confirmation (a new topic
-deletes the thread); a held edit has no Reject, because deleting would take
-the live post down. The page, the action and the menu item need `publish` on
-`wagtail_forum.post` (superusers and the host's moderator group). The
+latest revision and, for a new topic, the topic with it, as one action; a
+topic with its own held edit has that edit published. A second Approve of a
+decided row returns to the page with an "already decided" message.
+**Reject** (`wagtail_forum_pending:reject`, a confirmation page and a POST)
+re-checks the row under a lock and deletes a new topic's whole thread or a
+held reply, then returns here; a held edit has no Reject, because deleting
+would take the live post down. A held reply whose topic was taken down gets
+Reject only. The page, Approve and the menu item need `publish` on both
+`wagtail_forum.post` and `wagtail_forum.topic` (superusers and the host's
+moderator group); Reject also needs `delete` on what it deletes. The
 dashboard's "N forum posts awaiting moderation" item counts exactly these
-rows (`admin_views.pending_posts`) and links here. Moderators are not pushed
-or emailed when something is waiting; the count and this page are the
-signal.
+rows (`admin_views.pending_posts`), links here, and shows only to users who
+can open this page. Moderators are not pushed or emailed when something is
+waiting; the count and this page are the signal.
 
 #### Reported content (admin report)
 
