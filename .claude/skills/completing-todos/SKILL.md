@@ -130,11 +130,13 @@ With `--limit N`, execute only the first ⌈N / workers⌉ waves and list the de
    - `state.py repoint $RUN <id> --index <i> --to <NNN> --decision "<owner's words> ($TODAY)" --date $TODAY`.
      It adds the marker to the criterion, stages it, fixes `ac.json`, and records the re-point. The
      verifier accepts only re-points the brief lists, so never re-point one by hand.
-   - `state.py set $RUN <id> ready --reverify --field reason="…"` for **every** todo staged in that
-     worktree (Land commits its whole index), then `group` and `execute-args` as above. `group` puts
-     them in one group of their own; `execute-args` refuses while another todo still has staged work in
-     that worktree. The workflow skips the planner and the worker and verifies the worktree as it is.
-     Don't touch the worktree after `execute-args`: it records the tree the verdict must match.
+   - `state.py set $RUN <id> ready --reverify --field reason="…"`, then `group` and `execute-args` as
+     above. Only a one-todo attempt qualifies: Land commits the worktree's whole index, so `--reverify`
+     is refused when any other todo ever recorded that worktree. Reopen a multi-todo attempt the plain
+     way. `group` gives a re-verified todo its own group, in the first new wave; a dependent reopened
+     with it waits in `execute-args` until it merges. The workflow skips the planner and the worker and
+     verifies the worktree as it is. Don't touch the worktree after `execute-args`: it records the tree
+     the verdict must match.
    - A wave the run deferred (`--limit`) blocks every later wave. Block its todos with the reason
      `deferred by --limit` first, and list them in the wrap-up.
 

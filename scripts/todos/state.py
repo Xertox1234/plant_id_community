@@ -156,9 +156,22 @@ def reopen_reverify(run, todo_id, reason):
         raise TransitionError(f"{todo_id}: no staged attempt to re-verify (missing {', '.join(missing)})")
     if not Path(entry["worktree"]).is_dir():
         raise TransitionError(f"{todo_id}: its worktree {entry['worktree']} is gone; reopen it without --reverify")
+    _refuse_shared_worktree(run, todo_id, entry["worktree"])
     kept = {k: entry[k] for k in (*WORK_FIELDS, "repoints") if k in entry}
     transition(run, todo_id, "ready", reason=reason)
     entry.update(kept, reverify=True)
+
+
+def _refuse_shared_worktree(run, todo_id, worktree):
+    """Land commits a worktree's whole index, and the verifier checks only the todos it is given. So a
+    re-verify is only for a worktree no other todo has ever recorded, live or in `previous`, at any
+    stage (PR #885 round 2: a group-mate reopened the plain way or blocked later still has its work
+    staged there). A multi-todo attempt is reopened the plain way."""
+    others = sorted(i for i, e in run["todos"].items() if i != todo_id and worktree in
+                    [e.get("worktree")] + [a.get("worktree") for a in e.get("previous", [])])
+    if others:
+        raise TransitionError(f"{todo_id}: its worktree also holds the work of todo {', '.join(others)}; "
+                              "only a one-todo attempt is re-verified in place, so reopen it without --reverify")
 
 
 def summary(run):
@@ -297,8 +310,8 @@ def repoint(run, todo_id, index, to, decision, date, git=run_git):
                               "before execute-args")
     if not decision.strip():
         raise TransitionError(f"{todo_id}: a re-point needs the owner's decision")
-    if not str(to).isdigit():
-        raise TransitionError(f"{todo_id}: a re-point target is a todo number, not {to!r}")
+    if not str(to).isdigit() or str(to) == todo_id:
+        raise TransitionError(f"{todo_id}: a re-point target is another todo's number, not {to!r}")
     worktree, ac_file = entry.get("worktree"), entry.get("ac_file")
     if not worktree or not ac_file or not Path(worktree).is_dir():
         raise TransitionError(f"{todo_id}: no staged worktree to re-point in")
@@ -328,6 +341,7 @@ def repoint(run, todo_id, index, to, decision, date, git=run_git):
         lines[line_no] = body.rstrip() + marker + lines[line_no][len(body):]
         path.write_text("".join(lines))
     mine[0].update(text=todofile.CHECKBOX_RE.sub("", todofile.ac_lines("".join(lines))[index][2], count=1).strip())
+    mine[0].update(command="", evidence_path="", note="re-pointed")  # the worker's form for a re-point
     mine[0]["pass"] = False
     acp.write_text(json.dumps(ac, indent=1) + "\n")
     git(worktree, "add", "--", entry["path"])
@@ -402,13 +416,14 @@ def apply_grouping(run):
     # The new waves are appended after the run's last wave, which may still be executing or in
     # review; its lanes are busy for the first new wave (PR #869 round 1).
     busy = set().union(*(run["groups"][g]["lanes"] for g in _unmerged(run, run["waves"][-1] if run["waves"] else [])))
-    # Todo 492: a re-verified todo is the worktree it was staged in. Its group is that worktree's todos
-    # and nothing else, never bundled or merged by file, in a wave of its own after the planned ones.
-    again = {}
-    for t in [t for t in todos if run["todos"][t["id"]].get("reverify")]:
-        again.setdefault(run["todos"][t["id"]].get("worktree", ""), []).append(t)
-        todos.remove(t)
-    result = group.plan(todos, set(run["open_ids"]) - in_run, run["workers"], busy_lanes=busy)
+    # Todo 492: a re-verified todo is the worktree it was staged in: a group of its own, never bundled or
+    # merged by file, in a wave of its own BEFORE the planned ones. It needs no worker, and a planned
+    # dependent then waits in execute_args for it to merge instead of running first (PR #885 round 2).
+    again = sorted((t for t in todos if run["todos"][t["id"]].get("reverify")), key=group._rank)
+    todos = [t for t in todos if t not in again]
+    again_lanes = [set(group.lanes_for(t["triage"]) | group.review_lane(t)) for t in again]
+    result = group.plan(todos, set(run["open_ids"]) - in_run, run["workers"],
+                        busy_lanes=again_lanes[-1] if again else busy)
     offset = max((int(g[1:]) for g in run["groups"]), default=0)
     rename = {gid: f"g{offset + int(gid[1:])}" for gid in result["groups"]}
     for todo_id, reason in result["unschedulable"].items():
@@ -419,13 +434,12 @@ def apply_grouping(run):
             run["todos"][todo_id]["group"] = rename[gid]
     new_waves = [[rename[g] for g in wave] for wave in result["waves"]]
     offset = max((int(g[1:]) for g in run["groups"]), default=0)
-    for n, (_, members) in enumerate(sorted(again.items()), start=offset + 1):
-        ids = [t["id"] for t in sorted(members, key=group._rank)]
-        lanes = set().union(*(group.lanes_for(t["triage"]) | group.review_lane(t) for t in members))
-        run["groups"][f"g{n}"] = {"ids": ids, "lanes": sorted(lanes), "deps": []}
-        for todo_id in ids:
-            run["todos"][todo_id]["group"] = f"g{n}"
-        new_waves.append([f"g{n}"])
+    first = []
+    for n, (t, lanes) in enumerate(zip(again, again_lanes), start=offset + 1):
+        run["groups"][f"g{n}"] = {"ids": [t["id"]], "lanes": sorted(lanes), "deps": []}
+        run["todos"][t["id"]]["group"] = f"g{n}"
+        first.append([f"g{n}"])
+    new_waves = first + new_waves
     run["waves"].extend(new_waves)
     run["unschedulable"].update(result["unschedulable"])
     return {"waves": new_waves, "unschedulable": result["unschedulable"]}
@@ -517,25 +531,16 @@ def execute_args(run, wave, main_root, git=run_git):
                 if entry["stage"] not in TERMINAL | {"merged"}:
                     raise TransitionError(f"wave {w} is not merged yet ({todo_id} is {entry['stage']})")
     gids = run["waves"][wave]
-    # Todo 492: a re-verified todo is briefed as its own staged worktree, so it can share a group only
-    # with todos staged in that same worktree. Refused before anything changes.
+    # Todo 492: a re-verified todo is its own group and the only todo its worktree ever held. Checked
+    # again here, before anything changes: grouping or a later reopen must not have broken either.
     for gid in gids:
         members = _group_entries(run, gid)
-        live = [e for _, e in members if e["stage"] == "ready"]
-        again = [e for e in live if e.get("reverify")]
-        if not again:
-            continue
-        worktrees = {e.get("worktree") for e in again}
-        if len(again) != len(live) or len(worktrees) != 1:
+        again = [(i, e) for i, e in members if e["stage"] == "ready" and e.get("reverify")]
+        if again and len(members) != 1:
             raise TransitionError(f"{gid}: a re-verified todo shares its group with other work; block them "
-                                  "and reopen each the plain way, or all of one worktree's todos with --reverify")
-        # Land commits the whole index, so every todo staged in that worktree ships with this group.
-        ids = {i for i, _ in members}
-        others = sorted(i for i, e in run["todos"].items() if i not in ids and e.get("worktree") in worktrees)
-        if others:
-            raise TransitionError(f"{gid}: its worktree also holds the staged work of todo {', '.join(others)}, "
-                                  "which this verifier would not check; reopen them with --reverify too, "
-                                  "before `group`")
+                                  "and reopen each the plain way")
+        for todo_id, entry in again:
+            _refuse_shared_worktree(run, todo_id, entry.get("worktree"))
     # Todo 468: wave N-1 is still in review or Land while this wave executes, so its lanes are
     # forbidden too, until every todo left in it has merged. A group that HOLDS such a lane would
     # put two PRs on it at once: refuse before anything changes (PR #869 round 1).
