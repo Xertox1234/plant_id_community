@@ -187,3 +187,19 @@ knowledge of the Topic/Post model split.
 ### 2026-09-28 - Completed by the todo sweep (run 2026-09-28-2018)
 
 - Archived by `land.py archive`; evidence is quoted above, review is on the PR.
+
+### 2026-09-28 - Repaired by the todo sweep (run 2026-09-28-2018)
+
+- Review round 1 found that a held edit taken down afterwards stayed pending.
+  A held edit leaves an active NEEDS_CHANGES workflow state, and Wagtail's
+  `UnpublishAction` never cancels it. If a moderator unpublished the post,
+  reports auto-hid it, or the author DELETEd it, it stayed on the pending
+  page as an "Edit", and one Approve republished the removed content.
+- `admin_views.pending_posts()` now excludes every post that was published
+  once and is no longer live (`live=False`, `first_published_at` set),
+  whatever state it carries. The pending page, the Approve lookup (which
+  404s) and the dashboard count all read this one definition.
+- Tests in `tests/test_pending_content.py`: a held edit then a moderator
+  take-down, a report auto-hide, or an author API DELETE is not pending, and
+  Approve 404s without publishing the held body. All three fail with the
+  guard removed.

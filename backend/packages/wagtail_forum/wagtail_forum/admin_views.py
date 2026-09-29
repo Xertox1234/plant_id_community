@@ -313,8 +313,16 @@ def pending_posts():
       check held (the live row keeps its approved body), or the opening post
       of a topic whose own state a host started from the admin.
 
-    A post a moderator took down (published once, now not live, no active
-    state) is not pending: a moderator already decided it.
+    A post that was published once and is no longer live is never pending,
+    whatever else holds: a moderator took it down, the author deleted it, or
+    reports auto-hid it. That holds even when it still has an active workflow
+    state. A held edit leaves a NEEDS_CHANGES state, and Wagtail's
+    ``UnpublishAction`` does not cancel it, so without this exclusion the post
+    would stay listed as an "Edit" and one Approve would publish the held
+    revision, bringing back content someone removed. The edit path never
+    starts a new state on a post that is not live
+    (``submit_edit_for_moderation`` leaves that edit as a draft revision), so
+    the only states such a post can carry predate its take-down.
     """
     post_type = ContentType.objects.get_for_model(Post)
     topic_type = ContentType.objects.get_for_model(Topic)
@@ -325,15 +333,19 @@ def pending_posts():
     topic_state = active.filter(
         content_type=topic_type, object_id=Cast(OuterRef("topic_id"), CharField())
     )
+    taken_down = Q(live=False, first_published_at__isnull=False)
     return Post.objects.filter(
-        Q(live=False, first_published_at__isnull=True)
-        | Q(
-            is_opening_post=True,
-            topic__live=False,
-            topic__first_published_at__isnull=True,
+        (
+            Q(live=False, first_published_at__isnull=True)
+            | Q(
+                is_opening_post=True,
+                topic__live=False,
+                topic__first_published_at__isnull=True,
+            )
+            | Exists(post_state)
+            | (Q(is_opening_post=True) & Exists(topic_state))
         )
-        | Exists(post_state)
-        | (Q(is_opening_post=True) & Exists(topic_state))
+        & ~taken_down
     )
 
 

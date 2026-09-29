@@ -317,6 +317,77 @@ def test_approve_of_content_no_longer_pending_is_404_and_publishes_nothing(clien
     assert live.live is False
 
 
+def _take_down_by_moderator(post):
+    from wagtail.actions.unpublish import UnpublishAction
+
+    UnpublishAction(post, user=_moderator("takedown-mod")).execute(
+        skip_permission_checks=True
+    )
+
+
+def _take_down_by_reports(post):
+    from wagtail_forum.conf import get_setting
+    from wagtail_forum.models import Report
+
+    for i in range(get_setting("REPORT_AUTO_HIDE_THRESHOLD")):
+        Report.file(post, _member(f"reporter{i}"), Report.SPAM)
+
+
+@pytest.mark.parametrize("take_down", [_take_down_by_moderator, _take_down_by_reports])
+def test_a_held_edit_taken_down_afterwards_is_not_pending_and_approve_404s(
+    client, take_down
+):
+    # A held edit leaves an active NEEDS_CHANGES state and UnpublishAction
+    # does not cancel it. The post must still leave the queue, or one
+    # Approve would publish content someone removed.
+    board = _board()
+    author = _member("newbie")
+    _topic, post = _live_topic(author, board)
+    _pending_edit(author, post, "held edit")
+    assert post.current_workflow_state is not None
+    assert list(pending_posts()) == [post]
+
+    take_down(post)
+    post.refresh_from_db()
+    assert post.live is False
+    assert post.current_workflow_state is not None  # the state survives
+
+    assert not pending_posts().exists()
+    assert _pending_moderation_count() == 0
+    client.force_login(_moderator())
+    assert "held edit" not in client.get(_page_url()).content.decode()
+
+    resp = client.post(_approve_url(post))
+
+    assert resp.status_code == 404
+    post.refresh_from_db()
+    assert post.live is False
+    assert "held edit" not in post.body.raw_data[0]["value"]
+
+
+@pytest.mark.urls("wagtail_forum.tests.api.urls")
+def test_a_held_edit_the_author_then_deletes_is_not_pending():
+    from rest_framework.test import APIClient
+
+    board = _board()
+    author = _member("newbie")
+    topic, _opening = _live_topic(author, board)
+    reply = Post(topic=topic, author=author, body=_body("ok reply"))
+    reply.save()
+    assert submit_for_moderation(reply, author) == "published"
+    _pending_edit(author, reply, "held edit")
+    assert list(pending_posts()) == [reply]
+
+    api = APIClient()
+    api.force_authenticate(author)
+    assert api.delete(f"/forum/posts/{reply.id}/").status_code == 204
+
+    reply.refresh_from_db()
+    assert reply.live is False
+    assert reply.current_workflow_state is not None
+    assert not pending_posts().exists()
+
+
 def test_approve_is_post_only(client):
     board = _board()
     _topic, post = _pending_topic(_member("newbie"), board)
