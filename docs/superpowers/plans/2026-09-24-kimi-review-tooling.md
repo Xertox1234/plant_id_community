@@ -1,7 +1,7 @@
 # Kimi Review Tooling — Implementation Plan
 
 **Date:** 2026-09-24
-**Status:** Draft, pending approval
+**Status:** In progress — Phases 0–3 done; Phases 4–11 not started
 **Canonical code:** `~/.local/share/claude-coworker/` (shared by Plant ID Community and OCRecipes)
 **Vendored consumer:** `plant_id_community/scripts/kimi-review` (drift-checked)
 
