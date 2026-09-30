@@ -323,7 +323,8 @@ together. Test against the dev engine with
       - The exact set of stderr refusal lines is checked.
       - A diff made only of denied files exits `0` without calling the model.
       - In-process tests cover a profile `excluded_paths` directory on every surface. No
-        shipped profile sets `excluded_paths` yet.
+        shipped profile set `excluded_paths` at this phase. The dev `plant_id` profile
+        gained the list from open decision 1 afterwards (commit `431b7ac`).
       - Removing the guard from the diff, the context files or `grep` each makes the suite
         fail.
       - Plant ID hook tests pass 20/20 against the live and dev engines, and `--help` is
@@ -355,7 +356,8 @@ together. Test against the dev engine with
 - [ ] Interface: `query_library_docs(library, topic, version?)`.
 - [ ] Context7 adapter over HTTP, per Context7's API guide (checked 2026-09-24):
   - Base URL `https://context7.com`; auth header `Authorization: Bearer $CONTEXT7_API_KEY`.
-    `CONTEXT7_API_KEY` is currently **not set** in this environment.
+    `CONTEXT7_API_KEY` was not set on 2026-09-24; it is set in the shell as of 2026-09-30.
+    Phase 6 still checks that the engine's process sees it (open decision 2).
   - Default call: `GET /api/v3/search` with `query`, up to four `library` hints, optional
     `version` (needs a library hint), optional `language`, and `type=json`. One request per
     lookup.
@@ -428,8 +430,9 @@ together. Test against the dev engine with
 OCRecipes removed kimi-review on purpose in favor of its `code-reviewer` subagent. Re-adding
 it as a gate would reverse that decision, so this phase is deliberately narrow:
 
-- [ ] **Checkpoint with the user** before any OCRecipes change: confirm re-enablement and its
+- [x] **Checkpoint with the user** before any OCRecipes change: confirm re-enablement and its
       role (proposed: an extra advisory reviewer, not a replacement for `code-reviewer`).
+      Decided: advisory and on explicit request only (open decision 5).
 - [ ] No pre-commit, Claude hook, or CI gate. `kimi-review-batch` is listed under **ad-hoc**
       (explicit request only) in `docs/AI_WORKFLOW.md`, matching that project's two-tier rule.
 - [ ] `ocrecipes` profile `excluded_paths` enumerates the JWT auth, IAP receipt validation,
