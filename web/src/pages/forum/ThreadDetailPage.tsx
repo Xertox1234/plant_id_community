@@ -620,7 +620,17 @@ export default function ThreadDetailPage() {
     [topicId, replyBody, announce]
   );
 
+  // (post, reaction type) pairs whose toggle is in flight (todo 465). A
+  // second tap before the first resolves would send a second toggle — a
+  // create then a delete — so the user's reaction silently undid itself.
+  // A ref, not state: the guard must see the first tap's mark synchronously,
+  // and it must not re-render.
+  const reactInFlightRef = useRef<Set<string>>(new Set());
+
   const handleReact = useCallback(async (postId: string, reactionType: string) => {
+    const inFlightKey = `${postId}:${reactionType}`;
+    if (reactInFlightRef.current.has(inFlightKey)) return;
+    reactInFlightRef.current.add(inFlightKey);
     try {
       const result = await toggleReaction(postId, reactionType);
       // Carry the toggle's `reacted` into the post's reacted set (M23) so the
@@ -642,6 +652,8 @@ export default function ThreadDetailPage() {
         context: { postId, reactionType },
       });
       setNotice(err instanceof Error ? err.message : 'Failed to react');
+    } finally {
+      reactInFlightRef.current.delete(inFlightKey);
     }
   }, []);
 

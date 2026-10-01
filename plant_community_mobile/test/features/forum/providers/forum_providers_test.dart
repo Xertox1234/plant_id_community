@@ -62,6 +62,67 @@ void main() {
       expect(posts.single.reactionCounts['like'], 1);
       expect(posts.single.reacted, ['like']);
     });
+
+    test('a second tap on the same reaction while the first is in flight is '
+        'dropped (todo 465)', () async {
+      final gate = Completer<void>();
+      final api = FakeForumApi()
+        ..posts = CursorPage(
+          items: [post(id: 5, reactionCounts: const {}, reacted: const [])],
+        )
+        ..reactionResult = const ReactionToggleResult(
+          reactionCounts: {'like': 1},
+          reacted: true,
+        )
+        ..reactionGate = gate;
+      final container = ProviderContainer(
+        overrides: [forumApiProvider.overrideWithValue(api)],
+      );
+      addTearDown(container.dispose);
+      // Keep the autoDispose provider alive while the gate holds the
+      // toggle in flight (a screen would be watching it).
+      container.listen(topicPostsProvider(10), (_, _) {});
+      await container.read(topicPostsProvider(10).future);
+      final notifier = container.read(topicPostsProvider(10).notifier);
+
+      // Two taps before the first resolves: a create then a delete would
+      // silently undo the reaction, so the second must send nothing.
+      final first = notifier.toggleReaction(5, 'like');
+      final second = notifier.toggleReaction(5, 'like');
+      // A different type on the same post is not blocked.
+      final other = notifier.toggleReaction(5, 'love');
+      await Future<void>.delayed(Duration.zero);
+      expect(api.reactionCalls, ['5:like', '5:love']);
+
+      gate.complete();
+      await Future.wait([first, second, other]);
+      final posts = container.read(topicPostsProvider(10)).asData!.value.items;
+      expect(posts.single.reacted, contains('like'));
+
+      // Once settled, the guard releases: the next tap toggles again.
+      await notifier.toggleReaction(5, 'like');
+      expect(api.reactionCalls, ['5:like', '5:love', '5:like']);
+    });
+
+    test('the guard releases after a failed toggle (todo 465)', () async {
+      final api = FakeForumApi()
+        ..posts = CursorPage(
+          items: [post(id: 5, reactionCounts: const {}, reacted: const [])],
+        )
+        ..failReactionToggle = true;
+      final container = ProviderContainer(
+        overrides: [forumApiProvider.overrideWithValue(api)],
+      );
+      addTearDown(container.dispose);
+      await container.read(topicPostsProvider(10).future);
+      final notifier = container.read(topicPostsProvider(10).notifier);
+
+      await notifier.toggleReaction(5, 'like');
+      api.failReactionToggle = false;
+      await notifier.toggleReaction(5, 'like');
+
+      expect(api.reactionCalls, ['5:like', '5:like']);
+    });
   });
 
   group('TopicPosts.refreshAfterReply', () {

@@ -116,6 +116,13 @@ class FakeForumApi implements ForumApi {
   /// When true, [toggleReaction] throws instead of returning a result.
   bool failReactionToggle = false;
 
+  /// Every [toggleReaction] call as `'postId:type'`, in order (todo 465).
+  final List<String> reactionCalls = [];
+
+  /// When set, [toggleReaction] holds the request in flight until it
+  /// completes (todo 465).
+  Completer<void>? reactionGate;
+
   final List<String> editPostKeys = [];
   ForumModerationStatus editStatus = ForumModerationStatus.published;
 
@@ -440,6 +447,9 @@ class FakeForumApi implements ForumApi {
     required String idempotencyKey,
   }) async {
     reactionKeys.add(idempotencyKey);
+    reactionCalls.add('$postId:$type');
+    final gate = reactionGate;
+    if (gate != null) await gate.future;
     if (failReactionToggle) {
       throw ApiException('rate limited', statusCode: 429);
     }

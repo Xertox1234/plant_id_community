@@ -1160,6 +1160,56 @@ describe('ThreadDetailPage', () => {
     expect(screen.getByLabelText('React like')).toHaveAttribute('aria-pressed', 'false');
   });
 
+  it('ignores a second tap on the same reaction while the first toggle is in flight (todo 465)', async () => {
+    vi.spyOn(forumService, 'fetchThread').mockResolvedValue(createMockThread());
+    vi.spyOn(forumService, 'fetchPosts').mockResolvedValue({
+      // Non-zero 'like' and 'love' so both buttons show at rest.
+      items: [createMockPost({ id: '5', reaction_counts: { like: 2, love: 1 }, reacted: [] })],
+      meta: { count: 0, next: null, previous: null },
+    });
+    let resolveFirst!: (value: {
+      reaction_counts: Record<string, number>;
+      reacted: boolean;
+    }) => void;
+    const toggleSpy = vi
+      .spyOn(forumService, 'toggleReaction')
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            resolveFirst = resolve;
+          })
+      )
+      .mockResolvedValue({ reaction_counts: { like: 2, love: 2 }, reacted: true });
+
+    renderThreadDetailPage();
+
+    const likeBtn = await screen.findByRole('button', { name: 'React like' });
+    // Two taps before the first toggle resolves: a create then a delete
+    // would silently undo the reaction, so the second must be dropped.
+    fireEvent.click(likeBtn);
+    fireEvent.click(likeBtn);
+    expect(toggleSpy).toHaveBeenCalledTimes(1);
+    expect(toggleSpy).toHaveBeenCalledWith('5', 'like');
+
+    // A DIFFERENT reaction type on the same post is not blocked.
+    fireEvent.click(screen.getByRole('button', { name: 'React love' }));
+    expect(toggleSpy).toHaveBeenCalledTimes(2);
+    expect(toggleSpy).toHaveBeenLastCalledWith('5', 'love');
+
+    await act(async () => {
+      resolveFirst({ reaction_counts: { like: 3, love: 2 }, reacted: true });
+    });
+    await waitFor(() => expect(screen.getByLabelText('React like')).toHaveTextContent('3'));
+    expect(screen.getByLabelText('React like')).toHaveAttribute('aria-pressed', 'true');
+
+    // Once settled, the guard releases: the next tap toggles again. Awaited
+    // in act so its resolved toggle settles inside the test.
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'React like' }));
+    });
+    expect(toggleSpy).toHaveBeenCalledTimes(3);
+  });
+
   it('reports a post and shows a confirmation', async () => {
     vi.spyOn(forumService, 'fetchThread').mockResolvedValue(createMockThread());
     vi.spyOn(forumService, 'fetchPosts').mockResolvedValue({
