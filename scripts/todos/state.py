@@ -1121,13 +1121,51 @@ def _land_only_diff(path, tree_id, actual):
     """True when every path git diff reports between tree_id and actual is one
     Land itself writes (todos/, docs/reviews/, .secrets.baseline) -- R3: a
     resumed Land staging and committing its own edits must not read as lost
-    work. An empty current tree against a non-empty recorded one is never
-    accepted, whatever the diff says.
+    work -- or one a pre-commit fixer rewrote (todo 512, owner decision
+    2026-10-01): every changed line differs only by trailing whitespace or by
+    blank lines at end of file. An empty current tree against a non-empty
+    recorded one is never accepted, whatever the diff says.
     """
     if not run_git(path, "ls-tree", "-r", "--name-only", actual).strip():
         return False
-    changed = [p for p in run_git(path, "diff", "--no-renames", "--name-only", tree_id, actual).splitlines() if p]
-    return bool(changed) and all(_is_land_path(p) for p in changed)
+    changed = [p for p in run_git(path, "diff", "--no-renames", "--name-only", "-z", tree_id, actual).split("\0")
+               if p]
+    return bool(changed) and all(_is_land_path(p) or _fixer_only_change(path, tree_id, actual, p)
+                                 for p in changed)
+
+
+def _fixer_only_change(path, tree_id, actual, rel):
+    """True when `rel` is a regular file in both trees, with the same mode, whose contents differ
+    only as `trailing-whitespace` and `end-of-file-fixer` would make them differ: trailing
+    whitespace on a line, or blank lines (or the final newline) at end of file (todo 512). On
+    PR #907 end-of-file-fixer dropped one trailing blank line from a verified .md during the Land
+    commit, and the next ensure-worktree read that as lost work. Whitespace inside a line, a blank
+    line anywhere but the end, an added, deleted or re-moded file, a binary file (one with a NUL
+    byte; the fixers skip those), a symlink or a submodule is still a real change: it fails
+    closed."""
+    modes = []
+    for tree in (tree_id, actual):
+        listing = run_git(path, "--literal-pathspecs", "ls-tree", "-z", tree, "--", rel).split("\0")[0]
+        modes.append(listing.split(" ", 1)[0] if listing else None)
+    if modes[0] != modes[1] or modes[0] not in ("100644", "100755"):
+        return False
+    before, after = _blob(path, tree_id, rel), _blob(path, actual, rel)
+    if b"\0" in before or b"\0" in after:
+        return False
+    return _fixer_normal(before) == _fixer_normal(after)
+
+
+def _blob(path, tree, rel):
+    proc = subprocess.run(["git", "-C", str(path), "cat-file", "blob", f"{tree}:{rel}"], capture_output=True)
+    if proc.returncode != 0:
+        raise RuntimeError(f"git cat-file blob {tree}:{rel} failed: {proc.stderr.decode(errors='replace').strip()}")
+    return proc.stdout
+
+
+def _fixer_normal(data):
+    """`data` with each line's trailing ASCII whitespace and the blank lines at its end removed --
+    bytes.rstrip(), as the pre-commit fixers strip, so no non-ASCII character counts as space."""
+    return b"\n".join(line.rstrip() for line in data.split(b"\n")).rstrip(b"\n")
 
 
 def _is_land_path(p):

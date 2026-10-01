@@ -709,6 +709,84 @@ def main():
         check("todos_x/ and docs/reviews-old/ are rejected -- the prefix check's trailing slash matters",
               raises(lambda: state.ensure_worktree(run_slash, "gslash", Path(tmp) / "scratch"), RuntimeError))
 
+    # Todo 512 (owner decision 2026-10-01): a pre-commit fixer rewriting a verified file during the
+    # Land commit -- trailing whitespace, blank lines at end of file -- is not lost work. On PR #907
+    # end-of-file-fixer dropped one trailing blank line from a .md and ensure-worktree refused.
+    # Anything more than that is still a real change and still refuses.
+    with tempfile.TemporaryDirectory() as tmp:
+        repo = Path(tmp) / "repo"
+        subprocess.run(["git", "init", "-q", "-b", "main", str(repo)], check=True)
+        subprocess.run(["git", "-C", str(repo), "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q",
+                        "--allow-empty", "-m", "init"], check=True)
+        fx = Path(tmp) / "worker-fx"
+        subprocess.run(["git", "-C", str(repo), "worktree", "add", "-q", "-b", "worktree-fx", str(fx)], check=True)
+        verified = {"doc.md": b"# Doc\n\ntext  \nmore\t\n\n", "b.py": b"a = 1\nb = 2\n", "c.txt": b"no newline",
+                    "bin.dat": b"\0x  \n", "todos/100-x.md": b"todo\n",
+                    "web/docs/patterns/p.md": b"# P\n\ntext\n\n"}
+        for rel, data in verified.items():
+            (fx / rel).parent.mkdir(parents=True, exist_ok=True)
+            (fx / rel).write_bytes(data)
+        subprocess.run(["git", "-C", str(fx), "add", "-A"], check=True)
+        recorded = subprocess.run(["git", "-C", str(fx), "write-tree"], capture_output=True, text=True).stdout.strip()
+
+        def fixer_case(label, changes, accepted, chmod=None):
+            """Apply `changes` ({path: bytes, or None to delete}) and an optional chmod, stage them,
+            run ensure_worktree against the recorded tree, then put the verified tree back."""
+            for rel, data in changes.items():
+                if data is None:
+                    (fx / rel).unlink()
+                else:
+                    (fx / rel).write_bytes(data)
+            if chmod:
+                os.chmod(fx / chmod, 0o755)
+            subprocess.run(["git", "-C", str(fx), "add", "-A"], check=True)
+            run_fx = worktree_run("fx1", "gfx", "worktree-fx", worktree=str(fx), tree_id=recorded)
+            _, err = expect(lambda: state.ensure_worktree(run_fx, "gfx", Path(tmp) / "scratch"))
+            ok = err is None if accepted else isinstance(err, RuntimeError) and "lost its staged work" in str(err)
+            check(f"512: {label}", ok, err)
+            for rel in changes:
+                if rel in verified:
+                    (fx / rel).write_bytes(verified[rel])
+                else:
+                    (fx / rel).unlink()
+            if chmod:
+                os.chmod(fx / chmod, 0o644)
+            subprocess.run(["git", "-C", str(fx), "add", "-A"], check=True)
+            back = subprocess.run(["git", "-C", str(fx), "write-tree"], capture_output=True, text=True).stdout.strip()
+            check(f"512: ({label}) -- the verified tree is restored", back == recorded, back)
+
+        fixer_case("end-of-file-fixer dropping a trailing blank line is accepted (the PR #907 case)",
+                   {"doc.md": b"# Doc\n\ntext  \nmore\t\n"}, True)
+        fixer_case("... also for a file three directories deep, as on PR #907",
+                   {"web/docs/patterns/p.md": b"# P\n\ntext\n"}, True)
+        fixer_case("... and a real change three directories deep still refuses",
+                   {"web/docs/patterns/p.md": b"# P\n\nother\n"}, False)
+        fixer_case("trailing-whitespace stripping lines is accepted", {"doc.md": b"# Doc\n\ntext\nmore\n\n"}, True)
+        fixer_case("end-of-file-fixer adding a missing final newline is accepted", {"c.txt": b"no newline\n"}, True)
+        fixer_case("a fixer change beside Land's own todos/ edit is accepted",
+                   {"doc.md": b"# Doc\n\ntext\nmore\n", "todos/100-x.md": b"todo, archived\n"}, True)
+        fixer_case("a real content change still refuses", {"b.py": b"a = 1\nb = 3\n"}, False)
+        fixer_case("whitespace inside a line still refuses", {"b.py": b"a  = 1\nb = 2\n"}, False)
+        fixer_case("a blank line removed mid-file still refuses", {"doc.md": b"# Doc\ntext  \nmore\t\n\n"}, False)
+        fixer_case("a blank line added mid-file still refuses", {"b.py": b"a = 1\n\nb = 2\n"}, False)
+        fixer_case("a fixer change beside a real change still refuses",
+                   {"doc.md": b"# Doc\n\ntext\nmore\n", "b.py": b"a = 1\n"}, False)
+        fixer_case("a deleted verified file still refuses", {"b.py": None}, False)
+        fixer_case("an added file outside Land's paths still refuses", {"new.py": b"x = 1\n"}, False)
+        fixer_case("a mode change with the same content still refuses", {}, False, chmod="b.py")
+        fixer_case("a binary file's trailing-space change still refuses", {"bin.dat": b"\0x\n"}, False)
+
+        # Finding 5's recovery for a wedged CI run: an empty commit after Land keeps the tree, so the
+        # recorded tree_id (and the reviews of it) still holds.
+        subprocess.run(["git", "-C", str(fx), "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q",
+                        "-m", "land"], check=True)
+        subprocess.run(["git", "-C", str(fx), "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q",
+                        "--allow-empty", "-m", "ci: retrigger a wedged run"], check=True)
+        run_fx = worktree_run("fx1", "gfx", "worktree-fx", worktree=str(fx), tree_id=recorded)
+        path_fx, err = expect(lambda: state.ensure_worktree(run_fx, "gfx", Path(tmp) / "scratch"))
+        check("512: an empty commit on top of the Land commit passes ensure-worktree unchanged",
+              err is None and path_fx == str(fx), err)
+
     # R4: ensure_worktree must use the entry's main_root for -C, not the process cwd.
     # Uses the real run_git (no override) and runs from a cwd outside the repo, so a
     # regression to a hardcoded "." would fail (that cwd is not a git repo at all).
@@ -1232,12 +1310,32 @@ def main():
     rename_quoting_test()
     reverify_tests()
     reverify_grouping_tests()
+    runbook_tests()
     print()
     if FAILURES:
         print(f"FAILED: {len(FAILURES)} check(s): {', '.join(FAILURES)}")
         return 1
     print("All checks passed.")
     return 0
+
+
+def runbook_tests():
+    """Todo 512: the completing-todos runbook steps that cost run 2026-10-01-0121 hand fixes."""
+    skill = (Path(os.path.abspath(__file__)).parents[2] / ".claude" / "skills" / "completing-todos"
+             / "SKILL.md").read_text()
+    merges = [line for line in skill.splitlines() if "gh pr merge" in line]
+    check("512: the runbook names how to arm auto-merge", bool(merges), merges)
+    check("512: every `gh pr merge` in the runbook passes --repo, so gh never touches a sweep worktree",
+          all("--repo" in line for line in merges), [line for line in merges if "--repo" not in line])
+    stage_b = skill.split("## Stage B", 1)[1].split("\n2. ", 1)[0]
+    check("512: Stage B step 1 says waves start at 0", "Waves start at 0" in stage_b, stage_b)
+    run = ready_run([("w1", ["w1.py"])], workers=1)
+    state.apply_grouping(run)
+    check("512: ... and wave 0 is a fresh run's first wave", raises(lambda: state.execute_args(run, 1, "/m"), Exception)
+          and expect(lambda: state.execute_args(run, 0, "/m"))[1] is None)
+    merge_section = skill.split("## Merge confirmation", 1)[1].split("\n## ", 1)[0]
+    check("512: Merge confirmation gives the wedged-CI recovery (an empty commit between ensure-worktree runs)",
+          "--allow-empty" in merge_section and "ensure-worktree" in merge_section, merge_section)
 
 
 def residue_tests():

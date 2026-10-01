@@ -419,6 +419,29 @@ def main():
             check("F5b: the tail's embedded ``` stays inside the (longer) fence",
                   text.count(fence_match.group(1)) == 2, text)
 
+    # Todo 512: a tail with trailing spaces and spaces-only lines (vitest's) is quoted with
+    # no trailing whitespace, so the trailing-whitespace hook never rewrites the todo mid-commit.
+    with tempfile.TemporaryDirectory() as tmp:
+        repo = setup(tmp)
+        rel = "todos/412-pending-p3-a.md"
+        clean = (repo / rel).read_text()
+        check("512: the fixture itself has no trailing whitespace", re.search(r"[ \t]+\n", clean) is None, clean)
+        (repo / ".sweep-evidence/g1/412-ac1.txt").write_text(" Test Files  3 passed (3)   \n   \n\t\n      Tests  41 passed\n")
+        (repo / ".sweep-evidence/g1/412-ac3.txt").write_text("ok  \n")
+        land.flip_acs(repo, rel, [entry("412", 0), entry("412", 1), entry("412", 2)],
+                      [agree("412", 0), agree("412", 1), agree("412", 2)], "r", "2026-09-27")
+        text = (repo / rel).read_text()
+        check("512: the quoted tail keeps its content", "  Test Files  3 passed (3)\n" in text
+              and "        Tests  41 passed\n" in text, text)
+        check("512: no line of the todo ends in whitespace after flip-acs",
+              re.search(r"[ \t]+\n", text) is None, [line for line in text.splitlines() if line != line.rstrip()])
+        result = land.archive(repo, rel, "r", "2026-09-27")
+        archived = (repo / result["archived"]).read_text()
+        check("512: ... nor after archive", re.search(r"[ \t]+\n", archived) is None,
+              [line for line in archived.splitlines() if line != line.rstrip()])
+        check("512: the archived file still passes the CI tripwire",
+              check_archived_todo_status.parse(str(repo / result["archived"]))[3] == [])
+
     # F6: evidence_path must resolve inside <repo>/.sweep-evidence/, or it counts as missing.
     with tempfile.TemporaryDirectory() as tmp:
         repo = setup(tmp)

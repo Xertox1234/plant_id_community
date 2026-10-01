@@ -24,10 +24,18 @@ command -v kimi-review >/dev/null 2>&1 || exit 0
 REVIEW_DIFF=$(git diff --cached)
 [ -n "$REVIEW_DIFF" ] || exit 0
 
+# The backstop must outlast the engine's own retry envelope, or it cuts off the retry
+# the engine budgets for. With --verify deterministic the engine makes one draft call:
+# up to 3 attempts (call_with_retry retries=2) of up to 90 s each (the OpenAI client
+# timeout) plus 1 s + 2 s backoff = 273 s, all under its 330 s KIMI_REVIEW_BUDGET_SECONDS.
+# The old 150 s cut off any review whose first attempt hit the 90 s client timeout
+# before its retry could finish -- the likely (not measured) cause of 7 of 10 Land
+# commits in todo-sweep run 2026-10-01-0121 printing "timed out" (todo 512).
+GATE_TIMEOUT=300
 if command -v timeout >/dev/null 2>&1; then
-  TIMEOUT_CMD="timeout 150"
+  TIMEOUT_CMD="timeout $GATE_TIMEOUT"
 elif command -v gtimeout >/dev/null 2>&1; then
-  TIMEOUT_CMD="gtimeout 150"
+  TIMEOUT_CMD="gtimeout $GATE_TIMEOUT"
 else
   TIMEOUT_CMD=""
 fi
