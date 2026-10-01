@@ -4,11 +4,15 @@ Runs against the real project URLconf — the throttled wrappers in
 apps/forum_host/api.py are what production serves at /api/v1/forum/.
 """
 
+import io
+
 import pytest
 from django.contrib.auth import get_user_model
 from django.core.cache import cache
+from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import override_settings
 from freezegun import freeze_time
+from PIL import Image as PILImage
 from rest_framework.test import APIClient
 from wagtail.models import Page
 from wagtail_forum.models import ForumBoard, ForumIndex, ForumProfile, TrustLevel
@@ -28,6 +32,18 @@ def _board():
     root = Page.objects.get(id=1)
     index = root.add_child(instance=ForumIndex(title="Forum", slug="forum"))
     return index.add_child(instance=ForumBoard(title="General", slug="general"))
+
+
+def _upload_image(client):
+    """POST a fresh 10x10 JPEG to the throttled host image-upload route."""
+    buf = io.BytesIO()
+    PILImage.new("RGB", (10, 10), "red").save(buf, format="JPEG")
+    buf.seek(0)
+    return client.post(
+        "/api/v1/forum/images/",
+        {"image": SimpleUploadedFile("a.jpg", buf.read(), "image/jpeg")},
+        format="multipart",
+    )
 
 
 # Host-only routes with no package counterpart — AI features and link preview.
@@ -316,28 +332,13 @@ def test_throttle_is_per_user_not_global():
 @override_settings(FORUM_RATELIMITS={"image_upload": "1/h"})
 @pytest.mark.django_db
 def test_image_upload_is_throttled_per_user():
-    import io
-
-    from django.core.files.uploadedfile import SimpleUploadedFile
-    from PIL import Image as PILImage
-
     user = User.objects.create_user(username="up")
     client = APIClient()
     client.force_authenticate(user)
 
-    def upload():
-        buf = io.BytesIO()
-        PILImage.new("RGB", (10, 10), "red").save(buf, format="JPEG")
-        buf.seek(0)
-        return client.post(
-            "/api/v1/forum/images/",
-            {"image": SimpleUploadedFile("a.jpg", buf.read(), "image/jpeg")},
-            format="multipart",
-        )
-
     with freeze_time("2026-06-10 12:00:00"):
-        first = upload()
-        blocked = upload()
+        first = _upload_image(client)
+        blocked = _upload_image(client)
 
     assert first.status_code == 201
     assert blocked.status_code == 429  # NOT 403 — Ratelimited subclasses it
@@ -354,31 +355,16 @@ def test_image_upload_throttle_resets_after_the_window():
     boundary is jittered per key, so only a jump of more than one full period
     is guaranteed to land in a fresh window — hence +1 h 1 s, not "a bit later".
     """
-    import io
-
-    from django.core.files.uploadedfile import SimpleUploadedFile
-    from PIL import Image as PILImage
-
     user = User.objects.create_user(username="up-reset")
     client = APIClient()
     client.force_authenticate(user)
 
-    def upload():
-        buf = io.BytesIO()
-        PILImage.new("RGB", (10, 10), "red").save(buf, format="JPEG")
-        buf.seek(0)
-        return client.post(
-            "/api/v1/forum/images/",
-            {"image": SimpleUploadedFile("a.jpg", buf.read(), "image/jpeg")},
-            format="multipart",
-        )
-
     with freeze_time("2026-06-10 12:00:00"):
-        first = upload()
-        blocked = upload()
+        first = _upload_image(client)
+        blocked = _upload_image(client)
     with freeze_time("2026-06-10 13:00:01"):
-        after_window = upload()
-        blocked_again = upload()
+        after_window = _upload_image(client)
+        blocked_again = _upload_image(client)
 
     assert first.status_code == 201
     assert blocked.status_code == 429

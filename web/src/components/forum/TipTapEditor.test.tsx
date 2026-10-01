@@ -2,7 +2,7 @@ import { StrictMode } from 'react';
 import { describe, it, expect, vi, beforeAll, beforeEach } from 'vitest';
 import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { Editor } from '@tiptap/core';
+import { Editor } from '@tiptap/react';
 import TipTapEditor from './TipTapEditor';
 import * as forumService from '../../services/forumService';
 import { logger } from '../../utils/logger';

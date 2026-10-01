@@ -40,6 +40,16 @@ def _jpeg(color="red"):
     return buf
 
 
+class PlantNetCircuitBreakerFailMaxTests(SimpleTestCase):
+    def test_fail_max_is_the_documented_five(self):
+        """Pin the threshold literally: the breaker tests below derive their
+        failure counts from the constant, so on their own they would still
+        pass if it shrank to 1 (``docs/rules/testing.md``: tracking a
+        constant does not pin it)."""
+        self.assertEqual(PLANTNET_CIRCUIT_FAIL_MAX, 5)
+        self.assertEqual(plantnet_service._plantnet_circuit.fail_max, 5)
+
+
 class PlantNetCircuitBreakerTests(SimpleTestCase):
     def setUp(self):
         cache.clear()
@@ -70,9 +80,10 @@ class PlantNetCircuitBreakerTests(SimpleTestCase):
         self.assertIs(service.circuit, plantnet_service._plantnet_circuit)
         self.assertEqual(service.circuit.current_state, "closed")
 
-        # N real failures, each one an actual HTTP attempt. A distinct image
-        # per call keeps the cache key distinct (failures are never cached
-        # anyway, but this rules the cache out as the thing short-circuiting).
+        # N real failures, each one an actual HTTP attempt. The colours do NOT
+        # keep the cache keys distinct: after the service's JPEG q85 re-encode,
+        # (0,0,0) and (1,0,0) come out byte-identical. They do not need to --
+        # failures are never cached, so every call still reaches the HTTP layer.
         for i in range(PLANTNET_CIRCUIT_FAIL_MAX):
             with self.assertRaises(ExternalAPIError):
                 service.identify_plant([_jpeg((i, 0, 0))])
