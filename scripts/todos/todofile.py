@@ -50,25 +50,56 @@ def render(value):
     return json.dumps(text, ensure_ascii=False)
 
 
+def key_line(lines, key):
+    """Index of the frontmatter line that sets top-level `key`, or None. YAML allows blanks
+    before the colon, so `key : value` is that key too (todo 475): a plain `key:` prefix
+    match missed it, and set_fields then appended a second, duplicate `key:` line."""
+    pattern = re.compile(rf"{re.escape(key)}[ \t]*:")
+    return next((i for i, line in enumerate(lines) if pattern.match(line)), None)
+
+
+def field_problem(text, key):
+    """Why set_fields cannot set `key` in place in `text`, or None when it can. The one
+    source of set_fields' refusals, so a caller can check first and write nothing."""
+    match = FM_RE.match(text)
+    if not match:
+        return "no frontmatter block"
+    lines = match.group(1).splitlines(keepends=True)
+    i = key_line(lines, key)
+    if i is None:
+        # Set, but on no line key_line finds (a quoted or flow-style key): appending
+        # would duplicate it (todo 475). Malformed YAML keeps the old append behaviour.
+        try:
+            data = parse_frontmatter(text) or {}
+        except yaml.YAMLError:
+            data = {}
+        return f"'{key}' is set on a line it cannot rewrite" if key in data else None
+    following = lines[i + 1] if i + 1 < len(lines) else ""
+    if following[:1] in (" ", "\t", "-"):
+        return f"'{key}' has a multi-line value"
+    return None
+
+
 def set_fields(path, fields):
-    """Set top-level scalar keys in place, appending any that are missing."""
+    """Set top-level scalar keys in place, appending any that are missing. Refuses,
+    writing nothing, when any key has a field_problem."""
     path = Path(path)
     text = path.read_text()
+    for key in fields:
+        problem = field_problem(text, key)
+        if problem:
+            raise ValueError(f"{path}: {problem}; edit it by hand")
     match = FM_RE.match(text)
     if not match:
         raise ValueError(f"{path}: no frontmatter block")
     lines = match.group(1).splitlines(keepends=True)
     for key, value in fields.items():
         new_line = f"{key}: {render(value)}\n"
-        for i, line in enumerate(lines):
-            if line.startswith(f"{key}:"):
-                following = lines[i + 1] if i + 1 < len(lines) else ""
-                if following[:1] in (" ", "\t", "-"):
-                    raise ValueError(f"{path}: {key} has a multi-line value; edit it by hand")
-                lines[i] = new_line
-                break
-        else:
+        i = key_line(lines, key)
+        if i is None:
             lines.append(new_line)
+        else:
+            lines[i] = new_line
     path.write_text("---\n" + "".join(lines) + "---\n" + text[match.end():])
 
 

@@ -108,7 +108,13 @@ def _env_secrets(*roots):
     """Every value of at least SECRET_MIN_LEN characters in <root>/backend/.env and
     <root>/web/.env, longest first (final review m5), plus the password inside any URL value
     (todo 468): printed alone, or inside slot_env's rewritten DATABASE_URL, it matches no
-    whole .env value."""
+    whole .env value.
+
+    A password that is also a common word is masked everywhere on purpose (todo 475, owner
+    decision 2026-09-28): with `postgres:postgres` a tail reads `django.db.backends.***ql`.
+    The mask cannot tell the password from the word, so any narrowing (word boundaries, skipping
+    a value equal to the DB user or scheme) leaves the password readable exactly where it is
+    printed, in a tail committed to a public repo. Over-masking costs only readability."""
     values = set()
     for root in roots:
         for rel in ENV_FILES if root else ():
@@ -291,25 +297,17 @@ def _tracked(repo, rel):
     return proc.returncode == 0
 
 
-def _unsettable_key(path, keys):
-    """The first key among `keys` that todofile.set_fields could NOT set on
+def _unsettable(path, keys):
+    """Why todofile.set_fields could NOT set the first such key among `keys` on
     `path` without raising, or None if all of them are settable (fix round 3,
-    H3). Mirrors set_fields' own multi-line check, read-only, so archive()
-    can name the exact offending key and refuse in phase 1 instead of
-    discovering a pre-existing multi-line `status`/`source_review` value via
-    a phase-2 ValueError after the todo has already been git-mv'd."""
-    match = todofile.FM_RE.match(Path(path).read_text())
-    if not match:
-        return keys[0] if keys else None
-    lines = match.group(1).splitlines(keepends=True)
-    for key in keys:
-        for i, line in enumerate(lines):
-            if line.startswith(f"{key}:"):
-                following = lines[i + 1] if i + 1 < len(lines) else ""
-                if following[:1] in (" ", "\t", "-"):
-                    return key
-                break
-    return None
+    H3). It asks todofile.field_problem -- set_fields' own check, read-only --
+    so archive() can name the exact offending key and refuse in phase 1 instead
+    of discovering a pre-existing multi-line `status`/`source_review` value via
+    a phase-2 ValueError after the todo has already been git-mv'd. Sharing the
+    check also means a `source_review : x` line (a blank before the colon) is
+    found and rewritten in place, never duplicated (todo 475)."""
+    text = Path(path).read_text()
+    return next((p for p in (todofile.field_problem(text, key) for key in keys) if p), None)
 
 
 def plan_review(repo, todo_path, date):
@@ -405,30 +403,50 @@ def plan_review(repo, todo_path, date):
                 note = f"all findings resolved, but {norm_rel} is not tracked in git; rename skipped"
             else:
                 renamed, completed, note = True, candidate_rel, "all findings resolved"
+    siblings, skipped = _siblings(repo, review, todo_path) if renamed else ([], [])
     return {"finding": finding, "action": "checkoff", "note": note, "source": norm_rel,
             "new_lines": new_lines, "renamed": renamed, "completed": completed,
-            "siblings": _siblings(repo, review, todo_path) if renamed else []}
+            "siblings": siblings, "skipped_siblings": skipped}
 
 
 def _siblings(repo, review, todo_path):
-    """Repo-relative paths of the other todos, open or archived, whose `source_review` resolves
-    to `review` and can be rewritten in place: after the -COMPLETED rename their pointer would
-    dangle (todo 468). Read-only and never raises, like plan_review; a file it cannot read or
-    rewrite is left as it is."""
+    """(rewrite, skipped) for the other todos, open or archived, whose `source_review` resolves
+    to `review`: after the -COMPLETED rename their pointer would dangle (todo 468). `rewrite` is
+    the repo-relative paths that can be rewritten in place; `skipped` holds a {"path", "reason"}
+    for every one that can't, which archive() writes into the Work Log, so no pointer is left
+    dangling silently (todo 475). Read-only and never raises, like plan_review."""
     repo = Path(repo)
-    out = []
+    rewrite, skipped = [], []
     for path in sorted([*(repo / "todos").glob("*.md"), *(repo / "todos" / "archive").glob("*.md")]):
         if path.resolve() == Path(todo_path).resolve():
             continue
         rel = path.relative_to(repo).as_posix()
         try:  # a NUL byte in a path makes resolve() raise ValueError (PR #870 round 1)
             source = (todofile.read_frontmatter(path) or {}).get("source_review")
-            if (source and _review_path(repo, str(source)) == review
-                    and _unsettable_key(path, ["source_review"]) is None and _tracked(repo, rel)):
-                out.append(rel)  # tracked only: Stage D stages every returned path
-        except (yaml.YAMLError, ValueError, OSError):
-            continue
-    return out
+            if not (source and _review_path(repo, str(source)) == review):
+                continue
+            problem = _unsettable(path, ["source_review"])
+            if problem:
+                skipped.append({"path": rel, "reason": problem})
+            elif not _tracked(repo, rel):  # tracked only: Stage D stages every returned path
+                skipped.append({"path": rel, "reason": "not tracked in git"})
+            else:
+                rewrite.append(rel)
+        except (yaml.YAMLError, ValueError, OSError) as exc:
+            # Unreadable, so whether it names `review` is unknown: note it when its
+            # frontmatter at least mentions the review doc's file name.
+            if _mentions(path, review.name):
+                skipped.append({"path": rel, "reason": f"its frontmatter could not be read ({type(exc).__name__})"})
+    return rewrite, skipped
+
+
+def _mentions(path, name):
+    """True when `path` reads and its frontmatter block contains `name`."""
+    try:
+        match = todofile.FM_RE.match(Path(path).read_text(errors="replace"))
+    except OSError:
+        return False
+    return bool(match) and name in match.group(1)
 
 
 def apply_review(repo, plan, todo_path, git=run_git):
@@ -446,8 +464,10 @@ def apply_review(repo, plan, todo_path, git=run_git):
         todofile.set_fields(todo_path, {"source_review": completed})
         for rel in plan.get("siblings", []):
             todofile.set_fields(Path(repo) / rel, {"source_review": completed})
+        skipped = plan.get("skipped_siblings", [])
+        note = plan["note"] + (f"; {len(skipped)} sibling todo(s) not rewritten" if skipped else "")
         return {"finding": plan["finding"], "renamed": True, "paths": [completed, *plan.get("siblings", [])],
-                "note": plan["note"]}
+                "note": note, "skipped_siblings": skipped}
     return {"finding": plan["finding"], "renamed": False, "paths": [source], "note": plan["note"]}
 
 
@@ -495,9 +515,9 @@ def archive(repo, todo_rel, run_id, date, git=run_git):
     settable = ["status"]
     if review_plan and review_plan["action"] == "checkoff" and review_plan["renamed"]:
         settable.append("source_review")
-    bad_key = _unsettable_key(src, settable)
-    if bad_key:
-        raise LandError(f"{todo_rel}: '{bad_key}' has a multi-line value; edit it by hand")
+    problem = _unsettable(src, settable)
+    if problem:
+        raise LandError(f"{todo_rel}: {problem}; edit it by hand")
     # G1: whether THIS land wrote a Verified note with evidence for this run_id --
     # not merely whether some box happens to be [x], which is also true for a box
     # that was already checked (by hand, or a past run) with no evidence ever quoted.
@@ -507,8 +527,14 @@ def archive(repo, todo_rel, run_id, date, git=run_git):
     git(repo, "mv", todo_rel, dest_rel)
     todofile.set_fields(dest, {"status": "completed"})
     tail_note = "evidence is quoted above, review is on the PR." if has_verified_note else "review is on the PR."
+    # Todo 475: a sibling whose pointer the rename leaves dangling is named in the committed
+    # record, not only in this command's JSON output.
+    skipped_notes = "".join(
+        f"- Sibling `{_sanitize(s['path'])}` still names `{review_plan['source']}` ({_sanitize(s['reason'])}); "
+        f"point its `source_review` at `{review_plan['completed']}` by hand.\n"
+        for s in (review_plan or {}).get("skipped_siblings", []))
     todofile.append_work_log(dest, f"### {date} - Completed by the todo sweep (run {run_id})\n\n"
-                                   f"- Archived by `land.py archive`; {tail_note}\n")
+                                   f"- Archived by `land.py archive`; {tail_note}\n" + skipped_notes)
     baseline = fix_baseline(repo, todo_rel, dest_rel)
     review = apply_review(repo, review_plan, dest, git)
     paths = [dest_rel] + ([".secrets.baseline"] if baseline else []) + (review["paths"] if review else [])

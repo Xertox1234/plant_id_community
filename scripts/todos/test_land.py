@@ -1318,6 +1318,87 @@ def main():
               "abc #defghijkl" in secrets and "it''s-a-secret" in secrets,
               f"{len(secrets)} values")  # never print secrets, even fake ones (CodeQL)
 
+    # Todo 475, finding 3 (owner decision 2026-09-28): a password that is also a common word is
+    # masked everywhere, on purpose -- narrowing the mask would leave it readable where printed.
+    with tempfile.TemporaryDirectory() as tmp:
+        repo = setup(tmp)
+        (repo / "backend").mkdir()
+        (repo / "backend" / ".env").write_text(  # fake values, test fixture only
+            "DATABASE_URL=postgresql://postgres:postgres@localhost:5432/plant\n")  # pragma: allowlist secret
+        (repo / ".sweep-evidence/g1/412-ac1.txt").write_text("ENGINE django.db.backends.postgresql\n")
+        land.flip_acs(repo, "todos/412-pending-p3-a.md", [entry("412", i) for i in range(3)],
+                      [agree("412", 0)], "r", "2026-09-30")
+        text = (repo / "todos/412-pending-p3-a.md").read_text()
+        check("475: a common-word password is still masked inside a longer word (kept on purpose)",
+              "ENGINE django.db.backends.***ql" in text and "postgres" not in text.split("## Work Log", 1)[1],
+              text)
+
+    # Todo 475, findings 1 and 2: when the review doc is renamed -COMPLETED, every sibling todo
+    # whose pointer can't follow is named in the archive's Work Log, and a `source_review : x`
+    # line (a blank before the colon) is rewritten in place, never duplicated.
+    with tempfile.TemporaryDirectory() as tmp:
+        repo = Path(tmp) / "repo"
+        (repo / "todos" / "archive").mkdir(parents=True)
+        (repo / "docs" / "reviews").mkdir(parents=True)
+        (repo / "todos" / "archive" / ".keep").write_text("")
+        body = "---\n\n# T\n\n## Acceptance Criteria\n\n- [x] a\n\n## Work Log\n\n### d - created\n"
+        head = 'status: pending\npriority: p3\ndependencies: []\nsource_finding: "1"\n'
+        rel = "todos/701-pending-p3-x.md"
+        (repo / rel).write_text(f'---\n{head}issue_id: "701"\nsource_review : "docs/reviews/s.md"\n{body}')
+        siblings = {
+            "spaced": ("todos/archive/702-completed-p3-x.md", 'source_review : "docs/reviews/s.md"\n'),
+            "multi": ("todos/703-pending-p3-x.md", "source_review: >-\n  docs/reviews/s.md\n"),
+            "quoted": ("todos/704-pending-p3-x.md", '"source_review": "docs/reviews/s.md"\n'),
+            "untracked": ("todos/705-pending-p3-x.md", 'source_review: "docs/reviews/s.md"\n'),
+            "broken": ("todos/706-pending-p3-x.md", 'source_review: "docs/reviews/s.md"\ntags: [unclosed\n'),
+            # PR #870: a NUL in the value must not crash; it names no file, so it is no sibling.
+            "nul": ("todos/708-pending-p3-x.md", 'source_review: "docs/reviews/s\\0.md"\n'),
+            "other": ("todos/707-pending-p3-x.md", 'source_review: "docs/reviews/elsewhere.md"\n'),
+        }
+        for n, (path, line) in enumerate(siblings.values()):
+            (repo / path).write_text(f'---\n{head}issue_id: "{710 + n}"\n{line}{body}')
+        (repo / "docs/reviews/elsewhere.md").write_text("# R\n")
+        (repo / "docs/reviews/s.md").write_text("# R\n\n## Finding Status\n\n- [ ] #1 x → todo 701\n")
+        subprocess.run(["git", "init", "-q", "-b", "main", str(repo)], check=True)
+        subprocess.run(["git", "-C", str(repo), "add", "-A", "--", ".", ":!" + siblings["untracked"][0]], check=True)
+        subprocess.run(["git", "-C", str(repo), "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q", "-m", "x"],
+                       check=True)
+        unchanged = {k: (repo / p).read_text() for k, (p, _) in siblings.items() if k != "spaced"}
+        try:
+            result = land.archive(repo, rel, "r", "2026-09-30")
+        except land.LandError as exc:
+            result = {"error": str(exc), "review": {}, "paths": [], "archived": rel}
+        review = result.get("review") or {}
+        skipped = {s["path"]: s["reason"] for s in review.get("skipped_siblings", [])}
+        check("475: the review doc is renamed -COMPLETED", review.get("renamed") is True, result)
+        own = (repo / result["archived"]).read_text()
+        check("475: the todo's own `source_review : x` line is rewritten in place, once",
+              own.split("\n---\n", 1)[0].count("source_review") == 1
+              and todofile.read_frontmatter(repo / result["archived"])["source_review"]
+              == "docs/reviews/s-COMPLETED.md", own[:300])
+        spaced = (repo / siblings["spaced"][0]).read_text()
+        check("475: a `source_review : x` sibling is rewritten in place and staged",
+              spaced.count("source_review") == 1
+              and todofile.read_frontmatter(repo / siblings["spaced"][0])["source_review"]
+              == "docs/reviews/s-COMPLETED.md" and siblings["spaced"][0] in result["paths"], (spaced[:300], result))
+        expected = {siblings[k][0] for k in ("multi", "quoted", "untracked", "broken")}
+        check("475: every sibling it could not rewrite is reported, and only those",
+              set(skipped) == expected, skipped)
+        check("475: each skip says why",
+              "multi-line" in skipped.get(siblings["multi"][0], "")
+              and "cannot rewrite" in skipped.get(siblings["quoted"][0], "")
+              and "not tracked" in skipped.get(siblings["untracked"][0], "")
+              and "could not be read" in skipped.get(siblings["broken"][0], ""), skipped)
+        log = own.split("Completed by the todo sweep", 1)[-1]
+        check("475: the archive Work Log names every skipped sibling and where to point it",
+              all(f"Sibling `{p}` still names `docs/reviews/s.md`" in log for p in expected)
+              and log.count("point its `source_review` at `docs/reviews/s-COMPLETED.md` by hand") == 4, log)
+        check("475: skipped siblings are left untouched and unstaged",
+              all((repo / siblings[k][0]).read_text() == t for k, t in unchanged.items())
+              and not expected & set(result["paths"]), result["paths"])
+        check("475: the archived file still passes the CI tripwire",
+              check_archived_todo_status.parse(str(repo / result["archived"]))[3] == [])
+
     # Final review m9: no Work Log heading a worker is told to write may satisfy Land's
     # "evidence is quoted above" check -- only flip_acs's own heading does.
     worker_md = (Path(os.path.abspath(__file__)).parents[2] / ".claude" / "agents" / "todo-worker.md").read_text()
