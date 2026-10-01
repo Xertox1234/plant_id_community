@@ -23,10 +23,18 @@ class ForumConversationsScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final conversationsAsync = ref.watch(conversationsFeedProvider);
     // Who "I" am, so a group row's avatar cluster can leave me out (todo
-    // 463, web `ParticipantStack` parity). Null while the account profile
-    // loads or if it failed: the cluster then shows every member, never
-    // holding the list back for a cosmetic detail.
-    final me = ref.watch(userProfileServiceProvider).asData?.value?.username;
+    // 463, web `ParticipantStack` parity). Null until the account profile
+    // first resolves, or if it never does: the cluster then shows every
+    // member, never holding the list back for a cosmetic detail.
+    //
+    // `.value`, not `asData?.value` (todo 486): a profile `refresh()` sets an
+    // explicit loading state, where `asData` is null but `.value` still holds
+    // the last known profile — so a reload never puts me back in every
+    // cluster. The `select` rebuilds this screen only when the username
+    // changes, not on every other profile edit.
+    final me = ref.watch(
+      userProfileServiceProvider.select((s) => s.value?.username),
+    );
 
     return Scaffold(
       appBar: AppBar(

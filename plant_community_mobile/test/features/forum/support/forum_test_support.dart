@@ -14,22 +14,52 @@ import 'package:plant_community_mobile/services/user_profile_service.dart';
 /// FakeUserProfileService(username: 'me'))` wherever a screen needs to know
 /// who the current user is (the profile "Message" action, todo 339).
 class FakeUserProfileService extends UserProfileService {
-  FakeUserProfileService({required this.username, this.gate});
-  final String username;
+  FakeUserProfileService({required this.username, this.gate, this.refreshGate});
+
+  /// The signed-in user's username, or null for "no profile" — the state
+  /// [clear] leaves on sign-out, and what a screen sees as an unknown
+  /// viewer. Use null to pin a screen's unknown-viewer fallback without the
+  /// real `/auth/user/` request (and Riverpod's retry timers) a failed
+  /// fetch brings.
+  final String? username;
 
   /// When set, [build] awaits it before resolving — holds the account
   /// profile in its loading state so a test can prove nothing that depends
   /// on "who am I" renders early.
   final Future<void>? gate;
 
+  /// When set, [fetchProfile] awaits it — so [refresh] (which sets an
+  /// explicit `AsyncLoading` before re-fetching, unlike an invalidate) holds
+  /// the profile in that reloading state until the test completes it.
+  final Future<void>? refreshGate;
+
   @override
   Future<UserProfile?> build() async {
     final pending = gate;
     if (pending != null) await pending;
+    return _profile();
+  }
+
+  /// Never the network: [refresh] calls this, and the real one sends
+  /// `GET /auth/user/`.
+  @override
+  Future<UserProfile> fetchProfile() async {
+    final pending = refreshGate;
+    if (pending != null) await pending;
+    final profile = _profile();
+    if (profile == null) {
+      throw UserProfileException('FakeUserProfileService has no username');
+    }
+    return profile;
+  }
+
+  UserProfile? _profile() {
+    final name = username;
+    if (name == null) return null;
     return UserProfile(
       id: 1,
-      username: username,
-      email: '$username@example.com',
+      username: name,
+      email: '$name@example.com',
       dateJoined: DateTime(2026, 1, 1),
     );
   }
