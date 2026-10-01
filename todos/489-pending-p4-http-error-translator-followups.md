@@ -5,6 +5,9 @@ issue_id: "489"
 tags: [web, backend, blog]
 dependencies: []
 source_review: "PR #882"
+triage: ready
+triaged: 2026-09-30
+owner_decision: "A response-less AxiosError with a code other than ERR_NETWORK/ECONNABORTED/ETIMEDOUT is returned unchanged, not wrapped (2026-09-30)"
 ---
 
 # HTTP error translator and preview expiry: non-blocking findings from PR #882 (todo 434)

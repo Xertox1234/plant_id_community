@@ -5,6 +5,8 @@ issue_id: "487"
 tags: [testing, backend, web, forum]
 dependencies: []
 source_review: "PR #879"
+triage: ready
+triaged: 2026-09-30
 ---
 
 # Todo 464's new tests: non-blocking findings from PR #879
