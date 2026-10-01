@@ -4,6 +4,8 @@ priority: p4
 issue_id: "501"
 tags: [forum, backend, testing]
 dependencies: []
+triage: ready
+triaged: 2026-09-30
 ---
 
 # `test_spam.py` fails 8 tests when run on its own

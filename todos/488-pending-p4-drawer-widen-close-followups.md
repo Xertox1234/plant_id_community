@@ -5,6 +5,9 @@ issue_id: "488"
 tags: [web, react, accessibility]
 dependencies: []
 source_review: "PR #881"
+triage: ready
+triaged: 2026-09-30
+owner_decision: "On auto-close, move focus to <main> (tabIndex -1), not <body> (2026-09-30)"
 ---
 
 # Drawer close on widen: non-blocking findings from PR #881 (todos 420, 470)

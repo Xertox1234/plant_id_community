@@ -5,7 +5,7 @@ issue_id: "475"
 tags: [harness, todo-sweep]
 dependencies: []
 triage: ready
-triaged: 2026-09-28
+triaged: 2026-09-30
 owner_decision: "Finding 3: keep masking common-word passwords such as postgres and record why (2026-09-28)"
 ---
 

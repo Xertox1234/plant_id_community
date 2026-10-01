@@ -6,7 +6,7 @@ tags: [web, mobile, forum, bug]
 dependencies: []
 source_review: "todos/archive/394-completed-p3-triage-the-grandfathered-archived-todos.md"
 triage: ready
-triaged: 2026-09-28
+triaged: 2026-09-30
 ---
 
 # A fast double tap on a forum reaction adds it and removes it again

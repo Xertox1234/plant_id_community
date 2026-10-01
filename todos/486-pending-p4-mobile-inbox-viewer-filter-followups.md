@@ -5,6 +5,9 @@ issue_id: "486"
 tags: [mobile, flutter, forum, testing]
 dependencies: []
 source_review: "PR #878"
+triage: ready
+triaged: 2026-09-30
+owner_decision: "AC4: add a 375pt 5-member test with a known viewer filtered out; the null-viewer test at group_test:121 alone does not count (2026-09-30)"
 ---
 
 # Mobile inbox viewer filter: non-blocking findings from PR #878 (todo 463)
