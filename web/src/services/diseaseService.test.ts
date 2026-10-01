@@ -56,6 +56,28 @@ describe('diseaseService', () => {
     expect(opts.body).toBeInstanceOf(FormData);
   });
 
+  // Todo 459: the posted multipart key is `plant_condition`, carrying the
+  // choice key; with no condition the field is absent, not an empty string.
+  it('submitDiagnosis posts plant_condition only when one is chosen', async () => {
+    fetchMock.mockResolvedValue({
+      ok: true,
+      json: async () => ({ request_id: 'req-1', status: 'diagnosed' }),
+    });
+    const file = new File(['img'], 'leaf.jpg', { type: 'image/jpeg' });
+
+    await diseaseService.submitDiagnosis({
+      image: file,
+      symptoms_description: 'black spots',
+      plant_condition: 'poor',
+    });
+    const chosen = fetchMock.mock.calls[0][1].body as FormData;
+    expect(chosen.get('plant_condition')).toBe('poor');
+
+    await diseaseService.submitDiagnosis({ image: file, symptoms_description: 'black spots' });
+    const unspecified = fetchMock.mock.calls[1][1].body as FormData;
+    expect(unspecified.has('plant_condition')).toBe(false);
+  });
+
   it('getDiagnosisResults GETs with CSRF header and returns results', async () => {
     fetchMock.mockResolvedValueOnce({
       ok: true,

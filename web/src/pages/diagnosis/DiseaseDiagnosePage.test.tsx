@@ -85,6 +85,73 @@ describe('DiseaseDiagnosePage', () => {
     expect(screen.getByRole('button', { name: /diagnose/i })).toBeDisabled();
   });
 
+  // Todo 459. plant_condition is a choices field on the backend; free text was
+  // a guaranteed 400. The field is a <select> of the five model keys, and the
+  // chosen KEY (not its label) is what reaches submitDiagnosis.
+  it('posts the chosen plant condition key', async () => {
+    vi.mocked(diseaseService.submitDiagnosis).mockResolvedValue({
+      request_id: 'r4',
+      status: 'failed',
+    });
+    vi.mocked(diseaseService.getDiagnosisResults).mockResolvedValue({
+      request_id: 'r4',
+      status: 'failed',
+      results: [],
+    });
+
+    render(<DiseaseDiagnosePage />);
+    await userEvent.upload(
+      screen.getByLabelText('upload'),
+      new File(['i'], 'a.jpg', { type: 'image/jpeg' })
+    );
+    await userEvent.type(screen.getByLabelText(/symptoms/i), 'wilting');
+    await userEvent.selectOptions(
+      screen.getByLabelText(/plant condition/i),
+      'Poor - significant damage'
+    );
+    await userEvent.click(screen.getByRole('button', { name: /diagnose/i }));
+
+    await waitFor(() => expect(diseaseService.submitDiagnosis).toHaveBeenCalledTimes(1));
+    expect(vi.mocked(diseaseService.submitDiagnosis).mock.calls[0][0].plant_condition).toBe('poor');
+  });
+
+  it('offers the five model choices plus a not-specified option that sends nothing', async () => {
+    vi.mocked(diseaseService.submitDiagnosis).mockResolvedValue({
+      request_id: 'r5',
+      status: 'failed',
+    });
+    vi.mocked(diseaseService.getDiagnosisResults).mockResolvedValue({
+      request_id: 'r5',
+      status: 'failed',
+      results: [],
+    });
+
+    render(<DiseaseDiagnosePage />);
+    const select = screen.getByLabelText(/plant condition/i);
+    expect(select.tagName).toBe('SELECT');
+    expect(Array.from((select as HTMLSelectElement).options).map((o) => o.value)).toEqual([
+      '',
+      'excellent',
+      'good',
+      'fair',
+      'poor',
+      'critical',
+    ]);
+    expect(select).toHaveValue('');
+
+    await userEvent.upload(
+      screen.getByLabelText('upload'),
+      new File(['i'], 'a.jpg', { type: 'image/jpeg' })
+    );
+    await userEvent.type(screen.getByLabelText(/symptoms/i), 'wilting');
+    await userEvent.click(screen.getByRole('button', { name: /diagnose/i }));
+
+    await waitFor(() => expect(diseaseService.submitDiagnosis).toHaveBeenCalledTimes(1));
+    expect(vi.mocked(diseaseService.submitDiagnosis).mock.calls[0][0].plant_condition).toBe(
+      undefined
+    );
+  });
+
   // Audit M26 (todo 278). The failure text lands in a live region that was
   // already in the DOM — a region mounted together with its content generally
   // announces nothing.
