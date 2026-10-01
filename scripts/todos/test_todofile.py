@@ -89,7 +89,30 @@ def main():
             raised = True
         check("refuses a multi-line value and leaves the file alone", raised and multi.read_text() == before)
 
-        check("no frontmatter reads as None", tf.read_frontmatter(write(tmp, "# prose\n", "old.md")) is None)
+        # Todo 475: YAML allows blanks before the colon. `key : value` is that key, so it is
+        # rewritten in place -- a plain `key:` prefix match appended a duplicate line instead.
+        spaced = write(tmp, '---\nstatus : pending\nsource_review :  "docs/reviews/a.md"\n'
+                            'source_reviewer: x\n---\n# t\n', "415-pending-p3-s.md")
+        tf.set_fields(spaced, {"status": "completed", "source_review": "docs/reviews/a-COMPLETED.md"})
+        text = spaced.read_text()
+        check("475: a `key : value` line is rewritten in place, not duplicated",
+              text.count("status") == 1 and text.count("source_review:") == 1 and text.count("source_review ") == 0
+              and tf.read_frontmatter(spaced)["status"] == "completed"
+              and tf.read_frontmatter(spaced)["source_review"] == "docs/reviews/a-COMPLETED.md", text)
+        check("475: a longer key sharing the prefix is not matched", "source_reviewer: x\n" in text, text)
+        quoted = write(tmp, '---\n"status": pending\n---\n# t\n', "416-pending-p3-q.md")
+        before = quoted.read_text()
+        try:
+            tf.set_fields(quoted, {"status": "completed"})
+            raised = ""
+        except ValueError as exc:
+            raised = str(exc)
+        check("475: a key set on a line it cannot find refuses and leaves the file alone",
+              "cannot rewrite" in raised and quoted.read_text() == before, raised)
+        check("475: field_problem is None for an absent key (set_fields appends it)",
+              tf.field_problem(before, "triage") is None)
+
+        check("no frontmatter reads as None",tf.read_frontmatter(write(tmp, "# prose\n", "old.md")) is None)
         comment = write(tmp, "---\nstatus: in_progress  # Change from pending\n---\n# t\n", "414-in_progress-p3-z.md")
         check("a YAML comment is not part of the value", tf.read_frontmatter(comment)["status"] == "in_progress")
 
