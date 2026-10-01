@@ -49,7 +49,7 @@ Future<List<String>> _pump(
 }
 
 /// Only a FULL embed card has the "Watch on PROVIDER" line; a compact row
-/// shows the bare provider. Rows and cards share their label format.
+/// shows the bare provider.
 int _fullEmbedCards() => find.textContaining('Watch on ').evaluate().length;
 
 void main() {
@@ -61,10 +61,11 @@ void main() {
 
     expect(_fullEmbedCards(), 1);
     expect(find.text('Watch on YouTube'), findsOneWidget);
-    // The rows: provider as the bare second line, labelled like a card.
+    // The rows: provider as the bare second line, labelled like the web's
+    // rows, "title, provider" (todo 453).
     expect(find.text('Vimeo'), findsOneWidget);
-    expect(find.bySemanticsLabel('YouTube video: Bravo'), findsOneWidget);
-    expect(find.bySemanticsLabel('Vimeo video: Charlie'), findsOneWidget);
+    expect(find.bySemanticsLabel('Bravo, YouTube'), findsOneWidget);
+    expect(find.bySemanticsLabel('Charlie, Vimeo'), findsOneWidget);
     handle.dispose();
   });
 
@@ -89,8 +90,8 @@ void main() {
       final opened = await _pump(tester, const [_a, _b, _c]);
 
       for (final (label, url) in [
-        ('YouTube video: Bravo', 'https://youtu.be/b'),
-        ('Vimeo video: Charlie', 'https://vimeo.com/3'),
+        ('Bravo, YouTube', 'https://youtu.be/b'),
+        ('Charlie, Vimeo', 'https://vimeo.com/3'),
       ]) {
         final node = tester.getSemantics(find.bySemanticsLabel(label));
         final data = node.getSemanticsData();
@@ -117,7 +118,7 @@ void main() {
     final opened = await _pump(tester, const [_a, _link]);
 
     final node = tester.getSemantics(
-      find.bySemanticsLabel('Link: Delta guide, https://example.org/…'),
+      find.bySemanticsLabel('Delta guide, https://example.org/…'),
     );
     final data = node.getSemanticsData();
     expect(data.hasAction(SemanticsAction.tap), isTrue);
@@ -151,9 +152,7 @@ void main() {
       ),
     );
     await _pump(tester, const [_a, _link]);
-    final row = find.semantics.byLabel(
-      'Link: Delta guide, https://example.org/…',
-    );
+    final row = find.semantics.byLabel('Delta guide, https://example.org/…');
 
     tester.semantics.customAction(
       row,
@@ -214,7 +213,7 @@ void main() {
       ]);
 
       expect(
-        find.bySemanticsLabel('Link: Watch this, https://evil.example/…'),
+        find.bySemanticsLabel('Watch this, https://evil.example/…'),
         findsOneWidget,
       );
       expect(find.text('https://evil.example/…'), findsOneWidget);
@@ -257,4 +256,169 @@ void main() {
     );
     expect(isForumCardBlock(const HeadingBlock('H')), isFalse);
   });
+
+  // Todo 453, finding 4 (owner decision 2026-09-30): all four labels match
+  // the web's — "title, second line", the role saying what it is.
+  testWidgets('full cards and rows are labelled like the web', (tester) async {
+    final handle = tester.ensureSemantics();
+    await _pump(tester, const [
+      _a,
+      _link,
+      ParagraphBlock('<p>between</p>'),
+      _link,
+      _b,
+    ]);
+
+    // Full cards: the video says what it shows, the link its short address.
+    expect(find.bySemanticsLabel('Alpha, Watch on YouTube'), findsOneWidget);
+    // Rows: "title, provider" and "title, address".
+    expect(find.bySemanticsLabel('Bravo, YouTube'), findsOneWidget);
+    expect(
+      find.bySemanticsLabel('Delta guide, https://example.org/…'),
+      findsNWidgets(2), // one full card, one row
+    );
+    // No label keeps the old "video:" / "Link:" prefix.
+    expect(
+      find.bySemanticsLabel(RegExp(r'video: |^Video: |^Link: ')),
+      findsNothing,
+    );
+    handle.dispose();
+  });
+
+  testWidgets('a row or card with no second line is labelled by its title', (
+    tester,
+  ) async {
+    final handle = tester.ensureSemantics();
+    await _pump(tester, const [
+      EmbedBlock(url: 'https://youtu.be/x', title: 'No provider'),
+      EmbedBlock(url: 'https://youtu.be/y', title: 'Also none'),
+      LinkPreviewBlock(url: 'https://example.org'),
+    ]);
+
+    expect(find.bySemanticsLabel('No provider'), findsOneWidget);
+    expect(find.bySemanticsLabel('Also none'), findsOneWidget);
+    // The title IS the address: said once, not "address, address".
+    expect(find.bySemanticsLabel('https://example.org'), findsOneWidget);
+    handle.dispose();
+  });
+
+  // Todo 453, finding 2: one size for the tile, the image and the row.
+  testWidgets('a row with no thumbnail shows its 72x48 placeholder tile', (
+    tester,
+  ) async {
+    await _pump(tester, const [_a, _b]);
+
+    final tile = find.descendant(
+      of: find.ancestor(of: find.text('Bravo'), matching: find.byType(InkWell)),
+      matching: find.byType(ClipRRect),
+    );
+    expect(tester.getSize(tile), const Size(72, 48));
+    expect(find.byType(CachedNetworkImage), findsNothing);
+  });
+
+  // Todo 453, finding 3: a run on a 375 pt phone with long text, also at a
+  // large text scale (LEARNINGS 2026-08-28, todo 317: the overflow only went
+  // hard at larger text scales).
+  for (final scale in [1.0, 2.0]) {
+    testWidgets('a run with long titles fits a 375 pt screen at ${scale}x text', (
+      tester,
+    ) async {
+      tester.view.physicalSize = const Size(375, 812);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      final long = 'A very long title about repotting ' * 6;
+      await tester.pumpWidget(
+        MaterialApp(
+          home: MediaQuery(
+            data: MediaQueryData(
+              size: const Size(375, 812),
+              textScaler: TextScaler.linear(scale),
+            ),
+            child: Scaffold(
+              body: SingleChildScrollView(
+                child: ForumBodyRenderer([
+                  _a,
+                  EmbedBlock(
+                    url: 'https://youtu.be/long',
+                    title: long,
+                    providerName: 'A provider with a very long name indeed',
+                  ),
+                  LinkPreviewBlock(
+                    url:
+                        'https://a-very-long-subdomain.of-a-very-long-domain.example.org/x',
+                    title: long,
+                    siteName: 'Example',
+                  ),
+                ], onOpenLink: (_) {}),
+              ),
+            ),
+          ),
+        ),
+      );
+
+      expect(tester.takeException(), isNull);
+      for (final row in find.byType(InkWell).evaluate()) {
+        expect(
+          tester.getSize(find.byWidget(row.widget)).width,
+          lessThanOrEqualTo(375),
+        );
+      }
+    });
+  }
+
+  // Todo 453, finding 1: the run rule and the card read one derivation, so a
+  // link card joins a run exactly when it renders something.
+  testWidgets('a link card joins a run exactly when it renders', (
+    tester,
+  ) async {
+    const cases = [
+      LinkPreviewBlock(url: 'https://example.org/guide', title: 'T'),
+      LinkPreviewBlock(url: 'https://example.org'),
+      LinkPreviewBlock(url: 'http://example.org/x', siteName: 'S'),
+      LinkPreviewBlock(url: ''),
+      LinkPreviewBlock(url: 'example.org/guide', title: 'T'),
+      LinkPreviewBlock(url: 'javascript:alert(1)', title: 'T'),
+      LinkPreviewBlock(url: 'https://u:p@example.org/', title: 'T'),
+    ];
+    for (final card in cases) {
+      await _pump(tester, [card]);
+      final renders = find.byType(InkWell).evaluate().isNotEmpty;
+      expect(isForumCardBlock(card), renders, reason: card.url);
+      expect(linkPreviewDisplay(card) != null, renders, reason: card.url);
+    }
+  });
+
+  test(
+    'linkPreviewDisplay derives the title fallback, second line and label',
+    () {
+      final full = linkPreviewDisplay(_link)!;
+      expect(full.href, 'https://example.org/guide');
+      expect(full.address, 'https://example.org/…');
+      expect(full.title, 'Delta guide');
+      expect(full.detail, 'https://example.org/…');
+      expect(full.label, 'Delta guide, https://example.org/…');
+
+      expect(
+        linkPreviewDisplay(
+          const LinkPreviewBlock(url: 'https://example.org/g', siteName: 'Ex'),
+        )!.title,
+        'Ex',
+      );
+      expect(
+        linkPreviewDisplay(
+          const LinkPreviewBlock(
+            url: 'https://example.org/g',
+            domain: 'ex.org',
+          ),
+        )!.title,
+        'ex.org',
+      );
+      final bare = linkPreviewDisplay(
+        const LinkPreviewBlock(url: 'https://example.org/g'),
+      )!;
+      expect(bare.title, 'https://example.org/…');
+      expect(bare.detail, '');
+      expect(bare.label, 'https://example.org/…');
+    },
+  );
 }

@@ -300,6 +300,61 @@ String? linkPreviewShortAddress(String url) {
   return rest.isNotEmpty && rest != '/' ? '${uri.origin}/…' : uri.origin;
 }
 
+/// What a link card shows and says, however big it is drawn (todo 453).
+class LinkPreviewDisplay {
+  const LinkPreviewDisplay({
+    required this.href,
+    required this.address,
+    required this.title,
+    required this.detail,
+    required this.label,
+    required this.imageUrl,
+  });
+
+  /// The full URL: what a tap opens, never shown or spoken.
+  final String href;
+
+  /// The SHORT address ([linkPreviewShortAddress]).
+  final String address;
+
+  /// The page title, falling back to its site name, its domain, then the
+  /// address.
+  final String title;
+
+  /// The second line: the address, or '' when the title already IS it.
+  final String detail;
+
+  /// The spoken label: "title, address", or the address alone.
+  final String label;
+
+  /// The stored image, or '' for none.
+  final String imageUrl;
+}
+
+/// The one place a link card's display is derived (todo 453): the full card,
+/// its compact row and the run rule (`isForumCardBlock`) all read it, so
+/// "renders nothing" and "joins a run" cannot drift apart. `null` means the
+/// card renders nothing: a URL [linkPreviewShortAddress] refuses. The web
+/// twin is `linkPreviewDisplay` (web/src/components/forum/linkPreviewDisplay.ts).
+LinkPreviewDisplay? linkPreviewDisplay(LinkPreviewBlock card) {
+  final address = linkPreviewShortAddress(card.url);
+  if (address == null) return null;
+  final title = [
+    card.title,
+    card.siteName,
+    card.domain,
+  ].firstWhere((text) => text.isNotEmpty, orElse: () => address);
+  final detail = title == address ? '' : address;
+  return LinkPreviewDisplay(
+    href: card.url,
+    address: address,
+    title: title,
+    detail: detail,
+    label: detail.isEmpty ? title : '$title, $detail',
+    imageUrl: card.imageUrl,
+  );
+}
+
 /// A block type the client does not recognise — preserved for a fallback
 /// render instead of dropping the whole body.
 class UnknownBlock extends ForumBodyBlock {

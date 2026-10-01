@@ -1,5 +1,6 @@
 import type { StreamFieldBlock } from '@/types/blog';
-import { safeExternalUrl, shortLinkAddress } from '@/utils/externalUrl';
+import { safeExternalUrl } from '@/utils/externalUrl';
+import { linkPreviewDisplay } from './linkPreviewDisplay';
 
 /**
  * The block types that render as a card (todo 429). A run of 2+ consecutive
@@ -15,17 +16,15 @@ export const CARD_BLOCK_TYPES: ReadonlySet<StreamFieldBlock['type']> = new Set([
 /**
  * A card that can join a run: a card type that renders something. A
  * `link_preview` with a null envelope or an unusable URL renders nothing
- * (LinkPreviewCard returns null), so it must not count.
+ * (`linkPreviewDisplay` returns null, so LinkPreviewCard does), so it must
+ * not count.
  */
 export function isCardBlock(block: StreamFieldBlock): boolean {
   if (!CARD_BLOCK_TYPES.has(block.type)) return false;
   // The same URL check the row makes, so a card joins a run only if it renders.
   if (block.type === 'embed') return Boolean(safeExternalUrl(block.value?.url));
-  if (block.type === 'link_preview') {
-    return Boolean(
-      block.value && safeExternalUrl(block.value.url) && shortLinkAddress(block.value.url)
-    );
-  }
+  // The card's own derivation (todo 453): null is exactly "renders nothing".
+  if (block.type === 'link_preview') return linkPreviewDisplay(block.value) !== null;
   return false;
 }
 

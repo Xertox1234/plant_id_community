@@ -361,7 +361,7 @@ deliberate step away.
 
 ```dart
 Semantics(
-  label: 'Link: $title, $shortAddress', // never the full URL
+  label: '$title, $shortAddress', // never the full URL; the web's name too
   button: onTap != null,
   onTap: onTap,
   onLongPress: showFullAddressSheet,
@@ -379,3 +379,22 @@ Semantics(
 - Test with `tester.semantics.customAction(finder, action)`, assert the node
   has no children, and assert no semantics label anywhere matches the full
   target.
+
+### Forum card labels match the web (todo 453)
+
+Owner decision 2026-09-30: every forum card's spoken label is the web's
+accessible name, not a mobile dialect. A card or compact row is named
+"title, second line" — the second line being a video's provider or a link's
+SHORT address — or the title alone when there is no second line (a link whose
+title IS its address says it once). The full video card's second line is its
+visible "Watch on PROVIDER", the name the web's full card gets from its
+content. No "Link:" / "PROVIDER video:" prefix: on the web the element's role
+says what it is. Mobile keeps `button: onTap != null` — a tap hands the URL
+to `onOpenLink` (the in-app browser), not to a system link — so the role
+differs from the web's `<a>`, deliberately.
+
+A link card's title, second line, label and image come from ONE function,
+`linkPreviewDisplay` (`forum_body_block.dart`; web twin
+`web/src/components/forum/linkPreviewDisplay.ts`). The full card, the
+compact row AND the run rule (`isForumCardBlock`) all read it, so "renders
+nothing" and "joins a run" cannot drift: `null` is both.

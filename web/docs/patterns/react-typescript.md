@@ -545,3 +545,27 @@ verbs × channels preference grid:
   keys, so the server raises one-off messages under `detail` and the client
   renders `message` verbatim — a fixture that hard-codes the bare sentence is
   only valid because of that server rule.
+
+## Forum card labels and the one link-card derivation (todo 453)
+
+A forum card (`embed`, `link_preview`) is named **"title, second line"**:
+a video's provider, or a link's SHORT address (`shortLinkAddress`, never the
+page's own `site_name` — a row must not claim a site it does not link to).
+With no second line — or a link whose title IS its address — the name is the
+title alone. The element's role says what the card is: `<a>` for a link, or a
+`<button>` for a video row that swaps itself for its player. No "Link:" or
+"video:" prefix. Owner decision 2026-09-30: the Flutter client speaks the
+same names (`plant_community_mobile/docs/patterns/flutter-patterns.md`,
+"Forum card labels match the web").
+
+Everything a link card shows and says comes from one function:
+
+```ts
+const display = linkPreviewDisplay(preview, variant); // null = renders nothing
+// { href, address, title, detail, label, imageSrc }
+```
+
+`LinkPreviewCard`, `CompactCardRow` and `isCardBlock` (the run rule) all read
+it, so a link card joins a run exactly when it renders something. Never
+re-derive the title fallback, short address or image source at a call site;
+`linkPreviewDisplay.test.ts` pins that `isCardBlock` and the card agree.
