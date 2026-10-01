@@ -525,8 +525,26 @@ class TopicPosts extends _$TopicPosts {
   /// Toggle a reaction on [postId]. Each tap uses a fresh idempotency key; the
   /// response's `reaction_counts` are written back wholesale so the pill state
   /// never lies on failure.
+  ///
+  /// Re-entrancy guard per (post, type), like [_bookmarkInFlight] (todo
+  /// 465): a second tap while the first toggle is in flight would send a
+  /// second toggle — a create then a delete — and the reaction would
+  /// silently undo itself, so it is dropped. A different type, or another
+  /// post, is not blocked.
   Future<void> toggleReaction(int postId, String type) async {
     if (state.asData?.value == null) return;
+    final inFlightKey = '$postId:$type';
+    if (!_reactionsInFlight.add(inFlightKey)) return;
+    try {
+      await _toggleReactionOnce(postId, type);
+    } finally {
+      _reactionsInFlight.remove(inFlightKey);
+    }
+  }
+
+  final Set<String> _reactionsInFlight = {};
+
+  Future<void> _toggleReactionOnce(int postId, String type) async {
     final ReactionToggleResult result;
     try {
       result = await ref
