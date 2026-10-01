@@ -27,8 +27,15 @@ From the selector skill: `selector` (sweep | batch | next); filters `--priority`
 
 Names used below: `REPO` = the main checkout root; `RUN_ID` = `date -u +%Y-%m-%d-%H%M`;
 `RUN` = `REPO/todos/.sweep-run-$RUN_ID.json`; `SCRATCH` = the session scratchpad; `TODAY` = `date +%Y-%m-%d`;
-`TRIAGE_WT` = `$SCRATCH/triage-$RUN_ID`. Run scripts from REPO with absolute paths. Use `/usr/bin/git`
+`TRIAGE_WT` = `$SCRATCH/triage-$RUN_ID`; `GH_REPO` = `gh repo view --json nameWithOwner -q .nameWithOwner`,
+run once in REPO. Run scripts from REPO with absolute paths. Use `/usr/bin/git`
 (rtk hides pre-commit failures).
+
+**Arming auto-merge** (todo 512): always `gh pr merge <n> --repo $GH_REPO --auto --squash --delete-branch`, run
+from REPO, never from inside a PR's worktree. When the checks have already passed, `--auto` merges at once, and
+without `--repo` gh then deletes the local branch and tries to remove the worktree that has it checked out. The
+sandbox stopped that part-way on PR #904 and left 358 tracked files deleted. With `--repo`, gh leaves local git
+alone; it still deletes the remote branch.
 
 ## Sandbox
 
@@ -42,8 +49,8 @@ needs the sandbox off. A worker that blocks on "no database" means a socket is m
 `REPO/.claude/worktrees/`. The sandbox allows writes there only while that workflow runs. Once it
 finishes, run these steps with the sandbox off, and no others:
 
-- Stage D steps 1–8 and a Stage C repair commit: `ensure-worktree`, `land.py`, `git add`,
-  `git branch -m`, `git commit` and a rebase in `$WT`.
+- Stage D steps 1–8, a Stage C repair commit, and the empty commit that restarts a wedged CI run (Merge
+  confirmation): `ensure-worktree`, `land.py`, `git add`, `git branch -m`, `git commit` and a rebase in `$WT`.
 - Cleanup: `git worktree remove $WT`, then `git worktree prune`.
 
 A step that fails for any other reason is not a sandbox problem; stop and report it.
@@ -94,7 +101,7 @@ answer one yourself. Record each answer with `python3 scripts/todos/state.py dec
    todo's current path, so a todo moved first makes it fail.
 2. `/usr/bin/git -C $TRIAGE_WT add todos` → `git diff --cached --stat` must list only `todos/`
    → commit `chore(todos): triage run $RUN_ID` → `git push origin chore/todo-triage-$RUN_ID`
-   → `gh pr create` → `gh pr merge --auto --squash --delete-branch`.
+   → `gh pr create` → arm it (see **Arming auto-merge**).
 3. Execute does not start until `gh pr view <n> --json state` says `MERGED`. Then `git -C REPO fetch origin main`
    and `git -C REPO worktree remove $TRIAGE_WT`.
 
@@ -109,6 +116,7 @@ With `--limit N`, execute only the first ⌈N / workers⌉ waves and list the de
 ## Stage B — Execute (per wave W, in order)
 
 1. `python3 scripts/todos/state.py execute-args $RUN --wave W --main-root REPO` → `{run_id, briefs}`.
+   Waves start at 0: a fresh run's first call is `--wave 0`.
    It refuses while wave W−1 is still executing or wave W−2 is not merged. Then Land those first.
    An empty wave (`[]`) means wait for wave W−2 to merge, then move on.
 2. `Workflow({name: "todo-execute", args: <that object>})` runs in the background. Meanwhile, land wave W−1.
@@ -163,7 +171,8 @@ Steps 1–8 run with the sandbox off (see **Sandbox**).
    `<type>/<id>-<slug>-<n>` instead, with `<n>` = the todo's attempts so far + 1 (the first free one), and name
    the old branch and its worktree in the wrap-up.
 6. Commit the index only (never `-a`): `/usr/bin/git -C $WT commit -m "<type>(<scope>): <summary> (todo <id>)" -m "<2–4 bullets from the WORKER summary>" -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"`.
-   If the kimi gate prints `timed out; skipping gate`, record `kimi: skipped` (never "passed").
+   If the kimi gate prints `timed out; skipping gate`, record `kimi: skipped` (never "passed"). The gate may
+   take up to 300 s, so give this Bash call `timeout: 600000`.
 7. Rebase when origin/main moved (spec §7.2): `/usr/bin/git -C $WT fetch origin main`; if
    `/usr/bin/git -C $WT merge-base --is-ancestor origin/main HEAD` fails, `/usr/bin/git -C $WT rebase origin/main`.
    A conflict outside `todos/` and append-only docs (`docs/LEARNINGS.md`, `docs/rules/*.md`) is not
@@ -201,7 +210,7 @@ Steps 1–8 run with the sandbox off (see **Sandbox**).
    `rerun` and `residue`, first post the refuter-dismissed findings: run `state.py refuted-comment $RUN G --out
    $SCRATCH/refuted-G.md`. If it prints a path, run `gh pr comment <n> --body-file <that path>`. Never
    build `--body` from the findings: they are LLM text, and this step runs with the sandbox off.
-   `clean` → then `gh pr merge <n> --auto --squash --delete-branch`. The round-2 reviewers read the full
+   `clean` → then arm it (see **Arming auto-merge**). The round-2 reviewers read the full
    diff in fresh contexts; that is the "review before arming" step. You read `--stat` and their verdicts
    only.
    `held` → a critical finding was dismissed only by the refuters (in either round). `ingest-review` has
@@ -248,6 +257,15 @@ For each `reviewed` group: `gh pr view <n> --json state` → `MERGED` → `state
 → `/usr/bin/git -C REPO worktree remove $WT` (pushed and merged, so nothing is lost) → `state.py set-group $RUN G archived`.
 Both git steps run with the sandbox off. Finish with `/usr/bin/git -C REPO worktree prune`: in the sandbox,
 `worktree remove` deletes the directory but not `.git/worktrees/<name>`.
+
+**A wedged CI job** (todo 512) can hold an armed PR open indefinitely. On PR #906 a Web CI run stayed
+`in_progress` for over 80 minutes, and `gh run cancel`, the API's `force-cancel` and `gh run rerun` each
+refused it. When a required check has shown `in_progress` far past its usual time and those refuse, start a fresh run
+with an empty commit, sandbox off: `ensure-worktree` (Stage D step 1) →
+`/usr/bin/git -C $WT commit --allow-empty -m "ci: restart a wedged check run (todo <id>)"` → `ensure-worktree`
+again → `/usr/bin/git -C $WT push origin <branch>`. The tree is unchanged, so `ensure-worktree` accepts it
+exactly as before and the reviews still hold; both kimi gates skip an empty diff. Then check that auto-merge
+is still armed (`gh pr view <n> --repo $GH_REPO --json autoMergeRequest`) and arm it again if not.
 
 ## Wrap-up
 

@@ -55,6 +55,10 @@ target, or a target matching todo_id) ships together, and when none is
 checkable, the note prefers any line naming this todo over an arbitrary first
 match (H5).
 
+Todo 512: a quoted tail line keeps no trailing whitespace, and a blank one is
+emitted empty, so the `trailing-whitespace` hook never rewrites the todo
+during Land's commit.
+
 Fix round 4 closes the last phase-2 raise sites found by the round-3
 re-review. The todo's own destination check is `os.path.lexists`, not
 `is_file`: a directory or a dangling symlink at `todos/archive/<name>.md`
@@ -199,12 +203,17 @@ def _neutralize_fence(line):
 
 def _fence_quote(lines):
     """A fence marker one backtick longer than the longest run in `lines`,
-    minimum 3, so the tail's own content can never close it early (F5b)."""
-    lines = [_neutralize_fence(line) for line in lines]
+    minimum 3, so the tail's own content can never close it early (F5b).
+
+    Each quoted line loses its trailing whitespace, and a line that is blank
+    once stripped is emitted empty, not as the two-space indent (todo 512): the
+    `trailing-whitespace` pre-commit hook rewrites either, which aborted Land's
+    commit whenever a tail (vitest's, typically) held a spaces-only line."""
+    lines = [_neutralize_fence(line.rstrip()) for line in lines]
     text = "\n".join(lines)
     longest = max((len(run) for run in re.findall(r"`+", text)), default=0)
     fence = "`" * max(longest + 1, 3)
-    quoted = "\n".join(f"  {line}" for line in lines)
+    quoted = "\n".join(f"  {line}" if line else "" for line in lines)
     return fence, quoted
 
 
