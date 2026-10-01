@@ -210,9 +210,14 @@ def _clear_solution_for_post(post_id):
 
 
 def _refresh_for_post(post):
+    _refresh_topic_counters(post.topic_id)
+    _refresh_board_and_author(post)
+
+
+def _refresh_board_and_author(post):
+    """The board and profile half of ``_refresh_for_post``."""
     from .models import Topic
 
-    _refresh_topic_counters(post.topic_id)
     board_id = (
         Topic.objects.filter(pk=post.topic_id)
         .values_list("board_id", flat=True)
@@ -223,12 +228,14 @@ def _refresh_for_post(post):
     _refresh_profile(post.author_id)
 
 
-def _refresh_topic_authors(topic_id):
+def _refresh_topic_authors(topic_id, *, exclude_author_id=None):
     """Re-derive trust/post_count for every author with live posts in a topic.
 
     Used when the TOPIC's own liveness flips (publish/unpublish/delete): the
     posts keep live=True but their visibility — and therefore the trust they
     fund — changes. Bounded by topic size; topic-level moderation is rare.
+    ``exclude_author_id`` skips an author whose profile was just recounted
+    with the topic already live (the linked opening-post publish, todo 431).
     """
     from .models import Post
 
@@ -237,6 +244,8 @@ def _refresh_topic_authors(topic_id):
         .values_list("author_id", flat=True)
         .distinct()
     )
+    if exclude_author_id is not None:
+        author_ids = author_ids.exclude(author_id=exclude_author_id)
     for author_id in author_ids:
         _refresh_profile(author_id)
 
@@ -297,13 +306,8 @@ def update_counters_on_publish(sender, instance, **kwargs):
     from .models import ForumActivityDate, Post, Topic
 
     if isinstance(instance, Topic):
-        # The API flow publishes the topic AFTER its opening post, so the post's
-        # recount ran while the topic was still a draft — recount here too or
-        # board.topic_count permanently undercounts (audit H2). Author trust is
-        # also visibility-dependent (topic__live), so re-derive it.
-        _refresh_board_counters(instance.board_id)
-        _refresh_topic_authors(instance.pk)
         opening = instance.posts.filter(is_opening_post=True).first()
+        linked_author_id = None
         if (
             opening is not None
             and not opening.live
@@ -320,6 +324,17 @@ def update_counters_on_publish(sender, instance, **kwargs):
                 # revision.publish() saves a copy built from the revision, so
                 # this instance still reads live=False; hosts get the live row.
                 opening.refresh_from_db()
+                linked_author_id = opening.author_id
+        # The API flow publishes the topic AFTER its opening post, so the post's
+        # recount ran while the topic was still a draft — recount here too or
+        # board.topic_count permanently undercounts (audit H2). Author trust is
+        # also visibility-dependent (topic__live), so re-derive it. After the
+        # linked opening-post publish above, whose own receiver already
+        # recounted the board and its author with this topic live: skip those
+        # here, so an approved thread recounts each once (todo 431).
+        if linked_author_id is None:
+            _refresh_board_counters(instance.board_id)
+        _refresh_topic_authors(instance.pk, exclude_author_id=linked_author_id)
         if _is_first_publish(instance):
             # Fired from the TOPIC publish (not the opening post's) so the topic
             # is already live when a host deep-links to it. `post` is None for
@@ -334,7 +349,27 @@ def update_counters_on_publish(sender, instance, **kwargs):
     post = instance
     if _is_first_publish(post) and not post.is_opening_post:
         notify(reply_added, sender=Post, post=post, topic=post.topic)
-    _refresh_for_post(post)
+    _refresh_topic_counters(post.topic_id)
+    # The topic this opening post publishes with it (todo 422), if any. Read
+    # AFTER the topic recount: its publish saves a revision from this row, so
+    # the topic's revision must snapshot fresh counters.
+    linked_topic = None
+    if post.is_opening_post:
+        # The opening post going live publishes its author's never-published
+        # topic, on every path: the API's moderation routing and a moderator's
+        # admin publish alike. Never-published, not "first publish of this
+        # post": a topic a moderator took down stays down, yet republishing the
+        # post still repairs a thread whose topic never went live. Same-author
+        # only (IDOR, audit M18).
+        topic = Topic.objects.get(pk=post.topic_id)
+        if (
+            not topic.live
+            and topic.first_published_at is None
+            and _same_author(topic.author_id, post.author_id)
+        ):
+            linked_topic = topic
+    if linked_topic is None:
+        _refresh_board_and_author(post)
     # Day-streak activity (todo 300) — HERE only, not in _refresh_for_post
     # (which unpublish/delete also call): a takedown must never count as a
     # day of activity, or a moderated-away post would fabricate a streak
@@ -351,21 +386,13 @@ def update_counters_on_publish(sender, instance, **kwargs):
         # Badges (todo 348), after the activity row above so a streak badge
         # sees today's day; on_commit so a rolled-back publish awards nothing.
         award_after_commit(post.author_id)
-    if post.is_opening_post:
-        # The opening post going live publishes its author's never-published
-        # topic, on every path: the API's moderation routing and a moderator's
-        # admin publish alike (todo 422). Last, so this post's own publish
-        # bookkeeping is done before the nested one. Never-published, not
-        # "first publish of this post": a topic a moderator took down stays
-        # down, yet republishing the post still repairs a thread whose topic
-        # never went live. Same-author only (IDOR, audit M18).
-        topic = Topic.objects.get(pk=post.topic_id)
-        if (
-            not topic.live
-            and topic.first_published_at is None
-            and _same_author(topic.author_id, post.author_id)
-        ):
-            _publish_counterpart(topic, kwargs.get("revision"))
+    if linked_topic is not None:
+        # Last, so this post's own publish bookkeeping is done before the
+        # nested one. The nested topic publish recounts the board and every
+        # author in the topic with the topic live, so the board and profile
+        # recount was skipped above (todo 431); a failed link still owes it.
+        if not _publish_counterpart(linked_topic, kwargs.get("revision")):
+            _refresh_board_and_author(post)
 
 
 @receiver(solution_marked)

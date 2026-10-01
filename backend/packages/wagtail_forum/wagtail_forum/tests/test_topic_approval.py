@@ -313,3 +313,98 @@ def test_admin_publishing_a_topic_publishes_an_opening_post_row_newer_than_its_r
     post.refresh_from_db()
     assert post.live is True
     assert post.body.raw_data[0]["value"] == "<p>Saved to the row</p>"
+
+
+# --- Todo 431: an approved thread recounts the board and profiles once ---
+
+
+@pytest.fixture
+def recount_spies():
+    """Spies on the recount helpers. The receiver resolves them as module
+    globals at call time, so patching the module attribute sees every call,
+    nested publishes included."""
+    from unittest import mock
+
+    from wagtail_forum import signals
+
+    names = ("_refresh_board_counters", "_refresh_profile", "_refresh_topic_counters")
+    patchers = [
+        mock.patch.object(signals, name, wraps=getattr(signals, name)) for name in names
+    ]
+    spies = dict(zip(names, (p.start() for p in patchers)))
+    yield spies
+    for p in patchers:
+        p.stop()
+
+
+def _reset(spies):
+    for spy in spies.values():
+        spy.reset_mock()
+
+
+def _assert_thread_counted_once(spies, author, board, topic, post):
+    assert spies["_refresh_board_counters"].call_count == 1
+    assert [c.args for c in spies["_refresh_profile"].call_args_list] == [(author.pk,)]
+    assert [c.args for c in spies["_refresh_topic_counters"].call_args_list] == [
+        (topic.pk,)
+    ]
+    # The single recounts still land on the final, all-live state.
+    board.refresh_from_db()
+    topic.refresh_from_db()
+    post.refresh_from_db()
+    assert topic.live is True and post.live is True
+    assert (board.topic_count, board.post_count) == (1, 1)
+    assert ForumProfile.objects.get(user=author).post_count == 1
+    # Todo 422's ordering rule: the topic's counters are fresh.
+    assert topic.last_post_at == post.first_published_at
+    assert topic.last_post_author_id == author.pk
+
+
+@pytest.mark.django_db
+def test_approving_a_thread_from_its_topic_recounts_each_once(
+    client, moderator, recount_spies
+):
+    author = User.objects.create_user(username="plantadmin")
+    board = _board()
+    topic, post = _pending_thread(author, board)
+    _reset(recount_spies)  # only the approval's recounts are under test
+
+    _admin_publish_topic(client, topic)
+
+    _assert_thread_counted_once(recount_spies, author, board, topic, post)
+
+
+@pytest.mark.django_db
+def test_approving_a_thread_from_its_opening_post_recounts_each_once(
+    moderator, recount_spies
+):
+    author = User.objects.create_user(username="plantadmin")
+    board = _board()
+    topic, post = _pending_thread(author, board)
+    _reset(recount_spies)
+
+    post.save_revision(user=moderator).publish(user=moderator)
+
+    _assert_thread_counted_once(recount_spies, author, board, topic, post)
+
+
+@pytest.mark.django_db
+def test_a_failed_topic_link_still_recounts_the_board_and_author(
+    moderator, recount_spies
+):
+    # The post branch skips its own board and profile recount because the
+    # nested topic publish redoes it; when that publish fails, the recount is
+    # still owed.
+    from unittest import mock
+
+    author = User.objects.create_user(username="plantadmin")
+    topic, post = _pending_thread(author, _board())
+    _reset(recount_spies)
+
+    with mock.patch.object(Topic, "save_revision", side_effect=RuntimeError("boom")):
+        post.save_revision(user=moderator).publish(user=moderator)
+
+    assert recount_spies["_refresh_board_counters"].call_count == 1
+    assert [c.args for c in recount_spies["_refresh_profile"].call_args_list] == [
+        (author.pk,)
+    ]
