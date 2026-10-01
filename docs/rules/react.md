@@ -325,3 +325,15 @@ Compact checklist auto-injected before edits. Long-form:
   its renderer uses to decide "renders something".** `isCardBlock` accepted
   any truthy embed url while the row returned null for a scheme-less one, so
   a video vanished only when it was second in a run (todo 429).
+- **A `matchMedia` effect must act on the query's CURRENT `matches`, not only
+  on its `change` event.** A listener-only effect misses a state that is
+  already true when the component mounts or opens: the mobile drawer opened
+  while `md` already matched never closed (todo 488). Read it through
+  `useMediaQuery` (initial read + subscription + cleanup) and branch on the
+  boolean.
+- **Guard a repeatable toggle per target with a ref'd `Set`, released in
+  `finally`.** Key it by everything that makes the request distinct
+  (`${postId}:${type}`): one boolean blocks unrelated targets, `useState`
+  re-renders, and a release outside `finally` locks the button after an error.
+  A fast double tap on a reaction added it and removed it (todo 465; mobile
+  mirrors it with a `Set<String>` on the notifier).

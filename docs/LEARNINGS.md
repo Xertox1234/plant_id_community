@@ -6941,3 +6941,36 @@ superseded (renamed `-superseded-`), and the live residue filed as todos
   as "Not re-filed". Round 1 caught it, and it is now `superseded` →
   todo 466. When a verdict says "partial", the status must say
   `superseded`, and every open AC needs a live pointer.
+
+## 2026-10-01 — Easy-todo sweep: a pattern doc's "proved" claim was wrong, and `gh` deleted a worktree (run 2026-10-01-0121, PRs #904–#914)
+
+**What happened.** Ten small todos went through the v2 sweep engine. All ten were verified on the
+first try and were clean in round 2. The lessons came from the edges.
+
+**Lessons.**
+
+- **A pattern-doc claim marked "proved by mutation" covered only the case that was tested.**
+  `flutter-patterns.md` said Riverpod's `asData` keeps the last value across a re-fetch (todo 350),
+  so the inbox read the viewer with `asData?.value`. `UserProfileService.refresh()` sets an explicit
+  `AsyncValue.loading()`, where `asData` is null and only `.value` keeps the previous profile. Every
+  refresh put the viewer back in every group cluster (todo 486). The doc is corrected, and a
+  `flutter-asdata-null-while-loading` trigger now fires on new `.asData?.value` reads in `lib/`.
+  When you cite a "proved" claim, check which path the proof drove.
+- **A rule that exists is not a rule that is followed.** The one blocking finding of the run was a
+  stale `.g.dart` after a `@riverpod` class gained a field (#905). `docs/rules/flutter.md` already
+  says to regenerate. There is no edit-time signature for it, because the edit is inside the class
+  body, so round-1 review is the only net. It worked.
+- **Package tests can depend on host state that only a full run warms.** `wagtail_forum`'s
+  `test_spam.py` failed 10/14 on its own and passed in the full suite. The host's `ForumSettings`
+  override provider runs a cold-memo SELECT, which a non-DB test cannot run. An earlier DB test
+  warmed the memo in a full run. A package `conftest.py` now empties `conf._override_providers`
+  per test (todo 501). A lone-file run is a different test from a suite run; nothing in CI runs it.
+- **`gh pr merge --auto --delete-branch` run inside the checkout can delete a worktree's files.**
+  A PR whose checks had already passed merged at once. `gh` then removed the local branch and the
+  worktree that held it. The sandbox stopped it half-way: 358 tracked files were deleted and the
+  worktree needed `--force` to remove. Arm merges from outside the repo with
+  `--repo <owner/name>` so `gh` never touches local git (todo 512 tracks the runbook fix).
+- **`markdownlint --fix` rewrites prose with underscores in it.** In generated todo files it read
+  `_refresh_board_counters ... _refresh_profile` as emphasis and joined words
+  (`the_refresh_profile`). Escape `_` and `<` outside code spans (or use backticks) before the
+  pre-commit fixer sees reviewer text.

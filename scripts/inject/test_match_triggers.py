@@ -1417,5 +1417,65 @@ class TestShellNumericCompareReachesRootScripts(unittest.TestCase):
         )
 
 
+class TestFlutterAsDataTrigger(unittest.TestCase):
+    """Todo 486 -- asserted against the REAL docs/rules/triggers.json.
+
+    The motivating bug: the inbox read the viewer with
+    `asData?.value?.username`. `UserProfileService.refresh()` sets an explicit
+    `AsyncValue.loading()`, where `asData` is null, so every profile refresh
+    put the viewer back in every group avatar cluster.
+    """
+
+    TRIGGER_ID = "flutter-asdata-null-while-loading"
+    PATH = "plant_community_mobile/lib/features/forum/screens/forum_conversations_screen.dart"
+
+    @classmethod
+    def setUpClass(cls):
+        root = os.path.dirname(
+            os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        )
+        cls.real = mt.load_triggers(root)
+
+    def test_original_inbox_read_fires(self):
+        # The exact pre-fix line (8318be39, forum_conversations_screen.dart:29).
+        tn, ti = write(
+            self.PATH,
+            "    final me = ref.watch(userProfileServiceProvider).asData?.value?.username;\n",
+        )
+        self.assertIn(self.TRIGGER_ID, ids(mt.find_matches(tn, ti, self.real, None)))
+
+    def test_notifier_state_read_fires(self):
+        tn, ti = write(
+            "plant_community_mobile/lib/features/blog/providers/blog_providers.dart",
+            "    final current = state.asData?.value;\n",
+        )
+        self.assertIn(self.TRIGGER_ID, ids(mt.find_matches(tn, ti, self.real, None)))
+
+    def test_shipped_fix_is_silent(self):
+        # The fixed block names `asData?.value` in its comment and reads
+        # `.value` -- both must stay silent.
+        tn, ti = write(
+            self.PATH,
+            "    // `.value`, not `asData?.value` (todo 486): a profile `refresh()` sets an\n"
+            "    // explicit loading state, where `asData` is null.\n"
+            "    final me = ref.watch(\n"
+            "      userProfileServiceProvider.select((s) => s.value?.username),\n"
+            "    );\n",
+        )
+        self.assertNotIn(
+            self.TRIGGER_ID, ids(mt.find_matches(tn, ti, self.real, None))
+        )
+
+    def test_test_file_is_silent(self):
+        # The glob is lib/ only; a test asserting on asData stays quiet.
+        tn, ti = write(
+            "plant_community_mobile/test/features/forum/x_test.dart",
+            "    expect(state.asData?.value, isNotNull);\n",
+        )
+        self.assertNotIn(
+            self.TRIGGER_ID, ids(mt.find_matches(tn, ti, self.real, None))
+        )
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

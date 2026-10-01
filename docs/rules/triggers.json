@@ -1936,5 +1936,20 @@
     "severity": "warn",
     "added": "2026-09-27",
     "source": "todo 385 / PR #856 round 1"
+  },
+  {
+    "id": "flutter-asdata-null-while-loading",
+    "domains": [
+      "flutter"
+    ],
+    "path_glob": [
+      "plant_community_mobile/lib/**/*.dart"
+    ],
+    "content_present": "\\.asData\\?\\.value",
+    "message": "asData?.value is null for EVERY AsyncLoading, including a notifier that sets state = AsyncValue.loading() before re-fetching (UserProfileService.refresh()). To keep the last known value through a reload, read .value (Riverpod 3 keeps the previous value there); watch it via .select((s) => s.value?.x) to limit rebuilds (todo 486).",
+    "pattern_ref": "plant_community_mobile/docs/patterns/flutter-patterns.md",
+    "source": "codify: sweep run 2026-10-01-0121",
+    "added": "2026-10-01",
+    "severity": "warn"
   }
 ]
