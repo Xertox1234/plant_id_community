@@ -3,7 +3,7 @@ import { act, render, screen, within, fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import { ThemeProvider } from '../contexts/ThemeContext';
-import AppShell, { DRAWER_HIDDEN_MEDIA_QUERY } from './AppShell';
+import AppShell from './AppShell';
 import RailSlot, { RAIL_MEDIA_QUERY } from '../components/layout/RailSlot';
 import * as notificationService from '../services/notificationService';
 import * as messageService from '../services/messageService';
@@ -225,41 +225,110 @@ describe('AppShell', () => {
     expect(trigger).toHaveFocus();
   });
 
-  it('drawer closes when the window widens past md (todo 420)', async () => {
-    // At md the drawer is only display:none, so an open drawer kept its focus
-    // trap (swallowing Tab) and its body scroll lock on the desktop layout.
-    // Stub matchMedia and keep the md query's change listeners, so the test
-    // can fire the narrow-to-wide transition.
-    const originalMatchMedia = window.matchMedia;
-    const mdListeners = new Set<(e: MediaQueryListEvent) => void>();
+  // Tailwind's md breakpoint, pinned as a literal (todo 488): importing the
+  // component's constant let a changed breakpoint stay green.
+  const MD_QUERY = '(min-width: 48rem)';
+
+  // Stub matchMedia so the md query reports `md.matches` and keeps its change
+  // listeners, letting a test fire viewport transitions and count listeners.
+  const stubMdMatchMedia = (initiallyMatches: boolean) => {
+    const md = {
+      matches: initiallyMatches,
+      listeners: new Set<(e: MediaQueryListEvent) => void>(),
+    };
     window.matchMedia = ((query: string) => ({
-      matches: false,
+      get matches() {
+        return query === MD_QUERY ? md.matches : false;
+      },
       media: query,
       onchange: null,
       addListener: vi.fn(),
       removeListener: vi.fn(),
       addEventListener: (_type: string, cb: (e: MediaQueryListEvent) => void) => {
-        if (query === DRAWER_HIDDEN_MEDIA_QUERY) mdListeners.add(cb);
+        if (query === MD_QUERY) md.listeners.add(cb);
       },
       removeEventListener: (_type: string, cb: (e: MediaQueryListEvent) => void) => {
-        if (query === DRAWER_HIDDEN_MEDIA_QUERY) mdListeners.delete(cb);
+        if (query === MD_QUERY) md.listeners.delete(cb);
       },
       dispatchEvent: vi.fn(),
     })) as unknown as typeof window.matchMedia;
+    const fire = (matches: boolean) => {
+      md.matches = matches;
+      act(() => {
+        md.listeners.forEach((cb) => cb({ matches, media: MD_QUERY } as MediaQueryListEvent));
+      });
+    };
+    return { md, fire };
+  };
+
+  it('drawer closes when the window widens past md (todo 420)', async () => {
+    // At md the drawer is only display:none, so an open drawer kept its focus
+    // trap (swallowing Tab) and its body scroll lock on the desktop layout.
+    const originalMatchMedia = window.matchMedia;
+    const { fire } = stubMdMatchMedia(false);
     try {
       renderShell();
       await userEvent.click(screen.getByRole('button', { name: 'Open menu' }));
       expect(screen.getByRole('dialog', { name: 'Menu' })).toBeInTheDocument();
       expect(document.body.style.overflow).toBe('hidden');
 
-      act(() => {
-        mdListeners.forEach((cb) =>
-          cb({ matches: true, media: DRAWER_HIDDEN_MEDIA_QUERY } as MediaQueryListEvent)
-        );
-      });
+      fire(true);
 
       expect(screen.queryByRole('dialog', { name: 'Menu' })).not.toBeInTheDocument();
       expect(document.body.style.overflow).toBe('');
+      // The Open menu trigger is md:hidden at this width, so restoring focus
+      // to it dropped focus to <body>; it lands on <main> instead (todo 488).
+      expect(screen.getByRole('main')).toHaveFocus();
+    } finally {
+      window.matchMedia = originalMatchMedia;
+    }
+  });
+
+  it('drawer stays open when the md query changes to not matching (todo 488)', async () => {
+    const originalMatchMedia = window.matchMedia;
+    const { fire } = stubMdMatchMedia(false);
+    try {
+      renderShell();
+      await userEvent.click(screen.getByRole('button', { name: 'Open menu' }));
+      const closeButton = screen.getByRole('button', { name: 'Close menu' });
+      expect(closeButton).toHaveFocus();
+
+      fire(false);
+
+      expect(screen.getByRole('dialog', { name: 'Menu' })).toBeInTheDocument();
+      expect(document.body.style.overflow).toBe('hidden');
+      expect(closeButton).toHaveFocus();
+    } finally {
+      window.matchMedia = originalMatchMedia;
+    }
+  });
+
+  it('drawer opened while md already matches closes without a change event (todo 488)', async () => {
+    const originalMatchMedia = window.matchMedia;
+    stubMdMatchMedia(true);
+    try {
+      renderShell();
+      // jsdom applies no CSS, so the md:hidden trigger is still clickable.
+      await userEvent.click(screen.getByRole('button', { name: 'Open menu' }));
+
+      expect(screen.queryByRole('dialog', { name: 'Menu' })).not.toBeInTheDocument();
+      expect(document.body.style.overflow).toBe('');
+      expect(screen.getByRole('main')).toHaveFocus();
+    } finally {
+      window.matchMedia = originalMatchMedia;
+    }
+  });
+
+  it('removes its md query listener on unmount (todo 488)', () => {
+    const originalMatchMedia = window.matchMedia;
+    const { md } = stubMdMatchMedia(false);
+    try {
+      const { unmount } = renderShell();
+      expect(md.listeners.size).toBe(1);
+
+      unmount();
+
+      expect(md.listeners.size).toBe(0);
     } finally {
       window.matchMedia = originalMatchMedia;
     }

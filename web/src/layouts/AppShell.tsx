@@ -30,6 +30,7 @@ import CommandPalette from '../components/CommandPalette';
 import { RAIL_CONTAINER_ID } from '../components/layout/RailSlot';
 import { useBodyScrollLock } from '../hooks/useBodyScrollLock';
 import { useModalFocus } from '../hooks/useModalFocus';
+import { useMediaQuery } from '../hooks/useMediaQuery';
 import BrandMark from '../components/ui/BrandMark';
 import CountBadge from '../components/ui/CountBadge';
 
@@ -39,7 +40,7 @@ import CountBadge from '../components/ui/CountBadge';
 const isMac = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.userAgent || '');
 
 // Tailwind's `md` breakpoint (48rem), where the drawer turns `md:hidden`.
-export const DRAWER_HIDDEN_MEDIA_QUERY = '(min-width: 48rem)';
+const DRAWER_HIDDEN_MEDIA_QUERY = '(min-width: 48rem)';
 
 const NAV = [
   { to: '/', label: 'Home', icon: Home, end: true },
@@ -153,17 +154,32 @@ export default function AppShell({ children }: AppShellProps) {
   // link's onNavigate, not through this hook.
   useModalFocus(drawerOpen, drawerRef, closeDrawer);
 
-  // Close the drawer when the window widens past md (todo 420). CSS alone
+  // Close the drawer whenever it is open at md or wider (todo 420). CSS alone
   // only hides it there, so an open drawer kept its Tab trap -- which then
   // wrapped to hidden controls and swallowed every Tab -- and its scroll lock.
+  // useMediaQuery reads the query on mount and stays subscribed, so a drawer
+  // that is open while md ALREADY matches closes too, not only one that sees
+  // a narrow-to-wide `change` event (todo 488).
+  const drawerHidden = useMediaQuery(DRAWER_HIDDEN_MEDIA_QUERY);
+  const mainRef = useRef<HTMLElement>(null);
+  const closedOnWidenRef = useRef(false);
   useEffect(() => {
-    if (!drawerOpen) return;
-    const mql = window.matchMedia(DRAWER_HIDDEN_MEDIA_QUERY);
-    const handleChange = (event: MediaQueryListEvent) => {
-      if (event.matches) setDrawerOpen(false);
-    };
-    mql.addEventListener('change', handleChange);
-    return () => mql.removeEventListener('change', handleChange);
+    if (drawerOpen && drawerHidden) {
+      closedOnWidenRef.current = true;
+      setDrawerOpen(false);
+    }
+  }, [drawerOpen, drawerHidden]);
+
+  // After that auto-close, move focus to <main> (todo 488, owner decision).
+  // useModalFocus restores focus to the Open menu trigger, but the trigger is
+  // md:hidden at this width, so focus() is a no-op and focus fell to <body>.
+  // This runs after that restore: React runs every effect cleanup in a commit
+  // before any effect setup. Other closes (Escape, Close menu, a link) leave
+  // the ref false and keep the restore to the trigger.
+  useEffect(() => {
+    if (drawerOpen || !closedOnWidenRef.current) return;
+    closedOnWidenRef.current = false;
+    mainRef.current?.focus();
   }, [drawerOpen]);
 
   // Cmd/Ctrl+K opens the command palette from anywhere. The functional
@@ -308,7 +324,12 @@ export default function AppShell({ children }: AppShellProps) {
               </div>
             </header>
             <div className="flex min-w-0 flex-1">
-              <main id="main-content" className="min-w-0 flex-1">
+              <main
+                id="main-content"
+                ref={mainRef}
+                tabIndex={-1}
+                className="min-w-0 flex-1 focus:outline-none"
+              >
                 {children}
               </main>
               <aside
