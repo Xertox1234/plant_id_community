@@ -43,11 +43,29 @@ describe('toHttpError', () => {
   it.each([
     ['a network error', new AxiosError('Network Error', AxiosError.ERR_NETWORK, config)],
     ['a timeout', new AxiosError('timeout of 30000ms exceeded', AxiosError.ECONNABORTED, config)],
+    [
+      'a clarified timeout',
+      new AxiosError('timeout of 30000ms exceeded', AxiosError.ETIMEDOUT, config),
+    ],
   ])('replaces the axios text of %s with a connection message', (_label, original) => {
     const translated = toHttpError(original) as Error;
 
     expect(translated.message).toBe(NETWORK_ERROR_MESSAGE);
     expect(translated.cause).toBe(original);
+  });
+
+  // todo 489: every response-less axios error used to read as a connection
+  // problem, so a client bug (a bad URL, a bad option, an interceptor
+  // rejection) told the user to check their wifi.
+  it.each([
+    ['an invalid URL', new AxiosError('Invalid URL', AxiosError.ERR_INVALID_URL, config)],
+    [
+      'a bad option value',
+      new AxiosError('option timeout must be a number', AxiosError.ERR_BAD_OPTION_VALUE, config),
+    ],
+    ['an axios error with no code', new AxiosError('Rejected by an interceptor')],
+  ])('returns %s unchanged, not as a connection problem', (_label, original) => {
+    expect(toHttpError(original)).toBe(original);
   });
 
   it('returns a cancellation unchanged, so callers can still detect it', () => {

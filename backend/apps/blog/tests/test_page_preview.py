@@ -26,7 +26,6 @@ from wagtail.models import Page
 from wagtail_headless_preview.models import HeadlessPreviewMixin
 from wagtail_headless_preview.settings import headless_preview_settings
 
-from ..api.viewsets import BlogPostPreviewAPIViewSet
 from ..constants import PREVIEW_TOKEN_MAX_AGE
 from ..models import BlogCategory, BlogIndexPage, BlogPostPage
 
@@ -222,8 +221,8 @@ class BlogPostPreviewAPITestCase(TestCase):
         # The library never expires a token (todo 407, item 1).
         # Mint the token in the past by stamping ONLY the signer's clock
         # (patching time.time would move every clock in the process).
-        max_age = BlogPostPreviewAPIViewSet.PREVIEW_TOKEN_MAX_AGE
-        old_stamp = b62_encode(int(time.time()) - max_age - 5)
+        # The model reads the constant (todo 434); the viewset has no override.
+        old_stamp = b62_encode(int(time.time()) - PREVIEW_TOKEN_MAX_AGE - 5)
         with mock.patch.object(TimestampSigner, "timestamp", return_value=old_stamp):
             token = self._draft_token()
         response = self.client.get(
