@@ -319,6 +319,12 @@ def test_simultaneous_reaction_toggles_leave_one_row_and_a_consistent_count(
     b = client().post(url, {"type": "like"}, format="json")
     monkeypatch.undo()
 
+    # The interleave hangs off the view's existence `.first()`. If the view
+    # stops calling it (`.exists()`, `.get()`), say so instead of a bare KeyError.
+    assert raced.get("a") is not None, (
+        "the race hook never fired: ReactionToggleView no longer checks for an "
+        "existing Reaction with QuerySet.first(), so no second request ran"
+    )
     a = raced["a"]
     assert a.status_code == b.status_code == 200
     assert a.data["reacted"] is True
@@ -327,6 +333,61 @@ def test_simultaneous_reaction_toggles_leave_one_row_and_a_consistent_count(
     opening.refresh_from_db()
     assert opening.reaction_counts == {"like": 1}
     assert b.data["reaction_counts"] == opening.reaction_counts
+
+
+@pytest.mark.django_db
+def test_reaction_toggle_recounts_under_a_post_row_lock():
+    """The other half of the race above: ``Reaction.recount`` must lock the post
+    row (``SELECT ... FOR UPDATE``) before its read-recount-write, or two
+    concurrent toggles can persist a stale ``reaction_counts`` (todo 487).
+
+    The race test runs both requests on one connection, so it cannot see the
+    lock, and real threads need the banned ``django_db(transaction=True)``.
+    The SQL can show it: the lock is taken on the post row, before the count
+    is written back.
+    """
+    from django.db import connection
+    from django.test.utils import CaptureQueriesContext
+
+    ensure_default_workflow()
+    _, opening = _live_topic()
+    user = User.objects.create_user(username="r")
+    client = APIClient()
+    client.force_authenticate(user)
+    post_table = f'"{Post._meta.db_table}"'
+
+    with CaptureQueriesContext(connection) as ctx:
+        resp = client.post(
+            f"/forum/posts/{opening.id}/reactions/", {"type": "like"}, format="json"
+        )
+
+    assert resp.status_code == 200
+    sqls = [q["sql"] for q in ctx.captured_queries]
+    inserted = [
+        i
+        for i, sql in enumerate(sqls)
+        if sql.startswith(f'INSERT INTO "{Reaction._meta.db_table}"')
+    ]
+    written = [
+        i
+        for i, sql in enumerate(sqls)
+        if sql.startswith(f"UPDATE {post_table}") and "reaction_counts" in sql
+    ]
+    assert inserted and written, "the toggle no longer inserts, then recounts"
+    # recount's window: after the reaction row lands, before the count is
+    # persisted. A FOR UPDATE on the post anywhere else does not count.
+    recount_locks = [
+        i
+        for i, sql in enumerate(sqls)
+        if inserted[-1] < i < written[-1]
+        and sql.startswith("SELECT")
+        and post_table in sql
+        and "FOR UPDATE" in sql
+    ]
+    assert recount_locks, (
+        "Reaction.recount no longer locks the post row (SELECT ... FOR UPDATE) "
+        "before writing reaction_counts"
+    )
 
 
 # --- Remaining guard branches (2026-06-10 audit L13) ---
