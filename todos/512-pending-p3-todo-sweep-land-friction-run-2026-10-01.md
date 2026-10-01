@@ -4,6 +4,9 @@ priority: p3
 issue_id: "512"
 tags: [tooling, todo-sweep]
 dependencies: []
+triage: ready
+triaged: 2026-10-01
+owner_decision: "Finding 3: _check_worktree tolerates a diff from the recorded tree when every changed line differs only by trailing whitespace or by blank lines at end of file (2026-10-01)"
 ---
 
 # Todo sweep: Land and merge friction seen in run 2026-10-01-0121
