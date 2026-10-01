@@ -5,12 +5,27 @@ import DiseaseResultsList from '../../components/diagnosis/DiseaseResultsList';
 import Card from '../../components/ui/Card';
 import Tile from '../../components/ui/Tile';
 import { diseaseService } from '../../services/diseaseService';
-import type { DiseaseDiagnosisResults as Results } from '../../types/diagnosis';
+import type { DiseaseDiagnosisResults as Results, PlantCondition } from '../../types/diagnosis';
+
+// PlantDiseaseRequest.plant_condition choices (apps/plant_identification/models.py).
+// The backend field rejects anything else with a 400, so this is a fixed list,
+// not free text (todo 459). Same keys and labels as the mobile Diagnose screen.
+const PLANT_CONDITIONS: ReadonlyArray<{ value: PlantCondition; label: string }> = [
+  { value: 'excellent', label: 'Excellent - minor symptoms' },
+  { value: 'good', label: 'Good - some concerning symptoms' },
+  { value: 'fair', label: 'Fair - moderate damage visible' },
+  { value: 'poor', label: 'Poor - significant damage' },
+  { value: 'critical', label: 'Critical - plant may die' },
+];
+
+function isPlantCondition(v: string): v is PlantCondition {
+  return PLANT_CONDITIONS.some((c) => c.value === v);
+}
 
 export default function DiseaseDiagnosePage() {
   const [file, setFile] = useState<File | null>(null);
   const [symptoms, setSymptoms] = useState('');
-  const [condition, setCondition] = useState('');
+  const [condition, setCondition] = useState<PlantCondition | ''>('');
   const [location, setLocation] = useState('');
   const [loading, setLoading] = useState(false);
   const [results, setResults] = useState<Results | null>(null);
@@ -73,13 +88,20 @@ export default function DiseaseDiagnosePage() {
         </div>
 
         <div className="grid sm:grid-cols-2 gap-4">
-          <input
+          <select
             aria-label="Plant condition (optional)"
             value={condition}
-            onChange={(e) => setCondition(e.target.value)}
+            onChange={(e) => setCondition(isPlantCondition(e.target.value) ? e.target.value : '')}
             className="rounded-lg border border-line bg-surface p-3 text-ink"
-            placeholder="Plant condition (optional)"
-          />
+          >
+            {/* Empty value = not specified: submitDiagnosis omits the field. */}
+            <option value="">Plant condition: not specified</option>
+            {PLANT_CONDITIONS.map((c) => (
+              <option key={c.value} value={c.value}>
+                {c.label}
+              </option>
+            ))}
+          </select>
           <input
             aria-label="Location (optional)"
             value={location}

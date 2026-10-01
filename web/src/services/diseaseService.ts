@@ -7,7 +7,11 @@
  */
 
 import { getCsrfToken } from '../utils/csrf';
-import type { DiseaseDiagnosisCreated, DiseaseDiagnosisResults } from '../types/diagnosis';
+import type {
+  DiseaseDiagnosisCreated,
+  DiseaseDiagnosisResults,
+  PlantCondition,
+} from '../types/diagnosis';
 import { API_ORIGIN } from '@/config/api';
 
 const API_BASE_URL = API_ORIGIN;
@@ -17,7 +21,8 @@ const BASE = `${API_BASE_URL}/api/${API_VERSION}/plant-identification/disease-re
 export interface SubmitDiagnosisInput {
   image: File;
   symptoms_description: string;
-  plant_condition?: string;
+  /** One of the backend's choice keys; omit for "not specified" (todo 459). */
+  plant_condition?: PlantCondition;
   location?: string;
 }
 
