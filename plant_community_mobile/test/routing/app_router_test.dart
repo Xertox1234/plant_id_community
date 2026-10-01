@@ -285,6 +285,12 @@ void main() {
             ),
             forumApiProvider.overrideWithValue(api),
             forumSyncStoreProvider.overrideWithValue(InMemoryForumSyncStore()),
+            // The inbox watches the account profile to leave the viewer out
+            // of group avatar clusters; unfaked it sends a real
+            // GET /auth/user/ (todo 486).
+            userProfileServiceProvider.overrideWith(
+              () => FakeUserProfileService(username: 'tester'),
+            ),
           ],
         );
         addTearDown(container.dispose);

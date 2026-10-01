@@ -7,12 +7,22 @@ import 'package:plant_community_mobile/features/forum/screens/forum_conversation
 import 'package:plant_community_mobile/features/forum/services/forum_api.dart';
 import 'package:plant_community_mobile/features/forum/widgets/author_identity.dart';
 import 'package:plant_community_mobile/features/forum/widgets/forum_avatar_cluster.dart';
+import 'package:plant_community_mobile/services/user_profile_service.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../support/forum_test_support.dart';
 
-Widget _wrap(FakeForumApi api) => ProviderScope(
-  overrides: [forumApiProvider.overrideWithValue(api)],
+/// The inbox with a faked account profile (todo 486; so does [_routed]):
+/// without it every test sends a real `GET /auth/user/`. [viewer] is who "I"
+/// am — the fixture's group creator by default; null pins the unknown-viewer
+/// fallback on purpose.
+Widget _wrap(FakeForumApi api, {String? viewer = 'me'}) => ProviderScope(
+  overrides: [
+    forumApiProvider.overrideWithValue(api),
+    userProfileServiceProvider.overrideWith(
+      () => FakeUserProfileService(username: viewer),
+    ),
+  ],
   child: const MaterialApp(home: ForumConversationsScreen()),
 );
 
@@ -41,7 +51,12 @@ Widget _routed(FakeForumApi api, List<Uri> opened) {
     ],
   );
   return ProviderScope(
-    overrides: [forumApiProvider.overrideWithValue(api)],
+    overrides: [
+      forumApiProvider.overrideWithValue(api),
+      userProfileServiceProvider.overrideWith(
+        () => FakeUserProfileService(username: 'me'),
+      ),
+    ],
     child: MaterialApp.router(routerConfig: router),
   );
 }
@@ -119,9 +134,8 @@ void main() {
     });
 
     testWidgets('a crowded group row fits a 375-wide phone: long title, long '
-        'sender-prefixed preview, a 5-member cluster and an unread badge', (
-      tester,
-    ) async {
+        'sender-prefixed preview, a 5-member cluster and an unread badge — '
+        'with the viewer unknown, so all five are counted', (tester) async {
       // The narrowest phone the app targets, at 1 dp = 1 px so the widths
       // below are the real ones (the default 800x600 test view hides
       // overflow this row would show on a device).
@@ -146,8 +160,17 @@ void main() {
           ),
         ];
 
-      await tester.pumpWidget(_wrap(api));
+      // No profile: the unknown-viewer fallback, pinned on purpose. The
+      // cluster draws every member, "me" included, so it folds into "+2".
+      await tester.pumpWidget(_wrap(api, viewer: null));
       await tester.pumpAndSettle();
+      expect(
+        find.descendant(
+          of: find.byType(AuthorAvatarCluster),
+          matching: find.text('+2'),
+        ),
+        findsOneWidget,
+      );
 
       // No RenderFlex overflow, and the row still says what it is.
       expect(tester.takeException(), isNull);
@@ -157,6 +180,58 @@ void main() {
       expect(find.byType(AuthorAvatarCluster), findsOneWidget);
       // Every part of the row stays inside the viewport.
       for (final finder in [find.text(title), find.byType(Badge)]) {
+        final rect = tester.getRect(finder);
+        expect(rect.left, greaterThanOrEqualTo(0));
+        expect(rect.right, lessThanOrEqualTo(375));
+      }
+    });
+
+    testWidgets('a crowded 5-member group row fits a 375-wide phone with the '
+        'viewer known and left out: three others and a "+1" disc in the '
+        'widened leading slot (todo 486)', (tester) async {
+      tester.view.physicalSize = const Size(375, 667);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      const title = 'Seed swap committee — autumn cuttings and tuber exchange';
+      const body =
+          'Bring pots, labels and anything you want to trade on Saturday '
+          'morning before the rain starts.';
+      final api = FakeForumApi()
+        ..conversations = [
+          // Five members: me (the creator) and four others.
+          groupConversation(
+            id: 12,
+            title: title,
+            memberUsernames: const ['ada', 'bob', 'carol', 'dave'],
+            unreadCount: 12,
+            lastMessageBody: body,
+            lastMessageSender: 'ada-with-a-long-name',
+          ),
+        ];
+
+      await tester.pumpWidget(_wrap(api, viewer: 'me'));
+      await tester.pumpAndSettle();
+
+      expect(tester.takeException(), isNull);
+      final cluster = find.byType(AuthorAvatarCluster);
+      final shown = tester
+          .widgetList<AuthorAvatar>(
+            find.descendant(of: cluster, matching: find.byType(AuthorAvatar)),
+          )
+          .map((a) => a.author.username)
+          .toList();
+      expect(shown, ['ada', 'bob', 'carol']);
+      expect(
+        find.descendant(of: cluster, matching: find.text('+1')),
+        findsOneWidget,
+      );
+      expect(find.text(title), findsOneWidget);
+      expect(find.text('ada-with-a-long-name: $body'), findsOneWidget);
+      expect(find.widgetWithText(Badge, '12'), findsOneWidget);
+      // Every part of the row stays inside the viewport.
+      for (final finder in [cluster, find.text(title), find.byType(Badge)]) {
         final rect = tester.getRect(finder);
         expect(rect.left, greaterThanOrEqualTo(0));
         expect(rect.right, lessThanOrEqualTo(375));

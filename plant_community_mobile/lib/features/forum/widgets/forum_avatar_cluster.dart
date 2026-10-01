@@ -42,15 +42,22 @@ class AuthorAvatarCluster extends StatelessWidget {
     final extra = others.length - shown.length;
     final slots = shown.length + (extra > 0 ? 1 : 0);
     if (shown.isEmpty) {
-      return CircleAvatar(
-        radius: radius + 6,
-        // Opaque, matching AuthorIdentity's initial disc: avatars overlap by a
-        // quarter here, and a translucent disc shows the one beneath it.
-        backgroundColor: theme.colorScheme.surfaceContainerHigh,
-        child: Icon(
-          LucideIcons.users,
-          color: theme.colorScheme.onSurface,
-          size: radius * 1.4,
+      // Nobody else to draw: the viewer is the only member left, or the
+      // roster is empty. The bare glyph says nothing to a screen reader, so
+      // it carries the same count the avatar stack does (todo 486).
+      return Semantics(
+        label: viewer == null ? 'No members' : 'No other members',
+        excludeSemantics: true,
+        child: CircleAvatar(
+          radius: radius + 6,
+          // Opaque, matching AuthorIdentity's initial disc: avatars overlap by
+          // a quarter here, and a translucent disc shows the one beneath it.
+          backgroundColor: theme.colorScheme.surfaceContainerHigh,
+          child: Icon(
+            LucideIcons.users,
+            color: theme.colorScheme.onSurface,
+            size: radius * 1.4,
+          ),
         ),
       );
     }

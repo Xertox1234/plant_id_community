@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -10,10 +12,43 @@ import 'package:plant_community_mobile/services/user_profile_service.dart';
 
 import '../support/forum_test_support.dart';
 
-Widget _wrap(FakeForumApi api) => ProviderScope(
-  overrides: [forumApiProvider.overrideWithValue(api)],
+/// The inbox with a faked account profile (todo 486): without the override
+/// every test sends a real `GET /auth/user/`. [viewer] is who "I" am — the
+/// fixture's group creator by default; null pins the unknown-viewer fallback.
+Widget _wrap(
+  FakeForumApi api, {
+  String? viewer = 'me',
+  Future<void>? gate,
+  Future<void>? refreshGate,
+}) => ProviderScope(
+  overrides: [
+    forumApiProvider.overrideWithValue(api),
+    userProfileServiceProvider.overrideWith(
+      () => FakeUserProfileService(
+        username: viewer,
+        gate: gate,
+        refreshGate: refreshGate,
+      ),
+    ),
+  ],
   child: const MaterialApp(home: ForumConversationsScreen()),
 );
+
+/// The usernames of the avatars the (single) group row's cluster draws.
+List<String> _clusterUsernames(WidgetTester tester) => tester
+    .widgetList<AuthorAvatar>(
+      find.descendant(
+        of: find.byType(AuthorAvatarCluster),
+        matching: find.byType(AuthorAvatar),
+      ),
+    )
+    .map((a) => a.author.username)
+    .toList();
+
+/// The cluster's semantics label. Inside a ListTile the cluster's node is
+/// merged into the row's, so the row's label OPENS with it.
+String _clusterLabel(WidgetTester tester) =>
+    tester.getSemantics(find.byType(AuthorAvatarCluster)).label;
 
 void main() {
   group('ForumConversationsScreen (todo 339)', () {
@@ -152,6 +187,126 @@ void main() {
       // Inside a ListTile the cluster's node is merged into the row's, so
       // the row's label OPENS with the count rather than equalling it.
       expect(tester.getSemantics(cluster).label, startsWith('4 other members'));
+      expect(tester.takeException(), isNull);
+
+      handle.dispose();
+    });
+
+    testWidgets('a profile refresh keeps the last known viewer: the cluster '
+        'never puts ME back while the profile reloads (todo 486)', (
+      tester,
+    ) async {
+      final handle = tester.ensureSemantics();
+      final refreshGate = Completer<void>();
+      final api = FakeForumApi()
+        ..conversations = [
+          groupConversation(
+            id: 12,
+            memberUsernames: const ['ada', 'bob', 'carol', 'dave'],
+          ),
+        ];
+
+      await tester.pumpWidget(_wrap(api, refreshGate: refreshGate.future));
+      await tester.pumpAndSettle();
+      expect(_clusterUsernames(tester), ['ada', 'bob', 'carol']);
+
+      // `refresh()` (the profile screen's pull-to-refresh) sets an explicit
+      // loading state. Unlike an invalidate, that state is NOT AsyncData, so
+      // `asData` is null mid-reload and only `.value` still names me.
+      final container = ProviderScope.containerOf(
+        tester.element(find.byType(ForumConversationsScreen)),
+        listen: false,
+      );
+      unawaited(container.read(userProfileServiceProvider.notifier).refresh());
+      await tester.pump();
+
+      final reloading = container.read(userProfileServiceProvider);
+      expect(reloading.isLoading, isTrue);
+      expect(reloading.asData, isNull);
+      expect(_clusterUsernames(tester), ['ada', 'bob', 'carol']);
+      expect(
+        find.descendant(
+          of: find.byType(AuthorAvatarCluster),
+          matching: find.text('+1'),
+        ),
+        findsOneWidget,
+      );
+      expect(_clusterLabel(tester), startsWith('4 other members'));
+
+      refreshGate.complete();
+      await tester.pumpAndSettle();
+      expect(_clusterUsernames(tester), ['ada', 'bob', 'carol']);
+      expect(tester.takeException(), isNull);
+
+      handle.dispose();
+    });
+
+    testWidgets('a group where I am the only member left labels its bare '
+        'group glyph for a screen reader (todo 486)', (tester) async {
+      final handle = tester.ensureSemantics();
+      final api = FakeForumApi()
+        ..conversations = [
+          groupConversation(id: 12, memberUsernames: const []),
+        ];
+
+      await tester.pumpWidget(_wrap(api));
+      await tester.pumpAndSettle();
+
+      final cluster = find.byType(AuthorAvatarCluster);
+      expect(_clusterUsernames(tester), isEmpty);
+      expect(
+        find.descendant(of: cluster, matching: find.byType(Icon)),
+        findsOneWidget,
+      );
+      expect(_clusterLabel(tester), startsWith('No other members'));
+      expect(tester.takeException(), isNull);
+
+      handle.dispose();
+    });
+
+    testWidgets('the account profile never holds the list back: rows render '
+        'while it loads, then the viewer drops out of the cluster '
+        '(todo 486)', (tester) async {
+      final handle = tester.ensureSemantics();
+      final gate = Completer<void>();
+      final api = FakeForumApi()
+        ..conversations = [
+          groupConversation(
+            id: 12,
+            title: 'Seed swap committee',
+            memberUsernames: const ['ada', 'bob', 'carol', 'dave'],
+          ),
+        ];
+
+      await tester.pumpWidget(_wrap(api, gate: gate.future));
+      // Not pumpAndSettle: the profile is still gated, and the point is what
+      // shows before it resolves.
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 100));
+
+      final container = ProviderScope.containerOf(
+        tester.element(find.byType(ForumConversationsScreen)),
+        listen: false,
+      );
+      expect(container.read(userProfileServiceProvider).isLoading, isTrue);
+      // The list is up, and with the viewer unknown every member is drawn —
+      // me (the creator) first, the other two past three folded into "+2".
+      expect(find.text('Seed swap committee'), findsOneWidget);
+      expect(_clusterUsernames(tester), ['me', 'ada', 'bob']);
+      expect(
+        find.descendant(
+          of: find.byType(AuthorAvatarCluster),
+          matching: find.text('+2'),
+        ),
+        findsOneWidget,
+      );
+      expect(_clusterLabel(tester), startsWith('5 members'));
+
+      gate.complete();
+      await tester.pumpAndSettle();
+
+      expect(_clusterUsernames(tester), ['ada', 'bob', 'carol']);
+      expect(_clusterLabel(tester), startsWith('4 other members'));
       expect(tester.takeException(), isNull);
 
       handle.dispose();
