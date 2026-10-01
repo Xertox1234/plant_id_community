@@ -304,8 +304,14 @@ Reference: `lib/features/forum/widgets/author_identity.dart`,
   `lastMessage.sender` once a member left — "Former member" fallback, no `!`.
   GATE the attribution on the first profile resolve so the viewer's own
   messages never flash on the wrong side; do NOT hand-cache the username —
-  Riverpod's `asData` already retains the last resolved value across a
-  re-fetch, so a cache there is dead code (proved by mutation, todo 350).
+  read it with `.value`, which keeps the last resolved value through any
+  loading state, so a cache there is dead code. **Not `asData?.value`:** it is
+  null whenever the state is `AsyncLoading`, and `UserProfileService.refresh()`
+  sets an explicit `AsyncValue.loading()` first. Todo 350's mutation proof
+  covered only a plain re-fetch; a `refresh()` dropped the viewer back into
+  every avatar cluster (todo 486). Watch it through
+  `.select((s) => s.value?.username)` so other profile edits don't rebuild the
+  screen.
 - **Shared-widget chrome gets a 375-wide test** (avatar cluster in the inbox
   row); the cluster's summary `Semantics` uses `excludeSemantics: true` so it
   announces "N members", not the initials.

@@ -258,3 +258,10 @@ Compact checklist auto-injected before edits. Long-form:
   403), pass `@Riverpod(retry: …)` returning `null` for 4xx
   `ApiException`s, or the user waits 40 s to learn the page is gone
   (`blogRetry`, todo 385).
+- **Read a provider's last value with `.value`, not `asData?.value`, when the
+  state can reload.** `asData` is null for every `AsyncLoading`, including a
+  notifier method that sets `state = const AsyncValue.loading()` before
+  re-fetching (`UserProfileService.refresh()`); Riverpod 3 keeps the previous
+  value on `.value` through that state. Todo 486: the inbox read
+  `asData?.value?.username`, so every profile refresh put the viewer back in
+  every group avatar cluster.
