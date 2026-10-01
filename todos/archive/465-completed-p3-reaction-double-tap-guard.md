@@ -79,3 +79,14 @@ reaction silently undoes itself.
 ### 2026-09-30 - Completed by the todo sweep (run 2026-10-01-0121)
 
 - Archived by `land.py archive`; evidence is quoted above, review is on the PR.
+
+### 2026-09-30 - Repaired by the todo sweep (run 2026-10-01-0121)
+
+- Review round 1 found `forum_providers.g.dart` stale: `TopicPosts` gained
+  `_reactionsInFlight` and `_toggleReactionOnce`, so riverpod_generator's
+  `_$topicPostsHash` changed and CI's generated-code gate would fail.
+- Regenerated it with build_runner; the only change is the
+  `_$topicPostsHash` line. A full unfiltered build afterwards changed no
+  other generated file.
+- Re-ran both criteria; web and mobile tests pass (evidence in
+  `.sweep-evidence/g2/`).
