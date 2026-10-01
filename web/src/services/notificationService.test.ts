@@ -92,14 +92,15 @@ describe('notificationService', () => {
       'Authentication credentials were not provided.',
     ],
     ['a bare DRF detail', { detail: 'Not found.' }, 'Not found.'],
-    ['the status, for a JSON body with neither', {}, 'HTTP 500'],
-    ['"Request failed", for a non-JSON body', '<html>oops</html>', 'Request failed'],
+    ['the status, for a JSON body with neither', {}, 'Request failed (HTTP 500)'],
+    ['the status, for a non-JSON body', '<html>oops</html>', 'Request failed (HTTP 500)'],
   ])('rejects with %s', async (_label, body, expected) => {
     adapter.mockImplementation(async (config) => {
       throw httpError(config, 500, body);
     });
 
-    await expect(fetchUnreadCount()).rejects.toThrow(expected);
+    // The whole message, not a substring (todo 489).
+    await expect(fetchUnreadCount()).rejects.toHaveProperty('message', expected);
   });
 
   // todo 434: the unread-count poll runs every 30s per tab, so its failures

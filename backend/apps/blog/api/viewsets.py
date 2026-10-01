@@ -33,7 +33,6 @@ from ..constants import (
     POPULAR_POSTS_DEFAULT_DAYS,
     POPULAR_POSTS_DEFAULT_LIMIT,
     POPULAR_POSTS_MAX_LIMIT,
-    PREVIEW_TOKEN_MAX_AGE,
     RECENT_POSTS_DEFAULT_LIMIT,
     RECENT_POSTS_MAX_LIMIT,
     RELATED_POSTS_LIMIT,
@@ -821,21 +820,19 @@ class BlogPostPreviewAPIViewSet(BlogPostPageViewSet):
     Deliberately bypasses the parent's slug cache: a preview must never be
     served from, or written to, the live post's cache entry.
 
-    The token expires after PREVIEW_TOKEN_MAX_AGE. The library itself never
-    expires one: its unsign() has no max_age, and PagePreview rows are only
-    garbage-collected when an editor previews again, so a leaked preview URL
-    (history, Referer, logs) kept working indefinitely (todo 407). The expiry
-    is enforced by ``BlogPostPage.get_page_from_preview_token``, the token's
-    source, so no other caller can skip it (todo 434). Every Preview click
-    signs a fresh token, so this costs editors nothing. The response is never
-    cached for the same reason.
+    The token expires after PREVIEW_TOKEN_MAX_AGE (apps/blog/constants.py),
+    which the model reads; this class has no override (todo 489). The library
+    itself never expires one: its unsign() has no max_age, and PagePreview rows
+    are only garbage-collected when an editor previews again, so a leaked
+    preview URL (history, Referer, logs) kept working indefinitely (todo 407).
+    The expiry is enforced by ``BlogPostPage.get_page_from_preview_token``, the
+    token's source, so no other caller can skip it (todo 434). Every Preview
+    click signs a fresh token, so this costs editors nothing. The response is
+    never cached for the same reason.
 
     Only the listing route is exposed: the inherited ``<int:pk>/`` route would
     ignore pk, and ``find/`` would search live pages (todo 407).
     """
-
-    # apps/blog/constants.py; the model enforces it (todo 434).
-    PREVIEW_TOKEN_MAX_AGE = PREVIEW_TOKEN_MAX_AGE
 
     @classmethod
     def get_urlpatterns(cls):

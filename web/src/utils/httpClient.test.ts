@@ -4,8 +4,9 @@
  * Tests for Axios HTTP client configuration and interceptor setup.
  * Priority: Phase 2 - Critical logging infrastructure component.
  *
- * Note: Due to module mocking complexity with axios, these tests verify
- * the interceptor logic and configuration rather than the full axios instance.
+ * Most tests verify the interceptor logic and configuration directly. The
+ * "Error logging" block drives the real `apiClient` instance through a stub
+ * adapter (`tests/apiClientHarness`), so its interceptors run end to end.
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';

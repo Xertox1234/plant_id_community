@@ -14,6 +14,18 @@ export const NETWORK_ERROR_MESSAGE =
   'Could not reach the server. Check your connection and try again.';
 
 /**
+ * The axios codes that mean the request never got an answer: the network
+ * failed (`ERR_NETWORK`) or it timed out (`ECONNABORTED`, or `ETIMEDOUT` with
+ * `transitional.clarifyTimeoutError`). Only these are connection problems
+ * (todo 489).
+ */
+const CONNECTION_ERROR_CODES: ReadonlySet<string> = new Set([
+  'ERR_NETWORK',
+  'ECONNABORTED',
+  'ETIMEDOUT',
+]);
+
+/**
  * One readable message from a DRF error body. Errors arrive flattened
  * (`{message}`), as a bare `{detail}`, or as a field map
  * (`{website: ["Enter a valid URL."]}`); anything else falls back to the status.
@@ -36,7 +48,10 @@ export function httpErrorMessage(body: unknown, status: number): string {
  * server's message, not axios's "Request failed with status code 400". A
  * network error or timeout carries NETWORK_ERROR_MESSAGE, not "Network Error"
  * or "timeout of 30000ms exceeded". The original error is kept as `cause`.
- * A cancellation, or anything that is not an axios error, is returned as is.
+ * A cancellation, anything that is not an axios error, and any other
+ * response-less axios error (`ERR_INVALID_URL`, `ERR_BAD_OPTION_VALUE`, an
+ * interceptor rejection) is returned as is: those are client bugs, and
+ * calling them a connection problem would hide them (todo 489).
  */
 export function toHttpError(error: unknown): unknown {
   if (!axios.isAxiosError(error) || axios.isCancel(error)) return error;
@@ -45,5 +60,8 @@ export function toHttpError(error: unknown): unknown {
       cause: error,
     });
   }
-  return new Error(NETWORK_ERROR_MESSAGE, { cause: error });
+  if (error.code && CONNECTION_ERROR_CODES.has(error.code)) {
+    return new Error(NETWORK_ERROR_MESSAGE, { cause: error });
+  }
+  return error;
 }
