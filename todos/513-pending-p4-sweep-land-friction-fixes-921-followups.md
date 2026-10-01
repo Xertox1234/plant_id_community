@@ -4,6 +4,9 @@ priority: p4
 issue_id: "513"
 tags: [tooling, todo-sweep]
 dependencies: []
+triage: ready
+triaged: 2026-10-01
+owner_decision: "Findings 1/9: tighten — accept only when the new blob equals the fixers' output on the verified blob (rstrip per line keeping md two-space breaks, collapse EOF to one newline); refuse added whitespace, CRLF flips, dropped final newline, each with a test. Finding 6: raise the kimi-review hook timeout in .claude/settings.json to 300 s to match the pre-commit gate (2026-10-01)"
 ---
 
 # Sweep Land friction fixes: non-blocking findings from PR #921 (todo 512)
