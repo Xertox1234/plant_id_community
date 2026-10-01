@@ -1,7 +1,6 @@
 import { useId, useState } from 'react';
 import type { LinkPreviewBlockValue } from '@/types/blog';
-import { mediaUrl } from '@/services/blogService';
-import { safeExternalUrl, shortLinkAddress } from '@/utils/externalUrl';
+import { linkPreviewDisplay } from './linkPreviewDisplay';
 
 interface LinkPreviewCardProps {
   /** The composer's `LinkPreview` fits too: it only adds `available`. */
@@ -16,7 +15,8 @@ interface LinkPreviewCardProps {
 }
 
 /**
- * A link shown as a card. The address line is the SHORTENED URL (origin plus
+ * A link shown as a card; what it shows and says comes from
+ * `linkPreviewDisplay` (todo 453). The address line is the SHORTENED URL (origin plus
  * "…", `shortLinkAddress`) and the spoken label is the title plus that short
  * address; the full URL is only the `href` and the `title` attribute, so
  * hovering shows it (owner decision, todo 428). `aria-describedby` points at
@@ -27,20 +27,12 @@ interface LinkPreviewCardProps {
 export default function LinkPreviewCard({ preview, variant = 'composer' }: LinkPreviewCardProps) {
   const [failedImage, setFailedImage] = useState<string | null>(null);
   const hintId = useId();
-  const href = safeExternalUrl(preview.url);
-  const address = shortLinkAddress(preview.url);
-  if (!href || !address) return null;
+  const display = linkPreviewDisplay(preview, variant);
+  if (!display) return null;
 
-  const imageSrc =
-    variant === 'post'
-      ? preview.image_url
-        ? safeExternalUrl(mediaUrl(preview.image_url))
-        : null
-      : safeExternalUrl(preview.image_url, true);
+  const { href, address, title, detail, label, imageSrc } = display;
   const showImage = Boolean(imageSrc) && failedImage !== imageSrc;
-  const title = preview.title || preview.site_name || preview.domain || address;
   const source = preview.site_name || preview.domain;
-  const label = title === address ? address : `${title}, ${address}`;
 
   return (
     <div className={variant === 'post' ? 'my-5' : 'border-t border-line-2 bg-surface p-3 sm:p-4'}>
@@ -74,7 +66,7 @@ export default function LinkPreviewCard({ preview, variant = 'composer' }: LinkP
           {preview.description && (
             <p className="line-clamp-3 text-sm leading-5 text-ink-2">{preview.description}</p>
           )}
-          {title !== address && <p className="truncate text-xs text-ink-3">{address}</p>}
+          {detail && <p className="truncate text-xs text-ink-3">{address}</p>}
         </div>
         <span id={hintId} className="sr-only">
           Opens in a new tab

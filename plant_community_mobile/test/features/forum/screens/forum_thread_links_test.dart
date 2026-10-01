@@ -77,9 +77,7 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      final node = tester.getSemantics(
-        find.bySemanticsLabel(RegExp(r': Repotting$')),
-      );
+      final node = tester.getSemantics(find.bySemanticsLabel('Repotting'));
       node.owner!.performAction(node.id, SemanticsAction.tap);
       await tester.pumpAndSettle();
 

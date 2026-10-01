@@ -144,7 +144,7 @@ void main() {
         ),
       );
 
-      final node = tester.getSemantics(find.bySemanticsLabel(RegExp(r': T$')));
+      final node = tester.getSemantics(find.bySemanticsLabel('T'));
       expect(node.getSemanticsData().hasAction(SemanticsAction.tap), isTrue);
 
       node.owner!.performAction(node.id, SemanticsAction.tap);
@@ -169,7 +169,7 @@ void main() {
     );
 
     final data = tester
-        .getSemantics(find.bySemanticsLabel(RegExp(r': T$')))
+        .getSemantics(find.bySemanticsLabel('T'))
         .getSemanticsData();
     expect(data.flagsCollection.isButton, isFalse);
     expect(data.hasAction(SemanticsAction.tap), isFalse);
@@ -498,7 +498,7 @@ void main() {
         final opened = await pumpCard(tester);
 
         final node = tester.getSemantics(
-          find.bySemanticsLabel('Link: Windows 11, $short'),
+          find.bySemanticsLabel('Windows 11, $short'),
         );
         final data = node.getSemanticsData();
         expect(data.label, isNot(contains('/en-us/')));
@@ -540,7 +540,7 @@ void main() {
       final handle = tester.ensureSemantics();
       final writes = clipboardWrites(tester);
       await pumpCard(tester);
-      final cardNode = find.semantics.byLabel('Link: Windows 11, $short');
+      final cardNode = find.semantics.byLabel('Windows 11, $short');
 
       tester.semantics.customAction(
         cardNode,

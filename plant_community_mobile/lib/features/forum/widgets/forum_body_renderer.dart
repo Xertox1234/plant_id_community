@@ -18,15 +18,22 @@ import 'forum_html_text.dart';
 /// the set is the gate both consult first.
 const Set<Type> forumCardBlockTypes = {EmbedBlock, LinkPreviewBlock};
 
+/// A compact row's thumbnail, and the row's minimum height (a 48 dp tap
+/// target) — one set of numbers for the tile, the image and the row.
+const Size _rowThumbSize = Size(72, 48);
+const double _rowMinHeight = 48;
+
 /// Whether [block] is a card that can join a run: a card type with a usable
 /// http(s) URL, the same test the web's `isCardBlock` makes. A blank or
 /// URL-less embed (the "unavailable" placeholder) and a link card with no
-/// usable address never join a run, so a row always has somewhere to go.
+/// usable address never join a run, so a row always has somewhere to go. A
+/// link card asks [linkPreviewDisplay], the derivation its card and row
+/// render from (todo 453), so "joins a run" is exactly "renders something".
 bool isForumCardBlock(ForumBodyBlock block) {
   if (!forumCardBlockTypes.contains(block.runtimeType)) return false;
   return switch (block) {
     EmbedBlock(:final url) => linkPreviewShortAddress(url) != null,
-    LinkPreviewBlock(:final url) => linkPreviewShortAddress(url) != null,
+    LinkPreviewBlock card => linkPreviewDisplay(card) != null,
     _ => false,
   };
 }
@@ -418,7 +425,9 @@ class _Image extends StatelessWidget {
 /// the same [onOpenLink] the paragraph links use (the thread screen opens it
 /// in the in-app browser, todo 424). A blank
 /// envelope (no url, no title) renders the unavailable placeholder, like a
-/// deleted image, rather than an empty card.
+/// deleted image, rather than an empty card. Its spoken label is its text,
+/// "title, Watch on PROVIDER" — the name the web's full card gets from its
+/// content (todo 453).
 class _EmbedCard extends StatelessWidget {
   const _EmbedCard({
     required this.url,
@@ -453,9 +462,7 @@ class _EmbedCard extends StatelessWidget {
         ? null
         : () => onOpenLink(url);
     return Semantics(
-      label: providerName.isNotEmpty
-          ? '$providerName video: $label'
-          : 'Video: $label',
+      label: providerName.isNotEmpty ? '$label, Watch on $providerName' : label,
       button: onTap != null,
       // excludeSemantics drops the InkWell's own tap action, so the node
       // must carry it or a screen reader's double-tap does nothing.
@@ -542,21 +549,17 @@ class _LinkPreviewCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final address = linkPreviewShortAddress(card.url);
-    if (address == null) return const SizedBox.shrink();
+    final display = linkPreviewDisplay(card);
+    if (display == null) return const SizedBox.shrink();
     final theme = Theme.of(context);
-    final title = [
-      card.title,
-      card.siteName,
-      card.domain,
-    ].firstWhere((text) => text.isNotEmpty, orElse: () => address);
+    final LinkPreviewDisplay(:title, :detail, :label, :imageUrl) = display;
     final source = card.siteName.isNotEmpty ? card.siteName : card.domain;
-    final url = card.url;
+    final url = display.href;
     final onOpenLink = this.onOpenLink;
     final onTap = onOpenLink == null ? null : () => onOpenLink(url);
     void showAddress() => _showLinkAddressSheet(context, url);
     return Semantics(
-      label: title == address ? 'Link: $address' : 'Link: $title, $address',
+      label: label,
       button: onTap != null,
       onTap: onTap,
       onLongPress: showAddress,
@@ -579,11 +582,11 @@ class _LinkPreviewCard extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              if (card.imageUrl.isNotEmpty)
+              if (imageUrl.isNotEmpty)
                 AspectRatio(
                   aspectRatio: 1.91,
                   child: CachedNetworkImage(
-                    imageUrl: card.imageUrl,
+                    imageUrl: imageUrl,
                     fit: BoxFit.cover,
                     placeholder: (context, _) => ColoredBox(
                       color: theme.colorScheme.surfaceContainerHigh,
@@ -620,9 +623,9 @@ class _LinkPreviewCard extends StatelessWidget {
                         overflow: TextOverflow.ellipsis,
                         style: theme.textTheme.bodySmall,
                       ),
-                    if (title != address)
+                    if (detail.isNotEmpty)
                       Text(
-                        address,
+                        detail,
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: theme.textTheme.bodySmall?.copyWith(
@@ -642,11 +645,11 @@ class _LinkPreviewCard extends StatelessWidget {
 
 /// A card after the first in a run (todo 429): a small thumbnail beside the
 /// title and a second line (a video's provider, a link's short address), on
-/// the card's surface. Its own semantics node, labelled like its full card
-/// ("PROVIDER video: title" / "Link: title, address"), whose tap does what the
-/// full card's tap does: hand the URL
+/// the card's surface. Its own semantics node, labelled like the web's row
+/// (todo 453): "title, second line", or the title alone when there is no
+/// second line. Its tap does what the full card's tap does: hand the URL
 /// to [onOpenLink]. A link row keeps the full card's long-press sheet and
-/// "Show full address" / "Copy link" actions. At least 48 dp tall.
+/// "Show full address" / "Copy link" actions. At least [_rowMinHeight] tall.
 class _CompactCardRow extends StatelessWidget {
   const _CompactCardRow({required this.block, this.onOpenLink});
   final ForumBodyBlock block;
@@ -657,58 +660,36 @@ class _CompactCardRow extends StatelessWidget {
     final theme = Theme.of(context);
     // A link row's second line is the SHORT ADDRESS from the URL, never the
     // page's own siteName, so a row cannot claim a site it does not link to
-    // (the todo 428 rule for the full card). Labels keep the full cards'
-    // "video:" / "Link:" prefixes so a screen reader tells the rows apart.
-    final (
-      url,
-      title,
-      detail,
-      label,
-      thumbnail,
-      fallbackIcon,
-    ) = switch (block) {
+    // (the todo 428 rule for the full card); it comes from the full card's
+    // own [linkPreviewDisplay]. Labels match the web's rows (todo 453).
+    final (url, title, detail, thumbnail, fallbackIcon) = switch (block) {
       EmbedBlock e => (
         e.url,
         e.title.isNotEmpty ? e.title : e.url,
         e.providerName,
-        e.providerName.isNotEmpty
-            ? '${e.providerName} video: ${e.title.isNotEmpty ? e.title : e.url}'
-            : 'Video: ${e.title.isNotEmpty ? e.title : e.url}',
         e.thumbnailUrl,
         LucideIcons.circlePlay,
       ),
-      LinkPreviewBlock c => () {
+      LinkPreviewBlock c => switch (linkPreviewDisplay(c)) {
         // Never the raw URL: callers only pass usable cards, and a row with
-        // no short address renders nothing (see the guard below).
-        final address = linkPreviewShortAddress(c.url) ?? '';
-        final title = [
-          c.title,
-          c.siteName,
-          c.domain,
-        ].firstWhere((text) => text.isNotEmpty, orElse: () => address);
-        return (
-          c.url,
-          title,
-          title == address ? '' : address,
-          title == address ? 'Link: $address' : 'Link: $title, $address',
-          c.imageUrl,
-          LucideIcons.link,
-        );
-      }(),
-      _ => ('', '', '', '', '', LucideIcons.circleHelp),
+        // no display renders nothing (see the guard below).
+        final d? => (d.href, d.title, d.detail, d.imageUrl, LucideIcons.link),
+        null => ('', '', '', '', LucideIcons.link),
+      },
+      _ => ('', '', '', '', LucideIcons.circleHelp),
     };
     if (url.isEmpty || linkPreviewShortAddress(url) == null) {
       return const SizedBox.shrink();
     }
+    final label = detail.isEmpty ? title : '$title, $detail';
     final isLink = block is LinkPreviewBlock;
     final onOpenLink = this.onOpenLink;
     final onTap = onOpenLink == null || url.isEmpty
         ? null
         : () => onOpenLink(url);
     void showAddress() => _showLinkAddressSheet(context, url);
-    final tile = SizedBox(
-      width: 72,
-      height: 48,
+    final tile = SizedBox.fromSize(
+      size: _rowThumbSize,
       child: ColoredBox(
         color: theme.colorScheme.surfaceContainerHigh,
         child: Icon(
@@ -741,7 +722,7 @@ class _CompactCardRow extends StatelessWidget {
           onTap: onTap,
           onLongPress: isLink ? showAddress : null,
           child: ConstrainedBox(
-            constraints: const BoxConstraints(minHeight: 48),
+            constraints: const BoxConstraints(minHeight: _rowMinHeight),
             child: Padding(
               padding: const EdgeInsets.all(AppSpacing.xs),
               child: Row(
@@ -750,9 +731,8 @@ class _CompactCardRow extends StatelessWidget {
                     borderRadius: BorderRadius.circular(AppSpacing.rXs),
                     child: thumbnail.isEmpty
                         ? tile
-                        : SizedBox(
-                            width: 72,
-                            height: 48,
+                        : SizedBox.fromSize(
+                            size: _rowThumbSize,
                             child: CachedNetworkImage(
                               imageUrl: thumbnail,
                               fit: BoxFit.cover,

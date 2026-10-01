@@ -1,7 +1,7 @@
 import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
-import { mediaUrl } from '@/services/blogService';
-import { safeExternalUrl, shortLinkAddress } from '@/utils/externalUrl';
+import { safeExternalUrl } from '@/utils/externalUrl';
 import type { StreamFieldBlock } from '@/types/blog';
+import { linkPreviewDisplay } from './linkPreviewDisplay';
 
 interface CompactCardRowProps {
   block: StreamFieldBlock;
@@ -45,13 +45,12 @@ export default function CompactCardRow({ block, renderFull }: CompactCardRowProp
     detail = provider_name;
     thumbnail = safeExternalUrl(thumbnail_url);
     playable = Boolean(embed_url);
-  } else if (block.type === 'link_preview' && block.value) {
-    const preview = block.value;
-    href = safeExternalUrl(preview.url);
-    const address = shortLinkAddress(preview.url) || '';
-    title = preview.title || preview.site_name || preview.domain || address;
-    detail = title === address ? '' : address;
-    thumbnail = preview.image_url ? safeExternalUrl(mediaUrl(preview.image_url)) : null;
+  } else if (block.type === 'link_preview') {
+    // The full card's own derivation (todo 453), so a row and its card agree.
+    const display = linkPreviewDisplay(block.value);
+    if (display) {
+      ({ href, title, detail, imageSrc: thumbnail } = display);
+    }
   }
   if (!href) return null;
   const label = detail ? `${title}, ${detail}` : title;
