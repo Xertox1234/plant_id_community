@@ -167,6 +167,18 @@ describe('card runs', () => {
     );
   });
 
+  // Todo 505: an untitled video row says its short address, never the full
+  // URL a screen reader would spell out character by character.
+  it('titles an untitled video row by its short address', () => {
+    const untitled = embed('b', '', 'YouTube');
+    if (untitled.type === 'embed') untitled.value.url = 'https://youtu.be/xyz?t=42';
+    render(<StreamFieldRenderer blocks={[embed('a', 'Alpha', 'YouTube'), untitled]} />);
+
+    const row = screen.getByRole('button', { name: 'https://youtu.be/…, YouTube' });
+    expect(row).toHaveTextContent('https://youtu.be/…');
+    expect(row).not.toHaveTextContent('xyz');
+  });
+
   it('keeps a null link card out of a run (it renders nothing)', () => {
     const blank: StreamFieldBlock = { id: 'x', type: 'link_preview', value: null };
     expect(isCardBlock(blank)).toBe(false);
