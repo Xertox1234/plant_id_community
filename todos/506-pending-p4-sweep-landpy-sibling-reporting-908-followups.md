@@ -4,6 +4,8 @@ priority: p4
 issue_id: "506"
 tags: [tooling, todo-sweep]
 dependencies: []
+triage: ready
+triaged: 2026-10-01
 ---
 
 # Sweep land.py sibling reporting: non-blocking findings from PR #908 (todo 475)

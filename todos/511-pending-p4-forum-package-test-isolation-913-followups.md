@@ -4,6 +4,8 @@ priority: p4
 issue_id: "511"
 tags: [forum, backend, testing]
 dependencies: []
+triage: ready
+triaged: 2026-10-01
 ---
 
 # Forum package test isolation: non-blocking findings from PR #913 (todo 501)

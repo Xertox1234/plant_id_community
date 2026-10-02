@@ -4,6 +4,8 @@ priority: p4
 issue_id: "510"
 tags: [web, backend]
 dependencies: []
+triage: ready
+triaged: 2026-10-01
 ---
 
 # HTTP error network codes: non-blocking findings from PR #912 (todo 489)

@@ -4,6 +4,8 @@ priority: p4
 issue_id: "504"
 tags: [forum, backend, testing]
 dependencies: []
+triage: ready
+triaged: 2026-10-01
 ---
 
 # Thread publish single recount: non-blocking findings from PR #906 (todo 431)

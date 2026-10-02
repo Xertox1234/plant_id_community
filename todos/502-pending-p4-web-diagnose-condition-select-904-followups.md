@@ -4,6 +4,8 @@ priority: p4
 issue_id: "502"
 tags: [web, frontend]
 dependencies: []
+triage: ready
+triaged: 2026-10-01
 ---
 
 # Web diagnose condition select: non-blocking findings from PR #904 (todo 459)

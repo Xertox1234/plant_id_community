@@ -4,6 +4,9 @@ priority: p4
 issue_id: "508"
 tags: [testing, backend, web]
 dependencies: []
+triage: ready
+triaged: 2026-10-01
+owner_decision: "Finding 1: no mutation run of reactions.py; record in the Work Log that the FOR UPDATE window check is unproven against mutation (2026-10-01)"
 ---
 
 # Todo 464 test-gap tests: non-blocking findings from PR #910 (todo 487)

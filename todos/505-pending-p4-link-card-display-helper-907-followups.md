@@ -4,6 +4,8 @@ priority: p4
 issue_id: "505"
 tags: [forum, web, mobile]
 dependencies: []
+triage: ready
+triaged: 2026-10-01
 ---
 
 # Link-card display helper: non-blocking findings from PR #907 (todo 453)
