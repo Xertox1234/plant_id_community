@@ -12,23 +12,13 @@ from django.contrib.auth import get_user_model
 from django.core.cache import cache
 from django.http import HttpRequest, HttpResponse
 
-# Defined in constants (todo 419); re-exported for existing importers.
-from .constants import SECURITY_SENSITIVE_PATHS
-
-# Import constants
-try:
-    from .constants import (
-        LOG_PREFIX_RATELIMIT,
-        LOG_PREFIX_SECURITY,
-        RATE_LIMIT_VIOLATION_THRESHOLD,
-        RATE_LIMIT_VIOLATION_WINDOW,
-    )
-except ImportError:
-    # Fallback values
-    RATE_LIMIT_VIOLATION_THRESHOLD = 5
-    RATE_LIMIT_VIOLATION_WINDOW = 3600
-    LOG_PREFIX_RATELIMIT = "[RATELIMIT]"
-    LOG_PREFIX_SECURITY = "[SECURITY]"
+from .constants import (
+    LOG_PREFIX_RATELIMIT,
+    LOG_PREFIX_SECURITY,
+    RATE_LIMIT_VIOLATION_THRESHOLD,
+    RATE_LIMIT_VIOLATION_WINDOW,
+    SECURITY_SENSITIVE_PATHS,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -215,11 +205,9 @@ class SecurityMetricsMiddleware:
         if self._is_security_sensitive_endpoint(request.path):
             self._track_security_metric(
                 endpoint=request.path,
-                method=request.method,
                 status_code=response.status_code,
                 duration=duration,
                 user_id=self._get_user_id(request),
-                ip_address=self._get_client_ip(request),
             )
 
         return response
@@ -242,20 +230,8 @@ class SecurityMetricsMiddleware:
             return str(request.user.id)
         return "anonymous"
 
-    def _get_client_ip(self, request: HttpRequest) -> str:
-        """Get client IP from request."""
-        from .security import SecurityMonitor
-
-        return SecurityMonitor._get_client_ip(request)
-
     def _track_security_metric(
-        self,
-        endpoint: str,
-        method: str,
-        status_code: int,
-        duration: float,
-        user_id: str,
-        ip_address: str,
+        self, endpoint: str, status_code: int, duration: float, user_id: str
     ) -> None:
         """
         Log a slow security-endpoint request.
@@ -265,15 +241,16 @@ class SecurityMetricsMiddleware:
         TTL that reset on every write (so it never expired under traffic),
         and a raw-IP set that grew without bound. Nothing read it
         (``get_security_metrics`` doesn't), so the write was dropped
-        (todo 419 item 2).
+        (todo 419 item 2). The method and the client IP only fed that key,
+        so they are no longer resolved: resolving the IP also logged a
+        WARNING per invalid X-Forwarded-For entry, on top of
+        SecurityMiddleware's own (todo 435 finding 2).
 
         Args:
             endpoint: API endpoint
-            method: HTTP method
             status_code: Response status code
             duration: Request duration in seconds
             user_id: User ID or 'anonymous'
-            ip_address: Client IP address
         """
         if duration > SLOW_SECURITY_REQUEST_SECONDS:
             logger.warning(

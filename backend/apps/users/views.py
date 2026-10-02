@@ -333,6 +333,13 @@ def login(request: Request) -> Response:
     account_locked, attempts_count = SecurityMonitor.track_failed_login_attempt(
         username, ip_address
     )
+    # Per-IP brute-force tracking (the per-username lockout is above). The
+    # view holds the identifier it resolved and the client IP, so it reports
+    # here instead of SecurityMiddleware re-parsing the body on a 401 (todo
+    # 435). Every rejected credential counts, including the one that locks
+    # the account; the early returns for a locked or disabled account, which
+    # never check the password, do not.
+    SecurityMonitor.track_failed_login(ip_address, username)
 
     if account_locked:
         return create_error_response(
