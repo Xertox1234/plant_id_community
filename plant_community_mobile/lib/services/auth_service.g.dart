@@ -107,7 +107,7 @@ final class AuthServiceProvider
   }
 }
 
-String _$authServiceHash() => r'f1f7fe33c03f23a06e2bfeb7c28f532bee0a6a05';
+String _$authServiceHash() => r'bd745773c67db733197c91bbbc89e41680344d17';
 
 /// Authentication service that handles Firebase Auth + Django JWT
 ///

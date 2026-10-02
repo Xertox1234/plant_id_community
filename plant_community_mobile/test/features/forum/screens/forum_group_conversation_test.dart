@@ -538,8 +538,10 @@ void main() {
 
         // A LATER re-fetch must not blank the thread or flip the sides:
         // `.value` keeps the previously resolved username while the profile
-        // reloads, so only the FIRST resolve is ever held. (An invalidate
-        // keeps `asData` too; the explicit `refresh()` below does not.)
+        // reloads, so only the FIRST resolve is ever held. This invalidate()
+        // keeps `asData` too, so it cannot tell `asData` from `.value`; the
+        // refresh() tests that follow can, because refresh() sets an explicit
+        // loading state in which only `.value` still names me (todo 520).
         ProviderScope.containerOf(
           tester.element(find.byType(ForumConversationScreen)),
           listen: false,

@@ -150,27 +150,32 @@ void main() {
       Future<void> pump(AuthorAvatarCluster cluster) =>
           tester.pumpWidget(MaterialApp(home: Scaffold(body: cluster)));
 
-      await pump(const AuthorAvatarCluster(authors: []));
-      expect(find.byIcon(LucideIcons.users), findsOneWidget);
-      expect(
-        tester.getSemantics(find.byType(AuthorAvatarCluster)).label,
-        'No members',
-      );
+      // Released even when an expect fails, so the handle cannot leak into
+      // later tests. Not addTearDown: flutter_test checks that every handle
+      // is disposed at the END of the body, before tearDowns run (todo 520).
+      try {
+        await pump(const AuthorAvatarCluster(authors: []));
+        expect(find.byIcon(LucideIcons.users), findsOneWidget);
+        expect(
+          tester.getSemantics(find.byType(AuthorAvatarCluster)).label,
+          'No members',
+        );
 
-      await pump(
-        AuthorAvatarCluster(
-          viewerUsername: 'me',
-          authors: [author(username: 'me')],
-        ),
-      );
-      expect(find.byIcon(LucideIcons.users), findsOneWidget);
-      expect(
-        tester.getSemantics(find.byType(AuthorAvatarCluster)).label,
-        'No other members',
-      );
-      expect(tester.takeException(), isNull);
-
-      handle.dispose();
+        await pump(
+          AuthorAvatarCluster(
+            viewerUsername: 'me',
+            authors: [author(username: 'me')],
+          ),
+        );
+        expect(find.byIcon(LucideIcons.users), findsOneWidget);
+        expect(
+          tester.getSemantics(find.byType(AuthorAvatarCluster)).label,
+          'No other members',
+        );
+        expect(tester.takeException(), isNull);
+      } finally {
+        handle.dispose();
+      }
     });
   });
 }

@@ -10,6 +10,7 @@ import 'package:riverpod_annotation/riverpod_annotation.dart';
 import '../core/utils/log_redaction.dart';
 import 'api_service.dart';
 import 'push_registration_service.dart';
+import 'user_profile_service.dart';
 
 part 'auth_service.g.dart';
 
@@ -484,6 +485,9 @@ class AuthService extends _$AuthService {
       // forget: syncAfterLogin catches everything internally, so a push-
       // registration failure can never break login (todo 253 slice 6).
       unawaited(ref.read(pushRegistrationServiceProvider).syncAfterLogin());
+      // And fetch this account's profile, not the one a mounted screen still
+      // holds from before the sign-out (todo 520).
+      _refetchAccountProfile();
 
       if (kDebugMode) {
         debugPrint('[AUTH] JWT token exchange successful');
@@ -674,11 +678,14 @@ class AuthService extends _$AuthService {
     // with it (todo 498).
     ref.read(apiServiceProvider).replaceAuthToken(jwtToken);
     // The launch exchange failed and this refresh is what signed the user in,
-    // so it is also the login that registers push (todo 498).
+    // so it is also the login that registers push (todo 498) and fetches the
+    // account profile again (todo 520). A same-session refresh is neither:
+    // the profile a screen holds is still this account's.
     final completesLogin = state.jwtToken == null;
     state = state.copyWith(firebaseUser: user, jwtToken: jwtToken);
     if (completesLogin) {
       unawaited(ref.read(pushRegistrationServiceProvider).syncAfterLogin());
+      _refetchAccountProfile();
     }
     if (kDebugMode) {
       debugPrint('[AUTH] Access token refreshed');
@@ -702,10 +709,51 @@ class AuthService extends _$AuthService {
     // that lands meanwhile sees the session over and does not start a second
     // sign-out (todo 498).
     ref.read(apiServiceProvider).setAuthToken(null);
+    // Forget whose account this was. A forum screen that is still mounted
+    // reads the account profile's `.value`, which keeps the last profile
+    // through a reload and a failed refresh by design (todo 507) — so
+    // without this the previous user's username would attribute messages
+    // until that screen unmounted. The profile-screen logout clears it
+    // itself; this is the app's only other sign-out path (todo 520).
+    // `clear()`, not `invalidate()`: a rebuild keeps the old profile in
+    // `.value` while it re-fetches, and that fetch would go out anonymous
+    // into Riverpod's retry loop. Guarded, because reading an unwatched
+    // autoDispose provider would build it and start that same fetch. The
+    // next completed sign-in fetches it again (_refetchAccountProfile).
+    if (ref.exists(userProfileServiceProvider)) {
+      ref.read(userProfileServiceProvider.notifier).clear();
+    }
     await _clearJWT();
     await _firebaseAuth.signOut();
 
     state = const AuthState(error: message);
+  }
+
+  /// Fetch the account profile again for the account that just signed in,
+  /// when a screen still holds the provider.
+  ///
+  /// A session-expiry sign-out leaves it at `AsyncData(null)`
+  /// ([_handleSessionExpired]), and nothing else fetched it again. The
+  /// provider is autoDispose, but a watcher on an OFFSTAGE tab keeps it
+  /// alive: go_router wraps an inactive `StatefulShellRoute.indexedStack`
+  /// branch in `TickerMode(enabled: false)`, flutter_riverpod pauses a
+  /// widget's subscriptions under it, and Riverpod never disposes a provider
+  /// that still has (paused) listeners. An expiry on a route that is not
+  /// protected never redirects either, so the sign-in screen is PUSHED over
+  /// the still-mounted shell — and after a re-login ProfileScreen read that
+  /// null as "No profile data available", a data state with no Retry, until
+  /// the process restarted (todo 520 review).
+  ///
+  /// Invalidate, not `clear()`: the rebuild fetches under the bearer just
+  /// installed, and for a different account it replaces the last one's
+  /// profile. Riverpod rebuilds an invalidated provider only when something
+  /// actively listens, so with every watcher paused the rebuild waits for the
+  /// next read — ProfileScreen's fresh watch, or the tab coming back
+  /// on-screen. No `ref.exists` guard: invalidating a provider nothing holds
+  /// is a no-op (it is not built), and a screen's first watch builds it
+  /// under the new bearer when it is wanted.
+  void _refetchAccountProfile() {
+    ref.invalidate(userProfileServiceProvider);
   }
 
   /// Clear stored JWT tokens
