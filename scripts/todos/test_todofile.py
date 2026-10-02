@@ -112,7 +112,45 @@ def main():
         check("475: field_problem is None for an absent key (set_fields appends it)",
               tf.field_problem(before, "triage") is None)
 
-        check("no frontmatter reads as None",tf.read_frontmatter(write(tmp, "# prose\n", "old.md")) is None)
+        # Todo 506: set_fields must refuse -- writing nothing -- whenever the rewrite would
+        # leave frontmatter that reads differently, and must not refuse a key it can set.
+        def refusal(name, frontmatter):
+            path = write(tmp, f"---\n{frontmatter}---\n# t\n", name)
+            before = path.read_text()
+            try:
+                tf.set_fields(path, {"source_review": "docs/reviews/a-COMPLETED.md"})
+                return "", path.read_text() == before
+            except ValueError as exc:
+                return str(exc), path.read_text() == before
+
+        for label, frontmatter in [("a blank line", 'source_review:\n\n  "docs/reviews/a.md"\n'),
+                                   ("a comment line", 'source_review:\n# moved\n  "docs/reviews/a.md"\n')]:
+            raised, untouched = refusal("417-pending-p3-m.md", "status: pending\n" + frontmatter)
+            check(f"506 #1: a value after {label} is multi-line; refused, file untouched",
+                  "multi-line" in raised and untouched, raised)
+        raised, untouched = refusal("418-pending-p3-b.md", 'source_review: "docs/reviews/a.md"\n\nstatus: pending\n')
+        check("506 #1: a blank line before the next key is not a multi-line value", raised == "", raised)
+        raised, untouched = refusal("419-pending-p3-d.md", "source_review : a\nsource_review: b\n")
+        check("506 #11: a key on two lines is refused, file untouched (YAML keeps the last one)",
+              "more than one line" in raised and untouched, raised)
+        raised, untouched = refusal("420-pending-p3-d.md", 'source_review: a\n"source_review": b\n')
+        check("506 #12: a later quoted duplicate that would still win is refused, file untouched",
+              "cannot rewrite" in raised and untouched, raised)
+        raised, untouched = refusal("421-pending-p3-a.md", "source_review: &r a\nalso: *r\n")
+        check("506 #1: a rewrite that would change another key (here an alias) is refused, file untouched",
+              "cannot rewrite" in raised and untouched, raised)
+        bad_date = write(tmp, "---\ncreated: 2026-02-30\nstatus: pending\n---\n# t\n", "422-pending-p3-v.md")
+        try:
+            tf.set_fields(bad_date, {"triage": "ready"})
+            raised = ""
+        except ValueError as exc:
+            raised = str(exc)
+        check("506 #13: an impossible date elsewhere keeps the append behaviour, not a ValueError",
+              raised == ""
+              and bad_date.read_text().startswith("---\ncreated: 2026-02-30\nstatus: pending\ntriage: ready\n"),
+              raised or bad_date.read_text())
+
+        check("no frontmatter reads as None", tf.read_frontmatter(write(tmp, "# prose\n", "old.md")) is None)
         comment = write(tmp, "---\nstatus: in_progress  # Change from pending\n---\n# t\n", "414-in_progress-p3-z.md")
         check("a YAML comment is not part of the value", tf.read_frontmatter(comment)["status"] == "in_progress")
 

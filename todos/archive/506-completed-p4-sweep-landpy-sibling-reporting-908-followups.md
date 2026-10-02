@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: p4
 issue_id: "506"
 tags: [tooling, todo-sweep]
@@ -69,8 +69,32 @@ PR #908 (todo 475) merged after two review rounds in todo-sweep run 2026-10-01-0
 
 ## Acceptance Criteria
 
-- [ ] Each finding above is fixed with a test, or the Work Log records why it was left as is.
+- [x] Each finding above is fixed with a test, or the Work Log records why it was left as is.
 
 ## Work Log
 
 - 2026-09-30: Filed from todo-sweep run 2026-10-01-0121, PR #908 review rounds 1-2.
+
+### 2026-10-01 - Implemented by the todo sweep (run 2026-10-02-0118)
+
+- Findings 1, 11, 12, 13 (`todofile.field_problem`): blank and comment-only lines no longer end a value, so a value after them is refused as multi-line. A key set on more than one line is refused. The rewrite is now done in memory and read back: if the key does not take the new value, or any other key changes (a later quoted duplicate, an anchor another key aliases), it is refused. An impossible date (`ValueError`) is caught next to `YAMLError`, so an absent key is still appended. Each case has a `506 #N` check in `test_todofile.py`. Across every real todo, the only new refusal is `todos/archive/086-…`, whose frontmatter holds unresolved merge-conflict markers and two `status:` lines.
+- Findings 2-6 (`land._mentions`): an unreadable sibling counts only when a top-level `source_review` line, plus any indented continuation, names the review file as a whole path segment. `./` and `../` spellings and a quoted key still match. Other fields and longer names (`x-s.md`, `s.md.bak`, `tests.md`) do not. Covered by `_mentions` and `_siblings` checks in `test_land.py`.
+- Findings 7 and 9: the 475 block now asserts the review note ends `; 4 sibling todo(s) not rewritten`, and every `apply_review` result carries `skipped_siblings` (`[]` on the no-rename paths).
+- Finding 8: the skipped-sibling bullets moved into `land._skipped_notes`, which also passes `source` and `completed` through `_sanitize`. A test feeds it U+2028, `\n`, U+0085 and U+2029 and checks the output stays one line.
+- Finding 10: the space after the comma in the existing `no frontmatter reads as None` check is restored. It is a whitespace-only fix and has no test.
+
+### 2026-10-01 - Verified by the todo sweep (run 2026-10-02-0118)
+
+- AC 1: `python3 /Users/williamtower/projects/plant_id_community/.claude/worktrees/wf_4cfc8bb3-2ac-2/scripts/todos/test_todofile.py && python3 /Users/williamtower/projects/plant_id_community/.claude/worktrees/wf_4cfc8bb3-2ac-2/scripts/todos/test_land.py && grep -n "no frontmatter reads as None" /Users/williamtower/projects/plant_id_community/.claude/worktrees/wf_4cfc8bb3-2ac-2/scripts/todos/test_todofile.py` — evidence `.sweep-evidence/g5/506-ac0.txt`, last lines:
+
+  ```text
+    PASS  m9: no worker Work Log heading satisfies Land's Verified-note check
+    PASS  m9: flip_acs's own heading still does
+
+  All checks passed.
+  153:        check("no frontmatter reads as None", tf.read_frontmatter(write(tmp, "# prose\n", "old.md")) is None)
+  ```
+
+### 2026-10-01 - Completed by the todo sweep (run 2026-10-02-0118)
+
+- Archived by `land.py archive`; evidence is quoted above, review is on the PR.

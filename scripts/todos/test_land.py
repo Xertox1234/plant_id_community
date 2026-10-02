@@ -1421,6 +1421,58 @@ def main():
               and not expected & set(result["paths"]), result["paths"])
         check("475: the archived file still passes the CI tripwire",
               check_archived_todo_status.parse(str(repo / result["archived"]))[3] == [])
+        check("506 #7/#9: the review note counts the siblings it did not rewrite",
+              review.get("note", "").endswith("; 4 sibling todo(s) not rewritten"), review.get("note"))
+
+    # Todo 506, findings 2-6: an unreadable sibling is reported when, and only when, its
+    # `source_review` line names the review doc as a whole path segment -- however the path
+    # is spelled -- never for another field or a longer name that merely contains it.
+    with tempfile.TemporaryDirectory() as tmp:
+        repo = Path(tmp) / "repo"
+        (repo / "todos" / "archive").mkdir(parents=True)
+        (repo / "docs" / "reviews").mkdir(parents=True)
+        (repo / "docs/reviews/s.md").write_text("# R\n")
+        broken = "tags: [unclosed\n"
+        cases = {
+            "dot-slash": ('source_review: "./docs/reviews/s.md"\n', True),
+            "dot-dot": ('source_review: "docs/reviews/../reviews/s.md"\n', True),
+            "quoted key, spaced colon": ("'source_review' : 'docs/reviews/s.md'\n", True),
+            "block scalar": ("source_review: >-\n  docs/reviews/s.md\n", True),
+            "another field": ('notes: "see docs/reviews/s.md"\nsource_review: "docs/reviews/other.md"\n', False),
+            "prefixed name": ('source_review: "docs/reviews/x-s.md"\n', False),
+            "suffixed name": ('source_review: "docs/reviews/s.md.bak"\n', False),
+            "name inside a word": ('source_review: "docs/reviews/tests.md"\n', False),
+        }
+        paths = {}
+        for n, (label, (line, _)) in enumerate(cases.items()):
+            paths[label] = repo / "todos" / f"{720 + n}-pending-p3-x.md"
+            paths[label].write_text(f'---\nstatus: pending\nissue_id: "{720 + n}"\n{line}{broken}---\n\n# T\n')
+        wrong = [label for label, (_, want) in cases.items() if land._mentions(paths[label], "s.md") != want]
+        check("506 #2-#6: _mentions matches the review name only as a source_review path segment", wrong == [], wrong)
+        own = repo / "todos" / "719-pending-p3-x.md"
+        own.write_text('---\nstatus: pending\nsource_review: "docs/reviews/s.md"\n---\n')
+        _, skipped = land._siblings(repo, (repo / "docs/reviews/s.md").resolve(), own)
+        want = {paths[label].relative_to(repo).as_posix() for label, (_, hit) in cases.items() if hit}
+        check("506 #2-#6: _siblings reports exactly the unreadable siblings that point at the review",
+              {s["path"] for s in skipped} == want, skipped)
+
+        # Finding 7: every apply_review result has the same shape, skipped_siblings included.
+        (repo / "docs/reviews/t.md").write_text("# R\n")
+        noop = land.apply_review(repo, {"finding": "1", "action": "noop", "note": "n"}, own)
+        kept = land.apply_review(repo, {"finding": "1", "action": "checkoff", "note": "checked off",
+                                        "source": "docs/reviews/t.md", "new_lines": ["# R\n"], "renamed": False}, own)
+        check("506 #7: apply_review returns skipped_siblings on the no-rename paths too",
+              noop.get("skipped_siblings") == [] and kept.get("skipped_siblings") == [], (noop, kept))
+
+    # Finding 8: the review paths in the skipped-sibling Work Log bullets are flattened too,
+    # so a file name with a line separator cannot start a forged heading.
+    plan = {"source": "docs/reviews/s ### forged.md", "completed": "docs/reviews/s\n## forged-COMPLETED.md",
+            "skipped_siblings": [{"path": "todos/7\x85# p.md", "reason": "r # q"}]}
+    notes = land._skipped_notes(plan)
+    check("506 #8: every value in a skipped-sibling bullet is sanitised; it stays one line",
+          len(notes.splitlines()) == 1 and notes.startswith("- Sibling `todos/7 # p.md` still names "
+                                                            "`docs/reviews/s ### forged.md`"), notes)
+    check("506 #8: no plan means no bullets", land._skipped_notes(None) == "")
 
     # Final review m9: no Work Log heading a worker is told to write may satisfy Land's
     # "evidence is quoted above" check -- only flip_acs's own heading does.
