@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { Editor } from '@tiptap/core';
+import { Editor } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
 import { ForumMention, resolveMentionSuggestions } from './forumMentionNode';
 import { searchForumUsers } from '../../services/forumService';
