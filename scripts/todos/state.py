@@ -1122,9 +1122,10 @@ def _land_only_diff(path, tree_id, actual):
     Land itself writes (todos/, docs/reviews/, .secrets.baseline) -- R3: a
     resumed Land staging and committing its own edits must not read as lost
     work -- or one a pre-commit fixer rewrote (todo 512, owner decision
-    2026-10-01): every changed line differs only by trailing whitespace or by
-    blank lines at end of file. An empty current tree against a non-empty
-    recorded one is never accepted, whatever the diff says.
+    2026-10-01): its new contents are exactly what `trailing-whitespace` and
+    `end-of-file-fixer` make of the recorded ones (todo 513). An empty current
+    tree against a non-empty recorded one is never accepted, whatever the diff
+    says.
     """
     if not run_git(path, "ls-tree", "-r", "--name-only", actual).strip():
         return False
@@ -1135,14 +1136,16 @@ def _land_only_diff(path, tree_id, actual):
 
 
 def _fixer_only_change(path, tree_id, actual, rel):
-    """True when `rel` is a regular file in both trees, with the same mode, whose contents differ
-    only as `trailing-whitespace` and `end-of-file-fixer` would make them differ: trailing
-    whitespace on a line, or blank lines (or the final newline) at end of file (todo 512). On
-    PR #907 end-of-file-fixer dropped one trailing blank line from a verified .md during the Land
-    commit, and the next ensure-worktree read that as lost work. Whitespace inside a line, a blank
-    line anywhere but the end, an added, deleted or re-moded file, a binary file (one with a NUL
-    byte; the fixers skip those), a symlink or a submodule is still a real change: it fails
-    closed."""
+    """True when `rel` is a regular file in both trees, with the same mode, whose new contents are
+    exactly the configured fixers' output on the recorded ones (todo 512; tightened by todo 513,
+    owner decision 2026-10-01). On PR #907 end-of-file-fixer dropped one trailing blank line from a
+    verified .md during the Land commit, and the next ensure-worktree read that as lost work.
+    Anything a fixer would not have produced from the verified bytes still fails closed: trailing
+    whitespace or end-of-file blank lines added, a final newline dropped, a .md two-space hard break
+    removed, a line ending flipped either way (CRLF to LF included, although mixed-line-ending
+    --fix=lf makes that one: the owner chose to refuse it), whitespace inside a line, a blank line
+    anywhere but the end, an added, deleted or re-moded file, a binary file (one with a NUL byte;
+    the fixers skip those), a symlink or a submodule."""
     modes = []
     for tree in (tree_id, actual):
         listing = run_git(path, "--literal-pathspecs", "ls-tree", "-z", tree, "--", rel).split("\0")[0]
@@ -1152,7 +1155,7 @@ def _fixer_only_change(path, tree_id, actual, rel):
     before, after = _blob(path, tree_id, rel), _blob(path, actual, rel)
     if b"\0" in before or b"\0" in after:
         return False
-    return _fixer_normal(before) == _fixer_normal(after)
+    return after == _fixer_output(before, rel)
 
 
 def _blob(path, tree, rel):
@@ -1162,10 +1165,28 @@ def _blob(path, tree, rel):
     return proc.stdout
 
 
-def _fixer_normal(data):
-    """`data` with each line's trailing ASCII whitespace and the blank lines at its end removed --
-    bytes.rstrip(), as the pre-commit fixers strip, so no non-ASCII character counts as space."""
-    return b"\n".join(line.rstrip() for line in data.split(b"\n")).rstrip(b"\n")
+def _fixer_output(data, rel):
+    """What `trailing-whitespace --markdown-linebreak-ext=md` and then `end-of-file-fixer` (the
+    order .pre-commit-config.yaml runs them in; pre-commit-hooks v4.5.0) write for `data` at `rel`."""
+    markdown = posixpath.splitext(rel.lower())[1] == ".md"  # the hook's own test, so ".md" alone is not one
+    out, lines = [], data.split(b"\n")  # readlines() splits on \n only, never on a lone \r
+    for i, line in enumerate(lines):
+        eol = b"\n" if i < len(lines) - 1 else b""
+        if eol and line.endswith(b"\r"):
+            line, eol = line[:-1], b"\r\n"
+        if markdown and not line.isspace() and line.endswith(b"  "):
+            line = line[:-2].rstrip() + b"  "  # a .md hard break keeps exactly two spaces
+        else:
+            line = line.rstrip()  # ASCII whitespace only, as the hook strips it
+        out.append(line + eol)
+    text = b"".join(out)
+    if text[-1:] not in (b"\n", b"\r"):
+        return text + b"\n" if text else text  # an empty file stays empty
+    body = text.rstrip(b"\r\n")
+    if not body:
+        return b""  # a file of nothing but line breaks is emptied
+    tail = text[len(body):]
+    return body + next(seq for seq in (b"\n", b"\r\n", b"\r") if tail.startswith(seq))
 
 
 def _is_land_path(p):

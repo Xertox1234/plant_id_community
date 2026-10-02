@@ -28,6 +28,14 @@ REVIEW_DIFF=$(git diff --cached)
 # the engine budgets for. With --verify deterministic the engine makes one draft call:
 # up to 3 attempts (call_with_retry retries=2) of up to 90 s each (the OpenAI client
 # timeout) plus 1 s + 2 s backoff = 273 s, all under its 330 s KIMI_REVIEW_BUDGET_SECONDS.
+# That 273 s covers the API attempts only: the engine's own setup (gathering context,
+# building the prompt) and the deterministic verify come on top, so a run whose setup
+# takes more than ~27 s can still hit this backstop on a third attempt and print
+# "timed out" -- the gate then fails open. Lowering KIMI_REVIEW_BUDGET_SECONDS would not
+# prevent that: the engine checks its deadline only before an attempt starts, so an
+# in-flight 90 s call overruns any budget (todo 513).
+# The PreToolUse hook (.claude/hooks/kimi-review.sh) is capped at 300 s in
+# .claude/settings.json to match this gate.
 # The old 150 s cut off any review whose first attempt hit the 90 s client timeout
 # before its retry could finish -- the likely (not measured) cause of 7 of 10 Land
 # commits in todo-sweep run 2026-10-01-0121 printing "timed out" (todo 512).

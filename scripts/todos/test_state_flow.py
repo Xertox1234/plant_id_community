@@ -11,6 +11,7 @@ moved, or leaves the working tree dirty, must void the verdict.
 import copy
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -712,7 +713,10 @@ def main():
     # Todo 512 (owner decision 2026-10-01): a pre-commit fixer rewriting a verified file during the
     # Land commit -- trailing whitespace, blank lines at end of file -- is not lost work. On PR #907
     # end-of-file-fixer dropped one trailing blank line from a .md and ensure-worktree refused.
-    # Anything more than that is still a real change and still refuses.
+    # Todo 513 (owner decision 2026-10-01) tightened it: a path passes only when its new contents are
+    # exactly what trailing-whitespace (--markdown-linebreak-ext=md) and end-of-file-fixer make of the
+    # verified ones. Anything else -- whitespace added, a final newline dropped, a .md hard break
+    # removed, a line ending flipped either way -- is still a real change and still refuses.
     with tempfile.TemporaryDirectory() as tmp:
         repo = Path(tmp) / "repo"
         subprocess.run(["git", "init", "-q", "-b", "main", str(repo)], check=True)
@@ -722,16 +726,22 @@ def main():
         subprocess.run(["git", "-C", str(repo), "worktree", "add", "-q", "-b", "worktree-fx", str(fx)], check=True)
         verified = {"doc.md": b"# Doc\n\ntext  \nmore\t\n\n", "b.py": b"a = 1\nb = 2\n", "c.txt": b"no newline",
                     "bin.dat": b"\0x  \n", "todos/100-x.md": b"todo\n",
-                    "web/docs/patterns/p.md": b"# P\n\ntext\n\n"}
+                    "web/docs/patterns/p.md": b"# P\n\ntext\n\n", "notes.txt": b"x  \ny\t\n\n",
+                    "s.py": b'S = """\nline  \n"""\n', "crlf.txt": b"a \r\nb\r\n\r\n"}
+        verified_links = {"link": "b.py \n"}  # its fixer output, as a blob, is b"b.py\n"
         for rel, data in verified.items():
             (fx / rel).parent.mkdir(parents=True, exist_ok=True)
             (fx / rel).write_bytes(data)
+        for rel, target in verified_links.items():
+            os.symlink(target, fx / rel)
         subprocess.run(["git", "-C", str(fx), "add", "-A"], check=True)
         recorded = subprocess.run(["git", "-C", str(fx), "write-tree"], capture_output=True, text=True).stdout.strip()
 
-        def fixer_case(label, changes, accepted, chmod=None):
-            """Apply `changes` ({path: bytes, or None to delete}) and an optional chmod, stage them,
-            run ensure_worktree against the recorded tree, then put the verified tree back."""
+        def fixer_case(label, changes, accepted, chmod=None, links=None, gitlink=None):
+            """Apply `changes` ({path: bytes, or None to delete}), an optional chmod, `links` ({path:
+            symlink target}, replacing what is there) and an optional `gitlink` (a path whose index
+            entry becomes a submodule, mode 160000), stage them, run ensure_worktree against the
+            recorded tree, then put the verified tree back."""
             for rel, data in changes.items():
                 if data is None:
                     (fx / rel).unlink()
@@ -739,53 +749,117 @@ def main():
                     (fx / rel).write_bytes(data)
             if chmod:
                 os.chmod(fx / chmod, 0o755)
+            for rel, target in (links or {}).items():
+                (fx / rel).unlink()
+                os.symlink(target, fx / rel)
             subprocess.run(["git", "-C", str(fx), "add", "-A"], check=True)
+            if gitlink:
+                head = subprocess.run(["git", "-C", str(fx), "rev-parse", "HEAD"], capture_output=True,
+                                      text=True).stdout.strip()
+                subprocess.run(["git", "-C", str(fx), "update-index", "--cacheinfo", f"160000,{head},{gitlink}"],
+                               check=True)
             run_fx = worktree_run("fx1", "gfx", "worktree-fx", worktree=str(fx), tree_id=recorded)
             _, err = expect(lambda: state.ensure_worktree(run_fx, "gfx", Path(tmp) / "scratch"))
             ok = err is None if accepted else isinstance(err, RuntimeError) and "lost its staged work" in str(err)
             check(f"512: {label}", ok, err)
-            for rel in changes:
-                if rel in verified:
+            for rel in list(changes) + list(links or {}):
+                (fx / rel).unlink(missing_ok=True)
+                if rel in verified_links:
+                    os.symlink(verified_links[rel], fx / rel)
+                elif rel in verified:
                     (fx / rel).write_bytes(verified[rel])
-                else:
-                    (fx / rel).unlink()
             if chmod:
                 os.chmod(fx / chmod, 0o644)
+            if gitlink:
+                blob = subprocess.run(["git", "-C", str(fx), "rev-parse", f"{recorded}:{gitlink}"],
+                                      capture_output=True, text=True).stdout.strip()
+                subprocess.run(["git", "-C", str(fx), "update-index", "--cacheinfo", f"100644,{blob},{gitlink}"],
+                               check=True)
             subprocess.run(["git", "-C", str(fx), "add", "-A"], check=True)
             back = subprocess.run(["git", "-C", str(fx), "write-tree"], capture_output=True, text=True).stdout.strip()
             check(f"512: ({label}) -- the verified tree is restored", back == recorded, back)
 
+        # doc.md's "text  " is a .md hard break: trailing-whitespace keeps it, and strips the tab.
         fixer_case("end-of-file-fixer dropping a trailing blank line is accepted (the PR #907 case)",
-                   {"doc.md": b"# Doc\n\ntext  \nmore\t\n"}, True)
+                   {"doc.md": b"# Doc\n\ntext  \nmore\n"}, True)
         fixer_case("... also for a file three directories deep, as on PR #907",
                    {"web/docs/patterns/p.md": b"# P\n\ntext\n"}, True)
         fixer_case("... and a real change three directories deep still refuses",
                    {"web/docs/patterns/p.md": b"# P\n\nother\n"}, False)
-        fixer_case("trailing-whitespace stripping lines is accepted", {"doc.md": b"# Doc\n\ntext\nmore\n\n"}, True)
+        fixer_case("trailing-whitespace stripping lines is accepted", {"notes.txt": b"x\ny\n"}, True)
         fixer_case("end-of-file-fixer adding a missing final newline is accepted", {"c.txt": b"no newline\n"}, True)
         fixer_case("a fixer change beside Land's own todos/ edit is accepted",
-                   {"doc.md": b"# Doc\n\ntext\nmore\n", "todos/100-x.md": b"todo, archived\n"}, True)
+                   {"doc.md": b"# Doc\n\ntext  \nmore\n", "todos/100-x.md": b"todo, archived\n"}, True)
         fixer_case("a real content change still refuses", {"b.py": b"a = 1\nb = 3\n"}, False)
         fixer_case("whitespace inside a line still refuses", {"b.py": b"a  = 1\nb = 2\n"}, False)
         fixer_case("a blank line removed mid-file still refuses", {"doc.md": b"# Doc\ntext  \nmore\t\n\n"}, False)
         fixer_case("a blank line added mid-file still refuses", {"b.py": b"a = 1\n\nb = 2\n"}, False)
         fixer_case("a fixer change beside a real change still refuses",
-                   {"doc.md": b"# Doc\n\ntext\nmore\n", "b.py": b"a = 1\n"}, False)
+                   {"doc.md": b"# Doc\n\ntext  \nmore\n", "b.py": b"a = 1\n"}, False)
         fixer_case("a deleted verified file still refuses", {"b.py": None}, False)
         fixer_case("an added file outside Land's paths still refuses", {"new.py": b"x = 1\n"}, False)
         fixer_case("a mode change with the same content still refuses", {}, False, chmod="b.py")
         fixer_case("a binary file's trailing-space change still refuses", {"bin.dat": b"\0x\n"}, False)
+        # Todo 513 findings 1 and 9: only what the fixers would write passes, never the reverse.
+        fixer_case("513: trailing whitespace added still refuses", {"b.py": b"a = 1 \nb = 2\n"}, False)
+        fixer_case("513: a trailing \\v added still refuses", {"b.py": b"a = 1\x0b\nb = 2\n"}, False)
+        fixer_case("513: a blank line added at end of file still refuses", {"b.py": b"a = 1\nb = 2\n\n"}, False)
+        fixer_case("513: a dropped final newline still refuses", {"b.py": b"a = 1\nb = 2"}, False)
+        fixer_case("513: a .md hard break removed still refuses (the hook keeps it)",
+                   {"doc.md": b"# Doc\n\ntext\nmore\n"}, False)
+        fixer_case("513: an end-of-file fix that leaves the other fixer's whitespace still refuses",
+                   {"notes.txt": b"x  \ny\t\n"}, False)
+        fixer_case("513: LF flipped to CRLF still refuses", {"b.py": b"a = 1\r\nb = 2\r\n"}, False)
+        fixer_case("513: CRLF flipped to LF still refuses (owner decision, though mixed-line-ending makes it)",
+                   {"crlf.txt": b"a\nb\n"}, False)
+        fixer_case("513: ... while the fixers' CRLF-preserving output on that file is accepted",
+                   {"crlf.txt": b"a\r\nb\r\n"}, True)
+        # Finding 8: the fixer strips trailing whitespace inside a string literal on every commit, so the
+        # verified bytes could never ship as they were; the result is accepted on purpose.
+        fixer_case("513: trailing whitespace stripped inside a .py string literal is accepted",
+                   {"s.py": b'S = """\nline\n"""\n'}, True)
+        # Finding 10: symlinks and submodules fail closed, even when the bytes are the fixers' output.
+        fixer_case("513: a symlink whose target loses trailing whitespace, as a fixer would, still refuses", {},
+                   False, links={"link": "b.py\n"})
+        fixer_case("513: a file turned into a symlink (120000) to its fixer output still refuses", {}, False,
+                   links={"c.txt": "no newline\n"})
+        fixer_case("513: a file turned into a submodule (160000) still refuses", {}, False, gitlink="c.txt")
 
-        # Finding 5's recovery for a wedged CI run: an empty commit after Land keeps the tree, so the
-        # recorded tree_id (and the reviews of it) still holds.
+        # Todo 512's recovery for a wedged CI run, as todo 513 findings 11/12 asked: after a Land commit
+        # that carries its own todos/ edit and a fixer rewrite (so the index is no longer the recorded
+        # tree and ensure_worktree must go through _land_only_diff), an empty commit keeps the tree.
+        def git_out(*args):
+            return subprocess.run(["git", "-C", str(fx), *args], capture_output=True, text=True).stdout.strip()
+
+        (fx / "todos" / "100-x.md").write_bytes(b"todo, archived\n")
+        (fx / "doc.md").write_bytes(b"# Doc\n\ntext  \nmore\n")
+        subprocess.run(["git", "-C", str(fx), "add", "-A"], check=True)
+        landed = git_out("write-tree")
+        run_fx = worktree_run("fx1", "gfx", "worktree-fx", worktree=str(fx), tree_id=recorded)
+        _, err = expect(lambda: state.ensure_worktree(run_fx, "gfx", Path(tmp) / "scratch"))
+        check("513: the Land tree differs from the recorded one and ensure-worktree accepts it",
+              landed != recorded and err is None, err)
         subprocess.run(["git", "-C", str(fx), "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q",
                         "-m", "land"], check=True)
+        quiet = subprocess.run(["git", "-C", str(fx), "diff", "--cached", "--quiet", "HEAD"]).returncode
+        check("513: after the Land commit nothing is staged against HEAD", quiet == 0, quiet)
         subprocess.run(["git", "-C", str(fx), "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q",
                         "--allow-empty", "-m", "ci: retrigger a wedged run"], check=True)
-        run_fx = worktree_run("fx1", "gfx", "worktree-fx", worktree=str(fx), tree_id=recorded)
+        check("513: the empty commit keeps the index tree and HEAD's tree",
+              git_out("write-tree") == landed and git_out("rev-parse", "HEAD^{tree}") == landed
+              and git_out("rev-parse", "HEAD~1^{tree}") == landed,
+              (git_out("write-tree"), git_out("rev-parse", "HEAD^{tree}"), landed))
         path_fx, err = expect(lambda: state.ensure_worktree(run_fx, "gfx", Path(tmp) / "scratch"))
         check("512: an empty commit on top of the Land commit passes ensure-worktree unchanged",
               err is None and path_fx == str(fx), err)
+        # Findings 3/4: why the runbook checks `diff --cached --quiet HEAD` before the empty commit --
+        # ensure_worktree lets a staged todos/ edit through, and the commit would push it unreviewed.
+        (fx / "todos" / "100-x.md").write_bytes(b"todo, edited after review\n")
+        subprocess.run(["git", "-C", str(fx), "add", "-A"], check=True)
+        _, err = expect(lambda: state.ensure_worktree(run_fx, "gfx", Path(tmp) / "scratch"))
+        quiet = subprocess.run(["git", "-C", str(fx), "diff", "--cached", "--quiet", "HEAD"]).returncode
+        check("513: a staged todos/ edit passes ensure-worktree, so only the HEAD check catches it",
+              err is None and quiet == 1, (err, quiet))
 
     # R4: ensure_worktree must use the entry's main_root for -C, not the process cwd.
     # Uses the real run_git (no override) and runs from a cwd outside the repo, so a
@@ -1329,13 +1403,28 @@ def runbook_tests():
           all("--repo" in line for line in merges), [line for line in merges if "--repo" not in line])
     stage_b = skill.split("## Stage B", 1)[1].split("\n2. ", 1)[0]
     check("512: Stage B step 1 says waves start at 0", "Waves start at 0" in stage_b, stage_b)
-    run = ready_run([("w1", ["w1.py"])], workers=1)
+    # Todo 513 findings 13-15: two waves, so wave 1 exists and only the wave-ordering guard can refuse it.
+    run = ready_run([("w1", ["w1.py"]), ("w2", ["w2.py"])], workers=1)
     state.apply_grouping(run)
-    check("512: ... and wave 0 is a fresh run's first wave", raises(lambda: state.execute_args(run, 1, "/m"), Exception)
-          and expect(lambda: state.execute_args(run, 0, "/m"))[1] is None)
+    _, early = expect(lambda: state.execute_args(run, 1, "/m"))
+    check("512: ... a fresh run has waves 0 and 1, and wave 1 waits for wave 0",
+          len(run["waves"]) == 2 and isinstance(early, state.TransitionError)
+          and "wave 0 has not finished executing" in str(early), (run["waves"], early))
+    check("512: ... and wave 0 is a fresh run's first wave", expect(lambda: state.execute_args(run, 0, "/m"))[1] is None)
     merge_section = skill.split("## Merge confirmation", 1)[1].split("\n## ", 1)[0]
     check("512: Merge confirmation gives the wedged-CI recovery (an empty commit between ensure-worktree runs)",
           "--allow-empty" in merge_section and "ensure-worktree" in merge_section, merge_section)
+    check("513: the wedged-CI recovery proves the commit is empty before and after it",
+          "diff --cached --quiet HEAD" in merge_section and "HEAD~1^{tree}" in merge_section, merge_section)
+    step6 = skill.split("## Stage D", 1)[1].split("\n6. ", 1)[1].split("\n7. ", 1)[0]
+    check("513: Stage D step 6 says what to do when a fixer aborts the Land commit",
+          "fixer" in step6 and "diff --name-only" in step6 and "re-run step 1" in step6, step6)
+    root = Path(os.path.abspath(__file__)).parents[2]
+    gate = re.search(r"^GATE_TIMEOUT=(\d+)$", (root / "scripts" / "kimi-precommit.sh").read_text(), re.M)
+    hooks = [h for entry in json.loads((root / ".claude" / "settings.json").read_text())["hooks"]["PreToolUse"]
+             for h in entry["hooks"] if "kimi-review.sh" in h.get("command", "")]
+    check("513: the kimi-review PreToolUse hook's timeout is no shorter than the pre-commit gate's",
+          bool(gate and hooks) and all(h.get("timeout", 0) >= int(gate.group(1)) for h in hooks), (gate, hooks))
 
 
 def residue_tests():

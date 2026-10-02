@@ -30,7 +30,7 @@
           {
             "type": "command",
             "command": "cd \"$(git rev-parse --show-toplevel 2>/dev/null || echo '.')\" && bash .claude/hooks/kimi-review.sh",
-            "timeout": 180,
+            "timeout": 300,
             "statusMessage": "Running kimi-review on staged changes..."
           },
           {
