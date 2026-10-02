@@ -794,17 +794,29 @@ def _exception_details_in_response_dicts(path):
                         id(value), (value.lineno, value.col_offset, ast.unparse(value))
                     )
 
-    # A def or lambda INSIDE a handler can read its exception; one after the
-    # handler cannot, since Python unbinds the name on exit (todo 490, finding
-    # 3: `except ... as error:` used to taint a later closure that read a
-    # rebound `error`). Filled by the parent's step and read by the child's --
+    # A def or lambda can read a handler's exception when it can RUN inside the
+    # handler: one defined inside it, or one defined BEFORE it and called from
+    # it -- `def fail(): return {"error": str(exc)}` ... `except E as exc:
+    # return fail()` leaks at runtime. One defined after the handler cannot,
+    # since Python unbinds the name on exit (todo 490, finding 3: `except ...
+    # as error:` used to taint a later closure that read a rebound `error`;
+    # the first fix seeded only the closures inside the handler and lost the
+    # earlier ones). Filled by the parent's step and read by the child's --
     # `_scopes` runs parents first.
     closure_seeds = {}
 
     def step(scope, inherited):
         seeds = set(inherited) | closure_seeds.get(id(scope), set())
         enclosed = _enclosed_tries(scope)
-        for try_node, handler in _named_handlers(scope):
+        handlers = list(_named_handlers(scope))
+        # The scope's own defs and lambdas, each with the names it binds itself
+        # (which shadow whatever a handler would seed).
+        closures = (
+            [(n, _local_names(n)) for n in _own_nodes(scope) if isinstance(n, _SCOPES)]
+            if handlers
+            else []
+        )
+        for try_node, handler in handlers:
             # The exception itself, plus any local derived from it in the handler.
             derived = _tainted_names(
                 handler,
@@ -812,10 +824,9 @@ def _exception_details_in_response_dicts(path):
             )
             visible = {handler.name} | derived
             check(_own_nodes(handler), visible)
-            for child in (n for n in _own_nodes(handler) if isinstance(n, _SCOPES)):
-                closure_seeds.setdefault(id(child), set()).update(
-                    visible - _local_names(child)
-                )
+            for child, own in closures:
+                if child.lineno <= handler.end_lineno:
+                    closure_seeds.setdefault(id(child), set()).update(visible - own)
             # Todo 440: `err = str(e)` in the handler, `return {"error": err}`
             # after the try. The derived locals outlive the handler, so they
             # seed a taint pass over the whole enclosing scope. The bound name
@@ -1335,12 +1346,14 @@ def test_the_guards_reach_past_the_handler_and_through_every_binding(tmp_path):
 # `nonlocal` rebinding no longer tainted its parent (a regression against the
 # flat walk). A comprehension's iteration variable counted as a child's local
 # and so hid the parent's tainted name of the same spelling. A handler's bound
-# name reached every nested def, not only the closures the handler contains. A
-# handler that always raises still seeded the code after the try. Unpacking
-# stopped one level deep and `match ... as` bound nothing. Each shape below is
-# pinned in both directions: the miss has a positive case, the false positive
-# a negative one, and each negative has the control that proves what made it
-# quiet.
+# name reached every nested def, not only the closures that can run inside the
+# handler -- those defined inside it, or before it and called from it (the
+# first fix kept only the former; round 1 of this todo's review caught the
+# regression). A handler that always raises still seeded the code after the
+# try. Unpacking stopped one level deep and `match ... as` bound nothing. Each
+# shape below is pinned in both directions: the miss has a positive case, the
+# false positive a negative one, and each negative has the control that proves
+# what made it quiet.
 
 PLANTED_SCOPE = """
 import logging
@@ -1419,6 +1432,26 @@ def lambda_in_a_handler_reads_the_exception():
     except Exception as e:
         render = lambda: {"detail": f"lambda {e}"}
         return render()
+
+
+def closure_before_the_handler_reads_the_exception():
+    # Defined before the handler, called from inside it: `exc` is bound when
+    # `fail` runs, so the dict carries the exception (probed at runtime).
+    def fail():
+        return {"error": f"earlier closure {exc}"}
+
+    try:
+        requests.get("https://example.invalid")
+    except Exception as exc:
+        return fail()
+
+
+def lambda_before_the_handler_reads_the_exception():
+    fail = lambda: {"detail": f"earlier lambda {exc}"}
+    try:
+        requests.get("https://example.invalid")
+    except Exception as exc:
+        return fail()
 
 
 def nested_unpacking_binds_every_name(response):
@@ -1550,6 +1583,20 @@ def approved_later_closure_reads_a_rebound_handler_name():
     return render()
 
 
+def approved_earlier_closure_rebinds_the_handler_name():
+    # An earlier closure is seeded with the handler's name minus what it binds
+    # itself, so its own `exc` shadows the exception: the control for the two
+    # `..._before_the_handler_...` positives above.
+    def fail():
+        exc = "Service unavailable"
+        return {"error": exc}
+
+    try:
+        requests.get("https://example.invalid")
+    except Exception as exc:
+        return fail()
+
+
 def approved_rebind_after_a_handler_that_raises():
     try:
         requests.get("https://example.invalid")
@@ -1587,6 +1634,8 @@ def test_the_guards_resolve_scopes_the_way_python_does(tmp_path):
         "err",  # nonlocal: a child's handler taints its parent
         "f'closure {e}'",  # a def inside the handler reads the exception
         "f'lambda {e}'",  # ...and so does a lambda
+        "f'earlier closure {exc}'",  # a def before the handler, called from it
+        "f'earlier lambda {exc}'",  # ...and so does a lambda
         "nested_detail",  # nested unpacking
         "whole",  # match ... as
         "rest",  # match [*rest]

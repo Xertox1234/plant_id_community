@@ -148,3 +148,24 @@ below, because this guard runs on every backend file.
 ### 2026-10-02 - Completed by the todo sweep (run 2026-10-02-0335)
 
 - Archived by `land.py archive`; evidence is quoted above, review is on the PR.
+
+### 2026-10-02 - Repaired by the todo sweep (run 2026-10-02-0335)
+
+- Round 1 found a regression in the finding-3 fix: `closure_seeds` seeded only the defs and
+  lambdas lexically inside a handler, so a closure defined before the handler and called from
+  it (`def fail(): return {"error": str(exc)}` ... `except E as exc: return fail()`) went
+  unflagged. The merge-base guard flagged that shape, and at runtime the dict carries the
+  exception (probed: an earlier def and an earlier lambda both returned the provider text).
+- `step` now collects the scope's own defs and lambdas once and seeds every one defined before
+  or inside the handler (`child.lineno <= handler.end_lineno`) with the handler's visible names
+  minus the child's own locals. A closure after the handler stays unseeded: Python unbinds the
+  name on exit, so it can only read a rebound value or raise `NameError` (probed), which keeps
+  `approved_later_closure_reads_a_rebound_handler_name` quiet.
+- Planted: `closure_before_the_handler_reads_the_exception` and
+  `lambda_before_the_handler_reads_the_exception` (positives, added to the exact set) and
+  `approved_earlier_closure_rebinds_the_handler_name` (the control: an earlier closure that
+  binds the name itself is not seeded with it). Not covered on purpose: a closure defined after
+  the handler inside a loop that could call it on a later iteration -- seeding it would reopen
+  finding 3.
+- Full file: 1262 passed; the wider reach still flags no real site under `apps/`, `packages/`
+  or `plant_community_backend/`.
