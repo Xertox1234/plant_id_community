@@ -9,6 +9,7 @@ import { safeExternalUrl } from '../utils/externalUrl';
 import LinkPreviewCard from './forum/LinkPreviewCard';
 import CompactCardRow from './forum/CompactCardRow';
 import { groupCardRuns } from './forum/cardRuns';
+import { embedDisplay } from './forum/embedDisplay';
 import type { PostQuoteBlockValue, StreamFieldBlock as StreamFieldBlockType } from '@/types/blog';
 
 // Mirrors backend/apps/plant_identification/services/unsplash_service.py
@@ -247,8 +248,11 @@ function StreamFieldBlock({ block, mentionHighlight, currentTopicId }: StreamFie
       // player.vimeo) and the iframe is sandboxed; anything else is a
       // thumbnail + link card. `allow-same-origin` is the iframe's OWN
       // origin (the provider), which the YouTube/Vimeo players require.
-      const { url, embed_url, title, thumbnail_url, provider_name } = block.value;
-      const label = title || url;
+      // An untitled video is named by its SHORT address, never the full URL
+      // a screen reader would spell out: the name its compact row uses too
+      // (`embedDisplay`, todo 518).
+      const { url, embed_url, thumbnail_url, provider_name } = block.value;
+      const label = embedDisplay(block.value).title;
       if (embed_url) {
         return (
           <div className="my-5 aspect-video overflow-hidden rounded-md border border-line bg-surface-2">

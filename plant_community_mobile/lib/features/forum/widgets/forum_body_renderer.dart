@@ -430,7 +430,10 @@ class _Image extends StatelessWidget {
 /// the web's no-player FALLBACK card, which takes its name from the same
 /// text; a web video with a player is an iframe titled by the title alone,
 /// and a web fallback card with no provider reads "title Open link" where
-/// this card says the title alone (todo 505).
+/// this card says the title alone (todo 505). An untitled video is titled by
+/// its SHORT address ([_embedTitle]), the name its compact row uses, never
+/// the full URL (owner decision, todo 518). With no provider either, the
+/// second line still shows the URL itself: visible, but never spoken.
 class _EmbedCard extends StatelessWidget {
   const _EmbedCard({
     required this.url,
@@ -454,7 +457,7 @@ class _EmbedCard extends StatelessWidget {
       );
     }
     final theme = Theme.of(context);
-    final label = title.isNotEmpty ? title : url;
+    final label = _embedTitle(url, title);
     final fallbackIcon = Icon(
       LucideIcons.circlePlay,
       size: 32,
@@ -787,13 +790,10 @@ class _CompactCardRow extends StatelessWidget {
 }
 
 /// A video row's URL, title, second line, label, thumbnail and icon, the
-/// web's `CompactCardRow` rule: "title, provider", or the title alone. An
-/// untitled video is titled by its SHORT address, never the full URL, which
-/// a screen reader would spell out (todo 505; the todo 428 rule).
+/// web's `CompactCardRow` rule (its `embedDisplay`): "title, provider", or
+/// the title alone. The title is [_embedTitle], the full card's too.
 (String, String, String, String, String, IconData) _embedRow(EmbedBlock e) {
-  final title = e.title.isNotEmpty
-      ? e.title
-      : linkPreviewShortAddress(e.url) ?? e.url;
+  final title = _embedTitle(e.url, e.title);
   final provider = e.providerName;
   return (
     e.url,
@@ -804,6 +804,15 @@ class _CompactCardRow extends StatelessWidget {
     LucideIcons.circlePlay,
   );
 }
+
+/// What a video is called on its full card AND its compact row (todos 505,
+/// 518): its title or, for an untitled video, its SHORT address, never the
+/// full URL a screen reader would spell out (the todo 428 rule). The raw URL
+/// only when it is not an http(s) link, which never joins a run, so only a
+/// full card can show it. The web twin is `embedDisplay`
+/// (web/src/components/forum/embedDisplay.ts).
+String _embedTitle(String url, String title) =>
+    title.isNotEmpty ? title : linkPreviewShortAddress(url) ?? url;
 
 Future<void> _copyLink(BuildContext context, String url) async {
   final messenger = ScaffoldMessenger.maybeOf(context);

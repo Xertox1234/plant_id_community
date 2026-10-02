@@ -107,8 +107,10 @@ void main() {
     expect(find.text('Repotting a monstera'), findsOneWidget);
     expect(find.text('Watch on YouTube'), findsOneWidget);
     expect(find.byType(CachedNetworkImage), findsOneWidget); // thumbnail only
-    // No provider, no title: the link itself is the label.
-    expect(find.text('https://vimeo.com/148751763'), findsNWidgets(2));
+    // No provider, no title: titled by its short address (owner decision,
+    // todo 518); the second line still shows the link itself.
+    expect(find.text('https://vimeo.com/…'), findsOneWidget);
+    expect(find.text('https://vimeo.com/148751763'), findsOneWidget);
   });
 
   testWidgets(

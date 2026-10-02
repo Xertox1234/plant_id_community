@@ -101,7 +101,10 @@ describe('linkPreviewDisplay (todo 453)', () => {
 
   it('makes every caller name its image source', () => {
     // Todo 505: no default, so leaving the variant out is a type error rather
-    // than a silent choice of image source.
+    // than a silent choice of image source. Vitest does not typecheck, so tsc
+    // is what enforces this (todo 518): tsconfig.json includes src/**/*, test
+    // files too, and web-ci runs `npm run type-check` (tsc --noEmit). With an
+    // optional variant the directive goes unused, and tsc fails (TS2578).
     // @ts-expect-error variant is required
     expect(linkPreviewDisplay(preview())).not.toBeNull();
   });
