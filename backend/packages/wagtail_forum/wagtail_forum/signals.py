@@ -518,7 +518,7 @@ def warn_when_deleting_an_image_live_posts_show(sender, instance, **kwargs):
     if not live:
         return
     logger.warning(
-        "Image %s (%r) deleted while shown by %d live forum post(s): %s",
+        "[IMAGE] Image %s (%r) deleted while shown by %d live forum post(s): %s",
         instance.pk,
         instance.title,
         len(live),

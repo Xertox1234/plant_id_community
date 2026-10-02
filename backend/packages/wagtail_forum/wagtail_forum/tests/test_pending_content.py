@@ -1222,3 +1222,307 @@ def test_approve_locks_the_post_row_before_it_looks_the_post_up(client):
     )
     lookup = next(i for i, s in enumerate(sql) if "wagtailcore_workflowstate" in s)
     assert lock < lookup
+
+
+# --- Follow-ups from PR #895's review (todo 499) -----------------------------
+
+
+def _moderator_saves_a_draft(post, text="moderator draft"):
+    """A moderator's "Save draft" on the post's snippet edit view: the action
+    that view runs, carrying the edit its form would. A live post keeps its
+    row, so this leaves an unpublished revision by the moderator and no
+    workflow state, the same shape a crashed edit leaves."""
+    from wagtail.actions.edit import EditAction
+    from wagtail_forum.blocks import ForumBodyBlock
+
+    draft = post.get_latest_revision_as_object()
+    draft.body = ForumBodyBlock().to_python(_body(text))
+    EditAction(draft, user=_moderator("drafting-mod")).execute(
+        skip_permission_checks=True
+    )
+    post.refresh_from_db()
+    assert post.has_unpublished_changes is True
+    assert post.current_workflow_state is None
+    return post
+
+
+def test_a_moderators_draft_of_a_live_post_is_not_pending(client):
+    # Finding 1: the crashed-edit clause matched this too, and one Approve by
+    # any other moderator published the work in progress as the author's.
+    board = _board()
+    author = _member("newbie")
+    _topic, post = _live_topic(author, board)
+    _moderator_saves_a_draft(post)
+
+    assert not pending_posts().exists()
+    assert _pending_moderation_count() == 0
+    client.force_login(_moderator())
+
+    resp = _approve(client, post)
+
+    assert any("already decided" in m for m in _messages(resp))
+    post.refresh_from_db()
+    assert "moderator draft" not in post.body.raw_data[0]["value"]
+    assert post.has_unpublished_changes is True  # still the moderator's draft
+
+
+def test_a_held_edit_whose_workflow_was_cancelled_is_not_pending(client):
+    # Finding 1: a cancelled workflow leaves the author's revision unpublished
+    # with no state, so only the task state that revision already has tells
+    # it from a crash. The default spam workflow never offers Cancel (it has
+    # no requester, and its task is already rejected), so cancel it the way a
+    # host's human-review workflow or the shell would.
+    board = _board()
+    author = _member("newbie")
+    _topic, post = _live_topic(author, board)
+    _pending_edit(author, post, "held edit")
+    post.current_workflow_state.cancel(user=_moderator("cancelling-mod"))
+    post.refresh_from_db()
+    assert post.has_unpublished_changes is True
+    assert post.current_workflow_state is None
+    assert post.latest_revision.user == author
+
+    assert not pending_posts().exists()
+    client.force_login(_moderator())
+
+    _approve(client, post)
+
+    post.refresh_from_db()
+    assert "held edit" not in post.body.raw_data[0]["value"]
+
+
+def test_a_draft_opening_post_under_a_taken_down_topic_is_not_pending(client):
+    # Finding 2 (owner decision 2026-10-02): test_reject_never_targets_a_live_
+    # topic's fixture plus a take-down. The row had no Approve (the topic is
+    # down) and no Reject (the topic is not pending), and it held the
+    # dashboard count up until the topic came back.
+    from wagtail.actions.unpublish import UnpublishAction
+
+    board = _board()
+    topic, opening = _pending_topic(
+        _member("owner"), board, post_author=_member("other")
+    )
+    admin = User.objects.create_superuser(username="root", email="r@x.io")
+    topic.save_revision(user=admin).publish(user=admin)
+    topic.refresh_from_db()  # publish() saved a copy; this one still reads draft
+    UnpublishAction(topic, user=_moderator("takedown-mod")).execute(
+        skip_permission_checks=True
+    )
+    topic.refresh_from_db()
+    opening.refresh_from_db()
+    assert topic.live is False and topic.first_published_at is not None
+    assert opening.live is False and opening.first_published_at is None
+
+    assert not pending_posts().exists()
+    assert _pending_moderation_count() == 0
+    client.force_login(_moderator())
+    assert _row(client.get(_page_url()).content.decode(), opening) is None
+    approve = _approve(client, opening)
+    reject = client.post(_reject_url(opening), {"revision": opening.latest_revision_id})
+    assert any("already decided" in m for m in _messages(approve))
+    assert any("already decided" in m for m in _messages(reject))
+    opening.refresh_from_db()
+    assert opening.live is False
+    assert Topic.objects.filter(pk=topic.pk).exists()
+
+    # Restored, the thread is back to an opening post under a live topic.
+    topic.save_revision(user=admin).publish(user=admin)
+    assert list(pending_posts()) == [opening]
+
+
+def _sql_of(call):
+    with CaptureQueriesContext(connection) as queries:
+        call()
+    return [q["sql"] for q in queries.captured_queries]
+
+
+def _first(sql, matches):
+    """Index of the first statement ``matches`` accepts, or None."""
+    return next((i for i, s in enumerate(sql) if matches(s)), None)
+
+
+def _locks(table):
+    return lambda s: "FOR UPDATE" in s and s.startswith(f'SELECT "{table}"')
+
+
+def _locks_a_thread(s):
+    return _locks("wagtail_forum_post")(s) and '"wagtail_forum_post"."topic_id" = ' in s
+
+
+def _pending_lookup(s):
+    return "wagtailcore_workflowstate" in s
+
+
+def test_approve_locks_the_post_then_its_topic_before_the_lookup(client):
+    # Finding 3: pin the topic lock and the post-then-topic order, which is
+    # also the order of the API writes (lock the post, then update the
+    # topic's counters).
+    board = _board()
+    _topic, post = _pending_topic(_member("newbie"), board)
+    client.force_login(_moderator())
+    post.refresh_from_db()
+
+    sql = _sql_of(lambda: _approve(client, post))
+
+    order = [
+        _first(sql, _locks("wagtail_forum_post")),
+        _first(sql, _locks("wagtail_forum_topic")),
+        _first(sql, _pending_lookup),
+    ]
+    assert None not in order and order == sorted(order), order
+
+
+def test_reject_of_a_new_topic_locks_its_whole_thread_before_the_topic(client):
+    # Finding 3: deleting a topic deletes every post in it while the topic
+    # row is already held. Reject locks the thread's posts first, in pk
+    # order, so an Approve or Reject of a reply there (post, then topic)
+    # waits on its post rather than deadlocking against the cascade.
+    board = _board()
+    author = _member("newbie")
+    topic, opening = _pending_topic(author, board)
+    # Only the admin can add a post to a topic that was never published.
+    Post.objects.create(topic=topic, author=author, body=_body("draft"), live=False)
+    client.force_login(_moderator())
+    opening.refresh_from_db()
+
+    sql = _sql_of(
+        lambda: client.post(
+            _reject_url(opening), {"revision": opening.latest_revision_id}
+        )
+    )
+
+    order = [
+        _first(sql, _locks("wagtail_forum_post")),
+        _first(sql, _locks_a_thread),
+        _first(sql, _locks("wagtail_forum_topic")),
+        _first(sql, _pending_lookup),
+    ]
+    assert None not in order and order == sorted(order), order
+    assert not Topic.objects.filter(pk=topic.pk).exists()
+
+
+def test_approve_clears_an_active_state_with_nothing_unpublished(client):
+    # Finding 4: the guard's third operand. A workflow started on the live
+    # revision itself leaves an active state with nothing unpublished, and
+    # publishing that revision again is what cancels it: without the operand
+    # the row could never leave the queue.
+    board = _board()
+    topic, _ = _live_topic(_member("newbie"), board)
+    root = User.objects.create_superuser(username="root", email="r@x.io")
+    reply = Post(topic=topic, author=root, body=_body(f"live {SPAM}"))
+    reply.save()
+    assert submit_for_moderation(reply, root) == "published"  # bypasses moderation
+    reply.get_workflow().start(reply, None)  # the spam check holds the live text
+    reply.refresh_from_db()
+    assert reply.live is True and reply.has_unpublished_changes is False
+    assert reply.current_workflow_state is not None
+    assert list(pending_posts()) == [reply]
+    client.force_login(_moderator())
+
+    _approve(client, reply)
+
+    reply.refresh_from_db()
+    assert reply.current_workflow_state is None
+    assert not pending_posts().exists()
+
+
+def _live_reply_with_a_held_edit_and_a_new_reaction(board):
+    """A held edit's revision snapshotted reaction_counts = {}; a reaction
+    added while it waits is counted on the live row only."""
+    from wagtail_forum.models import Reaction
+
+    author = _member("newbie")
+    topic, _ = _live_topic(author, board)
+    reply = Post(topic=topic, author=author, body=_body("ok reply"))
+    reply.save()
+    assert submit_for_moderation(reply, author) == "published"
+    _pending_edit(author, reply, "held edit")
+    Reaction.objects.create(post=reply, user=_member("fan"), reaction_type="like")
+    Reaction.recount(reply)
+    return reply
+
+
+def test_any_publish_of_a_held_edit_keeps_the_live_reaction_counts():
+    # Finding 5: only the pending page's Approve recounted. revision.publish()
+    # is where every route ends: the snippet editor's Publish, a workflow's
+    # finish action, a revert, and Approve itself.
+    reply = _live_reply_with_a_held_edit_and_a_new_reaction(_board())
+
+    reply.latest_revision.publish(user=_moderator(), skip_permission_checks=True)
+
+    reply.refresh_from_db()
+    assert "held edit" in reply.body.raw_data[0]["value"]
+    assert reply.reaction_counts == {"like": 1}
+
+
+def test_the_editor_draft_of_a_held_edit_carries_the_live_reaction_counts():
+    # Finding 5: the snippet editor builds its form from this object and
+    # saves its Publish as a new revision of it, so it must not carry the
+    # held revision's snapshot either.
+    reply = _live_reply_with_a_held_edit_and_a_new_reaction(_board())
+
+    assert reply.get_latest_revision_as_object().reaction_counts == {"like": 1}
+
+
+def test_reject_confirmation_without_a_revision_says_so(client):
+    # Finding 6: a missing ?revision= was read as "" and reported as changed
+    # after the page loaded.
+    board = _board()
+    _topic, opening = _pending_topic(_member("newbie"), board)
+    client.force_login(_moderator())
+
+    resp = client.get(_reject_url(opening))
+
+    assert resp.status_code == 302
+    assert any("did not name the revision" in m for m in _messages(resp))
+    assert not any("changed after" in m for m in _messages(resp))
+
+
+def test_reject_confirmation_of_a_row_with_no_reject_says_why(client):
+    # Finding 6: a held edit is still pending; it just offers no Reject. It
+    # was reported as "already decided, changed or removed".
+    board = _board()
+    author = _member("newbie")
+    _topic, post = _live_topic(author, board)
+    _pending_edit(author, post)
+    client.force_login(_moderator())
+
+    resp = client.get(f"{_reject_url(post)}?revision={post.latest_revision_id}")
+
+    assert resp.status_code == 302
+    assert any("has no Reject" in m for m in _messages(resp))
+    assert not any("already decided" in m for m in _messages(resp))
+    assert list(pending_posts()) == [post]
+
+
+def test_a_new_topics_held_retitle_is_the_title_shown_and_published(client):
+    # Finding 7, checked: a never-published topic's row IS its pending title.
+    # Wagtail's EditAction writes a non-live object's row on every save, so
+    # the Topic column, the Reject confirmation and what Approve publishes
+    # (the topic's row) are one title, even with the retitle held.
+    from wagtail.actions.edit import EditAction
+
+    board = _board()
+    topic, opening = _pending_topic(_member("newbie"), board)
+    retitle = f"Retitled {SPAM}"
+    topic.title = retitle
+    EditAction(topic, user=_moderator("editing-mod")).execute(
+        skip_permission_checks=True
+    )
+    topic.get_workflow().start(topic, None)  # the heuristic holds the title
+    topic.refresh_from_db()
+    assert topic.current_workflow_state is not None
+    assert topic.title == retitle
+    opening.refresh_from_db()
+    client.force_login(_moderator())
+
+    row = _row(client.get(_page_url()).content.decode(), opening)
+    confirm = client.get(
+        f"{_reject_url(opening)}?revision={opening.latest_revision_id}"
+    )
+    _approve(client, opening)
+
+    assert row["Topic"] == retitle
+    assert retitle in confirm.content.decode()
+    topic.refresh_from_db()
+    assert topic.live is True and topic.title == retitle
