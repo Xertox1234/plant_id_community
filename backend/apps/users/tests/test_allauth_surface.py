@@ -11,14 +11,17 @@ from unittest.mock import MagicMock
 from urllib.parse import urlparse
 
 from allauth.account import app_settings as allauth_settings
+from allauth.account.adapter import get_adapter as get_account_adapter
 from allauth.account.models import EmailAddress
 from allauth.account.signals import password_changed, password_set
+from allauth.account.utils import get_login_redirect_url
+from allauth.socialaccount.adapter import DefaultSocialAccountAdapter
 from apps.users.email_verification import (
     VERIFY_SALT,
     is_email_verified,
     mark_email_verified,
 )
-from apps.users.oauth_adapters import CustomSocialAccountAdapter
+from apps.users.oauth_adapters import CustomAccountAdapter, CustomSocialAccountAdapter
 from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.core import mail
@@ -88,6 +91,27 @@ class AllauthSignupClosedTest(TestCase):
         self.assertTrue(
             CustomSocialAccountAdapter().is_open_for_signup(request, MagicMock())
         )
+
+
+class SocialLoginRedirectTest(TestCase):
+    """The redirect after a social login is the ACCOUNT adapter's (todo 418).
+
+    ``CustomSocialAccountAdapter`` overrode ``get_login_redirect_url`` to send
+    allauth to ``/api/auth/oauth/<provider>/callback/``, reading the provider
+    from a request attribute nothing set, so the URL was always
+    ``.../unknown/callback/``. It never ran: ``complete_social_login`` ends in
+    ``perform_login``, whose redirect comes from
+    ``allauth.account.utils.get_login_redirect_url``, and that asks the
+    account adapter. The override is deleted; this pins the chain it was dead
+    on, so an allauth that grows a social-side hook shows up here."""
+
+    def test_social_login_redirect_is_the_account_adapters(self):
+        request = RequestFactory().get("/accounts/google/login/callback/")
+
+        self.assertIsInstance(get_account_adapter(request), CustomAccountAdapter)
+        self.assertEqual(get_login_redirect_url(request), "/")
+        self.assertFalse(hasattr(DefaultSocialAccountAdapter, "get_login_redirect_url"))
+        self.assertNotIn("get_login_redirect_url", vars(CustomSocialAccountAdapter))
 
 
 def _register(test, client, username, email):

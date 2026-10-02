@@ -19,7 +19,6 @@ from apps.users.email_verification import (
 from apps.users.oauth_views import get_oauth_redirect_url
 from django.contrib.auth import get_user_model
 from django.http import HttpRequest, HttpResponseRedirect
-from django.urls import reverse
 
 logger = logging.getLogger(__name__)
 User = get_user_model()
@@ -28,6 +27,11 @@ User = get_user_model()
 class CustomSocialAccountAdapter(DefaultSocialAccountAdapter):
     """
     Custom social account adapter to handle OAuth flow with JWT token generation.
+
+    The redirect after a social login is not decided here: allauth asks the
+    ACCOUNT adapter (``CustomAccountAdapter.get_login_redirect_url``), and the
+    social adapter has no such hook. An override here was dead code that would
+    have sent every login to ``/api/auth/oauth/unknown/callback/`` (todo 418).
     """
 
     def pre_social_login(self, request: HttpRequest, sociallogin: SocialLogin) -> None:
@@ -188,24 +192,6 @@ class CustomSocialAccountAdapter(DefaultSocialAccountAdapter):
             f"[AUTH] Created new {log_safe_user_context(user)} via {sociallogin.account.provider}"
         )
         return user
-
-    def get_login_redirect_url(self, request: HttpRequest) -> str:
-        """
-        Return the URL to redirect to after a successful social login.
-        We'll redirect to our custom callback view that handles JWT token generation.
-
-        Args:
-            request: Django HTTP request object
-
-        Returns:
-            URL string for redirect after social login
-        """
-        # Get the provider name
-        provider = getattr(request, "_oauth_provider", "unknown")
-
-        # Redirect to our custom callback view (the root OAuth mount,
-        # /api/auth/oauth/<provider>/callback/)
-        return reverse("oauth_callback", kwargs={"provider": provider})
 
 
 class CustomAccountAdapter(DefaultAccountAdapter):
