@@ -1,6 +1,7 @@
 import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
-import { safeExternalUrl, shortLinkAddress } from '@/utils/externalUrl';
+import { safeExternalUrl } from '@/utils/externalUrl';
 import type { StreamFieldBlock } from '@/types/blog';
+import { embedDisplay } from './embedDisplay';
 import { linkPreviewDisplay } from './linkPreviewDisplay';
 
 interface CompactCardRowProps {
@@ -20,10 +21,11 @@ const ROW_CLASS =
  * og:site_name, so a row cannot claim to be a site it does not link to (the
  * todo 428 rule for the full card). An untitled video row is titled by its
  * short address too, never the full URL a screen reader would spell out
- * (todo 505). A video row with a player swaps itself for
- * that player when clicked, so no iframe loads until asked for, and focus
- * moves to the player so a keyboard user is not dropped to <body>. Any other
- * row is a link, like its full card.
+ * (todo 505); a video row's title, second line and name come from
+ * `embedDisplay`, which its full card reads too (todo 518). A video row with
+ * a player swaps itself for that player when clicked, so no iframe loads
+ * until asked for, and focus moves to the player so a keyboard user is not
+ * dropped to <body>. Any other row is a link, like its full card.
  */
 export default function CompactCardRow({ block, renderFull }: CompactCardRowProps) {
   const [expanded, setExpanded] = useState(false);
@@ -42,11 +44,10 @@ export default function CompactCardRow({ block, renderFull }: CompactCardRowProp
   let thumbnail: string | null = null;
   let playable = false;
   if (block.type === 'embed') {
-    const { url, title: t, provider_name, thumbnail_url, embed_url } = block.value;
+    const { url, thumbnail_url, embed_url } = block.value;
     href = safeExternalUrl(url);
-    title = t || shortLinkAddress(url) || url;
-    detail = provider_name;
-    label = detail ? `${title}, ${detail}` : title;
+    // The video's own derivation, shared with its full card (todo 518).
+    ({ title, detail, label } = embedDisplay(block.value));
     thumbnail = safeExternalUrl(thumbnail_url);
     playable = Boolean(embed_url);
   } else if (block.type === 'link_preview') {
