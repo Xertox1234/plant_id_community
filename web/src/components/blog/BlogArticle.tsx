@@ -3,7 +3,8 @@ import Card from '../ui/Card';
 import StreamFieldRenderer from '../StreamFieldRenderer';
 import PageMeta from '../PageMeta';
 import BlogCommentSection from './BlogCommentSection';
-import { mediaUrl, API_URL } from '../../services/blogService';
+import { mediaUrl } from '../../services/blogService';
+import { API_ORIGIN } from '@/config/api';
 import { stripHtml } from '../../utils/sanitize';
 import type { BlogPost } from '@/types';
 
@@ -53,8 +54,8 @@ export default function BlogArticle({ post, preview = false }: BlogArticleProps)
         title={`${preview ? 'Preview: ' : ''}${post.title} — Houseplant MD`}
         description={post.introduction ? stripHtml(post.introduction) : undefined}
         og={{ title: post.title, type: 'article' }}
-        rssFeedUrl={`${API_URL}/blog/rss/`}
-        atomFeedUrl={`${API_URL}/blog/atom/`}
+        rssFeedUrl={`${API_ORIGIN}/blog/rss/`}
+        atomFeedUrl={`${API_ORIGIN}/blog/atom/`}
       />
 
       <header className="mx-auto flex w-full max-w-[70ch] flex-col items-start gap-3.5">

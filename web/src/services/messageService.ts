@@ -13,8 +13,7 @@ import { ForumApiError } from './forumService';
 import type { Conversation, DirectMessage, DirectMessageCursorPage } from '../types/forum';
 import { API_ORIGIN } from '@/config/api';
 
-const API_URL = API_ORIGIN;
-const FORUM_BASE = `${API_URL}/api/v1/forum`;
+const FORUM_BASE = `${API_ORIGIN}/api/v1/forum`;
 
 /** Backend cap on one message body; the composer shows it and `maxLength`s to it. */
 export const MESSAGE_MAX_LENGTH = 4000;

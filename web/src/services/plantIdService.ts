@@ -15,7 +15,6 @@ import type {
 } from '../types/plantId';
 import { API_ORIGIN } from '@/config/api';
 
-const API_BASE_URL = API_ORIGIN;
 const API_VERSION = 'v1';
 
 function extractErrorMessage(data: unknown): string | undefined {
@@ -40,7 +39,7 @@ async function identifyPlant(imageFile: File): Promise<PlantIdentificationResult
 
   try {
     const response = await fetch(
-      `${API_BASE_URL}/api/${API_VERSION}/plant-identification/identify/`,
+      `${API_ORIGIN}/api/${API_VERSION}/plant-identification/identify/`,
       {
         method: 'POST',
         credentials: 'include', // Send HttpOnly cookies for authentication
@@ -82,7 +81,7 @@ async function saveToCollection(plantData: SavePlantInput): Promise<UserPlant> {
     // catch-all page-serving view, silently breaking every "Save to My
     // Collection" click).
     const collectionsResponse = await fetch(
-      `${API_BASE_URL}/api/${API_VERSION}/auth/me/collections/`,
+      `${API_ORIGIN}/api/${API_VERSION}/auth/me/collections/`,
       {
         credentials: 'include', // Send HttpOnly cookies
         headers: {
@@ -109,30 +108,27 @@ async function saveToCollection(plantData: SavePlantInput): Promise<UserPlant> {
     const defaultCollection = collections[0];
 
     // Create UserPlant with the correct format
-    const response = await fetch(
-      `${API_BASE_URL}/api/${API_VERSION}/plant-identification/plants/`,
-      {
-        method: 'POST',
-        credentials: 'include', // Send HttpOnly cookies
-        headers: {
-          'Content-Type': 'application/json',
-          ...(csrfToken && { 'X-CSRFToken': csrfToken }),
+    const response = await fetch(`${API_ORIGIN}/api/${API_VERSION}/plant-identification/plants/`, {
+      method: 'POST',
+      credentials: 'include', // Send HttpOnly cookies
+      headers: {
+        'Content-Type': 'application/json',
+        ...(csrfToken && { 'X-CSRFToken': csrfToken }),
+      },
+      body: JSON.stringify({
+        collection: defaultCollection.id,
+        nickname: plantData.plant_name,
+        notes: plantData.description || '',
+        care_instructions_json: {
+          confidence: plantData.confidence,
+          common_names: plantData.common_names || [],
+          watering: plantData.watering || plantData.care_instructions?.watering || null,
+          propagation:
+            plantData.propagation_methods || plantData.care_instructions?.propagation || null,
+          source: plantData.source,
         },
-        body: JSON.stringify({
-          collection: defaultCollection.id,
-          nickname: plantData.plant_name,
-          notes: plantData.description || '',
-          care_instructions_json: {
-            confidence: plantData.confidence,
-            common_names: plantData.common_names || [],
-            watering: plantData.watering || plantData.care_instructions?.watering || null,
-            propagation:
-              plantData.propagation_methods || plantData.care_instructions?.propagation || null,
-            source: plantData.source,
-          },
-        }),
-      }
-    );
+      }),
+    });
 
     if (!response.ok) {
       const errorData: unknown = await response.json().catch(() => null);
@@ -157,7 +153,7 @@ async function getMyPlants(page: number = 1): Promise<PaginatedUserPlants> {
 
   try {
     const response = await fetch(
-      `${API_BASE_URL}/api/${API_VERSION}/plant-identification/plants/?page=${page}`,
+      `${API_ORIGIN}/api/${API_VERSION}/plant-identification/plants/?page=${page}`,
       {
         credentials: 'include', // Send HttpOnly cookies
         headers: {

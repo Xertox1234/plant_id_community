@@ -19,7 +19,7 @@ interface PageMetaProps {
   title: string;
   description?: string;
   og?: OpenGraph;
-  /** Absolute feed URLs — caller resolves the API origin (e.g. blogService's API_URL). */
+  /** Absolute feed URLs — caller resolves the API origin (`API_ORIGIN`, config/api). */
   rssFeedUrl?: string;
   atomFeedUrl?: string;
 }
