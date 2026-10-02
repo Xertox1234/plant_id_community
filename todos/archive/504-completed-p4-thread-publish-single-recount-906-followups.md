@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: p4
 issue_id: "504"
 tags: [forum, backend, testing]
@@ -42,8 +42,31 @@ PR #906 (todo 431) merged after two review rounds in todo-sweep run 2026-10-01-0
 
 ## Acceptance Criteria
 
-- [ ] Each finding above is fixed with a test, or the Work Log records why it was left as is.
+- [x] Each finding above is fixed with a test, or the Work Log records why it was left as is.
 
 ## Work Log
 
 - 2026-09-30: Filed from todo-sweep run 2026-10-01-0121, PR #906 review rounds 1-2.
+
+### 2026-10-01 - Implemented by the todo sweep (run 2026-10-02-0118)
+
+- Finding 1: left as is in `signals.py`, pinned by a test. Its premise does not hold on Wagtail 8.0: `PublishRevisionAction._publish_revision` calls `_after_publish()` (which sends `published`) for a scheduled first publish too; it returns early only when the object already has a `live_revision_id`. So the nested post receiver still recounts the board and author with the topic live. The suggested `opening.live` gate would bring back a second board recount in exactly the case todo 431 removed it. `test_approving_a_thread_whose_opening_post_is_scheduled_counts_the_topic` passes on unchanged code and pins one board recount, one profile recount and `board.topic_count == 1`. If Wagtail stops sending the signal, it fails.
+- Findings 2/3: `test_approving_a_thread_recounts_a_second_author_in_the_topic` adds a second author's live reply in the never-published topic. It asserts that the `_refresh_profile` calls equal `[(author.pk,), (other.pk,)]` and that both authors have `post_count == 1`. A mutation that made the exclusion drop every author failed this test.
+- Findings 4/5/6/8: `test_a_failed_opening_post_link_still_recounts_the_board` makes the opening-post publish fail during an admin topic approval. It asserts the post is not live, the board is recounted once, and `(topic_count, post_count) == (1, 0)`. The failure is injected at `Revision.publish` for Post revisions, not `Post.save_revision` as the findings suggested: the link publishes the author's pending revision (todo 432) and never calls `save_revision`, so that patch had no effect (tried; the post went live). The suggested assertion that the author's profile is recounted does not hold either. With the opening post not live, the author has no live post in the topic, so `_refresh_topic_authors` owes nothing, and the test asserts that no profile is recounted. Mutating the `if linked_author_id is None` guard to always skip made this test fail.
+- Finding 7: the existing `test_a_failed_topic_link_still_recounts_the_board_and_author` now asserts `topic.live is False` and `post.live is True` after the publish. This proves the fallback recount ran. No assertion was removed.
+
+### 2026-10-01 - Verified by the todo sweep (run 2026-10-02-0118)
+
+- AC 1: `python3 /Users/williamtower/projects/plant_id_community/.claude/worktrees/wf_867e27f5-a58-3/scripts/todos/slot_env.py 3 -- /Users/williamtower/projects/plant_id_community/backend/venv/bin/python -m pytest /Users/williamtower/projects/plant_id_community/.claude/worktrees/wf_867e27f5-a58-3/backend/packages/wagtail_forum/wagtail_forum/tests/test_topic_approval.py --create-db -v -p no:cacheprovider` — evidence `.sweep-evidence/g3/504-ac0.txt`, last lines:
+
+  ```text
+    /Users/williamtower/projects/plant_id_community/.claude/worktrees/wf_867e27f5-a58-3/backend/packages/wagtail_forum/wagtail_forum/api/image_management.py:32: RemovedInWagtail90Warning: wagtail.images.permissions.permission_policy is deprecated. Use wagtail.permissions.policy_registry.get_by_type(get_image_model()) instead.
+      from wagtail.images import permissions as image_permissions
+
+  -- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+  ======================= 19 passed, 3 warnings in 22.46s ========================
+  ```
+
+### 2026-10-01 - Completed by the todo sweep (run 2026-10-02-0118)
+
+- Archived by `land.py archive`; evidence is quoted above, review is on the PR.
