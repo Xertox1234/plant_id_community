@@ -53,7 +53,7 @@ PR #913 (todo 501) merged after two review rounds in todo-sweep run 2026-10-01-0
 
 ### 2026-10-01 - Verified by the todo sweep (run 2026-10-02-0118)
 
-- AC 1: `cd backend && python3 ../scripts/todos/slot_env.py 3 -- /Users/williamtower/projects/plant_id_community/backend/venv/bin/python -m pytest packages/wagtail_forum/wagtail_forum/tests/test_conftest_isolation.py packages/wagtail_forum/wagtail_forum/tests/test_spam.py --create-db -p no:cacheprovider && cd .. && ! grep -n '/Users/' todos/archive/501-completed-p4-test-spam-fails-in-isolation.md && echo 'no absolute paths in the 501 Work Log'` — evidence `.sweep-evidence/g9/511-ac0.txt`, last lines:
+- AC 1: `cd backend && python3 ../scripts/todos/slot_env.py 3 -- venv/bin/python -m pytest packages/wagtail_forum/wagtail_forum/tests/test_conftest_isolation.py packages/wagtail_forum/wagtail_forum/tests/test_spam.py --create-db -p no:cacheprovider && cd .. && ! grep -n '/Users/' todos/archive/501-completed-p4-test-spam-fails-in-isolation.md && echo 'no absolute paths in the 501 Work Log'` (the venv is the main checkout's) — evidence `.sweep-evidence/g9/511-ac0.txt`, last lines:
 
   ```text
 

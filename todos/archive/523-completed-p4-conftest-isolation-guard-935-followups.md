@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: p4
 issue_id: "523"
 tags: [forum, backend, testing]
@@ -58,8 +58,53 @@ PR #935 (todo 511) merged after two review rounds in todo-sweep run 2026-10-02-0
 
 ## Acceptance Criteria
 
-- [ ] Each finding above is fixed with a test, or the Work Log records why it was left as is.
+- [x] Each finding above is fixed with a test, or the Work Log records why it was left as is.
 
 ## Work Log
 
 - 2026-10-01: Filed from todo-sweep run 2026-10-02-0118, PR #935 review rounds 1-2.
+
+### 2026-10-02 - Implemented by the todo sweep (run 2026-10-02-0335)
+
+- Findings 1-3: the guard in `test_conftest_isolation.py` now skips only when
+  the provider list is empty and `apps.forum_host` is not installed. Here the
+  host is installed, so an empty list fails, and the message names both
+  causes: the `ready()` registration is gone, or an earlier test unregistered
+  it without restoring it. With the list emptied after collection (a plugin
+  standing in for that earlier test), the old guard skipped; the new one
+  fails. The host-side `test_provider_is_registered_with_the_package` already
+  fails if the host stops registering.
+- Finding 4: dropped the per-provider `not in` loop. With the conftest
+  fixture set to `autouse=False`, the equality assert alone fails with `Left
+  contains one more item: <function provide ...>`.
+- Finding 5 (owner decision): `HOST_IMPORT` in `test_reusability.py` also
+  flags a quoted `apps.` path, which is how `pytest_plugins`,
+  `importlib.import_module` and `__import__` load a host module.
+  `test_conftest_isolation.py` imports that pattern instead of keeping a copy,
+  and two parametrized tests pin what it matches and what it ignores. A
+  conftest line `importlib.import_module("apps.forum_host.forum_settings")`
+  failed the guard; the old pattern did not match it. Comma imports
+  (`import x, apps.y`) are left as is, with no `ast` parse, per the owner
+  decision: isort (pre-commit, `--profile black`) splits them onto separate
+  lines, which the anchored pattern catches, and flake8 flags them as E401.
+  CI runs neither (todo 132), so a `--no-verify` commit is the remaining gap.
+- Findings 6-10: the 511 Verified entry now runs `venv/bin/python` (the venv
+  is the main checkout's), as the 501 entry does. The two `/Users/` strings
+  left in that file are finding 2's own description and the recorded `grep`
+  pattern, not paths.
+
+### 2026-10-02 - Verified by the todo sweep (run 2026-10-02-0335)
+
+- AC 1: `cd backend && python3 scripts/todos/slot_env.py 5 -- backend/venv/bin/python -m pytest packages/wagtail_forum/wagtail_forum/tests/test_conftest_isolation.py packages/wagtail_forum/wagtail_forum/tests/test_reusability.py packages/wagtail_forum/wagtail_forum/tests/test_spam.py apps/forum_host/tests/test_forum_settings.py --create-db -p no:cacheprovider -rs && python3 scripts/todos/slot_env.py 5 -- backend/venv/bin/python -c "import sys, pytest; empty = lambda self, session: sys.modules['wagtail_forum.conf']._override_providers.clear(); rc = pytest.main(['packages/wagtail_forum/wagtail_forum/tests/test_conftest_isolation.py', '-p', 'no:cacheprovider', '-q', '-rfs', '-k', 'without_host_override_providers'], plugins=[type('EmptiedByAnEarlierTest', (), {'pytest_collection_finish': empty})()]); print('emptied-list mutation: exit code', int(rc), '(1 = the guard failed instead of skipping)'); sys.exit(0 if rc == pytest.ExitCode.TESTS_FAILED else 1)" && printf 'import os, apps.forum_host\n' | backend/venv/bin/isort --profile black - && printf 'import os, apps.forum_host\n' | backend/venv/bin/flake8 --select=E401 - | grep E401 && grep -n 'Comma imports' todos/archive/523-completed-p4-conftest-isolation-guard-935-followups.md && ! grep -n '/Users/[^/]*/projects/' todos/archive/511-completed-p4-forum-package-test-isolation-913-followups.md todos/archive/501-completed-p4-test-spam-fails-in-isolation.md && grep -n 'slot_env.py 3 -- venv/bin/python' todos/archive/511-completed-p4-forum-package-test-isolation-913-followups.md && echo 'no machine paths in the 501 or 511 archive'` — evidence `.sweep-evidence/g11/523-ac0.txt` (not committed), last lines:
+
+  ```text
+  stdin:1:10: E401 multiple imports on one line
+  86:  failed the guard; the old pattern did not match it. Comma imports
+  56:- AC 1: `cd backend && python3 ../scripts/todos/slot_env.py 3 -- venv/bin/python -m pytest packages/wagtail_forum/wagtail_forum/tests/test_conftest_isolation.py packages/wagtail_forum/wagtail_forum/tests/test_spam.py --create-db -p no:cacheprovider && cd .. && ! grep -n '/Users/' todos/archive/501-completed-p4-test-spam-fails-in-isolation.md && echo 'no absolute paths in the 501 Work Log'` (the venv is the main checkout's) — evidence `.sweep-evidence/g9/511-ac0.txt`, last lines:
+  no machine paths in the 501 or 511 archive
+  EXIT_STATUS=0
+  ```
+
+### 2026-10-02 - Completed by the todo sweep (run 2026-10-02-0335)
+
+- Archived by `land.py archive`; evidence is quoted above, review is on the PR.

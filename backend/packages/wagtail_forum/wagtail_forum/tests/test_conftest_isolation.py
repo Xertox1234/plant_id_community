@@ -12,10 +12,12 @@ in any run order, and only the fixture can empty it.
 """
 
 import pathlib
-import re
 
 import pytest
+from django.apps import apps
 from wagtail_forum import conf
+
+from .test_reusability import HOST_IMPORT
 
 
 @pytest.fixture(scope="module")
@@ -35,17 +37,24 @@ def providers_before_fixture():
 
 
 def test_package_tests_run_without_host_override_providers(providers_before_fixture):
-    if not providers_before_fixture:
+    # apps.forum_host registers its provider at ready(). Where it is
+    # installed, an empty list means that registration is gone or an earlier
+    # test removed it without putting it back, and a skip would hide a deleted
+    # fixture. Skip only for a host that registers no provider at all.
+    if not providers_before_fixture and not apps.is_installed("apps.forum_host"):
         pytest.skip("no host override provider is registered in this project")
 
+    assert providers_before_fixture, (
+        "apps.forum_host is installed, but conf._override_providers was empty "
+        "before the conftest fixture ran: its ready() registration is gone, or "
+        "an earlier test unregistered it without restoring it"
+    )
     assert conf._override_providers == []
-    for provider in providers_before_fixture:
-        assert provider not in conf._override_providers
 
 
 def test_conftest_imports_nothing_from_the_host():
-    # test_reusability skips tests/, so it does not cover the conftest.
+    # test_reusability skips tests/, so it does not cover the conftest. The
+    # pattern is that test's, so tightening it tightens this check too.
     conftest = pathlib.Path(__file__).with_name("conftest.py")
-    host_import = re.compile(r"^\s*(from|import)\s+apps(\.|\s|$)", re.MULTILINE)
 
-    assert not host_import.search(conftest.read_text(encoding="utf-8"))
+    assert not HOST_IMPORT.search(conftest.read_text(encoding="utf-8"))
