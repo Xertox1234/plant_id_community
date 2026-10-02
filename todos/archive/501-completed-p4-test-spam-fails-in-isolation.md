@@ -61,14 +61,15 @@ same shape (grep for `get_setting` use in tests without `django_db`).
 
 ### 2026-09-30 - Verified by the todo sweep (run 2026-10-01-0121)
 
-- AC 1: `cd /Users/williamtower/projects/plant_id_community/.claude/worktrees/wf_8cfcf2b7-580-1/backend && python3 /Users/williamtower/projects/plant_id_community/.claude/worktrees/wf_8cfcf2b7-580-1/scripts/todos/slot_env.py 4 -- /Users/williamtower/projects/plant_id_community/backend/venv/bin/python -m pytest packages/wagtail_forum/wagtail_forum/tests/test_spam.py --create-db -p no:cacheprovider && python3 /Users/williamtower/projects/plant_id_community/.claude/worktrees/wf_8cfcf2b7-580-1/scripts/todos/slot_env.py 4 -- /Users/williamtower/projects/plant_id_community/backend/venv/bin/python -m pytest --create-db -p no:cacheprovider` — evidence `.sweep-evidence/g10/501-ac0.txt`, last lines:
+- AC 1: from `backend/`, `python3 ../scripts/todos/slot_env.py 4 -- venv/bin/python -m pytest packages/wagtail_forum/wagtail_forum/tests/test_spam.py --create-db -p no:cacheprovider && python3 ../scripts/todos/slot_env.py 4 -- venv/bin/python -m pytest --create-db -p no:cacheprovider` (the venv is the main checkout's) — evidence `.sweep-evidence/g10/501-ac0.txt`, which ended in `EXIT_STATUS=0` after shutdown log noise.
+- The original evidence file went with its worktree, so its pytest summary
+  line can no longer be quoted (todo 511). The PR #913 squash commit
+  (`d12dd646`) records `test_spam.py` alone at 14/14 and the full backend
+  suite at 4248 passed. Re-run of the lone file on 2026-10-01 for todo 511
+  (sweep run 2026-10-02-0118):
 
   ```text
-    File "/Users/williamtower/projects/plant_id_community/.claude/worktrees/wf_8cfcf2b7-580-1/backend/apps/plant_identification/services/combined_identification_service.py", line 121, in _cleanup_executor
-      logger.info("[SHUTDOWN] ThreadPoolExecutor cleanup complete")
-  Message: '[SHUTDOWN] ThreadPoolExecutor cleanup complete'
-  Arguments: ()
-  EXIT_STATUS=0
+  ======================= 14 passed, 2 warnings in 19.42s ========================
   ```
 
 ### 2026-09-30 - Completed by the todo sweep (run 2026-10-01-0121)
