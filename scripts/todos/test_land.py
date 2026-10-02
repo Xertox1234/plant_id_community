@@ -61,6 +61,12 @@ cleanly on a dangling symlink; a `-COMPLETED` twin that git tracks but that
 was deleted from disk skips the rename and leaves the twin's index entry
 byte-identical; and malformed YAML frontmatter makes the CLI exit 2 with a
 `land: ` message, not a traceback.
+
+Todo 524 adds: the Verified entry's quoted command and evidence tail carry no
+absolute worktree, main-checkout or home path -- the worktree nested under
+main_root is stripped whole, in written and resolved (/private) forms -- the
+command names the todo's archived path, and the evidence pointer reads
+`(not committed)`.
 """
 
 import json
@@ -440,6 +446,60 @@ def main():
         check("512: ... nor after archive", re.search(r"[ \t]+\n", archived) is None,
               [line for line in archived.splitlines() if line != line.rstrip()])
         check("512: the archived file still passes the CI tripwire",
+              check_archived_todo_status.parse(str(repo / result["archived"]))[3] == [])
+
+    # Todo 524: the Verified entry names no absolute worktree / main-checkout / home path, the
+    # command names the todo's archived path, and the .sweep-evidence pointer says it is not committed.
+    main, wt = "/Users/u/projects/pic", "/Users/u/projects/pic/.claude/worktrees/wf_ab-1"
+    rel524 = "todos/524-pending-p3-x.md"
+    cases = [
+        (f"python3 {wt}/scripts/todos/test_land.py", "python3 scripts/todos/test_land.py"),
+        (f"python3 {wt}/scripts/todos/slot_env.py 1 -- {main}/backend/venv/bin/python -m pytest",
+         "python3 scripts/todos/slot_env.py 1 -- backend/venv/bin/python -m pytest"),
+        (f"git -C {wt} status", "git -C . status"),
+        (f"cd '{main}/.claude/worktrees/wf_other-2/web' && ls {main}", "cd 'web' && ls ."),
+        (f"PYTHONPATH={wt}/backend:{main}/lib x", "PYTHONPATH=backend:lib x"),
+        (f"rootdir: {wt}/backend", "rootdir: backend"),
+        (f"grep -c x {wt}/{rel524}", "grep -c x todos/archive/524-completed-p3-x.md"),
+        (f"git show BASE:{rel524}", f"git show BASE:{rel524}"),
+        (f"cat {rel524}.bak", f"cat {rel524}.bak"),
+        (f"{main}-old/x", f"{main}-old/x"),
+        (f"{Path.home()}/.local/bin/tool", "~/.local/bin/tool"),
+    ]
+    for raw, want in cases:
+        got = land._relativize(raw, wt, main, rel524)
+        check(f"524: relativize {raw!r}", got == want, got)
+    check("524: a worktree nested in main_root is stripped whole, not left as .claude/worktrees/...",
+          land._relativize(f"{wt}/a", wt, main) == "a" and land._relativize(f"{wt}/a", "", main) == "a")
+    with tempfile.TemporaryDirectory() as tmp:
+        main_root = Path(tmp) / "main"
+        repo = setup(main_root / ".claude" / "worktrees" / "wf_t-1")
+        rel = "todos/412-pending-p3-a.md"
+        (repo / ".sweep-evidence/g1/412-ac1.txt").write_text(f"rootdir: {repo.resolve()}/backend\n3 passed\n")
+        (repo / ".sweep-evidence/g1/412-ac3.txt").write_text(f"{main_root}/backend/venv/bin/python ok\n")
+        cmds = [f"python3 {repo}/scripts/x.py {repo}/{rel}",
+                f"python3 {repo}/scripts/todos/slot_env.py 1 -- {main_root}/backend/venv/bin/python -m pytest",
+                f"git -C {repo.resolve()} status"]
+        entries = [dict(entry("412", i), command=c) for i, c in enumerate(cmds)]
+        flipped, _ = land.flip_acs(repo, rel, entries, [agree("412", i) for i in range(3)], "r", "2026-10-01",
+                                   main_root=str(main_root))
+        text = (repo / rel).read_text()
+        note = text[text.index("Verified by the todo sweep"):]
+        check("524: all three flip", flipped == [0, 1, 2], flipped)
+        check("524: the Verified entry names no absolute tmp/worktree path",
+              str(tmp) not in note and str(Path(tmp).resolve()) not in note and "wf_t-1" not in note
+              and ".claude/worktrees" not in note, note)
+        check("524: the command names the todo's archived path",
+              "`python3 scripts/x.py todos/archive/412-completed-p3-a.md`" in note, note)
+        check("524: main_root paths read repo-relative",
+              "`python3 scripts/todos/slot_env.py 1 -- backend/venv/bin/python -m pytest`" in note
+              and "  backend/venv/bin/python ok\n" in note, note)
+        check("524: a resolved (/private) repo path is stripped too",
+              "`git -C . status`" in note and "  rootdir: backend\n" in note, note)
+        check("524: the .sweep-evidence pointer is labelled (not committed)",
+              note.count("(not committed), last lines:") == 3, note)
+        result = land.archive(repo, rel, "r", "2026-10-01")
+        check("524: the archived file still passes the CI tripwire",
               check_archived_todo_status.parse(str(repo / result["archived"]))[3] == [])
 
     # F6: evidence_path must resolve inside <repo>/.sweep-evidence/, or it counts as missing.

@@ -59,6 +59,15 @@ Todo 512: a quoted tail line keeps no trailing whitespace, and a blank one is
 emitted empty, so the `trailing-whitespace` hook never rewrites the todo
 during Land's commit.
 
+Todo 524: the Verified entry is committed to a public repo and outlives the
+worktree, so the quoted command and every quoted tail line are made
+repo-relative first (`_relativize`): a leading `<repo>/`, any
+`.../.claude/worktrees/<name>/` and `<main_root>/` are dropped (bare, they read
+`.`), and the home directory reads `~`. The command's mention of this todo's
+own pre-archive path is rewritten to its archived path, so the check can be
+re-run after the merge. The `.sweep-evidence/` pointer stays but is labelled
+`(not committed)`: that file is gitignored and dies with the worktree.
+
 Fix round 4 closes the last phase-2 raise sites found by the round-3
 re-review. The todo's own destination check is `os.path.lexists`, not
 `is_file`: a directory or a dangling symlink at `todos/archive/<name>.md`
@@ -156,6 +165,48 @@ def _mask(text, secrets):
     return text
 
 
+# A path ends where a shell token does: whitespace, a quote, or a separator a command line
+# puts after a path (`;`, `:`, `,`, `)`, `|`, `&`, `<`, `>`, `=`).
+_PATH_END = r"(?=$|[\s'\"`;:,)|&<>=])"
+_NOT_IN_PATH = r"(?<![\w./~-])"
+_WORKTREE_RE = re.compile(_NOT_IN_PATH + r"(?:/[^\s'\"`/]+)+/\.claude/worktrees/[^\s'\"`/:]+(/|" + _PATH_END + ")")
+
+
+def _root_forms(*paths):
+    """Each non-empty path as written and resolved (macOS: /tmp is /private/tmp), longest first."""
+    forms = set()
+    for path in paths:
+        if path:
+            forms.update(str(p).rstrip("/") for p in (Path(path), Path(path).resolve()))
+    return sorted((f for f in forms if f not in ("", ".")), key=len, reverse=True)
+
+
+def _strip_roots(text, roots, bare):
+    for root in roots:
+        text = re.sub(_NOT_IN_PATH + re.escape(root) + "/", "" if bare == "." else bare + "/", text)
+        text = re.sub(_NOT_IN_PATH + re.escape(root) + _PATH_END, bare, text)
+    return text
+
+
+def _relativize(text, repo, main_root="", todo_rel=""):
+    """`text` with no absolute worktree, main-checkout or home path (todo 524): it is quoted
+    into a public repo's Work Log, where `/Users/<name>/.../.claude/worktrees/wf_...` names a
+    directory that is gone after the merge and leaks the local user name.
+
+    Order matters: the worktree sits UNDER the main checkout, so `repo` and any other
+    `.claude/worktrees/<name>` go before `main_root` -- stripping main_root first would leave
+    `.claude/worktrees/wf_.../scripts/...`. With `todo_rel`, the todo's own path (not one
+    read at a revision, `REV:todos/...`) becomes its archived path."""
+    text = _strip_roots(text, _root_forms(repo), ".")
+    text = _WORKTREE_RE.sub(lambda m: "" if m.group(1) == "/" else ".", text)
+    text = _strip_roots(text, _root_forms(main_root), ".")
+    text = _strip_roots(text, _root_forms(Path.home()), "~")
+    if todo_rel:
+        text = re.sub(r"(?<![\w.:-])" + re.escape(todo_rel) + r"(?![\w.-])",
+                      todofile.archived_path(todo_rel), text)
+    return text
+
+
 def _sanitize(value):
     """Flatten to one line so a quoted value can never forge a new heading.
 
@@ -245,9 +296,11 @@ def flip_acs(repo, todo_rel, ac_entries, verdict_ac, run_id, date, main_root="")
             continue
         lines[line_no] = lines[line_no].replace("[ ]", "[x]", 1)
         flipped.append(index)
-        command, evidence_display = _sanitize(_mask(entry["command"], secrets)), _sanitize(entry["evidence_path"])
-        fence, quoted = _fence_quote(_tail(evidence, secrets))
-        notes.append(f"- AC {index + 1}: `{command}` — evidence `{evidence_display}`, "
+        # Mask first, as the tail is: a path-valued .env entry must still match before it is shortened.
+        command = _sanitize(_relativize(_mask(entry["command"], secrets), repo, main_root, todo_rel))
+        evidence_display = _sanitize(entry["evidence_path"])
+        fence, quoted = _fence_quote([_relativize(line, repo, main_root) for line in _tail(evidence, secrets)])
+        notes.append(f"- AC {index + 1}: `{command}` — evidence `{evidence_display}` (not committed), "
                      f"last lines:\n\n  {fence}text\n{quoted}\n  {fence}\n")
     path.write_text("".join(lines))
     if flipped:
