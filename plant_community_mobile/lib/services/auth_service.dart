@@ -10,6 +10,7 @@ import 'package:riverpod_annotation/riverpod_annotation.dart';
 import '../core/utils/log_redaction.dart';
 import 'api_service.dart';
 import 'push_registration_service.dart';
+import 'user_profile_service.dart';
 
 part 'auth_service.g.dart';
 
@@ -702,6 +703,19 @@ class AuthService extends _$AuthService {
     // that lands meanwhile sees the session over and does not start a second
     // sign-out (todo 498).
     ref.read(apiServiceProvider).setAuthToken(null);
+    // Forget whose account this was. A forum screen that is still mounted
+    // reads the account profile's `.value`, which keeps the last profile
+    // through a reload and a failed refresh by design (todo 507) — so
+    // without this the previous user's username would attribute messages
+    // until that screen unmounted. The profile-screen logout clears it
+    // itself; this is the app's only other sign-out path (todo 520).
+    // `clear()`, not `invalidate()`: a rebuild keeps the old profile in
+    // `.value` while it re-fetches, and that fetch would go out anonymous
+    // into Riverpod's retry loop. Guarded, because reading an unwatched
+    // autoDispose provider would build it and start that same fetch.
+    if (ref.exists(userProfileServiceProvider)) {
+      ref.read(userProfileServiceProvider.notifier).clear();
+    }
     await _clearJWT();
     await _firebaseAuth.signOut();
 

@@ -122,8 +122,10 @@ class _ForumConversationScreenState
     // 486): a profile `refresh()` sets an explicit loading state, and a
     // failed one an error — `asData` is null in both, but `.value` still
     // holds the last known profile. So this is null only before the FIRST
-    // resolve, after a first fetch that failed, or after sign-out clears
-    // the profile; a later reload never flips my messages to the other side.
+    // resolve, after a first fetch that failed, or after a sign-out clears
+    // the profile — the profile-screen logout does, and so does a
+    // session-expiry sign-out (AuthService, todo 520); a later reload never
+    // flips my messages to the other side.
     final me = meAsync?.value?.username;
     // Attribution is unknowable until that first resolve, and guessing would
     // paint my own messages on the wrong side for a frame. A FAILED profile

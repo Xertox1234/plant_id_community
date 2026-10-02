@@ -6,11 +6,14 @@ import 'package:dio/dio.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_riverpod/misc.dart' show Override;
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:plant_community_mobile/models/user_profile.dart';
 import 'package:plant_community_mobile/services/api_service.dart';
 import 'package:plant_community_mobile/services/auth_service.dart';
 import 'package:plant_community_mobile/services/push_registration_service.dart';
+import 'package:plant_community_mobile/services/user_profile_service.dart';
 
 /// Unit harness for [AuthService] (todo 288).
 ///
@@ -322,6 +325,73 @@ void main() {
 
       expect(harness.api.sessionExpiredHandler, isNull);
     });
+
+    test('clears the account profile a screen still watches, so the previous '
+        'user\'s username does not outlive the session in `.value` '
+        '(todo 520)', () async {
+      // A mounted forum screen reads the profile's `.value`, which keeps the
+      // last profile through a reload and a failed refresh (todo 507). Only
+      // the profile-screen logout cleared it; a session-expiry sign-out left
+      // the old username in place until that screen unmounted.
+      final harness = _Harness(
+        currentUser: _FakeUser(uid: 'ada'),
+        overrides: [
+          userProfileServiceProvider.overrideWith(
+            () => _FakeUserProfileService('ada'),
+          ),
+        ],
+      );
+      addTearDown(harness.dispose);
+      await pumpEventQueue();
+
+      // The screen's watch: the provider is autoDispose, so without a
+      // listener there would be nothing alive to clear.
+      final watching = harness.container.listen(
+        userProfileServiceProvider,
+        (_, _) {},
+      );
+      addTearDown(watching.close);
+      await harness.container.read(userProfileServiceProvider.future);
+      expect(
+        harness.container.read(userProfileServiceProvider).value?.username,
+        'ada',
+      );
+
+      await harness.api.sessionExpiredHandler!();
+      await pumpEventQueue();
+
+      // `clear()` lands AsyncData(null): not a reload, which would keep the
+      // old profile in `.value` while it re-fetched, and not an error.
+      final profile = harness.container.read(userProfileServiceProvider);
+      expect(profile.value, isNull);
+      expect(profile.isLoading, isFalse);
+      expect(profile.hasError, isFalse);
+      expect(harness.events, contains('firebase.signOut'));
+    });
+
+    test('does not build an account profile nothing is watching', () async {
+      // The provider is autoDispose: an unguarded read would build it just to
+      // clear it, and that build fetches `/auth/user/` — anonymous, now that
+      // the bearer is gone.
+      var builds = 0;
+      final harness = _Harness(
+        currentUser: _FakeUser(uid: 'ada'),
+        overrides: [
+          userProfileServiceProvider.overrideWith(() {
+            builds++;
+            return _FakeUserProfileService('ada');
+          }),
+        ],
+      );
+      addTearDown(harness.dispose);
+      await pumpEventQueue();
+
+      await harness.api.sessionExpiredHandler!();
+      await pumpEventQueue();
+
+      expect(builds, 0);
+      expect(harness.events, contains('firebase.signOut'));
+    });
   });
 
   group('access-token refresh (todo 462)', () {
@@ -590,35 +660,38 @@ void main() {
       expect(sessionExpiredCalls, 0);
     });
 
-    test('over real HTTP, a refused exchange signs the user out once', () async {
-      final backend = await _LoopbackBackend.start();
-      addTearDown(backend.close);
-      backend.exchangeStatus = HttpStatus.forbidden;
-      final harness = _Harness(
-        currentUser: _FakeUser(uid: 'ada'),
-        baseUrl: backend.baseUrl,
-      );
-      addTearDown(harness.dispose);
-      await pumpEventQueue();
-      harness.api.realHttp = true;
-      harness.api.setAuthToken('expired');
+    test(
+      'over real HTTP, a refused exchange signs the user out once',
+      () async {
+        final backend = await _LoopbackBackend.start();
+        addTearDown(backend.close);
+        backend.exchangeStatus = HttpStatus.forbidden;
+        final harness = _Harness(
+          currentUser: _FakeUser(uid: 'ada'),
+          baseUrl: backend.baseUrl,
+        );
+        addTearDown(harness.dispose);
+        await pumpEventQueue();
+        harness.api.realHttp = true;
+        harness.api.setAuthToken('expired');
 
-      await expectLater(
-        harness.api.get('/forum/topics/'),
-        throwsA(
-          isA<ApiException>().having((e) => e.statusCode, 'statusCode', 401),
-        ),
-      );
-      await pumpEventQueue();
+        await expectLater(
+          harness.api.get('/forum/topics/'),
+          throwsA(
+            isA<ApiException>().having((e) => e.statusCode, 'statusCode', 401),
+          ),
+        );
+        await pumpEventQueue();
 
-      final state = harness.container.read(authServiceProvider);
-      expect(state.jwtToken, isNull);
-      expect(state.error, 'Your session expired. Please sign in again.');
-      expect(
-        harness.events.where((e) => e == 'firebase.signOut'),
-        hasLength(1),
-      );
-    });
+        final state = harness.container.read(authServiceProvider);
+        expect(state.jwtToken, isNull);
+        expect(state.error, 'Your session expired. Please sign in again.');
+        expect(
+          harness.events.where((e) => e == 'firebase.signOut'),
+          hasLength(1),
+        );
+      },
+    );
 
     test('a refresh that finishes while signOut() is clearing the FCM token '
         'does not report "session expired"', () async {
@@ -815,6 +888,7 @@ class _Harness {
     User? currentUser,
     bool useRealPushService = false,
     String baseUrl = 'http://fake.local',
+    List<Override> overrides = const [],
   }) {
     firebaseAuth = _FakeFirebaseAuth(events: events, currentUser: currentUser);
     api = _FakeApiService(events: events, baseUrl: baseUrl);
@@ -831,6 +905,7 @@ class _Harness {
         authServiceProvider.overrideWith(
           () => _TestableAuthService(firebaseAuth),
         ),
+        ...overrides,
       ],
     );
 
@@ -893,6 +968,22 @@ class _TestableAuthService extends AuthService {
 
   @override
   FirebaseAuth get firebaseAuth => _firebaseAuth;
+}
+
+/// A resolved account profile, held the way a mounted forum screen holds it.
+/// `build()` never reaches `/auth/user/`, and nothing re-fetches it.
+class _FakeUserProfileService extends UserProfileService {
+  _FakeUserProfileService(this._username);
+
+  final String _username;
+
+  @override
+  Future<UserProfile?> build() async => UserProfile(
+    id: 1,
+    username: _username,
+    email: '$_username@example.com',
+    dateJoined: DateTime(2026, 1, 1),
+  );
 }
 
 /// Records the three lifecycle calls AuthService is responsible for making.

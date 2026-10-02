@@ -193,32 +193,50 @@ void main() {
       });
     }
 
-    testWidgets('stays hidden on your OWN profile while the account profile '
-        'refreshes (todo 507)', (tester) async {
-      final api = FakeForumApi()..profile = profile(username: 'alice');
-      final refreshGate = Completer<void>();
+    for (final failRefresh in [false, true]) {
+      testWidgets('stays hidden on your OWN profile while the account profile '
+          '${failRefresh ? 'refresh FAILS' : 'refreshes'} (todo 507)', (
+        tester,
+      ) async {
+        // A guard for the safe direction only: an unknown viewer hides
+        // Message too, so this passes under `asData?.value` as well as
+        // `.value` and cannot tell them apart. The 'stays put' tests above
+        // can — there the button must SURVIVE the reload (todo 520).
+        final api = FakeForumApi()..profile = profile(username: 'alice');
+        final refreshGate = Completer<void>();
 
-      await tester.pumpWidget(
-        _wrap(api, me: 'alice', refreshGate: refreshGate.future),
-      );
-      await tester.pumpAndSettle();
-      expect(_messageButton(), findsNothing);
+        await tester.pumpWidget(
+          _wrap(
+            api,
+            me: 'alice',
+            refreshGate: refreshGate.future,
+            failRefresh: failRefresh,
+          ),
+        );
+        await tester.pumpAndSettle();
+        expect(_messageButton(), findsNothing);
 
-      final container = ProviderScope.containerOf(
-        tester.element(find.byType(ForumUserProfileScreen)),
-        listen: false,
-      );
-      final refreshing = container
-          .read(userProfileServiceProvider.notifier)
-          .refresh();
-      await tester.pump();
-      expect(_messageButton(), findsNothing);
+        final container = ProviderScope.containerOf(
+          tester.element(find.byType(ForumUserProfileScreen)),
+          listen: false,
+        );
+        final refreshing = container
+            .read(userProfileServiceProvider.notifier)
+            .refresh();
+        await tester.pump();
+        expect(_messageButton(), findsNothing);
 
-      refreshGate.complete();
-      await refreshing;
-      await tester.pumpAndSettle();
-      expect(_messageButton(), findsNothing);
-    });
+        refreshGate.complete();
+        await refreshing;
+        await tester.pumpAndSettle();
+        expect(
+          container.read(userProfileServiceProvider).hasError,
+          failRefresh,
+        );
+        expect(_messageButton(), findsNothing);
+        expect(tester.takeException(), isNull);
+      });
+    }
 
     testWidgets('is hidden while the profile is still loading or failed', (
       tester,

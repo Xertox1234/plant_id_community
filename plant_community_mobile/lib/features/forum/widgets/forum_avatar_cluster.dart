@@ -14,8 +14,10 @@ import 'author_identity.dart';
 /// semantics label counts only the others. Every member is shown, as on
 /// web, only while the viewer is unknown: before the account profile first
 /// resolves, after a first fetch that failed with no earlier value, or after
-/// sign-out clears it. Callers read the profile's `.value`, so a reload or a
-/// failed refresh keeps the last known viewer and never puts them back in.
+/// a sign-out clears it (the profile-screen logout and a session-expiry
+/// sign-out both do, todo 520). Callers read the profile's `.value`, so a
+/// reload or a failed refresh keeps the last known viewer and never puts
+/// them back in.
 class AuthorAvatarCluster extends StatelessWidget {
   const AuthorAvatarCluster({
     super.key,
