@@ -4,6 +4,9 @@ priority: p4
 issue_id: "523"
 tags: [forum, backend, testing]
 dependencies: []
+triage: ready
+triaged: 2026-10-02
+owner_decision: "Finding 5: widen the regex to also flag quoted 'apps.' strings, sharing HOST_IMPORT with test_reusability.py; no ast parse (2026-10-02)"
 ---
 
 # Conftest isolation guard: non-blocking findings from PR #935 (todo 511)

@@ -4,6 +4,9 @@ priority: p4
 issue_id: "518"
 tags: [forum, web, mobile]
 dependencies: []
+triage: ready
+triaged: 2026-10-02
+owner_decision: "Finding 1: the full video card (mobile _EmbedCard and web StreamFieldRenderer embed) uses the short address for untitled videos too (2026-10-02)"
 ---
 
 # Compact row link label: non-blocking findings from PR #930 (todo 505)

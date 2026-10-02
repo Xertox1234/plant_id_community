@@ -6,8 +6,8 @@ tags: [web, forum, premium, ai]
 dependencies: []
 source_review: "PR #816"
 triage: ready
-triaged: 2026-09-28
-owner_decision: "Hide the button below 3 posts, and build the keyed latch registry (2026-09-28)"
+triaged: 2026-10-02
+owner_decision: "Hide the button below 3 posts, and build the keyed latch registry (2026-09-28); 404: show a non-retrying 'thread unavailable' message only, no per-account latch (2026-10-02)"
 ---
 
 # Thread summary panel: non-blocking review findings

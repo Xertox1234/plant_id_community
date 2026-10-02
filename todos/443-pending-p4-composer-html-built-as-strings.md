@@ -5,9 +5,10 @@ issue_id: "443"
 tags: [web, forum, composer]
 dependencies: []
 source_review: "PR #826"
-triage: ready
-triaged: 2026-09-28
-owner_decision: "Move the composer to TipTap JSON/DOM nodes instead of building HTML strings (2026-09-28)"
+triage: needs-research
+triaged: 2026-10-02
+owner_decision: "Move the composer to TipTap JSON/DOM nodes instead of building HTML strings (2026-09-28); narrowed 2026-10-02: do the server-side CR-to-LF and NUL normalisation in sanitize.py _normalise_image_value plus a test covering CR and NUL; the TipTap JSON content model becomes a separate future todo (2026-10-02)"
+blocked_on: "Confirm scope of the TipTap JSON decision (both directions, HTML-string contract replaced) vs the small server-side normalisation the AC also allows."
 ---
 
 # Composer HTML is built as strings: parser normalization still alters some alts

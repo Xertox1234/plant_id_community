@@ -6,7 +6,8 @@ tags: [backend, security, cleanup]
 dependencies: []
 source_review: "PR #818"
 triage: ready
-triaged: 2026-09-28
+triaged: 2026-10-02
+owner_decision: "Finding 5: pseudonymize the IP in the log line only; the brute-force alert email keeps the raw IP so operators can block it (2026-10-02)"
 ---
 
 # Security middleware cleanups from the todo 419 review

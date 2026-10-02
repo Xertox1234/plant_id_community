@@ -6,7 +6,8 @@ tags: [backend, auth, web, testing]
 dependencies: []
 source_review: "todos/archive/449-completed-p3-email-verification-slice-b-review-follow-ups.md"
 triage: ready
-triaged: 2026-09-28
+triaged: 2026-10-02
+owner_decision: "Finding 1: conditional UPDATE ... WHERE firebase_uid IS NULL, mirroring the OAuth create-then-catch shape in oauth_views.py; no select_for_update (2026-10-02)"
 ---
 
 # Todo 449 review: non-blocking follow-ups

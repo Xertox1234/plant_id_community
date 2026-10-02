@@ -4,6 +4,8 @@ priority: p4
 issue_id: "515"
 tags: [web, testing]
 dependencies: []
+triage: ready
+triaged: 2026-10-02
 ---
 
 # Diagnose condition backend tie: non-blocking findings from PR #927 (todo 502)
