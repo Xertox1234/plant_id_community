@@ -5,21 +5,27 @@ import DiseaseResultsList from '../../components/diagnosis/DiseaseResultsList';
 import Card from '../../components/ui/Card';
 import Tile from '../../components/ui/Tile';
 import { diseaseService } from '../../services/diseaseService';
-import type { DiseaseDiagnosisResults as Results, PlantCondition } from '../../types/diagnosis';
+import {
+  PLANT_CONDITIONS,
+  type DiseaseDiagnosisResults as Results,
+  type PlantCondition,
+} from '../../types/diagnosis';
 
 // PlantDiseaseRequest.plant_condition choices (apps/plant_identification/models.py).
 // The backend field rejects anything else with a 400, so this is a fixed list,
 // not free text (todo 459). Same keys and labels as the mobile Diagnose screen.
-const PLANT_CONDITIONS: ReadonlyArray<{ value: PlantCondition; label: string }> = [
-  { value: 'excellent', label: 'Excellent - minor symptoms' },
-  { value: 'good', label: 'Good - some concerning symptoms' },
-  { value: 'fair', label: 'Fair - moderate damage visible' },
-  { value: 'poor', label: 'Poor - significant damage' },
-  { value: 'critical', label: 'Critical - plant may die' },
-];
+// A Record keyed by the union, so leaving a condition out is a type error, and
+// the options follow PLANT_CONDITIONS' order (todo 502).
+const PLANT_CONDITION_LABELS: Record<PlantCondition, string> = {
+  excellent: 'Excellent - minor symptoms',
+  good: 'Good - some concerning symptoms',
+  fair: 'Fair - moderate damage visible',
+  poor: 'Poor - significant damage',
+  critical: 'Critical - plant may die',
+};
 
 function isPlantCondition(v: string): v is PlantCondition {
-  return PLANT_CONDITIONS.some((c) => c.value === v);
+  return (PLANT_CONDITIONS as ReadonlyArray<string>).includes(v);
 }
 
 export default function DiseaseDiagnosePage() {
@@ -96,9 +102,9 @@ export default function DiseaseDiagnosePage() {
           >
             {/* Empty value = not specified: submitDiagnosis omits the field. */}
             <option value="">Plant condition: not specified</option>
-            {PLANT_CONDITIONS.map((c) => (
-              <option key={c.value} value={c.value}>
-                {c.label}
+            {PLANT_CONDITIONS.map((value) => (
+              <option key={value} value={value}>
+                {PLANT_CONDITION_LABELS[value]}
               </option>
             ))}
           </select>

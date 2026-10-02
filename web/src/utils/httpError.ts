@@ -1,7 +1,10 @@
 /**
- * Turn an `apiClient` failure into a plain `Error` whose message is fit to
- * show a user (todo 434). Shared by every service on `apiClient`, so one
- * wording covers them all.
+ * Turn an `apiClient` HTTP or connection failure into a plain `Error` whose
+ * message is fit to show a user (todo 434). Shared by every service on
+ * `apiClient`, so one wording covers them all. A cancellation, a non-axios
+ * error, and any other response-less axios error (`ERR_INVALID_URL`, a
+ * code-less interceptor rejection — client bugs) pass through unchanged,
+ * axios's own message and all (todo 489).
  *
  * Kept out of `httpClient.ts` on purpose: tests that `vi.mock` that module
  * replace only its default export, and a named export would come back
@@ -18,6 +21,11 @@ export const NETWORK_ERROR_MESSAGE =
  * failed (`ERR_NETWORK`) or it timed out (`ECONNABORTED`, or `ETIMEDOUT` with
  * `transitional.clarifyTimeoutError`). Only these are connection problems
  * (todo 489).
+ *
+ * These are the browser (XHR/fetch adapter) codes. Node's http adapter
+ * reports a dead server as `ECONNREFUSED`/`ENOTFOUND`, which would pass
+ * through untranslated; the web client only ever runs in a browser, so they
+ * are left out on purpose (todo 510).
  */
 const CONNECTION_ERROR_CODES: ReadonlySet<string> = new Set([
   'ERR_NETWORK',

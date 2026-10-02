@@ -68,6 +68,16 @@ describe('toHttpError', () => {
     expect(toHttpError(original)).toBe(original);
   });
 
+  // todo 510: the allowlist holds only the browser adapter's codes. Node's http
+  // adapter codes pass through untranslated — an accepted tradeoff, since the
+  // web client never runs on Node. Pinned so widening the list is a decision.
+  it.each([
+    ['ECONNREFUSED', new AxiosError('connect ECONNREFUSED 127.0.0.1:8000', 'ECONNREFUSED', config)],
+    ['ENOTFOUND', new AxiosError('getaddrinfo ENOTFOUND api.example', 'ENOTFOUND', config)],
+  ])('returns a Node-adapter %s unchanged', (_label, original) => {
+    expect(toHttpError(original)).toBe(original);
+  });
+
   it('returns a cancellation unchanged, so callers can still detect it', () => {
     const cancelled = new CanceledError(undefined, undefined, config);
     expect(toHttpError(cancelled)).toBe(cancelled);

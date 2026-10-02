@@ -22,7 +22,10 @@ const AUTH_BASE = '/api/v1/auth';
 
 // Failures are re-thrown through the shared `toHttpError` (todo 434): the
 // server's readable message, or a connection message for a network error or
-// timeout — never axios's "Request failed with status code 400".
+// timeout — never axios's "Request failed with status code 400". A
+// cancellation or any other response-less axios error (a client bug such as
+// `ERR_INVALID_URL`) is re-thrown unchanged, with axios's own message
+// (todo 489).
 
 export async function fetchProfile(): Promise<UserProfile> {
   try {
