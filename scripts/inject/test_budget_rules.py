@@ -99,6 +99,20 @@ class EveryRoutedDomainContributesTests(unittest.TestCase):
                 out = br.excerpt(text, share, "docs/rules/x.md")
                 self.assertLessEqual(len(out.encode("utf-8")), share)
 
+    def test_tail_only_returns_empty_only_below_the_marker_cost(self):
+        # Todo 490: `tail_only()` documents that it returns "" ONLY when the
+        # share cannot carry the marker itself -- 137-139 B for this file. The
+        # byte cap above cannot tell "" from a bare suffix with no marker, so
+        # the empty return is pinned here, and a share just past the marker is
+        # the control that it is the exception rather than the rule.
+        text = long_final_line_file()
+        for share in (1, 40, 120):
+            with self.subTest(share=share):
+                self.assertEqual(br.excerpt(text, share, "docs/rules/x.md"), "")
+        out = br.excerpt(text, 200, "docs/rules/x.md")
+        self.assertIn("were not injected", out)
+        self.assertTrue(out.endswith("x\n"))
+
 
 if __name__ == "__main__":
     unittest.main()
