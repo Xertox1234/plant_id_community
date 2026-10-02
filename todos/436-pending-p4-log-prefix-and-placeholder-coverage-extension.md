@@ -76,13 +76,22 @@ on its own in production, so it is not counted.)
 
 ## Acceptance Criteria
 
-- [ ] `check_log_prefixes.py` reports 0 unprefixed for `backend/packages`,
-      `backend/plant_community_backend` and `backend/apps`
+- [ ] `check_log_prefixes.py` reports 0 unprefixed for `backend/packages` and
+      `backend/plant_community_backend`
+- [ ] `check_log_prefixes.py` reports 0 unprefixed for `backend/apps` (the 7 sites in `garden_calendar/signals.py`, `forum_host/notifications.py` and `forum_host/tasks.py`) → todo 392 (re-pointed 2026-10-02)
 - [ ] Every placeholder listed above is either rejected at production boot or
       explicitly declined here with a reason
 - [ ] Baselines above are re-measured before starting, not trusted
 
 ## Work Log
+
+### 2026-10-02 - Criterion re-pointed by the todo sweep (run 2026-10-02-0335)
+
+- Owner decision 2026-10-02: drop the `backend/apps` row from the first criterion; todo 392 keeps
+  those 7 sites (it holds the `[FORUM]`-vs-`forum.<event>` convention decision). The row is
+  re-pointed to 392 and the kept criterion covers `backend/packages` and
+  `backend/plant_community_backend` only. The first worker (group g3) finished the narrowed work
+  but could not prove the criterion as written, so this edit lets a fresh attempt land it.
 
 ### 2026-09-24 - Filed
 
