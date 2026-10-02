@@ -663,3 +663,11 @@ Compact checklist auto-injected before edits.
   CodeQL `py/weak-sensitive-data-hashing` on a PR with no real finding. Name
   the helper for what it returns (`_verified_login_account`) (todo 449,
   PR #848).
+- **A "takes the lock" test pins the lock BEFORE the read it protects, not just
+  before the write.** Under READ COMMITTED, a `SELECT … FOR UPDATE` that lands
+  after the `COUNT(…)` still lets a concurrent insert make the written-back
+  count stale, and a lock-before-UPDATE assertion passes. Order the captured
+  SQL as INSERT < FOR UPDATE < aggregate read < UPDATE, and start the window
+  after this request's INSERT: the SQL log cannot show transaction scope, so an
+  earlier lock would pass even after its transaction ended
+  (`test_reaction_toggle_recounts_under_a_post_row_lock`, todo 508).

@@ -6974,3 +6974,46 @@ first try and were clean in round 2. The lessons came from the edges.
   `_refresh_board_counters ... _refresh_profile` as emphasis and joined words
   (`the_refresh_profile`). Escape `_` and `<` outside code spans (or use backticks) before the
   pre-commit fixer sees reviewer text.
+
+## 2026-10-02 — Sweep follow-ups: the engine wrote machine paths into every archive, and low findings do not converge (runs 2026-10-02-0118 and 0255, PRs #926–#939)
+
+**What happened.** Run 0118 took the ten p4 follow-up todos 502–511 from the previous sweep. All
+merged (#927–#935), every review round was clean, and nothing was refuted. Run 0255 then fixed
+todo 524, the engine bug that run surfaced (#938).
+
+**Lessons.**
+
+- **A tool that copies agent output into a committed file must make it portable at write time.**
+  `land.py flip_acs` quoted each worker's acceptance command into the archived todo verbatim.
+  `todo-worker.md` tells workers to use absolute paths, so every Verified entry carried
+  `/Users/<name>/…/.claude/worktrees/wf_…/`. That was 102 lines in 36 archived files when todo 524
+  was filed. The entries named a worktree that no longer existed, a user's home and the
+  pre-archive `todos/NNN-pending-…` path. Nobody noticed across five days of runs (the engine shipped 2026-09-27). It surfaced only because three
+  todos in one run (503, 509, 511) each had to hand-clean their own archive. `_relativize` now
+  rewrites worktree, main-checkout and home prefixes in the command and the quoted evidence tail.
+  A test asserts that no worktree path survives. Rule of thumb: whenever generated text lands in
+  a tracked file, test the output for absolute paths. A worker instruction cannot stop this,
+  because the instruction is what caused it. Owner decision: no backfill of the old lines.
+  Known gaps are in todo 525 (`file://`, flag-glued `-I/Users/…`, and a worktree path after `:`
+  that swallows earlier list entries).
+- **To dogfood a fix to the engine's own Land code, run the PR worktree's copy.** The Land helper
+  called `$WT/scripts/todos/land.py` instead of the main checkout's, so 524's own archive was
+  written by the fix. It quotes `python3 scripts/todos/test_land.py` and `cd . && …`. That is a
+  free end-to-end check the unit tests cannot give.
+- **A lock test can pass with the lock in the wrong place** (todo 508). The reaction test asserted
+  `FOR UPDATE` somewhere between the INSERT and the UPDATE. A lock after the `COUNT(…)` still
+  leaves the count stale under READ COMMITTED. The test now orders INSERT < lock < COUNT < UPDATE
+  (`docs/rules/testing.md`).
+- **`markdownlint --fix` also strips spaces at the edges of code spans (MD038).** In a generated
+  follow-up it changed the meaning of reviewer text that quoted an indented key (a code span
+  starting with a space). Separately, a reviewer's regex containing a literal backtick flips the
+  generator's code-span parity, so `_` and `<` were escaped inside code and left raw outside it.
+  Fix: rephrase whitespace-bearing spans in words. When a finding holds an odd number of
+  backticks, escape the whole text, backticks included, rather than splitting on them. Never
+  accept the auto-fix on reviewer text without reading the diff.
+- **Low findings on low todos do not converge.** Ten p4 todos produced nine follow-up todos
+  holding 61 new low findings: each round of review on a small fix finds more small edges. The
+  run's valuable output was the engine bug (524) and one candidate product bug (520: the mobile
+  session-expiry handler does not clear the user profile itself; unverified whether a provider
+  resets it). Promote what is real and park the rest,
+  rather than feeding the follow-ups back into the sweep.
