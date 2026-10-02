@@ -171,8 +171,15 @@ Steps 1–8 run with the sandbox off (see **Sandbox**).
    `<type>/<id>-<slug>-<n>` instead, with `<n>` = the todo's attempts so far + 1 (the first free one), and name
    the old branch and its worktree in the wrap-up.
 6. Commit the index only (never `-a`): `/usr/bin/git -C $WT commit -m "<type>(<scope>): <summary> (todo <id>)" -m "<2–4 bullets from the WORKER summary>" -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"`.
-   If the kimi gate prints `timed out; skipping gate`, record `kimi: skipped` (never "passed"). The gate may
-   take up to 300 s, so give this Bash call `timeout: 600000`.
+   If the kimi gate prints `timed out; skipping gate`, record `kimi: skipped` (never "passed"). The pre-commit
+   gate (`scripts/kimi-precommit.sh`) may take up to 300 s, so give this Bash call `timeout: 600000`. The
+   PreToolUse kimi hook is capped at 300 s too, but it matches only a command that starts `git commit`, so it
+   does not run on this `/usr/bin/git -C` commit.
+   If a pre-commit fixer (`trailing-whitespace`, `end-of-file-fixer`) rewrote files, the commit aborted and the
+   rewrites sit unstaged, so `ensure-worktree` refuses them. Stage exactly the paths
+   `/usr/bin/git -C $WT diff --name-only` prints (`/usr/bin/git -C $WT add <paths…>`), re-run step 1 (it accepts
+   a path only when its new contents are exactly those fixers' output on the verified ones, todo 513), then
+   commit again. A refusal there means the diff is more than a fixer made: stop the group.
 7. Rebase when origin/main moved (spec §7.2): `/usr/bin/git -C $WT fetch origin main`; if
    `/usr/bin/git -C $WT merge-base --is-ancestor origin/main HEAD` fails, `/usr/bin/git -C $WT rebase origin/main`.
    A conflict outside `todos/` and append-only docs (`docs/LEARNINGS.md`, `docs/rules/*.md`) is not
@@ -262,9 +269,13 @@ Both git steps run with the sandbox off. Finish with `/usr/bin/git -C REPO workt
 `in_progress` for over 80 minutes, and `gh run cancel`, the API's `force-cancel` and `gh run rerun` each
 refused it. When a required check has shown `in_progress` far past its usual time and those refuse, start a fresh run
 with an empty commit, sandbox off: `ensure-worktree` (Stage D step 1) →
-`/usr/bin/git -C $WT commit --allow-empty -m "ci: restart a wedged check run (todo <id>)"` → `ensure-worktree`
-again → `/usr/bin/git -C $WT push origin <branch>`. The tree is unchanged, so `ensure-worktree` accepts it
-exactly as before and the reviews still hold; both kimi gates skip an empty diff. Then check that auto-merge
+`/usr/bin/git -C $WT diff --cached --quiet HEAD` must succeed (todo 513: `ensure-worktree` compares the index
+with the recorded tree, not with HEAD, so it lets a staged `todos/`, `docs/reviews/`, `.secrets.baseline` or
+fixer-only edit through, and the commit would push it unreviewed; if it fails, stop and look at what is staged) →
+`/usr/bin/git -C $WT commit --allow-empty -m "ci: restart a wedged check run (todo <id>)"` → check that
+`/usr/bin/git -C $WT rev-parse HEAD^{tree}` and `/usr/bin/git -C $WT rev-parse HEAD~1^{tree}` print the same
+tree → `ensure-worktree` again → `/usr/bin/git -C $WT push origin <branch>`. The tree is unchanged, so
+`ensure-worktree` accepts it exactly as before and the reviews still hold; both kimi gates skip an empty diff. Then check that auto-merge
 is still armed (`gh pr view <n> --repo $GH_REPO --json autoMergeRequest`) and arm it again if not.
 
 ## Wrap-up

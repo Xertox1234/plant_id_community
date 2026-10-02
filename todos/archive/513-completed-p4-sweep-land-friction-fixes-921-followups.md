@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: p4
 issue_id: "513"
 tags: [tooling, todo-sweep]
@@ -69,8 +69,32 @@ PR #921 (todo 512) merged after two review rounds in todo-sweep run 2026-10-01-1
 
 ## Acceptance Criteria
 
-- [ ] Each finding above is fixed with a test, or the Work Log records why it was left as is.
+- [x] Each finding above is fixed with a test, or the Work Log records why it was left as is.
 
 ## Work Log
 
 - 2026-10-01: Filed from todo-sweep run 2026-10-01-1858, PR #921 review rounds 1-2.
+
+### 2026-10-01 - Implemented by the todo sweep (run 2026-10-01-2355)
+
+- Findings 1, 9 (owner decision): `_fixer_normal`'s symmetric comparison is gone. `_fixer_only_change` now accepts a path only when its new blob equals `_fixer_output` on the verified blob, which ports `trailing-whitespace --markdown-linebreak-ext=md` and then `end-of-file-fixer` (pre-commit-hooks v4.5.0). A scratch differential run against the real hook code matched on 800,000 random inputs. New refusing tests cover added trailing whitespace, an added trailing `\v`, an added EOF blank line, a dropped final newline, a removed .md hard break, a half-applied fix, LF to CRLF and CRLF to LF. CRLF to LF refuses on the owner's call, even though the configured `mixed-line-ending --fix=lf` hook makes that change. Finding 7 is closed by the same change: the verified bytes always go through these fixers on commit, so the only bytes that can ship now are those fixers' exact output. Recording a new `tree_id` after Land is not needed.
+- Finding 8: a test now pins the intended behaviour. Trailing whitespace stripped inside a `.py` string literal is accepted, because the fixer makes that change on every commit. Finding 10: new tests cover a symlink whose target is the fixer output of the verified one, a file turned into a symlink (120000) whose target is its fixer output, and a file turned into a submodule (160000). Each must refuse, and both symlink tests fail if the mode gate is removed.
+- Findings 11, 12: the empty-commit test now makes a Land commit that carries a `todos/` edit and a fixer rewrite. That puts the index off the recorded tree, so `_land_only_diff` really runs. The test then asserts that `write-tree`, `HEAD^{tree}` and `HEAD~1^{tree}` are equal across the `--allow-empty` commit. Findings 13-15: the wave check now uses a two-wave run and asserts the `TransitionError` "wave 0 has not finished executing", where it used to accept any exception.
+- Findings 2, 3, 4 (SKILL.md): Stage D step 6 now says how to recover when a fixer aborts the Land commit: stage exactly the paths `diff --name-only` prints, re-run step 1, then commit again. The wedged-CI recovery now requires `diff --cached --quiet HEAD` before the empty commit and equal `HEAD^{tree}` / `HEAD~1^{tree}` after it. A test shows why: a staged `todos/` edit passes `ensure-worktree`, and only the HEAD check catches it. `runbook_tests` pins both texts.
+- Finding 6 (owner decision): the kimi-review PreToolUse hook timeout in `.claude/settings.json` is now 300 s, and a test asserts it is at least `GATE_TIMEOUT`. Finding 5 is a comment-only fix with no behaviour to test. The comment now says the 273 s covers only the API attempts. It also says lowering `KIMI_REVIEW_BUDGET_SECONDS` would not help, because the engine checks its deadline only before an attempt starts.
+
+### 2026-10-01 - Verified by the todo sweep (run 2026-10-01-2355)
+
+- AC 1: `python3 scripts/todos/test_state_flow.py` — evidence `.sweep-evidence/g1/513-ac0.txt`, last lines:
+
+  ```text
+    PASS  513: the wedged-CI recovery proves the commit is empty before and after it
+    PASS  513: Stage D step 6 says what to do when a fixer aborts the Land commit
+    PASS  513: the kimi-review PreToolUse hook's timeout is no shorter than the pre-commit gate's
+
+  All checks passed.
+  ```
+
+### 2026-10-01 - Completed by the todo sweep (run 2026-10-01-2355)
+
+- Archived by `land.py archive`; evidence is quoted above, review is on the PR.
