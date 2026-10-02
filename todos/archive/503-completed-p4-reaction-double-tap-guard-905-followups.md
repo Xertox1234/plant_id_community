@@ -70,6 +70,17 @@ PR #905 (todo 465) merged after two review rounds in todo-sweep run 2026-10-01-0
   00:00 +4: All tests passed!
   ```
 
+  The web half of that run was not quoted (todo 516, finding 1). Re-run in
+  todo-sweep run 2026-10-02-0335 from a checkout root with `cd web && npx
+  vitest run --reporter=verbose src/pages/forum/ThreadDetailPage.test.tsx -t
+  reaction`; its result lines:
+
+  ```text
+   ✓ src/pages/forum/ThreadDetailPage.test.tsx > ThreadDetailPage > releases the reaction guard after a failed toggle, so the next tap sends (todo 503) 35ms
+   Test Files  1 passed (1)
+        Tests  4 passed | 80 skipped (84)
+  ```
+
 ### 2026-10-01 - Completed by the todo sweep (run 2026-10-02-0118)
 
 - Archived by `land.py archive`; evidence is quoted above, review is on the PR.

@@ -9,6 +9,7 @@ import {
   reportPlantCareAnswer,
   RagError,
 } from '../../services/forumService';
+import { useAuth } from '../../contexts/AuthContext';
 import { threadPath } from '../../utils/forumUrls';
 import { logger } from '../../utils/logger';
 import type { PlantCareAnswer, PlantCareSource } from '../../types/forum';
@@ -24,11 +25,14 @@ import type { PlantCareAnswer, PlantCareSource } from '../../types/forum';
  * always shown. "This is wrong" (guardrail 5) is one click away and confirms
  * only after the report request resolves (the PostCard rule).
  *
- * Availability follows the compose-assist contract: 401/403/`code:disabled`
- * are permanent for the session and latch in the service (a remount cannot
- * re-offer the action; `AuthContext` clears the latch on auth change);
- * `unavailable`/429/400 keep the form usable. The control stays MOUNTED when
- * disabled so the focus the user just placed on it is not dropped.
+ * Availability follows the compose-assist contract: 403/`code:disabled` — and
+ * a 401 for an ANONYMOUS visitor, whom it teaches to sign in — are permanent
+ * for the session and latch in the service (a remount cannot re-offer the
+ * action; `AuthContext` clears the latch on auth change). A 401 for a
+ * signed-in user is an expired access cookie, not "can't": it says so and
+ * never latches (PR #816 / todo 433). `unavailable`/429/400 keep the form
+ * usable. The control stays MOUNTED when disabled so the focus the user just
+ * placed on it is not dropped.
  */
 
 const QUESTION_MAX = 500; // mirrors RAG_QUESTION_MAX_CHARS
@@ -42,6 +46,7 @@ const NO_INFORMATION =
   'This site doesn’t have anything close enough to answer that yet. Try the forum ' +
   'search, or ask the community.';
 const SIGN_IN = 'Sign in with a premium account to ask about plant care.';
+const SESSION_EXPIRED = 'Your session expired. Sign in again to ask about plant care.';
 const UNAVAILABLE_TITLE = 'Plant-care answers are not available for this account';
 
 const CITATION_SPLIT = /(\[\d+(?:,\s*\d+)*\])/;
@@ -138,6 +143,8 @@ interface PlantCareAskPanelProps {
 }
 
 export default function PlantCareAskPanel({ initialQuestion = '' }: PlantCareAskPanelProps) {
+  // Only to tell a signed-in user's 401 (expired cookie) from an anonymous one.
+  const { isAuthenticated } = useAuth();
   const [open, setOpen] = useState(false);
   const [question, setQuestion] = useState('');
   const [busy, setBusy] = useState(false);
@@ -169,7 +176,15 @@ export default function PlantCareAskPanel({ initialQuestion = '' }: PlantCareAsk
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Something went wrong.';
       logger.error('Plant-care ask failed', { component: 'PlantCareAskPanel', error: message });
-      if (err instanceof RagError && err.permanent) {
+      if (err instanceof RagError && err.status === 401 && isAuthenticated) {
+        // A signed-in user's 401 is an expired access cookie (the refresh timer
+        // is throttled in background tabs and stops during sleep), not "this
+        // account can't": say so and keep the form. Latching it would hide a
+        // paid feature until reload — the bug PR #816 fixed for the thread
+        // summary (todo 433). `RagError.permanent` still includes 401 for the
+        // anonymous visitor the branch below teaches to sign in.
+        setError(SESSION_EXPIRED);
+      } else if (err instanceof RagError && err.permanent) {
         // Retrying can never succeed for this visitor/deployment — remember it
         // in the service so a remounted panel does not re-offer the action.
         markPlantCareAskUnavailable();
