@@ -4,6 +4,9 @@ priority: p3
 issue_id: "524"
 tags: [tooling, todo-sweep]
 dependencies: []
+triage: ready
+triaged: 2026-10-01
+owner_decision: "Rewrite worktree/main-checkout prefixes to repo-relative in both the quoted command and the evidence tail; keep the .sweep-evidence pointer but label it '(not committed)'; do NOT backfill the ~102 already-archived lines (2026-10-01)"
 ---
 
 # Todo sweep: archived Verified entries carry absolute worktree paths
