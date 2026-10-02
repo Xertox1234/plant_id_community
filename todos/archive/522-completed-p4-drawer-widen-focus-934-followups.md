@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: p4
 issue_id: "522"
 tags: [web, a11y, testing]
@@ -52,8 +52,31 @@ PR #934 (todo 509) merged after two review rounds in todo-sweep run 2026-10-02-0
 
 ## Acceptance Criteria
 
-- [ ] Each finding above is fixed with a test, or the Work Log records why it was left as is.
+- [x] Each finding above is fixed with a test, or the Work Log records why it was left as is.
 
 ## Work Log
 
 - 2026-10-01: Filed from todo-sweep run 2026-10-02-0118, PR #934 review rounds 1-2.
+
+### 2026-10-02 - Implemented by the todo sweep (run 2026-10-02-0335)
+
+- Findings 1-4 (left as is, owner decision 2026-10-02): the archived 509 Verified entry keeps its absolute worktree paths, `.sweep-evidence` pointer and pre-archive todo path, per todo 524's decision not to backfill the ~102 already-archived lines. Todo 524 fixed the source instead: `land.py flip_acs` now relativizes paths, rewrites the todo's own path to its archived path and labels the pointer "(not committed)", so entries written since do not carry them.
+- Finding 5: `flushDeferred` runs `vi.runOnlyPendingTimersAsync()` under fake timers instead of sleeping 50 ms, so every deferral the close scheduled runs, however long, and no wall-clock passes. The two tests that use it install `vi.useFakeTimers()` before rendering, open the drawer with `trigger.focus()` + `fireEvent.click` (user-event hangs under Vitest fake timers: RTL's `asyncWrapper` drains with a `setTimeout(0)` it advances only for Jest, and `userEvent.setup()` cannot redefine the non-configurable `navigator.clipboard` polyfill from `setup.ts`), and restore real timers in `finally`. Probed by restoring focus in a 200 ms `setTimeout` in `useModalFocus`: before, both tests stayed green; after, both fail at the post-flush `toHaveFocus()`.
+- Finding 6: the widen test asserts `toHaveBeenCalledTimes(1)` and `toHaveBeenCalledWith({ preventScroll: true })` on `main.focus`, after the flush. Probed by adding a second bare `mainRef.current?.focus()`: before, green; after, fails on the call count.
+- Findings 7-10: the unmount test seeds one bystander listener, records the count before render, asserts render adds at least one (not exactly 1, by todo 509's decision) and unmount returns the count to the recorded value; the comment now says exactly that. Probed by dropping `useMediaQuery`'s cleanup: fails, "expected 2 to be 1".
+
+### 2026-10-02 - Verified by the todo sweep (run 2026-10-02-0335)
+
+- AC 1: `cd web && ./node_modules/.bin/vitest run src/layouts/AppShell.test.tsx && grep -nE "^- Findings? [0-9]" todos/archive/522-completed-p4-drawer-widen-focus-934-followups.md` — evidence `.sweep-evidence/g6/522-ac0.txt` (not committed), last lines:
+
+  ```text
+
+  63:- Findings 1-4 (left as is, owner decision 2026-10-02): the archived 509 Verified entry keeps its absolute worktree paths, `.sweep-evidence` pointer and pre-archive todo path, per todo 524's decision not to backfill the ~102 already-archived lines. Todo 524 fixed the source instead: `land.py flip_acs` now relativizes paths, rewrites the todo's own path to its archived path and labels the pointer "(not committed)", so entries written since do not carry them.
+  64:- Finding 5: `flushDeferred` runs `vi.runOnlyPendingTimersAsync()` under fake timers instead of sleeping 50 ms, so every deferral the close scheduled runs, however long, and no wall-clock passes. The two tests that use it install `vi.useFakeTimers()` before rendering, open the drawer with `trigger.focus()` + `fireEvent.click` (user-event hangs under Vitest fake timers: RTL's `asyncWrapper` drains with a `setTimeout(0)` it advances only for Jest, and `userEvent.setup()` cannot redefine the non-configurable `navigator.clipboard` polyfill from `setup.ts`), and restore real timers in `finally`. Probed by restoring focus in a 200 ms `setTimeout` in `useModalFocus`: before, both tests stayed green; after, both fail at the post-flush `toHaveFocus()`.
+  65:- Finding 6: the widen test asserts `toHaveBeenCalledTimes(1)` and `toHaveBeenCalledWith({ preventScroll: true })` on `main.focus`, after the flush. Probed by adding a second bare `mainRef.current?.focus()`: before, green; after, fails on the call count.
+  66:- Findings 7-10: the unmount test seeds one bystander listener, records the count before render, asserts render adds at least one (not exactly 1, by todo 509's decision) and unmount returns the count to the recorded value; the comment now says exactly that. Probed by dropping `useMediaQuery`'s cleanup: fails, "expected 2 to be 1".
+  ```
+
+### 2026-10-02 - Completed by the todo sweep (run 2026-10-02-0335)
+
+- Archived by `land.py archive`; evidence is quoted above, review is on the PR.

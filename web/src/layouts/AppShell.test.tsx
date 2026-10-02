@@ -261,13 +261,20 @@ describe('AppShell', () => {
     return { md, fire };
   };
 
-  // Let any deferred work (a rAF or timeout) run, so a focus assertion that
-  // follows sees where focus SETTLES, not only where the commit left it. A
-  // useModalFocus that restored to the trigger in a rAF would pass a
-  // synchronous check and then steal focus back from <main> (todo 509).
+  // Run every deferral (rAF or timeout, however long) that a close scheduled,
+  // so a focus assertion that follows sees where focus SETTLES, not only where
+  // the commit left it. A useModalFocus that restored to the trigger in a rAF
+  // or a timeout would pass a synchronous check and then steal focus back from
+  // <main> (todo 509). Fake timers: a real 50 ms sleep caught only deferrals
+  // shorter than itself (todo 522). A caller installs vi.useFakeTimers() BEFORE
+  // rendering and opens the drawer with fireEvent, not userEvent: user-event
+  // runs inside RTL's asyncWrapper, whose setTimeout(0) drain is only advanced
+  // under Jest fake timers, so under Vitest's it hangs until the test times
+  // out. runOnlyPendingTimers, not runAllTimers: the unread-count poll is an
+  // interval, which runAllTimers would spin on until Vitest aborts it.
   const flushDeferred = () =>
     act(async () => {
-      await new Promise((resolve) => setTimeout(resolve, 50));
+      await vi.runOnlyPendingTimersAsync();
     });
 
   it('drawer closes when the window widens past md (todo 420)', async () => {
@@ -276,10 +283,15 @@ describe('AppShell', () => {
     const originalMatchMedia = window.matchMedia;
     const { fire } = stubMdMatchMedia(false);
     try {
+      vi.useFakeTimers();
       renderShell();
       const main = screen.getByRole('main');
       const focusSpy = vi.spyOn(main, 'focus');
-      await userEvent.click(screen.getByRole('button', { name: 'Open menu' }));
+      // Focused first, as a real click leaves it: the trigger is what
+      // useModalFocus restores to on close, and that restore is the subject.
+      const trigger = screen.getByRole('button', { name: 'Open menu' });
+      trigger.focus();
+      fireEvent.click(trigger);
       expect(screen.getByRole('dialog', { name: 'Menu' })).toBeInTheDocument();
       expect(document.body.style.overflow).toBe('hidden');
 
@@ -290,12 +302,17 @@ describe('AppShell', () => {
       // The Open menu trigger is md:hidden at this width, so restoring focus
       // to it dropped focus to <body>; it lands on <main> instead (todo 488).
       expect(main).toHaveFocus();
-      // Without preventScroll, focusing the tall <main> can scroll the page;
-      // jsdom has no layout, so pin the option itself (todo 509).
-      expect(focusSpy).toHaveBeenCalledWith({ preventScroll: true });
       await flushDeferred();
       expect(main).toHaveFocus();
+      // Without preventScroll, focusing the tall <main> can scroll the page;
+      // jsdom has no layout, so pin the option itself (todo 509) -- on the ONE
+      // call, after the flush. toHaveBeenCalledWith alone passed as long as any
+      // call carried it, so a later bare focus() -- the call that would scroll
+      // -- slipped through (todo 522).
+      expect(focusSpy).toHaveBeenCalledTimes(1);
+      expect(focusSpy).toHaveBeenCalledWith({ preventScroll: true });
     } finally {
+      vi.useRealTimers();
       window.matchMedia = originalMatchMedia;
     }
   });
@@ -345,9 +362,13 @@ describe('AppShell', () => {
     const originalMatchMedia = window.matchMedia;
     stubMdMatchMedia(true);
     try {
+      vi.useFakeTimers();
       renderShell();
       // jsdom applies no CSS, so the md:hidden trigger is still clickable.
-      await userEvent.click(screen.getByRole('button', { name: 'Open menu' }));
+      // Focused first, as a real click leaves it: a restore to it must not win.
+      const trigger = screen.getByRole('button', { name: 'Open menu' });
+      trigger.focus();
+      fireEvent.click(trigger);
 
       expect(screen.queryByRole('dialog', { name: 'Menu' })).not.toBeInTheDocument();
       expect(document.body.style.overflow).toBe('');
@@ -355,6 +376,7 @@ describe('AppShell', () => {
       await flushDeferred();
       expect(screen.getByRole('main')).toHaveFocus();
     } finally {
+      vi.useRealTimers();
       window.matchMedia = originalMatchMedia;
     }
   });
@@ -387,18 +409,24 @@ describe('AppShell', () => {
   });
 
   it('removes its md query listener on unmount (todo 488)', () => {
-    // Count relative to what was there, not an exact 1: another subscriber to
-    // the same query would be legitimate (todo 509).
+    // Relative to the listeners already there, not an absolute count: another
+    // subscriber to the same query is legitimate. So AppShell must add at
+    // least one listener -- not exactly 1, by todo 509's decision -- and
+    // unmount must bring the count back to where it started (todo 522). The
+    // bystander stands in for that other subscriber, so "back to the start"
+    // is not just "zero" and AppShell's cleanup is shown to remove only its
+    // own listeners.
     const originalMatchMedia = window.matchMedia;
     const { md } = stubMdMatchMedia(false);
     try {
-      const { unmount } = renderShell();
+      md.listeners.add(() => {});
       const before = md.listeners.size;
-      expect(before).toBeGreaterThan(0);
+      const { unmount } = renderShell();
+      expect(md.listeners.size).toBeGreaterThan(before);
 
       unmount();
 
-      expect(md.listeners.size).toBe(0);
+      expect(md.listeners.size).toBe(before);
     } finally {
       window.matchMedia = originalMatchMedia;
     }
