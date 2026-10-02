@@ -7,9 +7,9 @@ dependencies: []
 source_review: "todos/archive/405-completed-p3-backend-endpoints-no-client-triage.md"
 source_finding: "slice 4 discovery"
 triage: needs-design
-triaged: 2026-09-28
-blocked_on: "Owner picks: drop allauth social routes, or fix the redirect provider"
-owner_decision: "Option (b): keep the allauth social routes and derive the provider from the sociallogin (2026-09-28)"
+triaged: 2026-10-02
+blocked_on: "Owner re-decides with the new fact: the social adapter's get_login_redirect_url is dead code allauth never calls, so option (b) as worded cannot change any redirect"
+owner_decision: "Option (b): keep the allauth social routes and derive the provider from the sociallogin (2026-09-28); re-decided 2026-10-02: allauth never calls CustomSocialAccountAdapter.get_login_redirect_url (the ACCOUNT adapter answers), so keep the routes and delete the dead override plus the pinned SocialLoginRedirectTests test (2026-10-02)"
 ---
 
 # allauth social adapter: its post-login redirect is unreachable, and broken if reached

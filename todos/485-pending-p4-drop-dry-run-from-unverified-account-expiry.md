@@ -5,6 +5,10 @@ issue_id: "485"
 tags: [backend, auth, ops]
 dependencies: []
 source_review: "PR #877"
+triage: blocked-prod
+triaged: 2026-10-02
+blocked_on: "AC1: the owner pastes the date + \"[PRUNE] unverified accounts: N candidate(s)...\" line from one prod cron night's logs (Railway forum-prune-cron service)."
+owner_decision: "Still blocked: owner pastes the date and the '[PRUNE] unverified accounts: N candidate(s)' line from one prod forum-prune-cron night into the todo (2026-10-02)"
 ---
 
 # Drop `--dry-run` from the unverified-account expiry cron; tidy archived 447

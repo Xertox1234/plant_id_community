@@ -4,6 +4,8 @@ priority: p4
 issue_id: "516"
 tags: [forum, web, mobile, testing]
 dependencies: []
+triage: ready
+triaged: 2026-10-02
 ---
 
 # Reaction guard rejected toggle: non-blocking findings from PR #928 (todo 503)

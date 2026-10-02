@@ -4,6 +4,8 @@ priority: p4
 issue_id: "517"
 tags: [forum, backend, testing]
 dependencies: []
+triage: ready
+triaged: 2026-10-02
 ---
 
 # Topic recount multi-author tests: non-blocking findings from PR #929 (todo 504)

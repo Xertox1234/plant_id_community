@@ -4,6 +4,9 @@ priority: p4
 issue_id: "520"
 tags: [forum, mobile, testing]
 dependencies: []
+triage: ready
+triaged: 2026-10-02
+owner_decision: "Findings 1-2: also reset userProfileServiceProvider on session-expiry sign-out in _handleSessionExpired so the stale username is cleared, and keep the comments truthful (2026-10-02)"
 ---
 
 # Forum viewer across refresh: non-blocking findings from PR #932 (todo 507)

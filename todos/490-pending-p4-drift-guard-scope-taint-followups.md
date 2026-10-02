@@ -5,6 +5,9 @@ issue_id: "490"
 tags: [backend, security, testing]
 dependencies: []
 source_review: "PR #883"
+triage: ready
+triaged: 2026-10-02
+owner_decision: "Fix findings 3/4: nested-unpack and match-as names become real bindings in the guard's scope analysis, with planted cases (2026-10-02)"
 ---
 
 # Requests-exception drift guard: non-blocking findings from PR #883 (todo 440)

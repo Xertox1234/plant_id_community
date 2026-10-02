@@ -5,8 +5,8 @@ issue_id: "436"
 tags: [review-followup, tech-debt]
 dependencies: []
 triage: ready
-triaged: 2026-09-28
-owner_decision: "Convert the 12 optional-integration placeholders to REQUIRED__ so production refuses to boot (2026-09-28)"
+triaged: 2026-10-02
+owner_decision: "Convert the 12 optional-integration placeholders to REQUIRED__ so production refuses to boot (2026-09-28); drop the backend/apps row from AC1 - todo 392 keeps those 7 sites; 436 covers packages/, plant_community_backend/ and the placeholders (2026-10-02)"
 ---
 
 # Extend two existing sweeps to the code they never covered

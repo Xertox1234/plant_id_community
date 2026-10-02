@@ -6,6 +6,10 @@ tags: [backend, core, dead-code, migration, operator]
 dependencies: []
 source_review: "todos/archive/415-completed-p3-remove-dead-django-email-preferences-views.md"
 source_finding: "recommended action 2"
+triage: blocked-prod
+triaged: 2026-10-02
+blocked_on: "Owner runs the read-only prod count (railway ssh --service plant_id_community -- manage.py shell: ForumNotificationSubscription.objects.count()) and records it in the todo"
+owner_decision: "Still blocked: owner runs the read-only prod count (railway ssh --service plant_id_community -- manage.py shell: ForumNotificationSubscription.objects.count()) and records it in the todo (2026-10-02)"
 ---
 
 # Drop the orphaned `ForumNotificationSubscription` model once production confirms it is empty

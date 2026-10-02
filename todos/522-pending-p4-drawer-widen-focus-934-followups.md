@@ -4,6 +4,9 @@ priority: p4
 issue_id: "522"
 tags: [web, a11y, testing]
 dependencies: []
+triage: ready
+triaged: 2026-10-02
+owner_decision: "Findings 1-4: record as left-as-is per todo 524's decision not to backfill archived Verified entries; code changes only for the six AppShell.test.tsx findings (2026-10-02)"
 ---
 
 # Drawer widen focus: non-blocking findings from PR #934 (todo 509)

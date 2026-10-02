@@ -4,6 +4,9 @@ priority: p4
 issue_id: "521"
 tags: [forum, backend, testing]
 dependencies: []
+triage: ready
+triaged: 2026-10-02
+owner_decision: "Finding 1: no mutation run - re-record 508's declining decision in 521's Work Log; findings 3/4: leave the archived 508 Verified block as is (508 precedent, matches todo 524's no-backfill decision) (2026-10-02)"
 ---
 
 # Reaction lock window test: non-blocking findings from PR #933 (todo 508)

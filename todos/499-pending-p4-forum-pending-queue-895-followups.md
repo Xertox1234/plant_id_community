@@ -4,6 +4,9 @@ priority: p4
 issue_id: "499"
 tags: [forum, moderation, wagtail, backend]
 dependencies: []
+triage: ready
+triaged: 2026-10-02
+owner_decision: "Finding 2: exclude the orphan draft opening post from pending_posts(); no Reject-that-deletes row (2026-10-02)"
 ---
 
 # Forum pending queue: follow-ups from PR #895's review
