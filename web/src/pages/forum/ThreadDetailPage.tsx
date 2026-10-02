@@ -1132,8 +1132,13 @@ export default function ThreadDetailPage() {
       {/* Premium AI thread summary (todo 414). Signed-in only — the server
           decides premium (403 latches the panel off for the session). Keyed on
           the topic so navigating threads resets its state and stops any
-          in-flight poll for the thread no longer shown. */}
-      {isAuthenticated && topicId != null && <ThreadSummaryPanel key={topicId} topicId={topicId} />}
+          in-flight poll for the thread no longer shown. `postCount` is the live
+          post count INCLUDING the opener — what the server's too_short counts —
+          while `totalPosts` is the API's reply_count, which excludes it, hence
+          the +1 (todo 433). */}
+      {isAuthenticated && topicId != null && (
+        <ThreadSummaryPanel key={topicId} topicId={topicId} postCount={totalPosts + 1} />
+      )}
 
       {/* The plant-ID snapshot, above the opening post (audit M6). Outside the
           posts list on purpose: it belongs to the TOPIC, so it must survive the

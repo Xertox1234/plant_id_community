@@ -409,7 +409,7 @@ def _valid_image_block_value(block_value):
 def _normalise_image_value(block_value, descriptions):
     """Rewrite a validated image block value into the ImageBlock dict shape.
 
-    Two things this closes:
+    Three things this closes:
 
     1. **Blank alt becomes ``decorative=True``, never ``alt_text=""``.**
        ``ImageBlock.clean()`` rejects "no alt text and not decorative". The API
@@ -422,6 +422,19 @@ def _normalise_image_value(block_value, descriptions):
        silently drop the author's words. *descriptions* carries the descriptions
        already fetched by the ownership query below, so this costs no extra
        query.
+    3. **Line endings and NUL are normalised on write, so the alt the composer
+       reads back is the alt that was stored.** The web composer carries the
+       alt through an HTML attribute, and the browser's parser normalises
+       attribute values on the way in: CR and CRLF become LF, NUL becomes
+       U+FFFD. Escaping cannot stop that, so an alt stored with a CR (possible
+       only through a direct API write — the composer never sends one) came
+       back different on rehydrate, and re-saving an untouched post PATCHed a
+       changed ``alt_text`` (PR #826 review, todo 443). Storing the normalised
+       form — CRLF and lone CR as LF, NUL deleted — makes rehydrate -> re-save
+       a no-op for every alt this API accepts. NUL is deleted, not replaced
+       with U+FFFD: the body column is jsonb, and Postgres rejects ``\u0000``
+       in jsonb outright, so a NUL alt could never have been stored anyway
+       (the save raised, and the API answered 500).
     """
     if isinstance(block_value, int):
         pk = block_value
@@ -432,6 +445,10 @@ def _normalise_image_value(block_value, descriptions):
         # Both may be None — see image_block_pk on Wagtail writing that shape.
         alt = block_value.get("alt_text") or ""
         decorative = block_value.get("decorative")
+    # Normalise BEFORE strip/truncate: the length cap must apply to the final
+    # form, and str.strip() removes CR but not NUL, so an alt of only NULs
+    # would otherwise count as authored text and reach jsonb as \u0000.
+    alt = alt.replace("\r\n", "\n").replace("\r", "\n").replace("\x00", "")
     alt = alt.strip()[:MAX_ALT_TEXT_LENGTH]
     # A blank alt IS decorative, whatever flag the client sent: `alt_text=""`
     # with `decorative=False` is exactly the pair ImageBlock.clean() refuses, so

@@ -391,6 +391,24 @@ describe('ThreadDetailPage', () => {
     expect(summarySpy).toHaveBeenCalledWith(12, expect.any(AbortSignal));
   });
 
+  it('hides Summarize thread below 3 posts and offers it from the third (todo 433)', async () => {
+    // Thread.post_count is the API's reply_count (the opener excluded), while
+    // the server's too_short counts every live post INCLUDING the opener: one
+    // reply is 2 posts (hidden), two replies are 3 (offered). An off-by-one in
+    // either direction fails one half of this pair.
+    vi.spyOn(forumService, 'fetchThread').mockResolvedValue(createMockThread({ post_count: 1 }));
+    vi.spyOn(forumService, 'fetchPosts').mockResolvedValue({ items: [], meta: { count: 0 } });
+    const tooShort = renderThreadDetailPage();
+    expect(await screen.findByText(/at least 3 posts/i)).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /summarize thread/i })).not.toBeInTheDocument();
+    tooShort.unmount();
+
+    vi.spyOn(forumService, 'fetchThread').mockResolvedValue(createMockThread({ post_count: 2 }));
+    renderThreadDetailPage();
+    expect(await screen.findByRole('button', { name: /summarize thread/i })).toBeInTheDocument();
+    expect(screen.queryByText(/at least 3 posts/i)).not.toBeInTheDocument();
+  });
+
   it('shows no Summarize thread button to a logged-out user', async () => {
     vi.mocked(useAuth).mockReturnValue(mockAuth(false));
     vi.spyOn(forumService, 'fetchThread').mockResolvedValue(createMockThread());
@@ -1211,6 +1229,9 @@ describe('ThreadDetailPage', () => {
   });
 
   it('releases the reaction guard after a failed toggle, so the next tap sends (todo 503)', async () => {
+    // handleReact's catch logs the rejection; stub it so the payload does not
+    // print to test stdout, and pin below that the catch path ran (todo 516).
+    const loggerErrorSpy = vi.spyOn(logger, 'error').mockImplementation(() => {});
     vi.spyOn(forumService, 'fetchThread').mockResolvedValue(createMockThread());
     vi.spyOn(forumService, 'fetchPosts').mockResolvedValue({
       // Non-zero 'like' so the button shows at rest.
@@ -1229,9 +1250,13 @@ describe('ThreadDetailPage', () => {
     // The rejection surfaces as a notice once handleReact has settled.
     await screen.findByText('Reaction failed');
     expect(toggleSpy).toHaveBeenCalledTimes(1);
+    expect(loggerErrorSpy).toHaveBeenCalledTimes(1);
+    expect(loggerErrorSpy).toHaveBeenCalledWith('Error toggling reaction', expect.anything());
 
-    // If the release were not in `finally`, the failed key would stay in
-    // flight and this tap would be dropped for the page's life.
+    // If the release ran only on success (inside `try`), the failed key would
+    // stay in flight and this tap would be dropped for the page's life. A
+    // release placed AFTER the try/catch would also pass this test, because
+    // the catch swallows the rejection — only the into-`try` mutation is pinned.
     await act(async () => {
       fireEvent.click(screen.getByRole('button', { name: 'React like' }));
     });

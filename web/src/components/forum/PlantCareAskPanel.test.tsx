@@ -13,10 +13,20 @@ import type { PlantCareAnswer } from '../../types/forum';
  * Provenance-forward by design (design doc guardrail 4): every `[n]` links to
  * the cited passage, sources carry kind + title + date, the answer is labelled
  * as community content, and "this is wrong" is one click away (guardrail 5).
- * Availability follows the compose-assist contract: 401/403/`disabled` latch
- * for the session (in the service, so a remount cannot re-offer the action);
- * `unavailable`/429 are transient and keep the form usable.
+ * Availability follows the compose-assist contract: 403/`disabled`, and a 401
+ * for an ANONYMOUS visitor, latch for the session (in the service, so a
+ * remount cannot re-offer the action); a signed-in user's 401 is an expired
+ * cookie and never latches (todo 433); `unavailable`/429 are transient and
+ * keep the form usable.
  */
+
+// Mutable auth posture — the vi.mock factory is hoisted above the imports, so
+// the holder must be created with vi.hoisted. Anonymous by default: the page
+// that hosts this panel (/forum/search) is public.
+const authState = vi.hoisted(() => ({
+  current: { user: null as { id: number } | null, isAuthenticated: false, isLoading: false },
+}));
+vi.mock('../../contexts/AuthContext', () => ({ useAuth: () => authState.current }));
 
 const ANSWERED: PlantCareAnswer = {
   status: 'answered',
@@ -71,6 +81,7 @@ describe('PlantCareAskPanel', () => {
     // (deliberately), so a 403 case would otherwise disable every later case.
     forumService.resetPlantCareAskAvailability();
     vi.spyOn(logger, 'error').mockImplementation(() => {});
+    authState.current = { user: null, isAuthenticated: false, isLoading: false };
   });
 
   it('is collapsed by default, shows the disclosure, and calls nothing until Ask', async () => {
@@ -196,6 +207,22 @@ describe('PlantCareAskPanel', () => {
     expect(await screen.findByText(/sign in/i)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Ask' })).toBeDisabled();
     expect(forumService.isPlantCareAskUnavailable()).toBe(true);
+  });
+
+  it('on a 401 for a SIGNED-IN user says the session expired, keeps the form, and never latches (todo 433)', async () => {
+    // The same expired-cookie bug PR #816 fixed for the thread summary: the
+    // refresh timer is throttled in background tabs and stops during sleep, so
+    // a premium user's 401 must not hide the feature until reload.
+    authState.current = { user: { id: 1 }, isAuthenticated: true, isLoading: false };
+    vi.spyOn(forumService, 'askPlantCare').mockRejectedValue(
+      new forumService.RagError(401, 'Authentication credentials were not provided.')
+    );
+    renderPanel();
+    await openAndAsk();
+    expect(await screen.findByText(/session expired/i)).toBeInTheDocument();
+    expect(screen.queryByText(/premium account to ask/i)).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Ask' })).toBeEnabled();
+    expect(forumService.isPlantCareAskUnavailable()).toBe(false);
   });
 
   it('disables the form on a 503 that means the feature is off', async () => {
