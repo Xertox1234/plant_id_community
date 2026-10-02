@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: p4
 issue_id: "503"
 tags: [forum, web, mobile, testing]
@@ -33,8 +33,43 @@ PR #905 (todo 465) merged after two review rounds in todo-sweep run 2026-10-01-0
 
 ## Acceptance Criteria
 
-- [ ] Each finding above is fixed with a test, or the Work Log records why it was left as is.
+- [x] Each finding above is fixed with a test, or the Work Log records why it was left as is.
 
 ## Work Log
 
 - 2026-09-30: Filed from todo-sweep run 2026-10-01-0121, PR #905 review rounds 1-2.
+
+### 2026-10-01 - Implemented by the todo sweep (run 2026-10-02-0118)
+
+- Findings 1-2 (mobile), left as is per the owner decision: the test is
+  renamed to 'the guard releases after a swallowed (caught) toggle failure
+  (todo 465)' and a comment says it pins release only on the swallowed-error
+  path, since `_toggleReactionOnce` catches the ApiException and returns
+  normally. The fake is not restructured, so a thrown failure stays
+  unexercised; no `lib/` change, so `forum_providers.g.dart` is unaffected.
+- Finding 4 (web), fixed with a test: 'releases the reaction guard after a
+  failed toggle, so the next tap sends (todo 503)' rejects the first
+  `toggleReaction`, waits for the notice, taps again and asserts a second
+  call. Mutation-checked by hand: moving the `finally` release into the
+  `try` fails this test while the existing todo 465 test still passes.
+- Finding 3 (archived 465), fixed without rewriting history: the Land-written
+  "Verified by" entry is left as recorded, and a `## Notes` section now gives
+  repo-relative commands that re-run both criteria from a checkout root. The
+  gitignored `.sweep-evidence/` pointer is left as is: the output it names is
+  already quoted inline in that entry.
+
+### 2026-10-01 - Verified by the todo sweep (run 2026-10-02-0118)
+
+- AC 1: `cd /Users/williamtower/projects/plant_id_community/.claude/worktrees/wf_867e27f5-a58-2/web && npx vitest run --reporter=verbose src/pages/forum/ThreadDetailPage.test.tsx -t "reaction" && cd /Users/williamtower/projects/plant_id_community/.claude/worktrees/wf_867e27f5-a58-2/plant_community_mobile && flutter test test/features/forum/providers/forum_providers_test.dart --plain-name "TopicPosts.toggleReaction"` — evidence `.sweep-evidence/g2/503-ac0.txt`, last lines:
+
+  ```text
+  00:00 +0: TopicPosts.toggleReaction success writes the fresh reaction counts back to the post
+  00:00 +1: TopicPosts.toggleReaction a failed toggle does not throw and leaves state unchanged
+  00:00 +2: TopicPosts.toggleReaction a second tap on the same reaction while the first is in flight is dropped (todo 465)
+  00:00 +3: TopicPosts.toggleReaction the guard releases after a swallowed (caught) toggle failure (todo 465)
+  00:00 +4: All tests passed!
+  ```
+
+### 2026-10-01 - Completed by the todo sweep (run 2026-10-02-0118)
+
+- Archived by `land.py archive`; evidence is quoted above, review is on the PR.

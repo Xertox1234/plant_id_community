@@ -104,7 +104,13 @@ void main() {
       expect(api.reactionCalls, ['5:like', '5:love', '5:like']);
     });
 
-    test('the guard releases after a failed toggle (todo 465)', () async {
+    // This pins release on the SWALLOWED-error path only: the fake's
+    // ApiException is caught inside `_toggleReactionOnce`, which returns
+    // normally, so a release placed after the await (outside `finally`)
+    // would pass too. A thrown failure escaping `toggleReaction` is not
+    // exercised; the fake is deliberately left as is (todo 503).
+    test('the guard releases after a swallowed (caught) toggle failure '
+        '(todo 465)', () async {
       final api = FakeForumApi()
         ..posts = CursorPage(
           items: [post(id: 5, reactionCounts: const {}, reacted: const [])],
