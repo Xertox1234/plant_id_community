@@ -14,9 +14,8 @@ import type {
 } from '../types/diagnosis';
 import { API_ORIGIN } from '@/config/api';
 
-const API_BASE_URL = API_ORIGIN;
 const API_VERSION = 'v1';
-const BASE = `${API_BASE_URL}/api/${API_VERSION}/plant-identification/disease-requests`;
+const BASE = `${API_ORIGIN}/api/${API_VERSION}/plant-identification/disease-requests`;
 
 export interface SubmitDiagnosisInput {
   image: File;

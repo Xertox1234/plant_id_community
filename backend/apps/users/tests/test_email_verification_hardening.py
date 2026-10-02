@@ -16,7 +16,7 @@ from unittest.mock import MagicMock, patch
 from allauth.account.models import EmailAddress
 from allauth.core.exceptions import ImmediateHttpResponse
 from allauth.socialaccount.models import SocialAccount
-from apps.users import oauth_views, tasks
+from apps.users import firebase_auth_views, oauth_views, tasks
 from apps.users.account_links import deliver_provider_linked_notice
 from apps.users.constants import (
     ACCOUNT_MAIL_MAX_RETRIES,
@@ -646,6 +646,32 @@ class ProviderLinkRaceTest(TestCase):
         self.assertFalse(linked)
         self.assertFalse(SocialAccount.objects.filter(user=user).exists())
 
+    def test_losing_the_race_during_signup_leaves_no_account(self):
+        # Todo 451: the same race inside the new-user path's outer
+        # transaction.atomic(). The link's own savepoint keeps that
+        # transaction usable for the re-read, and the refusal rolls the new
+        # account back. The outer `except Exception` turns any failure into
+        # None, so the log line is what tells this refusal from a crash.
+        other = User.objects.create_user(username="other", email="other@example.com")
+
+        with (
+            self._concurrent_insert(winner=other, uid="g-new"),
+            patch.object(oauth_views, "_linked_account", return_value=None),
+            self.assertLogs(oauth_views.logger, level="WARNING") as logs,
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            result = oauth_views._find_or_create_user(
+                "google", {"email": "new@example.com", "id": "g-new"}
+            )
+
+        self.assertIsNone(result)
+        self.assertFalse(User.objects.filter(email="new@example.com").exists())
+        self.assertTrue(any("linked concurrently" in line for line in logs.output))
+        self.assertEqual(
+            SocialAccount.objects.get(provider="google", uid="g-new").user, other
+        )
+        self.assertEqual(_notices(), [])
+
     def test_a_failed_notice_leaves_no_link(self):
         user = _verified_login_account()
 
@@ -672,3 +698,124 @@ class ProviderLinkRaceTest(TestCase):
                 oauth_views._record_provider_link("google", {"id": "g-owner"}, user)
 
         self.assertFalse(SocialAccount.objects.filter(user=user).exists())
+
+
+# --- todo 451: the Firebase first link is atomic and race-safe ------------------
+
+
+class FirebaseFirstLinkRaceTest(TestCase):
+    """The Firebase twin of ``ProviderLinkRaceTest``: binding ``firebase_uid``
+    is the durable marker, so it and ``on_first_provider_link`` share one
+    savepoint, and only the request whose conditional UPDATE binds the uid
+    revokes and notifies."""
+
+    def _sign_in(self, uid="fb-owner"):
+        with self.captureOnCommitCallbacks(execute=True):
+            return get_or_create_user_from_firebase(
+                firebase_uid=uid,
+                firebase_email="owner@example.com",
+                email_verified=True,
+                provider="google.com",
+            )
+
+    def _concurrent_bind(self, account, uid):
+        """As if another first sign-in bound ``uid`` to ``account`` between
+        our uid lookup and our bind: the lookup missed, and the account we
+        loaded by email still reads as unbound."""
+        real_lookup = firebase_auth_views.get_account_by_email
+
+        def lookup(email):
+            loaded = real_lookup(email)
+            User.objects.filter(pk=account.pk).update(firebase_uid=uid)
+            return loaded
+
+        return patch.object(
+            firebase_auth_views, "get_account_by_email", side_effect=lookup
+        )
+
+    def _uid(self, user):
+        return User.objects.values_list("firebase_uid", flat=True).get(pk=user.pk)
+
+    def test_losing_the_race_to_the_same_uid_signs_in_without_a_second_notice(self):
+        owner = _verified_login_account()
+        # Issued to the winning request's sign-in, after it revoked the rest.
+        session = RefreshToken.for_user(owner)
+
+        with self._concurrent_bind(owner, "fb-owner"):
+            user, created = self._sign_in()
+
+        self.assertEqual((user, created), (owner, False))
+        self.assertEqual(user.firebase_uid, "fb-owner")
+        self.assertEqual(_notices(), [])
+        self.assertFalse(_is_revoked(session))
+
+    def test_losing_the_race_to_another_uid_is_refused(self):
+        # Before todo 451 the save overwrote the other identity's binding.
+        owner = _verified_login_account()
+        session = RefreshToken.for_user(owner)
+
+        with self._concurrent_bind(owner, "fb-other"):
+            with self.assertRaises(ValueError):
+                self._sign_in()
+
+        self.assertEqual(self._uid(owner), "fb-other")
+        self.assertEqual(_notices(), [])
+        self.assertFalse(_is_revoked(session))
+
+    def test_a_uid_taken_by_another_account_meanwhile_is_refused(self):
+        # The bind's own IntegrityError (firebase_uid is unique). Before todo
+        # 451 the sessions were already revoked and the notice queued by then.
+        owner = _verified_login_account()
+        other = User.objects.create_user(username="other", email="other@example.com")
+        session = RefreshToken.for_user(owner)
+
+        with self._concurrent_bind(other, "fb-owner"):
+            with self.assertRaises(ValueError):
+                self._sign_in()
+
+        self.assertFalse(self._uid(owner))
+        self.assertEqual(self._uid(other), "fb-owner")
+        self.assertEqual(_notices(), [])
+        self.assertFalse(_is_revoked(session))
+
+    def test_a_failed_notice_leaves_no_binding(self):
+        owner = _verified_login_account()
+
+        with patch.object(
+            firebase_auth_views,
+            "on_first_provider_link",
+            side_effect=RuntimeError("boom"),
+        ):
+            with self.assertRaises(RuntimeError):
+                self._sign_in()
+
+        self.assertFalse(self._uid(owner))
+
+    def test_an_integrity_error_from_the_notice_is_not_a_conflict(self):
+        # The rollback undoes the bind too, so no account holds the uid: the
+        # error surfaces as itself, not as a 409 account conflict.
+        owner = _verified_login_account()
+
+        with patch.object(
+            firebase_auth_views,
+            "on_first_provider_link",
+            side_effect=IntegrityError("from the notice"),
+        ):
+            with self.assertRaises(IntegrityError):
+                self._sign_in()
+
+        self.assertFalse(self._uid(owner))
+
+    def test_a_blank_uid_counts_as_unbound(self):
+        # As in expire_unverified_accounts: "" is no binding. An UPDATE on
+        # IS NULL alone would refuse this account with a 409.
+        owner = _verified_login_account()
+        User.objects.filter(pk=owner.pk).update(firebase_uid="")
+        session = RefreshToken.for_user(owner)
+
+        user, _ = self._sign_in()
+
+        self.assertEqual(user, owner)
+        self.assertEqual(self._uid(owner), "fb-owner")
+        self.assertTrue(_is_revoked(session))
+        self.assertEqual(len(_notices()), 1)

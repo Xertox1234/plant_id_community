@@ -7,8 +7,7 @@
  */
 import { API_ORIGIN } from '@/config/api';
 
-const API_URL = API_ORIGIN;
-const UNSUBSCRIBE_BASE = `${API_URL}/api/v1/auth/unsubscribe`;
+const UNSUBSCRIBE_BASE = `${API_ORIGIN}/api/v1/auth/unsubscribe`;
 
 export interface EmailListState {
   list: string;

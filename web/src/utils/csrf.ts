@@ -72,8 +72,7 @@ export async function getCsrfToken(): Promise<string | null> {
   // Strategy 2: Fallback to API endpoint (backward compatibility)
   logger.warn('[CSRF] Meta tag not found, falling back to API endpoint');
   try {
-    const API_URL = API_ORIGIN;
-    const response = await fetch(`${API_URL}/api/csrf/`, {
+    const response = await fetch(`${API_ORIGIN}/api/csrf/`, {
       method: 'GET',
       credentials: 'include', // Required to receive CSRF cookie
     });

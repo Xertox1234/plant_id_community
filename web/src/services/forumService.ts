@@ -66,8 +66,7 @@ import { htmlToBodyBlocks } from '../utils/forumBody';
 import { safeExternalUrl } from '../utils/externalUrl';
 import { API_ORIGIN } from '@/config/api';
 
-const API_URL = API_ORIGIN;
-const FORUM_BASE = `${API_URL}/api/v1/forum`;
+const FORUM_BASE = `${API_ORIGIN}/api/v1/forum`;
 
 interface DrfPage<T> {
   results?: T[];

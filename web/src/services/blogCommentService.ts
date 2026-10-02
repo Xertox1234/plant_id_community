@@ -13,8 +13,7 @@ import { ForumApiError } from './forumService';
 import type { BlogComment } from '../types/blog';
 import { API_ORIGIN } from '@/config/api';
 
-const API_URL = API_ORIGIN;
-const BLOG_BASE = `${API_URL}/api/v1/blog`;
+const BLOG_BASE = `${API_ORIGIN}/api/v1/blog`;
 
 /**
  * Client-side cap on one comment body. The backend `content` is an

@@ -4,7 +4,7 @@ import { render } from '@testing-library/react';
 import LinkPreviewCard from './LinkPreviewCard';
 import { isCardBlock } from './cardRuns';
 import { linkPreviewDisplay } from './linkPreviewDisplay';
-import { API_URL } from '@/services/blogService';
+import { API_ORIGIN } from '@/config/api';
 import type { LinkPreviewBlockValue } from '@/types/blog';
 
 // Todo 453: one derivation of a link card's display, shared by the full card,
@@ -62,7 +62,7 @@ describe('linkPreviewDisplay (todo 453)', () => {
   it('takes a post card image from our media, a composer image from https only', () => {
     const stored = '/media/forum/link-previews/' + 'a'.repeat(64) + '.webp';
     expect(linkPreviewDisplay(preview({ image_url: stored }), 'post')?.imageSrc).toBe(
-      `${API_URL}${stored}`
+      `${API_ORIGIN}${stored}`
     );
     expect(
       linkPreviewDisplay(preview({ image_url: 'https://cdn.example.org/og.png' }), 'composer')
