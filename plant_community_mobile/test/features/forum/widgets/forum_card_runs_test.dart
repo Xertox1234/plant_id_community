@@ -1,6 +1,6 @@
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/semantics.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:plant_community_mobile/features/forum/models/models.dart';
@@ -269,7 +269,9 @@ void main() {
       _b,
     ]);
 
-    // Full cards: the video says what it shows, the link its short address.
+    // Full cards: the video says what it shows — a match for the web's
+    // no-player FALLBACK card only (a web player is an iframe titled
+    // "Alpha"; todo 505) — and the link its short address.
     expect(find.bySemanticsLabel('Alpha, Watch on YouTube'), findsOneWidget);
     // Rows: "title, provider" and "title, address".
     expect(find.bySemanticsLabel('Bravo, YouTube'), findsOneWidget);
@@ -356,12 +358,24 @@ void main() {
         ),
       );
 
+      // No overflow at this scale, and each row's long title is cut to one
+      // ellipsized line rather than pushing the row wider (todo 505: a
+      // width check under a bounded parent proved nothing).
       expect(tester.takeException(), isNull);
-      for (final row in find.byType(InkWell).evaluate()) {
-        expect(
-          tester.getSize(find.byWidget(row.widget)).width,
-          lessThanOrEqualTo(375),
+      final titles = find.text(long);
+      expect(titles, findsNWidgets(2)); // the video row and the link row
+      for (final title in titles.evaluate()) {
+        final text = title.widget as Text;
+        expect(text.maxLines, 1);
+        expect(text.overflow, TextOverflow.ellipsis);
+        final paragraph = tester.renderObject<RenderParagraph>(
+          find.descendant(
+            of: find.byWidget(text),
+            matching: find.byType(RichText),
+          ),
         );
+        expect(paragraph.didExceedMaxLines, isTrue);
+        expect(paragraph.size.width, lessThan(375));
       }
     });
   }
@@ -371,18 +385,22 @@ void main() {
   testWidgets('a link card joins a run exactly when it renders', (
     tester,
   ) async {
+    // Each case also states whether it SHOULD render (todo 505): the parity
+    // checks alone pass even when linkPreviewDisplay's null rule is wrong,
+    // since the card and the run rule both read it.
     const cases = [
-      LinkPreviewBlock(url: 'https://example.org/guide', title: 'T'),
-      LinkPreviewBlock(url: 'https://example.org'),
-      LinkPreviewBlock(url: 'http://example.org/x', siteName: 'S'),
-      LinkPreviewBlock(url: ''),
-      LinkPreviewBlock(url: 'example.org/guide', title: 'T'),
-      LinkPreviewBlock(url: 'javascript:alert(1)', title: 'T'),
-      LinkPreviewBlock(url: 'https://u:p@example.org/', title: 'T'),
+      (LinkPreviewBlock(url: 'https://example.org/guide', title: 'T'), true),
+      (LinkPreviewBlock(url: 'https://example.org'), true),
+      (LinkPreviewBlock(url: 'http://example.org/x', siteName: 'S'), true),
+      (LinkPreviewBlock(url: ''), false),
+      (LinkPreviewBlock(url: 'example.org/guide', title: 'T'), false),
+      (LinkPreviewBlock(url: 'javascript:alert(1)', title: 'T'), false),
+      (LinkPreviewBlock(url: 'https://u:p@example.org/', title: 'T'), false),
     ];
-    for (final card in cases) {
+    for (final (card, expected) in cases) {
       await _pump(tester, [card]);
       final renders = find.byType(InkWell).evaluate().isNotEmpty;
+      expect(renders, expected, reason: card.url);
       expect(isForumCardBlock(card), renders, reason: card.url);
       expect(linkPreviewDisplay(card) != null, renders, reason: card.url);
     }
@@ -421,4 +439,47 @@ void main() {
       expect(bare.label, 'https://example.org/…');
     },
   );
+
+  // Todo 505, findings 3 and 4: an untitled video row is titled and labelled
+  // by its SHORT address, never the full URL a screen reader would spell out.
+  testWidgets('an untitled video row says its short address, not its URL', (
+    tester,
+  ) async {
+    final handle = tester.ensureSemantics();
+    await _pump(tester, const [
+      _a,
+      EmbedBlock(url: 'https://youtu.be/xyz?t=42', providerName: 'YouTube'),
+      EmbedBlock(url: 'https://vimeo.com/77'),
+    ]);
+
+    expect(
+      find.bySemanticsLabel('https://youtu.be/…, YouTube'),
+      findsOneWidget,
+    );
+    expect(find.bySemanticsLabel('https://vimeo.com/…'), findsOneWidget);
+    expect(find.text('https://youtu.be/…'), findsOneWidget);
+    expect(find.text('https://vimeo.com/…'), findsOneWidget);
+    // The full URLs are neither shown nor spoken.
+    expect(find.bySemanticsLabel(RegExp(r'xyz|/77')), findsNothing);
+    expect(find.textContaining('xyz'), findsNothing);
+    expect(find.textContaining('/77'), findsNothing);
+    handle.dispose();
+  });
+
+  // Todo 505, finding 1: a link row reads its label from linkPreviewDisplay
+  // rather than re-deriving it.
+  testWidgets('a link row is labelled by linkPreviewDisplay', (tester) async {
+    final handle = tester.ensureSemantics();
+    const bare = LinkPreviewBlock(url: 'https://example.org/g');
+    await _pump(tester, const [_a, _link, bare]);
+
+    expect(
+      find.bySemanticsLabel(linkPreviewDisplay(_link)!.label),
+      findsOneWidget,
+    );
+    // The title IS the address: the display's label says it once.
+    expect(linkPreviewDisplay(bare)!.label, 'https://example.org/…');
+    expect(find.bySemanticsLabel('https://example.org/…'), findsOneWidget);
+    handle.dispose();
+  });
 }

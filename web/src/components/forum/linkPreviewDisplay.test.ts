@@ -27,7 +27,7 @@ function preview(overrides: Partial<LinkPreviewBlockValue> = {}): LinkPreviewBlo
 
 describe('linkPreviewDisplay (todo 453)', () => {
   it('derives the href, short address, title and "title, address" label', () => {
-    expect(linkPreviewDisplay(preview())).toEqual({
+    expect(linkPreviewDisplay(preview(), 'post')).toEqual({
       href: FULL_URL,
       address: SHORT,
       title: 'Delta guide',
@@ -38,9 +38,11 @@ describe('linkPreviewDisplay (todo 453)', () => {
   });
 
   it('falls back to the site name, the domain, then the address', () => {
-    expect(linkPreviewDisplay(preview({ title: '' }))?.title).toBe('Example');
-    expect(linkPreviewDisplay(preview({ title: '', site_name: '' }))?.title).toBe('example.org');
-    const bare = linkPreviewDisplay(preview({ title: '', site_name: '', domain: '' }));
+    expect(linkPreviewDisplay(preview({ title: '' }), 'post')?.title).toBe('Example');
+    expect(linkPreviewDisplay(preview({ title: '', site_name: '' }), 'post')?.title).toBe(
+      'example.org'
+    );
+    const bare = linkPreviewDisplay(preview({ title: '', site_name: '', domain: '' }), 'post');
     expect(bare?.title).toBe(SHORT);
     // The title IS the address: no second line, and the label says it once.
     expect(bare?.detail).toBe('');
@@ -48,10 +50,12 @@ describe('linkPreviewDisplay (todo 453)', () => {
   });
 
   it('is null for a missing envelope or a URL it will not link to', () => {
-    expect(linkPreviewDisplay(null)).toBeNull();
-    expect(linkPreviewDisplay(undefined)).toBeNull();
-    for (const url of ['', 'javascript:alert(1)', 'example.org/x', 'https://u:p@example.org/']) {
-      expect(linkPreviewDisplay(preview({ url }))).toBeNull();
+    for (const variant of ['post', 'composer'] as const) {
+      expect(linkPreviewDisplay(null, variant)).toBeNull();
+      expect(linkPreviewDisplay(undefined, variant)).toBeNull();
+      for (const url of ['', 'javascript:alert(1)', 'example.org/x', 'https://u:p@example.org/']) {
+        expect(linkPreviewDisplay(preview({ url }), variant)).toBeNull();
+      }
     }
   });
 
@@ -70,24 +74,66 @@ describe('linkPreviewDisplay (todo 453)', () => {
     ).toBeNull();
   });
 
-  it('joins a run exactly when the full card renders something', () => {
-    const cases: (LinkPreviewBlockValue | null)[] = [
-      null,
-      preview(),
-      preview({ url: '' }),
-      preview({ url: 'javascript:alert(1)' }),
-      preview({ url: 'https://u:p@example.org/' }),
-      preview({ url: 'example.org/guide' }),
-      preview({ title: '', site_name: '', domain: '' }),
-      preview({ url: 'http://example.org' }),
-    ];
-    for (const value of cases) {
-      const renders = value
-        ? render(createElement(LinkPreviewCard, { preview: value, variant: 'post' })).container
-            .childElementCount > 0
-        : false;
-      expect(isCardBlock({ id: 'lp', type: 'link_preview', value })).toBe(renders);
-      expect(linkPreviewDisplay(value) !== null).toBe(renders);
+  // Todo 505: the nearest neighbours each image source must refuse.
+  it('refuses a script or data image on a post card', () => {
+    for (const image_url of ['javascript:alert(1)', 'data:image/png;base64,AAAA', 'og.png']) {
+      expect(linkPreviewDisplay(preview({ image_url }), 'post')?.imageSrc).toBeNull();
     }
   });
+
+  it('passes an absolute post image through unchanged (an R2 media URL)', () => {
+    // With USE_R2 the stored image is an absolute URL on the media domain,
+    // with no /media/ path, so mediaUrl passes it through; a post card does
+    // not insist on https because local media is served over http.
+    const r2 = 'https://media.example.org/forum/link-previews/abc.webp';
+    expect(linkPreviewDisplay(preview({ image_url: r2 }), 'post')?.imageSrc).toBe(r2);
+  });
+
+  it('never resolves a composer image through our media', () => {
+    // A relative /media/ path is OUR copy, which only a stored post card has:
+    // the composer shows the linked site's own https image or nothing.
+    const stored = '/media/forum/link-previews/' + 'a'.repeat(64) + '.webp';
+    expect(linkPreviewDisplay(preview({ image_url: stored }), 'composer')?.imageSrc).toBeNull();
+    expect(
+      linkPreviewDisplay(preview({ image_url: 'javascript:alert(1)' }), 'composer')?.imageSrc
+    ).toBeNull();
+  });
+
+  it('makes every caller name its image source', () => {
+    // Todo 505: no default, so leaving the variant out is a type error rather
+    // than a silent choice of image source.
+    // @ts-expect-error variant is required
+    expect(linkPreviewDisplay(preview())).not.toBeNull();
+  });
+
+  // Each case states whether the card SHOULD render (todo 505). The parity
+  // checks below cannot fail on their own if linkPreviewDisplay's null rule is
+  // wrong, since the card, isCardBlock and the run all read that one
+  // function; they only catch a call site that stops using it. The explicit
+  // `expected` is what pins the rule itself.
+  const parityCases: [string, LinkPreviewBlockValue | null, boolean][] = [
+    ['no envelope', null, false],
+    ['an https link', preview(), true],
+    ['an http link', preview({ url: 'http://example.org' }), true],
+    ['an untitled link', preview({ title: '', site_name: '', domain: '' }), true],
+    ['an empty URL', preview({ url: '' }), false],
+    ['a javascript: URL', preview({ url: 'javascript:alert(1)' }), false],
+    ['a URL with credentials', preview({ url: 'https://u:p@example.org/' }), false],
+    ['a schemeless URL', preview({ url: 'example.org/guide' }), false],
+  ];
+
+  it.each(parityCases)(
+    'joins a run exactly when the full card renders: %s',
+    (_name, value, expected) => {
+      for (const variant of ['post', 'composer'] as const) {
+        const renders = value
+          ? render(createElement(LinkPreviewCard, { preview: value, variant })).container
+              .childElementCount > 0
+          : false;
+        expect(renders).toBe(expected);
+        expect(linkPreviewDisplay(value, variant) !== null).toBe(expected);
+      }
+      expect(isCardBlock({ id: 'lp', type: 'link_preview', value })).toBe(expected);
+    }
+  );
 });

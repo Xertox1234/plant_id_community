@@ -1,5 +1,5 @@
 import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
-import { safeExternalUrl } from '@/utils/externalUrl';
+import { safeExternalUrl, shortLinkAddress } from '@/utils/externalUrl';
 import type { StreamFieldBlock } from '@/types/blog';
 import { linkPreviewDisplay } from './linkPreviewDisplay';
 
@@ -18,7 +18,9 @@ const ROW_CLASS =
  * name is "title, <second line>". A video row's second line is its provider;
  * a link row's is the SHORT ADDRESS derived from the URL, never the page's own
  * og:site_name, so a row cannot claim to be a site it does not link to (the
- * todo 428 rule for the full card). A video row with a player swaps itself for
+ * todo 428 rule for the full card). An untitled video row is titled by its
+ * short address too, never the full URL a screen reader would spell out
+ * (todo 505). A video row with a player swaps itself for
  * that player when clicked, so no iframe loads until asked for, and focus
  * moves to the player so a keyboard user is not dropped to <body>. Any other
  * row is a link, like its full card.
@@ -36,24 +38,26 @@ export default function CompactCardRow({ block, renderFull }: CompactCardRowProp
   let href: string | null = null;
   let title = '';
   let detail = '';
+  let label = '';
   let thumbnail: string | null = null;
   let playable = false;
   if (block.type === 'embed') {
     const { url, title: t, provider_name, thumbnail_url, embed_url } = block.value;
     href = safeExternalUrl(url);
-    title = t || url;
+    title = t || shortLinkAddress(url) || url;
     detail = provider_name;
+    label = detail ? `${title}, ${detail}` : title;
     thumbnail = safeExternalUrl(thumbnail_url);
     playable = Boolean(embed_url);
   } else if (block.type === 'link_preview') {
-    // The full card's own derivation (todo 453), so a row and its card agree.
-    const display = linkPreviewDisplay(block.value);
+    // The full card's own derivation (todo 453), label included (todo 505),
+    // so a row and its card agree.
+    const display = linkPreviewDisplay(block.value, 'post');
     if (display) {
-      ({ href, title, detail, imageSrc: thumbnail } = display);
+      ({ href, title, detail, label, imageSrc: thumbnail } = display);
     }
   }
   if (!href) return null;
-  const label = detail ? `${title}, ${detail}` : title;
 
   if (expanded) {
     // The player replaces the button the user pressed; focus follows it.

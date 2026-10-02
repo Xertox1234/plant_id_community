@@ -29,13 +29,16 @@ export interface LinkPreviewDisplay {
  * `variant` picks the image source. `composer` (the live preview under the
  * editor): the linked site's own image, https only. `post` (a card stored in a
  * post body, todo 428): OUR media copy, resolved like every other media URL.
+ * It is required (todo 505): LinkPreviewCard defaults to `composer`, so a
+ * default here could only disagree with it, and leaving the variant out must
+ * never quietly pick an image source.
  *
  * The parameter is the block value's shape, so the composer's `LinkPreview`
  * (which only adds `available`) fits too.
  */
 export function linkPreviewDisplay(
   preview: LinkPreviewBlockValue | null | undefined,
-  variant: 'composer' | 'post' = 'post'
+  variant: 'composer' | 'post'
 ): LinkPreviewDisplay | null {
   if (!preview) return null;
   const href = safeExternalUrl(preview.url);

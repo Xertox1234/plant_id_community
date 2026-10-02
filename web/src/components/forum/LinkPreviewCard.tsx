@@ -30,7 +30,7 @@ export default function LinkPreviewCard({ preview, variant = 'composer' }: LinkP
   const display = linkPreviewDisplay(preview, variant);
   if (!display) return null;
 
-  const { href, address, title, detail, label, imageSrc } = display;
+  const { href, title, detail, label, imageSrc } = display;
   const showImage = Boolean(imageSrc) && failedImage !== imageSrc;
   const source = preview.site_name || preview.domain;
 
@@ -66,7 +66,7 @@ export default function LinkPreviewCard({ preview, variant = 'composer' }: LinkP
           {preview.description && (
             <p className="line-clamp-3 text-sm leading-5 text-ink-2">{preview.description}</p>
           )}
-          {detail && <p className="truncate text-xs text-ink-3">{address}</p>}
+          {detail && <p className="truncate text-xs text-ink-3">{detail}</p>}
         </div>
         <span id={hintId} className="sr-only">
           Opens in a new tab

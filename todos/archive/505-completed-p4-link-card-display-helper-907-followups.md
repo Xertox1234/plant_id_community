@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: p4
 issue_id: "505"
 tags: [forum, web, mobile]
@@ -61,8 +61,32 @@ PR #907 (todo 453) merged after two review rounds in todo-sweep run 2026-10-01-0
 
 ## Acceptance Criteria
 
-- [ ] Each finding above is fixed with a test, or the Work Log records why it was left as is.
+- [x] Each finding above is fixed with a test, or the Work Log records why it was left as is.
 
 ## Work Log
 
 - 2026-09-30: Filed from todo-sweep run 2026-10-01-0121, PR #907 review rounds 1-2.
+
+### 2026-10-01 - Implemented by the todo sweep (run 2026-10-02-0118)
+
+- Findings 1, 3, 4 (mobile rows): `_CompactCardRow` now carries the label in its switch tuple: a link row reads `d.label` from `linkPreviewDisplay`, a video row gets it from the new `_embedRow` helper. An untitled video row is titled and labelled by its short address (`linkPreviewShortAddress`), never the full URL. The web `CompactCardRow` got the same change (`t || shortLinkAddress(url) || url`, link label from the display) so the rows still match. New tests on both platforms. The full video cards (mobile `_EmbedCard`, web `StreamFieldRenderer`) still fall back to the full URL when the title is empty; no finding named them, so they were left as is.
+- Finding 2: fixed in the doc text only, with no runtime change, because the owner decided the label. The `_EmbedCard` docstring, flutter-patterns.md and the "labelled like the web" test comment now say that "title, Watch on PROVIDER" matches only the web's no-player fallback card. A web player is an iframe titled by the title alone, and a web fallback card with no provider reads "title Open link".
+- Findings 5, 6 (Dart tests): the 375 pt test drops the width loop. At each text scale it now checks `takeException()` and that both long row titles are one-line, ellipsized `RenderParagraph`s with `didExceedMaxLines`. The "joins a run exactly when it renders" test now states an expected boolean for each case: https/http true; empty, schemeless, `javascript:` and credentials false.
+- Findings 7, 12, 13 (web): `LinkPreviewCard` renders `{detail}` under its `detail` guard, and the existing LinkPreviewCard tests cover the address line. `linkPreviewDisplay`'s `variant` is now required. `CompactCardRow` and `isCardBlock` pass `'post'`. A `@ts-expect-error` call pins this under tsc, and a mutation check confirmed it: putting the `'post'` default back fails `tsc --noEmit`.
+- Findings 8-11 (web tests): new image-source neighbour cases. A post card refuses `javascript:`, `data:` and relative non-media images. A composer card refuses our stored `/media/...` path. The run-parity test is now `it.each` with labelled cases, an explicit expectation for each (http renders), and both variants. A comment states the parity check's limit. The suggestion "post + http image -> null" was not adopted. A post image is our own media: with USE_R2 it is an absolute URL that `mediaUrl` passes through, and local media is served over http. A test now pins that pass-through instead.
+
+### 2026-10-01 - Verified by the todo sweep (run 2026-10-02-0118)
+
+- AC 1: `bash -c 'cd /Users/williamtower/projects/plant_id_community/.claude/worktrees/wf_4cfc8bb3-2ac-1/web && ./node_modules/.bin/tsc --noEmit && echo "tsc --noEmit: exit 0" && ./node_modules/.bin/vitest run src/components/forum/linkPreviewDisplay.test.ts src/components/forum/CompactCardRow.test.tsx src/components/forum/LinkPreviewCard.test.tsx && cd /Users/williamtower/projects/plant_id_community/.claude/worktrees/wf_4cfc8bb3-2ac-1/plant_community_mobile && flutter analyze lib/features/forum test/features/forum && flutter test test/features/forum/widgets/forum_card_runs_test.dart'` — evidence `.sweep-evidence/g4/505-ac0.txt`, last lines:
+
+  ```text
+  00:00 +17: a link card joins a run exactly when it renders
+  00:00 +18: linkPreviewDisplay derives the title fallback, second line and label
+  00:00 +19: an untitled video row says its short address, not its URL
+  00:00 +20: a link row is labelled by linkPreviewDisplay
+  00:00 +21: All tests passed!
+  ```
+
+### 2026-10-01 - Completed by the todo sweep (run 2026-10-02-0118)
+
+- Archived by `land.py archive`; evidence is quoted above, review is on the PR.

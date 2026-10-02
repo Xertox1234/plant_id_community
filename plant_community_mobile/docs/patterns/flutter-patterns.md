@@ -388,13 +388,19 @@ Semantics(
 
 ### Forum card labels match the web (todo 453)
 
-Owner decision 2026-09-30: every forum card's spoken label is the web's
-accessible name, not a mobile dialect. A card or compact row is named
+Owner decision 2026-09-30: every forum card's spoken label follows the web's
+accessible name, not a mobile dialect (the full video card is the one partial
+match, below). A card or compact row is named
 "title, second line" — the second line being a video's provider or a link's
 SHORT address — or the title alone when there is no second line (a link whose
-title IS its address says it once). The full video card's second line is its
-visible "Watch on PROVIDER", the name the web's full card gets from its
-content. No "Link:" / "PROVIDER video:" prefix: on the web the element's role
+title IS its address says it once). An untitled video row is titled by its
+SHORT address too, never the full URL (todo 505). The full video card's second
+line is its visible "Watch on PROVIDER": that matches only the web's no-player
+FALLBACK card, which takes its name from its content. It is NOT the web's name
+for a video with a player (an iframe titled by the title alone), and with no
+provider the web fallback reads "title Open link" where mobile says the title
+alone (todo 505; the label itself is the owner's call, kept as decided).
+No "Link:" / "PROVIDER video:" prefix: on the web the element's role
 says what it is. Mobile keeps `button: onTap != null` — a tap hands the URL
 to `onOpenLink` (the in-app browser), not to a system link — so the role
 differs from the web's `<a>`, deliberately.

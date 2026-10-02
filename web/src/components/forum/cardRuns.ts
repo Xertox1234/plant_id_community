@@ -24,7 +24,7 @@ export function isCardBlock(block: StreamFieldBlock): boolean {
   // The same URL check the row makes, so a card joins a run only if it renders.
   if (block.type === 'embed') return Boolean(safeExternalUrl(block.value?.url));
   // The card's own derivation (todo 453): null is exactly "renders nothing".
-  if (block.type === 'link_preview') return linkPreviewDisplay(block.value) !== null;
+  if (block.type === 'link_preview') return linkPreviewDisplay(block.value, 'post') !== null;
   return false;
 }
 

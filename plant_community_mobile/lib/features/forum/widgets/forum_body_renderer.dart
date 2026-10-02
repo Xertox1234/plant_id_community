@@ -426,8 +426,11 @@ class _Image extends StatelessWidget {
 /// in the in-app browser, todo 424). A blank
 /// envelope (no url, no title) renders the unavailable placeholder, like a
 /// deleted image, rather than an empty card. Its spoken label is its text,
-/// "title, Watch on PROVIDER" — the name the web's full card gets from its
-/// content (todo 453).
+/// "title, Watch on PROVIDER" (owner decision, todo 453). That matches only
+/// the web's no-player FALLBACK card, which takes its name from the same
+/// text; a web video with a player is an iframe titled by the title alone,
+/// and a web fallback card with no provider reads "title Open link" where
+/// this card says the title alone (todo 505).
 class _EmbedCard extends StatelessWidget {
   const _EmbedCard({
     required this.url,
@@ -660,28 +663,36 @@ class _CompactCardRow extends StatelessWidget {
     final theme = Theme.of(context);
     // A link row's second line is the SHORT ADDRESS from the URL, never the
     // page's own siteName, so a row cannot claim a site it does not link to
-    // (the todo 428 rule for the full card); it comes from the full card's
-    // own [linkPreviewDisplay]. Labels match the web's rows (todo 453).
-    final (url, title, detail, thumbnail, fallbackIcon) = switch (block) {
-      EmbedBlock e => (
-        e.url,
-        e.title.isNotEmpty ? e.title : e.url,
-        e.providerName,
-        e.thumbnailUrl,
-        LucideIcons.circlePlay,
-      ),
+    // (the todo 428 rule for the full card). Its title, second line AND
+    // label come from the full card's own [linkPreviewDisplay], never
+    // re-derived here (todo 505). Labels match the web's rows (todo 453).
+    final (
+      url,
+      title,
+      detail,
+      label,
+      thumbnail,
+      fallbackIcon,
+    ) = switch (block) {
+      EmbedBlock e => _embedRow(e),
       LinkPreviewBlock c => switch (linkPreviewDisplay(c)) {
-        // Never the raw URL: callers only pass usable cards, and a row with
-        // no display renders nothing (see the guard below).
-        final d? => (d.href, d.title, d.detail, d.imageUrl, LucideIcons.link),
-        null => ('', '', '', '', LucideIcons.link),
+        // Never the raw URL: callers only pass usable cards, and a row
+        // with no display renders nothing (see the guard below).
+        final d? => (
+          d.href,
+          d.title,
+          d.detail,
+          d.label,
+          d.imageUrl,
+          LucideIcons.link,
+        ),
+        null => ('', '', '', '', '', LucideIcons.link),
       },
-      _ => ('', '', '', '', LucideIcons.circleHelp),
+      _ => ('', '', '', '', '', LucideIcons.circleHelp),
     };
     if (url.isEmpty || linkPreviewShortAddress(url) == null) {
       return const SizedBox.shrink();
     }
-    final label = detail.isEmpty ? title : '$title, $detail';
     final isLink = block is LinkPreviewBlock;
     final onOpenLink = this.onOpenLink;
     final onTap = onOpenLink == null || url.isEmpty
@@ -773,6 +784,25 @@ class _CompactCardRow extends StatelessWidget {
       ),
     );
   }
+}
+
+/// A video row's URL, title, second line, label, thumbnail and icon, the
+/// web's `CompactCardRow` rule: "title, provider", or the title alone. An
+/// untitled video is titled by its SHORT address, never the full URL, which
+/// a screen reader would spell out (todo 505; the todo 428 rule).
+(String, String, String, String, String, IconData) _embedRow(EmbedBlock e) {
+  final title = e.title.isNotEmpty
+      ? e.title
+      : linkPreviewShortAddress(e.url) ?? e.url;
+  final provider = e.providerName;
+  return (
+    e.url,
+    title,
+    provider,
+    provider.isEmpty ? title : '$title, $provider',
+    e.thumbnailUrl,
+    LucideIcons.circlePlay,
+  );
 }
 
 Future<void> _copyLink(BuildContext context, String url) async {
