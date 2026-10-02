@@ -178,3 +178,42 @@ def save_spotlight_updates(base, updates):
             revision.publish()
             return PUBLISHED
     return DRAFT_SAVED
+
+
+def page_label(page):
+    """How both spotlight commands name a page in their output."""
+    return f'page {page.pk} "{page.title}"'
+
+
+def describe_outcome(outcome, label):
+    """The line a command prints after `save_spotlight_updates`, or None.
+
+    PUBLISHED needs no line (the per-block output already said what changed).
+    DRAFT_SAVED says the change waits in a draft. Every other outcome — a
+    refused write, or the None a command substitutes when the write raised —
+    is "Not written", with the skip reason when there is one. Shared by
+    `populate_plant_images` and `backfill_spotlight_credits` (todo 442).
+    """
+    if outcome == PUBLISHED:
+        return None
+    if outcome == DRAFT_SAVED:
+        return f"Saved as a draft revision: {label} is not live"
+    return f"Not written: {label} {SKIP_MESSAGES.get(outcome, 'could not be saved')}"
+
+
+def page_unchanged_since(base):
+    """True when nothing has been committed to the page since `base` was loaded.
+
+    Compares the page's live/revision pointers with the snapshot `base`
+    carries — the same check `save_spotlight_updates` makes under its row
+    lock. A command uses it after the write RAISED: the write is atomic, so a
+    failure inside it committed nothing, but an exception from another app's
+    `transaction.on_commit` hook arrives after the revision committed
+    (forum_host registers one on `page_published`). Unchanged pointers mean no
+    revision can reference what the command fetched (todo 442). False too when
+    the page is gone.
+    """
+    current = (
+        Page.objects.filter(pk=base.page.pk).values_list(*_PAGE_STATE_FIELDS).first()
+    )
+    return current == base.state

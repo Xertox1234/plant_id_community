@@ -135,6 +135,28 @@ class PlantSpotlightBlockTest(SimpleTestCase):
         self.assertEqual(api["image_credit"], CREDIT)
         self.assertEqual(api["image_credit_url"], CREDIT_URL)
 
+    def test_api_representation_exposes_the_unsplash_link_parts(self):
+        # Todo 442: the web renders these instead of re-deriving the split and
+        # Unsplash's UTM link from the credit text.
+        block = spotlight_block()
+        api = block.get_api_representation(
+            block.to_python(
+                spotlight_raw(image_credit=CREDIT, image_credit_url=CREDIT_URL)
+            )
+        )
+        self.assertEqual(api["credit_lead"], "Photo by Jane Doe")
+        self.assertEqual(api["unsplash_href"], UNSPLASH_URL)
+
+    def test_api_representation_link_parts_are_empty_for_other_credits(self):
+        block = spotlight_block()
+        for credit in [PEXELS_CREDIT, "on Unsplash", "Photo by X on unsplash", ""]:
+            with self.subTest(credit=credit):
+                api = block.get_api_representation(
+                    block.to_python(spotlight_raw(image_credit=credit))
+                )
+                self.assertEqual(api["credit_lead"], "")
+                self.assertEqual(api["unsplash_href"], "")
+
 
 class PlantSpotlightTemplateCreditTest(TestCase):
     """The Wagtail template renders the credit under the image."""
@@ -315,6 +337,25 @@ class PlantSpotlightCreditFlowTest(TestCase):
         self.assertEqual(spotlight["value"]["image_credit"], CREDIT)
         self.assertEqual(spotlight["value"]["image_credit_url"], CREDIT_URL)
 
+    def test_api_serves_the_unsplash_link_parts(self):
+        # Todo 442: one source for the "Photo by X" / "Unsplash" split.
+        self.run_command(
+            "unsplash",
+            {
+                "photographer": {
+                    "name": "Jane Doe",
+                    "profile_url": "https://unsplash.com/@janedoe",
+                }
+            },
+        )
+        response = self.client.get(f"/api/v2/blog-posts/{self.post.id}/")
+        self.assertEqual(response.status_code, 200)
+        spotlight = next(
+            b for b in response.data["content_blocks"] if b["type"] == "plant_spotlight"
+        )
+        self.assertEqual(spotlight["value"]["credit_lead"], "Photo by Jane Doe")
+        self.assertEqual(spotlight["value"]["unsplash_href"], UNSPLASH_URL)
+
     def test_null_photographer_still_saves_the_image(self):
         # PR #820: the credit is now built BEFORE the save; a provider's
         # "photographer": null must not drop the image.
@@ -388,6 +429,9 @@ class PopulatePublishesThroughRevisionTest(TestCase):
                 "apps.blog.services.blog_cache_service.BlogCacheService."
                 "invalidate_blog_post"
             ) as invalidate,
+            # The handler invalidates from on_commit (todo 442); the patch
+            # stays open while the captured callbacks run.
+            self.captureOnCommitCallbacks(execute=True),
         ):
             call_command("populate_plant_images", post_id=post.id, stdout=out)
         post.refresh_from_db()

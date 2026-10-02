@@ -11,12 +11,6 @@ import CompactCardRow from './forum/CompactCardRow';
 import { groupCardRuns } from './forum/cardRuns';
 import type { PostQuoteBlockValue, StreamFieldBlock as StreamFieldBlockType } from '@/types/blog';
 
-// Mirrors backend/apps/plant_identification/services/unsplash_service.py
-// (UNSPLASH_CREDIT_SUFFIX, UNSPLASH_HOME_URL): the credit text the backend
-// writes, and Unsplash's link with the required referral UTM params.
-const UNSPLASH_CREDIT_SUFFIX = ' on Unsplash';
-const UNSPLASH_HOME_URL = 'https://unsplash.com/?utm_source=plant_community&utm_medium=referral';
-
 /**
  * SafeHTML Component
  *
@@ -353,12 +347,12 @@ function StreamFieldBlock({ block, mentionHighlight, currentTopicId }: StreamFie
       const credit = value.image_credit?.trim() ?? '';
       const creditHref = safeExternalUrl(value.image_credit_url);
       // "Photo by X on Unsplash": Unsplash's guidelines ask for a link to the
-      // photographer AND to Unsplash (todo 438), so the lead links the
-      // photographer and "Unsplash" links Unsplash with the referral UTM.
-      const unsplashLead =
-        credit.endsWith(UNSPLASH_CREDIT_SUFFIX) && credit.length > UNSPLASH_CREDIT_SUFFIX.length
-          ? credit.slice(0, -UNSPLASH_CREDIT_SUFFIX.length)
-          : null;
+      // photographer AND to Unsplash (todo 438). The API derives the split
+      // (`credit_lead`) and Unsplash's referral link (`unsplash_href`), so there
+      // is one source for both (todo 442); a payload without them — cached
+      // before the fields existed — renders the credit as a single link.
+      const creditLead = value.credit_lead?.trim() ?? '';
+      const unsplashHref = creditLead ? safeExternalUrl(value.unsplash_href) : null;
       const creditLink = (text: string) =>
         creditHref ? (
           <a
@@ -388,11 +382,11 @@ function StreamFieldBlock({ block, mentionHighlight, currentTopicId }: StreamFie
               />
               {credit && (
                 <figcaption className="mt-2 text-xs text-ink-3">
-                  {unsplashLead !== null ? (
+                  {unsplashHref ? (
                     <>
-                      {creditLink(unsplashLead)} on{' '}
+                      {creditLink(creditLead)} on{' '}
                       <a
-                        href={UNSPLASH_HOME_URL}
+                        href={unsplashHref}
                         target="_blank"
                         rel="noopener noreferrer"
                         className="underline underline-offset-2 hover:text-ink"
