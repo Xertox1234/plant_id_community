@@ -15,7 +15,12 @@ import '../support/forum_test_support.dart';
 
 /// The compose screen behind a router whose group-thread route records the
 /// navigation instead of mounting the real thread.
-Widget _wrap(FakeForumApi api, List<Uri> opened) {
+Widget _wrap(
+  FakeForumApi api,
+  List<Uri> opened, {
+  Future<void>? refreshGate,
+  bool failRefresh = false,
+}) {
   final router = GoRouter(
     routes: [
       GoRoute(path: '/', builder: (_, _) => const ForumNewGroupScreen()),
@@ -35,7 +40,11 @@ Widget _wrap(FakeForumApi api, List<Uri> opened) {
       // Signed in as `me`, so the self-username guard has something to
       // compare against.
       userProfileServiceProvider.overrideWith(
-        () => FakeUserProfileService(username: 'me'),
+        () => FakeUserProfileService(
+          username: 'me',
+          refreshGate: refreshGate,
+          failRefresh: failRefresh,
+        ),
       ),
     ],
     child: MaterialApp.router(routerConfig: router),
@@ -273,6 +282,55 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.widgetWithText(InputChip, '@ada'), findsOneWidget);
     });
+
+    for (final failRefresh in [false, true]) {
+      testWidgets('adding yourself is still refused while the account '
+          'profile ${failRefresh ? 'refresh FAILS' : 'refreshes'} '
+          '(todo 507)', (tester) async {
+        final refreshGate = Completer<void>();
+        await tester.pumpWidget(
+          _wrap(
+            FakeForumApi(),
+            [],
+            refreshGate: refreshGate.future,
+            failRefresh: failRefresh,
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        // The profile screen's pull-to-refresh: an explicit loading state,
+        // where `asData` is null and only `.value` still names me.
+        final container = ProviderScope.containerOf(
+          tester.element(find.byType(ForumNewGroupScreen)),
+          listen: false,
+        );
+        final refreshing = container
+            .read(userProfileServiceProvider.notifier)
+            .refresh();
+        await tester.pump();
+        expect(container.read(userProfileServiceProvider).asData, isNull);
+
+        await _addMember(tester, '@me');
+        expect(find.text("That's you."), findsOneWidget);
+        expect(find.widgetWithText(InputChip, '@me'), findsNothing);
+
+        refreshGate.complete();
+        await refreshing;
+        await tester.pumpAndSettle();
+        final settled = container.read(userProfileServiceProvider);
+        expect(settled.hasError, failRefresh);
+        expect(settled.value?.username, 'me');
+
+        // Once the refresh has settled (or failed), the guard still holds.
+        await tester.enterText(_member(), 'ada');
+        await tester.pumpAndSettle();
+        expect(find.text("That's you."), findsNothing);
+        await _addMember(tester, 'me');
+        expect(find.text("That's you."), findsOneWidget);
+        expect(find.widgetWithText(InputChip, '@me'), findsNothing);
+        expect(tester.takeException(), isNull);
+      });
+    }
 
     testWidgets('adding the same member twice says so instead of doing '
         'nothing', (tester) async {

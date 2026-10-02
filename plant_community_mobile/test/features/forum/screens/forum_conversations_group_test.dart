@@ -100,7 +100,8 @@ void main() {
         // Own last message in a group reads "You:", never the sender's name.
         expect(find.text('Cuttings'), findsOneWidget);
         expect(find.text('You: Sent!'), findsOneWidget);
-        // The cluster shows at most three of the five members.
+        // The cluster shows three of the four other members (the viewer is
+        // left out); the fourth folds into a "+1" disc.
         final clusters = find.byType(AuthorAvatarCluster);
         expect(clusters, findsNWidgets(2));
         expect(
@@ -109,6 +110,10 @@ void main() {
             matching: find.byType(AuthorAvatar),
           ),
           findsNWidgets(3),
+        );
+        expect(
+          find.descendant(of: clusters.first, matching: find.text('+1')),
+          findsOneWidget,
         );
         // The direct row keeps its single avatar and un-prefixed preview.
         expect(find.text('Bob Fern'), findsOneWidget);

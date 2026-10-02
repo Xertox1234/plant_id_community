@@ -11,8 +11,11 @@ import 'author_identity.dart';
 ///
 /// Mirrors the web `ParticipantStack` (todo 463): the viewer, named by
 /// [viewerUsername], is left out — they know what they look like — and the
-/// semantics label counts only the others. While the viewer is unknown (the
-/// account profile is loading or failed) every member is shown, as on web.
+/// semantics label counts only the others. Every member is shown, as on
+/// web, only while the viewer is unknown: before the account profile first
+/// resolves, after a first fetch that failed with no earlier value, or after
+/// sign-out clears it. Callers read the profile's `.value`, so a reload or a
+/// failed refresh keeps the last known viewer and never puts them back in.
 class AuthorAvatarCluster extends StatelessWidget {
   const AuthorAvatarCluster({
     super.key,

@@ -30,12 +30,15 @@ class ForumUserProfileScreen extends ConsumerWidget {
     // The "Message" action (todo 339) is hidden on your own profile and for
     // anonymous viewers (the backend 401s a DM send). The current username
     // lives on the account profile, which is only fetched when signed in —
-    // while it is still loading, AND if that fetch failed, the action stays
-    // hidden: without knowing who "you" are, showing it risks offering to
-    // message yourself. Deliberate; the account profile fetch retries on the
-    // next visit, and the inbox remains reachable from the forum home.
+    // until it first resolves, AND if that first fetch failed, the action
+    // stays hidden: without knowing who "you" are, showing it risks offering
+    // to message yourself. Deliberate; the account profile fetch retries on
+    // the next visit, and the inbox remains reachable from the forum home.
+    // `.value`, not `asData?.value` (todo 507): a later `refresh()`, or a
+    // failed one, keeps the last known username, so the action does not
+    // blink out while the account profile reloads.
     final myUsername = isAuthenticated
-        ? ref.watch(userProfileServiceProvider).asData?.value?.username
+        ? ref.watch(userProfileServiceProvider).value?.username
         : null;
     final profile = profileAsync.asData?.value;
     final isBlocked = profile?.isBlocked ?? false;

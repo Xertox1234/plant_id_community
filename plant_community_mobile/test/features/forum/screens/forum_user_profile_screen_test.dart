@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -12,20 +14,29 @@ import '../support/forum_test_support.dart';
 
 /// [me] is the signed-in account's username; `null` renders the screen for
 /// an anonymous viewer (no account profile is fetched in that case).
-Widget _wrap(FakeForumApi api, {String username = 'alice', String? me}) =>
-    ProviderScope(
-      overrides: [
-        forumApiProvider.overrideWithValue(api),
-        authServiceProvider.overrideWith(
-          () => FakeAuthService(loggedIn: me != null),
+Widget _wrap(
+  FakeForumApi api, {
+  String username = 'alice',
+  String? me,
+  Future<void>? refreshGate,
+  bool failRefresh = false,
+}) => ProviderScope(
+  overrides: [
+    forumApiProvider.overrideWithValue(api),
+    authServiceProvider.overrideWith(
+      () => FakeAuthService(loggedIn: me != null),
+    ),
+    if (me != null)
+      userProfileServiceProvider.overrideWith(
+        () => FakeUserProfileService(
+          username: me,
+          refreshGate: refreshGate,
+          failRefresh: failRefresh,
         ),
-        if (me != null)
-          userProfileServiceProvider.overrideWith(
-            () => FakeUserProfileService(username: me),
-          ),
-      ],
-      child: MaterialApp(home: ForumUserProfileScreen(username: username)),
-    );
+      ),
+  ],
+  child: MaterialApp(home: ForumUserProfileScreen(username: username)),
+);
 
 Finder _messageButton() => find.widgetWithIcon(IconButton, LucideIcons.mail);
 
@@ -134,6 +145,78 @@ void main() {
       await tester.pumpWidget(_wrap(api));
       await tester.pumpAndSettle();
 
+      expect(_messageButton(), findsNothing);
+    });
+
+    for (final failRefresh in [false, true]) {
+      testWidgets('stays put while the ACCOUNT profile '
+          '${failRefresh ? 'refresh FAILS' : 'refreshes'}: the last known '
+          'username still says whose profile this is (todo 507)', (
+        tester,
+      ) async {
+        final api = FakeForumApi()..profile = profile(username: 'alice');
+        final refreshGate = Completer<void>();
+
+        await tester.pumpWidget(
+          _wrap(
+            api,
+            me: 'me',
+            refreshGate: refreshGate.future,
+            failRefresh: failRefresh,
+          ),
+        );
+        await tester.pumpAndSettle();
+        expect(_messageButton(), findsOneWidget);
+
+        // The profile screen's pull-to-refresh: an explicit loading state,
+        // where `asData` is null and only `.value` still names me.
+        final container = ProviderScope.containerOf(
+          tester.element(find.byType(ForumUserProfileScreen)),
+          listen: false,
+        );
+        final refreshing = container
+            .read(userProfileServiceProvider.notifier)
+            .refresh();
+        await tester.pump();
+        expect(container.read(userProfileServiceProvider).asData, isNull);
+        expect(_messageButton(), findsOneWidget);
+
+        refreshGate.complete();
+        await refreshing;
+        await tester.pumpAndSettle();
+        expect(
+          container.read(userProfileServiceProvider).hasError,
+          failRefresh,
+        );
+        expect(_messageButton(), findsOneWidget);
+        expect(tester.takeException(), isNull);
+      });
+    }
+
+    testWidgets('stays hidden on your OWN profile while the account profile '
+        'refreshes (todo 507)', (tester) async {
+      final api = FakeForumApi()..profile = profile(username: 'alice');
+      final refreshGate = Completer<void>();
+
+      await tester.pumpWidget(
+        _wrap(api, me: 'alice', refreshGate: refreshGate.future),
+      );
+      await tester.pumpAndSettle();
+      expect(_messageButton(), findsNothing);
+
+      final container = ProviderScope.containerOf(
+        tester.element(find.byType(ForumUserProfileScreen)),
+        listen: false,
+      );
+      final refreshing = container
+          .read(userProfileServiceProvider.notifier)
+          .refresh();
+      await tester.pump();
+      expect(_messageButton(), findsNothing);
+
+      refreshGate.complete();
+      await refreshing;
+      await tester.pumpAndSettle();
       expect(_messageButton(), findsNothing);
     });
 

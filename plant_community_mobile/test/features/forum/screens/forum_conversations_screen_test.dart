@@ -20,6 +20,7 @@ Widget _wrap(
   String? viewer = 'me',
   Future<void>? gate,
   Future<void>? refreshGate,
+  bool failRefresh = false,
 }) => ProviderScope(
   overrides: [
     forumApiProvider.overrideWithValue(api),
@@ -28,6 +29,7 @@ Widget _wrap(
         username: viewer,
         gate: gate,
         refreshGate: refreshGate,
+        failRefresh: failRefresh,
       ),
     ),
   ],
@@ -236,6 +238,129 @@ void main() {
       refreshGate.complete();
       await tester.pumpAndSettle();
       expect(_clusterUsernames(tester), ['ada', 'bob', 'carol']);
+      expect(tester.takeException(), isNull);
+
+      handle.dispose();
+    });
+
+    testWidgets('a FAILED profile refresh keeps the last known viewer too: '
+        'the error carries the previous profile (todo 507)', (tester) async {
+      final handle = tester.ensureSemantics();
+      final api = FakeForumApi()
+        ..conversations = [
+          groupConversation(
+            id: 12,
+            memberUsernames: const ['ada', 'bob', 'carol', 'dave'],
+          ),
+        ];
+
+      await tester.pumpWidget(_wrap(api, failRefresh: true));
+      await tester.pumpAndSettle();
+      expect(_clusterUsernames(tester), ['ada', 'bob', 'carol']);
+
+      final container = ProviderScope.containerOf(
+        tester.element(find.byType(ForumConversationsScreen)),
+        listen: false,
+      );
+      await container.read(userProfileServiceProvider.notifier).refresh();
+      await tester.pumpAndSettle();
+
+      // Riverpod keeps the previous value on the AsyncError (copyWithPrevious),
+      // so `.value` still names me even though `asData` is gone.
+      final failed = container.read(userProfileServiceProvider);
+      expect(failed.hasError, isTrue);
+      expect(failed.asData, isNull);
+      expect(failed.value?.username, 'me');
+      expect(_clusterUsernames(tester), ['ada', 'bob', 'carol']);
+      expect(
+        find.descendant(
+          of: find.byType(AuthorAvatarCluster),
+          matching: find.text('+1'),
+        ),
+        findsOneWidget,
+      );
+      expect(_clusterLabel(tester), startsWith('4 other members'));
+      expect(tester.takeException(), isNull);
+
+      handle.dispose();
+    });
+
+    testWidgets('a profile change that keeps the username does not rebuild '
+        'the inbox; a username change does (todo 507)', (tester) async {
+      final api = FakeForumApi()
+        ..conversations = [
+          groupConversation(
+            id: 12,
+            memberUsernames: const ['ada', 'bob', 'carol', 'dave'],
+          ),
+        ];
+
+      await tester.pumpWidget(_wrap(api));
+      await tester.pumpAndSettle();
+      final container = ProviderScope.containerOf(
+        tester.element(find.byType(ForumConversationsScreen)),
+        listen: false,
+      );
+      final profiles =
+          container.read(userProfileServiceProvider.notifier)
+              as FakeUserProfileService;
+      final me = container.read(userProfileServiceProvider).value!;
+      // The Scaffold is built fresh by every `build` of the screen, so the
+      // SAME instance after a pump means the screen did not rebuild.
+      final before = tester.widget<Scaffold>(find.byType(Scaffold));
+      final fetches = api.fetchConversationsCalls.length;
+
+      // An `updateProfile` that edits only the bio.
+      profiles.emit(me.copyWith(bio: 'Grows ferns now'));
+      await tester.pumpAndSettle();
+
+      expect(
+        container.read(userProfileServiceProvider).value?.bio,
+        'Grows ferns now',
+      );
+      expect(
+        identical(tester.widget<Scaffold>(find.byType(Scaffold)), before),
+        isTrue,
+      );
+      expect(api.fetchConversationsCalls.length, fetches);
+      expect(_clusterUsernames(tester), ['ada', 'bob', 'carol']);
+
+      // Positive control: a new username DOES reach the screen, so the
+      // check above would see a rebuild if the `select` were dropped.
+      profiles.emit(me.copyWith(username: 'ada'));
+      await tester.pumpAndSettle();
+
+      expect(
+        identical(tester.widget<Scaffold>(find.byType(Scaffold)), before),
+        isFalse,
+      );
+      expect(_clusterUsernames(tester), ['me', 'bob', 'carol']);
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('with the viewer unknown, a group whose roster is empty '
+        'labels its bare group glyph "No members" (todo 507)', (tester) async {
+      final handle = tester.ensureSemantics();
+      // The fixture always lists the creator, so empty the roster outright.
+      final api = FakeForumApi()
+        ..conversations = [
+          groupConversation(
+            id: 12,
+            memberUsernames: const [],
+          ).copyWith(participants: const []),
+        ];
+
+      await tester.pumpWidget(_wrap(api, viewer: null));
+      await tester.pumpAndSettle();
+
+      final cluster = find.byType(AuthorAvatarCluster);
+      expect(_clusterUsernames(tester), isEmpty);
+      expect(
+        find.descendant(of: cluster, matching: find.byType(Icon)),
+        findsOneWidget,
+      );
+      expect(_clusterLabel(tester), startsWith('No members'));
+      expect(_clusterLabel(tester), isNot(startsWith('No other members')));
       expect(tester.takeException(), isNull);
 
       handle.dispose();

@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:plant_community_mobile/features/forum/models/models.dart';
 import 'package:plant_community_mobile/features/forum/services/forum_api.dart';
 import 'package:plant_community_mobile/features/forum/services/forum_image_picker.dart';
@@ -14,7 +15,12 @@ import 'package:plant_community_mobile/services/user_profile_service.dart';
 /// FakeUserProfileService(username: 'me'))` wherever a screen needs to know
 /// who the current user is (the profile "Message" action, todo 339).
 class FakeUserProfileService extends UserProfileService {
-  FakeUserProfileService({required this.username, this.gate, this.refreshGate});
+  FakeUserProfileService({
+    required this.username,
+    this.gate,
+    this.refreshGate,
+    this.failRefresh = false,
+  });
 
   /// The signed-in user's username, or null for "no profile" — the state
   /// [clear] leaves on sign-out, and what a screen sees as an unknown
@@ -33,6 +39,15 @@ class FakeUserProfileService extends UserProfileService {
   /// the profile in that reloading state until the test completes it.
   final Future<void>? refreshGate;
 
+  /// When true, [fetchProfile] throws (after [refreshGate]) — so [refresh]
+  /// lands an `AsyncError` that still carries the previous profile, the
+  /// failed-refresh state a screen must not treat as "viewer unknown".
+  final bool failRefresh;
+
+  /// Replaces the resolved profile, as a successful `updateProfile` does —
+  /// for a test that changes a field other than the username.
+  void emit(UserProfile profile) => state = AsyncData(profile);
+
   @override
   Future<UserProfile?> build() async {
     final pending = gate;
@@ -46,6 +61,9 @@ class FakeUserProfileService extends UserProfileService {
   Future<UserProfile> fetchProfile() async {
     final pending = refreshGate;
     if (pending != null) await pending;
+    if (failRefresh) {
+      throw UserProfileException('FakeUserProfileService refresh failed');
+    }
     final profile = _profile();
     if (profile == null) {
       throw UserProfileException('FakeUserProfileService has no username');

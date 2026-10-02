@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: p4
 issue_id: "507"
 tags: [forum, mobile, testing]
@@ -41,8 +41,32 @@ PR #909 (todo 486) merged after two review rounds in todo-sweep run 2026-10-01-0
 
 ## Acceptance Criteria
 
-- [ ] Each finding above is fixed with a test, or the Work Log records why it was left as is.
+- [x] Each finding above is fixed with a test, or the Work Log records why it was left as is.
 
 ## Work Log
 
 - 2026-09-30: Filed from todo-sweep run 2026-10-01-0121, PR #909 review rounds 1-2.
+
+### 2026-10-01 - Implemented by the todo sweep (run 2026-10-02-0118)
+
+- Finding 1: the group thread (`forum_conversation_screen.dart`), the new-group screen and the forum profile screen now read the account profile's `.value?.username`, not `asData?.value`, and their comments say why. A `refresh()` sets an explicit loading state and a failed one an AsyncError. `asData` is null in both, but Riverpod 3.2.1 `copyWithPrevious` keeps the last profile in `.value`. New tests fire `refresh()` (in flight, and failing) on each of the three screens: the thread is not held back and "Mine" stays on the right; "That's you." still refuses `@me`; "Message" neither blinks out on someone else's profile nor appears on your own. Reverting each site to `asData` fails its new tests.
+- Finding 2: a new inbox test emits a profile with the same username and a different bio. It checks that the screen's Scaffold is the same instance (no rebuild) and that `conversationsFeed` was not re-fetched. As a positive control, a username change does rebuild. Dropping the `select` makes the test fail.
+- Finding 3: left as is, per the owner decision of 2026-10-01: keep `.value`, because a stale username is harmless and a null viewer would misattribute my own messages. Sign-out clears the profile anyway. No code change, but a new inbox test pins the failed-refresh behaviour this choice relies on.
+- Findings 4-7: reworded the `AuthorAvatarCluster` class doc (everyone is shown only while the viewer is unknown; a reload or failed refresh keeps the last known viewer). Added the 'No members' / 'No other members' widget test, an inbox test for `viewer: null` with an empty roster ('No members'), and a failed-refresh inbox test (the cluster still leaves 'me' out). Reworded the group-row comment in `forum_conversations_group_test.dart` and added its '+1' assertion.
+- Test support: `FakeUserProfileService` gained `failRefresh` (its `fetchProfile` throws) and `emit(profile)`.
+
+### 2026-10-01 - Verified by the todo sweep (run 2026-10-02-0118)
+
+- AC 1: `bash -c 'cd /Users/williamtower/projects/plant_id_community/.claude/worktrees/wf_4cfc8bb3-2ac-3/plant_community_mobile && flutter test --no-pub -r expanded test/features/forum/screens/forum_conversations_screen_test.dart test/features/forum/screens/forum_conversations_group_test.dart test/features/forum/screens/forum_group_conversation_test.dart test/features/forum/screens/forum_new_group_screen_test.dart test/features/forum/screens/forum_user_profile_screen_test.dart test/features/forum/widgets/forum_avatar_cluster_test.dart && grep -n -A8 "Implemented by the todo sweep (run 2026-10-02-0118)" ../todos/507-pending-p4-mobile-inbox-viewer-refresh-909-followups.md'` — evidence `.sweep-evidence/g6/507-ac0.txt`, last lines:
+
+  ```text
+  52-- Finding 1: the group thread (`forum_conversation_screen.dart`), the new-group screen and the forum profile screen now read the account profile's `.value?.username`, not `asData?.value`, and their comments say why. A `refresh()` sets an explicit loading state and a failed one an AsyncError. `asData` is null in both, but Riverpod 3.2.1 `copyWithPrevious` keeps the last profile in `.value`. New tests fire `refresh()` (in flight, and failing) on each of the three screens: the thread is not held back and "Mine" stays on the right; "That's you." still refuses `@me`; "Message" neither blinks out on someone else's profile nor appears on your own. Reverting each site to `asData` fails its new tests.
+  53-- Finding 2: a new inbox test emits a profile with the same username and a different bio. It checks that the screen's Scaffold is the same instance (no rebuild) and that `conversationsFeed` was not re-fetched. As a positive control, a username change does rebuild. Dropping the `select` makes the test fail.
+  54-- Finding 3: left as is, per the owner decision of 2026-10-01: keep `.value`, because a stale username is harmless and a null viewer would misattribute my own messages. Sign-out clears the profile anyway. No code change, but a new inbox test pins the failed-refresh behaviour this choice relies on.
+  55-- Findings 4-7: reworded the `AuthorAvatarCluster` class doc (everyone is shown only while the viewer is unknown; a reload or failed refresh keeps the last known viewer). Added the 'No members' / 'No other members' widget test, an inbox test for `viewer: null` with an empty roster ('No members'), and a failed-refresh inbox test (the cluster still leaves 'me' out). Reworded the group-row comment in `forum_conversations_group_test.dart` and added its '+1' assertion.
+  56-- Test support: `FakeUserProfileService` gained `failRefresh` (its `fetchProfile` throws) and `emit(profile)`.
+  ```
+
+### 2026-10-01 - Completed by the todo sweep (run 2026-10-02-0118)
+
+- Archived by `land.py archive`; evidence is quoted above, review is on the PR.

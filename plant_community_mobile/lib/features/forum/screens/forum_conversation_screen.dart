@@ -118,10 +118,13 @@ class _ForumConversationScreenState
     // account profile (a 1:1 thread infers "mine" from the two parties), so
     // the watch is scoped to that mode.
     final meAsync = isGroup ? ref.watch(userProfileServiceProvider) : null;
-    // `asData` keeps the previously resolved value across a later re-fetch,
-    // so this is null only before the FIRST resolve — no separate cache is
-    // needed to stop a refresh flipping my messages to the other side.
-    final me = meAsync?.asData?.value?.username;
+    // `.value`, not `asData?.value` (todo 507, as in the inbox since todo
+    // 486): a profile `refresh()` sets an explicit loading state, and a
+    // failed one an error — `asData` is null in both, but `.value` still
+    // holds the last known profile. So this is null only before the FIRST
+    // resolve, after a first fetch that failed, or after sign-out clears
+    // the profile; a later reload never flips my messages to the other side.
+    final me = meAsync?.value?.username;
     // Attribution is unknowable until that first resolve, and guessing would
     // paint my own messages on the wrong side for a frame. A FAILED profile
     // still renders (everything as theirs — the safe direction, since the
