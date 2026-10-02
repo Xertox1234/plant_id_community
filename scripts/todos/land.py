@@ -443,19 +443,42 @@ def _siblings(repo, review, todo_path):
                 rewrite.append(rel)
         except (yaml.YAMLError, ValueError, OSError) as exc:
             # Unreadable, so whether it names `review` is unknown: note it when its
-            # frontmatter at least mentions the review doc's file name.
+            # `source_review` line at least names the review doc's file.
             if _mentions(path, review.name):
                 skipped.append({"path": rel, "reason": f"its frontmatter could not be read ({type(exc).__name__})"})
     return rewrite, skipped
 
 
+# A top-level `source_review` key, quoted or not, with any blanks before the colon.
+_SOURCE_REVIEW_LINE_RE = re.compile(r"""^(["']?)source_review\1[ \t]*:(.*)$""")
+
+
 def _mentions(path, name):
-    """True when `path` reads and its frontmatter block contains `name`."""
+    """True when `path` reads and a `source_review` line of its frontmatter (with any indented
+    continuation lines) names the file `name` as a whole path segment. Line-based, because it
+    runs only on frontmatter YAML could not read. Todo 506: a bare substring test of the whole
+    block also matched other fields and longer names (`x-s.md`, `s.md.bak` for `s.md`), each
+    a false Work Log note; a segment match still finds `./` and `../` spellings."""
     try:
         match = todofile.FM_RE.match(Path(path).read_text(errors="replace"))
     except OSError:
         return False
-    return bool(match) and name in match.group(1)
+    if not match:
+        return False
+    named = re.compile(rf"""(?:^|[/\s"']){re.escape(name)}(?=$|[\s"'])""")
+    lines = match.group(1).splitlines()
+    for i, line in enumerate(lines):
+        key = _SOURCE_REVIEW_LINE_RE.match(line)
+        if not key:
+            continue
+        value = [key.group(2)]
+        for more in lines[i + 1:]:
+            if more.strip() and more[:1] not in (" ", "\t"):
+                break
+            value.append(more)
+        if named.search(" ".join(value)):
+            return True
+    return False
 
 
 def apply_review(repo, plan, todo_path, git=run_git):
@@ -463,8 +486,10 @@ def apply_review(repo, plan, todo_path, git=run_git):
     plan already surfaced in plan_review, before any write happened."""
     if plan is None:
         return None
+    # Todo 506: every result carries skipped_siblings, so callers see one shape.
     if plan["action"] != "checkoff":
-        return {"finding": plan["finding"], "renamed": False, "paths": [], "note": plan["note"]}
+        return {"finding": plan["finding"], "renamed": False, "paths": [], "note": plan["note"],
+                "skipped_siblings": []}
     source = plan["source"]
     (Path(repo) / source).write_text("".join(plan["new_lines"]))
     if plan["renamed"]:
@@ -477,7 +502,20 @@ def apply_review(repo, plan, todo_path, git=run_git):
         note = plan["note"] + (f"; {len(skipped)} sibling todo(s) not rewritten" if skipped else "")
         return {"finding": plan["finding"], "renamed": True, "paths": [completed, *plan.get("siblings", [])],
                 "note": note, "skipped_siblings": skipped}
-    return {"finding": plan["finding"], "renamed": False, "paths": [source], "note": plan["note"]}
+    return {"finding": plan["finding"], "renamed": False, "paths": [source], "note": plan["note"],
+            "skipped_siblings": []}
+
+
+def _skipped_notes(review_plan):
+    """Work Log bullets naming each sibling whose pointer the -COMPLETED rename leaves
+    dangling, so it is in the committed record, not only in the JSON output (todo 475).
+    Every interpolated value goes through _sanitize -- the review paths too (todo 506) --
+    so no file name can start a new line, and with it a forged heading."""
+    plan = review_plan or {}
+    return "".join(
+        f"- Sibling `{_sanitize(s['path'])}` still names `{_sanitize(plan['source'])}` ({_sanitize(s['reason'])}); "
+        f"point its `source_review` at `{_sanitize(plan['completed'])}` by hand.\n"
+        for s in plan.get("skipped_siblings", []))
 
 
 def has_verified_note_for(text, run_id):
@@ -536,14 +574,8 @@ def archive(repo, todo_rel, run_id, date, git=run_git):
     git(repo, "mv", todo_rel, dest_rel)
     todofile.set_fields(dest, {"status": "completed"})
     tail_note = "evidence is quoted above, review is on the PR." if has_verified_note else "review is on the PR."
-    # Todo 475: a sibling whose pointer the rename leaves dangling is named in the committed
-    # record, not only in this command's JSON output.
-    skipped_notes = "".join(
-        f"- Sibling `{_sanitize(s['path'])}` still names `{review_plan['source']}` ({_sanitize(s['reason'])}); "
-        f"point its `source_review` at `{review_plan['completed']}` by hand.\n"
-        for s in (review_plan or {}).get("skipped_siblings", []))
     todofile.append_work_log(dest, f"### {date} - Completed by the todo sweep (run {run_id})\n\n"
-                                   f"- Archived by `land.py archive`; {tail_note}\n" + skipped_notes)
+                                   f"- Archived by `land.py archive`; {tail_note}\n" + _skipped_notes(review_plan))
     baseline = fix_baseline(repo, todo_rel, dest_rel)
     review = apply_review(repo, review_plan, dest, git)
     paths = [dest_rel] + ([".secrets.baseline"] if baseline else []) + (review["paths"] if review else [])

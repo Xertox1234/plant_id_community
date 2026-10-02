@@ -50,12 +50,24 @@ def render(value):
     return json.dumps(text, ensure_ascii=False)
 
 
-def key_line(lines, key):
-    """Index of the frontmatter line that sets top-level `key`, or None. YAML allows blanks
+def _key_lines(lines, key):
+    """Indexes of every frontmatter line that sets top-level `key`. YAML allows blanks
     before the colon, so `key : value` is that key too (todo 475): a plain `key:` prefix
     match missed it, and set_fields then appended a second, duplicate `key:` line."""
     pattern = re.compile(rf"{re.escape(key)}[ \t]*:")
-    return next((i for i, line in enumerate(lines) if pattern.match(line)), None)
+    return [i for i, line in enumerate(lines) if pattern.match(line)]
+
+
+def key_line(lines, key):
+    """Index of the first frontmatter line that sets top-level `key`, or None. field_problem
+    refuses a key set on more than one line, so set_fields never meets a second one."""
+    found = _key_lines(lines, key)
+    return found[0] if found else None
+
+
+def _next_content_line(lines, i):
+    """The first line after lines[i] that is neither blank nor only a comment, or ""."""
+    return next((line for line in lines[i + 1:] if line.strip() and not line.lstrip().startswith("#")), "")
 
 
 def field_problem(text, key):
@@ -65,18 +77,37 @@ def field_problem(text, key):
     if not match:
         return "no frontmatter block"
     lines = match.group(1).splitlines(keepends=True)
-    i = key_line(lines, key)
-    if i is None:
+    try:
+        data, readable = parse_frontmatter(text) or {}, True
+    except (yaml.YAMLError, ValueError):  # ValueError: an impossible date such as 2026-02-30 (todo 506)
+        data, readable = {}, False
+    found = _key_lines(lines, key)
+    if not found:
         # Set, but on no line key_line finds (a quoted or flow-style key): appending
-        # would duplicate it (todo 475). Malformed YAML keeps the old append behaviour.
-        try:
-            data = parse_frontmatter(text) or {}
-        except yaml.YAMLError:
-            data = {}
+        # would duplicate it (todo 475). Unreadable YAML keeps the old append behaviour.
         return f"'{key}' is set on a line it cannot rewrite" if key in data else None
-    following = lines[i + 1] if i + 1 < len(lines) else ""
-    if following[:1] in (" ", "\t", "-"):
+    if len(found) > 1:
+        # YAML keeps the LAST duplicate; rewriting the first would leave the live value stale (todo 506).
+        return f"'{key}' is set on more than one line"
+    i = found[0]
+    # Blank and comment-only lines do not end a value: `key:`, a blank line, then an
+    # indented line is still one multi-line value (todo 506).
+    if _next_content_line(lines, i)[:1] in (" ", "\t", "-"):
         return f"'{key}' has a multi-line value"
+    if readable:
+        # Do the rewrite in memory and read it back, so set_fields never writes YAML
+        # that reads differently: the key must take the new value and nothing else
+        # may change -- e.g. a quoted `"key":` line later in the block still wins (todo 506).
+        probe = "field_problem probe"  # rendered quoted, on one line, like every value set_fields writes
+        trial = list(lines)
+        trial[i] = f"{key}: {render(probe)}\n"
+        try:
+            after = parse_frontmatter("---\n" + "".join(trial) + "---\n") or {}
+        except (yaml.YAMLError, ValueError):
+            after = None
+        if (after is None or after.get(key) != probe
+                or {k: v for k, v in after.items() if k != key} != {k: v for k, v in data.items() if k != key}):
+            return f"'{key}' is set on a line it cannot rewrite"
     return None
 
 
