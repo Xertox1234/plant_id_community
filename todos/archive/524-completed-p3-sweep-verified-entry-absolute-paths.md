@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: p3
 issue_id: "524"
 tags: [tooling, todo-sweep]
@@ -43,11 +43,49 @@ back as follow-up findings on every run until it is fixed at the source.
 
 ## Acceptance Criteria
 
-- [ ] Findings 1–3 are fixed in `land.py` (or the worker/verifier contract) with tests, so a Land's
+- [x] Findings 1–3 are fixed in `land.py` (or the worker/verifier contract) with tests, so a Land's
       Verified entry has no `/Users/` and no worktree name.
-- [ ] Finding 4: 086 has no conflict markers and one `status:` line, and
+- [x] Finding 4: 086 has no conflict markers and one `status:` line, and
       `scripts/check_archived_todo_status.py` still passes.
 
 ## Work Log
 
 - 2026-10-01: Filed from the main session of todo-sweep run 2026-10-02-0118.
+
+### 2026-10-01 - Implemented by the todo sweep (run 2026-10-02-0255)
+
+- `land.py` gained `_relativize`: `flip_acs` now strips `<repo>/`, any `.../.claude/worktrees/<name>/` and
+  `<main_root>/` (written and resolved forms, worktree before main_root since it nests under it) from the quoted
+  command and every quoted evidence-tail line, and rewrites the home directory to `~` (finding 1, owner decision).
+- The command's mention of this todo's own pre-archive path is rewritten to `todofile.archived_path`, so the
+  recorded check re-runs after the merge; a `REV:todos/...` read is left alone (finding 2).
+- The `.sweep-evidence/...` pointer stays, labelled `(not committed)` (finding 3). The ~102 already-archived lines
+  were not backfilled, per the owner decision.
+- `todos/archive/086-...` conflict resolved by keeping the HEAD (archived) side: one `status: skipped` and the
+  2026-05-28 "Archived as skipped" entry (finding 4). `todo-worker.md` notes that Land does the rewrite.
+
+### 2026-10-01 - Verified by the todo sweep (run 2026-10-02-0255)
+
+- AC 1: `python3 scripts/todos/test_land.py` — evidence `.sweep-evidence/g1/524-ac0.txt` (not committed), last lines:
+
+  ```text
+    PASS  m9: the verify-only heading is 'Checked by'
+    PASS  m9: no worker Work Log heading satisfies Land's Verified-note check
+    PASS  m9: flip_acs's own heading still does
+
+  All checks passed.
+  ```
+
+- AC 2: `cd . && echo "conflict marker lines: $(grep -cE '^(<{7}|={7}|>{7})' todos/archive/086-skipped-p3-drop-orphan-forum-tables.md)"; echo "status: lines: $(grep -c '^status:' todos/archive/086-skipped-p3-drop-orphan-forum-tables.md)"; python3 scripts/check_archived_todo_status.py; echo "check_archived_todo_status exit=$?"` — evidence `.sweep-evidence/g1/524-ac1.txt` (not committed), last lines:
+
+  ```text
+  ARCHIVED_UNCHECKED_AC     62          0
+  TOTAL                     62          0
+  62 grandfathered for unchecked acceptance criteria
+  6 file(s) skipped: no frontmatter block, cannot be judged
+  check_archived_todo_status exit=0
+  ```
+
+### 2026-10-01 - Completed by the todo sweep (run 2026-10-02-0255)
+
+- Archived by `land.py archive`; evidence is quoted above, review is on the PR.

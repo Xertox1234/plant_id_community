@@ -66,7 +66,10 @@ origin/main...HEAD`, take the last line, drop its leading `^`.
   checked or not, in file order, run the command that proves it and save the full output to
   `EVIDENCE/<todo>-ac<index>.txt`, where `<index>` is the same 0-based index as the entry below. `command`
   is the bare command with no redirect — you redirect its output to the evidence file yourself; the
-  verifier re-runs the same bare command into its own file and never overwrites yours.
+  verifier re-runs the same bare command into its own file and never overwrites yours. Keep `command`
+  absolute (the verifier runs it from its own cwd): when Land quotes it and the evidence tail into the
+  archived Work Log, `land.py` rewrites `WT/`, any `.claude/worktrees/<name>/` and `MAIN/` to
+  repo-relative, the home directory to `~`, and this todo's own path to its archived path (todo 524).
 - Write `EVIDENCE/ac.json`: a JSON list, one object per criterion, `index` from 0 in file order per todo:
   `{"todo": "412", "index": 0, "text": "…", "command": "…", "evidence_path": ".sweep-evidence/g1/412-ac0.txt", "pass": true}`.
   `text` is the whole criterion: the checkbox line and its wrapped continuation lines joined with single
