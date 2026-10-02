@@ -70,3 +70,8 @@ PR #906 (todo 431) merged after two review rounds in todo-sweep run 2026-10-01-0
 ### 2026-10-01 - Completed by the todo sweep (run 2026-10-02-0118)
 
 - Archived by `land.py archive`; evidence is quoted above, review is on the PR.
+
+### 2026-10-02 - Amended by the todo sweep (run 2026-10-02-0335)
+
+- Todo 517, finding 4: the three headings above are dated 2026-10-01 while their run id reads 2026-10-02-0118. Both are right in their own clock: run ids are `date -u +%Y-%m-%d-%H%M` (UTC, `.claude/skills/completing-todos/SKILL.md`) and Work Log dates are local. 01:18 UTC on 2026-10-02 is 19:18 MDT on 2026-10-01, and PR #929 merged at 02:05 UTC (20:05 MDT, commit d29a1884).
+- The AC 1 evidence path `.sweep-evidence/g3/504-ac0.txt` is gitignored (`.gitignore:228`) and was never committed; the quoted tail above is the only record in the repo. To re-check it, run from `backend/`: `venv/bin/python -m pytest packages/wagtail_forum/wagtail_forum/tests/test_topic_approval.py --create-db -v -p no:cacheprovider` (19 passed at that commit; todo 517 adds a twentieth test).
