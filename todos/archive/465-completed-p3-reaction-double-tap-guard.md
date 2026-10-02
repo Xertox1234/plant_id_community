@@ -90,3 +90,16 @@ reaction silently undoes itself.
   other generated file.
 - Re-ran both criteria; web and mobile tests pass (evidence in
   `.sweep-evidence/g2/`).
+
+## Notes
+
+- Re-running the verification (todo 503). The "Verified by" entry above
+  records the commands as the sweep ran them, with absolute paths into a
+  sweep worktree that has since been deleted, and points at a gitignored
+  `.sweep-evidence/` file; the quoted output is the durable evidence. To
+  re-run both criteria from a checkout root:
+
+  ```sh
+  (cd web && npx vitest run --reporter=verbose src/pages/forum/ThreadDetailPage.test.tsx -t "reaction")
+  (cd plant_community_mobile && flutter test test/features/forum/providers/forum_providers_test.dart --plain-name "todo 465")
+  ```

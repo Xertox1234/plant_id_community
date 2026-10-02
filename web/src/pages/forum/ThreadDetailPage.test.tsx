@@ -1210,6 +1210,35 @@ describe('ThreadDetailPage', () => {
     expect(toggleSpy).toHaveBeenCalledTimes(3);
   });
 
+  it('releases the reaction guard after a failed toggle, so the next tap sends (todo 503)', async () => {
+    vi.spyOn(forumService, 'fetchThread').mockResolvedValue(createMockThread());
+    vi.spyOn(forumService, 'fetchPosts').mockResolvedValue({
+      // Non-zero 'like' so the button shows at rest.
+      items: [createMockPost({ id: '5', reaction_counts: { like: 2 }, reacted: [] })],
+      meta: { count: 0, next: null, previous: null },
+    });
+    const toggleSpy = vi
+      .spyOn(forumService, 'toggleReaction')
+      .mockRejectedValueOnce(new Error('Reaction failed'))
+      .mockResolvedValue({ reaction_counts: { like: 3 }, reacted: true });
+
+    renderThreadDetailPage();
+
+    const likeBtn = await screen.findByRole('button', { name: 'React like' });
+    fireEvent.click(likeBtn);
+    // The rejection surfaces as a notice once handleReact has settled.
+    await screen.findByText('Reaction failed');
+    expect(toggleSpy).toHaveBeenCalledTimes(1);
+
+    // If the release were not in `finally`, the failed key would stay in
+    // flight and this tap would be dropped for the page's life.
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'React like' }));
+    });
+    expect(toggleSpy).toHaveBeenCalledTimes(2);
+    await waitFor(() => expect(screen.getByLabelText('React like')).toHaveTextContent('3'));
+  });
+
   it('reports a post and shows a confirmation', async () => {
     vi.spyOn(forumService, 'fetchThread').mockResolvedValue(createMockThread());
     vi.spyOn(forumService, 'fetchPosts').mockResolvedValue({
