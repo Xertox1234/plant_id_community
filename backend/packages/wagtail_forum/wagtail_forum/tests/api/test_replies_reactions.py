@@ -385,22 +385,25 @@ def test_reaction_toggle_recounts_under_a_post_row_lock():
     ]
     assert counted, "recount no longer counts the reaction rows before writing"
     # The lock must come BEFORE that read (todo 508): a lock taken after the
-    # COUNT leaves the count stale under READ COMMITTED. The window also
-    # deliberately starts after the INSERT, pinning recount's OWN lock: the
-    # SQL log cannot show transaction scope, so an earlier FOR UPDATE would
-    # pass even if its transaction had ended. A future view that locks the
-    # post first in an outer atomic must widen this window on purpose.
+    # COUNT leaves the count stale under READ COMMITTED. The upper bound is
+    # the FIRST COUNT (todo 521): were recount to count twice, a FOR UPDATE
+    # between the two would pass a last-COUNT bound while the first count
+    # ran unlocked. The window also deliberately starts after the INSERT,
+    # pinning recount's OWN lock: the SQL log cannot show transaction scope,
+    # so an earlier FOR UPDATE would pass even if its transaction had ended.
+    # A future view that locks the post first in an outer atomic must widen
+    # this window on purpose.
     recount_locks = [
         i
         for i, sql in enumerate(sqls)
-        if inserted[-1] < i < counted[-1]
+        if inserted[-1] < i < counted[0]
         and sql.startswith("SELECT")
         and post_table in sql
         and "FOR UPDATE" in sql
     ]
     assert recount_locks, (
         "Reaction.recount no longer locks the post row (SELECT ... FOR UPDATE) "
-        "before it counts the reactions and writes reaction_counts"
+        "before it first counts the reactions and writes reaction_counts"
     )
 
 
