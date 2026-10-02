@@ -1,5 +1,7 @@
 import pytest
 from django.contrib.auth import get_user_model
+from django.db import connection
+from django.test.utils import CaptureQueriesContext
 from rest_framework.test import APIClient
 from wagtail.models import Page
 from wagtail_forum.models import ForumBoard, ForumIndex, Post, Reaction, Topic
@@ -346,9 +348,6 @@ def test_reaction_toggle_recounts_under_a_post_row_lock():
     The SQL can show it: the lock is taken on the post row, before the count
     is written back.
     """
-    from django.db import connection
-    from django.test.utils import CaptureQueriesContext
-
     ensure_default_workflow()
     _, opening = _live_topic()
     user = User.objects.create_user(username="r")
@@ -374,19 +373,34 @@ def test_reaction_toggle_recounts_under_a_post_row_lock():
         if sql.startswith(f"UPDATE {post_table}") and "reaction_counts" in sql
     ]
     assert inserted and written, "the toggle no longer inserts, then recounts"
-    # recount's window: after the reaction row lands, before the count is
-    # persisted. A FOR UPDATE on the post anywhere else does not count.
-    recount_locks = [
+    # recount's aggregate read: the COUNT over the reaction rows that the
+    # written-back reaction_counts comes from.
+    counted = [
         i
         for i, sql in enumerate(sqls)
         if inserted[-1] < i < written[-1]
+        and sql.startswith("SELECT")
+        and f'FROM "{Reaction._meta.db_table}"' in sql
+        and "COUNT(" in sql
+    ]
+    assert counted, "recount no longer counts the reaction rows before writing"
+    # The lock must come BEFORE that read (todo 508): a lock taken after the
+    # COUNT leaves the count stale under READ COMMITTED. The window also
+    # deliberately starts after the INSERT, pinning recount's OWN lock: the
+    # SQL log cannot show transaction scope, so an earlier FOR UPDATE would
+    # pass even if its transaction had ended. A future view that locks the
+    # post first in an outer atomic must widen this window on purpose.
+    recount_locks = [
+        i
+        for i, sql in enumerate(sqls)
+        if inserted[-1] < i < counted[-1]
         and sql.startswith("SELECT")
         and post_table in sql
         and "FOR UPDATE" in sql
     ]
     assert recount_locks, (
         "Reaction.recount no longer locks the post row (SELECT ... FOR UPDATE) "
-        "before writing reaction_counts"
+        "before it counts the reactions and writes reaction_counts"
     )
 
 
