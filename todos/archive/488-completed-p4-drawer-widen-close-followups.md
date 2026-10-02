@@ -60,7 +60,7 @@ kimi gate raised finding 2 as a WARNING, and the reviewers rated it low.
 
 ### 2026-09-30 - Verified by the todo sweep (run 2026-10-01-0121)
 
-- AC 1: `cd /Users/williamtower/projects/plant_id_community/.claude/worktrees/wf_b783a27f-977-2/web && ./node_modules/.bin/vitest run src/layouts/AppShell.test.tsx -t "widens past md|already matches|back to Open menu on Escape"` — evidence `.sweep-evidence/g8/488-ac0.txt`, last lines:
+- AC 1: `cd web && ./node_modules/.bin/vitest run src/layouts/AppShell.test.tsx -t "widens past md|already matches|back to Open menu on Escape"` — last lines:
 
   ```text
 
@@ -70,7 +70,7 @@ kimi gate raised finding 2 as a WARNING, and the reviewers rated it low.
      Duration  608ms (transform 55ms, setup 53ms, import 119ms, tests 134ms, environment 240ms)
   ```
 
-- AC 2: `cd /Users/williamtower/projects/plant_id_community/.claude/worktrees/wf_b783a27f-977-2/web && ./node_modules/.bin/vitest run src/layouts/AppShell.test.tsx -t "already matches"` — evidence `.sweep-evidence/g8/488-ac1.txt`, last lines:
+- AC 2: `cd web && ./node_modules/.bin/vitest run src/layouts/AppShell.test.tsx -t "already matches"` — last lines:
 
   ```text
 
@@ -80,7 +80,7 @@ kimi gate raised finding 2 as a WARNING, and the reviewers rated it low.
      Duration  556ms (transform 54ms, setup 53ms, import 117ms, tests 82ms, environment 237ms)
   ```
 
-- AC 3: `cd /Users/williamtower/projects/plant_id_community/.claude/worktrees/wf_b783a27f-977-2/web && ./node_modules/.bin/vitest run src/layouts/AppShell.test.tsx -t "not matching|listener on unmount"` — evidence `.sweep-evidence/g8/488-ac2.txt`, last lines:
+- AC 3: `cd web && ./node_modules/.bin/vitest run src/layouts/AppShell.test.tsx -t "not matching|listener on unmount"` — last lines:
 
   ```text
 
@@ -90,7 +90,7 @@ kimi gate raised finding 2 as a WARNING, and the reviewers rated it low.
      Duration  559ms (transform 55ms, setup 53ms, import 118ms, tests 86ms, environment 238ms)
   ```
 
-- AC 4: `grep -nE "48rem|DRAWER_HIDDEN_MEDIA_QUERY|from './AppShell'" /Users/williamtower/projects/plant_id_community/.claude/worktrees/wf_b783a27f-977-2/web/src/layouts/AppShell.test.tsx` — evidence `.sweep-evidence/g8/488-ac3.txt`, last lines:
+- AC 4: `grep -nE "48rem|DRAWER_HIDDEN_MEDIA_QUERY|from './AppShell'" web/src/layouts/AppShell.test.tsx` — last lines:
 
   ```text
   6:import AppShell from './AppShell';

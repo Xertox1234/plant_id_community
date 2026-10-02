@@ -174,12 +174,18 @@ export default function AppShell({ children }: AppShellProps) {
   // useModalFocus restores focus to the Open menu trigger, but the trigger is
   // md:hidden at this width, so focus() is a no-op and focus fell to <body>.
   // This runs after that restore: React runs every effect cleanup in a commit
-  // before any effect setup. Other closes (Escape, Close menu, a link) leave
-  // the ref false and keep the restore to the trigger.
+  // before any effect setup. That ordering holds only while useModalFocus
+  // restores SYNCHRONOUSLY in its cleanup; a deferred restore (rAF, timeout)
+  // would land after this and pull focus back to the hidden trigger. The
+  // widen tests re-check focus after a deferred flush to pin it (todo 509).
+  // Other closes (Escape, Close menu, a link) leave the ref false and keep the
+  // restore to the trigger; the reset below makes the redirect one-shot.
+  // preventScroll: <main> is tall, and focusing it must not move the page the
+  // way the old fall-to-<body> never did (todo 509).
   useEffect(() => {
     if (drawerOpen || !closedOnWidenRef.current) return;
     closedOnWidenRef.current = false;
-    mainRef.current?.focus();
+    mainRef.current?.focus({ preventScroll: true });
   }, [drawerOpen]);
 
   // Cmd/Ctrl+K opens the command palette from anywhere. The functional

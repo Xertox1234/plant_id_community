@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: p4
 issue_id: "509"
 tags: [web, a11y, testing]
@@ -49,8 +49,31 @@ PR #911 (todo 488) merged after two review rounds in todo-sweep run 2026-10-01-0
 
 ## Acceptance Criteria
 
-- [ ] Each finding above is fixed with a test, or the Work Log records why it was left as is.
+- [x] Each finding above is fixed with a test, or the Work Log records why it was left as is.
 
 ## Work Log
 
 - 2026-09-30: Filed from todo-sweep run 2026-10-01-0121, PR #911 review rounds 1-2.
+
+### 2026-10-01 - Implemented by the todo sweep (run 2026-10-02-0118)
+
+- Findings 1-2: todo 488's Work Log now quotes repo-relative commands (`cd web && …`, `web/src/…`) and no longer names `.sweep-evidence` files; the quoted output stays inline. The dates were left as is: they are consistent. A run id is `date -u +%Y-%m-%d-%H%M` (UTC) and a Work Log date is the local `date +%Y-%m-%d`, so run 2026-10-01-0121 started on 2026-09-30 local time. This entry shows the same pattern.
+- Findings 3-5: the unmount test now takes the listener count after render, asserts it is above 0, then asserts 0 after unmount. The `fire(false)`-while-false test is kept, with a comment that it guards only against an inverted `event.matches`. A new test drives a real transition: md starts matching, `fire(false)`, then the drawer opens and stays open.
+- Findings 6-8: `mainRef.current?.focus({ preventScroll: true })`, pinned by a focus spy in the widen test. A new test pins the one-shot `closedOnWidenRef` reset: widen auto-close, narrow, reopen, Escape, and focus returns to Open menu, not `<main>`. Both widen tests re-check focus on `<main>` after a 50 ms deferred flush. Comments in `AppShell` and in `useModalFocus`'s cleanup record that the restore must stay synchronous. Probed: deleting the reset, dropping `preventScroll`, restoring focus in a rAF, and ignoring `false` change events in `useMediaQuery` each fail at least one test.
+- Finding 9 (owner decision, 2026-10-01): `focus:outline-none` stays on `<main>`. `<main>` is a programmatic landmark focus target, and a ring around the whole content area is noise. The tabIndex note about SettingsPage's refocus guards is also left as is. Disabling a control while a save is in flight still blurs focus to `<body>`, not to `<main>` (the HTML focus-fixup rule moves focus to the viewport; not reproduced in a browser), so the keyboard refocus path is unchanged. Only a mouse click on inert content inside `<main>` mid-save now skips the refocus. That is the guards' intended "the user moved on" case.
+
+### 2026-10-01 - Verified by the todo sweep (run 2026-10-02-0118)
+
+- AC 1: `cd /Users/williamtower/projects/plant_id_community/.claude/worktrees/wf_6ca31bdb-4d9-2/web && ./node_modules/.bin/vitest run src/layouts/AppShell.test.tsx && grep -nE "Findings 1-2|Findings 3-5|Findings 6-8|Finding 9" /Users/williamtower/projects/plant_id_community/.claude/worktrees/wf_6ca31bdb-4d9-2/todos/509-pending-p4-drawer-widen-focus-to-main-911-followups.md && grep -nE "^- AC [0-9]" /Users/williamtower/projects/plant_id_community/.claude/worktrees/wf_6ca31bdb-4d9-2/todos/archive/488-completed-p4-drawer-widen-close-followups.md` — evidence `.sweep-evidence/g8/509-ac0.txt`, last lines:
+
+  ```text
+  63:- Finding 9 (owner decision, 2026-10-01): `focus:outline-none` stays on `<main>`. `<main>` is a programmatic landmark focus target, and a ring around the whole content area is noise. The tabIndex note about SettingsPage's refocus guards is also left as is. Disabling a control while a save is in flight still blurs focus to `<body>`, not to `<main>` (the HTML focus-fixup rule moves focus to the viewport; not reproduced in a browser), so the keyboard refocus path is unchanged. Only a mouse click on inert content inside `<main>` mid-save now skips the refocus. That is the guards' intended "the user moved on" case.
+  63:- AC 1: `cd web && ./node_modules/.bin/vitest run src/layouts/AppShell.test.tsx -t "widens past md|already matches|back to Open menu on Escape"` — last lines:
+  73:- AC 2: `cd web && ./node_modules/.bin/vitest run src/layouts/AppShell.test.tsx -t "already matches"` — last lines:
+  83:- AC 3: `cd web && ./node_modules/.bin/vitest run src/layouts/AppShell.test.tsx -t "not matching|listener on unmount"` — last lines:
+  93:- AC 4: `grep -nE "48rem|DRAWER_HIDDEN_MEDIA_QUERY|from './AppShell'" web/src/layouts/AppShell.test.tsx` — last lines:
+  ```
+
+### 2026-10-01 - Completed by the todo sweep (run 2026-10-02-0118)
+
+- Archived by `land.py archive`; evidence is quoted above, review is on the PR.
