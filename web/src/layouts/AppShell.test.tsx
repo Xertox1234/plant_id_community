@@ -261,6 +261,15 @@ describe('AppShell', () => {
     return { md, fire };
   };
 
+  // Let any deferred work (a rAF or timeout) run, so a focus assertion that
+  // follows sees where focus SETTLES, not only where the commit left it. A
+  // useModalFocus that restored to the trigger in a rAF would pass a
+  // synchronous check and then steal focus back from <main> (todo 509).
+  const flushDeferred = () =>
+    act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    });
+
   it('drawer closes when the window widens past md (todo 420)', async () => {
     // At md the drawer is only display:none, so an open drawer kept its focus
     // trap (swallowing Tab) and its body scroll lock on the desktop layout.
@@ -268,6 +277,8 @@ describe('AppShell', () => {
     const { fire } = stubMdMatchMedia(false);
     try {
       renderShell();
+      const main = screen.getByRole('main');
+      const focusSpy = vi.spyOn(main, 'focus');
       await userEvent.click(screen.getByRole('button', { name: 'Open menu' }));
       expect(screen.getByRole('dialog', { name: 'Menu' })).toBeInTheDocument();
       expect(document.body.style.overflow).toBe('hidden');
@@ -278,12 +289,20 @@ describe('AppShell', () => {
       expect(document.body.style.overflow).toBe('');
       // The Open menu trigger is md:hidden at this width, so restoring focus
       // to it dropped focus to <body>; it lands on <main> instead (todo 488).
-      expect(screen.getByRole('main')).toHaveFocus();
+      expect(main).toHaveFocus();
+      // Without preventScroll, focusing the tall <main> can scroll the page;
+      // jsdom has no layout, so pin the option itself (todo 509).
+      expect(focusSpy).toHaveBeenCalledWith({ preventScroll: true });
+      await flushDeferred();
+      expect(main).toHaveFocus();
     } finally {
       window.matchMedia = originalMatchMedia;
     }
   });
 
+  // md is already false here, so fire(false) changes no state: this guards only
+  // against an inverted event.matches in useMediaQuery. The next test drives a
+  // real wide-to-narrow transition (todo 509).
   it('drawer stays open when the md query changes to not matching (todo 488)', async () => {
     const originalMatchMedia = window.matchMedia;
     const { fire } = stubMdMatchMedia(false);
@@ -303,6 +322,25 @@ describe('AppShell', () => {
     }
   });
 
+  it('drawer opens after md goes from matching to not matching (todo 509)', async () => {
+    // A real true-to-false transition: if AppShell ignored it (drawerHidden
+    // stuck true), the drawer would auto-close the moment it opened.
+    const originalMatchMedia = window.matchMedia;
+    const { fire } = stubMdMatchMedia(true);
+    try {
+      renderShell();
+      fire(false);
+
+      await userEvent.click(screen.getByRole('button', { name: 'Open menu' }));
+
+      expect(screen.getByRole('dialog', { name: 'Menu' })).toBeInTheDocument();
+      expect(document.body.style.overflow).toBe('hidden');
+      expect(screen.getByRole('button', { name: 'Close menu' })).toHaveFocus();
+    } finally {
+      window.matchMedia = originalMatchMedia;
+    }
+  });
+
   it('drawer opened while md already matches closes without a change event (todo 488)', async () => {
     const originalMatchMedia = window.matchMedia;
     stubMdMatchMedia(true);
@@ -314,17 +352,49 @@ describe('AppShell', () => {
       expect(screen.queryByRole('dialog', { name: 'Menu' })).not.toBeInTheDocument();
       expect(document.body.style.overflow).toBe('');
       expect(screen.getByRole('main')).toHaveFocus();
+      await flushDeferred();
+      expect(screen.getByRole('main')).toHaveFocus();
+    } finally {
+      window.matchMedia = originalMatchMedia;
+    }
+  });
+
+  it('only the widen auto-close sends focus to main; a later Escape returns it to Open menu (todo 509)', async () => {
+    // closedOnWidenRef is one-shot: without its reset, every close after one
+    // widen auto-close would send focus to <main> instead of the trigger.
+    const originalMatchMedia = window.matchMedia;
+    const { fire } = stubMdMatchMedia(false);
+    try {
+      renderShell();
+      const trigger = screen.getByRole('button', { name: 'Open menu' });
+      const main = screen.getByRole('main');
+      await userEvent.click(trigger);
+
+      fire(true);
+      expect(main).toHaveFocus();
+
+      fire(false);
+      await userEvent.click(trigger);
+      expect(screen.getByRole('dialog', { name: 'Menu' })).toBeInTheDocument();
+      await userEvent.keyboard('{Escape}');
+
+      expect(screen.queryByRole('dialog', { name: 'Menu' })).not.toBeInTheDocument();
+      expect(trigger).toHaveFocus();
+      expect(main).not.toHaveFocus();
     } finally {
       window.matchMedia = originalMatchMedia;
     }
   });
 
   it('removes its md query listener on unmount (todo 488)', () => {
+    // Count relative to what was there, not an exact 1: another subscriber to
+    // the same query would be legitimate (todo 509).
     const originalMatchMedia = window.matchMedia;
     const { md } = stubMdMatchMedia(false);
     try {
       const { unmount } = renderShell();
-      expect(md.listeners.size).toBe(1);
+      const before = md.listeners.size;
+      expect(before).toBeGreaterThan(0);
 
       unmount();
 

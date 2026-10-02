@@ -72,6 +72,9 @@ export function useModalFocus(
     document.addEventListener('keydown', onKey);
     return () => {
       document.removeEventListener('keydown', onKey);
+      // Restore synchronously, inside the cleanup. AppShell's widen auto-close
+      // moves focus to <main> in an effect that must run AFTER this restore
+      // (todos 488, 509); deferring it (rAF, timeout) would undo that.
       previouslyFocused?.focus?.();
     };
   }, [open, dialogRef]);
