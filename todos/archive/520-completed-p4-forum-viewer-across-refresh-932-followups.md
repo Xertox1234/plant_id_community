@@ -69,3 +69,29 @@ PR #932 (todo 507) merged after two review rounds in todo-sweep run 2026-10-02-0
 ### 2026-10-02 - Completed by the todo sweep (run 2026-10-02-0335)
 
 - Archived by `land.py archive`; evidence is quoted above, review is on the PR.
+
+### 2026-10-02 - Round-1 repair by the todo sweep (run 2026-10-02-0335)
+
+- Round-1 review (high, `auth_service.dart`): the session-expiry `clear()`
+  left the profile at `AsyncData(null)` and nothing fetched it again. A
+  watcher on an offstage shell tab keeps the autoDispose provider alive
+  (go_router disables `TickerMode` on an inactive branch, flutter_riverpod
+  pauses those subscriptions, Riverpod never disposes a provider with paused
+  listeners), so after a re-login ProfileScreen showed "No profile data
+  available", a data state with no Retry, until a restart.
+- `_refetchAccountProfile()` invalidates `userProfileServiceProvider` when a
+  sign-in completes: after the exchange succeeds, and when a refresh completes
+  a login the launch exchange failed (todo 498). A same-session token refresh
+  does not. No `ref.exists` guard: invalidating a provider nothing holds is a
+  no-op, and a screen's first watch builds it under the new bearer.
+- The repair agent hit the usage limit before verifying; the main session
+  finished it. Its tests counted `overrideWith` factory calls, which stay at 1
+  across an invalidate (riverpod 3.2.1 keeps one notifier per element and
+  re-runs `build()`), so the counter now counts `build()` calls.
+- Tests: five new cases (re-login with an active watcher, with a paused
+  offstage watcher, a refresh that completes the login, a same-session refresh
+  that must not refetch, no build when nothing holds the provider). 44 passed
+  in `auth_service_test.dart`; full mobile suite 952 passed / 9 skipped;
+  `flutter analyze` clean; `build_runner` wrote 0 outputs. Mutation-checked:
+  emptying `_refetchAccountProfile` fails exactly the three re-login tests;
+  file restored byte-identical from a copy.
