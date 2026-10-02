@@ -4,6 +4,9 @@ priority: p4
 issue_id: "507"
 tags: [forum, mobile, testing]
 dependencies: []
+triage: ready
+triaged: 2026-10-01
+owner_decision: "Finding 3: keep .value (a stale username is harmless; a null viewer would misattribute own messages); record the reason in the Work Log, no code change (2026-10-01)"
 ---
 
 # Mobile inbox viewer refresh: non-blocking findings from PR #909 (todo 486)

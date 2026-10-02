@@ -4,6 +4,9 @@ priority: p4
 issue_id: "503"
 tags: [forum, web, mobile, testing]
 dependencies: []
+triage: ready
+triaged: 2026-10-01
+owner_decision: "Findings 1-2: rename the mobile test and add a comment that it covers the swallowed-error path; do not restructure the fake (2026-10-01)"
 ---
 
 # Reaction double-tap guard: non-blocking findings from PR #905 (todo 465)

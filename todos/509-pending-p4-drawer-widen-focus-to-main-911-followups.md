@@ -4,6 +4,9 @@ priority: p4
 issue_id: "509"
 tags: [web, a11y, testing]
 dependencies: []
+triage: ready
+triaged: 2026-10-01
+owner_decision: "Finding 9: keep focus:outline-none on <main> (programmatic landmark focus; a ring around the content area is noise); record the reason in the Work Log (2026-10-01)"
 ---
 
 # Drawer widen focus-to-main: non-blocking findings from PR #911 (todo 488)
