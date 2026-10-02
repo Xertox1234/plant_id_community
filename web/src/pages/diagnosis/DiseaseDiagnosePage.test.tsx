@@ -1,8 +1,11 @@
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import DiseaseDiagnosePage from './DiseaseDiagnosePage';
 import { diseaseService } from '../../services/diseaseService';
+import { PLANT_CONDITIONS } from '../../types/diagnosis';
 
 vi.mock('../../services/diseaseService');
 // FileUpload renders an <input type=file>; we drive it directly.
@@ -150,6 +153,35 @@ describe('DiseaseDiagnosePage', () => {
     expect(vi.mocked(diseaseService.submitDiagnosis).mock.calls[0][0].plant_condition).toBe(
       undefined
     );
+  });
+
+  // Todo 502. The select's keys and labels were a hand-kept copy of the model
+  // choices; nothing failed if the model gained, lost or renamed one. Read the
+  // choices straight out of models.py and compare them with what renders.
+  it('offers exactly the plant_condition choices declared on the backend model', () => {
+    const models = readFileSync(
+      join(__dirname, '../../../../backend/apps/plant_identification/models.py'),
+      'utf8'
+    );
+    const field = models.match(
+      /plant_condition = models\.CharField\([\s\S]*?choices=\[([\s\S]*?)\]/
+    );
+    expect(field).not.toBeNull();
+    const backendChoices = [...field![1].matchAll(/\(\s*"([^"]+)",\s*"([^"]+)"\s*\)/g)].map((m) => [
+      m[1],
+      m[2],
+    ]);
+    expect(backendChoices.length).toBeGreaterThan(0); // the regex found the field
+
+    render(<DiseaseDiagnosePage />);
+    const options = Array.from(
+      (screen.getByLabelText(/plant condition/i) as HTMLSelectElement).options
+    )
+      .filter((o) => o.value !== '')
+      .map((o) => [o.value, o.textContent]);
+
+    expect(options).toEqual(backendChoices);
+    expect([...PLANT_CONDITIONS]).toEqual(backendChoices.map(([key]) => key));
   });
 
   // Audit M26 (todo 278). The failure text lands in a live region that was

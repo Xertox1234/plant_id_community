@@ -20,8 +20,11 @@ const FORUM_BASE = '/api/v1/forum';
 
 /**
  * One request through `apiClient`. A failure is re-thrown through the shared
- * `toHttpError` (todo 434) as a plain `Error` carrying the server's
- * `message`/`detail`. `quietErrors` keeps a failure out of Sentry — for the
+ * `toHttpError` (todo 434): an HTTP error as a plain `Error` carrying the
+ * server's `message`/`detail`, a network error or timeout as the connection
+ * message. A cancellation or any other response-less axios error (a client
+ * bug such as `ERR_INVALID_URL`) is re-thrown unchanged, with axios's own
+ * message (todo 489). `quietErrors` keeps a failure out of Sentry — for the
  * background poll only (see fetchUnreadCount).
  */
 async function request<T>(

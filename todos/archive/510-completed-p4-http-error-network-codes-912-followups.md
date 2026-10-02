@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: p4
 issue_id: "510"
 tags: [web, backend]
@@ -31,8 +31,30 @@ PR #912 (todo 489) merged after two review rounds in todo-sweep run 2026-10-01-0
 
 ## Acceptance Criteria
 
-- [ ] Each finding above is fixed with a test, or the Work Log records why it was left as is.
+- [x] Each finding above is fixed with a test, or the Work Log records why it was left as is.
 
 ## Work Log
 
 - 2026-09-30: Filed from todo-sweep run 2026-10-01-0121, PR #912 review rounds 1-2.
+
+### 2026-10-01 - Implemented by the todo sweep (run 2026-10-02-0118)
+
+- Findings 1 and 2 (stale comments): reworded the `httpError.ts` module header, the `request()` doc in `notificationService.ts` and the failure comment in `profileService.ts`. They now say HTTP and connection failures become a plain `Error` with a user-fit message, while a cancellation, a non-axios error and any other response-less axios error (`ERR_INVALID_URL`, a code-less interceptor rejection) are rethrown unchanged with axios's own message (todo 489). These are comment-only changes, so no test covers them; the existing todo 489 tests already pin the behaviour the comments now describe.
+- Finding 3: added a comment on `CONNECTION_ERROR_CODES` saying the list holds the browser adapter's codes and leaves out Node's `ECONNREFUSED`/`ENOTFOUND` on purpose.
+- Finding 4: left as is (the tradeoff the reviewer offered to accept). The web client only runs in a browser, and there is no SSR or Node caller of `apiClient`. A new test, `returns a Node-adapter %s unchanged`, pins that `ECONNREFUSED` and `ENOTFOUND` pass through, so widening the allowlist has to be a deliberate change.
+
+### 2026-10-01 - Verified by the todo sweep (run 2026-10-02-0118)
+
+- AC 1: `cd /Users/williamtower/projects/plant_id_community/.claude/worktrees/wf_867e27f5-a58-1/web && ./node_modules/.bin/vitest run src/utils/httpError.test.ts && grep -nE 'todo 489|todo 510' src/utils/httpError.ts src/services/notificationService.ts src/services/profileService.ts` — evidence `.sweep-evidence/g1/510-ac0.txt`, last lines:
+
+  ```text
+  src/utils/httpError.ts:23: * (todo 489).
+  src/utils/httpError.ts:28: * are left out on purpose (todo 510).
+  src/utils/httpError.ts:62: * calling them a connection problem would hide them (todo 489).
+  src/services/notificationService.ts:27: * message (todo 489). `quietErrors` keeps a failure out of Sentry — for the
+  src/services/profileService.ts:28:// (todo 489).
+  ```
+
+### 2026-10-01 - Completed by the todo sweep (run 2026-10-02-0118)
+
+- Archived by `land.py archive`; evidence is quoted above, review is on the PR.

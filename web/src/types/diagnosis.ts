@@ -11,8 +11,14 @@ export type DiseaseRequestStatus = 'pending' | 'processing' | 'diagnosed' | 'nee
 /**
  * PlantDiseaseRequest.plant_condition choices (apps/plant_identification/models.py).
  * The backend field only accepts these keys — any other value is a 400 (todo 459).
+ *
+ * Declared once, in the model's order; `PlantCondition` is derived from it so
+ * the type and the list cannot drift apart (todo 502). DiseaseDiagnosePage's
+ * test compares these keys with the model's choices.
  */
-export type PlantCondition = 'excellent' | 'good' | 'fair' | 'poor' | 'critical';
+export const PLANT_CONDITIONS = ['excellent', 'good', 'fair', 'poor', 'critical'] as const;
+
+export type PlantCondition = (typeof PLANT_CONDITIONS)[number];
 
 /**
  * One AI disease diagnosis result — mirrors PlantDiseaseResultSerializer.
