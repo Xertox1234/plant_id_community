@@ -170,8 +170,11 @@ class _ForumNewGroupScreenState extends ConsumerState<ForumNewGroupScreen> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     // Watched (not read on demand): the provider has to be mounted and
-    // resolved before `_addMember` can compare against it.
-    _me = ref.watch(userProfileServiceProvider).asData?.value?.username;
+    // resolved before `_addMember` can compare against it. `.value`, not
+    // `asData?.value` (todo 507): a profile `refresh()` or a failed refresh
+    // keeps the last known username, so the "That's you." guard holds
+    // through a reload instead of letting me add myself.
+    _me = ref.watch(userProfileServiceProvider).value?.username;
     final suggestions = ref.watch(mentionSearchProvider);
     final visibleSuggestions = [
       for (final user in suggestions.results)

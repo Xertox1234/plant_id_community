@@ -142,5 +142,35 @@ void main() {
       expect(find.byIcon(LucideIcons.users), findsOneWidget);
       expect(tester.takeException(), isNull);
     });
+
+    testWidgets('the bare group glyph reads "No members" when the viewer is '
+        'unknown and "No other members" when only the viewer is left '
+        '(todo 507)', (tester) async {
+      final handle = tester.ensureSemantics();
+      Future<void> pump(AuthorAvatarCluster cluster) =>
+          tester.pumpWidget(MaterialApp(home: Scaffold(body: cluster)));
+
+      await pump(const AuthorAvatarCluster(authors: []));
+      expect(find.byIcon(LucideIcons.users), findsOneWidget);
+      expect(
+        tester.getSemantics(find.byType(AuthorAvatarCluster)).label,
+        'No members',
+      );
+
+      await pump(
+        AuthorAvatarCluster(
+          viewerUsername: 'me',
+          authors: [author(username: 'me')],
+        ),
+      );
+      expect(find.byIcon(LucideIcons.users), findsOneWidget);
+      expect(
+        tester.getSemantics(find.byType(AuthorAvatarCluster)).label,
+        'No other members',
+      );
+      expect(tester.takeException(), isNull);
+
+      handle.dispose();
+    });
   });
 }

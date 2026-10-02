@@ -537,8 +537,9 @@ void main() {
         );
 
         // A LATER re-fetch must not blank the thread or flip the sides:
-        // `asData` keeps the previously resolved username while the profile
-        // reloads, so only the FIRST resolve is ever held.
+        // `.value` keeps the previously resolved username while the profile
+        // reloads, so only the FIRST resolve is ever held. (An invalidate
+        // keeps `asData` too; the explicit `refresh()` below does not.)
         ProviderScope.containerOf(
           tester.element(find.byType(ForumConversationScreen)),
           listen: false,
@@ -556,6 +557,95 @@ void main() {
         expect(tester.takeException(), isNull);
       },
     );
+
+    for (final failRefresh in [false, true]) {
+      testWidgets(
+        'a profile refresh() ${failRefresh ? 'that FAILS' : 'in flight'} '
+        'neither holds the thread back nor flips my messages to the other '
+        'side (todo 507)',
+        (tester) async {
+          final api = FakeForumApi()
+            ..conversationDetail = groupConversation(
+              id: 12,
+              memberUsernames: const ['ada'],
+            )
+            ..messages = [
+              directMessage(
+                id: 2,
+                conversationId: 12,
+                senderUsername: 'me',
+                body: 'Mine',
+              ),
+              directMessage(
+                id: 1,
+                conversationId: 12,
+                senderUsername: 'ada',
+                body: 'Theirs',
+              ),
+            ];
+          final refreshGate = Completer<void>();
+
+          await tester.pumpWidget(
+            ProviderScope(
+              overrides: [
+                forumApiProvider.overrideWithValue(api),
+                userProfileServiceProvider.overrideWith(
+                  () => FakeUserProfileService(
+                    username: 'me',
+                    refreshGate: refreshGate.future,
+                    failRefresh: failRefresh,
+                  ),
+                ),
+              ],
+              child: const MaterialApp(
+                home: ForumConversationScreen(conversationId: 12),
+              ),
+            ),
+          );
+          await tester.pumpAndSettle();
+
+          void expectMineOnTheRight() {
+            expect(find.text('Mine'), findsOneWidget);
+            expect(find.text('Theirs'), findsOneWidget);
+            expect(
+              tester.getCenter(find.text('Mine')).dx,
+              greaterThan(tester.getCenter(find.text('Theirs')).dx),
+            );
+            // My own message carries no sender label; only ada's does.
+            expect(find.text('me'), findsNothing);
+            expect(find.text('ada'), findsOneWidget);
+          }
+
+          expectMineOnTheRight();
+
+          // The profile screen's pull-to-refresh: an explicit loading state,
+          // where `asData` is null and only `.value` still names me.
+          final container = ProviderScope.containerOf(
+            tester.element(find.byType(ForumConversationScreen)),
+            listen: false,
+          );
+          final refreshing = container
+              .read(userProfileServiceProvider.notifier)
+              .refresh();
+          await tester.pump();
+
+          final reloading = container.read(userProfileServiceProvider);
+          expect(reloading.isLoading, isTrue);
+          expect(reloading.asData, isNull);
+          expectMineOnTheRight();
+
+          refreshGate.complete();
+          await refreshing;
+          await tester.pumpAndSettle();
+
+          final settled = container.read(userProfileServiceProvider);
+          expect(settled.hasError, failRefresh);
+          expect(settled.value?.username, 'me');
+          expectMineOnTheRight();
+          expect(tester.takeException(), isNull);
+        },
+      );
+    }
 
     testWidgets('an empty group thread shows the group placeholder', (
       tester,
