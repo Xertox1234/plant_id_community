@@ -345,7 +345,11 @@ for values you create, `REQUIRED__GET_FROM__<url>` for values you fetch.
 
 **Enforcement: ENFORCED since todo 367.** Production settings refuse to boot on
 any verbatim `REQUIRED__` value. Before todo 367 nothing looked for the prefix
-at all, and four of the five placeholders booted clean.
+at all, and four of the five placeholders booted clean. Todo 436 converted the
+12 optional integrations' `your-...-here` / `path/to/...` placeholders, which
+nothing checked (`GITHUB_CLIENT_SECRET`'s literally contained "secret"), to
+`REQUIRED__GET_FROM__<url>` as well. Unset still leaves each of those
+integrations off; only the placeholder itself is refused.
 
 The mechanism, in one place:
 `reject_insecure_value(name, value)` in
@@ -365,6 +369,7 @@ different mistake from "you chose a weak value".
 | `JWT_SECRET_KEY` | rejected at boot | `reject_insecure_value("JWT_SECRET_KEY", …)`, guarded on `not DEBUG`, placed **before** `SIMPLE_JWT["SIGNING_KEY"]` is assigned |
 | `PLANT_ID_API_KEY` | rejected at boot | prefix check in `validate_environment()`'s `api_key_checks` loop, ahead of the length floor |
 | `PLANTNET_API_KEY` | rejected at boot | same loop |
+| The 12 optional integrations: `OPENWEATHER_API_KEY`, `TREFLE_API_KEY`, `PLANT_HEALTH_API_KEY`, `OPENAI_API_KEY`, `UNSPLASH_ACCESS_KEY`, `PEXELS_API_KEY`, `GOOGLE_OAUTH2_CLIENT_ID` / `_SECRET`, `GITHUB_CLIENT_ID` / `_SECRET`, `FIREBASE_PROJECT_ID`, `FIREBASE_CREDENTIALS_PATH` | rejected at boot; a configuration warning under DEBUG | `validate_environment()`'s `optional_integration_keys` loop (todo 436), reading each through `config()`. Unset is never an error: every one is read with a default |
 | `FIELD_ENCRYPTION_KEY` | n/a — **removed** | it was accepted and never read; `django-encrypted-model-fields` was dropped from `requirements.txt` with it |
 
 **Two things are worth remembering about how this looked before.**

@@ -79,10 +79,10 @@ from wagtail.admin.menu import MenuItem
 from wagtail.admin.ui.tables import Column, DateColumn, TitleColumn
 from wagtail.admin.views.generic.base import WagtailAdminTemplateMixin
 from wagtail.admin.views.reports import ReportView
-from wagtail.models import WorkflowState
+from wagtail.models import Revision, TaskState, WorkflowState
 from wagtail.permission_policies import ModelPermissionPolicy
 
-from .models import Post, Reaction, Report, Topic, TrustLevel
+from .models import Post, Report, Topic, TrustLevel
 
 logger = logging.getLogger("wagtail_forum")
 
@@ -340,7 +340,14 @@ def pending_posts():
     - A live post with unpublished changes and no state (todo 495): an edit
       whose moderation step crashed. The workflow start is atomic, so the
       crash rolls its state back, and the API still tells the author the edit
-      is pending.
+      is pending. Only while the latest revision is the author's own and no
+      workflow ever ran on it (todo 499): a moderator's "Save draft" on the
+      post's edit view leaves the same state, and so does a cancelled
+      workflow, and one Approve would publish that work in progress as the
+      author's, past trust and spam routing. A crash leaves neither mark: the
+      API saves the revision as the author, and the rollback takes the
+      workflow's task state with it. A moderator's own API edit that crashed
+      is not listed either; it is theirs to publish from the edit view.
 
     A live topic's own held edit (a spam-held admin retitle, say) is not a
     row (owner decision 2026-09-29, todo 495): a row shows a post, so Approve
@@ -351,7 +358,12 @@ def pending_posts():
     is taken down (todo 495): Approve would publish it into the hidden
     thread, and Reject cannot delete published content. It is listed again
     if the topic is restored. A never-published reply there stays listed,
-    with Reject only (``_approve_allowed``).
+    with Reject only (``_approve_allowed``). A never-published opening post
+    there is not listed either (todo 499, owner decision 2026-10-02): it
+    could not be approved into the hidden thread, and its Reject would have
+    to delete a topic that was published, so the row was one nobody could
+    act on, holding the dashboard count up. It is listed again, as an
+    opening post, if the topic is restored.
 
     A post that was published once and is no longer live is never pending,
     whatever else holds: a moderator took it down, the author deleted it, or
@@ -368,6 +380,10 @@ def pending_posts():
     post_state = WorkflowState.objects.active().filter(
         content_type=post_type, object_id=Cast(OuterRef("pk"), CharField())
     )
+    authors_revision = Revision.objects.filter(
+        pk=OuterRef("latest_revision_id"), user_id=OuterRef("author_id")
+    )
+    screened = TaskState.objects.filter(revision_id=OuterRef("latest_revision_id"))
     taken_down = Q(live=False, first_published_at__isnull=False)
     topic_taken_down = Q(topic__live=False, topic__first_published_at__isnull=False)
     return Post.objects.filter(
@@ -379,10 +395,17 @@ def pending_posts():
                 topic__first_published_at__isnull=True,
             )
             | Exists(post_state)
-            | Q(live=True, has_unpublished_changes=True)
+            | (
+                Q(live=True, has_unpublished_changes=True)
+                & Exists(authors_revision)
+                & ~Exists(screened)
+            )
         )
         & ~taken_down
-        & ~(Q(first_published_at__isnull=False) & topic_taken_down)
+        & ~(
+            (Q(first_published_at__isnull=False) | Q(is_opening_post=True))
+            & topic_taken_down
+        )
     )
 
 
@@ -399,8 +422,9 @@ def _pending_kind(post):
 def _approve_allowed(post):
     """False for any row whose topic was taken down (todo 495): Approve would
     publish it into the hidden topic and notify subscribers with a link that
-    404s. Only a never-published reply is listed there (``pending_posts``),
-    and it keeps Reject, so a moderator still clears it."""
+    404s. Only a never-published reply is listed there (``pending_posts``,
+    which leaves out a draft opening post too since todo 499), and it keeps
+    Reject, so a moderator still clears it."""
     return not _taken_down(post.topic)
 
 
@@ -445,7 +469,7 @@ def _pending_body(post):
         # plain_text_excerpt reads only .raw_data.
         return SimpleNamespace(raw_data=raw)
     logger.warning(
-        "[WARN] wagtail_forum pending post %s: revision %s body is unreadable",
+        "[MODERATION] wagtail_forum pending post %s: revision %s body is unreadable",
         post.pk,
         revision.pk,
     )
@@ -483,9 +507,17 @@ def approve_pending_post(post, user):
     What goes live is the latest revision, never a fresh copy of the row: a
     held edit exists only as a revision (todo 432). Publishing cancels the
     post's active workflow state (``WAGTAIL_WORKFLOW_CANCEL_ON_PUBLISH``), so
-    the row leaves the queue and the dashboard count drops. The revision
-    snapshotted ``reaction_counts`` when it was saved, so they are recounted
-    after the publish (todo 495).
+    the row leaves the queue and the dashboard count drops. The revision's
+    snapshot of ``reaction_counts`` does not go live: every publish keeps the
+    live row's counts (``Post.with_content_json``, todo 499), so a reaction
+    added while the edit waited survives.
+
+    The post is published when it is not live, when it has unpublished
+    changes, or when it has an active workflow state. The last covers a live
+    post whose state has nothing unpublished behind it, a workflow started
+    on the live revision itself (todo 499): publishing that revision again is
+    what cancels the state, so without it the row could never leave the
+    queue.
 
     A live post with nothing pending of its own (a live opening post listed
     because its topic was never published) is not republished (todo 495): its
@@ -510,7 +542,6 @@ def approve_pending_post(post, user):
         ):
             revision = post.latest_revision or post.save_revision(user=user)
             revision.publish(user=user, skip_permission_checks=True)
-            Reaction.recount(post)
         if post.is_opening_post:
             topic = Topic.objects.select_for_update().get(pk=post.topic_id)
             if _topic_pending(topic):
@@ -543,19 +574,67 @@ def _changed_since_loaded(request, post):
     return redirect("wagtail_forum_pending:index")
 
 
+def _no_reject(request, post):
+    """A row still pending that offers no Reject (``_reject_target``): a held
+    edit, or an opening post whose topic is live (todo 499)."""
+    messages.warning(
+        request,
+        gettext(
+            "“%(title)s” has no Reject: deleting it would take published "
+            "content down. Open it from its title link instead."
+        )
+        % {"title": post.topic.title},
+    )
+    return redirect("wagtail_forum_pending:index")
+
+
+def _revision_missing(request):
+    """A Reject request that names no revision at all: not one the pending
+    page made, which always sends the revision its row showed (todo 499)."""
+    messages.warning(
+        request,
+        gettext(
+            "That Reject request did not name the revision it was for, so "
+            "nothing was deleted. Use Reject on the pending page."
+        ),
+    )
+    return redirect("wagtail_forum_pending:index")
+
+
 def _shown_revision(post):
     return str(post.latest_revision_id or "")
 
 
-def _lock_pending_post(pk):
+def _lock_pending_post(pk, *, whole_thread=False):
     """Lock the post row, then its topic's, and only then look the post up in
     ``pending_posts()`` as its own query, so the lookup sees whatever a
     concurrent Approve or Reject (a double-click, a second moderator)
     committed. Approve and Reject both lock in this order. None when the post
-    is gone or no longer pending. Call inside ``transaction.atomic()``."""
+    is gone or no longer pending. Call inside ``transaction.atomic()``.
+
+    Post before topic is also the order of every other write: an API edit,
+    an API delete and a reports auto-hide lock the post, then update the
+    topic's counters. The one write that runs the other way is a topic's
+    delete, which deletes every post in the thread after the topic row is
+    already held. So Reject passes ``whole_thread``, and for an opening post,
+    whose Reject may delete its topic, every post in the thread is locked in
+    pk order before the topic (todo 499). An Approve or Reject of a reply in
+    that thread then waits on its post instead of holding it while it waits
+    for the topic, which is the deadlock the cascade otherwise sets up.
+    Taking the topic first instead would only move that deadlock onto the
+    API paths above. An opening post under a live topic has no Reject, so
+    only a hand-made request locks a live thread here, and only for this
+    transaction."""
     locked = Post.objects.select_for_update().filter(pk=pk).first()
     if locked is None:
         return None
+    if whole_thread and locked.is_opening_post:
+        list(
+            Post.objects.select_for_update()
+            .filter(topic_id=locked.topic_id)
+            .order_by("pk")
+            .values_list("pk", flat=True)
+        )
     Topic.objects.select_for_update().filter(pk=locked.topic_id).first()
     return (
         pending_posts().select_related("topic", "latest_revision").filter(pk=pk).first()
@@ -601,8 +680,6 @@ class PendingContentView(ReportView):
     header_icon = "doc-empty-inverse"
     index_url_name = "wagtail_forum_pending:index"
     index_results_url_name = "wagtail_forum_pending:results"
-    permission_policy = pending_permission_policy
-    permission_required = PENDING_PERMISSION
     # Oldest first: the post that has waited longest is the one to open next.
     default_ordering = "submitted_at"
     columns = [
@@ -621,7 +698,10 @@ class PendingContentView(ReportView):
     ]
 
     def dispatch(self, request, *args, **kwargs):
-        # publish on Topic too, not only the policy's publish on Post.
+        # The page's only gate: publish on Post AND on Topic. A report view's
+        # permission_policy / permission_required pair names one model, so
+        # this view sets neither rather than carry a Post-only check that
+        # reads as the gate and is not (todo 499).
         if not user_can_moderate_pending(request.user):
             raise PermissionDenied
         return super().dispatch(request, *args, **kwargs)
@@ -731,12 +811,16 @@ class RejectPendingView(WagtailAdminTemplateMixin, View):
             .filter(pk=pk)
             .first()
         )
-        target = _reject_target(post) if post is not None else None
-        if target is None:
+        if post is None:
             return _already_decided(request)
+        target = _reject_target(post)
+        if target is None:
+            return _no_reject(request, post)
         if not _user_can_reject(request.user, target):
             raise PermissionDenied
-        revision = request.GET.get("revision", "")
+        revision = request.GET.get("revision")
+        if revision is None:
+            return _revision_missing(request)
         if revision != _shown_revision(post):
             return _changed_since_loaded(request, post)
         is_topic = isinstance(target, Topic)
@@ -755,13 +839,18 @@ class RejectPendingView(WagtailAdminTemplateMixin, View):
         if not user_can_moderate_pending(request.user):
             raise PermissionDenied
         with transaction.atomic():
-            post = _lock_pending_post(pk)
-            target = _reject_target(post) if post is not None else None
-            if target is None:
+            post = _lock_pending_post(pk, whole_thread=True)
+            if post is None:
                 return _already_decided(request)
+            target = _reject_target(post)
+            if target is None:
+                return _no_reject(request, post)
             if not _user_can_reject(request.user, target):
                 raise PermissionDenied
-            if request.POST.get("revision") != _shown_revision(post):
+            revision = request.POST.get("revision")
+            if revision is None:
+                return _revision_missing(request)
+            if revision != _shown_revision(post):
                 return _changed_since_loaded(request, post)
             title = post.topic.title
             # Permission checked above, as the generic delete view does.

@@ -197,6 +197,45 @@ def test_a_padded_placeholder_refuses_to_boot(key, value):
         assert key in combined, combined[-3000:]
 
 
+# The optional integrations todo 436 converted from `your-...` / `path/to/...`
+# placeholders, which booted clean in production. Unset leaves each one off;
+# only the verbatim placeholder is refused.
+OPTIONAL_INTEGRATION_KEYS = {
+    "OPENWEATHER_API_KEY",
+    "TREFLE_API_KEY",
+    "PLANT_HEALTH_API_KEY",
+    "OPENAI_API_KEY",
+    "UNSPLASH_ACCESS_KEY",
+    "PEXELS_API_KEY",
+    "GOOGLE_OAUTH2_CLIENT_ID",
+    "GOOGLE_OAUTH2_CLIENT_SECRET",
+    "GITHUB_CLIENT_ID",
+    "GITHUB_CLIENT_SECRET",
+    "FIREBASE_PROJECT_ID",
+    "FIREBASE_CREDENTIALS_PATH",
+}
+
+
+def test_optional_integration_placeholders_are_required_markers():
+    """The parametrised tests above cover a key only while its `.env.example`
+    line is a `REQUIRED__` placeholder (todo 436). Reverting one to a
+    `your-...` value would drop it from both tests and leave them green, so
+    pin the conversion itself."""
+    names = {key for key, _ in _placeholders()}
+    assert OPTIONAL_INTEGRATION_KEYS <= names, OPTIONAL_INTEGRATION_KEYS - names
+
+
+def test_an_optional_integration_placeholder_only_warns_under_debug():
+    """DEBUG keeps booting with a copied `.env.example`: an optional key's
+    placeholder is a configuration warning there, not a critical error."""
+    value = dict(_placeholders())["OPENAI_API_KEY"]
+    combined = _boot_output({"DEBUG": "True", "OPENAI_API_KEY": value})
+
+    warning = "OPENAI_API_KEY is still the unmodified .env.example placeholder"
+    assert f"⚠️  {warning}" in combined, combined[-3000:]
+    assert f"[ENV VALIDATION] {warning}" not in combined, combined[-3000:]
+
+
 def test_the_removed_encryption_setting_is_gone():
     """`FIELD_ENCRYPTION_KEY` was accepted and never read (todo 367).
 

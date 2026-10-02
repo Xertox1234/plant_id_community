@@ -1783,6 +1783,42 @@ def validate_environment():
             )
 
     # ========================================
+    # Optional-integration placeholders (todo 436)
+    # ========================================
+    # Every key here is read with a default, so unset leaves that integration
+    # off and is never an error. The verbatim .env.example placeholder is: it
+    # is truthy, so it switches the integration ON with a value published in a
+    # PUBLIC repo (an OAuth client "secret", an API key every client then
+    # authenticates with). Read through config() rather than the settings
+    # above: OPENWEATHER_API_KEY is read by the weather service itself and the
+    # OAuth pairs only inside SOCIALACCOUNT_PROVIDERS. Fatal in production, a
+    # warning under DEBUG -- the same split as the R2 vars above.
+    optional_integration_keys = (
+        "OPENWEATHER_API_KEY",
+        "TREFLE_API_KEY",
+        "PLANT_HEALTH_API_KEY",
+        "OPENAI_API_KEY",
+        "UNSPLASH_ACCESS_KEY",
+        "PEXELS_API_KEY",
+        "GOOGLE_OAUTH2_CLIENT_ID",
+        "GOOGLE_OAUTH2_CLIENT_SECRET",
+        "GITHUB_CLIENT_ID",
+        "GITHUB_CLIENT_SECRET",
+        "FIREBASE_PROJECT_ID",
+        "FIREBASE_CREDENTIALS_PATH",
+    )
+    for key_name in optional_integration_keys:
+        if is_required_placeholder(config(key_name, default="")):
+            message = (
+                f"{key_name} is still the unmodified .env.example placeholder. "
+                f"Set a real value, or unset it to leave that integration off."
+            )
+            if not DEBUG:
+                critical_errors.append(message)
+            else:
+                warnings.append(message)
+
+    # ========================================
     # Redis Connection Test (Issue #156)
     # ========================================
     redis_url = config("REDIS_URL", default="")
@@ -1812,7 +1848,7 @@ def validate_environment():
             _redis_parts = urlsplit(redis_url)
             _redis_port = _redis_parts.port or "default"
             logger.info(
-                f"✅ Redis connection successful: {_redis_parts.hostname}"
+                f"[ENV VALIDATION] ✅ Redis connection successful: {_redis_parts.hostname}"
                 f":{_redis_port}{_redis_parts.path}"
             )
         except redis.ConnectionError as e:
@@ -1977,7 +2013,7 @@ def validate_environment():
     if warnings:
         logger.warning("[ENV VALIDATION] Configuration warnings detected:")
         for warning in warnings:
-            logger.warning(f"  - {warning}")
+            logger.warning(f"[ENV VALIDATION]   - {warning}")
 
         if DEBUG:
             print("\n" + "=" * 60)

@@ -44,21 +44,21 @@ class JWTAuthMiddleware(BaseMiddleware):
                 if user_id:
                     user = await self._get_user(user_id)
                 logger.info(
-                    "WS JWTAuthMiddleware: token_source=%s token_prefix=%s user_id=%s",
+                    "[AUTH] WS JWTAuthMiddleware: token_source=%s token_prefix=%s user_id=%s",
                     token_source,
                     token[:10] if isinstance(token, str) else None,
                     user_id,
                 )
             except Exception as exc:
                 logger.warning(
-                    "WS JWTAuthMiddleware: token parse/validation failed (source=%s): %s",
+                    "[AUTH] WS JWTAuthMiddleware: token parse/validation failed (source=%s): %s",
                     token_source,
                     str(exc),
                 )
                 user = None
         else:
             logger.info(
-                "WS JWTAuthMiddleware: no token found (query_string=%s, has_cookie=%s)",
+                "[AUTH] WS JWTAuthMiddleware: no token found (query_string=%s, has_cookie=%s)",
                 query_string.decode(errors="ignore"),
                 any(h[0] == b"cookie" for h in scope.get("headers", [])),
             )
