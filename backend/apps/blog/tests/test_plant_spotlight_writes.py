@@ -167,6 +167,25 @@ class ReferencedImagePksTest(TestCase):
 
         self.assertEqual(referenced_image_pks(self.post.pk), {self.image.pk})
 
+    def test_sees_the_featured_image_a_draft_revision_sets(self):
+        # Not a block reference: the page's own featured_image column. A draft
+        # only, so the live row's column is still empty and the latest
+        # revision alone vouches for it (round-2 review of todo 442).
+        self.post.featured_image = self.image
+        self.post.save_revision()
+
+        self.assertEqual(referenced_image_pks(self.post.pk), {self.image.pk})
+        live = BlogPostPage.objects.get(pk=self.post.pk)
+        self.assertIsNone(live.featured_image_id)
+
+    def test_sees_the_social_image_the_live_row_sets(self):
+        # social_image is a column of the BlogBasePage parent row: inherited
+        # image foreign keys count too.
+        self.post.social_image = self.image
+        self.post.save_revision().publish()
+
+        self.assertEqual(referenced_image_pks(self.post.pk), {self.image.pk})
+
     def test_empty_for_a_deleted_page(self):
         pk = self.post.pk  # delete() clears the instance's own pk
         self.post.delete()

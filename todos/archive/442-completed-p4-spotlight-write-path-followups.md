@@ -110,3 +110,19 @@ The bundled `/code-review` of PR #825 raised these as non-blocking.
   Mutation-checked: ignoring the check fails both command tests (2 failed /
   18 passed); reading only the page row fails the three draft-shaped tests
   (3 / 17); both files restored byte-identical.
+
+### 2026-10-02 - Round-3 repair by the todo sweep (run 2026-10-02-0335)
+
+- Round-2 review (high, `plant_spotlight_writes.py`): `referenced_image_pks`
+  walked only `content_blocks`, so a fetched image the editor set as the
+  page's `featured_image` or `social_image` (SET_NULL foreign keys) counted as
+  unreferenced; deleting it nulled the live column and left the revision's
+  value resolving to None. Owner pre-approved a third round ("3 rounds max").
+- `referenced_image_pks` now also collects every concrete forward foreign key
+  from `BlogPostPage` to the image model (inherited `social_image` included)
+  on both the live row and the latest revision object.
+- Tests: `featured_image` set only in a draft revision, `social_image` set on
+  the live row, and a command test where the refusing save sets the fetched
+  image as `featured_image` (Kept, column still resolves). 23 passed.
+  Mutation-checked: removing the foreign-key scan fails exactly the three new
+  tests (3 failed / 20 passed); file restored from a copy and grep-verified.

@@ -209,6 +209,29 @@ class PopulateDiscardsUnwrittenImagesTest(PopulateCommandTestCase):
         )
         self.assertEqual(draft_block.value["image"].pk, image.pk)
 
+    def test_a_write_refused_mid_run_keeps_the_image_the_editor_set_as_featured(self):
+        # The editor picked the fetched image for the page's featured_image
+        # column, not for a block. Deleting it would null that SET_NULL column
+        # on the live row (round-2 review of todo 442).
+        post = self.make_post("editor-featured")
+        image = self.fetched_image()
+
+        def fetch(**kwargs):
+            editor_copy = BlogPostPage.objects.get(pk=post.pk)
+            editor_copy.featured_image = image
+            editor_copy.save_revision().publish()
+            return "unsplash", UNSPLASH_DATA, image
+
+        out, _ = self.run_command(f"--post-id={post.pk}", fetch=fetch)
+
+        self.assertIn("was edited while this command ran", out)
+        self.assertIn("Kept 1 fetched image(s)", out)
+        self.assertNotIn("Discarded", out)
+        self.assertTrue(get_image_model().objects.filter(pk=image.pk).exists())
+        post.refresh_from_db()
+        self.assertEqual(post.featured_image_id, image.pk)
+        self.assertIsNone(self.spotlight(post).value["image"])
+
     def test_a_write_that_raises_before_committing_deletes_the_fetched_image(self):
         post = self.make_post("save-raises")
         image = self.fetched_image()
