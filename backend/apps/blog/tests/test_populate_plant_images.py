@@ -2,7 +2,9 @@
 
 - A write the service refuses, or that raises, must not leave the images the
   run fetched for that page in the library (owner decision 2026-09-28: a
-  refused write deletes the images it fetched).
+  refused write deletes the images it fetched) — except an image the page's
+  content or latest revision now references: the editor whose save refused the
+  write may have picked it (PR review of todo 442).
 - Each page's content is loaded once, by `load_spotlight_base`; the command
   iterates ids rather than full pages.
 
@@ -60,22 +62,42 @@ class PopulateCommandTestCase(TestCase):
         root.add_child(instance=self.blog_index)
 
     def make_post(self, slug, **block):
+        return self.make_post_with_blocks(slug, spotlight_raw(**block))
+
+    def make_post_with_blocks(self, slug, *spotlights):
         post = BlogPostPage(
             title=f"Post {slug}",
             slug=slug,
             author=self.user,
             publish_date=date.today(),
             introduction="<p>intro</p>",
-            content_blocks=[("plant_spotlight", spotlight_raw(**block))],
+            content_blocks=[("plant_spotlight", raw) for raw in spotlights],
         )
         self.blog_index.add_child(instance=post)
         return post
 
-    def fetched_image(self):
+    def fetched_image(self, title="Fetched monstera"):
         return get_image_model().objects.create(
-            title="Fetched monstera",
+            title=title,
             file=get_test_image_file(filename="fetched.png"),
         )
+
+    @staticmethod
+    def editor_picks(post, image, index=0):
+        """An editor's fresh copy of the page with `image` in spotlight block `index`.
+
+        Unsaved: the caller decides whether the editor publishes or drafts it.
+        The 3-tuple keeps the block id, as a real admin save would.
+        """
+        editor_copy = BlogPostPage.objects.get(pk=post.pk)
+        stream = editor_copy.content_blocks
+        block = stream[index]
+        stream[index] = (
+            block.block_type,
+            {**dict(block.value), "image": image},
+            block.id,
+        )
+        return editor_copy
 
     def run_command(self, *args, fetch=None, save=None):
         """Run the command with the provider mocked; `fetch`/`save` are side effects."""
@@ -122,6 +144,70 @@ class PopulateDiscardsUnwrittenImagesTest(PopulateCommandTestCase):
             post.get_latest_revision().as_object().title,
             "Editor saved during the fetch",
         )
+
+    def test_a_write_refused_mid_run_keeps_the_image_the_editor_published(self):
+        # The fetch put image A in the library, and the editor whose save
+        # refuses the write picked it for the first block. A must survive:
+        # deleting the row would turn that block's image into None in the
+        # editor's live revision (round-1 review of todo 442). B, which nothing
+        # references, still goes.
+        post = self.make_post_with_blocks(
+            "editor-picked",
+            spotlight_raw(),
+            spotlight_raw(plant_name="Pothos", scientific_name="Epipremnum aureum"),
+        )
+        image_a = self.fetched_image("Fetched monstera")
+        image_b = self.fetched_image("Fetched pothos")
+        remaining = iter([image_a, image_b])
+
+        def fetch(**kwargs):
+            image = next(remaining)
+            if image is image_a:
+                self.editor_picks(post, image_a).save_revision().publish()
+            return "unsplash", UNSPLASH_DATA, image
+
+        out, fetch_mock = self.run_command(f"--post-id={post.pk}", fetch=fetch)
+
+        self.assertEqual(fetch_mock.call_count, 2)
+        self.assertIn("was edited while this command ran", out)
+        self.assertIn(
+            "Kept 1 fetched image(s): the page's content or latest revision "
+            "references them",
+            out,
+        )
+        self.assertIn("Discarded 1 fetched image(s): nothing was written", out)
+        images = get_image_model().objects
+        self.assertTrue(images.filter(pk=image_a.pk).exists())
+        self.assertFalse(images.filter(pk=image_b.pk).exists())
+        post.refresh_from_db()
+        first, second = [
+            b for b in post.content_blocks if b.block_type == "plant_spotlight"
+        ]
+        self.assertEqual(first.value["image"].pk, image_a.pk)
+        self.assertIsNone(second.value["image"])
+
+    def test_a_write_refused_mid_run_keeps_the_image_the_editor_drafted(self):
+        # A draft, not a publish: the live row still has no image, so only the
+        # latest revision references the fetched one. It must still be kept.
+        post = self.make_post("editor-drafted")
+        image = self.fetched_image()
+
+        def fetch(**kwargs):
+            self.editor_picks(post, image).save_revision()
+            return "unsplash", UNSPLASH_DATA, image
+
+        out, _ = self.run_command(f"--post-id={post.pk}", fetch=fetch)
+
+        self.assertIn("was edited while this command ran", out)
+        self.assertIn("Kept 1 fetched image(s)", out)
+        self.assertNotIn("Discarded", out)
+        self.assertTrue(get_image_model().objects.filter(pk=image.pk).exists())
+        self.assertIsNone(self.spotlight(post).value["image"])
+        draft = post.get_latest_revision().as_object()
+        draft_block = next(
+            b for b in draft.content_blocks if b.block_type == "plant_spotlight"
+        )
+        self.assertEqual(draft_block.value["image"].pk, image.pk)
 
     def test_a_write_that_raises_before_committing_deletes_the_fetched_image(self):
         post = self.make_post("save-raises")

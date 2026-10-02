@@ -39,6 +39,7 @@ overwritten.
 from dataclasses import dataclass
 
 from django.db import transaction
+from wagtail.images import get_image_model
 from wagtail.models import Page
 
 from ..models import BlogPostPage
@@ -217,3 +218,38 @@ def page_unchanged_since(base):
         Page.objects.filter(pk=base.page.pk).values_list(*_PAGE_STATE_FIELDS).first()
     )
     return current == base.state
+
+
+def referenced_image_pks(page_id):
+    """Pks of the images the page's content or its latest revision references.
+
+    Reloads the page row and, when the page has one, its latest revision as an
+    object, and walks both `content_blocks` with the StreamField's own
+    reference extraction (what Wagtail's ReferenceIndex uses), so every image
+    reference counts: a `plant_spotlight.image` and an image embedded in a
+    rich-text paragraph alike. A command uses it after a REFUSED write: the
+    page moved on without the command, and the editor whose save refused the
+    write may have picked an image this run fetched (it was in the library from
+    the moment the fetch created it). Deleting that image would leave the
+    editor's revision pointing at a missing row, which resolves to None (todo
+    442 review). Empty when the page is gone.
+    """
+    page = BlogPostPage.objects.filter(pk=page_id).first()
+    if page is None:
+        return set()
+    streams = [page.content_blocks]
+    if page.latest_revision_id:
+        # Not get_latest_revision_as_object(): without unpublished changes that
+        # returns the live row and never reads the revision.
+        streams.append(page.latest_revision.as_object().content_blocks)
+    field = BlogPostPage._meta.get_field("content_blocks")
+    image_model = get_image_model()
+    pk_field = image_model._meta.pk
+    return {
+        pk_field.to_python(object_id)
+        for stream in streams
+        for model, object_id, _model_path, _content_path in field.extract_references(
+            stream
+        )
+        if issubclass(model, image_model)
+    }

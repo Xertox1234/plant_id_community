@@ -91,3 +91,22 @@ The bundled `/code-review` of PR #825 raised these as non-blocking.
 ### 2026-10-02 - Completed by the todo sweep (run 2026-10-02-0335)
 
 - Archived by `land.py archive`; evidence is quoted above, review is on the PR.
+
+### 2026-10-02 - Repaired by the todo sweep (run 2026-10-02-0335)
+
+- Round-1 review (high): a write refused mid-run (`skipped_changed_during_run`)
+  deleted every image the run had fetched, although the editor whose save
+  refused it may have picked one from the library — that revision then kept
+  `"image": <pk>` of a deleted row, which resolves to None.
+- `_discard_fetched_images` now partitions before deleting: the new
+  `referenced_image_pks` (`plant_spotlight_writes`) reloads the page row and
+  its latest revision as an object and walks both `content_blocks` with the
+  StreamField's `extract_references`, so an image either one references is
+  Kept and reported and the rest are Discarded. The raise branch is unchanged.
+- Tests: an editor publishing a revision that picks the first of two fetched
+  images (one Kept, one Discarded, the live block still resolves it), an
+  editor drafting one (only the latest revision references it), and helper
+  tests for the draft, live, rich-text-embed and deleted-page cases.
+  Mutation-checked: ignoring the check fails both command tests (2 failed /
+  18 passed); reading only the page row fails the three draft-shaped tests
+  (3 / 17); both files restored byte-identical.

@@ -12,7 +12,8 @@ and reported before any image is fetched. Pages are iterated by id and each is
 loaded once, by `load_spotlight_base` (todo 442). The images fetched for a
 page whose write is then refused are deleted again (owner decision
 2026-09-28), so a refused write leaves nothing unreferenced in the image
-library.
+library — except an image the page's content or latest revision now
+references, because the editor whose save refused the write picked it.
 """
 
 import logging
@@ -25,6 +26,7 @@ from apps.blog.services.plant_spotlight_writes import (
     load_spotlight_base,
     page_label,
     page_unchanged_since,
+    referenced_image_pks,
     save_spotlight_updates,
 )
 from apps.plant_identification.services.plant_image_service import PlantImageService
@@ -237,11 +239,16 @@ class Command(BaseCommand):
         it got locked meanwhile) would otherwise leave every image this run
         fetched for the page in the library, unreferenced, and the next run
         fetches again (todo 442; owner decision 2026-09-28: a refused write
-        deletes the images it fetched). After an EXCEPTION the images go only
-        when the page's revision pointers have not moved: the write is atomic,
-        so a failure inside it committed nothing, but an exception from another
-        app's on_commit hook arrives after the commit, and a revision may then
-        reference the images.
+        deletes the images it fetched). Two exceptions keep an image:
+
+        - the page's content or latest revision references it: the fetch put
+          it in the library before the write, so the editor whose save refused
+          the write may have picked it, and deleting the row would leave that
+          revision's block resolving to None;
+        - the write RAISED and the page's revision pointers moved: the write is
+          atomic, so a failure inside it committed nothing, but an exception
+          from another app's on_commit hook arrives after the commit, and a
+          revision may then reference the images.
         """
         if not images:
             return
@@ -253,16 +260,29 @@ class Command(BaseCommand):
                 )
             )
             return
-        for image in images:
+        # Partition before any delete: a deleted image resolves to None in the
+        # page's content, so the check would no longer see it.
+        referenced = referenced_image_pks(base.page.pk)
+        kept = [image for image in images if image.pk in referenced]
+        discarded = [image for image in images if image.pk not in referenced]
+        for image in discarded:
             try:
                 image.delete()
             except Exception as e:
                 logger.error(
                     f"[PLANT_IMAGE] Could not delete unreferenced image {image.pk}: {e}"
                 )
-        self.stdout.write(
-            f"  Discarded {len(images)} fetched image(s): nothing was written"
-        )
+        if kept:
+            self.stdout.write(
+                self.style.WARNING(
+                    f"  Kept {len(kept)} fetched image(s): the page's content or "
+                    "latest revision references them"
+                )
+            )
+        if discarded:
+            self.stdout.write(
+                f"  Discarded {len(discarded)} fetched image(s): nothing was written"
+            )
 
     def _show_service_status(self):
         """Display the status of image services."""
