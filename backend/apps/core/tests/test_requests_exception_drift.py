@@ -182,6 +182,8 @@ def _requests_handlers_interpolating_the_exception(path):
     else is reported. That is an allowlist rather than "any attribute access is
     fine", because ``e.response.url``, ``e.request.url`` and ``e.args[0]`` are
     all attribute accesses and all reproduce the prepared URL.
+
+    Offenders come out in line order, each once (todo 490).
     """
 
     def logger_calls(scope):
@@ -204,6 +206,11 @@ def _requests_handlers_interpolating_the_exception(path):
 
     tree = ast.parse(pathlib.Path(path).read_text(encoding="utf-8"))
     imported = _requests_exception_names(tree)
+    found = set()  # (lineno, col, source)
+
+    def report(call):
+        found.add((call.lineno, call.col_offset, ast.unparse(call)))
+
     for func in ast.walk(tree):
         if not isinstance(func, (ast.FunctionDef, ast.AsyncFunctionDef)):
             continue
@@ -216,7 +223,7 @@ def _requests_handlers_interpolating_the_exception(path):
             # `except Exception` handler, which this clause never reaches.
             for call in logger_calls(handler):
                 if ast.unparse(call.func) == "logger.exception":
-                    yield call.lineno, ast.unparse(call)
+                    report(call)
             if not handler.name:
                 continue
             # The bound name, inside its own handler only.
@@ -224,7 +231,7 @@ def _requests_handlers_interpolating_the_exception(path):
                 if ast.unparse(call.func) == "logger.exception":
                     continue  # already reported above
                 if interpolates(call, {handler.name}):
-                    yield call.lineno, ast.unparse(call)
+                    report(call)
             # Aliases assigned in the handler outlive it -- check the function.
             aliases = {
                 t.id
@@ -238,7 +245,8 @@ def _requests_handlers_interpolating_the_exception(path):
             if aliases:
                 for call in logger_calls(func):
                     if interpolates(call, aliases):
-                        yield call.lineno, ast.unparse(call)
+                        report(call)
+    yield from ((line, src) for line, _, src in sorted(found))
 
 
 @pytest.mark.parametrize("service", _files_with_requests_handlers())
@@ -477,18 +485,37 @@ def _own_nodes(scope):
 
 
 def _local_names(func):
-    """Names ``func`` binds itself, which a closure therefore does not inherit."""
+    """Names ``func`` binds itself, which a closure therefore does not inherit.
+
+    What Python counts (todo 490): parameters; assignment, loop, ``with`` and
+    walrus targets; nested def and class names; handler names; ``match``
+    captures -- minus anything declared ``nonlocal`` or ``global``. NOT a
+    comprehension's iteration variable: ``[body for body in items]`` binds
+    nothing in the enclosing function, so a closure that also reads ``body``
+    reads its parent's. A walrus is the opposite case and stays: ``(body :=
+    x)`` binds the enclosing function's ``body`` even from inside a
+    comprehension (PEP 572), so a child that walruses the name has shadowed it.
+    """
     args = func.args
     params = (*args.posonlyargs, *args.args, *args.kwonlyargs, args.vararg, args.kwarg)
     names = {a.arg for a in params if a is not None}
     own = list(_own_nodes(func))
+    comprehension_targets = {
+        id(name)
+        for node in own
+        if isinstance(node, ast.comprehension)
+        for name in ast.walk(node.target)
+    }
     for node in own:
         if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Store):
-            names.add(node.id)
+            if id(node) not in comprehension_targets:
+                names.add(node.id)
         elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
             names.add(node.name)
         elif isinstance(node, ast.ExceptHandler) and node.name:
             names.add(node.name)
+        elif isinstance(node, ast.match_case):
+            names.update(_pattern_names(node.pattern))
     for node in own:
         if isinstance(node, (ast.Nonlocal, ast.Global)):
             names -= set(node.names)
@@ -498,39 +525,116 @@ def _local_names(func):
 def _scopes(tree, step):
     """Visit the module, then every function and lambda, parents first.
 
-    ``step(scope, inherited)`` returns the taint to hand to the scope's nested
-    functions. A closure inherits its parent's taint for the free variables it
-    reads -- ``def inner(): return {"error": body}`` still carries the parent's
-    body -- minus every name it binds itself.
+    ``step(scope, inherited)`` returns the scope's tainted names, which its
+    nested functions inherit. A closure inherits its parent's taint for the
+    free variables it reads -- ``def inner(): return {"error": body}`` still
+    carries the parent's body -- minus every name it binds itself.
+
+    Taint also climbs through ``nonlocal`` (todo 490): ``nonlocal body; body =
+    response.text`` in a child rebinds the parent's ``body``, which the flat
+    walk before PR #883 saw and the scoped one lost. A child's tainted
+    ``nonlocal`` names are hoisted to the scope they resolve to -- the nearest
+    enclosing function that binds the name itself -- and the walk repeats
+    until no scope learns a new name. ``step`` therefore runs more than once
+    on such a file and must be idempotent; without a tainted ``nonlocal`` it is
+    one pass, which is every file on the tree today.
     """
-    stack = [(tree, frozenset())]
-    while stack:
-        scope, inherited = stack.pop()
-        if scope is not tree:
-            inherited = inherited - _local_names(scope)
-        passed = frozenset(step(scope, inherited))
-        stack.extend(
-            (child, passed) for child in _own_nodes(scope) if isinstance(child, _SCOPES)
-        )
+    hoisted = {}  # id(scope) -> names a nested def rebound there via nonlocal
+    while True:
+        changed = False
+        stack = [(tree, frozenset(), ())]
+        while stack:
+            scope, inherited, enclosing = stack.pop()
+            if scope is not tree:
+                inherited = inherited - _local_names(scope)
+            # Hoisted names are the scope's OWN locals, so they join after the
+            # subtraction above.
+            tainted = frozenset(
+                step(scope, inherited | hoisted.get(id(scope), frozenset()))
+            )
+            for name in _nonlocal_names(scope) & tainted:
+                owner = _nonlocal_owner(name, enclosing)
+                if owner is not None and name not in hoisted.get(id(owner), ()):
+                    hoisted.setdefault(id(owner), set()).add(name)
+                    changed = True
+            chain = enclosing if scope is tree else (scope, *enclosing)
+            stack.extend(
+                (child, tainted, chain)
+                for child in _own_nodes(scope)
+                if isinstance(child, _SCOPES)
+            )
+        if not changed:
+            return
+
+
+def _nonlocal_names(scope):
+    """Names ``scope`` declares ``nonlocal``."""
+    return {
+        name
+        for node in _own_nodes(scope)
+        if isinstance(node, ast.Nonlocal)
+        for name in node.names
+    }
+
+
+def _nonlocal_owner(name, enclosing):
+    """The function a ``nonlocal name`` rebinds: the nearest enclosing one that
+    binds ``name`` itself. ``_local_names`` already leaves out a scope that only
+    passes the name on with a ``nonlocal`` of its own."""
+    for scope in enclosing:
+        if name in _local_names(scope):
+            return scope
+    return None
 
 
 def _bindings(scope):
-    """``(targets, value)`` for every name binding in ``scope``'s own code.
+    """``(names, value)`` for every name binding in ``scope``'s own code,
+    ``names`` being the plain names the target binds.
 
     Todo 440: assignment statements were the only binding followed, so
     ``for line in response.text.splitlines()`` -- and ``async for``, ``with
-    ... as``, comprehension targets -- walked straight past the guard.
+    ... as``, comprehension targets -- walked straight past the guard. Todo
+    490: unpacking stopped one level deep, so ``for i, (k, line) in ...`` left
+    ``line`` unbound, and a ``match`` capture was no binding at all.
     """
     for n in _own_nodes(scope):
         if isinstance(n, ast.Assign):
-            yield n.targets, n.value
+            yield {name for t in n.targets for name in _target_names(t)}, n.value
         elif isinstance(n, (ast.AnnAssign, ast.AugAssign, ast.NamedExpr)):
             if n.value is not None:
-                yield [n.target], n.value
+                yield set(_target_names(n.target)), n.value
         elif isinstance(n, (ast.For, ast.AsyncFor, ast.comprehension)):
-            yield [n.target], n.iter
+            yield set(_target_names(n.target)), n.iter
         elif isinstance(n, ast.withitem) and n.optional_vars is not None:
-            yield [n.optional_vars], n.context_expr
+            yield set(_target_names(n.optional_vars)), n.context_expr
+        elif isinstance(n, ast.Match):
+            for case in n.cases:
+                yield set(_pattern_names(case.pattern)), n.subject
+
+
+def _target_names(target):
+    """Plain names a target binds, through any depth of unpacking (todo 490).
+
+    ``results[name] = ...`` and ``obj.attr = ...`` bind no name: a subscript
+    or attribute target must not taint ``results``, ``name`` or ``obj``.
+    """
+    if isinstance(target, ast.Name):
+        yield target.id
+    elif isinstance(target, ast.Starred):
+        yield from _target_names(target.value)
+    elif isinstance(target, (ast.Tuple, ast.List)):
+        for elt in target.elts:
+            yield from _target_names(elt)
+
+
+def _pattern_names(pattern):
+    """Names a ``match`` case captures: ``case ... as whole``, ``case [first,
+    *rest]``, ``case {**others}`` and a bare ``case name``."""
+    for node in ast.walk(pattern):
+        if isinstance(node, (ast.MatchAs, ast.MatchStar)) and node.name:
+            yield node.name
+        elif isinstance(node, ast.MatchMapping) and node.rest:
+            yield node.rest
 
 
 def _tainted_names(scope, is_source, seed=()):
@@ -543,8 +647,8 @@ def _tainted_names(scope, is_source, seed=()):
     ``msg = body[:50]`` is tainted too.
 
     Flow-insensitive on purpose: a name tainted once is tainted throughout the
-    scope. Only plain-name targets are tainted -- ``results[name] = ...`` must
-    not taint ``results`` or ``name``.
+    scope. Only the plain names a target binds are tainted (``_target_names``)
+    -- ``results[name] = ...`` must not taint ``results`` or ``name``.
 
     Taint follows VALUE-PRESERVING expressions only (see ``_carried``): slices,
     f-strings, concatenation, method calls on the value, ``str()``/``repr()``/
@@ -563,24 +667,15 @@ def _tainted_names(scope, is_source, seed=()):
     changed = True
     while changed:
         changed = False
-        for targets, value in bindings:
-            if not any(
+        for names, value in bindings:
+            if names <= tainted:
+                continue
+            if any(
                 is_source(n) or (isinstance(n, ast.Name) and n.id in tainted)
                 for n in _carried(value)
             ):
-                continue
-            for target in targets:
-                elts = (
-                    target.elts
-                    if isinstance(target, (ast.Tuple, ast.List))
-                    else [target]
-                )
-                for elt in elts:
-                    if isinstance(elt, ast.Starred):
-                        elt = elt.value
-                    if isinstance(elt, ast.Name) and elt.id not in tainted:
-                        tainted.add(elt.id)
-                        changed = True
+                tainted |= names
+                changed = True
     return tainted
 
 
@@ -620,6 +715,50 @@ def _mentions(value, tainted):
     return any(isinstance(n, ast.Name) and n.id in tainted for n in ast.walk(value))
 
 
+_TRY = (ast.Try, ast.TryStar)
+
+
+def _named_handlers(scope):
+    """``(try, handler)`` for every ``except ... as name`` in ``scope``'s own code."""
+    for node in _own_nodes(scope):
+        if isinstance(node, _TRY):
+            for handler in node.handlers:
+                if handler.name:
+                    yield node, handler
+
+
+def _enclosed_tries(scope):
+    """``id()`` of every ``try`` nested under another ``try`` or a ``with`` in
+    ``scope``'s own code. A ``raise`` from its handler may be caught, or
+    suppressed, before the function exits, and a ``return`` still runs an
+    enclosing ``finally``."""
+    enclosed = set()
+    for outer in _own_nodes(scope):
+        if isinstance(outer, (*_TRY, ast.With, ast.AsyncWith)):
+            enclosed.update(id(n) for n in _own_nodes(outer) if isinstance(n, _TRY))
+    return enclosed
+
+
+def _handler_falls_through(handler, try_node, enclosed):
+    """Can the code after ``try_node`` observe a local the handler bound?
+
+    Not when the handler always leaves by ``raise`` or ``return`` (todo 490,
+    finding 4): ``msg = str(e); logger.error(msg); raise`` leaves no ``msg``
+    for the code after the try to read, so a later ``msg = "Service
+    unavailable"`` is not flagged. Conservative on every way out of that
+    reasoning -- a ``break`` or ``continue`` anywhere in the handler can skip
+    the raise, a ``finally`` runs after it, and an enclosing ``try`` or
+    ``with`` can swallow it -- each keeps the handler on the fall-through path.
+    A handler that falls through and is then rebound (the same code minus the
+    ``raise``) is still flagged: the taint pass is flow-insensitive by design.
+    """
+    if try_node.finalbody or id(try_node) in enclosed:
+        return True
+    if not isinstance(handler.body[-1], (ast.Raise, ast.Return)):
+        return True
+    return any(isinstance(n, (ast.Break, ast.Continue)) for n in _own_nodes(handler))
+
+
 def _exception_details_in_response_dicts(path):
     """Yield ``(lineno, source)`` for exception detail reaching a response dict.
 
@@ -632,8 +771,9 @@ def _exception_details_in_response_dicts(path):
     """
     tree = ast.parse(pathlib.Path(path).read_text(encoding="utf-8"))
     logging_dicts = _logging_extra_dicts(tree)
-    # id(value) -> finding. A dict reachable from two handlers, or from a
-    # handler and its function, is one site and is reported once.
+    # id(value) -> (lineno, col, source). A dict reachable from two handlers,
+    # or from a handler and its function, is one site and is reported once;
+    # the report is in line order, not walk order (todo 490).
     found = {}
 
     def check(nodes, tainted):
@@ -650,32 +790,45 @@ def _exception_details_in_response_dicts(path):
                 ):
                     continue
                 if _mentions(value, tainted):
-                    found.setdefault(id(value), (value.lineno, ast.unparse(value)))
+                    found.setdefault(
+                        id(value), (value.lineno, value.col_offset, ast.unparse(value))
+                    )
+
+    # A def or lambda INSIDE a handler can read its exception; one after the
+    # handler cannot, since Python unbinds the name on exit (todo 490, finding
+    # 3: `except ... as error:` used to taint a later closure that read a
+    # rebound `error`). Filled by the parent's step and read by the child's --
+    # `_scopes` runs parents first.
+    closure_seeds = {}
 
     def step(scope, inherited):
-        handlers = [
-            n for n in _own_nodes(scope) if isinstance(n, ast.ExceptHandler) and n.name
-        ]
-        seeds = set(inherited)
-        for handler in handlers:
+        seeds = set(inherited) | closure_seeds.get(id(scope), set())
+        enclosed = _enclosed_tries(scope)
+        for try_node, handler in _named_handlers(scope):
             # The exception itself, plus any local derived from it in the handler.
             derived = _tainted_names(
                 handler,
                 lambda n, name=handler.name: isinstance(n, ast.Name) and n.id == name,
             )
-            check(_own_nodes(handler), {handler.name} | derived)
+            visible = {handler.name} | derived
+            check(_own_nodes(handler), visible)
+            for child in (n for n in _own_nodes(handler) if isinstance(n, _SCOPES)):
+                closure_seeds.setdefault(id(child), set()).update(
+                    visible - _local_names(child)
+                )
             # Todo 440: `err = str(e)` in the handler, `return {"error": err}`
             # after the try. The derived locals outlive the handler, so they
             # seed a taint pass over the whole enclosing scope. The bound name
-            # itself does not: Python unbinds it when the handler exits.
-            seeds |= derived - {handler.name}
+            # itself does not: Python unbinds it when the handler exits. Nor
+            # does anything a handler that always raises or returns derived.
+            if _handler_falls_through(handler, try_node, enclosed):
+                seeds |= derived - {handler.name}
         tainted = _tainted_names(scope, lambda n: False, seed=seeds)
         check(_own_nodes(scope), tainted)
-        # A closure defined inside a handler can still read its exception.
-        return tainted | {h.name for h in handlers}
+        return tainted
 
     _scopes(tree, step)
-    yield from found.values()
+    yield from ((line, src) for line, _, src in sorted(found.values()))
 
 
 LOGGER_METHODS = {"debug", "info", "warning", "warn", "error", "critical", "exception"}
@@ -737,6 +890,7 @@ def _provider_body_in_response_dicts(path):
 
     _scopes(tree, step)
 
+    found = set()  # (lineno, col, source): reported in line order (todo 490)
     for dict_node in (n for n in ast.walk(tree) if isinstance(n, ast.Dict)):
         if id(dict_node) in logging_dicts:
             continue
@@ -744,7 +898,7 @@ def _provider_body_in_response_dicts(path):
             if not (isinstance(key, ast.Constant) and key.value in RESPONSE_ERROR_KEYS):
                 continue
             if id(value) in via_local:
-                yield value.lineno, ast.unparse(value)
+                found.add((value.lineno, value.col_offset, ast.unparse(value)))
                 continue
             for node in ast.walk(value):
                 if isinstance(node, ast.Attribute) and node.attr in BODY_ATTRS:
@@ -754,8 +908,9 @@ def _provider_body_in_response_dicts(path):
                     # or `http_result.text` would walk straight past it. Any
                     # `.text`/`.content`/`.body` under a response error key is
                     # suspect; the tree has no legitimate instance.
-                    yield value.lineno, ast.unparse(value)
+                    found.add((value.lineno, value.col_offset, ast.unparse(value)))
                     break
+    yield from ((line, src) for line, _, src in sorted(found))
 
 
 @pytest.mark.parametrize(
@@ -1167,5 +1322,292 @@ def test_the_guards_reach_past_the_handler_and_through_every_binding(tmp_path):
         "captured",  # a closure still inherits its parent's taint
     }, body
     # A dict reachable from two handlers (or two scopes) is reported once.
+    assert len(exc) == len(set(exc)), exc
+    assert len(body) == len(set(body)), body
+
+
+# ==========================================================================
+# Scope resolution follows Python's (todo 490)
+# ==========================================================================
+#
+# PR #883's scope-aware walk stopped the nested-def leak, and its reviewers
+# probed the shapes it then resolved differently from Python. A child's
+# `nonlocal` rebinding no longer tainted its parent (a regression against the
+# flat walk). A comprehension's iteration variable counted as a child's local
+# and so hid the parent's tainted name of the same spelling. A handler's bound
+# name reached every nested def, not only the closures the handler contains. A
+# handler that always raises still seeded the code after the try. Unpacking
+# stopped one level deep and `match ... as` bound nothing. Each shape below is
+# pinned in both directions: the miss has a positive case, the false positive
+# a negative one, and each negative has the control that proves what made it
+# quiet.
+
+PLANTED_SCOPE = """
+import logging
+import requests
+
+logger = logging.getLogger(__name__)
+
+
+def nonlocal_child_taints_its_parents_body(response):
+    body = None
+
+    def fill():
+        nonlocal body
+        body = response.text
+
+    fill()
+    return {"error": body}
+
+
+def nonlocal_child_taints_its_parent_from_a_handler():
+    err = None
+
+    def attempt():
+        nonlocal err
+        try:
+            requests.get("https://example.invalid")
+        except Exception as e:
+            err = str(e)
+
+    attempt()
+    return {"error": err}
+
+
+def nonlocal_resolves_past_a_middle_scope_that_does_not_bind_it(response):
+    nested = None
+
+    def middle():
+        def deepest():
+            nonlocal nested
+            nested = response.content
+
+        deepest()
+
+    middle()
+    return {"detail": nested}
+
+
+def comprehension_target_does_not_shadow_the_parent(response, items):
+    comp_body = response.text
+
+    def inner():
+        [comp_body for comp_body in items]
+        return {"error": comp_body}
+
+    return inner
+
+
+def lambda_inside_a_comprehension_reads_its_target(response):
+    return [lambda: {"detail": piece} for piece in response.text.splitlines()]
+
+
+def closure_in_a_handler_reads_the_exception():
+    try:
+        requests.get("https://example.invalid")
+    except Exception as e:
+
+        def render():
+            return {"error": f"closure {e}"}
+
+        return render()
+
+
+def lambda_in_a_handler_reads_the_exception():
+    try:
+        requests.get("https://example.invalid")
+    except Exception as e:
+        render = lambda: {"detail": f"lambda {e}"}
+        return render()
+
+
+def nested_unpacking_binds_every_name(response):
+    for status, (header, line) in response.content:
+        return {"error": line}
+
+
+def nested_unpacking_binds_every_name_from_an_exception():
+    try:
+        requests.get("https://example.invalid")
+    except Exception as e:
+        code, (reason, nested_detail) = e.args
+        return {"error": nested_detail}
+
+
+def match_captures_are_bindings():
+    try:
+        requests.get("https://example.invalid")
+    except Exception as e:
+        match e.args:
+            case (code, _) as whole:
+                return {"error": whole}
+            case [first, *rest]:
+                return {"detail": rest}
+            case {"detail": mapped, **others}:
+                return {"message": others}
+
+
+def match_captures_are_bindings_for_a_body(response):
+    match response.text:
+        case str() as matched_text:
+            return {"error": matched_text}
+
+
+def two_sites_in_one_function_report_in_line_order(response):
+    first = response.text
+    second = response.content
+    if response.status_code == 500:
+        return {"error": first}
+    return {"error": second}
+
+
+def rebind_after_a_handler_that_falls_through():
+    # Positive control for the two `approved_rebind_after_...` cases below:
+    # minus the raise/return, the handler's local IS observable after the try,
+    # and the rebind is flow the taint pass does not model (flow-insensitive
+    # by design).
+    try:
+        requests.get("https://example.invalid")
+    except Exception as e:
+        fallthrough = str(e)
+        logger.error(fallthrough)
+    fallthrough = "Service unavailable"
+    return {"error": fallthrough}
+
+
+def finally_still_observes_a_raising_handler():
+    in_finally = None
+    try:
+        requests.get("https://example.invalid")
+    except Exception as e:
+        in_finally = str(e)
+        raise
+    finally:
+        report({"error": in_finally})
+
+
+def continue_before_the_raise_leaves_the_handler(urls):
+    skipped = None
+    for url in urls:
+        try:
+            requests.get(url)
+        except Exception as e:
+            skipped = str(e)
+            if url.startswith("retry"):
+                continue
+            raise
+    return {"error": skipped}
+
+
+def an_outer_try_can_swallow_the_raise():
+    swallowed = None
+    try:
+        try:
+            requests.get("https://example.invalid")
+        except Exception as e:
+            swallowed = str(e)
+            raise
+    except Exception:
+        pass
+    return {"error": swallowed}
+
+
+def approved_walrus_rebinds_in_the_child(response, items):
+    # A walrus binds in the enclosing FUNCTION (PEP 572), so inner's
+    # `walrus_body` is its own and the parent's tainted one is shadowed. The
+    # other half of the comprehension case above, kept quiet on purpose.
+    walrus_body = response.text
+
+    def inner():
+        if (walrus_body := len(items)):
+            pass
+        return {"error": walrus_body}
+
+    return inner
+
+
+def approved_match_capture_rebinds_in_the_child(response, value):
+    captured_body = response.text
+
+    def inner():
+        match value:
+            case captured_body:
+                return {"error": captured_body}
+
+    return inner
+
+
+def approved_later_closure_reads_a_rebound_handler_name():
+    try:
+        requests.get("https://example.invalid")
+    except Exception as error:
+        logger.exception("ok")
+    error = "Service unavailable"
+
+    def render():
+        return {"error": error}
+
+    return render()
+
+
+def approved_rebind_after_a_handler_that_raises():
+    try:
+        requests.get("https://example.invalid")
+    except Exception as e:
+        msg = str(e)
+        logger.error(msg)
+        raise
+    msg = "Service unavailable"
+    return {"error": msg}
+
+
+def approved_rebind_after_a_handler_that_returns():
+    try:
+        requests.get("https://example.invalid")
+    except Exception as e:
+        reason = str(e)
+        logger.error(reason)
+        return {"error": "Service unavailable"}
+    reason = "ok"
+    return {"error": reason}
+"""
+
+
+def test_the_guards_resolve_scopes_the_way_python_does(tmp_path):
+    """Todo 490: every finding of PR #883's review has a case in each direction.
+    Exact sets, so a new false positive fails as surely as a new miss, and the
+    offenders come out in line order."""
+    planted = tmp_path / "planted_scope.py"
+    planted.write_text(PLANTED_SCOPE, encoding="utf-8")
+
+    exc = list(_exception_details_in_response_dicts(planted))
+    body = list(_provider_body_in_response_dicts(planted))
+
+    assert {src for _, src in exc} == {
+        "err",  # nonlocal: a child's handler taints its parent
+        "f'closure {e}'",  # a def inside the handler reads the exception
+        "f'lambda {e}'",  # ...and so does a lambda
+        "nested_detail",  # nested unpacking
+        "whole",  # match ... as
+        "rest",  # match [*rest]
+        "others",  # match {**others}
+        "fallthrough",  # control: no raise, so the rebind is still flagged
+        "in_finally",  # control: a finally runs after the raise
+        "skipped",  # control: a continue can skip the raise
+        "swallowed",  # control: an outer try can catch the raise
+    }, exc
+    assert {src for _, src in body} == {
+        "body",  # nonlocal: a child taints its parent
+        "nested",  # ...through a middle scope that does not bind the name
+        "comp_body",  # a comprehension target does not shadow the parent
+        "piece",  # a lambda inside the comprehension still reads its target
+        "line",  # nested unpacking
+        "matched_text",  # match ... as
+        "first",  # line order: two sites in one function...
+        "second",  # ...reported first then second
+    }, body
+    # Line order, not walk order (finding 7).
+    assert [n for n, _ in exc] == sorted(n for n, _ in exc), exc
+    assert [n for n, _ in body] == sorted(n for n, _ in body), body
     assert len(exc) == len(set(exc)), exc
     assert len(body) == len(set(body)), body
