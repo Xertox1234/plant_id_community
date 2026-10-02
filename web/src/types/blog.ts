@@ -67,6 +67,16 @@ export interface PlantSpotlightBlockValue {
   image_credit?: string | null;
   /** Credit link — render only if it passes `safeExternalUrl` (http(s) only). */
   image_credit_url?: string | null;
+  /**
+   * Derived by the API for an Unsplash credit (`PlantSpotlightBlock`, todo
+   * 442): `credit_lead` is the text before " on Unsplash" ("Photo by Jane Doe")
+   * and `unsplash_href` is Unsplash's link with the referral UTM params its
+   * guidelines require. Both "" for any other credit, and absent on payloads
+   * cached before the fields existed. The renderer never re-derives them from
+   * the credit text; without them an Unsplash credit renders as one link.
+   */
+  credit_lead?: string | null;
+  unsplash_href?: string | null;
 }
 
 /**

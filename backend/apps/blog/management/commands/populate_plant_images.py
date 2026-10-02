@@ -8,17 +8,25 @@ Writes go through `apps.blog.services.plant_spotlight_writes` (todo 438): one
 `save_revision().publish()` per live page, so the admin's latest revision
 carries the image and credit and `page_published` invalidates the blog cache.
 A live page with unpublished draft changes, or one in moderation, is skipped
-and reported before any image is fetched.
+and reported before any image is fetched. Pages are iterated by id and each is
+loaded once, by `load_spotlight_base` (todo 442). The images fetched for a
+page whose write is then refused are deleted again (owner decision
+2026-09-28), so a refused write leaves nothing unreferenced in the image
+library — except an image the page's content or latest revision now
+references, because the editor whose save refused the write picked it.
 """
 
 import logging
 
 from apps.blog.models import BlogPostPage
 from apps.blog.services.plant_spotlight_writes import (
-    DRAFT_SAVED,
     SKIP_MESSAGES,
     WRITTEN,
+    describe_outcome,
     load_spotlight_base,
+    page_label,
+    page_unchanged_since,
+    referenced_image_pks,
     save_spotlight_updates,
 )
 from apps.plant_identification.services.plant_image_service import PlantImageService
@@ -71,35 +79,42 @@ class Command(BaseCommand):
         # Show service status
         self._show_service_status()
 
-        # Get blog posts to process
+        # Ids only: load_spotlight_base loads each page once, so the full row
+        # is not fetched here and then again before the write (todo 442).
         if options["post_id"]:
-            try:
-                posts = [BlogPostPage.objects.get(id=options["post_id"])]
-            except BlogPostPage.DoesNotExist:
+            if not BlogPostPage.objects.filter(pk=options["post_id"]).exists():
                 raise CommandError(f"Blog post with ID {options['post_id']} not found")
+            page_ids = [options["post_id"]]
         else:
-            posts = BlogPostPage.objects.live().public()
+            page_ids = list(
+                BlogPostPage.objects.live()
+                .public()
+                .order_by("pk")
+                .values_list("pk", flat=True)
+            )
 
-        self.stdout.write(
-            f"Processing {len(posts) if isinstance(posts, list) else posts.count()} blog posts..."
-        )
+        self.stdout.write(f"Processing {len(page_ids)} blog posts...")
 
         # Process posts
         total_plants_found = 0
         total_images_added = 0
         ai_images_used = 0
 
-        for post in posts:
-            self.stdout.write(f"\nProcessing: {post.title}")
-
+        for page_id in page_ids:
             # Load the content to change BEFORE any fetch: a page this command
             # must not write (unpublished draft changes, in moderation) costs
             # no API call and no AI spend (todo 438).
-            base = load_spotlight_base(post.pk)
+            base = load_spotlight_base(page_id)
             if base is None:
-                self.stdout.write("  Skipped: page was deleted during the run")
+                self.stdout.write(
+                    f"\nSkipped: page {page_id} was deleted during the run"
+                )
                 continue
-            plants_in_post = self._extract_plants_from_post(base.page)
+            page = base.page
+            label = page_label(page)
+            self.stdout.write(f"\nProcessing: {page.title}")
+
+            plants_in_post = self._extract_plants_from_post(page)
             if not plants_in_post:
                 self.stdout.write("  No plant spotlight blocks found")
                 continue
@@ -109,14 +124,14 @@ class Command(BaseCommand):
             if base.skip_reason:
                 self.stdout.write(
                     self.style.WARNING(
-                        f"  Skipped: page {post.pk} "
-                        f"{SKIP_MESSAGES[base.skip_reason]}"
+                        f"  Skipped: {label} {SKIP_MESSAGES[base.skip_reason]}"
                     )
                 )
                 continue
 
             updates = {}
             added = []
+            fetched_images = []
             for plant_info in plants_in_post:
                 block_id = plant_info["block_id"]
                 plant_name = plant_info["plant_name"]
@@ -150,6 +165,7 @@ class Command(BaseCommand):
 
                     if result:
                         source, image_data, wagtail_image = result
+                        fetched_images.append(wagtail_image)
                         # AI spend happened at generation, whatever the write does.
                         if source == "ai":
                             ai_images_used += 1
@@ -187,7 +203,7 @@ class Command(BaseCommand):
             try:
                 outcome = save_spotlight_updates(base, updates)
             except Exception as e:
-                logger.error(f"[PLANT_IMAGE] Failed to update post {post.pk}: {e}")
+                logger.error(f"[PLANT_IMAGE] Failed to update post {page.pk}: {e}")
                 outcome = None
 
             if outcome in WRITTEN:
@@ -198,16 +214,12 @@ class Command(BaseCommand):
                             f"  {plant_name}: Added image from {source} - {attribution}"
                         )
                     )
-                if outcome == DRAFT_SAVED:
-                    self.stdout.write(
-                        f"  Saved as a draft revision: page {post.pk} is not live"
-                    )
             else:
-                reason = SKIP_MESSAGES.get(outcome, "could not be saved")
+                self._discard_fetched_images(base, fetched_images, outcome)
+            line = describe_outcome(outcome, label)
+            if line:
                 self.stdout.write(
-                    self.style.ERROR(
-                        f"  Failed to update post: page {post.pk} {reason}"
-                    )
+                    f"  {line}" if outcome in WRITTEN else self.style.ERROR(f"  {line}")
                 )
 
         # Show summary
@@ -218,6 +230,59 @@ class Command(BaseCommand):
 
         if self.dry_run:
             self.stdout.write(self.style.WARNING("DRY RUN - No changes made"))
+
+    def _discard_fetched_images(self, base, images, outcome):
+        """
+        Delete the Wagtail images fetched for a page whose write did not happen.
+
+        A refused write (the page was edited during the run, a block is gone,
+        it got locked meanwhile) would otherwise leave every image this run
+        fetched for the page in the library, unreferenced, and the next run
+        fetches again (todo 442; owner decision 2026-09-28: a refused write
+        deletes the images it fetched). Two exceptions keep an image:
+
+        - the page's content or latest revision references it: the fetch put
+          it in the library before the write, so the editor whose save refused
+          the write may have picked it, and deleting the row would leave that
+          revision's block resolving to None;
+        - the write RAISED and the page's revision pointers moved: the write is
+          atomic, so a failure inside it committed nothing, but an exception
+          from another app's on_commit hook arrives after the commit, and a
+          revision may then reference the images.
+        """
+        if not images:
+            return
+        if outcome is None and not page_unchanged_since(base):
+            self.stdout.write(
+                self.style.WARNING(
+                    f"  Kept {len(images)} fetched image(s): the page changed, "
+                    "so a revision may reference them"
+                )
+            )
+            return
+        # Partition before any delete: a deleted image resolves to None in the
+        # page's content, so the check would no longer see it.
+        referenced = referenced_image_pks(base.page.pk)
+        kept = [image for image in images if image.pk in referenced]
+        discarded = [image for image in images if image.pk not in referenced]
+        for image in discarded:
+            try:
+                image.delete()
+            except Exception as e:
+                logger.error(
+                    f"[PLANT_IMAGE] Could not delete unreferenced image {image.pk}: {e}"
+                )
+        if kept:
+            self.stdout.write(
+                self.style.WARNING(
+                    f"  Kept {len(kept)} fetched image(s): the page's content or "
+                    "latest revision references them"
+                )
+            )
+        if discarded:
+            self.stdout.write(
+                f"  Discarded {len(discarded)} fetched image(s): nothing was written"
+            )
 
     def _show_service_status(self):
         """Display the status of image services."""

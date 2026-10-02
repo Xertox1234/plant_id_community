@@ -5,9 +5,13 @@ Spotlight blocks populated before todo 376 have an image and no
 `image_credit`. `populate_plant_images` skips them ("Already has image"), and
 `--force` would fetch a different photo. The Wagtail images themselves carry
 the provider's taggit tags, so the credit is rebuilt from those
-(`PlantImageService.attribution_from_image_tags`). A block whose image has no
-recognisable provider tags is reported and left alone — the command never
-invents a credit.
+(`PlantImageService.rebuild_attribution`). An Unsplash image's tags hold only
+the photographer's USERNAME, so the command asks Unsplash for the photo
+(`GET /photos/:id`, via the `unsplash_id:` tag) and credits the real name with
+a profile link, as a fresh fetch would have; without a key, or when the lookup
+fails, the username credit from the tags is written instead (todo 442; owner
+decision 2026-09-28). A block whose image has no recognisable provider tags is
+reported and left alone — the command never invents a credit.
 
 Writes go through `apps.blog.services.plant_spotlight_writes`: one
 `save_revision().publish()` per live page (cache invalidated, admin revision
@@ -21,10 +25,11 @@ Usage:
 
 from apps.blog.models import BlogPostPage
 from apps.blog.services.plant_spotlight_writes import (
-    DRAFT_SAVED,
     SKIP_MESSAGES,
     WRITTEN,
+    describe_outcome,
     load_spotlight_base,
+    page_label,
     save_spotlight_updates,
 )
 from apps.plant_identification.services.plant_image_service import PlantImageService
@@ -44,6 +49,9 @@ class Command(BaseCommand):
     def handle(self, *args, **options):
         dry_run = options["dry_run"]
         credited = skipped_pages = unrecoverable = failed = 0
+        # The Unsplash lookup runs through the configured service; without
+        # UNSPLASH_ACCESS_KEY it answers None and the tags alone are used.
+        image_service = PlantImageService()
 
         for page_id in BlogPostPage.objects.order_by("pk").values_list("pk", flat=True):
             base = load_spotlight_base(page_id)
@@ -61,7 +69,7 @@ class Command(BaseCommand):
             if not candidates:
                 continue
 
-            label = f'page {page_id} "{page.title}"'
+            label = page_label(page)
             if base.skip_reason:
                 skipped_pages += 1
                 self.stdout.write(
@@ -75,9 +83,7 @@ class Command(BaseCommand):
             updates = {}
             for block in candidates:
                 image = block.value["image"]
-                rebuilt = PlantImageService.attribution_from_image_tags(
-                    image.tags.names()
-                )
+                rebuilt = image_service.rebuild_attribution(image.tags.names())
                 if rebuilt is None:
                     unrecoverable += 1
                     self.stdout.write(
@@ -106,16 +112,14 @@ class Command(BaseCommand):
             except Exception as e:  # report and keep going; one bad page
                 self.stderr.write(f"  Error saving {label}: {e}")
                 outcome = None
+            line = describe_outcome(outcome, label)
             if outcome in WRITTEN:
                 credited += len(updates)
-                if outcome == DRAFT_SAVED:
-                    self.stdout.write(
-                        f"  Saved as a draft revision: {label} is not live"
-                    )
+                if line:
+                    self.stdout.write(f"  {line}")
             else:
                 failed += 1
-                reason = SKIP_MESSAGES.get(outcome, "could not be saved")
-                self.stdout.write(self.style.ERROR(f"  Not written: {label} {reason}"))
+                self.stdout.write(self.style.ERROR(f"  {line}"))
 
         self.stdout.write(
             self.style.SUCCESS(

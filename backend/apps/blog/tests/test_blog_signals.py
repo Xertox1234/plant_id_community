@@ -5,6 +5,11 @@ Validates:
 - Cache invalidation on publish/unpublish/delete
 - Non-blog page filtering (signals should ignore non-BlogPostPage instances)
 - Signal error handling and logging
+
+The handlers invalidate from `transaction.on_commit` (todo 442), and a
+`TestCase` body runs inside a transaction that never commits, so each trigger
+is wrapped in `captureOnCommitCallbacks(execute=True)`; the deferral itself is
+pinned with `execute=False`.
 """
 
 from datetime import date
@@ -73,7 +78,8 @@ class BlogSignalTestCase(TestCase):
         self.assertIsNotNone(BlogCacheService.get_blog_post("test-post"))
 
         # Trigger publish signal (simulates publishing the page)
-        page_published.send(sender=BlogPostPage, instance=self.blog_post)
+        with self.captureOnCommitCallbacks(execute=True):
+            page_published.send(sender=BlogPostPage, instance=self.blog_post)
 
         # Cache should be invalidated
         self.assertIsNone(BlogCacheService.get_blog_post("test-post"))
@@ -99,7 +105,8 @@ class BlogSignalTestCase(TestCase):
         )
 
         # Trigger publish signal
-        page_published.send(sender=BlogPostPage, instance=self.blog_post)
+        with self.captureOnCommitCallbacks(execute=True):
+            page_published.send(sender=BlogPostPage, instance=self.blog_post)
 
         # All list caches should be invalidated
         self.assertIsNone(BlogCacheService.get_blog_list(page=1, limit=10, filters={}))
@@ -115,10 +122,35 @@ class BlogSignalTestCase(TestCase):
         BlogCacheService.set_blog_post("test-post", test_data)
 
         # Trigger signal with a non-BlogPostPage instance
-        page_published.send(sender=BlogIndexPage, instance=self.blog_index)
+        with self.captureOnCommitCallbacks(execute=True):
+            page_published.send(sender=BlogIndexPage, instance=self.blog_index)
 
         # Cache should remain intact
         self.assertIsNotNone(BlogCacheService.get_blog_post("test-post"))
+
+    def test_publish_invalidation_waits_for_the_commit(self):
+        """Todo 442: the keys go AFTER the publishing transaction commits.
+
+        `page_published` fires inside the publisher's `transaction.atomic()`
+        (Wagtail's admin edit view, `save_spotlight_updates`). Deleting the keys
+        there lets a concurrent GET re-cache the old row before the commit; the
+        handler must defer to `on_commit`.
+        """
+        BlogCacheService.set_blog_post("test-post", {"title": "Test Post"})
+        BlogCacheService.set_blog_list(page=1, limit=10, filters={}, data={"items": []})
+
+        with self.captureOnCommitCallbacks(execute=False) as callbacks:
+            page_published.send(sender=BlogPostPage, instance=self.blog_post)
+            # Still cached: nothing has committed yet.
+            self.assertIsNotNone(BlogCacheService.get_blog_post("test-post"))
+            self.assertIsNotNone(
+                BlogCacheService.get_blog_list(page=1, limit=10, filters={})
+            )
+
+        self.assertEqual(len(callbacks), 1)
+        callbacks[0]()
+        self.assertIsNone(BlogCacheService.get_blog_post("test-post"))
+        self.assertIsNone(BlogCacheService.get_blog_list(page=1, limit=10, filters={}))
 
     # ===== page_unpublished Signal Tests =====
 
@@ -129,7 +161,8 @@ class BlogSignalTestCase(TestCase):
 
         self.assertIsNotNone(BlogCacheService.get_blog_post("test-post"))
 
-        page_unpublished.send(sender=BlogPostPage, instance=self.blog_post)
+        with self.captureOnCommitCallbacks(execute=True):
+            page_unpublished.send(sender=BlogPostPage, instance=self.blog_post)
 
         self.assertIsNone(BlogCacheService.get_blog_post("test-post"))
 
@@ -141,7 +174,8 @@ class BlogSignalTestCase(TestCase):
             BlogCacheService.get_blog_list(page=1, limit=10, filters={})
         )
 
-        page_unpublished.send(sender=BlogPostPage, instance=self.blog_post)
+        with self.captureOnCommitCallbacks(execute=True):
+            page_unpublished.send(sender=BlogPostPage, instance=self.blog_post)
 
         self.assertIsNone(BlogCacheService.get_blog_list(page=1, limit=10, filters={}))
 
@@ -150,7 +184,8 @@ class BlogSignalTestCase(TestCase):
         test_data = {"title": "Test Post", "slug": "test-post"}
         BlogCacheService.set_blog_post("test-post", test_data)
 
-        page_unpublished.send(sender=BlogIndexPage, instance=self.blog_index)
+        with self.captureOnCommitCallbacks(execute=True):
+            page_unpublished.send(sender=BlogIndexPage, instance=self.blog_index)
 
         self.assertIsNotNone(BlogCacheService.get_blog_post("test-post"))
 
@@ -163,7 +198,8 @@ class BlogSignalTestCase(TestCase):
 
         self.assertIsNotNone(BlogCacheService.get_blog_post("test-post"))
 
-        post_delete.send(sender=BlogPostPage, instance=self.blog_post)
+        with self.captureOnCommitCallbacks(execute=True):
+            post_delete.send(sender=BlogPostPage, instance=self.blog_post)
 
         self.assertIsNone(BlogCacheService.get_blog_post("test-post"))
 
@@ -181,7 +217,8 @@ class BlogSignalTestCase(TestCase):
             BlogCacheService.get_blog_list(page=2, limit=10, filters={"category": "1"})
         )
 
-        post_delete.send(sender=BlogPostPage, instance=self.blog_post)
+        with self.captureOnCommitCallbacks(execute=True):
+            post_delete.send(sender=BlogPostPage, instance=self.blog_post)
 
         self.assertIsNone(BlogCacheService.get_blog_list(page=1, limit=10, filters={}))
         self.assertIsNone(
@@ -193,7 +230,8 @@ class BlogSignalTestCase(TestCase):
         test_data = {"title": "Test Post", "slug": "test-post"}
         BlogCacheService.set_blog_post("test-post", test_data)
 
-        post_delete.send(sender=BlogIndexPage, instance=self.blog_index)
+        with self.captureOnCommitCallbacks(execute=True):
+            post_delete.send(sender=BlogIndexPage, instance=self.blog_index)
 
         self.assertIsNotNone(BlogCacheService.get_blog_post("test-post"))
 
@@ -208,7 +246,8 @@ class BlogSignalTestCase(TestCase):
 
             # This should log the error but not raise
             try:
-                page_published.send(sender=BlogPostPage, instance=self.blog_post)
+                with self.captureOnCommitCallbacks(execute=True):
+                    page_published.send(sender=BlogPostPage, instance=self.blog_post)
             except Exception:
                 self.fail("Signal handler should not raise exceptions")
 
@@ -219,7 +258,8 @@ class BlogSignalTestCase(TestCase):
         BlogCacheService.set_blog_post("test-post", {"title": "Test"})
 
         # Trigger signal
-        page_published.send(sender=BlogPostPage, instance=self.blog_post)
+        with self.captureOnCommitCallbacks(execute=True):
+            page_published.send(sender=BlogPostPage, instance=self.blog_post)
 
         # Check that invalidation was logged (at the service level)
         # Note: We can't directly check signal handler logs without importing the module
@@ -239,7 +279,8 @@ class BlogSignalTestCase(TestCase):
         )
 
         # Publish the page (triggers signal)
-        page_published.send(sender=BlogPostPage, instance=self.blog_post)
+        with self.captureOnCommitCallbacks(execute=True):
+            page_published.send(sender=BlogPostPage, instance=self.blog_post)
 
         # Both should be invalidated
         self.assertIsNone(BlogCacheService.get_blog_post("test-post"))
@@ -252,7 +293,8 @@ class BlogSignalTestCase(TestCase):
         BlogCacheService.set_blog_list(page=1, limit=10, filters={}, data={"items": []})
 
         # Delete (triggers signal)
-        post_delete.send(sender=BlogPostPage, instance=self.blog_post)
+        with self.captureOnCommitCallbacks(execute=True):
+            post_delete.send(sender=BlogPostPage, instance=self.blog_post)
 
         # All should be invalidated
         self.assertIsNone(BlogCacheService.get_blog_post("test-post"))
@@ -268,9 +310,10 @@ class BlogSignalTestCase(TestCase):
         BlogCacheService.set_blog_post("test-post", {"title": "Test Post"})
         self.assertIsNotNone(BlogCacheService.get_blog_post("test-post"))
 
-        BlogComment.objects.create(
-            post=self.blog_post, author=self.user, content="Nice post"
-        )
+        with self.captureOnCommitCallbacks(execute=True):
+            BlogComment.objects.create(
+                post=self.blog_post, author=self.user, content="Nice post"
+            )
 
         self.assertIsNone(BlogCacheService.get_blog_post("test-post"))
 
@@ -282,9 +325,10 @@ class BlogSignalTestCase(TestCase):
             BlogCacheService.get_blog_list(page=1, limit=10, filters={})
         )
 
-        BlogComment.objects.create(
-            post=self.blog_post, author=self.user, content="Another"
-        )
+        with self.captureOnCommitCallbacks(execute=True):
+            BlogComment.objects.create(
+                post=self.blog_post, author=self.user, content="Another"
+            )
 
         self.assertIsNone(BlogCacheService.get_blog_list(page=1, limit=10, filters={}))
 
@@ -296,7 +340,8 @@ class BlogSignalTestCase(TestCase):
         BlogCacheService.set_blog_post("test-post", {"title": "Test Post"})
         self.assertIsNotNone(BlogCacheService.get_blog_post("test-post"))
 
-        comment.delete()
+        with self.captureOnCommitCallbacks(execute=True):
+            comment.delete()
 
         self.assertIsNone(BlogCacheService.get_blog_post("test-post"))
 
@@ -308,6 +353,7 @@ class BlogSignalTestCase(TestCase):
             BlogCacheService.get_blog_list(page=1, limit=10, filters={})
         )
 
-        BlogCategory.objects.create(name="Herbs", slug="herbs")
+        with self.captureOnCommitCallbacks(execute=True):
+            BlogCategory.objects.create(name="Herbs", slug="herbs")
 
         self.assertIsNone(BlogCacheService.get_blog_list(page=1, limit=10, filters={}))
