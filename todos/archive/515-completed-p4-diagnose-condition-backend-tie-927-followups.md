@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: p4
 issue_id: "515"
 tags: [web, testing]
@@ -33,8 +33,31 @@ PR #927 (todo 502) merged after two review rounds in todo-sweep run 2026-10-02-0
 
 ## Acceptance Criteria
 
-- [ ] Each finding above is fixed with a test, or the Work Log records why it was left as is.
+- [x] Each finding above is fixed with a test, or the Work Log records why it was left as is.
 
 ## Work Log
 
 - 2026-10-01: Filed from todo-sweep run 2026-10-02-0118, PR #927 review rounds 1-2.
+
+### 2026-10-02 - Implemented by the todo sweep (run 2026-10-02-0335)
+
+- Findings 1-2 (left as is): the only Vitest job is `web-ci.yml`'s `web-checks`, which runs `actions/checkout@v5` with no `sparse-checkout`, so `backend/` is always present where the drift test runs; its `pull_request` trigger has no path filter, so a backend-only PR runs the test too (only the `push` trigger is filtered to `web/**`). No Dockerfile or other runner invokes Vitest. A missing `models.py` throws ENOENT rather than passing. A shared fixture is not needed while that holds; the test's comment now says so.
+- Finding 3: the match is bounded to the `plant_condition` declaration (`CharField(` through the field-level `)` on its own 4-space line) and `choices=[...]` is searched inside that slice, each `expect` carrying its own message. Probed by moving the choices to `choices=PLANT_CONDITION_CHOICES`: before, the test failed with a diff against `status`'s `("pending", "Pending Diagnosis")`; after, it fails with "plant_condition has no inline choices=[...] list".
+- Finding 4: every tuple line in the captured block is counted (`/^\s*\(/gm`) and must equal the number of parsed `("key", "label")` tuples. Probed by adding `("dormant", _("Dormant"))`: before, the test passed (the tuple was skipped and web lacked it too); after, it fails "to have a length of 6 but got 5".
+- Note for later: `web-ci.yml`'s `push` path filter means a backend-only push to main does not re-run the drift test until the next web change or PR; every PR runs it.
+
+### 2026-10-02 - Verified by the todo sweep (run 2026-10-02-0335)
+
+- AC 1: `cd web && ./node_modules/.bin/vitest run src/pages/diagnosis/DiseaseDiagnosePage.test.tsx && grep -nE "^- Findings? [0-9]" todos/archive/515-completed-p4-diagnose-condition-backend-tie-927-followups.md` — evidence `.sweep-evidence/g6/515-ac0.txt` (not committed), last lines:
+
+  ```text
+     Duration  863ms (transform 53ms, setup 53ms, import 174ms, tests 322ms, environment 246ms)
+
+  44:- Findings 1-2 (left as is): the only Vitest job is `web-ci.yml`'s `web-checks`, which runs `actions/checkout@v5` with no `sparse-checkout`, so `backend/` is always present where the drift test runs; its `pull_request` trigger has no path filter, so a backend-only PR runs the test too (only the `push` trigger is filtered to `web/**`). No Dockerfile or other runner invokes Vitest. A missing `models.py` throws ENOENT rather than passing. A shared fixture is not needed while that holds; the test's comment now says so.
+  45:- Finding 3: the match is bounded to the `plant_condition` declaration (`CharField(` through the field-level `)` on its own 4-space line) and `choices=[...]` is searched inside that slice, each `expect` carrying its own message. Probed by moving the choices to `choices=PLANT_CONDITION_CHOICES`: before, the test failed with a diff against `status`'s `("pending", "Pending Diagnosis")`; after, it fails with "plant_condition has no inline choices=[...] list".
+  46:- Finding 4: every tuple line in the captured block is counted (`/^\s*\(/gm`) and must equal the number of parsed `("key", "label")` tuples. Probed by adding `("dormant", _("Dormant"))`: before, the test passed (the tuple was skipped and web lacked it too); after, it fails "to have a length of 6 but got 5".
+  ```
+
+### 2026-10-02 - Completed by the todo sweep (run 2026-10-02-0335)
+
+- Archived by `land.py archive`; evidence is quoted above, review is on the PR.
