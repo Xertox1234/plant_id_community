@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: p4
 issue_id: "525"
 tags: [tooling, todo-sweep]
@@ -61,8 +61,32 @@ PR #938 (todo 524) merged after two review rounds in todo-sweep run 2026-10-02-0
 
 ## Acceptance Criteria
 
-- [ ] Each finding above is fixed with a test, or the Work Log records why it was left as is.
+- [x] Each finding above is fixed with a test, or the Work Log records why it was left as is.
 
 ## Work Log
 
 - 2026-10-01: Filed from todo-sweep run 2026-10-02-0255, PR #938 review rounds 1-2.
+
+### 2026-10-02 - Implemented by the todo sweep (run 2026-10-02-2343)
+
+- Findings 1-5 and 10 (`land._relativize`): a root also starts after `file://` (dropped with it) or after a one-letter flag glued to it (`-I<wt>/inc`, `'-I<wt>/x'`, `CFLAGS=-I...`). A path component never holds a blank, quote, bracket or separator, so `PYTHONPATH=/opt/lib:<wt2>/backend` keeps `/opt/lib:` and `{<wt2>}` keeps its brace. `]` and `}` end a path. A root alone, with a trailing slash, or before a full stop that ends a sentence reads `.` or `~`, never nothing: `git -C <wt>/ status` is `git -C . status`, and `see <main>.` reads `see ..`. Last, this machine's home is replaced wherever it is left, mid-path or in the sandbox TMPDIR spelling `-Users-<name>-...`.
+- Findings 6-7 (owner decision): any other `/Users/<name>` or `/home/<name>` reads `~`. The `_relativize` docstring now says the result is for reading and a quoted `~` does not re-run as written, and a table row pins that. One existing 524 expectation changes with the fallback: `{main}-old/x` now reads `~/projects/pic-old/x`. It is still not stripped as main_root; only the user name goes.
+- Finding 8: the todo's own path is rewritten only where a path starts (after any `./` or `../`), so `backend/todos/524-...` is left alone.
+- Findings 9 and 11: a tail line naming another worktree already read repo-relative; a `flip_acs` test now pins it. Tail lines keep the todo's pre-archive path on purpose, because they record what the command printed. A leading `cd . && `, which is what `cd <repo> && ` becomes, is dropped from the quoted command.
+- `test_land.py` has `525 #N` rows for every finding: 32 `_relativize` cases and two `flip_acs` checks. Every probe a finding reported as wrong was red at BASE; the exceptions are 7, kept and documented, and 9, which was already right. A mutant turns each new rule red. Run over every todo-file line that holds `/Users/` or `/home/`, the new `_relativize` leaves no user name.
+
+### 2026-10-02 - Verified by the todo sweep (run 2026-10-02-2343)
+
+- AC 1: `( python3 scripts/todos/test_land.py | grep -E "525 #|pic-old|check\(s\)|All checks passed" && grep -n "inside quotes is not expanded" scripts/todos/land.py && grep -n "Implemented by the todo sweep (run 2026-10-02-2343)" todos/archive/525-completed-p4-verified-entry-path-rewrite-edge-cases-938-followups.md )` — evidence `.sweep-evidence/g2/525-ac0.txt` (not committed), last lines:
+
+  ```text
+    PASS  525 #9: a tail line naming another worktree reads repo-relative
+    PASS  525 #11: the command's leading `cd <repo> && ` is dropped, not quoted as `cd . && `
+  All checks passed.
+  219:    The result is for reading. A `~` inside quotes is not expanded by a shell, so a quoted home
+  70:### 2026-10-02 - Implemented by the todo sweep (run 2026-10-02-2343)
+  ```
+
+### 2026-10-02 - Completed by the todo sweep (run 2026-10-02-2343)
+
+- Archived by `land.py archive`; evidence is quoted above, review is on the PR.
