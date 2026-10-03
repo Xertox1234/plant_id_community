@@ -116,6 +116,16 @@ Review only the files passed to you. Do not read the full repo.
   action); expect a sheet plus matching `customSemanticsActions`.
 - A spoken label containing a full URL; VoiceOver spells it out.
 
+### Provider re-fetch additions (2026-10-02, todo 520)
+
+- A test proving a provider re-fetches by counting `overrideWith` factory
+  calls: Riverpod 3 re-runs `build()` on the same notifier, so the counter
+  cannot rise. Require the count in `build()`. A factory counter asserting 0
+  ("never built") is fine.
+- A sign-out that clears a provider's state with no matching re-fetch on the
+  next sign-in: a paused watcher on an offstage tab keeps the cleared value
+  alive past re-login.
+
 ## Output Format (Review Mode)
 
 Return ONLY this JSON structure (no surrounding prose, no markdown fences in the actual response — the example fences below show the schema):

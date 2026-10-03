@@ -265,3 +265,9 @@ Compact checklist auto-injected before edits. Long-form:
   value on `.value` through that state. Todo 486: the inbox read
   `asData?.value?.username`, so every profile refresh put the viewer back in
   every group avatar cluster.
+- **Prove a provider re-fetch by counting `build()` calls, not
+  `overrideWith` factory calls.** Riverpod 3 keeps one notifier per element and
+  re-runs `build()` on it after an `invalidate`, so a factory counter stays at 1
+  across a real rebuild. A factory counter only shows whether the element was
+  ever created, which is the right check for "never built" (`expect(builds, 0)`)
+  (todo 520, PR #948; `docs/patterns/riverpod.md`).

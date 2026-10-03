@@ -270,3 +270,8 @@ Compact checklist auto-injected before edits. Long-form:
   removes the row this request inserted, so no row on re-read means the error
   came from the side effects: re-raise. Only a row owned by someone else is a
   lost race (todo 449, `_record_provider_link`).
+- **Call `.order_by()` before `.distinct()` on a model with `Meta.ordering`.**
+  Django adds the ordering column to the `SELECT DISTINCT`, so
+  `.values_list("author_id").distinct()` returns one row per post, not per
+  author. `wagtail_forum` `Post` orders by `created_at`; `_refresh_topic_authors`
+  recounts an author once per live post (todo 517 review, follow-up in todo 527).

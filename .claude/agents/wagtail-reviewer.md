@@ -234,6 +234,13 @@ You review: `apps/blog/`, Wagtail page models, StreamField blocks, signals, Wagt
   check that the write path re-derives it from its key and never stores
   client-supplied fields.
 
+### Reference-check additions (2026-10-02, todo 442)
+
+- Code that deletes an image or document after deciding nothing references
+  it: check that the decision walks every field with `extract_references`
+  plus every image foreign key, on the live row and the latest revision. A
+  hand-picked field list misses the next field (rich text, featured image).
+
 ## Output Format (Review Mode)
 
 Return ONLY this JSON structure (no surrounding prose, no markdown fences in the actual response — the example fences below show the schema):
