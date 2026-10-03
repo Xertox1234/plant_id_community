@@ -4,6 +4,8 @@ priority: p4
 issue_id: "519"
 tags: [tooling, todo-sweep]
 dependencies: []
+triage: ready
+triaged: 2026-10-02
 ---
 
 # Todofile duplicate-key checks: non-blocking findings from PR #931 (todo 506)

@@ -4,6 +4,9 @@ priority: p4
 issue_id: "525"
 tags: [tooling, todo-sweep]
 dependencies: []
+triage: ready
+triaged: 2026-10-02
+owner_decision: "Findings 6-7: implement the generic /Users/<name>/ and /home/<name>/ to ~/ fallback; document the quoted-'~' limit in the docstring (2026-10-02)"
 ---
 
 # Verified-entry path rewrite edge cases: non-blocking findings from PR #938 (todo 524)

@@ -4,6 +4,10 @@ priority: p4
 issue_id: "491"
 tags: [harness, todo-sweep]
 dependencies: []
+triage: blocked-owner
+triaged: 2026-10-02
+blocked_on: "Owner picks a strategy: drop LANE_FILES from the union, cap/split components, or hold only along dependency edges"
+owner_decision: "Drop LANE_FILES from the union-find (they stay lanes) and propagate a hold along dependency edges only; no component size cap (2026-10-02)"
 ---
 
 # Todo sweep: transitive file-overlap grouping plus a whole-component hold collapses a large sweep

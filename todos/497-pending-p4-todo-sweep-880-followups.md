@@ -4,6 +4,9 @@ priority: p4
 issue_id: "497"
 tags: [harness, todo-sweep]
 dependencies: []
+triage: ready
+triaged: 2026-10-02
+owner_decision: "Finding 6: a Python test that runs todo-execute.js's dirtyOnly through node (2026-10-02)"
 ---
 
 # Todo sweep: non-blocking follow-ups from PR #880
