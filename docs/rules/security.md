@@ -506,3 +506,9 @@ Compact checklist auto-injected before edits. Long-form: `backend/docs/patterns/
   oil weekly" through. When you reuse a classifier on new input, test it with
   that input's phrasing and add a screen for what it was never designed to
   catch (`_TREATMENT_RE` in `generate_care_drafts`, todo 445).
+- **Resolve a client IP for any security counter with
+  `apps.core.ratelimit.get_trusted_client_ip`, never `REMOTE_ADDR` or an
+  `X-Forwarded-For` read gated on another setting.** Behind Railway,
+  `REMOTE_ADDR` is the proxy, so per-IP brute-force tracking keyed on it pools
+  every client (`SecurityMonitor._get_client_ip`, todo 435 review, follow-up in
+  todo 527).
