@@ -4,6 +4,9 @@ priority: p4
 issue_id: "514"
 tags: [tooling, todo-sweep]
 dependencies: []
+triage: ready
+triaged: 2026-10-02
+owner_decision: "Finding 7: keep accepting a carriage return; relabel the test to say what it pins (2026-10-02)"
 ---
 
 # Sweep fixer tolerance: non-blocking findings from PR #924 (todo 513)

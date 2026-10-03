@@ -4,6 +4,10 @@ priority: p4
 issue_id: "492"
 tags: [harness, todo-sweep]
 dependencies: []
+triage: needs-design
+triaged: 2026-10-02
+blocked_on: "Owner picks the AC1 design: tick at Land from owner_decision, or record why it stays manual"
+owner_decision: "AC1: land.py ticks an owner-only criterion from a dated owner_decision, quoting it into the Work Log, with the CI tripwire accepting that marker (2026-10-02); the AC4 sub-question (does todo-worker.md naming MAIN/backend/venv count as an explicit env root) was not put to the owner: the worker records its reading"
 ---
 
 # Todo sweep: owner-confirmed criteria, absolute paths in Work Logs, and land-time whitespace
