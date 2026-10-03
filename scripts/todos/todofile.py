@@ -66,8 +66,9 @@ def key_line(lines, key):
 
 
 def _next_content_line(lines, i):
-    """The first line after lines[i] that is neither blank nor only a comment, or ""."""
-    return next((line for line in lines[i + 1:] if line.strip() and not line.lstrip().startswith("#")), "")
+    """The first line after lines[i] that is neither blank nor a column-0 comment, or "". An indented '#'
+    line counts: inside a block scalar it is content (todo 519), and set_fields would leave it behind."""
+    return next((line for line in lines[i + 1:] if line.strip() and not line.startswith("#")), "")
 
 
 def field_problem(text, key):
@@ -90,7 +91,7 @@ def field_problem(text, key):
         # YAML keeps the LAST duplicate; rewriting the first would leave the live value stale (todo 506).
         return f"'{key}' is set on more than one line"
     i = found[0]
-    # Blank and comment-only lines do not end a value: `key:`, a blank line, then an
+    # Blank and column-0 comment lines do not end a value: `key:`, a blank line, then an
     # indented line is still one multi-line value (todo 506).
     if _next_content_line(lines, i)[:1] in (" ", "\t", "-"):
         return f"'{key}' has a multi-line value"
@@ -98,7 +99,7 @@ def field_problem(text, key):
         # Do the rewrite in memory and read it back, so set_fields never writes YAML
         # that reads differently: the key must take the new value and nothing else
         # may change -- e.g. a quoted `"key":` line later in the block still wins (todo 506).
-        probe = "field_problem probe"  # rendered quoted, on one line, like every value set_fields writes
+        probe = "field_problem probe"  # a one-line scalar, like every value set_fields writes
         trial = list(lines)
         trial[i] = f"{key}: {render(probe)}\n"
         try:

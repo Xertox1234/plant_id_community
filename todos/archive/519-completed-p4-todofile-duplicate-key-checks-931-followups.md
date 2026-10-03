@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: p4
 issue_id: "519"
 tags: [tooling, todo-sweep]
@@ -59,8 +59,31 @@ PR #931 (todo 506) merged after two review rounds in todo-sweep run 2026-10-02-0
 
 ## Acceptance Criteria
 
-- [ ] Each finding above is fixed with a test, or the Work Log records why it was left as is.
+- [x] Each finding above is fixed with a test, or the Work Log records why it was left as is.
 
 ## Work Log
 
 - 2026-10-01: Filed from todo-sweep run 2026-10-02-0118, PR #931 review rounds 1-2.
+
+### 2026-10-02 - Implemented by the todo sweep (run 2026-10-02-2343)
+
+- Findings 1-4 and 6 (`land._mentions`): an unreadable sibling now counts only when a scalar in its `source_review` value resolves, through `_review_path` (the rule a readable sibling's value already goes through), to the review doc. The key may be indented or sit in a flow mapping, blank and comment lines do not end the value, a comment is stripped, a flow list is read item by item, and a later key of the same flow mapping is not read as part of the value. The same name in another directory and a trailing `# was s.md` no longer count. Twelve `519 #1-#4, #6` cases in `test_land.py` cover these; BASE gets 8 of the 12 wrong. The 506 block's `_mentions` call changes to the new `(repo, path, review)` signature, and its cases still pass.
+- Finding 5: `state.apply_triage` asks `todofile.field_problem` about every field it will write, for every todo, before it renames or edits any. A missing file is still left to the write loop, where the 468 rerun test needs it to fail mid-batch. Two `519 #5` checks in `test_state.py` (a duplicate `triage:` line on a later todo, and a duplicate `status:` line on a stranded one) are red at BASE.
+- Findings 9-11 and 13 (`todofile`): `_next_content_line` now skips only blank lines and column-0 comment lines, so a block scalar whose body starts with an indented `#` line is refused as multi-line (#11). A scan of all 479 todo files finds no new refusal. New checks assert the text the rewrite leaves (#9) and a comment line before a key that has an indented value of its own (#10). The suggested `# note` then `status:` case could not go red, because `#` is not a continuation character, so the key carries an indented value. Another check covers a quoted value carried onto a column-0 line (#13): only the other-keys comparison refuses it, so that branch is live, not defensive. A mutant turns each of these red.
+- Findings 7, 8 and 12: finding 7's premise does not hold. The 506 #8 test already put a U+2028 in `source` and a U+2029 in `reason`, as invisible literal characters, and dropping `_sanitize` on either turns it red. Both are now written as ` ` and ` ` escapes, with the same string value (finding 8). The probe comment now reads "a one-line scalar, like every value set_fields writes" (finding 12, a comment fix with no test).
+
+### 2026-10-02 - Verified by the todo sweep (run 2026-10-02-2343)
+
+- AC 1: `( python3 scripts/todos/test_todofile.py | grep -E "519|check\(s\)|All checks passed" && python3 scripts/todos/test_state.py | grep -E "519|check\(s\)|All checks passed" && python3 scripts/todos/test_land.py | grep -E "506 #8|519|check\(s\)|All checks passed" && grep -n -E "u2028### forged|u2029# q" scripts/todos/test_land.py && grep -n "a one-line scalar, like every value" scripts/todos/todofile.py && grep -n "Implemented by the todo sweep (run 2026-10-02-2343)" todos/archive/519-completed-p4-todofile-duplicate-key-checks-931-followups.md )` — evidence `.sweep-evidence/g2/519-ac0.txt` (not committed), last lines:
+
+  ```text
+  All checks passed.
+  1637:    plan = {"source": "docs/reviews/s\u2028### forged.md", "completed": "docs/reviews/s\n## forged-COMPLETED.md",
+  1638:            "skipped_siblings": [{"path": "todos/7\x85# p.md", "reason": "r\u2029# q"}]}
+  102:        probe = "field_problem probe"  # a one-line scalar, like every value set_fields writes
+  68:### 2026-10-02 - Implemented by the todo sweep (run 2026-10-02-2343)
+  ```
+
+### 2026-10-02 - Completed by the todo sweep (run 2026-10-02-2343)
+
+- Archived by `land.py archive`; evidence is quoted above, review is on the PR.

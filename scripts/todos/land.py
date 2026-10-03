@@ -68,6 +68,13 @@ own pre-archive path is rewritten to its archived path, so the check can be
 re-run after the merge. The `.sweep-evidence/` pointer stays but is labelled
 `(not committed)`: that file is gitignored and dies with the worktree.
 
+Todo 525 widens that: a root also starts after `file://` or a one-letter flag
+(`-I<wt>/inc`), a path component never holds a separator (so a `:`-joined
+list keeps its earlier entries), a root alone or with a trailing slash reads
+`.` or `~` rather than nothing, any `/Users/<name>` or `/home/<name>` reads
+`~`, and this machine's home is replaced wherever it is left. A leading
+`cd . && ` is dropped from the command.
+
 Fix round 4 closes the last phase-2 raise sites found by the round-3
 re-review. The todo's own destination check is `os.path.lexists`, not
 `is_file`: a directory or a dangling symlink at `todos/archive/<name>.md`
@@ -165,11 +172,20 @@ def _mask(text, secrets):
     return text
 
 
-# A path ends where a shell token does: whitespace, a quote, or a separator a command line
-# puts after a path (`;`, `:`, `,`, `)`, `|`, `&`, `<`, `>`, `=`).
-_PATH_END = r"(?=$|[\s'\"`;:,)|&<>=])"
-_NOT_IN_PATH = r"(?<![\w./~-])"
-_WORKTREE_RE = re.compile(_NOT_IN_PATH + r"(?:/[^\s'\"`/]+)+/\.claude/worktrees/[^\s'\"`/:]+(/|" + _PATH_END + ")")
+# A blank, a quote, or a separator a command line or a listing puts next to a path. None of them is
+# part of a path component, so a match cannot start inside an earlier entry of a `:` or `,` joined
+# list, or swallow a closing bracket (todo 525).
+_SEP = r"\s'\"`;:,=|&<>()\[\]{}"
+_COMPONENT = rf"[^/{_SEP}]+"
+_LAST_COMPONENT = rf"[^/{_SEP}]+?"  # lazy, so a sentence's full stop after it stays outside the match
+# A root starts a path: not after a character a path name is made of, where it would be the tail of a
+# longer path, unless that is a one-letter flag glued to it (`-I/x`). A `file://` prefix goes with it.
+_PATH_START = r"(?:(?<![\w./~-])|(?<=(?<![^\s'\"`=])-[A-Za-z]))(?:file://)?"
+# The root alone: with or without its trailing slash before the end, a blank, a quote or a separator,
+# or (with no slash) before a full stop that ends a sentence. `<root>/.` is left to the `<root>/` rule.
+_BARE_END = r"(?:/?(?=$|[\s'\"`;:,=|&<>)\]}])|(?=\.(?:$|\s)))"
+_WORKTREE = rf"(?:/{_COMPONENT})+/\.claude/worktrees/{_LAST_COMPONENT}"
+_ANY_HOME = rf"/(?:Users|home)/{_LAST_COMPONENT}"
 
 
 def _root_forms(*paths):
@@ -181,11 +197,11 @@ def _root_forms(*paths):
     return sorted((f for f in forms if f not in ("", ".")), key=len, reverse=True)
 
 
-def _strip_roots(text, roots, bare):
-    for root in roots:
-        text = re.sub(_NOT_IN_PATH + re.escape(root) + "/", "" if bare == "." else bare + "/", text)
-        text = re.sub(_NOT_IN_PATH + re.escape(root) + _PATH_END, bare, text)
-    return text
+def _strip(text, root, bare):
+    """`text` with each path under the root regex `root` made relative to it: `<root>/x` reads `x` (or
+    `~/x`), and the root alone reads `bare`, never nothing (todo 525: `cd <wt>/ && ls` read `cd  && ls`)."""
+    text = re.sub(_PATH_START + root + _BARE_END, bare, text)
+    return re.sub(_PATH_START + root + "/", "" if bare == "." else bare + "/", text)
 
 
 def _relativize(text, repo, main_root="", todo_rel=""):
@@ -195,15 +211,31 @@ def _relativize(text, repo, main_root="", todo_rel=""):
 
     Order matters: the worktree sits UNDER the main checkout, so `repo` and any other
     `.claude/worktrees/<name>` go before `main_root` -- stripping main_root first would leave
-    `.claude/worktrees/wf_.../scripts/...`. With `todo_rel`, the todo's own path (not one
-    read at a revision, `REV:todos/...`) becomes its archived path."""
-    text = _strip_roots(text, _root_forms(repo), ".")
-    text = _WORKTREE_RE.sub(lambda m: "" if m.group(1) == "/" else ".", text)
-    text = _strip_roots(text, _root_forms(main_root), ".")
-    text = _strip_roots(text, _root_forms(Path.home()), "~")
+    `.claude/worktrees/wf_.../scripts/...`. Then the home directory reads `~`, and so does any
+    other `/Users/<name>` or `/home/<name>`, from another machine or CI (todo 525). Last, this
+    machine's home is replaced wherever it is left, mid-path or in the sandbox's TMPDIR spelling
+    (`-Users-<name>-...`), so the user name never reaches the Work Log.
+
+    The result is for reading. A `~` inside quotes is not expanded by a shell, so a quoted home
+    path (`cat '~/.zshrc'`) no longer re-runs as written; a substitution cannot fix single quotes,
+    so it is left that way (todo 525, owner decision).
+
+    With `todo_rel`, the todo's own path becomes its archived path where a path starts (after
+    any `./` or `../`), never inside a longer path (`backend/todos/...`) or one read at a
+    revision (`REV:todos/...`)."""
+    for form in _root_forms(repo):
+        text = _strip(text, re.escape(form), ".")
+    text = _strip(text, _WORKTREE, ".")
+    for form in _root_forms(main_root):
+        text = _strip(text, re.escape(form), ".")
+    for form in _root_forms(Path.home()):
+        text = _strip(text, re.escape(form), "~")
+    text = _strip(text, _ANY_HOME, "~")
+    for form in _root_forms(Path.home()):
+        text = text.replace(form, "~").replace(re.sub(r"[^A-Za-z0-9]", "-", form), "~")
     if todo_rel:
-        text = re.sub(r"(?<![\w.:-])" + re.escape(todo_rel) + r"(?![\w.-])",
-                      todofile.archived_path(todo_rel), text)
+        text = re.sub(r"(?<![\w./:-])((?:\.\.?/)*)" + re.escape(todo_rel) + r"(?![\w.-])",
+                      lambda m: m.group(1) + todofile.archived_path(todo_rel), text)
     return text
 
 
@@ -298,6 +330,7 @@ def flip_acs(repo, todo_rel, ac_entries, verdict_ac, run_id, date, main_root="")
         flipped.append(index)
         # Mask first, as the tail is: a path-valued .env entry must still match before it is shortened.
         command = _sanitize(_relativize(_mask(entry["command"], secrets), repo, main_root, todo_rel))
+        command = command.removeprefix("cd . && ")  # what `cd <repo> && ` reads once relativized (todo 525)
         evidence_display = _sanitize(entry["evidence_path"])
         fence, quoted = _fence_quote([_relativize(line, repo, main_root) for line in _tail(evidence, secrets)])
         notes.append(f"- AC {index + 1}: `{command}` — evidence `{evidence_display}` (not committed), "
@@ -496,41 +529,87 @@ def _siblings(repo, review, todo_path):
                 rewrite.append(rel)
         except (yaml.YAMLError, ValueError, OSError) as exc:
             # Unreadable, so whether it names `review` is unknown: note it when its
-            # `source_review` line at least names the review doc's file.
-            if _mentions(path, review.name):
+            # `source_review` value at least holds a path that resolves to the review doc.
+            if _mentions(repo, path, review):
                 skipped.append({"path": rel, "reason": f"its frontmatter could not be read ({type(exc).__name__})"})
     return rewrite, skipped
 
 
-# A top-level `source_review` key, quoted or not, with any blanks before the colon.
-_SOURCE_REVIEW_LINE_RE = re.compile(r"""^(["']?)source_review\1[ \t]*:(.*)$""")
+# One token of a frontmatter line, read left to right: a comment (a '#' at the start or after a blank)
+# runs to the end of the line; a quoted string, closed or not, or a plain run is a scalar; a flow
+# indicator opens, closes or separates a flow collection.
+_TOKEN_RE = re.compile(r"""(?P<comment>(?<!\S)\#.*)|"(?P<dq>[^"]*)"?|'(?P<sq>[^']*)'?|(?P<flow>[\[\]{},])"""
+                       r"""|(?P<plain>[^\s"'\[\]{},]+)""")
+# A `source_review` key, quoted or not, with any blanks before the colon.
+_SOURCE_REVIEW_KEY_RE = re.compile(r"""[ \t]*(["']?)source_review\1[ \t]*:""")
 
 
-def _mentions(path, name):
-    """True when `path` reads and a `source_review` line of its frontmatter (with any indented
-    continuation lines) names the file `name` as a whole path segment. Line-based, because it
-    runs only on frontmatter YAML could not read. Todo 506: a bare substring test of the whole
-    block also matched other fields and longer names (`x-s.md`, `s.md.bak` for `s.md`), each
-    a false Work Log note; a segment match still finds `./` and `../` spellings."""
+def _key_value(line):
+    """(the text after its colon, whether it sits in a flow mapping) for a `source_review` key on `line`,
+    or None. The key may follow blanks -- an indented key is a common cause of the YAML error -- or a
+    '{' or ',' outside quotes (todo 519)."""
+    starts = [0] + [token.end() for token in _TOKEN_RE.finditer(line) if token["flow"] in ("{", ",")]
+    for start in starts:
+        key = _SOURCE_REVIEW_KEY_RE.match(line, start)
+        if key:
+            return line[key.end():], start > 0
+    return None
+
+
+def _scalars(lines, in_flow):
+    """Each scalar of the value `lines` hold: the rest of the key's line, then its continuation lines. A
+    comment ends its line. In a flow mapping the value ends at its own entry's ',' or closing brace, so a
+    later key of that mapping is not read as part of it; a flow list of its own only nests."""
+    depth = 0
+    for line in lines:
+        for token in _TOKEN_RE.finditer(line):
+            if token["comment"] is not None:
+                break
+            flow = token["flow"]
+            if flow is None:
+                yield next(group for group in (token["dq"], token["sq"], token["plain"]) if group is not None)
+            elif flow in "[{":
+                depth += 1
+            elif in_flow and depth == 0:
+                return
+            elif flow != ",":
+                depth -= 1
+
+
+def _mentions(repo, path, review):
+    """True when `path` reads and a scalar in the value of a `source_review` key of its frontmatter
+    resolves to `review` through `_review_path`, the rule a readable sibling's value goes through.
+    Line-based, because it runs only on frontmatter YAML could not read: the value is the rest of the
+    key's line plus every line indented deeper than the key, and blank or comment-only lines do not end
+    it. Todo 506 replaced a bare substring test, which matched other fields and longer names. Todo 519
+    replaced 506's basename match, which matched the same name in any directory and inside a trailing
+    comment, and missed an indented key, a key in a flow mapping, a flow list and a value after a
+    comment line."""
     try:
         match = todofile.FM_RE.match(Path(path).read_text(errors="replace"))
     except OSError:
         return False
-    if not match:
-        return False
-    named = re.compile(rf"""(?:^|[/\s"']){re.escape(name)}(?=$|[\s"'])""")
-    lines = match.group(1).splitlines()
+    lines = match.group(1).splitlines() if match else []
     for i, line in enumerate(lines):
-        key = _SOURCE_REVIEW_LINE_RE.match(line)
-        if not key:
+        found = _key_value(line)
+        if found is None:
             continue
-        value = [key.group(2)]
+        rest, in_flow = found
+        indent = len(line) - len(line.lstrip(" \t"))
+        value = [rest]
         for more in lines[i + 1:]:
-            if more.strip() and more[:1] not in (" ", "\t"):
+            body = more.lstrip(" \t")
+            if not body or body.startswith("#"):
+                continue
+            if len(more) - len(body) <= indent:
                 break
             value.append(more)
-        if named.search(" ".join(value)):
-            return True
+        for scalar in _scalars(value, in_flow):
+            try:
+                if _review_path(repo, scalar) == review:
+                    return True
+            except (ValueError, OSError):  # a NUL byte, or a name the OS refuses
+                continue
     return False
 
 

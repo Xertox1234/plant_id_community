@@ -344,6 +344,44 @@ def main():
         check("474 AC4: a rerun of apply-triage on a later day adds no second 'Returned to pending' entry",
               text.count("Returned to pending by the todo sweep") == 1 and "2026-09-29 - Returned" not in text, text)
 
+    # Todo 519 #5: apply-triage asks todofile.field_problem about every todo before it writes to any, so a todo
+    # set_fields would refuse stops the run before an earlier todo is renamed or edited.
+    def refused(extra21, extra22):
+        """apply-triage, in a fresh repo, on stranded todo 21 and pending todo 22, each given `extra` frontmatter
+        lines: (the exception it raised, whether the files, the run entry and git status are all unchanged)."""
+        head = '---\nstatus: {s}\npriority: p3\nissue_id: "{i}"\ndependencies: []\n{x}---\n\n# T{i}\n\n## Work Log\n'
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = git_repo(tmp)
+            (repo / "todos/21-in_progress-p3-x.md").write_text(head.format(s="in_progress", i="21", x=extra21))
+            (repo / "todos/22-pending-p3-x.md").write_text(head.format(s="pending", i="22", x=extra22))
+            commit_all(repo)
+            run = state.new_run("r13", "sweep", 3, [{"id": "21", "path": "todos/21-in_progress-p3-x.md",
+                                                     "priority": "p3", "stranded": True}, todo("22")], ["21", "22"])
+            state.record_triage(run, [rec("21"), rec("22")])
+            state.decide(run, "21", "ready", reset_stranded=True)
+            state.decide(run, "22", "ready")
+            before = {p.name: p.read_text() for p in (repo / "todos").glob("*.md")}
+            err = None
+            try:
+                state.apply_triage(run, repo, "2026-10-02")
+            except Exception as exc:  # noqa: BLE001 -- the checks report it
+                err = f"{type(exc).__name__}: {exc}"
+            untouched = ({p.name: p.read_text() for p in (repo / "todos").glob("*.md")} == before
+                         and run["todos"]["21"]["path"] == "todos/21-in_progress-p3-x.md"
+                         and subprocess.run(["git", "-C", str(repo), "status", "--porcelain"],
+                                            capture_output=True, text=True).stdout == "")
+            return err, untouched
+
+    err, untouched = refused("", "triage: ready\ntriage: stale\n")
+    check("519 #5: a later todo's duplicate `triage:` line is refused, naming the todo and the key",
+          str(err).startswith("ValueError: ") and "todos/22-pending-p3-x.md" in err
+          and "'triage' is set on more than one line" in err, err)
+    check("519 #5: ... before anything is written: the stranded todo before it is not renamed or edited", untouched)
+    err, untouched = refused("status: in_progress\n", "")
+    check("519 #5: a stranded todo's duplicate `status:` line is refused before its git mv",
+          str(err).startswith("ValueError: ") and "todos/21-in_progress-p3-x.md" in err
+          and "'status' is set on more than one line" in err and untouched, (err, untouched))
+
     print()
     if FAILURES:
         print(f"FAILED: {len(FAILURES)} check(s): {', '.join(FAILURES)}")

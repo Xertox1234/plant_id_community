@@ -130,6 +130,27 @@ def main():
                   "multi-line" in raised and untouched, raised)
         raised, untouched = refusal("418-pending-p3-b.md", 'source_review: "docs/reviews/a.md"\n\nstatus: pending\n')
         check("506 #1: a blank line before the next key is not a multi-line value", raised == "", raised)
+        text = (Path(tmp) / "418-pending-p3-b.md").read_text()
+        check("519 #9: ... and set_fields rewrote the key line and nothing else",
+              text == '---\nsource_review: "docs/reviews/a-COMPLETED.md"\n\nstatus: pending\n---\n# t\n', text)
+        # Todo 519 #10: a comment line, then a top-level key, does not continue the value either. The key has an
+        # indented value of its own, so a _next_content_line that skipped past the key would refuse here.
+        raised, untouched = refusal("423-pending-p3-c.md", 'source_review: "a"\n# note\ntags:\n  - x\n')
+        text = (Path(tmp) / "423-pending-p3-c.md").read_text()
+        check("519 #10: a comment line before the next key is not a multi-line value; only the key line changes",
+              raised == ""
+              and text == '---\nsource_review: "docs/reviews/a-COMPLETED.md"\n# note\ntags:\n  - x\n---\n# t\n',
+              raised or text)
+        # Todo 519 #11: inside a block scalar an indented '#' line is content, not a comment.
+        raised, untouched = refusal("424-pending-p3-k.md", "source_review: |\n  # moved to x\nstatus: pending\n")
+        check("519 #11: a block scalar whose body starts with an indented '#' line is multi-line; refused, untouched",
+              "multi-line" in raised and untouched, raised)
+        # Todo 519 #13: the other-keys comparison of the read-back probe. A quoted value carried onto a column-0
+        # line is one value, `"a status: b"`. The trial rewrite parses, and the key takes the probe value, so
+        # neither of the first two tests refuses; only the comparison sees `status` appear as a new key.
+        raised, untouched = refusal("425-pending-p3-o.md", 'source_review: "a\nstatus: b"\nother: c\n')
+        check("519 #13: a rewrite that would add another key is refused, file untouched",
+              "cannot rewrite" in raised and untouched, raised)
         raised, untouched = refusal("419-pending-p3-d.md", "source_review : a\nsource_review: b\n")
         check("506 #11: a key on two lines is refused, file untouched (YAML keeps the last one)",
               "more than one line" in raised and untouched, raised)

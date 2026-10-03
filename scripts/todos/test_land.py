@@ -67,6 +67,14 @@ absolute worktree, main-checkout or home path -- the worktree nested under
 main_root is stripped whole, in written and resolved (/private) forms -- the
 command names the todo's archived path, and the evidence pointer reads
 `(not committed)`.
+
+Todo 519 adds: an unreadable sibling counts only when a scalar in its
+`source_review` value resolves to the review doc, so the same name in another
+directory or a trailing comment no longer counts, while an indented key, a
+flow mapping or list, and a value after a comment line now do. Todo 525 adds
+one `_relativize` case per reported form (`file://`, flag-glued, `:`-joined,
+bracketed, trailing slash, another user's home) and a foreign worktree in a
+quoted tail.
 """
 
 import json
@@ -463,7 +471,7 @@ def main():
         (f"grep -c x {wt}/{rel524}", "grep -c x todos/archive/524-completed-p3-x.md"),
         (f"git show BASE:{rel524}", f"git show BASE:{rel524}"),
         (f"cat {rel524}.bak", f"cat {rel524}.bak"),
-        (f"{main}-old/x", f"{main}-old/x"),
+        (f"{main}-old/x", "~/projects/pic-old/x"),  # not main_root; todo 525 #6 still drops the user name
         (f"{Path.home()}/.local/bin/tool", "~/.local/bin/tool"),
     ]
     for raw, want in cases:
@@ -471,6 +479,48 @@ def main():
         check(f"524: relativize {raw!r}", got == want, got)
     check("524: a worktree nested in main_root is stripped whole, not left as .claude/worktrees/...",
           land._relativize(f"{wt}/a", wt, main) == "a" and land._relativize(f"{wt}/a", "", main) == "a")
+
+    # Todo 525: more of the places a path turns up, keyed by finding. `other` is a worktree that is neither
+    # the repo nor main_root; the sandbox's TMPDIR spells a path with every other character turned into '-'.
+    home, other = str(Path.home()), f"{main}/.claude/worktrees/wf_o-2"
+    cases525 = [
+        (1, f"at file://{wt}/web/x.ts:1:2", "at web/x.ts:1:2"),
+        (1, f"at file://{other}/web/x.ts:1:2", "at web/x.ts:1:2"),
+        (1, f"cc -I{wt}/inc -L{main}/lib", "cc -Iinc -Llib"),
+        (1, f"CFLAGS=-I{main}/inc cc '-I{other}/x'", "CFLAGS=-Iinc cc '-Ix'"),
+        (1, f"cat file://{home}/.zshrc", "cat ~/.zshrc"),
+        (1, f"cc -I{home}/inc", "cc -I~/inc"),
+        (1, f"cp a /Volumes/backup{home}/a", "cp a /Volumes/backup~/a"),
+        (1, f"ls /private/tmp/claude-501/{re.sub(r'[^A-Za-z0-9]', '-', home)}-projects-pic/s/x.txt",
+         "ls /private/tmp/claude-501/~-projects-pic/s/x.txt"),
+        (2, f"PYTHONPATH=/opt/lib:{other}/backend x", "PYTHONPATH=/opt/lib:backend x"),
+        (2, f"--ignore=/opt/a,{other}/b", "--ignore=/opt/a,b"),
+        (2, "{" + other + "}", "{.}"),
+        (2, f"[{other}]", "[.]"),
+        (3, f"see {home}.", "see ~."),
+        (3, f"path [{main}]", "path [.]"),
+        (3, f"see {main}.", "see .."),
+        (3, f"ls {main}.bak/x", "ls ~/projects/pic.bak/x"),
+        (4, f"git -C {wt}/ status", "git -C . status"),
+        (4, f"cd {wt}/ && ls", "cd . && ls"),
+        (5, f"ls {other}/ -la", "ls . -la"),
+        (5, f"ls {home}/ x", "ls ~ x"),
+        (6, "cat /Users/someone/.zshrc", "cat ~/.zshrc"),
+        (6, "/home/runner/work/pic/x.py:3: in test_x", "~/work/pic/x.py:3: in test_x"),
+        (6, "cd /Users/someone && ls", "cd ~ && ls"),
+        (7, f"cat '{home}/.zshrc'", "cat '~/.zshrc'"),  # documented: a quoted ~ is display only
+        (8, f"grep x backend/{rel524}", f"grep x backend/{rel524}"),
+        (8, f"grep x ./{rel524}", "grep x ./todos/archive/524-completed-p3-x.md"),
+        (8, f"grep x ../{rel524}", "grep x ../todos/archive/524-completed-p3-x.md"),
+        (10, f"cd {other};ls", "cd .;ls"),
+        (10, f"({other})", "(.)"),
+        (10, f"cd {wt};ls", "cd .;ls"),
+        (10, f"({wt})", "(.)"),
+        (10, f"see {other}.", "see .."),
+    ]
+    for finding, raw, want in cases525:
+        got = land._relativize(raw, wt, main, rel524)
+        check(f"525 #{finding}: relativize {raw!r}", got == want, got)
     with tempfile.TemporaryDirectory() as tmp:
         main_root = Path(tmp) / "main"
         repo = setup(main_root / ".claude" / "worktrees" / "wf_t-1")
@@ -501,6 +551,23 @@ def main():
         result = land.archive(repo, rel, "r", "2026-10-01")
         check("524: the archived file still passes the CI tripwire",
               check_archived_todo_status.parse(str(repo / result["archived"]))[3] == [])
+
+    # Todo 525 #9 and #11: a tail line naming another worktree reads repo-relative too, and the command's
+    # leading `cd <repo> && `, which would read `cd . && `, is dropped.
+    with tempfile.TemporaryDirectory() as tmp:
+        main_root = Path(tmp) / "main"
+        repo = setup(main_root / ".claude" / "worktrees" / "wf_t-1")
+        rel = "todos/412-pending-p3-a.md"
+        foreign = main_root / ".claude" / "worktrees" / "wf_other-3"
+        (repo / ".sweep-evidence/g1/412-ac1.txt").write_text(f"{foreign}/backend/x.py:12: in test_x\n1 passed\n")
+        entries = [dict(entry("412", 0), command=f"cd {repo} && python3 -m pytest backend/x.py"),
+                   entry("412", 1), entry("412", 2)]
+        land.flip_acs(repo, rel, entries, [agree("412", 0)], "r", "2026-10-02", main_root=str(main_root))
+        note = (repo / rel).read_text().split("Verified by the todo sweep", 1)[-1]
+        check("525 #9: a tail line naming another worktree reads repo-relative",
+              "  backend/x.py:12: in test_x\n" in note and "wf_other-3" not in note and str(tmp) not in note, note)
+        check("525 #11: the command's leading `cd <repo> && ` is dropped, not quoted as `cd . && `",
+              "- AC 1: `python3 -m pytest backend/x.py` — evidence" in note, note)
 
     # F6: evidence_path must resolve inside <repo>/.sweep-evidence/, or it counts as missing.
     with tempfile.TemporaryDirectory() as tmp:
@@ -1507,7 +1574,8 @@ def main():
         for n, (label, (line, _)) in enumerate(cases.items()):
             paths[label] = repo / "todos" / f"{720 + n}-pending-p3-x.md"
             paths[label].write_text(f'---\nstatus: pending\nissue_id: "{720 + n}"\n{line}{broken}---\n\n# T\n')
-        wrong = [label for label, (_, want) in cases.items() if land._mentions(paths[label], "s.md") != want]
+        review = (repo / "docs/reviews/s.md").resolve()
+        wrong = [label for label, (_, want) in cases.items() if land._mentions(repo, paths[label], review) != want]
         check("506 #2-#6: _mentions matches the review name only as a source_review path segment", wrong == [], wrong)
         own = repo / "todos" / "719-pending-p3-x.md"
         own.write_text('---\nstatus: pending\nsource_review: "docs/reviews/s.md"\n---\n')
@@ -1524,10 +1592,50 @@ def main():
         check("506 #7: apply_review returns skipped_siblings on the no-rename paths too",
               noop.get("skipped_siblings") == [] and kept.get("skipped_siblings") == [], (noop, kept))
 
+    # Todo 519, findings 1-4 and 6: an unreadable sibling counts when a scalar in its `source_review` value
+    # resolves, through the _review_path a readable sibling's value goes through, to the review doc. A key may
+    # be indented or sit in a flow mapping, and a comment line does not end its value. The same name in
+    # another directory, a trailing comment, and another key of the same flow mapping do not count.
+    with tempfile.TemporaryDirectory() as tmp:
+        repo = Path(tmp) / "repo"
+        for rel in ("docs/reviews/s.md", "docs/reviews/o.md", "docs/reviews/archive/s.md", "docs/other/s.md"):
+            (repo / rel).parent.mkdir(parents=True, exist_ok=True)
+            (repo / rel).write_text("# R\n")
+        (repo / "todos" / "archive").mkdir(parents=True)
+        review = (repo / "docs/reviews/s.md").resolve()
+        cases = {
+            "indented key": (' source_review: "docs/reviews/s.md"\n', True),
+            "key in a flow mapping": ('{issue: "x", source_review: docs/reviews/s.md}\n', True),
+            "value after a comment line": ('source_review:\n# moved\n  "docs/reviews/s.md"\n', True),
+            "flow list": ("source_review: [docs/reviews/s.md, x]\n", True),
+            "unclosed quote": ('source_review: "docs/reviews/s.md\n', True),
+            "same name, another review directory": ('source_review: "docs/reviews/archive/s.md"\n', False),
+            "same name, another tree": ('source_review: "docs/other/s.md"\n', False),
+            "trailing comment names it": ('source_review: "docs/reviews/o.md"  # was s.md\n', False),
+            "trailing comment names its path": ("source_review: docs/reviews/o.md # was docs/reviews/s.md\n", False),
+            "another key of the flow mapping": ("{source_review: docs/reviews/o.md, notes: docs/reviews/s.md}\n",
+                                                False),
+            "a quoted note that reads like a key": ('notes: "x, source_review: docs/reviews/s.md"\n', False),
+            "a comment that reads like a key": ("# source_review: docs/reviews/s.md\n", False),
+        }
+        paths = {}
+        for n, (label, (line, _)) in enumerate(cases.items()):
+            paths[label] = repo / "todos" / f"{740 + n}-pending-p3-x.md"
+            paths[label].write_text(f'---\nstatus: pending\nissue_id: "{740 + n}"\n{line}tags: [unclosed\n---\n\n# T\n')
+        wrong = [label for label, (_, want) in cases.items() if land._mentions(repo, paths[label], review) != want]
+        check("519 #1-#4, #6: an unreadable sibling counts only when its source_review value resolves to the review",
+              wrong == [], wrong)
+        own = repo / "todos" / "739-pending-p3-x.md"
+        own.write_text('---\nstatus: pending\nsource_review: "docs/reviews/s.md"\n---\n')
+        _, skipped = land._siblings(repo, review, own)
+        want = {paths[label].relative_to(repo).as_posix() for label, (_, hit) in cases.items() if hit}
+        check("519 #1-#4, #6: _siblings reports exactly those unreadable siblings",
+              {s["path"] for s in skipped} == want, skipped)
+
     # Finding 8: the review paths in the skipped-sibling Work Log bullets are flattened too,
     # so a file name with a line separator cannot start a forged heading.
-    plan = {"source": "docs/reviews/s ### forged.md", "completed": "docs/reviews/s\n## forged-COMPLETED.md",
-            "skipped_siblings": [{"path": "todos/7\x85# p.md", "reason": "r # q"}]}
+    plan = {"source": "docs/reviews/s\u2028### forged.md", "completed": "docs/reviews/s\n## forged-COMPLETED.md",
+            "skipped_siblings": [{"path": "todos/7\x85# p.md", "reason": "r\u2029# q"}]}
     notes = land._skipped_notes(plan)
     check("506 #8: every value in a skipped-sibling bullet is sanitised; it stays one line",
           len(notes.splitlines()) == 1 and notes.startswith("- Sibling `todos/7 # p.md` still names "
