@@ -2,8 +2,12 @@
 """Deterministic grouping and wave planning for the todo sweep (spec §7).
 
 Groups: todos whose predicted files overlap (transitively) become one group --
-one worker, one PR. Tiny todos in the same top-level module are bundled, at
-most MAX_BUNDLE per group. Verify-only todos always stand alone.
+one worker, one PR. A lane file (LANE_FILES) joins no group: two todos that
+share only settings.py are two groups, and its lane keeps them two waves apart
+(todo 491). Tiny todos in the same top-level module are bundled, at most
+MAX_BUNDLE per group. Verify-only todos always stand alone. A todo that waits
+on an open todo outside the plan is held before grouping, with every todo that
+depends on it; a todo that only shares a file with it is planned without it.
 
 Waves: at most `workers` groups each. Two waves overlap in time (wave N is in
 review/land while wave N+1 executes), so a lane held in wave N cannot be held
@@ -63,8 +67,13 @@ def _rank(todo):
     return (PRIORITIES.index(p) if p in PRIORITIES else len(PRIORITIES), todo["id"])
 
 
-def _components(todos):
-    """Union-find over predicted files: todos that share a file (transitively)."""
+def _components(todos, lane_files=False):
+    """Union-find over predicted files: todos that share a file (transitively).
+
+    A lane file joins nothing (todo 491): its lane already serialises the groups that hold it, and in the
+    2026-09-28 run settings.py chained 18 todos into one group. lane_files=True unions on it as well, for
+    plan()'s cycle check only: a cycle between todos that share only a lane file is still refused for
+    those todos (todo 474), not raised for the whole plan."""
     todos = sorted(todos, key=_rank)
     parent = {t["id"]: t["id"] for t in todos}
 
@@ -79,6 +88,8 @@ def _components(todos):
         if todo.get("verify_only"):
             continue
         for path in todo["triage"]["predicted_files"]:
+            if path in LANE_FILES and not lane_files:
+                continue
             if path in owner:
                 parent[find(todo["id"])] = find(owner[path])
             else:
@@ -91,9 +102,9 @@ def _components(todos):
 
 
 def build_groups(todos, solo=frozenset()):
-    """Groups of todo ids. A todo in `solo` is never bundled with other tiny todos: one already
-    known to be unschedulable (so it cannot take its bundle-mates down with it), or one with an
-    in-plan dependency edge (so bundling cannot invent a cycle between bundles, PR #861 B-2)."""
+    """Groups of todo ids. A todo in `solo` is never bundled with other tiny todos: one with an
+    in-plan dependency edge (so bundling cannot invent a cycle between bundles, PR #861 B-2). A held
+    todo never gets here: plan() refuses it before grouping (todo 491)."""
     groups, tiny = [], {}
     for members in _components(todos):
         only = members[0]
@@ -174,22 +185,17 @@ def _refuse(refused, todos, ids, reason):
 
 
 def _held(todos, open_ids):
-    """Todos that cannot run in this plan, decided per todo BEFORE any bundling (final
-    review I4): a dependency on an open todo outside this plan, a file shared with such a
-    todo (the same union-find group), or a dependency on another held todo."""
-    by_id = {t["id"]: t for t in todos}
-    held = {t["id"] for t in todos
-            if any(dep not in by_id and dep in open_ids for dep in t.get("dependencies", []))}
-    comp_of = {t["id"]: n for n, members in enumerate(_components(todos)) for t in members}
-    changed = True
-    while changed:
-        changed = False
-        bad = {comp_of[i] for i in held}
-        for t in todos:
-            if t["id"] not in held and (comp_of[t["id"]] in bad
-                                        or any(dep in held for dep in t.get("dependencies", []))):
-                held.add(t["id"])
-                changed = True
+    """{todo id: reason} for each todo that depends on an open todo outside this plan, decided per todo
+    BEFORE any grouping (final review I4). plan() refuses each with _refuse, which also refuses every todo
+    that depends on it, directly or not. A hold follows dependency edges only, never a shared file (todo
+    491): a held todo never joins a group, so the todos it shares a file with plan without it. Holding its
+    whole union-find group made 23 of 52 todos unschedulable in the 2026-09-28 run."""
+    ids = {t["id"] for t in todos}
+    held = {}
+    for t in todos:
+        dep = next((d for d in t.get("dependencies", []) if d not in ids and d in open_ids), None)
+        if dep:
+            held[t["id"]] = f"depends on open todo {dep}, which is not ready in this run"
     return held
 
 
@@ -199,7 +205,10 @@ def plan(todos, open_ids, workers, busy_lanes=frozenset()):
 
     Todo 474: a cycle that cannot be planned is refused for its own todos (and their dependents) only,
     never for the whole plan: a dependency cycle between todos that share a file (one group), and a group
-    cycle through a verify-only todo, which must not be merged. Any other todo cycle raises CycleError."""
+    cycle through a verify-only todo, which must not be merged. Any other todo cycle raises CycleError.
+
+    Todo 491: a todo that depends on an open todo outside this plan is refused before grouping, with every
+    todo that depends on it (_held). One that only shares a file with it is planned without it."""
     refused = {}
     while True:
         live = [t for t in todos if t["id"] not in refused]
@@ -212,13 +221,18 @@ def plan(todos, open_ids, workers, busy_lanes=frozenset()):
         todo_cycle = _find_cycle({t["id"]: {d for d in t.get("dependencies", []) if d in by_id and d != t["id"]}
                                   for t in live})
         if todo_cycle:
-            comp = {t["id"]: n for n, members in enumerate(_components(live)) for t in members}
+            comp = {t["id"]: n for n, members in enumerate(_components(live, lane_files=True)) for t in members}
             if len({comp[i] for i in todo_cycle}) > 1:
                 raise CycleError("dependency cycle: " + " -> ".join(todo_cycle))
             _refuse(refused, todos, todo_cycle[:-1], "dependency cycle between todos that share a file: "
                     + " -> ".join(todo_cycle))
             continue
-        grouped, stuck = _merge_cycles(build_groups(live, solo=_held(live, open_ids) | linked), by_id)
+        held = _held(live, open_ids)
+        if held:
+            for todo_id, reason in held.items():
+                _refuse(refused, todos, [todo_id], reason)
+            continue
+        grouped, stuck = _merge_cycles(build_groups(live, solo=linked), by_id)
         if not stuck:
             break
         only = [i for i in stuck if by_id[i].get("verify_only")]
@@ -229,6 +243,8 @@ def plan(todos, open_ids, workers, busy_lanes=frozenset()):
     lanes = {gid: sorted(set().union(*(lanes_for(by_id[i]["triage"]) | review_lane(by_id[i]) for i in ids)))
              for gid, ids in zip(gids, grouped)}
     deps = {gid: set() for gid in gids}
+    # Todo 491: _held refused every todo that waits outside this plan before grouping, so this guard should
+    # never fire. It stays so that a group with such a member is still never placed.
     unschedulable = {}
     for gid, ids in zip(gids, grouped):
         for todo_id in ids:

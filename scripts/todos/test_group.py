@@ -34,6 +34,20 @@ def wave_of(result, todo_id):
     return next(n for n, wave in enumerate(result["waves"]) if gid in wave)
 
 
+def file_components(todos):
+    """Sizes of the sets of todos that share a predicted file, transitively, lane files included: group.py's
+    union before todo 491, for todos that are not verify-only. Independent of group.py, so it pins a
+    fixture's shape."""
+    sets = []  # (ids, files)
+    for todo in todos:
+        ids, files = {todo["id"]}, set(todo["triage"]["predicted_files"])
+        for other in [s for s in sets if s[1] & files]:
+            sets.remove(other)
+            ids, files = ids | other[0], files | other[1]
+        sets.append((ids, files))
+    return sorted(len(ids) for ids, _ in sets)
+
+
 def main():
     check("settings.py is a lane", group.lanes_for(t("1", ["backend/plant_community_backend/settings.py"])["triage"])
           == {"settings"})
@@ -54,12 +68,15 @@ def main():
     result = group.plan([t("1", ["backend/plant_community_backend/settings.py"]),
                          t("2", ["backend/plant_community_backend/settings.py", "x.py"]),
                          t("3", ["a.py"]), t("4", ["b.py"])], open_ids=set(), workers=3)
-    # 1 and 2 share settings.py -> one group; lanes then only matter across groups.
-    check("a shared hot file merges its todos into one group",
-          any(set(v["ids"]) == {"1", "2"} for v in result["groups"].values()), result["groups"])
+    # Todo 491 (owner decision): a lane file joins no group. 1 and 2 used to be one group through
+    # settings.py; now they are two, and the settings lane keeps them out of one or neighbouring waves.
+    check("491: two todos that share only a lane file are two groups, serialised by its lane",
+          not any({"1", "2"} <= set(v["ids"]) for v in result["groups"].values())
+          and all(v["lanes"] == ["settings"] for v in result["groups"].values() if {"1", "2"} & set(v["ids"]))
+          and abs(wave_of(result, "1") - wave_of(result, "2")) >= 2, result)
 
-    # A shared hot file already merges todos into one group, so lanes bite ACROSS groups:
-    # two separate groups that both need e2e (or both change a dependency manifest).
+    # Lanes bite across groups: two separate groups that both need e2e (or both change a
+    # dependency manifest).
     result = group.plan([t("1", ["p.py"], e2e=True), t("2", ["web/package.json"]),
                          t("3", ["q.py"], e2e=True, priority="p4"), t("4", ["backend/requirements.txt"], priority="p4")],
                         open_ids=set(), workers=3)
@@ -104,9 +121,12 @@ def main():
           result)
     result = group.plan([t("448", ["backend/a.py"], deps=["428"]), t("452", ["backend/a.py"]),
                          t("453", ["web/x.ts"])], open_ids=open_now | {"452", "453"}, workers=3)
-    check("I4: a todo sharing a real file with an unschedulable one is still blocked with it",
-          set(result["unschedulable"]) == {"448", "452"} and [v["ids"] for v in result["groups"].values()] == [["453"]],
-          result)
+    # Todo 491 (owner decision): a hold follows dependency edges only. I4 also held 452, which only
+    # shares a file with 448; 448 never joins a group now, so 452 plans without it.
+    check("491: a todo sharing a real file with an unschedulable one is planned without it",
+          set(result["unschedulable"]) == {"448"}
+          and sorted(v["ids"] for v in result["groups"].values()) == [["452"], ["453"]]
+          and sum(len(w) for w in result["waves"]) == 2, result)
 
     # PR #861 B-2: xs bundling must not invent a cycle the todos do not have. 103 -> 104 -> 101 used
     # to bundle as [101, 102, 103] + [104], a group cycle, and CycleError stopped the whole plan.
@@ -214,6 +234,68 @@ def main():
     result = group.plan(shared_src, open_ids=set(), workers=3)
     check("PR #869: a source_review outside docs/reviews/*.md is not a lane",
           all(not v["lanes"] for v in result["groups"].values()) and len(result["waves"][0]) == 3, result)
+
+    # Todo 491: the 2026-09-28-2018 shape. Hub files chained 23 todos into one union-find component,
+    # held whole because two members depend on todos in flight elsewhere (448 -> 428, 457 -> 410): all
+    # 23 were unschedulable, the p2 target 462 among them. Five clusters each share a real hub file.
+    # settings.py links four of them and four more todos, so without 448 and 457 it still chained 18
+    # todos into one group; 457 also bridges the web cluster in.
+    settings = "backend/plant_community_backend/settings.py"
+    api, views = "plant_community_mobile/lib/services/api_service.dart", "backend/apps/users/views.py"
+    tasks, signals = "backend/apps/forum_host/tasks.py", "backend/packages/wagtail_forum/wagtail_forum/signals.py"
+    renderer = "web/src/components/StreamFieldRenderer.tsx"
+    hubs = ([t("462", [api, settings], priority="p2"), t("463", [api]), t("464", [api]),
+             t("470", [views, settings]), t("471", [views]), t("472", [views]), t("473", [views]),
+             t("440", [tasks, settings]), t("441", [tasks]), t("442", [tasks]),
+             t("443", [signals, settings]), t("444", [signals]), t("445", [signals]), t("446", [signals]),
+             t("454", [renderer]), t("455", [renderer]), t("456", [renderer])]
+            + [t(i, [settings, f"backend/apps/core/c{i}.py"]) for i in ("430", "431", "432", "433")]
+            + [t("448", [tasks, signals], deps=["428"]), t("457", [signals, renderer], deps=["410"])])
+    free = {x["id"] for x in hubs if not x["dependencies"]}
+    shape = (file_components(hubs), file_components([x for x in hubs if x["id"] in free]))
+    check("491: the fixture has the 2026-09-28 shape (with settings.py in the union: one component of 23, "
+          "and 18 of the rest still chained without 448 and 457)",
+          len(hubs) == 23 and shape == ([23], [3, 18]), shape)
+    result = group.plan(hubs, open_ids={x["id"] for x in hubs} | {"428", "410"}, workers=3)
+    placed = {i for wave in result["waves"] for gid in wave for i in result["groups"][gid]["ids"]}
+    check("491 AC2: only the two todos whose dependencies are out of the run are unschedulable",
+          set(result["unschedulable"]) == {"448", "457"}, result["unschedulable"])
+    check("491 AC2: every todo with no dependency is grouped and placed in a wave",
+          {i for v in result["groups"].values() for i in v["ids"]} == placed == free, sorted(free - placed))
+    check("491 AC2: the p2 target 462 is in the first wave", "462" in placed and wave_of(result, "462") == 0,
+          result["waves"])
+    cap = 4  # AC3's stated cap: the largest cluster that shares a real hub file (the run had one group of 23)
+    check(f"491 AC3: no group in the 2026-09-28 fixture has more than {cap} todos",
+          bool(result["groups"]) and max(len(v["ids"]) for v in result["groups"].values()) <= cap,
+          sorted(v["ids"] for v in result["groups"].values()))
+    check("491: todos that share a real hub file are still one group",
+          sorted(v["ids"] for v in result["groups"].values() if len(v["ids"]) > 1)
+          == [["440", "441", "442"], ["443", "444", "445", "446"], ["454", "455", "456"], ["462", "463", "464"],
+              ["470", "471", "472", "473"]], result["groups"])
+    settings_waves = [n for n, wave in enumerate(result["waves"]) for gid in wave
+                      if "settings" in result["groups"][gid]["lanes"]]
+    check("491: the eight groups that touch settings.py hold its lane, two or more waves apart",
+          len(settings_waves) == 8 and all(b - a >= 2 for a, b in zip(settings_waves, settings_waves[1:])),
+          settings_waves)
+
+    # Todo 491: a hold follows dependency edges. 2 depends on 1, which waits outside the run.
+    result = group.plan([t("1", ["a.py"], deps=["777"]), t("2", ["b.py"], deps=["1"]), t("3", ["a.py"])],
+                        open_ids={"1", "2", "3", "777"}, workers=3)
+    check("491: a todo that depends on a held one is held too, naming it; a file-sharing one is not",
+          set(result["unschedulable"]) == {"1", "2"} and result["unschedulable"]["2"].startswith("depends on todo 1")
+          and [v["ids"] for v in result["groups"].values()] == [["3"]], result)
+
+    # Todo 491: the cycle check still unions on a lane file, so a cycle between two todos that share only
+    # settings.py is refused for them alone (todo 474), not raised for the whole plan.
+    lane_cycle = [t("161", [settings, "a161.py"], deps=["162"]), t("162", [settings, "b162.py"], deps=["161"]),
+                  t("163", ["c163.py"])]
+    try:
+        result, raised = group.plan(lane_cycle, open_ids={"161", "162", "163"}, workers=3), ""
+    except group.CycleError as exc:
+        result, raised = None, str(exc)
+    check("491: a cycle between todos that share only a lane file is refused for them, not the whole plan",
+          result is not None and set(result["unschedulable"]) == {"161", "162"}
+          and [v["ids"] for v in result["groups"].values()] == [["163"]], raised or result)
 
     again = group.plan([t("1", ["a.py"]), t("2", ["b.py"])], open_ids=set(), workers=3)
     check("planning is deterministic", again == group.plan([t("1", ["a.py"]), t("2", ["b.py"])],
