@@ -11,9 +11,13 @@ BLOG_POST_CACHE_TIMEOUT = 86400  # 24 hours - individual blog posts rarely chang
 BLOG_CATEGORY_CACHE_TIMEOUT = 86400  # 24 hours - category pages change infrequently
 IMAGE_RENDITION_CACHE_TIMEOUT = 31536000  # 1 year - image renditions are immutable
 
-# Cache key prefixes (for easy identification and pattern matching)
-CACHE_PREFIX_BLOG_POST = "blog:post"
-CACHE_PREFIX_BLOG_LIST = "blog:list"
+# Cache key prefixes (for easy identification and pattern matching).
+# Bump the version when a cached payload's SHAPE changes: entries written
+# before the deploy otherwise serve the old shape for their whole 24h TTL.
+# v2: plant_spotlight gained credit_lead/unsplash_href, and the web no longer
+# derives the Unsplash attribution link without them (todo 442).
+CACHE_PREFIX_BLOG_POST = "blog:post:v2"
+CACHE_PREFIX_BLOG_LIST = "blog:list:v2"
 CACHE_PREFIX_BLOG_CATEGORY = "blog:category"
 CACHE_PREFIX_RENDITION = "wagtail:rendition"
 

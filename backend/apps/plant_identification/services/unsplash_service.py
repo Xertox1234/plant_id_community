@@ -6,6 +6,7 @@ Documentation: https://unsplash.com/documentation
 """
 
 import logging
+import re
 from io import BytesIO
 from typing import Dict, List, Optional, Tuple
 from urllib.parse import urlencode
@@ -34,9 +35,16 @@ def with_unsplash_utm(url: str) -> str:
 # (PlantImageService.get_attribution_text). Renderers link the trailing
 # "Unsplash" to UNSPLASH_HOME_URL when a credit ends with this suffix, since
 # the guidelines ask for a link to the photographer AND to Unsplash (todo 438).
-# web/src/components/StreamFieldRenderer.tsx mirrors both values.
+# `apps.blog.blocks.PlantSpotlightBlock` is the one place that derives the split
+# (`credit_lead`, `unsplash_href`), for the Wagtail template and the API alike;
+# the web renders the API values and never re-derives them (todo 442).
 UNSPLASH_CREDIT_SUFFIX = " on Unsplash"
 UNSPLASH_HOME_URL = with_unsplash_utm("https://unsplash.com/")
+
+# An Unsplash photo id as the API issues them. `get_photo` builds a URL path
+# from an id read back out of an image's tags, which editors can change in the
+# CMS, so anything else is refused rather than requested.
+UNSPLASH_PHOTO_ID = re.compile(r"[A-Za-z0-9_-]{1,64}")
 
 
 class UnsplashImageService:
@@ -171,36 +179,9 @@ class UnsplashImageService:
         # Process and clean image data
         processed_images = []
         for photo in photos:
-            try:
-                image_data = {
-                    "id": photo["id"],
-                    "description": photo.get("description")
-                    or photo.get("alt_description", ""),
-                    "urls": {
-                        "raw": photo["urls"]["raw"],
-                        "full": photo["urls"]["full"],
-                        "regular": photo["urls"]["regular"],
-                        "small": photo["urls"]["small"],
-                        "thumb": photo["urls"]["thumb"],
-                    },
-                    "width": photo["width"],
-                    "height": photo["height"],
-                    "color": photo.get("color", "#000000"),
-                    "photographer": {
-                        "name": photo["user"]["name"],
-                        "username": photo["user"]["username"],
-                        "profile_url": photo["user"]["links"]["html"],
-                    },
-                    "download_url": photo["links"]["download"],
-                    "attribution_url": photo["links"]["html"],
-                    "created_at": photo["created_at"],
-                    "likes": photo["likes"],
-                    "source": "unsplash",
-                }
+            image_data = self._process_photo(photo)
+            if image_data is not None:
                 processed_images.append(image_data)
-            except KeyError as e:
-                logger.error(f"[UNSPLASH] Invalid Unsplash photo data structure: {e}")
-                continue
 
         # Cache successful results
         cache.set(cache_key, processed_images, self.CACHE_TIMEOUT)
@@ -209,6 +190,90 @@ class UnsplashImageService:
         )
 
         return processed_images
+
+    @staticmethod
+    def _process_photo(photo: Dict) -> Optional[Dict]:
+        """
+        Shape one Unsplash photo object into this service's image_data dict.
+
+        `search/photos` (each item of `results`) and `photos/:id` return the
+        same object, so the search path and `get_photo` share this. Returns
+        None, after logging, when a required key is missing.
+
+        Args:
+            photo: One photo object as the Unsplash API returns it
+
+        Returns:
+            Image data dictionary or None if the object is malformed
+        """
+        try:
+            return {
+                "id": photo["id"],
+                "description": photo.get("description")
+                or photo.get("alt_description", ""),
+                "urls": {
+                    "raw": photo["urls"]["raw"],
+                    "full": photo["urls"]["full"],
+                    "regular": photo["urls"]["regular"],
+                    "small": photo["urls"]["small"],
+                    "thumb": photo["urls"]["thumb"],
+                },
+                "width": photo["width"],
+                "height": photo["height"],
+                "color": photo.get("color", "#000000"),
+                "photographer": {
+                    "name": photo["user"]["name"],
+                    "username": photo["user"]["username"],
+                    "profile_url": photo["user"]["links"]["html"],
+                },
+                "download_url": photo["links"]["download"],
+                "attribution_url": photo["links"]["html"],
+                "created_at": photo["created_at"],
+                "likes": photo["likes"],
+                "source": "unsplash",
+            }
+        except (KeyError, TypeError) as e:
+            logger.error(f"[UNSPLASH] Invalid Unsplash photo data structure: {e}")
+            return None
+
+    def get_photo(self, photo_id: str) -> Optional[Dict]:
+        """
+        Fetch one photo's current metadata (`GET /photos/:id`).
+
+        `backfill_spotlight_credits` uses it to credit a stored photo's
+        photographer by name and link their profile, where the image's tags
+        keep only the username (todo 442; owner decision 2026-09-28). The
+        result has the same shape as a `search_plant_images` item and is
+        cached for CACHE_TIMEOUT, so a `--dry-run` followed by the real run
+        costs one request per image.
+
+        Args:
+            photo_id: The Unsplash photo id (the `unsplash_id:` tag's value)
+
+        Returns:
+            Image data dictionary, or None without an access key, for an id
+            that is not an Unsplash id, when the photo is gone, or on any API
+            error — callers fall back to what the tags hold
+        """
+        if not self.access_key:
+            return None
+        photo_id = (photo_id or "").strip()
+        if not UNSPLASH_PHOTO_ID.fullmatch(photo_id):
+            logger.warning("[UNSPLASH] Refusing photo lookup for a malformed id")
+            return None
+
+        cache_key = f"unsplash_photo_{photo_id}"
+        cached = cache.get(cache_key)
+        if cached:
+            return cached
+
+        result = self._make_request(f"photos/{photo_id}")
+        if not result:
+            return None
+        image_data = self._process_photo(result)
+        if image_data is not None:
+            cache.set(cache_key, image_data, self.CACHE_TIMEOUT)
+        return image_data
 
     def download_and_create_wagtail_image(
         self, image_data: Dict, title_prefix: str = "Plant Image"

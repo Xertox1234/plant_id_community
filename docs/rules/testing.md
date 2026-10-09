@@ -671,3 +671,11 @@ Compact checklist auto-injected before edits.
   after this request's INSERT: the SQL log cannot show transaction scope, so an
   earlier lock would pass even after its transaction ended
   (`test_reaction_toggle_recounts_under_a_post_row_lock`, todo 508).
+- **Never count all of `on_commit`'s callbacks; run them all and assert the
+  effect.** `assert len(callbacks) == 1` holds only while no other receiver of
+  the same signal defers to commit. PR #944 moved blog cache invalidation into
+  `on_commit`, and an unrelated `forum_host` RAG test failed on the count. Loop
+  `for cb in callbacks: cb()`, then assert your own effect happened once. When
+  a change moves SEVERAL receivers to `on_commit`, give each an
+  `execute=False` test: an `execute=True` test passes just as well when the
+  receiver acts at once.

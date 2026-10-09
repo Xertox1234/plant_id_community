@@ -7061,3 +7061,28 @@ previous entry was real and is fixed (#948).
 - **Read past a function's end before inserting after it.** An edit anchored on a block that
   looked like the end of a test landed in its middle, splitting it. The moved tail then failed
   inside the new test.
+
+## 2026-10-09 — Todo 442 closed by narrowing, then a review pass found what the narrow scope missed (PR #944)
+
+**How the keep-or-delete loop ended.** Three review rounds each found another
+place an editor could reference a fetched image (a block, an image column, a
+rich-text embed). The owner chose to stop listing them: a refused write now
+keeps every image it fetched, and only a write that raised with the page's
+revision pointers unchanged deletes them. `referenced_image_pks` was removed,
+not extended. When a safety check must enumerate reference paths, prefer the
+design where the check proves "nothing can reference it" from state the code
+controls.
+
+**What the final review caught.**
+
+- **A cached payload outlives the client change that stops deriving its
+  fields.** The web stopped splitting the Unsplash credit itself, so posts
+  cached before the deploy (24h TTL) would have lost Unsplash's referral link.
+  The fix was a versioned key prefix (`blog:post:v2`), now a caching rule.
+- **A test that counts `on_commit` callbacks breaks when another app defers
+  too.** Moving blog invalidation into `on_commit` failed a `forum_host` RAG
+  test asserting exactly one callback; `main` was green, so the PR owned it. A
+  local `apps/blog`-only run missed it: run every app the signal reaches.
+- **The check after a failed write can fail the same way.** `page_unchanged_since`
+  ran right after a write that raised, on the same connection, outside any
+  try. A DB error there ended the whole command. Unknown now means keep.

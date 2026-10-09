@@ -68,29 +68,50 @@ class APIImageChooserBlock(ImageChooserBlock):
         }
 
 
+def unsplash_credit_parts(credit):
+    """`(credit_lead, unsplash_href)` for a stored credit text.
+
+    "Photo by X on Unsplash": Unsplash's guidelines want the photographer AND
+    Unsplash linked (todo 438), so the lead ("Photo by X") is split off for the
+    photographer's link and Unsplash gets its referral link. Both are "" for
+    any other credit. This is the one place the split is derived — for the
+    Wagtail template context and the API representation alike — so the web
+    renders these values instead of re-deriving them from the text (todo 442).
+    """
+    # Lazy: importing plant_identification.services at module load would run
+    # that package's __init__ (the identification stack) while the blog models
+    # are still loading.
+    from apps.plant_identification.services.unsplash_service import (
+        UNSPLASH_CREDIT_SUFFIX,
+        UNSPLASH_HOME_URL,
+    )
+
+    credit = (credit or "").strip()
+    if credit.endswith(UNSPLASH_CREDIT_SUFFIX) and len(credit) > len(
+        UNSPLASH_CREDIT_SUFFIX
+    ):
+        return credit[: -len(UNSPLASH_CREDIT_SUFFIX)], UNSPLASH_HOME_URL
+    return "", ""
+
+
 class PlantSpotlightBlock(blocks.StructBlock):
-    """`plant_spotlight` StructBlock; exposes a vetted credit link to templates."""
+    """`plant_spotlight` StructBlock; exposes a vetted credit link to templates.
+
+    The API representation carries the children plus the same derived credit
+    parts the template gets (`credit_lead`, `unsplash_href`; todo 442).
+    """
 
     def get_context(self, value, parent_context=None):
-        # Lazy: importing plant_identification.services at module load would
-        # run that package's __init__ (the identification stack) while the
-        # blog models are still loading.
-        from apps.plant_identification.services.unsplash_service import (
-            UNSPLASH_CREDIT_SUFFIX,
-            UNSPLASH_HOME_URL,
-        )
-
         context = super().get_context(value, parent_context=parent_context)
         context["credit_href"] = safe_http_url(value.get("image_credit_url") or "")
-        # "Photo by X on Unsplash": the guidelines want Unsplash itself linked
-        # too (todo 438). Split off the lead so the template can link each part.
-        credit = (value.get("image_credit") or "").strip()
-        if credit.endswith(UNSPLASH_CREDIT_SUFFIX) and len(credit) > len(
-            UNSPLASH_CREDIT_SUFFIX
-        ):
-            context["credit_lead"] = credit[: -len(UNSPLASH_CREDIT_SUFFIX)]
-            context["unsplash_href"] = UNSPLASH_HOME_URL
-        else:
-            context["credit_lead"] = ""
-            context["unsplash_href"] = ""
+        context["credit_lead"], context["unsplash_href"] = unsplash_credit_parts(
+            value.get("image_credit")
+        )
         return context
+
+    def get_api_representation(self, value, context=None):
+        api = super().get_api_representation(value, context=context)
+        api["credit_lead"], api["unsplash_href"] = unsplash_credit_parts(
+            value.get("image_credit")
+        )
+        return api

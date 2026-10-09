@@ -14,10 +14,19 @@ Pattern:
 - Log all invalidations for monitoring
 - Keep handlers lightweight (cache operations are fast)
 - Signal receivers registered in apps.py ready() method
+- Invalidate AFTER the write commits (`transaction.on_commit`, todo 442). Every
+  sender here fires inside the writer's `transaction.atomic()`: Wagtail's
+  admin edit and delete views, `plant_spotlight_writes.save_spotlight_updates`,
+  Django's own `Model.delete()`. Deleting the keys before that commit lets a
+  concurrent GET re-cache the OLD row, and the copy then lives out its 24h
+  TTL. With no transaction open (ATOMIC_REQUESTS is False here) `on_commit`
+  runs the callback immediately, so nothing is deferred that need not be.
 """
 
 import logging
+from functools import partial
 
+from django.db import transaction
 from django.db.models.signals import post_delete, post_save
 from django.dispatch import receiver
 from wagtail.signals import page_published, page_unpublished
@@ -34,6 +43,39 @@ def get_blog_cache_service():
     from .services.blog_cache_service import BlogCacheService
 
     return BlogCacheService
+
+
+def _invalidate_post_caches(slug, event):
+    """Clear a post's detail key and every list/popular key that may hold it."""
+    try:
+        BlogCacheService = get_blog_cache_service()
+        BlogCacheService.invalidate_blog_post(slug)
+        BlogCacheService.invalidate_blog_lists()
+        BlogCacheService.invalidate_popular_posts()
+        logger.info(f"[CACHE] Invalidated caches for {event} post: {slug}")
+    except Exception as e:
+        logger.error(f"[CACHE] Error invalidating cache on {event}: {e}")
+
+
+def _invalidate_category_caches(slug):
+    """Clear a category's key and every list key that embeds it."""
+    try:
+        BlogCacheService = get_blog_cache_service()
+        BlogCacheService.invalidate_blog_category(slug)
+        BlogCacheService.invalidate_blog_lists()
+        logger.info(f"[CACHE] Invalidated caches for category change: {slug}")
+    except Exception as e:
+        logger.error(f"[CACHE] Error invalidating category cache: {e}")
+
+
+def _after_commit(func, *args):
+    """Run `func(*args)` once the surrounding transaction commits (todo 442).
+
+    The arguments are captured now — a `post_delete` instance is a detached
+    object by commit time. `robust=True`: a cache failure must never raise out
+    of a publish that has already committed (the callables also catch and log).
+    """
+    transaction.on_commit(partial(func, *args), robust=True)
 
 
 @receiver(page_published)
@@ -62,14 +104,7 @@ def invalidate_blog_cache_on_publish(sender, **kwargs):
     if not instance or not isinstance(instance, BlogPostPage):
         return
 
-    try:
-        BlogCacheService = get_blog_cache_service()
-        BlogCacheService.invalidate_blog_post(instance.slug)
-        BlogCacheService.invalidate_blog_lists()
-        BlogCacheService.invalidate_popular_posts()
-        logger.info(f"[CACHE] Invalidated caches for published post: {instance.slug}")
-    except Exception as e:
-        logger.error(f"[CACHE] Error invalidating cache on publish: {e}")
+    _after_commit(_invalidate_post_caches, instance.slug, "published")
 
 
 @receiver(page_unpublished)
@@ -92,14 +127,7 @@ def invalidate_blog_cache_on_unpublish(sender, **kwargs):
     if not instance or not isinstance(instance, BlogPostPage):
         return
 
-    try:
-        BlogCacheService = get_blog_cache_service()
-        BlogCacheService.invalidate_blog_post(instance.slug)
-        BlogCacheService.invalidate_blog_lists()
-        BlogCacheService.invalidate_popular_posts()
-        logger.info(f"[CACHE] Invalidated caches for unpublished post: {instance.slug}")
-    except Exception as e:
-        logger.error(f"[CACHE] Error invalidating cache on unpublish: {e}")
+    _after_commit(_invalidate_post_caches, instance.slug, "unpublished")
 
 
 @receiver(post_delete, sender=BlogPostPage)
@@ -122,14 +150,7 @@ def invalidate_blog_cache_on_delete(sender, **kwargs):
     if not instance or not isinstance(instance, BlogPostPage):
         return
 
-    try:
-        BlogCacheService = get_blog_cache_service()
-        BlogCacheService.invalidate_blog_post(instance.slug)
-        BlogCacheService.invalidate_blog_lists()
-        BlogCacheService.invalidate_popular_posts()
-        logger.info(f"[CACHE] Invalidated caches for deleted post: {instance.slug}")
-    except Exception as e:
-        logger.error(f"[CACHE] Error invalidating cache on delete: {e}")
+    _after_commit(_invalidate_post_caches, instance.slug, "deleted")
 
 
 @receiver(post_save, sender=BlogComment)
@@ -148,16 +169,7 @@ def invalidate_blog_cache_on_comment_change(sender, instance, **kwargs):
     if post is None:
         return
 
-    try:
-        BlogCacheService = get_blog_cache_service()
-        BlogCacheService.invalidate_blog_post(post.slug)
-        BlogCacheService.invalidate_blog_lists()
-        BlogCacheService.invalidate_popular_posts()
-        logger.info(
-            f"[CACHE] Invalidated caches for comment change on post: {post.slug}"
-        )
-    except Exception as e:
-        logger.error(f"[CACHE] Error invalidating cache on comment change: {e}")
+    _after_commit(_invalidate_post_caches, post.slug, "comment change on")
 
 
 @receiver(post_save, sender=BlogCategory)
@@ -171,10 +183,4 @@ def invalidate_blog_cache_on_category_change(sender, instance, **kwargs):
     ``BlogCategorySerializer``, so a category edit must clear those keys —
     otherwise they are stale until the 24h TTL expires (audit finding M8).
     """
-    try:
-        BlogCacheService = get_blog_cache_service()
-        BlogCacheService.invalidate_blog_category(instance.slug)
-        BlogCacheService.invalidate_blog_lists()
-        logger.info(f"[CACHE] Invalidated caches for category change: {instance.slug}")
-    except Exception as e:
-        logger.error(f"[CACHE] Error invalidating category cache: {e}")
+    _after_commit(_invalidate_category_caches, instance.slug)

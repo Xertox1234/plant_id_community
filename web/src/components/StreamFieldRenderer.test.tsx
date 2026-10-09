@@ -476,6 +476,13 @@ describe('StreamFieldRenderer', () => {
     const UNSPLASH_URL = 'https://unsplash.com/?utm_source=plant_community&utm_medium=referral';
     const PEXELS_CREDIT = 'Photo by Sam Roe from Pexels';
     const PEXELS_URL = 'https://www.pexels.com/@samroe';
+    // What the API sends for an Unsplash credit (todo 442): the split lead and
+    // Unsplash's UTM link are derived server-side, never from the text here.
+    const UNSPLASH_CREDIT: Partial<PlantSpotlightBlockValue> = {
+      image_credit: CREDIT,
+      credit_lead: 'Photo by Jane Doe',
+      unsplash_href: UNSPLASH_URL,
+    };
 
     function spotlight(extra: Partial<PlantSpotlightBlockValue>): StreamFieldBlock[] {
       return [
@@ -532,7 +539,7 @@ describe('StreamFieldRenderer', () => {
     it('links the photographer AND Unsplash for an Unsplash credit (todo 438)', () => {
       const { container } = render(
         <StreamFieldRenderer
-          blocks={spotlight({ image_credit: CREDIT, image_credit_url: CREDIT_URL })}
+          blocks={spotlight({ ...UNSPLASH_CREDIT, image_credit_url: CREDIT_URL })}
         />
       );
 
@@ -548,9 +555,7 @@ describe('StreamFieldRenderer', () => {
     it('still links Unsplash when the photographer link is missing or unsafe', () => {
       for (const url of [null, 'javascript:alert(1)']) {
         const { container, unmount } = render(
-          <StreamFieldRenderer
-            blocks={spotlight({ image_credit: CREDIT, image_credit_url: url })}
-          />
+          <StreamFieldRenderer blocks={spotlight({ ...UNSPLASH_CREDIT, image_credit_url: url })} />
         );
 
         const links = screen.getAllByRole('link');
@@ -560,6 +565,41 @@ describe('StreamFieldRenderer', () => {
         expect(document.querySelector('a[href^="javascript"]')).toBeNull();
         unmount();
       }
+    });
+
+    it('renders an Unsplash credit as one link when the API sends no link parts (todo 442)', () => {
+      // The split and Unsplash's UTM link are the API's `credit_lead` /
+      // `unsplash_href`, never re-derived from the credit text: a payload
+      // cached before the fields existed shows the whole credit as the
+      // photographer's link.
+      const { container } = render(
+        <StreamFieldRenderer
+          blocks={spotlight({ image_credit: CREDIT, image_credit_url: CREDIT_URL })}
+        />
+      );
+
+      const links = screen.getAllByRole('link');
+      expect(links).toHaveLength(1);
+      expect(links[0]).toHaveAttribute('href', CREDIT_URL);
+      expect(links[0]).toHaveTextContent(CREDIT);
+      expect(container.querySelector('figcaption')).toHaveTextContent(CREDIT);
+    });
+
+    it('never links an unsafe unsplash_href', () => {
+      render(
+        <StreamFieldRenderer
+          blocks={spotlight({
+            ...UNSPLASH_CREDIT,
+            unsplash_href: 'javascript:alert(1)',
+            image_credit_url: CREDIT_URL,
+          })}
+        />
+      );
+
+      const links = screen.getAllByRole('link');
+      expect(links).toHaveLength(1);
+      expect(links[0]).toHaveAttribute('href', CREDIT_URL);
+      expect(document.querySelector('a[href^="javascript"]')).toBeNull();
     });
 
     it('renders no credit when the block has none (pre-credit payloads)', () => {
