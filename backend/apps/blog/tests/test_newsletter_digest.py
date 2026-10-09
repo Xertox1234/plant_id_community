@@ -190,6 +190,26 @@ class NewsletterSenderTests(TestCase):
         self.assertNotIn("<b>moss</b>", html)
         self.assertNotIn("&amp;amp;", html)
 
+    def test_paragraphs_and_line_breaks_keep_words_apart(self):
+        self._post(
+            "fresh-post",
+            days_ago=1,
+            introduction="<p>One.</p><p>Two<br/>Three</p><ul><li>Four</li><li>Five</li></ul>",
+        )
+        self._subscriber()
+
+        _run()
+
+        message = mail.outbox[0]
+        self.assertIn("One. Two Three Four Five", message.body)
+        self.assertIn("One. Two Three Four Five", message.alternatives[0][0])
+
+    def test_inline_markup_adds_no_space(self):
+        self.assertEqual(
+            newsletter_digest._excerpt("<p><b>Moss</b>, <i>ferns</i>.</p>"),
+            "Moss, ferns.",
+        )
+
     def test_subject_names_a_single_post(self):
         self._post("only-one", days_ago=1)
         self._subscriber()
@@ -283,6 +303,21 @@ class NewsletterSenderTests(TestCase):
         ):
             with self.assertRaises(SoftTimeLimitExceeded):
                 _run()
+
+    def test_a_database_outage_while_building_reaches_the_task_retry(self):
+        self._post("fresh-post", days_ago=1)
+        subscriber = self._subscriber()
+
+        with mock.patch.object(
+            newsletter_digest, "new_posts", side_effect=OperationalError("down")
+        ):
+            with self.assertRaises(OperationalError):
+                _run()
+
+        subscriber.refresh_from_db()
+        self.assertIsNone(subscriber.last_sent_at)
+        self.assertIsNone(cache.get(LOCK_KEY))
+        self.assertEqual(mail.outbox, [])
 
     def test_a_reader_who_unsubscribes_mid_run_is_not_mailed(self):
         self._post("fresh-post", days_ago=1)

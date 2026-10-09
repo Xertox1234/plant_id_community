@@ -15,6 +15,7 @@ Modelled on the forum digest (`wagtail_forum.digest` and its command):
 
 import html
 import logging
+import re
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 
@@ -36,6 +37,13 @@ from .constants import (
 from .models import BlogNewsletter, BlogPostPage
 
 logger = logging.getLogger(__name__)
+
+# A block's end or a line break separates words; `strip_tags` alone would run
+# "<p>One.</p><p>Two</p>" together as "One.Two".
+_BLOCK_BREAK = re.compile(
+    r"<br\s*/?>|<hr\s*/?>|</(?:p|div|li|h[1-6]|blockquote|pre|ul|ol)\s*>",
+    re.IGNORECASE,
+)
 
 HTML_TEMPLATE = "emails/newsletter_digest.html"
 TEXT_TEMPLATE = "emails/newsletter_digest.txt"
@@ -81,7 +89,8 @@ def since_for(subscriber: BlogNewsletter) -> datetime:
 def _excerpt(introduction: str) -> str:
     # `introduction` is rich text: drop the markup and decode its entities
     # here, so the HTML template escapes plain text exactly once.
-    text = html.unescape(strip_tags(introduction or "")).strip()
+    text = _BLOCK_BREAK.sub(" ", introduction or "")
+    text = html.unescape(strip_tags(text)).strip()
     return Truncator(" ".join(text.split())).words(NEWSLETTER_EXCERPT_WORDS)
 
 
