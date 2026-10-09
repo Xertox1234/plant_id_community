@@ -1960,9 +1960,8 @@
     "path_glob": [
       "backend/**/migrations/*.py"
     ],
-    "content_present": "migrations\\.RemoveField\\(",
-    "content_absent": "SeparateDatabaseAndState",
-    "message": "RemoveField drops the column while the OLD container is still serving (Railway preDeploy migrate), and old code SELECTs it on every fetch. Expand/contract: db_default + SeparateDatabaseAndState(state_operations=[RemoveField]) now, drop the column in a later deploy (PR #854).",
+    "content_present": "migrations\\.(RemoveField|DeleteModel)\\(",
+    "message": "RemoveField/DeleteModel drops the column or table while the OLD container is still serving (Railway preDeploy migrate), and old code SELECTs the column on every fetch (and cascades into a dropped table on delete). Expand/contract: db_default + SeparateDatabaseAndState(state_operations=[RemoveField]) now, drop it in a later deploy (PR #854). This fires per edit, not per operation: an operation already inside state_operations is fine, but check every other RemoveField/DeleteModel in the file by hand (todo 458).",
     "severity": "warn",
     "pattern_ref": "docs/rules/database.md",
     "added": "2026-09-27",

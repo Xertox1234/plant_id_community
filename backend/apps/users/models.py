@@ -703,7 +703,6 @@ class DemoData(models.Model):
         ("forum_topic", "Sample Forum Topic"),
         ("forum_post", "Sample Forum Post"),
         ("user_plant", "Sample User Plant Collection"),
-        ("care_reminder", "Sample Care Reminder"),
     ]
 
     # UUID for secure references

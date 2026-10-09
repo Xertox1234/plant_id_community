@@ -26,7 +26,6 @@ class EmailType:
 
     # Plant care related emails
     DISEASE_ALERT = "disease_alert"
-    SEASONAL_CARE = "seasonal_care"
 
     # Forum related emails
     FORUM_REPLY = "forum_reply"
@@ -295,7 +294,6 @@ class EmailService:
         # Check specific email type preferences
         email_preference_map = {
             EmailType.DISEASE_ALERT: user.plant_id_notifications,
-            EmailType.SEASONAL_CARE: user.plant_id_notifications,
             EmailType.FORUM_REPLY: user.forum_notifications,
             EmailType.FORUM_MENTION: user.forum_notifications,
             EmailType.FORUM_DIGEST: user.forum_notifications,

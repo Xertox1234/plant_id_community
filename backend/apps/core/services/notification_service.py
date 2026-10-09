@@ -240,7 +240,6 @@ class NotificationService:
         """Get default email template name for notification type."""
         template_map = {
             EmailType.DISEASE_ALERT: "disease_alert",
-            EmailType.SEASONAL_CARE: "seasonal_care",
             EmailType.FORUM_REPLY: "forum_reply",
             EmailType.FORUM_MENTION: "forum_mention",
             EmailType.FORUM_DIGEST: "forum_digest",
@@ -370,43 +369,3 @@ class NotificationService:
             template_name="newsletter",
             context_factory=context_factory,
         )
-
-    def get_user_notification_preferences(self, user: User) -> Dict[str, Any]:
-        """Get user's notification preferences."""
-        return {
-            "email_notifications": user.email_notifications,
-            "plant_id_notifications": user.plant_id_notifications,
-            "forum_notifications": user.forum_notifications,
-            # The care-task push opt-out read by the reminder sweep (todo 410).
-            "care_reminder_notifications": user.care_reminder_notifications,
-            "newsletter_subscribed": hasattr(user, "newsletter_subscription"),
-        }
-
-    def update_user_notification_preferences(
-        self, user: User, preferences: Dict[str, bool]
-    ) -> bool:
-        """Update user's notification preferences."""
-        try:
-            if "email_notifications" in preferences:
-                user.email_notifications = preferences["email_notifications"]
-            if "plant_id_notifications" in preferences:
-                user.plant_id_notifications = preferences["plant_id_notifications"]
-            if "forum_notifications" in preferences:
-                user.forum_notifications = preferences["forum_notifications"]
-            if "care_reminder_notifications" in preferences:
-                user.care_reminder_notifications = preferences[
-                    "care_reminder_notifications"
-                ]
-
-            user.save()
-
-            logger.info(
-                f"[NOTIFY] Updated notification preferences for {log_safe_user_context(user)}"
-            )
-            return True
-
-        except Exception as e:
-            logger.error(
-                f"[NOTIFY] Failed to update preferences for {log_safe_user_context(user)}: {e}"
-            )
-            return False
