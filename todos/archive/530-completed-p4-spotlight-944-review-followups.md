@@ -114,7 +114,7 @@ Each finding was re-checked against main before acting.
   `page_published`, and forum_host's enqueue already catches its own errors,
   so the hypothesis is mostly moot. Its `on_commit` is now `robust=True`
   anyway, and both hooks are pinned by a test.
-- [ ] 7. Declined. One flush hook per transaction has a savepoint trap: a
+- [x] 7. Declined. One flush hook per transaction has a savepoint trap: a
   hook registered inside a savepoint that rolls back is discarded while the
   dirty set survives, so later slugs never flush and lists stay stale for
   24h. Repeated invalidation is safe; missed invalidation is the bug this
@@ -123,8 +123,8 @@ Each finding was re-checked against main before acting.
   - [x] Type hint `Iterable[str]` on `rebuild_attribution`.
   - [x] Tests for an empty and a blank `unsplash_id:` tag.
   - [x] `robust=True` pinned by a test (blog and forum_host).
-  - [ ] Renaming `unsplash_photo_{id}` declined: the neighbouring Unsplash
+  - [x] Renaming `unsplash_photo_{id}` declined: the neighbouring Unsplash
     keys share the old style. The NEW negative key follows the rule
     (`plant_id:unsplash:photo_gone:{id}`, PR #965 review).
-  - [ ] Web type narrowing declined: the fields are optional either way and
+  - [x] Web type narrowing declined: the fields are optional either way and
     the renderer already handles null and undefined with `?.trim() ?? ''`.
