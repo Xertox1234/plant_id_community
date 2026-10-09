@@ -65,10 +65,13 @@ function App() {
           <Route path="/verify-email" element={<VerifyEmailPage />} />
           {/* Blog newsletter email links (todo 409) — public for the same
               reason: the signed token is the credential. */}
-          <Route path="/newsletter/confirm" element={<NewsletterLinkPage action="confirm" />} />
+          <Route
+            path="/newsletter/confirm"
+            element={<NewsletterLinkPage key="confirm" action="confirm" />}
+          />
           <Route
             path="/newsletter/unsubscribe"
-            element={<NewsletterLinkPage action="unsubscribe" />}
+            element={<NewsletterLinkPage key="unsubscribe" action="unsubscribe" />}
           />
 
           {/* Non-critical routes (lazy loaded) */}

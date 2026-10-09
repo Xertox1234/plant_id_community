@@ -46,35 +46,47 @@ export default function NewsletterSignup({ idPrefix }: NewsletterSignupProps) {
     }
   };
 
-  if (sent) {
-    return (
-      <p role="status" className="text-body-sm text-ink-2">
-        Check your inbox: we&apos;ve sent a link to confirm your subscription. Nothing arrives until
-        you use it.
-      </p>
-    );
-  }
-
   return (
-    <form onSubmit={submit} noValidate className="flex flex-col gap-3">
-      <p className="text-body-sm text-ink-2">
-        New posts from the blog, once a week. No more than that.
+    <div className="flex flex-col gap-3">
+      {/* Always mounted: a live region that appears together with its text
+          is often not announced. */}
+      <p role="status" className={sent ? 'text-body-sm text-ink-2' : 'sr-only'}>
+        {sent &&
+          "Check your inbox: if that address can join, we've sent it a link to confirm. Nothing arrives until the link is used."}
       </p>
-      <Input
-        type="email"
-        name={`${idPrefix}-newsletter-email`}
-        label="Email address"
-        autoComplete="email"
-        value={email}
-        onChange={(e) => setEmail(e.target.value)}
-        error={failure ? FAILURE_COPY[failure] : undefined}
-        required
-      />
-      <div>
-        <Button type="submit" loading={submitting} loadingText="Sending…" disabled={!email.trim()}>
-          Subscribe
-        </Button>
-      </div>
-    </form>
+      {!sent && (
+        <form onSubmit={submit} noValidate className="flex flex-col gap-3">
+          <p className="text-body-sm text-ink-2">
+            New posts from the blog, once a week. No more than that.
+          </p>
+          <Input
+            type="email"
+            name={`${idPrefix}-newsletter-email`}
+            label="Email address"
+            autoComplete="email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            // Only a bad address is the field's fault; the rest get their own line.
+            error={failure === 'invalid_email' ? FAILURE_COPY[failure] : undefined}
+            required
+          />
+          {failure && failure !== 'invalid_email' && (
+            <p role="alert" className="text-body-sm text-error">
+              {FAILURE_COPY[failure]}
+            </p>
+          )}
+          <div>
+            <Button
+              type="submit"
+              loading={submitting}
+              loadingText="Sending…"
+              disabled={!email.trim()}
+            >
+              Subscribe
+            </Button>
+          </div>
+        </form>
+      )}
+    </div>
   );
 }

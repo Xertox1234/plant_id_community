@@ -71,6 +71,13 @@ describe('BlogListPage', () => {
     expect(screen.getByRole('button', { name: 'All topics →' })).toBeInTheDocument();
   });
 
+  it('puts the newsletter signup in the page when the rail is hidden (todo 409)', async () => {
+    // jsdom matches no media query, i.e. below xl, where the rail never mounts.
+    renderPage();
+    const heading = await screen.findByRole('heading', { name: 'The weekly newsletter' });
+    expect(heading.closest('section')).toContainElement(screen.getByLabelText(/email address/i));
+  });
+
   it('deep-links "Read the latest" to the newest post', async () => {
     renderPage();
     await waitFor(() => {

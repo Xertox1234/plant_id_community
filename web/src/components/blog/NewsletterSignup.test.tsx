@@ -44,7 +44,9 @@ describe('NewsletterSignup', () => {
   it('says to wait when rate limited', async () => {
     subscribe.mockRejectedValue(new NewsletterSignupError('rate_limited', 'slow'));
     await submit('reader@example.com');
-    expect(await screen.findByText(/too many attempts/i)).toBeInTheDocument();
+    expect(await screen.findByRole('alert')).toHaveTextContent(/too many attempts/i);
+    // Not the field's error: the address itself may be fine.
+    expect(screen.getByLabelText(/email address/i)).toHaveAttribute('aria-invalid', 'false');
   });
 
   it('does not submit an empty address', async () => {
