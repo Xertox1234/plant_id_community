@@ -79,7 +79,9 @@ def _enqueue_blog_chunk_sync(page, event: str) -> None:
                 event,
             )
 
-    transaction.on_commit(enqueue)
+    # robust: the blog's cache invalidation shares this commit's hook queue,
+    # and Django stops running the remaining hooks when one raises (todo 530).
+    transaction.on_commit(enqueue, robust=True)
 
 
 @receiver(page_published)

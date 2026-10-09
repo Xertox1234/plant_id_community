@@ -12,7 +12,12 @@ from io import StringIO
 from unittest import mock
 
 from apps.plant_identification.services.pexels_service import PexelsImageService
-from apps.plant_identification.services.unsplash_service import UnsplashImageService
+from apps.plant_identification.services.unsplash_service import (
+    PHOTO_FOUND,
+    PHOTO_GONE,
+    PHOTO_UNAVAILABLE,
+    UnsplashImageService,
+)
 from django.contrib.auth import get_user_model
 from django.core.cache import cache
 from django.core.management import call_command
@@ -86,14 +91,18 @@ class BackfillSpotlightCreditsTest(TestCase):
         self.blog_index.add_child(instance=post)
         return post
 
-    def run_command(self, *args, photo=None):
+    def run_command(self, *args, photo=None, status=None):
         """Run the command with the Unsplash lookup mocked.
 
-        `photo` is what `UnsplashImageService.get_photo` (GET /photos/:id)
-        answers; None means unavailable, so the credit falls back to the tags.
-        Mocked because backend/.env may carry a real UNSPLASH_ACCESS_KEY. The
-        lookup mock is kept on `self.lookup` for assertions.
+        `photo` is what `UnsplashImageService.lookup_photo` (GET /photos/:id)
+        finds; None with the default status means the photo is gone, so the
+        credit falls back to the tags. `status` overrides the lookup's outcome
+        (todo 530). Mocked because backend/.env may carry a real
+        UNSPLASH_ACCESS_KEY. The lookup mock is kept on `self.lookup` for
+        assertions.
         """
+        if status is None:
+            status = PHOTO_FOUND if photo else PHOTO_GONE
         out = StringIO()
         with (
             mock.patch(
@@ -102,8 +111,8 @@ class BackfillSpotlightCreditsTest(TestCase):
             ) as invalidate,
             mock.patch(
                 "apps.plant_identification.services.unsplash_service."
-                "UnsplashImageService.get_photo",
-                return_value=photo,
+                "UnsplashImageService.lookup_photo",
+                return_value=(status, photo),
             ) as lookup,
             # The handler invalidates from on_commit (todo 442); the patch
             # stays open while the captured callbacks run.
@@ -122,9 +131,10 @@ class BackfillSpotlightCreditsTest(TestCase):
         post = self.make_post("unsplash", image=self.unsplash_image.pk)
         block_id = self.spotlight(post).id
 
-        # No `photo`: the Unsplash lookup is unavailable, so the credit is
+        # No `photo`: Unsplash says the photo is gone, so the credit is
         # rebuilt from the tags (username) — the todo 442 fallback path.
-        _, invalidate = self.run_command()
+        out, invalidate = self.run_command()
+        self.assertIn("Credited: 1 (username only: 1)", out)
 
         block = self.spotlight(post)
         self.assertEqual(block.value["image_credit"], "Photo by janedoe on Unsplash")
@@ -176,6 +186,67 @@ class BackfillSpotlightCreditsTest(TestCase):
             block.value["image_credit_url"], f"https://unsplash.com/@janedoe?{UTM}"
         )
         self.assertIn("Photo by Jane Doe on Unsplash", out)
+
+    def test_a_failed_lookup_defers_the_block_instead_of_a_username_credit(self):
+        # Todo 530: a credited block is never a candidate again, so writing the
+        # username credit on a rate limit would make it permanent.
+        post = self.make_post("deferred", image=self.unsplash_image.pk)
+        revision_id = post.latest_revision_id
+
+        out, invalidate = self.run_command(status=PHOTO_UNAVAILABLE)
+
+        self.assertIn(f"Deferred page {post.pk}", out)
+        self.assertIn("Credited: 0 (username only: 0); deferred: 1", out)
+        self.assertFalse(self.spotlight(post).value["image_credit"])
+        post.refresh_from_db()
+        self.assertEqual(post.latest_revision_id, revision_id)
+        invalidate.assert_not_called()
+
+        # The next run, with the lookup back, credits the real name.
+        self.run_command(photo=self.UNSPLASH_PHOTO)
+        self.assertEqual(
+            self.spotlight(post).value["image_credit"], "Photo by Jane Doe on Unsplash"
+        )
+
+    def test_a_write_that_committed_then_raised_counts_as_credited(self):
+        # Todo 530: an on_commit hook raising after the revision committed
+        # was reported as "pages failed".
+        from apps.blog.services.plant_spotlight_writes import save_spotlight_updates
+
+        post = self.make_post("hook-raised", image=self.unsplash_image.pk)
+
+        def save(base, updates):
+            save_spotlight_updates(base, updates)
+            raise RuntimeError("a post-commit hook failed")
+
+        with mock.patch(
+            "apps.blog.management.commands.backfill_spotlight_credits."
+            "save_spotlight_updates",
+            side_effect=save,
+        ):
+            out, _ = self.run_command(photo=self.UNSPLASH_PHOTO)
+
+        self.assertIn("was written; the error came from a post-commit hook", out)
+        self.assertIn("Credited: 1 (username only: 0)", out)
+        self.assertIn("pages failed: 0", out)
+        self.assertEqual(
+            self.spotlight(post).value["image_credit"], "Photo by Jane Doe on Unsplash"
+        )
+
+    def test_a_write_that_raised_before_committing_is_a_failure(self):
+        post = self.make_post("raised", image=self.unsplash_image.pk)
+
+        with mock.patch(
+            "apps.blog.management.commands.backfill_spotlight_credits."
+            "save_spotlight_updates",
+            side_effect=RuntimeError("database went away"),
+        ):
+            out, _ = self.run_command(photo=self.UNSPLASH_PHOTO)
+
+        self.assertIn("could not be saved", out)
+        self.assertIn("Credited: 0", out)
+        self.assertIn("pages failed: 1", out)
+        self.assertFalse(self.spotlight(post).value["image_credit"])
 
     def test_dry_run_reports_the_looked_up_name_and_writes_nothing(self):
         post = self.make_post("named-dry", image=self.unsplash_image.pk)

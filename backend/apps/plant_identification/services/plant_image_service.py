@@ -7,7 +7,7 @@ plant images with smart fallback logic and cost optimization.
 
 import logging
 import re
-from typing import Dict, List, Optional, Tuple, Union
+from typing import Dict, Iterable, List, Optional, Tuple, Union
 
 from apps.core.utils.urls import safe_http_url
 from django.conf import settings
@@ -16,12 +16,22 @@ from wagtail.images.models import Image
 from .ai_image_service import AIBotanicalImageService
 from .pexels_service import PexelsImageService
 from .unsplash_service import (
+    PHOTO_GONE,
+    PHOTO_LOOKUP_DISABLED,
+    PHOTO_UNAVAILABLE,
     UNSPLASH_CREDIT_SUFFIX,
     UnsplashImageService,
     with_unsplash_utm,
 )
 
 logger = logging.getLogger(__name__)
+
+# What `PlantImageService.rebuild_attribution_with_basis` built a credit from
+# (todo 530).
+CREDIT_FROM_LOOKUP = "lookup"
+CREDIT_FROM_TAGS = "tags"
+CREDIT_FALLBACK = "fallback"
+CREDIT_LOOKUP_UNAVAILABLE = "lookup_unavailable"
 
 
 class PlantImageService:
@@ -319,10 +329,19 @@ class PlantImageService:
             PlantImageService.get_attribution_url(source, image_data),
         )
 
-    def rebuild_attribution(self, tag_names) -> Optional[Tuple[str, str]]:
+    def rebuild_attribution(
+        self, tag_names: Iterable[str]
+    ) -> Optional[Tuple[str, str]]:
+        """`rebuild_attribution_with_basis` without the basis; see there."""
+        return self.rebuild_attribution_with_basis(tag_names)[0]
+
+    def rebuild_attribution_with_basis(
+        self, tag_names: Iterable[str]
+    ) -> Tuple[Optional[Tuple[str, str]], str]:
         """
         `(credit_text, credit_url)` for a stored image: from Unsplash itself
-        when it can be asked, from the tags otherwise (todo 442).
+        when it can be asked, from the tags otherwise (todo 442), with what
+        the credit was built from (todo 530).
 
         The Unsplash tags keep only the photographer's username, so a credit
         rebuilt from them alone reads "Photo by janedoe on Unsplash". The
@@ -343,7 +362,15 @@ class PlantImageService:
             tag_names: The image's taggit tag names
 
         Returns:
-            (credit_text, credit_url), or None when nothing can be credited
+            (credit, basis). credit is (credit_text, credit_url), or None when
+            nothing can be credited. basis is CREDIT_FROM_LOOKUP (Unsplash
+            named the photographer), CREDIT_FROM_TAGS (no lookup applies),
+            CREDIT_FALLBACK (the lookup cannot help: no key, the photo is
+            gone, no name in the answer) or CREDIT_LOOKUP_UNAVAILABLE (the
+            lookup failed in a way a later run may not: the rate limit, an
+            API error). The credit for the last two is the tags' one; a
+            caller that should not settle for it on a transient failure
+            checks the basis.
         """
         names = [str(name) for name in tag_names]
         lowered = {name.lower() for name in names}
@@ -357,19 +384,38 @@ class PlantImageService:
             and "pexels" not in lowered
             and "ai_generated" not in lowered
         )
-        if unsplash_only and len(photo_ids) == 1 and photo_ids[0]:
-            image_data = self.unsplash.get_photo(photo_ids[0]) or {}
-            if (image_data.get("photographer") or {}).get("name"):
-                return (
+        if not (unsplash_only and len(photo_ids) == 1 and photo_ids[0]):
+            return self.attribution_from_image_tags(names), CREDIT_FROM_TAGS
+
+        status, image_data = self.unsplash.lookup_photo(photo_ids[0])
+        if ((image_data or {}).get("photographer") or {}).get("name"):
+            return (
+                (
                     self.get_attribution_text("unsplash", image_data),
                     self.get_attribution_url("unsplash", image_data),
-                )
-            logger.info(
-                "[PLANT_IMAGE] Unsplash lookup unavailable for photo %s; "
-                "crediting from the image's tags",
-                photo_ids[0],
+                ),
+                CREDIT_FROM_LOOKUP,
             )
-        return self.attribution_from_image_tags(names)
+        if status == PHOTO_UNAVAILABLE:
+            reason = (
+                "the hourly rate limit is reached"
+                if self.unsplash.is_rate_limited()
+                else "the request failed"
+            )
+            basis = CREDIT_LOOKUP_UNAVAILABLE
+        else:
+            reason = {
+                PHOTO_GONE: "the photo is gone",
+                PHOTO_LOOKUP_DISABLED: "no access key is configured",
+            }.get(status, "the answer has no photographer name")
+            basis = CREDIT_FALLBACK
+        logger.info(
+            "[PLANT_IMAGE] Unsplash lookup for photo %s gave no name (%s); "
+            "crediting from the image's tags",
+            photo_ids[0],
+            reason,
+        )
+        return self.attribution_from_image_tags(names), basis
 
     def get_source_stats(self) -> Dict:
         """

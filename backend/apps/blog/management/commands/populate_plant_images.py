@@ -20,9 +20,11 @@ import logging
 from apps.blog.models import BlogPostPage
 from apps.blog.services.plant_spotlight_writes import (
     SKIP_MESSAGES,
+    SKIPPED_CHANGED_DURING_RUN,
     WRITTEN,
     describe_outcome,
     load_spotlight_base,
+    outcome_after_raise,
     page_label,
     page_unchanged_since,
     save_spotlight_updates,
@@ -202,7 +204,15 @@ class Command(BaseCommand):
                 outcome = save_spotlight_updates(base, updates)
             except Exception as e:
                 logger.error(f"[PLANT_IMAGE] Failed to update post {page.pk}: {e}")
-                outcome = None
+                # A post-commit hook can raise after the revision committed.
+                outcome = outcome_after_raise(base, updates)
+                if outcome in WRITTEN:
+                    self.stdout.write(
+                        self.style.WARNING(
+                            f"  {label} was written; the error came from a "
+                            "post-commit hook"
+                        )
+                    )
 
             if outcome in WRITTEN:
                 total_images_added += len(added)
@@ -249,22 +259,37 @@ class Command(BaseCommand):
         """
         if not images:
             return
+        if outcome is not None:
+            # Refused: the reason was already printed. Worded per outcome,
+            # since a missing block is not "the page changed" (todo 530).
+            reason = (
+                "the page changed during the run, so a revision may reference them"
+                if outcome == SKIPPED_CHANGED_DURING_RUN
+                else "the write was refused, and an editor may have picked one meanwhile"
+            )
+            self.stdout.write(
+                self.style.WARNING(f"  Kept {len(images)} fetched image(s): {reason}")
+            )
+            return
         try:
             # Runs right after a write that raised, often on the same broken
             # connection: a failure here must not end the run. Unknown means
             # keep.
-            unchanged = outcome is None and page_unchanged_since(base)
+            unchanged = page_unchanged_since(base)
         except Exception as e:
             logger.error(
                 f"[PLANT_IMAGE] Could not check page {base.page.pk} after a failed write: {e}"
             )
-            unchanged = False
+            unchanged = None
         if not unchanged:
+            reason = (
+                "the page could not be checked after the failed write"
+                if unchanged is None
+                else "the page changed or was deleted before the failed write "
+                "was checked, so something may reference them"
+            )
             self.stdout.write(
-                self.style.WARNING(
-                    f"  Kept {len(images)} fetched image(s): the page changed, "
-                    "so a revision may reference them"
-                )
+                self.style.WARNING(f"  Kept {len(images)} fetched image(s): {reason}")
             )
             return
         for image in images:

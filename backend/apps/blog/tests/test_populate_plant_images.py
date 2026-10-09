@@ -291,6 +291,50 @@ class PopulateDiscardsUnwrittenImagesTest(PopulateCommandTestCase):
         self.assertIn("Kept 1 fetched image(s)", out)
         self.assertTrue(get_image_model().objects.filter(pk=image.pk).exists())
 
+    def test_a_write_that_committed_then_raised_is_reported_written(self):
+        # Todo 530: the revision committed and THEN an on_commit hook raised.
+        # The images are in the page, so they count as added, nothing is
+        # discarded, and the output says the write happened.
+        from apps.blog.services.plant_spotlight_writes import save_spotlight_updates
+
+        post = self.make_post("hook-raised")
+        image = self.fetched_image()
+
+        def save(base, updates):
+            save_spotlight_updates(base, updates)
+            raise RuntimeError("a post-commit hook failed")
+
+        out, _ = self.run_command(
+            f"--post-id={post.pk}",
+            fetch=lambda **kwargs: ("unsplash", UNSPLASH_DATA, image),
+            save=save,
+        )
+
+        self.assertIn("was written; the error came from a post-commit hook", out)
+        self.assertIn(f"Added image from unsplash - {CREDIT}", out)
+        self.assertIn("Images added: 1", out)
+        self.assertNotIn("Not written", out)
+        self.assertNotIn("Kept", out)
+        self.assertNotIn("Discarded", out)
+        self.assertEqual(self.spotlight(post).value["image"].pk, image.pk)
+
+    def test_a_refusal_other_than_a_page_change_says_so(self):
+        # Todo 530: "the page changed" was printed for every refusal.
+        from apps.blog.services.plant_spotlight_writes import BLOCK_NOT_FOUND
+
+        post = self.make_post("block-gone")
+        image = self.fetched_image()
+
+        out, _ = self.run_command(
+            f"--post-id={post.pk}",
+            fetch=lambda **kwargs: ("unsplash", UNSPLASH_DATA, image),
+            save=lambda base, updates: BLOCK_NOT_FOUND,
+        )
+
+        self.assertIn("Kept 1 fetched image(s): the write was refused", out)
+        self.assertNotIn("the page changed", out)
+        self.assertTrue(get_image_model().objects.filter(pk=image.pk).exists())
+
     def test_a_failing_unchanged_check_keeps_the_image_and_the_run_goes_on(self):
         # The check runs right after a write that raised, often on the same
         # broken connection. Its own failure must not end the run (todo 442
