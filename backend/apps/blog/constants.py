@@ -133,3 +133,16 @@ CARE_DRAFT_MAX_PARAGRAPHS_PER_SECTION = 4
 CARE_DRAFT_MAX_TEXT_CHARS = 1500
 # The prompt asks for this many sections.
 CARE_DRAFT_TARGET_SECTIONS = (4, 6)
+
+# Newsletter double opt-in (todo 409).
+# Signup is per client IP; the token endpoints follow todo 408's unsubscribe.
+RATE_LIMIT_NEWSLETTER_SUBSCRIBE = "10/h"
+RATE_LIMIT_NEWSLETTER_TOKEN = "30/h"
+# One confirmation email per address per hour, whatever the IP: a caller
+# rotating IPs cannot flood someone else's inbox. A skipped resend
+# still answers 202, so the throttle is no oracle either.
+NEWSLETTER_CONFIRMATION_RESEND_SECONDS = 60 * 60
+# A confirmation link is short-lived; each new one also voids the last.
+NEWSLETTER_CONFIRM_MAX_AGE_SECONDS = 3 * 24 * 60 * 60
+# An unsubscribe link rides in every newsletter, so it lives like 408's.
+NEWSLETTER_UNSUBSCRIBE_MAX_AGE_SECONDS = 90 * 24 * 60 * 60

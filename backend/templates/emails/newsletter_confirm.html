@@ -1,0 +1,28 @@
+{% extends "emails/base.html" %}
+
+{% block title %}Confirm your newsletter subscription - {{ site_name }}{% endblock %}
+
+{% block preheader %}One click to start the weekly newsletter{% endblock %}
+
+{% block content %}
+<h2 style="margin: 0 0 16px 0; color: #2c5f41;">Confirm your subscription</h2>
+<p style="margin: 0 0 16px 0; color: #333;">
+    Someone asked to send the {{ site_name }} weekly newsletter to this address.
+    If it was you, confirm below.
+</p>
+
+<div style="text-align: center; margin: 32px 0;">
+    <a href="{{ confirm_url }}" class="btn btn-primary">Confirm subscription</a>
+</div>
+
+<p style="margin: 0; font-size: 14px; color: #6c757d;">
+    The link works for {{ confirm_days }} days. If you didn't ask for this,
+    ignore this email: nothing will be sent unless the link is used.
+</p>
+{% endblock %}
+
+{% block footer %}
+<p style="margin: 0; font-size: 14px; color: #6c757d;">
+    <strong>{{ site_name }}</strong>
+</p>
+{% endblock %}

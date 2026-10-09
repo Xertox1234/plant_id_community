@@ -1023,6 +1023,17 @@ class BlogNewsletter(models.Model):
     last_sent_at = models.DateTimeField(null=True, blank=True)
     unsubscribed_at = models.DateTimeField(null=True, blank=True)
 
+    # Double opt-in (todo 409): only a confirmed, active row is ever mailed a
+    # newsletter. Rows from the old single-opt-in endpoint stay unconfirmed.
+    confirmed_at = models.DateTimeField(
+        null=True, blank=True, help_text="When the address confirmed by email link"
+    )
+    confirmation_sent_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="Last confirmation email; links from earlier ones stop working",
+    )
+
     class Meta:
         ordering = ["-subscribed_at"]
         verbose_name = "Newsletter Subscription"
@@ -1031,6 +1042,11 @@ class BlogNewsletter(models.Model):
     def __str__(self):
         status = "Active" if self.is_active else "Inactive"
         return f"{self.email} ({status})"
+
+    @property
+    def is_subscribed(self):
+        """Confirmed and not unsubscribed: the only rows a newsletter reaches."""
+        return self.is_active and self.confirmed_at is not None
 
     def unsubscribe(self):
         """Mark subscription as inactive."""
