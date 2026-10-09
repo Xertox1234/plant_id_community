@@ -830,3 +830,27 @@ def test_a_link_in_prose_opens_in_a_new_tab_whatever_target_was_sent():
         'rel="noopener noreferrer nofollow">this</a> and '
         f"{_linked('https://example.com/b')}.</p>"
     )
+
+
+@pytest.mark.django_db
+def test_a_stored_card_whose_url_ends_in_punctuation_survives_an_edit():
+    """Item 7 must not strand a card stored before trimming: both clients
+    resend a card as its link, and the untrimmed link names the card."""
+    url = "https://example.com/a."
+    user = _member()
+    with _fetcher("fake_fetcher"):
+        _create(_client(user), _board(), [_paragraph("Seed.")])
+    post = Post.objects.get()
+    post.body = [{"type": "link_preview", "value": _card(url, "example.com")}]
+    post.save()
+
+    with override_settings(WAGTAILFORUM_LINK_PREVIEW_FETCHER=None):
+        resp = _client(user).patch(
+            f"/forum/posts/{post.id}/",
+            {"body": [_paragraph(url), _paragraph("A fixed typo.")]},
+            format="json",
+        )
+
+    assert resp.status_code == 200, resp.data
+    post.refresh_from_db()
+    assert _stored(post)[0] == ("link_preview", _card(url, "example.com"))

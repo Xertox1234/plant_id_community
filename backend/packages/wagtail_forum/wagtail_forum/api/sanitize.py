@@ -169,8 +169,13 @@ def _convert_link_previews(value, link_type, existing):
             url = block["value"]["url"].strip()
         elif block["type"] == "paragraph":
             # Trimmed like an auto-link, so "https://example.com." on its own
-            # cards https://example.com, not a URL ending in "." (item 7).
-            url = _trim_url(_sole_url(block["value"], skip_code=True) or "")
+            # cards https://example.com, not a URL ending in "." (item 7) —
+            # unless the stored body already has a card for the untrimmed
+            # URL (one saved before trimming): an edit resends a card as its
+            # link, and that card must be reused, not lost.
+            url = _sole_url(block["value"], skip_code=True) or ""
+            if url not in existing:
+                url = _trim_url(url)
             if not is_card_url(url) or (embeds_on and is_supported_url(url)):
                 url = None
         candidates.append(url)
