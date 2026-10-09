@@ -30,6 +30,8 @@ describe('NewsletterSignup', () => {
     // Never "you're subscribed": nothing starts until the emailed link is used.
     expect(await screen.findByRole('status')).toHaveTextContent(/check your inbox/i);
     expect(screen.queryByRole('button', { name: /subscribe/i })).not.toBeInTheDocument();
+    // The button that had focus is gone; focus lands on the message, not <body>.
+    expect(screen.getByRole('status')).toHaveFocus();
   });
 
   it('keeps the form and explains an invalid address', async () => {

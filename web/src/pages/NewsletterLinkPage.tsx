@@ -78,6 +78,12 @@ type View = { kind: 'ask' } | { kind: 'done' } | { kind: 'failed'; reason: Newsl
 export default function NewsletterLinkPage({ action }: { action: NewsletterLinkAction }) {
   const [params] = useSearchParams();
   const token = params.get('token') ?? '';
+  // Keyed on the token: opening a second emailed link in the same tab must
+  // not show the first link's outcome.
+  return <NewsletterLink key={token} action={action} token={token} />;
+}
+
+function NewsletterLink({ action, token }: { action: NewsletterLinkAction; token: string }) {
   const copy = COPY[action];
   const [view, setView] = useState<View>(() =>
     token ? { kind: 'ask' } : { kind: 'failed', reason: 'invalid' }

@@ -146,3 +146,20 @@ NEWSLETTER_CONFIRMATION_RESEND_SECONDS = 60 * 60
 NEWSLETTER_CONFIRM_MAX_AGE_SECONDS = 3 * 24 * 60 * 60
 # An unsubscribe link rides in every newsletter, so it lives like 408's.
 NEWSLETTER_UNSUBSCRIBE_MAX_AGE_SECONDS = 90 * 24 * 60 * 60
+# The weekly newsletter (todo 409, slice B; manage.py send_blog_newsletter).
+# A subscriber is due a week after their last one, less a day of scheduler
+# jitter, so an early fire still sends and a second fire that week does not.
+NEWSLETTER_WINDOW_DAYS = 7
+# Newest posts listed in one email; the rest are a link to the blog away. An
+# empty week sends nothing, so one email can cover several weeks of posts.
+NEWSLETTER_MAX_POSTS = 10
+# Words of each post's introduction shown in the email.
+NEWSLETTER_EXCERPT_WORDS = 40
+# Held by a run while it sends; a crashed holder cannot block the next week.
+NEWSLETTER_RUN_LOCK_SECONDS = 2 * 60 * 60
+# The beat task's own budget: the global 90 s limit is sized for a request.
+# A run costs a query and one SMTP round-trip per due subscriber. On the soft
+# limit the task re-enqueues itself after the delay to finish the rest.
+NEWSLETTER_SOFT_TIME_LIMIT = 25 * 60
+NEWSLETTER_TIME_LIMIT = 30 * 60
+NEWSLETTER_CONTINUATION_DELAY = 60
