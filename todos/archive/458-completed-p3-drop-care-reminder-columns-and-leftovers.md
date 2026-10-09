@@ -100,3 +100,17 @@ Items 5–8 come from the PR #854 final review (2026-10-09).
   `completed_steps`, whatever the row count (`RetiredOnboardingStepTest`). The
   prod count was not taken: no code ever advanced `current_step` past
   `account_created`, so rows are unlikely, and the remap is correct either way.
+
+### 2026-10-09 - Production check after the #963 deploy
+
+#963 deployed at 15:55Z. Read-only checks against production (owner-authorized,
+`manage.py shell` over `railway ssh`):
+
+- Onboarding rows on `care_reminder_set` (`current_step` or
+  `completed_steps`): **0**.
+- `users.0017_drop_care_reminder_columns` applied at 15:55:00Z.
+- `auth_user.care_reminder_email` and
+  `users_onboardingprogress.first_care_reminder_created`: both gone.
+
+The pre-remap count was not taken before the deploy, and 0017 does not log
+one, so how many rows it moved is unknown.
