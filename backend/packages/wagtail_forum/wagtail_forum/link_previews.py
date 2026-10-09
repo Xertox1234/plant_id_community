@@ -252,7 +252,9 @@ def link_preview_snapshots(raw_data) -> dict:
             stored[url] = {
                 "url": url,
                 **_stored_text(value),
-                "image": image if isinstance(image, str) else "",
+                # The fetcher's rule (_snapshot): only a name our image cache
+                # could have written is carried into the re-saved card.
+                "image": image if is_cached_image_name(image) else "",
             }
     return stored
 

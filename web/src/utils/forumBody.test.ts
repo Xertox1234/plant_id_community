@@ -300,6 +300,11 @@ describe('forumBody embed blocks (todo 344)', () => {
     ]);
   });
 
+  it('leaves a video link written as code as code, as the server does (todo 448 item 10)', () => {
+    const html = '<p><code>https://youtu.be/dQw4w9WgXcQ</code></p>';
+    expect(htmlToBodyBlocks(html)).toEqual([{ type: 'paragraph', value: html }]);
+  });
+
   it('leaves a link inside prose, or an unknown provider, as ordinary paragraph text', () => {
     const blocks = htmlToBodyBlocks(
       '<p>See https://youtu.be/dQw4w9WgXcQ for details</p><p>https://example.com/video/1</p>'

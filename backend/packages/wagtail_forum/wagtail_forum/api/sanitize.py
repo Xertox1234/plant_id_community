@@ -47,13 +47,20 @@ MAX_BODY_CHARS = 100_000
 
 
 def sanitize_rich_text(html):
-    """Return an XSS-safe subset of *html* (nh3 allowlist)."""
+    """Return an XSS-safe subset of *html* (nh3 allowlist).
+
+    Every ``<a>`` in a body opens in a new tab, as a link card does (todo 448
+    item 13; owner decision 2026-09-28: set it here, server-side, so every
+    client gets it). A client-supplied ``target`` is never kept — nh3 sets
+    the value. Internal forum links (mentions, a quote's "in topic" link) are
+    not body ``<a>`` markup: clients render them from their own blocks."""
     return nh3.clean(
         html,
         tags=ALLOWED_TAGS,
         attributes=ALLOWED_ATTRIBUTES,
         url_schemes=ALLOWED_URL_SCHEMES,
         link_rel="noopener noreferrer nofollow",
+        set_tag_attribute_values={"a": {"target": "_blank"}},
     )
 
 
@@ -112,9 +119,10 @@ def _sole_video_url(html):
     (``web/src/utils/forumBody.ts`` ``embedUrlOf``), moved to the server so
     every client gets it. The allowlist is ``is_supported_url`` (the host's
     ``WAGTAILEMBEDS_FINDERS``), not a copy of the web's regex, so a link that
-    converts is exactly a link the embed validation below accepts.
+    converts is exactly a link the embed validation below accepts. A URL
+    written as code stays code, as on the card path (todo 448 item 10).
     """
-    text = _sole_url(html)
+    text = _sole_url(html, skip_code=True)
     return text if text and is_supported_url(text) else None
 
 
@@ -160,7 +168,14 @@ def _convert_link_previews(value, link_type, existing):
         if block["type"] == link_type:
             url = block["value"]["url"].strip()
         elif block["type"] == "paragraph":
-            url = _sole_url(block["value"], skip_code=True)
+            # Trimmed like an auto-link, so "https://example.com." on its own
+            # cards https://example.com, not a URL ending in "." (item 7) —
+            # unless the stored body already has a card for the untrimmed
+            # URL (one saved before trimming): an edit resends a card as its
+            # link, and that card must be reused, not lost.
+            url = _sole_url(block["value"], skip_code=True) or ""
+            if url not in existing:
+                url = _trim_url(url)
             if not is_card_url(url) or (embeds_on and is_supported_url(url)):
                 url = None
         candidates.append(url)
@@ -749,4 +764,9 @@ def validate_forum_body(
                 "value": _normalise_image_value(block["value"], image_descriptions),
             }
         cleaned.append(block)
+    # Again on what is STORED: auto-linking and cards grow a body, and a
+    # stored body over the cap would be refused when its author resends it
+    # unchanged on edit (todo 448 item 4).
+    if len(json.dumps(cleaned)) > MAX_BODY_CHARS:
+        raise serializers.ValidationError(_("Post body is too large."))
     return cleaned

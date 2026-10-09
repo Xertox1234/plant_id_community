@@ -114,9 +114,15 @@ function quotedPostId(el: Element): number | null {
 const PROVIDER_VIDEO_URL =
   /^https?:\/\/(?:(?:[-\w]+\.)?youtube\.com\/(?:watch\?[^\s<>"'`]+|shorts\/[^\s<>"'`]+|live\/[^\s<>"'`]+|v\/[^\s<>"'`]+)|youtu\.be\/[^\s<>"'`]+|(?:www\.)?vimeo\.com\/[^\s<>"'`]+)$/;
 
-/** The bare provider URL if `el` is a paragraph holding exactly one, else null. */
+/**
+ * The bare provider URL if `el` is a paragraph holding exactly one, else null.
+ * A URL written as code stays code: the server's rule (`_sole_url` with
+ * `skip_code`, todo 448 item 10) refuses any `<code>` holding non-blank text.
+ */
 function embedUrlOf(el: Element): string | null {
   if (el.tagName !== 'P' || el.querySelector('img')) return null;
+  if (Array.from(el.querySelectorAll('code')).some((c) => (c.textContent ?? '').trim()))
+    return null;
   const text = (el.textContent ?? '').trim();
   return PROVIDER_VIDEO_URL.test(text) ? text : null;
 }

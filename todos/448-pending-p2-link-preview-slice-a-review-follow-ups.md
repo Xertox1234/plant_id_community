@@ -178,3 +178,39 @@ but rare.
 
 - The owner asked for both. Item 12 is the diagnosis gap behind the CBC post;
   item 13 is the same-tab behavior the owner saw on the web.
+
+### 2026-10-09 - Items 4, 6, 7, 10 and 13 fixed; 8 and 11 closed (PR 1 of 2)
+
+- **Item 4:** `validate_forum_body` checks the size again on the body it
+  returns, after cards and auto-linking. A body is refused when what would be
+  STORED passes the cap, so a body that saved always re-saves unchanged.
+  Refusing now happens after the card fetch, but only for a body within a few
+  hundred characters of 100k.
+- **Item 6:** `link_preview_snapshots` keeps a stored image only when
+  `is_cached_image_name` accepts it, the same rule as `_snapshot`.
+- **Item 7:** the card path runs `_trim_url` on a sole paragraph URL, so
+  `https://example.com/a.` cards `https://example.com/a`. The video path is
+  unchanged: its provider finders decide what is a video.
+- **Item 8: closed, already fixed** by todo 501 (#913, `d12dd646`): the
+  package's `tests/conftest.py` clears the host override providers for every
+  package test. `test_spam.py` alone: 14 passed.
+- **Item 10:** `_sole_video_url` passes `skip_code=True`, and the web
+  `embedUrlOf` refuses a paragraph whose `<code>` holds text, matching the
+  server.
+- **Item 11: closed per the owner's decision (2026-09-28):** a card-only
+  body keeps an empty excerpt. That was already the behavior; a test now pins
+  it.
+- **Item 13:** `sanitize_rich_text` sets `target="_blank"` on every body
+  `<a>` via nh3's `set_tag_attribute_values` (owner: server-side). A
+  client-sent `target` never survives. The package's nh3 floor rises to
+  `>=0.2.12`, the first release with that argument (checked by grepping the
+  0.2.11 and 0.2.12 wheels). Mentions are client-side `<span>`s and quote
+  links come from the `post_quote` block, so neither gets a new tab. Posts
+  stored before this keep same-tab links until edited; only test accounts
+  exist. Three tests' expected anchor markup gained `target="_blank"`; these
+  are deliberate test edits.
+- **Mutation checks:** 6 of 6 caught (5 backend, 1 web). Each ran against a
+  `cp` backup, was restored, and was confirmed with `cmp`.
+- **Left for PR 2:** items 5 (a wall-clock deadline on the page fetch) and 12
+  (log why a fetch failed). They change the SSRF-pinned fetcher, so they get
+  their own review.
