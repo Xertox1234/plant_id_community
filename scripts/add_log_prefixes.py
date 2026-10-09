@@ -102,12 +102,10 @@ PREFIXES = {
     # different transport from the Firebase messaging `[FCM]` already marks.
     "backend/apps/users/services.py": {
         "pywebpush library not available": "[PUSH]",
-        "VAPID_PRIVATE_KEY not configured": "[PUSH]",
         "Push notification sent successfully": "[PUSH]",
         "WebPush error for": "[PUSH]",
         "Deactivated push subscription": "[PUSH]",
         "Unexpected error sending push notification": "[PUSH]",
-        "No active push subscriptions": "[PUSH]",
         # One key for three calls -- "Push subscription " is the entire leading
         # chunk of the created/updated message and a prefix of the other two,
         # so a key per call would match two keys on those two. They share a
@@ -116,9 +114,6 @@ PREFIXES = {
     },
     # Welcome email, onboarding record, signup bookkeeping.
     "backend/apps/users/signals.py": {
-        "Welcome email sent to": "[EMAIL]",
-        "Failed to send welcome email": "[EMAIL]",
-        "Error sending welcome email": "[EMAIL]",
         "Created onboarding progress": "[ONBOARDING]",
         "New user signed up": "[SIGNUP]",
         "Error handling user signup": "[SIGNUP]",
@@ -221,19 +216,8 @@ PREFIXES = {
     },
     "backend/apps/plant_identification/utils/file_validation.py": "[VALIDATION]",
     "backend/apps/plant_identification/views.py": {
-        "External plant search failed": "[SPECIES]",
-        "Local plant search failed": "[SPECIES]",
-        "Plant data enrichment failed for": "[SPECIES]",
-        "Plant species search failed for": "[SPECIES]",
-        "Failed to get plant characteristics for species": "[SPECIES]",
-        "Failed to get growth info for species": "[SPECIES]",
         "Processed disease diagnosis for": "[DIAGNOSIS]",
         "Failed to process disease diagnosis": "[DIAGNOSIS]",
-        "Manual disease diagnosis processing failed": "[DIAGNOSIS]",
-        "Local disease search failed": "[DIAGNOSIS]",
-        "Error getting care instructions": "[AI]",
-        "Regenerating care instructions for result": "[AI]",
-        "Failed to regenerate care instructions for result": "[AI]",
     },
 }
 

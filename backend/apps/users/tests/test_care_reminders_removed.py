@@ -85,13 +85,9 @@ class CarePreferenceTest(TestCase):
     def test_only_the_push_opt_out_survives(self):
         """The reminder sweep reads ``care_reminder_notifications``; there is
         no care-reminder email, so that preference is gone."""
-        from apps.core.services.notification_service import NotificationService
-
         user = User.objects.create_user(username="p", email="p@example.com")
         self.assertTrue(user.care_reminder_notifications)
         self.assertFalse(hasattr(user, "care_reminder_email"))
-        prefs = NotificationService().get_user_notification_preferences(user)
-        self.assertNotIn("care_reminder_email", prefs)
 
     def test_the_push_opt_out_is_settable_by_the_user(self):
         """PR #854 review: with the email preference gone, the push opt-out
@@ -114,12 +110,11 @@ class CarePreferenceTest(TestCase):
         )
 
 
-class ExpandContractColumnsTest(TestCase):
-    """The dropped fields leave Django state only; their columns stay, with a
-    DB default, until todo 458 drops them. The old container still reads them
-    during a rolling deploy (PR #854 review)."""
+class DroppedColumnsTest(TestCase):
+    """0015 left both columns behind for the old container to read during the
+    rolling deploy (PR #854 review); 0017 drops them (todo 458)."""
 
-    def test_the_columns_remain_with_a_db_default(self):
+    def test_the_columns_are_gone(self):
         from django.db import connection
 
         with connection.cursor() as cursor:
@@ -127,15 +122,44 @@ class ExpandContractColumnsTest(TestCase):
                 ("auth_user", "care_reminder_email"),
                 ("users_onboardingprogress", "first_care_reminder_created"),
             ):
+                # Pin the schema: a same-named table elsewhere must not answer.
                 cursor.execute(
-                    "SELECT column_default FROM information_schema.columns "
-                    "WHERE table_name = %s AND column_name = %s",
+                    "SELECT 1 FROM information_schema.columns "
+                    "WHERE table_schema = current_schema() "
+                    "AND table_name = %s AND column_name = %s",
                     [table, column],
                 )
-                row = cursor.fetchone()
                 with self.subTest(column=column):
-                    self.assertIsNotNone(row, "column was dropped too early")
-                    self.assertEqual(row[0], "false")
-        # And a row inserted by the new code (which no longer knows the
-        # column) still satisfies NOT NULL.
-        User.objects.create_user(username="n", email="n@example.com")
+                    self.assertIsNone(cursor.fetchone())
+
+
+class RetiredOnboardingStepTest(TestCase):
+    """0016 only altered the choices; 0017 moves rows off the retired step."""
+
+    def test_rows_on_the_retired_step_move_on(self):
+        from importlib import import_module
+
+        from apps.users.models import OnboardingProgress
+
+        migration = import_module(
+            "apps.users.migrations.0017_drop_care_reminder_columns"
+        )
+        stuck = User.objects.create_user(username="s", email="s@example.com")
+        OnboardingProgress.objects.create(
+            user=stuck,
+            current_step="care_reminder_set",
+            completed_steps=["account_created", "care_reminder_set"],
+        )
+        other = User.objects.create_user(username="o", email="o@example.com")
+        OnboardingProgress.objects.create(
+            user=other, completed_steps=["account_created"]
+        )
+
+        migration.remap_retired_onboarding_step(apps, None)
+
+        stuck_progress = OnboardingProgress.objects.get(user=stuck)
+        self.assertEqual(stuck_progress.current_step, "onboarding_completed")
+        self.assertEqual(stuck_progress.completed_steps, ["account_created"])
+        other_progress = OnboardingProgress.objects.get(user=other)
+        self.assertEqual(other_progress.current_step, "account_created")
+        self.assertEqual(other_progress.completed_steps, ["account_created"])

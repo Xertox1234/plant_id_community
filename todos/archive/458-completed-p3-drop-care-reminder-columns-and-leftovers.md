@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: p3
 issue_id: "458"
 tags: [backend, users, migrations, cleanup]
@@ -61,9 +61,42 @@ Items 5–8 come from the PR #854 final review (2026-10-09).
 
 ## Acceptance Criteria
 
-- [ ] Both columns are dropped by a migration that ships AFTER #854 is deployed.
-- [ ] Items 2–8 are fixed, or each is closed with a recorded reason.
+- [x] Both columns are dropped by a migration that ships AFTER #854 is deployed.
+  (2026-10-09: GitHub deployment status for #854 `08fee518` reported `success`
+  at 14:01Z; `users/0017_drop_care_reminder_columns` drops both, and
+  `DroppedColumnsTest` asserts they are gone.)
+- [x] Items 2–8 are fixed, or each is closed with a recorded reason. (2026-10-09:
+  one line per item in the Work Log below.)
 
 ## Work Log
 
 ### 2026-09-27 - Filed from the PR #854 round-1 review
+
+### 2026-10-09 - Done
+
+- **1.** `users/0017` drops both columns with `SeparateDatabaseAndState`
+  `database_operations` (literal `RunSQL`, reverse re-adds them `NOT NULL
+  DEFAULT false`). Nothing outside Django reads them (grep of the whole repo:
+  only `PLANNING/DATABASE_SCHEMA.md`, docs and migrations).
+- **2.** Deleted `templates/emails/seasonal_care.html` and
+  `EmailType.SEASONAL_CARE` (and its two map entries) instead of fixing the
+  link: nothing sends it.
+- **3.** `scripts/add_log_prefixes.py --check` passes. Removed 16 stale keys:
+  the 11 named here, 2 in `users/services.py` (push sender removed by #854) and
+  3 in `users/signals.py` (welcome email moved by #842).
+- **4.** Removed the `care_reminder` choice only (0017 `AlterField`). Kept the
+  model: dropping it is a table drop with rows of unknown value and needs the
+  same expand/contract care; nothing reads it, so it costs nothing to leave.
+- **5.** The trigger now matches `RemoveField|DeleteModel` on the edit fragment
+  and no longer has the file-wide `content_absent`; the message says an
+  operation inside `state_operations` is fine and every other one needs a
+  manual look. A regex cannot tell the two apart per operation.
+- **6.** Deleted `NotificationService.get_/update_user_notification_preferences`
+  (no callers outside one test, which no longer uses it).
+- **7.** Superseded: `ExpandContractColumnsTest` is replaced by
+  `DroppedColumnsTest`, which pins `table_schema = current_schema()`.
+- **8.** 0017 moves `current_step = 'care_reminder_set'` to
+  `onboarding_completed` (the step that followed it) and strips it from
+  `completed_steps`, whatever the row count (`RetiredOnboardingStepTest`). The
+  prod count was not taken: no code ever advanced `current_step` past
+  `account_created`, so rows are unlikely, and the remap is correct either way.
