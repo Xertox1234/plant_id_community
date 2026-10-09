@@ -6974,3 +6974,90 @@ first try and were clean in round 2. The lessons came from the edges.
   `_refresh_board_counters ... _refresh_profile` as emphasis and joined words
   (`the_refresh_profile`). Escape `_` and `<` outside code spans (or use backticks) before the
   pre-commit fixer sees reviewer text.
+
+## 2026-10-02 — Sweep follow-ups: the engine wrote machine paths into every archive, and low findings do not converge (runs 2026-10-02-0118 and 0255, PRs #926–#939)
+
+**What happened.** Run 0118 took the ten p4 follow-up todos 502–511 from the previous sweep. All
+merged (#927–#935), every review round was clean, and nothing was refuted. Run 0255 then fixed
+todo 524, the engine bug that run surfaced (#938).
+
+**Lessons.**
+
+- **A tool that copies agent output into a committed file must make it portable at write time.**
+  `land.py flip_acs` quoted each worker's acceptance command into the archived todo verbatim.
+  `todo-worker.md` tells workers to use absolute paths, so every Verified entry carried
+  `/Users/<name>/…/.claude/worktrees/wf_…/`. That was 102 lines in 36 archived files when todo 524
+  was filed. The entries named a worktree that no longer existed, a user's home and the
+  pre-archive `todos/NNN-pending-…` path. Nobody noticed across five days of runs (the engine shipped 2026-09-27). It surfaced only because three
+  todos in one run (503, 509, 511) each had to hand-clean their own archive. `_relativize` now
+  rewrites worktree, main-checkout and home prefixes in the command and the quoted evidence tail.
+  A test asserts that no worktree path survives. Rule of thumb: whenever generated text lands in
+  a tracked file, test the output for absolute paths. A worker instruction cannot stop this,
+  because the instruction is what caused it. Owner decision: no backfill of the old lines.
+  Known gaps are in todo 525 (`file://`, flag-glued `-I/Users/…`, and a worktree path after `:`
+  that swallows earlier list entries).
+- **To dogfood a fix to the engine's own Land code, run the PR worktree's copy.** The Land helper
+  called `$WT/scripts/todos/land.py` instead of the main checkout's, so 524's own archive was
+  written by the fix. It quotes `python3 scripts/todos/test_land.py` and `cd . && …`. That is a
+  free end-to-end check the unit tests cannot give.
+- **A lock test can pass with the lock in the wrong place** (todo 508). The reaction test asserted
+  `FOR UPDATE` somewhere between the INSERT and the UPDATE. A lock after the `COUNT(…)` still
+  leaves the count stale under READ COMMITTED. The test now orders INSERT < lock < COUNT < UPDATE
+  (`docs/rules/testing.md`).
+- **`markdownlint --fix` also strips spaces at the edges of code spans (MD038).** In a generated
+  follow-up it changed the meaning of reviewer text that quoted an indented key (a code span
+  starting with a space). Separately, a reviewer's regex containing a literal backtick flips the
+  generator's code-span parity, so `_` and `<` were escaped inside code and left raw outside it.
+  Fix: rephrase whitespace-bearing spans in words. When a finding holds an odd number of
+  backticks, escape the whole text, backticks included, rather than splitting on them. Never
+  accept the auto-fix on reviewer text without reading the diff.
+- **Low findings on low todos do not converge.** Ten p4 todos produced nine follow-up todos
+  holding 61 new low findings: each round of review on a small fix finds more small edges. The
+  run's valuable output was the engine bug (524) and one candidate product bug (520: the mobile
+  session-expiry handler does not clear the user profile itself; unverified whether a provider
+  resets it). Promote what is real and park the rest,
+  rather than feeding the follow-ups back into the sweep.
+
+## 2026-10-02 — P4 sweeps: follow-ups are mostly noise, and a keep-or-delete check that lists fields never converges (runs 2026-10-02-0335 and 2343, PRs #940–#958)
+
+**What happened.** Two runs merged 19 p4 todos in 13 code PRs. PR #944 (todo 442) hit the
+owner's three-round review cap with a high still open. Todo 520's suspected bug from the
+previous entry was real and is fixed (#948).
+
+**Lessons.**
+
+- **Raw review findings are mostly duplicates.** The 12 merged PRs' review rounds reported 307
+  non-blocking findings. A curation pass (one agent per PR merges duplicates and checks each one
+  on main, then a second agent tries to refute it) kept 56. Several reviewers word the same issue
+  differently, and the engine stores only the first ten non-blocking findings per todo, unranked.
+  Owner decision: one consolidated follow-up todo per run (527), not one per PR.
+- **A keep-or-delete check built from a hand-picked field list draws a new high every round.**
+  Todo 442's cleanup deletes images a refused write fetched, keeping the ones the page
+  references. Round 1 found a block reference, round 2 the `featured_image`/`social_image`
+  foreign keys, round 3 embeds in the `introduction` rich text. Either walk every
+  reference-bearing field generically, or stop deleting (`docs/rules/wagtail.md`). This is the
+  third time a design that kept drawing highs needed narrowing, not patching.
+- **Riverpod 3 re-runs `build()` on the same notifier after an invalidate.** A repair's tests
+  counted `overrideWith` factory calls and failed against a working fix
+  (`docs/rules/flutter.md`, `plant_community_mobile/docs/patterns/riverpod.md`).
+- **A repair agent killed by a usage limit leaves coherent, unverified edits.** The engine
+  classes them as review residue and blocks the group. Reading the diff, finishing it and
+  verifying it (tests, a mutation check, the full suite) saved #948 from a redo. Keep the work;
+  do not trust it until verified.
+- **A 600-character schema cap on a worker's summary discarded finished work.** Todo 518's first
+  worker overran it by four characters, returned nothing and needed a full retry. The staged
+  edits were left in an orphan worktree the run file never recorded.
+- **Check an owner decision's premise before building on it.** Todo 435's decision kept the
+  raw IP "for the alert email". No email exists: `_trigger_security_alert` writes an ERROR log
+  line and a cache entry. Reviewers caught it after merge (todo 527).
+- **Sweep-engine todos chain into one oversized group.** In both runs one group swallowed four
+  to six todos through shared files, and the main session split it by hand. Todo 491 (#957)
+  stopped lane files from chaining groups; engine todos that share `state.py` or `land.py` still
+  need to run one at a time.
+- **Generated Markdown breaks two more lint rules.** A numbered list that continues across
+  headings fails MD029, so restart numbering per section. Bare URLs in quoted reviewer text fail
+  MD034, so wrap them in code spans. detect-secrets read the word "passwordless:" as a secret
+  keyword; the inline allowlist comment fixed it.
+- **Read past a function's end before inserting after it.** An edit anchored on a block that
+  looked like the end of a test landed in its middle, splitting it. The moved tail then failed
+  inside the new test.

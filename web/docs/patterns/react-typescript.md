@@ -569,3 +569,10 @@ const display = linkPreviewDisplay(preview, variant); // null = renders nothing
 it, so a link card joins a run exactly when it renders something. Never
 re-derive the title fallback, short address or image source at a call site;
 `linkPreviewDisplay.test.ts` pins that `isCardBlock` and the card agree.
+
+A video card's name has its own one function, `embedDisplay`
+(`embedDisplay.ts`, todo 518): `{ title, detail, label }`, where an untitled
+video's `title` is its SHORT address, never the full URL. `CompactCardRow`
+reads all three; the full card (`StreamFieldRenderer`'s `embed` case) reads
+`title` for the iframe's `title` and the fallback card's first line, so the
+same video is named one way wherever it falls in a run.

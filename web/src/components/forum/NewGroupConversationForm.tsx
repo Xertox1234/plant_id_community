@@ -11,6 +11,7 @@ import {
 } from '../../services/messageService';
 import { useAuth } from '../../contexts/AuthContext';
 import { logger } from '../../utils/logger';
+import { describeWait } from '../../utils/retryAfter';
 import Button from '../ui/Button';
 import Input from '../ui/Input';
 import type { Conversation } from '../../types/forum';
@@ -29,12 +30,6 @@ function normalizeUsername(raw: string): string {
 
 function sameUser(a: string, b: string): boolean {
   return a.localeCompare(b, undefined, { sensitivity: 'accent' }) === 0;
-}
-
-function describeWait(seconds: number): string {
-  if (seconds < 60) return `${seconds} second${seconds === 1 ? '' : 's'}`;
-  const minutes = Math.ceil(seconds / 60);
-  return `${minutes} minute${minutes === 1 ? '' : 's'}`;
 }
 
 /**

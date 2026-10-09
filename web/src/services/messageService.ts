@@ -8,12 +8,12 @@
  * the HTTP status (403 = blocked, 400 = spam/empty) instead of sniffing text.
  */
 import { getCsrfToken } from '../utils/csrf';
+import { readRetryAfter } from '../utils/retryAfter';
 import { ForumApiError } from './forumService';
 import type { Conversation, DirectMessage, DirectMessageCursorPage } from '../types/forum';
 import { API_ORIGIN } from '@/config/api';
 
-const API_URL = API_ORIGIN;
-const FORUM_BASE = `${API_URL}/api/v1/forum`;
+const FORUM_BASE = `${API_ORIGIN}/api/v1/forum`;
 
 /** Backend cap on one message body; the composer shows it and `maxLength`s to it. */
 export const MESSAGE_MAX_LENGTH = 4000;
@@ -26,18 +26,6 @@ export const GROUP_TITLE_MAX_LENGTH = 80;
 export const GROUP_MAX_PARTICIPANTS = 8;
 export const GROUP_MIN_OTHERS = 2;
 export const GROUP_MAX_OTHERS = GROUP_MAX_PARTICIPANTS - 1;
-
-/**
- * Integer seconds from a `Retry-After` header, or null. Only the delta form
- * is read (the HTTP-date form is legal but the API never sends it); the
- * `headers?.get?.` guard keeps hand-rolled test responses without a
- * `Headers` object from throwing inside the error path.
- */
-function readRetryAfter(response: Response): number | null {
-  const raw = response.headers?.get?.('Retry-After');
-  if (!raw || !/^\d+$/.test(raw.trim())) return null;
-  return Number.parseInt(raw, 10);
-}
 
 async function authenticatedFetch<T>(url: string, options: RequestInit = {}): Promise<T> {
   const csrfToken = await getCsrfToken();

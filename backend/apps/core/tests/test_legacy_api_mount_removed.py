@@ -17,9 +17,6 @@ from unittest import mock
 from apps.blog.models import BlogSeries
 from apps.blog.serializers import BlogSeriesSerializer
 from apps.core.middleware import SECURITY_SENSITIVE_PATHS, SecurityMetricsMiddleware
-from apps.core.security import FAILED_AUTH_TRACKED_PATHS
-from apps.users.oauth_adapters import CustomSocialAccountAdapter
-from apps.users.oauth_views import oauth_callback
 from django.conf import settings
 from django.core.cache import cache
 from django.test import RequestFactory, SimpleTestCase, TestCase
@@ -93,22 +90,6 @@ class LegacyMountHttpTests(TestCase):
                 self.assertEqual(APIClient().get(path).status_code, 404)
 
 
-class SocialLoginRedirectTests(SimpleTestCase):
-    """allauth's post-login redirect used ``reverse("users:oauth_callback")``,
-    a name that only the legacy mount registered — removing it would have
-    raised NoReverseMatch on every social login. The redirect must keep the
-    exact URL it has always emitted, served by the root OAuth mount."""
-
-    def test_redirect_url_is_unchanged_and_routes_to_the_callback_view(self):
-        request = RequestFactory().get("/")
-        request._oauth_provider = "google"
-
-        url = CustomSocialAccountAdapter(request).get_login_redirect_url(request)
-
-        self.assertEqual(url, "/api/auth/oauth/google/callback/")
-        self.assertIs(resolve(url).func, oauth_callback)
-
-
 class SeriesPostsUrlTests(TestCase):
     def test_posts_url_points_at_the_v1_route(self):
         series = BlogSeries.objects.create(
@@ -153,12 +134,15 @@ class BlogPostTemplateCommentsFetchTests(SimpleTestCase):
 
 
 class SecurityPathListsTests(TestCase):
-    """The security middlewares match hard-coded paths. They named only the
-    legacy ``/api/auth/...`` paths, so they never fired on real (``/api/v1/``)
-    traffic. Every listed path must be a real route."""
+    """SecurityMetricsMiddleware matches hard-coded path prefixes. The list
+    named only the legacy ``/api/auth/...`` paths, so it never fired on real
+    (``/api/v1/``) traffic. Every listed path must be a real route.
+
+    Failed logins were matched by path too, until todo 435 moved that call
+    into the login view; the tracking tests below drive the view."""
 
     def test_every_listed_path_is_a_real_route(self):
-        for path in (*SECURITY_SENSITIVE_PATHS, *FAILED_AUTH_TRACKED_PATHS):
+        for path in SECURITY_SENSITIVE_PATHS:
             with self.subTest(path=path):
                 self.assertTrue(_is_real_route(path))
 
@@ -186,9 +170,9 @@ class SecurityPathListsTests(TestCase):
         )
 
         self.assertEqual(response.status_code, 401)
-        # Todo 419 item 1: the attempted username reaches the tracker. The
-        # middleware sees a WSGIRequest whose JSON body DRF has already read,
-        # so without caching the body first this was always None.
+        # Todo 419 item 1: the attempted username reaches the tracker. Since
+        # todo 435 the login view reports it directly; `once` also pins that
+        # no middleware branch counts the same 401 a second time.
         track.assert_called_once_with(mock.ANY, "nobody")
 
     def test_login_validation_error_is_not_tracked(self):
@@ -221,27 +205,6 @@ class SecurityPathListsTests(TestCase):
 
         self.assertEqual(response.status_code, 401)
         track.assert_called_once_with(mock.ANY, "nobody@example.com")
-
-    def test_firebase_exchange_is_deliberately_untracked(self):
-        # Item 3, decided: its 401s include server-side failures (see the
-        # comment on FAILED_AUTH_TRACKED_PATHS), so tracking them would turn
-        # an outage into brute-force alerts.
-        self.assertNotIn(
-            "/api/v1/auth/firebase-token-exchange/", FAILED_AUTH_TRACKED_PATHS
-        )
-
-    def test_attempted_username_is_stripped_of_control_characters(self):
-        from apps.core.security import SecurityMiddleware
-
-        request = RequestFactory().post(
-            "/api/v1/auth/login/",
-            data='{"username": "x\\n[SECURITY] Successful login"}',
-            content_type="application/json",
-        )
-        self.assertEqual(
-            SecurityMiddleware._attempted_username(request),
-            "x[SECURITY] Successful login",
-        )
 
     def test_failed_login_logs_and_alerts_only_a_pseudonym(self):
         from apps.core.security import SecurityMonitor
@@ -283,27 +246,117 @@ class SecurityPathListsTests(TestCase):
 
         middleware_cache.set.assert_not_called()
 
-    def test_middleware_keeps_the_username_when_the_view_consumes_the_stream(self):
-        # Pins the pre-read (todo 419 item 1) independently of the test
-        # client: a view that reads the raw stream, as DRF's parser does,
-        # leaves request.body unreadable unless the middleware cached it.
-        import json as _json
 
-        from apps.core.security import SecurityMiddleware
+class SecurityMiddlewareCleanupTests(SimpleTestCase):
+    """Todo 435: the non-blocking findings of the PR #818 review."""
+
+    def test_security_middleware_does_not_read_the_login_body(self):
+        # Findings 1 and 4. The middleware buffered every tracked login body
+        # before the view's rate limiter could reject the request, to re-parse
+        # an identifier the view had already resolved. The view reports its
+        # own rejections now (test_rejected_v1_login_is_tracked asserts exactly
+        # one tracker call); the middleware leaves the stream untouched and no
+        # longer counts a 401 itself.
+        from apps.core.security import SecurityMiddleware, SecurityMonitor
         from django.http import HttpResponse
-
-        def view(request):
-            request.read()  # consume the stream, like DRF's JSONParser
-            return HttpResponse(status=401)
 
         request = RequestFactory().post(
             "/api/v1/auth/login/",
-            data=_json.dumps({"username": "stream-reader"}),
+            data='{"username": "stream-reader"}',
             content_type="application/json",
         )
-        with mock.patch(
-            "apps.core.security.SecurityMonitor.track_failed_login"
-        ) as track:
-            SecurityMiddleware(view)(request)
+        with mock.patch.object(SecurityMonitor, "track_failed_login") as track:
+            SecurityMiddleware(lambda r: HttpResponse(status=401))(request)
 
-        track.assert_called_once_with(mock.ANY, "stream-reader")
+        self.assertFalse(request._read_started)
+        track.assert_not_called()
+
+    def test_failed_login_tracker_strips_control_characters(self):
+        # The identifier comes from the request body: a newline in it must
+        # not break the warning into a forged second line (PR #818 review).
+        # The stripping lives in the tracker now that the view calls it with
+        # the raw field.
+        from apps.core.security import SecurityMonitor
+
+        cache.clear()
+        with self.assertLogs("apps.core.security", level="WARNING") as logs:
+            SecurityMonitor.track_failed_login(
+                "203.0.113.9", "x\n[SECURITY] Successful login"
+            )
+
+        self.assertEqual(len(logs.output), 1)
+        self.assertNotIn("\n", logs.output[0])
+        self.assertIn("username=x[S***", logs.output[0])
+
+    def test_security_metrics_middleware_logs_a_slow_request(self):
+        # Finding 2, the behaviour that stays: the slow-request warning.
+        from django.http import HttpResponse
+
+        request = RequestFactory().post("/api/v1/auth/login/")
+        with mock.patch("apps.core.middleware.SLOW_SECURITY_REQUEST_SECONDS", -1.0):
+            with self.assertLogs("apps.core.middleware", level="WARNING") as logs:
+                SecurityMetricsMiddleware(lambda r: HttpResponse(status=401))(request)
+
+        self.assertEqual(len(logs.output), 1)
+        self.assertIn(
+            "Slow security endpoint: endpoint=/api/v1/auth/login/", logs.output[0]
+        )
+        self.assertIn("user_id=anonymous, status=401", logs.output[0])
+
+    def test_security_metrics_middleware_does_not_resolve_the_client_ip(self):
+        # Finding 2, the behaviour that goes: the IP only fed the removed
+        # cache key, and resolving it logged one "Invalid IP in
+        # X-Forwarded-For" WARNING per bad entry on top of SecurityMiddleware's.
+        from apps.core.security import SecurityMonitor
+        from django.http import HttpResponse
+        from django.test import override_settings
+
+        request = RequestFactory().post(
+            "/api/v1/auth/login/", HTTP_X_FORWARDED_FOR="not-an-ip"
+        )
+        with override_settings(USE_X_FORWARDED_HOST=True):
+            # Control: resolving this request's IP does warn.
+            with self.assertLogs("apps.core.security", level="WARNING"):
+                SecurityMonitor._get_client_ip(request)
+
+            with self.assertNoLogs("apps.core.security", level="WARNING"):
+                SecurityMetricsMiddleware(lambda r: HttpResponse(status=401))(request)
+
+    def test_security_modules_import_their_constants_unconditionally(self):
+        # Finding 3: both modules carried a `try: from .constants import ...
+        # except ImportError:` fallback below an unconditional import of the
+        # same module, so the fallback values could never run and would have
+        # drifted from constants.py unnoticed.
+        import ast
+        import inspect
+
+        from apps.core import middleware, security
+
+        for module in (security, middleware):
+            with self.subTest(module=module.__name__):
+                handlers = [
+                    ast.unparse(node.type)
+                    for node in ast.walk(ast.parse(inspect.getsource(module)))
+                    if isinstance(node, ast.ExceptHandler) and node.type is not None
+                ]
+                self.assertNotIn("ImportError", " ".join(handlers))
+
+    def test_failed_login_warning_pseudonymizes_the_ip_but_the_alert_keeps_it(self):
+        # Finding 5, owner decision: the log line gets log_safe_ip like the
+        # rest of the module; the brute_force_login alert payload keeps the
+        # raw address so an operator can block it.
+        from apps.core.security import SecurityMonitor
+        from apps.core.utils.pii_safe_logging import log_safe_ip
+
+        cache.clear()
+        ip = "203.0.113.9"
+        with mock.patch.object(SecurityMonitor, "_trigger_security_alert") as alert:
+            with self.assertLogs("apps.core.security", level="WARNING") as logs:
+                for _ in range(SecurityMonitor.MAX_FAILED_LOGINS):
+                    SecurityMonitor.track_failed_login(ip, "someone")
+
+        joined = "\n".join(logs.output)
+        self.assertNotIn(ip, joined)
+        self.assertIn(f"ip={log_safe_ip(ip)}", joined)
+        alert.assert_called_once()
+        self.assertEqual(alert.call_args[0][1]["ip_address"], ip)

@@ -4,6 +4,9 @@ priority: p4
 issue_id: "494"
 tags: [harness, todo-sweep]
 dependencies: []
+triage: ready
+triaged: 2026-10-02
+owner_decision: "Finding 14: document the dead-verifier re-verify case in the runbook only; no new --reverify path (2026-10-02)"
 ---
 
 # Todo sweep: harden owner re-points and the verify-only reopen

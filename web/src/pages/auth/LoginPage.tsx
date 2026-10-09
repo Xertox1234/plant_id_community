@@ -10,8 +10,7 @@ import { sanitizeInput, sanitizeError } from '../../utils/sanitize';
 import { logger } from '../../utils/logger';
 import { API_ORIGIN } from '@/config/api';
 
-const API_URL = API_ORIGIN;
-const PASSWORD_RESET_URL = `${API_URL}/accounts/password/reset/`;
+const PASSWORD_RESET_URL = `${API_ORIGIN}/accounts/password/reset/`;
 
 interface FormData {
   email: string;

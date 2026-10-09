@@ -8,6 +8,7 @@ import {
   TopicSummaryError,
 } from '../../services/forumService';
 import { logger } from '../../utils/logger';
+import { describeWait } from '../../utils/retryAfter';
 import type { TopicSummary } from '../../types/forum';
 
 /**
@@ -15,16 +16,22 @@ import type { TopicSummary } from '../../types/forum';
  * `GET /forum/topics/{id}/summary/`, apps/forum_host/summary.py).
  *
  * Premium is server-gated: the auth user payload carries no premium flag, so —
- * exactly like compose assist and plant-care ask — the server's 401/403 is what
+ * exactly like compose assist and plant-care ask — the server's 403 is what
  * tells us, latched in the service for the session. The panel that received it
  * shows the premium notice in place of the button; every later mount (the next
  * thread) renders nothing. `AuthContext` clears the latch on identity change.
+ * A 401 is an expired access cookie (never latched), and a 404 — the topic
+ * unpublished, or moved to a board this account cannot see — is about THIS
+ * thread, not the account: the panel stops offering the button, with no latch
+ * (todo 433).
  *
  * The endpoint never generates in-request: a cache miss returns 202 `pending`
  * and a Celery task writes the summary, so this polls. Sparingly — the 30/h
- * `topic_summary` bucket counts every poll — and boundedly: a generation that
- * never lands (global AI budget exhausted, provider down) ends in "try again",
- * not an endless loop that burns the user's hour.
+ * `topic_summary` bucket counts every poll, so the button is not even offered
+ * below MIN_POSTS (a click there could only learn `too_short`) and a hidden
+ * tab waits for `visibilitychange` instead of polling — and boundedly: a
+ * generation that never lands (global AI budget exhausted, provider down) ends
+ * in "try again", not an endless loop that burns the user's hour.
  */
 
 /** Delay between polls of a 202 `pending`. */
@@ -34,13 +41,14 @@ const MAX_POLLS = 6;
 /** Mirrors SUMMARY_MIN_POSTS in apps/forum_host/constants.py. */
 const MIN_POSTS = 3;
 
+const TOO_SHORT = `Threads need at least ${MIN_POSTS} posts before they can be summarized.`;
 const STILL_WRITING = 'The summary is still being written. Try again in a minute.';
 const SESSION_EXPIRED = 'Your session expired. Sign in again to summarize this thread.';
+const THREAD_UNAVAILABLE = 'This thread is unavailable, so it cannot be summarized.';
 const GENERIC_ERROR = 'Couldn’t summarize this thread. Please try again.';
 
 function throttledMessage(retryAfter: number | null): string {
-  const when =
-    retryAfter && retryAfter > 0 ? `in about ${Math.ceil(retryAfter / 60)} minutes` : 'later';
+  const when = retryAfter && retryAfter > 0 ? `in about ${describeWait(retryAfter)}` : 'later';
   return `You’ve reached the summary limit for now. Try again ${when}.`;
 }
 
@@ -49,12 +57,22 @@ type Outcome = Exclude<TopicSummary, { status: 'pending' }>;
 interface ThreadSummaryPanelProps {
   /** Canonical numeric topic id (the page's `topicId`, parsed from the URL). */
   topicId: number;
+  /**
+   * Live posts in the thread INCLUDING the opening post — what the server's
+   * `too_short` counts (`build_summary_source`). The page keeps it current as
+   * replies land. Below MIN_POSTS the button is not offered at all: every click
+   * on a too-short thread would spend a 30/h slot only to learn `too_short`
+   * (PR #816 review). The server's own `too_short` answer stays handled, for
+   * the race where the count moved between the page's read and the click.
+   */
+  postCount: number;
 }
 
-export default function ThreadSummaryPanel({ topicId }: ThreadSummaryPanelProps) {
+export default function ThreadSummaryPanel({ topicId, postCount }: ThreadSummaryPanelProps) {
   // Read once per mount: a latch set by an EARLIER panel means this account
   // can't use it — render nothing. One set during THIS mount keeps the notice.
   const [hiddenAtMount] = useState(isTopicSummaryUnavailable);
+  // Set by a 403 (latched in the service too) or a 404 (this panel only).
   const [unavailable, setUnavailable] = useState(false);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
@@ -62,24 +80,55 @@ export default function ThreadSummaryPanel({ topicId }: ThreadSummaryPanelProps)
   // Poll timer + a run token: unmount bumps the token so an in-flight run
   // stops at its next await instead of polling for a thread no longer shown.
   // The abort cancels the request itself, which would otherwise still spend a
-  // slot of the 30/h bucket for a thread nobody is viewing.
+  // slot of the 30/h bucket for a thread nobody is viewing. The visibility
+  // cleanup ends a hidden-tab wait the same way.
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const runRef = useRef(0);
   const abortRef = useRef<AbortController | null>(null);
+  const visibilityCleanupRef = useRef<(() => void) | null>(null);
 
   useEffect(
     () => () => {
       runRef.current += 1;
       if (timerRef.current) clearTimeout(timerRef.current);
       abortRef.current?.abort();
+      visibilityCleanupRef.current?.();
     },
     []
   );
 
   if (hiddenAtMount) return null;
 
+  const tooShort = postCount < MIN_POSTS;
+
+  /**
+   * Resolve once the tab is visible. The poll loop waits here between ticks,
+   * so a hidden tab spends none of the 30/h bucket (docs/rules/react.md polling
+   * rule). The wait ends on the `visibilitychange` that shows the tab again, or
+   * on unmount, which removes the listener and resolves so the run exits
+   * through its token check instead of hanging. `!== 'hidden'` rather than
+   * `=== 'visible'`: a `prerender` document is not hidden.
+   */
+  const whenVisible = () =>
+    new Promise<void>((resolve) => {
+      if (document.visibilityState !== 'hidden') {
+        resolve();
+        return;
+      }
+      const settle = () => {
+        document.removeEventListener('visibilitychange', onVisibilityChange);
+        visibilityCleanupRef.current = null;
+        resolve();
+      };
+      const onVisibilityChange = () => {
+        if (document.visibilityState !== 'hidden') settle();
+      };
+      visibilityCleanupRef.current = settle;
+      document.addEventListener('visibilitychange', onVisibilityChange);
+    });
+
   const summarize = async () => {
-    if (busy || unavailable) return;
+    if (busy || unavailable || tooShort) return;
     const run = ++runRef.current;
     const controller = new AbortController();
     abortRef.current = controller;
@@ -102,6 +151,10 @@ export default function ThreadSummaryPanel({ topicId }: ThreadSummaryPanelProps)
           timerRef.current = setTimeout(resolve, POLL_DELAY_MS);
         });
         if (runRef.current !== run) return;
+        // A hidden tab parks here. The wait is not a poll: it spends no slot
+        // and does not count toward MAX_POLLS.
+        await whenVisible();
+        if (runRef.current !== run) return;
       }
     } catch (err) {
       if (runRef.current !== run) return;
@@ -115,6 +168,13 @@ export default function ThreadSummaryPanel({ topicId }: ThreadSummaryPanelProps)
         markTopicSummaryUnavailable();
         setUnavailable(true);
         setMessage(err.message);
+      } else if (err instanceof TopicSummaryError && err.status === 404) {
+        // The topic is gone, or no longer visible to this account (unpublished,
+        // moved to a restricted board): a retry could only spend another slot.
+        // About THIS thread, not the account — so panel-local, never the
+        // service latch, and the next thread offers the button again.
+        setUnavailable(true);
+        setMessage(THREAD_UNAVAILABLE);
       } else if (err instanceof TopicSummaryError && err.status === 401) {
         // An expired access cookie, not "can't": say so, never latch.
         setMessage(SESSION_EXPIRED);
@@ -135,7 +195,7 @@ export default function ThreadSummaryPanel({ topicId }: ThreadSummaryPanelProps)
           Thread summary
         </h2>
         <span className="gt-label">AI · Premium</span>
-        {!unavailable && (
+        {!unavailable && !tooShort && (
           <Button
             size="sm"
             variant="secondary"
@@ -149,6 +209,9 @@ export default function ThreadSummaryPanel({ topicId }: ThreadSummaryPanelProps)
           </Button>
         )}
       </div>
+
+      {/* Below MIN_POSTS the line stands in for the button (PR #816 review). */}
+      {tooShort && <p className="mt-3 text-body-sm text-ink-2">{TOO_SHORT}</p>}
 
       {/* Persistent live region — mounted for the panel's whole life. */}
       <p
@@ -173,10 +236,9 @@ export default function ThreadSummaryPanel({ topicId }: ThreadSummaryPanelProps)
           </div>
         )}
 
-        {outcome?.status === 'too_short' && (
-          <p className="mt-3 text-body-sm text-ink-2">
-            Threads need at least {MIN_POSTS} posts before they can be summarized.
-          </p>
+        {/* The server's count raced ahead of the page's: same line, not twice. */}
+        {outcome?.status === 'too_short' && !tooShort && (
+          <p className="mt-3 text-body-sm text-ink-2">{TOO_SHORT}</p>
         )}
       </div>
     </section>

@@ -24,8 +24,6 @@ import type { User, LoginCredentials, SignupData, AuthResponse } from '../types/
 import type { ApiError } from '../types/api';
 import { API_ORIGIN } from '@/config/api';
 
-const API_URL = API_ORIGIN;
-
 // HTTPS in production is enforced where API_ORIGIN is defined (config/api.ts).
 
 /**
@@ -45,7 +43,7 @@ export async function login(credentials: LoginCredentials): Promise<User> {
       headers['X-CSRFToken'] = csrfToken;
     }
 
-    const response = await fetch(`${API_URL}/api/v1/auth/login/`, {
+    const response = await fetch(`${API_ORIGIN}/api/v1/auth/login/`, {
       method: 'POST',
       headers,
       credentials: 'include', // Include cookies
@@ -144,7 +142,7 @@ export async function signup(userData: SignupData): Promise<User> {
       headers['X-CSRFToken'] = csrfToken;
     }
 
-    const response = await fetch(`${API_URL}/api/v1/auth/register/`, {
+    const response = await fetch(`${API_ORIGIN}/api/v1/auth/register/`, {
       method: 'POST',
       headers,
       credentials: 'include', // Include cookies
@@ -226,7 +224,7 @@ export async function logout(): Promise<void> {
       headers['X-CSRFToken'] = csrfToken;
     }
 
-    const response = await fetch(`${API_URL}/api/v1/auth/logout/`, {
+    const response = await fetch(`${API_ORIGIN}/api/v1/auth/logout/`, {
       method: 'POST',
       headers,
       credentials: 'include', // Include cookies
@@ -254,7 +252,7 @@ export async function logout(): Promise<void> {
  */
 export async function getCurrentUser(): Promise<User | null> {
   try {
-    const response = await fetch(`${API_URL}/api/v1/auth/user/`, {
+    const response = await fetch(`${API_ORIGIN}/api/v1/auth/user/`, {
       method: 'GET',
       headers: {
         'X-Request-ID': getOrCreateRequestId(),
@@ -354,7 +352,7 @@ export async function refreshAccessToken(): Promise<boolean> {
       headers['X-CSRFToken'] = csrfToken;
     }
 
-    const response = await fetch(`${API_URL}/api/v1/auth/token/refresh/`, {
+    const response = await fetch(`${API_ORIGIN}/api/v1/auth/token/refresh/`, {
       method: 'POST',
       headers,
       credentials: 'include', // Include cookies (refresh token)
@@ -387,7 +385,7 @@ export async function refreshAccessToken(): Promise<boolean> {
  * Endpoint is unversioned (`/api/auth/oauth/...`), not `/api/v1/...`.
  */
 export async function getGoogleOAuthUrl(): Promise<string> {
-  const response = await fetch(`${API_URL}/api/auth/oauth/google/login/`, {
+  const response = await fetch(`${API_ORIGIN}/api/auth/oauth/google/login/`, {
     method: 'GET',
     headers: {
       'X-Request-ID': getOrCreateRequestId(),

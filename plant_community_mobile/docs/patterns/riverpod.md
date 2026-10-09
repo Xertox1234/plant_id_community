@@ -259,6 +259,45 @@ expect(harness.events, containsAllInOrder(['clearOnLogout', 'firebase.signOut'])
 Reference: `test/services/auth_service_test.dart`,
 `test/services/push_registration_service_test.dart`.
 
+## Proving a re-fetch: count `build()`, not the factory (todo 520)
+
+Riverpod 3 creates a notifier once per provider element and keeps it. An
+`invalidate` re-runs `build()` on that same instance (riverpod 3.2.1 caches it
+in `classListenable.result`); only a dispose and a fresh element call the
+`overrideWith` factory again. So a counter in the factory stays at 1 across a
+rebuild, and a test built on it fails even when the re-fetch works:
+
+```dart
+// Wrong: counts notifier constructions, not fetches.
+userProfileServiceProvider.overrideWith(() { count++; return _Fake('ada'); });
+
+// Right: count in build().
+class _CountingProfile extends _Fake {
+  _CountingProfile(super.username, this._builds);
+  final _ProfileBuilds _builds;
+  @override
+  Future<UserProfile?> build() { _builds.count++; return super.build(); }
+}
+```
+
+A factory counter is still the right tool for the opposite claim, that the
+provider was never built at all (`expect(builds, 0)`, as in
+`does not build an account profile nothing is watching`).
+
+Two more facts the todo 520 tests pin:
+
+- **A paused listener keeps an autoDispose provider alive.** go_router
+  disables `TickerMode` on an offstage `StatefulShellRoute.indexedStack`
+  branch, flutter_riverpod pauses that widget's subscriptions, and Riverpod
+  never disposes a provider that still has (paused) listeners. A value
+  cleared on sign-out therefore survives until something re-fetches it.
+- **An invalidate with only paused listeners defers the rebuild** to the next
+  read or resume. Invalidating a provider nothing holds is a no-op, so it
+  needs no `ref.exists` guard; a screen's first watch builds it fresh.
+
+Reference: `test/services/auth_service_test.dart`
+(`account profile across a re-login`).
+
 ## Paged feed + child screen: splice, don't invalidate (todo 339)
 
 `ConversationsFeed` (inbox) is a `PagedList` provider with `loadMore()`.

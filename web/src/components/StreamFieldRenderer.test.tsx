@@ -124,11 +124,59 @@ describe('StreamFieldRenderer', () => {
           ]}
         />
       );
-      const link = screen.getByRole('link', { name: /vimeo\.com\/148751763/ });
+      const link = screen.getByRole('link', { name: /^https:\/\/vimeo\.com\/…/ });
       expect(link).toHaveAttribute('href', 'https://vimeo.com/148751763');
       expect(link).toHaveAttribute('rel', 'noopener noreferrer');
       expect(screen.getByText('Watch on Vimeo')).toBeInTheDocument();
       expect(document.querySelector('iframe')).toBeNull();
+    });
+
+    // Todo 518 (owner decision 2026-10-02): an untitled video's full card is
+    // named by its SHORT address, the name its compact row uses, never the
+    // full URL a screen reader would spell out.
+    it('titles an untitled player by its short address (todo 518)', () => {
+      const { container } = render(
+        <StreamFieldRenderer
+          blocks={[
+            {
+              type: 'embed',
+              id: 'e3',
+              value: {
+                url: 'https://youtu.be/dQw4w9WgXcQ?t=42',
+                provider_name: 'YouTube',
+                title: '',
+                thumbnail_url: '',
+                embed_url: 'https://www.youtube-nocookie.com/embed/dQw4w9WgXcQ',
+              },
+            },
+          ]}
+        />
+      );
+      expect(container.querySelector('iframe')).toHaveAttribute('title', 'https://youtu.be/…');
+    });
+
+    it('names an untitled fallback card by its short address, still opening the full URL (todo 518)', () => {
+      render(
+        <StreamFieldRenderer
+          blocks={[
+            {
+              type: 'embed',
+              id: 'e4',
+              value: {
+                url: 'https://vimeo.com/148751763',
+                provider_name: '',
+                title: '',
+                thumbnail_url: '',
+                embed_url: null,
+              },
+            },
+          ]}
+        />
+      );
+      const link = screen.getByRole('link', { name: /^https:\/\/vimeo\.com\/…/ });
+      expect(link).toHaveTextContent('https://vimeo.com/…');
+      expect(link).not.toHaveTextContent('148751763');
+      expect(link).toHaveAttribute('href', 'https://vimeo.com/148751763');
     });
 
     it('renders image block as an <img> with the rendition url and alt', () => {

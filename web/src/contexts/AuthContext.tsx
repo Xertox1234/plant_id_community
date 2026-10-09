@@ -10,11 +10,7 @@ import {
   ReactNode,
 } from 'react';
 import * as authService from '../services/authService';
-import {
-  resetComposeAssistAvailability,
-  resetPlantCareAskAvailability,
-  resetTopicSummaryAvailability,
-} from '../services/forumService';
+import { resetAllCapabilityLatches } from '../services/capabilityLatch';
 import { logger } from '../utils/logger';
 import { rotateRequestId } from '../utils/requestId';
 import { clearAllDrafts } from '../utils/forumDrafts';
@@ -215,24 +211,21 @@ export function AuthProvider({ children }: AuthProviderProps) {
     draftsOwnerIdRef.current = nextId;
   }, [user?.id]);
 
-  // Clear per-account API capability latches whenever the identity changes.
+  // Clear every per-account API capability latch whenever the identity changes.
   // One effect keyed on the user id rather than a call in each of login/register/
-  // logout/refresh, so a future auth path cannot forget it. The forum
-  // compose-assist latch caches "this account is not premium" for the session, so
-  // it must not outlive the account: without this, a non-premium user who clicks
-  // AI assist, then upgrades or logs out and back in as someone else in the same
-  // SPA session, keeps a disabled button the server would now allow
-  // (todo 275 code review).
-  // The plant-care ask latch (todo 289) is the same kind of session-scoped
-  // "this account can't" fact — and it also covers 401, so signing in must
-  // clear it or the panel stays disabled for the now-authenticated user.
-  // The thread-summary latch (todo 414) is the same "this account is not
-  // premium" fact, so an account switch must re-offer the button. (An upgrade
-  // within the same session keeps the same id, so it needs a reload.)
+  // logout/refresh, so a future auth path cannot forget it — and one reset-all
+  // over the keyed registry (services/capabilityLatch.ts, todo 433) rather than
+  // one line per capability, so a future capability cannot be forgotten here
+  // either. Each latch caches a session-scoped "this account can't" fact —
+  // compose assist (todo 275: not premium), plant-care ask (todo 289: not
+  // premium, or an anonymous 401 that signing in must clear), thread summary
+  // (todo 414: not premium) — so it must not outlive the account: without this,
+  // a non-premium user who clicks AI assist, then upgrades or logs out and back
+  // in as someone else in the same SPA session, keeps a disabled button the
+  // server would now allow (todo 275 code review). (An upgrade within the same
+  // session keeps the same id, so it needs a reload.)
   useEffect(() => {
-    resetComposeAssistAvailability();
-    resetPlantCareAskAvailability();
-    resetTopicSummaryAvailability();
+    resetAllCapabilityLatches();
   }, [user?.id]);
 
   // Automatic token refresh for authenticated users

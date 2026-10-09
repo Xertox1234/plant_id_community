@@ -12,7 +12,8 @@ import type { TopicSummary } from '../../types/forum';
  * compose-assist contract: the server's 403 latches "this account can't" in the
  * service for the session (a remount on the next thread renders nothing); 429
  * is transient. A 202 `pending` is polled — sparingly, because every poll
- * spends the same 30/h bucket as a click.
+ * spends the same 30/h bucket as a click: not below 3 posts, and not while the
+ * tab is hidden (todo 433). A 404 is about the thread, not the account.
  */
 
 const READY: TopicSummary = {
@@ -33,21 +34,28 @@ async function advance(ms: number) {
   });
 }
 
+/** The todo-346 idiom: an own-property getter shadows jsdom's for the test. */
+const setVisibility = (state: DocumentVisibilityState) => {
+  Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => state });
+};
+
 describe('ThreadSummaryPanel', () => {
   beforeEach(() => {
     // Session-scoped module latch — would otherwise leak from the 403 case.
     forumService.resetTopicSummaryAvailability();
     vi.spyOn(logger, 'error').mockImplementation(() => {});
     vi.useFakeTimers();
+    setVisibility('visible');
   });
 
   afterEach(() => {
     vi.useRealTimers();
+    setVisibility('visible');
   });
 
   it('runs a summary for the topic and renders it as text (premium path)', async () => {
     const fetchSummary = vi.spyOn(forumService, 'fetchTopicSummary').mockResolvedValue(READY);
-    render(<ThreadSummaryPanel topicId={12} />);
+    render(<ThreadSummaryPanel topicId={12} postCount={5} />);
     // Persistent live region: present and EMPTY before anything happens.
     expect(statusRegion()).toBeEmptyDOMElement();
     expect(fetchSummary).not.toHaveBeenCalled();
@@ -65,7 +73,7 @@ describe('ThreadSummaryPanel', () => {
       .spyOn(forumService, 'fetchTopicSummary')
       .mockResolvedValueOnce(PENDING)
       .mockResolvedValueOnce(READY);
-    render(<ThreadSummaryPanel topicId={12} />);
+    render(<ThreadSummaryPanel topicId={12} postCount={5} />);
 
     fireEvent.click(summarize());
     await advance(0);
@@ -80,7 +88,7 @@ describe('ThreadSummaryPanel', () => {
 
   it('stops polling after a bounded number of attempts and says to come back', async () => {
     const fetchSummary = vi.spyOn(forumService, 'fetchTopicSummary').mockResolvedValue(PENDING);
-    render(<ThreadSummaryPanel topicId={12} />);
+    render(<ThreadSummaryPanel topicId={12} postCount={5} />);
 
     fireEvent.click(summarize());
     await advance(60_000);
@@ -100,7 +108,7 @@ describe('ThreadSummaryPanel', () => {
         3600
       )
     );
-    render(<ThreadSummaryPanel topicId={12} />);
+    render(<ThreadSummaryPanel topicId={12} postCount={5} />);
 
     fireEvent.click(summarize());
     await advance(0);
@@ -114,7 +122,7 @@ describe('ThreadSummaryPanel', () => {
     vi.spyOn(forumService, 'fetchTopicSummary').mockRejectedValue(
       new forumService.TopicSummaryError(403, 'This feature requires a premium account.')
     );
-    const { unmount } = render(<ThreadSummaryPanel topicId={12} />);
+    const { unmount } = render(<ThreadSummaryPanel topicId={12} postCount={5} />);
 
     fireEvent.click(summarize());
     await advance(0);
@@ -125,7 +133,7 @@ describe('ThreadSummaryPanel', () => {
 
     // The next thread (a remount) must not re-offer it: a non-premium user sees nothing.
     unmount();
-    const { container } = render(<ThreadSummaryPanel topicId={13} />);
+    const { container } = render(<ThreadSummaryPanel topicId={13} postCount={5} />);
     expect(container).toBeEmptyDOMElement();
   });
 
@@ -134,7 +142,7 @@ describe('ThreadSummaryPanel', () => {
       status: 'too_short',
       post_count: 2,
     });
-    render(<ThreadSummaryPanel topicId={12} />);
+    render(<ThreadSummaryPanel topicId={12} postCount={5} />);
 
     fireEvent.click(summarize());
     await advance(0);
@@ -146,7 +154,7 @@ describe('ThreadSummaryPanel', () => {
     vi.spyOn(forumService, 'fetchTopicSummary').mockRejectedValue(
       new forumService.TopicSummaryError(500, 'Internal server error')
     );
-    render(<ThreadSummaryPanel topicId={12} />);
+    render(<ThreadSummaryPanel topicId={12} postCount={5} />);
 
     fireEvent.click(summarize());
     await advance(0);
@@ -157,7 +165,7 @@ describe('ThreadSummaryPanel', () => {
 
   it('stops polling when unmounted (navigating away mid-generation)', async () => {
     const fetchSummary = vi.spyOn(forumService, 'fetchTopicSummary').mockResolvedValue(PENDING);
-    const { unmount } = render(<ThreadSummaryPanel topicId={12} />);
+    const { unmount } = render(<ThreadSummaryPanel topicId={12} postCount={5} />);
 
     fireEvent.click(summarize());
     await advance(0);
@@ -179,7 +187,7 @@ describe('ThreadSummaryPanel', () => {
           })
       )
       .mockResolvedValue(PENDING);
-    const { unmount } = render(<ThreadSummaryPanel topicId={12} />);
+    const { unmount } = render(<ThreadSummaryPanel topicId={12} postCount={5} />);
 
     fireEvent.click(summarize());
     unmount();
@@ -197,7 +205,7 @@ describe('ThreadSummaryPanel', () => {
     vi.spyOn(forumService, 'fetchTopicSummary').mockRejectedValue(
       new forumService.TopicSummaryError(401, 'Authentication credentials were not provided.')
     );
-    render(<ThreadSummaryPanel topicId={12} />);
+    render(<ThreadSummaryPanel topicId={12} postCount={5} />);
 
     fireEvent.click(summarize());
     await advance(0);
@@ -213,7 +221,7 @@ describe('ThreadSummaryPanel', () => {
       seen = signal;
       return new Promise<TopicSummary>(() => {});
     });
-    const { unmount } = render(<ThreadSummaryPanel topicId={12} />);
+    const { unmount } = render(<ThreadSummaryPanel topicId={12} postCount={5} />);
 
     fireEvent.click(summarize());
     await advance(0);
@@ -225,7 +233,7 @@ describe('ThreadSummaryPanel', () => {
 
   it('renders the result inside a live region that exists before it arrives', async () => {
     vi.spyOn(forumService, 'fetchTopicSummary').mockResolvedValue(READY);
-    render(<ThreadSummaryPanel topicId={12} />);
+    render(<ThreadSummaryPanel topicId={12} postCount={5} />);
     const region = screen.getByTestId('thread-summary-result');
     expect(region).toHaveAttribute('aria-live', 'polite');
     expect(region).toBeEmptyDOMElement();
@@ -235,5 +243,102 @@ describe('ThreadSummaryPanel', () => {
 
     expect(screen.getByTestId('thread-summary-result')).toBe(region);
     expect(region).toHaveTextContent(READY.summary);
+  });
+
+  // --- todo 433 (PR #816 review follow-ups) ---
+
+  it('does not offer the button below 3 posts, says why, and offers it once the thread grows', () => {
+    const fetchSummary = vi.spyOn(forumService, 'fetchTopicSummary').mockResolvedValue(READY);
+    const { rerender } = render(<ThreadSummaryPanel topicId={12} postCount={2} />);
+
+    // No button to click: a click here could only spend a 30/h slot to learn too_short.
+    expect(screen.queryByRole('button', { name: /summarize thread/i })).not.toBeInTheDocument();
+    expect(screen.getByText(/at least 3 posts/i)).toBeInTheDocument();
+    expect(fetchSummary).not.toHaveBeenCalled();
+
+    // A reply lands and the page's live count moves: the button appears.
+    rerender(<ThreadSummaryPanel topicId={12} postCount={3} />);
+    expect(summarize()).toBeEnabled();
+    expect(screen.queryByText(/at least 3 posts/i)).not.toBeInTheDocument();
+  });
+
+  it('on 404 (topic gone or restricted) says the thread is unavailable, offers no retry, and does not latch', async () => {
+    vi.spyOn(forumService, 'fetchTopicSummary').mockRejectedValue(
+      new forumService.TopicSummaryError(404, 'No Topic matches the given query.')
+    );
+    const { unmount } = render(<ThreadSummaryPanel topicId={12} postCount={5} />);
+
+    fireEvent.click(summarize());
+    await advance(0);
+
+    expect(statusRegion()).toHaveTextContent(/thread is unavailable/i);
+    // No retry: each one would spend a 30/h slot on a thread that cannot answer.
+    expect(screen.queryByRole('button', { name: /summarize thread/i })).not.toBeInTheDocument();
+    // Nothing about the ACCOUNT changed: no service latch, and the next thread offers it.
+    expect(forumService.isTopicSummaryUnavailable()).toBe(false);
+    unmount();
+    render(<ThreadSummaryPanel topicId={13} postCount={5} />);
+    expect(summarize()).toBeEnabled();
+  });
+
+  it.each([
+    [60, 'about 1 minute'],
+    [90, 'about 2 minutes'],
+  ])('pluralizes the throttled wait (%i s)', async (retryAfter, text) => {
+    vi.spyOn(forumService, 'fetchTopicSummary').mockRejectedValue(
+      new forumService.TopicSummaryError(
+        429,
+        'Rate limit exceeded. Please try again later.',
+        'rate_limit_exceeded',
+        retryAfter
+      )
+    );
+    render(<ThreadSummaryPanel topicId={12} postCount={5} />);
+
+    fireEvent.click(summarize());
+    await advance(0);
+
+    expect(statusRegion()).toHaveTextContent(text);
+  });
+
+  it('waits for the tab to be visible before the next poll, spending none of the poll budget while hidden', async () => {
+    const fetchSummary = vi.spyOn(forumService, 'fetchTopicSummary').mockResolvedValue(PENDING);
+    render(<ThreadSummaryPanel topicId={12} postCount={5} />);
+
+    fireEvent.click(summarize());
+    await advance(0);
+    expect(fetchSummary).toHaveBeenCalledTimes(1);
+
+    setVisibility('hidden');
+    // Far past MAX_POLLS worth of delays: no poll, and no "still being
+    // written" either — hidden time is a wait, not a poll.
+    await advance(60_000);
+    expect(fetchSummary).toHaveBeenCalledTimes(1);
+    expect(statusRegion()).toBeEmptyDOMElement();
+
+    setVisibility('visible');
+    await act(async () => {
+      document.dispatchEvent(new Event('visibilitychange'));
+    });
+    await advance(0);
+    expect(fetchSummary).toHaveBeenCalledTimes(2);
+  });
+
+  it('abandons a hidden-tab wait on unmount instead of polling when the tab returns', async () => {
+    const fetchSummary = vi.spyOn(forumService, 'fetchTopicSummary').mockResolvedValue(PENDING);
+    const { unmount } = render(<ThreadSummaryPanel topicId={12} postCount={5} />);
+
+    fireEvent.click(summarize());
+    await advance(0);
+    setVisibility('hidden');
+    await advance(5000); // the poll delay elapsed; the run is parked on visibility
+    unmount();
+
+    setVisibility('visible');
+    await act(async () => {
+      document.dispatchEvent(new Event('visibilitychange'));
+    });
+    await advance(60_000);
+    expect(fetchSummary).toHaveBeenCalledTimes(1);
   });
 });

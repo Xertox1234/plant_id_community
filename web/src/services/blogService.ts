@@ -20,8 +20,6 @@ import type {
 } from '../types/blog';
 import { API_ORIGIN } from '@/config/api';
 
-export const API_URL = API_ORIGIN;
-
 /**
  * Resolve a media path against the API origin.
  *
@@ -35,10 +33,10 @@ export const API_URL = API_ORIGIN;
  * port 80, not the API's actual port). As of todo 308, the backend instead
  * derives every URL from the request that's actually serving it
  * (`request.build_absolute_uri()`), so the host it sends should now always
- * match `API_URL` when hit through the same domain — this rebase is kept
+ * match `API_ORIGIN` when hit through the same domain — this rebase is kept
  * as defense-in-depth rather than removed, since it's a no-op once the
  * hosts already match. So: re-base ANY `/media/` PATH — relative or
- * absolute — onto `API_URL`, ignoring whatever host the API sent.
+ * absolute — onto `API_ORIGIN`, ignoring whatever host the API sent.
  *
  * When the backend's USE_R2 flag is on (todo 305), media instead lives on
  * an R2/CDN custom domain, and those URLs never contain a `/media/` path
@@ -52,17 +50,17 @@ export const API_URL = API_ORIGIN;
  */
 export function mediaUrl(url: string): string {
   if (url.startsWith('/media/')) {
-    return `${API_URL}${url}`;
+    return `${API_ORIGIN}${url}`;
   }
   try {
     const parsed = new URL(url);
     if (parsed.pathname.startsWith('/media/')) {
-      return `${API_URL}${parsed.pathname}${parsed.search}${parsed.hash}`;
+      return `${API_ORIGIN}${parsed.pathname}${parsed.search}${parsed.hash}`;
     }
   } catch {
     // Not a valid absolute URL — fall through to the relative-path case.
   }
-  return url.startsWith('/') ? `${API_URL}${url}` : url;
+  return url.startsWith('/') ? `${API_ORIGIN}${url}` : url;
 }
 
 /**

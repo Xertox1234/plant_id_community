@@ -381,6 +381,24 @@ def repoint(run, todo_id, index, to, decision, date, git=run_git):
     return marker.strip()
 
 
+def _triage_fields(entry, record, today):
+    """The frontmatter fields apply_triage writes for one triaged todo."""
+    fields = {"triage": record["class"], "triaged": today}
+    if record.get("blocked_on"):
+        fields["blocked_on"] = record["blocked_on"]
+    # Todo 468: an owner who blocked a needs-design or stale todo has answered it. blocked-owner makes
+    # the next scan skip it until the file changes, instead of asking the same question again.
+    # Only the owner's own block counts (decide stores the decision as the reason): a worker that
+    # blocks after an owner's "ready" answer has not been answered by the owner (PR #869 round 1).
+    if (entry["stage"] == "blocked" and entry.get("owner_decision")
+            and entry.get("reason") == entry["owner_decision"] and not record["class"].startswith("blocked-")):
+        fields["triage"] = "blocked-owner"
+        fields.setdefault("blocked_on", entry["owner_decision"])
+    if entry.get("owner_decision"):
+        fields["owner_decision"] = entry["owner_decision"]
+    return fields
+
+
 def apply_triage(run, repo_root, today, git=run_git):
     """Write durable triage facts into each todo's frontmatter (spec §6.4)."""
     repo_root = Path(repo_root)
@@ -393,6 +411,22 @@ def apply_triage(run, repo_root, today, git=run_git):
             if new_rel != rel and (repo_root / rel).exists() and (repo_root / new_rel).exists():
                 raise RuntimeError(f"{todo_id}: both {rel} and {new_rel} exist, so the id is on disk twice; "
                                    "keep one (git rm the other), then rerun apply-triage")
+    # Todo 519: a field set_fields would refuse (a duplicate key line, a multi-line value) is refused here,
+    # before any todo is renamed or edited, not as a ValueError part-way through the loop below. A missing
+    # file is left to the loop, where it fails as before and a rerun picks up from it (todo 468).
+    for _, entry in sorted(run["todos"].items()):
+        record = entry.get("triage")
+        if not record:
+            continue
+        path, keys = repo_root / entry["path"], list(_triage_fields(entry, record, today))
+        if entry.get("reset_stranded"):
+            renamed = path.with_name(todofile.with_status(path.name, "pending"))
+            path, keys = (renamed if renamed.exists() else path), ["status", *keys]
+        if path.is_file():
+            text = path.read_text()
+            problem = next((p for p in (todofile.field_problem(text, key) for key in keys) if p), None)
+            if problem:
+                raise ValueError(f"{path}: {problem}; edit it by hand")
     changed = []
     for todo_id, entry in sorted(run["todos"].items()):
         record = entry.get("triage")
@@ -416,20 +450,7 @@ def apply_triage(run, repo_root, today, git=run_git):
                     "- Was `in_progress` with no branch, worktree or open PR; the owner confirmed the reset.\n",
                 )
             entry["stranded"] = entry["reset_stranded"] = False
-        fields = {"triage": record["class"], "triaged": today}
-        if record.get("blocked_on"):
-            fields["blocked_on"] = record["blocked_on"]
-        # Todo 468: an owner who blocked a needs-design or stale todo has answered it. blocked-owner makes
-        # the next scan skip it until the file changes, instead of asking the same question again.
-        # Only the owner's own block counts (decide stores the decision as the reason): a worker that
-        # blocks after an owner's "ready" answer has not been answered by the owner (PR #869 round 1).
-        if (entry["stage"] == "blocked" and entry.get("owner_decision")
-                and entry.get("reason") == entry["owner_decision"] and not record["class"].startswith("blocked-")):
-            fields["triage"] = "blocked-owner"
-            fields.setdefault("blocked_on", entry["owner_decision"])
-        if entry.get("owner_decision"):
-            fields["owner_decision"] = entry["owner_decision"]
-        todofile.set_fields(repo_root / rel, fields)
+        todofile.set_fields(repo_root / rel, _triage_fields(entry, record, today))
         changed.append(rel)
     return changed
 

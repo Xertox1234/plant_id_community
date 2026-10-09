@@ -302,3 +302,9 @@ Compact checklist auto-injected before edits. Long-form:
   `save_revision()` of a programmatically created draft, or the page history
   shows two "created" entries. Set `owner=` so the entry and "My pages" name
   the right user (todo 445, PR #855).
+- **Before deleting an image a page might reference, collect references from
+  every field, never a hand-picked list.** Walk each field with
+  `extract_references` (StreamField and RichTextField alike) plus every image
+  foreign key, on the live row AND the latest revision, or keep the image.
+  Todo 442's cleanup missed a block, then `featured_image`/`social_image`, then
+  intro embeds, across three review rounds (PR #944).

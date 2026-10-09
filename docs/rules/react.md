@@ -337,3 +337,8 @@ Compact checklist auto-injected before edits. Long-form:
   re-renders, and a release outside `finally` locks the button after an error.
   A fast double tap on a reaction added it and removed it (todo 465; mobile
   mirrors it with a `Set<String>` on the notifier).
+- **Programmatic focus on a tall landmark (`<main>`, a page section) passes
+  `{ preventScroll: true }`.** Plain `.focus()` may scroll the element into view:
+  moving focus to `<main>` when the drawer closes on widen could scroll the
+  page, which focus falling back to `<body>` never did (review finding, todo
+  509). Pin the option with a spy on `focus` (`AppShell.tsx`).

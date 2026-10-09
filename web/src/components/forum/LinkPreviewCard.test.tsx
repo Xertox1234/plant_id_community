@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import LinkPreviewCard from './LinkPreviewCard';
-import { API_URL } from '@/services/blogService';
+import { API_ORIGIN } from '@/config/api';
 import type { LinkPreviewBlockValue } from '@/types/blog';
 
 const FULL_URL = 'https://microsoft.com/en-us/windows/some/long/path?x=1';
@@ -67,7 +67,7 @@ describe('LinkPreviewCard (todo 428)', () => {
 
     expect(container.querySelector('img')).toHaveAttribute(
       'src',
-      `${API_URL}/media/forum/link-previews/${'a'.repeat(64)}.webp`
+      `${API_ORIGIN}/media/forum/link-previews/${'a'.repeat(64)}.webp`
     );
   });
 

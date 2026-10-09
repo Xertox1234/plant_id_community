@@ -179,6 +179,33 @@ describe('card runs', () => {
     expect(row).not.toHaveTextContent('xyz');
   });
 
+  // Todo 518, finding 4: with no provider either, the row is named by its
+  // short address alone, as the mobile row is (forum_card_runs_test.dart).
+  it('names an untitled video row with no provider by its short address alone', () => {
+    const bare = embed('c', '', '');
+    if (bare.type === 'embed') bare.value.url = 'https://vimeo.com/77';
+    render(<StreamFieldRenderer blocks={[embed('a', 'Alpha', 'YouTube'), bare]} />);
+
+    const row = screen.getByRole('button', { name: 'https://vimeo.com/…' });
+    expect(row).toHaveTextContent('https://vimeo.com/…');
+    expect(row).not.toHaveTextContent('/77');
+  });
+
+  // Todo 518, finding 1 (owner decision 2026-10-02): an untitled video's full
+  // card uses its short address too, so the same video is named one way
+  // wherever it falls in a run.
+  it('names an untitled video by its short address as a full card and as a row', () => {
+    const untitled = (id: string) => {
+      const block = embed(id, '', 'YouTube');
+      if (block.type === 'embed') block.value.url = `https://youtu.be/${id}?t=42`;
+      return block;
+    };
+    render(<StreamFieldRenderer blocks={[untitled('a'), untitled('b')]} />);
+
+    expect(iframes()[0].getAttribute('title')).toBe('https://youtu.be/…');
+    expect(screen.getByRole('button', { name: 'https://youtu.be/…, YouTube' })).toBeInTheDocument();
+  });
+
   it('keeps a null link card out of a run (it renders nothing)', () => {
     const blank: StreamFieldBlock = { id: 'x', type: 'link_preview', value: null };
     expect(isCardBlock(blank)).toBe(false);

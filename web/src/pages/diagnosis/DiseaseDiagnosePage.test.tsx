@@ -158,20 +158,33 @@ describe('DiseaseDiagnosePage', () => {
   // Todo 502. The select's keys and labels were a hand-kept copy of the model
   // choices; nothing failed if the model gained, lost or renamed one. Read the
   // choices straight out of models.py and compare them with what renders.
+  // The read needs the backend tree next to web/: web-ci.yml, the only Vitest
+  // job, checks out the whole repo, and a missing file throws rather than
+  // passing (todo 515).
   it('offers exactly the plant_condition choices declared on the backend model', () => {
     const models = readFileSync(
       join(__dirname, '../../../../backend/apps/plant_identification/models.py'),
       'utf8'
     );
-    const field = models.match(
-      /plant_condition = models\.CharField\([\s\S]*?choices=\[([\s\S]*?)\]/
+    // Bound the match to the plant_condition declaration -- its `CharField(`
+    // through the field-level `)` on its own 4-space line -- and look for the
+    // choices list only inside it. Unbounded, a lazy `[\s\S]*?choices=\[` ran
+    // on to the NEXT field's list once this one moved to a constant or
+    // TextChoices, and the failure diff blamed that field (todo 515).
+    const field = models.match(/^ {4}plant_condition = models\.CharField\(([\s\S]*?)^ {4}\)/m);
+    expect(field, 'plant_condition declaration not found in models.py').not.toBeNull();
+    const choices = field![1].match(/choices=\[([\s\S]*?)\]/);
+    expect(choices, 'plant_condition has no inline choices=[...] list').not.toBeNull();
+    const backendChoices = [...choices![1].matchAll(/\(\s*"([^"]+)",\s*"([^"]+)"\s*\)/g)].map(
+      (m) => [m[1], m[2]]
     );
-    expect(field).not.toBeNull();
-    const backendChoices = [...field![1].matchAll(/\(\s*"([^"]+)",\s*"([^"]+)"\s*\)/g)].map((m) => [
-      m[1],
-      m[2],
-    ]);
-    expect(backendChoices.length).toBeGreaterThan(0); // the regex found the field
+    expect(backendChoices.length).toBeGreaterThan(0);
+    // Every tuple in the list, parsed or not. One the key/label regex cannot
+    // read -- `("dormant", _("Dormant"))`, single quotes -- used to be dropped
+    // silently, and when web lacked it too the tie passed on exactly the drift
+    // it guards (todo 515).
+    const tupleLines = choices![1].match(/^\s*\(/gm) ?? [];
+    expect(backendChoices).toHaveLength(tupleLines.length);
 
     render(<DiseaseDiagnosePage />);
     const options = Array.from(

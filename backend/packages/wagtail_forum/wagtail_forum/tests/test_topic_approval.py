@@ -506,6 +506,14 @@ def test_approving_a_thread_whose_opening_post_is_scheduled_counts_the_topic(
     # linked publish. The board must still count the now-live topic. Wagtail
     # 8 still sends `published` for a scheduled first publish, so the nested
     # post receiver is what recounts the board and author, once each.
+    # Pinned Wagtail 8.0 behaviour, `PublishRevisionAction._publish_revision`
+    # (wagtail/actions/publish_revision.py): a future `go_live_at` returns
+    # before `_after_publish()`, the `published` send, only when
+    # `object.live_revision_id` is set; a never-published object is saved
+    # live=False and still gets the signal. A bump that moves `_after_publish()`
+    # under `if object.live:` or widens that early return turns this test red.
+    # The nested recount is then gone, so the topic branch's `linked_author_id`
+    # gate in signals.py must change, not this test (todo 517, findings 2/3).
     from datetime import timedelta
 
     from django.utils import timezone
@@ -530,3 +538,62 @@ def test_approving_a_thread_whose_opening_post_is_scheduled_counts_the_topic(
     ]
     board.refresh_from_db()
     assert (board.topic_count, board.post_count) == (1, 0)
+
+
+# --- Todo 517: PR #929 review follow-ups ---
+
+
+@pytest.mark.django_db
+def test_a_failed_opening_post_link_still_recounts_the_authors_live_reply(
+    client, moderator, recount_spies
+):
+    # Finding 1: in the failed-link test above the opening author has no live
+    # post, so `_refresh_topic_authors` walks nobody and excluding the author
+    # on a failed link too would pass it. The exclusion is owed only when the
+    # linked publish recounted the author with the topic live. Here the author
+    # also has a live reply in the never-published topic, the link fails, and
+    # the topic's own recount must still reach that author.
+    from unittest import mock
+
+    from wagtail.models import Revision
+
+    real_publish = Revision.publish
+
+    def publish_failing_for_posts(self, *args, **kwargs):
+        if self.content_type.model_class() is Post:
+            raise RuntimeError("boom")
+        return real_publish(self, *args, **kwargs)
+
+    author = User.objects.create_user(username="plantadmin")
+    board = _board()
+    topic, post = _pending_thread(author, board)
+    reply = Post.objects.create(
+        topic=topic,
+        author=author,
+        body=[{"type": "paragraph", "value": "<p>A reply</p>"}],
+    )
+    Post.objects.filter(pk=reply.pk).update(
+        live=True,
+        first_published_at=reply.created_at,
+        last_published_at=reply.created_at,
+    )
+    _reset(recount_spies)
+
+    with mock.patch.object(Revision, "publish", publish_failing_for_posts):
+        _admin_publish_topic(client, topic)
+
+    topic.refresh_from_db()
+    post.refresh_from_db()
+    reply.refresh_from_db()
+    assert topic.live is True
+    assert post.live is False  # the link really failed
+    assert reply.live is True
+    assert recount_spies["_refresh_board_counters"].call_count == 1
+    # Nothing recounted the author with the topic live, so the topic branch
+    # owes it: the live reply funds post_count now that the topic is visible.
+    assert [c.args for c in recount_spies["_refresh_profile"].call_args_list] == [
+        (author.pk,)
+    ]
+    assert ForumProfile.objects.get(user=author).post_count == 1
+    board.refresh_from_db()
+    assert (board.topic_count, board.post_count) == (1, 1)

@@ -4,7 +4,7 @@ import { render } from '@testing-library/react';
 import LinkPreviewCard from './LinkPreviewCard';
 import { isCardBlock } from './cardRuns';
 import { linkPreviewDisplay } from './linkPreviewDisplay';
-import { API_URL } from '@/services/blogService';
+import { API_ORIGIN } from '@/config/api';
 import type { LinkPreviewBlockValue } from '@/types/blog';
 
 // Todo 453: one derivation of a link card's display, shared by the full card,
@@ -62,7 +62,7 @@ describe('linkPreviewDisplay (todo 453)', () => {
   it('takes a post card image from our media, a composer image from https only', () => {
     const stored = '/media/forum/link-previews/' + 'a'.repeat(64) + '.webp';
     expect(linkPreviewDisplay(preview({ image_url: stored }), 'post')?.imageSrc).toBe(
-      `${API_URL}${stored}`
+      `${API_ORIGIN}${stored}`
     );
     expect(
       linkPreviewDisplay(preview({ image_url: 'https://cdn.example.org/og.png' }), 'composer')
@@ -101,7 +101,10 @@ describe('linkPreviewDisplay (todo 453)', () => {
 
   it('makes every caller name its image source', () => {
     // Todo 505: no default, so leaving the variant out is a type error rather
-    // than a silent choice of image source.
+    // than a silent choice of image source. Vitest does not typecheck, so tsc
+    // is what enforces this (todo 518): tsconfig.json includes src/**/*, test
+    // files too, and web-ci runs `npm run type-check` (tsc --noEmit). With an
+    // optional variant the directive goes unused, and tsc fails (TS2578).
     // @ts-expect-error variant is required
     expect(linkPreviewDisplay(preview())).not.toBeNull();
   });

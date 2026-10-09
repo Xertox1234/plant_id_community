@@ -123,6 +123,22 @@ class Post(
     def __str__(self):
         return f"Post #{self.pk} in {self.topic_id}"
 
+    def with_content_json(self, content):
+        """The object a revision describes, keeping this row's
+        ``reaction_counts`` (todo 499).
+
+        Reactions are not revision content. ``Reaction.recount`` keeps the
+        counts on the live row while an edit waits in moderation, and a
+        revision snapshots them as they were when it was saved. Publishing a
+        held edit, whichever way (the pending page's Approve, the snippet
+        editor's Publish, a workflow's finish action, a revert), would put
+        that snapshot live and drop every reaction added meanwhile. Wagtail
+        keeps ``latest_revision``, ``live`` and ``first_published_at`` from
+        the live object the same way, for the same reason."""
+        obj = super().with_content_json(content)
+        obj.reaction_counts = self.reaction_counts
+        return obj
+
     def get_preview_template(self, request, mode_name):
         """Lets a moderator preview a NEEDS_CHANGES post's rendered body from
         the snippet edit view (audit M16) — the workflow "Awaiting my review"

@@ -393,9 +393,11 @@ accessible name, not a mobile dialect (the full video card is the one partial
 match, below). A card or compact row is named
 "title, second line" — the second line being a video's provider or a link's
 SHORT address — or the title alone when there is no second line (a link whose
-title IS its address says it once). An untitled video row is titled by its
-SHORT address too, never the full URL (todo 505). The full video card's second
-line is its visible "Watch on PROVIDER": that matches only the web's no-player
+title IS its address says it once). An untitled video is titled by its SHORT
+address too, never the full URL, on its row (todo 505) AND its full card (owner
+decision 2026-10-02, todo 518): one rule, `_embedTitle`, whose web twin is
+`embedDisplay`. The full video card's second line is its visible "Watch on
+PROVIDER": that matches only the web's no-player
 FALLBACK card, which takes its name from its content. It is NOT the web's name
 for a video with a player (an iframe titled by the title alone), and with no
 provider the web fallback reads "title Open link" where mobile says the title

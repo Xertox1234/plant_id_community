@@ -17,3 +17,9 @@ Compact checklist auto-injected before edits. Long-form:
   refusal is cached for `CORS_PREFLIGHT_MAX_AGE` (24h). jsdom does not enforce
   CORS, so unit tests cannot see it; add the header to `BROWSER_SENT_HEADERS` in
   `apps/forum_host/tests/test_cors_preflight.py` (todo 357, `Idempotency-Key`).
+- **A closed set of values the UI lists is ONE `as const` tuple.** Derive the
+  union from it (`type X = (typeof XS)[number]`) and key the labels with
+  `Record<X, string>`, so a value without a label is a `tsc` error instead of a
+  missing option. When the set mirrors a backend `choices` list, add a test that
+  reads the model source and compares (`PLANT_CONDITIONS` in
+  `types/diagnosis.ts`, todo 502).

@@ -393,10 +393,14 @@ is where stages live.
 ### 7.1 Groups
 
 `group.py` builds groups by union-find over `predicted_files`: two ready todos
-sharing a predicted file join one group (one worker, one PR). Tiny todos
+sharing a predicted file join one group (one worker, one PR). A lane file
+(`settings.py`, `.secrets.baseline`, §7.2) joins no group: todos that share only
+a lane file are separate groups, which its lane serialises (todo 491). Tiny todos
 (`size: xs`) in the same top-level module are bundled, at most 3 per group.
 Frontmatter `dependencies` order groups; a dependency cycle aborts with the
-cycle printed.
+cycle printed. A todo that depends on an open todo outside the run is held
+before grouping, and so is every todo that depends on it. A todo that only
+shares a file with it is planned without it (todo 491).
 
 ### 7.2 Single-lane resources
 

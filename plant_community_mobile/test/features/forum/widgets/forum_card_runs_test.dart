@@ -466,20 +466,65 @@ void main() {
     handle.dispose();
   });
 
-  // Todo 505, finding 1: a link row reads its label from linkPreviewDisplay
-  // rather than re-deriving it.
+  // Todo 505, finding 1: a link row's label is linkPreviewDisplay's. Todo
+  // 518, findings 2 and 3: pinned as a literal, as the web test does, never
+  // read back from linkPreviewDisplay, so a wrong derivation fails here too.
   testWidgets('a link row is labelled by linkPreviewDisplay', (tester) async {
     final handle = tester.ensureSemantics();
     const bare = LinkPreviewBlock(url: 'https://example.org/g');
     await _pump(tester, const [_a, _link, bare]);
 
     expect(
-      find.bySemanticsLabel(linkPreviewDisplay(_link)!.label),
+      find.bySemanticsLabel('Delta guide, https://example.org/…'),
       findsOneWidget,
     );
     // The title IS the address: the display's label says it once.
     expect(linkPreviewDisplay(bare)!.label, 'https://example.org/…');
     expect(find.bySemanticsLabel('https://example.org/…'), findsOneWidget);
+    handle.dispose();
+  });
+
+  // Todo 518, finding 1 (owner decision 2026-10-02): an untitled video's FULL
+  // card is titled by its short address too, so the same video is named one
+  // way wherever it falls in a run (the web: CompactCardRow.test.tsx).
+  testWidgets(
+    'an untitled full video card says its short address, like its row',
+    (tester) async {
+      final handle = tester.ensureSemantics();
+      const untitled = EmbedBlock(
+        url: 'https://youtu.be/xyz?t=42',
+        providerName: 'YouTube',
+      );
+      await _pump(tester, const [untitled, untitled]);
+
+      // The full card keeps its "Watch on PROVIDER" label (todo 453), the row
+      // its "title, provider" one; both are titled by the short address.
+      expect(
+        find.bySemanticsLabel('https://youtu.be/…, Watch on YouTube'),
+        findsOneWidget,
+      );
+      expect(
+        find.bySemanticsLabel('https://youtu.be/…, YouTube'),
+        findsOneWidget,
+      );
+      expect(find.text('https://youtu.be/…'), findsNWidgets(2));
+      // The full URL is neither shown nor spoken.
+      expect(find.bySemanticsLabel(RegExp('xyz')), findsNothing);
+      expect(find.textContaining('xyz'), findsNothing);
+      handle.dispose();
+    },
+  );
+
+  testWidgets('an untitled full video card with no provider is labelled by '
+      'its short address alone', (tester) async {
+    final handle = tester.ensureSemantics();
+    await _pump(tester, const [EmbedBlock(url: 'https://vimeo.com/77')]);
+
+    expect(find.bySemanticsLabel('https://vimeo.com/…'), findsOneWidget);
+    expect(find.text('https://vimeo.com/…'), findsOneWidget);
+    // Its second line still SHOWS the URL (left as it was, todo 518), but no
+    // label speaks it.
+    expect(find.bySemanticsLabel(RegExp('/77')), findsNothing);
     handle.dispose();
   });
 }

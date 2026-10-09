@@ -11,6 +11,12 @@
  * Cookie-based JWT auth with CSRF on mutating requests.
  */
 import { getCsrfToken } from '../utils/csrf';
+import { readRetryAfter } from '../utils/retryAfter';
+import {
+  isCapabilityUnavailable,
+  markCapabilityUnavailable,
+  resetCapabilityAvailability,
+} from './capabilityLatch';
 import {
   mapBoardToCategory,
   mapTopicListItemToThread,
@@ -60,8 +66,7 @@ import { htmlToBodyBlocks } from '../utils/forumBody';
 import { safeExternalUrl } from '../utils/externalUrl';
 import { API_ORIGIN } from '@/config/api';
 
-const API_URL = API_ORIGIN;
-const FORUM_BASE = `${API_URL}/api/v1/forum`;
+const FORUM_BASE = `${API_ORIGIN}/api/v1/forum`;
 
 interface DrfPage<T> {
   results?: T[];
@@ -772,7 +777,7 @@ export class ComposeAssistError extends Error {
 
 /**
  * Session-scoped latch: once the server has said this account/deployment can
- * never use compose assist (403/503), remember it here rather than in component
+ * never use compose assist (403/503), remember it rather than in component
  * state. The reply composer is remounted (`key={composerKey}`) after every post,
  * which resets component state — so a per-instance flag would re-offer, and
  * re-fail, the button on every reply. Session-lifetime API capability, so it
@@ -781,29 +786,32 @@ export class ComposeAssistError extends Error {
  * Written by the caller (which already branches on `ComposeAssistError.permanent`)
  * rather than inside `improveDraft`, so there is exactly one place that decides
  * "permanent" and the flag is still set when a test stubs the request out.
+ *
+ * The flag itself lives in the keyed registry (`./capabilityLatch`, todo 433),
+ * where `AuthContext` clears every capability with one call. These named
+ * wrappers stay: the components and the tests read "compose assist is
+ * unavailable" better than a string key, and churning their call sites would
+ * buy nothing.
  */
-let composeAssistUnavailable = false;
-
 export function isComposeAssistUnavailable(): boolean {
-  return composeAssistUnavailable;
+  return isCapabilityUnavailable('composeAssist');
 }
 
 export function markComposeAssistUnavailable(): void {
-  composeAssistUnavailable = true;
+  markCapabilityUnavailable('composeAssist');
 }
 
 /**
- * Clear the latch. Called by `AuthContext` on every auth-state change, and by
- * tests (module state otherwise leaks between cases in a file).
- *
- * Production callers matter: the 403 latch means "this ACCOUNT is not premium",
- * so it must not outlive the account. Without this, a non-premium user who
- * clicks the button, then upgrades or logs out and back in as someone else in
- * the same SPA session (no page reload), keeps a permanently disabled button the
- * server would now allow (todo 275 code review).
+ * Clear the latch — tests, between cases in a file (module state otherwise
+ * leaks). Production goes through `resetAllCapabilityLatches` in `AuthContext`
+ * on every auth-state change: the 403 latch means "this ACCOUNT is not
+ * premium", so it must not outlive the account. Without that, a non-premium
+ * user who clicks the button, then upgrades or logs out and back in as someone
+ * else in the same SPA session (no page reload), keeps a permanently disabled
+ * button the server would now allow (todo 275 code review).
  */
 export function resetComposeAssistAvailability(): void {
-  composeAssistUnavailable = false;
+  resetCapabilityAvailability('composeAssist');
 }
 
 /**
@@ -849,7 +857,9 @@ export async function improveDraft(draftHtml: string): Promise<string> {
  * Error from the plant-care ask endpoint — same contract as `ComposeAssistError`
  * (status + backend `code`, `permanent` only when retrying can never work),
  * plus 401: `/forum/search` is PUBLIC, so an anonymous visitor sees the
- * affordance and the server's 401 teaches. A bare 503 is transient
+ * affordance and the server's 401 teaches. For a SIGNED-IN user the same 401
+ * is an expired access cookie, so `PlantCareAskPanel` checks the auth state
+ * before honouring `permanent` on a 401 (todo 433). A bare 503 is transient
  * (`code: "unavailable"` covers a provider blip AND an exhausted retrieval
  * budget); only `code: "disabled"` means the deployment has the feature off.
  */
@@ -876,18 +886,16 @@ export class RagError extends Error {
  * on every auth-state change — a 401/403 latch is about the ACCOUNT and must
  * not outlive it — and by tests.
  */
-let plantCareAskUnavailable = false;
-
 export function isPlantCareAskUnavailable(): boolean {
-  return plantCareAskUnavailable;
+  return isCapabilityUnavailable('plantCareAsk');
 }
 
 export function markPlantCareAskUnavailable(): void {
-  plantCareAskUnavailable = true;
+  markCapabilityUnavailable('plantCareAsk');
 }
 
 export function resetPlantCareAskAvailability(): void {
-  plantCareAskUnavailable = false;
+  resetCapabilityAvailability('plantCareAsk');
 }
 
 const PLANT_CARE_STATUSES: ReadonlySet<string> = new Set([
@@ -970,25 +978,16 @@ export class TopicSummaryError extends Error {
  * what tells us — remembered here so a remounted panel (a new thread) does not
  * re-offer the button. Cleared by `AuthContext` on every identity change.
  */
-let topicSummaryUnavailable = false;
-
 export function isTopicSummaryUnavailable(): boolean {
-  return topicSummaryUnavailable;
+  return isCapabilityUnavailable('topicSummary');
 }
 
 export function markTopicSummaryUnavailable(): void {
-  topicSummaryUnavailable = true;
+  markCapabilityUnavailable('topicSummary');
 }
 
 export function resetTopicSummaryAvailability(): void {
-  topicSummaryUnavailable = false;
-}
-
-/** Delta-seconds `Retry-After`, or null (same reading as messageService's). */
-function readRetryAfterSeconds(response: Response): number | null {
-  const raw = response.headers?.get?.('Retry-After');
-  if (!raw || !/^\d+$/.test(raw.trim())) return null;
-  return Number.parseInt(raw, 10);
+  resetCapabilityAvailability('topicSummary');
 }
 
 /**
@@ -1011,7 +1010,7 @@ export async function fetchTopicSummary(
       response.status,
       body.message || body.detail || `HTTP ${response.status}`,
       body.code,
-      response.status === 429 ? readRetryAfterSeconds(response) : null
+      response.status === 429 ? readRetryAfter(response) : null
     );
   }
   const data: unknown = await response.json();

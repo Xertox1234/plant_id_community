@@ -27,7 +27,8 @@ from apps.users.email_verification import (
 )
 from apps.users.signup import create_default_plant_collection, join_forum_members_group
 from django.contrib.auth import get_user_model
-from django.db import IntegrityError
+from django.db import IntegrityError, transaction
+from django.db.models import Q
 from firebase_admin import auth as firebase_auth
 from firebase_admin import credentials as firebase_credentials
 from rest_framework import status
@@ -421,6 +422,59 @@ def firebase_token_exchange(request: Request) -> Response:
         )
 
 
+def _bind_firebase_uid(user: User, firebase_uid: str, provider: str) -> None:
+    """Bind ``firebase_uid`` to the existing ``user``: its first Firebase link.
+
+    Mirrors ``oauth_views._record_provider_link`` (todo 451). The bind and
+    ``on_first_provider_link`` share one savepoint, so sessions are never
+    revoked, nor a notice queued, for a bind that was not recorded. The bind
+    is a conditional UPDATE, so of two concurrent first sign-ins only the one
+    whose UPDATE binds the uid revokes and notifies; no ``select_for_update``
+    (owner decision, 2026-10-02). Unbound means NULL or blank, as in
+    ``expire_unverified_accounts``.
+
+    Raises ValueError (409 upstream) when a concurrent sign-in bound the
+    account to another Firebase identity, or this uid to another account.
+    """
+    unbound = Q(firebase_uid__isnull=True) | Q(firebase_uid="")
+    try:
+        with transaction.atomic():
+            bound = User.objects.filter(unbound, pk=user.pk).update(
+                firebase_uid=firebase_uid
+            )
+            if bound:
+                on_first_provider_link(user, provider)
+    except IntegrityError:
+        # firebase_uid is unique: another account took this uid after our
+        # lookup. No holder means the error came from the revoke/notice work
+        # instead, which is not a conflicting link.
+        if not User.objects.filter(firebase_uid=firebase_uid).exists():
+            raise
+        bound = 0
+    if bound:
+        logger.info(
+            f"[FIREBASE AUTH] Bound Firebase UID for {redact_email(user.email)}"
+        )
+    else:
+        # A concurrent first sign-in got there first. Re-read who holds the
+        # uid: this account means that request bound it and notified, so sign
+        # in without a second notice; anyone else is a conflict.
+        holder = (
+            User.objects.filter(firebase_uid=firebase_uid)
+            .values_list("pk", flat=True)
+            .first()
+        )
+        if holder != user.pk:
+            logger.warning(
+                f"[FIREBASE AUTH] Refused to bind {redact_email(user.email)}: "
+                f"a concurrent sign-in linked the account or the UID elsewhere"
+            )
+            raise ValueError(
+                "Email or Firebase account was linked concurrently elsewhere"
+            )
+    user.firebase_uid = firebase_uid
+
+
 def get_or_create_user_from_firebase(
     firebase_uid: str,
     firebase_email: str,
@@ -451,7 +505,8 @@ def get_or_create_user_from_firebase(
 
     Raises:
         ValueError: If email is invalid, already bound to a different Firebase
-            UID, or unverified when linking to an existing account.
+            UID, unverified when linking to an existing account, or linked
+            elsewhere by a concurrent first sign-in.
     """
     if not firebase_email or "@" not in firebase_email:
         # Redact: this message is surfaced via str(e) into a warning log upstream.
@@ -509,20 +564,12 @@ def get_or_create_user_from_firebase(
             )
 
         # Backfill the binding on first sign-in for a legacy email account.
-        update_fields = []
         if not user.firebase_uid:
             # The first Firebase link to this account (todo 447 item 1).
-            on_first_provider_link(user, provider)
-            user.firebase_uid = firebase_uid
-            update_fields.append("firebase_uid")
+            _bind_firebase_uid(user, firebase_uid, provider)
         if display_name and not user.first_name:
             user.first_name = display_name
-            update_fields.append("first_name")
-        if update_fields:
-            user.save(update_fields=update_fields)
-            logger.info(
-                f"[FIREBASE AUTH] Bound Firebase UID for {redact_email(user.email)}"
-            )
+            user.save(update_fields=["first_name"])
 
         return user, False
 

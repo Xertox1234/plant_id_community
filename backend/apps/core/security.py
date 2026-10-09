@@ -23,56 +23,40 @@ from django.core.mail import send_mail
 from django.http import HttpRequest, HttpResponse
 from django.utils import timezone
 
-# Defined in constants (todo 419); re-exported for existing importers.
-from .constants import FAILED_AUTH_TRACKED_PATHS
-
-# Import security constants
-try:
-    from .constants import (
-        ACCOUNT_LOCKOUT_DURATION,
-        ACCOUNT_LOCKOUT_THRESHOLD,
-        ACCOUNT_LOCKOUT_TIME_WINDOW,
-        API_RATE_LIMIT_MAX_REQUESTS,
-        API_RATE_LIMIT_WINDOW,
-        LOCKOUT_ATTEMPTS_KEY,
-        LOCKOUT_EMAIL_ENABLED,
-        LOCKOUT_EMAIL_SUBJECT,
-        LOCKOUT_STATUS_KEY,
-        LOG_PREFIX_AUTH,
-        LOG_PREFIX_LOCKOUT,
-        LOG_PREFIX_SECURITY,
-        MAX_FAILED_LOGINS,
-        MAX_FAILED_LOGINS_TIME,
-        SUSPICIOUS_ACTIVITY_THRESHOLD,
-        UNKNOWN_IP_ADDRESS,
-    )
-except ImportError:
-    # Fallback values if constants not available
-    ACCOUNT_LOCKOUT_THRESHOLD = 10
-    ACCOUNT_LOCKOUT_DURATION = 3600
-    ACCOUNT_LOCKOUT_TIME_WINDOW = 900
-    API_RATE_LIMIT_WINDOW = 60
-    API_RATE_LIMIT_MAX_REQUESTS = 30
-    LOCKOUT_ATTEMPTS_KEY = "security:lockout_attempts:{username}"
-    LOCKOUT_STATUS_KEY = "security:lockout_status:{username}"
-    LOCKOUT_EMAIL_ENABLED = True
-    LOCKOUT_EMAIL_SUBJECT = "Security Alert: Account Locked"
-    LOG_PREFIX_SECURITY = "[SECURITY]"
-    LOG_PREFIX_AUTH = "[AUTH]"
-    LOG_PREFIX_LOCKOUT = "[LOCKOUT]"
-    MAX_FAILED_LOGINS = 5
-    MAX_FAILED_LOGINS_TIME = 900
-    SUSPICIOUS_ACTIVITY_THRESHOLD = 10
-    UNKNOWN_IP_ADDRESS = "unknown"
+from .constants import (
+    ACCOUNT_LOCKOUT_DURATION,
+    ACCOUNT_LOCKOUT_THRESHOLD,
+    ACCOUNT_LOCKOUT_TIME_WINDOW,
+    API_RATE_LIMIT_MAX_REQUESTS,
+    API_RATE_LIMIT_WINDOW,
+    LOCKOUT_ATTEMPTS_KEY,
+    LOCKOUT_EMAIL_ENABLED,
+    LOCKOUT_EMAIL_SUBJECT,
+    LOCKOUT_STATUS_KEY,
+    LOG_PREFIX_AUTH,
+    LOG_PREFIX_LOCKOUT,
+    LOG_PREFIX_SECURITY,
+    MAX_FAILED_LOGINS,
+    MAX_FAILED_LOGINS_TIME,
+    SUSPICIOUS_ACTIVITY_THRESHOLD,
+    UNKNOWN_IP_ADDRESS,
+)
 
 logger = logging.getLogger(__name__)
 
-
-# Longest attempted username passed to the tracker; anything longer is not a
-# username anyone has, and it lands in log lines.
-MAX_TRACKED_USERNAME_LENGTH = 150
-
 User = get_user_model()
+
+
+def _printable(value: Any) -> Optional[str]:
+    """``value`` with its control characters dropped, or None.
+
+    An identifier read from a request body is attacker-controlled: a newline
+    in it would forge a log line. A non-string (a JSON number or list) is not
+    an identifier worth tracking.
+    """
+    if not isinstance(value, str):
+        return None
+    return "".join(ch for ch in value if ch.isprintable()) or None
 
 
 class SecurityMonitor:
@@ -361,18 +345,36 @@ This is an automated security message from Plant Community.
         return was_locked
 
     @classmethod
-    def track_failed_login(cls, ip_address: str, username: str = None) -> None:
+    def track_failed_login(
+        cls, ip_address: str, username: Optional[str] = None
+    ) -> None:
         """
         Track failed login attempts and detect brute force attacks.
 
+        The login view calls this for every credential it rejects, with the
+        identifier it already resolved (``username`` or ``email``) and the
+        client IP; SecurityMiddleware used to re-parse the login body on a
+        401 to recover the same thing (todo 435 finding 1).
+
+        The Firebase token exchange deliberately does not call it (todo 419
+        item 3, PR #818 review): a 401 there is Firebase refusing an ID
+        token, not a guess against our credential store; a success there
+        never clears the per-IP counter; and at the time the view answered
+        401 for server-side failures too (503 since todo 498), so an outage
+        would have counted every mobile sign-in as a failed login. Firebase
+        verifies and rate-limits the token itself, and the view is
+        rate-limited.
+
         Args:
             ip_address: IP address of the failed attempt
-            username: Username that was attempted (optional)
+            username: Identifier that was attempted (optional)
         """
         key = cls.FAILED_LOGIN_KEY.format(ip=ip_address)
         # The attempted identifier is attacker-controlled and is often an
-        # email: keep only its pseudonym, in the log line, the cached attempts
-        # and the alert payload alike (docs/rules/security.md, PR #818 review).
+        # email: drop control characters, then keep only its pseudonym, in
+        # the log line, the cached attempts and the alert payload alike
+        # (docs/rules/security.md, PR #818 review).
+        username = _printable(username)
         username = log_safe_username(username) if username else None
 
         # Get current failed attempts
@@ -408,10 +410,13 @@ This is an automated security message from Plant Community.
                 },
             )
 
-        # Log the event
+        # Log the event. The IP is pseudonymized here like the rest of this
+        # module's log lines; the brute_force_login alert payload above keeps
+        # it raw so an operator can block it (todo 435 finding 5, owner
+        # decision).
         logger.warning(
-            f"[SECURITY] Failed login attempt: ip={ip_address}, username={username}, "
-            f"total_attempts_in_window={len(attempts)}"
+            f"[SECURITY] Failed login attempt: ip={log_safe_ip(ip_address)}, "
+            f"username={username}, total_attempts_in_window={len(attempts)}"
         )
 
     @classmethod
@@ -590,6 +595,12 @@ This is an automated security message from Plant Community.
 class SecurityMiddleware:
     """
     Django middleware for security monitoring.
+
+    Failed logins are not tracked here. The login view holds the identifier
+    it resolved and the client IP, so it calls
+    ``SecurityMonitor.track_failed_login`` itself; this middleware used to
+    buffer every login body before the view's rate limiter ran and re-parse
+    it on a 401 to recover the same identifier (todo 435 findings 1 and 4).
     """
 
     def __init__(self, get_response) -> None:
@@ -599,31 +610,10 @@ class SecurityMiddleware:
         # Pre-request security checks
         self._pre_request_checks(request)
 
-        response = self.get_response(request)
-
-        # Post-request security tracking
-        self._post_request_tracking(request, response)
-
-        return response
+        return self.get_response(request)
 
     def _pre_request_checks(self, request: HttpRequest) -> None:
         """Perform security checks before processing request."""
-        # Cache the body of a tracked auth POST before DRF consumes the
-        # stream. Django keeps it on the request (HttpRequest.body), and DRF
-        # then parses from that cached copy; without this, the view reads the
-        # stream and the 401 tracking below can never see the username
-        # (todo 419 item 1). Tracked bodies are small JSON credentials.
-        if request.method == "POST" and request.path in FAILED_AUTH_TRACKED_PATHS:
-            try:
-                request.body
-            except Exception as exc:
-                # Too big / unreadable: the view reports its own error; the
-                # tracker just gets no username.
-                logger.debug(
-                    "%s could not cache auth request body: %s",
-                    LOG_PREFIX_SECURITY,
-                    exc,
-                )
         # Track API requests for rate limiting
         if request.path.startswith("/api/"):
             SecurityMonitor.track_api_request(
@@ -635,45 +625,6 @@ class SecurityMiddleware:
                     else None
                 ),
             )
-
-    def _post_request_tracking(
-        self, request: HttpRequest, response: HttpResponse
-    ) -> None:
-        """Track security-relevant information after request processing."""
-        # Track failed authentication attempts
-        if request.path in FAILED_AUTH_TRACKED_PATHS and response.status_code == 401:
-            ip_address = SecurityMonitor._get_client_ip(request)
-
-            SecurityMonitor.track_failed_login(
-                ip_address, self._attempted_username(request)
-            )
-
-    @staticmethod
-    def _attempted_username(request: HttpRequest) -> Optional[str]:
-        """The username a rejected auth request tried, or None.
-
-        Reads the body cached by _pre_request_checks (form or JSON). Never
-        raises: tracking must not break the response.
-        """
-        # The login view accepts `username` OR `email`, and the web client
-        # sends `{email, password}` (PR #818 review), so read both.
-        try:
-            if request.POST:
-                data = request.POST
-            else:
-                data = json.loads(request.body.decode("utf-8"))
-                if not isinstance(data, dict):
-                    return None
-            value = data.get("username") or data.get("email")
-        except Exception as exc:
-            logger.debug("%s username extraction failed: %s", LOG_PREFIX_SECURITY, exc)
-            return None
-        if not isinstance(value, str):
-            return None
-        # Attacker-controlled: drop control characters so it can't forge a
-        # log line, and cap the length.
-        value = "".join(ch for ch in value if ch.isprintable())
-        return value[:MAX_TRACKED_USERNAME_LENGTH] or None
 
 
 # Utility functions for use in views

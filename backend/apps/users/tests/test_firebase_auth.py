@@ -249,6 +249,24 @@ class FirebaseTokenExchangeTestCase(TestCase):
         self.assertEqual(response.data["error"], "Invalid Firebase token")
 
     @patch("apps.users.firebase_auth_views.firebase_auth.verify_id_token")
+    def test_rejected_token_is_not_counted_as_a_failed_login(self, mock_verify):
+        """A 401 here is deliberately not brute-force input (todo 419 item 3,
+        decided in the PR #818 review; pinned over HTTP since todo 435 moved
+        the tracking call into the login view). The reasons are on
+        ``SecurityMonitor.track_failed_login``."""
+        from firebase_admin.auth import InvalidIdTokenError
+
+        mock_verify.side_effect = InvalidIdTokenError("Invalid token", cause=None)
+
+        with patch("apps.core.security.SecurityMonitor.track_failed_login") as track:
+            response = self.client.post(
+                self.url, {"firebase_token": "invalid-token"}, format="json"
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+        track.assert_not_called()
+
+    @patch("apps.users.firebase_auth_views.firebase_auth.verify_id_token")
     def test_expired_firebase_token(self, mock_verify):
         """Test error when Firebase token is expired."""
         # Mock Firebase token expiration

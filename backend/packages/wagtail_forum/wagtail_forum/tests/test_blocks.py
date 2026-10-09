@@ -411,6 +411,97 @@ def test_over_long_alt_is_truncated_not_rejected():
 
 
 @pytest.mark.django_db
+@pytest.mark.parametrize(
+    ("raw", "stored"),
+    [
+        ("Monstera\r\nleaf", "Monstera\nleaf"),
+        ("Monstera\rleaf", "Monstera\nleaf"),
+        ("Monstera\x00leaf", "Monsteraleaf"),
+    ],
+    ids=["crlf-to-lf", "lone-cr-to-lf", "nul-deleted"],
+)
+def test_alt_line_endings_and_nul_are_normalised_on_write(raw, stored):
+    """The composer reads the alt back through an HTML attribute, and the
+    browser's parser normalises attribute values on the way in — CR and CRLF to
+    LF, NUL to U+FFFD — so an alt stored as sent came back different and
+    re-saving an untouched post PATCHed a changed alt (PR #826 review, todo
+    443). Storing the normalised form makes rehydrate -> re-save a no-op. NUL
+    is deleted rather than replaced: jsonb rejects \\u0000 outright, so a NUL
+    alt could never be stored.
+    """
+    from wagtail_forum.api.sanitize import validate_forum_body
+
+    uploader, image = _forum_image("ib-norm")
+    cleaned = validate_forum_body(
+        [
+            {
+                "type": "image",
+                "value": {"image": image.id, "alt_text": raw, "decorative": False},
+            }
+        ],
+        {uploader.pk},
+    )
+    assert cleaned[0]["value"] == {
+        "image": image.id,
+        "alt_text": stored,
+        "decorative": False,
+    }
+
+
+@pytest.mark.django_db
+def test_alt_of_only_cr_and_nul_is_blank_and_so_decorative():
+    """str.strip() removes CR but not NUL. Without normalising first, an alt of
+    only control characters would pass as authored text — decorative=False with
+    a NUL "alt" — and the save would hit jsonb's \\u0000 rejection.
+    """
+    from wagtail_forum.api.sanitize import validate_forum_body
+
+    uploader, image = _forum_image("ib-ctrl-only")
+    cleaned = validate_forum_body(
+        [
+            {
+                "type": "image",
+                "value": {
+                    "image": image.id,
+                    "alt_text": "\r\n\x00\r\x00",
+                    "decorative": False,
+                },
+            }
+        ],
+        {uploader.pk},
+    )
+    assert cleaned[0]["value"] == {
+        "image": image.id,
+        "alt_text": "",
+        "decorative": True,
+    }
+
+
+@pytest.mark.django_db
+def test_alt_is_normalised_before_the_length_cap():
+    """Truncating first would keep the NULs and lose authored text: ten NULs
+    plus 255 x's capped first is 245 x's after deletion, capped last is all 255.
+    """
+    from wagtail_forum.api.sanitize import MAX_ALT_TEXT_LENGTH, validate_forum_body
+
+    uploader, image = _forum_image("ib-norm-order")
+    cleaned = validate_forum_body(
+        [
+            {
+                "type": "image",
+                "value": {
+                    "image": image.id,
+                    "alt_text": "\x00" * 10 + "x" * MAX_ALT_TEXT_LENGTH,
+                    "decorative": False,
+                },
+            }
+        ],
+        {uploader.pk},
+    )
+    assert cleaned[0]["value"]["alt_text"] == "x" * MAX_ALT_TEXT_LENGTH
+
+
+@pytest.mark.django_db
 def test_read_accessor_still_resolves_a_block_the_writer_would_reject():
     """The read path must NEVER be stricter than storage.
 

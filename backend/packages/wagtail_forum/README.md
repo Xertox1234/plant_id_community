@@ -23,6 +23,7 @@ The core imports nothing host-specific and uses `settings.AUTH_USER_MODEL`.
 - [Rate limiting](#rate-limiting)
 - [Search backend](#search-backend)
 - [Management commands](#management-commands)
+- [Logging](#logging)
 - [Internationalization](#internationalization)
 
 ## Requirements
@@ -907,6 +908,16 @@ Deletes `TopicDeletedLog` rows older than the retention window
 tombstone table grows unboundedly. Tombstones let delta-sync clients evict
 deleted topics without a full resync, so the retention window is also the maximum
 time a client may be offline before it needs one.
+
+## Logging
+
+Everything goes to the `wagtail_forum` logger. Each message opens with a
+bracketed token naming the package's own subsystem, so a host's logs can be
+grepped by it: `[EMBED]`, `[LINK_PREVIEW]`, `[EMAIL]`, `[SECURITY]`, `[IMAGE]`,
+`[MODERATION]`, and `[ERROR]` for a failure with no narrower home. Never a
+token from a host's vocabulary: the package cannot know it, and the logger name
+already says which package wrote the line, so a host routes or silences the
+package by that name.
 
 ## Internationalization
 
