@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import BlogDetailPage from './BlogDetailPage';
 import { fetchBlogPost } from '../services/blogService';
@@ -124,6 +124,13 @@ describe('BlogDetailPage', () => {
     // Decorative, so queried by DOM structure.
     const relatedImg = container.querySelector('aside img');
     expect(relatedImg).toHaveAttribute('src', 'http://localhost:8000/media/fiddle-300.webp');
+  });
+
+  it('offers the newsletter signup under the article (todo 409)', async () => {
+    renderPage();
+    const heading = await screen.findByRole('heading', { name: /new posts by email/i });
+    const section = heading.closest('section') as HTMLElement;
+    expect(within(section).getByLabelText(/email address/i)).toHaveAttribute('type', 'email');
   });
 
   it('hides the related strip when the server sends none', async () => {

@@ -3,6 +3,7 @@ import Card from '../ui/Card';
 import StreamFieldRenderer from '../StreamFieldRenderer';
 import PageMeta from '../PageMeta';
 import BlogCommentSection from './BlogCommentSection';
+import NewsletterSignup from './NewsletterSignup';
 import { mediaUrl } from '../../services/blogService';
 import { API_ORIGIN } from '@/config/api';
 import { stripHtml } from '../../utils/sanitize';
@@ -127,6 +128,20 @@ export default function BlogArticle({ post, preview = false }: BlogArticleProps)
             ))}
           </div>
         </aside>
+      )}
+
+      {!preview && (
+        <section
+          aria-labelledby="article-newsletter-heading"
+          className="mx-auto w-full max-w-[860px] border-t border-line pt-8"
+        >
+          <h2 id="article-newsletter-heading" className="mb-3 text-lead font-semibold text-ink">
+            Get new posts by email
+          </h2>
+          <div className="max-w-md">
+            <NewsletterSignup idPrefix="article" />
+          </div>
+        </section>
       )}
 
       {/* Reader comments (todo 352). allow_comments/comment_count ride the

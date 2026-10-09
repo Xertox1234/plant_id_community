@@ -1,15 +1,17 @@
 import { useEffect, useRef, useState, useCallback, FormEvent } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { Flame, Search } from 'lucide-react';
+import { Flame, Mail, Search } from 'lucide-react';
 import HeroCard from '../components/ui/HeroCard';
 import Chip from '../components/ui/Chip';
 import Button from '../components/ui/Button';
 import ButtonLink from '../components/ui/ButtonLink';
 import LoadingSpinner from '../components/ui/LoadingSpinner';
 import { Pagination } from '../components/ui/Pagination';
-import RailSlot from '../components/layout/RailSlot';
+import RailSlot, { RAIL_MEDIA_QUERY } from '../components/layout/RailSlot';
+import { useMediaQuery } from '../hooks/useMediaQuery';
 import RailModule from '../components/ui/RailModule';
 import BlogCard from '../components/BlogCard';
+import NewsletterSignup from '../components/blog/NewsletterSignup';
 import PageMeta from '../components/PageMeta';
 import { fetchBlogPosts, fetchPopularPosts, fetchCategories } from '../services/blogService';
 import { API_ORIGIN } from '@/config/api';
@@ -162,6 +164,8 @@ export default function BlogListPage() {
   const totalPages = Math.max(1, Math.ceil(totalCount / POSTS_PER_PAGE));
   const hasFilters = Boolean(search || category);
 
+  const railVisible = useMediaQuery(RAIL_MEDIA_QUERY);
+
   return (
     <div className="flex flex-col gap-8">
       <PageMeta
@@ -299,8 +303,21 @@ export default function BlogListPage() {
         </>
       )}
 
-      {popular.length > 0 && (
-        <RailSlot>
+      {/* Below xl the rail is hidden, so the signup sits in the page instead:
+          the expired-link page sends people here for a new link. */}
+      {!railVisible && (
+        <section aria-labelledby="list-newsletter-heading" className="border-t border-line pt-8">
+          <h2 id="list-newsletter-heading" className="mb-3 text-lead font-semibold text-ink">
+            The weekly newsletter
+          </h2>
+          <div className="max-w-md">
+            <NewsletterSignup idPrefix="list" />
+          </div>
+        </section>
+      )}
+
+      <RailSlot>
+        {popular.length > 0 && (
           <RailModule icon={<Flame />} title="Popular this month">
             <div className="flex flex-col gap-1.5">
               {popular.map((p) => (
@@ -308,8 +325,11 @@ export default function BlogListPage() {
               ))}
             </div>
           </RailModule>
-        </RailSlot>
-      )}
+        )}
+        <RailModule icon={<Mail />} title="The weekly newsletter">
+          <NewsletterSignup idPrefix="rail" />
+        </RailModule>
+      </RailSlot>
     </div>
   );
 }

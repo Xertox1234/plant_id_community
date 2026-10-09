@@ -47,6 +47,8 @@ describe('BlogPreview (web dead-code audit M2)', () => {
     expect(screen.queryByText(/coming soon/i)).not.toBeInTheDocument();
     // Comments belong to the published post, not a draft.
     expect(screen.queryByRole('heading', { name: /comments/i })).not.toBeInTheDocument();
+    // Nor does the newsletter signup (todo 409): an editor is not a reader.
+    expect(screen.queryByRole('heading', { name: /new posts by email/i })).not.toBeInTheDocument();
   });
 
   it('explains an expired or bad token instead of spinning', async () => {
