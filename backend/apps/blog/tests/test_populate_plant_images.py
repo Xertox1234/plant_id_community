@@ -1,10 +1,10 @@
 """`populate_plant_images` after the PR #825 review follow-ups (todo 442).
 
-- A write the service refuses, or that raises, must not leave the images the
-  run fetched for that page in the library (owner decision 2026-09-28: a
-  refused write deletes the images it fetched) — except an image the page's
-  content or latest revision now references: the editor whose save refused the
-  write may have picked it (PR review of todo 442).
+- A write that raises before committing anything must not leave the images
+  the run fetched for that page in the library. A write the service REFUSES
+  keeps them: the editor whose save refused it may have picked one, anywhere
+  an image can be referenced (owner decision 2026-10-09, after three review
+  rounds of todo 442 each found a reference path a keep/discard check missed).
 - Each page's content is loaded once, by `load_spotlight_base`; the command
   iterates ids rather than full pages.
 
@@ -121,10 +121,11 @@ class PopulateCommandTestCase(TestCase):
 
 
 class PopulateDiscardsUnwrittenImagesTest(PopulateCommandTestCase):
-    def test_a_write_refused_mid_run_deletes_the_fetched_image(self):
+    def test_a_write_refused_mid_run_keeps_the_fetched_image(self):
         # An editor saves the page while the provider fetch is in flight: the
         # real save_spotlight_updates sees the moved revision pointer and
-        # refuses. The image that fetch created must not stay in the library.
+        # refuses. The image stays: the command cannot prove the editor did
+        # not pick it.
         post = self.make_post("edited-meanwhile")
         image = self.fetched_image()
 
@@ -137,8 +138,9 @@ class PopulateDiscardsUnwrittenImagesTest(PopulateCommandTestCase):
         out, _ = self.run_command(f"--post-id={post.pk}", fetch=fetch)
 
         self.assertIn("was edited while this command ran", out)
-        self.assertIn("Discarded 1 fetched image(s): nothing was written", out)
-        self.assertFalse(get_image_model().objects.filter(pk=image.pk).exists())
+        self.assertIn("Kept 1 fetched image(s): the page changed", out)
+        self.assertNotIn("Discarded", out)
+        self.assertTrue(get_image_model().objects.filter(pk=image.pk).exists())
         self.assertIsNone(self.spotlight(post).value["image"])
         self.assertEqual(
             post.get_latest_revision().as_object().title,
@@ -149,8 +151,8 @@ class PopulateDiscardsUnwrittenImagesTest(PopulateCommandTestCase):
         # The fetch put image A in the library, and the editor whose save
         # refuses the write picked it for the first block. A must survive:
         # deleting the row would turn that block's image into None in the
-        # editor's live revision (round-1 review of todo 442). B, which nothing
-        # references, still goes.
+        # editor's live revision (round-1 review of todo 442). B is kept too:
+        # a refused write keeps everything it fetched.
         post = self.make_post_with_blocks(
             "editor-picked",
             spotlight_raw(),
@@ -170,15 +172,11 @@ class PopulateDiscardsUnwrittenImagesTest(PopulateCommandTestCase):
 
         self.assertEqual(fetch_mock.call_count, 2)
         self.assertIn("was edited while this command ran", out)
-        self.assertIn(
-            "Kept 1 fetched image(s): the page's content or latest revision "
-            "references them",
-            out,
-        )
-        self.assertIn("Discarded 1 fetched image(s): nothing was written", out)
+        self.assertIn("Kept 2 fetched image(s)", out)
+        self.assertNotIn("Discarded", out)
         images = get_image_model().objects
         self.assertTrue(images.filter(pk=image_a.pk).exists())
-        self.assertFalse(images.filter(pk=image_b.pk).exists())
+        self.assertTrue(images.filter(pk=image_b.pk).exists())
         post.refresh_from_db()
         first, second = [
             b for b in post.content_blocks if b.block_type == "plant_spotlight"
@@ -231,6 +229,29 @@ class PopulateDiscardsUnwrittenImagesTest(PopulateCommandTestCase):
         post.refresh_from_db()
         self.assertEqual(post.featured_image_id, image.pk)
         self.assertIsNone(self.spotlight(post).value["image"])
+
+    def test_a_write_refused_mid_run_keeps_the_image_the_editor_embedded(self):
+        # The editor embedded the fetched image in the rich-text introduction,
+        # a reference path the round-1/2 keep check never looked at (round-3
+        # review of todo 442). Deleting it would leave a dangling embed.
+        post = self.make_post("editor-embedded")
+        image = self.fetched_image()
+        embed = f'<embed embedtype="image" id="{image.pk}" format="fullwidth"/>'
+
+        def fetch(**kwargs):
+            editor_copy = BlogPostPage.objects.get(pk=post.pk)
+            editor_copy.introduction = f"<p>intro</p>{embed}"
+            editor_copy.save_revision().publish()
+            return "unsplash", UNSPLASH_DATA, image
+
+        out, _ = self.run_command(f"--post-id={post.pk}", fetch=fetch)
+
+        self.assertIn("was edited while this command ran", out)
+        self.assertIn("Kept 1 fetched image(s)", out)
+        self.assertNotIn("Discarded", out)
+        self.assertTrue(get_image_model().objects.filter(pk=image.pk).exists())
+        post.refresh_from_db()
+        self.assertIn(f'id="{image.pk}"', post.introduction)
 
     def test_a_write_that_raises_before_committing_deletes_the_fetched_image(self):
         post = self.make_post("save-raises")

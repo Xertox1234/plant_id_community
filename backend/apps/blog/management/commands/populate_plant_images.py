@@ -10,10 +10,9 @@ carries the image and credit and `page_published` invalidates the blog cache.
 A live page with unpublished draft changes, or one in moderation, is skipped
 and reported before any image is fetched. Pages are iterated by id and each is
 loaded once, by `load_spotlight_base` (todo 442). The images fetched for a
-page whose write is then refused are deleted again (owner decision
-2026-09-28), so a refused write leaves nothing unreferenced in the image
-library — except an image the page's content or latest revision now
-references, because the editor whose save refused the write picked it.
+page are deleted again only when the write raised before committing anything;
+a refused write keeps them, because the editor whose save refused it may have
+picked one (owner decision 2026-10-09, narrowing the 2026-09-28 one).
 """
 
 import logging
@@ -26,7 +25,6 @@ from apps.blog.services.plant_spotlight_writes import (
     load_spotlight_base,
     page_label,
     page_unchanged_since,
-    referenced_image_pks,
     save_spotlight_updates,
 )
 from apps.plant_identification.services.plant_image_service import PlantImageService
@@ -233,26 +231,25 @@ class Command(BaseCommand):
 
     def _discard_fetched_images(self, base, images, outcome):
         """
-        Delete the Wagtail images fetched for a page whose write did not happen.
+        Delete the Wagtail images fetched for a page, only when nothing can
+        reference them.
 
-        A refused write (the page was edited during the run, a block is gone,
-        it got locked meanwhile) would otherwise leave every image this run
-        fetched for the page in the library, unreferenced, and the next run
-        fetches again (todo 442; owner decision 2026-09-28: a refused write
-        deletes the images it fetched). Two exceptions keep an image:
+        That is the one case where the write RAISED and the page's revision
+        pointers have not moved: the write is atomic, so a failure inside it
+        committed nothing, and no editor saved meanwhile.
 
-        - the page's content or latest revision references it: the fetch put
-          it in the library before the write, so the editor whose save refused
-          the write may have picked it, and deleting the row would leave that
-          revision's block resolving to None;
-        - the write RAISED and the page's revision pointers moved: the write is
-          atomic, so a failure inside it committed nothing, but an exception
-          from another app's on_commit hook arrives after the commit, and a
-          revision may then reference the images.
+        Everything else keeps the images (owner decision 2026-10-09). A REFUSED
+        write means the page moved on without the command, and the fetch put
+        each image in the library before the write, so the editor whose save
+        refused it may have picked one — in a block, a rich-text embed, an
+        image column. Proving otherwise meant enumerating every reference path,
+        and three review rounds of todo 442 each found one the check missed.
+        A raise after the pointers moved is kept for the same reason: an
+        exception from another app's on_commit hook arrives after the commit.
         """
         if not images:
             return
-        if outcome is None and not page_unchanged_since(base):
+        if outcome is not None or not page_unchanged_since(base):
             self.stdout.write(
                 self.style.WARNING(
                     f"  Kept {len(images)} fetched image(s): the page changed, "
@@ -260,29 +257,16 @@ class Command(BaseCommand):
                 )
             )
             return
-        # Partition before any delete: a deleted image resolves to None in the
-        # page's content, so the check would no longer see it.
-        referenced = referenced_image_pks(base.page.pk)
-        kept = [image for image in images if image.pk in referenced]
-        discarded = [image for image in images if image.pk not in referenced]
-        for image in discarded:
+        for image in images:
             try:
                 image.delete()
             except Exception as e:
                 logger.error(
                     f"[PLANT_IMAGE] Could not delete unreferenced image {image.pk}: {e}"
                 )
-        if kept:
-            self.stdout.write(
-                self.style.WARNING(
-                    f"  Kept {len(kept)} fetched image(s): the page's content or "
-                    "latest revision references them"
-                )
-            )
-        if discarded:
-            self.stdout.write(
-                f"  Discarded {len(discarded)} fetched image(s): nothing was written"
-            )
+        self.stdout.write(
+            f"  Discarded {len(images)} fetched image(s): nothing was written"
+        )
 
     def _show_service_status(self):
         """Display the status of image services."""

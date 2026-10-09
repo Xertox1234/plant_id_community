@@ -7,7 +7,7 @@ dependencies: []
 source_review: "PR #825"
 triage: ready
 triaged: 2026-10-02
-owner_decision: "A refused write deletes the images it fetched; the backfill may call the Unsplash API (GET /photos/:id) for the real photographer name (2026-09-28)"
+owner_decision: "A refused write KEEPS the images it fetched; only a write that raised with the page unchanged deletes them (2026-10-09, narrowing 2026-09-28); the backfill may call the Unsplash API (GET /photos/:id) for the real photographer name (2026-09-28)"
 ---
 
 # Spotlight write path: non-blocking review findings (todo 438)
@@ -126,3 +126,20 @@ The bundled `/code-review` of PR #825 raised these as non-blocking.
   image as `featured_image` (Kept, column still resolves). 23 passed.
   Mutation-checked: removing the foreign-key scan fails exactly the three new
   tests (3 failed / 20 passed); file restored from a copy and grep-verified.
+
+### 2026-10-09 - Narrowed after the round-3 hand-off (owner decision)
+
+- Round-3 review (high): `referenced_image_pks` still skipped
+  `BlogPostPage.introduction`, a `RichTextField` whose features allow image
+  embeds. Each round had found another reference path the keep check missed.
+- Owner chose the narrow design over patching generically: a REFUSED write
+  now keeps every image it fetched (as `main` did before this todo), and only a
+  write that raised while the page's revision pointers are unchanged deletes
+  them. `referenced_image_pks` and `_image_foreign_keys` are removed.
+- Tests: the refused-write command tests now expect Kept (including both
+  images in the two-block case), plus a new one where the refusing save embeds
+  the fetched image in the introduction. Helper tests for the removed function
+  are gone. 61 passed across the four spotlight test files.
+  Mutation-checked: restoring delete-on-refusal fails exactly the five
+  refused-write tests (5 failed / 5 passed); file restored from a copy and
+  grep-verified.

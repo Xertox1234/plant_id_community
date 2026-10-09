@@ -39,7 +39,6 @@ overwritten.
 from dataclasses import dataclass
 
 from django.db import transaction
-from wagtail.images import get_image_model
 from wagtail.models import Page
 
 from ..models import BlogPostPage
@@ -218,62 +217,3 @@ def page_unchanged_since(base):
         Page.objects.filter(pk=base.page.pk).values_list(*_PAGE_STATE_FIELDS).first()
     )
     return current == base.state
-
-
-def referenced_image_pks(page_id):
-    """Pks of the images the page's content or its latest revision references.
-
-    Reloads the page row and, when the page has one, its latest revision as an
-    object, and walks both `content_blocks` with the StreamField's own
-    reference extraction (what Wagtail's ReferenceIndex uses), so every image
-    reference counts: a `plant_spotlight.image` and an image embedded in a
-    rich-text paragraph alike. The page's own image foreign keys
-    (`featured_image`, `social_image`) count on both objects too. A command
-    uses it after a REFUSED write: the
-    page moved on without the command, and the editor whose save refused the
-    write may have picked an image this run fetched (it was in the library from
-    the moment the fetch created it). Deleting that image would leave the
-    editor's revision pointing at a missing row, which resolves to None (todo
-    442 review). Empty when the page is gone.
-    """
-    page = BlogPostPage.objects.filter(pk=page_id).first()
-    if page is None:
-        return set()
-    objects = [page]
-    if page.latest_revision_id:
-        # Not get_latest_revision_as_object(): without unpublished changes that
-        # returns the live row and never reads the revision.
-        objects.append(page.latest_revision.as_object())
-    field = BlogPostPage._meta.get_field("content_blocks")
-    image_model = get_image_model()
-    pk_field = image_model._meta.pk
-    pks = {
-        pk_field.to_python(object_id)
-        for obj in objects
-        for model, object_id, _model_path, _content_path in field.extract_references(
-            obj.content_blocks
-        )
-        if issubclass(model, image_model)
-    }
-    # The page's own image columns (featured_image, and social_image on the
-    # BlogBasePage parent row: SET_NULL foreign keys) are references too.
-    # Deleting such an image would null the live row's column and leave the
-    # revision's value resolving to None (round-2 review of todo 442).
-    for image_field in _image_foreign_keys(image_model):
-        for obj in objects:
-            value = getattr(obj, image_field.attname)
-            if value is not None:
-                pks.add(pk_field.to_python(value))
-    return pks
-
-
-def _image_foreign_keys(image_model):
-    """BlogPostPage's forward foreign keys to the image model, inherited ones included."""
-    return [
-        f
-        for f in BlogPostPage._meta.get_fields()
-        if getattr(f, "concrete", False)
-        and getattr(f, "many_to_one", False)
-        and f.related_model is not None
-        and issubclass(f.related_model, image_model)
-    ]
