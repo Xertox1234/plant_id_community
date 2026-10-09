@@ -217,6 +217,16 @@ def _target_for_url(raw_url: str, *, dns_timeout: float | None = None) -> _Targe
     return _Target(normalized_url, scheme, normalized_host, port, address)
 
 
+def _host_of(raw_url: object) -> str:
+    """The host to name in a log line: never the path or query."""
+    if not isinstance(raw_url, str):
+        return "?"
+    try:
+        return urlsplit(raw_url.strip()).hostname or "?"
+    except ValueError:
+        return "?"
+
+
 def normalize_public_url(raw_url: str) -> str:
     return _target_for_url(raw_url).url
 
@@ -333,25 +343,44 @@ def _request_path(target: _Target) -> str:
     return f"{path}?{query}"
 
 
-def _read_document(response) -> bytes | None:
+class _FetchFailed(Exception):
+    """Why a page fetch produced no preview (todo 448 item 12). ``reason`` is
+    a short fixed phrase, safe to log; never the URL."""
+
+    def __init__(self, reason: str) -> None:
+        super().__init__(reason)
+        self.reason = reason
+
+
+# A failure caused by the CALLER'S budget running out, not by the site: a
+# snapshot that waited in a busy pool reaches the fetch with little time left.
+# It is not cached, so the composer preview and the next post still try.
+_DEADLINE = "deadline"
+
+
+def _read_document(response, deadline: float) -> bytes:
     content_type = (
         (response.getheader("Content-Type") or "").split(";", 1)[0].strip().lower()
     )
     if content_type and content_type not in {"text/html", "application/xhtml+xml"}:
-        return None
+        raise _FetchFailed("not HTML")
     content_length = response.getheader("Content-Length")
     try:
         if (
             content_length is not None
             and int(content_length) > constants.LINK_PREVIEW_MAX_BODY_BYTES
         ):
-            return None
+            raise _FetchFailed("too large")
     except (TypeError, ValueError):
         pass
     chunks: list[bytes] = []
     total = 0
-    while total <= constants.LINK_PREVIEW_MAX_BODY_BYTES:
-        chunk = response.read(
+    while True:
+        if time.monotonic() >= deadline:
+            raise _FetchFailed(_DEADLINE)
+        # read1: at most ONE underlying recv, so a slow-drip origin cannot
+        # hold this thread past the deadline (todo 448 item 5).
+        chunk = response.read1(
             min(
                 constants.LINK_PREVIEW_READ_CHUNK_BYTES,
                 constants.LINK_PREVIEW_MAX_BODY_BYTES - total + 1,
@@ -362,17 +391,40 @@ def _read_document(response) -> bytes | None:
         chunks.append(chunk)
         total += len(chunk)
         if total > constants.LINK_PREVIEW_MAX_BODY_BYTES:
-            return None
+            raise _FetchFailed("too large")
+    # An empty read also ends a body the watchdog cut off, or one the server
+    # closed before its Content-Length: neither raises, so check both.
+    if time.monotonic() >= deadline:
+        raise _FetchFailed(_DEADLINE)
+    if getattr(response, "length", None):
+        raise _FetchFailed("body cut short")
     return b"".join(chunks)
 
 
-def _fetch_html(target: _Target) -> tuple[str, bytes] | None:
+def _fetch_html(target: _Target, deadline: float) -> tuple[str, bytes]:
+    """``(final_url, body)``, or ``_FetchFailed`` naming why not. Every hop is
+    re-validated by ``_target_for_url``; nothing runs past ``deadline`` — the
+    same watchdog and ``read1`` loop as the image download (item 5)."""
     current = target
     for request_number in range(constants.LINK_PREVIEW_MAX_REDIRECTS + 1):
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise _FetchFailed(_DEADLINE)
         connection = None
         response = None
+        watchdog = None
         try:
-            connection = _open_connection(current)
+            connection = _open_connection(
+                current, timeout=min(constants.LINK_PREVIEW_TIMEOUT_SECONDS, remaining)
+            )
+            connection.connect()
+            watchdog = threading.Timer(
+                max(deadline - time.monotonic(), 0),
+                _shutdown_socket,
+                args=(connection.sock,),
+            )
+            watchdog.daemon = True
+            watchdog.start()
             connection.request(
                 "GET",
                 _request_path(current),
@@ -385,30 +437,54 @@ def _fetch_html(target: _Target) -> tuple[str, bytes] | None:
                 },
             )
             response = connection.getresponse()
-            if response.status in {301, 302, 303, 307, 308}:
+            if response.status in _REDIRECT_STATUSES:
                 if request_number >= constants.LINK_PREVIEW_MAX_REDIRECTS:
-                    return None
+                    raise _FetchFailed("too many redirects")
                 location = response.getheader("Location")
                 if not location:
-                    return None
-                current = _target_for_url(urljoin(current.url, location))
+                    raise _FetchFailed("redirect without a location")
+                try:
+                    current = _target_for_url(
+                        urljoin(current.url, location),
+                        dns_timeout=max(deadline - time.monotonic(), 0.01),
+                    )
+                except InvalidPreviewURL as exc:
+                    raise _FetchFailed("redirect refused") from exc
                 continue
             if not 200 <= response.status < 300:
-                return None
-            body = _read_document(response)
-            return (current.url, body) if body is not None else None
-        except (HTTPException, OSError, ValueError, UnicodeError):
-            return None
+                raise _FetchFailed(f"HTTP {response.status}")
+            return current.url, _read_document(response, deadline)
+        except (TimeoutError, socket.timeout) as exc:
+            reason = _DEADLINE if time.monotonic() >= deadline else "timeout"
+            raise _FetchFailed(reason) from exc
+        except (HTTPException, OSError, ValueError, UnicodeError) as exc:
+            # The watchdog shutting the socket surfaces as one of these.
+            if time.monotonic() >= deadline:
+                raise _FetchFailed(_DEADLINE) from exc
+            raise _FetchFailed(f"connection failed ({type(exc).__name__})") from exc
         finally:
+            if watchdog is not None:
+                watchdog.cancel()
             if response is not None:
                 response.close()
             if connection is not None:
                 connection.close()
-    return None
+    raise _FetchFailed("too many redirects")  # pragma: no cover - loop returns
 
 
-def fetch_link_preview(raw_url: str) -> dict[str, object]:
-    target = _target_for_url(raw_url)
+def fetch_link_preview(
+    raw_url: str, *, deadline: float | None = None
+) -> dict[str, object]:
+    """The page's preview, cached. ``deadline`` (``time.monotonic()``) bounds
+    the whole fetch, redirects and body included; ``None`` (the composer
+    endpoint) allows ``LINK_PREVIEW_PAGE_DEADLINE_SECONDS``. A failed fetch
+    logs one ``[LINK_PREVIEW]`` line with its reason and the host, never the
+    URL (todo 448 item 12); a cached answer logs nothing."""
+    if deadline is None:
+        deadline = time.monotonic() + constants.LINK_PREVIEW_PAGE_DEADLINE_SECONDS
+    target = _target_for_url(
+        raw_url, dns_timeout=max(deadline - time.monotonic(), 0.01)
+    )
     cache_key = _cache_key(target.url)
     try:
         cached = cache.get(cache_key)
@@ -418,10 +494,18 @@ def fetch_link_preview(raw_url: str) -> dict[str, object]:
         if isinstance(cached, dict):
             return dict(cached)
 
-    preview = _empty_preview(target.url)
-    fetched = _fetch_html(target)
-    if fetched is not None:
-        final_url, body = fetched
+    try:
+        final_url, body = _fetch_html(target, deadline)
+    except _FetchFailed as failure:
+        logger.info(
+            "[LINK_PREVIEW] page fetch failed (%s) for host %s",
+            failure.reason,
+            target.host,
+        )
+        preview = _empty_preview(target.url)
+        if failure.reason == _DEADLINE:
+            return preview
+    else:
         preview = _parse_document(body, target.url, final_url)
     cache_timeout = (
         constants.LINK_PREVIEW_CACHE_TTL_SECONDS
@@ -683,8 +767,13 @@ def link_preview_snapshot(
         deadline = time.monotonic() + get_setting("LINK_PREVIEW_FETCH_TIMEOUT_SECONDS")
     deadline -= constants.LINK_PREVIEW_SNAPSHOT_MARGIN_SECONDS
     try:
-        preview = fetch_link_preview(raw_url)
+        preview = fetch_link_preview(raw_url, deadline=deadline)
     except InvalidPreviewURL:
+        # Not a public HTTP(S) URL, or its DNS failed or ran out of time.
+        logger.info(
+            "[LINK_PREVIEW] not a public URL, or DNS failed, for host %s",
+            _host_of(raw_url),
+        )
         return None
     if preview.get("available") is not True:
         return None

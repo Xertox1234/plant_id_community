@@ -6,7 +6,7 @@ tags: [forum, backend, link-preview, review-follow-up, testing]
 dependencies: []
 ---
 
-# Link preview: non-blocking findings from todo 448's review (PR #971)
+# Link preview: non-blocking findings from todo 448's reviews (PRs #971, #972)
 
 Filed from PR #971's round-1 review (todo 448, PR 1 of 2). The round's one
 blocking finding was fixed in that PR: a stored card whose URL ends in
@@ -45,10 +45,46 @@ punctuation now survives an edit. The findings below did not block it.
    - Fix: clear the relevant cache in the test, or pin the count with the
      cache cold.
 
+4. **(PR #972) A deadline failure on a redirect is cached as "redirect refused".**
+   - Where: `apps/forum_host/link_preview.py::_fetch_html`. The redirect's
+     `_target_for_url` gets a DNS timeout capped at the time left. With
+     almost no time left, the lookup times out, raises `InvalidPreviewURL`,
+     and becomes `_FetchFailed("redirect refused")`, not `deadline`, so the
+     failure is cached for 60 s.
+   - Fix: in that `except`, check `time.monotonic() >= deadline` (as the
+     `OSError` branch does) and raise `_DEADLINE`.
+5. **(PR #972) The composer never caches a deadline failure.**
+   - The "our budget ran out" reasoning is true only for snapshots. The
+     composer's 8 s budget is fixed, so its deadline failure means the site
+     was slow.
+   - A site that drips a byte a second is fetched again on every composer
+     request, each holding a worker for about 8 s. Only the per-user
+     throttle bounds it.
+   - Fix: skip caching a deadline failure only when the caller passed a
+     deadline.
+6. **(PR #972) An HTTPS fetch can overrun its deadline by up to the connect timeout.**
+   - The TCP connect and the TLS handshake are each bounded by
+     `min(4, remaining)`, and the watchdog starts only after both. So the
+     worst case is about the deadline plus the time that was left when
+     connecting.
+   - `_fetch_image` has the same shape. A fix would start the watchdog
+     before `connect()` (it needs the socket), or wrap the socket ourselves.
+7. **(PR #972) `_host_of` logs the host of a URL that failed validation.**
+   - `urlsplit` strips only `\t\r\n`, so the host of a rejected URL can
+     carry control characters and has no length cap: minor log injection.
+   - Fix: `repr()` and truncate it.
+8. **(PR #972) Pre-existing: some link-preview logs still name the full URL.**
+   - `link_preview_snapshot`'s image warning, `_cache_preview_image`'s info
+     lines, and the package's `fetch_snapshots`/`_log_late` log full URLs,
+     path and query included.
+   - Fix: log the host only, as todo 448 item 12 does.
+
 ## Acceptance Criteria
 
-- [ ] Items 1–3 are fixed or closed with a reason.
+- [ ] Items 1–8 are fixed or closed with a reason.
 
 ## Work Log
 
 ### 2026-10-09 - Filed from PR #971 review round 1
+
+### 2026-10-09 - Items 4–8 added from PR #972 review round 1

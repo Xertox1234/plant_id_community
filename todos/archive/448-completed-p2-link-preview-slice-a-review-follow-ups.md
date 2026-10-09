@@ -1,12 +1,9 @@
 ---
-status: pending
+status: completed
 priority: p2
 issue_id: "448"
 tags: [forum, backend, link-preview, review-follow-up]
 dependencies: ["428"]
-triage: needs-design
-triaged: 2026-09-28
-blocked_on: "Owner picks where item 13's new-tab links go and what item 11's card-only excerpt shows"
 owner_decision: "Item 13: set target=_blank server-side in the package sanitizer. Item 11: leave a card-only excerpt empty (2026-09-28)"
 ---
 
@@ -141,7 +138,7 @@ but rare.
 
 - [x] Items 1–3 and 9 are fixed and pinned by tests (each mutation-checked) before
       the host setting is turned on in todo 428 slice C. (2026-09-26, slice C.)
-- [ ] Items 4–8 and 10–13 are fixed or closed with a reason.
+- [x] Items 4–8 and 10–13 are fixed or closed with a reason. (2026-10-09: 4, 6, 7, 10, 13 in #971; 5, 12 in #972; 8 closed, fixed by #913; 11 closed per the owner's decision.)
 
 ## Work Log
 
@@ -214,3 +211,26 @@ but rare.
 - **Left for PR 2:** items 5 (a wall-clock deadline on the page fetch) and 12
   (log why a fetch failed). They change the SSRF-pinned fetcher, so they get
   their own review.
+
+### 2026-10-09 - Items 5 and 12 fixed (PR 2 of 2, #972); todo archived
+
+- **#971 merged** (PR 1: items 4, 6, 7, 10 and 13; 8 and 11 closed). Its
+  round-1 review caught a regression the item-7 trim introduced: a card
+  stored with a URL ending in punctuation was lost on edit. It now reuses
+  the untrimmed URL when the stored body has a card for it. Round 2
+  verified the fix.
+- **Item 5:** `_fetch_html(target, deadline)` reuses the image download's
+  watchdog and `read1` loop. The connect timeout and each redirect's DNS
+  timeout are capped at the time left. The snapshot passes its budget
+  through, and the composer endpoint gets
+  `LINK_PREVIEW_PAGE_DEADLINE_SECONDS` (8 s). A failure caused by running
+  out of OUR budget is not cached.
+- **Item 12:** each fresh failure logs one
+  `[LINK_PREVIEW] page fetch failed (<reason>) for host <host>` line. The
+  log never includes the path or query, and a cached answer logs nothing.
+  "No usable title" cannot happen, because the parser falls back to the
+  domain.
+- **Mutation checks:** 7 of 7 caught. The full backend suite: 4479 passed;
+  the one failure is the known environment test.
+- **Review:** neither PR had a blocking finding left. The non-blocking notes
+  from both are in todo 535.
