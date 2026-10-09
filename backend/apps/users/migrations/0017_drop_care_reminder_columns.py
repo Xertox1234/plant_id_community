@@ -47,6 +47,10 @@ class Migration(migrations.Migration):
                 max_length=30,
             ),
         ),
+        # Before the drop: the migration is one transaction, and the DROP's
+        # ACCESS EXCLUSIVE lock on auth_user would otherwise be held while
+        # this loop runs.
+        migrations.RunPython(remap_retired_onboarding_step, migrations.RunPython.noop),
         # Contract half of 0015's expand/contract (todo 458). 0015 removed
         # both fields from Django state and left the columns, with a DB
         # default, for the old container to read during the rolling deploy.
@@ -73,5 +77,4 @@ class Migration(migrations.Migration):
                 ),
             ],
         ),
-        migrations.RunPython(remap_retired_onboarding_step, migrations.RunPython.noop),
     ]
