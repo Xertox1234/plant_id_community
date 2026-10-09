@@ -291,6 +291,37 @@ class PopulateDiscardsUnwrittenImagesTest(PopulateCommandTestCase):
         self.assertIn("Kept 1 fetched image(s)", out)
         self.assertTrue(get_image_model().objects.filter(pk=image.pk).exists())
 
+    def test_a_failing_unchanged_check_keeps_the_image_and_the_run_goes_on(self):
+        # The check runs right after a write that raised, often on the same
+        # broken connection. Its own failure must not end the run (todo 442
+        # review): unknown means keep, and the next page is still processed.
+        first = self.make_post("check-fails")
+        second = self.make_post("next-page")
+        image = self.fetched_image()
+        second_image = self.fetched_image("Fetched for the next page")
+        remaining = iter([image, second_image])
+
+        def save(base, updates):
+            raise RuntimeError("database went away")
+
+        with mock.patch(
+            "apps.blog.management.commands.populate_plant_images.page_unchanged_since",
+            side_effect=RuntimeError("connection already closed"),
+        ):
+            out, fetch_mock = self.run_command(
+                fetch=lambda **kwargs: ("unsplash", UNSPLASH_DATA, next(remaining)),
+                save=save,
+            )
+
+        self.assertEqual(fetch_mock.call_count, 2)
+        self.assertIn(f"Processing: {first.title}", out)
+        self.assertIn(f"Processing: {second.title}", out)
+        self.assertEqual(out.count("Kept 1 fetched image(s)"), 2)
+        self.assertNotIn("Discarded", out)
+        images = get_image_model().objects
+        self.assertTrue(images.filter(pk=image.pk).exists())
+        self.assertTrue(images.filter(pk=second_image.pk).exists())
+
     def test_a_written_image_stays(self):
         post = self.make_post("written")
         image = self.fetched_image()

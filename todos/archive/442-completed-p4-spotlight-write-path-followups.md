@@ -143,3 +143,22 @@ The bundled `/code-review` of PR #825 raised these as non-blocking.
   Mutation-checked: restoring delete-on-refusal fails exactly the five
   refused-write tests (5 failed / 5 passed); file restored from a copy and
   grep-verified.
+
+### 2026-10-09 - Final review pass before merge
+
+- Reviewers: bundled `/code-review` (high) plus wagtail, django-drf,
+  react-typescript and cross-cutting checklist reviewers.
+- Blocking, repaired: blog cache prefixes versioned (`blog:post:v2`,
+  `blog:list:v2`) so payloads cached before the deploy cannot drop the Unsplash
+  referral link; `populate_plant_images` keeps the images and goes on when the
+  post-raise `page_unchanged_since` check itself fails; an `execute=False`
+  deferral test now covers unpublish, post_delete, comment save/delete and
+  category save. Mutation-checked: each repair reverted fails exactly its new
+  test; files restored byte-identical. 1158 passed (blog, forum_host,
+  plant_identification).
+- CI failure on `9f408115` fixed in `808f2667`: a `forum_host` test counted
+  `on_commit` callbacks and broke when blog invalidation also deferred.
+- Non-blocking findings filed as todo 530. Codified: `docs/rules/caching.md`
+  (version the prefix on a payload shape change), `docs/rules/testing.md`
+  (run all on_commit callbacks; execute=False per deferred receiver),
+  `docs/LEARNINGS.md` 2026-10-09.

@@ -152,6 +152,77 @@ class BlogSignalTestCase(TestCase):
         self.assertIsNone(BlogCacheService.get_blog_post("test-post"))
         self.assertIsNone(BlogCacheService.get_blog_list(page=1, limit=10, filters={}))
 
+    def test_a_payload_cached_under_the_old_key_is_not_served(self):
+        """Todo 442 review: plant_spotlight gained credit_lead/unsplash_href.
+
+        A payload cached before the deploy lacks them, and the web renders such
+        a credit without Unsplash's referral link for the rest of its 24h TTL.
+        The versioned prefix makes those entries unreachable at deploy.
+        """
+        cache.set("blog:post:test-post", {"title": "cached before todo 442"})
+
+        self.assertIsNone(BlogCacheService.get_blog_post("test-post"))
+        BlogCacheService.set_blog_post("test-post", {"title": "fresh"})
+        self.assertEqual(
+            BlogCacheService.get_blog_post("test-post"), {"title": "fresh"}
+        )
+
+    def test_every_other_invalidation_waits_for_the_commit(self):
+        """Todo 442 review: the other receivers defer to `on_commit` too.
+
+        Each trigger's own test runs its callbacks with `execute=True`, so it
+        would pass just as well if that receiver deleted the keys at once.
+        """
+        comment = BlogComment.objects.create(
+            post=self.blog_post, author=self.user, content="to delete"
+        )
+
+        def get_post():
+            return BlogCacheService.get_blog_post("test-post")
+
+        def get_list():
+            return BlogCacheService.get_blog_list(page=1, limit=10, filters={})
+
+        triggers = [
+            (
+                "unpublish",
+                lambda: page_unpublished.send(
+                    sender=BlogPostPage, instance=self.blog_post
+                ),
+                get_post,
+            ),
+            (
+                "post_delete",
+                lambda: post_delete.send(sender=BlogPostPage, instance=self.blog_post),
+                get_post,
+            ),
+            (
+                "comment save",
+                lambda: BlogComment.objects.create(
+                    post=self.blog_post, author=self.user, content="Nice post"
+                ),
+                get_post,
+            ),
+            ("comment delete", comment.delete, get_post),
+            (
+                "category save",
+                lambda: BlogCategory.objects.create(name="Herbs", slug="herbs"),
+                get_list,
+            ),
+        ]
+        for name, trigger, cached in triggers:
+            with self.subTest(trigger=name):
+                BlogCacheService.set_blog_post("test-post", {"title": "Test Post"})
+                BlogCacheService.set_blog_list(
+                    page=1, limit=10, filters={}, data={"items": []}
+                )
+                with self.captureOnCommitCallbacks(execute=False) as callbacks:
+                    trigger()
+                    self.assertIsNotNone(cached(), "invalidated before the commit")
+                for callback in callbacks:
+                    callback()
+                self.assertIsNone(cached())
+
     # ===== page_unpublished Signal Tests =====
 
     def test_page_unpublished_invalidates_post_cache(self):

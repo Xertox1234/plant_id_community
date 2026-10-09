@@ -249,7 +249,17 @@ class Command(BaseCommand):
         """
         if not images:
             return
-        if outcome is not None or not page_unchanged_since(base):
+        try:
+            # Runs right after a write that raised, often on the same broken
+            # connection: a failure here must not end the run. Unknown means
+            # keep.
+            unchanged = outcome is None and page_unchanged_since(base)
+        except Exception as e:
+            logger.error(
+                f"[PLANT_IMAGE] Could not check page {base.page.pk} after a failed write: {e}"
+            )
+            unchanged = False
+        if not unchanged:
             self.stdout.write(
                 self.style.WARNING(
                     f"  Kept {len(images)} fetched image(s): the page changed, "
