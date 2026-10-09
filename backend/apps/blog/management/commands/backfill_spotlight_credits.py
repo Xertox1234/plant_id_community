@@ -40,9 +40,11 @@ from apps.blog.services.plant_spotlight_writes import (
 )
 from apps.plant_identification.services.plant_image_service import (
     CREDIT_FALLBACK,
+    CREDIT_FROM_TAGS,
     CREDIT_LOOKUP_UNAVAILABLE,
     PlantImageService,
 )
+from apps.plant_identification.services.unsplash_service import UNSPLASH_CREDIT_SUFFIX
 from django.core.management.base import BaseCommand
 
 
@@ -122,7 +124,12 @@ class Command(BaseCommand):
                     "image_credit": credit,
                     "image_credit_url": credit_url,
                 }
-                fallback = basis == CREDIT_FALLBACK
+                # Also an Unsplash credit rebuilt from the tags with no
+                # lookup at all (no unsplash_id: tag): username only too.
+                fallback = basis == CREDIT_FALLBACK or (
+                    basis == CREDIT_FROM_TAGS
+                    and credit.endswith(UNSPLASH_CREDIT_SUFFIX)
+                )
                 fallbacks += fallback
                 verb = "Would credit" if dry_run else "Crediting"
                 self.stdout.write(

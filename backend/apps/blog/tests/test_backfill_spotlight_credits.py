@@ -154,6 +154,15 @@ class BackfillSpotlightCreditsTest(TestCase):
     def spotlight_of(page):
         return next(b for b in page.content_blocks if b.block_type == "plant_spotlight")
 
+    def test_unsplash_image_without_an_id_tag_counts_as_username_only(self):
+        # PR #965 review: no unsplash_id: tag means no lookup, and the credit
+        # is the same username-only one.
+        self.unsplash_image.tags.remove("unsplash_id:abc123")
+        self.make_post("no-id-tag", image=self.unsplash_image.pk)
+        out, _ = self.run_command()
+        self.assertIn("Credited: 1 (username only: 1)", out)
+        self.lookup.assert_not_called()
+
     def test_pexels_image_gets_text_only_credit(self):
         post = self.make_post("pexels", image=self.pexels_image.pk)
         self.run_command()

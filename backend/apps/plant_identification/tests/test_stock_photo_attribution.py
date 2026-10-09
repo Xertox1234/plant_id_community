@@ -249,6 +249,8 @@ class UnsplashGetPhotoTest(SimpleTestCase):
             ((404, None), PHOTO_GONE),
             ((None, None), PHOTO_UNAVAILABLE),  # rate limit / network
             ((503, None), PHOTO_UNAVAILABLE),
+            ((403, None), PHOTO_UNAVAILABLE),  # Unsplash's rate-limit answer
+            ((401, None), PHOTO_LOOKUP_DISABLED),  # a rejected key, todo 530 review
             ((200, {"id": "x"}), PHOTO_UNAVAILABLE),  # malformed answer
         ]
         for index, (answer, expected) in enumerate(cases):
@@ -306,7 +308,7 @@ class UnsplashRateCounterTest(SimpleTestCase):
         self.assertFalse(service.is_rate_limited())
 
     def test_a_malformed_header_leaves_the_counter_alone(self):
-        service, _ = self.request(headers={"X-Ratelimit-Remaining": "lots"})
+        self.request(headers={"X-Ratelimit-Remaining": "lots"})
         self.assertIsNone(cache.get(UnsplashImageService.RATE_LIMIT_KEY))
 
     def test_the_header_sets_the_counter(self):

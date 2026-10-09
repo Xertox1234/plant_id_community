@@ -100,8 +100,9 @@ Each finding was re-checked against main before acting.
   `X-Ratelimit-Remaining`; a missing or malformed header leaves it alone
   (the old `int(... , 0)` blocked Unsplash for an hour, and a non-numeric
   header raised past the `RequestException` handler).
-- [x] 3. Negative cache. A 404 is remembered for an hour
-  (`unsplash_photo_gone_<id>`); transient failures are never cached. The
+- [x] 3. Negative cache. A 404 is remembered for an hour; transient
+  failures are never cached. A 401 (rejected key) counts as no key, so it
+  falls back instead of deferring on every run (PR #965 review). The
   positive cache check is now `is not None`.
 - [x] 4. Raise after commit. `outcome_after_raise` checks whether the page's
   latest revision is a new one carrying every update; if so both commands
@@ -122,7 +123,8 @@ Each finding was re-checked against main before acting.
   - [x] Type hint `Iterable[str]` on `rebuild_attribution`.
   - [x] Tests for an empty and a blank `unsplash_id:` tag.
   - [x] `robust=True` pinned by a test (blog and forum_host).
-  - [ ] Cache key rename declined: the neighbouring Unsplash keys share the
-    old style, and one renamed key would be the odd one out.
+  - [ ] Renaming `unsplash_photo_{id}` declined: the neighbouring Unsplash
+    keys share the old style. The NEW negative key follows the rule
+    (`plant_id:unsplash:photo_gone:{id}`, PR #965 review).
   - [ ] Web type narrowing declined: the fields are optional either way and
     the renderer already handles null and undefined with `?.trim() ?? ''`.

@@ -305,7 +305,7 @@ class UnsplashImageService:
         Returns:
             (status, image_data). status is PHOTO_FOUND with the image data;
             otherwise image_data is None and status is PHOTO_LOOKUP_DISABLED
-            (no access key), PHOTO_GONE (a 404, or an id that is not an
+            (no access key, or Unsplash rejected it), PHOTO_GONE (a 404, or an id that is not an
             Unsplash id: asking again cannot help) or PHOTO_UNAVAILABLE (the
             rate limit, a network or API error, a malformed response: a later
             run may succeed)
@@ -318,7 +318,7 @@ class UnsplashImageService:
             return PHOTO_GONE, None
 
         cache_key = f"unsplash_photo_{photo_id}"
-        gone_key = f"unsplash_photo_gone_{photo_id}"
+        gone_key = f"plant_id:unsplash:photo_gone:{photo_id}"
         cached = cache.get(cache_key)
         if cached is not None:
             return PHOTO_FOUND, cached
@@ -329,6 +329,13 @@ class UnsplashImageService:
         if status_code == 404:
             cache.set(gone_key, True, self.RATE_LIMIT_CACHE_TIMEOUT)
             return PHOTO_GONE, None
+        if status_code == 401:
+            # A revoked or wrong key: no later run succeeds until someone
+            # fixes it, so treat it as no key rather than deferring forever.
+            logger.warning(
+                "[UNSPLASH] Access key rejected (401); check UNSPLASH_ACCESS_KEY"
+            )
+            return PHOTO_LOOKUP_DISABLED, None
         if not result:
             return PHOTO_UNAVAILABLE, None
         image_data = self._process_photo(result)
