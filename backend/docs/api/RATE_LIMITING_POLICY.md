@@ -11,6 +11,7 @@ This document defines the comprehensive rate limiting policy for the Plant ID Co
 ## Configuration Location
 
 All rate limits are centralized in:
+
 ```
 backend/apps/plant_identification/constants.py
 ```
@@ -191,7 +192,6 @@ When rate limit is exceeded, the API returns:
 | `POST /api/users/login/` | `5/15m` (ip) | `RATE_LIMITS['auth_endpoints']['login']` |
 | `POST /api/users/token/refresh/` | `10/h` (ip) | `RATE_LIMITS['auth_endpoints']['token_refresh']` |
 | `POST /api/users/push-notifications/subscribe/` | `10/h` (user) | `RATE_LIMITS['user_features']['push_notifications']` |
-| `POST /api/users/care-reminders/<uuid>/action/` | `20/h` (user) | `RATE_LIMITS['user_features']['care_reminders']` |
 
 ### Blog App
 
@@ -273,6 +273,7 @@ logger.warning(
 ### Admin Dashboard (Future Enhancement)
 
 Admin users should be able to view:
+
 - Rate limit hit statistics
 - Top rate-limited IPs/users
 - Rate limit configuration per endpoint
@@ -291,12 +292,14 @@ Admin users should be able to view:
 ### Example Scenarios
 
 **Scenario 1: Users complaining about search limits**
+
 - Current: `30/h` for anonymous search
 - Analysis: Search is cheap (database-only, no external APIs)
 - Action: Increase to `100/h` for anonymous, `500/h` for authenticated
 - Rationale: Database search is not resource-intensive
 
 **Scenario 2: Abuse detected on registration endpoint**
+
 - Current: `3/h` per IP
 - Analysis: Bot registering accounts from multiple IPs
 - Action: Add CAPTCHA or reduce to `2/h`
@@ -320,6 +323,7 @@ if not SecurityService.is_valid_client_ip(request):
 ### Distributed Denial of Service (DDoS)
 
 Rate limiting helps mitigate application-level DDoS attacks but should be combined with:
+
 - **Cloudflare/CDN**: Network-level DDoS protection
 - **Web Application Firewall (WAF)**: Pattern-based blocking
 - **Geographic Restrictions**: Block countries with high abuse rates
@@ -327,10 +331,12 @@ Rate limiting helps mitigate application-level DDoS attacks but should be combin
 ### Account Lockout Integration
 
 Login endpoint has both rate limiting AND account lockout (Week 4):
+
 - **Rate Limit**: `5/15m` per IP (prevents brute force)
 - **Account Lockout**: 10 failed attempts locks account for 1 hour (prevents credential stuffing)
 
 These work together:
+
 1. First 5 attempts: rate limited (IP-based)
 2. Attempts 6-10: may hit account lockout (user-based)
 3. After 10 attempts: account locked for 1 hour + IP rate limited
@@ -340,11 +346,12 @@ These work together:
 - **Week 4 Authentication Security**: `backend/docs/security/AUTHENTICATION_SECURITY.md`
 - **Circuit Breakers**: `backend/docs/quick-wins/circuit-breaker.md`
 - **Distributed Locks**: `backend/docs/quick-wins/distributed-locks.md`
-- **django-ratelimit**: https://django-ratelimit.readthedocs.io/
+- **django-ratelimit**: <https://django-ratelimit.readthedocs.io/>
 
 ## Changelog
 
 ### October 27, 2025
+
 - Initial documentation created (TODO #029)
 - Centralized rate limit configuration in `constants.py`
 - Standardized rate limit policy across all apps

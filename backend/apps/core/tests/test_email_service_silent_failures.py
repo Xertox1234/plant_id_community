@@ -27,7 +27,6 @@ User = get_user_model()
 # Work Log.
 FALLBACK_RENDERABLE_TEMPLATES = [
     "welcome_email",
-    "plant_care_reminder",
     "newsletter",
     "generic_notification",
 ]

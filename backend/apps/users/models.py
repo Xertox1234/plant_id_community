@@ -10,7 +10,6 @@ from apps.core.validators import validate_avatar_image
 from django.contrib.auth.models import AbstractUser
 from django.db import models
 from django.urls import reverse
-from django.utils import timezone
 from imagekit.models import ImageSpecField
 from imagekit.processors import ResizeToFill
 from taggit.managers import TaggableManager
@@ -191,13 +190,10 @@ class User(AbstractUser):
         default=True, help_text="Get notified about forum replies and mentions"
     )
 
-    # Care reminder preferences
+    # Care reminder push opt-out, read by the garden_calendar reminder sweep
+    # (todo 410). There is no care-reminder email.
     care_reminder_notifications = models.BooleanField(
         default=True, help_text="Receive push notifications for plant care reminders"
-    )
-
-    care_reminder_email = models.BooleanField(
-        default=False, help_text="Receive email notifications for plant care reminders"
     )
 
     # Account Statistics
@@ -526,285 +522,6 @@ class PushSubscription(models.Model):
         self.save(update_fields=["is_active"])
 
 
-class CareReminder(models.Model):
-    """
-    Model for managing plant care reminders.
-    """
-
-    REMINDER_TYPES = [
-        ("watering", "Watering"),
-        ("fertilizing", "Fertilizing"),
-        ("repotting", "Repotting"),
-        ("pruning", "Pruning"),
-        ("inspection", "General Inspection"),
-        ("custom", "Custom Care Task"),
-    ]
-
-    FREQUENCY_CHOICES = [
-        ("daily", "Daily"),
-        ("weekly", "Weekly"),
-        ("biweekly", "Every 2 weeks"),
-        ("monthly", "Monthly"),
-        ("quarterly", "Every 3 months"),
-        ("biannual", "Every 6 months"),
-        ("annual", "Yearly"),
-        ("custom", "Custom interval"),
-    ]
-
-    # UUID for secure references
-    uuid = models.UUIDField(
-        default=uuid.uuid4,
-        editable=False,
-        unique=True,
-        help_text="Unique identifier for secure references",
-    )
-
-    user = models.ForeignKey(
-        User,
-        on_delete=models.CASCADE,
-        related_name="care_reminders",
-        help_text="User who owns this reminder",
-    )
-
-    # Link to saved care instructions
-    saved_care_instructions = models.ForeignKey(
-        "plant_identification.SavedCareInstructions",
-        on_delete=models.CASCADE,
-        related_name="reminders",
-        help_text="Care instructions this reminder is based on",
-    )
-
-    # Reminder details
-    reminder_type = models.CharField(
-        max_length=20, choices=REMINDER_TYPES, help_text="Type of care reminder"
-    )
-
-    title = models.CharField(
-        max_length=200, help_text="Reminder title (e.g., 'Water your Fiddle Leaf Fig')"
-    )
-
-    description = models.TextField(
-        blank=True, help_text="Optional detailed description or instructions"
-    )
-
-    # Scheduling
-    frequency = models.CharField(
-        max_length=20,
-        choices=FREQUENCY_CHOICES,
-        default="weekly",
-        help_text="How often this reminder should trigger",
-    )
-
-    custom_interval_days = models.PositiveIntegerField(
-        null=True,
-        blank=True,
-        help_text="Custom interval in days (for custom frequency)",
-    )
-
-    next_reminder_date = models.DateTimeField(
-        help_text="When this reminder should next trigger"
-    )
-
-    last_reminder_sent = models.DateTimeField(
-        null=True, blank=True, help_text="When the last reminder was sent"
-    )
-
-    # User interaction tracking
-    total_sent = models.PositiveIntegerField(
-        default=0, help_text="Total number of reminders sent"
-    )
-
-    total_completed = models.PositiveIntegerField(
-        default=0, help_text="Number of times user marked as completed"
-    )
-
-    total_snoozed = models.PositiveIntegerField(
-        default=0, help_text="Number of times user snoozed this reminder"
-    )
-
-    current_streak = models.PositiveIntegerField(
-        default=0, help_text="Current streak of completed reminders"
-    )
-
-    longest_streak = models.PositiveIntegerField(
-        default=0, help_text="Longest streak of completed reminders"
-    )
-
-    # Settings
-    is_active = models.BooleanField(
-        default=True, help_text="Is this reminder currently active?"
-    )
-
-    send_push_notification = models.BooleanField(
-        default=True, help_text="Send push notifications for this reminder"
-    )
-
-    send_email_notification = models.BooleanField(
-        default=False, help_text="Send email notifications for this reminder"
-    )
-
-    # Timestamps
-    created_at = models.DateTimeField(auto_now_add=True)
-    updated_at = models.DateTimeField(auto_now=True)
-
-    class Meta:
-        ordering = ["next_reminder_date"]
-        indexes = [
-            models.Index(fields=["user", "is_active"]),
-            models.Index(fields=["next_reminder_date", "is_active"]),
-            models.Index(fields=["reminder_type"]),
-        ]
-
-    def __str__(self):
-        return f"{self.title} - {self.get_frequency_display()}"
-
-    def get_interval(self):
-        """Return this reminder's recurrence interval as a timedelta, or None.
-
-        Single source of truth for frequency -> interval (todo 221 / L4) — this
-        mapping was reimplemented in three places (here plus the ICS and calendar
-        generators in views.py) that had diverged on unknown-frequency handling.
-        Returns None for an unrecognized frequency (or "custom" without a
-        configured interval) so each caller decides what to do:
-        `calculate_next_reminder_date` defaults to weekly; the calendar/ICS
-        generators stop their loop.
-        """
-        from datetime import timedelta
-
-        if self.frequency == "custom":
-            return (
-                timedelta(days=self.custom_interval_days)
-                if self.custom_interval_days
-                else None
-            )
-        frequency_map = {
-            "daily": timedelta(days=1),
-            "weekly": timedelta(weeks=1),
-            "biweekly": timedelta(weeks=2),
-            "monthly": timedelta(days=30),
-            "quarterly": timedelta(days=90),
-            "biannual": timedelta(days=180),
-            "annual": timedelta(days=365),
-        }
-        return frequency_map.get(self.frequency)
-
-    def calculate_next_reminder_date(self):
-        """Calculate the next reminder date based on frequency."""
-        from datetime import timedelta
-
-        from django.utils import timezone
-
-        # Unknown frequency falls back to weekly (preserved behavior).
-        delta = self.get_interval() or timedelta(weeks=1)
-        base_date = self.last_reminder_sent or timezone.now()
-        return base_date + delta
-
-    def mark_completed(self):
-        """Mark this reminder as completed and update streaks."""
-        from django.utils import timezone
-
-        self.total_completed += 1
-        self.current_streak += 1
-
-        if self.current_streak > self.longest_streak:
-            self.longest_streak = self.current_streak
-
-        # Calculate next reminder date
-        self.last_reminder_sent = timezone.now()
-        self.next_reminder_date = self.calculate_next_reminder_date()
-
-        self.save(
-            update_fields=[
-                "total_completed",
-                "current_streak",
-                "longest_streak",
-                "last_reminder_sent",
-                "next_reminder_date",
-            ]
-        )
-
-    def mark_snoozed(self, snooze_hours=24):
-        """Snooze this reminder for a specified number of hours."""
-        from datetime import timedelta
-
-        from django.utils import timezone
-
-        self.total_snoozed += 1
-        self.next_reminder_date = timezone.now() + timedelta(hours=snooze_hours)
-
-        self.save(update_fields=["total_snoozed", "next_reminder_date"])
-
-    def mark_skipped(self):
-        """Skip this reminder and reset streak."""
-        self.current_streak = 0
-        self.last_reminder_sent = timezone.now()
-        self.next_reminder_date = self.calculate_next_reminder_date()
-
-        self.save(
-            update_fields=["current_streak", "last_reminder_sent", "next_reminder_date"]
-        )
-
-    def send_reminder(self):
-        """Send the reminder notification and update counters."""
-        from django.utils import timezone
-
-        self.total_sent += 1
-        self.last_reminder_sent = timezone.now()
-
-        self.save(update_fields=["total_sent", "last_reminder_sent"])
-
-        # Import here to avoid circular imports
-        from .services import NotificationService
-
-        # Send push notification if enabled
-        if self.send_push_notification:
-            NotificationService.send_care_reminder_push(self)
-
-        # Send email notification if enabled
-        if self.send_email_notification:
-            NotificationService.send_care_reminder_email(self)
-
-
-class CareReminderLog(models.Model):
-    """
-    Model to log care reminder actions for analytics and user history.
-    """
-
-    ACTION_CHOICES = [
-        ("sent", "Reminder Sent"),
-        ("completed", "Marked as Completed"),
-        ("snoozed", "Snoozed"),
-        ("skipped", "Skipped"),
-        ("dismissed", "Dismissed"),
-    ]
-
-    reminder = models.ForeignKey(
-        CareReminder, on_delete=models.CASCADE, related_name="action_logs"
-    )
-
-    action = models.CharField(
-        max_length=20, choices=ACTION_CHOICES, help_text="Action taken on the reminder"
-    )
-
-    action_data = models.JSONField(
-        default=dict,
-        blank=True,
-        help_text="Additional data about the action (e.g., snooze duration)",
-    )
-
-    created_at = models.DateTimeField(auto_now_add=True)
-
-    class Meta:
-        ordering = ["-created_at"]
-        indexes = [
-            models.Index(fields=["reminder", "-created_at"]),
-            models.Index(fields=["action", "-created_at"]),
-        ]
-
-    def __str__(self):
-        return f"{self.reminder.title} - {self.get_action_display()}"
-
-
 class OnboardingProgress(models.Model):
     """
     Model to track user's onboarding progress through the getting started checklist.
@@ -818,7 +535,6 @@ class OnboardingProgress(models.Model):
         ("forum_category_followed", "Forum Category Followed"),
         ("first_forum_post", "First Forum Post Created"),
         ("push_notifications_enabled", "Push Notifications Enabled"),
-        ("care_reminder_set", "Care Reminder Set"),
         ("onboarding_completed", "Onboarding Completed"),
     ]
 
@@ -908,9 +624,6 @@ class OnboardingProgress(models.Model):
     )
     first_identification_completed = models.BooleanField(
         default=False, help_text="User completed their first plant identification"
-    )
-    first_care_reminder_created = models.BooleanField(
-        default=False, help_text="User created their first care reminder"
     )
     first_forum_post_created = models.BooleanField(
         default=False, help_text="User created their first forum post"

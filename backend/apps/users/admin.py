@@ -80,6 +80,7 @@ class UserAdmin(BaseUserAdmin):
                     "email_notifications",
                     "plant_id_notifications",
                     "forum_notifications",
+                    "care_reminder_notifications",
                 )
             },
         ),

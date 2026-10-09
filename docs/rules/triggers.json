@@ -1951,5 +1951,21 @@
     "source": "codify: sweep run 2026-10-01-0121",
     "added": "2026-10-01",
     "severity": "warn"
+  },
+  {
+    "id": "migration-remove-field-same-deploy",
+    "domains": [
+      "database"
+    ],
+    "path_glob": [
+      "backend/**/migrations/*.py"
+    ],
+    "content_present": "migrations\\.RemoveField\\(",
+    "content_absent": "SeparateDatabaseAndState",
+    "message": "RemoveField drops the column while the OLD container is still serving (Railway preDeploy migrate), and old code SELECTs it on every fetch. Expand/contract: db_default + SeparateDatabaseAndState(state_operations=[RemoveField]) now, drop the column in a later deploy (PR #854).",
+    "severity": "warn",
+    "pattern_ref": "docs/rules/database.md",
+    "added": "2026-09-27",
+    "source": "todo 410 slice B / PR #854 round 1"
   }
 ]

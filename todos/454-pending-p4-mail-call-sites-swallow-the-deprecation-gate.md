@@ -15,14 +15,15 @@ owner_decision: "Refuse a non-vanilla SMTP subclass in core.E364 (2026-09-28)"
 ## Problem
 
 From the todo 364 review (PR #850, bundled `/code-review`, not blocking).
-`pytest.ini` turns a `RemovedInDjango70Warning` into an exception. The three
+`pytest.ini` turns a `RemovedInDjango70Warning` into an exception. The two remaining
 mail call sites catch every `Exception`, log it, and return, so a first-party
 deprecation added there would not fail the run:
 
 - `wagtail_forum/digest.py` `send_digest`;
-- `apps/core/security.py` `_send_lockout_notification`;
-- `apps/users/services.py` `CareReminderService.send_care_reminder_email`,
-  which todo 410 deletes.
+- `apps/core/security.py` `_send_lockout_notification`.
+
+(A third, `CareReminderService.send_care_reminder_email`, was deleted with
+todo 410 slice B, PR #854.)
 
 A future `message.send(fail_silently=False)`, `connection=` or `auth_user=`
 would log "[EMAIL] … failed" and stay green unless a test checks the outbox
