@@ -1,4 +1,5 @@
 import time
+import unittest
 from unittest.mock import ANY, patch
 
 import pytest
@@ -6,6 +7,7 @@ from apps.forum_host import constants
 from apps.forum_host.link_preview import (
     InvalidPreviewURL,
     _fetch_html,
+    _FetchFailed,
     _open_connection,
     _read_document,
     _request_path,
@@ -59,7 +61,7 @@ def test_fetch_link_preview_extracts_open_graph_metadata_and_caches_result():
     assert result == expected
     assert cached == expected
     fetch.assert_called_once_with(
-        _Target(url, "https", "93.184.216.34", 443, "93.184.216.34")
+        _Target(url, "https", "93.184.216.34", 443, "93.184.216.34"), ANY
     )
 
 
@@ -116,7 +118,10 @@ def test_normalize_public_url_times_out_slow_dns_resolution():
 def test_failed_preview_uses_the_short_cache_ttl():
     url = "https://93.184.216.34/unavailable"
     with (
-        patch("apps.forum_host.link_preview._fetch_html", return_value=None),
+        patch(
+            "apps.forum_host.link_preview._fetch_html",
+            side_effect=_FetchFailed("HTTP 500"),
+        ),
         patch("apps.forum_host.link_preview.cache.set") as cache_set,
     ):
         result = fetch_link_preview(url)
@@ -137,23 +142,22 @@ def test_read_document_rejects_non_html_and_oversized_content():
         def getheader(self, name):
             return self.headers.get(name)
 
-        def read(self, size):
+        def read1(self, size):
             chunk, self.body = self.body[:size], self.body[size:]
             return chunk
 
-    assert (
-        _read_document(Response({"Content-Type": "application/pdf"}, b"data")) is None
-    )
+    deadline = time.monotonic() + 5
+    with pytest.raises(_FetchFailed, match="not HTML"):
+        _read_document(Response({"Content-Type": "application/pdf"}, b"data"), deadline)
     with patch.object(constants, "LINK_PREVIEW_MAX_BODY_BYTES", 4):
-        assert (
+        with pytest.raises(_FetchFailed, match="too large"):
             _read_document(
                 Response(
                     {"Content-Type": "text/html", "Content-Length": "5"},
                     b"large",
-                )
+                ),
+                deadline,
             )
-            is None
-        )
 
 
 def test_request_path_percent_encodes_unicode_components():
@@ -198,7 +202,9 @@ def test_fetch_html_follows_a_public_redirect_and_returns_the_final_url():
         def getheader(self, name):
             return self.headers.get(name)
 
-        def read(self, size):
+        length = None
+
+        def read1(self, size):
             chunk, self.body = self.body[:size], self.body[size:]
             return chunk
 
@@ -206,8 +212,13 @@ def test_fetch_html_follows_a_public_redirect_and_returns_the_final_url():
             pass
 
     class Connection:
+        sock = None
+
         def __init__(self, response):
             self.response = response
+
+        def connect(self):
+            pass
 
         def request(self, method, path, headers):
             pass
@@ -234,7 +245,10 @@ def test_fetch_html_follows_a_public_redirect_and_returns_the_final_url():
         "apps.forum_host.link_preview._open_connection",
         side_effect=connections,
     ) as open_connection:
-        assert _fetch_html(target) == (final_url, b"<title>ok</title>")
+        assert _fetch_html(target, time.monotonic() + 5) == (
+            final_url,
+            b"<title>ok</title>",
+        )
 
     assert open_connection.call_count == 2
     assert open_connection.call_args_list[1].args[0].url == final_url
@@ -251,6 +265,11 @@ def test_fetch_html_does_not_follow_redirect_to_private_target():
             pass
 
     class Connection:
+        sock = None
+
+        def connect(self):
+            pass
+
         def request(self, method, path, headers):
             pass
 
@@ -270,9 +289,11 @@ def test_fetch_html_does_not_follow_redirect_to_private_target():
     with patch(
         "apps.forum_host.link_preview._open_connection", return_value=Connection()
     ) as open_connection:
-        assert _fetch_html(target) is None
+        with pytest.raises(_FetchFailed, match="redirect refused"):
+            _fetch_html(target, time.monotonic() + 5)
 
-    open_connection.assert_called_once_with(target)
+    open_connection.assert_called_once()
+    assert open_connection.call_args.args[0] == target
 
 
 @pytest.mark.django_db
@@ -373,7 +394,7 @@ def test_snapshot_hook_returns_the_card_text_and_never_a_third_party_image():
     ):
         snapshot = link_preview_snapshot("https://example.com/")
 
-    fetch.assert_called_once_with("https://example.com/")
+    fetch.assert_called_once_with("https://example.com/", deadline=ANY)
     cache_image.assert_called_once_with("https://cdn.example.com/og.png", ANY)
     assert snapshot == {
         "title": "Title",
@@ -441,3 +462,213 @@ def test_the_host_names_this_snapshot_hook_as_the_package_fetcher():
 
     assert import_string(settings.LINK_PREVIEW_FETCHER_PATH) is link_preview_snapshot
     assert settings.WAGTAILFORUM_LINK_PREVIEW_FETCHER is None
+
+
+# --- todo 448 item 5: the page fetch has a wall clock -------------------------
+
+
+@pytest.mark.parametrize(
+    "prefix",
+    [
+        # The status line arrives, the headers never finish.
+        b"HTTP/1.1 200 OK\r\n",
+        # The headers finish; the body drips a byte at a time. Each recv
+        # beats the socket timeout, so only the deadline ends it.
+        b"HTTP/1.1 200 OK\r\nContent-Type: text/html\r\n\r\n<html>",
+    ],
+    ids=["headers", "body"],
+)
+def test_a_page_that_drips_past_the_deadline_is_abandoned_on_time(prefix):
+    from apps.forum_host.tests.test_link_preview_images import _loopback_drip
+
+    server, port, thread = _loopback_drip(prefix)
+    target = _Target(
+        f"http://127.0.0.1:{port}/page", "http", "127.0.0.1", port, "127.0.0.1"
+    )
+    started = time.monotonic()
+    try:
+        with pytest.raises(_FetchFailed) as failure:
+            _fetch_html(target, time.monotonic() + 0.3)
+        elapsed = time.monotonic() - started
+    finally:
+        server.close()
+        thread.join(5)
+
+    assert failure.value.reason == "deadline"
+    assert elapsed < 1.5  # the drip runs 3 s
+
+
+def test_a_composer_preview_gets_the_page_deadline():
+    """No caller deadline (the composer endpoint): the fetch is still
+    bounded, by LINK_PREVIEW_PAGE_DEADLINE_SECONDS."""
+    url = "https://93.184.216.34/page"
+    with patch(
+        "apps.forum_host.link_preview._fetch_html",
+        return_value=(url, b"<title>ok</title>"),
+    ) as fetch:
+        before = time.monotonic()
+        fetch_link_preview(url)
+
+    deadline = fetch.call_args.args[1]
+    assert 0 < deadline - before <= constants.LINK_PREVIEW_PAGE_DEADLINE_SECONDS + 0.5
+
+
+def test_the_snapshot_passes_its_budget_to_the_page_fetch():
+    from apps.forum_host.link_preview import link_preview_snapshot
+
+    with patch(
+        "apps.forum_host.link_preview.fetch_link_preview",
+        return_value={"available": False},
+    ) as fetch:
+        link_preview_snapshot("https://example.com/", deadline=1000.0)
+
+    fetch.assert_called_once_with(
+        "https://example.com/",
+        deadline=1000.0 - constants.LINK_PREVIEW_SNAPSHOT_MARGIN_SECONDS,
+    )
+
+
+def test_a_failure_from_running_out_of_budget_is_not_cached():
+    """A snapshot that waited in a busy pool runs out of OUR time, not the
+    site's: caching that would blank the composer preview and the next
+    post's card for a minute."""
+    url = "https://93.184.216.34/page"
+    with (
+        patch(
+            "apps.forum_host.link_preview._fetch_html",
+            side_effect=_FetchFailed("deadline"),
+        ),
+        patch("apps.forum_host.link_preview.cache.set") as cache_set,
+    ):
+        result = fetch_link_preview(url, deadline=time.monotonic() + 5)
+
+    assert result["available"] is False
+    cache_set.assert_not_called()
+
+
+# --- todo 448 item 12: a failed fetch says why ---------------------------------
+
+LOGGER = "apps.forum_host.link_preview"
+
+
+def _logs():
+    """``assertLogs`` on the module's logger: it attaches its own handler, so
+    it sees records that never propagate to pytest's ``caplog``."""
+    return unittest.TestCase().assertLogs(LOGGER, "INFO")
+
+
+@pytest.mark.parametrize(
+    "reason",
+    ["timeout", "HTTP 503", "redirect refused", "not HTML", "deadline"],
+)
+def test_a_failed_fetch_logs_its_reason_and_host_but_not_the_url(reason):
+    url = "https://93.184.216.34/secret-path?token=abc"
+    with patch(
+        "apps.forum_host.link_preview._fetch_html", side_effect=_FetchFailed(reason)
+    ):
+        with _logs() as logged:
+            fetch_link_preview(url)
+
+    lines = [r.getMessage() for r in logged.records]
+    assert lines == [
+        f"[LINK_PREVIEW] page fetch failed ({reason}) for host 93.184.216.34"
+    ]
+    assert "secret-path" not in lines[0] and "token" not in lines[0]
+
+
+def test_a_cached_failure_logs_nothing():
+    url = "https://93.184.216.34/page"
+    with patch(
+        "apps.forum_host.link_preview._fetch_html",
+        side_effect=_FetchFailed("timeout"),
+    ) as fetch:
+        with _logs():
+            fetch_link_preview(url)
+        with unittest.TestCase().assertNoLogs(LOGGER, "INFO"):
+            fetch_link_preview(url)
+
+    assert fetch.call_count == 1
+
+
+def _fetch_with(response_or_exc):
+    """``_fetch_html`` against one fake connection whose ``getresponse``
+    returns ``response_or_exc`` or raises it."""
+
+    class Connection:
+        sock = None
+
+        def connect(self):
+            pass
+
+        def request(self, method, path, headers):
+            pass
+
+        def getresponse(self):
+            if isinstance(response_or_exc, Exception):
+                raise response_or_exc
+            return response_or_exc
+
+        def close(self):
+            pass
+
+    target = _Target(
+        "https://93.184.216.34/start", "https", "93.184.216.34", 443, "93.184.216.34"
+    )
+    with patch(
+        "apps.forum_host.link_preview._open_connection", return_value=Connection()
+    ):
+        with pytest.raises(_FetchFailed) as failure:
+            _fetch_html(target, time.monotonic() + 5)
+    return failure.value.reason
+
+
+def test_fetch_html_names_each_failure():
+    class Status:
+        def __init__(self, status, location=None):
+            self.status = status
+            self.location = location
+
+        def getheader(self, name):
+            return self.location if name == "Location" else None
+
+        def close(self):
+            pass
+
+    assert _fetch_with(Status(503)) == "HTTP 503"
+    assert _fetch_with(Status(302)) == "redirect without a location"
+    assert _fetch_with(TimeoutError("timed out")) == "timeout"
+    assert _fetch_with(ConnectionResetError()) == (
+        "connection failed (ConnectionResetError)"
+    )
+
+
+def test_the_snapshot_logs_a_url_it_cannot_fetch_by_host_only():
+    from apps.forum_host.link_preview import link_preview_snapshot
+
+    with patch(
+        "apps.forum_host.link_preview.fetch_link_preview",
+        side_effect=InvalidPreviewURL(),
+    ):
+        with _logs() as logged:
+            assert link_preview_snapshot("http://10.0.0.1/admin?k=v") is None
+
+    lines = [r.getMessage() for r in logged.records]
+    assert lines == [
+        "[LINK_PREVIEW] not a public URL, or DNS failed, for host 10.0.0.1"
+    ]
+
+
+def test_the_connect_timeout_is_capped_at_the_time_left():
+    """The watchdog is armed only after connect(), so the connect itself is
+    bounded by the socket timeout, which must not outlast the deadline."""
+    target = _Target(
+        "https://93.184.216.34/start", "https", "93.184.216.34", 443, "93.184.216.34"
+    )
+    with patch(
+        "apps.forum_host.link_preview._open_connection",
+        side_effect=TimeoutError("connect timed out"),
+    ) as open_connection:
+        with pytest.raises(_FetchFailed):
+            _fetch_html(target, time.monotonic() + 0.5)
+
+    assert open_connection.call_args.kwargs["timeout"] <= 0.5
