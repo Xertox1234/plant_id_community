@@ -55,10 +55,22 @@ These are the findings it left.
 
 ## Acceptance Criteria
 
-- [ ] Items 1 and 2 fixed with tests (multi-paragraph excerpt; a build
+- [x] Items 1 and 2 fixed with tests (multi-paragraph excerpt; a build
   `OperationalError` propagates).
 - [ ] Items 3–10 fixed, or each declined here with a reason.
 
 ## Work Log
 
 ### 2026-10-09 - Filed from PR #969 review round 1
+
+### 2026-10-09 - Items 1 and 2 fixed (before the first send)
+
+- Item 1: `_excerpt` replaces `<br>`, `<hr>` and the end of each block
+  (`p`, `div`, `li`, `h1`–`h6`, `blockquote`, `pre`, `ul`, `ol`) with a space
+  before `strip_tags`; inline tags still add none ("Moss, ferns.").
+  Test: `test_paragraphs_and_line_breaks_keep_words_apart`.
+- Item 2: the build step re-raises `OperationalError` with the soft limit,
+  so the task's `autoretry_for` fires; nothing is claimed at that point.
+  Test: `test_a_database_outage_while_building_reaches_the_task_retry`.
+- Mutation check: reverting either fix fails exactly its own test.
+- Items 3–10 remain open.

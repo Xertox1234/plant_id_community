@@ -19,6 +19,7 @@ import logging
 from celery.exceptions import SoftTimeLimitExceeded
 from django.core.cache import cache
 from django.core.management.base import BaseCommand
+from django.db import OperationalError
 from django.utils import timezone
 
 from ... import newsletter_digest
@@ -81,7 +82,10 @@ class Command(BaseCommand):
                 posts = newsletter_digest.new_posts(
                     newsletter_digest.since_for(subscriber), now
                 )
-            except SoftTimeLimitExceeded:
+            except (SoftTimeLimitExceeded, OperationalError):
+                # The run stops: the soft limit hands over to the continuation,
+                # and a database outage to the task's retry. Nothing has been
+                # claimed yet, so neither repeats an email.
                 raise
             except Exception:
                 # One bad row must not end the run for everyone after it; it
