@@ -10,14 +10,7 @@ from django.urls import reverse
 from rest_framework import serializers
 from taggit.serializers import TaggitSerializer, TagListSerializerField
 
-from .models import (
-    BlogAuthorPage,
-    BlogCategory,
-    BlogComment,
-    BlogNewsletter,
-    BlogPostPage,
-    BlogSeries,
-)
+from .models import BlogAuthorPage, BlogCategory, BlogComment, BlogPostPage, BlogSeries
 
 User = get_user_model()
 
@@ -331,31 +324,6 @@ class BlogPostListSerializer(serializers.ModelSerializer):
         if hasattr(obj, "_comment_count"):
             return obj._comment_count
         return obj.comments.filter(is_approved=True).count()
-
-
-class BlogNewsletterSerializer(serializers.ModelSerializer):
-    """Serializer for newsletter subscriptions."""
-
-    class Meta:
-        model = BlogNewsletter
-        fields = [
-            "email",
-            "first_name",
-            "frequency",
-            "categories",
-            "plant_types_interest",
-            "experience_level",
-            "source",
-        ]
-        extra_kwargs = {
-            "email": {"write_only": False},
-        }
-
-    def validate_email(self, value):
-        """Validate email format."""
-        if not value:
-            raise serializers.ValidationError("Email is required.")
-        return value.lower()
 
 
 # Serializer for blog statistics

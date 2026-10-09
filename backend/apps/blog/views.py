@@ -24,20 +24,12 @@ from .comments import (
     resolve_parent,
 )
 from .constants import COMMENT_AUTO_FLAG_THRESHOLD, COMMENT_FLAG_DEDUP_SECONDS
-from .models import (
-    BlogAuthorPage,
-    BlogCategory,
-    BlogComment,
-    BlogNewsletter,
-    BlogPostPage,
-    BlogSeries,
-)
+from .models import BlogAuthorPage, BlogCategory, BlogComment, BlogPostPage, BlogSeries
 from .serializers import (
     BlogAuthorSerializer,
     BlogCategorySerializer,
     BlogCommentCreateSerializer,
     BlogCommentSerializer,
-    BlogNewsletterSerializer,
     BlogPostListSerializer,
     BlogPostPageSerializer,
     BlogSeriesSerializer,
@@ -480,70 +472,6 @@ class BlogCommentViewSet(viewsets.ReadOnlyModelViewSet):
             )
 
         return Response({"detail": "Comment has been flagged for review."})
-
-
-class BlogNewsletterViewSet(viewsets.ModelViewSet):
-    """
-    ViewSet for newsletter subscriptions.
-    """
-
-    queryset = BlogNewsletter.objects.all()
-    serializer_class = BlogNewsletterSerializer
-    permission_classes = [permissions.AllowAny]  # Allow anonymous subscriptions
-    http_method_names = ["get", "post", "delete"]  # No PUT/PATCH
-
-    def get_queryset(self):
-        """Staff can see all subscriptions, users see only their own."""
-        if self.request.user.is_staff:
-            return self.queryset
-        elif self.request.user.is_authenticated:
-            return self.queryset.filter(email=self.request.user.email)
-        else:
-            return self.queryset.none()
-
-    def create(self, request):
-        """Subscribe to newsletter."""
-        serializer = self.get_serializer(data=request.data)
-
-        if serializer.is_valid():
-            # Check if already subscribed
-            email = serializer.validated_data["email"]
-            if BlogNewsletter.objects.filter(email=email).exists():
-                return Response(
-                    {"detail": "This email is already subscribed."},
-                    status=status.HTTP_400_BAD_REQUEST,
-                )
-
-            # Get IP address for tracking
-            ip_address = request.META.get("REMOTE_ADDR")
-            serializer.save(ip_address=ip_address)
-
-            return Response(
-                {"detail": "Successfully subscribed to newsletter."},
-                status=status.HTTP_201_CREATED,
-            )
-
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-
-    @action(detail=False, methods=["post"])
-    def unsubscribe(self, request):
-        """Unsubscribe from newsletter."""
-        email = request.data.get("email")
-
-        if not email:
-            return Response(
-                {"detail": "Email address is required."},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        try:
-            subscription = BlogNewsletter.objects.get(email=email)
-            subscription.unsubscribe()
-            return Response({"detail": "Successfully unsubscribed."})
-        except BlogNewsletter.DoesNotExist:
-            return Response(
-                {"detail": "Email address not found."}, status=status.HTTP_404_NOT_FOUND
-            )
 
 
 # Additional API views for blog statistics and search

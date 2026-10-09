@@ -7,7 +7,7 @@ Following the existing pattern from plant identification and forum APIs.
 from django.urls import include, path
 from rest_framework.routers import DefaultRouter
 
-from . import views
+from . import newsletter_views, views
 
 # Create router for ViewSets
 router = DefaultRouter()
@@ -16,7 +16,6 @@ router.register(r"categories", views.BlogCategoryViewSet, basename="blog-categor
 router.register(r"series", views.BlogSeriesViewSet, basename="blog-series")
 router.register(r"authors", views.BlogAuthorViewSet, basename="blog-authors")
 router.register(r"comments", views.BlogCommentViewSet, basename="blog-comments")
-router.register(r"newsletter", views.BlogNewsletterViewSet, basename="blog-newsletter")
 
 app_name = "blog"
 
@@ -28,4 +27,25 @@ urlpatterns = [
     # Additional API endpoints
     path("stats/", views.blog_stats, name="blog-stats"),
     path("search/", views.blog_search, name="blog-search"),
+    # Newsletter double opt-in (todo 409)
+    path(
+        "newsletter/",
+        newsletter_views.newsletter_subscribe,
+        name="newsletter-subscribe",
+    ),
+    path(
+        "newsletter/confirm/",
+        newsletter_views.newsletter_confirm,
+        name="newsletter-confirm",
+    ),
+    path(
+        "newsletter/unsubscribe/",
+        newsletter_views.newsletter_unsubscribe,
+        name="newsletter-unsubscribe",
+    ),
+    path(
+        "newsletter/unsubscribe/one-click/",
+        newsletter_views.newsletter_unsubscribe_one_click,
+        name="newsletter-unsubscribe-one-click",
+    ),
 ]

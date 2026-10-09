@@ -6,10 +6,7 @@ tags: [backend, web, blog, security, email]
 dependencies: []
 source_review: "todos/archive/405-completed-p3-backend-endpoints-no-client-triage.md"
 source_finding: "owner decision 2026-09-23"
-triage: blocked-owner
-triaged: 2026-09-28
-blocked_on: "Owner decision on sending cadence, content and provider (AC3). Security slice (AC1+AC2) could ship first."
-owner_decision: "Owner: keep blocked; the newsletter is not wanted yet (2026-09-28)"
+owner_decision: "Owner, 2026-10-09: full wire-up. Anyone may subscribe, with double opt-in. A weekly digest of new posts. Rows from the old endpoint need no handling (only the owner and test accounts exist). Supersedes 'keep blocked' (2026-09-28)."
 ---
 
 # Blog newsletter: close the abuse surface, then wire it up
@@ -49,9 +46,13 @@ See the file references above, and todo 405's Work Log.
 
 ## Acceptance Criteria
 
-- [ ] No endpoint lets a caller learn whether an email is subscribed. A test pins it.
-- [ ] Subscribing takes effect only after email confirmation.
+- [x] No endpoint lets a caller learn whether an email is subscribed. A test pins it.
+  (Slice A: `SubscribeEndpointTests.test_every_address_state_gets_the_same_answer`)
+- [x] Subscribing takes effect only after email confirmation.
+  (Slice A: `RequestConfirmationTests`; confirmation is POST-only)
 - [ ] The owner has agreed a sending cadence, and it is implemented or explicitly deferred.
+  (Agreed 2026-10-09: weekly. Implemented in slice B.)
+- [ ] A web signup form, and confirm and unsubscribe pages (slice C).
 
 ## Work Log
 
@@ -59,3 +60,30 @@ See the file references above, and todo 405's Work Log.
 
 The owner decided, during the endpoint triage, to wire this up rather than
 remove it.
+
+### 2026-10-09 - Owner: full wire-up; slice A (security)
+
+The owner chose the full wire-up: anyone can subscribe with double opt-in,
+and a weekly digest of new posts goes out. Three slices, each its own PR:
+
+- **A, security (this PR).** The ModelViewSet is gone, and with it listing,
+  DELETE and unsubscribe-by-email. `POST newsletter/` validates the address,
+  enqueues `send_newsletter_confirmation` on commit and always answers the
+  same 202. The task decides whether to mail, so neither the body nor the
+  response time depends on the address. Per-IP rate limit (10/h), plus one
+  confirmation per address per hour (silently skipped, still 202).
+  Confirm and unsubscribe take signed tokens (one salt each, keyed to the
+  subscriber's pk). Each confirmation email voids the earlier links, and
+  confirmation is POST-only, because mail scanners fetch GET links.
+  RFC 8058 one-click lives at `newsletter/unsubscribe/one-click/`. The
+  confirmation email links to `SITE_URL/newsletter/confirm`, a page that
+  slice C builds.
+- **B, sender.** A weekly Celery beat task modelled on `send_forum_digest`:
+  run lock, per-row claim on `last_sent_at`, posts since
+  `max(last_sent_at, confirmed_at)` by `first_published_at`, skip an empty
+  week, `unsubscribe_headers()` on every email. Also prune unconfirmed rows
+  whose last confirmation is older than its link (signup creates the row before
+  consent, so a scripted signup can pile them up; PR review, slice A).
+- **C, web.** A signup rail module on the blog list, an inline form on
+  articles, and `/newsletter/confirm` and `/newsletter/unsubscribe` pages
+  that POST the token after a click.

@@ -1,0 +1,10 @@
+{% autoescape off %}Confirm your {{ site_name }} newsletter subscription
+
+Someone asked to send the {{ site_name }} weekly newsletter to this address.
+If it was you, confirm here:
+
+{{ confirm_url }}
+
+The link works for {{ confirm_days }} days. If you didn't ask for this,
+ignore this email: nothing will be sent unless the link is used.
+{% endautoescape %}
