@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: p4
 issue_id: "531"
 tags: [backend, users, migrations, testing]
@@ -38,8 +38,27 @@ loudly) and a `lock_timeout` on the drop (small table, brief lock).
 
 ## Acceptance Criteria
 
-- [ ] Each item is fixed, or closed with a recorded reason.
+- [x] Each item is fixed, or closed with a recorded reason. (completed 2026-10-09)
 
 ## Work Log
 
 ### 2026-10-09 - Filed from the PR #963 review
+
+### 2026-10-09 - Resolution
+
+1. Fixed. `test_migration_0017_remap.py` winds `users` back to 0016, seeds a
+   row with the historical model, and migrates through 0017. It found a real
+   bug: a row on the retired step that also listed it in `completed_steps`
+   is UPDATEd twice, queueing a deferred FK check, and the DROP then failed
+   with "pending trigger events". 0017 now runs `SET CONSTRAINTS ALL
+   IMMEDIATE` (PostgreSQL only) between the remap and the drops. Production
+   applied 0017 with 0 such rows, so it was unaffected. Mutation-checked:
+   remap removed -> assertion failure; flush removed -> trigger error.
+   Rule added to `docs/rules/database.md`.
+2. Fixed. `RemovedPreferenceMethodsTest` pins the removal from the core
+   `NotificationService`.
+3. Moved: deleting `DemoData` -> todo 532 (owner, 2026-10-09).
+4. Closed, no change: production had 0 rows on the retired step at deploy
+   (todo 458 item 8), and nothing reads `current_step` outside `models.py`.
+5. Fixed: the `care_reminder_email` row is gone from
+   `PLANNING/DATABASE_SCHEMA.md`.

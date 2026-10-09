@@ -25,6 +25,21 @@ def remap_retired_onboarding_step(apps, schema_editor):
         progress.save(update_fields=["completed_steps"])
 
 
+def check_deferred_constraints_now(apps, schema_editor):
+    """Run the remap's deferred FK checks before the DROPs (todo 531).
+
+    The remap can UPDATE a row twice in this transaction (``current_step``,
+    then ``completed_steps``), which queues a deferred foreign-key check on
+    PostgreSQL. ``ALTER TABLE`` on that table then fails with "pending
+    trigger events" — Django's docs warn against mixing RunPython row writes
+    and schema changes on one table in one PostgreSQL migration. Production
+    applied 0017 with no such rows; this keeps any database still at 0016
+    with one from failing the deploy.
+    """
+    if schema_editor.connection.vendor == "postgresql":
+        schema_editor.execute("SET CONSTRAINTS ALL IMMEDIATE")
+
+
 class Migration(migrations.Migration):
     dependencies = [
         ("users", "0016_drop_care_reminder_onboarding_step"),
@@ -51,6 +66,7 @@ class Migration(migrations.Migration):
         # ACCESS EXCLUSIVE lock on auth_user would otherwise be held while
         # this loop runs.
         migrations.RunPython(remap_retired_onboarding_step, migrations.RunPython.noop),
+        migrations.RunPython(check_deferred_constraints_now, migrations.RunPython.noop),
         # Contract half of 0015's expand/contract (todo 458). 0015 removed
         # both fields from Django state and left the columns, with a DB
         # default, for the old container to read during the rolling deploy.
