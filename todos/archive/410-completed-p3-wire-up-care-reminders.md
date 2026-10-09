@@ -155,3 +155,6 @@ payload without `topic_id`), so 386 adds the `care_task_due` route.
   4114.
 - AC 1 (end to end from a client) moves to todo 386, which builds the
   first client that creates CareTasks.
+- The contract step (drop `auth_user.care_reminder_email` and
+  `users_onboardingprogress.first_care_reminder_created`) and the PR #854
+  review leftovers are tracked in todo 458.

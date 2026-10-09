@@ -40,11 +40,29 @@ The PR #854 review also turned up leftovers that predate that PR.
    stale, plus the users demo-data keys that todo 412 had made stale.
 4. **`DemoData.DEMO_TYPES` still lists `care_reminder`.** `DemoData` has no
    reader or writer since todo 412. Delete the model, or at least the choice.
+5. **`migration-remove-field-same-deploy` misses the shapes it exists for.**
+   `content_absent: SeparateDatabaseAndState` silences it for the whole file,
+   so a migration mixing a state-only removal with a bare `RemoveField` on a
+   live column gets no warning (0015 is shaped that way, harmlessly), and it
+   never matches `DeleteModel`, although `docs/rules/database.md` says dropped
+   tables carry the same exposure. Make the check per operation, or say in the
+   message that mixed files need a manual look.
+6. **`NotificationService.get_/update_user_notification_preferences` are dead.**
+   PR #854 added `care_reminder_notifications` to both, but no production code
+   calls either; the real toggle is `UserProfileSerializer`. Delete them.
+7. **`ExpandContractColumnsTest` reads `information_schema.columns` without
+   `table_schema = current_schema()`**, so a same-named table in another
+   schema could answer for the public one.
+8. **Onboarding rows may still hold `care_reminder_set`.** 0016 only alters
+   the choices. Check the prod count (owner ran it before merging #854) and
+   remap any rows to the next step.
+
+Items 5–8 come from the PR #854 final review (2026-10-09).
 
 ## Acceptance Criteria
 
 - [ ] Both columns are dropped by a migration that ships AFTER #854 is deployed.
-- [ ] Items 2–4 are fixed, or each is closed with a recorded reason.
+- [ ] Items 2–8 are fixed, or each is closed with a recorded reason.
 
 ## Work Log
 
