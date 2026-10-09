@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, useCallback, FormEvent } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { Flame, Search } from 'lucide-react';
+import { Flame, Mail, Search } from 'lucide-react';
 import HeroCard from '../components/ui/HeroCard';
 import Chip from '../components/ui/Chip';
 import Button from '../components/ui/Button';
@@ -10,6 +10,7 @@ import { Pagination } from '../components/ui/Pagination';
 import RailSlot from '../components/layout/RailSlot';
 import RailModule from '../components/ui/RailModule';
 import BlogCard from '../components/BlogCard';
+import NewsletterSignup from '../components/blog/NewsletterSignup';
 import PageMeta from '../components/PageMeta';
 import { fetchBlogPosts, fetchPopularPosts, fetchCategories } from '../services/blogService';
 import { API_ORIGIN } from '@/config/api';
@@ -299,8 +300,8 @@ export default function BlogListPage() {
         </>
       )}
 
-      {popular.length > 0 && (
-        <RailSlot>
+      <RailSlot>
+        {popular.length > 0 && (
           <RailModule icon={<Flame />} title="Popular this month">
             <div className="flex flex-col gap-1.5">
               {popular.map((p) => (
@@ -308,8 +309,11 @@ export default function BlogListPage() {
               ))}
             </div>
           </RailModule>
-        </RailSlot>
-      )}
+        )}
+        <RailModule icon={<Mail />} title="The weekly newsletter">
+          <NewsletterSignup idPrefix="rail" />
+        </RailModule>
+      </RailSlot>
     </div>
   );
 }

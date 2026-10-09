@@ -14,6 +14,7 @@ const IdentifyPage = lazy(() => import('./pages/IdentifyPage'));
 const BlogListPage = lazy(() => import('./pages/BlogListPage'));
 const BlogDetailPage = lazy(() => import('./pages/BlogDetailPage'));
 const BlogPreview = lazy(() => import('./pages/BlogPreview'));
+const NewsletterLinkPage = lazy(() => import('./pages/NewsletterLinkPage'));
 const CategoryListPage = lazy(() => import('./pages/forum/CategoryListPage'));
 const ThreadListPage = lazy(() => import('./pages/forum/ThreadListPage'));
 const ThreadDetailPage = lazy(() => import('./pages/forum/ThreadDetailPage'));
@@ -62,6 +63,13 @@ function App() {
               the URL is the credential, so it must work signed out. */}
           <Route path="/unsubscribe" element={<UnsubscribePage />} />
           <Route path="/verify-email" element={<VerifyEmailPage />} />
+          {/* Blog newsletter email links (todo 409) — public for the same
+              reason: the signed token is the credential. */}
+          <Route path="/newsletter/confirm" element={<NewsletterLinkPage action="confirm" />} />
+          <Route
+            path="/newsletter/unsubscribe"
+            element={<NewsletterLinkPage action="unsubscribe" />}
+          />
 
           {/* Non-critical routes (lazy loaded) */}
           <Route path="/identify" element={<IdentifyPage />} />

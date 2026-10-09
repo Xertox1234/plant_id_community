@@ -52,7 +52,9 @@ See the file references above, and todo 405's Work Log.
   (Slice A: `RequestConfirmationTests`; confirmation is POST-only)
 - [ ] The owner has agreed a sending cadence, and it is implemented or explicitly deferred.
   (Agreed 2026-10-09: weekly. Implemented in slice B.)
-- [ ] A web signup form, and confirm and unsubscribe pages (slice C).
+- [x] A web signup form, and confirm and unsubscribe pages (slice C).
+  (`NewsletterSignup` in the blog list rail and under each article;
+  `NewsletterLinkPage` at `/newsletter/confirm` and `/newsletter/unsubscribe`)
 
 ## Work Log
 
@@ -87,3 +89,15 @@ and a weekly digest of new posts goes out. Three slices, each its own PR:
 - **C, web.** A signup rail module on the blog list, an inline form on
   articles, and `/newsletter/confirm` and `/newsletter/unsubscribe` pages
   that POST the token after a click.
+
+### 2026-10-09 - Slice C (web)
+
+- `newsletterService.ts` sends JSON with `credentials: 'omit'`. Signup
+  success just says "check your inbox", never "subscribed".
+- `NewsletterSignup` appears in the blog list's right rail (xl and up) and
+  under every published article. Previews don't show it.
+- `NewsletterLinkPage` serves both emailed links. Opening the page does
+  nothing, because mail scanners open links; the button acts.
+- Checked in a browser against the dev backend: a signup gave the inbox
+  message; a confirm link minted for the row showed the page, the click
+  subscribed the row and cleared its stamp. Test row deleted afterwards.
