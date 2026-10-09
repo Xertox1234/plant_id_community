@@ -86,13 +86,31 @@ class BackfillSpotlightCreditsTest(TestCase):
         self.blog_index.add_child(instance=post)
         return post
 
-    def run_command(self, *args):
+    def run_command(self, *args, photo=None):
+        """Run the command with the Unsplash lookup mocked.
+
+        `photo` is what `UnsplashImageService.get_photo` (GET /photos/:id)
+        answers; None means unavailable, so the credit falls back to the tags.
+        Mocked because backend/.env may carry a real UNSPLASH_ACCESS_KEY. The
+        lookup mock is kept on `self.lookup` for assertions.
+        """
         out = StringIO()
-        with mock.patch(
-            "apps.blog.services.blog_cache_service.BlogCacheService."
-            "invalidate_blog_post"
-        ) as invalidate:
+        with (
+            mock.patch(
+                "apps.blog.services.blog_cache_service.BlogCacheService."
+                "invalidate_blog_post"
+            ) as invalidate,
+            mock.patch(
+                "apps.plant_identification.services.unsplash_service."
+                "UnsplashImageService.get_photo",
+                return_value=photo,
+            ) as lookup,
+            # The handler invalidates from on_commit (todo 442); the patch
+            # stays open while the captured callbacks run.
+            self.captureOnCommitCallbacks(execute=True),
+        ):
             call_command("backfill_spotlight_credits", *args, stdout=out)
+        self.lookup = lookup
         return out.getvalue(), invalidate
 
     @staticmethod
@@ -104,6 +122,8 @@ class BackfillSpotlightCreditsTest(TestCase):
         post = self.make_post("unsplash", image=self.unsplash_image.pk)
         block_id = self.spotlight(post).id
 
+        # No `photo`: the Unsplash lookup is unavailable, so the credit is
+        # rebuilt from the tags (username) — the todo 442 fallback path.
         _, invalidate = self.run_command()
 
         block = self.spotlight(post)
@@ -130,6 +150,45 @@ class BackfillSpotlightCreditsTest(TestCase):
         block = self.spotlight(post)
         self.assertEqual(block.value["image_credit"], "Photo by Sam Roe from Pexels")
         self.assertFalse(block.value["image_credit_url"])
+
+    # --- todo 442: the photographer's real name from GET /photos/:id ---
+
+    # What UnsplashImageService.get_photo returns: a search-result-shaped dict.
+    UNSPLASH_PHOTO = {
+        "id": "abc123",
+        "photographer": {
+            "name": "Jane Doe",
+            "username": "janedoe",
+            "profile_url": "https://unsplash.com/@janedoe",
+        },
+    }
+
+    def test_unsplash_lookup_credits_the_photographer_by_name(self):
+        post = self.make_post("named", image=self.unsplash_image.pk)
+
+        out, _ = self.run_command(photo=self.UNSPLASH_PHOTO)
+
+        # Asked for the photo the image's unsplash_id: tag names.
+        self.lookup.assert_called_once_with("abc123")
+        block = self.spotlight(post)
+        self.assertEqual(block.value["image_credit"], "Photo by Jane Doe on Unsplash")
+        self.assertEqual(
+            block.value["image_credit_url"], f"https://unsplash.com/@janedoe?{UTM}"
+        )
+        self.assertIn("Photo by Jane Doe on Unsplash", out)
+
+    def test_dry_run_reports_the_looked_up_name_and_writes_nothing(self):
+        post = self.make_post("named-dry", image=self.unsplash_image.pk)
+        out, _ = self.run_command("--dry-run", photo=self.UNSPLASH_PHOTO)
+        self.assertIn("Would credit", out)
+        self.assertIn("Photo by Jane Doe on Unsplash", out)
+        self.assertFalse(self.spotlight(post).value["image_credit"])
+
+    def test_pexels_image_is_never_looked_up(self):
+        # The owner decision scoped the API call to Unsplash.
+        self.make_post("pexels-no-lookup", image=self.pexels_image.pk)
+        self.run_command(photo=self.UNSPLASH_PHOTO)
+        self.lookup.assert_not_called()
 
     def test_existing_credit_is_left_alone(self):
         post = self.make_post(

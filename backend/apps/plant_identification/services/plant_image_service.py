@@ -319,6 +319,58 @@ class PlantImageService:
             PlantImageService.get_attribution_url(source, image_data),
         )
 
+    def rebuild_attribution(self, tag_names) -> Optional[Tuple[str, str]]:
+        """
+        `(credit_text, credit_url)` for a stored image: from Unsplash itself
+        when it can be asked, from the tags otherwise (todo 442).
+
+        The Unsplash tags keep only the photographer's username, so a credit
+        rebuilt from them alone reads "Photo by janedoe on Unsplash". The
+        `unsplash_id:<id>` tag lets `UnsplashImageService.get_photo` fetch the
+        photo's current metadata, and the credit is then built from the real
+        name and profile link exactly as `populate_plant_images` would have
+        stored it (owner decision 2026-09-28: the backfill may call
+        `GET /photos/:id`). Pexels tags are not looked up: the decision scoped
+        the API call to Unsplash, and a Pexels name is lossy only when it
+        really contained `_`.
+
+        Falls back to `attribution_from_image_tags` (which may be None) when
+        the tags do not identify exactly one Unsplash photo, or the lookup
+        fails: no access key, rate limit, a photo that is gone, a response
+        without a photographer name.
+
+        Args:
+            tag_names: The image's taggit tag names
+
+        Returns:
+            (credit_text, credit_url), or None when nothing can be credited
+        """
+        names = [str(name) for name in tag_names]
+        lowered = {name.lower() for name in names}
+        photo_ids = [
+            name.split(":", 1)[1].strip()
+            for name in names
+            if name.lower().startswith("unsplash_id:")
+        ]
+        unsplash_only = (
+            "unsplash" in lowered
+            and "pexels" not in lowered
+            and "ai_generated" not in lowered
+        )
+        if unsplash_only and len(photo_ids) == 1 and photo_ids[0]:
+            image_data = self.unsplash.get_photo(photo_ids[0]) or {}
+            if (image_data.get("photographer") or {}).get("name"):
+                return (
+                    self.get_attribution_text("unsplash", image_data),
+                    self.get_attribution_url("unsplash", image_data),
+                )
+            logger.info(
+                "[PLANT_IMAGE] Unsplash lookup unavailable for photo %s; "
+                "crediting from the image's tags",
+                photo_ids[0],
+            )
+        return self.attribution_from_image_tags(names)
+
     def get_source_stats(self) -> Dict:
         """
         Get statistics and availability for all image sources.

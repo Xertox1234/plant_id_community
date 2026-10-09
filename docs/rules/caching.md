@@ -34,3 +34,10 @@ Compact checklist auto-injected before edits. Long-form:
   with `django_capture_on_commit_callbacks(execute=False)` — pytest-django never
   runs `on_commit` on its own, so the race is invisible to a suite that relies on
   the local reset (PR #624, `apps/forum_host/forum_settings.py`).
+- **Version the key prefix when a cached payload's SHAPE changes.** Entries
+  written before the deploy keep serving the old shape for their whole TTL, and
+  a client that stopped deriving a field now gets nothing. PR #944 moved the
+  Unsplash credit split to the API (`credit_lead`, `unsplash_href`); 24h of
+  cached posts would have shown the credit without Unsplash's required referral
+  link. Bump the prefix constant (`blog:post:v2`) and pin it with a test that a
+  payload under the old key is not served.

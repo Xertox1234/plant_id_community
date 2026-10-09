@@ -247,8 +247,10 @@ def test_enqueue_is_deferred_to_commit(django_capture_on_commit_callbacks):
         with django_capture_on_commit_callbacks(execute=False) as callbacks:
             page = _post("Pothos care", BLOCKS, slug="pothos-deferred")
             mock_task.delay.assert_not_called()  # nothing enqueued before commit
-        assert len(callbacks) == 1
-        callbacks[0]()
+        # Run every captured callback, not just the first: other receivers
+        # (blog cache invalidation, todo 442) also defer to commit.
+        for callback in callbacks:
+            callback()
         mock_task.delay.assert_called_once_with(page.pk)
 
 
