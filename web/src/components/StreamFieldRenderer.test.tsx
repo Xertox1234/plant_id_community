@@ -1000,6 +1000,33 @@ describe('StreamFieldRenderer', () => {
       expect(container.textContent).not.toContain('no longer available');
     });
 
+    it('opens a body link in a new tab but keeps the quote and mention links in this tab (todo 448 item 13)', () => {
+      render(
+        <MemoryRouter>
+          <StreamFieldRenderer
+            blocks={[
+              { id: 'pq', type: 'post_quote', value: available },
+              {
+                id: 'p',
+                type: 'paragraph',
+                // As the server stores it: nh3 sets target on every body <a>.
+                value:
+                  '<p><a href="https://x.example/" target="_blank" rel="noopener noreferrer nofollow">out</a></p>',
+              },
+            ]}
+            mentionHighlight
+            currentTopicId={12}
+          />
+        </MemoryRouter>
+      );
+
+      const out = screen.getByRole('link', { name: 'out' });
+      expect(out).toHaveAttribute('target', '_blank');
+      expect(out).toHaveAttribute('rel', 'noopener noreferrer nofollow');
+      expect(screen.getByRole('link', { name: 'this topic' })).not.toHaveAttribute('target');
+      expect(screen.getByRole('link', { name: '@Ada' })).not.toHaveAttribute('target');
+    });
+
     it('does not link a quote of a post in another topic (the envelope carries no board)', () => {
       const { container } = renderQuote({ ...available, topic_id: 99 }, 12);
 

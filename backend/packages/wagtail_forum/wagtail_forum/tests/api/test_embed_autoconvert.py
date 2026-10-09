@@ -235,7 +235,7 @@ def test_conversion_stops_at_the_embed_cap_instead_of_rejecting_the_post(no_fetc
     # The one over the cap keeps its link, auto-linked so it stays tappable
     # (todo 428).
     assert stored[cap][1] == (
-        f'<a href="{bare[-1]}" rel="noopener noreferrer nofollow">{bare[-1]}</a>'
+        f'<a href="{bare[-1]}" target="_blank" rel="noopener noreferrer nofollow">{bare[-1]}</a>'
     )
 
 

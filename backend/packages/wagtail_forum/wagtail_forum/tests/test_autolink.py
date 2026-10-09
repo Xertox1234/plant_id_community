@@ -4,7 +4,7 @@ prose is tappable on every client — the mobile composer never links one."""
 import pytest
 from wagtail_forum.api.sanitize import autolink_rich_text
 
-REL = ' rel="noopener noreferrer nofollow"'
+REL = ' target="_blank" rel="noopener noreferrer nofollow"'
 
 
 def _a(url, text=None):

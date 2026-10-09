@@ -6,6 +6,7 @@ prose, links past the cap, and links whose fetch fails stay tappable links.
 The fetcher is the dotted-path host hook, faked here — no test reaches the
 network."""
 
+import json
 import threading
 import time
 
@@ -135,7 +136,9 @@ def _card(url, host):
 
 
 def _linked(url):
-    return f'<a href="{url}" rel="noopener noreferrer nofollow">{url}</a>'
+    return (
+        f'<a href="{url}" target="_blank" rel="noopener noreferrer nofollow">{url}</a>'
+    )
 
 
 # --- conversion ---------------------------------------------------------
@@ -669,3 +672,161 @@ def test_a_host_the_block_refuses_stays_a_link_and_the_post_still_cleans():
     assert [t for t, _ in _stored()] == ["paragraph"]
     assert CALLS == []
     ForumBodyBlock().clean(Post.objects.get().body)
+
+
+# --- todo 448 items 4, 6, 7, 10, 11 and 13 -------------------------------
+
+
+@pytest.mark.django_db
+@_fetcher("fake_fetcher")
+def test_a_sole_link_with_sentence_punctuation_cards_the_link_without_it():
+    """Item 7: the trailing dot is the sentence's, as it is for an auto-link."""
+    resp = _create(_client(_member()), _board(), [_paragraph("https://example.com/a.")])
+
+    assert resp.status_code == 201, resp.data
+    assert _stored() == [
+        ("link_preview", _card("https://example.com/a", "example.com"))
+    ]
+    assert CALLS == ["https://example.com/a"]
+
+
+@pytest.mark.django_db
+@_fetcher("fake_fetcher")
+@override_settings(
+    WAGTAILFORUM_ALLOW_EMBED_BLOCKS=True, WAGTAILEMBEDS_FINDERS=YOUTUBE_VIMEO_FINDERS
+)
+def test_a_video_link_written_as_code_stays_code(monkeypatch):
+    """Item 10: the video path skips code as the card path does (item 2)."""
+    monkeypatch.setattr("wagtail_forum.api.sanitize.warm_embeds", lambda urls: None)
+    html = "<p><code>https://www.youtube.com/watch?v=dQw4w9WgXcQ</code></p>"
+
+    resp = _create(_client(_member()), _board(), [_paragraph(html)])
+
+    assert resp.status_code == 201, resp.data
+    [(block_type, value)] = _stored()
+    assert block_type == "paragraph"
+    assert "<code>" in value
+    assert CALLS == []
+
+
+@pytest.mark.parametrize(
+    "image",
+    ["https://cdn.example.org/og.png", "original_images/secret.png", 7, None],
+)
+def test_a_reused_card_carries_only_a_cached_image_name(image):
+    """Item 6: the edit path keeps the fetcher's rule for a stored image."""
+    from wagtail_forum.link_previews import link_preview_snapshots
+
+    raw = [
+        {
+            "type": "link_preview",
+            "value": {"url": "https://example.com/", "image": image},
+        }
+    ]
+
+    assert link_preview_snapshots(raw)["https://example.com/"]["image"] == ""
+
+
+def test_a_reused_card_keeps_a_cached_image_name():
+    from wagtail_forum.link_previews import link_preview_snapshots
+
+    raw = [
+        {
+            "type": "link_preview",
+            "value": {"url": "https://example.com/", "image": IMAGE},
+        }
+    ]
+
+    assert link_preview_snapshots(raw)["https://example.com/"]["image"] == IMAGE
+
+
+def _sized_body(size, tail):
+    """One paragraph whose JSON is exactly ``size`` characters, ending in
+    ``tail``."""
+    shell = len(json.dumps([_paragraph(f"<p> {tail}</p>")]))
+    filler = ("lorem ipsum " * 10_000)[: size - shell].rstrip()
+    filler += "m" * (size - shell - len(filler))
+    body = [_paragraph(f"<p>{filler} {tail}</p>")]
+    assert len(json.dumps(body)) == size
+    return body
+
+
+@pytest.mark.django_db
+def test_a_body_that_auto_linking_pushes_over_the_cap_is_refused():
+    """Item 4: the cap holds for what is STORED. Before, this saved at more
+    than the cap, and resending it unchanged on edit was then refused."""
+    from wagtail_forum.api.sanitize import MAX_BODY_CHARS
+
+    body = _sized_body(MAX_BODY_CHARS - 10, "https://a.example/ https://b.example/")
+
+    resp = _create(_client(_member()), _board(), body)
+
+    assert resp.status_code == 400
+    assert "too large" in str(resp.data)
+    assert not Post.objects.exists()
+
+
+@pytest.mark.django_db
+def test_a_body_that_saved_resaves_unchanged():
+    from wagtail_forum.api.sanitize import MAX_BODY_CHARS
+
+    user = _member()
+    body = _sized_body(MAX_BODY_CHARS - 1_000, "https://a.example/ https://b.example/")
+    assert _create(_client(user), _board(), body).status_code == 201
+    post = Post.objects.get()
+    stored = list(post.body.raw_data)
+
+    resp = _client(user).patch(
+        f"/forum/posts/{post.id}/",
+        {"body": [{"type": b["type"], "value": b["value"]} for b in stored]},
+        format="json",
+    )
+
+    assert resp.status_code == 200, resp.data
+    post.refresh_from_db()
+    assert [b["value"] for b in post.body.raw_data] == [b["value"] for b in stored]
+
+
+class _Raw:
+    def __init__(self, raw_data):
+        self.raw_data = raw_data
+
+
+def test_a_card_only_body_has_an_empty_excerpt():
+    """Item 11, closed by the owner (2026-09-28): a card's title is the
+    linked page's words, not the author's, so a card-only topic lists with
+    no excerpt."""
+    from wagtail_forum.api.views import plain_text_excerpt
+
+    card = {
+        "type": "link_preview",
+        "value": _card("https://example.com/", "example.com"),
+    }
+
+    assert plain_text_excerpt(_Raw([card]), 200) == ""
+    assert plain_text_excerpt(_Raw([card, _paragraph("<p>Mine.</p>")]), 200) == "Mine."
+
+
+@pytest.mark.django_db
+@_fetcher("fake_fetcher")
+def test_a_link_in_prose_opens_in_a_new_tab_whatever_target_was_sent():
+    """Item 13: every body link opens in a new tab, as a card does; a
+    client-supplied target never survives."""
+    resp = _create(
+        _client(_member()),
+        _board(),
+        [
+            _paragraph(
+                '<p>See <a href="https://example.com/a" target="_self">this</a> '
+                "and https://example.com/b.</p>"
+            )
+        ],
+    )
+
+    assert resp.status_code == 201, resp.data
+    [(_, value)] = _stored()
+    assert value == (
+        '<p>See <a href="https://example.com/a" target="_blank" '
+        'rel="noopener noreferrer nofollow">this</a> and '
+        f"{_linked('https://example.com/b')}.</p>"
+    )
