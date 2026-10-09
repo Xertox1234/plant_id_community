@@ -428,3 +428,31 @@ class BlogSignalTestCase(TestCase):
             BlogCategory.objects.create(name="Herbs", slug="herbs")
 
         self.assertIsNone(BlogCacheService.get_blog_list(page=1, limit=10, filters={}))
+
+
+class InvalidationHookIsRobustTest(TestCase):
+    """Todo 530: Django stops running a commit's remaining hooks when a
+    non-robust one raises, so the blog's invalidation registers robust, and so
+    does forum_host's BlogChunks enqueue, which shares the publish's queue."""
+
+    def test_blog_invalidation_registers_a_robust_hook(self):
+        from types import SimpleNamespace
+
+        with patch("apps.blog.signals.transaction.on_commit") as on_commit:
+            signals.invalidate_blog_cache_on_category_change(
+                sender=BlogCategory, instance=SimpleNamespace(slug="ferns")
+            )
+        on_commit.assert_called_once()
+        self.assertIs(on_commit.call_args.kwargs.get("robust"), True)
+
+    def test_forum_rag_enqueue_registers_a_robust_hook(self):
+        from apps.forum_host import signals as forum_signals
+
+        page = BlogPostPage(pk=1, title="t", slug="t")
+        with (
+            patch("apps.forum_host.vector_indexes.rag_enabled", return_value=True),
+            patch("apps.forum_host.signals.transaction.on_commit") as on_commit,
+        ):
+            forum_signals._enqueue_blog_chunk_sync(page, "publish")
+        on_commit.assert_called_once()
+        self.assertIs(on_commit.call_args.kwargs.get("robust"), True)

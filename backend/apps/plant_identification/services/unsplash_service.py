@@ -46,6 +46,12 @@ UNSPLASH_HOME_URL = with_unsplash_utm("https://unsplash.com/")
 # CMS, so anything else is refused rather than requested.
 UNSPLASH_PHOTO_ID = re.compile(r"[A-Za-z0-9_-]{1,64}")
 
+# `UnsplashImageService.lookup_photo` outcomes (todo 530).
+PHOTO_FOUND = "found"
+PHOTO_GONE = "gone"
+PHOTO_LOOKUP_DISABLED = "disabled"
+PHOTO_UNAVAILABLE = "unavailable"
+
 
 class UnsplashImageService:
     """
@@ -56,6 +62,8 @@ class UnsplashImageService:
     BASE_URL = "https://api.unsplash.com"
     CACHE_TIMEOUT = 3600 * 24  # 24 hours for image search results
     RATE_LIMIT_CACHE_TIMEOUT = 3600  # 1 hour for rate limit tracking
+    RATE_LIMIT_KEY = "unsplash_rate_limit"
+    RATE_LIMIT = 50  # Demo limit: requests per hour
 
     def __init__(self, access_key: Optional[str] = None):
         """
@@ -80,6 +88,10 @@ class UnsplashImageService:
                 }
             )
 
+    def is_rate_limited(self) -> bool:
+        """True while the shared request counter is at the hourly limit."""
+        return cache.get(self.RATE_LIMIT_KEY, 0) >= self.RATE_LIMIT
+
     def _make_request(
         self, endpoint: str, params: Optional[Dict] = None
     ) -> Optional[Dict]:
@@ -93,27 +105,52 @@ class UnsplashImageService:
         Returns:
             JSON response data or None if error
         """
+        return self._request(endpoint, params)[1]
+
+    def _request(
+        self, endpoint: str, params: Optional[Dict] = None
+    ) -> Tuple[Optional[int], Optional[Dict]]:
+        """
+        `_make_request` plus the HTTP status, so a caller can tell a 404 (the
+        resource is gone) from a failure worth retrying (todo 530).
+
+        Returns:
+            (status_code, json): status_code is None when no response arrived
+            (no key, the rate limit, a network error); json is None unless
+            the request succeeded
+        """
         if not self.access_key:
             logger.warning("[UNSPLASH] Unsplash API key not available")
-            return None
+            return None, None
 
-        # Check rate limits from cache
-        rate_limit_key = "unsplash_rate_limit"
-        if cache.get(rate_limit_key, 0) >= 50:  # Demo limit
+        if self.is_rate_limited():
             logger.warning("[UNSPLASH] Unsplash API rate limit exceeded")
-            return None
+            return None, None
 
         url = f"{self.BASE_URL}/{endpoint.lstrip('/')}"
 
         try:
             response = self.session.get(url, params=params or {}, timeout=30)
 
-            # Track rate limiting
-            remaining = int(response.headers.get("X-Ratelimit-Remaining", 0))
-            cache.set(rate_limit_key, 50 - remaining, self.RATE_LIMIT_CACHE_TIMEOUT)
+            # Track rate limiting. Only from a header that is present and
+            # numeric: defaulting a missing one to 0 remaining blocked every
+            # Unsplash call for an hour (todo 530).
+            try:
+                remaining = int(response.headers["X-Ratelimit-Remaining"])
+            except (KeyError, TypeError, ValueError):
+                remaining = None
+            if remaining is not None:
+                cache.set(
+                    self.RATE_LIMIT_KEY,
+                    self.RATE_LIMIT - remaining,
+                    self.RATE_LIMIT_CACHE_TIMEOUT,
+                )
 
+            if response.status_code == 404:
+                logger.info(f"[UNSPLASH] Not found on Unsplash: {url}")
+                return 404, None
             response.raise_for_status()
-            return response.json()
+            return response.status_code, response.json()
 
         except requests.exceptions.RequestException as e:
             # NOT str(e): requests builds its message from the prepared URL,
@@ -122,7 +159,8 @@ class UnsplashImageService:
             logger.error(
                 f"[UNSPLASH] Unsplash API request failed: {url} - {log_safe_api_error(e)}"
             )
-            return None
+            response = getattr(e, "response", None)
+            return getattr(response, "status_code", None), None
 
     def search_plant_images(
         self,
@@ -240,40 +278,71 @@ class UnsplashImageService:
         """
         Fetch one photo's current metadata (`GET /photos/:id`).
 
+        `lookup_photo` without the reason; see there.
+
+        Returns:
+            Image data dictionary, or None when the lookup did not find one
+        """
+        return self.lookup_photo(photo_id)[1]
+
+    def lookup_photo(self, photo_id: str) -> Tuple[str, Optional[Dict]]:
+        """
+        Fetch one photo's current metadata (`GET /photos/:id`), and say why
+        not when it can't.
+
         `backfill_spotlight_credits` uses it to credit a stored photo's
         photographer by name and link their profile, where the image's tags
         keep only the username (todo 442; owner decision 2026-09-28). The
         result has the same shape as a `search_plant_images` item and is
         cached for CACHE_TIMEOUT, so a `--dry-run` followed by the real run
-        costs one request per image.
+        costs one request per image. A photo Unsplash answers 404 for is
+        remembered as gone for RATE_LIMIT_CACHE_TIMEOUT, so a re-run does not
+        spend the hourly budget asking again (todo 530).
 
         Args:
             photo_id: The Unsplash photo id (the `unsplash_id:` tag's value)
 
         Returns:
-            Image data dictionary, or None without an access key, for an id
-            that is not an Unsplash id, when the photo is gone, or on any API
-            error — callers fall back to what the tags hold
+            (status, image_data). status is PHOTO_FOUND with the image data;
+            otherwise image_data is None and status is PHOTO_LOOKUP_DISABLED
+            (no access key, or Unsplash rejected it), PHOTO_GONE (a 404, or an id that is not an
+            Unsplash id: asking again cannot help) or PHOTO_UNAVAILABLE (the
+            rate limit, a network or API error, a malformed response: a later
+            run may succeed)
         """
         if not self.access_key:
-            return None
+            return PHOTO_LOOKUP_DISABLED, None
         photo_id = (photo_id or "").strip()
         if not UNSPLASH_PHOTO_ID.fullmatch(photo_id):
             logger.warning("[UNSPLASH] Refusing photo lookup for a malformed id")
-            return None
+            return PHOTO_GONE, None
 
         cache_key = f"unsplash_photo_{photo_id}"
+        gone_key = f"plant_id:unsplash:photo_gone:{photo_id}"
         cached = cache.get(cache_key)
-        if cached:
-            return cached
+        if cached is not None:
+            return PHOTO_FOUND, cached
+        if cache.get(gone_key) is not None:
+            return PHOTO_GONE, None
 
-        result = self._make_request(f"photos/{photo_id}")
+        status_code, result = self._request(f"photos/{photo_id}")
+        if status_code == 404:
+            cache.set(gone_key, True, self.RATE_LIMIT_CACHE_TIMEOUT)
+            return PHOTO_GONE, None
+        if status_code == 401:
+            # A revoked or wrong key: no later run succeeds until someone
+            # fixes it, so treat it as no key rather than deferring forever.
+            logger.warning(
+                "[UNSPLASH] Access key rejected (401); check UNSPLASH_ACCESS_KEY"
+            )
+            return PHOTO_LOOKUP_DISABLED, None
         if not result:
-            return None
+            return PHOTO_UNAVAILABLE, None
         image_data = self._process_photo(result)
-        if image_data is not None:
-            cache.set(cache_key, image_data, self.CACHE_TIMEOUT)
-        return image_data
+        if image_data is None:
+            return PHOTO_UNAVAILABLE, None
+        cache.set(cache_key, image_data, self.CACHE_TIMEOUT)
+        return PHOTO_FOUND, image_data
 
     def download_and_create_wagtail_image(
         self, image_data: Dict, title_prefix: str = "Plant Image"

@@ -36,12 +36,15 @@ if they moved — an editor who saved during a slow image fetch is never
 overwritten.
 """
 
+import logging
 from dataclasses import dataclass
 
 from django.db import transaction
 from wagtail.models import Page
 
 from ..models import BlogPostPage
+
+logger = logging.getLogger(__name__)
 
 # Mirrors plant_spotlight.image_credit's CharBlock(max_length=255): a longer
 # value would make every later admin edit of the page fail validation on a
@@ -199,6 +202,52 @@ def describe_outcome(outcome, label):
     if outcome == DRAFT_SAVED:
         return f"Saved as a draft revision: {label} is not live"
     return f"Not written: {label} {SKIP_MESSAGES.get(outcome, 'could not be saved')}"
+
+
+def outcome_after_raise(base, updates):
+    """What a `save_spotlight_updates` call that RAISED actually wrote.
+
+    The write is atomic, so a failure inside it commits nothing. But an
+    exception from another app's `transaction.on_commit` hook (forum_host
+    registers one on `page_published`) arrives after the revision committed,
+    and reporting that as "not written" is wrong (todo 530). Returns PUBLISHED
+    or DRAFT_SAVED when the page's latest revision is a new one carrying every
+    update, else None: nothing of the command's is there, or the page is gone.
+    Never raises; a page that cannot be read gives None, logged.
+    """
+    try:
+        page = BlogPostPage.objects.filter(pk=base.page.pk).first()
+        latest_revision_index = _PAGE_STATE_FIELDS.index("latest_revision_id")
+        if page is None or (
+            page.latest_revision_id == base.state[latest_revision_index]
+        ):
+            return None
+        latest = page.get_latest_revision_as_object()
+        values = {
+            str(block.id): block.value
+            for block in latest.content_blocks
+            if block.block_type == "plant_spotlight" and block.id is not None
+        }
+        for block_id, changes in updates.items():
+            value = values.get(block_id)
+            if value is None:
+                return None
+            for name, expected in changes.items():
+                if name == "image_credit":
+                    expected = (expected or "")[:IMAGE_CREDIT_MAX_LENGTH]
+                # An image compares by pk: the revision holds a fresh instance.
+                if getattr(value.get(name), "pk", value.get(name)) != getattr(
+                    expected, "pk", expected
+                ):
+                    return None
+        if page.live and page.live_revision_id == page.latest_revision_id:
+            return PUBLISHED
+        return DRAFT_SAVED
+    except Exception as e:
+        logger.error(
+            f"[PLANT_IMAGE] Could not check page {base.page.pk} after a failed write: {e}"
+        )
+        return None
 
 
 def page_unchanged_since(base):

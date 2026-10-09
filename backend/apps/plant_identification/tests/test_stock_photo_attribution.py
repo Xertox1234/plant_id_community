@@ -8,8 +8,18 @@ provider value must never be stored as a link.
 
 from unittest import mock
 
-from apps.plant_identification.services.plant_image_service import PlantImageService
+from apps.plant_identification.services.plant_image_service import (
+    CREDIT_FALLBACK,
+    CREDIT_FROM_LOOKUP,
+    CREDIT_FROM_TAGS,
+    CREDIT_LOOKUP_UNAVAILABLE,
+    PlantImageService,
+)
 from apps.plant_identification.services.unsplash_service import (
+    PHOTO_FOUND,
+    PHOTO_GONE,
+    PHOTO_LOOKUP_DISABLED,
+    PHOTO_UNAVAILABLE,
     UnsplashImageService,
     with_unsplash_utm,
 )
@@ -188,7 +198,7 @@ class UnsplashGetPhotoTest(SimpleTestCase):
     def test_fetches_the_photo_and_shapes_it_like_a_search_result(self):
         service = UnsplashImageService(access_key="k")
         with mock.patch.object(
-            service, "_make_request", return_value=self.PHOTO
+            service, "_request", return_value=(200, self.PHOTO)
         ) as request:
             image_data = service.get_photo("abc123")
         request.assert_called_once_with("photos/abc123")
@@ -206,7 +216,7 @@ class UnsplashGetPhotoTest(SimpleTestCase):
         # A --dry-run followed by the real run costs one request per image.
         service = UnsplashImageService(access_key="k")
         with mock.patch.object(
-            service, "_make_request", return_value=self.PHOTO
+            service, "_request", return_value=(200, self.PHOTO)
         ) as request:
             service.get_photo("cached1")
             service.get_photo("cached1")
@@ -216,7 +226,7 @@ class UnsplashGetPhotoTest(SimpleTestCase):
         # The id comes from an image tag editors can change in the CMS, so it
         # must never reach the URL path unless it looks like an Unsplash id.
         service = UnsplashImageService(access_key="k")
-        with mock.patch.object(service, "_make_request") as request:
+        with mock.patch.object(service, "_request") as request:
             for bad in ("", "../collections", "abc/def", "a b", None):
                 with self.subTest(photo_id=bad):
                     self.assertIsNone(service.get_photo(bad))
@@ -226,10 +236,90 @@ class UnsplashGetPhotoTest(SimpleTestCase):
 
     def test_api_failure_or_malformed_photo_gives_none(self):
         service = UnsplashImageService(access_key="k")
-        with mock.patch.object(service, "_make_request", return_value=None):
+        with mock.patch.object(service, "_request", return_value=(None, None)):
             self.assertIsNone(service.get_photo("gone1"))
-        with mock.patch.object(service, "_make_request", return_value={"id": "x"}):
+        with mock.patch.object(service, "_request", return_value=(200, {"id": "x"})):
             self.assertIsNone(service.get_photo("broken1"))
+
+    # --- todo 530: why a lookup failed, and remembering a 404 ---
+
+    def test_lookup_says_why_it_found_nothing(self):
+        service = UnsplashImageService(access_key="k")
+        cases = [
+            ((404, None), PHOTO_GONE),
+            ((None, None), PHOTO_UNAVAILABLE),  # rate limit / network
+            ((503, None), PHOTO_UNAVAILABLE),
+            ((403, None), PHOTO_UNAVAILABLE),  # Unsplash's rate-limit answer
+            ((401, None), PHOTO_LOOKUP_DISABLED),  # a rejected key, todo 530 review
+            ((200, {"id": "x"}), PHOTO_UNAVAILABLE),  # malformed answer
+        ]
+        for index, (answer, expected) in enumerate(cases):
+            with self.subTest(answer=answer):
+                with mock.patch.object(service, "_request", return_value=answer):
+                    self.assertEqual(
+                        service.lookup_photo(f"photo{index}"), (expected, None)
+                    )
+        with mock.patch.object(service, "_request") as request:
+            self.assertEqual(service.lookup_photo("../x"), (PHOTO_GONE, None))
+            service.access_key = None
+            self.assertEqual(
+                service.lookup_photo("abc123"), (PHOTO_LOOKUP_DISABLED, None)
+            )
+        request.assert_not_called()
+
+    def test_a_deleted_photo_is_asked_about_once(self):
+        # A re-run must not spend the 50/h budget on a photo Unsplash 404'd.
+        service = UnsplashImageService(access_key="k")
+        with mock.patch.object(
+            service, "_request", return_value=(404, None)
+        ) as request:
+            self.assertEqual(service.lookup_photo("gone2"), (PHOTO_GONE, None))
+            self.assertEqual(service.lookup_photo("gone2"), (PHOTO_GONE, None))
+        request.assert_called_once()
+
+    def test_a_transient_failure_is_not_remembered(self):
+        service = UnsplashImageService(access_key="k")
+        with mock.patch.object(
+            service, "_request", return_value=(None, None)
+        ) as request:
+            service.lookup_photo("flaky1")
+            service.lookup_photo("flaky1")
+        self.assertEqual(request.call_count, 2)
+
+
+class UnsplashRateCounterTest(SimpleTestCase):
+    """Todo 530: the shared counter moves only on a real header."""
+
+    def setUp(self):
+        cache.clear()
+
+    def request(self, status_code=200, headers=None):
+        service = UnsplashImageService(access_key="k")
+        response = mock.Mock(status_code=status_code, headers=headers or {})
+        response.json.return_value = {"ok": True}
+        response.raise_for_status.return_value = None
+        with mock.patch.object(service.session, "get", return_value=response):
+            return service, service._request("photos/abc123")
+
+    def test_a_response_without_the_header_leaves_the_counter_alone(self):
+        service, answer = self.request()
+        self.assertEqual(answer, (200, {"ok": True}))
+        self.assertIsNone(cache.get(UnsplashImageService.RATE_LIMIT_KEY))
+        self.assertFalse(service.is_rate_limited())
+
+    def test_a_malformed_header_leaves_the_counter_alone(self):
+        self.request(headers={"X-Ratelimit-Remaining": "lots"})
+        self.assertIsNone(cache.get(UnsplashImageService.RATE_LIMIT_KEY))
+
+    def test_the_header_sets_the_counter(self):
+        service, _ = self.request(headers={"X-Ratelimit-Remaining": "45"})
+        self.assertEqual(cache.get(UnsplashImageService.RATE_LIMIT_KEY), 5)
+        _, _ = self.request(headers={"X-Ratelimit-Remaining": "0"})
+        self.assertTrue(service.is_rate_limited())
+
+    def test_a_404_is_reported_not_raised(self):
+        _, answer = self.request(status_code=404)
+        self.assertEqual(answer, (404, None))
 
 
 class RebuildAttributionTest(SimpleTestCase):
@@ -244,10 +334,13 @@ class RebuildAttributionTest(SimpleTestCase):
     }
     TAGS = ["unsplash", "botanical", "photographer:janedoe", "unsplash_id:abc123"]
 
-    def service(self, photo):
+    def service(self, photo, status=None):
+        if status is None:
+            status = PHOTO_FOUND if photo else PHOTO_GONE
         service = PlantImageService.__new__(PlantImageService)
         service.unsplash = mock.Mock()
-        service.unsplash.get_photo.return_value = photo
+        service.unsplash.lookup_photo.return_value = (status, photo)
+        service.unsplash.is_rate_limited.return_value = False
         return service
 
     def test_unsplash_lookup_gives_the_real_name_and_profile_link(self):
@@ -256,7 +349,7 @@ class RebuildAttributionTest(SimpleTestCase):
             service.rebuild_attribution(self.TAGS),
             ("Photo by Jane Doe on Unsplash", f"https://unsplash.com/@janedoe?{UTM}"),
         )
-        service.unsplash.get_photo.assert_called_once_with("abc123")
+        service.unsplash.lookup_photo.assert_called_once_with("abc123")
 
     def test_lookup_failure_falls_back_to_the_tags(self):
         service = self.service(None)
@@ -292,7 +385,7 @@ class RebuildAttributionTest(SimpleTestCase):
             service.rebuild_attribution(["ai_generated", "dall_e_3"])[0],
             "AI-generated botanical image (DALL-E 3)",
         )
-        service.unsplash.get_photo.assert_not_called()
+        service.unsplash.lookup_photo.assert_not_called()
 
     def test_ambiguous_or_missing_photo_id_is_not_looked_up(self):
         service = self.service(self.LOOKED_UP)
@@ -300,7 +393,48 @@ class RebuildAttributionTest(SimpleTestCase):
             ["unsplash", "photographer:janedoe"],
             ["unsplash", "photographer:janedoe", "unsplash_id:a", "unsplash_id:b"],
             ["unsplash", "pexels", "photographer:x", "unsplash_id:a"],
+            ["unsplash", "photographer:janedoe", "unsplash_id:"],  # todo 530
+            ["unsplash", "photographer:janedoe", "unsplash_id:  "],
         ]:
             with self.subTest(tags=tags):
                 service.rebuild_attribution(tags)
-        service.unsplash.get_photo.assert_not_called()
+        service.unsplash.lookup_photo.assert_not_called()
+
+
+class RebuildAttributionBasisTest(SimpleTestCase):
+    """Todo 530: the backfill can tell a named credit from a fallback."""
+
+    TAGS = RebuildAttributionTest.TAGS
+    service = RebuildAttributionTest.service
+
+    def test_each_outcome_names_its_basis(self):
+        username = (
+            "Photo by janedoe on Unsplash",
+            f"https://unsplash.com/@janedoe?{UTM}",
+        )
+        cases = [
+            (RebuildAttributionTest.LOOKED_UP, PHOTO_FOUND, CREDIT_FROM_LOOKUP),
+            ({"photographer": {"name": ""}}, PHOTO_FOUND, CREDIT_FALLBACK),
+            (None, PHOTO_GONE, CREDIT_FALLBACK),
+            (None, PHOTO_LOOKUP_DISABLED, CREDIT_FALLBACK),
+            (None, PHOTO_UNAVAILABLE, CREDIT_LOOKUP_UNAVAILABLE),
+        ]
+        for photo, status, basis in cases:
+            with self.subTest(status=status, basis=basis):
+                credit, got = self.service(
+                    photo, status
+                ).rebuild_attribution_with_basis(self.TAGS)
+                self.assertEqual(got, basis)
+                if basis != CREDIT_FROM_LOOKUP:
+                    self.assertEqual(credit, username)
+
+    def test_no_lookup_is_tags_basis(self):
+        service = self.service(None)
+        self.assertEqual(
+            service.rebuild_attribution_with_basis(["pexels", "photographer:Sam_Roe"]),
+            (("Photo by Sam Roe from Pexels", ""), CREDIT_FROM_TAGS),
+        )
+        self.assertEqual(
+            service.rebuild_attribution_with_basis(["botanical"]),
+            (None, CREDIT_FROM_TAGS),
+        )
