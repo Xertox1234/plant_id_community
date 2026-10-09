@@ -130,7 +130,6 @@ The PostgreSQL database contains **7 Django apps** with multiple models:
 | `plant_id_notifications` | BOOLEAN | DEFAULT TRUE | Plant ID alerts |
 | `forum_notifications` | BOOLEAN | DEFAULT TRUE | Forum alerts |
 | `care_reminder_notifications` | BOOLEAN | DEFAULT TRUE | Push reminders |
-| `care_reminder_email` | BOOLEAN | DEFAULT FALSE | Email reminders |
 | **Statistics** | | | |
 | `plants_identified` | INTEGER | DEFAULT 0 | Plants identified count |
 | `identifications_helped` | INTEGER | DEFAULT 0 | Help given count |

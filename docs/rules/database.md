@@ -284,3 +284,10 @@ Compact checklist auto-injected before edits. Long-form:
   LATER deploy. Dropped TABLES carry the same exposure through Python-side
   cascades: old code deleting a User walks the reverse FKs to the dropped
   table (todo 410 slice B, PR #854; the drop itself is todo 458).
+- **A RunPython that writes rows, followed by DDL on the same table, in one
+  PostgreSQL migration fails with "pending trigger events"** when a row was
+  updated twice in the transaction (a deferred FK check is queued). Put a
+  vendor-guarded `SET CONSTRAINTS ALL IMMEDIATE` RunPython between them, and
+  test the migration through `MigrationExecutor` with a seeded row — a direct
+  call to the RunPython function cannot see this (todo 531; users 0017
+  would have failed its deploy had prod held such a row).

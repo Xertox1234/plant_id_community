@@ -110,6 +110,21 @@ class CarePreferenceTest(TestCase):
         )
 
 
+class RemovedPreferenceMethodsTest(SimpleTestCase):
+    """#963 removed the core NotificationService's care-preference accessors
+    with the email preference they served (todo 531)."""
+
+    def test_the_methods_are_gone(self):
+        from apps.core.services.notification_service import NotificationService
+
+        for name in (
+            "get_user_notification_preferences",
+            "update_user_notification_preferences",
+        ):
+            with self.subTest(method=name):
+                self.assertFalse(hasattr(NotificationService, name))
+
+
 class DroppedColumnsTest(TestCase):
     """0015 left both columns behind for the old container to read during the
     rolling deploy (PR #854 review); 0017 drops them (todo 458)."""
