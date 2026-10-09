@@ -6,7 +6,7 @@
  * the backend answers the same for every address (so nobody can learn who is
  * subscribed), and the subscription starts when the emailed link is used.
  */
-import { useState, type FormEvent } from 'react';
+import { useEffect, useRef, useState, type FormEvent } from 'react';
 import Button from '../ui/Button';
 import Input from '../ui/Input';
 import {
@@ -31,6 +31,13 @@ export default function NewsletterSignup({ idPrefix }: NewsletterSignupProps) {
   const [submitting, setSubmitting] = useState(false);
   const [failure, setFailure] = useState<SignupFailure | null>(null);
   const [sent, setSent] = useState(false);
+  const statusRef = useRef<HTMLParagraphElement>(null);
+
+  // The form, and the focused button with it, unmounts on success: move
+  // focus to the message instead of letting it fall to <body>.
+  useEffect(() => {
+    if (sent) statusRef.current?.focus();
+  }, [sent]);
 
   const submit = async (event: FormEvent) => {
     event.preventDefault();
@@ -50,7 +57,12 @@ export default function NewsletterSignup({ idPrefix }: NewsletterSignupProps) {
     <div className="flex flex-col gap-3">
       {/* Always mounted: a live region that appears together with its text
           is often not announced. */}
-      <p role="status" className={sent ? 'text-body-sm text-ink-2' : 'sr-only'}>
+      <p
+        ref={statusRef}
+        tabIndex={-1}
+        role="status"
+        className={sent ? 'text-body-sm text-ink-2 focus:outline-none' : 'sr-only'}
+      >
         {sent &&
           "Check your inbox: if that address can join, we've sent it a link to confirm. Nothing arrives until the link is used."}
       </p>

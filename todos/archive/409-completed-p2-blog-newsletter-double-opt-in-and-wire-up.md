@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: p2
 issue_id: "409"
 tags: [backend, web, blog, security, email]
@@ -50,8 +50,9 @@ See the file references above, and todo 405's Work Log.
   (Slice A: `SubscribeEndpointTests.test_every_address_state_gets_the_same_answer`)
 - [x] Subscribing takes effect only after email confirmation.
   (Slice A: `RequestConfirmationTests`; confirmation is POST-only)
-- [ ] The owner has agreed a sending cadence, and it is implemented or explicitly deferred.
-  (Agreed 2026-10-09: weekly. Implemented in slice B.)
+- [x] The owner has agreed a sending cadence, and it is implemented or explicitly deferred.
+  (Agreed 2026-10-09: weekly. Slice B: `manage.py send_blog_newsletter`, beat
+  entry `blog-weekly-newsletter`, Mondays 10:00 UTC)
 - [x] A web signup form, and confirm and unsubscribe pages (slice C).
   (`NewsletterSignup` in the blog list rail and under each article;
   `NewsletterLinkPage` at `/newsletter/confirm` and `/newsletter/unsubscribe`)
@@ -101,3 +102,30 @@ and a weekly digest of new posts goes out. Three slices, each its own PR:
 - Checked in a browser against the dev backend: a signup gave the inbox
   message; a confirm link minted for the row showed the page, the click
   subscribed the row and cleared its stamp. Test row deleted afterwards.
+
+### 2026-10-09 - Slice B (sender); todo complete
+
+- `apps/blog/newsletter_digest.py` builds and sends one email, and
+  `manage.py send_blog_newsletter [--dry-run]` runs the week. Beat fires
+  `apps.blog.tasks.send_blog_weekly_newsletter` on Mondays at 10:00 UTC,
+  an hour after the forum digest.
+- Only rows that are active and confirmed get it. Each gets the live,
+  public posts first published after `max(last_sent_at, confirmed_at)` and
+  no later than the run's timestamp, newest first, capped at
+  `NEWSLETTER_MAX_POSTS`. A week with no new posts sends nothing and keeps
+  `last_sent_at`.
+- Overlap safety follows the forum digest: a cache run lock, a conditional
+  claim on `last_sent_at` (which also requires the row to still be
+  subscribed), and a conditional release on failure or on the soft time
+  limit. The task re-enqueues itself after the soft limit.
+- Every email has one unsubscribe token, used in both the footer link and
+  the List-Unsubscribe headers.
+- The run also deletes unconfirmed rows whose link has expired, including
+  rows with no stamp at all (a signup from the old endpoint, or a failed
+  first send).
+- Folded in from slice C's review: focus moves to the status line after a
+  signup; a new token on the link page starts over; a test checks that the
+  inline form is absent at xl.
+- Not done: `NotificationService.send_newsletter` and
+  `templates/emails/newsletter.html` are an older, unused newsletter path
+  with no consent filter. Nothing calls them. Removing them is todo 533.

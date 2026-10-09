@@ -3,6 +3,7 @@ import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import BlogListPage from './BlogListPage';
+import { RAIL_CONTAINER_ID, RAIL_MEDIA_QUERY } from '../components/layout/RailSlot';
 import { fetchBlogPosts, fetchPopularPosts, fetchCategories } from '../services/blogService';
 import { createMockBlogPost } from '@/tests/utils';
 import type { BlogPost } from '@/types';
@@ -76,6 +77,34 @@ describe('BlogListPage', () => {
     renderPage();
     const heading = await screen.findByRole('heading', { name: 'The weekly newsletter' });
     expect(heading.closest('section')).toContainElement(screen.getByLabelText(/email address/i));
+  });
+
+  it('shows the newsletter signup only in the rail at xl (todo 409)', async () => {
+    // The setup.ts polyfill matches nothing; stub the xl query, then restore.
+    const originalMatchMedia = window.matchMedia;
+    window.matchMedia = ((query: string) => ({
+      matches: query === RAIL_MEDIA_QUERY,
+      media: query,
+      onchange: null,
+      addListener: () => {},
+      removeListener: () => {},
+      addEventListener: () => {},
+      removeEventListener: () => {},
+      dispatchEvent: () => false,
+    })) as unknown as typeof window.matchMedia;
+    const rail = document.createElement('div');
+    rail.id = RAIL_CONTAINER_ID;
+    document.body.appendChild(rail);
+    try {
+      renderPage();
+      const heading = await screen.findByRole('heading', { name: 'The weekly newsletter' });
+      expect(rail).toContainElement(heading);
+      // One form, not a second copy in the page.
+      expect(screen.getAllByLabelText(/email address/i)).toHaveLength(1);
+    } finally {
+      window.matchMedia = originalMatchMedia;
+      rail.remove();
+    }
   });
 
   it('deep-links "Read the latest" to the newest post', async () => {

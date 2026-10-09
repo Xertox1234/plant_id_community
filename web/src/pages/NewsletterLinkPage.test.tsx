@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { MemoryRouter, Route, Routes } from 'react-router-dom';
+import { Link, MemoryRouter, Route, Routes } from 'react-router-dom';
 import NewsletterLinkPage from './NewsletterLinkPage';
 import {
   NewsletterLinkError,
@@ -20,6 +20,7 @@ const unsubscribe = vi.mocked(unsubscribeNewsletter);
 function renderAt(url: string) {
   return render(
     <MemoryRouter initialEntries={[url]}>
+      <Link to="/newsletter/confirm?token=second">second link</Link>
       <Routes>
         <Route path="/newsletter/confirm" element={<NewsletterLinkPage action="confirm" />} />
         <Route
@@ -88,5 +89,16 @@ describe('NewsletterLinkPage', () => {
     expect(
       await screen.findByRole('heading', { name: /you're unsubscribed/i })
     ).toBeInTheDocument();
+  });
+
+  it('starts over when a second link opens on the same route', async () => {
+    confirm.mockResolvedValue(true);
+    renderAt('/newsletter/confirm?token=first');
+    await userEvent.click(screen.getByRole('button', { name: 'Confirm subscription' }));
+    expect(await screen.findByRole('heading', { name: "You're subscribed" })).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole('link', { name: 'second link' }));
+    await userEvent.click(await screen.findByRole('button', { name: 'Confirm subscription' }));
+    expect(confirm).toHaveBeenLastCalledWith('second');
   });
 });

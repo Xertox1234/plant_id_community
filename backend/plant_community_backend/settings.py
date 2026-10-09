@@ -1359,6 +1359,12 @@ CELERY_BEAT_SCHEDULE = {
         "task": "apps.forum_host.tasks.send_forum_weekly_digest",
         "schedule": crontab(hour=9, minute=0, day_of_week="monday"),
     },
+    # Todo 409: the blog newsletter, to confirmed subscribers only. An hour
+    # after the forum digest so the two runs don't share the worker.
+    "blog-weekly-newsletter": {
+        "task": "apps.blog.tasks.send_blog_weekly_newsletter",
+        "schedule": crontab(hour=10, minute=0, day_of_week="monday"),
+    },
     # Todo 410: push CareTasks that fell due, so a reminder lands within 15
     # minutes of its time (the lookback is in garden_calendar/constants.py).
     "care-task-reminders": {

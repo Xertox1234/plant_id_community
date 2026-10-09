@@ -1,0 +1,11 @@
+{% autoescape off %}New on the {{ site_name }} blog
+{% for post in posts %}
+{{ post.title }} ({{ post.published_at|date:"j F Y" }})
+{{ post.url }}{% if post.excerpt %}
+{{ post.excerpt }}{% endif %}
+{% endfor %}
+Everything on the blog: {{ blog_url }}
+
+You get this weekly because you confirmed a newsletter subscription.
+Unsubscribe: {{ unsubscribe_url }}
+{% endautoescape %}
