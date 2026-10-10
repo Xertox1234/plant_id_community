@@ -5,6 +5,10 @@ issue_id: "526"
 tags: [web, forum, composer]
 dependencies: []
 source_review: "PR #826"
+triage: needs-design
+triaged: 2026-10-10
+blocked_on: "Owner choice between a TipTap JSON content contract and DOM-built nodes still passed as an HTML string"
+owner_decision: "Option A: switch the editor content/onChange contract to TipTap JSON (getJSON; paragraph HTML via generateJSON), touching TipTapEditor and ThreadDetailPage (2026-10-10)"
 ---
 
 # Composer: build body HTML from TipTap JSON/DOM nodes instead of strings
