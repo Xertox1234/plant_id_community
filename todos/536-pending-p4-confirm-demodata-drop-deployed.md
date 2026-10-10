@@ -23,5 +23,8 @@ exist.
 
 - [ ] The owner confirms the production deploy of todo 532's PR applied `users.0018_delete_demodata`.
       Record the date and the quoted `showmigrations users` line, or the deploy log line.
+- [ ] The owner records the `users_demodata` row count from before the drop, if one can still be had (a backup
+      or a pre-deploy snapshot); otherwise a dated note that it cannot. (From todo 537, finding #979-2, promoted
+      2026-10-10.)
 
 ## Work Log

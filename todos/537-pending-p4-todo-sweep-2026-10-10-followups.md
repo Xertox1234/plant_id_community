@@ -4,6 +4,10 @@ priority: p4
 issue_id: "537"
 tags: [todo-sweep, follow-ups]
 dependencies: []
+triage: blocked-owner
+triaged: 2026-10-10
+blocked_on: "Owner picks which findings to fix now, which to promote to their own todos, and which to close (prod row count goes to 536, engine items go to the engine batch)."
+owner_decision: "Slice: fix the backend mail-gate group (#976 findings 1-5) now; promote the web composer (#977) and link-preview (#978) groups to their own todos; move #979-2 (prod row count) to 536 and the engine items to 529 (2026-10-10)"
 ---
 
 # Todo sweep run 2026-10-10-0234: follow-ups from 4 merged PRs
@@ -112,6 +116,15 @@ Line numbers are as of the merge, so re-check each finding against main before a
    being deleted.
 3. **Follow-up lists are capped at 10 per todo, and a group's shared findings are copied to each of its todos**
    (low). This adds to todo 529's ranking item.
+
+## Promotions (2026-10-10, owner decision)
+
+- #976 1–5: fixed in this todo.
+- #977 1–6: promoted → todo 538.
+- #978 1–7: promoted → todo 539.
+- #979 1: fixed in this todo (record note in the archived 532).
+- #979 2: promoted → todo 536 (owner-only, prod).
+- Sweep engine 1–2: promoted → todo 540. Engine 3: promoted → todo 529.
 
 ## Acceptance Criteria
 

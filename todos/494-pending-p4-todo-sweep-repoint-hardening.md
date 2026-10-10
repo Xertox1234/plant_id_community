@@ -5,7 +5,7 @@ issue_id: "494"
 tags: [harness, todo-sweep]
 dependencies: []
 triage: ready
-triaged: 2026-10-02
+triaged: 2026-10-10
 owner_decision: "Finding 14: document the dead-verifier re-verify case in the runbook only; no new --reverify path (2026-10-02)"
 ---
 

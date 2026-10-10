@@ -5,8 +5,8 @@ issue_id: "514"
 tags: [tooling, todo-sweep]
 dependencies: []
 triage: ready
-triaged: 2026-10-02
-owner_decision: "Finding 7: keep accepting a carriage return; relabel the test to say what it pins (2026-10-02)"
+triaged: 2026-10-10
+owner_decision: "Finding 10: record in the Work Log that the pre-commit kimi gate is the intended gate for sweep Land commits; do not widen the kimi-review.sh regex (2026-10-10)"
 ---
 
 # Sweep fixer tolerance: non-blocking findings from PR #924 (todo 513)
