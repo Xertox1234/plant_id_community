@@ -1,6 +1,6 @@
 {% extends "emails/base.html" %}
 
-{% block title %}📚 New Blog Post: {{ post.title }} - Plant Community{% endblock %}
+{% block title %}📚 New Blog Post: {{ post.title }} - Houseplant-MD{% endblock %}
 
 {% block preheader %}{{ post.excerpt|truncatechars:100 }}{% endblock %}
 
@@ -24,7 +24,7 @@
 <p style="margin-bottom: 24px;">Hi {{ user.first_name|default:user.username }},</p>
 
 <p style="margin-bottom: 32px;">
-    We've just published a new article that we think you'll love! Our plant experts have shared insights 
+    We've just published a new article that we think you'll love! Our plant experts have shared insights
     that could help you become an even better plant parent.
 </p>
 
@@ -35,11 +35,11 @@
         <img src="{{ post.featured_image }}" alt="{{ post.title }}" style="max-width: 100%; height: auto; border-radius: 12px; border: 1px solid #E5E7EB;" />
     </div>
     {% endif %}
-    
+
     <h2 style="color: #1F2937; font-size: 24px; font-weight: 700; margin: 0 0 16px 0;">
         {{ post.title }}
     </h2>
-    
+
     {% if post.category %}
     <div style="margin-bottom: 16px;">
         <span style="background-color: #10B981; color: white; padding: 6px 12px; border-radius: 20px; font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px;">
@@ -47,11 +47,11 @@
         </span>
     </div>
     {% endif %}
-    
+
     <p style="color: #4B5563; font-size: 16px; line-height: 1.6; margin: 0 0 24px 0;">
         {{ post.excerpt|default:post.summary }}
     </p>
-    
+
     <div style="display: flex; justify-content: center; align-items: center; gap: 16px; margin-bottom: 24px; font-size: 14px; color: #6B7280;">
         {% if post.author %}
         <div style="display: flex; align-items: center; gap: 6px;">
@@ -70,8 +70,8 @@
         </div>
         {% endif %}
     </div>
-    
-    <a href="{{ app_url }}#!/blog/{{ post.slug }}" 
+
+    <a href="{{ app_url }}#!/blog/{{ post.slug }}"
        style="background-color: #10B981; color: white; padding: 16px 32px; text-decoration: none; border-radius: 8px; font-weight: 600; display: inline-block; font-size: 16px;">
         📖 Read Full Article
     </a>
@@ -113,15 +113,15 @@
         💬 Join the Conversation
     </h3>
     <p style="color: #6B7280; font-size: 14px; margin: 0 0 20px 0;">
-        Have questions about this article? Want to share your own experience? 
+        Have questions about this article? Want to share your own experience?
         Our community is here to help!
     </p>
     <div style="display: flex; justify-content: center; flex-wrap: wrap; gap: 12px;">
-        <a href="{{ app_url }}#!/blog/{{ post.slug }}#comments" 
+        <a href="{{ app_url }}#!/blog/{{ post.slug }}#comments"
            style="background-color: #3B82F6; color: white; padding: 10px 20px; text-decoration: none; border-radius: 6px; font-weight: 500; display: inline-block; font-size: 14px;">
             💭 Leave a Comment
         </a>
-        <a href="{{ app_url }}#!/forum" 
+        <a href="{{ app_url }}#!/forum"
            style="background-color: #10B981; color: white; padding: 10px 20px; text-decoration: none; border-radius: 6px; font-weight: 500; display: inline-block; font-size: 14px;">
             🌱 Discuss in Forums
         </a>
@@ -153,9 +153,9 @@
         </div>
     </div>
     {% endfor %}
-    
+
     <div style="text-align: center; margin-top: 16px;">
-        <a href="{{ app_url }}#!/blog" 
+        <a href="{{ app_url }}#!/blog"
            style="color: #10B981; text-decoration: none; font-size: 14px; font-weight: 500;">
             → Browse All Articles
         </a>
@@ -172,7 +172,7 @@
     <p style="color: #1E3A8A; font-size: 14px; margin: 0 0 16px 0;">
         Get our weekly newsletter with curated articles, plant care tips, and community highlights!
     </p>
-    <a href="{{ app_url }}#!/settings/email-preferences" 
+    <a href="{{ app_url }}#!/settings/email-preferences"
        style="background-color: #1D4ED8; color: white; padding: 12px 24px; text-decoration: none; border-radius: 8px; font-weight: 500; display: inline-block; font-size: 14px;">
         📧 Subscribe to Newsletter
     </a>
@@ -185,7 +185,7 @@
 
 <p style="margin-bottom: 8px; color: #10B981; font-weight: 600;">
     Happy growing! 🌱<br>
-    The Plant Community Editorial Team
+    The Houseplant-MD Editorial Team
 </p>
 
 <hr style="border: none; border-top: 1px solid #E5E7EB; margin: 32px 0;">
@@ -193,7 +193,7 @@
 <div style="text-align: center;">
     <p style="color: #9CA3AF; font-size: 12px; margin: 0;">
         You're receiving this because you're subscribed to blog notifications.<br>
-        <a href="{{ preferences_url }}" style="color: #6B7280; text-decoration: none;">Manage your email preferences</a> | 
+        <a href="{{ preferences_url }}" style="color: #6B7280; text-decoration: none;">Manage your email preferences</a> |
         <a href="{{ unsubscribe_url }}" style="color: #6B7280; text-decoration: none;">Unsubscribe from blog updates</a>
     </p>
 </div>

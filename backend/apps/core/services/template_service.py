@@ -24,7 +24,7 @@ class TemplateService:
     def __init__(self):
         self.template_cache = {}
         self.default_context = {
-            "site_name": getattr(settings, "SITE_NAME", "Plant Community"),
+            "site_name": getattr(settings, "SITE_NAME", "Houseplant-MD"),
             "site_url": getattr(settings, "SITE_URL", "https://plantcommunity.com"),
             "support_email": getattr(
                 settings, "SUPPORT_EMAIL", "support@plantcommunity.com"
@@ -118,7 +118,7 @@ class TemplateService:
         """Generate a basic HTML email when no template is available."""
         title = context.get("notification_title", "Notification")
         message = context.get("notification_message", "")
-        site_name = context.get("site_name", "Plant Community")
+        site_name = context.get("site_name", "Houseplant-MD")
         # Extracted only to get the source line under 120 chars. Splitting the
         # attribute inside the template would inject a newline into the rendered
         # HTML; interpolating it leaves the output byte-identical.
@@ -153,7 +153,7 @@ class TemplateService:
         """Generate a basic text email when no template is available."""
         title = context.get("notification_title", "Notification")
         message = context.get("notification_message", "")
-        site_name = context.get("site_name", "Plant Community")
+        site_name = context.get("site_name", "Houseplant-MD")
 
         return f"""
 {title}
@@ -178,7 +178,7 @@ This email was sent by {site_name}
             return context["preheader_text"]
 
         # Use template-specific preheader
-        return preheader_map.get(template_name, "New notification from Plant Community")
+        return preheader_map.get(template_name, "New notification from Houseplant-MD")
 
     def _get_template_helpers(self) -> Dict[str, Any]:
         """Get helper functions for use in email templates."""
@@ -300,7 +300,7 @@ This email was sent by {site_name}
             "author_name": author_name,
             "post_excerpt": post_excerpt,
             "topic_url": topic_url,
-            "forum_name": forum_name or "Plant Community Forum",
+            "forum_name": forum_name or "Houseplant-MD Forum",
         }
 
     def create_template_context_for_identification(

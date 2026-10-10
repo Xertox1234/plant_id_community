@@ -211,7 +211,7 @@ def _send_confirmation_email(subscriber: BlogNewsletter) -> bool:
     try:
         # Inside the try: a failure building the link must still undo the
         # stamp, or the address stays throttled with nothing sent.
-        site_name = getattr(settings, "SITE_NAME", "Plant Community")
+        site_name = getattr(settings, "SITE_NAME", "Houseplant-MD")
         context = {
             "site_name": site_name,
             "confirm_url": confirm_url(subscriber),
