@@ -4,6 +4,10 @@ priority: p4
 issue_id: "528"
 tags: [todo-sweep, engine]
 dependencies: []
+triage: needs-research
+triaged: 2026-10-10
+blocked_on: "Find out whether the workflow runtime's agent() reports the isolation worktree path when it returns null. If not, pick a fallback such as scanning git worktree list."
+owner_decision: "If agent() cannot report a dead worker's worktree path, the workflow creates the worktree itself and passes the path in, so it is always known (2026-10-10)"
 ---
 
 # Sweep worker loses finished work when its summary overruns an unstated 600-character cap
