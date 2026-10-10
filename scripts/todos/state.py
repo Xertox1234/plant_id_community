@@ -53,7 +53,7 @@ LANDED = {"merged", "archived"}
 WORK_FIELDS = ("worktree", "branch", "tree_id", "ac_file")
 # What a blocked attempt leaves on its entry; reopening moves it to `previous` (see _reopen).
 ATTEMPT_FIELDS = ("reason", "group", "slot", "wave", *WORK_FIELDS, "verified_ac", "test_edits", "review_round",
-                  "repoints", "reverify", "blocked_by", "hand_round")
+                  "repoints", "reverify", "blocked_by", "hand_round", "hand_round_head")
 
 
 class TransitionError(Exception):
@@ -1045,10 +1045,37 @@ def review_residue(run, gid, round_no, git=run_git):
         return [f"residue check failed: {exc}"[:300]]
 
 
-def review_args(run, round_no, wave, git=run_git, run_file="", held=None):
+def _not_ready(run, gid, entries, round_no, git, criteria):
+    """Why a group's PR is not ready for its round-2 or round-3 review, or None (todo 543). The reviewers read
+    the local worktree but auto-merge ships the remote branch, so a repair that was never pushed must not be
+    reviewed: HEAD has to match the remote-tracking ref a push updates. A round 3 needs the owner's repair
+    committed (HEAD moved since hand-round) and its acceptance criteria untouched."""
+    first = entries[0][1]
+    wt = first["worktree"]
+    try:
+        head = git(wt, "rev-parse", "HEAD").strip()
+        remote = git(wt, "rev-parse", "--verify", "--quiet", f"refs/remotes/origin/{first['branch']}").strip()
+    except RuntimeError as exc:
+        return f"could not compare HEAD with origin/{first['branch']}: {exc}"[:300]
+    if head != remote:
+        return (f"HEAD {head[:12]} is not pushed (origin/{first['branch']} is {remote[:12] or 'missing'}); "
+                "run ensure-worktree, then push")
+    if round_no != 3:
+        return None
+    if head == first.get("hand_round_head"):
+        return "HEAD has not moved since hand-round; commit the owner's repair first"
+    if criteria:
+        edited = next((f"todo {i}: {p}" for i, _ in entries for p in [criteria(run, i, wt)] if p), None)
+        if edited:
+            return f"the round-3 repair edited acceptance criteria: {edited}"[:300]
+    return None
+
+
+def review_args(run, round_no, wave, git=run_git, run_file="", held=None, not_ready=None, criteria=None):
     """The workflow args for the wave's open PRs due this round. A group whose worktree still holds what an
     earlier attempt at the round left is skipped and put in `held` (group -> paths), so it never stalls
-    the rest of the wave (todo 480)."""
+    the rest of the wave (todo 480). From round 2, a group whose PR is not ready (`_not_ready`) is skipped
+    the same way, into `not_ready` (group -> why; todo 543)."""
     if round_no not in (1, 2, 3):
         raise ValueError("round must be 1, 2 or 3 (3 only after hand-round)")
     items = []
@@ -1060,6 +1087,12 @@ def review_args(run, round_no, wave, git=run_git, run_file="", held=None):
         if first["stage"] != "pr_open" or first.get("review_round", 0) != round_no - 1:
             continue
         if round_no == 3 and any(e.get("hand_round") != 3 for _, e in entries):
+            continue
+        why = _not_ready(run, gid, entries, round_no, git, criteria) if round_no > 1 else None
+        if why:
+            if not_ready is None:  # as with `held`: a caller that cannot report it must not lose it silently
+                raise RuntimeError(f"{gid}: {why}")
+            not_ready[gid] = why
             continue
         # Todo 480: the baseline is taken once per round. A rerun keeps it, because retaking it would
         # absorb whatever the failed attempt left, and the round-1 repair's `git add -A` would commit it.
@@ -1262,7 +1295,7 @@ def clear_hold(run, gid, decision):
                      **resume)
 
 
-def hand_round(run, gid, decision):
+def hand_round(run, gid, decision, git=run_git):
     """The owner approved a review round 3 for a group round 2 blocked on blocking findings (todo 542; done by
     hand for #880, #886 and #982). Like clear_hold it bypasses ALLOWED on purpose: the PR is one fix away from
     mergeable, and blocked -> ready would discard it. The group goes back to pr_open with round 2 done, so
@@ -1277,10 +1310,12 @@ def hand_round(run, gid, decision):
         raise TransitionError(f"{gid}: round 3 has already run; there is no round 4")
     if any(e["stage"] != "blocked" or e.get("blocked_by") != "review round 2" for _, e in entries):
         raise TransitionError(f"{gid}: not blocked by round-2 blocking findings; round 3 is only for that block")
+    # Todo 543: review-args holds round 3 back until HEAD moves past this, so the owner's repair is committed.
+    head = git(entries[0][1]["worktree"], "rev-parse", "HEAD").strip()
     for _, entry in entries:
         earlier = entry.get("owner_decision")
         entry.pop("blocked_by", None)
-        entry.update(stage="pr_open", review_round=2, hand_round=3, reason="",
+        entry.update(stage="pr_open", review_round=2, hand_round=3, hand_round_head=head, reason="",
                      owner_decision=f"{earlier}; round 3: {decision}" if earlier else f"round 3: {decision}")
 
 
@@ -1458,6 +1493,11 @@ def ingest_review(run, results, round_no, git=run_git, criteria=None):
     # Todo 468: checked for every group before anything is written, so a stale output (a round-1
     # file re-ingested after round 1) cannot overwrite tree_id and verified_ac, even in part.
     for result in results:
+        # Todo 543: the group's state alone cannot tell a round-2 file from a round-3 one after hand-round.
+        # A result that names its round must name this one (an output written before todo 543 names none).
+        if result.get("round") not in (None, round_no):
+            raise TransitionError(f"{result['group']}: a round-{result['round']} output, ingested as round "
+                                  f"{round_no}; is it a stale output file?")
         for _, entry in _group_entries(run, result["group"]):
             if entry["stage"] != "pr_open" or entry.get("review_round", 0) != round_no - 1:
                 raise TransitionError(f"{result['group']}: a round-{round_no} output does not follow this group "
@@ -1938,9 +1978,10 @@ def main(argv=None):
             print(args.out)
             return 0
         elif args.cmd == "review-args":
-            held = {}
-            prs = review_args(run, args.round, args.wave, run_file=str(Path(args.runfile).resolve()), held=held)
-            print(json.dumps({"round": args.round, "prs": prs, "residue": held}))
+            held, not_ready = {}, {}
+            prs = review_args(run, args.round, args.wave, run_file=str(Path(args.runfile).resolve()), held=held,
+                              not_ready=not_ready, criteria=review_criteria)
+            print(json.dumps({"round": args.round, "prs": prs, "residue": held, "not_ready": not_ready}))
         elif args.cmd == "ingest-review":
             print(json.dumps(ingest_review(run, records_from_output(args.output, "results"), args.round,
                                            criteria=review_criteria), indent=1))

@@ -409,7 +409,8 @@ const results = await pipeline(
       else blocking.push(f)
     })
     if (refuted.length) log(`${p.group}: ${refuted.length} blocking finding(s) refuted by both skeptics`)
-    const base = { group: p.group, ids: p.ids, ...rev, blocking, refuted, repair_blockers: '', residue: null }
+    // Todo 543: `round` lets ingest-review refuse a stale file from another round.
+    const base = { group: p.group, ids: p.ids, round, ...rev, blocking, refuted, repair_blockers: '', residue: null }
     // Without a repair, ingest-review compares the worktree with the round's baseline itself (todo 480).
     if (round !== 1 || !blocking.length || !rev.reviewers_ok) return { ...base, repair: null, verdict: null }
     // The repair's `git add -A` would commit anything a reviewer left in the worktree, so check first. A dead
