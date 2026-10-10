@@ -4,6 +4,10 @@ priority: p4
 issue_id: "536"
 tags: [backend, users, migrations, ops]
 dependencies: ["532"]
+triage: blocked-prod
+triaged: 2026-10-10
+blocked_on: "Owner checks prod (Railway deploy log or showmigrations) and a backup for the pre-drop users_demodata row count"
+owner_decision: "owner hand-off: owner pastes prod showmigrations/deploy-log line for users.0018_delete_demodata and the pre-drop row count (2026-10-10)"
 ---
 
 # Confirm the DemoData drop (users 0018) applied in production

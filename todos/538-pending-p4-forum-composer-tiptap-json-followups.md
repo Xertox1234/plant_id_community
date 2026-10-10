@@ -5,6 +5,9 @@ issue_id: "538"
 tags: [web, forum, follow-ups]
 dependencies: []
 source_todo: "537"
+triage: ready
+triaged: 2026-10-10
+owner_decision: "Finding 3: log the schema-check failure and keep the stored draft untouched until the user edits; do not salvage the text (2026-10-10)"
 ---
 
 # Forum composer TipTap JSON: follow-ups from PR #977 (todo 526)
