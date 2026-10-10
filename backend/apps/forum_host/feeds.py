@@ -24,8 +24,8 @@ def _site_url():
 
 class ForumTopicsFeed(Feed):
     feed_type = Rss201rev2Feed
-    title = "Plant Community — forum topics"
-    description = "The latest topics from the Plant Community forum."
+    title = "Houseplant-MD — forum topics"
+    description = "The latest topics from the Houseplant-MD forum."
 
     def link(self):
         return f"{_site_url()}/forum"

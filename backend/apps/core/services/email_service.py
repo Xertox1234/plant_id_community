@@ -65,7 +65,7 @@ class EmailService:
         self.from_email = getattr(
             settings, "DEFAULT_FROM_EMAIL", "noreply@plantcommunity.com"
         )
-        self.site_name = getattr(settings, "SITE_NAME", "Plant Community")
+        self.site_name = getattr(settings, "SITE_NAME", "Houseplant-MD")
 
     def send_email(
         self,
@@ -448,7 +448,7 @@ class EmailService:
         return self.send_email(
             email_type=EmailType.ACCOUNT_VERIFICATION,
             recipient=user,
-            subject=f"🎉 Welcome to Plant Community, {user.first_name or user.username}!",
+            subject=f"🎉 Welcome to Houseplant-MD, {user.first_name or user.username}!",
             template_name="welcome_email",
             context=context,
             priority="high",

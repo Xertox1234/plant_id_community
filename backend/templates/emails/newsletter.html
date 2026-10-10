@@ -1,6 +1,6 @@
 {% extends "emails/base.html" %}
 
-{% block title %}{{ newsletter_type|title }} Plant Community Digest - {{ site_name }}{% endblock %}
+{% block title %}{{ newsletter_type|title }} Digest - {{ site_name }}{% endblock %}
 
 {% block preheader %}Your {{ newsletter_type }} dose of plant care tips, community highlights, and growing wisdom{% endblock %}
 
@@ -26,7 +26,7 @@
     {% if item.image_url %}
     <img src="{{ item.image_url }}" alt="{{ item.title }}" style="width: 100%; max-width: 500px; height: auto; border-radius: 6px; margin-bottom: 16px;">
     {% endif %}
-    
+
     <div style="margin-bottom: 8px;">
         {% if item.category %}
         <span style="background-color: #e7f3ff; color: #0066cc; padding: 4px 8px; border-radius: 4px; font-size: 12px; font-weight: 600; text-transform: uppercase;">
@@ -34,15 +34,15 @@
         </span>
         {% endif %}
     </div>
-    
+
     <h3 style="margin: 12px 0; color: #2c5f41;">
         <a href="{{ item.url }}" style="color: #2c5f41; text-decoration: none;">
             {{ item.title }}
         </a>
     </h3>
-    
+
     <p style="margin: 0 0 16px 0; color: #333;">{{ item.excerpt }}</p>
-    
+
     {% if item.plant_types %}
     <div style="margin: 16px 0;">
         <span style="font-size: 14px; color: #6c757d; font-weight: 600;">Plants: </span>
@@ -53,7 +53,7 @@
         {% endfor %}
     </div>
     {% endif %}
-    
+
     <div style="text-align: left; margin-top: 16px;">
         <a href="{{ item.url }}" class="btn btn-primary" style="font-size: 14px; padding: 10px 20px;">
             {% if item.action_text %}{{ item.action_text }}{% else %}Read More{% endif %}
@@ -106,7 +106,7 @@
 <div style="text-align: center; margin: 32px 0;">
     <h3 style="color: #2c5f41;">Keep Growing with Us!</h3>
     <p style="color: #6c757d;">Join thousands of plant enthusiasts sharing their growing journey</p>
-    
+
     <div style="margin: 24px 0;">
         <a href="{{ site_url }}" class="btn btn-primary" style="margin-right: 16px;">
             Visit Community

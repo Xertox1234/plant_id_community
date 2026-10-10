@@ -574,7 +574,7 @@ DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 SITE_ID = 1
 
 # Wagtail settings
-WAGTAIL_SITE_NAME = "Plant Community"
+WAGTAIL_SITE_NAME = "Houseplant-MD"
 WAGTAIL_FRONTEND_LOGIN_URL = "/accounts/login/"
 # WAGTAILIMAGES_IMAGE_MODEL = 'core.CustomImage'  # Uncomment after creating core app
 
@@ -1179,7 +1179,7 @@ VAPID_CLAIMS_EMAIL = config(
 EMAIL_USE_LOCALTIME = config("EMAIL_USE_LOCALTIME", default=False, cast=bool)
 
 # Site configuration for email templates
-SITE_NAME = config("SITE_NAME", default="Plant Community")
+SITE_NAME = config("SITE_NAME", default="Houseplant-MD")
 SITE_URL = config("SITE_URL", default="https://plantcommunity.com")
 
 # Logging configuration

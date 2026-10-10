@@ -26,8 +26,8 @@
 <p style="margin-bottom: 24px;">Hi {{ user.first_name|default:user.username }},</p>
 
 <p style="margin-bottom: 24px;">
-    We've detected potential health concerns with your <strong>{{ plant_name }}</strong> 
-    {% if plant_location %}in {{ plant_location }}{% endif %}. 
+    We've detected potential health concerns with your <strong>{{ plant_name }}</strong>
+    {% if plant_location %}in {{ plant_location }}{% endif %}.
     {% if identified_issue %}Based on our analysis, this appears to be <strong>{{ identified_issue }}</strong>.{% endif %}
 </p>
 
@@ -112,13 +112,13 @@
     <table cellspacing="0" cellpadding="0" border="0" style="margin: 0 auto;">
         <tr>
             <td style="padding: 0 8px;">
-                <a href="{{ app_url }}{% url 'plant_identification:diagnosis' %}?plant={{ plant_id }}&alert={{ alert_id }}" 
+                <a href="{{ app_url }}{% url 'plant_identification:diagnosis' %}?plant={{ plant_id }}&alert={{ alert_id }}"
                    style="background-color: #DC2626; color: white; padding: 16px 24px; text-decoration: none; border-radius: 8px; font-weight: 600; display: inline-block;">
                     📱 Open in App
                 </a>
             </td>
             <td style="padding: 0 8px;">
-                <a href="{{ site_url }}/care-guides/{{ plant_slug }}-health" 
+                <a href="{{ site_url }}/care-guides/{{ plant_slug }}-health"
                    style="background-color: #059669; color: white; padding: 16px 24px; text-decoration: none; border-radius: 8px; font-weight: 600; display: inline-block;">
                     📚 Care Guide
                 </a>
@@ -135,7 +135,7 @@
     <p style="color: #6B7280; font-size: 14px; margin: 0 0 16px 0;">
         Connect with our community of plant experts and experienced growers
     </p>
-    <a href="{{ app_url }}{% url 'forum:category' 'plant-health' %}?plant={{ plant_name|urlencode }}" 
+    <a href="{{ app_url }}{% url 'forum:category' 'plant-health' %}?plant={{ plant_name|urlencode }}"
        style="background-color: #3B82F6; color: white; padding: 12px 20px; text-decoration: none; border-radius: 6px; font-weight: 500; display: inline-block; font-size: 14px;">
         Ask the Community
     </a>
@@ -148,7 +148,7 @@
         🚨 Critical Alert
     </h3>
     <p style="color: #991B1B; font-size: 14px; margin: 0; text-align: center;">
-        This issue requires immediate attention. If your plant shows rapid deterioration, 
+        This issue requires immediate attention. If your plant shows rapid deterioration,
         consider consulting a local plant specialist or agricultural extension office.
     </p>
 </div>
@@ -156,20 +156,20 @@
 
 <!-- Footer Message -->
 <p style="margin-top: 32px; margin-bottom: 16px; color: #6B7280; font-size: 14px;">
-    <strong>Remember:</strong> Early detection and quick action are key to plant recovery. 
+    <strong>Remember:</strong> Early detection and quick action are key to plant recovery.
     Don't hesitate to reach out to our community if you need additional guidance.
 </p>
 
 <p style="margin-bottom: 8px; font-size: 14px; color: #059669;">
     Best regards,<br>
-    The Plant Community Health Team 🌿
+    The Houseplant-MD Health Team 🌿
 </p>
 
 {% if alert_id %}
 <hr style="border: none; border-top: 1px solid #E5E7EB; margin: 32px 0;">
 <div style="text-align: center;">
     <p style="color: #9CA3AF; font-size: 12px; margin: 0;">
-        Alert ID: {{ alert_id }} | 
+        Alert ID: {{ alert_id }} |
         <a href="{{ site_url }}/alerts/{{ alert_id }}" style="color: #6B7280; text-decoration: none;">View Full Details</a> |
         <a href="{{ unsubscribe_url }}" style="color: #6B7280; text-decoration: none;">Unsubscribe from Health Alerts</a>
     </p>

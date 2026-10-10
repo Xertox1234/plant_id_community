@@ -67,9 +67,9 @@ class Command(BaseCommand):
 
         # Prepare test context
         context = {
-            "test_message": "This is a test email from Plant Community!",
+            "test_message": "This is a test email from Houseplant-MD!",
             "user": user,
-            "site_name": "Plant Community",
+            "site_name": "Houseplant-MD",
             "plant_name": "Monstera Deliciosa",
             "care_type": "Watering",
             "care_instructions": "Water when the top inch of soil feels dry.",
@@ -82,7 +82,7 @@ class Command(BaseCommand):
             success = email_service.send_email(
                 email_type=email_type,
                 recipient=recipient,
-                subject="🌱 Test Email from Plant Community",
+                subject="🌱 Test Email from Houseplant-MD",
                 template_name=template,
                 context=context,
                 priority="normal",
