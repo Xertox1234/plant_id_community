@@ -9,7 +9,7 @@ import { E2E_TIMEOUTS, E2E_URLS } from './config.js';
  * this is the other half — that the whole chain actually works against the
  * running backend: hidden file input -> client validation -> alt prompt ->
  * ONE authenticated multipart POST to /api/v1/forum/images/ -> a TipTap node
- * carrying the server image id -> `htmlToBodyBlocks` -> the API.
+ * carrying the server image id -> `docToBodyBlocks` -> the API.
  *
  * `data-testid="forum-image-input"` has existed since PR-3 and was explicitly
  * flagged in forum-authenticated.spec.js as the intended e2e hook; until now no
@@ -238,7 +238,7 @@ test.describe('Forum inline image upload', () => {
     expect(headers['content-type']).toContain('multipart/form-data');
     expect(headers['idempotency-key']).toBeTruthy();
 
-    // The inserted node must carry the SERVER id, or htmlToBodyBlocks emits no
+    // The inserted node must carry the SERVER id, or docToBodyBlocks emits no
     // image block and the upload is orphaned on save.
     const img = editor.locator('img[data-image-id]');
     await expect(img).toBeVisible();
@@ -381,7 +381,7 @@ test.describe('Forum inline image upload', () => {
     await imageRoundTrip(page, { alt: null });
   });
 
-  // todo 441: bodyBlocksToHtml escaped only `"`, so an `&amp;` in a stored alt
+  // todo 441: bodyBlocksToHtml (now bodyBlocksToDoc, todo 526) escaped only `"`, so an `&amp;` in a stored alt
   // decoded to `&` on rehydrate and the untouched re-save PATCHed a changed
   // alt_text. Entity-like text AND markup characters, byte-for-byte.
   test('an alt carrying `&amp;` and `<` rehydrates and re-saves byte-for-byte', async ({

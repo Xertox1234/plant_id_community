@@ -456,9 +456,10 @@ A `post_quote` block references another post: `{post, text}` on write,
   `Extension.create({ addGlobalAttributes })` on `blockquote` maps
   `postId ↔ data-post-id`; `parseHTML` returns `null` when the attribute is
   absent so a legacy `<blockquote>` never comes back as `data-post-id=""`.
-  `htmlToBodyBlocks` turns a top-level blockquote with the attribute into
-  `post_quote`, stripping nested markup to plain text (`<br>` ↔ `"\n"`);
-  `bodyBlocksToHtml` writes it back escaped, keeping the attribute even when
+  `docToBodyBlocks` turns a top-level blockquote with the attribute into
+  `post_quote`, reducing it to plain text (`hardBreak` ↔ `"\n"`);
+  `bodyBlocksToDoc` writes it back as text nodes (TipTap JSON since todo
+  526, never an HTML string), keeping the attribute even when
   `available` is false — the server exempts quotes the stored body already
   carries from re-validation on edit, so the client never downgrades one.
 - **Insertion is a remount.** TipTap `content` is init-only, so the Quote

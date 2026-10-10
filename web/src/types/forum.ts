@@ -3,6 +3,7 @@
  */
 
 import type { StreamFieldBlock as BlogStreamFieldBlock } from './blog';
+import type { ForumBodyWriteBlock } from '../utils/forumBody';
 
 /**
  * Forum category
@@ -247,10 +248,11 @@ export interface PaginatedResponse<T> {
 }
 
 /**
- * Update post input — body is HTML; the service wraps it as a paragraph block.
+ * Update post input. `body` is the WRITE block list, built from the composer's
+ * TipTap document by `docToBodyBlocks` (todo 526); the service sends it as is.
  */
 export interface UpdatePostInput {
-  content: string;
+  body: ForumBodyWriteBlock[];
 }
 
 /**
@@ -287,11 +289,11 @@ export interface CreatePollInput {
   max_choices?: number;
 }
 
-/** Create-topic input (POST /boards/{slug}/topics/). content is HTML. */
+/** Create-topic input (POST /boards/{slug}/topics/). `body`: see UpdatePostInput. */
 export interface CreateTopicInput {
   boardSlug: string;
   title: string;
-  content: string;
+  body: ForumBodyWriteBlock[];
   /** Optional secondary taxonomy (audit M5). Server normalizes + bounds them. */
   tags?: string[];
   /**
@@ -304,10 +306,10 @@ export interface CreateTopicInput {
   poll?: CreatePollInput | null;
 }
 
-/** Create-reply input (POST /topics/{id}/posts/). content is HTML. */
+/** Create-reply input (POST /topics/{id}/posts/). `body`: see UpdatePostInput. */
 export interface CreateReplyInput {
   thread: number;
-  content: string;
+  body: ForumBodyWriteBlock[];
 }
 
 /** Thin create-topic response — the topic may be pending moderation. */

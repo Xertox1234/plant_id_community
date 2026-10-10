@@ -505,7 +505,7 @@ describe('forumService (wagtail_forum API contract)', () => {
     const r = await createThread({
       boardSlug: 'plant-care',
       title: 'Succulent help!',
-      content: '<p>hi</p>',
+      body: [{ type: 'paragraph', value: '<p>hi</p>' }],
     });
     expect(r).toEqual({ id: '12', slug: 'succulent-help', status: 'published' });
     const [url, opts] = fetchMock.mock.calls[0];
@@ -530,7 +530,7 @@ describe('forumService (wagtail_forum API contract)', () => {
     await createThread({
       boardSlug: 'plant-care',
       title: 'What is this?',
-      content: '<p>hi</p>',
+      body: [{ type: 'paragraph', value: '<p>hi</p>' }],
       identification,
     });
     expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({
@@ -547,7 +547,7 @@ describe('forumService (wagtail_forum API contract)', () => {
     await createThread({
       boardSlug: 'plant-care',
       title: 'Plain',
-      content: '<p>hi</p>',
+      body: [{ type: 'paragraph', value: '<p>hi</p>' }],
       identification: null,
     });
     expect(JSON.parse(fetchMock.mock.calls[0][1].body)).not.toHaveProperty('identification');
@@ -555,7 +555,7 @@ describe('forumService (wagtail_forum API contract)', () => {
 
   it('createPost posts to /topics/{id}/posts/ with {body[]}', async () => {
     fetchMock.mockResolvedValueOnce(okJson({ id: 51, status: 'pending' }));
-    const r = await createPost({ thread: 12, content: '<p>hi</p>' });
+    const r = await createPost({ thread: 12, body: [{ type: 'paragraph', value: '<p>hi</p>' }] });
     expect(r).toEqual({ id: '51', status: 'pending' });
     const [url, opts] = fetchMock.mock.calls[0];
     expect(url).toContain('/topics/12/posts/');
@@ -567,7 +567,7 @@ describe('forumService (wagtail_forum API contract)', () => {
     fetchMock.mockResolvedValueOnce(
       okJson({ ...backendPost, id: 50, topic_id: 77, moderation_status: 'published' })
     );
-    const r = await updatePost('50', { content: '<p>edited</p>' });
+    const r = await updatePost('50', { body: [{ type: 'paragraph', value: '<p>edited</p>' }] });
     expect(r.status).toBe('published');
     expect(r.post.id).toBe('50');
     expect(r.post.thread).toBe('77');
@@ -809,7 +809,9 @@ describe('forumService (wagtail_forum API contract)', () => {
       status: 429,
       json: async () => ({ detail: 'Rate limit exceeded' }),
     });
-    await expect(createPost({ thread: 12, content: 'x' })).rejects.toThrow('Rate limit exceeded');
+    await expect(
+      createPost({ thread: 12, body: [{ type: 'paragraph', value: 'x' }] })
+    ).rejects.toThrow('Rate limit exceeded');
   });
 
   it('propagates backend errors with canonical message field', async () => {
@@ -818,7 +820,9 @@ describe('forumService (wagtail_forum API contract)', () => {
       status: 403,
       json: async () => ({ message: 'Permission denied' }),
     });
-    await expect(createPost({ thread: 12, content: 'x' })).rejects.toThrow('Permission denied');
+    await expect(
+      createPost({ thread: 12, body: [{ type: 'paragraph', value: 'x' }] })
+    ).rejects.toThrow('Permission denied');
   });
 
   // --- AI composer assist (todo 275 / M14) ----------------------------------

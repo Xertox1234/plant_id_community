@@ -1,13 +1,29 @@
 /**
- * Forum body <-> composer-HTML serialization (Spec 2 PR-3, true interleaving).
+ * Forum body <-> composer document serialization (Spec 2 PR-3, true
+ * interleaving; TipTap JSON since todo 526).
  *
- * The TipTap composer emits one HTML string with inline `<img data-image-id>`
- * nodes. The wagtail_forum API instead models a body as a StreamField list where
- * images are their OWN `image` blocks (referencing a wagtail image id). These two
- * functions are inverses: they let text and images interleave in the composer
- * while persisting the block structure the backend validates and renders.
+ * The TipTap composer holds ONE document with block-level image nodes. The
+ * wagtail_forum API instead models a body as a StreamField list where images
+ * are their OWN `image` blocks (referencing a wagtail image id). The two
+ * converters here — `bodyBlocksToDoc` and `docToBodyBlocks` — are inverses:
+ * they let text and images interleave in the composer while persisting the
+ * block structure the backend validates and renders.
+ *
+ * Both work on TipTap JSON, never on composer HTML built from strings (todo
+ * 526). An image's id, alt and decorative flag, a quoted post id, a quote's
+ * text and an embed's URL travel as node attributes and text nodes, so no
+ * persisted value is interpolated into markup and none passes through the HTML
+ * parser — whose attribute normalisation (CR/CRLF to LF, NUL to U+FFFD) no
+ * amount of escaping could prevent. The one HTML boundary left is a
+ * `paragraph` block's value, which IS HTML by contract (server-sanitized): it
+ * is parsed, and the composer's rich text printed, with the live editor's own
+ * schema (forumEditorSchema).
  */
+import type { JSONContent } from '@tiptap/react';
+import { elementFromString, getHTMLFromFragment, getSchema } from '@tiptap/react';
+import { DOMParser as SchemaDOMParser, Fragment, type Schema } from '@tiptap/pm/model';
 import type { StreamFieldBlock } from '@/types/blog';
+import { FORUM_SCHEMA_EXTENSIONS } from '../components/forum/forumEditorSchema';
 import { stripHtml } from './sanitize';
 import { safeExternalUrl } from './externalUrl';
 
@@ -29,10 +45,10 @@ import { safeExternalUrl } from './externalUrl';
  * `&nbsp;`/`&#160;`/`&amp;`/`&lt;` (DOMPurify re-serializes them), `<textarea>`
  * content, comments, and a truncated tail like `<p>hello<`.
  *
- * All of that is unreachable from the current call sites — every producer
- * feeding `isBlankHtml` is TipTap's own serializer or `bodyBlocksToHtml`, and
- * ProseMirror emits a literal space, never `&#32;` — so this is documentation
- * of the seam, not a live behaviour change. It matters if a call site is ever
+ * All of that is unreachable from the current call sites — the only producer
+ * feeding `isBlankHtml` is `isBlankDoc`, i.e. ProseMirror's own serializer,
+ * which emits a literal space, never `&#32;` — so this is documentation of
+ * the seam, not a live behaviour change. It matters if a call site is ever
  * pointed at author-supplied or server-stored HTML, because every divergence
  * points the same way: toward "blank", i.e. a silently disabled submit button.
  */
@@ -66,39 +82,146 @@ export type ForumBodyWriteBlock =
  */
 export const QUOTE_TEXT_MAX_CHARS = 500;
 
+// ---------------------------------------------------------------------------
+// The composer schema (todo 526)
+// ---------------------------------------------------------------------------
+
+let schemaCache: Schema | null = null;
+
+/** The live editor's schema, built once (getSchema resolves every extension). */
+function forumSchema(): Schema {
+  schemaCache ??= getSchema(FORUM_SCHEMA_EXTENSIONS);
+  return schemaCache;
+}
+
 /**
- * An `<img data-image-id>` -> an `image` body block, or null when the element
- * carries no usable id.
+ * Rich-text HTML -> the composer's block nodes, through the editor's schema —
+ * what `editor.setContent(html)` would hold. Only ever fed a `paragraph`
+ * block's server-sanitized value or a pre-526 draft the author wrote.
+ */
+function htmlToNodes(html: string): JSONContent[] {
+  const doc = SchemaDOMParser.fromSchema(forumSchema()).parse(elementFromString(html));
+  return (doc.toJSON() as JSONContent).content ?? [];
+}
+
+/**
+ * Composer block nodes -> HTML, printed by the editor's schema: the same
+ * serializer as `editor.getHTML()`, so a paragraph block's value is exactly
+ * what the pre-526 composer sent.
+ */
+function nodesToHtml(nodes: JSONContent[]): string {
+  const schema = forumSchema();
+  return getHTMLFromFragment(
+    Fragment.fromArray(nodes.map((node) => schema.nodeFromJSON(node))),
+    schema
+  );
+}
+
+/** A fresh empty composer document (the schema needs at least one block). */
+export function emptyDoc(): JSONContent {
+  return { type: 'doc', content: [{ type: 'paragraph' }] };
+}
+
+/**
+ * Whether a composer document is effectively empty — the submit gate. Same
+ * rule as before todo 526, applied to the editor's own serialisation, so
+ * "blank" did not move: an image-only body still counts as blank.
+ */
+export function isBlankDoc(doc: JSONContent | null | undefined): boolean {
+  return isBlankHtml(nodesToHtml(doc?.content ?? []));
+}
+
+/**
+ * A stored or legacy value -> a composer document. A JSON `doc` is kept when
+ * the schema accepts it (a tampered or stale draft becomes an empty document
+ * rather than crashing the editor on mount); a string is a pre-526 draft,
+ * which was always the composer's own `getHTML()`, and is parsed by the schema.
+ */
+export function toComposerDoc(value: unknown): JSONContent {
+  if (typeof value === 'string') {
+    return value.trim() ? { type: 'doc', content: htmlToNodes(value) } : emptyDoc();
+  }
+  if (value && typeof value === 'object' && (value as JSONContent).type === 'doc') {
+    try {
+      forumSchema().nodeFromJSON(value).check();
+      return value as JSONContent;
+    } catch {
+      return emptyDoc();
+    }
+  }
+  return emptyDoc();
+}
+
+/** A stored reply draft (JSON since todo 526, HTML before it) -> a composer document. */
+export function draftToDoc(raw: string | null | undefined): JSONContent {
+  if (!raw) return emptyDoc();
+  try {
+    return toComposerDoc(JSON.parse(raw));
+  } catch {
+    return toComposerDoc(raw); // a pre-526 HTML draft
+  }
+}
+
+/** The plain text a mention node renders (the extension's default `renderText`). */
+function mentionText(node: JSONContent): string {
+  const attrs = node.attrs ?? {};
+  return `@${attrs.label ?? attrs.id ?? ''}`;
+}
+
+/**
+ * A node's visible text. `hardBreak` is `br`: '' reads as `textContent` does
+ * (the embed rule), '\n' keeps a quote's line structure.
+ */
+function nodeText(node: JSONContent, hardBreak: '' | '\n'): string {
+  if (node.type === 'text') return node.text ?? '';
+  if (node.type === 'hardBreak') return hardBreak;
+  if (node.type === 'mention') return mentionText(node);
+  return (node.content ?? []).map((child) => nodeText(child, hardBreak)).join('');
+}
+
+/** Every descendant of `node` of type `type`, in document order. */
+function descendantsOfType(node: JSONContent, type: string): JSONContent[] {
+  return (node.content ?? []).flatMap((child) => [
+    ...(child.type === type ? [child] : []),
+    ...descendantsOfType(child, type),
+  ]);
+}
+
+/**
+ * An image node -> an `image` body block, or null when it carries no usable id.
  *
  * Shared by the top-level branch and the blockquote hoist so the two can never
  * drift into emitting different shapes — the reason this exists is that they
  * already had duplicated construction when the value went from a bare id to
  * ImageBlock's `{image, alt_text, decorative}` (todo 357).
  */
-function imageBlockFrom(el: Element): ForumBodyWriteBlock | null {
-  const rawId = el.getAttribute('data-image-id');
-  // Digits only. `!rawId` alone rejected the empty string but NOT a non-numeric
-  // one: `data-image-id="abc"` yielded `{image: NaN}`, which JSON.stringify
-  // emits as null and the server rejects — 400ing the WHOLE post rather than
-  // dropping one image. ForumImage.parseHTML returns the attribute verbatim, so
-  // any value that reaches the node survives to here. Matches quotedPostId.
-  if (!rawId || !/^\d+$/.test(rawId)) return null;
-  const altText = (el.getAttribute('alt') ?? '').trim();
+function imageBlockFrom(node: JSONContent): ForumBodyWriteBlock | null {
+  const attrs = node.attrs ?? {};
+  const rawId: unknown = attrs.imageId;
+  const id = typeof rawId === 'number' || typeof rawId === 'string' ? String(rawId) : '';
+  // Digits only. A non-numeric id yielded `{image: NaN}`, which
+  // JSON.stringify emits as null and the server rejects — 400ing the WHOLE
+  // post rather than dropping one image. ForumImage.parseHTML returns the
+  // attribute verbatim, so any value that reaches the node survives to here.
+  // Matches quotedPostId.
+  if (!/^\d+$/.test(id)) return null;
+  const altText = (typeof attrs.alt === 'string' ? attrs.alt : '').trim();
   // A blank alt IS a decorative declaration — that is what the composer's
   // "Skip" means, and `alt_text: "" + decorative: false` is the one pair
   // ImageBlock.clean() refuses (it would make the post un-editable in the CMS).
-  const decorative = el.getAttribute('data-decorative') === 'true' || altText === '';
+  const decorative = attrs.decorative === true || altText === '';
   return {
     type: 'image',
-    value: { image: Number(rawId), alt_text: decorative ? '' : altText, decorative },
+    value: { image: Number(id), alt_text: decorative ? '' : altText, decorative },
   };
 }
 
 /** The quoted post id a composer blockquote carries, or null when absent/invalid. */
-function quotedPostId(el: Element): number | null {
-  const raw = el.getAttribute('data-post-id');
-  if (!raw || !/^\d+$/.test(raw)) return null;
-  const id = Number(raw);
+function quotedPostId(node: JSONContent): number | null {
+  const raw: unknown = node.attrs?.postId;
+  const text = typeof raw === 'number' || typeof raw === 'string' ? String(raw) : '';
+  if (!/^\d+$/.test(text)) return null;
+  const id = Number(text);
   return Number.isSafeInteger(id) && id > 0 ? id : null;
 }
 
@@ -115,15 +238,17 @@ const PROVIDER_VIDEO_URL =
   /^https?:\/\/(?:(?:[-\w]+\.)?youtube\.com\/(?:watch\?[^\s<>"'`]+|shorts\/[^\s<>"'`]+|live\/[^\s<>"'`]+|v\/[^\s<>"'`]+)|youtu\.be\/[^\s<>"'`]+|(?:www\.)?vimeo\.com\/[^\s<>"'`]+)$/;
 
 /**
- * The bare provider URL if `el` is a paragraph holding exactly one, else null.
- * A URL written as code stays code: the server's rule (`_sole_url` with
+ * The bare provider URL if `node` is a paragraph holding exactly one, else
+ * null. A URL written as code stays code: the server's rule (`_sole_url` with
  * `skip_code`, todo 448 item 10) refuses any `<code>` holding non-blank text.
  */
-function embedUrlOf(el: Element): string | null {
-  if (el.tagName !== 'P' || el.querySelector('img')) return null;
-  if (Array.from(el.querySelectorAll('code')).some((c) => (c.textContent ?? '').trim()))
-    return null;
-  const text = (el.textContent ?? '').trim();
+function embedUrlOf(node: JSONContent): string | null {
+  if (node.type !== 'paragraph') return null;
+  const inCode = descendantsOfType(node, 'text').some(
+    (text) => text.marks?.some((mark) => mark.type === 'code') && (text.text ?? '').trim()
+  );
+  if (inCode) return null;
+  const text = nodeText(node, '').trim();
   return PROVIDER_VIDEO_URL.test(text) ? text : null;
 }
 
@@ -196,32 +321,9 @@ export function previewUrlFromHtml(html: string): string | null {
 }
 
 /**
- * Escape text destined for composer HTML. `quote` is a Wagtail `BlockQuoteBlock`
- * (a `TextBlock`) — its value is PLAIN TEXT, never markup, and the server
- * deliberately leaves it unsanitized ("text by contract", api/sanitize.py). So a
- * value containing `<` must be escaped on the way back into the editor, or it
- * re-parses as real document structure on the next edit.
- */
-function escapeHtml(text: string): string {
-  return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-}
-
-/**
- * escapeHtml plus `"`, for a value interpolated into a DOUBLE-quoted attribute
- * of composer HTML. `&` matters as much as `"` (todo 441): escaping only the
- * quote let a stored alt of `Tom &amp; Jerry` (or `leaf &copy 2026` — a legacy
- * entity needs no semicolon before a space) decode on rehydrate, so re-saving
- * an untouched post PATCHed a different alt_text. `'` is left alone: every
- * attribute here is double-quoted, and ordinary values stay byte-identical.
- */
-function escapeAttr(text: string): string {
-  return escapeHtml(text).replace(/"/g, '&quot;');
-}
-
-/**
  * An element's visible text with each `<br>` as "\n". `textContent` drops a
  * hard break entirely ("one<br>two" -> "onetwo"). Only text nodes and breaks
- * contribute, so no tag ever leaks into the plain `text` of a quote block.
+ * contribute, so no tag ever leaks into the plain text of a quote.
  */
 function textWithBreaks(el: Element): string {
   let out = '';
@@ -245,98 +347,78 @@ function trimLines(text: string): string {
 }
 
 /**
- * A blockquote's visible text, one entry per child block. TipTap emits
- * `<blockquote><p>a</p><p>b</p></blockquote>`, so raw `textContent` would mash
- * "ab" together — join the children instead. A `<br>` inside a child (the
- * form quoteParagraphsHtml writes a single "\n" as) reads back as "\n".
+ * A blockquote node's visible text, one entry per child block. Raw text would
+ * mash `<p>a</p><p>b</p>` into "ab" — join the children with a blank line
+ * instead. A `hardBreak` inside a child (the form quoteParagraphs writes a
+ * single "\n" as) reads back as "\n".
  */
-function blockquoteText(el: Element): string {
-  const parts = Array.from(el.children)
-    .map((child) => trimLines(textWithBreaks(child)))
-    .filter(Boolean);
-  // No element children (bare text inside the quote) — fall back to the
-  // blockquote's own text.
-  return parts.length > 0 ? parts.join('\n\n') : trimLines(textWithBreaks(el));
+function blockquoteText(node: JSONContent): string {
+  return (node.content ?? [])
+    .map((child) => trimLines(nodeText(child, '\n')))
+    .filter(Boolean)
+    .join('\n\n');
 }
 
 /**
- * Composer HTML -> forum body blocks. Runs of rich text become `paragraph`
- * blocks; each inline `<img data-image-id>` becomes its own `image` block.
+ * Composer document -> forum body blocks. Runs of rich text become `paragraph`
+ * blocks (HTML, printed by the editor's schema); each image node becomes its
+ * own `image` block.
  *
  * Since the ImageBlock migration (todo 357) the block carries the id AND the
- * per-usage `alt_text`/`decorative`, so the editor's alt is now PERSISTED
- * rather than dropped — which is what makes alt editable after insert without
- * re-uploading. Only `src` is still display-only (the backend re-derives the
+ * per-usage `alt_text`/`decorative`, so the editor's alt is PERSISTED rather
+ * than dropped — which is what makes alt editable after insert without
+ * re-uploading. Only `src` is display-only (the backend re-derives the
  * rendition URL).
  */
-export function htmlToBodyBlocks(html: string): ForumBodyWriteBlock[] {
-  // CodeQL alert #116 (js/xss-through-dom), triaged false positive in todo 353:
-  // its only path from DOM text to this parser ran through forumBody.test.ts
-  // composing bodyBlocksToHtml(htmlToBodyBlocks(...)), conflating the
-  // regex-validated embed URL with paragraph HTML on the shared array (the
-  // tests now clone across that boundary). In production this `html` is
-  // TipTap's own serialisation; the parsed document is detached and only
-  // read. The paragraph branch of bodyBlocksToHtml carries server-sanitized
-  // HTML, and every other branch escapes (see escapeHtml / the href guard).
-  // GitHub code scanning ignores in-code suppression comments, so the fix
-  // has to be structural, not annotated.
-  const doc = new DOMParser().parseFromString(html, 'text/html');
+export function docToBodyBlocks(doc: JSONContent | null | undefined): ForumBodyWriteBlock[] {
   const blocks: ForumBodyWriteBlock[] = [];
-  let buffer: string[] = [];
+  let run: JSONContent[] = [];
   const flush = () => {
-    const value = buffer.join('').trim();
+    const value = run.length ? nodesToHtml(run).trim() : '';
     if (value) blocks.push({ type: 'paragraph', value });
-    buffer = [];
+    run = [];
   };
-  for (const node of Array.from(doc.body.childNodes)) {
-    const el = node.nodeType === Node.ELEMENT_NODE ? (node as Element) : null;
-    const imageId = el?.tagName === 'IMG' ? el.getAttribute('data-image-id') : null;
-    const embedUrl = el ? embedUrlOf(el) : null;
-    if (imageId && el) {
+  for (const node of doc?.content ?? []) {
+    const embedUrl = embedUrlOf(node);
+    if (node.type === 'image') {
+      // An image without a usable id (never uploaded) is dropped: the server
+      // strips `<img>` from paragraph HTML, so it could never persist anyway.
       flush();
-      const imageBlock = imageBlockFrom(el);
+      const imageBlock = imageBlockFrom(node);
       if (imageBlock) blocks.push(imageBlock);
     } else if (embedUrl) {
       // A paragraph that is just a video link → its own embed block; the
       // server unfurls it (todo 344). Re-editing round-trips through
-      // bodyBlocksToHtml's <p><a> form back to this branch.
+      // bodyBlocksToDoc's link paragraph back to this branch.
       flush();
       blocks.push({ type: 'embed', value: embedUrl });
-    } else if (el?.tagName === 'BLOCKQUOTE') {
+    } else if (node.type === 'blockquote') {
       // A top-level blockquote becomes its OWN `quote` block, not inline markup
       // in a paragraph: the server's nh3 allowlist has no <blockquote>, so a
       // quote left inside rich text would be silently flattened to plain text.
-      // Only BODY-LEVEL blockquotes are detected: one nested inside a list
-      // item (or any other element) stays in its paragraph's markup and is
-      // flattened exactly like that (pre-existing limitation, not handled).
-      // One carrying `data-post-id` (the Quote action, todo 342) is a
-      // `post_quote` of that post instead; a missing or malformed id falls
-      // back to the legacy free-form quote rather than a guaranteed 400.
+      // Only TOP-LEVEL blockquotes are detected: one nested inside a list
+      // item stays in its paragraph's markup and is flattened exactly like
+      // that (pre-existing limitation, not handled).
+      // One carrying a `postId` (the Quote action, todo 342) is a `post_quote`
+      // of that post instead; a missing or malformed id falls back to the
+      // legacy free-form quote rather than a guaranteed 400.
       flush();
-      const text = blockquoteText(el);
-      const postId = quotedPostId(el);
+      const text = blockquoteText(node);
+      const postId = quotedPostId(node);
       if (text && postId != null) {
         blocks.push({ type: 'post_quote', value: { post: postId, text } });
       } else if (text) {
         blocks.push({ type: 'quote', value: text });
       }
-      // An image nested in the quote is invisible to `textContent` — hoist it
-      // out as its own block rather than dropping the user's content silently.
-      // Same builder as the top-level branch, so the shape and the empty/NaN
-      // id guard cannot drift between the two.
-      for (const img of Array.from(el.querySelectorAll('img[data-image-id]'))) {
-        const nestedBlock = imageBlockFrom(img);
+      // An image nested in the quote has no text — hoist it out as its own
+      // block rather than dropping the user's content silently. Same builder
+      // as the top-level branch, so the shape and the id guard cannot drift.
+      for (const image of descendantsOfType(node, 'image')) {
+        const nestedBlock = imageBlockFrom(image);
         if (nestedBlock) blocks.push(nestedBlock);
       }
-    } else if (el) {
-      buffer.push(el.outerHTML);
-    } else if (node.textContent?.trim()) {
-      // A bare text node at body level. `buffer` is joined into a `paragraph`
-      // block, whose value is HTML — so this text must be ESCAPED, or "a < b"
-      // is re-parsed as markup downstream (CodeQL js/xss-through-dom: DOM text
-      // reinterpreted as HTML). Escaping is also the correct rendering: the
-      // user typed those characters, they did not author tags.
-      buffer.push(escapeHtml(node.textContent));
+    } else {
+      run.push(node);
     }
   }
   flush();
@@ -344,103 +426,32 @@ export function htmlToBodyBlocks(html: string): ForumBodyWriteBlock[] {
 }
 
 /**
- * Forum body blocks -> composer HTML, the inverse of htmlToBodyBlocks. Image
- * blocks become `<img data-image-id>` so re-editing round-trips the wagtail id
- * through TipTap. Block types the forum composer does not produce render empty.
+ * A stored link (an embed or a link card) as a composer node: a paragraph
+ * holding only that link, which docToBodyBlocks and the server both read as
+ * "a link posted on its own". SECURITY: the editor renders this href into the
+ * live composer DOM, where React's href guard does not apply — so a persisted
+ * URL with a non-http(s) scheme (a direct API POST that skipped the composer)
+ * is dropped, not linked (review). The URL is a node attribute and a text
+ * node, never markup.
  */
-export function bodyBlocksToHtml(body: StreamFieldBlock[] | null | undefined): string {
-  if (!body) return '';
-  return body
-    .map((block) => {
-      if (block.type === 'image') {
-        // Deleted image -> `value: null` from the server. Dropped rather than
-        // rendered: there is no id or url left to round-trip, and emitting an
-        // <img> with `undefined` would re-persist a broken block on the next
-        // save. Losing a reference that already points at nothing is the
-        // correct outcome; throwing here blocked re-editing the post at all.
-        if (!block.value) return '';
-        const { id, url, alt, decorative } = block.value;
-        // Both string attributes are escaped (see escapeAttr). `url` is
-        // display-only (the backend re-derives the rendition), but an
-        // unescaped `"` in it could still break out of the attribute. `id` is
-        // a number; htmlToBodyBlocks drops any non-digit id on the way back.
-        const safeAlt = escapeAttr(alt || '');
-        // `|| ''` like alt: a nullish url must degrade, not throw and block
-        // re-editing the post (PR #826 review).
-        const safeUrl = escapeAttr(url || '');
-        const safeId = escapeAttr(String(id ?? ''));
-        // data-decorative round-trips the flag so re-saving an untouched
-        // decorative image does not downgrade it to the pair the CMS refuses.
-        const decorativeAttr = decorative ? ' data-decorative="true"' : '';
-        return `<img src="${safeUrl}" alt="${safeAlt}" data-image-id="${safeId}"${decorativeAttr}>`;
-      }
-      if (block.type === 'paragraph') {
-        return typeof block.value === 'string' ? block.value : '';
-      }
-      if (block.type === 'embed') {
-        // The read shape is an envelope; only the original URL goes back
-        // into the composer, as a link paragraph htmlToBodyBlocks recognises
-        // (see linkParagraphHtml for the scheme guard).
-        const url = typeof block.value === 'string' ? block.value : block.value.url;
-        return linkParagraphHtml(url);
-      }
-      if (block.type === 'link_preview') {
-        // A link card (todo 428) goes back into the composer as the link the
-        // author posted — the same <p><a> form as an embed. Saving it
-        // unchanged re-derives the same stored card server-side, with no
-        // fetch. A null value (an unusable stored link) has nothing to keep.
-        return block.value ? linkParagraphHtml(block.value.url) : '';
-      }
-      if (block.type === 'quote') {
-        // Plain text in, escaped markup out — see escapeHtml. One <p> per
-        // paragraph so htmlToBodyBlocks re-derives the same "\n\n"-joined value
-        // (round-trip stability).
-        const text = typeof block.value === 'string' ? block.value : '';
-        if (!text.trim()) return '';
-        return `<blockquote>${quoteParagraphsHtml(text)}</blockquote>`;
-      }
-      if (block.type === 'post_quote') {
-        // Same plain-text contract as `quote` (escaped on the way in), plus
-        // the quoted post id as `data-post-id` so htmlToBodyBlocks re-derives
-        // a `post_quote` block — REGARDLESS of `available`. The server exempts
-        // the ids the stored body already carries from the availability
-        // re-check on edit (`existing_quote_ids`), so a quote whose post has
-        // since gone keeps its id; downgrading it to a plain `quote` here
-        // would silently rewrite the author's post on every re-edit and lose
-        // the attribution for good. Only a malformed id falls back.
-        const { text, post_id } = block.value;
-        if (!text.trim()) return '';
-        const paragraphs = quoteParagraphsHtml(text);
-        return Number.isSafeInteger(post_id) && post_id > 0
-          ? `<blockquote data-post-id="${post_id}">${paragraphs}</blockquote>`
-          : `<blockquote>${paragraphs}</blockquote>`;
-      }
-      return '';
-    })
-    .join('');
+function linkParagraph(url: string | null | undefined): JSONContent | null {
+  if (!url || !/^https?:\/\//i.test(url)) return null;
+  return {
+    type: 'paragraph',
+    content: [{ type: 'text', text: url, marks: [{ type: 'link', attrs: { href: url } }] }],
+  };
 }
 
 /**
- * A stored link (an embed or a link card) as composer HTML: a paragraph
- * holding only that link, which htmlToBodyBlocks and the server both read as
- * "a link posted on its own". SECURITY: this is a hand-built HTML string
- * later parsed into the live composer DOM — React's own href guard does not
- * apply here — so a persisted URL with a non-http(s) scheme (a direct API
- * POST that skipped the composer) is dropped, not linked (review).
+ * Plain quote text -> one paragraph node per paragraph. The text is a TEXT
+ * node, never markup: `quote` is a Wagtail `BlockQuoteBlock` (a `TextBlock`)
+ * whose value the server deliberately leaves unsanitized ("text by contract",
+ * api/sanitize.py), so it must not become document structure. A single "\n"
+ * inside a paragraph (a list-sourced quote — postQuoteText joins list items
+ * with one "\n" — or a non-browser client) becomes a `hardBreak`, which
+ * blockquoteText reads back as "\n", so the round trip is stable.
  */
-function linkParagraphHtml(url: string | null | undefined): string {
-  if (!url || !/^https?:\/\//i.test(url)) return '';
-  return `<p><a href="${escapeAttr(url)}">${escapeHtml(url)}</a></p>`;
-}
-
-/**
- * Plain quote text -> `<p>` per paragraph, escaped (see escapeHtml). A single
- * "\n" inside a paragraph (a list-sourced quote — postQuoteText joins list
- * items with one "\n" — or a non-browser client) becomes `<br>`: written as
- * a bare newline ProseMirror would collapse it to a space in the editor, and
- * blockquoteText reads the `<br>` back as "\n", so the round trip is stable.
- */
-function quoteParagraphsHtml(text: string): string {
+function quoteParagraphs(text: string): JSONContent[] {
   return (
     text
       // Split on a BLANK line only. Splitting on /\n+/ would rewrite a
@@ -452,23 +463,124 @@ function quoteParagraphsHtml(text: string): string {
           .split('\n')
           .map((line) => line.trim())
           .filter(Boolean)
-          .map((line) => escapeHtml(line))
-          .join('<br>')
       )
-      .filter(Boolean)
-      .map((paragraph) => `<p>${paragraph}</p>`)
-      .join('')
+      .filter((lines) => lines.length > 0)
+      .map((lines) => ({
+        type: 'paragraph',
+        content: lines.flatMap((line, i): JSONContent[] =>
+          i === 0
+            ? [{ type: 'text', text: line }]
+            : [{ type: 'hardBreak' }, { type: 'text', text: line }]
+        ),
+      }))
+  );
+}
+
+/** A blockquote node of `text`, carrying `postId` when it is a valid post id. */
+function quoteNode(text: string, postId?: number): JSONContent | null {
+  const content = quoteParagraphs(text);
+  if (content.length === 0) return null;
+  return postId != null && Number.isSafeInteger(postId) && postId > 0
+    ? { type: 'blockquote', attrs: { postId: String(postId) }, content }
+    : { type: 'blockquote', content };
+}
+
+/**
+ * Forum body blocks -> composer document, the inverse of docToBodyBlocks.
+ * Image blocks become image nodes carrying the wagtail id, so re-editing
+ * round-trips the id through TipTap. Block types the forum composer does not
+ * produce are left out. No branch builds an HTML string (todo 526).
+ */
+export function bodyBlocksToDoc(body: StreamFieldBlock[] | null | undefined): JSONContent {
+  const content: JSONContent[] = [];
+  for (const block of body ?? []) {
+    if (block.type === 'image') {
+      // Deleted image -> `value: null` from the server. Dropped rather than
+      // rendered: there is no id or url left to round-trip, and an image node
+      // with no id would re-persist a broken block on the next save. Losing a
+      // reference that already points at nothing is the correct outcome;
+      // throwing here blocked re-editing the post at all.
+      if (!block.value) continue;
+      const { id, url, alt, decorative } = block.value;
+      content.push({
+        type: 'image',
+        attrs: {
+          // `|| ''`: a nullish url must degrade, not throw and block
+          // re-editing the post (PR #826 review). Display-only — the backend
+          // re-derives the rendition.
+          src: url || '',
+          alt: alt || '',
+          // docToBodyBlocks drops any non-digit id on the way back.
+          imageId: id == null ? null : String(id),
+          // Round-trips the flag so re-saving an untouched decorative image
+          // does not downgrade it to the pair the CMS refuses.
+          decorative: decorative === true,
+        },
+      });
+    } else if (block.type === 'paragraph') {
+      // Server-sanitized rich text — HTML by contract, parsed by the editor's
+      // schema exactly as `setContent` would.
+      if (typeof block.value === 'string' && block.value.trim()) {
+        content.push(...htmlToNodes(block.value));
+      }
+    } else if (block.type === 'embed') {
+      // The read shape is an envelope; only the original URL goes back into
+      // the composer, as a link paragraph docToBodyBlocks recognises (see
+      // linkParagraph for the scheme guard).
+      const url = typeof block.value === 'string' ? block.value : block.value?.url;
+      const node = linkParagraph(url);
+      if (node) content.push(node);
+    } else if (block.type === 'link_preview') {
+      // A link card (todo 428) goes back into the composer as the link the
+      // author posted — the same link paragraph as an embed. Saving it
+      // unchanged re-derives the same stored card server-side, with no
+      // fetch. A null value (an unusable stored link) has nothing to keep.
+      const node = block.value ? linkParagraph(block.value.url) : null;
+      if (node) content.push(node);
+    } else if (block.type === 'quote') {
+      const node = quoteNode(typeof block.value === 'string' ? block.value : '');
+      if (node) content.push(node);
+    } else if (block.type === 'post_quote') {
+      // Same plain-text contract as `quote`, plus the quoted post id so
+      // docToBodyBlocks re-derives a `post_quote` block — REGARDLESS of
+      // `available`. The server exempts the ids the stored body already
+      // carries from the availability re-check on edit
+      // (`existing_quote_ids`), so a quote whose post has since gone keeps its
+      // id; downgrading it to a plain `quote` here would silently rewrite the
+      // author's post on every re-edit and lose the attribution for good.
+      // Only a malformed id falls back.
+      const node = quoteNode(block.value.text, block.value.post_id);
+      if (node) content.push(node);
+    }
+  }
+  return content.length > 0 ? { type: 'doc', content } : emptyDoc();
+}
+
+/**
+ * Whether saving `doc` would send the same body blocks that opening `body` for
+ * editing would (todo 526). Both sides go through the same converters, so an
+ * untouched post compares equal however its stored paragraph HTML is
+ * formatted — which is what lets an untouched re-save skip the PATCH, and the
+ * unsaved-edit prompt (M27) stay quiet.
+ */
+export function isUnchangedBody(
+  doc: JSONContent | null | undefined,
+  body: StreamFieldBlock[] | null | undefined
+): boolean {
+  return (
+    JSON.stringify(docToBodyBlocks(doc)) === JSON.stringify(docToBodyBlocks(bodyBlocksToDoc(body)))
   );
 }
 
 /**
- * Composer HTML for the Quote action (todo 342): a `post_quote` blockquote of
- * `postId` holding `text`, in exactly the form htmlToBodyBlocks turns back
- * into `{type: 'post_quote', value: {post, text}}`. `text` is escaped here —
- * it comes from postQuoteText, i.e. from another member's post.
+ * The composer node for the Quote action (todo 342): a `post_quote`
+ * blockquote of `postId` holding `text`, in exactly the form docToBodyBlocks
+ * turns back into `{type: 'post_quote', value: {post, text}}`. `text` comes
+ * from postQuoteText, i.e. from another member's post — it is a text node,
+ * never markup. Null when `text` has no content.
  */
-export function postQuoteHtml(postId: number, text: string): string {
-  return `<blockquote data-post-id="${postId}">${quoteParagraphsHtml(text)}</blockquote>`;
+export function postQuoteNode(postId: number, text: string): JSONContent | null {
+  return quoteNode(text, postId);
 }
 
 /** Visible text of one rich-text paragraph block, one entry per top-level element. */
@@ -476,7 +588,7 @@ function richTextParagraphs(html: string): string[] {
   const doc = new DOMParser().parseFromString(html, 'text/html');
   // Collapse runs of spaces but KEEP line structure: a hard break in the
   // source (`<p>a<br>b</p>`, Shift+Enter) is lifted as "a\nb", which
-  // quoteParagraphsHtml renders back as <br> — never as the merged "ab".
+  // quoteParagraphs renders back as a hard break — never as the merged "ab".
   const collapse = (s: string | null | undefined) => trimLines((s ?? '').replace(/[^\S\n]+/g, ' '));
   const children = Array.from(doc.body.children);
   if (children.length === 0) return [collapse(doc.body.textContent)].filter(Boolean);

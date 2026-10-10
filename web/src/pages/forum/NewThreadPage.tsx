@@ -13,9 +13,10 @@ import PageMeta from '../../components/PageMeta';
 import { useAnnounce } from '../../contexts/AnnouncerContext';
 import { useAuth } from '../../contexts/AuthContext';
 import { useScrollToTop } from '../../hooks/useScrollToTop';
-import { isBlankHtml } from '../../utils/forumBody';
+import { docToBodyBlocks, emptyDoc, isBlankDoc, toComposerDoc } from '../../utils/forumBody';
 import { logger } from '../../utils/logger';
 import type { Category, CreateIdentificationInput } from '@/types';
+import type { JSONContent } from '@tiptap/react';
 
 /**
  * Mirrors the backend's `WAGTAILFORUM_POLL_MAX_OPTIONS`/`_MIN_OPTIONS`
@@ -116,7 +117,9 @@ export default function NewThreadPage() {
   const [boards, setBoards] = useState<Category[]>([]);
   const newThreadDraftKey = draftKey('new-thread', categoryParam ?? 'unknown');
   // Parse the saved draft once (per key), not once per field.
-  const initialDraft = useMemo<{ title?: string; body?: string; tags?: string }>(() => {
+  // `body` is the composer's TipTap document since todo 526; a draft saved
+  // before it holds the editor's HTML instead, which toComposerDoc still reads.
+  const initialDraft = useMemo<{ title?: string; body?: unknown; tags?: string }>(() => {
     try {
       return JSON.parse(loadDraft(newThreadDraftKey) || '{}');
     } catch {
@@ -129,7 +132,7 @@ export default function NewThreadPage() {
     () =>
       initialDraft.title || (handoff ? `Is this ${handoff.identification.candidates[0].name}?` : '')
   );
-  const [body, setBody] = useState<string>(() => initialDraft.body || '');
+  const [body, setBody] = useState<JSONContent>(() => toComposerDoc(initialDraft.body));
   // Comma-separated raw input (audit M5). Kept as the user's literal string in
   // state (and in the draft) so a half-typed tag isn't destroyed mid-keystroke;
   // it is split/trimmed only at submit. The server normalizes and bounds it.
@@ -173,7 +176,7 @@ export default function NewThreadPage() {
   const [composerEpoch, setComposerEpoch] = useState<number>(0);
   useIdentitySwap(user?.id, () => {
     setTitle('');
-    setBody('');
+    setBody(emptyDoc());
     setTagsInput('');
     setComposerEpoch((e) => e + 1);
   });
@@ -216,7 +219,7 @@ export default function NewThreadPage() {
 
   // Persist the draft on every change; an all-empty draft is removed.
   useEffect(() => {
-    const isEmpty = title.trim() === '' && isBlankHtml(body) && tagsInput.trim() === '';
+    const isEmpty = title.trim() === '' && isBlankDoc(body) && tagsInput.trim() === '';
     saveDraft(newThreadDraftKey, isEmpty ? '' : JSON.stringify({ title, body, tags: tagsInput }));
   }, [title, body, tagsInput, newThreadDraftKey]);
 
@@ -234,19 +237,19 @@ export default function NewThreadPage() {
   const pollValid =
     !pollEnabled || (pollQuestion.trim() !== '' && filledPollOptions >= MIN_POLL_OPTIONS);
 
-  const canSubmit = !!category && title.trim() !== '' && !isBlankHtml(body) && pollValid;
+  const canSubmit = !!category && title.trim() !== '' && !isBlankDoc(body) && pollValid;
 
   const handleSubmit = useCallback(
     async (e: FormEvent<HTMLFormElement>) => {
       e.preventDefault();
-      if (!category || !title.trim() || isBlankHtml(body) || !pollValid) return;
+      if (!category || !title.trim() || isBlankDoc(body) || !pollValid) return;
       try {
         setSubmitting(true);
         setError(null);
         const res = await createThread({
           boardSlug: category.slug,
           title: title.trim(),
-          content: body,
+          body: docToBodyBlocks(body),
           tags: tagsInput
             .split(',')
             .map((t) => t.trim())

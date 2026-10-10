@@ -35,7 +35,16 @@ import {
 } from '../../services/forumService';
 import { parseLeadingId, userProfilePath, threadPath } from '../../utils/forumUrls';
 import { DELETED_AUTHOR_USERNAME } from '../../utils/forumAuthor';
-import { bodyBlocksToHtml, postQuoteHtml, postQuoteText } from '../../utils/forumBody';
+import {
+  bodyBlocksToDoc,
+  docToBodyBlocks,
+  draftToDoc,
+  emptyDoc,
+  isBlankDoc,
+  isUnchangedBody,
+  postQuoteNode,
+  postQuoteText,
+} from '../../utils/forumBody';
 import { draftKey, loadDraft, saveDraft, clearDraft } from '../../utils/forumDrafts';
 import { useIdentitySwap } from '../../hooks/useIdentitySwap';
 import { specimenAvatar } from '../../utils/forumAvatars';
@@ -59,8 +68,8 @@ import { useScrollToTop } from '../../hooks/useScrollToTop';
 import { useMediaQuery } from '../../hooks/useMediaQuery';
 import { logger } from '../../utils/logger';
 import PageMeta from '../../components/PageMeta';
-import { isBlankHtml } from '../../utils/forumBody';
 import type { Thread, Post } from '@/types';
+import type { JSONContent } from '@tiptap/react';
 import type { PaginatedResponse } from '@/types/forum';
 
 /**
@@ -142,7 +151,8 @@ export default function ThreadDetailPage() {
   const [loadingMore, setLoadingMore] = useState<boolean>(false);
 
   // Write-path state
-  const [replyBody, setReplyBody] = useState<string>('');
+  // The composer's TipTap document (todo 526), never an HTML string.
+  const [replyBody, setReplyBody] = useState<JSONContent>(emptyDoc);
   const [replySubmitting, setReplySubmitting] = useState<boolean>(false);
   // TipTap's `content` is init-only, so resetting replyBody won't clear the editor;
   // bumping this key remounts a fresh (empty) composer after a successful reply.
@@ -152,7 +162,7 @@ export default function ThreadDetailPage() {
   // state would re-persist the previous account's text on the next keystroke
   // (code review, PR #629) — drop it and remount the editor.
   useIdentitySwap(user?.id, () => {
-    setReplyBody('');
+    setReplyBody(emptyDoc());
     setComposerKey((k) => k + 1);
     // AuthContext drops every draft key on the swap; this page's own persist
     // only runs from the editor's onChange, so clear this topic's key here
@@ -160,7 +170,7 @@ export default function ThreadDetailPage() {
     if (topicId != null) clearDraft(draftKey('reply', String(topicId)));
   });
   const [editingPostId, setEditingPostId] = useState<string | null>(null);
-  const [editBody, setEditBody] = useState<string>('');
+  const [editBody, setEditBody] = useState<JSONContent>(emptyDoc);
   const [editSubmitting, setEditSubmitting] = useState<boolean>(false);
   const [subscribing, setSubscribing] = useState<boolean>(false);
   const [bookmarking, setBookmarking] = useState<boolean>(false);
@@ -210,7 +220,10 @@ export default function ThreadDetailPage() {
     flashUntilRef.current = 0;
     // Restore this topic's reply draft (per-topic key); remount the composer
     // so TipTap's init-only content picks it up.
-    setReplyBody(topicId != null ? (loadDraft(draftKey('reply', String(topicId))) ?? '') : '');
+    // draftToDoc also reads a draft saved before todo 526 (the editor's HTML).
+    setReplyBody(
+      topicId != null ? draftToDoc(loadDraft(draftKey('reply', String(topicId)))) : emptyDoc()
+    );
     setComposerKey((k) => k + 1);
     // A subscribe/unsubscribe request still in flight for the PREVIOUS
     // thread must not leave this thread's Follow button stuck loading —
@@ -490,7 +503,7 @@ export default function ThreadDetailPage() {
   const handleReply = useCallback(
     async (e: FormEvent<HTMLFormElement>) => {
       e.preventDefault();
-      if (topicId == null || isBlankHtml(replyBody)) return;
+      if (topicId == null || isBlankDoc(replyBody)) return;
       // Stale-thread guard (audit 2026-09-04 M2), same as every other write
       // handler here: route param changes reuse this component instance, so
       // a reply submitted on thread A that resolves after navigating to
@@ -501,7 +514,10 @@ export default function ThreadDetailPage() {
       try {
         setReplySubmitting(true);
         setNotice(null);
-        const res = await createPost({ thread: requestTopicId, content: replyBody });
+        const res = await createPost({
+          thread: requestTopicId,
+          body: docToBodyBlocks(replyBody),
+        });
         clearDraft(draftKey('reply', String(requestTopicId)));
         // Defense-in-depth (todo 297): the reply already posted under
         // whatever identity the cookie carried — this can only detect a
@@ -527,7 +543,7 @@ export default function ThreadDetailPage() {
           if (drifted) announce(driftNotice, 'assertive');
           return;
         }
-        setReplyBody('');
+        setReplyBody(emptyDoc());
         // Remount the editor so it visibly clears, and focus the fresh composer
         // (M25) — remount-via-key alone left focus dropped after posting.
         setComposerKey((k) => k + 1);
@@ -593,16 +609,21 @@ export default function ThreadDetailPage() {
       if (topicId == null) return;
       const postId = Number(post.id);
       const text = postQuoteText(post.body);
-      if (!Number.isSafeInteger(postId) || postId < 1 || !text) {
+      const quote = Number.isSafeInteger(postId) && postId > 0 ? postQuoteNode(postId, text) : null;
+      if (!quote) {
         // An image-only post has nothing to quote, and the server rejects an
         // empty quote — say so instead of inserting a block that will 400.
         setNotice('This post has no text to quote.');
         return;
       }
-      const quote = postQuoteHtml(postId, text);
-      const next = isBlankHtml(replyBody) ? `${quote}<p></p>` : `${quote}${replyBody}`;
+      const next: JSONContent = {
+        type: 'doc',
+        content: isBlankDoc(replyBody)
+          ? [quote, { type: 'paragraph' }]
+          : [quote, ...(replyBody.content ?? [])],
+      };
       setReplyBody(next);
-      saveDraft(draftKey('reply', String(topicId)), next);
+      saveDraft(draftKey('reply', String(topicId)), JSON.stringify(next));
       setComposerKey((k) => k + 1);
       setAutoFocusComposer(true);
       composerRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
@@ -867,14 +888,16 @@ export default function ThreadDetailPage() {
   // confirm the discard first instead of silently dropping them (M27).
   const startEditing = useCallback((post: Post) => {
     setEditingPostId(post.id);
-    setEditBody(bodyBlocksToHtml(post.body));
+    setEditBody(bodyBlocksToDoc(post.body));
   }, []);
 
   const handleEdit = useCallback(
     (post: Post) => {
       if (editingPostId != null && editingPostId !== post.id) {
         const current = posts.find((p) => p.id === editingPostId);
-        const isDirty = !!current && editBody !== bodyBlocksToHtml(current.body);
+        // Compared as the body blocks a save would send, not by document
+        // identity: an untouched edit is not "unsaved changes" (todo 526).
+        const isDirty = !!current && !isUnchangedBody(editBody, current.body);
         if (isDirty) {
           setPendingEditSwitch(post);
           return;
@@ -888,17 +911,26 @@ export default function ThreadDetailPage() {
   const handleEditSubmit = useCallback(
     async (e: FormEvent<HTMLFormElement>) => {
       e.preventDefault();
-      if (editingPostId == null || isBlankHtml(editBody)) return;
+      if (editingPostId == null || isBlankDoc(editBody)) return;
+      // An untouched edit sends no PATCH (todo 526): it would only mint a
+      // revision identical to the stored body (and, for an untrusted author,
+      // re-queue the post for moderation). Saving just closes the editor.
+      const current = posts.find((p) => p.id === editingPostId);
+      if (current && isUnchangedBody(editBody, current.body)) {
+        setEditingPostId(null);
+        setEditBody(emptyDoc());
+        return;
+      }
       try {
         setEditSubmitting(true);
         setNotice(null);
-        const res = await updatePost(editingPostId, { content: editBody });
+        const res = await updatePost(editingPostId, { body: docToBodyBlocks(editBody) });
         setPosts((prev) => prev.map((p) => (p.id === editingPostId ? res.post : p)));
         if (res.status === 'pending') {
           setNotice('Your edit was submitted and is awaiting moderation.');
         }
         setEditingPostId(null);
-        setEditBody('');
+        setEditBody(emptyDoc());
       } catch (err) {
         logger.error('Error editing post', {
           component: 'ThreadDetailPage',
@@ -910,12 +942,12 @@ export default function ThreadDetailPage() {
         setEditSubmitting(false);
       }
     },
-    [editingPostId, editBody]
+    [editingPostId, editBody, posts]
   );
 
   const cancelEdit = useCallback(() => {
     setEditingPostId(null);
-    setEditBody('');
+    setEditBody(emptyDoc());
   }, []);
 
   // Confirmed the unsaved-edit discard (M27): switch to the post the user asked
@@ -1186,7 +1218,7 @@ export default function ThreadDetailPage() {
                   <Button
                     type="submit"
                     variant="primary"
-                    disabled={isBlankHtml(editBody) || editSubmitting}
+                    disabled={isBlankDoc(editBody) || editSubmitting}
                     loading={editSubmitting}
                   >
                     Save
@@ -1306,10 +1338,13 @@ export default function ThreadDetailPage() {
             key={composerKey}
             content={replyBody}
             autoFocus={autoFocusComposer}
-            onChange={(html) => {
-              setReplyBody(html);
+            onChange={(doc) => {
+              setReplyBody(doc);
               if (topicId != null) {
-                saveDraft(draftKey('reply', String(topicId)), isBlankHtml(html) ? '' : html);
+                saveDraft(
+                  draftKey('reply', String(topicId)),
+                  isBlankDoc(doc) ? '' : JSON.stringify(doc)
+                );
               }
             }}
             placeholder="Write a reply..."
@@ -1317,7 +1352,7 @@ export default function ThreadDetailPage() {
           <Button
             type="submit"
             variant="primary"
-            disabled={isBlankHtml(replyBody) || replySubmitting}
+            disabled={isBlankDoc(replyBody) || replySubmitting}
             loading={replySubmitting}
             loadingText="Posting…"
           >

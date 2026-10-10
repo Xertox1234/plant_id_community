@@ -9,8 +9,8 @@ import * as forumService from '../../services/forumService';
 import * as blogService from '../../services/blogService';
 import { useAuth } from '../../contexts/AuthContext';
 import { AnnouncerProvider } from '../../contexts/AnnouncerContext';
-import { htmlToBodyBlocks } from '../../utils/forumBody';
 import { logger } from '../../utils/logger';
+import type { JSONContent } from '@tiptap/react';
 
 vi.mock('react-router-dom', async () => {
   const actual = await vi.importActual('react-router-dom');
@@ -26,6 +26,9 @@ vi.mock('react-router-dom', async () => {
 // `content` rides through as defaultValue so what the page PUTS INTO the
 // editor (a loaded edit body, a Quote insert — todo 342) is observable; a stub
 // that dropped it would show an empty field whatever the page did.
+// The contract is TipTap JSON (todo 526): the stub shows the document as the
+// composer schema prints it ('' when blank) and reports what is typed as a
+// one-paragraph document.
 vi.mock('../../services/forumService');
 // Defensive mock for FromTheBlogModule's rail fetch and the page's own
 // "more in this board" rail fetch. Neither fires here: the setup.ts
@@ -34,23 +37,30 @@ vi.mock('../../services/forumService');
 // exist in jsdom anyway) — but both mocks guard against a real network call.
 vi.mock('../../services/blogService');
 vi.mock('../../contexts/AuthContext', () => ({ useAuth: vi.fn() }));
-vi.mock('../../components/forum/TipTapEditor', () => ({
-  default: ({
-    content,
-    onChange,
-    placeholder,
-  }: {
-    content?: string;
-    onChange?: (html: string) => void;
-    placeholder?: string;
-  }) => (
-    <textarea
-      aria-label={placeholder || 'body'}
-      defaultValue={content}
-      onChange={(e) => onChange?.(`<p>${e.target.value}</p>`)}
-    />
-  ),
-}));
+vi.mock('../../components/forum/TipTapEditor', async () => {
+  const { generateHTML } = await import('@tiptap/react');
+  const { FORUM_SCHEMA_EXTENSIONS } = await import('../../components/forum/forumEditorSchema');
+  const { isBlankDoc, toComposerDoc } = await import('../../utils/forumBody');
+  return {
+    default: ({
+      content,
+      onChange,
+      placeholder,
+    }: {
+      content?: JSONContent;
+      onChange?: (doc: JSONContent) => void;
+      placeholder?: string;
+    }) => (
+      <textarea
+        aria-label={placeholder || 'body'}
+        defaultValue={
+          content && !isBlankDoc(content) ? generateHTML(content, FORUM_SCHEMA_EXTENSIONS) : ''
+        }
+        onChange={(e) => onChange?.(toComposerDoc(`<p>${e.target.value}</p>`))}
+      />
+    ),
+  };
+});
 
 /**
  * Helper to render ThreadDetailPage with Router
@@ -918,7 +928,7 @@ describe('ThreadDetailPage', () => {
     await waitFor(() => expect(screen.getByText('my reply')).toBeInTheDocument());
     expect(forumService.createPost).toHaveBeenCalledWith({
       thread: 12,
-      content: '<p>my reply</p>',
+      body: [{ type: 'paragraph', value: '<p>my reply</p>' }],
     });
     expect(fetchPostsSpy).toHaveBeenCalledTimes(2);
     // The composer remounts (key bump) so it visibly clears after posting.
@@ -1417,9 +1427,88 @@ describe('ThreadDetailPage', () => {
     await userEvent.click(screen.getByRole('button', { name: /^Save$/i }));
 
     await waitFor(() =>
-      expect(forumService.updatePost).toHaveBeenCalledWith('5', { content: '<p>new body</p>' })
+      expect(forumService.updatePost).toHaveBeenCalledWith('5', {
+        body: [{ type: 'paragraph', value: '<p>new body</p>' }],
+      })
     );
     await waitFor(() => expect(screen.getByText('new body')).toBeInTheDocument());
+  });
+
+  it('re-saving an untouched post sends no PATCH and just closes the editor (todo 526)', async () => {
+    // Every stored block shape the composer rehydrates: rich text, an image
+    // (with alt, and a CR/LF in it — the normalisation todo 526 exists for),
+    // a decorative image, an embed, a link card, a quote and a post quote.
+    vi.spyOn(forumService, 'fetchThread').mockResolvedValue(createMockThread());
+    vi.spyOn(forumService, 'fetchPosts').mockResolvedValue({
+      items: [
+        createMockPost({
+          id: '5',
+          can_edit: true,
+          body: [
+            { id: 'a', type: 'paragraph', value: '<p>old <strong>text</strong></p>' },
+            {
+              id: 'b',
+              type: 'image',
+              value: { id: 9, url: '/m/x.jpg', alt: 'Tom &amp; Jerry\r\nleaf', decorative: false },
+            },
+            {
+              id: 'c',
+              type: 'image',
+              value: { id: 10, url: '/m/y.jpg', alt: '', decorative: true },
+            },
+            {
+              id: 'd',
+              type: 'embed',
+              value: {
+                url: 'https://youtu.be/dQw4w9WgXcQ',
+                provider_name: 'YouTube',
+                title: 'T',
+                thumbnail_url: '',
+                embed_url: 'https://www.youtube-nocookie.com/embed/dQw4w9WgXcQ',
+              },
+            },
+            {
+              id: 'e',
+              type: 'link_preview',
+              value: {
+                url: 'https://example.com/a?b=1&c=2',
+                title: 'T',
+                description: '',
+                site_name: '',
+                domain: 'example.com',
+                image_url: null,
+              },
+            },
+            { id: 'f', type: 'quote', value: 'line one\nline two\n\nthird' },
+            {
+              id: 'g',
+              type: 'post_quote',
+              value: {
+                text: 'gone',
+                post_id: 3,
+                available: false,
+                topic_id: null,
+                author: null,
+                is_blocked: false,
+                is_muted: false,
+              },
+            },
+          ],
+        }),
+      ],
+      meta: { count: 0, next: null, previous: null },
+    });
+    const updateSpy = vi.spyOn(forumService, 'updatePost');
+
+    renderThreadDetailPage();
+
+    await screen.findByText('old');
+    await userEvent.click(screen.getByTitle('Edit post'));
+    await screen.findByLabelText('body');
+    await userEvent.click(screen.getByRole('button', { name: /^Save$/i }));
+
+    await waitFor(() => expect(screen.queryByLabelText('body')).not.toBeInTheDocument());
+    expect(updateSpy).not.toHaveBeenCalled();
   });
 
   it('shows Load More button when meta.next is present', async () => {
@@ -2057,8 +2146,9 @@ describe('ThreadDetailPage quote reply (todo 342)', () => {
     expect(await screen.findByLabelText('Write a reply...')).toHaveValue(
       '<blockquote data-post-id="5"><p>Water it less.</p></blockquote><p>my draft</p>'
     );
-    // Persisted like typed content — a remount fires no onChange.
-    expect(sessionStorage.getItem('forum-draft:reply:12')).toContain('data-post-id="5"');
+    // Persisted like typed content — a remount fires no onChange. The draft is
+    // the composer document as JSON (todo 526), the quoted id an attribute.
+    expect(sessionStorage.getItem('forum-draft:reply:12')).toContain('"postId":"5"');
     expect(scrollSpy).toHaveBeenCalledTimes(1);
     expect(document.querySelector('[data-announcer="polite"]')).toHaveTextContent(
       "Quote of Test User's post added to your reply."
@@ -2117,10 +2207,10 @@ describe('ThreadDetailPage quote reply (todo 342)', () => {
     await userEvent.click(screen.getByRole('button', { name: /post reply/i }));
 
     await waitFor(() => expect(createSpy).toHaveBeenCalledTimes(1));
-    const { content } = createSpy.mock.calls[0][0];
-    // What the (mocked) service sends is htmlToBodyBlocks(content) — the
-    // block shape the server validates.
-    expect(htmlToBodyBlocks(content)).toContainEqual({
+    const { body } = createSpy.mock.calls[0][0];
+    // What the (mocked) service sends is `body` as is — the block shape the
+    // server validates, built by docToBodyBlocks (todo 526).
+    expect(body).toContainEqual({
       type: 'post_quote',
       value: { post: 5, text: 'Water it less.' },
     });

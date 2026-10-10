@@ -8,6 +8,7 @@ import { AnnouncerProvider } from '../../contexts/AnnouncerContext';
 import { useAuth } from '../../contexts/AuthContext';
 import * as forumService from '../../services/forumService';
 import { draftKey, saveDraft, loadDraft } from '../../utils/forumDrafts';
+import type { JSONContent } from '@tiptap/react';
 
 vi.mock('react-router-dom', async () => {
   const actual = await vi.importActual<typeof import('react-router-dom')>('react-router-dom');
@@ -29,17 +30,32 @@ const mockAuth = () =>
     revalidateIdentity: vi.fn().mockResolvedValue({ id: 1, username: 'test-user' }),
   }) as unknown as ReturnType<typeof useAuth>;
 
-// TipTap is heavy + jsdom-hostile — stub it to a textarea that emits paragraph HTML.
-// `content` rides through as defaultValue so a restored draft is observable (M3).
-vi.mock('../../components/forum/TipTapEditor', () => ({
-  default: ({ content, onChange }: { content?: string; onChange?: (html: string) => void }) => (
-    <textarea
-      aria-label="body"
-      defaultValue={content}
-      onChange={(e) => onChange?.(`<p>${e.target.value}</p>`)}
-    />
-  ),
-}));
+// TipTap is heavy + jsdom-hostile — stub it to a textarea. The contract is
+// TipTap JSON (todo 526): what is typed is reported as a one-paragraph
+// document, and `content` rides through as defaultValue — printed by the
+// composer schema, '' when blank — so a restored draft is observable (M3).
+vi.mock('../../components/forum/TipTapEditor', async () => {
+  const { generateHTML } = await import('@tiptap/react');
+  const { FORUM_SCHEMA_EXTENSIONS } = await import('../../components/forum/forumEditorSchema');
+  const { isBlankDoc, toComposerDoc } = await import('../../utils/forumBody');
+  return {
+    default: ({
+      content,
+      onChange,
+    }: {
+      content?: JSONContent;
+      onChange?: (doc: JSONContent) => void;
+    }) => (
+      <textarea
+        aria-label="body"
+        defaultValue={
+          content && !isBlankDoc(content) ? generateHTML(content, FORUM_SCHEMA_EXTENSIONS) : ''
+        }
+        onChange={(e) => onChange?.(toComposerDoc(`<p>${e.target.value}</p>`))}
+      />
+    ),
+  };
+});
 
 let mockNavigate: ReturnType<typeof vi.fn>;
 
@@ -225,7 +241,7 @@ describe('NewThreadPage', () => {
     expect(forumService.createThread).toHaveBeenCalledWith({
       boardSlug: 'plant-care',
       title: 'My Topic',
-      content: '<p>hello</p>',
+      body: [{ type: 'paragraph', value: '<p>hello</p>' }],
       tags: [],
     });
   });
@@ -443,7 +459,7 @@ describe('NewThreadPage', () => {
       expect(forumService.createThread).toHaveBeenCalledWith({
         boardSlug: 'plant-care',
         title: 'My Topic',
-        content: '<p>hello</p>',
+        body: [{ type: 'paragraph', value: '<p>hello</p>' }],
         tags: [],
       })
     );
@@ -453,7 +469,8 @@ describe('NewThreadPage', () => {
     // Wave 1 (#473) made composer state survive a refresh/back-nav within the
     // tab: the draft is written to sessionStorage on every keystroke and read
     // back on mount. This is the page-level proof — forumDrafts.test.ts covers
-    // only the storage helper.
+    // only the storage helper. The body here is a draft saved BEFORE todo 526
+    // (the editor's HTML): it must still restore, as a composer document.
     const key = draftKey('new-thread', '3-plant-care');
     saveDraft(key, JSON.stringify({ title: 'Half-written topic', body: '<p>saved body</p>' }));
     vi.spyOn(forumService, 'createThread').mockResolvedValue({
@@ -475,12 +492,30 @@ describe('NewThreadPage', () => {
       expect(forumService.createThread).toHaveBeenCalledWith({
         boardSlug: 'plant-care',
         title: 'Half-written topic',
-        content: '<p>saved body</p>',
+        body: [{ type: 'paragraph', value: '<p>saved body</p>' }],
         tags: [],
       })
     );
     // Posted drafts must not resurrect on the next visit.
     expect(loadDraft(key)).toBeNull();
+  });
+
+  it('saves the composer body as a TipTap JSON document and restores it (todo 526)', async () => {
+    const key = draftKey('new-thread', '3-plant-care');
+    const { unmount } = renderPage();
+    await screen.findByText('Plant Care');
+    await userEvent.type(screen.getByLabelText(/title/i), 'T');
+    await userEvent.type(screen.getByLabelText('body'), 'kept');
+    await waitFor(() => expect(loadDraft(key)).toContain('kept'));
+    expect(JSON.parse(loadDraft(key) ?? '{}').body).toEqual({
+      type: 'doc',
+      content: [{ type: 'paragraph', content: [{ type: 'text', text: 'kept' }] }],
+    });
+    unmount();
+
+    renderPage();
+    await screen.findByText('Plant Care');
+    expect(screen.getByLabelText('body')).toHaveValue('<p>kept</p>');
   });
 
   describe('"Ask the community" handoff (audit M6)', () => {
@@ -527,7 +562,7 @@ describe('NewThreadPage', () => {
         expect(forumService.createThread).toHaveBeenCalledWith({
           boardSlug: 'plant-care',
           title: 'Is this Swiss cheese plant?',
-          content: '<p>hello</p>',
+          body: [{ type: 'paragraph', value: '<p>hello</p>' }],
           tags: [],
           identification: HANDOFF.identification,
         })
@@ -560,7 +595,7 @@ describe('NewThreadPage', () => {
         expect(forumService.createThread).toHaveBeenCalledWith({
           boardSlug: 'plant-care',
           title: 'Is this Swiss cheese plant?',
-          content: '<p>hello</p>',
+          body: [{ type: 'paragraph', value: '<p>hello</p>' }],
           tags: [],
           identification: HANDOFF.identification,
         })
