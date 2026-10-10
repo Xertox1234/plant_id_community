@@ -1403,6 +1403,7 @@ def main():
     followups_529_tests()
     fixer_514_tests()
     hand_round_542_tests()
+    todo_543_tests()
     print()
     if FAILURES:
         print(f"FAILED: {len(FAILURES)} check(s): {', '.join(FAILURES)}")
@@ -1593,6 +1594,7 @@ def residue_tests():
               got == {"g1": "clean"} and "review_residue" not in r1["todos"]["1"], r1["todos"]["1"])
 
         # AC2: the same check at the end of round 2, which never repairs.
+        sh("update-ref", "refs/remotes/origin/b", "HEAD")  # the PR is pushed (todo 543: round 2 checks it)
         state.review_args(r1, 2, 0)
         check("480: round 2 takes its own baseline", r1["todos"]["1"]["review_baseline"]["round"] == 2)
         sh("commit", "-q", "--allow-empty", "-m", "a reviewer committed")
@@ -2714,7 +2716,7 @@ def hand_round_542_tests():
     def accepts(mod, entry):
         r = one(entry)
         try:
-            mod.hand_round(r, "g1", "owner: ok (2026-10-10)")
+            mod.hand_round(r, "g1", "owner: ok (2026-10-10)", git=clean_git)
         except mod.TransitionError:
             return False
         return r["todos"]["1"]["stage"] == "pr_open"
@@ -2740,7 +2742,7 @@ def hand_round_542_tests():
         return "hand_round" not in r["todos"]["1"] and r["todos"]["1"]["previous"][-1].get("hand_round") == 3
 
     both("542 review #6: a new attempt does not inherit the old attempt's hand_round marker", retry_drops_marker,
-         '"blocked_by", "hand_round")', '"blocked_by")')
+         '"blocked_by", "hand_round", "hand_round_head")', '"blocked_by", "hand_round_head")')
     check("542 AC1: hand_round needs the owner's decision",
           raises(lambda: state.hand_round(one(blocked_entry(blocked_by="review round 2", reason="x")), "g1", "  ")))
 
@@ -2764,11 +2766,16 @@ def hand_round_542_tests():
 
         subprocess.run(["git", "init", "-q", "-b", "main", str(wt)], check=True)
         (wt / "a.py").write_text("a = 1\n")
-        sh("add", "a.py")
+        (wt / "todos").mkdir()
+        (wt / "todos" / "1-pending-p3-x.md").write_text(SAMPLE_TODO)  # review_criteria reads it (todo 543)
+        sh("add", "a.py", "todos")
         sh("commit", "-q", "-m", "base")
         sh("update-ref", "refs/remotes/origin/main", "HEAD")
         (wt / "a.py").write_text("a = 2\n")
+        (wt / "todos" / "archive").mkdir()
+        sh("mv", "todos/1-pending-p3-x.md", "todos/archive/1-completed-p3-x.md")  # Land archives before review
         sh("commit", "-q", "-am", "the PR")
+        sh("update-ref", "refs/remotes/origin/b", "HEAD")  # pushed
         run = pr_open_run(str(wt))
         run["todos"]["1"].update(review_round=1, owner_decision="use topics (2026-10-01)")
         state.save(run, rf)
@@ -2792,8 +2799,16 @@ def hand_round_542_tests():
         check("542 AC1: a second hand-round on the same group is refused",
               cli("hand-round", rf, "g1", "--decision", "again")[0] == 2)
 
+        got = json.loads(cli("review-args", rf, "--round", "3", "--wave", "0")[1])
+        check("543 #1: round 3 waits until the owner's repair is committed (HEAD moved since hand-round)",
+              got["prs"] == [] and "has not moved" in got["not_ready"].get("g1", ""), got)
         (wt / "a.py").write_text("a = 3\n")  # the owner's repair, committed in the PR worktree
         sh("commit", "-q", "-am", "fix: address review round 2")
+        got = json.loads(cli("review-args", rf, "--round", "3", "--wave", "0")[1])
+        check("543 #1: round 3 waits until the repair is pushed, and takes no baseline meanwhile",
+              got["prs"] == [] and "not pushed" in got["not_ready"].get("g1", "")
+              and state.load(rf)["todos"]["1"]["review_baseline"]["round"] == 2, got)
+        sh("update-ref", "refs/remotes/origin/b", "HEAD")  # the push
         rc, out = cli("review-args", rf, "--round", "3", "--wave", "0")
         prs = json.loads(out)["prs"]
         base = state.load(rf)["todos"]["1"]["review_baseline"]
@@ -2849,6 +2864,53 @@ def hand_round_542_tests():
     check("542: a round-3 critical holds, and clearing it goes to reviewed with round 3 done",
           got == {"g1": "held"} and held["todos"]["1"]["stage"] == "reviewed"
           and held["todos"]["1"]["review_round"] == 3, (got, held["todos"]["1"]))
+
+
+def todo_543_tests():
+    """Todo 543: review-args holds back a PR that is not ready for its round, and ingest-review refuses a
+    result from another round. Each guard is pinned by a guard-removed mutant."""
+    def git_at(head, remote):
+        def git(repo, *args):
+            if args[:2] == ("rev-parse", "HEAD"):
+                return head + "\n"
+            if args[:2] == ("rev-parse", "--verify"):
+                return remote + "\n"
+            return ""
+        return git
+
+    def run_at(review_round, **over):
+        r = pr_open_run()
+        r["todos"]["1"].update(review_round=review_round, **over)
+        return r
+
+    def held_back(m, round_no, head, remote, criteria=None, **over):
+        r, nr = run_at(round_no - 1, **over), {}
+        items = m.review_args(r, round_no, 0, git=git_at(head, remote), not_ready=nr, criteria=criteria)
+        return items == [] and "g1" in nr
+
+    hand = {"hand_round": 3, "hand_round_head": "H1"}
+    both("543 #1: round 2 holds back a PR whose HEAD is not pushed",
+         lambda m: held_back(m, 2, "H2", "H1"), "    if head != remote:\n", "    if False:\n")
+    both("543 #1: round 3 holds back a PR whose HEAD has not moved since hand-round",
+         lambda m: held_back(m, 3, "H1", "H1", **hand),
+         '    if head == first.get("hand_round_head"):\n', "    if False:\n")
+    both("543 #3: round 3 holds back a repair that edited acceptance criteria",
+         lambda m: held_back(m, 3, "H2", "H2", criteria=lambda run, i, wt: "criterion 0 reworded", **hand),
+         "        if edited:\n            return", "        if False:\n            return")
+    ready = run_at(2, **hand)
+    check("543: a pushed, committed round-3 repair with untouched criteria is reviewed",
+          [i["group"] for i in state.review_args(ready, 3, 0, git=git_at("H2", "H2"), not_ready={},
+                                                 criteria=lambda run, i, wt: None)] == ["g1"])
+    check("543: without a not_ready dict, a held-back group raises instead of vanishing",
+          raises(lambda: state.review_args(run_at(1), 2, 0, git=git_at("H2", "H1")), RuntimeError))
+    def stale_refused(m):
+        r = run_at(2, review_baseline={"round": 3, "head": "H", "files": {}}, **hand)
+        return raises(lambda: m.ingest_review(r, [review_result(round=2)], 3, git=clean_git), m.TransitionError)
+
+    both("543 #2: ingest-review refuses a result from another round", stale_refused,
+         '        if result.get("round") not in (None, round_no):', "        if False:")
+    check("543 #2: a result without a round (written before todo 543) is still accepted",
+          ingest(run_at(2, **hand), [review_result()], 3) == {"g1": "clean"})
 
 
 def raises(fn, exc=state.TransitionError):

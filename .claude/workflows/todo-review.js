@@ -85,8 +85,9 @@ const LENSES = [
   { key: 'security-data', focus: 'authentication and permission gaps, input validation and injection, ' +
       'secrets or PII exposure, migrations that lose or corrupt data, and destructive operations without a guard' },
   { key: 'contracts-tests', focus: 'API, serializer, schema and cache-key contracts that web or mobile ' +
-      'callers rely on, state, caching, idempotency and retry behaviour, and tests that do not actually ' +
-      'exercise the change or were weakened to pass' },
+      'callers rely on, state, caching, idempotency and retry behaviour, a new state or transition that ' +
+      'existing guards keyed on the old state values (in code or runbooks) silently skip, and tests that do ' +
+      'not actually exercise the change or were weakened to pass' },
 ]
 
 const FINDINGS = {
@@ -409,7 +410,8 @@ const results = await pipeline(
       else blocking.push(f)
     })
     if (refuted.length) log(`${p.group}: ${refuted.length} blocking finding(s) refuted by both skeptics`)
-    const base = { group: p.group, ids: p.ids, ...rev, blocking, refuted, repair_blockers: '', residue: null }
+    // Todo 543: `round` lets ingest-review refuse a stale file from another round.
+    const base = { group: p.group, ids: p.ids, round, ...rev, blocking, refuted, repair_blockers: '', residue: null }
     // Without a repair, ingest-review compares the worktree with the round's baseline itself (todo 480).
     if (round !== 1 || !blocking.length || !rev.reviewers_ok) return { ...base, repair: null, verdict: null }
     // The repair's `git add -A` would commit anything a reviewer left in the worktree, so check first. A dead

@@ -239,7 +239,11 @@ Steps 1–8 run with the sandbox off (see **Sandbox**).
      repair as for `repair-staged`, then round 2. The cleared lines do not hold again; a new critical does.
    - `blocked` → report it.
 2. Round 2: `review-args --round 2` → workflow → `ingest-review --round 2`. Read `review-args`' `residue` key
-   first, as in step 1, and handle each group in it per step 5. For every outcome except
+   first, as in step 1, and handle each group in it per step 5. Then read its `not_ready` key (todo 543). A group
+   listed there was left out of `prs` because its PR is not ready for review: HEAD is not pushed (its
+   `refs/remotes/origin/<branch>` differs). For a round 3, it may also be that HEAD has not moved since
+   `hand-round`, or that the repair edited acceptance criteria. Do what its reason says, then run `review-args`
+   again; that does not count as a rerun. For every outcome except
    `rerun` and `residue`, first post the refuter-dismissed findings: run `state.py refuted-comment $RUN G --out
    $SCRATCH/refuted-G.md`. If it prints a path, run `gh pr comment <n> --body-file <that path>`. Never
    build `--body` from the findings: they are LLM text, and this step runs with the sandbox off.
@@ -258,7 +262,10 @@ Steps 1–8 run with the sandbox off (see **Sandbox**).
    group, any other block, and a second call. It moves the group back to `pr_open` with round 2 done. Then
    commit the owner's repair in the PR worktree, run `/usr/bin/git -C $WT rev-parse HEAD^{tree}` on its own, then
    `state.py annotate $RUN G --field tree_id=<that tree>`. Run `ensure-worktree`, push, and run `review-args $RUN --round 3 --wave W` → workflow →
-   `ingest-review --round 3`. Round 3 runs as round 2 does: there is no repair, it takes its own residue
+   `ingest-review --round 3`. `review-args` enforces that order (todo 543). It leaves the group out of `prs`,
+   listed under `not_ready`, until HEAD has moved since `hand-round` and been pushed, and while the repair edits
+   an acceptance criterion. `ingest-review` refuses an output file whose results name another round. Round 3
+   runs as round 2 does: there is no repair, it takes its own residue
    baseline, and it stores follow-ups and refuted lines. Its outcomes are the same as round 2's: post the
    refuted comment, then `clean` → arm, `held` → `clear-hold` → `reviewed`, `blocked` → the owner's hand-off
    for good. There is no round 4. Never run a round on a copy of the run file, and never build its args by hand.

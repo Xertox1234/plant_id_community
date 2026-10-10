@@ -386,6 +386,8 @@ async function main() {
   check('review: round 3 never repairs, and still reports its blocking finding',
     byType(r.calls, 'todo-worker').length === 0 && byType(r.calls, 'todo-verifier').length === 0
     && r.result.results[0].blocking.length === 1 && r.result.results[0].repair === null, r.result)
+  check('review: each result names its round, so ingest-review can refuse a stale file (todo 543)',
+    r.result.results[0].round === 3, r.result.results[0].round)
 
   // --- review: one bug phrased differently by different reviewers is refuted once
   const phrased = n => ({ reviewed_range: 'x', findings: [{ severity: n === 'drf' ? 'critical' : 'high', file: 'a.py', line: 1,

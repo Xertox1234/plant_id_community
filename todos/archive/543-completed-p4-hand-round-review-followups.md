@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: p4
 issue_id: "543"
 tags: [todo-sweep, engine, follow-ups]
@@ -37,9 +37,21 @@ case cannot happen. The four below are real but not blocking.
 
 ## Acceptance Criteria
 
-- [ ] Each finding above is fixed (with a test, and for a guard a guard-removed mutant), or closed with a
+- [x] Each finding above is fixed (with a test, and for a guard a guard-removed mutant), or closed with a
       dated reason.
 
 ## Work Log
 
 - 2026-10-10: Filed from the post-merge `/code-review` of PR #987 at the owner's request.
+- 2026-10-10: Done. Finding 1: `review-args` from round 2 leaves a group out of `prs`, listed under the new
+  `not_ready` key, while worktree HEAD differs from `refs/remotes/origin/<branch>` (a push updates that ref
+  locally). At round 3 it also holds the group while HEAD equals the `hand_round_head` that `hand-round` now
+  records. Finding 2: todo-review results carry `round`, and `ingest-review` refuses a mismatch; a result
+  without one (older outputs) is still accepted. Finding 3: `review-args --round 3` runs `review_criteria` and
+  holds the group under `not_ready` when the hand repair edited a criterion. Finding 4: closed 2026-10-10 by
+  its own condition. 1–3 never touched the `hand_round == 3` checks, so a `max_round` refactor would be churn.
+  Evidence: `python3 scripts/todos/test_state_flow.py` (`todo_543_tests`: five guard-removed mutants, plus
+  the 542 flow now proving the commit and push holds against a real git worktree), and every other harness-ci
+  todo suite plus `node scripts/todos/test_workflows.js` (results name their round). Flagged test edit:
+  `residue_tests` gains one `update-ref refs/remotes/origin/b` before its round 2, modelling the pushed PR the
+  new check requires.
