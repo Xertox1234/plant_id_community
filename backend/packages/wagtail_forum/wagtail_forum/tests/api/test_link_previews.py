@@ -534,9 +534,30 @@ def one_worker_pool(monkeypatch):
     pool.shutdown(wait=True)
 
 
+@pytest.fixture
+def first_fetch_started(monkeypatch):
+    """An Event the test's fetcher sets when it starts. The window does not
+    open until it is set, so "the first fetch is running, the second is
+    queued" holds however slowly the pool thread is scheduled (todo 539
+    item 7)."""
+    from wagtail_forum import link_previews
+
+    started = threading.Event()
+    real_wait = link_previews.wait_futures
+
+    def wait_after_start(futures, timeout=None):
+        assert started.wait(5), "the first fetch never started"
+        return real_wait(futures, timeout=timeout)
+
+    monkeypatch.setattr(link_previews, "wait_futures", wait_after_start)
+    return started
+
+
 @pytest.mark.django_db
 @override_settings(WAGTAILFORUM_LINK_PREVIEW_FETCH_TIMEOUT_SECONDS=0.2)
-def test_a_fetch_still_queued_when_the_window_closes_is_cancelled(one_worker_pool):
+def test_a_fetch_still_queued_when_the_window_closes_is_cancelled(
+    one_worker_pool, first_fetch_started
+):
     """Item 1: the pool was busy, so the second link never started inside
     the window. It must be dropped, not run later for nobody — a burst of
     posts would otherwise build a backlog that times out every post after."""
@@ -547,6 +568,7 @@ def test_a_fetch_still_queued_when_the_window_closes_is_cancelled(one_worker_poo
 
     def blocking_fetcher(url, *, deadline=None):
         started.append(url)
+        first_fetch_started.set()
         release.wait(5)
         return {"title": url}
 
@@ -1037,8 +1059,25 @@ def test_item1_a_link_repeated_in_every_block_gets_one_card(as_card):
         ("http://" + "a" * 600 + "/", repr("a" * 253)),
         (None, "?"),
         ("not a url", "?"),
+        # Todo 539 item 6: only hostname and IP characters are logged bare.
+        ("http://a b.example/", "'a b.example'"),
+        ("http://host=evil/", "'host=evil'"),
+        ("http://[::1]:8080/", "::1"),
+        ("http://93.184.216.34/", "93.184.216.34"),
+        ("https://my_host.example/", "my_host.example"),
     ],
-    ids=["plain", "control-character", "too-long", "not-a-string", "no-host"],
+    ids=[
+        "plain",
+        "control-character",
+        "too-long",
+        "not-a-string",
+        "no-host",
+        "space",
+        "equals",
+        "ipv6",
+        "ipv4",
+        "underscore",
+    ],
 )
 def test_item7_log_host_names_only_a_safe_host(url, host):
     from wagtail_forum.link_previews import log_host
@@ -1063,7 +1102,9 @@ def test_item8_fetch_snapshots_logs_the_host_not_the_url():
 
 @pytest.mark.django_db
 @override_settings(WAGTAILFORUM_LINK_PREVIEW_FETCH_TIMEOUT_SECONDS=0.2)
-def test_item8_a_slow_or_queued_fetch_logs_the_host_not_the_url(one_worker_pool):
+def test_item8_a_slow_or_queued_fetch_logs_the_host_not_the_url(
+    one_worker_pool, first_fetch_started
+):
     import unittest
 
     from wagtail_forum.link_previews import fetch_snapshots
@@ -1071,6 +1112,7 @@ def test_item8_a_slow_or_queued_fetch_logs_the_host_not_the_url(one_worker_pool)
     release = threading.Event()
 
     def blocking_fetcher(url, *, deadline=None):
+        first_fetch_started.set()
         release.wait(5)
         return {"title": url}
 
@@ -1091,3 +1133,200 @@ def test_item8_a_slow_or_queued_fetch_logs_the_host_not_the_url(one_worker_pool)
         "[LINK_PREVIEW] fetch still running after 0.2s, "
         "saving as a link to host a.example",
     ]
+
+
+# --- todo 539: follow-ups from PR #978's reviews --------------------------------
+
+
+def _body_types():
+    from wagtail.blocks import RichTextBlock
+    from wagtail_forum.blocks import ForumBodyBlock, LinkPreviewBlock
+
+    blocks = ForumBodyBlock().child_blocks.items()
+    return (
+        {name for name, block in blocks if isinstance(block, RichTextBlock)},
+        {name for name, block in blocks if isinstance(block, LinkPreviewBlock)},
+    )
+
+
+def _pre_fetch_measure(body):
+    """What the size check before the fetch measured BEFORE todo 539: every
+    resent card as its paragraph, an image as sent."""
+    from wagtail_forum.api.sanitize import _measured_body_chars, _stored_without_cards
+
+    rich, links = _body_types()
+    return _measured_body_chars(_stored_without_cards(body, rich, links), rich, links)
+
+
+def _filled_to_cap(tail):
+    """``[filler paragraph] + tail``, the filler sized so that the old
+    pre-fetch measure of the body is exactly ``MAX_BODY_CHARS``."""
+    from wagtail_forum.api.sanitize import MAX_BODY_CHARS
+
+    filler = "m" * 1_000
+    body = [_paragraph(f"<p>{filler}</p>")] + tail
+    filler += "m" * (MAX_BODY_CHARS - _pre_fetch_measure(body))
+    body = [_paragraph(f"<p>{filler}</p>")] + tail
+    assert _pre_fetch_measure(body) == MAX_BODY_CHARS
+    return body
+
+
+@pytest.mark.django_db
+@_fetcher("none_fetcher")
+def test_539_item1_each_rich_text_value_is_auto_linked_once(monkeypatch):
+    """The size check before the fetch and the cleaned pass share one
+    auto-link per distinct value; before, every block was auto-linked twice."""
+    from wagtail_forum.api import sanitize
+
+    seen = []
+    real = sanitize.autolink_rich_text
+
+    def counting(html_fragment):
+        seen.append(html_fragment)
+        return real(html_fragment)
+
+    monkeypatch.setattr(sanitize, "autolink_rich_text", counting)
+
+    resp = _create(
+        _client(_member()),
+        _board(),
+        [
+            _paragraph("<p>See https://a.example/ for more.</p>"),
+            _paragraph("<p>Plain words.</p>"),
+            # No card (the fetcher answers None): stored as its link.
+            _paragraph("https://b.example/"),
+            {"type": "link_preview", "value": {"url": "https://c.example/"}},
+        ],
+    )
+
+    assert resp.status_code == 201, resp.data
+    assert len(seen) == len(set(seen)) == 4
+
+
+@pytest.mark.django_db
+def test_539_item2_a_near_cap_card_from_a_bare_link_resends_unchanged():
+    """The card came from a bare-URL paragraph (the mobile composer sends no
+    ``<p>``), in a body at the cap. Resent as the read envelope, the card is
+    a card the stored body already has: measured as its URL, as when it was
+    stored, not as a ``<p>``-wrapped link 7 characters longer, which
+    refused the edit."""
+    from wagtail_forum.api.sanitize import MAX_BODY_CHARS
+
+    url = "https://example.com/"
+    user = _member()
+    body = _filled_to_cap([_paragraph(url)])
+    with _fetcher("fake_fetcher"):
+        assert _create(_client(user), _board(), body).status_code == 201
+    post = Post.objects.get()
+    stored = list(post.body.raw_data)
+    assert stored[1]["type"] == "link_preview"
+    resent = [
+        {"type": "paragraph", "value": stored[0]["value"]},
+        {"type": "link_preview", "value": {**stored[1]["value"], "image_url": None}},
+    ]
+    # The old measure refused exactly this resend.
+    assert _pre_fetch_measure(resent) > MAX_BODY_CHARS
+    CALLS.clear()
+
+    with _fetcher("raising_fetcher"):
+        resp = _client(user).patch(
+            f"/forum/posts/{post.id}/", {"body": resent}, format="json"
+        )
+
+    assert resp.status_code == 200, resp.data
+    post.refresh_from_db()
+    assert _stored(post)[1] == ("link_preview", _card(url, "example.com"))
+    assert CALLS == []
+
+
+@pytest.mark.django_db
+@_fetcher("fake_fetcher")
+def test_539_item3_a_legacy_image_is_measured_as_stored_before_any_fetch():
+    """A bare-PK image is stored as the ImageBlock dict, alt recovered from
+    the image's description. The check before the fetch measures that, so a
+    body it puts over the cap is refused without fetching the card."""
+    from wagtail.images import get_image_model
+    from wagtail.images.tests.utils import get_test_image_file
+    from wagtail_forum.collections import get_forum_image_collection
+
+    user = _member()
+    image = get_image_model().objects.create(
+        title="seedling",
+        file=get_test_image_file(),
+        collection=get_forum_image_collection(),
+        uploaded_by_user=user,
+        description="a" * 250,
+    )
+    body = _filled_to_cap(
+        [{"type": "image", "value": image.id}, _paragraph("https://card.example/")]
+    )
+
+    resp = _create(_client(user), _board(), body)
+
+    assert resp.status_code == 400
+    assert "too large" in str(resp.data)
+    assert CALLS == []
+
+
+@pytest.mark.django_db
+@_fetcher("fake_fetcher")
+@override_settings(
+    WAGTAILFORUM_ALLOW_EMBED_BLOCKS=True, WAGTAILEMBEDS_FINDERS=YOUTUBE_VIMEO_FINDERS
+)
+def test_539_item3_a_refused_body_costs_no_provider_fetch(monkeypatch):
+    warmed = []
+    monkeypatch.setattr("wagtail_forum.api.sanitize.warm_embeds", warmed.append)
+
+    resp = _create(
+        _client(_member()),
+        _board(),
+        [
+            _paragraph("https://youtu.be/dQw4w9WgXcQ"),
+            {"type": "image", "value": 999999},
+        ],
+    )
+
+    assert resp.status_code == 400
+    assert warmed == []
+
+
+@pytest.mark.django_db
+@_fetcher("fake_fetcher")
+@override_settings(
+    WAGTAILFORUM_ALLOW_EMBED_BLOCKS=True, WAGTAILEMBEDS_FINDERS=YOUTUBE_VIMEO_FINDERS
+)
+def test_539_item3_an_accepted_body_still_warms_its_embeds(monkeypatch):
+    warmed = []
+    monkeypatch.setattr("wagtail_forum.api.sanitize.warm_embeds", warmed.append)
+
+    resp = _create(
+        _client(_member()), _board(), [_paragraph("https://youtu.be/dQw4w9WgXcQ")]
+    )
+
+    assert resp.status_code == 201, resp.data
+    assert warmed == [["https://youtu.be/dQw4w9WgXcQ"]]
+
+
+def test_539_item4_a_raw_angle_bracket_in_a_link_keeps_its_discount():
+    """nh3 leaves a raw ``>`` (and ``<``) inside a quoted attribute value;
+    the start tag ends at the first ``>`` outside quotes."""
+    from wagtail_forum.api.sanitize import _server_markup_chars, sanitize_rich_text
+
+    marked = ' target="_blank" rel="noopener noreferrer nofollow"'
+    markup = len(json.dumps(marked)) - 2
+    for href in ("https://x.example/?q=a>b", "https://x.example/?q=a<b"):
+        cleaned = sanitize_rich_text(f'<p><a href="{href}" title="c>d">x</a></p>')
+        assert href in cleaned
+        assert _server_markup_chars(cleaned) == markup
+
+
+def test_539_item4_the_anchor_scan_of_raw_input_is_linear():
+    """The measure runs on the raw client body. The old pattern scanned to
+    the end of the string from every ``<a``: about 4 s for this input."""
+    from wagtail_forum.api.sanitize import MAX_BODY_RAW_CHARS, _server_markup_chars
+
+    for chunk in ("<a ", '<a "', '<a "<a '):
+        raw = chunk * (MAX_BODY_RAW_CHARS // len(chunk))
+        started = time.monotonic()
+        _server_markup_chars(raw)
+        assert time.monotonic() - started < 1.0

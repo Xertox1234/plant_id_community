@@ -8,6 +8,7 @@ from apps.forum_host.link_preview import (
     InvalidPreviewURL,
     _fetch_html,
     _FetchFailed,
+    _LookupTimedOut,
     _open_connection,
     _read_document,
     _request_path,
@@ -113,6 +114,31 @@ def test_normalize_public_url_times_out_slow_dns_resolution():
             normalize_public_url("https://example.com/page")
 
     assert time.monotonic() - started < 0.15
+
+
+def test_539_item5_only_a_lookup_that_ran_out_of_time_is_flagged_as_one():
+    """The resolver flags its own timeout; a private answer is a plain
+    refusal, however long its lookup took."""
+
+    def slow_getaddrinfo(*args, **kwargs):
+        time.sleep(0.2)
+        return []
+
+    with (
+        patch(
+            "apps.forum_host.link_preview.socket.getaddrinfo",
+            side_effect=slow_getaddrinfo,
+        ),
+        patch("apps.forum_host.constants.LINK_PREVIEW_DNS_TIMEOUT_SECONDS", 0.01),
+    ):
+        with pytest.raises(_LookupTimedOut):
+            normalize_public_url("https://example.com/page")
+
+    private = [(2, 1, 6, "", ("10.0.0.5", 443))]
+    with patch("apps.forum_host.link_preview.socket.getaddrinfo", return_value=private):
+        with pytest.raises(InvalidPreviewURL) as refused:
+            normalize_public_url("https://example.com/page")
+    assert not isinstance(refused.value, _LookupTimedOut)
 
 
 def test_failed_preview_uses_the_short_cache_ttl():
@@ -478,21 +504,17 @@ def test_the_host_names_this_snapshot_hook_as_the_package_fetcher():
     ],
     ids=["headers", "body"],
 )
-def test_a_page_that_drips_past_the_deadline_is_abandoned_on_time(prefix):
-    from apps.forum_host.tests.test_link_preview_images import _loopback_drip
-
-    server, port, thread = _loopback_drip(prefix)
+def test_a_page_that_drips_past_the_deadline_is_abandoned_on_time(
+    prefix, loopback_drip
+):
+    port = loopback_drip(prefix)
     target = _Target(
         f"http://127.0.0.1:{port}/page", "http", "127.0.0.1", port, "127.0.0.1"
     )
     started = time.monotonic()
-    try:
-        with pytest.raises(_FetchFailed) as failure:
-            _fetch_html(target, time.monotonic() + 0.3)
-        elapsed = time.monotonic() - started
-    finally:
-        server.close()
-        thread.join(5)
+    with pytest.raises(_FetchFailed) as failure:
+        _fetch_html(target, time.monotonic() + 0.3)
+    elapsed = time.monotonic() - started
 
     assert failure.value.reason == "deadline"
     assert elapsed < 1.5  # the drip runs 3 s
@@ -713,7 +735,9 @@ def test_item4_a_redirect_lookup_that_runs_out_of_time_is_a_deadline():
 
     def lookup_times_out(url, *, dns_timeout=None):
         time.sleep(0.3)
-        raise InvalidPreviewURL
+        # What _resolve_addresses raises when the lookup itself runs out
+        # of time (todo 539 item 5).
+        raise _LookupTimedOut
 
     target = _Target(
         "https://93.184.216.34/start", "https", "93.184.216.34", 443, "93.184.216.34"
@@ -730,6 +754,58 @@ def test_item4_a_redirect_lookup_that_runs_out_of_time_is_a_deadline():
             _fetch_html(target, time.monotonic() + 0.2)
 
     assert failure.value.reason == "deadline"
+
+
+def test_539_item5_a_refusal_whose_lookup_finished_late_is_still_a_refusal():
+    """A redirect to a private address whose lookup FINISHED after the
+    deadline is a refusal, not our deadline, so it is cached like any other
+    failure (todo 539 item 5). Before, any refusal past the deadline was
+    relabelled ``deadline`` and went uncached."""
+    import socket as socket_module
+
+    class RedirectResponse:
+        status = 302
+
+        def getheader(self, name):
+            return "https://private.example/next" if name == "Location" else None
+
+        def close(self):
+            pass
+
+    class Connection:
+        def __init__(self):
+            self.sock, self._peer = socket_module.socketpair()
+
+        def connect(self):
+            pass
+
+        def request(self, method, path, headers):
+            pass
+
+        def getresponse(self):
+            return RedirectResponse()
+
+        def close(self):
+            self.sock.close()
+            self._peer.close()
+
+    def late_refusal(url, *, dns_timeout=None):
+        time.sleep(0.3)
+        raise InvalidPreviewURL  # a private answer, not a timed-out lookup
+
+    target = _Target(
+        "https://93.184.216.34/start", "https", "93.184.216.34", 443, "93.184.216.34"
+    )
+    with (
+        patch(
+            "apps.forum_host.link_preview._open_connection", return_value=Connection()
+        ),
+        patch("apps.forum_host.link_preview._target_for_url", side_effect=late_refusal),
+    ):
+        with pytest.raises(_FetchFailed) as failure:
+            _fetch_html(target, time.monotonic() + 0.2)
+
+    assert failure.value.reason == "redirect refused"
 
 
 def test_item5_the_composer_caches_a_deadline_failure():
@@ -805,39 +881,42 @@ def test_item6_a_tcp_connect_that_used_up_the_deadline_is_a_timeout():
     assert sock.closed
 
 
-def test_item6_a_slow_connect_then_a_stalled_handshake_ends_at_the_deadline():
+def test_item6_a_slow_connect_then_a_stalled_handshake_ends_at_the_deadline(
+    loopback_drip,
+):
     """The TCP connect takes most of the budget, then the server stalls the
     TLS handshake. Before, the handshake got a fresh timeout and the fetch
-    ran about 0.5 s past its deadline."""
+    ran about 0.5 s past its deadline. Asserted on the timeout the socket
+    was handed, not on wall time (todo 539 item 7)."""
     import socket as socket_module
 
-    from apps.forum_host.tests.test_link_preview_images import _loopback_drip
-
-    server, port, thread = _loopback_drip(b"\x16\x03\x03\x40\x00")
+    port = loopback_drip(b"\x16\x03\x03\x40\x00")
     real_create_connection = socket_module.create_connection
+    connected = []
 
     def slow_connect(*args, **kwargs):
         time.sleep(0.5)
-        return real_create_connection(*args, **kwargs)
+        sock = real_create_connection(*args, **kwargs)
+        connected.append((sock, time.monotonic()))
+        return sock
 
     target = _Target(
         f"https://127.0.0.1:{port}/page", "https", "127.0.0.1", port, "127.0.0.1"
     )
-    started = time.monotonic()
-    try:
-        with patch(
-            "apps.forum_host.link_preview.socket.create_connection",
-            side_effect=slow_connect,
-        ):
-            with pytest.raises(_FetchFailed) as failure:
-                _fetch_html(target, time.monotonic() + 0.6)
-        elapsed = time.monotonic() - started
-    finally:
-        server.close()
-        thread.join(5)
+    deadline = time.monotonic() + 1.0
+    with patch(
+        "apps.forum_host.link_preview.socket.create_connection",
+        side_effect=slow_connect,
+    ):
+        with pytest.raises(_FetchFailed) as failure:
+            _fetch_html(target, deadline)
 
-    assert failure.value.reason == "deadline"
-    assert elapsed < 0.9  # was ~1.1: 0.5 connect + a fresh 0.6 handshake
+    [(sock, connected_at)] = connected
+    # The handshake got at most what the connect left of the budget. (A
+    # connect that used it all up never reaches the handshake.)
+    if connected_at < deadline:
+        assert sock.gettimeout() <= deadline - connected_at
+    assert failure.value.reason in {"deadline", "timeout"}
 
 
 @pytest.mark.parametrize(

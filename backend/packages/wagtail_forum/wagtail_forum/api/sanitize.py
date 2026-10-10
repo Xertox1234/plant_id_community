@@ -59,7 +59,14 @@ MAX_BODY_RAW_CHARS = 2 * MAX_BODY_CHARS
 # The attributes ``sanitize_rich_text`` sets on every ``<a>``, as nh3 emits
 # them.
 _SERVER_LINK_ATTRIBUTES = (' target="_blank"', ' rel="noopener noreferrer nofollow"')
-_ANCHOR_START_TAG = re.compile(r"<a\b[^>]*>", re.IGNORECASE)
+# An ``<a>`` start tag, attribute-aware: nh3 leaves a raw ``>`` (and ``<``)
+# inside a double-quoted attribute value, so the tag ends at the first ``>``
+# OUTSIDE quotes (todo 539 item 4). Outside quotes a match never crosses a
+# ``<``, and every quantifier is possessive, so a scan of raw client input is
+# linear: the old ``<a\b[^>]*>`` scanned to the end of the string from every
+# ``<a``, about 4 s of CPU for 200k characters of ``<a ``. nh3 quotes every
+# value with ``"``; a ``'``-quoted tag in raw input just earns no discount.
+_ANCHOR_START_TAG = re.compile(r'<a\b(?:[^<>"]++|"[^"]*+")*+>', re.IGNORECASE)
 
 
 def sanitize_rich_text(html):
@@ -164,20 +171,13 @@ def _convert_video_paragraphs(value, embed_type):
     return converted
 
 
-def _convert_link_previews(value, link_type, existing):
-    """Turn each link posted on its own into a ``link_preview`` card (todo 428).
-
-    Candidates, in body order: a ``paragraph`` whose only content is one
-    card URL (not a video the host embeds — the video conversion above runs
-    first and "video wins"), and a resubmitted ``link_preview`` block, which
-    is reduced to its URL. The first ``MAX_LINK_PREVIEWS_PER_BODY`` distinct
-    URLs get a card: from ``existing`` (the stored body's cards, on edit —
-    reused as stored, never refetched, with or without a fetcher) or from ONE
-    bounded concurrent fetch. Each URL gets ONE card, at its first
-    candidate. Any other candidate — a repeat of a carded URL, past the cap
-    (never fetched), failed, or new while no fetcher is configured — stays or
-    becomes a paragraph, which the auto-link pass then makes tappable.
-    """
+def _card_plan(value, link_type, existing):
+    """``(candidates, chosen)`` for ``_convert_link_previews``: the card URL
+    each block of ``value`` offers (``None`` when it offers none), and the
+    first ``MAX_LINK_PREVIEWS_PER_BODY`` distinct ones, which get a card.
+    Computed once per write and shared with the size check before the
+    fetch, which needs to know which blocks will be reused cards (todo 539
+    item 2)."""
     embeds_on = get_setting("ALLOW_EMBED_BLOCKS")
     candidates = []
     for block in value:
@@ -200,6 +200,40 @@ def _convert_link_previews(value, link_type, existing):
     chosen = [
         url for url in dict.fromkeys(u for u in candidates if u) if is_card_url(url)
     ][: get_setting("MAX_LINK_PREVIEWS_PER_BODY")]
+    return candidates, chosen
+
+
+def _reused_card_urls(plan, existing):
+    """``{block index: url}`` for every block that will be stored as a card
+    the stored body already has: the first candidate of each chosen URL in
+    ``existing``. Known before any fetch, since reuse never fetches."""
+    candidates, chosen = plan
+    reused = {url for url in chosen if url in existing}
+    indices = {}
+    for index, url in enumerate(candidates):
+        if url in reused:
+            reused.discard(url)
+            indices[index] = url
+    return indices
+
+
+def _convert_link_previews(value, link_type, existing, plan=None):
+    """Turn each link posted on its own into a ``link_preview`` card (todo 428).
+
+    Candidates, in body order: a ``paragraph`` whose only content is one
+    card URL (not a video the host embeds — the video conversion above runs
+    first and "video wins"), and a resubmitted ``link_preview`` block, which
+    is reduced to its URL. The first ``MAX_LINK_PREVIEWS_PER_BODY`` distinct
+    URLs get a card: from ``existing`` (the stored body's cards, on edit —
+    reused as stored, never refetched, with or without a fetcher) or from ONE
+    bounded concurrent fetch. Each URL gets ONE card, at its first
+    candidate. Any other candidate — a repeat of a carded URL, past the cap
+    (never fetched), failed, or new while no fetcher is configured — stays or
+    becomes a paragraph, which the auto-link pass then makes tappable.
+    ``plan`` is ``_card_plan``'s answer for this ``value``, when the caller
+    already has it.
+    """
+    candidates, chosen = plan or _card_plan(value, link_type, existing)
     # A card the stored body already shows is reused even with NO fetcher:
     # reuse needs no fetch, and a host that turns cards off (its kill
     # switch) must stop new cards, not strip existing ones on the next edit.
@@ -356,14 +390,45 @@ def _measured_body_chars(value, rich_text_types, link_types):
     return len(json.dumps(measured)) - min(markup, MAX_BODY_MARKUP_TOLERANCE)
 
 
-def _stored_without_cards(value, rich_text_types, link_types):
-    """``value`` as it would be stored if no link became a card: a resent
-    card is its fallback paragraph, and every rich-text block is
-    auto-linked. A card measures less than the auto-linked paragraph it
-    replaces, so this measures at least what the stored body will, and can
-    be checked BEFORE any page fetch (todo 535 item 1)."""
+def _autolinked(memo, html_fragment):
+    """``autolink_rich_text(html_fragment)``, computed once per write: the
+    size check before the fetch and the cleaned pass see the same rich text,
+    and the auto-linker is the costly step of both (todo 539 item 1)."""
+    if html_fragment not in memo:
+        memo[html_fragment] = autolink_rich_text(html_fragment)
+    return memo[html_fragment]
+
+
+def _stored_without_cards(
+    value,
+    rich_text_types,
+    link_types,
+    *,
+    reused_cards=None,
+    image_types=(),
+    image_descriptions=None,
+    autolinked=None,
+):
+    """``value`` as it would be stored if no NEW link became a card: a card
+    the stored body already has (``reused_cards``, from
+    ``_reused_card_urls``) stays a card, measured as its URL as the stored
+    card was (todo 539 item 2); any other resent card is its fallback
+    paragraph; every rich-text block is auto-linked; and an image is
+    normalised as it will be stored, so a legacy bare PK measures its
+    recovered alt (todo 539 item 3). A fetched card measures less than the
+    auto-linked paragraph it replaces, so this measures at least what the
+    stored body will, and can be checked BEFORE any page fetch (todo 535
+    item 1)."""
+    reused_cards = reused_cards or {}
+    autolinked = {} if autolinked is None else autolinked
+    link_type = min(link_types) if link_types else None
     stored = []
-    for block in value:
+    for index, block in enumerate(value):
+        if index in reused_cards:
+            stored.append(
+                {**block, "type": link_type, "value": {"url": reused_cards[index]}}
+            )
+            continue
         if block["type"] in link_types:
             url = block["value"]["url"].strip()
             if not url:
@@ -374,7 +439,14 @@ def _stored_without_cards(value, rich_text_types, link_types):
                 "value": f"<p>{html.escape(url, quote=False)}</p>",
             }
         if block["type"] in rich_text_types:
-            block = {**block, "value": autolink_rich_text(block["value"] or "")}
+            block = {**block, "value": _autolinked(autolinked, block["value"] or "")}
+        elif block["type"] in image_types:
+            block = {
+                **block,
+                "value": _normalise_image_value(
+                    block["value"], image_descriptions or {}
+                ),
+            }
         stored.append(block)
     return stored
 
@@ -699,6 +771,7 @@ def validate_forum_body(
     # stays a paragraph and the post still saves.
     if get_setting("ALLOW_EMBED_BLOCKS") and embed_types:
         value = _convert_video_paragraphs(value, min(embed_types))
+    embeds_to_warm = []
     embed_urls = [
         block["value"]
         for block in value
@@ -720,7 +793,10 @@ def validate_forum_body(
             raise serializers.ValidationError(
                 _("A post may embed at most %(n)d videos.") % {"n": max_embeds}
             )
-        warm_embeds(distinct)  # concurrently, one timeout window for the lot
+        # The provider fetch waits until nothing else can refuse the body
+        # (below, before the card fetch): a refused body costs no fetch
+        # (todo 539 item 3).
+        embeds_to_warm = distinct
 
     # Structured post quotes (todo 342): a dict {post, text}; the quoted post
     # must exist, be visible and not be authored by someone block-paired
@@ -825,13 +901,33 @@ def validate_forum_body(
             )
 
     # The cap holds for what is STORED, and auto-linking grows a body (todo
-    # 448 item 4). Checked on the body as stored WITHOUT cards, before the
-    # card fetch: a card measures less than the link it replaces, so a body
-    # that passes here cannot go over the cap through its cards, and a body
-    # refused here has cost no fetch (todo 535 item 1).
+    # 448 item 4). Checked on the body as stored WITHOUT new cards, before
+    # any network call: a fetched card measures less than the link it
+    # replaces, so a body that passes here cannot go over the cap through
+    # its cards, and a body refused here has cost no page or provider fetch
+    # (todo 535 item 1, todo 539 items 2-3).
+    existing_link_previews = existing_link_previews or {}
+    card_plan = (
+        _card_plan(value, min(link_types), existing_link_previews)
+        if link_types
+        else None
+    )
+    autolinked = {}
     if (
         _measured_body_chars(
-            _stored_without_cards(value, rich_text_types, link_types),
+            _stored_without_cards(
+                value,
+                rich_text_types,
+                link_types,
+                reused_cards=(
+                    _reused_card_urls(card_plan, existing_link_previews)
+                    if card_plan
+                    else None
+                ),
+                image_types=image_types,
+                image_descriptions=image_descriptions,
+                autolinked=autolinked,
+            ),
             rich_text_types,
             link_types,
         )
@@ -839,12 +935,15 @@ def validate_forum_body(
     ):
         raise serializers.ValidationError(_("Post body is too large."))
 
+    if embeds_to_warm:
+        warm_embeds(embeds_to_warm)  # concurrently, one timeout window for the lot
+
     # Link cards (todo 428) last, after everything that can 400, so a body
     # that is about to be refused never costs a page fetch — but before the
     # dry-run, which then validates the blocks this produced.
     if link_types:
         value = _convert_link_previews(
-            value, min(link_types), existing_link_previews or {}
+            value, min(link_types), existing_link_previews, card_plan
         )
 
     try:
@@ -855,7 +954,10 @@ def validate_forum_body(
     cleaned = []
     for block in value:
         if isinstance(block, dict) and block.get("type") in rich_text_types:
-            block = {**block, "value": autolink_rich_text(block.get("value") or "")}
+            block = {
+                **block,
+                "value": _autolinked(autolinked, block.get("value") or ""),
+            }
         elif isinstance(block, dict) and block.get("type") in image_types:
             # Normalise to the ImageBlock dict on the way in, so a body written
             # by a pre-0037 client never persists a bare PK. That keeps

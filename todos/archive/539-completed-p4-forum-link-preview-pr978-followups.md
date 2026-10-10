@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: p4
 issue_id: "539"
 tags: [backend, forum, link-previews, follow-ups]
@@ -43,10 +43,41 @@ parked. The owner promoted them here on 2026-10-10.
 
 ## Acceptance Criteria
 
-- [ ] Each of findings 1–7 is fixed (with a test where the finding names one), or closed with a dated reason
+- [x] Each of findings 1–7 is fixed (with a test where the finding names one), or closed with a dated reason
       in the Work Log.
 
 ## Work Log
 
 - 2026-10-10: Promoted out of todo 537 (run 2026-10-10-1537 triage) by owner decision. Line numbers are as of the
   source PR's merge; re-check each finding against main before acting on it.
+
+### 2026-10-10 - Implemented by the todo sweep (run 2026-10-10-2307)
+
+- Items 1-3 (`sanitize.py`): auto-link is memoised per write and shared by the pre-fetch check and the cleaned
+  pass. The card plan (`_card_plan`) is computed once, and a block that will be a REUSED stored card is measured
+  as its URL before the fetch. Bare-PK images are normalised in that check. `warm_embeds` now runs after it. The
+  embed conversion stays before the check, because moving the check above it would refuse near-cap video posts
+  that save today. A web-shape resend (`<p><a>`) is still refused by the raw-size check, which is out of scope.
+- Item 4: confirmed that nh3 keeps a raw `>`/`<` in a quoted attribute. `_ANCHOR_START_TAG` is now quote-aware
+  and linear. The old pattern was quadratic on raw input, about 4 s for 200k characters of `<a `.
+- Items 5-6: the resolver raises `_LookupTimedOut`, and only that becomes `deadline` (or `timeout`). A late
+  refusal stays `redirect refused` and is cached. `log_host` logs a host bare only when it is in `[a-z0-9._:%-]`.
+- Item 7: the slow-connect tests assert the handshake timeout handed to the socket. The pool tests wait on an
+  Event before the window opens. `_loopback_drip` is now the `loopback_drip` fixture in
+  `apps/forum_host/tests/conftest.py`. The item-4 redirect test now raises `_LookupTimedOut`.
+
+### 2026-10-10 - Verified by the todo sweep (run 2026-10-10-2307)
+
+- AC 1: `cd backend && python3 scripts/todos/slot_env.py 3 -- backend/venv/bin/python -m pytest packages/wagtail_forum/wagtail_forum/tests/api/test_link_previews.py apps/forum_host/tests/test_link_preview.py apps/forum_host/tests/test_link_preview_images.py --create-db -p no:cacheprovider -rA` — evidence `.sweep-evidence/g3/539-ac0.txt` (not committed), last lines:
+
+  ```text
+  PASSED apps/forum_host/tests/test_link_preview_images.py::test_a_racing_duplicate_is_dropped_for_the_canonical_name[False]
+  PASSED apps/forum_host/tests/test_link_preview_images.py::test_item8_no_time_left_for_an_image_logs_the_host_only
+  PASSED apps/forum_host/tests/test_link_preview_images.py::test_item8_an_image_not_downloaded_logs_the_host_only
+  PASSED apps/forum_host/tests/test_link_preview_images.py::test_item6_an_image_after_a_slow_connect_ends_at_the_deadline
+  ======================= 180 passed, 3 warnings in 27.71s =======================
+  ```
+
+### 2026-10-10 - Completed by the todo sweep (run 2026-10-10-2307)
+
+- Archived by `land.py archive`; evidence is quoted above, review is on the PR.

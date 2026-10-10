@@ -78,6 +78,11 @@ _executor_lock = threading.Lock()
 # touched (todo 448 item 3). An underscore in a host is the common case.
 _block_url_validator = URLValidator(schemes=["http", "https"])
 
+# What ``log_host`` writes unquoted: a DNS name (``_`` included, as real
+# hosts use it), an IPv4 address, or an IPv6 one (``.hostname`` drops its
+# brackets; ``%`` is a zone id). ``urlsplit`` lowercases the host.
+_LOGGABLE_HOST = re.compile(r"[a-z0-9._:%-]+")
+
 
 def _get_executor():
     global _executor
@@ -125,14 +130,18 @@ def log_host(url) -> str:
     item 8). It is safe for a URL that failed validation: ``urlsplit`` strips
     only tab, CR and LF, so a host with any other control character, or longer
     than a DNS name can be, is logged quoted and truncated, never raw (todo
-    535 item 7)."""
+    535 item 7). Only a host made of hostname and IP characters is logged
+    bare: a printable host with a space or ``=`` could otherwise write fake
+    ``key=value`` text into the line (todo 539 item 6)."""
     if not isinstance(url, str):
         return "?"
     try:
-        host = urlsplit(url.strip()).hostname or "?"
+        host = urlsplit(url.strip()).hostname
     except ValueError:
         return "?"
-    if host.isprintable() and len(host) <= DOMAIN_MAX_LENGTH:
+    if not host:
+        return "?"
+    if _LOGGABLE_HOST.fullmatch(host) and len(host) <= DOMAIN_MAX_LENGTH:
         return host
     return repr(host[:DOMAIN_MAX_LENGTH])
 
