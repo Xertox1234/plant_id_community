@@ -2533,8 +2533,11 @@ def followups_529_tests():
     ingest(run, [review_result(findings=[f("low", 2, "nit"), f("medium", 9, "real"), f("low", 30, "fixed")],
                                refuted=[dict(f("high", 3, "maybe"), also=[], refutations=["no", "no"])])], 1)
     ingest(run, [review_result()], 2)
+    check("529 repair: a reviewed, unmerged group is not curated yet (origin/main does not have its code)",
+          run["todos"]["1"]["stage"] == "reviewed" and state.followups_args(run, "/main") == [], run["todos"]["1"])
+    state.set_group(run, "g1", "merged")
     args = state.followups_args(run, "/main")
-    check("529 item 3: followups-args lists a reviewed group with follow-ups, without its refuted lines",
+    check("529 item 3: followups-args lists a merged group with follow-ups, without its refuted lines",
           len(args) == 1 and args[0]["followups"][0] == "medium: a.py:9 real" and "refuted" not in args[0]
           and args[0]["pr"] == 900, args)
     blocked = copy.deepcopy(run)
@@ -2558,6 +2561,10 @@ def followups_529_tests():
     check("529 AC3: the follow-up todo's Findings show each item's severity, and the refuted lines on their own",
           "1. **medium** `a.py:9` real, merged | also: nit" in md and "PR #900" in md
           and "Dismissed by refuters" in md and "- high: a.py:3 maybe" in md, md)
+    archived = copy.deepcopy(run)
+    archived["groups"]["g1"].pop("curation")
+    state.set_group(archived, "g1", "archived")
+    check("529 repair: an archived group is curated too", len(state.followups_args(archived, "/main")) == 1)
     dead = pr_open_run()
     ingest(dead, [review_result(findings=[f("low", 2, "nit")])], 1)
     state.ingest_followups(dead, [{"group": "g1", "ids": ["1"], "kept": None, "dropped": [], "refuter_ok": False}])

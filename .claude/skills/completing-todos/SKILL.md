@@ -267,8 +267,12 @@ Steps 1–8 run with the sandbox off (see **Sandbox**).
    and file:line across both rounds). List them in the wrap-up, so the owner can see what the refuters dismissed.
 4. Follow-ups: `ingest-review` stores a group's non-blocking findings once per group (todo 529), as
    `<severity>: file:line summary | also: …`, one line per file:line with every phrasing, the most severe
-   first, capped at 10 with `followups_dropped` counting what the cap left out. Once the wave's PRs are
-   reviewed or merged:
+   first, capped at 10 with `followups_dropped` counting what the cap left out. Once the wave's PRs have
+   merged (Merge confirmation and cleanup, below, moves each group to `merged`):
+   - `/usr/bin/git -C REPO fetch origin main` first: the curator and the refuter read origin/main, and a PR
+     whose code is not on it would read every item it added as `fixed`. `followups-args` takes only `merged`
+     or `archived` groups (a `reviewed` one waits for its merge), and the curator checks that the PR's
+     `(#<pr>)` squash commit is on origin/main; when it is not, the group stays `uncurated` with nothing dropped.
    - `state.py followups-args $RUN --main-root REPO` → `Workflow({name: "todo-followups", args})` →
      `state.py ingest-followups $RUN --output <task output file>`. Per PR, one curator merges duplicates and
      checks each item on origin/main, then one refuter tries to refute what is left; fixed and refuted items

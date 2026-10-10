@@ -1144,7 +1144,9 @@ def refuted_comment(run, gid):
                      + [f"- {r}" for r in lines]) + "\n"
 
 
-FOLLOWUP_STAGES = {"reviewed", "merged", "archived"}
+# Curation reads origin/main, so a group is curated only once its PR is on it (todo 529 repair): a reviewed,
+# unmerged PR's code is not on main yet, and every item it added would read as `fixed` and be dropped.
+FOLLOWUP_STAGES = LANDED
 
 
 def _group_followups(run, gid):
@@ -1157,9 +1159,10 @@ def _group_followups(run, gid):
 
 
 def followups_args(run, main_root):
-    """The todo-followups workflow args (todo 529 item 3): one item per reviewed or merged group that has
-    follow-ups and has not been curated yet. A held or blocked group is an owner hand-off, not a
-    follow-up. Refuted lines are listed for the record only: the workflow never curates them."""
+    """The todo-followups workflow args (todo 529 item 3): one item per merged or archived group that has
+    follow-ups and has not been curated yet. A reviewed group waits for its merge: the curator checks each
+    item on origin/main, which does not have the PR's code until then. A held or blocked group is an owner
+    hand-off, not a follow-up. Refuted lines are listed for the record only: the workflow never curates them."""
     items = []
     for gid in sorted(run["groups"], key=lambda g: int(g[1:]) if g[1:].isdigit() else 0):
         entries = _group_entries(run, gid)

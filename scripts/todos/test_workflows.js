@@ -759,7 +759,7 @@ async function main() {
     followups: ['medium: a.py:9 real', 'low: a.py:2 nit', 'low: b.py:30 gone'], ...over })
   const item = (over = {}) => ({ severity: 'medium', file: 'a.py', line: 9, summary: 'real', also: ['nit'],
     on_main: 'present', note: 'still there', ...over })
-  const curated = { items: [item(), item({ severity: 'low', file: 'b.py', line: 30, summary: 'gone', also: [],
+  const curated = { pr_on_main: true, items: [item(), item({ severity: 'low', file: 'b.py', line: 30, summary: 'gone', also: [],
     on_main: 'fixed', note: 'removed by #901' }), item({ severity: 'low', file: 'c.py', line: 4, summary: 'maybe', also: [] })] }
   const isCurator = o => Boolean(o.schema && o.schema.properties.items)
   r = await run('todo-followups', { run_id: 'r', groups: [fg()] },
@@ -775,6 +775,14 @@ async function main() {
     fr.kept.length === 1 && fr.kept[0].file === 'a.py' && fr.refuter_ok
     && fr.dropped.map(d => d.why.split(':')[0]).join() === 'fixed on main,refuted'
     && !r.calls[1].prompt.includes('b.py'), fr)
+  r = await run('todo-followups', { run_id: 'r', groups: [fg()] },
+    (p, o) => (isCurator(o) ? { ...curated, pr_on_main: false } : { judgments: [] }))
+  check('529 repair: a PR not on origin/main drops nothing as fixed and gets no refuter (left uncurated)',
+    r.result.results[0].kept === null && r.result.results[0].dropped.length === 0 && r.calls.length === 1
+    && /PR #900 is not on origin\/main/.test(r.result.results[0].why), r.result)
+  check('529 repair: the curator first checks the PR\'s squash commit is on origin/main',
+    r.calls[0].prompt.includes("/usr/bin/git -C '/main' log -1 --format=%h --fixed-strings --grep='(#900)' origin/main")
+    && !r.calls[0].prompt.includes('about to be'), r.calls[0].prompt)
   r = await run('todo-followups', { run_id: 'r', groups: [fg()] }, () => null)
   check('529 item 3: a dead curator curates nothing (kept null: the stored list stays, marked uncurated)',
     r.result.results[0].kept === null && r.calls.length === 1, r.result)
@@ -788,8 +796,9 @@ async function main() {
   const reviewerVerdict = cmd => require('child_process').execFileSync('bash', [hook], {
     input: JSON.stringify({ agent_type: 'todo-reviewer', tool_input: { command: cmd } }) }).toString()
   const curatorCmds = [`/usr/bin/git -C '${ROOT}' show origin/main:scripts/todos/state.py`,
-    `/usr/bin/git -C '${ROOT}' grep -n FOLLOWUP_CAP origin/main -- scripts/todos/state.py`]
-  check('529 item 3: the git guard allows the curator\'s two read commands against the main checkout',
+    `/usr/bin/git -C '${ROOT}' grep -n FOLLOWUP_CAP origin/main -- scripts/todos/state.py`,
+    `/usr/bin/git -C '${ROOT}' log -1 --format=%h --fixed-strings --grep='(#900)' origin/main`]
+  check('529 item 3: the git guard allows the curator\'s three read commands against the main checkout',
     curatorCmds.every(c => reviewerVerdict(c) === '') && reviewerVerdict(`/usr/bin/git -C '${ROOT}' add x`).includes('"deny"'),
     curatorCmds.map(reviewerVerdict))
   const followSrc = source('todo-followups')

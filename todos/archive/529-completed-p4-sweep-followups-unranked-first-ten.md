@@ -123,3 +123,13 @@ from the review workflow outputs, because the run file held only ten per todo.
 ### 2026-10-10 - Completed by the todo sweep (run 2026-10-10-1537)
 
 - Archived by `land.py archive`; evidence is quoted above, review is on the PR.
+
+### 2026-10-10 - Repaired by the todo sweep (run 2026-10-10-1537)
+
+- Round-1 review (high): the curator checked each follow-up on origin/main while `followups-args` also took
+  `reviewed` groups, whose PR is not merged, so every item the PR added read as `fixed` and was dropped.
+- `state.py`: `FOLLOWUP_STAGES` is now `LANDED` (`merged`, `archived`); a reviewed group waits for its merge.
+- `todo-followups.js`: the curator first looks for the PR's `(#<pr>)` squash commit on origin/main and returns
+  `pr_on_main`; when it is false the group is left `uncurated`, nothing is dropped and no refuter runs.
+- The runbook's follow-ups step now runs after the merge, fetches origin/main first, and says why.
+- Tests: a reviewed group gets no curation, an archived one does, and a PR missing from origin/main drops nothing.

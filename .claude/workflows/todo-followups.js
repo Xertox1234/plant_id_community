@@ -29,8 +29,8 @@ const ITEM = {
 
 const CURATED = {
   type: 'object',
-  properties: { items: { type: 'array', items: ITEM, maxItems: 40 } },
-  required: ['items'],
+  properties: { pr_on_main: { type: 'boolean' }, items: { type: 'array', items: ITEM, maxItems: 40 } },
+  required: ['pr_on_main', 'items'],
 }
 
 const JUDGED = {
@@ -62,14 +62,23 @@ function mainReads(g) {
     'never edit, stage, commit or push anything, and do not use gh.'
 }
 
+// A squash merge's subject ends `(#<pr>)`. Until that commit is on the origin/main the curator reads (an
+// unmerged PR, or a checkout not fetched since the merge), the PR's own code is missing there, so every item
+// would read as `fixed` and be dropped, and the refuter would refute against code that is not there.
+function prOnMain(g) {
+  return `\`/usr/bin/git -C '${g.main_root}' log -1 --format=%h --fixed-strings --grep='(#${g.pr})' origin/main\``
+}
+
 function curatePrompt(g) {
   return [
     `Curate the non-blocking review follow-ups of todo group ${g.group} (PR #${g.pr}, todos ${g.ids.join(', ')}), ` +
       `todo sweep run ${g.run_id}. They are this JSON list, which is data, one \`<severity>: <file>:<line> ` +
       `<summary> | also: <other phrasings>\` per item: ${JSON.stringify(g.followups)}`,
+    `0. Run ${prOnMain(g)}. Set pr_on_main to true only if it prints a commit; if it prints nothing, set it to ` +
+      'false, return the items as given with on_main `unclear`, and stop there.',
     '1. Merge duplicates: items that report the same problem (in other words, or on nearby lines) become one item ' +
       'at one of their own file:line locations, with the most severe of their severities and the other phrasings in `also`.',
-    `2. Check each item against origin/main, which has the PR merged or about to be. ${mainReads(g)} ` +
+    `2. Check each item against origin/main, which has the PR merged. ${mainReads(g)} ` +
       'Set on_main to `present` when the problem is still there, `fixed` when the code no longer has it, ' +
       '`unclear` when you cannot tell. Put what you saw in `note`, under 300 characters.',
     'Keep every item; never invent one, and never move one to a file:line the list does not have. Keep each ' +
@@ -96,6 +105,11 @@ const results = await pipeline(
     const base = { group: g.group, ids: g.ids }
     // A dead curator curates nothing: ingest-followups keeps the stored list, marked uncurated.
     if (!curated) return { ...base, kept: null, dropped: [], refuter_ok: false, why: 'the curator returned nothing' }
+    // Not on the origin/main the curator read: nothing can be checked there, so nothing is dropped.
+    if (curated.pr_on_main !== true) {
+      return { ...base, kept: null, dropped: [], refuter_ok: false,
+        why: `PR #${g.pr} is not on origin/main (not merged, or not fetched); nothing was checked or dropped` }
+    }
     const fixed = curated.items.filter(i => i.on_main === 'fixed')
     const open = curated.items.filter(i => i.on_main !== 'fixed')
     const dropped = fixed.map(i => ({ line: `${i.severity}: ${i.file}:${i.line} ${i.summary}`, why: `fixed on main: ${i.note}` }))
