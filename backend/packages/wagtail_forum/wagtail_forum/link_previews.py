@@ -119,6 +119,24 @@ def is_card_url(url) -> bool:
     return True
 
 
+def log_host(url) -> str:
+    """The host of ``url`` to name in a log line: never the path or query,
+    which can carry a token or someone's search (todo 448 item 12, todo 535
+    item 8). It is safe for a URL that failed validation: ``urlsplit`` strips
+    only tab, CR and LF, so a host with any other control character, or longer
+    than a DNS name can be, is logged quoted and truncated, never raw (todo
+    535 item 7)."""
+    if not isinstance(url, str):
+        return "?"
+    try:
+        host = urlsplit(url.strip()).hostname or "?"
+    except ValueError:
+        return "?"
+    if host.isprintable() and len(host) <= DOMAIN_MAX_LENGTH:
+        return host
+    return repr(host[:DOMAIN_MAX_LENGTH])
+
+
 def _image_name_pattern():
     prefix = get_setting("LINK_PREVIEW_IMAGE_PREFIX")
     return re.compile(rf"^{re.escape(prefix)}[0-9a-f]{{64}}\.(?:jpg|webp)$")
@@ -177,7 +195,9 @@ def _fetch_and_close(fetcher, url, deadline):
 def _log_late(url, future):
     exc = future.exception()
     if exc is not None:
-        logger.warning("[LINK_PREVIEW] late fetch failed for %s: %r", url, exc)
+        logger.warning(
+            "[LINK_PREVIEW] late fetch failed for host %s: %r", log_host(url), exc
+        )
 
 
 def fetch_snapshots(fetcher, urls) -> dict:
@@ -204,15 +224,15 @@ def fetch_snapshots(fetcher, urls) -> dict:
         if future.cancel():
             logger.warning(
                 "[LINK_PREVIEW] fetch never started in %ss (pool busy), "
-                "saving as a link: %s",
+                "saving as a link to host %s",
                 timeout,
-                url,
+                log_host(url),
             )
             continue
         logger.warning(
-            "[LINK_PREVIEW] fetch still running after %ss, saving as a link: %s",
+            "[LINK_PREVIEW] fetch still running after %ss, saving as a link to host %s",
             timeout,
-            url,
+            log_host(url),
         )
         future.add_done_callback(lambda fut, url=url: _log_late(url, fut))
     snapshots = {}
@@ -220,7 +240,11 @@ def fetch_snapshots(fetcher, urls) -> dict:
         url = futures[future]
         exc = future.exception()
         if exc is not None:  # a fetcher bug must never fail the post
-            logger.error("[LINK_PREVIEW] fetcher raised for %s", url, exc_info=exc)
+            logger.error(
+                "[LINK_PREVIEW] fetcher raised for host %s",
+                log_host(url),
+                exc_info=exc,
+            )
             continue
         snapshot = _snapshot(url, future.result())
         if snapshot is not None:

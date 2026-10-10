@@ -492,3 +492,61 @@ def test_a_posted_link_card_serves_our_image_through_the_host_mount():
     assert block["type"] == "link_preview"
     assert block["value"]["title"] == "Monstera care"
     assert block["value"]["image_url"] == MEDIA_URL + IMAGE_NAME
+
+
+# --- todo 535 ------------------------------------------------------------------
+
+SECRET_IMAGE_URL = (
+    "https://93.184.216.34/secret-path/og.png?token=abc"  # pragma: allowlist secret
+)
+
+
+def _image_logs():
+    import unittest
+
+    return unittest.TestCase().assertLogs("apps.forum_host.link_preview", "INFO")
+
+
+def test_item8_no_time_left_for_an_image_logs_the_host_only():
+    with _image_logs() as logged:
+        assert lp._cache_preview_image(SECRET_IMAGE_URL, time.monotonic()) == ""
+
+    lines = [r.getMessage() for r in logged.records]
+    assert lines == [
+        "[LINK_PREVIEW] no time left to download an image from host 93.184.216.34"
+    ]
+
+
+def test_item8_an_image_not_downloaded_logs_the_host_only():
+    with serve(FakeResponse(404)), _image_logs() as logged:
+        assert lp._cache_preview_image(SECRET_IMAGE_URL, time.monotonic() + 5) == ""
+
+    lines = [r.getMessage() for r in logged.records]
+    assert lines == [
+        "[LINK_PREVIEW] preview image not downloaded from host 93.184.216.34"
+    ]
+
+
+def test_item6_an_image_after_a_slow_connect_ends_at_the_deadline():
+    """The image download shares ``_open_connection``: a TCP connect that
+    takes most of the budget leaves the TLS handshake only what is left."""
+    server, port, thread = _loopback_drip(b"\x16\x03\x03\x40\x00")
+    real_create_connection = socket.create_connection
+
+    def slow_connect(*args, **kwargs):
+        time.sleep(0.5)
+        return real_create_connection(*args, **kwargs)
+
+    target = lp._Target(
+        f"https://127.0.0.1:{port}/og.png", "https", "127.0.0.1", port, "127.0.0.1"
+    )
+    started = time.monotonic()
+    try:
+        with patch.object(lp.socket, "create_connection", side_effect=slow_connect):
+            assert lp._fetch_image(target, time.monotonic() + 0.6) is None
+        elapsed = time.monotonic() - started
+    finally:
+        server.close()
+        thread.join(5)
+
+    assert elapsed < 0.9  # was ~1.1: 0.5 connect + a fresh 0.6 handshake

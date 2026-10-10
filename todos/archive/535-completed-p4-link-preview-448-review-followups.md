@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: p4
 issue_id: "535"
 tags: [forum, backend, link-preview, review-follow-up, testing]
@@ -84,10 +84,67 @@ punctuation now survives an edit. The findings below did not block it.
 
 ## Acceptance Criteria
 
-- [ ] Items 1–8 are fixed or closed with a reason.
+- [x] Items 1–8 are fixed or closed with a reason.
 
 ## Work Log
 
 ### 2026-10-09 - Filed from PR #971 review round 1
 
 ### 2026-10-09 - Items 4–8 added from PR #972 review round 1
+
+### 2026-10-10 - Implemented by the todo sweep (run 2026-10-10-0234)
+
+- Items 1–2 (`api/sanitize.py`): every size check now uses one measure,
+  `_measured_body_chars`. It counts a link card as its URL alone. It does not
+  count the `target`/`rel` attributes the server sets on a real `<a>`, up to a
+  bounded `MAX_BODY_MARKUP_TOLERANCE` (owner decision). The stored-size check
+  now runs on the auto-linked, card-less body BEFORE the card fetch, so a
+  refused body costs no fetch. A raw ceiling (`MAX_BODY_RAW_CHARS`, 2× the cap)
+  still bounds parse cost. A near-cap post with many links saves, and it
+  resends unchanged, including a legacy body stored without `target`.
+- Item 3: the root cause was the presence-touch throttle key
+  `forum:presence:<pk>`, not a view-restriction lookup. `--create-db` reuses
+  the pk, so a key left in Redis by the previous run skipped the `UPDATE`.
+  The test now deletes that key before it counts queries. It passes twice in
+  a row when run alone.
+- Items 4–6 (`apps/forum_host/link_preview.py`): if a redirect's DNS lookup
+  runs out of time, the failure is now `deadline`. The composer (no caller
+  deadline) caches a deadline failure. `_open_connection` cuts the socket
+  timeout to the time left once the TCP connect returns, so the TLS handshake
+  cannot run past the deadline. This covers the page and the image.
+- Items 7–8: there is a new package helper `link_previews.log_host`. It logs a
+  host only, quoted and truncated when the host is unsafe. It replaces
+  `_host_of` and the full-URL log lines in `fetch_snapshots`, `_log_late`,
+  `_cache_preview_image` and the snapshot's image warning.
+
+### 2026-10-10 - Verified by the todo sweep (run 2026-10-10-0234)
+
+- AC 1: `cd backend && python3 scripts/todos/slot_env.py 4 -- backend/venv/bin/python -m pytest packages/wagtail_forum/wagtail_forum/tests/api/test_bookmarks_api.py::test_bookmarks_list_query_count_is_pinned --create-db -v -p no:warnings && python3 scripts/todos/slot_env.py 4 -- backend/venv/bin/python -m pytest packages/wagtail_forum/wagtail_forum/tests/api/test_bookmarks_api.py apps/forum_host/tests/test_link_preview.py apps/forum_host/tests/test_link_preview_images.py packages/wagtail_forum/wagtail_forum/tests/api/test_link_previews.py -k "item or test_bookmarks_list_query_count_is_pinned" --create-db -v -p no:warnings` — evidence `.sweep-evidence/g4/535-ac0.txt` (not committed), last lines:
+
+  ```text
+  ============================== ENVIRONMENT DRIFT ===============================
+  backend/venv does not match backend/requirements.txt — these results describe a tree CI does not run.
+    mismatched: pyjwt (pinned 2.15.0, installed 2.13.0), urllib3 (pinned 2.8.0, installed 2.7.0)
+  Fix: pip install -r backend/requirements.txt (see todo 378).
+  ===================== 24 passed, 157 deselected in 20.30s ======================
+  ```
+
+### 2026-10-10 - Completed by the todo sweep (run 2026-10-10-0234)
+
+- Archived by `land.py archive`; evidence is quoted above, review is on the PR.
+
+### 2026-10-10 - Repaired by the todo sweep (run 2026-10-10-0234)
+
+- Round-1 review (high): every size check counts a card as its URL alone,
+  which assumed `MAX_LINK_PREVIEWS_PER_BODY` capped the cards. But
+  `_convert_link_previews` carded every block with a chosen URL, so 100
+  blocks of one URL stored 100 full cards that no check counted.
+- Fix (`api/sanitize.py`): a URL now gets ONE card, at its first candidate.
+  A repeat stays (or, for a resent card, becomes) its link, which the
+  auto-linker makes tappable. Stored cards are now at most 5 distinct, so
+  the measure's assumption holds, the pre-fetch check still bounds the
+  stored body, and a resent read envelope still measures what was stored.
+- New regression test `test_item1_a_link_repeated_in_every_block_gets_one_card`
+  (100 paragraphs, and 100 resent cards, of one URL with every card field at
+  its cap). `test_only_the_first_five_distinct_links_become_cards` now expects
+  a repeated URL to stay a link, not a second card.
