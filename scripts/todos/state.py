@@ -1049,8 +1049,8 @@ def review_args(run, round_no, wave, git=run_git, run_file="", held=None):
     """The workflow args for the wave's open PRs due this round. A group whose worktree still holds what an
     earlier attempt at the round left is skipped and put in `held` (group -> paths), so it never stalls
     the rest of the wave (todo 480)."""
-    if round_no not in (1, 2):
-        raise ValueError("round must be 1 or 2")
+    if round_no not in (1, 2, 3):
+        raise ValueError("round must be 1, 2 or 3 (3 only after hand-round)")
     items = []
     for gid in run["waves"][wave]:
         entries = _group_entries(run, gid)
@@ -1058,6 +1058,8 @@ def review_args(run, round_no, wave, git=run_git, run_file="", held=None):
             continue
         first = entries[0][1]
         if first["stage"] != "pr_open" or first.get("review_round", 0) != round_no - 1:
+            continue
+        if round_no == 3 and any(e.get("hand_round") != 3 for _, e in entries):
             continue
         # Todo 480: the baseline is taken once per round. A rerun keeps it, because retaking it would
         # absorb whatever the failed attempt left, and the round-1 repair's `git add -A` would commit it.
@@ -1250,13 +1252,36 @@ def clear_hold(run, gid, decision):
     for _, entry in entries:
         # Keep any triage-time decision: this one is added to it, not written over it.
         earlier = entry.get("owner_decision")
-        if entry.pop("held_round", 2) == 1:
+        held_round = entry.pop("held_round", 2)
+        if held_round == 1:
             resume = {"stage": "pr_open", "review_round": 1}
-        else:
-            resume = {"stage": "reviewed", "review_round": 2}
+        else:  # a round-2 hold, or a round-3 one after hand_round (todo 542)
+            resume = {"stage": "reviewed", "review_round": held_round}
         entry.update(reason="", hold_cleared=list(dict.fromkeys(entry.get("hold_cleared", []) + cleared)),
                      owner_decision=f"{earlier}; hold cleared: {decision}" if earlier else f"hold cleared: {decision}",
                      **resume)
+
+
+def hand_round(run, gid, decision):
+    """The owner approved a review round 3 for a group round 2 blocked on blocking findings (todo 542; done by
+    hand for #880, #886 and #982). Like clear_hold it bypasses ALLOWED on purpose: the PR is one fix away from
+    mergeable, and blocked -> ready would discard it. The group goes back to pr_open with round 2 done, so
+    review-args and ingest-review run round 3 on the saved run file with their usual guards. Once only: a
+    round-3 block is the owner's hand-off, and there is no round 4."""
+    if not decision.strip():
+        raise TransitionError(f"{gid}: a round 3 needs the owner's decision")
+    entries = _group_entries(run, gid)
+    if not entries:
+        raise TransitionError(f"{gid}: no such group")
+    if any(e.get("hand_round") for _, e in entries):
+        raise TransitionError(f"{gid}: round 3 has already run; there is no round 4")
+    if any(e["stage"] != "blocked" or e.get("blocked_by") != "review round 2" for _, e in entries):
+        raise TransitionError(f"{gid}: not blocked by round-2 blocking findings; round 3 is only for that block")
+    for _, entry in entries:
+        earlier = entry.get("owner_decision")
+        entry.pop("blocked_by", None)
+        entry.update(stage="pr_open", review_round=2, hand_round=3, reason="",
+                     owner_decision=f"{earlier}; round 3: {decision}" if earlier else f"round 3: {decision}")
 
 
 def _hold(run, gid, entries, criticals, round_no, note=""):
@@ -1438,6 +1463,8 @@ def ingest_review(run, results, round_no, git=run_git, criteria=None):
                 raise TransitionError(f"{result['group']}: a round-{round_no} output does not follow this group "
                                       f"({entry['stage']}, review round {entry.get('review_round', 0)}); "
                                       "is it a stale output file?")
+            if round_no == 3 and entry.get("hand_round") != 3:
+                raise TransitionError(f"{result['group']}: round 3 runs only after `hand-round` (todo 542)")
     outcome = {}
     for result in results:
         gid = result["group"]
@@ -1497,13 +1524,15 @@ def ingest_review(run, results, round_no, git=run_git, criteria=None):
             for _, entry in entries:
                 entry["review_round"] = 1
         elif blocking:
-            set_group(run, gid, "blocked", reason=f"{len(blocking)} blocking findings after round 2{also}")
+            # blocked_by is what hand_round reads (todo 542): only a round-2 block can earn round 3.
+            set_group(run, gid, "blocked", reason=f"{len(blocking)} blocking findings after round {round_no}{also}",
+                      blocked_by=f"review round {round_no}")
             outcome[gid] = "blocked"
         elif criticals:
-            _hold(run, gid, entries, criticals, 2)
+            _hold(run, gid, entries, criticals, round_no)
             outcome[gid] = "held"
         else:
-            set_group(run, gid, "reviewed", review_round=2)
+            set_group(run, gid, "reviewed", review_round=round_no)
             outcome[gid] = "clean"
     return outcome
 
@@ -1817,6 +1846,8 @@ def build_parser():
     p.add_argument("runfile"), p.add_argument("group")
     p = sub.add_parser("clear-hold")
     p.add_argument("runfile"), p.add_argument("group"), p.add_argument("--decision", required=True)
+    p = sub.add_parser("hand-round", help="owner-approved review round 3 for a group round 2 blocked (todo 542)")
+    p.add_argument("runfile"), p.add_argument("group"), p.add_argument("--decision", required=True)
     p = sub.add_parser("ensure-worktree")
     p.add_argument("runfile"), p.add_argument("group"), p.add_argument("--scratch", required=True)
     p = sub.add_parser("annotate")
@@ -1917,6 +1948,8 @@ def main(argv=None):
             set_group(run, args.group, args.stage, **_parse_fields(args.field))
         elif args.cmd == "clear-hold":
             clear_hold(run, args.group, args.decision)
+        elif args.cmd == "hand-round":
+            hand_round(run, args.group, args.decision)
         elif args.cmd == "ensure-worktree":
             print(ensure_worktree(run, args.group, args.scratch))
         elif args.cmd == "annotate":

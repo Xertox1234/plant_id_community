@@ -381,6 +381,11 @@ async function main() {
   check('review: the same blocking finding from every reviewer counts once and is refuted once',
     r.result.results[0].blocking.length === 1 && r.result.results[0].findings.length === 5
     && refuteCalls(r.calls).length === 2, r.result)
+  // Todo 542: an owner-approved round 3 runs as round 2 does; the owner's repair is already committed.
+  r = await run('todo-review', { round: 3, prs: [pr({ round: 3 })] }, reviewStub({ lens: high }))
+  check('review: round 3 never repairs, and still reports its blocking finding',
+    byType(r.calls, 'todo-worker').length === 0 && byType(r.calls, 'todo-verifier').length === 0
+    && r.result.results[0].blocking.length === 1 && r.result.results[0].repair === null, r.result)
 
   // --- review: one bug phrased differently by different reviewers is refuted once
   const phrased = n => ({ reviewed_range: 'x', findings: [{ severity: n === 'drf' ? 'critical' : 'high', file: 'a.py', line: 1,
