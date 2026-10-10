@@ -1966,5 +1966,21 @@
     "pattern_ref": "docs/rules/database.md",
     "added": "2026-09-27",
     "source": "todo 410 slice B / PR #854 round 1"
+  },
+  {
+    "id": "markdown-line-starts-with-hash-number",
+    "domains": [
+      "testing"
+    ],
+    "path_glob": [
+      "todos/*.md",
+      "docs/*.md"
+    ],
+    "content_present": "(?m)^#\\d",
+    "message": "A line that starts with \"#<digits>\" (e.g. a wrapped \"#982 had three rounds\") is a heading to markdown: the markdownlint pre-commit hook rewrites it to \"# 982 …\" and fails the commit on MD025 (multiple H1s). Re-wrap so the line does not start with \"#\", or write \"PR #982\".",
+    "pattern_ref": "docs/LEARNINGS.md",
+    "source": "codify: sweep run 2026-10-10-1537 (todo 541, PR #984)",
+    "added": "2026-10-10",
+    "severity": "warn"
   }
 ]
