@@ -158,7 +158,9 @@ def send(subscriber: BlogNewsletter, posts: list[DigestPost]) -> bool:
         )
         message.attach_alternative(html_body, "text/html")
         message.send()
-    except SoftTimeLimitExceeded:
+    except (SoftTimeLimitExceeded, Warning):
+        # Warning: a RemovedInDjango70Warning is an error under pytest.ini
+        # (todo 364) and must fail the run, not one send (todo 454).
         raise
     except Exception:
         logger.exception(f"[EMAIL] newsletter failed for subscriber={subscriber.pk}")

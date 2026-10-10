@@ -300,6 +300,11 @@ This is an automated security message from Houseplant-MD.
                 f"{LOG_PREFIX_LOCKOUT} Cannot send lockout email: "
                 f"user not found: {log_safe_username(username)}"
             )
+        except Warning:
+            # A RemovedInDjango70Warning is an error under pytest.ini (todo 364)
+            # and Warning subclasses Exception: never log it as a failed send
+            # (todo 454).
+            raise
         except Exception as e:
             logger.error(
                 f"{LOG_PREFIX_LOCKOUT} Failed to send lockout email: "

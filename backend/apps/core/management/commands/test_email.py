@@ -125,7 +125,6 @@ class Command(BaseCommand):
             "forum_reply",
             "forum_mention",
             "identification_result",
-            "newsletter",
         ]
         for template in templates:
             self.stdout.write(f"  - {template}")
@@ -136,7 +135,6 @@ class Command(BaseCommand):
             EmailType.FORUM_MENTION,
             EmailType.IDENTIFICATION_RESULT,
             EmailType.ACCOUNT_VERIFICATION,
-            EmailType.NEWSLETTER,
         ]
         for email_type in types:
             self.stdout.write(f"  - {email_type}")

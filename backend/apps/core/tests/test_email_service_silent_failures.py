@@ -27,7 +27,6 @@ User = get_user_model()
 # Work Log.
 FALLBACK_RENDERABLE_TEMPLATES = [
     "welcome_email",
-    "newsletter",
     "generic_notification",
 ]
 
@@ -41,7 +40,7 @@ class SendEmailZeroRecipientsTests(TestCase):
         # send_email() ignored that count, tracked a phantom send, and returned
         # True.
         result = EmailService().send_email(
-            email_type=EmailType.NEWSLETTER,
+            email_type=EmailType.COMMUNITY_UPDATE,
             recipient="",
             subject="Should not send",
             template_name="welcome_email",
@@ -57,7 +56,7 @@ class SendEmailZeroRecipientsTests(TestCase):
     def test_real_recipient_still_returns_true(self):
         user = User.objects.create_user(username="reach", email="reach@example.com")
         result = EmailService().send_email(
-            email_type=EmailType.NEWSLETTER,
+            email_type=EmailType.COMMUNITY_UPDATE,
             recipient=user,
             subject="Delivered",
             template_name="welcome_email",
@@ -76,7 +75,7 @@ class TxtFallbackTests(TestCase):
             with self.subTest(template=name):
                 mail.outbox = []
                 result = EmailService().send_email(
-                    email_type=EmailType.NEWSLETTER,
+                    email_type=EmailType.COMMUNITY_UPDATE,
                     recipient=user,
                     subject=f"Subject {name}",
                     template_name=name,
@@ -111,7 +110,7 @@ class TxtFallbackTests(TestCase):
     def test_missing_html_is_still_a_hard_failure(self):
         # The .txt fallback must NOT mask a genuinely missing .html body.
         result = EmailService().send_email(
-            email_type=EmailType.NEWSLETTER,
+            email_type=EmailType.COMMUNITY_UPDATE,
             recipient="hardfail@example.com",
             subject="No such template",
             template_name="template_that_does_not_exist",

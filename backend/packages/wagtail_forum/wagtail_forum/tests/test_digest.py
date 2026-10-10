@@ -588,3 +588,28 @@ def test_a_soft_time_limit_inside_the_unsubscribe_hook_still_stops_the_run():
     member = User.objects.create_user(username="du-soft", email="soft@example.com")
     with pytest.raises(SoftTimeLimitExceeded):
         unsubscribe_links(member)
+
+
+@pytest.mark.django_db
+@override_settings(
+    SITE_URL="https://forum.example", WAGTAILFORUM_DIGEST_UNSUBSCRIBE=None
+)
+def test_a_deprecated_mail_argument_is_never_swallowed_as_a_send_failure(monkeypatch):
+    """Todo 454: pytest.ini turns RemovedInDjango70Warning into an error, and
+    Warning subclasses Exception. A deprecated argument planted in the send
+    (``fail_silently=True``, deprecated in Django 6.1) must fail the run, not
+    be logged as one member's failed digest."""
+    from django.core.mail import EmailMessage
+    from django.utils.deprecation import RemovedInDjango70Warning
+    from wagtail_forum.digest import Digest, send_digest
+
+    real_send = EmailMessage.send
+
+    def send(self, *args, **kwargs):
+        kwargs["fail_silently"] = True
+        return real_send(self, *args, **kwargs)
+
+    monkeypatch.setattr(EmailMessage, "send", send)
+    member = User.objects.create_user(username="dg-dep", email="dep@example.com")
+    with pytest.raises(RemovedInDjango70Warning):
+        send_digest(Digest(user=member, since=timezone.now()))

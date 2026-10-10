@@ -476,7 +476,7 @@ class UnsubscribeLinkInEmailTests(TestCase):
         # A link must only be offered where it can do something; the welcome
         # email has no list to leave.
         EmailService().send_email(
-            email_type=EmailType.NEWSLETTER,
+            email_type=EmailType.COMMUNITY_UPDATE,
             recipient=self.user,
             subject="Welcome",
             template_name="welcome_email",

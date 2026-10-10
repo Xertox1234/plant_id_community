@@ -241,6 +241,11 @@ def send_digest(digest: Digest) -> bool:
         )
         message.attach_alternative(html, "text/html")
         message.send()
+    except Warning:
+        # A RemovedInDjango70Warning is an error under pytest.ini (todo 364)
+        # and Warning subclasses Exception: never log it as a failed send
+        # (todo 454).
+        raise
     except Exception as exc:
         # A worker's soft time limit arrives as an Exception subclass
         # (billiard's SoftTimeLimitExceeded); it is the RUN being stopped,
