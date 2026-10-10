@@ -928,6 +928,15 @@ def ingest_execute(run, results, criteria=None):
         work = {k: (worker or {}).get(k) for k in WORK_FIELDS}
         work["worktree"] = work["worktree"] or result.get("worktree")
         work = {k: v for k, v in work.items() if v}
+        # One worktree, one index: an edit to any todo's criteria fails the whole group, or Land would
+        # commit the edited file with the group-mates that passed (round-2 review of PR #982).
+        edited = None
+        if criteria and worker is not None and worker.get("status") == "staged" and not evaluate(worker, verdict):
+            for todo_id in result["ids"]:
+                problem = criteria(run, todo_id, worker["worktree"])
+                if problem:
+                    edited = f"todo {todo_id}: {problem}"
+                    break
         for todo_id in result["ids"]:
             given = run["todos"][todo_id].get("worktree")
             if worker is not None and given and worker.get("worktree") and not _same_path(worker["worktree"], given):
@@ -948,7 +957,6 @@ def ingest_execute(run, results, criteria=None):
                 transition(run, todo_id, "staged", worktree=worker["worktree"], branch=worker["branch"],
                            tree_id=worker["tree_id"], ac_file=worker["ac_file"])
                 problem = evaluate(worker, verdict)
-                edited = criteria(run, todo_id, worker["worktree"]) if criteria and not problem else None
                 if problem:
                     transition(run, todo_id, "failed", reason=_with_reasons(problem, verdict))
                 elif edited:

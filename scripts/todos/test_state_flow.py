@@ -2153,6 +2153,21 @@ def hardening_494_tests():
              "criteria=execute_criteria", "criteria=None")
         (wt / "todos" / "7-pending-p3-x.md").write_text(base)
 
+    # PR #982 round 2: one worktree per group, so one todo's edited criteria fail every todo of the group.
+    def group_fails_together(st):
+        run_g = ready_run([("1", ["a.py"]), ("2", ["a.py"])], workers=1)
+        st.apply_grouping(run_g)
+        bg = st.execute_args(run_g, 0, "/m")[0]
+        st.ingest_execute(run_g, [{"group": bg["group"], "ids": ["1", "2"], "retried": False,
+                                   "worker": worker(["1", "2"]), "verdict": verdict(["1", "2"]) | {"ac": [
+                                       {"todo": i, "index": 0, "verified": True, "note": "n"} for i in ("1", "2")]}}],
+                          criteria=lambda r, i, w: "criterion 0 was edited" if i == "2" else None)
+        t = run_g["todos"]
+        return (bg["ids"] == ["1", "2"] and t["1"]["stage"] == t["2"]["stage"] == "failed"
+                and all("todo 2: criterion 0 was edited" in t[i]["reason"] for i in ("1", "2")))
+    both("PR #982: an edited criterion on one todo fails its group-mates too", group_fails_together,
+         "if criteria and worker is not None", "if False and worker is not None")
+
     # F1 in review: a kept round-1 repair whose criteria changed blocks the group.
     run = pr_open_run()
     res = ingest(run, [review_result(blocking=[{"severity": "high", "file": "a.py", "line": 1, "summary": "b"}],
