@@ -60,8 +60,10 @@ function schemaErrors(value, schema, at = '$') {
 // real nested parallel can. The enclosing parallel() then records a null for it, which no stub agent can do.
 // mutate: [old, new] replaces one exact string in the workflow source first, so a check can prove that a
 // test FAILS on a known-bad version (todo 478). The anchor must occur exactly once.
+// chain (todo 494 F8): pipeline() calls each stage and chains .then on what it returns, as a runtime that does not
+// await a plain value would; a stage that is not async then throws.
 async function run(name, args, respond, { allowErrors = false, badFixtures = false, parallelThrows = null,
-  mutate = null } = {}) {
+  mutate = null, chain = false } = {}) {
   let text = source(name)
   if (mutate) {
     if (text.split(mutate[0]).length !== 2) throw new Error(`mutation anchor not found once: ${mutate[0]}`)
@@ -84,7 +86,7 @@ async function run(name, args, respond, { allowErrors = false, badFixtures = fal
     Promise.all(items.map(async (item, i) => {
       let value = item
       try {
-        for (const stage of stages) value = await stage(value, item, i)
+        for (const stage of stages) value = chain ? await stage(value, item, i).then(v => v) : await stage(value, item, i)
         return value
       } catch (e) {
         errors.push(String(e))
@@ -686,6 +688,123 @@ async function main() {
   check('476 AC2: items are checked whenever present, even without type: array',
     schemaErrors(['ok', 7], { items: { type: 'string' } }).join() === '$[1]: not string'
     && schemaErrors({ a: [1] }, { properties: { a: { items: { type: 'string' } } } }).join() === '$.a[0]: not string')
+
+  // --- todo 528: execute-args made the worktree; the worker runs there, and a dead one still names it
+  const schemaOf = (src, name) => new Function(`${schemaBlock(src, name)}; return ${name}`)()
+  r = await run('todo-execute', { run_id: 'r', briefs: [brief({ worktree: '/wt/made', branch: 'worktree-sweep-r-g1' })] },
+    (p, o) => (o.agentType === 'todo-worker' ? worker({ worktree: '/wt/made' }) : verdict('pass')))
+  const made = byType(r.calls, 'todo-worker')[0]
+  check('528: a brief with a worktree runs the implementer there, without isolation, told WORKTREE',
+    made.opts.isolation === undefined && made.prompt.split('\n')[1] === 'WORKTREE: /wt/made', made)
+  r = await run('todo-execute', { run_id: 'r', briefs: [brief({ worktree: '/wt/made' })] }, () => null)
+  check('528 AC2: a worker that returns nothing leaves the brief\'s worktree on its result',
+    r.result.results[0].worker === null && r.result.results[0].worktree === '/wt/made', r.result)
+  r = await run('todo-execute', { run_id: 'r', briefs: [brief({ worktree: '/wt/made' })] },
+    (p, o) => { if (o.agentType === 'todo-worker') throw new Error('stage died') }, { allowErrors: true })
+  check('528: ... and so does a stage that threw (the null-row fallback)',
+    r.result.results[0].worktree === '/wt/made' && r.errors.length === 1, r.result)
+  // AC1: the stated summary limit is below the schema's maxLength, in the agent doc and both workflows.
+  const workerDoc = fs.readFileSync(path.join(ROOT, '.claude', 'agents', 'todo-worker.md'), 'utf8')
+  const stated = src => Number((src.match(/summary(?:`)? (?:at most|under) (\d+) characters/) || [])[1])
+  const limitsHold = srcs => ['todo-execute', 'todo-review'].every(n => {
+    const max = schemaOf(srcs[n], 'WORKER').properties.summary.maxLength
+    return stated(srcs[n]) > 0 && stated(srcs[n]) < max && stated(srcs.doc) > 0 && stated(srcs.doc) < max
+  })
+  const srcs = { 'todo-execute': source('todo-execute'), 'todo-review': source('todo-review'), doc: workerDoc }
+  check('528 AC1: todo-worker.md and both workflows state a summary limit below WORKER\'s maxLength',
+    limitsHold(srcs) && stated(workerDoc) === 400 && stated(srcs['todo-execute']) === 400, srcs.doc.match(/summary.{0,40}/g))
+  check('528 AC1: ... and that check fails on a stated limit at the maxLength',
+    !limitsHold({ ...srcs, 'todo-execute': srcs['todo-execute'].replace('summary under 400', 'summary under 600') }))
+  r = await run('todo-execute', { run_id: 'r', briefs: [brief({ worktree: '/wt/made' })] }, (p, o) => (o.agentType ===
+    'todo-worker' ? worker({ worktree: '/wt/made' }) : verdict('fail')))
+  check('528: the implement and retry prompts carry the limits',
+    byType(r.calls, 'todo-worker').length === 2
+    && byType(r.calls, 'todo-worker').every(c => c.prompt.includes('Keep summary under 400 characters')))
+  r = await run('todo-review', { round: 1, prs: [pr()] }, reviewStub({ lens: high }))
+  check('528: the repair prompt carries the limits',
+    byType(r.calls, 'todo-worker')[0].prompt.includes('Keep summary under 400 characters'))
+
+  // --- todo 494 F17: the record reverifyWorker builds is a valid WORKER record (a missing branch would crash ingest)
+  const rvOk = async mutate => {
+    const rr = await run('todo-execute', { run_id: 'r', briefs: [brief({ reverify: rv })] },
+      () => verdict('pass', { tree_id_before: 'T9', tree_id_after: 'T9' }), { mutate, badFixtures: true })
+    const w = rr.result.results[0].worker
+    return Boolean(w) && schemaErrors(w, schemaOf(source('todo-execute'), 'WORKER')).length === 0
+  }
+  check('494 F17: reverifyWorker\'s record matches the WORKER schema', await rvOk(null))
+  check('494 F17: ... and that check fails when the record loses the brief\'s fields (no branch)',
+    !(await rvOk(['status: \'staged\', ...b.reverify,', 'status: \'staged\', worktree: b.reverify.worktree,'])))
+  // --- todo 494 F8: the implement stage is async, so a runtime that chains .then on it still gets the record
+  r = await run('todo-execute', { run_id: 'r', briefs: [brief({ reverify: rv })] },
+    () => verdict('pass', { tree_id_before: 'T9', tree_id_after: 'T9' }), { chain: true })
+  check('494 F8: a re-verify still returns its record when the runtime chains .then on each stage',
+    r.result.results[0].worker && r.result.results[0].worker.tree_id === 'T9', r.result)
+  r = await run('todo-execute', { run_id: 'r', briefs: [brief({ reverify: rv })] },
+    () => verdict('pass', { tree_id_before: 'T9', tree_id_after: 'T9' }),
+    { chain: true, allowErrors: true, mutate: ['  async (plan, b) => {\n    if (b.reverify)', '  (plan, b) => {\n    if (b.reverify)'] })
+  check('494 F8: ... and that check fails on a synchronous stage', r.errors.length > 0 && r.result.results[0] === null
+    || r.result.results[0].worker === null, r.result)
+  // --- todo 494 F4: each re-point marker is a JSON string on the REPOINTS line, in both workflows
+  const odd = { 1: [{ index: 0, to: '8', marker: 'a "quoted"; marker' }] }
+  r = await run('todo-execute', { run_id: 'r', briefs: [brief({ reverify: rv, repoints: odd })] },
+    () => verdict('pass', { tree_id_before: 'T9', tree_id_after: 'T9' }))
+  const execLine = byType(r.calls, 'todo-verifier')[0].prompt.split('\n').find(l => l.startsWith('REPOINTS:'))
+  r = await run('todo-review', { round: 1, prs: [pr({ repoints: odd })] }, reviewStub({ lens: high }))
+  const reviewLine = byType(r.calls, 'todo-verifier')[0].prompt.split('\n').find(l => l.startsWith('REPOINTS:'))
+  check('494 F4: a marker with a quote and a semicolon is JSON-quoted on the REPOINTS line (execute and review)',
+    execLine === 'REPOINTS: 1#0 "a \\"quoted\\"; marker"' && reviewLine === execLine, [execLine, reviewLine])
+
+  // --- todo 529 item 3: todo-followups curates each PR's follow-ups, then a refuter tries to refute them
+  const fg = (over = {}) => ({ run_id: 'r', group: 'g1', ids: ['1'], pr: 900, main_root: '/main',
+    followups: ['medium: a.py:9 real', 'low: a.py:2 nit', 'low: b.py:30 gone'], ...over })
+  const item = (over = {}) => ({ severity: 'medium', file: 'a.py', line: 9, summary: 'real', also: ['nit'],
+    on_main: 'present', note: 'still there', ...over })
+  const curated = { pr_on_main: true, items: [item(), item({ severity: 'low', file: 'b.py', line: 30, summary: 'gone', also: [],
+    on_main: 'fixed', note: 'removed by #901' }), item({ severity: 'low', file: 'c.py', line: 4, summary: 'maybe', also: [] })] }
+  const isCurator = o => Boolean(o.schema && o.schema.properties.items)
+  r = await run('todo-followups', { run_id: 'r', groups: [fg()] },
+    (p, o) => (isCurator(o) ? curated : { judgments: [{ index: 0, refuted: false, reason: 'holds' },
+      { index: 1, refuted: true, reason: 'handled upstream' }] }))
+  const fr = r.result.results[0]
+  check('529 item 3: one curator, then one refuter per PR, both the guarded read-only todo-reviewer',
+    r.calls.length === 2 && r.calls.every(c => c.opts.agentType === 'todo-reviewer') && isCurator(r.calls[0].opts), r.calls)
+  check('529 item 3: the curator gets the follow-ups as JSON data and reads only origin/main through git',
+    r.calls[0].prompt.includes(JSON.stringify(fg().followups)) && r.calls[0].prompt.includes("/usr/bin/git -C '/main' show origin/main:")
+    && r.calls[0].prompt.includes('Never read files from disk'), r.calls[0].prompt)
+  check('529 item 3: an item fixed on main is dropped before the refuter, and a refuted one after it',
+    fr.kept.length === 1 && fr.kept[0].file === 'a.py' && fr.refuter_ok
+    && fr.dropped.map(d => d.why.split(':')[0]).join() === 'fixed on main,refuted'
+    && !r.calls[1].prompt.includes('b.py'), fr)
+  r = await run('todo-followups', { run_id: 'r', groups: [fg()] },
+    (p, o) => (isCurator(o) ? { ...curated, pr_on_main: false } : { judgments: [] }))
+  check('529 repair: a PR not on origin/main drops nothing as fixed and gets no refuter (left uncurated)',
+    r.result.results[0].kept === null && r.result.results[0].dropped.length === 0 && r.calls.length === 1
+    && /PR #900 is not on origin\/main/.test(r.result.results[0].why), r.result)
+  check('529 repair: the curator first checks the PR\'s squash commit is on origin/main',
+    r.calls[0].prompt.includes("/usr/bin/git -C '/main' log -1 --format=%h --fixed-strings --grep='(#900)' origin/main")
+    && !r.calls[0].prompt.includes('about to be'), r.calls[0].prompt)
+  r = await run('todo-followups', { run_id: 'r', groups: [fg()] }, () => null)
+  check('529 item 3: a dead curator curates nothing (kept null: the stored list stays, marked uncurated)',
+    r.result.results[0].kept === null && r.calls.length === 1, r.result)
+  r = await run('todo-followups', { run_id: 'r', groups: [fg()] }, (p, o) => (isCurator(o) ? curated : null))
+  check('529 item 3: a dead refuter refutes nothing (every open item is kept)',
+    r.result.results[0].kept.length === 2 && r.result.results[0].refuter_ok === false, r.result)
+  r = await run('todo-followups', { run_id: 'r', groups: [fg({ refuted: ['critical: x.py:1 secret'] })] },
+    (p, o) => (isCurator(o) ? curated : { judgments: [] }))
+  check('529 item 3: a refuted line never reaches the curator or the refuter, even if passed in',
+    r.calls.every(c => !c.prompt.includes('x.py:1 secret')), r.calls.map(c => c.prompt))
+  const reviewerVerdict = cmd => require('child_process').execFileSync('bash', [hook], {
+    input: JSON.stringify({ agent_type: 'todo-reviewer', tool_input: { command: cmd } }) }).toString()
+  const curatorCmds = [`/usr/bin/git -C '${ROOT}' show origin/main:scripts/todos/state.py`,
+    `/usr/bin/git -C '${ROOT}' grep -n FOLLOWUP_CAP origin/main -- scripts/todos/state.py`,
+    `/usr/bin/git -C '${ROOT}' log -1 --format=%h --fixed-strings --grep='(#900)' origin/main`]
+  check('529 item 3: the git guard allows the curator\'s three read commands against the main checkout',
+    curatorCmds.every(c => reviewerVerdict(c) === '') && reviewerVerdict(`/usr/bin/git -C '${ROOT}' add x`).includes('"deny"'),
+    curatorCmds.map(reviewerVerdict))
+  const followSrc = source('todo-followups')
+  const followTypes = [...followSrc.matchAll(/agentType: '([a-z-]+)'/g)].map(m => m[1])
+  check('529 item 3: every agentType in todo-followups.js is one the git guard limits to read-only git',
+    followTypes.length === 2 && followTypes.every(t => t === 'todo-reviewer') && guarded.has('todo-reviewer'), followTypes)
 
   // --- schemas stay identical across files
   for (const name of ['WORKER', 'VERDICT']) {

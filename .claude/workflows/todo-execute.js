@@ -4,7 +4,7 @@ export const meta = {
   whenToUse: 'Called by the completing-todos engine with args {run_id, briefs} from `state.py execute-args`',
   phases: [
     { title: 'Plan', detail: 'only groups triaged needs-research' },
-    { title: 'Implement', detail: 'todo-worker, isolation: worktree' },
+    { title: 'Implement', detail: 'todo-worker, in the worktree execute-args created for its group' },
     { title: 'Verify', detail: 'todo-verifier; one retry on fail' },
   ],
 }
@@ -68,11 +68,17 @@ function pathLines(b) {
 }
 
 // Todo 492: the owner-authorized re-points (`state.py repoint`). The verifier accepts a criterion changed
-// only by one of these markers; any other change to a criterion is still an edit.
+// only by one of these markers; any other change to a criterion is still an edit. Each marker is a JSON
+// string (todo 494 F4), so a quote or a semicolon in it cannot break the line. The same code is in todo-review.js.
 function repointLines(b) {
-  const items = Object.entries(b.repoints || {}).flatMap(([id, list]) => list.map(r => `${id}#${r.index} "${r.marker}"`))
+  const items = Object.entries(b.repoints || {}).flatMap(([id, list]) => list.map(r => `${id}#${r.index} ${JSON.stringify(r.marker)}`))
   return items.length ? [`REPOINTS: ${items.join('; ')}`] : []
 }
+
+// Todo 528: a worker whose record fails the WORKER schema returns nothing, and its finished work is lost. The
+// worker is told the limits with headroom under the schema's maxLength, as reviewers are. Same words in todo-review.js.
+const LIMITS = 'Keep summary under 400 characters, and blockers and discoveries under 250 each: a WORKER record ' +
+  'over the schema limits is refused, and a refused record loses your finished work.'
 
 // Todo 492: a reopened todo whose staged worktree is verified as it is (`state.py set --reverify`).
 // No planner and no worker run; this stands in for the worker record the verifier checks against.
@@ -90,9 +96,11 @@ function planPrompt(b) {
   ].join('\n')
 }
 
+// Todo 528: execute-args created the group's worktree (b.worktree), so its path is known even when the worker
+// dies. The worker works there without isolation, as a retry does.
 function workPrompt(b, plan) {
-  return ['MODE: implement', ...pathLines(b), 'BRIEF:', JSON.stringify(b, null, 1),
-    plan ? `PLAN:\n${plan}` : 'PLAN: none', 'Return the WORKER record.'].join('\n')
+  return ['MODE: implement', ...(b.worktree ? [`WORKTREE: ${b.worktree}`] : []), ...pathLines(b), 'BRIEF:',
+    JSON.stringify(b, null, 1), plan ? `PLAN:\n${plan}` : 'PLAN: none', LIMITS, 'Return the WORKER record.'].join('\n')
 }
 
 // A verifier that died part-way may have left files, so its re-run checks the tree before anything else
@@ -142,7 +150,7 @@ function retryPrompt(b, w, v) {
     JSON.stringify(b, null, 1),
     `VERIFIER NOTES:\n${notes.join('\n') || `verdict ${v.verdict}; tree or cleanliness check failed`}`,
     'An entry noted `external` cannot be fixed: return `status: blocked`, naming that criterion.',
-    'Return the WORKER record.'].join('\n')
+    LIMITS, 'Return the WORKER record.'].join('\n')
 }
 
 const results = await pipeline(
@@ -153,12 +161,18 @@ const results = await pipeline(
     if (!p) log(`Planner returned nothing for ${b.group}; its worker gets PLAN: none`)
     return p ? p.plan : ''
   },
-  (plan, b) => b.reverify ? reverifyWorker(b) : agent(workPrompt(b, plan),
-    { label: `work:${b.group}`, phase: 'Implement', agentType: 'todo-worker', isolation: 'worktree', schema: WORKER }),
+  // async (todo 494 F8): a re-verify returns its record directly, and a runtime that chains with .then still gets it.
+  async (plan, b) => {
+    if (b.reverify) return reverifyWorker(b)
+    // A brief without a worktree (an execute-args that did not create one) falls back to harness isolation.
+    if (!b.worktree) log(`${b.group}: the brief names no worktree; the worker gets an isolated one, unrecorded if it dies`)
+    return agent(workPrompt(b, plan), { label: `work:${b.group}`, phase: 'Implement', agentType: 'todo-worker',
+      ...(b.worktree ? {} : { isolation: 'worktree' }), schema: WORKER })
+  },
   async (worker, b) => {
-    // The first attempt's worktree rides on every result, so a dead retry (worker: null) still
-    // tells ingest-execute where the staged work is.
-    const base = { group: b.group, ids: b.ids, worktree: worker ? worker.worktree : null }
+    // The group's worktree rides on every result, so a dead worker or a dead retry (worker: null) still
+    // tells ingest-execute where the staged work is (todo 528: the brief's, known before any agent ran).
+    const base = { group: b.group, ids: b.ids, worktree: worker ? worker.worktree : (b.worktree || null) }
     if (!worker || worker.status !== 'staged') return { ...base, worker, verdict: null, retried: false }
     const verdict = await verify(b, worker, `verify:${b.group}`)
     if (!verdict || verdict.verdict === 'pass') return { ...base, worker, verdict, retried: false }
@@ -176,6 +190,6 @@ const results = await pipeline(
 )
 
 return {
-  results: results.map((r, i) => r || { group: briefs[i].group, ids: briefs[i].ids, worktree: null, worker: null,
-    verdict: null, retried: false }),
+  results: results.map((r, i) => r || { group: briefs[i].group, ids: briefs[i].ids, worktree: briefs[i].worktree || null,
+    worker: null, verdict: null, retried: false }),
 }

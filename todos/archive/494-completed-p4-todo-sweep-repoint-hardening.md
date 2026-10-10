@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: p4
 issue_id: "494"
 tags: [harness, todo-sweep]
@@ -92,11 +92,53 @@ collected here.
 
 ## Acceptance Criteria
 
-- [ ] Findings 1–6, 8–10 and 11–16 are fixed, or each has a line in this todo saying why not.
-- [ ] Each gap in finding 17 has a test that fails when the guard it names is removed.
+- [x] Findings 1–6, 8–10 and 11–16 are fixed, or each has a line in this todo saying why not.
+- [x] Each gap in finding 17 has a test that fails when the guard it names is removed.
 
 ## Work Log
 
 ### 2026-09-28 - Filed from PR #885 review rounds 1 and 2
 
 Findings 11–16 come from round 2 of the second review cycle, which never repairs.
+
+### 2026-10-10 - Implemented by the todo sweep (run 2026-10-10-1537)
+
+- Fixed in `scripts/todos/state.py`: F1 (`criteria_problem`/`git_criteria`, run by `ingest-execute` and on a kept
+  round-1 repair by `ingest-review`; only a listed marker, removed once, is allowed), F2+F11 (failed → ready moves
+  the attempt, re-points included, to `previous`; `reopen_reverify` needs `attempts == 0`), F3, F4 (`--date` must be
+  a real YYYY-MM-DD; both workflows `JSON.stringify` the marker), F5 (compare `→ todo NNN`, keep the earlier
+  marker), F8 (async stage), F9 (`diff-tree` may touch only the todo and each target), F10, F13, F15, F16. F6 is in
+  `todo-verifier.md` step 4.
+- Left as is, with why: F1's archive-tripwire half — `check_archived_todo_status.py` cannot know which marker the
+  owner authorized; the ingest checks now refuse an unlisted one before Land. F12 and F14 — runbook only, per the
+  owner's decision (SKILL.md Stage B step 5: the one-time `blocked_by=worker` backfill, and the dead-verifier case).
+- F17: every gap has a test in `test_state_flow.py` (`hardening_494_tests`) or `test_workflows.js`, each run once
+  against `state.py` and once against a copy with its guard removed (`mutant`/`both`, the JS `mutate`).
+- Existing tests changed: the 492 re-point test unstages its stray todo 9 (the F9 guard now refuses it), and
+  `reverify_grouping_tests`' fake git answers `diff-tree` with nothing.
+
+### 2026-10-10 - Verified by the todo sweep (run 2026-10-10-1537)
+
+- AC 1: `python3 scripts/todos/test_state_flow.py | grep -E '494 F|FAIL|All checks passed' && node scripts/todos/test_workflows.js | grep -E '494 F|FAIL|All checks passed' && sed -n '/2026-10-10 - Implemented by the todo sweep/,$p' todos/archive/494-completed-p4-todo-sweep-repoint-hardening.md` — evidence `.sweep-evidence/g1/494-ac0.txt` (not committed), last lines:
+
+  ```text
+    against `state.py` and once against a copy with its guard removed (`mutant`/`both`, the JS `mutate`).
+  - Existing tests changed: the 492 re-point test unstages its stray todo 9 (the F9 guard now refuses it), and
+    `reverify_grouping_tests`' fake git answers `diff-tree` with nothing.
+  state: --reverify takes stage ready and exactly one --field reason=...
+  state: 7: --date must be a YYYY-MM-DD date, not 'tomorrow'
+  ```
+
+- AC 2: `python3 scripts/todos/test_state_flow.py | grep -E '494 F17|494 F11/F17|494 F3/F17|FAIL|All checks passed' && node scripts/todos/test_workflows.js | grep -E '494 F17|FAIL|All checks passed'` — evidence `.sweep-evidence/g1/494-ac1.txt` (not committed), last lines:
+
+  ```text
+    PASS  494 F17: reverifyWorker's record matches the WORKER schema
+    PASS  494 F17: ... and that check fails when the record loses the brief's fields (no branch)
+  All checks passed.
+  state: --reverify takes stage ready and exactly one --field reason=...
+  state: 7: --date must be a YYYY-MM-DD date, not 'tomorrow'
+  ```
+
+### 2026-10-10 - Completed by the todo sweep (run 2026-10-10-1537)
+
+- Archived by `land.py archive`; evidence is quoted above, review is on the PR.

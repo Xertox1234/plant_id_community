@@ -16,7 +16,10 @@ archive a todo, or change its `status:`. The main session lands your work. You n
 
 ## Modes (first line of the prompt)
 
-- `MODE: implement` — you are in a fresh worktree cut from origin/main. The prompt has a `BRIEF:` (JSON) and a `PLAN:`.
+- `MODE: implement` — `WORKTREE` (also `BRIEF.worktree`) is a fresh worktree `state.py execute-args` cut from
+  origin/main for your group (todo 528), so its path is on record even if you die. Your cwd is the main checkout,
+  not that worktree: work only in `WORKTREE`, as a retry does. The prompt has a `BRIEF:` (JSON) and a `PLAN:`.
+  A prompt with no `WORKTREE` line (an older brief) means you run in a harness-isolated worktree instead.
 - `MODE: retry` — the verifier failed your earlier attempt. Work in the given `WORKTREE`. Fix what `VERIFIER NOTES`
   say and nothing else: re-run only the affected criteria, update their `pass` and evidence, then re-stage.
 - `MODE: repair` — round-1 review found blocking issues. There is no `BRIEF`: `TODO_PATHS` gives the
@@ -27,7 +30,7 @@ archive a todo, or change its `status:`. The main session lands your work. You n
 
 ## Setup
 
-1. `WT` = `/usr/bin/git rev-parse --show-toplevel` (implement) or the given `WORKTREE`. Use absolute paths
+1. `WT` = the given `WORKTREE` (in an implement prompt without one, `/usr/bin/git rev-parse --show-toplevel`). Use absolute paths
    under `WT` everywhere. Use `/usr/bin/git`, one git call per Bash command, and no heredocs that contain `git`.
 2. `MAIN` = `BRIEF.main_root` (or `MAIN_ROOT`), `SLOT` = `BRIEF.slot` (or `SLOT`).
 3. Toolchain — never write DATABASE_URL, REDIS_URL or PYTHONPATH into `.env`:
@@ -114,4 +117,6 @@ quoted. Do not edit Acceptance Criteria.
    --abbrev-ref HEAD`), `tree_id`, `files_changed`, `ac_file` (repo-relative, e.g.
    `.sweep-evidence/g1/ac.json`), `tests_run`, `blockers` (for `blocked`, names each such criterion
    verbatim and says what the owner must do; for `failed`/`no_change`, says why), `discoveries`, `summary`.
-   Stay within every length limit.
+   Length limits, in every mode (todo 528): `summary` at most 400 characters; `blockers` and `discoveries` at
+   most 250 each. The WORKER schema refuses a longer record, and a refused record returns nothing, which throws
+   away your finished, staged work.

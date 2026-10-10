@@ -10,7 +10,7 @@ description: The todo engine. Drives selected todos through scan, triage, one ba
 Design: `docs/superpowers/specs/2026-09-27-todo-sweep-multi-agent-design.md`. Pilot evidence:
 `docs/superpowers/specs/2026-09-27-todo-sweep-pilot-results.md`. This file is the main-session
 runbook. `scripts/todos/*.py` own every state change and file edit. The named workflows
-`todo-triage`, `todo-execute` and `todo-review` own the fan-out. Running them is sanctioned: the user invoked a
+`todo-triage`, `todo-execute`, `todo-review` and `todo-followups` own the fan-out. Running them is sanctioned: the user invoked a
 skill whose instructions call Workflow.
 
 **Stay lean.** Hold only records and `--stat` output. Never read a worker's diff, evidence files, or
@@ -45,10 +45,11 @@ sockets in `sandbox.network.allowUnixSockets` through `slot_env.py` (spec §7.3)
 needs the sandbox off. A worker that blocks on "no database" means a socket is missing:
 `ls /tmp/.s.PGSQL.5432 /tmp/redis.sock`.
 
-**Sandbox-off steps** (pilot, 2026-09-28). `todo-execute` creates each group's worktree under
-`REPO/.claude/worktrees/`. The sandbox allows writes there only while that workflow runs. Once it
-finishes, run these steps with the sandbox off, and no others:
+**Sandbox-off steps** (pilot, 2026-09-28). Each group's worktree lives under `REPO/.claude/worktrees/`;
+`state.py execute-args` creates it there (todo 528), and the sandbox does not allow the main session to write
+there. Run these steps with the sandbox off, and no others:
 
+- Stage B step 1, `execute-args` (it runs `git worktree add` and copies the `.worktreeinclude` files).
 - Stage D steps 1–8, a Stage C repair commit, and the empty commit that restarts a wedged CI run (Merge
   confirmation): `ensure-worktree`, `land.py`, `git add`, `git branch -m`, `git commit` and a rebase in `$WT`.
 - Cleanup: `git worktree remove $WT`, then `git worktree prune`.
@@ -115,14 +116,24 @@ With `--limit N`, execute only the first ⌈N / workers⌉ waves and list the de
 
 ## Stage B — Execute (per wave W, in order)
 
-1. `python3 scripts/todos/state.py execute-args $RUN --wave W --main-root REPO` → `{run_id, briefs}`.
+1. `/usr/bin/git -C REPO fetch origin main`, then, with the sandbox off,
+   `python3 scripts/todos/state.py execute-args $RUN --wave W --main-root REPO` → `{run_id, briefs}`.
    Waves start at 0: a fresh run's first call is `--wave 0`.
+   It cuts each worker group's worktree from origin/main (`REPO/.claude/worktrees/sweep-$RUN_ID-<group>`, branch
+   `worktree-sweep-$RUN_ID-<group>`, `--no-track`) and records it on the brief and on each todo before any agent
+   runs (todo 528), so a worker that dies still leaves its worktree in RUN for `state.py worktrees`. A rerun
+   reuses a worktree it already made; anything else at that path is refused.
    It refuses while wave W−1 is still executing or wave W−2 is not merged. Then Land those first.
    An empty wave (`[]`) means wait for wave W−2 to merge, then move on.
 2. `Workflow({name: "todo-execute", args: <that object>})` runs in the background. Meanwhile, land wave W−1.
 3. On the notification: `python3 scripts/todos/state.py ingest-execute $RUN --output <task output file>`.
+   It also compares each staged todo's Acceptance Criteria with the merge-base ones (todo 494): any change but a
+   re-point the run recorded fails the todo, `acceptance criteria were edited`. A worker that reports a worktree
+   other than the one it was given fails too.
 4. `failed` todos: retry once in a later wave with `state.py set $RUN <id> ready`, then `state.py group $RUN`
-   (it appends new groups and waves). A second failure: `state.py set $RUN <id> blocked --field reason="…"`.
+   (it appends new groups and waves). The failed attempt's worktree, tree, evidence and re-points move to
+   `previous` (todo 494): the retry gets a fresh worktree, and a retried todo is never re-verified in place.
+   A second failure: `state.py set $RUN <id> blocked --field reason="…"`.
 5. `blocked` todos: report the blocker to the owner. When it is cleared (a fix merged, a decision made),
    reopen the todo with `state.py set $RUN <id> ready --field reason="<what cleared it>"`, and also every
    todo that execute-args blocked as `dependency <id> blocked`, transitively: in a chain A→B→C, C's reason
@@ -147,7 +158,20 @@ With `--limit N`, execute only the first ⌈N / workers⌉ waves and list the de
      group and its own wave, before the planned ones; a dependent reopened with it waits in
      `execute-args` until it merges. The workflow skips the planner and the worker and
      verifies the worktree as it is. Don't touch the worktree after `execute-args`: it records the tree
-     the verdict must match.
+     the verdict must match. `execute-args` refuses a re-verify whose worktree is gone, or whose index
+     changed since the block outside the todo file and each re-point's new target todo (todo 494); block
+     the todo and reopen it the plain way.
+   - `repoint` takes only a blocked todo or one reopened with `--reverify`, a real `--date YYYY-MM-DD`, and a
+     target number no other todo in RUN already re-points to. Rerun on a later day, it keeps the marker
+     already on the line.
+   - **Runs written before PR #885** have no `blocked_by`, so `--reverify` refuses a todo whose first worker
+     did block it (todo 423 in run 2026-09-28-2018). Backfill it once, only when the todo has `attempts: 0`,
+     no verdict, and a `reason` that is the worker's blockers:
+     `state.py annotate $RUN <group> --field blocked_by=worker`. Never for any other block.
+   - **A dead verifier strands a re-verify** (todo 494 F14, owner decision 2026-10-02): two null verdicts
+     make the todo `failed` with `no verdict`. No verifier judged that tree, but `--reverify` stays refused
+     (it needs a block by the first worker). Retry it the usual way (`set … ready`, a fresh worker); the
+     re-pointed work is in `previous` for the owner to compare. There is no other path.
    - A wave the run deferred (`--limit`) blocks every later wave. Block its todos with the reason
      `deferred by --limit` first, and list them in the wrap-up.
 
@@ -175,11 +199,13 @@ Steps 1–8 run with the sandbox off (see **Sandbox**).
    gate (`scripts/kimi-precommit.sh`) may take up to 300 s, so give this Bash call `timeout: 600000`. The
    PreToolUse kimi hook is capped at 300 s too, but it matches only a command that starts `git commit`, so it
    does not run on this `/usr/bin/git -C` commit.
-   If a pre-commit fixer (`trailing-whitespace`, `end-of-file-fixer`) rewrote files, the commit aborted and the
-   rewrites sit unstaged, so `ensure-worktree` refuses them. Stage exactly the paths
-   `/usr/bin/git -C $WT diff --name-only` prints (`/usr/bin/git -C $WT add <paths…>`), re-run step 1 (it accepts
-   a path only when its new contents are exactly those fixers' output on the verified ones, todo 513), then
-   commit again. A refusal there means the diff is more than a fixer made: stop the group.
+   If a pre-commit fixer rewrote files, the commit aborted and the rewrites sit unstaged, so `ensure-worktree`
+   refuses them. Stage exactly the paths it rewrote, NUL-separated so git never C-quotes a path (todo 514):
+   `/usr/bin/git -C $WT diff --name-only -z | xargs -0 /usr/bin/git -C $WT add --`, then re-run step 1 and
+   commit again. Step 1 accepts only `trailing-whitespace` and `end-of-file-fixer` rewrites: a path passes when its new
+   contents are exactly those two fixers' output on the verified ones, on a file they treat as text (todo 513).
+   A refusal means the diff is a real change, or another configured fixer rewrote the file (black, isort,
+   prettier, dart-format, `markdownlint --fix`, `mixed-line-ending`). Either way, stop the group.
 7. Rebase when origin/main moved (spec §7.2): `/usr/bin/git -C $WT fetch origin main`; if
    `/usr/bin/git -C $WT merge-base --is-ancestor origin/main HEAD` fails, `/usr/bin/git -C $WT rebase origin/main`.
    A conflict outside `todos/` and append-only docs (`docs/LEARNINGS.md`, `docs/rules/*.md`) is not
@@ -239,11 +265,27 @@ Steps 1–8 run with the sandbox off (see **Sandbox**).
    phrasing reported there. A dead reviewer makes the round `rerun`, never a partial pass. The run file keeps each
    todo's `refuted` findings whole (`<severity>: file:line summary | also: …`, never capped, one line per severity
    and file:line across both rounds). List them in the wrap-up, so the owner can see what the refuters dismissed.
-4. Follow-ups: todos with `followups` or `refuted` get one follow-up todo file per PR (next free id, `p4`, the
-   PR number in its Findings, refuted ones under their own heading so the owner can re-judge them), all
-   committed together in a closing `chore(todos): follow-ups from run $RUN_ID` PR. A group still held or
-   blocked is an owner hand-off in the wrap-up, not a p4 follow-up. Its dismissed criticals are already on
-   the PR and in its block reason.
+4. Follow-ups: `ingest-review` stores a group's non-blocking findings once per group (todo 529), as
+   `<severity>: file:line summary | also: …`, one line per file:line with every phrasing, the most severe
+   first, capped at 10 with `followups_dropped` counting what the cap left out. Once the wave's PRs have
+   merged (Merge confirmation and cleanup, below, moves each group to `merged`):
+   - `/usr/bin/git -C REPO fetch origin main` first: the curator and the refuter read origin/main, and a PR
+     whose code is not on it would read every item it added as `fixed`. `followups-args` takes only `merged`
+     or `archived` groups (a `reviewed` one waits for its merge), and the curator checks that the PR's
+     `(#<pr>)` squash commit is on origin/main; when it is not, the group stays `uncurated` with nothing dropped.
+   - `state.py followups-args $RUN --main-root REPO` → `Workflow({name: "todo-followups", args})` →
+     `state.py ingest-followups $RUN --output <task output file>`. Per PR, one curator merges duplicates and
+     checks each item on origin/main, then one refuter tries to refute what is left; fixed and refuted items
+     drop out. A dead curator leaves the stored list, marked `uncurated`. The `refuted` lines never go
+     through it.
+   - For each group, `state.py followups-md $RUN G --out $SCRATCH/followups-G.md` writes its Findings: each
+     item with its severity, the cap's dropped count, and the refuted lines under their own heading so the
+     owner can re-judge them.
+   - One follow-up todo file per PR with follow-ups or `refuted` lines (a group with only refuted lines gets
+     no curation but still gets one, from `followups-md`): next free id, `p4`, the PR number and that Findings text, all
+     committed together in a closing `chore(todos): follow-ups from run $RUN_ID` PR. A group still held or
+     blocked is an owner hand-off in the wrap-up, not a p4 follow-up. Its dismissed criticals are already on
+     the PR and in its block reason.
 5. `residue` (todo 480): an agent of the review changed the PR worktree, so the reviewers did not all read what
    ships, and a round-1 repair's `git add -A` would have committed it. `review-args` records a baseline per
    round (HEAD, plus every path `git add -A` would take, with its content hash). The workflow checks it before
