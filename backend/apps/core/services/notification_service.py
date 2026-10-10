@@ -243,7 +243,6 @@ class NotificationService:
             EmailType.FORUM_REPLY: "forum_reply",
             EmailType.FORUM_MENTION: "forum_mention",
             EmailType.FORUM_DIGEST: "forum_digest",
-            EmailType.NEWSLETTER: "newsletter",
             EmailType.BLOG_POST: "blog_post",
             EmailType.PLANT_TIPS: "plant_tips",
             EmailType.IDENTIFICATION_RESULT: "identification_result",
@@ -345,27 +344,3 @@ class NotificationService:
         )
 
         return results.get("email", False)
-
-    def send_newsletter(
-        self,
-        recipients: List[User],
-        subject: str,
-        content_items: List[Dict],
-        newsletter_type: str = "weekly",
-    ) -> Dict[str, int]:
-        """Send newsletter to multiple recipients."""
-
-        def context_factory(user):
-            return {
-                "content_items": content_items,
-                "newsletter_type": newsletter_type,
-                "user_first_name": user.first_name or user.username,
-            }
-
-        return self.email_service.send_bulk_email(
-            email_type=EmailType.NEWSLETTER,
-            recipients=recipients,
-            subject=subject,
-            template_name="newsletter",
-            context_factory=context_factory,
-        )

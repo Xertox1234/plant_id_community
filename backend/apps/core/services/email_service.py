@@ -33,7 +33,6 @@ class EmailType:
     FORUM_DIGEST = "forum_digest"
 
     # Newsletter and content
-    NEWSLETTER = "newsletter"
     BLOG_POST = "blog_post"
     PLANT_TIPS = "plant_tips"
 
@@ -209,6 +208,11 @@ class EmailService:
             )
             return True
 
+        except Warning:
+            # A RemovedInDjango70Warning is an error under pytest.ini (todo 364)
+            # and Warning subclasses Exception: never log it as a failed send
+            # (todo 454).
+            raise
         except ConnectionError as e:
             logger.error(
                 f"[EMAIL] Email connection failed for {email_type} to {log_safe_email(recipient_email)}: {e}"
@@ -259,6 +263,10 @@ class EmailService:
                     results["sent"] += 1
                 else:
                     results["failed"] += 1
+            except Warning:
+                # Re-raised by send_email (todo 454): never count it as one
+                # recipient's failure.
+                raise
             except Exception as e:
                 # recipient could be email or User object - handle both cases
                 safe_recipient = (
@@ -424,6 +432,11 @@ class EmailService:
                 f"[EMAIL] Transactional email sent to {log_safe_email(recipient_email)}"
             )
             return True
+        except Warning:
+            # A RemovedInDjango70Warning is an error under pytest.ini (todo 364)
+            # and Warning subclasses Exception: never log it as a failed send
+            # (todo 454).
+            raise
         except Exception as e:
             logger.error(
                 f"[EMAIL] Failed to send transactional email to {log_safe_email(recipient_email)}: {e}"

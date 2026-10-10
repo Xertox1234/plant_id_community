@@ -5,6 +5,7 @@ import warnings
 
 import pytest
 from apps.core.checks import check_default_mailer
+from apps.core.mail_backends import ConfiguredSMTPBackend
 from apps.core.mail_config import (
     CONFIGURED_SMTP_BACKEND,
     DJANGO_SMTP_BACKEND,
@@ -12,8 +13,40 @@ from apps.core.mail_config import (
 )
 from django.conf import DEPRECATED_EMAIL_SETTINGS, settings
 from django.core import mail
+from django.core.mail.backends import smtp
+from django.core.mail.backends.base import BaseEmailBackend
 from django.test import override_settings
 from django.utils.deprecation import RemovedInDjango70Warning
+
+
+class LoggingSMTPBackend(smtp.EmailBackend):
+    """A custom SMTP subclass set through EMAIL_BACKEND (todo 454)."""
+
+
+class ConfiguredLoggingSMTPBackend(ConfiguredSMTPBackend):
+    """The supported way to customise SMTP: subclass the credential keeper."""
+
+
+class ApiMailBackend(BaseEmailBackend):
+    """A non-SMTP backend that takes the connection options (an HTTP API)."""
+
+    def __init__(
+        self,
+        *,
+        host=None,
+        port=None,
+        use_tls=None,
+        use_ssl=None,
+        timeout=None,
+        username=None,
+        password=None,
+        **kwargs,
+    ):
+        super().__init__(**kwargs)
+
+    def send_messages(self, email_messages):
+        return len(email_messages)
+
 
 SMTP_ENV = dict(
     host="smtp.example.com",
@@ -107,3 +140,54 @@ def test_the_system_check_fails_an_unbuildable_mailer():
     with override_settings(MAILERS=_smtp_mailers(use_ssl=True)):
         [error] = check_default_mailer(None)
     assert error.id == "core.E364"
+
+
+def _mailers_for(backend):
+    return {"default": build_default_mailer(backend, **SMTP_ENV)}
+
+
+def test_the_system_check_fails_an_smtp_subclass_that_would_lose_its_login():
+    """Todo 454: mail_config wraps only Django's own SMTP backend, so a
+    subclass gets plain username/password OPTIONS, and Wagtail's
+    get_connection(username=None, password=None) nulls them out."""
+    with override_settings(MAILERS=_mailers_for(f"{__name__}.LoggingSMTPBackend")):
+        # The failure mode the check refuses, shown for real.
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", RemovedInDjango70Warning)
+            backend = mail.get_connection(username=None, password=None)
+        assert backend.username is None
+        [error] = check_default_mailer(None)
+    assert error.id == "core.E364"
+    assert "LoggingSMTPBackend" in error.msg
+
+
+def test_the_system_check_fails_a_configured_smtp_subclass_set_through_the_env():
+    # EMAIL_BACKEND pointing at ConfiguredSMTPBackend (or a subclass) is not
+    # swapped by mail_config, so it gets plain username/password OPTIONS and
+    # loses them the same way: the check tests the credentials, not the class.
+    path = f"{__name__}.ConfiguredLoggingSMTPBackend"
+    with override_settings(MAILERS=_mailers_for(path)):
+        [error] = check_default_mailer(None)
+    assert error.id == "core.E364"
+
+
+def test_the_system_check_passes_vanilla_smtp_without_credentials():
+    with override_settings(MAILERS=_smtp_mailers(username="", password="")):
+        assert check_default_mailer(None) == []
+
+
+def test_the_system_check_accepts_a_configured_smtp_subclass():
+    options = _smtp_mailers()["default"]["OPTIONS"]
+    mailers = {
+        "default": {
+            "BACKEND": f"{__name__}.ConfiguredLoggingSMTPBackend",
+            "OPTIONS": options,
+        }
+    }
+    with override_settings(MAILERS=mailers):
+        assert check_default_mailer(None) == []
+
+
+def test_the_system_check_accepts_a_non_smtp_backend():
+    with override_settings(MAILERS=_mailers_for(f"{__name__}.ApiMailBackend")):
+        assert check_default_mailer(None) == []

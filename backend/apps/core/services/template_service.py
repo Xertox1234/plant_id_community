@@ -169,7 +169,6 @@ This email was sent by {site_name}
         preheader_map = {
             "forum_reply": "New activity in the community",
             "identification_result": "Your plant has been identified",
-            "newsletter": "Your weekly plant care digest",
             "disease_alert": "Important plant health information",
         }
 

@@ -227,6 +227,11 @@ def _send_confirmation_email(subscriber: BlogNewsletter) -> bool:
             render_to_string(CONFIRM_HTML_TEMPLATE, context), "text/html"
         )
         message.send()
+    except Warning:
+        # A RemovedInDjango70Warning is an error under pytest.ini (todo 364)
+        # and Warning subclasses Exception: never log it as a failed send
+        # (todo 454).
+        raise
     except Exception:
         logger.exception(
             f"[EMAIL] newsletter confirmation failed for subscriber={subscriber.pk}"
