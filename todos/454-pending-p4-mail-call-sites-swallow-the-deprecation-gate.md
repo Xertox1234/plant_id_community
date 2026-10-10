@@ -6,8 +6,8 @@ tags: [django, email, testing]
 dependencies: []
 source_review: "todos/364-pending-p3-mailers-migration-and-warning-gate.md"
 triage: ready
-triaged: 2026-09-28
-owner_decision: "Refuse a non-vanilla SMTP subclass in core.E364 (2026-09-28)"
+triaged: 2026-10-10
+owner_decision: "Cover all five swallowing send sites: digest.py, security.py, blog/newsletter.py, blog/newsletter_digest.py, core/services/email_service.py (2026-10-10)"
 ---
 
 # Todo 364 review follow-ups: the gate can be swallowed; SMTP subclasses lose credentials

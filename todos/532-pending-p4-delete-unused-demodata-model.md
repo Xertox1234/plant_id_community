@@ -4,6 +4,9 @@ priority: p4
 issue_id: "532"
 tags: [backend, users, migrations]
 dependencies: []
+triage: ready
+triaged: 2026-10-10
+owner_decision: "One PR: a single DeleteModel migration (0018) drops the model and its table; nothing queries it, so a rolling deploy is safe (2026-10-10)"
 ---
 
 # Delete the unused `users.DemoData` model

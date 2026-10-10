@@ -4,6 +4,9 @@ priority: p4
 issue_id: "535"
 tags: [forum, backend, link-preview, review-follow-up, testing]
 dependencies: []
+triage: ready
+triaged: 2026-10-10
+owner_decision: "Item 2: measure the 100k cap with a tolerance for server-added markup (e.g. target=_blank/rel), so a near-cap post stays editable (2026-10-10)"
 ---
 
 # Link preview: non-blocking findings from todo 448's reviews (PRs #971, #972)

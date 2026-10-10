@@ -4,6 +4,8 @@ priority: p4
 issue_id: "533"
 tags: [backend, core, email, dead-code]
 dependencies: ["409"]
+triage: ready
+triaged: 2026-10-10
 ---
 
 # Remove the legacy newsletter email path
