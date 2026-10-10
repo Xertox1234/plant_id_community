@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: p3
 issue_id: "542"
 tags: [todo-sweep, engine]
@@ -47,16 +47,22 @@ two rounds: residue baseline, ingest and follow-up capture.
 
 ## Acceptance Criteria
 
-- [ ] `state.py hand-round` moves a group blocked by round-2 blocking findings back to `pr_open` with the
+- [x] `state.py hand-round` moves a group blocked by round-2 blocking findings back to `pr_open` with the
       owner's dated decision, and refuses a held group, a group blocked for any other reason, and a second
       call on the same group (tests, each with a guard-removed mutant).
-- [ ] `review-args --round 3` and `ingest-review --round 3` work on the saved run file: a clean round 3
+- [x] `review-args --round 3` and `ingest-review --round 3` work on the saved run file: a clean round 3
       ends at `reviewed`, so `set-group merged` / `archived` then succeed. A blocking round 3 ends
       `blocked`, and the engine runs no round 4 (tests).
-- [ ] Round 3's non-blocking and refuted findings are stored with the group, as rounds 1–2 are (test).
-- [ ] The completing-todos runbook documents the step, and no deepcopy or hand-built args remain in it.
+- [x] Round 3's non-blocking and refuted findings are stored with the group, as rounds 1–2 are (test).
+- [x] The completing-todos runbook documents the step, and no deepcopy or hand-built args remain in it.
 
 ## Work Log
 
 - 2026-10-10: Filed from run 2026-10-10-1537 at the owner's request, after the third hand-run round 3
   (#982). See `docs/LEARNINGS.md` 2026-10-10 and the run's codify PR #985.
+- 2026-10-10: Done. `state.py hand-round` (accepts only a round-2 `blocked_by`, never a hold or any other
+  block, and only once), round 3 in `review-args` / `ingest-review` (needs `hand_round: 3`; no round 4), a
+  round-3 hold clears to `reviewed` with round 3 done, and the Stage C runbook step. Evidence:
+  `python3 scripts/todos/test_state_flow.py` (`hand_round_542_tests`: four guard-removed mutants, and round 3
+  run on a saved run file against a real git worktree), `python3 scripts/todos/test_state.py`, and
+  `node scripts/todos/test_workflows.js` (round 3 never repairs).

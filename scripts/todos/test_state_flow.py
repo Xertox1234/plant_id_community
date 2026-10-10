@@ -257,7 +257,7 @@ def main():
           run["todos"][ids_ok[0]]["verified_ac"] == repair_verdict["ac"], run["todos"][ids_ok[0]])
     check("a round-1 repair's flagged test edits carry into round 2",
           "tests/test_a.py" in state.review_args(run, 2, 0, git=fake_git)[0]["test_edits"])
-    check("an invalid round number is refused", raises(lambda: state.review_args(run, 3, 0), ValueError))
+    check("an invalid round number is refused", raises(lambda: state.review_args(run, 4, 0), ValueError))
     low = [{"severity": "low", "file": "a.py", "line": 2, "summary": "nit", "suggested_fix": ""}]
 
     # Todo 478: a critical that only the refuters dismissed holds the PR for the owner, from either round.
@@ -1402,6 +1402,7 @@ def main():
     worktree_528_tests()
     followups_529_tests()
     fixer_514_tests()
+    hand_round_542_tests()
     print()
     if FAILURES:
         print(f"FAILED: {len(FAILURES)} check(s): {', '.join(FAILURES)}")
@@ -2699,6 +2700,147 @@ def _real_fixers():
     finally:
         sys.path.remove(row[0])
     return trailing_whitespace_fixer, end_of_file_fixer
+
+
+def hand_round_542_tests():
+    """Todo 542: an owner-approved round 3 runs on the saved run file, against a real PR worktree."""
+    def blocked_entry(**over):
+        return {"stage": "blocked", "group": "g1", "worktree": "/wt/g1", "branch": "b", "pr": 900, "slot": 1,
+                "path": "todos/1-pending-p3-x.md", "triage": {"size": "s"}, **over}
+
+    def one(entry):
+        return {"run_id": "r", "waves": [["g1"]], "groups": {"g1": {"ids": ["1"]}}, "todos": {"1": entry}}
+
+    def accepts(mod, entry):
+        r = one(entry)
+        try:
+            mod.hand_round(r, "g1", "owner: ok (2026-10-10)")
+        except mod.TransitionError:
+            return False
+        return r["todos"]["1"]["stage"] == "pr_open"
+
+    guard_by = ('    if any(e["stage"] != "blocked" or e.get("blocked_by") != "review round 2" for _, e in entries):',
+                '    if any(e["stage"] != "blocked" for _, e in entries):')
+    # Each refusal, with the guard that makes it removed. The case is True when hand_round refuses.
+    both("542 AC1: hand_round refuses a group held for the owner",
+         lambda m: not accepts(m, blocked_entry(reason=f"{m.HELD}: 1 critical finding(s)", held_round=2)), *guard_by)
+    both("542 AC1: hand_round refuses a group a worker blocked",
+         lambda m: not accepts(m, blocked_entry(reason="needs key", blocked_by="worker")), *guard_by)
+    both("542 AC1: hand_round refuses a group whose round 2 was incomplete twice",
+         lambda m: not accepts(m, blocked_entry(reason="review round 2 was incomplete twice (last: rerun, x)")),
+         *guard_by)
+    both("542 AC1: hand_round refuses a second round 3",
+         lambda m: not accepts(m, blocked_entry(reason="1 blocking findings after round 2", hand_round=3,
+                                                blocked_by="review round 2")),
+         '    if any(e.get("hand_round") for _, e in entries):', '    if False:')
+    check("542 AC1: hand_round needs the owner's decision",
+          raises(lambda: state.hand_round(one(blocked_entry(blocked_by="review round 2", reason="x")), "g1", "  ")))
+
+    with tempfile.TemporaryDirectory() as tmp:
+        wt, rf = Path(tmp) / "wt", os.path.join(tmp, "run.json")
+        wt.mkdir()
+
+        def sh(*args):
+            return subprocess.run(["git", "-C", str(wt), "-c", "user.email=t@t", "-c", "user.name=t", *args],
+                                  check=True, capture_output=True, text=True).stdout
+
+        def cli(*args):
+            with contextlib.redirect_stdout(io.StringIO()) as out, contextlib.redirect_stderr(io.StringIO()):
+                rc = state.main(list(args))
+            return rc, out.getvalue()
+
+        def output(results):
+            path = os.path.join(tmp, f"out-{len(os.listdir(tmp))}.json")
+            Path(path).write_text(json.dumps({"results": results}))
+            return path
+
+        subprocess.run(["git", "init", "-q", "-b", "main", str(wt)], check=True)
+        (wt / "a.py").write_text("a = 1\n")
+        sh("add", "a.py")
+        sh("commit", "-q", "-m", "base")
+        sh("update-ref", "refs/remotes/origin/main", "HEAD")
+        (wt / "a.py").write_text("a = 2\n")
+        sh("commit", "-q", "-am", "the PR")
+        run = pr_open_run(str(wt))
+        run["todos"]["1"].update(review_round=1, owner_decision="use topics (2026-10-01)")
+        state.save(run, rf)
+        high = {"severity": "high", "file": "a.py", "line": 1, "summary": "bug", "suggested_fix": ""}
+
+        rc, _ = cli("review-args", rf, "--round", "2", "--wave", "0")
+        rc2, _ = cli("ingest-review", rf, "--output", output([review_result(findings=[high], blocking=[high])]),
+                     "--round", "2")
+        e = state.load(rf)["todos"]["1"]
+        check("542: a round-2 block records blocked_by, which hand-round reads",
+              (rc, rc2) == (0, 0) and e["stage"] == "blocked" and e["blocked_by"] == "review round 2", e)
+        check("542: review-args --round 3 lists no group before hand-round",
+              json.loads(cli("review-args", rf, "--round", "3", "--wave", "0")[1])["prs"] == [])
+
+        rc, _ = cli("hand-round", rf, "g1", "--decision", "owner: fix it by hand (2026-10-10)")
+        e = state.load(rf)["todos"]["1"]
+        check("542 AC1: hand-round moves the group back to pr_open, round 2 done, with the dated decision",
+              rc == 0 and e["stage"] == "pr_open" and e["review_round"] == 2 and e["hand_round"] == 3
+              and e["reason"] == "" and "blocked_by" not in e
+              and e["owner_decision"] == "use topics (2026-10-01); round 3: owner: fix it by hand (2026-10-10)", e)
+        check("542 AC1: a second hand-round on the same group is refused",
+              cli("hand-round", rf, "g1", "--decision", "again")[0] == 2)
+
+        (wt / "a.py").write_text("a = 3\n")  # the owner's repair, committed in the PR worktree
+        sh("commit", "-q", "-am", "fix: address review round 2")
+        rc, out = cli("review-args", rf, "--round", "3", "--wave", "0")
+        prs = json.loads(out)["prs"]
+        base = state.load(rf)["todos"]["1"]["review_baseline"]
+        check("542 AC2: review-args --round 3 builds round-3 args with the real run path and a fresh baseline",
+              rc == 0 and [p["group"] for p in prs] == ["g1"] and prs[0]["round"] == 3
+              and prs[0]["residue_check"] == f"python3 {state.STATE_PY} residue {os.path.realpath(rf)} g1"
+              and base["round"] == 3 and base["head"] == sh("rev-parse", "HEAD").strip(), (prs, base))
+        check("542: residue reads round 3 for a hand-round group",
+              json.loads(cli("residue", rf, "g1")[1]) == {"changed": []})
+        check("542: no round 4", raises(lambda: state.review_args(state.load(rf), 4, 0), ValueError))
+
+        blocked_path = os.path.join(tmp, "blocked.json")
+        shutil.copy(rf, blocked_path)
+        low = {"severity": "low", "file": str(wt / "a.py"), "line": 2, "summary": "nit", "suggested_fix": ""}
+        dismissed = {**high, "line": 5, "summary": "maybe", "also": [], "refutations": ["no", "no"]}
+        rc, out = cli("ingest-review", rf, "--output", output([review_result(findings=[low], refuted=[dismissed])]),
+                      "--round", "3")
+        r = state.load(rf)
+        e = r["todos"]["1"]
+        check("542 AC2: a clean round 3 ends at reviewed", rc == 0 and json.loads(out) == {"g1": "clean"}
+              and e["stage"] == "reviewed" and e["review_round"] == 3, (out, e))
+        check("542 AC3: round 3's non-blocking findings are stored with the group",
+              r["groups"]["g1"]["followups"] == ["low: a.py:2 nit"], r["groups"]["g1"])
+        check("542 AC3: round 3's refuted findings are stored with each todo",
+              e["refuted"] == ["high: a.py:5 maybe"], e.get("refuted"))
+        rc_m, _ = cli("set-group", rf, "g1", "merged")
+        rc_a, _ = cli("set-group", rf, "g1", "archived")
+        check("542 AC2: after a clean round 3, set-group merged and archived succeed and worktrees drops it",
+              (rc_m, rc_a) == (0, 0) and state.load(rf)["todos"]["1"]["stage"] == "archived"
+              and json.loads(cli("worktrees", rf)[1]) == {}, (rc_m, rc_a))
+
+        rc, out = cli("ingest-review", blocked_path, "--output",
+                      output([review_result(findings=[high], blocking=[high])]), "--round", "3")
+        e = state.load(blocked_path)["todos"]["1"]
+        check("542 AC2: a blocking round 3 ends blocked for good",
+              rc == 0 and json.loads(out) == {"g1": "blocked"} and e["stage"] == "blocked"
+              and e["blocked_by"] == "review round 3" and "after round 3" in e["reason"], e)
+        check("542 AC2: hand-round refuses a round-3 block (no round 4)",
+              cli("hand-round", blocked_path, "g1", "--decision", "owner: once more")[0] == 2)
+
+    plain = pr_open_run()
+    plain["todos"]["1"]["review_round"] = 2
+    check("542: review_args skips a round-2-done group that has no hand_round",
+          state.review_args(plain, 3, 0, git=clean_git) == [])
+    check("542: ingest_review refuses round 3 for a group without hand_round",
+          raises(lambda: ingest(plain, [review_result()], 3)))
+    crit = {"severity": "critical", "file": "d.py", "line": 4, "summary": "x", "suggested_fix": "", "also": [],
+            "refutations": ["no", "no"]}
+    held = pr_open_run()
+    held["todos"]["1"].update(review_round=2, hand_round=3)
+    got = ingest(held, [review_result(refuted=[crit])], 3)
+    state.clear_hold(held, "g1", "owner: false positive (2026-10-10)")
+    check("542: a round-3 critical holds, and clearing it goes to reviewed with round 3 done",
+          got == {"g1": "held"} and held["todos"]["1"]["stage"] == "reviewed"
+          and held["todos"]["1"]["review_round"] == 3, (got, held["todos"]["1"]))
 
 
 def raises(fn, exc=state.TransitionError):

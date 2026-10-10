@@ -288,7 +288,9 @@ Land runs in the main session, one group at a time, in wave order:
    compact verdicts, never the full diff, because reading ~18 full diffs is the
    context fill this design removes. Still blocking → stop that PR
    and report. Non-blocking findings from either round → a follow-up todo file
-   (CLAUDE.md review-loop budget: two rounds, never three).
+   (CLAUDE.md review-loop budget: two rounds, never three). The one exception is a
+   round 3 the owner approves for a PR that round 2 blocked: `state.py hand-round`
+   (todo 542). There is never a round 4.
 6. After merge is confirmed, remove the worktree (work is pushed and merged, so
    nothing is lost) and set the stage to `archived`.
 
