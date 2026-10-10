@@ -34,7 +34,9 @@ description: Resume, restart, or discard an interrupted todo run from its checkp
    - `blocked` → report each reason. One whose reason starts `held for the owner` is a PR held for a
      dismissed critical: only the owner clears it, with `state.py clear-hold $RUN G --decision "…"`. A round-2
      hold then goes to `reviewed`: arm it (Stage C step 2). A round-1 hold (`(round 1)` in the reason) goes back
-     to `pr_open` with round 1 done: resume it as `pr_open` above. Any other blocked group whose blocker has
+     to `pr_open` with round 1 done: resume it as `pr_open` above. A group round 2 blocked on blocking findings
+     (`blocked_by: review round 2`) gets a round 3 only when the owner approves one: `state.py hand-round`
+     (`completing-todos` Stage C step 2). Any other blocked group whose blocker has
      since cleared is reopened as in Stage B step 5.
 4. **restart**: list `state.py worktrees $RUN` in your reply, delete RUN (confirm first), then re-run the original selector.
 5. **discard**: list `state.py worktrees $RUN` in your reply, delete RUN (confirm first). No todo file on `main`

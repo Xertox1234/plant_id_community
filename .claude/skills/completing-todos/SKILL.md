@@ -256,8 +256,8 @@ Steps 1–8 run with the sandbox off (see **Sandbox**).
    **Owner-approved round 3** (todo 542). When the owner approves one more round for a PR that round 2 blocked
    on blocking findings, run `state.py hand-round $RUN G --decision "<their words, dated>"`. It refuses a held
    group, any other block, and a second call. It moves the group back to `pr_open` with round 2 done. Then
-   commit the owner's repair in the PR worktree, `state.py annotate $RUN G --field tree_id=$(git -C $WT
-   rev-parse HEAD^{tree})`, run `ensure-worktree`, push, and run `review-args --round 3` → workflow →
+   commit the owner's repair in the PR worktree, run `/usr/bin/git -C $WT rev-parse HEAD^{tree}` on its own, then
+   `state.py annotate $RUN G --field tree_id=<that tree>`. Run `ensure-worktree`, push, and run `review-args --round 3` → workflow →
    `ingest-review --round 3`. Round 3 runs as round 2 does: there is no repair, it takes its own residue
    baseline, and it stores follow-ups and refuted lines. Its outcomes are the same as round 2's: post the
    refuted comment, then `clean` → arm, `held` → `clear-hold` → `reviewed`, `blocked` → the owner's hand-off
