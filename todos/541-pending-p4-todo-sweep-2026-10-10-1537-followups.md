@@ -4,6 +4,9 @@ priority: p4
 issue_id: "541"
 tags: [todo-sweep, follow-ups]
 dependencies: []
+triage: ready
+triaged: 2026-10-10
+owner_decision: "#983-1: accept at-least-once like send_blog_newsletter (release the claim; an occasional duplicate digest is acceptable). #982-9: build the new Edit/Write worktree-isolation guard hook inside 541, do not promote it (2026-10-10)"
 ---
 
 # Todo sweep run 2026-10-10-1537: follow-ups from PRs #982 and #983

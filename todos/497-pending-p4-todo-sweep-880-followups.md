@@ -5,8 +5,8 @@ issue_id: "497"
 tags: [harness, todo-sweep]
 dependencies: []
 triage: ready
-triaged: 2026-10-02
-owner_decision: "Finding 6: a Python test that runs todo-execute.js's dirtyOnly through node (2026-10-02)"
+triaged: 2026-10-10
+owner_decision: "Finding 4: add a new owner-gated state.py command (like clear-hold/hand-round) that releases a group blocked by two incomplete review rounds back to pr_open for one more round (2026-10-10)"
 ---
 
 # Todo sweep: non-blocking follow-ups from PR #880

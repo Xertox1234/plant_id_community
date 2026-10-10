@@ -5,6 +5,8 @@ issue_id: "539"
 tags: [backend, forum, link-previews, follow-ups]
 dependencies: []
 source_todo: "537"
+triage: ready
+triaged: 2026-10-10
 ---
 
 # Forum link previews: follow-ups from PR #978 (todo 535)

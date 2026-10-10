@@ -5,6 +5,9 @@ issue_id: "540"
 tags: [todo-sweep, engine]
 dependencies: []
 source_todo: "537"
+triage: ready
+triaged: 2026-10-10
+owner_decision: "Finding 1: the worker runs pre-commit run --files <staged> with SKIP=kimi-review and re-stages before write-tree; ensure-worktree is not taught to tolerate Black (2026-10-10)"
 ---
 
 # Todo sweep: workers stop with a pre-commit-clean tree; triage checks FKs on deleted models

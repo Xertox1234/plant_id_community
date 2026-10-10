@@ -4,6 +4,9 @@ priority: p4
 issue_id: "527"
 tags: [todo-sweep, follow-ups]
 dependencies: []
+triage: blocked-owner
+triaged: 2026-10-10
+blocked_on: "Owner must pick a slicing (per-PR or per-platform sub-todos) and decide the #954 embed-naming/full-URL calls and the #941-2 finding-5 re-check."
 ---
 
 # Todo sweep run 2026-10-02-0335: verified follow-ups from 11 merged PRs
