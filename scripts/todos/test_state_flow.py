@@ -8,14 +8,18 @@ instead of a hope (spec §5.2): a verifier that passes while the staged tree
 moved, or leaves the working tree dirty, must void the verdict.
 """
 
+import contextlib
 import copy
+import io
 import json
 import os
 import re
 import shutil
+import sqlite3
 import subprocess
 import sys
 import tempfile
+import types
 from pathlib import Path
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -173,7 +177,7 @@ def main():
                                      "reviewers_ok": False, "repair": None, "verdict": None}], 1)
     check("an incomplete review asks for a rerun and adds no followups",
           res[g_ok] == "rerun" and run["todos"][ids_ok[0]].get("review_round", 0) == 0
-          and run["todos"][ids_ok[0]].get("followups", []) == [])
+          and run["groups"][g_ok].get("followups", []) == [])
     blocking = [{"severity": "high", "file": "a.py", "line": 1, "summary": "bug", "suggested_fix": ""}]
     # G2: the repair verdict's ac carries a distinct note from the original ingest_execute
     # verdict (which used the default note=""), so this can tell "updated from the repair"
@@ -346,7 +350,9 @@ def main():
           run["todos"][ids_ok[0]]["refuted"] == ["high: b.py:3 maybe"], run["todos"][ids_ok[0]])
     check("a clean round 2 moves to reviewed", res[g_ok] == "clean"
           and all(run["todos"][i]["stage"] == "reviewed" for i in ids_ok))
-    check("non-blocking findings are kept as follow-ups", run["todos"][ids_ok[0]]["followups"] == ["a.py:2 nit"])
+    # Todo 529: stored once for the group, with the severity first.
+    check("non-blocking findings are kept as follow-ups", run["groups"][g_ok]["followups"] == ["low: a.py:2 nit"],
+          run["groups"][g_ok])
 
     state.annotate(run, g_ok, branch="feat/1-x")
     check("annotate records a field without a stage change",
@@ -531,7 +537,7 @@ def main():
     ingest(run6, [{"group": g6, "ids": ["f6"], "findings": many, "blocking": [],
                                 "reviewers_ok": True, "repair": None, "verdict": None}], 2)
     check("followups are capped at 10 total across rounds, not per call",
-          len(run6["todos"]["f6"]["followups"]) <= 10, run6["todos"]["f6"]["followups"])
+          len(run6["groups"][g6]["followups"]) <= 10, run6["groups"][g6]["followups"])
 
     # R4: within-call duplicate findings are stored once, and two rounds with the
     # same 3 findings store 3 (not 6).
@@ -546,17 +552,17 @@ def main():
     ingest(run_dup, [{"group": gd, "ids": ["fd"], "findings": within_call_dup, "blocking": [],
                                    "reviewers_ok": True, "repair": None, "verdict": None}], 1)
     check("within-call duplicate findings are stored once",
-          run_dup["todos"]["fd"]["followups"] == ["a.py:5 dup"], run_dup["todos"]["fd"]["followups"])
+          run_dup["groups"][gd]["followups"] == ["low: a.py:5 dup"], run_dup["groups"][gd]["followups"])
     three = [{"severity": "low", "file": f"f{n}.py", "line": n, "summary": "x", "suggested_fix": ""}
              for n in range(3)]
-    run_dup["todos"]["fd"]["followups"] = []
+    run_dup["groups"][gd].update(followups=[], followups_seen=[])
     run_dup["todos"]["fd"]["review_round"] = 0  # a fresh round 1 (todo 468 refuses a round-1 re-ingest)
     ingest(run_dup, [{"group": gd, "ids": ["fd"], "findings": three, "blocking": [],
                                    "reviewers_ok": True, "repair": None, "verdict": None}], 1)
     ingest(run_dup, [{"group": gd, "ids": ["fd"], "findings": three, "blocking": [],
                                    "reviewers_ok": True, "repair": None, "verdict": None}], 2)
     check("two rounds with the same 3 findings store 3, not 6",
-          len(run_dup["todos"]["fd"]["followups"]) == 3, run_dup["todos"]["fd"]["followups"])
+          len(run_dup["groups"][gd]["followups"]) == 3, run_dup["groups"][gd]["followups"])
 
     # B5: the verifier's group-level reasons reach the recorded fail reason.
     run_rs = ready_run([("rs", ["rs.py"])], workers=1)
@@ -812,7 +818,11 @@ def main():
         fixer_case("513: LF flipped to CRLF still refuses", {"b.py": b"a = 1\r\nb = 2\r\n"}, False)
         fixer_case("513: CRLF flipped to LF still refuses (owner decision, though mixed-line-ending makes it)",
                    {"crlf.txt": b"a\nb\n"}, False)
-        fixer_case("513: ... while the fixers' CRLF-preserving output on that file is accepted",
+        # Todo 514 F7 (owner decision 2026-10-10): kept on purpose. The port models trailing-whitespace and
+        # end-of-file-fixer only; mixed-line-ending (--fix=lf) is not modelled, so this is not the configured
+        # chain's full output, only those two fixers' (the bytes differ from the verified ones by whitespace).
+        fixer_case("513/514: ... while trailing-whitespace + end-of-file-fixer output that keeps CRLF is accepted "
+                   "(mixed-line-ending is not modelled)",
                    {"crlf.txt": b"a\r\nb\r\n"}, True)
         # Finding 8: the fixer strips trailing whitespace inside a string literal on every commit, so the
         # verified bytes could never ship as they were; the result is accepted on purpose.
@@ -842,10 +852,13 @@ def main():
         subprocess.run(["git", "-C", str(fx), "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q",
                         "-m", "land"], check=True)
         quiet = subprocess.run(["git", "-C", str(fx), "diff", "--cached", "--quiet", "HEAD"]).returncode
-        check("513: after the Land commit nothing is staged against HEAD", quiet == 0, quiet)
+        # Todo 514 F8: this check and the next pin git's own behaviour, not repo code; the runbook recovery
+        # itself is pinned only by its text (runbook_tests). The ensure_worktree checks around them are real.
+        check("513 (git behaviour, not repo code): after the Land commit nothing is staged against HEAD",
+              quiet == 0, quiet)
         subprocess.run(["git", "-C", str(fx), "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q",
                         "--allow-empty", "-m", "ci: retrigger a wedged run"], check=True)
-        check("513: the empty commit keeps the index tree and HEAD's tree",
+        check("513 (git behaviour, not repo code): the empty commit keeps the index tree and HEAD's tree",
               git_out("write-tree") == landed and git_out("rev-parse", "HEAD^{tree}") == landed
               and git_out("rev-parse", "HEAD~1^{tree}") == landed,
               (git_out("write-tree"), git_out("rev-parse", "HEAD^{tree}"), landed))
@@ -1385,6 +1398,10 @@ def main():
     reverify_tests()
     reverify_grouping_tests()
     runbook_tests()
+    hardening_494_tests()
+    worktree_528_tests()
+    followups_529_tests()
+    fixer_514_tests()
     print()
     if FAILURES:
         print(f"FAILED: {len(FAILURES)} check(s): {', '.join(FAILURES)}")
@@ -1423,6 +1440,10 @@ def runbook_tests():
     gate = re.search(r"^GATE_TIMEOUT=(\d+)$", (root / "scripts" / "kimi-precommit.sh").read_text(), re.M)
     hooks = [h for entry in json.loads((root / ".claude" / "settings.json").read_text())["hooks"]["PreToolUse"]
              for h in entry["hooks"] if "kimi-review.sh" in h.get("command", "")]
+    # Todo 514 F9: equality (300 == 300) is intended, not a margin. The hook runs kimi-review with no timeout
+    # of its own, so there is no inner gate for its setup to eat into: at 300 s Claude Code stops the hook and
+    # (hypothesis, not verified) treats it as a hook error that lets the commit through, failing open like the
+    # pre-commit gate's own `timed out; skipping gate`. A margin would mean editing .claude/settings.json.
     check("513: the kimi-review PreToolUse hook's timeout is no shorter than the pre-commit gate's",
           bool(gate and hooks) and all(h.get("timeout", 0) >= int(gate.group(1)) for h in hooks), (gate, hooks))
 
@@ -1524,14 +1545,14 @@ def residue_tests():
                                               residue=["probe.py"])], 1)
         check("480 AC1: the workflow's residue report stops the round and the entries name every path",
               got == {"g1": "residue"} and r1["todos"]["1"]["review_residue"] == want
-              and r1["todos"]["1"].get("review_round", 0) == 0 and "followups" not in r1["todos"]["1"],
+              and r1["todos"]["1"].get("review_round", 0) == 0 and "followups" not in r1["groups"]["g1"],
               r1["todos"]["1"])
         r1b = copy.deepcopy(run)
         got = state.ingest_review(r1b, [result(1, findings=[{"severity": "low", "file": "a.py", "line": 1,
                                                              "summary": "nit", "suggested_fix": ""}])], 1)
         check("480: with no repair, ingest compares in code even when the workflow reported nothing",
               got == {"g1": "residue"} and r1b["todos"]["1"]["review_residue"] == want
-              and "followups" not in r1b["todos"]["1"], r1b["todos"]["1"])
+              and "followups" not in r1b["groups"]["g1"], r1b["todos"]["1"])
         held = {}
         items, err = expect(lambda: state.review_args(r1, 1, 0, held=held))
         check("480: a rerun keeps the round's baseline and holds the group back while the residue is still there",
@@ -1616,7 +1637,7 @@ def bookkeeping_tests():
     forms = ["a.py", "./a.py", "/tmp/sweep-wt/g1/a.py", "/private/tmp/sweep-wt/g1/a.py"]
     ingest(run, [review_result(findings=[finding(f) for f in forms])], 1)
     check("478: follow-ups are path-normalised (absolute, /private alias and ./ forms are one location)",
-          run["todos"]["1"]["followups"] == ["a.py:2 nit"], run["todos"]["1"]["followups"])
+          run["groups"]["g1"]["followups"] == ["low: a.py:2 nit"], run["groups"]["g1"])
     run = pr_open_run(worktree="/private/tmp/sweep-wt/g1")
     ingest(run, [review_result(refuted=[dict(finding("/tmp/sweep-wt/g1/b.py", 3, "maybe", "high"), also=["other"],
                                              refutations=["no", "no"])])], 1)
@@ -1811,6 +1832,10 @@ def reverify_tests():
         (wt / "todos" / "9-pending-p2-other.md").write_text("---\nstatus: pending\n---\n")
         git("-C", str(wt), "add", "todos/9-pending-p2-other.md")
         check("492: a criterion already re-pointed elsewhere is refused", raises(lambda: repoint(to="9")))
+        # Todo 494 F9: a file staged since the block that is not a re-point target now stops the re-verify,
+        # so this check's stray target todo 9 is unstaged again (_reverify_tests_f9 pins the refusal).
+        git("-C", str(wt), "rm", "-q", "--cached", "todos/9-pending-p2-other.md")
+        (wt / "todos" / "9-pending-p2-other.md").unlink()
         check("492: a re-point to a todo already on the branch is refused (a stale copy of a done todo)",
               raises(lambda: state.repoint(run, "7", 0, "6", decision, "2026-09-28")))
         (wt / "todos" / "12-pending-p2-new.md").write_text("---\nstatus: pending\n---\n")
@@ -1910,7 +1935,8 @@ def reverify_grouping_tests():
     ever held is re-verified in place; its group and wave are its own, first; and an abandoned re-verify
     leaves no flag behind."""
     def fake_git(repo, *args):
-        return "TREE\n"
+        # Todo 494 F9: execute-args now diffs the blocked tree against the new one; nothing changed here.
+        return "" if args[0] == "diff-tree" else "TREE\n"
 
     def blocked_pair(shared):
         run = ready_run([("7", ["scripts/a.py"]), ("17", ["scripts/a.py"])])
@@ -1998,6 +2024,659 @@ def reverify_grouping_tests():
         briefs, err = expect(lambda: state.execute_args(dropped, len(dropped["waves"]) - 1, "/m"))
         check("492: ... so the fresh attempt is briefed for a worker",
               err is None and briefs[0]["ids"] == ["7"] and briefs[0]["reverify"] is None, err or briefs)
+
+
+def mutant(old, new):
+    """state.py with one exact replacement, loaded as its own module (todo 494 F17): a check run on it shows the
+    test FAILS once the guard it names is removed. Mirrors `mutate` in test_workflows.js."""
+    src = Path(state.STATE_PY).read_text()
+    if src.count(old) != 1:
+        raise AssertionError(f"mutation anchor not found once: {old!r}")
+    mod = types.ModuleType("state_mutant")
+    mod.__file__ = state.STATE_PY
+    exec(compile(src.replace(old, new), state.STATE_PY, "exec"), mod.__dict__)
+    return mod
+
+
+def both(label, case, old, new):
+    """Run `case(state)` (must be True) and `case(mutant)` (must be False): the test pins its guard."""
+    real, err = expect(lambda: case(state))
+    check(f"{label}", real is True, err or real)
+    bad, err = expect(lambda: case(mutant(old, new)))
+    check(f"{label} -- and fails with the guard removed", bad is False, err or bad)
+
+
+SAMPLE_TODO = ("---\nstatus: pending\nissue_id: \"7\"\n---\n\n# T\n\n## Acceptance Criteria\n\n"
+               "- [ ] The code works. Pinned by tests.\n"
+               "- [ ] A walkthrough from the owner's point of view: a test account\n"
+               "      posts and it shows up.\n\n## Work Log\n")
+
+
+def _g(*args):
+    return subprocess.run(["git", "-c", "user.email=t@t", "-c", "user.name=t", *args], check=True,
+                          capture_output=True, text=True).stdout
+
+
+def blocked_world(tmp, ac_extra=()):
+    """A repo whose origin/main has todo 7, and a worktree where todo 7's first worker staged a.py and its
+    evidence, then blocked on criterion 1 (todo 492's case). Returns (run, repo, wt)."""
+    tmp = Path(tmp)
+    repo, wt = tmp / "repo", tmp / "wt"
+    _g("init", "-q", "-b", "main", str(repo))
+    (repo / "todos").mkdir()
+    (repo / "todos" / "7-pending-p3-x.md").write_text(SAMPLE_TODO)
+    (repo / ".gitignore").write_text(".sweep-evidence/\n")
+    _g("-C", str(repo), "add", "-A")
+    _g("-C", str(repo), "commit", "-q", "-m", "init")
+    _g("-C", str(repo), "update-ref", "refs/remotes/origin/main", "HEAD")
+    _g("-C", str(repo), "worktree", "add", "-q", "-b", "worktree-g1", str(wt))
+    (wt / "a.py").write_text("x = 1\n")
+    _g("-C", str(wt), "add", "a.py")
+    (wt / ".sweep-evidence" / "g1").mkdir(parents=True)
+    ac = [{"todo": "7", "index": 0, "text": "The code works. Pinned by tests.", "command": "pytest a",
+           "evidence_path": ".sweep-evidence/g1/7-ac0.txt", "pass": True, "note": ""},
+          {"todo": "7", "index": 1, "text": "A walkthrough from the owner's point of view: a test account posts and "
+           "it shows up.", "command": "", "evidence_path": "", "pass": False, "note": "owner-only"}, *ac_extra]
+    (wt / ".sweep-evidence" / "g1" / "ac.json").write_text(json.dumps(ac))
+    tree = _g("-C", str(wt), "write-tree").strip()
+    run = ready_run([("7", ["a.py"])], workers=1)
+    state.apply_grouping(run)
+    first = state.execute_args(run, 0, str(repo))[0]
+    state.ingest_execute(run, [{"group": first["group"], "ids": ["7"], "retried": False, "verdict": None,
+                                "worker": worker(["7"], tree=tree, status="blocked")
+                                | {"worktree": str(wt), "blockers": "owner walkthrough"}}])
+    return run, repo, wt
+
+
+def add_target(wt, name="8-pending-p2-walkthrough.md"):
+    (Path(wt) / "todos" / name).write_text("---\nstatus: pending\n---\n")
+    _g("-C", str(wt), "add", f"todos/{name}")
+
+
+def hardening_494_tests():
+    """Todo 494: owner re-points and the verify-only reopen, hardened. Each F17 gap is run against state.py
+    and against a copy with its guard removed."""
+    decision = "walkthrough after deploy (2026-10-10)"
+
+    # F1: the verifier's step 4 in code.
+    base = SAMPLE_TODO
+    marker = "→ todo 8 (re-pointed 2026-10-10)"
+    first_line = "- [ ] A walkthrough from the owner's point of view: a test account"
+    pointed = base.replace(first_line, f"{first_line} {marker}")
+    listed = [{"index": 1, "to": "8", "marker": marker}]
+    check("494 F1: unchanged criteria pass", state.criteria_problem(base, base) is None)
+    check("494 F1: an edited criterion is refused",
+          state.criteria_problem(base, base.replace("Pinned by tests.", "Pinned.")) == "criterion 0 was edited")
+    check("494 F1: a dropped criterion is refused",
+          "2 criteria at the merge-base, 1 now" == state.criteria_problem(
+              base, base.replace("- [ ] The code works. Pinned by tests.\n", "")))
+    flipped = base.replace("- [ ] The code works.", "- [x] The code works.")
+    check("494 F1: a flipped box is refused before Land, and ignored after it",
+          state.criteria_problem(base, flipped) == "criterion 0's box changed"
+          and state.criteria_problem(base, flipped, ignore_boxes=True) is None)
+    check("494 F1: a listed re-point marker is the one allowed change",
+          state.criteria_problem(base, pointed, listed) is None)
+    check("494 F1: an unlisted re-point marker is an edit (what the archive tripwire cannot tell)",
+          state.criteria_problem(base, pointed) == "criterion 1 was edited")
+    check("494 F1/F6: the marker twice is an edit",
+          state.criteria_problem(base, pointed.replace(marker, f"{marker} {marker}"), listed)
+          == "criterion 1 was edited")
+    check("494 F1: a listed marker on a different index does not excuse the edit",
+          state.criteria_problem(base, pointed, [{**listed[0], "index": 0}]) == "criterion 1 was edited")
+
+    with tempfile.TemporaryDirectory() as tmp:
+        run, repo, wt = blocked_world(tmp)
+        check("494 F1: git_criteria reads the merge-base and the worktree file (clean)",
+              state.execute_criteria(run, "7", str(wt)) is None)
+        (wt / "todos" / "7-pending-p3-x.md").write_text(base.replace("Pinned by tests.", "Pinned."))
+        check("494 F1: git_criteria catches an edited criterion in the worktree",
+              state.execute_criteria(run, "7", str(wt)) == "criterion 0 was edited")
+        check("494 F1: an unreadable merge-base fails closed",
+              "could not read" in (state.execute_criteria(run, "7", str(Path(tmp) / "nope")) or ""))
+        # The CLI wires the check in: an edited criterion fails the todo at ingest-execute.
+        run2 = ready_run([("7", ["a.py"])], workers=1)
+        state.apply_grouping(run2)
+        b = state.execute_args(run2, 0, str(repo))[0]
+        tree = _g("-C", str(wt), "write-tree").strip()
+        out = Path(tmp) / "out.json"
+        out.write_text(json.dumps({"results": [{"group": b["group"], "ids": ["7"], "retried": False,
+                                                "worker": worker(["7"], tree=tree) | {"worktree": str(wt)},
+                                                "verdict": verdict(["7"], before=tree, after=tree)}]}))
+        runfile = Path(tmp) / "run.json"
+
+        def cli_fails_edit(st):
+            state.save(run2, runfile)
+            rc = st.main(["ingest-execute", str(runfile), "--output", str(out)])
+            entry = state.load(runfile)["todos"]["7"]
+            return rc == 0 and entry["stage"] == "failed" and "acceptance criteria were edited" in entry["reason"]
+        both("494 F1: ingest-execute (the CLI) fails a todo whose criteria the worker edited", cli_fails_edit,
+             "criteria=execute_criteria", "criteria=None")
+        (wt / "todos" / "7-pending-p3-x.md").write_text(base)
+
+    # F1 in review: a kept round-1 repair whose criteria changed blocks the group.
+    run = pr_open_run()
+    res = ingest(run, [review_result(blocking=[{"severity": "high", "file": "a.py", "line": 1, "summary": "b"}],
+                                     repair=worker(["1"], tree="T2"), verdict=verdict(["1"], "T2", "T2"),
+                                     residue=[])], 1)
+    run_e = pr_open_run()
+    for _, entry in state._group_entries(run_e, "g1"):
+        entry["review_baseline"] = {"round": 1, "head": "H", "files": {}}
+    res_e = state.ingest_review(run_e, [review_result(blocking=[{"severity": "high", "file": "a.py", "line": 1,
+                                                                 "summary": "b"}],
+                                                      repair=worker(["1"], tree="T2"), residue=[],
+                                                      verdict=verdict(["1"], "T2", "T2"))], 1,
+                                git=clean_git, criteria=lambda r, i, w: "criterion 0 was edited")
+    check("494 F1: a round-1 repair that edits a criterion blocks the group (and passes without the check)",
+          res == {"g1": "repair-staged"} and res_e == {"g1": "blocked"}
+          and "acceptance criteria were edited: todo 1: criterion 0" in run_e["todos"]["1"]["reason"],
+          (res, res_e, run_e["todos"]["1"].get("reason")))
+    check("494 F1: ingest-review (the CLI) wires review_criteria in",
+          "criteria=review_criteria" in Path(state.STATE_PY).read_text())
+
+    # F2 + F11: the failed -> ready edge moves the attempt to `previous`, and --reverify needs attempts == 0.
+    run = ready_run([("5", ["b.py"])], workers=1)
+    state.apply_grouping(run)
+    b = state.execute_args(run, 0, "/m")[0]
+    state.ingest_execute(run, [{"group": b["group"], "ids": ["5"], "retried": False, "worker": worker(["5"]),
+                                "verdict": verdict(["5"], result="fail")}])
+    run["todos"]["5"]["repoints"] = [{"index": 0, "to": "8", "marker": "m", "decision": "d"}]
+    state.transition(run, "5", "ready")
+    e = run["todos"]["5"]
+    check("494 F2/F11: failed -> ready moves the worktree, tree, evidence and re-points to previous",
+          not any(k in e for k in ("worktree", "branch", "tree_id", "ac_file", "repoints", "group"))
+          and e["previous"][-1]["worktree"] == "/wt/g1" and e["previous"][-1]["repoints"][0]["to"] == "8", e)
+    state.apply_grouping(run)
+    b2 = state.execute_args(run, len(run["waves"]) - 1, "/m")[0]
+    check("494 F2: the fresh attempt's brief lists no stale re-point", b2["repoints"] == {}, b2["repoints"])
+    with tempfile.TemporaryDirectory() as tmp:
+        def retried_reverify(st):
+            # The F11 case: the retry's fresh worker blocks with a real worktree, so only `attempts` tells.
+            state.ingest_execute(run_r := copy.deepcopy(run), [{"group": b2["group"], "ids": ["5"], "retried": False,
+                                                                "verdict": None, "worker": worker(["5"], status="blocked")
+                                                                | {"worktree": tmp, "blockers": "owner-only"}}])
+            return raises(lambda: st.reopen_reverify(run_r, "5", "r"), st.TransitionError)
+        both("494 F11/F17: --reverify is refused for a retried todo", retried_reverify,
+             'if entry.get("attempts", 0) != 0:', "if False:")
+
+    # F3 / F17: repoint takes a blocked todo, or a ready one only when reopened with --reverify.
+    with tempfile.TemporaryDirectory() as tmp:
+        run, repo, wt = blocked_world(tmp)
+        add_target(wt)
+        plain = copy.deepcopy(run)
+        state.transition(plain, "7", "ready", reason="plain reopen")
+        plain["todos"]["7"].update({k: run["todos"]["7"][k] for k in state.WORK_FIELDS})  # a stale record
+
+        def plain_ready_refused(st):
+            return raises(lambda: st.repoint(copy.deepcopy(plain), "7", 1, "8", decision, "2026-10-10"),
+                          st.TransitionError)
+        both("494 F3/F17: repoint refuses a plain ready todo (its worktree is not the next attempt's)",
+             plain_ready_refused, 'if not (entry["stage"] == "blocked" or (entry["stage"] == "ready" and '
+             'entry.get("reverify"))):', 'if entry["stage"] not in {"blocked", "ready"}:')
+        again = copy.deepcopy(run)
+        state.reopen_reverify(again, "7", "owner said so")
+        _, err = expect(lambda: state.repoint(again, "7", 1, "8", decision, "2026-10-10"))
+        check("494 F3: repoint accepts a todo reopened with --reverify", err is None, err)
+        _g("-C", str(wt), "reset", "-q", "--", "todos/7-pending-p3-x.md")
+        (wt / "todos" / "7-pending-p3-x.md").write_text(SAMPLE_TODO)
+
+        # F4: the date is validated.
+        for bad in ("2026-13-01", "2026-10-10\n", 'x" ; y', "10/10/2026"):
+            check(f"494 F4: --date {bad!r} is refused",
+                  raises(lambda: state.repoint(copy.deepcopy(run), "7", 1, "8", decision, bad)))
+        # F5: a rerun on a later day keeps the earlier marker.
+        first = state.repoint(run, "7", 1, "8", decision, "2026-10-10")
+
+        def rerun_later(st):
+            r = copy.deepcopy(run)
+            m, err = expect(lambda: st.repoint(r, "7", 1, "8", decision, "2026-10-11"))
+            return err is None and m == first and r["todos"]["7"]["repoints"][0]["marker"] == first
+        both("494 F5: re-pointing again on a later day keeps the first marker", rerun_later,
+             "if m.group(1) == str(to)]", "if m.group(0) == marker.strip()]")
+
+        # F16: a target another todo in the run already uses.
+        other = copy.deepcopy(run)
+        other["todos"]["9"] = {"stage": "blocked", "path": "todos/9-x.md", "repoints": [],
+                               "previous": [{"repoints": [{"index": 0, "to": "12", "marker": "m"}]}]}
+        add_target(wt, "12-pending-p2-new.md")
+        check("494 F16: a target number another todo in the run uses (even in an earlier attempt) is refused",
+              raises(lambda: state.repoint(other, "7", 0, "12", decision, "2026-10-10")))
+        _g("-C", str(wt), "rm", "-q", "--cached", "todos/12-pending-p2-new.md")
+        (wt / "todos" / "12-pending-p2-new.md").unlink()
+
+        # F17: a non-numeric target that the glob would find.
+        add_target(wt, "8a-pending-p2-x.md")
+
+        def letter_target(st):
+            return raises(lambda: st.repoint(copy.deepcopy(run), "7", 0, "8a", decision, "2026-10-10"),
+                          st.TransitionError)
+        both("494 F17: a target like `8a`, with a staged 8a-*.md, is refused by the isdigit guard", letter_target,
+             "if not str(to).isdigit() or str(to) == todo_id:", "if str(to) == todo_id:")
+        _g("-C", str(wt), "rm", "-q", "--cached", "todos/8a-pending-p2-x.md")
+        (wt / "todos" / "8a-pending-p2-x.md").unlink()
+
+        # F17: index bounds (a negative index would re-point the last criterion) and a duplicate ac.json entry.
+        def negative_index(st):
+            r = copy.deepcopy(run)
+            _, err = expect(lambda: st.repoint(r, "7", -1, "8", decision, "2026-10-10"))
+            return isinstance(err, st.TransitionError) and "no criterion at index -1" in str(err)
+        both("494 F17: repoint's index-bounds check refuses -1, with a TransitionError", negative_index,
+             "if not 0 <= index < len(boxes):", "if False:")
+        acp = wt / ".sweep-evidence" / "g1" / "ac.json"
+        good = acp.read_text()
+        acp.write_text(json.dumps(json.loads(good) + [json.loads(good)[0]]))
+
+        def duplicate_entry(st):
+            _, err = expect(lambda: st.repoint(copy.deepcopy(run), "7", 0, "8", decision, "2026-10-10"))
+            return isinstance(err, st.TransitionError) and "has 2 entries for criterion 0" in str(err)
+        both("494 F17: a duplicate ac.json entry is refused by name, not by a crash", duplicate_entry,
+             "if len(mine) != 1:", "if not mine:")
+        acp.write_text(good)
+
+        # F10: the todo file already moved by Land.
+        moved = copy.deepcopy(run)
+        moved["todos"]["7"]["path"] = "todos/7-gone.md"
+        _, err = expect(lambda: state.repoint(moved, "7", 0, "8", decision, "2026-10-10"))
+        check("494 F10: repoint on a todo whose file Land moved names the problem",
+              isinstance(err, state.TransitionError) and "has Land already archived it?" in str(err), err)
+
+        # F9: the re-verify tree may differ from the blocked one only in the todo file and the target.
+        state.reopen_reverify(run, "7", "owner re-pointed 1")
+        state.apply_grouping(run)
+        wave = len(run["waves"]) - 1
+        (wt / "stray.txt").write_text("scratch\n")
+        _g("-C", str(wt), "add", "stray.txt")
+
+        def stray_refused(st):
+            r = copy.deepcopy(run)
+            _, err = expect(lambda: st.execute_args(r, wave, str(repo)))
+            return isinstance(err, st.TransitionError) and "stray.txt" in str(err) and r["todos"]["7"]["stage"] == "ready"
+        both("494 F9: execute-args refuses a re-verify whose index gained a stray file since the block",
+             stray_refused, "        if stray:\n", "        if False:\n")
+        _g("-C", str(wt), "rm", "-q", "--cached", "stray.txt")
+        briefs, err = expect(lambda: state.execute_args(copy.deepcopy(run), wave, str(repo)))
+        check("494 F9: ... and accepts the todo file and the re-point target", err is None and briefs, err)
+
+        # F13: a vanished worktree is named before git runs; a shared one from execute-args says to block first.
+        gone = copy.deepcopy(run)
+        gone["todos"]["7"]["worktree"] = str(Path(tmp) / "vanished")
+        _, err = expect(lambda: state.execute_args(gone, wave, str(repo)))
+        check("494 F13: execute-args names a vanished re-verify worktree and the recovery",
+              isinstance(err, state.TransitionError) and "is gone" in str(err)
+              and "reopen it without --reverify" in str(err), err)
+        shared = copy.deepcopy(run)
+        shared["todos"]["6"] = {"stage": "blocked", "worktree": str(wt), "path": "todos/6.md"}
+        _, err = expect(lambda: state.execute_args(shared, wave, str(repo)))
+        check("494 F13: a shared worktree found at execute-args says to block the todo first",
+              isinstance(err, state.TransitionError) and "block it (`set … blocked`), then reopen it" in str(err), err)
+
+        # F17: the CLI's `set --reverify` argument check and the `repoint` subcommand, through state.main.
+        runfile = Path(tmp) / "cli.json"
+        cli_run, _, _ = run, None, None
+
+        def cli_reverify_check(st):
+            blocked = copy.deepcopy(cli_run)
+            blocked["todos"]["7"].update(stage="blocked", reason="owner walkthrough", blocked_by="worker")
+            blocked["todos"]["7"].pop("reverify", None)
+            blocked["todos"]["7"]["previous"] = []
+            state.save(blocked, runfile)
+            rc = st.main(["set", str(runfile), "7", "blocked", "--reverify", "--field", "reason=x"])
+            return rc == 2 and state.load(runfile)["todos"]["7"]["stage"] == "blocked"
+        both("494 F17: `set --reverify` through state.main refuses any stage but ready", cli_reverify_check,
+             'if args.stage != "ready" or set(fields) != {"reason"}:', "if False:")
+    with tempfile.TemporaryDirectory() as tmp:
+        run, repo, wt = blocked_world(tmp)
+        add_target(wt)
+        runfile = Path(tmp) / "cli.json"
+        state.save(run, runfile)
+        rc = state.main(["repoint", str(runfile), "7", "--index", "1", "--to", "8", "--decision", decision,
+                         "--date", "2026-10-10"])
+        saved = state.load(runfile)["todos"]["7"].get("repoints", [])
+        check("494 F17: the `repoint` subcommand through state.main records the re-point",
+              rc == 0 and saved and saved[0]["marker"] == marker, (rc, saved))
+        state.save(run, runfile)
+        rc = state.main(["repoint", str(runfile), "7", "--index", "1", "--to", "8", "--decision", decision,
+                         "--date", "tomorrow"])
+        check("494 F4: ... and refuses a bad --date (exit 2, run file unchanged)",
+              rc == 2 and not state.load(runfile)["todos"]["7"].get("repoints"), rc)
+
+    # F1 on the real path: the line `repoint` writes passes the ingest check, before Land and after it.
+    with tempfile.TemporaryDirectory() as tmp:
+        run, repo, wt = blocked_world(tmp)
+        add_target(wt)
+        state.repoint(run, "7", 1, "8", decision, "2026-10-10")
+        check("494 F1: a criterion re-pointed by `repoint` passes execute_criteria",
+              state.execute_criteria(run, "7", str(wt)) is None, state.execute_criteria(run, "7", str(wt)))
+        check("494 F1: ... and without the recorded re-point it is an edit",
+              state.execute_criteria({**run, "todos": {"7": {**run["todos"]["7"], "repoints": []}}}, "7", str(wt))
+              == "criterion 1 was edited")
+        pending = Path(wt, run["todos"]["7"]["path"])
+        pending.write_text(pending.read_text().replace("- [ ] The code works.", "- [x] The code works."))
+        archived = state.todofile.archived_path(run["todos"]["7"]["path"])
+        Path(wt, archived).parent.mkdir(parents=True, exist_ok=True)
+        _g("-C", str(wt), "add", run["todos"]["7"]["path"])
+        _g("-C", str(wt), "mv", run["todos"]["7"]["path"], archived)
+        check("494 F1: after Land flips a box and archives the file, review_criteria still passes it",
+              state.review_criteria(run, "7", str(wt)) is None, state.review_criteria(run, "7", str(wt)))
+
+    # F17: missing WORK_FIELDS in reopen_reverify.
+    with tempfile.TemporaryDirectory() as tmp:
+        run, repo, wt = blocked_world(tmp)
+        run["todos"]["7"].pop("branch")
+
+        def missing_fields(st):
+            r = copy.deepcopy(run)
+            _, err = expect(lambda: st.reopen_reverify(r, "7", "r"))
+            return isinstance(err, st.TransitionError) and "no staged attempt to re-verify (missing branch)" in str(err)
+        both("494 F17: reopen_reverify refuses an attempt missing a work field", missing_fields,
+             "    if missing:\n", "    if False:\n")
+
+    # F17: busy_lanes=again_lanes[-1] -- a planned todo on the re-verified todo's lane waits a wave.
+    def busy_after_reverify(st):
+        run = ready_run([("7", ["scripts/a.py"]), ("9", ["scripts/b.py"])], workers=2)
+        for i in ("7", "9"):
+            run["todos"][i]["source_review"] = "docs/reviews/r.md"  # one lane: a file alone is not a lane
+        run["todos"]["7"].update(reverify=True, worktree="/wt/7")
+        new = st.apply_grouping(run)["waves"]
+        g7, g9 = run["todos"]["7"]["group"], run["todos"]["9"]["group"]
+        return new[0] == [g7] and g9 not in new[1] and any(g9 in w for w in new[2:])
+    both("494 F17: a planned todo sharing the re-verified todo's lane is not in the wave right after it",
+         busy_after_reverify, "busy_lanes=again_lanes[-1] if again else busy", "busy_lanes=busy")
+
+    # F10: a clash with a failed group in the wave before says it never merges by itself.
+    run = ready_run([("1", ["x.py"]), ("2", ["y.py"])], workers=1)
+    for i in ("1", "2"):
+        run["todos"][i]["source_review"] = "docs/reviews/r.md"
+    state.apply_grouping(run)
+    run["waves"] = [[run["todos"]["1"]["group"]], [run["todos"]["2"]["group"]]]  # as a retry's appended wave can
+    b = state.execute_args(run, 0, "/m")[0]
+    state.ingest_execute(run, [{"group": b["group"], "ids": b["ids"], "retried": False, "worker": worker(b["ids"]),
+                                "verdict": verdict(b["ids"], result="fail")}])
+    _, err = expect(lambda: state.execute_args(run, 1, "/m"))
+    check("494 F10: a lane clash with a failed group says to retry or block it, not to wait for a merge",
+          isinstance(err, state.TransitionError) and "never merges until its todos are retried" in str(err)
+          and "wait for that wave" not in str(err), err)
+
+    # F15: evidence_dir comes from ac_file only when it is relative and under .sweep-evidence/.
+    cases = {".sweep-evidence/g4/ac.json": ".sweep-evidence/g4", "/abs/.sweep-evidence/g4/ac.json": ".sweep-evidence/g9",
+             "ac.json": ".sweep-evidence/g9", "": ".sweep-evidence/g9", ".sweep-evidence/../x/ac.json": ".sweep-evidence/g9",
+             ".sweep-evidence/ac.json": ".sweep-evidence/g9"}
+    got = {k: state._evidence_dir(k, "g9") for k in cases}
+    check("494 F15: _evidence_dir trusts only a relative ac_file under .sweep-evidence/", got == cases, got)
+    run = pr_open_run()
+    run["todos"]["1"]["ac_file"] = "/Users/x/wt/.sweep-evidence/g1/ac.json"
+    items = state.review_args(run, 1, 0, git=lambda repo, *a: "" if a[0] != "rev-parse" else "H\n")
+    check("494 F15: review_args gives a repair the group's default dir for an absolute ac_file",
+          items[0]["evidence_dir"] == ".sweep-evidence/g1", items[0]["evidence_dir"])
+
+
+def worktree_528_tests():
+    """Todo 528 (owner decision 2026-10-10): execute-args creates each group's worktree, so a worker that
+    returns nothing still leaves it in the run file for `state.py worktrees`."""
+    with tempfile.TemporaryDirectory() as tmp:
+        tmp = Path(tmp)
+        repo = tmp / "repo"
+        _g("init", "-q", "-b", "main", str(repo))
+        (repo / ".gitignore").write_text("backend/.env\n.claude/worktrees/\n")
+        (repo / ".worktreeinclude").write_text("# copied\nbackend/.env\nREADME.md\n")
+        (repo / "README.md").write_text("tracked\n")
+        _g("-C", str(repo), "add", "-A")
+        _g("-C", str(repo), "commit", "-q", "-m", "init")
+        _g("-C", str(repo), "update-ref", "refs/remotes/origin/main", "HEAD")
+        (repo / "backend").mkdir()
+        (repo / "backend" / ".env").write_text("SECRET_KEY=x\n")
+        run = ready_run([("1", ["a.py"]), ("2", ["b.py"])], workers=2)
+        run["run_id"] = "r1"
+        state.apply_grouping(run)
+        runfile = tmp / "run.json"
+        state.save(run, runfile)
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            rc = state.main(["execute-args", str(runfile), "--wave", "0", "--main-root", str(repo)])
+        briefs = json.loads(buf.getvalue() or "{}").get("briefs", [])
+        saved = state.load(runfile)
+        b = briefs[0] if briefs else {}
+        wt = Path(b.get("worktree", tmp / "none"))
+        check("528: execute-args creates each group's worktree under <main-root>/.claude/worktrees",
+              rc == 0 and len(briefs) == 2 and wt == repo / ".claude" / "worktrees" / f"sweep-r1-{b['group']}"
+              and wt.is_dir() and b["branch"] == f"worktree-sweep-r1-{b['group']}", (rc, briefs))
+        check("528: ... on a branch cut from origin/main, and records it on every todo before any agent runs",
+              _g("-C", str(wt), "rev-parse", "HEAD") == _g("-C", str(repo), "rev-parse", "origin/main")
+              and all(saved["todos"][i]["worktree"] == str(wt) and saved["todos"][i]["branch"] == b["branch"]
+                      for i in b["ids"]), saved["todos"])
+        check("528: ... copying the ignored .worktreeinclude files (not tracked ones), and leaving the tree clean",
+              (wt / "backend" / ".env").read_text() == "SECRET_KEY=x\n"
+              and _g("-C", str(wt), "status", "--porcelain") == "", _g("-C", str(wt), "status", "--porcelain"))
+        again = copy.deepcopy(briefs)
+        for x in again:
+            x.pop("worktree"), x.pop("branch")
+        _, err = expect(lambda: state.add_worktrees(copy.deepcopy(saved), again, repo / ".claude" / "worktrees"))
+        check("528: a rerun reuses the worktrees it already made", err is None and again[0]["worktree"] == str(wt), err)
+        (wt / "dirty.txt").write_text("x\n")
+        _, err = expect(lambda: state.add_worktrees(copy.deepcopy(saved), again, repo / ".claude" / "worktrees"))
+        check("528: ... and refuses a path that holds anything else", isinstance(err, RuntimeError)
+              and "already exists" in str(err), err)
+        (wt / "dirty.txt").unlink()
+
+        # AC2: a worker that returns nothing leaves its worktree in the run file, and `worktrees` lists it.
+        dead = {"group": b["group"], "ids": b["ids"], "worktree": b["worktree"], "worker": None, "verdict": None,
+                "retried": False}
+        other = briefs[1]
+        wrong = {"group": other["group"], "ids": other["ids"], "retried": False, "worktree": "/elsewhere",
+                 "worker": worker(other["ids"]) | {"worktree": "/elsewhere"}, "verdict": verdict(other["ids"])}
+        state.ingest_execute(saved, [dead, wrong])
+        listed = state.recorded_worktrees(saved)
+        check("528 AC2: a worker: null result fails the todo with its worktree on the entry, and `worktrees` lists it",
+              all(saved["todos"][i]["stage"] == "failed" and saved["todos"][i]["worktree"] == str(wt)
+                  and listed.get(i) == [str(wt)] for i in b["ids"]), (saved["todos"], listed))
+        check("528: a worker that reports a worktree other than the one it was given fails, naming both",
+              all(saved["todos"][i]["stage"] == "failed" and "/elsewhere" in saved["todos"][i]["reason"]
+                  and other["worktree"] in saved["todos"][i]["reason"] for i in other["ids"]), saved["todos"])
+        state.save(saved, runfile)
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            rc = state.main(["worktrees", str(runfile)])
+        check("528 AC2: ... through the CLI too", rc == 0 and json.loads(buf.getvalue()).get(b["ids"][0]) == [str(wt)],
+              buf.getvalue())
+        state.transition(saved, b["ids"][0], "ready")
+        check("528: after a retry the dead attempt's worktree stays listed (under previous)",
+              state.recorded_worktrees(saved).get(b["ids"][0]) == [str(wt)], state.recorded_worktrees(saved))
+        _g("-C", str(repo), "worktree", "remove", "--force", str(wt))
+        _g("-C", str(repo), "worktree", "remove", "--force", other["worktree"])
+
+
+def followups_529_tests():
+    """Todo 529: follow-ups ranked by severity, merged by file:line, stored once per group, curated per PR."""
+    def f(sev, line, summary="s", file="a.py"):
+        return {"severity": sev, "file": file, "line": line, "summary": summary, "suggested_fix": ""}
+
+    two = ready_run([("1", ["x.py"]), ("2", ["x.py"])], workers=1)
+    state.apply_grouping(two)
+    gid = two["waves"][0][0]
+    b = state.execute_args(two, 0, "/m")[0]
+    state.ingest_execute(two, [{"group": gid, "ids": b["ids"], "worker": worker(b["ids"]), "verdict": verdict(b["ids"])
+                                | {"ac": [{"todo": i, "index": 0, "verified": True, "note": ""} for i in b["ids"]]},
+                                "retried": False}])
+    state.set_group(two, gid, "pr_open", pr=5)
+    lows = [f("low", n) for n in range(12)]
+    ingest(two, [review_result(group=gid, ids=b["ids"], findings=lows + [f("medium", 40), f("medium", 41)])], 1)
+    stored = two["groups"][gid]["followups"]
+    check("529 AC1: with more than ten, every medium is kept before any low, and the dropped count is recorded",
+          len(stored) == 10 and stored[:2] == ["medium: a.py:40 s", "medium: a.py:41 s"]
+          and all(s.startswith("low: ") for s in stored[2:]) and two["groups"][gid]["followups_dropped"] == 4, stored)
+    check("529 AC4: a group's findings are stored once for the group, not copied to each todo",
+          all("followups" not in two["todos"][i] for i in b["ids"]) and len(b["ids"]) == 2, two["todos"])
+    ingest(two, [review_result(group=gid, ids=b["ids"], findings=lows + [f("medium", 3, "worse")])], 2)
+    stored = two["groups"][gid]["followups"]
+    check("529: round 2's repeat of the same locations does not double-count the dropped ones",
+          two["groups"][gid]["followups_dropped"] == 4 and len(two["groups"][gid]["followups_seen"]) == 14,
+          two["groups"][gid])
+    check("529: a location re-reported more severely takes the higher severity and keeps both phrasings",
+          "medium: a.py:3 s | also: worse" in stored, stored)
+
+    run = pr_open_run()
+    ingest(run, [review_result(findings=[f("low", 7, "the cache key drops the user"),
+                                         f("medium", 7, "cache key ignores the user", file="./a.py")])], 1)
+    check("529 AC2: two phrasings of one file:line are stored as one follow-up",
+          run["groups"]["g1"]["followups"] == ["medium: a.py:7 the cache key drops the user | also: cache key "
+                                               "ignores the user"], run["groups"]["g1"]["followups"])
+
+    # An old run file (per-todo `followups`, no severity) still ingests: moved to the group, ranked last.
+    run = pr_open_run()
+    run["todos"]["1"]["followups"] = ["old.py:1 legacy nit"]
+    ingest(run, [review_result(findings=[f("low", 2)])], 1)
+    check("529: a pre-529 run file's per-todo follow-ups move to the group and rank after severities",
+          run["groups"]["g1"]["followups"] == ["low: a.py:2 s", "old.py:1 legacy nit"]
+          and "followups" not in run["todos"]["1"], run["groups"]["g1"])
+
+    # Curation (item 3): followups-args, ingest-followups, followups-md.
+    run = pr_open_run()
+    ingest(run, [review_result(findings=[f("low", 2, "nit"), f("medium", 9, "real"), f("low", 30, "fixed")],
+                               refuted=[dict(f("high", 3, "maybe"), also=[], refutations=["no", "no"])])], 1)
+    ingest(run, [review_result()], 2)
+    args = state.followups_args(run, "/main")
+    check("529 item 3: followups-args lists a reviewed group with follow-ups, without its refuted lines",
+          len(args) == 1 and args[0]["followups"][0] == "medium: a.py:9 real" and "refuted" not in args[0]
+          and args[0]["pr"] == 900, args)
+    blocked = copy.deepcopy(run)
+    blocked["todos"]["1"]["stage"] = "blocked"
+    check("529 item 3: a held or blocked group gets no curation (an owner hand-off)",
+          state.followups_args(blocked, "/main") == [])
+    curated = {"group": "g1", "ids": ["1"], "refuter_ok": True,
+               "kept": [{"severity": "medium", "file": "a.py", "line": 9, "summary": "real, merged", "also": ["nit"]},
+                        {"severity": "medium", "file": "invented.py", "line": 1, "summary": "made up", "also": []}],
+               "dropped": [{"line": "low: a.py:30 fixed", "why": "fixed on main"}]}
+    before = copy.deepcopy(run["todos"]["1"]["refuted"])
+    state.ingest_followups(run, [curated])
+    record = run["groups"]["g1"]
+    check("529 item 3: ingest-followups keeps curated items only at locations the review reported",
+          record["curated"] == ["medium: a.py:9 real, merged | also: nit"] and record["curation"] == "verified"
+          and any("invented.py" in d["line"] for d in record["curation_dropped"]), record)
+    check("529 item 3: curation never touches the refuted lines", run["todos"]["1"]["refuted"] == before == [
+        "high: a.py:3 maybe"], run["todos"]["1"]["refuted"])
+    check("529 item 3: a curated group is not curated again", state.followups_args(run, "/main") == [])
+    md = state.followups_md(run, "g1")
+    check("529 AC3: the follow-up todo's Findings show each item's severity, and the refuted lines on their own",
+          "1. **medium** `a.py:9` real, merged | also: nit" in md and "PR #900" in md
+          and "Dismissed by refuters" in md and "- high: a.py:3 maybe" in md, md)
+    dead = pr_open_run()
+    ingest(dead, [review_result(findings=[f("low", 2, "nit")])], 1)
+    state.ingest_followups(dead, [{"group": "g1", "ids": ["1"], "kept": None, "dropped": [], "refuter_ok": False}])
+    md = state.followups_md(dead, "g1")
+    check("529 item 3: a dead curator leaves the stored list, marked uncurated, and each item keeps its severity",
+          dead["groups"]["g1"]["curation"].startswith("uncurated") and "1. **low** `a.py:2` nit" in md, md)
+    with tempfile.TemporaryDirectory() as tmp:
+        runfile, out = Path(tmp) / "run.json", Path(tmp) / "f.md"
+        state.save(run, runfile)
+        rc = state.main(["followups-md", str(runfile), "g1", "--out", str(out)])
+        check("529 AC3: the followups-md command writes that text for the follow-up todo",
+              rc == 0 and out.read_text() == state.followups_md(run, "g1"))
+
+
+def fixer_514_tests():
+    """Todo 514: the Land fixer gate's text rule and the cases todo 513 left untested, plus a differential
+    test against the real pre-commit-hooks when they are installed."""
+    def accepted(verified, changes, executable=()):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo, fx = Path(tmp) / "repo", Path(tmp) / "fx"
+            _g("init", "-q", "-b", "main", str(repo))
+            _g("-C", str(repo), "commit", "-q", "--allow-empty", "-m", "init")
+            _g("-C", str(repo), "worktree", "add", "-q", "-b", "worktree-fx", str(fx))
+            for rel, data in verified.items():
+                (fx / rel).parent.mkdir(parents=True, exist_ok=True)
+                (fx / rel).write_bytes(data)
+                if rel in executable:
+                    os.chmod(fx / rel, 0o755)
+            _g("-C", str(fx), "add", "-A")
+            recorded = _g("-C", str(fx), "write-tree").strip()
+            for rel, data in changes.items():
+                (fx / rel).write_bytes(data)
+            _g("-C", str(fx), "add", "-A")
+            run_fx = worktree_run("fx1", "gfx", "worktree-fx", worktree=str(fx), tree_id=recorded)
+            _, err = expect(lambda: state.ensure_worktree(run_fx, "gfx", Path(tmp) / "scratch"))
+            return err is None if err is None or "lost its staged work" in str(err) else err
+
+    check("514 F6: doc.md `text \\t  ` becomes `text  ` (a hard break keeps exactly two spaces)",
+          accepted({"doc.md": b"text \t  \n"}, {"doc.md": b"text  \n"}) is True)
+    check("514 F6: an uppercase NOTES.MD is markdown too, so its hard break is kept",
+          accepted({"NOTES.MD": b"a  \nb \n"}, {"NOTES.MD": b"a  \nb\n"}) is True)
+    check("514 F6: ... and a NOTES.MD hard break removed still refuses",
+          accepted({"NOTES.MD": b"a  \nb \n"}, {"NOTES.MD": b"a\nb\n"}) is False)
+    check("514 F6: a 100755 script losing its trailing space is accepted",
+          accepted({"run.sh": b"echo hi \n"}, {"run.sh": b"echo hi\n"}, executable={"run.sh"}) is True)
+    check("514 F6: `text   ` left with three spaces in a .md (not the hook's two) still refuses",
+          accepted({"doc.md": b"x \ntext   \n"}, {"doc.md": b"x\ntext   \n"}) is False)
+    check("514 F3/F4: a file with a \\x01 byte (identify: binary) is refused even for a fixer-shaped edit",
+          accepted({"data.txt": b"a\x01b \n"}, {"data.txt": b"a\x01b\n"}) is False)
+    check("514 F3/F4: ... and so is a binary extension, whatever the bytes",
+          accepted({"logo.svg.png": b"text \n"}, {"logo.svg.png": b"text\n"}) is False)
+    check("514 F3/F4: the same edit on a plain text file is still accepted",
+          accepted({"data.txt": b"ab \n"}, {"data.txt": b"ab\n"}) is True)
+    skill = (Path(state.STATE_PY).parents[2] / ".claude" / "skills" / "completing-todos" / "SKILL.md").read_text()
+    step6 = skill.split("## Stage D", 1)[1].split("\n6. ", 1)[1].split("\n7. ", 1)[0]
+    check("514 F1: the fixer recovery stages the rewritten paths NUL-separated, never C-quoted",
+          "diff --name-only -z | xargs -0 /usr/bin/git -C $WT add --" in step6, step6)
+    check("514 F2: ... and says only trailing-whitespace and end-of-file-fixer rewrites pass, naming the others",
+          "accepts only `trailing-whitespace` and `end-of-file-fixer`" in step6
+          and all(n in step6 for n in ("black", "markdownlint --fix", "mixed-line-ending")), step6)
+    sandbox = skill.split("**Sandbox-off steps**", 1)[1].split("\n## ", 1)[0]
+    check("528: the runbook runs execute-args with the sandbox off (it creates the worktrees)",
+          "Stage B step 1, `execute-args`" in sandbox and "with the sandbox off" in skill.split("## Stage B", 1)[1][:400],
+          sandbox)
+    follow = skill.split("\n4. Follow-ups:", 1)[1].split("\n5. ", 1)[0]
+    check("529: the runbook's follow-ups step runs todo-followups and writes Findings with followups-md",
+          all(s in follow for s in ("followups-args", '"todo-followups"', "ingest-followups", "followups-md")), follow)
+    check("514 F3: _is_text follows identify's byte rule (ESC, \\t and \\f are text; \\x7f is not)",
+          state._is_text("a", b"\x1b[0m\t\f") and not state._is_text("a", b"x\x7f")
+          and not state._is_text("a", b"\x00") and state._is_text("a", b"x" * 1024 + b"\x01"))
+
+    # F5: the port against the real hooks (pre-commit-hooks v4.5.0, as .pre-commit-config.yaml pins).
+    hooks = _real_fixers()
+    if hooks is None:
+        print("  SKIP  514 F5: pre_commit_hooks is not importable here (not in CI); the differential test did not run")
+        return
+    trailing, eof = hooks
+    fixtures = {"a.py": b"x = 1  \n\ty \t\n\n\n", "b.md": b"# T\ntext  \nmore   \n\t\n\n", "c.MD": b"a \t  \nb",
+                "d.txt": b"a \r\nb\r\n\r\n", "e.txt": b"\n\n\n", "f.txt": b"", "g.txt": b"no newline  ",
+                "h.md": b"  \nx\n", "i.txt": b"a\x0b \nb\x0c\n", "j.txt": b"a\rb \r\n"}
+    with tempfile.TemporaryDirectory() as tmp:
+        diverged = []
+        for rel, data in fixtures.items():
+            path = Path(tmp) / rel
+            path.write_bytes(data)
+            with contextlib.redirect_stdout(io.StringIO()):
+                trailing.main(["--markdown-linebreak-ext=md", str(path)])
+                eof.main([str(path)])
+            if path.read_bytes() != state._fixer_output(data, rel):
+                diverged.append((rel, path.read_bytes(), state._fixer_output(data, rel)))
+        check(f"514 F5: _fixer_output matches the real hooks on {len(fixtures)} fixtures", not diverged, diverged)
+
+
+def _real_fixers():
+    """pre_commit_hooks' two fixer modules, from the environment or pre-commit's own cache, else None."""
+    try:
+        from pre_commit_hooks import end_of_file_fixer, trailing_whitespace_fixer  # noqa: PLC0415
+        return trailing_whitespace_fixer, end_of_file_fixer
+    except ImportError:
+        pass
+    db = Path.home() / ".cache" / "pre-commit" / "db.db"
+    if not db.is_file():
+        return None
+    try:
+        with sqlite3.connect(f"file:{db}?mode=ro", uri=True) as conn:
+            row = conn.execute("SELECT path FROM repos WHERE repo = ? AND ref = ?",
+                               ("https://github.com/pre-commit/pre-commit-hooks", "v4.5.0")).fetchone()
+    except sqlite3.Error:
+        return None
+    if not row or not Path(row[0], "pre_commit_hooks").is_dir():
+        return None
+    sys.path.insert(0, row[0])
+    try:
+        from pre_commit_hooks import end_of_file_fixer, trailing_whitespace_fixer  # noqa: PLC0415
+    except ImportError:
+        return None
+    finally:
+        sys.path.remove(row[0])
+    return trailing_whitespace_fixer, end_of_file_fixer
 
 
 def raises(fn, exc=state.TransitionError):

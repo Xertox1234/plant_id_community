@@ -186,11 +186,16 @@ function pathLines(p) {
   return [`TODO_PATHS: ${p.todo_paths.join(', ')}`, `ORIGIN_PATHS: ${p.origin_paths.join(', ')}`]
 }
 
-// Todo 492: the owner-authorized re-points (`state.py repoint`), the same list todo-execute gives its verifier.
+// Todo 492: the owner-authorized re-points (`state.py repoint`), the same list todo-execute gives its verifier,
+// each marker a JSON string (todo 494 F4).
 function repointLines(p) {
-  const items = Object.entries(p.repoints || {}).flatMap(([id, list]) => list.map(r => `${id}#${r.index} "${r.marker}"`))
+  const items = Object.entries(p.repoints || {}).flatMap(([id, list]) => list.map(r => `${id}#${r.index} ${JSON.stringify(r.marker)}`))
   return items.length ? [`REPOINTS: ${items.join('; ')}`] : []
 }
+
+// Todo 528: the same limits todo-execute states, under the WORKER schema's maxLength.
+const LIMITS = 'Keep summary under 400 characters, and blockers and discoveries under 250 each: a WORKER record ' +
+  'over the schema limits is refused, and a refused record loses your finished work.'
 
 const LANDED = 'Land has already flipped the verified boxes to `[x]` and archived each todo (TODO_PATHS); ' +
   'ORIGIN_PATHS are the pending paths at the merge-base.'
@@ -290,7 +295,7 @@ function repairPrompt(p, blocking) {
       '(recreate EVIDENCE_DIR if it is missing).',
     'Stage only the paths you changed (`/usr/bin/git -C WT add -- <path>...`), never `git add -A`, and list them ' +
       'all in files_changed. Never stage, edit or delete a path in UNTRACKED_BEFORE; the clean check ignores them.',
-    'Return the WORKER record.'].join('\n')
+    LIMITS, 'Return the WORKER record.'].join('\n')
 }
 
 function verifyPrompt(p, w, again = false) {

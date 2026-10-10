@@ -63,9 +63,12 @@ missing one, the verdict is `fail`, `reasons` gets `missing todo path`. `BASE` =
    box state (`[ ]`/`[x]`) must match too — ignore `[ ]` vs `[x]` in repair mode and when re-verifying after
    a repair (the prompt's first line, `MODE: execute` or `MODE: repair`, says which), since Land already flipped some by then.
    One exception, owner-authorized re-points (todo 492): the prompt may carry a `REPOINTS:` line, entries
-   `<todo>#<index> "<marker>"`, separated by a semicolon and a space. A listed criterion whose current text, with that exact
-   marker (and the one space before it) removed, equals its merge-base text is unchanged; step 3's
-   re-point rule then applies to it. A re-point marker that is not listed there is an edit. Any other
+   `<todo>#<index> <marker>`, separated by a semicolon and a space. `<index>` is 0-based, the same `index` as
+   the entry in `AC_FILE`; `<marker>` is a JSON string (todo 494), so read it as JSON, not up to the next
+   quote. A listed criterion whose current text, with exactly one occurrence of that marker (and the one
+   space before it) removed, equals its merge-base text is unchanged; step 3's re-point rule then applies
+   to it. A second occurrence of the marker is an edit, and so is a re-point marker that is not listed
+   there. `state.py` runs the same comparison when it ingests your verdict. Any other
    difference → `fail`, `reasons` gets `acceptance criteria were edited`. Work Log and status edits are
    always allowed.
 5. Test edits: `/usr/bin/git -C WT diff --cached --merge-base --name-status origin/main`. List every

@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: p4
 issue_id: "514"
 tags: [tooling, todo-sweep]
@@ -59,8 +59,41 @@ PR #924 (todo 513) merged after two review rounds in todo-sweep run 2026-10-01-2
 
 ## Acceptance Criteria
 
-- [ ] Each finding above is fixed with a test, or the Work Log records why it was left as is.
+- [x] Each finding above is fixed with a test, or the Work Log records why it was left as is.
 
 ## Work Log
 
 - 2026-10-01: Filed from todo-sweep run 2026-10-01-2355, PR #924 review rounds 1-2.
+
+### 2026-10-10 - Implemented by the todo sweep (run 2026-10-10-1537)
+
+- F1/F2 fixed: SKILL.md Stage D step 6 stages with `diff --name-only -z | xargs -0 git add --`, and says only
+  trailing-whitespace and end-of-file-fixer rewrites pass, naming the other fixers a refusal can mean (runbook
+  checks in `fixer_514_tests`).
+- F3/F4 fixed: `_is_text` uses identify's rule (a binary extension, or a byte outside TEXTCHARS in the first 1 KB),
+  slightly stricter than identify for a text extension, so it fails closed; tests with a `\x01` file and a `.png`.
+  F4's other note (a stripped `\ ` before a newline changing shell meaning) stays an accepted risk (513 finding 8).
+- F5 fixed: a differential test runs the real pre-commit-hooks v4.5.0 fixers (found in pre-commit's cache) against
+  `_fixer_output` on 10 fixtures; it prints SKIP where they are not installed (CI). The MD009 note is left: a
+  markdownlint rewrite is refused, which stops the group, the safe side. F6 fixed: the four cases plus three more.
+- Left as is, with why: F7 (owner decision) keeps accepting the CRLF-preserving output; the test and docstring now
+  say mixed-line-ending is not modelled. F8: the two git-only checks are labelled `(git behaviour, not repo code)`.
+  F9: 300 == 300 is intended and documented at the test (the hook has no inner timeout; how Claude Code treats a
+  hook timeout is a hypothesis, not verified). F10 (owner decision): the pre-commit kimi gate is the intended gate
+  for sweep Land commits (`/usr/bin/git -C … commit`); `kimi-review.sh`'s regex is not widened.
+
+### 2026-10-10 - Verified by the todo sweep (run 2026-10-10-1537)
+
+- AC 1: `python3 scripts/todos/test_state_flow.py | grep -E '514|513/514|git behaviour|FAIL|SKIP|All checks passed' && sed -n '/2026-10-10 - Implemented by the todo sweep/,$p' todos/archive/514-completed-p4-sweep-fixer-tolerance-924-followups.md` — evidence `.sweep-evidence/g1/514-ac0.txt` (not committed), last lines:
+
+  ```text
+    F9: 300 == 300 is intended and documented at the test (the hook has no inner timeout; how Claude Code treats a
+    hook timeout is a hypothesis, not verified). F10 (owner decision): the pre-commit kimi gate is the intended gate
+    for sweep Land commits (`/usr/bin/git -C … commit`); `kimi-review.sh`'s regex is not widened.
+  state: --reverify takes stage ready and exactly one --field reason=...
+  state: 7: --date must be a YYYY-MM-DD date, not 'tomorrow'
+  ```
+
+### 2026-10-10 - Completed by the todo sweep (run 2026-10-10-1537)
+
+- Archived by `land.py archive`; evidence is quoted above, review is on the PR.

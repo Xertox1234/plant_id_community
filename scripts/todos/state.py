@@ -12,12 +12,14 @@ main session never re-types them.
 
 import argparse
 import copy
+import datetime
 import fnmatch
 import json
 import os
 import posixpath
 import re
 import shlex
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -116,7 +118,11 @@ def transition(run, todo_id, to, **fields):
         if entry["attempts"] >= MAX_RETRIES:
             raise TransitionError(f"{todo_id}: already retried once; block it with a reason")
         entry["attempts"] += 1
-        entry.pop("group", None)  # regroup from scratch; never share a group with the failed attempt
+        # Regroup from scratch; never share a group with the failed attempt. Its worktree, tree, evidence and
+        # re-points move to `previous` like a reopened block's (todo 494 F2/F11): a fresh worker's brief must
+        # not list a re-point whose target lives in the abandoned worktree, and a later block by the retry's
+        # worker must not leave the rejected tree on the entry for --reverify to re-judge.
+        entry.setdefault("previous", []).append({k: entry.pop(k) for k in ATTEMPT_FIELDS if k in entry})
     entry["stage"] = to
     entry.update(fields)
 
@@ -153,7 +159,11 @@ def reopen_reverify(run, todo_id, reason):
     if entry["stage"] != "blocked":
         raise TransitionError(f"{todo_id}: is {entry['stage']}; only a blocked todo is re-verified in place")
     # A tree a verifier already judged (a retry worker's, or one blocked after a failed verdict) is never
-    # re-verified: that would re-judge a rejected tree without spending a retry (PR #885 review).
+    # re-verified: that would re-judge a rejected tree without spending a retry (PR #885 review). A todo
+    # that has been retried had a tree rejected already, whoever blocked it since (todo 494 F11).
+    if entry.get("attempts", 0) != 0:
+        raise TransitionError(f"{todo_id}: was retried after a failed verdict, so a verifier already judged its "
+                              "work; reopen it without --reverify")
     if entry.get("blocked_by") != "worker":
         raise TransitionError(f"{todo_id}: only a todo its first worker blocked is re-verified in place; "
                               "reopen it without --reverify")
@@ -171,16 +181,19 @@ def reopen_reverify(run, todo_id, reason):
     entry.update(kept, reverify=True)
 
 
-def _refuse_shared_worktree(run, todo_id, worktree):
+def _refuse_shared_worktree(run, todo_id, worktree, briefing=False):
     """Land commits a worktree's whole index, and the verifier checks only the todos it is given. So a
     re-verify is only for a worktree no other todo has ever recorded, live or in `previous`, at any
     stage (PR #885 round 2: a group-mate reopened the plain way or blocked later still has its work
-    staged there). A multi-todo attempt is reopened the plain way."""
+    staged there). A multi-todo attempt is reopened the plain way. From execute-args (`briefing`) the
+    todo is already ready, so the recovery is to block it first (todo 494 F13)."""
     others = sorted(i for i, e in run["todos"].items() if i != todo_id and worktree in
                     [e.get("worktree")] + [a.get("worktree") for a in e.get("previous", [])])
     if others:
+        how = ("block it (`set … blocked`), then reopen it without --reverify" if briefing
+               else "reopen it without --reverify")
         raise TransitionError(f"{todo_id}: its worktree also holds the work of todo {', '.join(others)}; "
-                              "only a one-todo attempt is re-verified in place, so reopen it without --reverify")
+                              f"only a one-todo attempt is re-verified in place, so {how}")
 
 
 def summary(run):
@@ -310,6 +323,27 @@ def run_git(repo, *args):
 
 
 REPOINT_MARKER = " → todo {to} (re-pointed {date})"
+# The marker REPOINT_MARKER writes, found again on a line: re-running `repoint` on a later day finds the
+# earlier date's marker, which is the one the verifier was told about (todo 494 F5).
+REPOINT_MARKER_RE = re.compile(r"→ todo (\d+) \(re-pointed (\d{4}-\d{2}-\d{2})\)")
+DATE_RE = re.compile(r"\A\d{4}-\d{2}-\d{2}\Z")
+
+
+def _valid_date(date):
+    """True for a real YYYY-MM-DD date: it goes into the marker and the workflows' REPOINTS line (494 F4)."""
+    if not DATE_RE.match(str(date)):
+        return False
+    try:
+        datetime.date.fromisoformat(date)
+    except ValueError:
+        return False
+    return True
+
+
+def _repoint_targets(entry):
+    """Every todo number an entry re-points to, in this attempt or an earlier one."""
+    attempts = [entry] + list(entry.get("previous", []))
+    return {str(r["to"]) for a in attempts for r in a.get("repoints", [])}
 
 
 def repoint(run, todo_id, index, to, decision, date, git=run_git):
@@ -325,16 +359,29 @@ def repoint(run, todo_id, index, to, decision, date, git=run_git):
     entry = run["todos"].get(todo_id)
     if entry is None:
         raise TransitionError(f"{todo_id}: not in this run")
-    if entry["stage"] not in {"blocked", "ready"}:
-        raise TransitionError(f"{todo_id}: is {entry['stage']}; re-point a blocked or ready todo, "
-                              "before execute-args")
+    # Todo 494 F3: only the blocked attempt's own worktree, or the one a --reverify reopen kept. A plain
+    # ready todo (a failed -> ready retry, or a plain reopen) gets a fresh worker, never that worktree.
+    if not (entry["stage"] == "blocked" or (entry["stage"] == "ready" and entry.get("reverify"))):
+        plain = " (not --reverify)" if entry["stage"] == "ready" else ""
+        raise TransitionError(f"{todo_id}: is {entry['stage']}{plain}; re-point a blocked todo, or one reopened "
+                              "with --reverify, before execute-args")
     if not decision.strip():
         raise TransitionError(f"{todo_id}: a re-point needs the owner's decision")
     if not str(to).isdigit() or str(to) == todo_id:
         raise TransitionError(f"{todo_id}: a re-point target is another todo's number, not {to!r}")
+    if not _valid_date(date):
+        raise TransitionError(f"{todo_id}: --date must be a YYYY-MM-DD date, not {date!r}")
+    # Todo 494 F16: two unmerged PRs must not both create todo NNN as their re-point target.
+    taken = sorted(i for i, e in run["todos"].items() if i != todo_id and str(to) in _repoint_targets(e))
+    if taken:
+        raise TransitionError(f"{todo_id}: todo {to} is already the re-point target of todo {', '.join(taken)} in "
+                              "this run; pick the next free number")
     worktree, ac_file = entry.get("worktree"), entry.get("ac_file")
     if not worktree or not ac_file or not Path(worktree).is_dir():
         raise TransitionError(f"{todo_id}: no staged worktree to re-point in")
+    if not Path(worktree, entry["path"]).is_file():
+        raise TransitionError(f"{todo_id}: {entry['path']} is not in {worktree} (has Land already archived it?); "
+                              "a re-point edits the pending todo file before Land")
     target = sorted(Path(worktree, "todos").glob(f"{to}-*.md"))
     if len(target) != 1 or not git(worktree, "ls-files", "--", f"todos/{target[0].name}").strip():
         raise TransitionError(f"{todo_id}: todo {to} must be one open todo file under todos/, staged in {worktree}")
@@ -365,8 +412,11 @@ def repoint(run, todo_id, index, to, decision, date, git=run_git):
         raise TransitionError(f"{todo_id}: {ac_file} has {len(mine)} entries for criterion {index}, not one")
     lines = text.splitlines(keepends=True)
     if todofile.is_repoint(lines[line_no]):
-        if marker.strip() not in lines[line_no]:
+        # Compare only `→ todo NNN` (todo 494 F5): a rerun on a later day keeps the marker already there.
+        same = [m.group(0) for m in REPOINT_MARKER_RE.finditer(lines[line_no]) if m.group(1) == str(to)]
+        if not same:
             raise TransitionError(f"{todo_id}: criterion {index} is already re-pointed elsewhere")
+        marker = " " + same[0]
     else:
         body = lines[line_no].rstrip("\n")
         lines[line_no] = body.rstrip() + marker + lines[line_no][len(body):]
@@ -579,6 +629,41 @@ def _repoints(entries):
             for i, e in entries if e.get("repoints")}
 
 
+def _evidence_dir(ac_file, gid):
+    """The evidence dir a group's ac_file sits in, or the group's default (todo 494 F15). Only a relative
+    path under .sweep-evidence/ counts: an absolute or bare ac_file from a worker would otherwise turn a
+    repair worker's EVIDENCE_DIR into an absolute path or the worktree root."""
+    ac_file = str(ac_file or "")
+    if ac_file and not posixpath.isabs(ac_file):
+        parent = posixpath.dirname(posixpath.normpath(ac_file))
+        if parent.startswith(".sweep-evidence/"):
+            return parent
+    return f".sweep-evidence/{gid}"
+
+
+def _reverify_tree(todo_id, entry, git):
+    """The tree a re-verify brief records: the worktree's index now. It must still exist (todo 494 F13),
+    and the only paths that may have changed since the worker's block are the todo file and each
+    re-point's new target todo (494 F9): anything else staged since then would become the verified tree."""
+    worktree = entry.get("worktree")
+    if not worktree or not Path(worktree).is_dir():
+        raise TransitionError(f"{todo_id}: its worktree {worktree} is gone, so there is nothing to re-verify; "
+                              "block it (`set … blocked`), then reopen it without --reverify")
+    tree = git(worktree, "write-tree").strip()
+    if entry.get("tree_id") and tree != entry["tree_id"]:
+        changed = [p for p in git(worktree, "diff-tree", "-r", "--name-only", "--no-renames", "-z",
+                                  entry["tree_id"], tree).split("\0") if p]
+        targets = {str(r["to"]) for r in entry.get("repoints", [])}
+        stray = [p for p in changed if p != entry["path"] and not (
+            p.startswith("todos/") and "/" not in p[len("todos/"):] and p.endswith(".md")
+            and p[len("todos/"):].split("-", 1)[0] in targets)]
+        if stray:
+            raise TransitionError(f"{todo_id}: its worktree changed outside the re-point since the block "
+                                  f"({', '.join(stray[:5])}); unstage those, or block it and reopen it without "
+                                  "--reverify")
+    return tree
+
+
 def execute_args(run, wave, main_root, git=run_git):
     if wave >= len(run["waves"]):
         raise ValueError(f"wave {wave} does not exist ({len(run['waves'])} waves)")
@@ -595,6 +680,7 @@ def execute_args(run, wave, main_root, git=run_git):
     gids = run["waves"][wave]
     # Todo 492: a re-verified todo is its own group and the only todo its worktree ever held. Checked
     # again here, before anything changes: grouping or a later reopen must not have broken either.
+    trees = {}
     for gid in gids:
         members = _group_entries(run, gid)
         again = [(i, e) for i, e in members if e["stage"] == "ready" and e.get("reverify")]
@@ -602,17 +688,21 @@ def execute_args(run, wave, main_root, git=run_git):
             raise TransitionError(f"{gid}: a re-verified todo shares its group with other work; block them "
                                   "and reopen each the plain way")
         for todo_id, entry in again:
-            _refuse_shared_worktree(run, todo_id, entry.get("worktree"))
+            _refuse_shared_worktree(run, todo_id, entry.get("worktree"), briefing=True)
+            trees[todo_id] = _reverify_tree(todo_id, entry, git)
     # Todo 468: wave N-1 is still in review or Land while this wave executes, so its lanes are
     # forbidden too, until every todo left in it has merged. A group that HOLDS such a lane would
     # put two PRs on it at once: refuse before anything changes (PR #869 round 1).
     previous = _unmerged(run, run["waves"][wave - 1]) if wave >= 1 else []
     for gid in gids:
-        clash = set(run["groups"][gid]["lanes"]) & {lane for other in previous
-                                                     for lane in run["groups"][other]["lanes"]}
+        holders = [other for other in previous if set(run["groups"][gid]["lanes"]) & set(run["groups"][other]["lanes"])]
+        clash = set(run["groups"][gid]["lanes"]) & {lane for other in holders for lane in run["groups"][other]["lanes"]}
         if clash and _group_entries(run, gid):
-            raise TransitionError(f"{gid} holds {', '.join(sorted(clash))}, which wave {wave - 1} still holds; "
-                                  "wait for that wave to merge")
+            # Todo 494 F10: a failed group never merges by itself; waiting for it would wait forever.
+            failed = [other for other in holders if any(e["stage"] == "failed" for _, e in _group_entries(run, other))]
+            how = (f"{', '.join(failed)} failed and never merges until its todos are retried (`set … ready`, then "
+                   "`group`) or blocked" if failed else "wait for that wave to merge")
+            raise TransitionError(f"{gid} holds {', '.join(sorted(clash))}, which wave {wave - 1} still holds; {how}")
     # Todo 468: a member blocked or skipped after grouping (decide or `set`, not the gate below) never
     # ran in this wave -- a retried one still carries its first attempt's `wave` (PR #869 round 1). It
     # leaves its group like a gate-blocked one, and its in-group dependents block with it.
@@ -664,7 +754,7 @@ def execute_args(run, wave, main_root, git=run_git):
         reverify = None
         if all(e.get("reverify") for _, e in entries):
             first = entries[0][1]
-            tree = git(first["worktree"], "write-tree").strip()  # a re-point since the block moved it
+            tree = trees[entries[0][0]]  # a re-point since the block moved it
             for _, e in entries:
                 e["tree_id"] = tree
             reverify = {"worktree": first["worktree"], "branch": first["branch"], "tree_id": tree,
@@ -681,7 +771,7 @@ def execute_args(run, wave, main_root, git=run_git):
             "lanes_held": [group.lane_doc(lane) for lane in held],
             "lanes_forbidden": [group.lane_doc(lane) for lane in forbidden],
             "slot": slot,
-            "evidence_dir": posixpath.dirname(reverify["ac_file"]) if reverify else f".sweep-evidence/{gid}",
+            "evidence_dir": _evidence_dir(reverify["ac_file"] if reverify else "", gid),
             "main_root": main_root,
             "repoints": _repoints(entries),
             "reverify": reverify,
@@ -690,6 +780,66 @@ def execute_args(run, wave, main_root, git=run_git):
             entry.pop("reverify", None)  # one re-verify: a failed one is retried by a worker, as usual
             transition(run, todo_id, "executing", group=gid, slot=slot, wave=wave, main_root=main_root)
     return briefs
+
+
+def add_worktrees(run, briefs, root, git=run_git):
+    """Create each worker brief's worktree before the workflow runs, and put its path and branch on the
+    brief and on every todo of the group (todo 528, owner decision 2026-10-10). The workflow used to let
+    `isolation: 'worktree'` make it; a worker that died then left a worktree nobody recorded, because
+    agent() reports nothing for a null result. Now the path is known before any agent runs.
+
+    Cut from origin/main with --no-track (tracking config is a .git/config write the sandbox denies),
+    then the main checkout's .worktreeinclude files are copied in, as the harness did. A rerun after a
+    failure part-way reuses a worktree this function already made (same branch, nothing changed in it);
+    anything else at the path is refused. A re-verify brief already names its worktree and is skipped."""
+    root = Path(root)
+    for brief in briefs:
+        if brief.get("reverify"):
+            continue
+        main_root = brief["main_root"]
+        name = f"sweep-{run['run_id']}-{brief['group']}"
+        path, branch = root / name, f"worktree-{name}"
+        if path.exists():
+            try:
+                same = (git(path, "rev-parse", "--abbrev-ref", "HEAD").strip() == branch
+                        and not git(path, "status", "--porcelain").strip())
+            except RuntimeError:
+                same = False
+            if not same:
+                raise RuntimeError(f"{brief['group']}: {path} already exists and is not this group's fresh "
+                                   "worktree; move it aside, then rerun execute-args")
+        else:
+            root.mkdir(parents=True, exist_ok=True)
+            git(main_root, "worktree", "add", "--no-track", "-b", branch, str(path), "origin/main")
+        _copy_worktreeinclude(main_root, path, git)
+        brief.update(worktree=str(path), branch=branch)
+        for todo_id in brief["ids"]:
+            run["todos"][todo_id].update(worktree=str(path), branch=branch)
+    return briefs
+
+
+def _copy_worktreeinclude(main_root, worktree, git):
+    """Copy each file the main checkout's .worktreeinclude lists that is gitignored there (backend/.env,
+    web/.env) into the new worktree, unless it already has one. A missing source is skipped: slot_env.py
+    falls back to the main checkout's .env (todo 479)."""
+    include = Path(main_root, ".worktreeinclude")
+    if not include.is_file():
+        return
+    for line in include.read_text().splitlines():
+        pattern = line.strip()
+        if not pattern or pattern.startswith("#"):
+            continue
+        for src in sorted(Path(main_root).glob(pattern)):
+            rel = src.relative_to(main_root).as_posix()
+            dest = Path(worktree, rel)
+            if not src.is_file() or dest.exists():
+                continue
+            try:
+                git(main_root, "check-ignore", "-q", "--", rel)
+            except RuntimeError:
+                continue  # not ignored: a tracked file arrives with the checkout, and copying it would dirty it
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(src, dest)
 
 
 def evaluate(worker, verdict):
@@ -712,7 +862,64 @@ def evaluate(worker, verdict):
     return None
 
 
-def ingest_execute(run, results):
+def _ac_text(box):
+    """A criterion's text as land._normalize_ac_text compares it: no checkbox, whitespace collapsed."""
+    return " ".join(todofile.CHECKBOX_RE.sub("", box[2], count=1).split())
+
+
+def criteria_problem(base_text, current_text, repoints=(), ignore_boxes=False):
+    """Why the current Acceptance Criteria are not the merge-base ones, or None (todo 494 F1). The verifier's
+    step 4 in code: the same count, text and order, and (unless Land already flipped boxes) the same box
+    state. The one allowed change is an owner-authorized re-point: a listed criterion whose text, with its
+    marker removed exactly once, is the merge-base text. An unlisted marker is an edit."""
+    base, now = todofile.ac_lines(base_text), todofile.ac_lines(current_text)
+    if len(base) != len(now):
+        return f"{len(base)} criteria at the merge-base, {len(now)} now"
+    markers = {r["index"]: " ".join(str(r["marker"]).split()) for r in repoints}
+    for index, (old, new) in enumerate(zip(base, now)):
+        was, text = _ac_text(old), _ac_text(new)
+        marker = markers.get(index)
+        if marker and text != was and text.count(marker) == 1:
+            text = " ".join(text.replace(marker, "", 1).split())
+        if text != was:
+            return f"criterion {index} was edited"
+        if not ignore_boxes and old[1] != new[1]:
+            return f"criterion {index}'s box changed"
+    return None
+
+
+def git_criteria(run, todo_id, worktree, current_path, ignore_boxes, git=run_git):
+    """criteria_problem for one todo of a worktree: its merge-base file (origin/main...HEAD, at the pending
+    path) against the file in the worktree now (`current_path`: the archived one after Land). A file
+    either side cannot be read is itself a problem, so the check fails closed."""
+    entry = run["todos"][todo_id]
+    try:
+        base = git(worktree, "merge-base", "origin/main", "HEAD").strip()
+        base_text = git(worktree, "show", f"{base}:{entry['path']}")
+        current = Path(worktree, current_path).read_text()
+    except (RuntimeError, OSError) as exc:
+        return f"could not read the criteria to compare: {exc}"[:300]
+    return criteria_problem(base_text, current, entry.get("repoints", []), ignore_boxes)
+
+
+def execute_criteria(run, todo_id, worktree, git=run_git):
+    """Before Land: the pending file, and box state must match too."""
+    return git_criteria(run, todo_id, worktree, run["todos"][todo_id]["path"], False, git)
+
+
+def review_criteria(run, todo_id, worktree, git=run_git):
+    """After Land: the archived file, whose verified boxes Land already flipped."""
+    return git_criteria(run, todo_id, worktree, todofile.archived_path(run["todos"][todo_id]["path"]), True, git)
+
+
+def _same_path(a, b):
+    return os.path.realpath(str(a)) == os.path.realpath(str(b))
+
+
+def ingest_execute(run, results, criteria=None):
+    """Record a todo-execute output. `criteria(run, todo_id, worktree)` returns why a staged worktree's
+    Acceptance Criteria differ from the merge-base ones, or None; the CLI always passes git_criteria (todo
+    494 F1). A worker that reports a worktree other than the one it was given fails (todo 528)."""
     outcome = {}
     for result in results:
         worker, verdict = result.get("worker"), result.get("verdict")
@@ -722,6 +929,12 @@ def ingest_execute(run, results):
         work["worktree"] = work["worktree"] or result.get("worktree")
         work = {k: v for k, v in work.items() if v}
         for todo_id in result["ids"]:
+            given = run["todos"][todo_id].get("worktree")
+            if worker is not None and given and worker.get("worktree") and not _same_path(worker["worktree"], given):
+                transition(run, todo_id, "failed", reason=f"the worker reported worktree {worker['worktree']}, "
+                                                          f"not the one it was given ({given})"[:500])
+                outcome[todo_id] = run["todos"][todo_id]["stage"]
+                continue
             if worker is None:
                 transition(run, todo_id, "failed", reason="worker returned nothing", **work)
             elif worker["status"] == "blocked":
@@ -735,8 +948,11 @@ def ingest_execute(run, results):
                 transition(run, todo_id, "staged", worktree=worker["worktree"], branch=worker["branch"],
                            tree_id=worker["tree_id"], ac_file=worker["ac_file"])
                 problem = evaluate(worker, verdict)
+                edited = criteria(run, todo_id, worker["worktree"]) if criteria and not problem else None
                 if problem:
                     transition(run, todo_id, "failed", reason=_with_reasons(problem, verdict))
+                elif edited:
+                    transition(run, todo_id, "failed", reason=f"acceptance criteria were edited: {edited}"[:500])
                 else:
                     transition(run, todo_id, "verified", test_edits=verdict["test_edits_flagged"],
                                verified_ac=verdict["ac"])
@@ -856,7 +1072,7 @@ def review_args(run, round_no, wave, git=run_git, run_file="", held=None):
             "size": max((e["triage"]["size"] for _, e in entries), key=SIZE_RANK.__getitem__),
             "slot": first["slot"],
             # A re-verified todo's evidence stays where its first attempt's group wrote it (todo 492).
-            "evidence_dir": posixpath.dirname(first["ac_file"]) if first.get("ac_file") else f".sweep-evidence/{gid}",
+            "evidence_dir": _evidence_dir(first.get("ac_file"), gid),
             "main_root": first.get("main_root", ""),
             "test_edits": sorted({t for _, e in entries for t in e.get("test_edits", [])}),
             # Land archives before review (spec §5.3): the todo now lives at its archived path,
@@ -928,6 +1144,87 @@ def refuted_comment(run, gid):
                      + [f"- {r}" for r in lines]) + "\n"
 
 
+FOLLOWUP_STAGES = {"reviewed", "merged", "archived"}
+
+
+def _group_followups(run, gid):
+    """The group's stored follow-ups, plus any a run file written before todo 529 left on its todos."""
+    record = run["groups"][gid]
+    lines = list(record.get("followups", []))
+    for _, entry in _group_entries(run, gid):
+        lines += [line for line in entry.get("followups", []) if line not in lines]
+    return sorted(lines, key=_followup_rank)
+
+
+def followups_args(run, main_root):
+    """The todo-followups workflow args (todo 529 item 3): one item per reviewed or merged group that has
+    follow-ups and has not been curated yet. A held or blocked group is an owner hand-off, not a
+    follow-up. Refuted lines are listed for the record only: the workflow never curates them."""
+    items = []
+    for gid in sorted(run["groups"], key=lambda g: int(g[1:]) if g[1:].isdigit() else 0):
+        entries = _group_entries(run, gid)
+        if not entries or any(e["stage"] not in FOLLOWUP_STAGES for _, e in entries):
+            continue
+        record = run["groups"][gid]
+        followups = _group_followups(run, gid)
+        if not followups or "curation" in record:
+            continue
+        items.append({"run_id": run["run_id"], "group": gid, "ids": [i for i, _ in entries],
+                      "pr": entries[0][1].get("pr"), "main_root": main_root, "followups": followups})
+    return items
+
+
+def ingest_followups(run, results):
+    """Record each group's curated follow-ups. A curated item is kept only at a file:line the review
+    reported (a curator cannot invent one), as a medium or a low. A dead curator leaves the stored list
+    as it is, marked uncurated. Refuted lines are never touched here: the owner re-judges those."""
+    outcome = {}
+    for result in results:
+        gid = result["group"]
+        record = run["groups"][gid]
+        raw = _group_followups(run, gid)
+        if result.get("kept") is None:
+            record["curation"] = f"uncurated: {result.get('why') or 'the curator returned nothing'}"[:300]
+            outcome[gid] = "uncurated"
+            continue
+        known = {_followup_key(line) for line in raw}
+        kept, dropped = [], list(result.get("dropped") or [])
+        for item in result["kept"]:
+            line = _refuted_line(item)
+            if f"{item['file']}:{item['line']}" not in known or item["severity"] not in {"medium", "low"}:
+                dropped.append({"line": line, "why": "not a location or severity the review reported"})
+            else:
+                kept.append(line)
+        record["curated"] = sorted(dict.fromkeys(kept), key=_followup_rank)
+        record["curation_dropped"] = dropped
+        record["curation"] = "verified" if result.get("refuter_ok") else "curated; the refuter returned nothing"
+        outcome[gid] = record["curation"]
+    return outcome
+
+
+def followups_md(run, gid):
+    """The follow-up todo's Findings for one group (todo 529 AC3): every item with its severity, the curated
+    list when there is one, what the cap dropped, and the refuted lines under their own heading."""
+    entries = _group_entries(run, gid)
+    if not entries:
+        raise KeyError(f"{gid}: no such group")
+    record = run["groups"][gid]
+    lines = record["curated"] if "curated" in record else _group_followups(run, gid)
+    pr = entries[0][1].get("pr")
+    out = [f"PR #{pr} (todo sweep run {run['run_id']}, group {gid}, todos {', '.join(i for i, _ in entries)}); "
+           f"follow-ups: {record.get('curation', 'uncurated')}.", ""]
+    for n, line in enumerate(lines, start=1):
+        m = FOLLOWUP_LINE.match(line)
+        out.append(f"{n}. **{m.group(1)}** `{m.group(2)}` {m.group(3)}" if m else f"{n}. **unknown severity** {line}")
+    if record.get("followups_dropped"):
+        out.append(f"\n{record['followups_dropped']} more location(s) were dropped by the cap of {FOLLOWUP_CAP} "
+                   "(the most severe are kept).")
+    refuted = _group_refuted(entries)
+    if refuted:
+        out += ["", "Dismissed by refuters, not fixed (re-judge each):", ""] + [f"- {r}" for r in refuted]
+    return "\n".join(out) + "\n"
+
+
 def clear_hold(run, gid, decision):
     """The owner cleared a held group's dismissed criticals, and nothing else. It bypasses ALLOWED on purpose:
     a hold is the one blocked state that resumes at review, not at ready. A round-2 hold goes to reviewed; a
@@ -963,6 +1260,14 @@ def _refuted_line(f):
     return line + (f" | also: {' | '.join(f['also'])}" if f.get("also") else "")
 
 
+def _merged_phrasings(body, f):
+    """(summary, also) for a stored line's body (`summary | also: a | b`) with f's phrasings added."""
+    head, _, also = body.partition(" | also: ")
+    have = [head] + (also.split(" | ") if also else [])
+    merged = have + [p for p in dict.fromkeys([f["summary"], *f.get("also", [])]) if p not in have]
+    return merged[0], merged[1:]
+
+
 def _merge_refuted(kept, findings):
     """Todo 482: one line per severity and file:line across both rounds. A later round's new phrasings of the
     same location join its line, so one dismissed bug is counted once and posted once."""
@@ -973,11 +1278,62 @@ def _merge_refuted(kept, findings):
         if at is None:
             out.append(_refuted_line(f))
             continue
-        head, _, also = out[at][len(prefix):].partition(" | also: ")
-        have = [head] + (also.split(" | ") if also else [])
-        merged = have + [p for p in dict.fromkeys([f["summary"], *f.get("also", [])]) if p not in have]
-        out[at] = _refuted_line({**f, "summary": merged[0], "also": merged[1:]})
+        summary, also = _merged_phrasings(out[at][len(prefix):], f)
+        out[at] = _refuted_line({**f, "summary": summary, "also": also})
     return out
+
+
+SEVERITY_RANK = {"critical": 0, "high": 1, "medium": 2, "low": 3}
+FOLLOWUP_CAP = 10
+FOLLOWUP_LINE = re.compile(r"(critical|high|medium|low): (.+?:\d+) (.*)\Z", re.S)
+
+
+def _followup_key(line):
+    """A follow-up's file:line, the one key it merges on (todo 529); a line written before todo 529
+    (`file:line summary`, no severity) is its own key."""
+    m = FOLLOWUP_LINE.match(line)
+    return m.group(2) if m else line
+
+
+def _followup_rank(line):
+    m = FOLLOWUP_LINE.match(line)
+    return SEVERITY_RANK[m.group(1)] if m else len(SEVERITY_RANK)  # a pre-529 line, severity unknown, ranks last
+
+
+def _merge_followups(kept, findings):
+    """Todo 529: one line per file:line, whatever its severity. A new phrasing joins the line (as
+    _merge_refuted's do), and the line takes the more severe of the two severities."""
+    out = list(kept)
+    for f in findings:
+        key = f"{f['file']}:{f['line']}"
+        at = next((n for n, line in enumerate(out) if _followup_key(line) == key), None)
+        if at is None:
+            out.append(_refuted_line(f))
+            continue
+        m = FOLLOWUP_LINE.match(out[at])
+        summary, also = _merged_phrasings(m.group(3), f)
+        severity = min(m.group(1), f["severity"], key=SEVERITY_RANK.__getitem__)
+        out[at] = _refuted_line({**f, "severity": severity, "summary": summary, "also": also})
+    return out
+
+
+def _store_followups(run, gid, entries, findings):
+    """Store a round's non-blocking findings ONCE for the group, which is one PR and one follow-up todo
+    (todo 529, from todo 537 engine finding 3): copying them to each todo made a group's findings count
+    once per todo. Ranked by severity on every ingest (medium before low; a pre-529 line last), capped
+    at FOLLOWUP_CAP, with `followups_dropped` = the distinct locations ever seen minus those kept, so
+    a dropped location reported again in round 2 is not counted twice. A run file written before todo
+    529 kept the lists on each todo: they are moved here first."""
+    record = run["groups"][gid]
+    kept = list(record.get("followups", []))
+    for _, entry in entries:
+        kept += [line for line in entry.pop("followups", []) if line not in kept]
+    merged = _merge_followups(kept, findings)
+    ranked = sorted(merged, key=_followup_rank)  # stable: arrival order within a severity
+    seen = list(dict.fromkeys(record.get("followups_seen", []) + [_followup_key(line) for line in ranked]))
+    record["followups"] = ranked[:FOLLOWUP_CAP]
+    record["followups_seen"] = seen
+    record["followups_dropped"] = len(seen) - len(record["followups"])
 
 
 ALIASES = (("/tmp/", "/private/tmp/"), ("/var/", "/private/var/"))
@@ -1060,7 +1416,9 @@ def _repair_problem(result, entries, git):
     return None
 
 
-def ingest_review(run, results, round_no, git=run_git):
+def ingest_review(run, results, round_no, git=run_git, criteria=None):
+    """Record a todo-review output. `criteria` is ingest_execute's check, run on a kept round-1 repair; the
+    CLI always passes review_criteria (todo 494 F1)."""
     # Todo 468: checked for every group before anything is written, so a stale output (a round-1
     # file re-ingested after round 1) cannot overwrite tree_id and verified_ac, even in part.
     for result in results:
@@ -1088,16 +1446,13 @@ def ingest_review(run, results, round_no, git=run_git):
                                        "a reviewer or the router returned nothing")
             continue
         worktree = entries[0][1].get("worktree", "")
-        follow = list(dict.fromkeys(  # de-dupe within this call too, preserve order
-            f"{_rel_file(f['file'], worktree)}:{f['line']} {f['summary']}" for f in result["findings"]
-            if f["severity"] not in {"critical", "high"}
-        ))
+        follow = [{**f, "file": _rel_file(f["file"], worktree)} for f in result["findings"]
+                  if f["severity"] not in {"critical", "high"}]
+        _store_followups(run, gid, entries, follow)
         # Blocking findings both refuters dismissed are kept whole (severity, every phrasing, no cap): the
         # PR comment before arming, the follow-up todos and the critical hold below all read them (todo 478).
         dismissed = [{**f, "file": _rel_file(f["file"], worktree)} for f in result.get("refuted", [])]
         for _, entry in entries:
-            existing = entry.get("followups", [])
-            entry["followups"] = (existing + [f for f in follow if f not in existing])[:10]
             entry["refuted"] = _merge_refuted(entry.get("refuted", []), dismissed)
         blocking = result["blocking"]
         # An LLM refutation alone never clears a critical, from either round: hold the PR for the owner.
@@ -1107,6 +1462,10 @@ def ingest_review(run, results, round_no, git=run_git):
         if round_no == 1:
             if blocking:
                 problem = _repair_problem(result, entries, git)
+                if not problem and criteria:
+                    edited = next((f"todo {i}: {p}" for i, _ in entries
+                                   for p in [criteria(run, i, result["repair"]["worktree"])] if p), None)
+                    problem = f"acceptance criteria were edited: {edited}" if edited else None
                 if problem:
                     set_group(run, gid, "blocked", reason=f"round-1 repair failed: {problem}{also}")
                     outcome[gid] = "blocked"
@@ -1165,8 +1524,13 @@ def _fixer_only_change(path, tree_id, actual, rel):
     whitespace or end-of-file blank lines added, a final newline dropped, a .md two-space hard break
     removed, a line ending flipped either way (CRLF to LF included, although mixed-line-ending
     --fix=lf makes that one: the owner chose to refuse it), whitespace inside a line, a blank line
-    anywhere but the end, an added, deleted or re-moded file, a binary file (one with a NUL byte;
-    the fixers skip those), a symlink or a submodule."""
+    anywhere but the end, an added, deleted or re-moded file, a file the fixers treat as binary
+    (_is_text: todo 514), a symlink or a submodule.
+
+    Only trailing-whitespace + end-of-file-fixer output is modelled; mixed-line-ending is not (todo 514
+    F7, owner decision 2026-10-10). So the two fixers' CRLF-preserving output on a CRLF file is
+    accepted, although the configured chain would also turn it into LF: those bytes differ from the
+    verified ones by trailing whitespace only."""
     modes = []
     for tree in (tree_id, actual):
         listing = run_git(path, "--literal-pathspecs", "ls-tree", "-z", tree, "--", rel).split("\0")[0]
@@ -1174,9 +1538,31 @@ def _fixer_only_change(path, tree_id, actual, rel):
     if modes[0] != modes[1] or modes[0] not in ("100644", "100755"):
         return False
     before, after = _blob(path, tree_id, rel), _blob(path, actual, rel)
-    if b"\0" in before or b"\0" in after:
+    if not (_is_text(rel, before) and _is_text(rel, after)):
         return False
     return after == _fixer_output(before, rel)
+
+
+# pre-commit runs both fixers only on files `identify` tags `text` (todo 514 F3/F4). identify decides by a
+# known extension first, else by the first 1 KB: any byte outside _TEXTCHARS makes the file binary. This
+# port refuses a binary extension OR such a byte, a little stricter than identify (which trusts a text
+# extension like .py even with a control byte): a refusal only stops the group, so it fails closed.
+_TEXTCHARS = bytes(sorted({7, 8, 9, 10, 11, 12, 13, 27} | set(range(0x20, 0x100)) - {0x7F}))
+BINARY_EXTENSIONS = {
+    "7z", "a", "avif", "bin", "bmp", "bz2", "class", "db", "dll", "dylib", "eot", "exe", "gif", "gz", "heic",
+    "icns", "ico", "jar", "jks", "jpeg", "jpg", "keystore", "mov", "mp3", "mp4", "o", "ogg", "otf", "p12",
+    "pdf", "png", "psd", "pyc", "so", "sqlite", "sqlite3", "tar", "tgz", "tif", "tiff", "ttf", "wav", "webm",
+    "webp", "woff", "woff2", "xz", "zip",
+}
+
+
+def _is_text(rel, data):
+    """True when identify would tag `rel` with `data` as text: a NUL byte or any other control byte
+    outside _TEXTCHARS (0x01-0x06, 0x0e-0x1a, 0x1c-0x1f, 0x7f) in the first 1024 bytes, or a binary
+    extension, makes it binary, and the fixers never touch it."""
+    if posixpath.splitext(rel.lower())[1].lstrip(".") in BINARY_EXTENSIONS:
+        return False
+    return not data[:1024].translate(None, _TEXTCHARS)
 
 
 def _blob(path, tree, rel):
@@ -1395,6 +1781,14 @@ def build_parser():
     p = sub.add_parser("execute-args")
     p.add_argument("runfile"), p.add_argument("--wave", type=int, required=True)
     p.add_argument("--main-root", required=True)
+    p.add_argument("--worktree-root", help="where each worker's worktree is created (todo 528); default "
+                                           "<main-root>/.claude/worktrees")
+    p = sub.add_parser("followups-args")
+    p.add_argument("runfile"), p.add_argument("--main-root", required=True)
+    p = sub.add_parser("ingest-followups")
+    p.add_argument("runfile"), p.add_argument("--output", required=True)
+    p = sub.add_parser("followups-md")
+    p.add_argument("runfile"), p.add_argument("group"), p.add_argument("--out", required=True)
     p = sub.add_parser("ingest-execute")
     p.add_argument("runfile"), p.add_argument("--output", required=True)
     p = sub.add_parser("review-args")
@@ -1486,15 +1880,28 @@ def main(argv=None):
             result = apply_grouping(run)
             print(json.dumps({"waves": result["waves"], "unschedulable": result["unschedulable"]}, indent=1))
         elif args.cmd == "execute-args":
-            print(json.dumps({"run_id": run["run_id"], "briefs": execute_args(run, args.wave, args.main_root)}))
+            briefs = execute_args(run, args.wave, args.main_root)
+            add_worktrees(run, briefs, args.worktree_root or Path(args.main_root, ".claude", "worktrees"))
+            print(json.dumps({"run_id": run["run_id"], "briefs": briefs}))
         elif args.cmd == "ingest-execute":
-            print(json.dumps(ingest_execute(run, records_from_output(args.output, "results")), indent=1))
+            print(json.dumps(ingest_execute(run, records_from_output(args.output, "results"),
+                                            criteria=execute_criteria), indent=1))
+        elif args.cmd == "followups-args":
+            print(json.dumps({"run_id": run["run_id"], "groups": followups_args(run, args.main_root)}))
+            return 0
+        elif args.cmd == "ingest-followups":
+            print(json.dumps(ingest_followups(run, records_from_output(args.output, "results")), indent=1))
+        elif args.cmd == "followups-md":
+            Path(args.out).write_text(followups_md(run, args.group))
+            print(args.out)
+            return 0
         elif args.cmd == "review-args":
             held = {}
             prs = review_args(run, args.round, args.wave, run_file=str(Path(args.runfile).resolve()), held=held)
             print(json.dumps({"round": args.round, "prs": prs, "residue": held}))
         elif args.cmd == "ingest-review":
-            print(json.dumps(ingest_review(run, records_from_output(args.output, "results"), args.round), indent=1))
+            print(json.dumps(ingest_review(run, records_from_output(args.output, "results"), args.round,
+                                           criteria=review_criteria), indent=1))
         elif args.cmd == "set-group":
             set_group(run, args.group, args.stage, **_parse_fields(args.field))
         elif args.cmd == "clear-hold":
