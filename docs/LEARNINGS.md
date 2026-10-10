@@ -7112,3 +7112,28 @@ The owner counts the production rows before merge, because a DROP TABLE loses th
 the only care setting, with no way to change it. It is now on
 `UserProfileSerializer`. And a stale `ONBOARDING_STEPS` entry that nothing
 could complete capped onboarding at less than 100%.
+
+## 2026-10-10 — A per-member check over a shared artifact lets the group split (run 2026-10-10-1537, PR #982)
+
+**What broke.** Todo 494 added a check to `ingest_execute`: a worker that edited a todo's Acceptance
+Criteria fails that todo. It ran once per todo. But a group's todos share one worktree and one index,
+and Land commits that whole index. So in a four-todo group, one todo whose criteria were edited went to
+`failed` while its three group-mates went to `verified`. After `set ready` and `group`, the failed todo
+left the group, and Land would have committed the shared index, edited criteria included, for the
+mates. The check caught the edit and then shipped it anyway.
+
+**Root cause.** The unit of verdict (one todo) was smaller than the unit of commit (the group's index).
+`evaluate()` and `ingest_review` already judge the group as a whole; the new check did not follow them.
+
+**The fix (owner-approved hand round 3, 5686eae9).** Run the check over every todo in the result first;
+if any fails, fail every todo of the group with that reason. The test has two todos, one edited, and
+asserts both fail, with a guard-removed mutant.
+
+**General rule.** When several items ship as one unit (a worktree index, a DB transaction, a bulk save,
+one PR), validate at the unit: any member's failure fails all of them. A per-item verdict over a shared
+artifact is only safe if a failed item can be removed from the artifact, and here it could not.
+
+**Also.** Round 1 reported this same defect as a *medium*, so nothing repaired it; round 2 raised it to
+a high. A finding that comes back at the same `file:line` with a higher severity is a signal to repair
+it, not re-file it (todo 541 tracks the curation side). And the run file still has no exit for an
+owner-approved round 3: as with #880 and #886, the group stays `blocked` with `merged_pr` set.

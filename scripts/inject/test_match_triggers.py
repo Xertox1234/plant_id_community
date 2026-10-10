@@ -1477,5 +1477,39 @@ class TestFlutterAsDataTrigger(unittest.TestCase):
         )
 
 
+class TestMarkdownHashNumberTrigger(unittest.TestCase):
+    """Run 2026-10-10-1537 codification, against the REAL index. The positive is the
+    wrapped line from todo 541's first draft that markdownlint turned into "# 982"."""
+
+    TID = "markdown-line-starts-with-hash-number"
+
+    @classmethod
+    def setUpClass(cls):
+        root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+        cls.real = mt.load_triggers(root)
+
+    def fires(self, path, text):
+        tn, ti = write(path, text)
+        return self.TID in ids(mt.find_matches(tn, ti, self.real, None))
+
+    def test_wrapped_pr_number_fires(self):
+        self.assertTrue(self.fires(
+            "todos/541-pending-p4-x.md",
+            "dismissed nothing.\n#982 had three rounds. Round 2 sustained one high (one todo's edited criteria\n",
+        ))
+
+    def test_archive_path_fires(self):
+        self.assertTrue(self.fires("todos/archive/537-completed-p4-x.md", "#976 findings 1-5\n"))
+
+    def test_headings_lists_and_inline_refs_silent(self):
+        self.assertFalse(self.fires(
+            "todos/541-pending-p4-x.md",
+            "# Title\n## Findings\n### PR #982: engine\n- #979 1: fixed\nmerged #982 and #983.\nPR #982 had three rounds.\n",
+        ))
+
+    def test_other_paths_silent(self):
+        self.assertFalse(self.fires("backend/apps/core/checks.py", "#123 comment\n"))
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
