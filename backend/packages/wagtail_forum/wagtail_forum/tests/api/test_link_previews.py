@@ -212,10 +212,11 @@ def test_only_the_first_five_distinct_links_become_cards():
     assert [kind for kind, _ in stored] == ["link_preview"] * 5 + [
         "paragraph",
         "paragraph",
-        # A repeat of a URL that already has a card is a card at no cost.
-        "link_preview",
+        # A URL gets one card: a repeat stays its link (todo 535).
+        "paragraph",
     ]
     assert stored[5] == ("paragraph", _linked(urls[5]))
+    assert stored[7] == ("paragraph", _linked(urls[0]))
     # Links past the cap are never fetched.
     assert sorted(CALLS) == sorted(urls[:5])
 
@@ -980,6 +981,52 @@ def test_item2_the_measure_discounts_only_server_link_markup_and_card_fields():
     assert _measured_body_chars([card], rich, links) == len(
         json.dumps([{"type": "link_preview", "value": {"url": "https://c.example/"}}])
     )
+
+
+def full_fetcher(url, *, deadline=None):
+    """A snapshot with every field at its stored cap: the largest card."""
+    from wagtail_forum import link_previews
+
+    _record(url)
+    return {
+        "title": "t" * link_previews.TITLE_MAX_LENGTH,
+        "description": "d" * link_previews.DESCRIPTION_MAX_LENGTH,
+        "site_name": "s" * link_previews.SITE_NAME_MAX_LENGTH,
+        "domain": "full.example",
+        "image": "",
+    }
+
+
+@pytest.mark.django_db
+@_fetcher("full_fetcher")
+@pytest.mark.parametrize("as_card", [False, True], ids=["paragraphs", "resent-cards"])
+def test_item1_a_link_repeated_in_every_block_gets_one_card(as_card):
+    """Every size check counts a card as its URL alone, which is honest
+    only while the cards are capped. A URL repeated in all 100 blocks gets
+    ONE card, fetched once; every repeat is stored as its link, so the
+    stored body stays within the cap the measure checked."""
+    from wagtail_forum.api.sanitize import MAX_BODY_BLOCKS, MAX_BODY_CHARS
+
+    url = "https://full.example/page"
+    if as_card:
+        block = {"type": "link_preview", "value": {"url": url, "image_url": None}}
+    else:
+        block = _paragraph(url)
+
+    resp = _create(_client(_member()), _board(), [block] * MAX_BODY_BLOCKS)
+
+    assert resp.status_code == 201, resp.data
+    stored = _stored()
+    assert [kind for kind, _ in stored] == ["link_preview"] + ["paragraph"] * (
+        MAX_BODY_BLOCKS - 1
+    )
+    assert stored[0][1]["title"] == "t" * 200
+    # A resent card falls back to its link wrapped in a <p>, as every
+    # card that cannot be a card does.
+    link = f"<p>{_linked(url)}</p>" if as_card else _linked(url)
+    assert set(stored[1:]) == {("paragraph", link)}
+    assert CALLS == [url]
+    assert len(json.dumps(list(Post.objects.get().body.raw_data))) < MAX_BODY_CHARS
 
 
 @pytest.mark.parametrize(

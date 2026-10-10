@@ -132,3 +132,19 @@ punctuation now survives an edit. The findings below did not block it.
 ### 2026-10-10 - Completed by the todo sweep (run 2026-10-10-0234)
 
 - Archived by `land.py archive`; evidence is quoted above, review is on the PR.
+
+### 2026-10-10 - Repaired by the todo sweep (run 2026-10-10-0234)
+
+- Round-1 review (high): every size check counts a card as its URL alone,
+  which assumed `MAX_LINK_PREVIEWS_PER_BODY` capped the cards. But
+  `_convert_link_previews` carded every block with a chosen URL, so 100
+  blocks of one URL stored 100 full cards that no check counted.
+- Fix (`api/sanitize.py`): a URL now gets ONE card, at its first candidate.
+  A repeat stays (or, for a resent card, becomes) its link, which the
+  auto-linker makes tappable. Stored cards are now at most 5 distinct, so
+  the measure's assumption holds, the pre-fetch check still bounds the
+  stored body, and a resent read envelope still measures what was stored.
+- New regression test `test_item1_a_link_repeated_in_every_block_gets_one_card`
+  (100 paragraphs, and 100 resent cards, of one URL with every card field at
+  its cap). `test_only_the_first_five_distinct_links_become_cards` now expects
+  a repeated URL to stay a link, not a second card.

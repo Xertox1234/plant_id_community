@@ -173,8 +173,9 @@ def _convert_link_previews(value, link_type, existing):
     is reduced to its URL. The first ``MAX_LINK_PREVIEWS_PER_BODY`` distinct
     URLs get a card: from ``existing`` (the stored body's cards, on edit —
     reused as stored, never refetched, with or without a fetcher) or from ONE
-    bounded concurrent fetch. Any other candidate — past the cap (never
-    fetched), failed, or new while no fetcher is configured — stays or
+    bounded concurrent fetch. Each URL gets ONE card, at its first
+    candidate. Any other candidate — a repeat of a carded URL, past the cap
+    (never fetched), failed, or new while no fetcher is configured — stays or
     becomes a paragraph, which the auto-link pass then makes tappable.
     """
     embeds_on = get_setting("ALLOW_EMBED_BLOCKS")
@@ -208,9 +209,15 @@ def _convert_link_previews(value, link_type, existing):
     if fetcher is not None and to_fetch:
         cards.update(fetch_snapshots(fetcher, to_fetch))
 
+    # One card per URL: a repeat of a URL that already has a card stays (or
+    # becomes) its link. Every size check counts a card as its URL alone,
+    # which holds only while MAX_LINK_PREVIEWS_PER_BODY bounds the cards —
+    # 100 blocks of one URL must not store 100 full cards (todo 535).
+    carded = set()
     converted = []
     for block, url in zip(value, candidates):
-        if url in cards:
+        if url in cards and url not in carded:
+            carded.add(url)
             block = {**block, "type": link_type, "value": cards[url]}
         elif block["type"] == link_type:
             if not url:
@@ -327,7 +334,8 @@ def _measured_body_chars(value, rich_text_types, link_types):
 
     - A ``link_preview`` card counts as its URL alone. Its other fields are
       written by the server, bounded by the field caps and by
-      ``MAX_LINK_PREVIEWS_PER_BODY``, so a card can never push a body that
+      ``MAX_LINK_PREVIEWS_PER_BODY`` (one card per distinct URL, see
+      ``_convert_link_previews``), so a card can never push a body that
       fit before the fetch over the cap after it, and the read envelope sent
       back on edit measures what the stored card did.
     - The link attributes the server sets are not counted, up to
