@@ -176,6 +176,41 @@ def test_the_system_check_passes_vanilla_smtp_without_credentials():
         assert check_default_mailer(None) == []
 
 
+def test_the_system_check_passes_an_smtp_subclass_on_a_no_auth_relay():
+    """Todo 537: empty credentials rebuild as None, but SMTP open() logs in
+    only when both are truthy, so a no-auth relay has no login to lose. The
+    check must not fail `manage.py check` and the deploy for it."""
+    mailers = {
+        "default": build_default_mailer(
+            f"{__name__}.LoggingSMTPBackend",
+            **{**SMTP_ENV, "username": "", "password": ""},
+        )
+    }
+    with override_settings(MAILERS=mailers):
+        assert check_default_mailer(None) == []
+
+
+class LoginRequiredSMTPBackend(smtp.EmailBackend):
+    """An SMTP subclass that refuses to be built without a login."""
+
+    def __init__(self, *, username=None, password=None, **kwargs):
+        if username is None:
+            raise ValueError("this relay needs a login")
+        super().__init__(username=username, password=password, **kwargs)
+
+
+def test_the_system_check_names_a_backend_that_cannot_take_the_legacy_call():
+    """Todo 537: the mailer itself builds, so "cannot be built" would send
+    the reader to EMAIL_BACKEND's path and variables for the wrong reason."""
+    path = f"{__name__}.LoginRequiredSMTPBackend"
+    with override_settings(MAILERS=_mailers_for(path)):
+        [error] = check_default_mailer(None)
+    assert error.id == "core.E364"
+    assert "cannot be built" not in error.msg
+    assert "cannot be rebuilt for a get_connection(" in error.msg
+    assert "this relay needs a login" in error.msg
+
+
 def test_the_system_check_accepts_a_configured_smtp_subclass():
     options = _smtp_mailers()["default"]["OPTIONS"]
     mailers = {

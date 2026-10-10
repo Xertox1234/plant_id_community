@@ -121,7 +121,17 @@ class Command(BaseCommand):
             ).update(last_digest_sent_at=now)
             if not claimed:
                 continue
-            if send_digest(digest):
+            try:
+                sent = send_digest(digest)
+            except BaseException:
+                # A soft time limit or a re-raised Warning (todo 537) stops
+                # the run: give back our own claim, never a later run's, so
+                # the member is due again.
+                ForumProfile.objects.filter(
+                    pk=profile.pk, last_digest_sent_at=now
+                ).update(last_digest_sent_at=previous)
+                raise
+            if sent:
                 totals["sent"] += 1
             else:
                 ForumProfile.objects.filter(pk=profile.pk).update(

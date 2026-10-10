@@ -413,8 +413,12 @@ def send_forum_email_batch(event: str, recipient_user_ids: list[int], data: dict
     The Post and all recipient Users are fetched ONCE up front, then the loop
     only calls NotificationService — whose send path
     (EmailService.send_email()) swallows every send/render failure and returns a
-    bool, so it can never raise. This ordering is load-bearing: email has no
-    collapse-key dedup, so autoretry_for=(OperationalError,) must be able to
+    bool, so a send failure never raises. The one exception is a Warning
+    (RemovedInDjango70Warning under pytest.ini's deprecation gate, todos 454
+    and 537): it is re-raised on purpose to fail the test run, and it is not
+    an OperationalError, so it can never trigger the retry.
+
+    This ordering is load-bearing: email has no collapse-key dedup, so autoretry_for=(OperationalError,) must be able to
     fire ONLY before any email is sent, or a transient-DB retry would
     double-email everyone. All OperationalError-raising DB access happens in the
     up-front fetch; the send loop does none.

@@ -74,3 +74,14 @@ web/mobile clients for any reference first.
 ### 2026-10-10 - Completed by the todo sweep (run 2026-10-10-0234)
 
 - Archived by `land.py archive`; evidence is quoted above, review is on the PR.
+
+## Notes
+
+- 2026-10-10 (todo 537, finding #979-1): the Approach and the last two
+  criteria describe an expand/contract sequence that did not happen. By the
+  owner decision in the frontmatter, ONE `DeleteModel` migration
+  (`users/migrations/0018_delete_demodata.py`, PR #979) removed the model and
+  dropped `users_demodata` in the same deploy. There was no state-only step
+  and no later drop PR: read "Table dropped in a later PR" as "table dropped
+  by 0018, in #979". The deploy confirmation (and the pre-drop row count, if
+  one can be had) is todo 536.
