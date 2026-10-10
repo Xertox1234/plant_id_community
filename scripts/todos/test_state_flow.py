@@ -2733,6 +2733,14 @@ def hand_round_542_tests():
          lambda m: not accepts(m, blocked_entry(reason="1 blocking findings after round 2", hand_round=3,
                                                 blocked_by="review round 2")),
          '    if any(e.get("hand_round") for _, e in entries):', '    if False:')
+    def retry_drops_marker(m):
+        r = one({"stage": "failed", "group": "g1", "attempts": 0, "reason": "x", "hand_round": 3,
+                 "triage": {"size": "s"}})
+        m.transition(r, "1", "ready", reason="retry")
+        return "hand_round" not in r["todos"]["1"] and r["todos"]["1"]["previous"][-1].get("hand_round") == 3
+
+    both("542 review #6: a new attempt does not inherit the old attempt's hand_round marker", retry_drops_marker,
+         '"blocked_by", "hand_round")', '"blocked_by")')
     check("542 AC1: hand_round needs the owner's decision",
           raises(lambda: state.hand_round(one(blocked_entry(blocked_by="review round 2", reason="x")), "g1", "  ")))
 

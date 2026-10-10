@@ -19,8 +19,9 @@ description: Resume, restart, or discard an interrupted todo run from its checkp
      then retry it once.
    - `verified` → Stage D (Land)
    - `pr_open` → Stage C, at round `review_round + 1`. When `review_round` is 1, a round-1 repair may not
-     have reached the PR yet. The reviewers read the local worktree, but auto-merge ships the remote
-     branch. So before round 2, run `ensure-worktree` (sandbox off), then:
+     have reached the PR yet. When `review_round` is 2 with `hand_round: 3` (todo 542), the same holds for
+     the owner's round-3 repair. The reviewers read the local worktree, but auto-merge ships the remote
+     branch. So before round 2 (or round 3), run `ensure-worktree` (sandbox off), then:
      - if `/usr/bin/git -C $WT diff --cached --quiet` exits non-zero, the repair is still staged. Finish Stage C's
        `repair-staged` commit, `ensure-worktree` and push.
      - if `/usr/bin/git -C $WT rev-parse HEAD` differs from the SHA in `/usr/bin/git -C $WT ls-remote origin <branch>`,
