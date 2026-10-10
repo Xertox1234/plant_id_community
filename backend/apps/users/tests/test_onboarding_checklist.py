@@ -155,6 +155,15 @@ class OnboardingChecklistTests(TestCase):
                 resp = getattr(self.client, method)(path)
                 self.assertEqual(resp.status_code, 404)
 
+    def test_the_demo_data_model_and_table_are_gone(self):
+        """users 0018 drops the unused demo-data model and its table (todo 532)."""
+        from django.apps import apps
+        from django.db import connection
+
+        with self.assertRaises(LookupError):
+            apps.get_model("users", "demodata")
+        self.assertNotIn("users_demodata", connection.introspection.table_names())
+
 
 class IdentifyTicksTheChecklistTests(TestCase):
     """The identify endpoint records the step itself: results are not
