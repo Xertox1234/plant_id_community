@@ -85,8 +85,9 @@ const LENSES = [
   { key: 'security-data', focus: 'authentication and permission gaps, input validation and injection, ' +
       'secrets or PII exposure, migrations that lose or corrupt data, and destructive operations without a guard' },
   { key: 'contracts-tests', focus: 'API, serializer, schema and cache-key contracts that web or mobile ' +
-      'callers rely on, state, caching, idempotency and retry behaviour, and tests that do not actually ' +
-      'exercise the change or were weakened to pass' },
+      'callers rely on, state, caching, idempotency and retry behaviour, a new state or transition that ' +
+      'existing guards keyed on the old state values (in code or runbooks) silently skip, and tests that do ' +
+      'not actually exercise the change or were weakened to pass' },
 ]
 
 const FINDINGS = {

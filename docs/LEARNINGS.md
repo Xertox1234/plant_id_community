@@ -7137,3 +7137,38 @@ artifact is only safe if a failed item can be removed from the artifact, and her
 a high. A finding that comes back at the same `file:line` with a higher severity is a signal to repair
 it, not re-file it (todo 541 tracks the curation side). And the run file still has no exit for an
 owner-approved round 3: as with #880 and #886, the group stays `blocked` with `merged_pr` set.
+
+## 2026-10-10 — A new state slips past every guard keyed on the old state's values (todos 542 and 543, PRs #987–#989)
+
+**What broke.** Todo 542 added an owner-approved review round 3 to the sweep engine: `hand-round` puts a
+group back at `pr_open` with `review_round: 2`. Every guard the change touched had a test. But two
+existing guards were keyed on literal values of the old states, and the new state got past both without
+an error:
+
+- `todo-resume` checks for a repair that was committed and never pushed, but only "when `review_round` is
+  1". A resumed round 3 (`review_round` 2) skipped the check. Reviewers read the local worktree, and
+  auto-merge ships the remote branch, so a clean round 3 would have armed a PR that never got the fix.
+- `ingest-review` refused a stale output file only because the group's state no longer matched it. A
+  round-2 file and a round-3 file now share the same preconditions (`pr_open`, round 2 done). So after
+  `hand-round`, a stale round-2 file was accepted as round 3 and could spend the owner's only extra round.
+
+A post-merge `/code-review` found both. The 542 tests passed throughout, because they drove only the new
+path.
+
+**Root cause.** Each guard was a predicate over state values (`review_round == 1`; stage plus
+`review_round`) and stood in for the property it protected ("the repair is pushed"; "this output belongs to
+this round"). Adding a state that the predicate does not mention turns the guard off for that state, and
+nothing fails.
+
+**The fix.** #988 extended the resume check to the hand-round state. #989 checks the property itself, in
+code, for every state. `review-args` holds a group back under `not_ready` until worktree HEAD equals
+`refs/remotes/origin/<branch>`. A push updates that ref locally, so the check needs no network. At round 3
+it also requires HEAD to have moved since `hand-round` and the acceptance criteria to be untouched. And
+each workflow result now names its own `round`, so `ingest-review` compares the output's identity, not
+group state that two rounds can share.
+
+**General rule.** When you add a state or transition, grep for every guard keyed on the existing values
+of that state field, in code and in runbooks (`review_round`, `stage ==`, "when X is 1"), and decide each
+one for the new state. Better, write guards over the property they protect: "is HEAD pushed", not "is
+this round 1". And give an artifact its own identity (a round, a run id) rather than inferring it from
+the state it is ingested into.
