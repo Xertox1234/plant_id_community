@@ -1,6 +1,7 @@
 import Mention from '@tiptap/extension-mention';
 import type { SuggestionKeyDownProps, SuggestionProps } from '@tiptap/suggestion';
 import { searchForumUsers } from '../../services/forumService';
+import { FORUM_MENTION_HTML_ATTRIBUTES } from './forumEditorSchema';
 
 const MAX_SUGGESTIONS = 8;
 // Matches SearchPage.tsx's debounce window — same "live search as you type"
@@ -72,9 +73,9 @@ export async function resolveMentionSuggestions({
  * (todo 253 slice 4 review). Pinned by forumMentionNode.test.ts.
  */
 export const ForumMention = Mention.configure({
-  HTMLAttributes: {
-    class: 'text-primary font-medium',
-  },
+  // Shared with the body serializer's schema (forumEditorSchema, todo 526),
+  // so the mention HTML it prints matches what this node renders.
+  HTMLAttributes: FORUM_MENTION_HTML_ATTRIBUTES,
   suggestion: {
     char: '@',
     items: resolveMentionSuggestions,

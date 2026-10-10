@@ -1,6 +1,4 @@
-import { useEditor, EditorContent, type Editor } from '@tiptap/react';
-import StarterKit from '@tiptap/starter-kit';
-import Link from '@tiptap/extension-link';
+import { useEditor, EditorContent, type Editor, type JSONContent } from '@tiptap/react';
 import Placeholder from '@tiptap/extension-placeholder';
 import { ReactNode, useCallback, useEffect, useRef, useState } from 'react';
 import {
@@ -32,8 +30,7 @@ import {
 import { logger } from '../../utils/logger';
 import { previewUrlFromHtml } from '../../utils/forumBody';
 import LinkPreviewCard from './LinkPreviewCard';
-import { ForumBlockquoteAttrs } from './forumBlockquoteAttrs';
-import { ForumImage } from './forumImageNode';
+import { forumComposerExtensions } from './forumEditorSchema';
 import ForumImagePicker from './ForumImagePicker';
 import { ForumMention } from './forumMentionNode';
 import type { LinkPreview } from '@/types/forum';
@@ -107,8 +104,17 @@ function isAllowedLinkHref(url: string): boolean {
 }
 
 interface TipTapEditorProps {
-  content?: string;
-  onChange?: (html: string) => void;
+  /**
+   * The initial document, as TipTap JSON (todo 526) — never an HTML string.
+   * Build it with utils/forumBody (`bodyBlocksToDoc`, `draftToDoc`,
+   * `emptyDoc`): a persisted value then reaches the editor as a node
+   * attribute or a text node, not as markup the HTML parser re-reads (which
+   * normalised CR/CRLF and NUL in attribute values on the way in). Init-only:
+   * remount the editor (a `key` change) to replace it.
+   */
+  content?: JSONContent;
+  /** The document after every change, as `editor.getJSON()`. */
+  onChange?: (doc: JSONContent) => void;
   placeholder?: string;
   className?: string;
   /** Focus the editor once it mounts — used to restore focus after posting (M25). */
@@ -122,7 +128,7 @@ interface TipTapEditorProps {
  * Provides basic formatting, links, and sanitization.
  */
 export default function TipTapEditor({
-  content = '',
+  content,
   onChange,
   placeholder = 'Write your post...',
   className = '',
@@ -208,38 +214,24 @@ export default function TipTapEditor({
         return true;
       },
     },
+    // The schema is shared with the body serializer (forumEditorSchema, todo
+    // 526) so the JSON this editor reports parses and prints identically
+    // there. Placeholder adds no schema, so it stays editor-only.
     extensions: [
-      StarterKit.configure({
-        heading: {
-          levels: [2, 3], // Only H2 and H3
-        },
-        // Disable the default Link from StarterKit to avoid duplicate
-        link: false,
-      }),
-      Link.configure({
-        openOnClick: false,
-        HTMLAttributes: {
-          class: 'text-primary hover:underline',
-          target: '_blank',
-          rel: 'noopener noreferrer',
-        },
-      }),
+      ...forumComposerExtensions(ForumMention),
       Placeholder.configure({
         placeholder,
       }),
-      ForumImage,
-      ForumMention,
-      // Quoted-post id on blockquotes (todo 342) — see forumBlockquoteAttrs.
-      ForumBlockquoteAttrs,
     ],
     content,
     // TipTap applies this at creation; the composer remounts (key change) after
     // a reply, so a fresh instance with autoFocus lands the caret in it (M25).
     autofocus: autoFocus ? 'end' : false,
     onUpdate: ({ editor }) => {
-      const html = editor.getHTML();
-      onChange?.(html);
-      scheduleLinkPreview(html);
+      onChange?.(editor.getJSON());
+      // The preview detector reads TipTap's own serialisation: a display-only
+      // lookup, never persisted.
+      scheduleLinkPreview(editor.getHTML());
     },
   });
 

@@ -62,7 +62,6 @@ import type {
   TopicSummary,
 } from '../types/forum';
 import { slugifyTitle } from '../utils/forumUrls';
-import { htmlToBodyBlocks } from '../utils/forumBody';
 import { safeExternalUrl } from '../utils/externalUrl';
 import { API_ORIGIN } from '@/config/api';
 
@@ -234,7 +233,7 @@ export async function fetchThread(
 }
 
 export async function createThread(data: CreateTopicInput): Promise<CreateTopicResult> {
-  const { boardSlug, title, content, tags, identification, poll } = data;
+  const { boardSlug, title, body, tags, identification, poll } = data;
   const res = await authenticatedFetch<{
     id: number;
     slug: string;
@@ -244,7 +243,10 @@ export async function createThread(data: CreateTopicInput): Promise<CreateTopicR
     body: JSON.stringify({
       title,
       slug: slugifyTitle(title),
-      body: htmlToBodyBlocks(content),
+      // Built from the composer's TipTap document by the caller
+      // (docToBodyBlocks, todo 526) — no HTML parsing on this path, and no
+      // TipTap in this module's import graph.
+      body,
       // Omit the key entirely when there are none — the server treats an absent
       // `tags` as "no tags", and sending [] would be an equivalent but noisier
       // payload on the common untagged path.
@@ -470,10 +472,10 @@ export async function fetchLinkPreview(url: string, signal?: AbortSignal): Promi
 }
 
 export async function createPost(data: CreateReplyInput): Promise<CreateReplyResult> {
-  const { thread, content } = data;
+  const { thread, body } = data;
   const res = await authenticatedFetch<{ id: number; status: 'published' | 'pending' }>(
     `${FORUM_BASE}/topics/${thread}/posts/`,
-    { method: 'POST', body: JSON.stringify({ body: htmlToBodyBlocks(content) }) }
+    { method: 'POST', body: JSON.stringify({ body }) }
   );
   return { id: String(res.id), status: res.status };
 }
@@ -483,7 +485,7 @@ export async function updatePost(postId: string, data: UpdatePostInput): Promise
     BackendPost & { moderation_status: 'published' | 'pending' }
   >(`${FORUM_BASE}/posts/${postId}/`, {
     method: 'PATCH',
-    body: JSON.stringify({ body: htmlToBodyBlocks(data.content) }),
+    body: JSON.stringify({ body: data.body }),
   });
   return { post: mapPostToPost(res, String(res.topic_id)), status: res.moderation_status };
 }

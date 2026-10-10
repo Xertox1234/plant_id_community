@@ -290,7 +290,7 @@ Compact checklist auto-injected before edits. Long-form:
   go live without the change); re-check under a row lock before saving. See
   `apps/blog/services/plant_spotlight_writes.py` (PR #825).
 - **A new body block ships dark until every client's EDIT round trip handles
-  it, not just its renderer.** The web `bodyBlocksToHtml` returns `''` for an
+  it, not just its renderer.** The web `bodyBlocksToDoc` leaves out an
   unknown block type, so the first web edit of a post holding one silently
   deletes it. The mobile `ForumComposeArgs.edit` sends it to the
   `hasNonTextContent` warning. Gate producing the block behind a host setting,

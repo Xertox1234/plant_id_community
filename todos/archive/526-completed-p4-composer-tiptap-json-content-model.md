@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: p4
 issue_id: "526"
 tags: [web, forum, composer]
@@ -58,10 +58,10 @@ normalisation from todo 443.
 
 ## Acceptance Criteria
 
-- [ ] No branch of `bodyBlocksToHtml` interpolates a persisted value into an
+- [x] No branch of `bodyBlocksToHtml` interpolates a persisted value into an
       HTML string: image, embed and link-card nodes are built as TipTap JSON
       or DOM nodes, with a test per branch.
-- [ ] A round-trip test shows every stored block shape rehydrates and
+- [x] A round-trip test shows every stored block shape rehydrates and
       re-serialises unchanged, so re-saving an untouched post sends no PATCH.
 
 ## Work Log
@@ -70,3 +70,50 @@ normalisation from todo 443.
 
 - Split out of todo 443 when its owner decision was narrowed to the
   server-side CR/CRLF/NUL normalisation in `sanitize.py`.
+
+### 2026-10-10 - Implemented by the todo sweep (run 2026-10-10-0234)
+
+- Owner option A: the composer's `content`/`onChange` contract is TipTap
+  JSON (`getJSON()`). `forumBody` now converts `bodyBlocksToDoc` /
+  `docToBodyBlocks`; image, embed, link-card and quote values travel as node
+  attributes and text nodes, so no persisted value is interpolated into an
+  HTML string. `bodyBlocksToHtml`, `htmlToBodyBlocks`, `escapeAttr`,
+  `linkParagraphHtml` and `postQuoteHtml` are gone; the `^https?://` guard
+  moved into `linkParagraph`. Paragraph blocks (HTML by contract) are parsed
+  and printed with the live editor's schema, now shared in
+  `components/forum/forumEditorSchema.ts`.
+- Services take the write blocks (`body: ForumBodyWriteBlock[]`), so
+  `forumService` no longer pulls TipTap into its import graph. NewThreadPage
+  moved with ThreadDetailPage; drafts are stored as JSON and pre-526 HTML
+  drafts still restore (`draftToDoc` / `toComposerDoc`).
+- Re-saving an untouched post now sends no PATCH (`isUnchangedBody`); the
+  same comparison replaces the reference-equality dirty check (M27).
+- Tests: the `htmlToBodyBlocks` edge cases were ported to the JSON API, and
+  new real-editor round trips cover every stored block shape, including CR,
+  CRLF and NUL in alt text. The server-side normalisation from todo 443 stays.
+
+### 2026-10-10 - Verified by the todo sweep (run 2026-10-10-0234)
+
+- AC 1: `cd web && ! grep -nE 'escapeAttr|linkParagraphHtml|bodyBlocksToHtml|htmlToBodyBlocks|postQuoteHtml' src/utils/forumBody.ts && echo 'no string builders remain in forumBody.ts' && npx vitest run src/utils/forumBody.test.ts --reporter=verbose` — evidence `.sweep-evidence/g2/526-ac0.txt` (not committed), last lines:
+
+  ```text
+
+   Test Files  1 passed (1)
+        Tests  89 passed (89)
+     Start at  21:13:14
+     Duration  1.02s (transform 75ms, setup 109ms, import 229ms, tests 128ms, environment 475ms)
+  ```
+
+- AC 2: `cd web && npx vitest run src/utils/forumBody.test.ts src/pages/forum/ThreadDetailPage.test.tsx -t 'every stored block shape|image attributes survive rehydrate|untouched post' --reporter=verbose` — evidence `.sweep-evidence/g2/526-ac1.txt` (not committed), last lines:
+
+  ```text
+
+   Test Files  2 passed (2)
+        Tests  28 passed | 146 skipped (174)
+     Start at  21:13:15
+     Duration  1.60s (transform 371ms, setup 119ms, import 1.26s, tests 233ms, environment 559ms)
+  ```
+
+### 2026-10-10 - Completed by the todo sweep (run 2026-10-10-0234)
+
+- Archived by `land.py archive`; evidence is quoted above, review is on the PR.

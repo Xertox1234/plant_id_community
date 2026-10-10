@@ -1,18 +1,23 @@
 import { describe, it, expect, vi } from 'vitest';
-import { Editor } from '@tiptap/react';
+import { Editor, generateHTML, type JSONContent } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
 import Link from '@tiptap/extension-link';
 import {
-  htmlToBodyBlocks,
+  bodyBlocksToDoc,
+  docToBodyBlocks,
+  draftToDoc,
+  emptyDoc,
+  isBlankDoc,
+  isUnchangedBody,
   previewUrlFromHtml,
-  bodyBlocksToHtml,
-  postQuoteHtml,
+  postQuoteNode,
   postQuoteText,
   isBlankHtml,
+  toComposerDoc,
   QUOTE_TEXT_MAX_CHARS,
 } from './forumBody';
 import { ForumImage } from '../components/forum/forumImageNode';
-import { ForumBlockquoteAttrs } from '../components/forum/forumBlockquoteAttrs';
+import { FORUM_SCHEMA_EXTENSIONS } from '../components/forum/forumEditorSchema';
 import type { StreamFieldBlock } from '@/types/blog';
 
 // Lets one test make the shared URL rule reject everything, to prove the
@@ -28,12 +33,30 @@ vi.mock('./externalUrl', async (importOriginal) => {
   };
 });
 
-// Round-trip tests feed WRITE blocks back into the READ-shape renderer. The
-// `structuredClone` boundary is deliberate (todo 353): it is the only place
-// the codebase composes bodyBlocksToHtml(htmlToBodyBlocks(...)) directly, and
-// CodeQL js/xss-through-dom chained THROUGH this file to reach the DOMParser
-// sink (conflating the embed URL with paragraph HTML on the shared array).
-// Production never has that path — TipTap sits between the two functions.
+// Since todo 526 the composer's content model is TipTap JSON: bodyBlocksToDoc
+// builds the editor's document, docToBodyBlocks reads it back. Most cases
+// below were ported from the HTML pair they replaced (bodyBlocksToHtml /
+// htmlToBodyBlocks). Where a case's INPUT is composer HTML, `fromHtml` parses
+// it with the live editor's schema first — exactly what the editor holds after
+// that HTML is pasted or set — so the cases still pin the same rules.
+const fromHtml = (html: string) => docToBodyBlocks(toComposerDoc(html));
+const docOf = (...content: JSONContent[]): JSONContent => ({ type: 'doc', content });
+const text = (value: string, marks?: JSONContent['marks']): JSONContent =>
+  marks ? { type: 'text', text: value, marks } : { type: 'text', text: value };
+const para = (...content: JSONContent[]): JSONContent =>
+  content.length ? { type: 'paragraph', content } : { type: 'paragraph' };
+const image = (attrs: Record<string, unknown>): JSONContent => ({ type: 'image', attrs });
+
+/** `doc` as the live editor holds it: mounted, then read back with getJSON(). */
+function throughEditor(doc: JSONContent): JSONContent {
+  const editor = new Editor({ extensions: FORUM_SCHEMA_EXTENSIONS, content: doc });
+  try {
+    return editor.getJSON();
+  } finally {
+    editor.destroy();
+  }
+}
+
 describe('previewUrlFromHtml', () => {
   it('extracts a linked public URL from real TipTap output', () => {
     const editor = new Editor({
@@ -89,59 +112,63 @@ describe('previewUrlFromHtml', () => {
 
 describe('forumBody serialization', () => {
   it('never turns a link carrying HTML meta-characters into an embed (todo 353)', () => {
-    const bad = htmlToBodyBlocks('<p>https://youtu.be/abc&lt;script&gt;x</p>');
+    const bad = fromHtml('<p>https://youtu.be/abc&lt;script&gt;x</p>');
     expect(bad).toEqual([
       { type: 'paragraph', value: '<p>https://youtu.be/abc&lt;script&gt;x</p>' },
     ]);
-    const quoted = htmlToBodyBlocks('<p>https://www.youtube.com/watch?v=1"onerror="x</p>');
+    const quoted = fromHtml('<p>https://www.youtube.com/watch?v=1"onerror="x</p>');
     expect(quoted[0]?.type).toBe('paragraph');
-    const good = htmlToBodyBlocks('<p>https://youtu.be/abc123</p>');
+    const good = fromHtml('<p>https://youtu.be/abc123</p>');
     expect(good).toEqual([{ type: 'embed', value: 'https://youtu.be/abc123' }]);
   });
 
-  it('htmlToBodyBlocks splits interleaved text and images into separate blocks', () => {
+  it('docToBodyBlocks splits interleaved text and images into separate blocks', () => {
     const html = '<p>before</p><img src="https://cdn/x.jpg" alt="a" data-image-id="5"><p>after</p>';
-    expect(htmlToBodyBlocks(html)).toEqual([
+    expect(fromHtml(html)).toEqual([
       { type: 'paragraph', value: '<p>before</p>' },
       { type: 'image', value: { image: 5, alt_text: 'a', decorative: false } },
       { type: 'paragraph', value: '<p>after</p>' },
     ]);
   });
 
-  it('htmlToBodyBlocks does not make an image block for an <img> without an id', () => {
+  it('docToBodyBlocks does not make an image block for an image without an id', () => {
     // Only uploaded (id-bearing) images become image blocks.
-    const blocks = htmlToBodyBlocks('<p>x</p><img src="https://cdn/y.jpg">');
+    const blocks = fromHtml('<p>x</p><img src="https://cdn/y.jpg">');
     expect(blocks.some((b) => b.type === 'image')).toBe(false);
   });
 
-  it('bodyBlocksToHtml rebuilds <img> carrying the wagtail id', () => {
+  it('bodyBlocksToDoc builds an image NODE carrying the wagtail id, not an <img> string (todo 526)', () => {
     const body: StreamFieldBlock[] = [
       { type: 'paragraph', value: '<p>hi</p>' },
       { type: 'image', value: { id: 9, url: 'https://cdn/z.jpg', alt: 'cap' } },
     ];
-    const html = bodyBlocksToHtml(body);
-    expect(html).toContain('<p>hi</p>');
-    expect(html).toContain('data-image-id="9"');
-    expect(html).toContain('src="https://cdn/z.jpg"');
+    expect(bodyBlocksToDoc(body)).toEqual(
+      docOf(
+        para(text('hi')),
+        image({ src: 'https://cdn/z.jpg', alt: 'cap', imageId: '9', decorative: false })
+      )
+    );
   });
 
-  it('escapes a bare top-level text node instead of letting it become markup', () => {
-    // `buffer` is joined into a `paragraph` block whose value is HTML, so a text
-    // node's characters must be escaped on the way in (CodeQL js/xss-through-dom).
-    // Also the correct rendering: the user typed "<", they did not open a tag.
-    expect(htmlToBodyBlocks('a < b')).toEqual([{ type: 'paragraph', value: 'a &lt; b' }]);
-    expect(htmlToBodyBlocks('<p>ok</p>plain & text')).toEqual([
-      { type: 'paragraph', value: '<p>ok</p>plain &amp; text' },
+  it('keeps typed markup characters as text in the paragraph HTML', () => {
+    // The paragraph value is HTML, so a character the user typed must be
+    // escaped there, never re-read as a tag (CodeQL js/xss-through-dom). Bare
+    // top-level text is wrapped in a paragraph by the schema (todo 526: it
+    // used to be passed through unwrapped, which only raw HTML input could
+    // produce — the editor never emits bare text).
+    expect(fromHtml('a < b')).toEqual([{ type: 'paragraph', value: '<p>a &lt; b</p>' }]);
+    expect(fromHtml('<p>ok</p>plain & text')).toEqual([
+      { type: 'paragraph', value: '<p>ok</p><p>plain &amp; text</p>' },
     ]);
   });
 
-  it('round-trips a body through HTML and back, preserving image ids and order', () => {
+  it('round-trips a body through the document and back, preserving image ids and order', () => {
     const body: StreamFieldBlock[] = [
       { type: 'paragraph', value: '<p>look</p>' },
       { type: 'image', value: { id: 42, url: 'https://cdn/p.jpg', alt: '' } },
       { type: 'paragraph', value: '<p>done</p>' },
     ];
-    expect(htmlToBodyBlocks(bodyBlocksToHtml(body))).toEqual([
+    expect(docToBodyBlocks(bodyBlocksToDoc(body))).toEqual([
       { type: 'paragraph', value: '<p>look</p>' },
       { type: 'image', value: { image: 42, alt_text: '', decorative: true } },
       { type: 'paragraph', value: '<p>done</p>' },
@@ -149,52 +176,45 @@ describe('forumBody serialization', () => {
   });
 
   it('round-trips through a REAL TipTap editor: ForumImage stays a top-level block with its id', () => {
-    // Guards the seam the unit tests cannot: that the actual editor's getHTML()
-    // emits an <img> at body level (block, not inline-in-<p>) and preserves
-    // data-image-id through the ProseMirror schema — otherwise the image is
-    // swept into a paragraph, nh3 strips it on save, and it vanishes in prod.
-    const editor = new Editor({
-      extensions: [StarterKit, ForumImage],
-      content: '<p>a</p><img src="https://cdn/x.jpg" data-image-id="5"><p>b</p>',
-    });
-    try {
-      expect(htmlToBodyBlocks(editor.getHTML())).toEqual([
-        { type: 'paragraph', value: '<p>a</p>' },
-        { type: 'image', value: { image: 5, alt_text: '', decorative: true } },
-        { type: 'paragraph', value: '<p>b</p>' },
-      ]);
-    } finally {
-      editor.destroy();
-    }
+    // Guards the seam the unit tests cannot: that the actual editor keeps the
+    // image a top-level block (not inline in a paragraph) and preserves its
+    // id through the ProseMirror schema — otherwise the image is swept into a
+    // paragraph, nh3 strips it on save, and it vanishes in prod.
+    const doc = throughEditor(
+      toComposerDoc('<p>a</p><img src="https://cdn/x.jpg" data-image-id="5"><p>b</p>')
+    );
+    expect(docToBodyBlocks(doc)).toEqual([
+      { type: 'paragraph', value: '<p>a</p>' },
+      { type: 'image', value: { image: 5, alt_text: '', decorative: true } },
+      { type: 'paragraph', value: '<p>b</p>' },
+    ]);
   });
 });
 
 describe('forumBody quote blocks (audit M1)', () => {
-  it('lifts a top-level <blockquote> into its own quote block as PLAIN text', () => {
+  it('lifts a top-level blockquote into its own quote block as PLAIN text', () => {
     // BlockQuoteBlock is a Wagtail TextBlock — the value is text, never markup.
-    expect(htmlToBodyBlocks('<p>before</p><blockquote><p>quoted</p></blockquote>')).toEqual([
+    expect(fromHtml('<p>before</p><blockquote><p>quoted</p></blockquote>')).toEqual([
       { type: 'paragraph', value: '<p>before</p>' },
       { type: 'quote', value: 'quoted' },
     ]);
   });
 
   it('joins a multi-paragraph blockquote instead of mashing the text together', () => {
-    // Raw textContent would yield "onetwo".
-    expect(htmlToBodyBlocks('<blockquote><p>one</p><p>two</p></blockquote>')).toEqual([
+    // Raw text would yield "onetwo".
+    expect(fromHtml('<blockquote><p>one</p><p>two</p></blockquote>')).toEqual([
       { type: 'quote', value: 'one\n\ntwo' },
     ]);
   });
 
   it('drops an empty blockquote rather than emitting a blank quote block', () => {
-    expect(htmlToBodyBlocks('<blockquote><p>   </p></blockquote>')).toEqual([]);
+    expect(fromHtml('<blockquote><p>   </p></blockquote>')).toEqual([]);
   });
 
   it('hoists an image nested in a blockquote out instead of silently losing it', () => {
-    // textContent cannot see an <img>; without the hoist the user's upload vanishes.
+    // An image has no text; without the hoist the user's upload vanishes.
     expect(
-      htmlToBodyBlocks(
-        '<blockquote><p>see</p><img src="https://cdn/x.jpg" data-image-id="7"></blockquote>'
-      )
+      fromHtml('<blockquote><p>see</p><img src="https://cdn/x.jpg" data-image-id="7"></blockquote>')
     ).toEqual([
       { type: 'quote', value: 'see' },
       { type: 'image', value: { image: 7, alt_text: '', decorative: true } },
@@ -202,24 +222,29 @@ describe('forumBody quote blocks (audit M1)', () => {
   });
 
   it('skips a nested image with a blank id instead of emitting value 0', () => {
-    // `<img data-image-id="">` matches the selector but has no usable id.
-    // Emitting 0 (or NaN -> null) fails validate_forum_body server-side, so ONE
-    // unusable image would 400 the whole save. Match the top-level branch and
-    // drop it. The real image alongside it must still survive.
-    expect(
-      htmlToBodyBlocks(
-        '<blockquote><p>q</p><img data-image-id=""><img data-image-id="8"></blockquote>'
-      )
-    ).toEqual([
+    // An image node whose id is "" has no usable id. Emitting 0 (or NaN ->
+    // null) fails validate_forum_body server-side, so ONE unusable image would
+    // 400 the whole save. Match the top-level branch and drop it. The real
+    // image alongside it must still survive.
+    const doc = docOf({
+      type: 'blockquote',
+      content: [para(text('q')), image({ imageId: '' }), image({ imageId: '8' })],
+    });
+    expect(docToBodyBlocks(doc)).toEqual([
       { type: 'quote', value: 'q' },
       { type: 'image', value: { image: 8, alt_text: '', decorative: true } },
     ]);
   });
 
-  it('ESCAPES quote text on the way back into composer HTML', () => {
-    // The server leaves quote values unsanitized ("text by contract"), so an
-    // unescaped write-back would turn stored text into real editor markup.
-    const html = bodyBlocksToHtml([{ type: 'quote', value: '<script>alert(1)</script>' }]);
+  it('puts quote text back into the composer as a TEXT node, never as markup', () => {
+    // The server leaves quote values unsanitized ("text by contract"); the
+    // write-back must not turn stored text into real editor structure.
+    const doc = bodyBlocksToDoc([{ type: 'quote', value: '<script>alert(1)</script>' }]);
+    expect(doc).toEqual(
+      docOf({ type: 'blockquote', content: [para(text('<script>alert(1)</script>'))] })
+    );
+    // As the editor renders it, the text is escaped, never a tag.
+    const html = generateHTML(doc, FORUM_SCHEMA_EXTENSIONS);
     expect(html).toContain('&lt;script&gt;');
     expect(html).not.toContain('<script>');
   });
@@ -229,13 +254,13 @@ describe('forumBody quote blocks (audit M1)', () => {
       { type: 'paragraph', value: '<p>intro</p>' },
       { type: 'quote', value: 'a < b\n\nsecond line' },
     ];
-    const once = htmlToBodyBlocks(bodyBlocksToHtml(body));
+    const once = docToBodyBlocks(bodyBlocksToDoc(body));
     expect(once).toEqual([
       { type: 'paragraph', value: '<p>intro</p>' },
       { type: 'quote', value: 'a < b\n\nsecond line' },
     ]);
     // Stable under a second pass — re-editing a saved post must not drift.
-    expect(htmlToBodyBlocks(bodyBlocksToHtml(structuredClone(once) as StreamFieldBlock[]))).toEqual(
+    expect(docToBodyBlocks(bodyBlocksToDoc(structuredClone(once) as StreamFieldBlock[]))).toEqual(
       once
     );
   });
@@ -244,53 +269,46 @@ describe('forumBody quote blocks (audit M1)', () => {
     // A value with single "\n" separators can arrive from a non-browser client.
     // Splitting on /\n+/ would rewrite it to "\n\n" every time the post is
     // opened and saved, since blockquoteText always rejoins with "\n\n".
-    const blocks = htmlToBodyBlocks(
-      bodyBlocksToHtml([{ type: 'quote', value: 'line one\nline two' }])
+    const blocks = docToBodyBlocks(
+      bodyBlocksToDoc([{ type: 'quote', value: 'line one\nline two' }])
     );
     expect(blocks).toEqual([{ type: 'quote', value: 'line one\nline two' }]);
   });
 
-  it('escapes a bare-text blockquote through the full re-edit round trip', () => {
-    // Pins the exact flow CodeQL js/xss-through-dom traces: blockquoteText's
-    // `el.textContent` fallback (a blockquote with no element children) -> a
-    // `quote` value -> bodyBlocksToHtml -> DOMParser. The escape is applied
-    // where the value becomes HTML, so the payload stays inert text.
-    const blocks = htmlToBodyBlocks('<blockquote><script>alert(1)</script></blockquote>');
-    expect(blocks).toEqual([{ type: 'quote', value: 'alert(1)' }]);
+  it('keeps markup-looking quote text inert through the full re-edit round trip', () => {
+    // A <script> is not content: the schema parser drops it, so a blockquote
+    // holding only one is empty (before todo 526 its text leaked through as
+    // "alert(1)").
+    expect(fromHtml('<blockquote><script>alert(1)</script></blockquote>')).toEqual([]);
 
-    const evil = htmlToBodyBlocks(
-      '<blockquote>a &lt;img src=x onerror=alert(1)&gt; b</blockquote>'
-    );
-    const html = bodyBlocksToHtml(structuredClone(evil) as StreamFieldBlock[]);
+    const evil = fromHtml('<blockquote>a &lt;img src=x onerror=alert(1)&gt; b</blockquote>');
+    expect(evil).toEqual([{ type: 'quote', value: 'a <img src=x onerror=alert(1)> b' }]);
+    const doc = bodyBlocksToDoc(structuredClone(evil) as StreamFieldBlock[]);
+    const html = generateHTML(doc, FORUM_SCHEMA_EXTENSIONS);
     expect(html).not.toContain('<img');
     expect(html).toContain('&lt;img');
-    // ...and re-parsing that HTML yields the same plain text, not an image block.
-    expect(htmlToBodyBlocks(html)).toEqual(evil);
+    // ...and reading the document back yields the same plain text, not an image block.
+    expect(docToBodyBlocks(doc)).toEqual(evil);
   });
 
   it('round-trips through a REAL TipTap editor: blockquote stays top-level', () => {
-    // The seam the unit tests cannot cover — that StarterKit's Blockquote emits
-    // at body level so htmlToBodyBlocks sees it (rather than nested in a <p>,
-    // where nh3 would strip it on save and the quote would vanish in prod).
-    const editor = new Editor({
-      extensions: [StarterKit, ForumImage],
-      content: '<p>a</p><blockquote><p>quoted</p></blockquote><p>b</p>',
-    });
-    try {
-      expect(htmlToBodyBlocks(editor.getHTML())).toEqual([
-        { type: 'paragraph', value: '<p>a</p>' },
-        { type: 'quote', value: 'quoted' },
-        { type: 'paragraph', value: '<p>b</p>' },
-      ]);
-    } finally {
-      editor.destroy();
-    }
+    // The seam the unit tests cannot cover — that StarterKit's Blockquote is a
+    // top-level node so docToBodyBlocks sees it (rather than nested in a
+    // paragraph, where nh3 would strip it on save and the quote would vanish).
+    const doc = throughEditor(
+      toComposerDoc('<p>a</p><blockquote><p>quoted</p></blockquote><p>b</p>')
+    );
+    expect(docToBodyBlocks(doc)).toEqual([
+      { type: 'paragraph', value: '<p>a</p>' },
+      { type: 'quote', value: 'quoted' },
+      { type: 'paragraph', value: '<p>b</p>' },
+    ]);
   });
 });
 
 describe('forumBody embed blocks (todo 344)', () => {
   it('turns a paragraph that is only a YouTube or Vimeo link into an embed block', () => {
-    const blocks = htmlToBodyBlocks(
+    const blocks = fromHtml(
       '<p>Watch this:</p><p>https://youtu.be/dQw4w9WgXcQ</p><p><a href="https://vimeo.com/148751763">https://vimeo.com/148751763</a></p>'
     );
     expect(blocks).toEqual([
@@ -302,11 +320,11 @@ describe('forumBody embed blocks (todo 344)', () => {
 
   it('leaves a video link written as code as code, as the server does (todo 448 item 10)', () => {
     const html = '<p><code>https://youtu.be/dQw4w9WgXcQ</code></p>';
-    expect(htmlToBodyBlocks(html)).toEqual([{ type: 'paragraph', value: html }]);
+    expect(fromHtml(html)).toEqual([{ type: 'paragraph', value: html }]);
   });
 
   it('leaves a link inside prose, or an unknown provider, as ordinary paragraph text', () => {
-    const blocks = htmlToBodyBlocks(
+    const blocks = fromHtml(
       '<p>See https://youtu.be/dQw4w9WgXcQ for details</p><p>https://example.com/video/1</p>'
     );
     expect(blocks.every((b) => b.type === 'paragraph')).toBe(true);
@@ -314,11 +332,11 @@ describe('forumBody embed blocks (todo 344)', () => {
   });
 
   it('accepts a youtube.com/live share link as an embed, and drops a persisted non-http(s) embed url on re-edit', () => {
+    expect(fromHtml('<p>https://www.youtube.com/live/abcDEF12345?feature=share</p>')).toEqual([
+      { type: 'embed', value: 'https://www.youtube.com/live/abcDEF12345?feature=share' },
+    ]);
     expect(
-      htmlToBodyBlocks('<p>https://www.youtube.com/live/abcDEF12345?feature=share</p>')
-    ).toEqual([{ type: 'embed', value: 'https://www.youtube.com/live/abcDEF12345?feature=share' }]);
-    expect(
-      bodyBlocksToHtml([
+      bodyBlocksToDoc([
         {
           type: 'embed',
           value: {
@@ -330,11 +348,11 @@ describe('forumBody embed blocks (todo 344)', () => {
           },
         },
       ])
-    ).toBe('');
+    ).toEqual(emptyDoc());
   });
 
-  it('round-trips an embed envelope back to a link paragraph and then to an embed block', () => {
-    const html = bodyBlocksToHtml([
+  it('builds an embed as a link paragraph NODE and reads it back as an embed block (todo 526)', () => {
+    const doc = bodyBlocksToDoc([
       {
         type: 'embed',
         value: {
@@ -346,10 +364,17 @@ describe('forumBody embed blocks (todo 344)', () => {
         },
       },
     ]);
-    expect(html).toBe(
-      '<p><a href="https://youtu.be/dQw4w9WgXcQ">https://youtu.be/dQw4w9WgXcQ</a></p>'
+    // The URL is a link mark's attribute and a text node — never markup.
+    expect(doc).toEqual(
+      docOf(
+        para(
+          text('https://youtu.be/dQw4w9WgXcQ', [
+            { type: 'link', attrs: { href: 'https://youtu.be/dQw4w9WgXcQ' } },
+          ])
+        )
+      )
     );
-    expect(htmlToBodyBlocks(html)).toEqual([
+    expect(docToBodyBlocks(doc)).toEqual([
       { type: 'embed', value: 'https://youtu.be/dQw4w9WgXcQ' },
     ]);
   });
@@ -360,7 +385,7 @@ describe('forumBody post_quote blocks (todo 342)', () => {
 
   it('turns a top-level blockquote carrying data-post-id into a post_quote block', () => {
     expect(
-      htmlToBodyBlocks('<p>re:</p><blockquote data-post-id="5"><p>one</p><p>two</p></blockquote>')
+      fromHtml('<p>re:</p><blockquote data-post-id="5"><p>one</p><p>two</p></blockquote>')
     ).toEqual([
       { type: 'paragraph', value: '<p>re:</p>' },
       { type: 'post_quote', value: { post: 5, text: 'one\n\ntwo' } },
@@ -372,14 +397,14 @@ describe('forumBody post_quote blocks (todo 342)', () => {
     // `quote`: a post_quote the server is certain to 400 would block the
     // whole reply for a malformed attribute nobody typed on purpose.
     for (const attr of ['', ' data-post-id="abc"', ' data-post-id="0"', ' data-post-id="-3"']) {
-      expect(htmlToBodyBlocks(`<blockquote${attr}><p>q</p></blockquote>`)).toEqual([
+      expect(fromHtml(`<blockquote${attr}><p>q</p></blockquote>`)).toEqual([
         { type: 'quote', value: 'q' },
       ]);
     }
   });
 
-  it('writes an available post_quote back with its post id and ESCAPED text', () => {
-    const html = bodyBlocksToHtml([
+  it('writes an available post_quote back with its post id and its text as TEXT nodes', () => {
+    const doc = bodyBlocksToDoc([
       {
         type: 'post_quote',
         value: {
@@ -393,11 +418,15 @@ describe('forumBody post_quote blocks (todo 342)', () => {
         },
       },
     ]);
-    expect(html).toBe(
-      '<blockquote data-post-id="5"><p>&lt;script&gt;alert(1)&lt;/script&gt;</p><p>second</p></blockquote>'
+    expect(doc).toEqual(
+      docOf({
+        type: 'blockquote',
+        attrs: { postId: '5' },
+        content: [para(text('<script>alert(1)</script>')), para(text('second'))],
+      })
     );
-    // ...and re-parsing yields the WRITE shape with the original plain text.
-    expect(htmlToBodyBlocks(html)).toEqual([
+    // ...and reading it back yields the WRITE shape with the original plain text.
+    expect(docToBodyBlocks(doc)).toEqual([
       { type: 'post_quote', value: { post: 5, text: '<script>alert(1)</script>\n\nsecond' } },
     ]);
   });
@@ -406,7 +435,7 @@ describe('forumBody post_quote blocks (todo 342)', () => {
     // The server exempts ids the stored body already carries from the
     // availability re-check on edit (existing_quote_ids), so the quote keeps
     // its id and attribution instead of silently degrading to a plain quote.
-    const html = bodyBlocksToHtml([
+    const doc = bodyBlocksToDoc([
       {
         type: 'post_quote',
         value: {
@@ -420,74 +449,79 @@ describe('forumBody post_quote blocks (todo 342)', () => {
         },
       },
     ]);
-    expect(html).toBe('<blockquote data-post-id="5"><p>gone</p></blockquote>');
-    expect(htmlToBodyBlocks(html)).toEqual([
+    expect(doc).toEqual(
+      docOf({ type: 'blockquote', attrs: { postId: '5' }, content: [para(text('gone'))] })
+    );
+    expect(docToBodyBlocks(doc)).toEqual([
       { type: 'post_quote', value: { post: 5, text: 'gone' } },
     ]);
   });
 
-  it('writes a single newline (a list-sourced quote) as <br> and reads it back as "\\n"', () => {
+  it('writes a single newline (a list-sourced quote) as a hard break and reads it back as "\\n"', () => {
     // postQuoteText joins list items with one "\n". A bare newline inside a
-    // <p> is collapsed to a space by ProseMirror, so it must travel as <br>,
-    // and the <br> must come back as "\n" — never as a tag in `text`.
-    const html = postQuoteHtml(7, 'one\ntwo\n\nthree');
-    expect(html).toBe('<blockquote data-post-id="7"><p>one<br>two</p><p>three</p></blockquote>');
-    expect(htmlToBodyBlocks(html)).toEqual([
+    // paragraph is collapsed to a space by ProseMirror, so it must travel as
+    // a hardBreak, and the break must come back as "\n" — never as a tag.
+    const node = postQuoteNode(7, 'one\ntwo\n\nthree');
+    expect(node).toEqual({
+      type: 'blockquote',
+      attrs: { postId: '7' },
+      content: [para(text('one'), { type: 'hardBreak' }, text('two')), para(text('three'))],
+    });
+    expect(docToBodyBlocks(docOf(node!))).toEqual([
       { type: 'post_quote', value: { post: 7, text: 'one\ntwo\n\nthree' } },
     ]);
     // A <br> with whitespace around it (a hand-edited body) trims per line.
-    expect(htmlToBodyBlocks('<blockquote><p>a <br> b</p></blockquote>')).toEqual([
+    expect(fromHtml('<blockquote><p>a <br> b</p></blockquote>')).toEqual([
       { type: 'quote', value: 'a\nb' },
     ]);
   });
 
-  it('postQuoteHtml builds exactly the composer form htmlToBodyBlocks reads back', () => {
-    const html = postQuoteHtml(7, 'a < b\n\nc & d');
-    expect(html).toBe('<blockquote data-post-id="7"><p>a &lt; b</p><p>c &amp; d</p></blockquote>');
-    expect(htmlToBodyBlocks(html)).toEqual([
+  it('postQuoteNode builds exactly the composer node docToBodyBlocks reads back', () => {
+    const node = postQuoteNode(7, 'a < b\n\nc & d');
+    expect(node).toEqual({
+      type: 'blockquote',
+      attrs: { postId: '7' },
+      content: [para(text('a < b')), para(text('c & d'))],
+    });
+    expect(docToBodyBlocks(docOf(node!))).toEqual([
       { type: 'post_quote', value: { post: 7, text: 'a < b\n\nc & d' } },
     ]);
+    // Nothing to quote -> no node (the caller must not insert an empty quote).
+    expect(postQuoteNode(7, ' \n\n ')).toBeNull();
   });
 
   it('round-trips through a REAL TipTap editor only WITH the blockquote attribute extension', () => {
-    const content = '<p>a</p><blockquote data-post-id="5"><p>q</p></blockquote><p>b</p>';
-    // The composer's own configuration (StarterKit's blockquote plus
+    const content = docOf(para(text('a')), postQuoteNode(5, 'q')!, para(text('b')));
+    // The composer's own schema (StarterKit's blockquote plus
     // ForumBlockquoteAttrs): the id survives ProseMirror's parse/serialize.
-    const editor = new Editor({
-      extensions: [StarterKit, ForumImage, ForumBlockquoteAttrs],
-      content,
-    });
-    try {
-      expect(htmlToBodyBlocks(editor.getHTML())).toEqual([
-        { type: 'paragraph', value: '<p>a</p>' },
-        { type: 'post_quote', value: { post: 5, text: 'q' } },
-        { type: 'paragraph', value: '<p>b</p>' },
-      ]);
-    } finally {
-      editor.destroy();
-    }
+    expect(docToBodyBlocks(throughEditor(content))).toEqual([
+      { type: 'paragraph', value: '<p>a</p>' },
+      { type: 'post_quote', value: { post: 5, text: 'q' } },
+      { type: 'paragraph', value: '<p>b</p>' },
+    ]);
     // Control: without it the schema drops the unknown attribute and the
     // quote silently degrades — the exact failure the extension exists for.
-    const bare = new Editor({ extensions: [StarterKit, ForumImage], content });
+    const bare = new Editor({
+      extensions: [StarterKit, ForumImage],
+      content: '<p>a</p><blockquote data-post-id="5"><p>q</p></blockquote><p>b</p>',
+    });
     try {
-      expect(htmlToBodyBlocks(bare.getHTML())).toContainEqual({ type: 'quote', value: 'q' });
+      expect(docToBodyBlocks(bare.getJSON())).toContainEqual({ type: 'quote', value: 'q' });
     } finally {
       bare.destroy();
     }
   });
 
   it('keeps the line breaks of a list-sourced quote through a REAL TipTap editor', () => {
-    // The seam the unit test cannot cover: ProseMirror collapses a bare "\n"
-    // inside a paragraph to a space, so list items would run together
-    // ("one two"). Written as <br> (StarterKit's HardBreak) each item keeps
-    // its own line, and the text reads back with "\n" between items.
+    // The seam the unit test cannot cover: the hardBreak survives the schema,
+    // so each item keeps its own line and the text reads back with "\n".
     const editor = new Editor({
-      extensions: [StarterKit, ForumImage, ForumBlockquoteAttrs],
-      content: postQuoteHtml(5, 'one\ntwo\n\nthree'),
+      extensions: FORUM_SCHEMA_EXTENSIONS,
+      content: docOf(postQuoteNode(5, 'one\ntwo\n\nthree')!),
     });
     try {
       expect(editor.getHTML()).toContain('<br>');
-      expect(htmlToBodyBlocks(editor.getHTML())).toEqual([
+      expect(docToBodyBlocks(editor.getJSON())).toEqual([
         { type: 'post_quote', value: { post: 5, text: 'one\ntwo\n\nthree' } },
       ]);
     } finally {
@@ -606,12 +640,55 @@ describe('isBlankHtml', () => {
   });
 });
 
+describe('isBlankDoc (todo 526)', () => {
+  // The submit gate on the composer's JSON document: the same rule as
+  // isBlankHtml, applied to the editor's own serialisation, so "blank" did
+  // not move when the content model changed.
+  it('treats an empty or whitespace-only document as blank', () => {
+    expect(isBlankDoc(emptyDoc())).toBe(true);
+    expect(isBlankDoc(undefined)).toBe(true);
+    expect(isBlankDoc(docOf(para(text('   ')), para({ type: 'hardBreak' })))).toBe(true);
+  });
+
+  it('treats text, a quote or a mention as not blank', () => {
+    expect(isBlankDoc(docOf(para(text('hi'))))).toBe(false);
+    expect(isBlankDoc(docOf(postQuoteNode(5, 'q')!, para()))).toBe(false);
+    expect(isBlankDoc(docOf(para({ type: 'mention', attrs: { id: 'ada', label: 'ada' } })))).toBe(
+      false
+    );
+  });
+
+  it('keeps an image-only body blank, exactly as the HTML gate had it', () => {
+    expect(isBlankDoc(docOf(image({ src: '/x.jpg', imageId: '5' })))).toBe(true);
+  });
+});
+
+describe('composer drafts (todo 526)', () => {
+  it('reads a JSON document draft, and a pre-526 HTML draft through the schema', () => {
+    const doc = docOf(para(text('kept')));
+    expect(draftToDoc(JSON.stringify(doc))).toEqual(doc);
+    expect(draftToDoc('<p>legacy <strong>draft</strong></p>')).toEqual(
+      docOf(para(text('legacy '), text('draft', [{ type: 'bold' }])))
+    );
+  });
+
+  it('turns a missing, blank or schema-invalid draft into an empty document instead of crashing the editor', () => {
+    expect(draftToDoc(null)).toEqual(emptyDoc());
+    expect(draftToDoc('')).toEqual(emptyDoc());
+    expect(draftToDoc(JSON.stringify(docOf({ type: 'nope' })))).toEqual(emptyDoc());
+    expect(draftToDoc(JSON.stringify({ type: 'doc', content: [text('bare text')] }))).toEqual(
+      emptyDoc()
+    );
+    expect(toComposerDoc(42)).toEqual(emptyDoc());
+  });
+});
+
 describe('forumBody image blocks (todo 357 — ImageBlock)', () => {
-  it('carries authored alt text through htmlToBodyBlocks instead of dropping it', () => {
+  it('carries authored alt text through docToBodyBlocks instead of dropping it', () => {
     // Under ImageChooserBlock the editor's alt was discarded and re-derived
     // server-side, which is why alt used to be uneditable after insert.
     const html = '<img src="https://cdn/x.jpg" alt="  A monstera leaf  " data-image-id="5">';
-    expect(htmlToBodyBlocks(html)).toEqual([
+    expect(fromHtml(html)).toEqual([
       { type: 'image', value: { image: 5, alt_text: 'A monstera leaf', decorative: false } },
     ]);
   });
@@ -620,22 +697,22 @@ describe('forumBody image blocks (todo 357 — ImageBlock)', () => {
     // That pair is the one ImageBlock.clean() refuses; storing it would make
     // the post un-editable in the Wagtail admin.
     const html = '<img src="https://cdn/x.jpg" alt="   " data-image-id="5">';
-    expect(htmlToBodyBlocks(html)).toEqual([
+    expect(fromHtml(html)).toEqual([
       { type: 'image', value: { image: 5, alt_text: '', decorative: true } },
     ]);
   });
 
-  it('honours an explicit data-decorative even when alt text is present', () => {
+  it('honours an explicit decorative flag even when alt text is present', () => {
     const html =
       '<img src="https://cdn/x.jpg" alt="ignored" data-image-id="5" data-decorative="true">';
-    expect(htmlToBodyBlocks(html)).toEqual([
+    expect(fromHtml(html)).toEqual([
       { type: 'image', value: { image: 5, alt_text: '', decorative: true } },
     ]);
   });
 
-  it('round-trips alt and decorative through bodyBlocksToHtml and back', () => {
-    // The edit path: bodyBlocksToHtml seeds the composer, the author saves, and
-    // htmlToBodyBlocks must reproduce what the server sent — otherwise editing
+  it('round-trips alt and decorative through bodyBlocksToDoc and back', () => {
+    // The edit path: bodyBlocksToDoc seeds the composer, the author saves, and
+    // docToBodyBlocks must reproduce what the server sent — otherwise editing
     // an untouched post silently rewrites its accessibility metadata.
     const body: StreamFieldBlock[] = [
       {
@@ -644,42 +721,49 @@ describe('forumBody image blocks (todo 357 — ImageBlock)', () => {
       },
       { type: 'image', value: { id: 43, url: 'https://cdn/q.jpg', alt: '', decorative: true } },
     ];
-    expect(htmlToBodyBlocks(bodyBlocksToHtml(body))).toEqual([
+    expect(docToBodyBlocks(bodyBlocksToDoc(body))).toEqual([
       { type: 'image', value: { image: 42, alt_text: 'A fern frond', decorative: false } },
       { type: 'image', value: { image: 43, alt_text: '', decorative: true } },
     ]);
   });
 
-  it('escapes a quote in alt text so the hand-built <img> cannot be broken out of', () => {
+  it('keeps an alt containing a quote as an attribute VALUE, never markup', () => {
     const body: StreamFieldBlock[] = [
       {
         type: 'image',
         value: { id: 1, url: 'https://cdn/x.jpg', alt: 'a " onerror="alert(1)', decorative: false },
       },
     ];
-    const html = bodyBlocksToHtml(body);
-    expect(html).not.toContain('onerror="alert(1)"');
-    // And it still survives the round trip as literal text.
-    expect(htmlToBodyBlocks(html)).toEqual([
+    const doc = bodyBlocksToDoc(body);
+    expect(doc.content?.[0]?.attrs?.alt).toBe('a " onerror="alert(1)');
+    // The editor's serialisation escapes it, so no attribute breaks out...
+    expect(generateHTML(doc, FORUM_SCHEMA_EXTENSIONS)).not.toContain('onerror="alert(1)"');
+    // ...and it survives the round trip as literal text.
+    expect(docToBodyBlocks(doc)).toEqual([
       { type: 'image', value: { image: 1, alt_text: 'a " onerror="alert(1)', decorative: false } },
     ]);
   });
 });
 
 describe('forumBody image id guard (todo 357 review)', () => {
-  it('drops a non-numeric data-image-id instead of emitting NaN', () => {
+  it('drops a non-numeric image id instead of emitting NaN', () => {
     // `!rawId` alone rejected the empty string but not "abc", which yielded
     // {image: NaN} -> JSON null -> the server 400s the WHOLE post rather than
     // one image being dropped.
-    expect(htmlToBodyBlocks('<img data-image-id="abc"><img data-image-id="9">')).toEqual([
+    expect(
+      fromHtml('<img src="/a.jpg" data-image-id="abc"><img src="/b.jpg" data-image-id="9">')
+    ).toEqual([{ type: 'image', value: { image: 9, alt_text: '', decorative: true } }]);
+    expect(docToBodyBlocks(docOf(image({ imageId: 'abc' }), image({ imageId: 9 })))).toEqual([
       { type: 'image', value: { image: 9, alt_text: '', decorative: true } },
     ]);
   });
 
   it('drops a non-numeric nested id in a blockquote too', () => {
-    expect(
-      htmlToBodyBlocks('<blockquote><p>q</p><img data-image-id="12abc"></blockquote>')
-    ).toEqual([{ type: 'quote', value: 'q' }]);
+    const doc = docOf({
+      type: 'blockquote',
+      content: [para(text('q')), image({ imageId: '12abc' })],
+    });
+    expect(docToBodyBlocks(doc)).toEqual([{ type: 'quote', value: 'q' }]);
   });
 });
 
@@ -687,7 +771,7 @@ describe('an image deleted after posting (todo 374)', () => {
   // The composer's RE-EDIT path. The server sends `value: null` for an image
   // whose row is gone; destructuring it threw, so opening an old post for
   // editing crashed outright once the photo had been deleted.
-  it('positive control: a live image still round-trips to an <img>', () => {
+  it('positive control: a live image still becomes an image node', () => {
     const live: StreamFieldBlock[] = [
       {
         type: 'image',
@@ -695,13 +779,12 @@ describe('an image deleted after posting (todo 374)', () => {
         id: 'b1',
       },
     ];
-    const html = bodyBlocksToHtml(live);
-    expect(html).toContain('data-image-id="9"');
+    expect(bodyBlocksToDoc(live).content?.[0]?.attrs?.imageId).toBe('9');
   });
 
   it('drops the dead block instead of throwing', () => {
     const dead: StreamFieldBlock[] = [{ type: 'image', value: null, id: 'b1' }];
-    expect(bodyBlocksToHtml(dead)).toBe('');
+    expect(bodyBlocksToDoc(dead)).toEqual(emptyDoc());
   });
 
   it('keeps the surrounding blocks intact', () => {
@@ -710,20 +793,16 @@ describe('an image deleted after posting (todo 374)', () => {
       { type: 'image', value: null, id: 'b' },
       { type: 'paragraph', value: '<p>after</p>', id: 'c' },
     ];
-    const html = bodyBlocksToHtml(mixed);
-    expect(html).toContain('before');
-    expect(html).toContain('after');
-    expect(html).not.toContain('<img');
+    expect(bodyBlocksToDoc(mixed)).toEqual(docOf(para(text('before')), para(text('after'))));
   });
 });
 
-describe('image attribute escaping on rehydrate (todo 441)', () => {
-  // bodyBlocksToHtml hand-builds the <img> HTML the composer parses. Escaping
-  // only `"` let an `&` through, so a stored alt of `Tom &amp; Jerry` came back
-  // as `Tom & Jerry` and re-saving an untouched post PATCHed a DIFFERENT
-  // alt_text. `&copy ` is decoded too: a legacy entity needs no semicolon when
-  // the next character is a space. The other values are regression pins —
-  // inside a double-quoted attribute they already parsed literally.
+describe('image attributes survive rehydrate exactly (todo 441, todo 526)', () => {
+  // Before todo 526 the composer's <img> was a hand-built HTML string: escaping
+  // only `"` let an `&` through (todo 441), and NO escaping could stop the HTML
+  // parser normalising CR/CRLF to LF and NUL to U+FFFD in attribute values
+  // (todo 443). As node attributes the values are never parsed, so every one
+  // below — the CR/LF/NUL ones included — comes back byte-identical.
   const ALTS = [
     'Tom &amp; Jerry',
     'leaf &copy 2026',
@@ -731,6 +810,9 @@ describe('image attribute escaping on rehydrate (todo 441)', () => {
     'say "hi"',
     "it's",
     'A plain monstera leaf',
+    'line one\r\nline two',
+    'carriage\rreturn',
+    'nul\u0000byte',
   ];
   const imageBody = (alt: string, url = 'https://cdn/p.jpg'): StreamFieldBlock[] => [
     { type: 'image', value: { id: 42, url, alt, decorative: alt === '' } },
@@ -739,52 +821,52 @@ describe('image attribute escaping on rehydrate (todo 441)', () => {
     { type: 'image', value: { image: 42, alt_text: alt, decorative: alt === '' } },
   ];
 
-  it.each([...ALTS, ''])('alt %j survives bodyBlocksToHtml -> htmlToBodyBlocks', (alt) => {
-    expect(htmlToBodyBlocks(bodyBlocksToHtml(imageBody(alt)))).toEqual(expected(alt));
+  it.each([...ALTS, ''])('alt %j survives bodyBlocksToDoc -> docToBodyBlocks', (alt) => {
+    expect(docToBodyBlocks(bodyBlocksToDoc(imageBody(alt)))).toEqual(expected(alt));
   });
 
-  it.each([...ALTS, ''])('alt %j survives a real TipTap rehydrate -> getHTML', (alt) => {
-    // The production edit path: bodyBlocksToHtml seeds the editor, the author
-    // saves, getHTML() is what htmlToBodyBlocks reads.
+  it.each([...ALTS, ''])('alt %j survives a real TipTap rehydrate -> getJSON', (alt) => {
+    // The production edit path: bodyBlocksToDoc seeds the editor, the author
+    // saves, getJSON() is what docToBodyBlocks reads.
+    expect(docToBodyBlocks(throughEditor(bodyBlocksToDoc(imageBody(alt))))).toEqual(expected(alt));
+  });
+
+  it('keeps the image url an attribute value: src survives and cannot break out', () => {
+    const url = 'https://cdn/x.jpg?a=1&amp;b=2&copy=3" onerror="alert(1)';
     const editor = new Editor({
-      extensions: [StarterKit, ForumImage],
-      content: bodyBlocksToHtml(imageBody(alt)),
+      extensions: FORUM_SCHEMA_EXTENSIONS,
+      content: bodyBlocksToDoc(imageBody('leaf', url)),
     });
     try {
-      expect(htmlToBodyBlocks(editor.getHTML())).toEqual(expected(alt));
+      const img = editor.view.dom.querySelector('img');
+      expect(img?.getAttribute('src')).toBe(url);
+      expect(img?.hasAttribute('onerror')).toBe(false);
     } finally {
       editor.destroy();
     }
   });
 
-  it('escapes the image url too, so src survives and cannot break out', () => {
-    const url = 'https://cdn/x.jpg?a=1&amp;b=2&copy=3" onerror="alert(1)';
-    const html = bodyBlocksToHtml(imageBody('leaf', url));
-    expect(html).not.toContain('onerror="alert(1)"');
-    const img = new DOMParser().parseFromString(html, 'text/html').querySelector('img');
-    expect(img?.getAttribute('src')).toBe(url);
-    expect(img?.hasAttribute('onerror')).toBe(false);
-  });
-
   it('leaves ordinary values byte-identical', () => {
-    expect(bodyBlocksToHtml(imageBody("it's a fern"))).toBe(
-      `<img src="https://cdn/p.jpg" alt="it's a fern" data-image-id="42">`
+    expect(bodyBlocksToDoc(imageBody("it's a fern"))).toEqual(
+      docOf(
+        image({ src: 'https://cdn/p.jpg', alt: "it's a fern", imageId: '42', decorative: false })
+      )
     );
   });
 
   // PR #826 review round 1.
   it('an image block with a missing url degrades instead of throwing', () => {
-    const html = bodyBlocksToHtml([
+    const doc = bodyBlocksToDoc([
       {
         type: 'image',
         value: { id: 5, url: undefined as unknown as string, alt: 'x', decorative: false },
       },
     ] as never);
-    expect(html).toContain('data-image-id="5"');
+    expect(doc.content?.[0]?.attrs).toMatchObject({ src: '', imageId: '5' });
   });
 
-  it('escapes a non-numeric image id instead of letting it break out of the attribute', () => {
-    const html = bodyBlocksToHtml([
+  it('keeps a non-numeric image id inert, and never sends it', () => {
+    const doc = bodyBlocksToDoc([
       {
         type: 'image',
         value: {
@@ -795,8 +877,9 @@ describe('image attribute escaping on rehydrate (todo 441)', () => {
         },
       },
     ] as never);
-    expect(html).not.toContain('onerror="x"');
-    expect(html).toContain('&quot;');
+    expect(doc.content?.[0]?.attrs?.imageId).toBe('1" onerror="x');
+    expect(generateHTML(doc, FORUM_SCHEMA_EXTENSIONS)).not.toContain('onerror="x"');
+    expect(docToBodyBlocks(doc)).toEqual([]);
   });
 });
 
@@ -810,35 +893,162 @@ describe('forumBody link_preview blocks (todo 428)', () => {
     image_url: null,
   };
 
-  it('puts a link card back into the composer as the link the author posted', () => {
-    const html = bodyBlocksToHtml([{ type: 'link_preview', value: card }]);
+  it('puts a link card back into the composer as a link paragraph NODE (todo 526)', () => {
+    const doc = bodyBlocksToDoc([{ type: 'link_preview', value: card }]);
 
-    expect(html).toBe(
-      '<p><a href="https://example.com/a?b=1&amp;c=2">https://example.com/a?b=1&amp;c=2</a></p>'
-    );
-    // Saved unchanged, it goes back as a link-only paragraph, which the
-    // server turns into the same stored card without fetching.
-    expect(htmlToBodyBlocks(html)).toEqual([{ type: 'paragraph', value: html }]);
+    expect(doc).toEqual(docOf(para(text(card.url, [{ type: 'link', attrs: { href: card.url } }]))));
+    // Saved unchanged, it goes back as a link-only paragraph (printed by the
+    // editor's schema, as getHTML() did), which the server turns into the
+    // same stored card without fetching.
+    const blocks = docToBodyBlocks(doc);
+    expect(blocks).toHaveLength(1);
+    expect(blocks[0].type).toBe('paragraph');
+    expect(blocks[0].value).toContain('href="https://example.com/a?b=1&amp;c=2"');
+    expect(blocks[0].value).toContain('>https://example.com/a?b=1&amp;c=2</a></p>');
   });
 
   it('keeps the rest of the post around a card', () => {
-    const html = bodyBlocksToHtml([
+    const doc = bodyBlocksToDoc([
       { type: 'paragraph', value: '<p>before</p>' },
       { type: 'link_preview', value: card },
       { type: 'paragraph', value: '<p>after</p>' },
     ]);
 
-    expect(html).toContain('<p>before</p>');
-    expect(html).toContain('>https://example.com/a?b=1&amp;c=2</a></p>');
-    expect(html).toContain('<p>after</p>');
+    expect(doc).toEqual(
+      docOf(
+        para(text('before')),
+        para(text(card.url, [{ type: 'link', attrs: { href: card.url } }])),
+        para(text('after'))
+      )
+    );
   });
 
   it('drops a null card and a card whose stored link is not http(s)', () => {
     expect(
-      bodyBlocksToHtml([
+      bodyBlocksToDoc([
         { type: 'link_preview', value: null },
         { type: 'link_preview', value: { ...card, url: 'javascript:alert(1)' } },
       ])
-    ).toBe('');
+    ).toEqual(emptyDoc());
+  });
+});
+
+describe('every stored block shape round-trips through the editor (todo 526)', () => {
+  // The edit path end to end: the stored READ body seeds a REAL editor via
+  // bodyBlocksToDoc, the author touches nothing, and docToBodyBlocks(getJSON())
+  // must be exactly the WRITE form of what is stored — so re-saving an
+  // untouched post changes nothing (and ThreadDetailPage sends no PATCH).
+  const ada = { username: 'ada', display_name: 'Ada', avatar: null, trust_level: 1 };
+  const stored: StreamFieldBlock[] = [
+    { type: 'paragraph', value: '<p>Hello <strong>there</strong> <em>you</em></p>' },
+    { type: 'paragraph', value: '<h2>Care</h2><ul><li><p>water</p></li></ul>' },
+    {
+      type: 'image',
+      value: { id: 9, url: '/m/x.jpg', alt: 'Tom &amp; Jerry\r\nleaf', decorative: false },
+    },
+    { type: 'image', value: { id: 10, url: '/m/y.jpg', alt: '', decorative: true } },
+    { type: 'image', value: null },
+    {
+      type: 'embed',
+      value: {
+        url: 'https://youtu.be/dQw4w9WgXcQ',
+        provider_name: 'YouTube',
+        title: 'T',
+        thumbnail_url: '',
+        embed_url: 'https://www.youtube-nocookie.com/embed/dQw4w9WgXcQ',
+      },
+    },
+    {
+      type: 'embed',
+      value: {
+        url: 'https://vimeo.com/148751763',
+        provider_name: 'Vimeo',
+        title: 'T',
+        thumbnail_url: '',
+        embed_url: 'https://player.vimeo.com/video/148751763',
+      },
+    },
+    { type: 'quote', value: 'line one\nline two\n\nthird' },
+    {
+      type: 'post_quote',
+      value: {
+        text: 'a < b\n\nc & d',
+        post_id: 5,
+        available: true,
+        topic_id: 12,
+        author: ada,
+        is_blocked: false,
+        is_muted: false,
+      },
+    },
+    {
+      type: 'post_quote',
+      value: {
+        text: 'gone',
+        post_id: 6,
+        available: false,
+        topic_id: null,
+        author: null,
+        is_blocked: false,
+        is_muted: false,
+      },
+    },
+  ];
+  const written = [
+    {
+      type: 'paragraph',
+      value:
+        '<p>Hello <strong>there</strong> <em>you</em></p><h2>Care</h2><ul><li><p>water</p></li></ul>',
+    },
+    {
+      type: 'image',
+      value: { image: 9, alt_text: 'Tom &amp; Jerry\r\nleaf', decorative: false },
+    },
+    { type: 'image', value: { image: 10, alt_text: '', decorative: true } },
+    { type: 'embed', value: 'https://youtu.be/dQw4w9WgXcQ' },
+    { type: 'embed', value: 'https://vimeo.com/148751763' },
+    { type: 'quote', value: 'line one\nline two\n\nthird' },
+    { type: 'post_quote', value: { post: 5, text: 'a < b\n\nc & d' } },
+    { type: 'post_quote', value: { post: 6, text: 'gone' } },
+  ];
+
+  it('rehydrates every shape and re-serialises it unchanged', () => {
+    const doc = throughEditor(bodyBlocksToDoc(stored));
+    expect(docToBodyBlocks(doc)).toEqual(written);
+    expect(isUnchangedBody(doc, stored)).toBe(true);
+  });
+
+  it('a link card and a linked paragraph settle after one pass', () => {
+    // A link carries the editor's Link attributes once printed (as getHTML()
+    // always did); the server's sanitizer keeps only href/title. What the
+    // composer writes is stable from then on.
+    const body: StreamFieldBlock[] = [
+      { type: 'paragraph', value: '<p>see <a href="https://example.com/x">this</a></p>' },
+      {
+        type: 'link_preview',
+        value: {
+          url: 'https://example.com/a?b=1&c=2',
+          title: 'T',
+          description: '',
+          site_name: '',
+          domain: 'example.com',
+          image_url: null,
+        },
+      },
+    ];
+    const once = docToBodyBlocks(throughEditor(bodyBlocksToDoc(body)));
+    expect(once.map((b) => b.type)).toEqual(['paragraph']);
+    expect(once[0].value).toContain('href="https://example.com/x"');
+    expect(once[0].value).toContain('href="https://example.com/a?b=1&amp;c=2"');
+    expect(
+      docToBodyBlocks(throughEditor(bodyBlocksToDoc(structuredClone(once) as StreamFieldBlock[])))
+    ).toEqual(once);
+    expect(isUnchangedBody(throughEditor(bodyBlocksToDoc(body)), body)).toBe(true);
+  });
+
+  it('reports an edited document as changed', () => {
+    const doc = bodyBlocksToDoc(stored);
+    const edited = { ...doc, content: [...(doc.content ?? []), para(text('one more'))] };
+    expect(isUnchangedBody(edited, stored)).toBe(false);
   });
 });
