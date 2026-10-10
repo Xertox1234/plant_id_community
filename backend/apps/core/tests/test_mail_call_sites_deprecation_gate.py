@@ -17,6 +17,7 @@ from apps.blog import newsletter, newsletter_digest
 from apps.blog.models import BlogNewsletter
 from apps.core.security import SecurityMonitor
 from apps.core.services.email_service import EmailService, EmailType
+from apps.core.services.notification_service import NotificationService
 from django.contrib.auth import get_user_model
 from django.core import mail
 from django.core.mail import EmailMessage
@@ -53,7 +54,7 @@ def _plant_send_mail(monkeypatch, module_path):
     monkeypatch.setattr(f"{module_path}.send_mail", send_mail)
 
 
-def test_the_planted_argument_is_deprecated_and_still_delivers(planted_message_send):
+def test_the_planted_argument_is_deprecated(planted_message_send):
     # The plant itself: proves fail_silently=True is what raises, so the
     # tests below fail for the gate and not for some other reason.
     with pytest.raises(RemovedInDjango70Warning):
@@ -129,3 +130,61 @@ def test_email_service_transactional_lets_a_deprecation_through(monkeypatch):
 
     with pytest.raises(RemovedInDjango70Warning):
         EmailService().send_transactional_email("tx@example.com", "Subject", "Body")
+
+
+def _forum_reply(user):
+    return NotificationService().send_forum_reply_notification(
+        user=user,
+        topic_title="Yellow leaves",
+        reply_author="fern",
+        reply_excerpt="Check the drainage.",
+        topic_url="https://web.example/forum/t/1",
+    )
+
+
+@pytest.mark.django_db
+def test_forum_reply_notification_lets_a_deprecation_through(planted_message_send):
+    # Todo 537: send_notification wrapped the send in its own except Exception.
+    user = User.objects.create_user(username="reply", email="reply@example.com")
+
+    with pytest.raises(RemovedInDjango70Warning):
+        _forum_reply(user)
+
+
+@pytest.mark.django_db
+def test_forum_reply_notification_still_sends_without_the_plant():
+    # The control: the path above reaches .send(), so its test fails for
+    # the gate and not for a preference or template that skips the send.
+    user = User.objects.create_user(username="reply2", email="reply2@example.com")
+
+    assert _forum_reply(user) is True
+    assert [m.to for m in mail.outbox] == [["reply2@example.com"]]
+
+
+@pytest.mark.django_db
+def test_scheduled_notification_lets_a_deprecation_through(planted_message_send):
+    # _schedule_notification sends at once, in a loop of its own (todo 537).
+    user = User.objects.create_user(username="later", email="later@example.com")
+
+    with pytest.raises(RemovedInDjango70Warning):
+        NotificationService().send_notification(
+            notification_type=EmailType.FORUM_REPLY,
+            recipient=user,
+            title="Later",
+            message="Body",
+            context={"topic_title": "t", "author_name": "a", "post_excerpt": "e"},
+            schedule_for=timezone.now() + timezone.timedelta(hours=1),
+        )
+
+
+@pytest.mark.django_db
+def test_a_deprecation_in_newsletter_confirmation_gives_the_stamp_back(
+    planted_message_send,
+):
+    # Todo 537: request_confirmation stamps the row before sending; a
+    # re-raised Warning must not leave the address throttled.
+    with pytest.raises(RemovedInDjango70Warning):
+        newsletter.request_confirmation("stamp@example.com")
+
+    subscriber = BlogNewsletter.objects.get(email="stamp@example.com")
+    assert subscriber.confirmation_sent_at is None

@@ -116,6 +116,11 @@ class NotificationService:
 
                 results[channel.value] = success
 
+            except Warning:
+                # A RemovedInDjango70Warning is an error under pytest.ini (todo
+                # 364) and Warning subclasses Exception: never log it as a
+                # failed send (todos 454, 537).
+                raise
             except Exception as e:
                 logger.error(f"[NOTIFY] Failed to send notification via {channel}: {e}")
                 results[channel.value] = False
@@ -228,6 +233,9 @@ class NotificationService:
 
                 results[channel.value] = success
 
+            except Warning:
+                # As in send_notification (todos 454, 537).
+                raise
             except Exception as e:
                 logger.error(
                     f"[NOTIFY] Failed to send scheduled notification via {channel}: {e}"
@@ -298,7 +306,7 @@ class NotificationService:
         if copy is None:
             # Unreachable while the table carries a reply_added email arm, but
             # NOT merely defensive: send_forum_email_batch's retry config is
-            # justified by "the send loop can never raise" (see its docstring),
+            # justified by "a send failure never raises" (see its docstring),
             # and an unpacking TypeError here would abort the batch mid-loop,
             # silently skipping every remaining recipient with no retry.
             logger.error("[EMAIL] No forum email copy for 'reply_added'; skipping send")

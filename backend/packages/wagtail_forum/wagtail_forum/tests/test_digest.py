@@ -613,3 +613,35 @@ def test_a_deprecated_mail_argument_is_never_swallowed_as_a_send_failure(monkeyp
     member = User.objects.create_user(username="dg-dep", email="dep@example.com")
     with pytest.raises(RemovedInDjango70Warning):
         send_digest(Digest(user=member, since=timezone.now()))
+
+
+@pytest.mark.django_db
+@override_settings(
+    SITE_URL="https://forum.example", WAGTAILFORUM_DIGEST_UNSUBSCRIBE=None
+)
+def test_a_deprecation_raised_by_the_send_gives_the_members_claim_back(monkeypatch):
+    """Todo 537: the command claims the member before sending. A re-raised
+    Warning stops the run, and the member must stay due for the next one."""
+    from django.core.mail import EmailMessage
+    from django.utils.deprecation import RemovedInDjango70Warning
+
+    real_send = EmailMessage.send
+
+    def send(self, *args, **kwargs):
+        kwargs["fail_silently"] = True
+        return real_send(self, *args, **kwargs)
+
+    index = _index()
+    board = _board(index, "general")
+    friend = User.objects.create_user(username="dg-claim-poster")
+    topic = _topic(board, friend, "Claim me")
+    member = User.objects.create_user(username="dg-claim", email="claim@example.com")
+    profile = _opt_in(member)
+    _reply_note(member, friend, topic)
+    monkeypatch.setattr(EmailMessage, "send", send)
+
+    with pytest.raises(RemovedInDjango70Warning):
+        call_command("send_forum_digest", frequency="weekly", stdout=StringIO())
+
+    profile.refresh_from_db()
+    assert profile.last_digest_sent_at is None

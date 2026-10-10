@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: p4
 issue_id: "537"
 tags: [todo-sweep, follow-ups]
@@ -128,6 +128,39 @@ Line numbers are as of the merge, so re-check each finding against main before a
 
 ## Acceptance Criteria
 
-- [ ] Each finding above is fixed, or closed with a dated reason, or promoted to its own todo.
+- [x] Each finding above is fixed, or closed with a dated reason, or promoted to its own todo.
 
 ## Work Log
+
+### 2026-10-10 - Implemented by the todo sweep (run 2026-10-10-1537)
+
+- #976-1/2: `core.E364` now fails only when the configured SMTP backend logs in
+  (both credentials truthy) and the legacy rebuild loses that login, so a no-auth
+  relay passes. The rebuild passes the handler's `_ignore_unknown_kwargs` and runs
+  in its own `try` with a distinct "cannot be rebuilt" message.
+- #976-3: `send_notification` and `_schedule_notification` re-raise `Warning`
+  ahead of `except Exception`; gate tests drive `send_forum_reply_notification`
+  and a scheduled send, with a no-plant control proving the path reaches `.send()`.
+  The "can never raise" claim in `send_forum_email_batch` now names the exception.
+- #976-4: the "never raises" docstrings (digest, newsletter confirmation, newsletter
+  send) are corrected; `send_forum_digest` and `request_confirmation` give their own
+  claim/stamp back on `BaseException`, each pinned by a test.
+- #976-5: the plant test is renamed `test_the_planted_argument_is_deprecated`.
+  #979-1: a dated record note is added to the archived 532. Every other finding was
+  already promoted (538, 539, 540, 536, 529), each citing this todo.
+
+### 2026-10-10 - Verified by the todo sweep (run 2026-10-10-1537)
+
+- AC 1: `(cd backend && python3 scripts/todos/slot_env.py 2 -- backend/venv/bin/python -m pytest backend/apps/core/tests/test_mailers_and_deprecation_gate.py backend/apps/core/tests/test_mail_call_sites_deprecation_gate.py backend/packages/wagtail_forum/wagtail_forum/tests/test_digest.py backend/apps/blog/tests/test_newsletter.py backend/apps/blog/tests/test_newsletter_digest.py --create-db -v -p no:cacheprovider && /usr/bin/grep -Hn "todo 537" todos/529-pending-p4-sweep-followups-unranked-first-ten.md todos/536-pending-p4-confirm-demodata-drop-deployed.md todos/538-pending-p4-forum-composer-tiptap-json-followups.md todos/539-pending-p4-forum-link-preview-pr978-followups.md todos/540-pending-p4-sweep-precommit-clean-tree-and-triage-fk-check.md todos/archive/532-completed-p4-delete-unused-demodata-model.md)` — evidence `.sweep-evidence/g2/537-ac0.txt` (not committed), last lines:
+
+  ```text
+  todos/539-pending-p4-forum-link-preview-pr978-followups.md:14:PR #978 shipped link-preview follow-ups. Its review rounds reported seven non-blocking findings, which todo 537
+  todos/539-pending-p4-forum-link-preview-pr978-followups.md:49:- 2026-10-10: Promoted out of todo 537 (run 2026-10-10-1537 triage) by owner decision. Line numbers are as of the
+  todos/540-pending-p4-sweep-precommit-clean-tree-and-triage-fk-check.md:14:Two sweep-engine findings from run 2026-10-10-0234, parked in todo 537 and promoted here on 2026-10-10.
+  todos/540-pending-p4-sweep-precommit-clean-tree-and-triage-fk-check.md:37:- 2026-10-10: Promoted out of todo 537 (run 2026-10-10-1537 triage) by owner decision. Line numbers are as of the
+  todos/archive/532-completed-p4-delete-unused-demodata-model.md:80:- 2026-10-10 (todo 537, finding #979-1): the Approach and the last two
+  ```
+
+### 2026-10-10 - Completed by the todo sweep (run 2026-10-10-1537)
+
+- Archived by `land.py archive`; evidence is quoted above, review is on the PR.

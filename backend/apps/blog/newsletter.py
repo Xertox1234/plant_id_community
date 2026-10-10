@@ -198,16 +198,30 @@ def request_confirmation(email: str) -> bool:
         subscriber.confirmation_sent_at = now
         subscriber.save(update_fields=["confirmation_sent_at"])
 
-    if _send_confirmation_email(subscriber):
+    try:
+        sent = _send_confirmation_email(subscriber)
+    except BaseException:
+        # A re-raised Warning (todo 537) gives the stamp back too.
+        _release_confirmation_stamp(subscriber, now, previous)
+        raise
+    if sent:
         return True
-    BlogNewsletter.objects.filter(pk=subscriber.pk, confirmation_sent_at=now).update(
-        confirmation_sent_at=previous
-    )
+    _release_confirmation_stamp(subscriber, now, previous)
     return False
 
 
+def _release_confirmation_stamp(subscriber: BlogNewsletter, now, previous) -> None:
+    # Only our own stamp: never overwrite a later request's.
+    BlogNewsletter.objects.filter(pk=subscriber.pk, confirmation_sent_at=now).update(
+        confirmation_sent_at=previous
+    )
+
+
 def _send_confirmation_email(subscriber: BlogNewsletter) -> bool:
-    """Send one confirmation email. Never raises: a failure is logged."""
+    """Send one confirmation email. A failure is logged and returns False.
+    Raises only a Warning: a RemovedInDjango70Warning is an error under
+    pytest.ini (todo 454), and request_confirmation then restores the
+    stamp before it propagates (todo 537)."""
     try:
         # Inside the try: a failure building the link must still undo the
         # stamp, or the address stays throttled with nothing sent.

@@ -141,8 +141,10 @@ def render(
 
 
 def send(subscriber: BlogNewsletter, posts: list[DigestPost]) -> bool:
-    """Send one newsletter. Never raises, except the worker's soft time
-    limit, which stops the run rather than failing this send."""
+    """Send one newsletter. A send failure is logged and returns False.
+    Raises only the worker's soft time limit, which stops the run rather
+    than failing this send, and a Warning (the pytest deprecation gate,
+    todo 454)."""
     try:
         # One token for the footer link and the header, so both are the same.
         token = newsletter.make_unsubscribe_token(subscriber)

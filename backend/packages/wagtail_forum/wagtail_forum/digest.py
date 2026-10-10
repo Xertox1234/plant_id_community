@@ -226,8 +226,11 @@ def render_digest(
 
 
 def send_digest(digest: Digest) -> bool:
-    """Send one digest. Never raises: a render/send failure is logged with
-    the `[EMAIL]` prefix and reported as False so a batch keeps going."""
+    """Send one digest. A render/send failure is logged with the `[EMAIL]`
+    prefix and reported as False so a batch keeps going. Raises only a
+    worker's soft time limit and a Warning (a RemovedInDjango70Warning is an
+    error under the host's pytest.ini, todo 454); send_forum_digest gives
+    the member's claim back before either propagates (todo 537)."""
     try:
         links = unsubscribe_links(digest.user) or {}
         subject, text, html = render_digest(digest, links.get("url"))
