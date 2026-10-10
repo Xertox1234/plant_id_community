@@ -226,7 +226,8 @@ You review: `apps/blog/`, Wagtail page models, StreamField blocks, signals, Wagt
 
 ### Link preview additions (2026-09-25, todo 428)
 
-- A new forum body block type: check that the web `bodyBlocksToHtml` and the
+- A new forum body block type: check that the web `bodyBlocksToDoc` (and
+  its inverse `docToBodyBlocks`, both in `web/src/utils/forumBody.ts`) and the
   mobile `ForumComposeArgs.edit` handle it, not only the renderers. An
   unhandled type is dropped on the first web edit (silent data loss). Until
   both are handled, the block must stay behind a host setting that is unset.

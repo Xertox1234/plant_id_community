@@ -41,6 +41,7 @@ import {
   draftToDoc,
   emptyDoc,
   isBlankDoc,
+  isEmptyDoc,
   isUnchangedBody,
   postQuoteNode,
   postQuoteText,
@@ -598,9 +599,11 @@ export default function ThreadDetailPage() {
 
   // Quote a post into the reply composer (todo 342). The `post_quote`
   // blockquote goes at the TOP of the draft with anything already written
-  // kept below it; a blank draft gets an empty paragraph after the quote so
+  // kept below it; an empty draft gets an empty paragraph after the quote so
   // the caret (autofocus 'end') lands outside the blockquote rather than
-  // extending it. TipTap's `content` is init-only, so the composer is
+  // extending it. "Empty" is isEmptyDoc, not the submit gate's isBlankDoc: an
+  // image-only reply counts as blank for Post Reply, but it is the user's
+  // content and quoting must keep it (todo 538). TipTap's `content` is init-only, so the composer is
   // remounted through composerKey — the same mechanism as the post-reply
   // reset — and the draft store is written directly, since a remount fires
   // no onChange.
@@ -618,7 +621,7 @@ export default function ThreadDetailPage() {
       }
       const next: JSONContent = {
         type: 'doc',
-        content: isBlankDoc(replyBody)
+        content: isEmptyDoc(replyBody)
           ? [quote, { type: 'paragraph' }]
           : [quote, ...(replyBody.content ?? [])],
       };
@@ -1341,9 +1344,11 @@ export default function ThreadDetailPage() {
             onChange={(doc) => {
               setReplyBody(doc);
               if (topicId != null) {
+                // isEmptyDoc, not isBlankDoc: an image-only reply is not
+                // postable yet, but it is a draft worth keeping (todo 538).
                 saveDraft(
                   draftKey('reply', String(topicId)),
-                  isBlankDoc(doc) ? '' : JSON.stringify(doc)
+                  isEmptyDoc(doc) ? '' : JSON.stringify(doc)
                 );
               }
             }}

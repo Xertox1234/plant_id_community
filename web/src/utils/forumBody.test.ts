@@ -8,6 +8,7 @@ import {
   draftToDoc,
   emptyDoc,
   isBlankDoc,
+  isEmptyDoc,
   isUnchangedBody,
   previewUrlFromHtml,
   postQuoteNode,
@@ -19,6 +20,8 @@ import {
 import { ForumImage } from '../components/forum/forumImageNode';
 import { FORUM_SCHEMA_EXTENSIONS } from '../components/forum/forumEditorSchema';
 import type { StreamFieldBlock } from '@/types/blog';
+import { logger } from './logger';
+import DOMPurify from 'dompurify';
 
 // Lets one test make the shared URL rule reject everything, to prove the
 // preview detection defers to it (todo 438). A plain wrapper, not vi.fn:
@@ -1050,5 +1053,103 @@ describe('every stored block shape round-trips through the editor (todo 526)', (
     const doc = bodyBlocksToDoc(stored);
     const edited = { ...doc, content: [...(doc.content ?? []), para(text('one more'))] };
     expect(isUnchangedBody(edited, stored)).toBe(false);
+  });
+});
+
+// --- todo 538 ----------------------------------------------------------------
+
+describe('isUnchangedBody ignores the trailing empty paragraph (todo 538)', () => {
+  // The live-editor proof (a real selection transaction) is in
+  // TipTapEditor.test.tsx; these pin the normalisation itself.
+  const trailing = (body: StreamFieldBlock[]) => {
+    const doc = bodyBlocksToDoc(body);
+    return { ...doc, content: [...(doc.content ?? []), para()] };
+  };
+
+  it('treats an appended content-less paragraph as no change', () => {
+    const afterImage: StreamFieldBlock[] = [
+      { type: 'image', value: { id: 9, url: '/m/x.jpg', alt: 'leaf', decorative: false } },
+    ];
+    const afterHeading: StreamFieldBlock[] = [{ type: 'paragraph', value: '<h2>Care</h2>' }];
+    // Without the trim these differ: a separate `<p></p>` block after the
+    // image, and `<h2>Care</h2><p></p>` in the same run after the heading.
+    expect(docToBodyBlocks(trailing(afterImage))).not.toEqual(
+      docToBodyBlocks(bodyBlocksToDoc(afterImage))
+    );
+    expect(isUnchangedBody(trailing(afterImage), afterImage)).toBe(true);
+    expect(isUnchangedBody(trailing(afterHeading), afterHeading)).toBe(true);
+  });
+
+  it('matches a body that was SAVED with the trailing paragraph', () => {
+    const stored: StreamFieldBlock[] = [{ type: 'paragraph', value: '<h2>Care</h2><p></p>' }];
+    expect(
+      isUnchangedBody(bodyBlocksToDoc([{ type: 'paragraph', value: '<h2>Care</h2>' }]), stored)
+    ).toBe(true);
+  });
+
+  it('still counts a typed space or a hard break at the end as a change', () => {
+    const body: StreamFieldBlock[] = [{ type: 'paragraph', value: '<h2>Care</h2>' }];
+    const doc = bodyBlocksToDoc(body);
+    const withSpace = { ...doc, content: [...(doc.content ?? []), para(text(' '))] };
+    const withBreak = { ...doc, content: [...(doc.content ?? []), para({ type: 'hardBreak' })] };
+    expect(isUnchangedBody(withSpace, body)).toBe(false);
+    expect(isUnchangedBody(withBreak, body)).toBe(false);
+  });
+});
+
+describe('toComposerDoc on a document the schema rejects (todo 538)', () => {
+  it('logs why, without the draft, and returns an empty document', () => {
+    const warn = vi.spyOn(logger, 'warn');
+    const nested = docOf({ type: 'paragraph', content: [para(text('private words'))] });
+    expect(toComposerDoc(nested)).toEqual(emptyDoc());
+    expect(warn).toHaveBeenLastCalledWith(expect.stringMatching(/schema check/), {
+      component: 'forumBody',
+      context: { reason: 'Invalid content for node paragraph' },
+    });
+    expect(JSON.stringify(warn.mock.calls)).not.toContain('private words');
+
+    expect(toComposerDoc(docOf({ type: 'futureNode' }))).toEqual(emptyDoc());
+    expect(warn).toHaveBeenLastCalledWith(expect.any(String), {
+      component: 'forumBody',
+      context: { reason: 'Unknown node type: futureNode' },
+    });
+  });
+
+  it('does not log for a document the schema accepts', () => {
+    const warn = vi.spyOn(logger, 'warn');
+    toComposerDoc(docOf(para(text('fine'))));
+    expect(warn).not.toHaveBeenCalled();
+  });
+});
+
+describe('isEmptyDoc (todo 538)', () => {
+  it('is blank with no image; an image-only document is not empty', () => {
+    expect(isEmptyDoc(emptyDoc())).toBe(true);
+    expect(isEmptyDoc(undefined)).toBe(true);
+    expect(isEmptyDoc(docOf(image({ src: '/x.jpg', imageId: '5' }), para()))).toBe(false);
+    // Nested too: an image hoisted out of a quote is still content.
+    expect(
+      isEmptyDoc(docOf({ type: 'blockquote', content: [image({ src: '/x.jpg', imageId: '5' })] }))
+    ).toBe(false);
+    expect(isEmptyDoc(docOf(para(text('hi'))))).toBe(false);
+  });
+});
+
+describe('isBlankDoc memoisation (todo 538)', () => {
+  it('answers a repeated question about the same document from the cache', () => {
+    const doc = docOf(para(text('hi')));
+    const purify = vi.spyOn(DOMPurify, 'sanitize');
+    expect(isBlankDoc(doc)).toBe(false);
+    expect(isBlankDoc(doc)).toBe(false);
+    expect(isBlankDoc(doc)).toBe(false);
+    expect(purify).toHaveBeenCalledTimes(1);
+    // A different object is a fresh question.
+    expect(isBlankDoc(docOf(para()))).toBe(true);
+    expect(purify).toHaveBeenCalledTimes(2);
+  });
+
+  it('keeps the HTML rule exactly: a non-breaking space is not blank', () => {
+    expect(isBlankDoc(docOf(para(text('\u00a0'))))).toBe(false);
+    expect(isBlankDoc(docOf(para(text(' \t '))))).toBe(true);
   });
 });

@@ -3,7 +3,25 @@
  */
 
 import type { StreamFieldBlock as BlogStreamFieldBlock } from './blog';
-import type { ForumBodyWriteBlock } from '../utils/forumBody';
+
+/** A forum body block as SENT to the API (an image references the wagtail id). */
+export type ForumBodyWriteBlock =
+  | { type: 'paragraph'; value: string }
+  | { type: 'quote'; value: string }
+  /** A quote of a specific post (todo 342): the quoted post id + plain text.
+   * The server validates the id (visible, not block-paired), caps distinct
+   * quoted posts per body and the text length (QUOTE_MAX_CHARS, 1000) — none
+   * of that is re-checked by the client; a 400 surfaces as the reply error. */
+  | { type: 'post_quote'; value: { post: number; text: string } }
+  /** An inline image (todo 357). Wagtail's `ImageBlock`: the wagtail image id
+   * plus the PER-USAGE accessibility pair. A blank `alt_text` must ship with
+   * `decorative: true` — the server normalises it anyway, but sending the pair
+   * `ImageBlock.clean()` refuses would make the post un-editable in the CMS. */
+  | {
+      type: 'image';
+      value: { image: number; alt_text: string; decorative: boolean };
+    }
+  | { type: 'embed'; value: string };
 
 /**
  * Forum category
