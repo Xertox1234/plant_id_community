@@ -85,7 +85,9 @@ follow-up todo file instead of a third round — Review Doc Tracking (below)
 is a different, narrower convention for `docs/reviews/*.md` findings
 specifically, not for interactive review rounds. `kimi-review`'s commit-time
 gate is separate and unaffected — this budget is for the human-in-the-loop
-review tools.
+review tools. The todo engine has one owner-only exception: a round 3 the owner
+approves for a PR that round 2 blocked (`state.py hand-round`, todo 542). There
+is never a round 4.
 
 **No destructive commands.** Never run `rm -rf`, `git reset --hard`,
 `git clean -fd`, or a force-push without asking first and stating exactly what

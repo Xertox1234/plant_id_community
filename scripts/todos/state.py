@@ -53,7 +53,7 @@ LANDED = {"merged", "archived"}
 WORK_FIELDS = ("worktree", "branch", "tree_id", "ac_file")
 # What a blocked attempt leaves on its entry; reopening moves it to `previous` (see _reopen).
 ATTEMPT_FIELDS = ("reason", "group", "slot", "wave", *WORK_FIELDS, "verified_ac", "test_edits", "review_round",
-                  "repoints", "reverify", "blocked_by")
+                  "repoints", "reverify", "blocked_by", "hand_round")
 
 
 class TransitionError(Exception):
