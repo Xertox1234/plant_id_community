@@ -31,7 +31,7 @@ from rest_framework.views import APIView
 from wagtail_forum.api.versioning import UnversionedForumAPIMixin
 from wagtail_forum.api.views import PrivateForumReadCacheMixin
 from wagtail_forum.conf import get_setting
-from wagtail_forum.link_previews import is_cached_image_name
+from wagtail_forum.link_previews import is_cached_image_name, log_host
 
 from . import constants
 from .api import _throttled
@@ -217,16 +217,6 @@ def _target_for_url(raw_url: str, *, dns_timeout: float | None = None) -> _Targe
     return _Target(normalized_url, scheme, normalized_host, port, address)
 
 
-def _host_of(raw_url: object) -> str:
-    """The host to name in a log line: never the path or query."""
-    if not isinstance(raw_url, str):
-        return "?"
-    try:
-        return urlsplit(raw_url.strip()).hostname or "?"
-    except ValueError:
-        return "?"
-
-
 def normalize_public_url(raw_url: str) -> str:
     return _target_for_url(raw_url).url
 
@@ -304,8 +294,14 @@ def _parse_document(
 
 
 def _open_connection(
-    target: _Target, timeout: float | None = None
+    target: _Target, timeout: float | None = None, deadline: float | None = None
 ) -> HTTPConnection | HTTPSConnection:
+    """A connection pinned to ``target.address``. With ``deadline``, the
+    socket's timeout is cut to the time left once the TCP connect returns, so
+    the TLS handshake that ``HTTPSConnection.connect`` runs next cannot
+    outlast the deadline either: the watchdog starts only after ``connect()``
+    (it needs the socket), and a handshake given a fresh ``timeout`` could
+    overrun the deadline by the time the TCP connect took (todo 535 item 6)."""
     if timeout is None:
         timeout = constants.LINK_PREVIEW_TIMEOUT_SECONDS
     connection_host = f"[{target.host}]" if ":" in target.host else target.host
@@ -324,11 +320,18 @@ def _open_connection(
         )
 
     def create_connection(_address, timeout, source_address=None):
-        return socket.create_connection(
+        sock = socket.create_connection(
             (target.address, target.port),
             timeout,
             source_address,
         )
+        if deadline is not None:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                sock.close()
+                raise TimeoutError("link preview deadline passed during connect")
+            sock.settimeout(remaining if timeout is None else min(timeout, remaining))
+        return sock
 
     connection._create_connection = create_connection
     return connection
@@ -352,9 +355,12 @@ class _FetchFailed(Exception):
         self.reason = reason
 
 
-# A failure caused by the CALLER'S budget running out, not by the site: a
-# snapshot that waited in a busy pool reaches the fetch with little time left.
-# It is not cached, so the composer preview and the next post still try.
+# The fetch ran out of its deadline. When the CALLER set that deadline (a
+# snapshot, whose budget shrinks while it waits in a busy pool), it may be our
+# budget running out, not the site: that failure is not cached, so the composer
+# preview and the next post still try. The composer's own budget is fixed, so
+# its deadline failure means the site was slow, and it is cached like any
+# other failure (todo 535 item 5).
 _DEADLINE = "deadline"
 
 
@@ -415,7 +421,9 @@ def _fetch_html(target: _Target, deadline: float) -> tuple[str, bytes]:
         watchdog = None
         try:
             connection = _open_connection(
-                current, timeout=min(constants.LINK_PREVIEW_TIMEOUT_SECONDS, remaining)
+                current,
+                timeout=min(constants.LINK_PREVIEW_TIMEOUT_SECONDS, remaining),
+                deadline=deadline,
             )
             connection.connect()
             watchdog = threading.Timer(
@@ -449,6 +457,11 @@ def _fetch_html(target: _Target, deadline: float) -> tuple[str, bytes]:
                         dns_timeout=max(deadline - time.monotonic(), 0.01),
                     )
                 except InvalidPreviewURL as exc:
+                    # The hop's DNS lookup gets only the time left, so a
+                    # lookup that ran out of it is our deadline, not a
+                    # refusal of the redirect (todo 535 item 4).
+                    if time.monotonic() >= deadline:
+                        raise _FetchFailed(_DEADLINE) from exc
                     raise _FetchFailed("redirect refused") from exc
                 continue
             if not 200 <= response.status < 300:
@@ -480,6 +493,7 @@ def fetch_link_preview(
     endpoint) allows ``LINK_PREVIEW_PAGE_DEADLINE_SECONDS``. A failed fetch
     logs one ``[LINK_PREVIEW]`` line with its reason and the host, never the
     URL (todo 448 item 12); a cached answer logs nothing."""
+    budget_from_caller = deadline is not None
     if deadline is None:
         deadline = time.monotonic() + constants.LINK_PREVIEW_PAGE_DEADLINE_SECONDS
     target = _target_for_url(
@@ -503,7 +517,7 @@ def fetch_link_preview(
             target.host,
         )
         preview = _empty_preview(target.url)
-        if failure.reason == _DEADLINE:
+        if failure.reason == _DEADLINE and budget_from_caller:
             return preview
     else:
         preview = _parse_document(body, target.url, final_url)
@@ -559,8 +573,8 @@ def _shutdown_socket(sock) -> None:
     request: a server dripping a byte a second keeps ``readline`` (the status
     line, headers, chunk sizes) alive for hours. Shutting the socket down
     ends any read in progress. (The TLS handshake needs no watchdog: CPython
-    bounds the whole handshake by the socket timeout, which the caller caps
-    at the time left.)"""
+    bounds the whole handshake by the socket timeout, which
+    ``_open_connection`` cuts to the time left once the TCP connect returns.)"""
     try:
         socket.socket.shutdown(sock, socket.SHUT_RDWR)
     except OSError:
@@ -618,7 +632,9 @@ def _fetch_image(target: _Target, deadline: float) -> bytes | None:
         watchdog = None
         try:
             connection = _open_connection(
-                current, timeout=min(constants.LINK_PREVIEW_TIMEOUT_SECONDS, remaining)
+                current,
+                timeout=min(constants.LINK_PREVIEW_TIMEOUT_SECONDS, remaining),
+                deadline=deadline,
             )
             connection.connect()
             watchdog = threading.Timer(
@@ -726,14 +742,20 @@ def _cache_preview_image(image_url: str, deadline: float) -> str:
         return name
     remaining = deadline - time.monotonic()
     if remaining < constants.LINK_PREVIEW_IMAGE_MIN_SECONDS:
-        logger.info("[LINK_PREVIEW] no time left to download %s", image_url)
+        logger.info(
+            "[LINK_PREVIEW] no time left to download an image from host %s",
+            log_host(image_url),
+        )
         return ""
     target = _target_for_url(image_url, dns_timeout=remaining)
     if target.scheme != "https":
         return ""
     data = _fetch_image(target, deadline)
     if data is None:
-        logger.info("[LINK_PREVIEW] preview image not downloaded: %s", image_url)
+        logger.info(
+            "[LINK_PREVIEW] preview image not downloaded from host %s",
+            log_host(image_url),
+        )
         return ""
     encoded = _reencode_image(data)
     if encoded is None:
@@ -772,7 +794,7 @@ def link_preview_snapshot(
         # Not a public HTTP(S) URL, or its DNS failed or ran out of time.
         logger.info(
             "[LINK_PREVIEW] not a public URL, or DNS failed, for host %s",
-            _host_of(raw_url),
+            log_host(raw_url),
         )
         return None
     if preview.get("available") is not True:
@@ -784,7 +806,9 @@ def link_preview_snapshot(
             image = _cache_preview_image(image_url, deadline)
         except Exception:
             logger.warning(
-                "[LINK_PREVIEW] preview image failed for %s", image_url, exc_info=True
+                "[LINK_PREVIEW] preview image failed for host %s",
+                log_host(image_url),
+                exc_info=True,
             )
     return {
         "title": str(preview.get("title") or ""),

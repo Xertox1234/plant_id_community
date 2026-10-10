@@ -273,6 +273,13 @@ def test_bookmarks_list_query_count_is_pinned():
 
     client = APIClient()
     client.force_authenticate(user)
+    # The presence touch is throttled by a cache key named after the user's
+    # pk, and --create-db hands out the same pk on every run: a key left in
+    # Redis by the previous run skips the UPDATE and the count reads 3
+    # (todo 535 item 3). Pin the count with that key cold.
+    from django.core.cache import cache
+
+    cache.delete(f"forum:presence:{user.pk}")
     with CaptureQueriesContext(connection) as ctx:
         resp = client.get("/forum/me/bookmarks/")
 

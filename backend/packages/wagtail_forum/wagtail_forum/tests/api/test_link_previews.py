@@ -854,3 +854,193 @@ def test_a_stored_card_whose_url_ends_in_punctuation_survives_an_edit():
     assert resp.status_code == 200, resp.data
     post.refresh_from_db()
     assert _stored(post)[0] == ("link_preview", _card(url, "example.com"))
+
+
+# --- todo 535: follow-ups from todo 448's reviews ------------------------------
+
+
+@pytest.mark.django_db
+@_fetcher("fake_fetcher")
+def test_item1_a_body_refused_for_its_stored_size_costs_no_fetch():
+    """Auto-linking the prose puts the body over the cap. The refusal comes
+    BEFORE the card fetch, so the sole link below is never fetched and no
+    preview image is stored for a post that does not save."""
+    from wagtail_forum.api.sanitize import MAX_BODY_CHARS
+
+    card_paragraph = _paragraph("<p>https://card.example/</p>")
+    extra = len(json.dumps(card_paragraph)) + len(", ")
+    body = _sized_body(
+        MAX_BODY_CHARS - 10 - extra, "https://a.example/ https://b.example/"
+    ) + [card_paragraph]
+    assert len(json.dumps(body)) == MAX_BODY_CHARS - 10
+
+    resp = _create(_client(_member()), _board(), body)
+
+    assert resp.status_code == 400
+    assert "too large" in str(resp.data)
+    assert CALLS == []
+
+
+def _many_links_body(size, links=300):
+    """One paragraph of ``links`` links, written without the attributes the
+    server adds, padded so its JSON is exactly ``size`` characters."""
+    anchors = " ".join(
+        f'<a href="https://l.example/{n}">https://l.example/{n}</a>'
+        for n in range(links)
+    )
+    shell = len(json.dumps([_paragraph(f"<p>{anchors} </p>")]))
+    filler = "m" * (size - shell)
+    body = [_paragraph(f"<p>{anchors} {filler}</p>")]
+    assert len(json.dumps(body)) == size
+    return body
+
+
+@pytest.mark.django_db
+def test_item2_a_near_cap_post_with_many_links_stays_editable():
+    """The server adds ``target`` and ``rel`` to every link: 56 JSON
+    characters each, about 17k here. They do not count toward the cap, so
+    the post saves, its stored body resends unchanged, and a post stored
+    before the server added ``target`` still accepts an edit."""
+    from wagtail_forum.api.sanitize import MAX_BODY_CHARS
+
+    user = _member()
+    body = _many_links_body(MAX_BODY_CHARS - 2_000)
+    resp = _create(_client(user), _board(), body)
+    assert resp.status_code == 201, resp.data
+    post = Post.objects.get()
+    stored = list(post.body.raw_data)
+    assert len(json.dumps(stored)) > MAX_BODY_CHARS  # the markup is stored
+
+    resend = [{"type": b["type"], "value": b["value"]} for b in stored]
+    resp = _client(user).patch(
+        f"/forum/posts/{post.id}/", {"body": resend}, format="json"
+    )
+    assert resp.status_code == 200, resp.data
+    post.refresh_from_db()
+    assert [b["value"] for b in post.body.raw_data] == [b["value"] for b in stored]
+
+    # A body stored before todo 448 item 13 has no target="_blank": an edit
+    # adds 16 characters per link, and must still save.
+    legacy = [
+        {"type": b["type"], "value": b["value"].replace(' target="_blank"', "")}
+        for b in stored
+    ]
+    resp = _client(user).patch(
+        f"/forum/posts/{post.id}/", {"body": legacy}, format="json"
+    )
+    assert resp.status_code == 200, resp.data
+    post.refresh_from_db()
+    assert [b["value"] for b in post.body.raw_data] == [b["value"] for b in stored]
+
+
+@pytest.mark.django_db
+def test_item2_the_markup_words_typed_as_text_buy_no_room():
+    """Only the attributes on a real ``<a>`` start tag are discounted: the
+    same words typed in prose count in full."""
+    from wagtail_forum.api.sanitize import MAX_BODY_CHARS
+
+    padding = ' target="_blank" rel="noopener noreferrer nofollow"' * 200
+    body = _sized_body(MAX_BODY_CHARS + 100, padding)
+
+    resp = _create(_client(_member()), _board(), body)
+
+    assert resp.status_code == 400
+    assert "too large" in str(resp.data)
+
+
+def test_item2_the_measure_discounts_only_server_link_markup_and_card_fields():
+    from wagtail_forum.api.sanitize import (
+        MAX_BODY_MARKUP_TOLERANCE,
+        _measured_body_chars,
+    )
+
+    rich, links = {"paragraph"}, {"link_preview"}
+    marked = ' target="_blank" rel="noopener noreferrer nofollow"'
+    markup = len(json.dumps(marked)) - 2
+
+    # A real link: its server attributes are not counted.
+    anchor = [_paragraph(f'<p><a href="https://x.example/"{marked}>x</a></p>')]
+    assert _measured_body_chars(anchor, rich, links) == (
+        len(json.dumps(anchor)) - markup
+    )
+    # The same words as text, or in a heading: counted in full.
+    for block in (
+        _paragraph(f"<p>{marked}</p>"),
+        {"type": "heading", "value": f"<a{marked}>"},
+    ):
+        assert _measured_body_chars([block], rich, links) == len(json.dumps([block]))
+    # The discount is bounded.
+    many = [_paragraph(f'<p><a href="https://x.example/"{marked}>x</a></p>' * 1_000)]
+    assert 1_000 * markup > MAX_BODY_MARKUP_TOLERANCE
+    assert _measured_body_chars(many, rich, links) == (
+        len(json.dumps(many)) - MAX_BODY_MARKUP_TOLERANCE
+    )
+    # A card counts as its URL alone.
+    card = {"type": "link_preview", "value": _card("https://c.example/", "c.example")}
+    assert _measured_body_chars([card], rich, links) == len(
+        json.dumps([{"type": "link_preview", "value": {"url": "https://c.example/"}}])
+    )
+
+
+@pytest.mark.parametrize(
+    "url, host",
+    [
+        ("https://example.com/secret?token=1", "example.com"),
+        ("http://ex\x1bample.com/", "'ex\\x1bample.com'"),
+        ("http://" + "a" * 600 + "/", repr("a" * 253)),
+        (None, "?"),
+        ("not a url", "?"),
+    ],
+    ids=["plain", "control-character", "too-long", "not-a-string", "no-host"],
+)
+def test_item7_log_host_names_only_a_safe_host(url, host):
+    from wagtail_forum.link_previews import log_host
+
+    assert log_host(url) == host
+
+
+@pytest.mark.django_db
+def test_item8_fetch_snapshots_logs_the_host_not_the_url():
+    import unittest
+
+    from wagtail_forum.link_previews import fetch_snapshots
+
+    with unittest.TestCase().assertLogs("wagtail_forum", "WARNING") as logged:
+        assert (
+            fetch_snapshots(raising_fetcher, ["https://a.example/secret?token=1"]) == {}
+        )
+
+    lines = [r.getMessage() for r in logged.records]
+    assert lines == ["[LINK_PREVIEW] fetcher raised for host a.example"]
+
+
+@pytest.mark.django_db
+@override_settings(WAGTAILFORUM_LINK_PREVIEW_FETCH_TIMEOUT_SECONDS=0.2)
+def test_item8_a_slow_or_queued_fetch_logs_the_host_not_the_url(one_worker_pool):
+    import unittest
+
+    from wagtail_forum.link_previews import fetch_snapshots
+
+    release = threading.Event()
+
+    def blocking_fetcher(url, *, deadline=None):
+        release.wait(5)
+        return {"title": url}
+
+    try:
+        with unittest.TestCase().assertLogs("wagtail_forum", "WARNING") as logged:
+            fetch_snapshots(
+                blocking_fetcher,
+                ["https://a.example/secret?t=1", "https://b.example/secret?t=2"],
+            )
+    finally:
+        release.set()
+    one_worker_pool.shutdown(wait=True)
+
+    lines = sorted(r.getMessage() for r in logged.records)
+    assert lines == [
+        "[LINK_PREVIEW] fetch never started in 0.2s (pool busy), "
+        "saving as a link to host b.example",
+        "[LINK_PREVIEW] fetch still running after 0.2s, "
+        "saving as a link to host a.example",
+    ]

@@ -43,7 +43,23 @@ ALLOWED_URL_SCHEMES = {"http", "https", "mailto"}
 
 # Bound a single post body. Generous for a forum post; caps parse cost + storage.
 MAX_BODY_BLOCKS = 100
+# The cap on a body's MEASURED size (``_measured_body_chars``): its JSON, with
+# a link card counted as its URL alone and the link markup the server adds
+# not counted, up to MAX_BODY_MARKUP_TOLERANCE (todo 535).
 MAX_BODY_CHARS = 100_000
+# Server-added ``<a>`` attributes not counted toward MAX_BODY_CHARS, so a
+# stored body resent unchanged measures what it measured when stored, even
+# when the server has since added markup to every link (``target`` did, in
+# todo 448 item 13). Bounded, so markup cannot be used to grow storage.
+MAX_BODY_MARKUP_TOLERANCE = 20_000
+# The ceiling on the RAW JSON a client may send: it bounds parse cost before
+# anything is measured. The cap, the markup tolerance and five resent cards
+# at their stored field caps all fit well under it.
+MAX_BODY_RAW_CHARS = 2 * MAX_BODY_CHARS
+# The attributes ``sanitize_rich_text`` sets on every ``<a>``, as nh3 emits
+# them.
+_SERVER_LINK_ATTRIBUTES = (' target="_blank"', ' rel="noopener noreferrer nofollow"')
+_ANCHOR_START_TAG = re.compile(r"<a\b[^>]*>", re.IGNORECASE)
 
 
 def sanitize_rich_text(html):
@@ -294,6 +310,67 @@ def autolink_rich_text(html_fragment):
     return sanitize_rich_text("".join(parser.out))
 
 
+def _server_markup_chars(rich_text):
+    """How many characters of ``rich_text``'s JSON are attributes the server
+    sets on a link: each counted once per ``<a>`` start tag, and only there,
+    so the same words typed as text or in a heading earn nothing."""
+    total = 0
+    for tag in _ANCHOR_START_TAG.findall(rich_text):
+        for attribute in _SERVER_LINK_ATTRIBUTES:
+            if attribute in tag:
+                total += len(json.dumps(attribute)) - 2
+    return total
+
+
+def _measured_body_chars(value, rich_text_types, link_types):
+    """A body's size as ``MAX_BODY_CHARS`` measures it (todo 535 items 1-2).
+
+    - A ``link_preview`` card counts as its URL alone. Its other fields are
+      written by the server, bounded by the field caps and by
+      ``MAX_LINK_PREVIEWS_PER_BODY``, so a card can never push a body that
+      fit before the fetch over the cap after it, and the read envelope sent
+      back on edit measures what the stored card did.
+    - The link attributes the server sets are not counted, up to
+      ``MAX_BODY_MARKUP_TOLERANCE``: an existing post near the cap stays
+      editable when the server adds markup to every link.
+
+    Shape-tolerant: it runs before the body's shape is validated."""
+    measured = []
+    markup = 0
+    for block in value:
+        if isinstance(block, dict):
+            kind, inner = block.get("type"), block.get("value")
+            if kind in link_types and isinstance(inner, dict):
+                block = {**block, "value": {"url": inner.get("url")}}
+            elif kind in rich_text_types and isinstance(inner, str):
+                markup += _server_markup_chars(inner)
+        measured.append(block)
+    return len(json.dumps(measured)) - min(markup, MAX_BODY_MARKUP_TOLERANCE)
+
+
+def _stored_without_cards(value, rich_text_types, link_types):
+    """``value`` as it would be stored if no link became a card: a resent
+    card is its fallback paragraph, and every rich-text block is
+    auto-linked. A card measures less than the auto-linked paragraph it
+    replaces, so this measures at least what the stored body will, and can
+    be checked BEFORE any page fetch (todo 535 item 1)."""
+    stored = []
+    for block in value:
+        if block["type"] in link_types:
+            url = block["value"]["url"].strip()
+            if not url:
+                continue
+            block = {
+                **block,
+                "type": "paragraph",
+                "value": f"<p>{html.escape(url, quote=False)}</p>",
+            }
+        if block["type"] in rich_text_types:
+            block = {**block, "value": autolink_rich_text(block["value"] or "")}
+        stored.append(block)
+    return stored
+
+
 # The forum index's welcome copy is CMS-authored, not user-submitted, so the
 # allowlist is wider than a post body's: headings and a rule survive. Media
 # embeds and images do not — the intro is a short welcome blurb, not an article,
@@ -519,9 +596,27 @@ def validate_forum_body(
         raise serializers.ValidationError(_("Invalid post body."))
     if len(value) > MAX_BODY_BLOCKS:
         raise serializers.ValidationError(_("Post body has too many blocks."))
-    if len(json.dumps(value)) > MAX_BODY_CHARS:
-        raise serializers.ValidationError(_("Post body is too large."))
     body_block = ForumBodyBlock()
+    # Sanitize every rich-text block type, not a hardcoded name — a future
+    # RichTextBlock added to ForumBodyBlock must not silently bypass sanitization.
+    rich_text_types = {
+        name
+        for name, block in body_block.child_blocks.items()
+        if isinstance(block, RichTextBlock)
+    }
+    # A link_preview card is re-derived from its URL on every write (see
+    # _convert_link_previews), so only the URL's type is checked below — the
+    # read envelope (image_url: null) sent straight back must not 400.
+    link_types = {
+        name
+        for name, block in body_block.child_blocks.items()
+        if isinstance(block, LinkPreviewBlock)
+    }
+    if (
+        len(json.dumps(value)) > MAX_BODY_RAW_CHARS
+        or _measured_body_chars(value, rich_text_types, link_types) > MAX_BODY_CHARS
+    ):
+        raise serializers.ValidationError(_("Post body is too large."))
     # ImageBlock is a StructBlock, ImageChooserBlock is a ChooserBlock — both
     # count as image blocks here, and BOTH must be recognised: bodies written
     # before migration 0037 (and any revision reverted to) still carry the bare
@@ -539,14 +634,6 @@ def validate_forum_body(
     # enforce value types here — to_python/clean do NOT: an int paragraph
     # value reaches nh3.clean() and raises TypeError (500), and an int heading
     # persists, breaking the text-by-contract render assumption.
-    # A link_preview card is re-derived from its URL on every write (see
-    # _convert_link_previews), so only the URL's type is checked here — the
-    # read envelope (image_url: null) sent straight back must not 400.
-    link_types = {
-        name
-        for name, block in body_block.child_blocks.items()
-        if isinstance(block, LinkPreviewBlock)
-    }
     struct_types = {
         name
         for name, block in body_block.child_blocks.items()
@@ -729,6 +816,21 @@ def validate_forum_body(
                 )
             )
 
+    # The cap holds for what is STORED, and auto-linking grows a body (todo
+    # 448 item 4). Checked on the body as stored WITHOUT cards, before the
+    # card fetch: a card measures less than the link it replaces, so a body
+    # that passes here cannot go over the cap through its cards, and a body
+    # refused here has cost no fetch (todo 535 item 1).
+    if (
+        _measured_body_chars(
+            _stored_without_cards(value, rich_text_types, link_types),
+            rich_text_types,
+            link_types,
+        )
+        > MAX_BODY_CHARS
+    ):
+        raise serializers.ValidationError(_("Post body is too large."))
+
     # Link cards (todo 428) last, after everything that can 400, so a body
     # that is about to be refused never costs a page fetch — but before the
     # dry-run, which then validates the blocks this produced.
@@ -742,13 +844,6 @@ def validate_forum_body(
     except Exception as exc:  # malformed StreamField payload
         raise serializers.ValidationError(_("Invalid post body.")) from exc
 
-    # Sanitize every rich-text block type, not a hardcoded name — a future
-    # RichTextBlock added to ForumBodyBlock must not silently bypass sanitization.
-    rich_text_types = {
-        name
-        for name, block in body_block.child_blocks.items()
-        if isinstance(block, RichTextBlock)
-    }
     cleaned = []
     for block in value:
         if isinstance(block, dict) and block.get("type") in rich_text_types:
@@ -764,9 +859,11 @@ def validate_forum_body(
                 "value": _normalise_image_value(block["value"], image_descriptions),
             }
         cleaned.append(block)
-    # Again on what is STORED: auto-linking and cards grow a body, and a
-    # stored body over the cap would be refused when its author resends it
-    # unchanged on edit (todo 448 item 4).
-    if len(json.dumps(cleaned)) > MAX_BODY_CHARS:
+    # Again on what is STORED, with the same measure: a stored body over the
+    # cap would be refused when its author resends it unchanged on edit (todo
+    # 448 item 4). The check before the fetch already bounds this, so it can
+    # only fire on a link the auto-linker splits differently from the card
+    # converter; a backstop, not the rule.
+    if _measured_body_chars(cleaned, rich_text_types, link_types) > MAX_BODY_CHARS:
         raise serializers.ValidationError(_("Post body is too large."))
     return cleaned

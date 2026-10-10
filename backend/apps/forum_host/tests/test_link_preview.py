@@ -672,3 +672,219 @@ def test_the_connect_timeout_is_capped_at_the_time_left():
             _fetch_html(target, time.monotonic() + 0.5)
 
     assert open_connection.call_args.kwargs["timeout"] <= 0.5
+
+
+# --- todo 535: follow-ups from todo 448's reviews ------------------------------
+
+
+def test_item4_a_redirect_lookup_that_runs_out_of_time_is_a_deadline():
+    """The redirect hop's DNS lookup gets only the time left. A lookup that
+    ran out of it is our deadline, not a refused redirect, so it is not
+    cached as one."""
+
+    class RedirectResponse:
+        status = 302
+
+        def getheader(self, name):
+            return "https://slow-dns.example/next" if name == "Location" else None
+
+        def close(self):
+            pass
+
+    import socket as socket_module
+
+    class Connection:
+        # A real socket: the watchdog fires during the slow lookup.
+        def __init__(self):
+            self.sock, self._peer = socket_module.socketpair()
+
+        def connect(self):
+            pass
+
+        def request(self, method, path, headers):
+            pass
+
+        def getresponse(self):
+            return RedirectResponse()
+
+        def close(self):
+            self.sock.close()
+            self._peer.close()
+
+    def lookup_times_out(url, *, dns_timeout=None):
+        time.sleep(0.3)
+        raise InvalidPreviewURL
+
+    target = _Target(
+        "https://93.184.216.34/start", "https", "93.184.216.34", 443, "93.184.216.34"
+    )
+    with (
+        patch(
+            "apps.forum_host.link_preview._open_connection", return_value=Connection()
+        ),
+        patch(
+            "apps.forum_host.link_preview._target_for_url", side_effect=lookup_times_out
+        ),
+    ):
+        with pytest.raises(_FetchFailed) as failure:
+            _fetch_html(target, time.monotonic() + 0.2)
+
+    assert failure.value.reason == "deadline"
+
+
+def test_item5_the_composer_caches_a_deadline_failure():
+    """The composer's budget is fixed, so its deadline failure means the site
+    was slow: cached like any other failure, so a site that drips a byte a
+    second is not fetched again on every composer request."""
+    url = "https://93.184.216.34/page"
+    with patch(
+        "apps.forum_host.link_preview._fetch_html",
+        side_effect=_FetchFailed("deadline"),
+    ) as fetch:
+        assert fetch_link_preview(url)["available"] is False
+        assert fetch_link_preview(url)["available"] is False
+
+    assert fetch.call_count == 1
+
+
+def test_item5_a_snapshot_deadline_failure_is_still_not_cached():
+    url = "https://93.184.216.34/page"
+    with patch(
+        "apps.forum_host.link_preview._fetch_html",
+        side_effect=_FetchFailed("deadline"),
+    ) as fetch:
+        fetch_link_preview(url, deadline=time.monotonic() + 5)
+        fetch_link_preview(url, deadline=time.monotonic() + 5)
+
+    assert fetch.call_count == 2
+
+
+class _RecordingSocket:
+    def __init__(self):
+        self.timeouts = []
+        self.closed = False
+
+    def settimeout(self, value):
+        self.timeouts.append(value)
+
+    def close(self):
+        self.closed = True
+
+
+def test_item6_the_socket_gets_only_the_time_left_after_the_tcp_connect():
+    """The TLS handshake runs on the socket's timeout after the TCP connect
+    returns; that timeout is cut to what is left of the deadline."""
+    target = _Target(
+        "https://example.com/start", "https", "example.com", 443, "93.184.216.34"
+    )
+    sock = _RecordingSocket()
+    deadline = time.monotonic() + 0.5
+    with patch(
+        "apps.forum_host.link_preview.socket.create_connection", return_value=sock
+    ):
+        connection = _open_connection(target, timeout=4, deadline=deadline)
+        assert connection._create_connection(("example.com", 443), 4, None) is sock
+
+    assert len(sock.timeouts) == 1 and 0 < sock.timeouts[0] <= 0.5
+
+
+def test_item6_a_tcp_connect_that_used_up_the_deadline_is_a_timeout():
+    target = _Target(
+        "https://example.com/start", "https", "example.com", 443, "93.184.216.34"
+    )
+    sock = _RecordingSocket()
+    with patch(
+        "apps.forum_host.link_preview.socket.create_connection", return_value=sock
+    ):
+        connection = _open_connection(
+            target, timeout=4, deadline=time.monotonic() - 0.01
+        )
+        with pytest.raises(TimeoutError):
+            connection._create_connection(("example.com", 443), 4, None)
+
+    assert sock.closed
+
+
+def test_item6_a_slow_connect_then_a_stalled_handshake_ends_at_the_deadline():
+    """The TCP connect takes most of the budget, then the server stalls the
+    TLS handshake. Before, the handshake got a fresh timeout and the fetch
+    ran about 0.5 s past its deadline."""
+    import socket as socket_module
+
+    from apps.forum_host.tests.test_link_preview_images import _loopback_drip
+
+    server, port, thread = _loopback_drip(b"\x16\x03\x03\x40\x00")
+    real_create_connection = socket_module.create_connection
+
+    def slow_connect(*args, **kwargs):
+        time.sleep(0.5)
+        return real_create_connection(*args, **kwargs)
+
+    target = _Target(
+        f"https://127.0.0.1:{port}/page", "https", "127.0.0.1", port, "127.0.0.1"
+    )
+    started = time.monotonic()
+    try:
+        with patch(
+            "apps.forum_host.link_preview.socket.create_connection",
+            side_effect=slow_connect,
+        ):
+            with pytest.raises(_FetchFailed) as failure:
+                _fetch_html(target, time.monotonic() + 0.6)
+        elapsed = time.monotonic() - started
+    finally:
+        server.close()
+        thread.join(5)
+
+    assert failure.value.reason == "deadline"
+    assert elapsed < 0.9  # was ~1.1: 0.5 connect + a fresh 0.6 handshake
+
+
+@pytest.mark.parametrize(
+    "url, logged",
+    [
+        ("http://ex\x1bample.com/admin", "'ex\\x1bample.com'"),
+        ("http://" + "a" * 600 + "/x", repr("a" * 253)),
+    ],
+    ids=["control-character", "too-long"],
+)
+def test_item7_a_rejected_url_logs_a_quoted_truncated_host(url, logged):
+    from apps.forum_host.link_preview import link_preview_snapshot
+
+    with patch(
+        "apps.forum_host.link_preview.fetch_link_preview",
+        side_effect=InvalidPreviewURL(),
+    ):
+        with _logs() as logged_records:
+            assert link_preview_snapshot(url) is None
+
+    lines = [r.getMessage() for r in logged_records.records]
+    assert lines == [
+        f"[LINK_PREVIEW] not a public URL, or DNS failed, for host {logged}"
+    ]
+    assert "\x1b" not in lines[0]
+
+
+def test_item8_the_snapshot_image_warning_names_the_host_only():
+    from apps.forum_host.link_preview import link_preview_snapshot
+
+    image_url = "https://93.184.216.34/secret-path/og.png?token=abc"
+    with (
+        patch(
+            "apps.forum_host.link_preview.fetch_link_preview",
+            return_value={
+                "available": True,
+                "title": "t",
+                "image_url": image_url,
+            },
+        ),
+        patch(
+            "apps.forum_host.link_preview._cache_preview_image",
+            side_effect=RuntimeError("boom"),
+        ),
+    ):
+        with _logs() as logged:
+            assert link_preview_snapshot("https://93.184.216.34/page")["image"] == ""
+
+    lines = [r.getMessage() for r in logged.records]
+    assert lines == ["[LINK_PREVIEW] preview image failed for host 93.184.216.34"]
