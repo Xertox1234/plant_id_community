@@ -679,3 +679,8 @@ Compact checklist auto-injected before edits.
   a change moves SEVERAL receivers to `on_commit`, give each an
   `execute=False` test: an `execute=True` test passes just as well when the
   receiver acts at once.
+- **A socket read loop in a test breaks on `b""`.** `recv()` returns `b""`
+  at once when the peer closes, and a socket timeout fires only on a BLOCKING
+  read, so `while len(buf) < n: buf += sock.recv(...)` spins forever and hangs
+  the suite instead of failing. Read into `chunk`, `break` when it is empty,
+  then assert on `buf` (todo 550 review, `test_link_preview.py`).

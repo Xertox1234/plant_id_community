@@ -1982,5 +1982,20 @@
     "source": "codify: sweep run 2026-10-10-1537 (todo 541, PR #984)",
     "added": "2026-10-10",
     "severity": "warn"
+  },
+  {
+    "id": "test-socket-recv-loop-no-eof-guard",
+    "domains": [
+      "testing"
+    ],
+    "path_glob": [
+      "backend/**/test*.py"
+    ],
+    "content_present": "\\+=\\s*[\\w.]+\\.recv\\(",
+    "message": "A recv loop that appends straight into the buffer (buf += sock.recv(...)) spins forever when the peer closes: recv returns b\"\" at once and the socket timeout never fires. Read into chunk, break on `if not chunk`, then assert on the buffer.",
+    "pattern_ref": "docs/rules/testing.md",
+    "source": "codify: docs/codify-p4-sweeps-2026-10-11",
+    "added": "2026-10-11",
+    "severity": "warn"
   }
 ]

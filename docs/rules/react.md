@@ -344,3 +344,11 @@ Compact checklist auto-injected before edits. Long-form:
   moving focus to `<main>` when the drawer closes on widen could scroll the
   page, which focus falling back to `<body>` never did (review finding, todo
   509). Pin the option with a spy on `focus` (`AppShell.tsx`).
+- **A form whose storage key can change without a remount must RELOAD its
+  state from the new key, not just re-arm a dirty guard.** `useState`
+  initializers run once, so after an in-place `?category=` change the
+  composer still shows board A's text and never loads board B's stored draft;
+  a guard that only skips the first save moves the loss to the next keystroke.
+  Remount per key (`key={draftKey}`) or reset every field from the new key's
+  draft in an effect on the key, and test that B's draft APPEARS after the
+  switch, not just that it survives one render (todo 549 review, follow-up 575).

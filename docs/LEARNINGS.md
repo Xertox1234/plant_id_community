@@ -7172,3 +7172,46 @@ of that state field, in code and in runbooks (`review_round`, `stage ==`, "when 
 one for the new state. Better, write guards over the property they protect: "is HEAD pushed", not "is
 this round 1". And give an artifact its own identity (a round, a run id) rather than inferring it from
 the state it is ingested into.
+
+## 2026-10-11 — A fix to one reader of a shared format leaves its twin behind (PRs #1012, #1016)
+
+Twice in one P4 sweep a change taught ONE tool a new rule about a shared format, and its sibling kept the
+old one:
+
+- PR #1016 made `scripts/check_archived_todo_status.py` match code fences by character and length, so a
+  ```` block quoting a ``` line no longer hides the rest of the file. `scripts/todos/todofile.py`
+  `ac_lines`, which `land.py flip-acs` and `state.py` use to find the same acceptance-criteria boxes,
+  still toggles on any fence line. A nested fence in an AC section now hides real boxes from Land, which
+  archives them unticked, and the very CI check that was fixed then fails the PR (follow-up 577).
+- PR #1012 added a `# log-prefix: exempt` marker for relay lines whose inner command already prefixes
+  `[EMAIL]`. `scripts/check_log_prefixes.py` honours it; `scripts/add_log_prefixes.py`, the fixer that
+  stamps prefixes, does not, so re-running it would log `[EMAIL] [EMAIL]` (follow-up 573).
+
+Both PRs passed verification and two review rounds; reviewers found the twins only as non-blocking notes.
+
+**Root cause.** The format (a todo file's fences; the exempt marker) has no single owner. Each reader
+re-implements the parse, so a fix lands where the bug was reported and nowhere else.
+
+**General rule.** When a change alters how a format, marker or convention is READ, grep for every other
+reader of it (`FENCE_RE`, `fenced`, `log-prefix`, the file glob it scans) and change them in the same PR,
+or better, move the parse into one function the others import. The test for the fix should drive each
+reader, not just the one that was reported.
+
+## 2026-10-11 — The sweep said "clean" and "verified"; neither meant done (todos 471, 551; PRs #1013, #1016)
+
+Two near-misses in run 2026-10-11-0401, both where the engine's verdict was correct by its own rules:
+
+- **Decision recorded is not decision built.** The owner decided that an edit to a never-published post
+  is re-screened, and never published by that screen. Todo 471's only acceptance criterion about it was
+  "item 2 has an owner decision recorded". The worker found the screen needs a design (the spam workflow
+  publishes clean content on finish), shipped docs only, and every box ticked honestly. The behaviour went
+  to new todo 579 only because the worker said so in its summary.
+- **A non-blocking finding can be a guard regression.** Both review rounds of PR #1016 confirmed, by
+  probe, that the new home-path regex no longer caught a bare `-Users-<name>-projects-x`, so a username
+  could reach an archived todo in this public repo. Medium severity never blocks, so the run reported the
+  PR clean. The owner held it and a one-line fix with a regression test went in before merge.
+
+**General rule.** At Decide, when an owner's answer changes behaviour, add or rewrite an acceptance
+criterion that tests the behaviour, not one that records the answer. Before arming a PR the review called
+clean, read its round-2 mediums for anything that weakens a guard, a leak check, or a CI tripwire, and
+take those to the owner; one confirmed in both rounds is not a nit.
