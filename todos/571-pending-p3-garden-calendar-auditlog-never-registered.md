@@ -4,6 +4,10 @@ priority: p3
 issue_id: "571"
 tags: [backend, garden-calendar, auditlog, gdpr]
 dependencies: []
+triage: blocked-owner
+triaged: 2026-10-11
+blocked_on: "Owner decision on audit scope, specifically whether free-text notes fields belong in LogEntry rows"
+owner_decision: "Owner: register all 5 garden models but drop notes and other free-text fields from include_fields so user prose never lands in LogEntry; LogEntry purge on account deletion is a follow-up, not this todo (2026-10-11)"
 ---
 
 # `garden_calendar/auditlog.py` is never imported, so no garden model is audited

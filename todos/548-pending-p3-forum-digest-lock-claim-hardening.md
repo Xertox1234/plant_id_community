@@ -4,6 +4,9 @@ priority: p3
 issue_id: "548"
 tags: [backend, forum, email, celery]
 dependencies: ["534"]
+triage: ready
+triaged: 2026-10-11
+owner_decision: "Owner: the lock TTL comes from a new package setting WAGTAILFORUM_DIGEST_RUN_LOCK_SECONDS in conf.py, default 35 min (DIGEST_TIME_LIMIT 30 min + 5) (2026-10-11)"
 ---
 
 # Forum digest: the blog newsletter's lock and claim fixes (todo 534, items 5 and 7)
