@@ -2,6 +2,7 @@ import logging
 from contextlib import contextmanager
 from contextvars import ContextVar
 
+from django.db import transaction
 from wagtail.models import Task, TaskState
 
 from ..spam import get_spam_backend
@@ -77,7 +78,15 @@ class SpamCheckTask(Task):
         row = workflow_state.content_object
         obj = row.get_latest_revision_as_object()
         try:
-            result = get_spam_backend().check(obj)
+            # A savepoint around the backend (todo 588): ``start()`` runs inside
+            # Wagtail's atomic workflow start, so a DB error raised by the
+            # backend would otherwise poison that transaction, and the
+            # ``reject()`` below (a DB write) would raise
+            # TransactionManagementError, losing the fail-closed record and
+            # masking the backend's own error. Leaving this block by an
+            # exception rolls back to the savepoint, so the reject can write.
+            with transaction.atomic():
+                result = get_spam_backend().check(obj)
         except Exception as exc:
             logger.exception(
                 "[ERROR] wagtail_forum spam check failed for %s %s; held",

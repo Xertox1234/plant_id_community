@@ -1922,6 +1922,31 @@ describe('ThreadDetailPage new replies pill (todo 346)', () => {
     expect(fetchPostsSpy).toHaveBeenLastCalledWith({ thread: 12 });
   });
 
+  it('offers Summarize thread once unloaded new replies grow the thread past 3 posts (todo 588)', async () => {
+    // One reply = 2 posts with the opener: too short. The poll then sees a
+    // second reply that the reader has not loaded. The page must count it
+    // (`totalPosts + newReplyCount + 1`), or the button stays hidden on a
+    // thread that already has 3 posts until the pill is clicked.
+    const mockThread = createMockThread({ slug: 'watering-tips', post_count: 1 });
+    vi.spyOn(forumService, 'fetchThread')
+      .mockResolvedValueOnce(mockThread)
+      .mockResolvedValue({ ...mockThread, post_count: 2 });
+    vi.spyOn(forumService, 'fetchPosts').mockResolvedValue(initialPosts());
+
+    renderThreadDetailPage();
+    await screen.findByText(/1 replies/);
+    expect(screen.getByText(/at least 3 posts/i)).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /summarize thread/i })).not.toBeInTheDocument();
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(NEW_REPLIES_POLL_INTERVAL_MS);
+    });
+    await screen.findByRole('button', { name: 'Load 1 new reply' });
+    // Before the pill is clicked: the unloaded reply already counts.
+    expect(screen.getByRole('button', { name: /summarize thread/i })).toBeInTheDocument();
+    expect(screen.queryByText(/at least 3 posts/i)).not.toBeInTheDocument();
+  });
+
   it('does no work while the tab is hidden and re-checks as soon as it is visible again', async () => {
     const mockThread = createMockThread({ slug: 'watering-tips', post_count: 1 });
     const fetchThreadSpy = vi.spyOn(forumService, 'fetchThread').mockResolvedValue(mockThread);
