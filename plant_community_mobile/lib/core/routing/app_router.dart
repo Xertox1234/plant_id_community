@@ -10,6 +10,7 @@ import '../../features/auth/login_screen.dart';
 import '../../features/auth/register_screen.dart';
 import '../../features/camera/camera_screen.dart';
 import '../../features/results/results_screen.dart';
+import '../../features/profile/edit_profile_screen.dart';
 import '../../features/profile/profile_screen.dart';
 import '../../features/settings/settings_screen.dart';
 import '../../features/care/care_screen.dart';
@@ -53,6 +54,9 @@ abstract class AppRoutes {
   // it is still a PlaceholderScreen for the unbuilt garden-calendar
   // feature, and is deliberately not a shell destination (todo 384).
   static const profile = '/profile';
+  // Auth-only: edits the caller's own bio and avatar (todo 455). Top-level,
+  // outside the shell, so it is NOT a branch root and the redirect is safe.
+  static const editProfile = '/profile/edit';
   static const garden = '/garden';
   // Phase 2 feature routes
   static const care = '/care';
@@ -107,6 +111,7 @@ GoRouter appRouter(Ref ref) {
     AppRoutes.forumMessages,
     AppRoutes.forumBookmarks,
     AppRoutes.forumMyImages,
+    AppRoutes.editProfile,
   };
   // Parameterised protected routes (`/forum/messages/:username`) can't be
   // matched by the exact-path set above; guard them by prefix.
@@ -437,6 +442,16 @@ GoRouter appRouter(Ref ref) {
           context: context,
           state: state,
           child: const ForumMyImagesScreen(),
+        ),
+      ),
+      // Pushed from the Profile tab and the onboarding checklist (todo 455).
+      GoRoute(
+        path: AppRoutes.editProfile,
+        name: 'editProfile',
+        pageBuilder: (context, state) => _buildPageWithTransition(
+          context: context,
+          state: state,
+          child: const EditProfileScreen(),
         ),
       ),
       GoRoute(

@@ -1,13 +1,16 @@
 """The onboarding checklist (todo 412): steps derived from what the user
 did, a dismiss flag the client may set, and no demo-data endpoints."""
 
+import io
+import tempfile
 from unittest.mock import patch
 
 from apps.users.models import OnboardingProgress
 from apps.users.onboarding import CHECKLIST_STEPS, record_first_identification
 from django.contrib.auth import get_user_model
 from django.core.files.uploadedfile import SimpleUploadedFile
-from django.test import TestCase
+from django.test import TestCase, override_settings
+from PIL import Image
 from rest_framework.test import APIClient
 from wagtail.models import Page
 from wagtail_forum.models import ForumBoard, ForumIndex, Post, Topic, TopicBookmark
@@ -15,6 +18,13 @@ from wagtail_forum.models import ForumBoard, ForumIndex, Post, Topic, TopicBookm
 User = get_user_model()
 
 PROGRESS_URL = "/api/v1/auth/me/onboarding/progress/"
+
+
+def _png_upload(name="me.png"):
+    """A real 64x64 PNG: the avatar validator opens it with PIL."""
+    buf = io.BytesIO()
+    Image.new("RGB", (64, 64), (30, 120, 60)).save(buf, format="PNG")
+    return SimpleUploadedFile(name, buf.getvalue(), content_type="image/png")
 
 
 def _steps(resp):
@@ -36,6 +46,10 @@ class OnboardingChecklistTests(TestCase):
         return Topic.objects.create(
             board=self.board, title=slug.title(), slug=slug, author=self.user, live=True
         )
+
+    def _fill_bio(self, bio="Grows ferns."):
+        self.user.bio = bio
+        self.user.save(update_fields=["bio"])
 
     def test_a_new_user_has_every_step_open(self):
         resp = self.client.get(PROGRESS_URL)
@@ -67,6 +81,40 @@ class OnboardingChecklistTests(TestCase):
 
         self.assertTrue(_steps(self.client.get(PROGRESS_URL))["save_topic"])
 
+    def test_the_profile_step_is_the_fourth_and_save_topic_stays(self):
+        # Owner decision 2026-09-28: profile comes back as a 4th step and
+        # "save a topic" is kept.
+        self.assertEqual(
+            CHECKLIST_STEPS, ("identify_plant", "forum_post", "save_topic", "profile")
+        )
+
+    def test_a_bio_ticks_the_profile_step(self):
+        self.assertFalse(_steps(self.client.get(PROGRESS_URL))["profile"])
+
+        self._fill_bio()
+
+        self.assertTrue(_steps(self.client.get(PROGRESS_URL))["profile"])
+
+    def test_a_whitespace_only_bio_does_not_tick_the_profile_step(self):
+        self._fill_bio("   \n ")
+
+        self.assertFalse(_steps(self.client.get(PROGRESS_URL))["profile"])
+
+    def test_an_avatar_alone_ticks_the_profile_step(self):
+        with tempfile.TemporaryDirectory() as media, override_settings(
+            MEDIA_ROOT=media
+        ):
+            resp = self.client.patch(
+                "/api/v1/auth/user/update/",
+                {"avatar": _png_upload()},
+                format="multipart",
+            )
+            self.assertEqual(resp.status_code, 200, resp.data)
+            self.user.refresh_from_db()
+            self.assertEqual(self.user.bio, "")
+
+            self.assertTrue(_steps(self.client.get(PROGRESS_URL))["profile"])
+
     def test_every_step_done_is_complete(self):
         topic = self._topic()
         Post.objects.create(
@@ -74,6 +122,7 @@ class OnboardingChecklistTests(TestCase):
         )
         TopicBookmark.objects.create(user=self.user, topic=topic)
         record_first_identification(self.user)
+        self._fill_bio()  # the profile step (todo 455)
 
         resp = self.client.get(PROGRESS_URL)
 
@@ -87,6 +136,7 @@ class OnboardingChecklistTests(TestCase):
         )
         bookmark = TopicBookmark.objects.create(user=self.user, topic=topic)
         record_first_identification(self.user)
+        self._fill_bio()  # the profile step (todo 455)
         self.assertTrue(self.client.get(PROGRESS_URL).data["checklist"]["complete"])
 
         bookmark.delete()  # a normal thing to do once the topic is read

@@ -356,7 +356,10 @@ def current_user(request: Request) -> Response:
     """
     Get current authenticated user information.
     """
-    serializer = UserProfileSerializer(request.user)
+    # The request in context makes `avatar` an absolute URL on local storage
+    # too (a bare "/media/..." path is not loadable by the mobile app) and
+    # fills `avatar_thumbnail`, which is null without it (todo 455).
+    serializer = UserProfileSerializer(request.user, context={"request": request})
     return Response(serializer.data)
 
 
@@ -366,7 +369,9 @@ def update_profile(request: Request) -> Response:
     """
     Update current user's profile.
     """
-    serializer = UserProfileSerializer(request.user, data=request.data, partial=True)
+    serializer = UserProfileSerializer(
+        request.user, data=request.data, partial=True, context={"request": request}
+    )
 
     if serializer.is_valid():
         serializer.save()
