@@ -343,6 +343,39 @@ if [ -n "$R" ] && git init -q "$R/main" && git -C "$R/main" -c user.email=t@t -c
   assert_allow "477: a tracked, not-ignored .worktreeinclude entry does not block staging" $W "git -C $R/wt add -A"
   git -C "$R/wt" rm -q --cached web/.env
   assert_deny_msg "477: the same file untracked is still refused" $W "git -C $R/wt add -A" "web/.env"
+
+  # Todo 496 — routes into MAIN that PR #880's review rounds 2 and 3 found allowed.
+  printf 'backend/.env\nweb/.env\n' > "$R/wt/.gitignore"
+  # Finding 1: env -C / --chdir and sudo -D run the command in another directory.
+  assert_raw "496.1: env -C MAIN git add" deny "$(cwd_event $W "$R/wt" "env -C $R/main git add -A")"
+  assert_raw "496.1: env --chdir=MAIN git add" deny "$(cwd_event $W "$R/wt" "env --chdir=$R/main git add x")"
+  assert_raw "496.1: env -iC MAIN (bundled)" deny "$(cwd_event $W "$R/wt" "/usr/bin/env -iC $R/main git add x")"
+  assert_raw "496.1: sudo -D MAIN git add" deny "$(cwd_event $W "$R/wt" "sudo -D $R/main git add x")"
+  assert_raw "496.1: env -C WT git add is fine" allow "$(cwd_event $W "$R/main" "env -C $R/wt git add -A")"
+  assert_raw "496.1: env -C moves only its own command" allow \
+    "$(cwd_event $W "$R/wt" "env -C $R/main true; git add -A")"
+  assert_raw "496.1: command cd MAIN still moves this shell" deny \
+    "$(cwd_event $W "$R/wt" "command cd $R/main; git add -A")"
+  # Finding 2: zsh runs a pipeline's last stage in the current shell, so its cd sticks.
+  assert_raw "496.2: a cd in the last pipeline stage sticks (zsh)" deny \
+    "$(cwd_event $W "$R/wt" "true | cd $R/main; git add -A")"
+  assert_raw "496.2: a backgrounded last stage does not" allow \
+    "$(cwd_event $W "$R/wt" "true | cd $R/main & git add -A")"
+  # Finding 3: a $(...) runs after the cd before it.
+  assert_raw "496.3: cd MAIN && echo \$(git add -A)" deny "$(cwd_event $W "$R/wt" "cd $R/main && echo \$(git add -A)")"
+  assert_raw "496.3: cd MAIN; x=\$(git add -A)" deny "$(cwd_event $W "$R/wt" "cd $R/main; x=\$(git add -A)")"
+  assert_raw "496.3: cd MAIN, then a heredoc body's \$(git add)" deny \
+    "$(cwd_event $W "$R/wt" "$(printf 'cd %s\ncat <<EOF\n$(git add -A)\nEOF' "$R/main")")"
+  assert_raw "496.3: a case word's \$(...) after a cd" deny \
+    "$(cwd_event $W "$R/wt" "cd $R/main; case \$(git add -A) in *) ;; esac")"
+  assert_raw "496.3: \$(git add) before a cd runs in WT" allow \
+    "$(cwd_event $W "$R/wt" "echo \$(git add -A) && cd $R/main")"
+  # Finding 4: ~ and ~/... are the home directory (HOME points at the fixture here).
+  OLD_HOME=$HOME; export HOME="$R"
+  assert_raw "496.4: git -C ~/main add" deny "$(cwd_event $W "$R/wt" 'git -C ~/main add x')"
+  assert_raw "496.4: cd ~/main && git add" deny "$(cwd_event $W "$R/wt" 'cd ~/main && git add x')"
+  assert_raw "496.4: git -C ~/wt add is fine" allow "$(cwd_event $W "$R/main" 'git -C ~/wt add x')"
+  export HOME="$OLD_HOME"
 else
   echo "FAIL: m7 setup (could not build a main checkout and a worktree)"; FAIL=$((FAIL+1))
 fi
@@ -398,6 +431,28 @@ assert_deny  "477: reviewer deleting a branch"           $V 'git branch -D main'
 assert_deny  "477: reviewer worktree add"                $V 'git worktree add /tmp/x'
 assert_deny  "477: reviewer cat-file --textconv"         $V 'git cat-file --textconv HEAD:a.py'
 assert_deny  "477: a worker still may not list branches" $W 'git branch --show-current'
+
+# Todo 496 finding 5 — a GIT_* variable set by a builtin other than NAME=value.
+assert_deny_msg "496.5: read GIT_DIR, export GIT_DIR"   $W 'read GIT_DIR <<< /x/.git; export GIT_DIR; git add x' "GIT_DIR"
+assert_deny_msg "496.5: export of a bare GIT_DIR"       $W 'export GIT_DIR; git add x' "GIT_DIR"
+assert_deny_msg "496.5: printf -v GIT_DIR"              $W 'printf -v GIT_DIR %s /x/.git; git add x' "GIT_DIR"
+assert_deny_msg "496.5: printf -vGIT_PAGER (glued)"     $V 'printf -vGIT_PAGER %s /tmp/x; git log' "GIT_PAGER"
+assert_deny_msg "496.5: for GIT_DIR in ..."             $W 'for GIT_DIR in /x/.git; do git add x; done' "GIT_DIR"
+assert_deny_msg "496.5: mapfile GIT_X"                  $W 'mapfile GIT_X < f' "GIT_X"
+assert_deny_msg "496.5: a quoted export 'GIT_DIR=x'"    $W "export 'GIT_DIR=/x/.git'; git add x" "GIT_DIR"
+assert_allow "496.5: read / printf -v / for of other names" $W 'read A <<< x; printf -v B %s y; for f in GIT_DIR; do echo $f; done; git status'
+# Finding 6 — a 2-letter prefix reaches the dangerous option too (owner decision 2026-10-11).
+assert_deny  "496.6: git grep --op=<cmd> (--open-files-in-pager)" $V 'git grep --op=vim x'
+assert_deny  "496.6: git fetch --st (--stdin)"           $W 'echo main:main | git fetch --st origin'
+assert_deny  "496.6: git cat-file --te (--textconv)"     $V 'git cat-file --te HEAD:a.py'
+assert_deny  "496.6: git cat-file --fi (--filters)"      $V 'git cat-file --fi HEAD:a.py'
+assert_deny  "496.6: git diff --ou (--output)"           $W 'git diff --ou=/tmp/x'
+assert_allow "496.6: the exact --text is still a real option" $V 'git grep --text x && git diff --text'
+# Finding 7 — rev-list hands unknown options to the diff parser, which opens --output.
+assert_deny  "496.7: git rev-list --output"              $V 'git rev-list --output=/tmp/x HEAD'
+assert_allow "496.7: git rev-list --count"               $V 'git rev-list --count HEAD'
+# Finding 8 — git grep --textconv runs a configured driver program.
+assert_deny  "496.8: git grep --textconv"                $V 'git grep --textconv x'
 
 # K10 — a missing script fails open (exit 0, no output) instead of blocking every Bash call
 # (a TMPDIR template, because the Bash sandbox denies mktemp's default /var/folders)

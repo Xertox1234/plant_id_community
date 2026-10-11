@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: p3
 issue_id: "496"
 tags: [harness, todo-sweep, security]
@@ -60,9 +60,9 @@ worktree (WT).
 
 ## Acceptance Criteria
 
-- [ ] Each of findings 1–8 is refused by the guard, with an `assert_deny` case in
+- [x] Each of findings 1–8 is refused by the guard, with an `assert_deny` case in
       `.claude/hooks/test-guard-todo-worker-git.sh` that fails when that fix is removed.
-- [ ] The allow cases that already pass still pass (the guard must not start refusing a worker's
+- [x] The allow cases that already pass still pass (the guard must not start refusing a worker's
       ordinary `git -C WT add` / `diff` / `status`).
 
 ## Work Log
@@ -72,3 +72,42 @@ worktree (WT).
 Round 2 never repairs, and round 3 (the owner's call) did not either. All were rated non-blocking.
 Findings 6 and 7 were first reported in round 2's wrap-up but never written to the run file; round 3
 re-found both.
+
+### 2026-10-11 - Implemented by the todo sweep (run 2026-10-11-1434)
+
+- `scripts/todos/worker_git_guard.py`: env `-C`/`--chdir` and sudo `-D`/`--chdir` (bundled, glued or `=`)
+  move only the wrapped command's directory (1); a cd in a pipeline's last stage sticks, as in zsh (2);
+  each `$(...)`, backtick and heredoc-body substitution is judged with the segment it belongs to, after
+  any earlier cd (3); an unquoted `~` / `~/...` is the home directory, `~user` stays unknown (4).
+- GIT_* names set by a bare declarer operand, `read`/`mapfile`/`readarray`/`vared`/`getopts`,
+  `printf -v`/`print -v` or a `for`/`select` loop variable are refused (5); a 2+ letter prefix of a listed
+  dangerous option is refused, `--text` stays exact (6, owner decision 2026-10-11); `rev-list` denies
+  `--output`/`--ext-diff`/`--textconv` (7) and `grep` denies `--textconv` (8).
+- `.claude/hooks/test-guard-todo-worker-git.sh`: 34 new cases (496.1–496.8). Reverting each fix in a copy
+  of the guard fails that finding's cases; all 310 cases pass with the fixes.
+
+### 2026-10-11 - Verified by the todo sweep (run 2026-10-11-1434)
+
+- AC 1: `bash .claude/hooks/test-guard-todo-worker-git.sh && python3 .sweep-evidence/g2/mutate496.py .` — evidence `.sweep-evidence/g2/496-ac0.txt` (not committed), last lines:
+
+  ```text
+  finding 7 reverted: 1 failing, 1 of them 496.7 cases
+      FAIL: 496.7: git rev-list --output (expected deny)
+  finding 8 reverted: 1 failing, 1 of them 496.8 cases
+      FAIL: 496.8: git grep --textconv (expected deny)
+  EVERY FINDING CAUGHT
+  ```
+
+- AC 2: `bash .claude/hooks/test-guard-todo-worker-git.sh` — evidence `.sweep-evidence/g2/496-ac1.txt` (not committed), last lines:
+
+  ```text
+  PASS: 496.7: git rev-list --count
+  PASS: 496.8: git grep --textconv
+  PASS: K10: missing script fails open
+
+  Results: 310 passed, 0 failed
+  ```
+
+### 2026-10-11 - Completed by the todo sweep (run 2026-10-11-1434)
+
+- Archived by `land.py archive`; evidence is quoted above, review is on the PR.

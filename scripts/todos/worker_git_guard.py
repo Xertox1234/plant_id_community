@@ -65,11 +65,13 @@ GIT_GLOBAL_WITH_VALUE = {"-C", "--git-dir", "--work-tree"}
 GIT_GLOBAL_FLAGS = {"--no-pager", "-P", "--no-optional-locks"}
 # Long options that make an allowed subcommand run a program, write a file or
 # read refspecs from stdin (fetch --stdin). git accepts unambiguous prefixes
-# (--outp=x), so a 3+ letter prefix counts too.
+# (--outp=x, --st), so any prefix of 2+ letters counts too (todo 496, owner decision 2026-10-11:
+# a fixed list, never derived from git's own option table). rev-list hands unknown options to the
+# diff parser, so it takes --output too; grep's --textconv runs a configured driver like diff's.
 OUTPUT_OPTIONS = ("output", "ext-diff", "textconv")
 GIT_DENIED_OPTIONS = {"fetch": ("upload-pack", "stdin"), "diff": OUTPUT_OPTIONS, "log": OUTPUT_OPTIONS,
-                      "show": OUTPUT_OPTIONS, "grep": ("open-files-in-pager",),
-                      "cat-file": ("textconv", "filters")}
+                      "show": OUTPUT_OPTIONS, "rev-list": OUTPUT_OPTIONS,
+                      "grep": ("open-files-in-pager", "textconv"), "cat-file": ("textconv", "filters")}
 GIT_EXACT_OPTIONS = {"text"}  # a real option, so not a prefix of --textconv
 FORCE_SUBCOMMANDS = {"add", "mv", "rm"}
 FORCE_REASON = "force-staging ignored files is not allowed (git add/mv/rm -f / --force)"
@@ -86,7 +88,7 @@ WRAPPERS = {
     "rtk": ((), 0), "command": ((), 0), "nohup": ((), 0), "exec": (("-a",), 0),
     "time": (("-o", "-f"), 0), "caffeinate": (("-t", "-w"), 0),
     "env": (("-u", "--unset", "-C", "--chdir"), 0),
-    "sudo": (("-u", "-g", "-C", "-D", "-h", "-p", "-r", "-t", "-U", "-T"), 0),
+    "sudo": (("-u", "-g", "-C", "-D", "--chdir", "-h", "-p", "-r", "-t", "-U", "-T"), 0),
     "doas": (("-u", "-C"), 0),
     "timeout": (("-s", "--signal", "-k", "--kill-after"), 1),
     "nice": (("-n", "--adjustment"), 0),
@@ -96,6 +98,8 @@ WRAPPERS = {
     "xargs": (("-a", "-d", "-E", "-I", "-L", "-n", "-P", "-s", "--arg-file", "--delimiter",
                "--max-args", "--max-lines", "--max-procs", "--max-chars"), 0),
 }
+# Todo 496 finding 1: wrapper options that run the command in another directory, followed like a cd.
+CHDIR_OPTIONS = {"env": ("-C", "--chdir"), "sudo": ("-D", "--chdir")}
 NOT_LITERAL = set("$`*?[{<>")
 OPERATORS = (";;&", ";;", ";&", "&&", "||", "|&", ";", "&", "|", "(", ")")
 REDIRECTIONS = ("&>>", "&>", "<<<", "<<-", "<<", "<>", "<&", ">>", ">&", ">|", "<", ">")
@@ -106,10 +110,11 @@ STDIN_REASON = "run git directly, not through a shell reading stdin"
 
 
 class Word:
-    """One shell word: `value` has the quoting removed, `raw` is the source text."""
+    """One shell word: `value` has the quoting removed, `raw` is the source text, `nested` the
+    command substitutions inside it (todo 496: judged where the word runs, after an earlier cd)."""
 
-    def __init__(self, value, raw):
-        self.value, self.raw = value, raw
+    def __init__(self, value, raw, nested=None):
+        self.value, self.raw, self.nested = value, raw, nested or []
 
 
 class Lexer:
@@ -167,7 +172,7 @@ class Lexer:
             raise ValueError("unterminated heredoc")
 
     def read_word(self):
-        s, start, value = self.s, self.i, []
+        s, start, value, first = self.s, self.i, [], len(self.nested)
         while self.i < len(s):
             c = s[self.i]
             if c in "<>" and s.startswith("(", self.i + 1):
@@ -192,7 +197,7 @@ class Lexer:
             else:
                 value.append(c)
                 self.i += 1
-        return Word("".join(value), s[start:self.i])
+        return Word("".join(value), s[start:self.i], self.nested[first:])
 
     def read_double(self, value):
         s = self.s
@@ -283,12 +288,13 @@ class Lexer:
         if self.i >= len(s) or s[self.i] in "\n;&|()<>":
             raise ValueError("heredoc without a delimiter")
         word = self.read_word()
-        self.heredocs.append((word.value, word.raw == word.value, strip_tabs))
+        self.heredocs.append((word, word.raw == word.value, strip_tabs))
         self.tokens.append(("word", word))
 
     def read_heredoc_bodies(self):
         s = self.s
-        for delimiter, expand, strip_tabs in self.heredocs:
+        for word, expand, strip_tabs in self.heredocs:
+            delimiter = word.value
             while True:
                 if self.i >= len(s):
                     raise ValueError("unterminated heredoc")
@@ -309,23 +315,26 @@ class Lexer:
                         else:
                             body.i += 1
                     self.nested.extend(body.nested)
+                    word.nested.extend(body.nested)  # the body runs with the command that reads it
         self.heredocs = []
 
 
 class Segment:
-    """A simple command: its words, whether stdin is redirected or piped, and the operator after it."""
+    """A simple command: its words, whether stdin is redirected or piped, the operator after it, and the
+    command substitutions in its words and redirection targets (`nested`)."""
 
-    def __init__(self, words, stdin, piped, end):
+    def __init__(self, words, stdin, piped, end, nested=()):
         self.words, self.stdin, self.piped, self.end = words, stdin, piped, end
+        self.nested = list(nested) + [n for w in words for n in w.nested]
 
 
 def segments(tokens):
-    words, stdin, piped = [], False, False
+    words, stdin, piped, targets = [], False, False, []
     tokens = iter(tokens)
     for kind, val in tokens:
         if kind == "word" and val.raw == "}":  # zsh ends a group at `}` alone: { true } always { … }
-            yield Segment(words + [val], stdin, piped, "}")
-            words, stdin, piped = [], False, False
+            yield Segment(words + [val], stdin, piped, "}", (n for t in targets for n in t.nested))
+            words, stdin, piped, targets = [], False, False, []
         elif kind == "word":
             words.append(val)
         elif kind == "redir":
@@ -333,16 +342,23 @@ def segments(tokens):
             if target is None or target[0] != "word":
                 raise ValueError("redirection without a target")
             stdin = stdin or val.startswith("<")
+            targets.append(target[1])
         else:
-            yield Segment(words, stdin, piped, val)
+            yield Segment(words, stdin, piped, val, (n for t in targets for n in t.nested))
             piped = val in ("|", "|&") or (piped and not words and val == "(")
-            words, stdin = [], False
-    yield Segment(words, stdin, piped, None)
+            words, stdin, targets = [], False, []
+    yield Segment(words, stdin, piped, None, (n for t in targets for n in t.nested))
 
 
 def check_segments(segs, depth):
     cases, pattern, subshells = 0, False, []
     for seg in segs:
+        # Todo 496 finding 3: a $(...) runs where its command runs, so after any earlier cd -- and before
+        # the case/for handling below, whose words are data but whose substitutions still run.
+        for inner in seg.nested:
+            reason = decide_command(inner, depth + 1)
+            if reason:
+                return reason
         first = next((w for w in seg.words if keyword(w) not in KEYWORDS - {"esac"}), None)
         lead = keyword(first) if first else None
         if pattern:  # a case pattern such as `*)` is data
@@ -355,11 +371,13 @@ def check_segments(segs, depth):
             continue
         # Todo 477: a `cd` moves the directory the next git runs in, but not out of a ( subshell ), a
         # pipeline stage or a background job: those run in a child shell, so the directory is restored.
+        # Todo 496 finding 2: zsh (the agents' shell) runs a pipeline's LAST stage in the current shell,
+        # so a cd there sticks: only a stage followed by a pipe, or a background job, is undone.
         before = CONTEXT["cwd"]
         reason = check_words(seg.words, seg.piped, seg.stdin, depth)
         if reason:
             return reason
-        if seg.piped or seg.end in ("|", "|&", "&"):
+        if seg.end in ("|", "|&", "&"):
             CONTEXT["cwd"] = before
         if seg.end == "(":
             subshells.append(CONTEXT["cwd"])
@@ -386,6 +404,29 @@ def git_env(word):
     return is_assignment(word) and word.raw.partition("=")[0].rstrip("+").startswith("GIT_")
 
 
+def git_name(text):
+    """True when `text` names a GIT_* variable, bare or with a value (GIT_DIR, GIT_DIR=x, GIT_DIR+=x)."""
+    name = text.partition("=")[0].rstrip("+")
+    return name.startswith("GIT_") and name.isidentifier()
+
+
+# Todo 496 finding 5: builtins that set a variable named by an operand (read GIT_DIR <<< x), and the
+# ones that take the name after -v (printf -v GIT_DIR x; zsh print -v).
+VAR_SETTERS = {"read", "mapfile", "readarray", "vared", "getopts"}
+VAR_OPTION_SETTERS = {"printf", "print"}
+
+
+def set_git_names(program, rest):
+    """The GIT_* names a declarer, read-like builtin or printf -v sets from its operands."""
+    values = [w.value for w in rest]
+    if program in DECLARERS or program in VAR_SETTERS:
+        return [v.partition("=")[0].rstrip("+") for v in values if git_name(v)]
+    if program in VAR_OPTION_SETTERS:
+        names = [b for a, b in zip(values, values[1:]) if a == "-v" and git_name(b)]
+        return names + [v[2:] for v in values if v.startswith("-v") and git_name(v[2:])]
+    return []
+
+
 GIT_ENV_REASON = ("git environment variables ({names}) are not allowed for this agent; "
                   "use git -C <WT> and --no-pager instead")
 
@@ -399,13 +440,14 @@ def check_words(words, piped, stdin, depth, wrapped=False):
         elif bare in ("function", "repeat"):  # function NAME / zsh repeat COUNT
             i += 2
         elif bare in DATA_KEYWORDS:
-            return None
+            loop_var = words[i + 1].value if bare in ("for", "select") and i + 1 < len(words) else ""
+            return GIT_ENV_REASON.format(names=loop_var) if git_name(loop_var) else None
         else:
             break
     program = os.path.basename(words[i].value) if i < len(words) else ""
-    exported = [w for w in words[:i] + (words[i + 1:] if program in DECLARERS else []) if git_env(w)]
-    if exported:
-        return GIT_ENV_REASON.format(names=", ".join(w.raw.partition("=")[0] for w in exported))
+    names = [w.raw.partition("=")[0] for w in words[:i] if git_env(w)] + set_git_names(program, words[i + 1:])
+    if names:
+        return GIT_ENV_REASON.format(names=", ".join(names))
     if i >= len(words):
         return None
     word, rest = words[i], words[i + 1:]
@@ -446,15 +488,49 @@ def cd_target(args):
     if len(operands) != 1:  # no operand is $HOME; two is zsh's substitution form
         return UNKNOWN
     target = operands[0]
-    if NOT_LITERAL & set(target.raw) or target.value.startswith(("~", "-")):
+    if target.value.startswith("-"):
         return UNKNOWN
-    if os.path.isabs(target.value):
-        return target.value
-    base = CONTEXT["cwd"]
-    return os.path.join(base, target.value) if isinstance(base, str) else UNKNOWN
+    path = _join(CONTEXT["cwd"], target)  # todo 496: ~ and ~/... are the home directory
+    return path if isinstance(path, str) and os.path.isabs(path) else UNKNOWN
 
 
 def check_wrapper(name, args, piped, stdin, depth):
+    """Judge the command a wrapper runs. A chdir option (env -C, sudo -D) moves only that command, so the
+    caller's directory is restored afterwards (todo 496 finding 1). Only for env and sudo, which run a
+    program: `command cd X` runs the builtin in this shell and does move it."""
+    if name not in CHDIR_OPTIONS:
+        return _check_wrapper(name, args, piped, stdin, depth)
+    outer = CONTEXT["cwd"]
+    try:
+        return _check_wrapper(name, args, piped, stdin, depth)
+    finally:
+        CONTEXT["cwd"] = outer
+
+
+def wrapper_option(name, args, j):
+    """(words the option at args[j] spans, its value Word or None, its spelling: -C / --chdir / ...).
+    Short options may be bundled (-iC DIR, -CDIR); a long option may carry =VALUE."""
+    value_options = WRAPPERS[name][0]
+    option = args[j].value
+    if option.startswith("--"):
+        spelling, eq, glued = option.partition("=")
+        if eq:
+            return 1, Word(glued, args[j].raw.partition("=")[2]), spelling
+        if spelling in value_options:
+            return 2, (args[j + 1] if j + 1 < len(args) else Word("", "")), spelling
+        return 1, None, spelling
+    letters = {o[1] for o in value_options if len(o) == 2}
+    for n, c in enumerate(option[1:], start=1):
+        if c in letters:
+            if n < len(option) - 1:  # the value is glued on: -C/tmp, -n5
+                raw = args[j].raw
+                glued_raw = raw[raw.find(c) + 1:] if raw.startswith("-") else raw
+                return 1, Word(option[n + 1:], glued_raw), "-" + c
+            return 2, (args[j + 1] if j + 1 < len(args) else Word("", "")), "-" + c
+    return 1, None, option
+
+
+def _check_wrapper(name, args, piped, stdin, depth):
     value_options, operands = WRAPPERS[name]
     j = 1 if name == "rtk" and args[:1] and args[0].value == "proxy" else 0
     while j < len(args) and args[j].value.startswith("-"):
@@ -474,7 +550,10 @@ def check_wrapper(name, args, piped, stdin, depth):
             except ValueError:
                 return PARSE_REASON
             return check_words(parts + args, piped, stdin, depth, wrapped=True)
-        j += 2 if option in value_options else 1
+        span, value, spelling = wrapper_option(name, args, j)
+        if value is not None and spelling in CHDIR_OPTIONS.get(name, ()):
+            CONTEXT["cwd"] = UNKNOWN if value.value.startswith("-") else _join(CONTEXT["cwd"], value)
+        j += span
     return check_words(args[j + operands:], piped, stdin, depth, wrapped=True)
 
 
@@ -613,9 +692,14 @@ UNKNOWN = object()  # a directory built at runtime ($WT, `...`): cannot tell, so
 
 
 def _join(where, word):
-    """`where` after a -C / --work-tree operand; UNKNOWN when the operand is not literal. An absolute
-    literal starts over, even from UNKNOWN: `git -C "$WT" -C MAIN add` runs in MAIN (todo 477)."""
-    if NOT_LITERAL & set(word.raw) or word.value.startswith("~"):
+    """`where` after a -C / --work-tree / cd operand; UNKNOWN when the operand is not literal. An absolute
+    literal starts over, even from UNKNOWN: `git -C "$WT" -C MAIN add` runs in MAIN (todo 477). An unquoted
+    `~` or `~/...` is the home directory (todo 496); `~user` and a quoted `~` stay UNKNOWN."""
+    if NOT_LITERAL & set(word.raw):
+        return UNKNOWN
+    if word.raw == "~" or word.raw.startswith("~/"):
+        return os.path.expanduser(word.value)
+    if word.value.startswith("~"):
         return UNKNOWN
     if os.path.isabs(word.value):
         return word.value
@@ -644,7 +728,7 @@ def main_checkout(path):
 
 def denied_option(arg, names):
     name = arg[2:].partition("=")[0] if arg.startswith("--") else ""
-    return any(n == name or (len(name) >= 3 and n.startswith(name) and name not in GIT_EXACT_OPTIONS)
+    return any(n == name or (len(name) >= 2 and n.startswith(name) and name not in GIT_EXACT_OPTIONS)
                for n in names)
 
 
@@ -723,10 +807,14 @@ def decide_command(command, depth=0, keep_cwd=False):
         return PARSE_REASON
     outer = CONTEXT["cwd"]
     try:
-        for inner in lexer.nested:
-            reason = decide_command(inner, depth + 1)
-            if reason:
-                return reason
+        # Each segment judges its own substitutions in place (todo 496). Should any substitution not
+        # belong to a word the segments carry, judge them all up front, as before.
+        if sum(len(seg.nested) for seg in segs) != len(lexer.nested):
+            for inner in lexer.nested:
+                reason = decide_command(inner, depth + 1)
+                if reason:
+                    return reason
+            CONTEXT["cwd"] = outer
         return check_segments(segs, depth)
     finally:
         if not keep_cwd and depth > 0:
