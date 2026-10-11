@@ -4,6 +4,9 @@ priority: p4
 issue_id: "551"
 tags: [todo-sweep, scripts, follow-ups]
 dependencies: []
+triage: ready
+triaged: 2026-10-10
+owner_decision: "Finding 3: the refuter judges every merged 'also' phrasing separately; only the phrasings it refutes drop, the rest stay as follow-ups (2026-10-10)"
 ---
 
 # Follow-ups from PR #1005 (todo 546, the sweep engine)

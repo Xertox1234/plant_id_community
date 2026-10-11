@@ -6,8 +6,8 @@ tags: [forum, backend, moderation]
 dependencies: []
 source_review: "PR #865"
 triage: ready
-triaged: 2026-09-28
-owner_decision: "Item 2: submit_edit_for_moderation re-screens the edit through _route_revision_by_trust (2026-09-28; reconfirmed by the owner 2026-10-10)"
+triaged: 2026-10-10
+owner_decision: "For a never-published opening post, the re-screen only screens (spam/trust checks, starts the workflow) and never publishes; the moderator's topic approval stays the gate that publishes it (2026-10-10)"
 ---
 
 # Pending opening post edits: reachability, re-screening and full-row saves
