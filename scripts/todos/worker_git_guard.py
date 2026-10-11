@@ -773,9 +773,16 @@ def check_shell_options(program, rest, depth):
 
 
 def shopt_lastpipe(flags):
-    """lastpipe after `shopt -s` (True), `shopt -u` (False; todo 584 finding 2), or None (both, or neither)."""
+    """lastpipe after `shopt -s` (True), `shopt -u`, or None (both, or neither). Fail closed (todo 584 repair):
+    the walker cannot tell whether a shopt ran (a conditional, a subshell, a pipeline stage, an uncalled
+    function body), so `-u` never lowers a True or unknown lastpipe to False -- it leaves it unknown -- and
+    any change inside deferred code (a function body, a trap action) is unknown too."""
     on, off = "s" in flags, "u" in flags
-    return None if on == off else on
+    if on == off or CONTEXT["deferred"]:
+        return None
+    if off:
+        return False if CONTEXT["lastpipe"] is False else None
+    return True
 
 
 def check_definitions(program, rest, depth):

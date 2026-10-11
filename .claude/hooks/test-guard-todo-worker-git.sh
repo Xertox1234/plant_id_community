@@ -480,8 +480,20 @@ if [ -n "$R" ] && git init -q "$R/main" && git -C "$R/main" -c user.email=t@t -c
   # Finding 2: shopt -u lastpipe clears it; set -o lastpipe is not a bash option (it changes nothing), so unknown.
   assert_raw "584.2: bash -c 'shopt -s lastpipe; shopt -u lastpipe; true | cd WT; git add' from MAIN" deny \
     "$(cwd_event $W "$R/main" "bash -c 'shopt -s lastpipe; shopt -u lastpipe; true | cd $R/wt; git add -A'")"
-  assert_raw "584.2: bash -c 'shopt -s lastpipe; shopt -u lastpipe; true | cd MAIN; git add' from WT" allow \
+  # Repair (round 1): -u never lowers a True or unknown lastpipe to False -- the walker cannot tell whether the
+  # shopt ran (conditional, subshell, pipeline stage, uncalled function body) -- so it leaves it unknown.
+  assert_raw "584.2: bash -c 'shopt -s lastpipe; shopt -u lastpipe; true | cd MAIN; git add' from WT" deny \
     "$(cwd_event $W "$R/wt" "bash -c 'shopt -s lastpipe; shopt -u lastpipe; true | cd $R/main; git add -A'")"
+  assert_raw "584.2: bash -O lastpipe -c 'false && shopt -u lastpipe; true | cd MAIN; git add' from WT" deny \
+    "$(cwd_event $W "$R/wt" "bash -O lastpipe -c 'false && shopt -u lastpipe; true | cd $R/main; git add -A'")"
+  assert_raw "584.2: bash -O lastpipe -c '(shopt -u lastpipe); true | cd MAIN; git add' from WT" deny \
+    "$(cwd_event $W "$R/wt" "bash -O lastpipe -c '(shopt -u lastpipe); true | cd $R/main; git add -A'")"
+  assert_raw "584.2: bash -O lastpipe -c 'shopt -u lastpipe | cat; true | cd MAIN; git add' from WT" deny \
+    "$(cwd_event $W "$R/wt" "bash -O lastpipe -c 'shopt -u lastpipe | cat; true | cd $R/main; git add -A'")"
+  assert_raw "584.2: bash -O lastpipe -c 'f() { shopt -u lastpipe; }; true | cd MAIN; git add' from WT" deny \
+    "$(cwd_event $W "$R/wt" "bash -O lastpipe -c 'f() { shopt -u lastpipe; }; true | cd $R/main; git add -A'")"
+  assert_raw "584.2: bash -c 'shopt -u lastpipe; true | cd MAIN; git add' from WT (already off)" allow \
+    "$(cwd_event $W "$R/wt" "bash -c 'shopt -u lastpipe; true | cd $R/main; git add -A'")"
   assert_raw "584.2: bash -c 'set -o lastpipe; true | cd WT; git add' from MAIN" deny \
     "$(cwd_event $W "$R/main" "bash -c 'set -o lastpipe; true | cd $R/wt; git add -A'")"
   assert_raw "584.2: a runtime shopt -u operand after lastpipe, from MAIN" deny \

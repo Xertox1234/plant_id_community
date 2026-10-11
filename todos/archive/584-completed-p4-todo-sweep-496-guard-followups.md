@@ -76,3 +76,16 @@ Follow-ups for PR #1023 (todo 496).
 ### 2026-10-11 - Completed by the todo sweep (run 2026-10-11-2219)
 
 - Archived by `land.py archive`; evidence is quoted above, review is on the PR.
+
+### 2026-10-11 - Repaired by the todo sweep (run 2026-10-11-2219)
+
+- Round-1 review: `shopt -u lastpipe` set lastpipe to False even when it ran conditionally, in a subshell, in a
+  pipeline stage or in an uncalled function body, so `bash -O lastpipe -c 'false && shopt -u lastpipe; true |
+  cd MAIN; git add -A'` from WT was allowed while bash kept lastpipe and staged in MAIN.
+- `shopt_lastpipe` in `scripts/todos/worker_git_guard.py` now fails closed: `-u` never lowers a True or
+  unknown lastpipe to False (it leaves it unknown), and any shopt lastpipe change in deferred code is unknown.
+  `bash +O lastpipe` (a definite invocation flag) still clears it.
+- `.claude/hooks/test-guard-todo-worker-git.sh`: the 584.2 `shopt -s; shopt -u; true | cd MAIN` from-WT case
+  now expects deny (it was the allow case the regression rode on); added deny cases for `&&`, a subshell, a
+  pipeline stage and a function body, and an allow case for `-u` when lastpipe was already off. All five new
+  denies fail against the pre-repair guard; the suite is 490 passing.
