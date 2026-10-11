@@ -226,6 +226,31 @@ class RequestConfirmationTests(TestCase):
         send_newsletter_confirmation.apply(args=["reader@example.com"])
         self.assertEqual(len(mail.outbox), 1)
 
+    def test_a_row_pruned_before_its_lock_is_made_again(self):
+        # Todo 534: the weekly prune deletes a stale row between get_or_create
+        # reading it and the lock. The signup must not raise DoesNotExist.
+        stale = _subscriber()
+        real = BlogNewsletter.objects.get_or_create
+        calls = []
+
+        def pruned_after_read(**kwargs):
+            calls.append(kwargs)
+            result = real(**kwargs)
+            if len(calls) == 1:
+                BlogNewsletter.objects.filter(pk=stale.pk).delete()
+            return result
+
+        with mock.patch.object(
+            BlogNewsletter.objects, "get_or_create", side_effect=pruned_after_read
+        ):
+            self.assertTrue(newsletter.request_confirmation("reader@example.com"))
+
+        self.assertEqual(len(calls), 2)
+        row = BlogNewsletter.objects.get()
+        self.assertNotEqual(row.pk, stale.pk)
+        self.assertIsNotNone(row.confirmation_sent_at)
+        self.assertEqual(mail.outbox[0].to, ["reader@example.com"])
+
 
 @override_settings(SITE_URL=SITE)
 class TokenTests(TestCase):

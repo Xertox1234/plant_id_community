@@ -1,5 +1,6 @@
 """The weekly blog newsletter sender (todo 409, slice B)."""
 
+import threading
 from datetime import date, timedelta
 from io import StringIO
 from unittest import mock
@@ -13,6 +14,7 @@ from apps.blog.constants import (
     NEWSLETTER_SOFT_TIME_LIMIT,
     NEWSLETTER_TIME_LIMIT,
 )
+from apps.blog.management.commands import send_blog_newsletter as command_module
 from apps.blog.management.commands.send_blog_newsletter import LOCK_KEY
 from apps.blog.models import BlogIndexPage, BlogNewsletter, BlogPostPage
 from celery.exceptions import SoftTimeLimitExceeded
@@ -22,8 +24,9 @@ from django.contrib.auth import get_user_model
 from django.core import mail
 from django.core.cache import cache
 from django.core.management import call_command
-from django.db import OperationalError
-from django.test import TestCase, override_settings
+from django.db import OperationalError, connection, connections
+from django.test import TestCase, TransactionTestCase, override_settings
+from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 from wagtail.models import Page, PageViewRestriction
 
@@ -319,6 +322,105 @@ class NewsletterSenderTests(TestCase):
         self.assertIsNone(cache.get(LOCK_KEY))
         self.assertEqual(mail.outbox, [])
 
+    def test_a_cache_outage_sends_without_the_lock(self):
+        # Todo 534: with IGNORE_EXCEPTIONS a Redis outage makes cache.add
+        # answer None; only False means another run holds the lock.
+        self._post("fresh-post", days_ago=1)
+        self._subscriber()
+
+        with mock.patch.object(command_module, "cache") as down:
+            down.add.return_value = None
+            with self.assertLogs(command_module.logger, "WARNING") as logs:
+                out = _run()
+
+        self.assertEqual(self._sent_to(), ["reader@example.com"])
+        self.assertIn("sent=1", out)
+        self.assertTrue(any("lock is unavailable" in m for m in logs.output))
+
+    def test_a_held_lock_answering_false_still_exits(self):
+        self._post("fresh-post", days_ago=1)
+        self._subscriber()
+
+        with mock.patch.object(command_module, "cache") as held:
+            held.add.return_value = False
+            out = _run()
+
+        self.assertEqual(mail.outbox, [])
+        self.assertIn("another run holds the lock", out)
+        held.delete.assert_not_called()
+
+    def test_the_claim_and_the_send_share_one_transaction(self):
+        # Todo 534: nothing outside the transaction can strand the claim.
+        self._post("fresh-post", days_ago=1)
+        subscriber = self._subscriber()
+        depth = len(connection.savepoint_ids)
+        seen = {}
+
+        def send(row, posts):
+            seen["depth"] = len(connection.savepoint_ids)
+            seen["stamp"] = BlogNewsletter.objects.get(pk=row.pk).last_sent_at
+            return True
+
+        with mock.patch.object(newsletter_digest, "send", side_effect=send):
+            _run()
+
+        self.assertGreater(seen["depth"], depth)
+        self.assertIsNotNone(seen["stamp"])  # claimed before the send
+        subscriber.refresh_from_db()
+        self.assertEqual(subscriber.last_sent_at, seen["stamp"])
+
+    def test_a_database_error_at_the_send_leaves_no_claim(self):
+        # Item 3's case: whatever fails after the claim, the rollback gives the
+        # row back; no separate release is left to fail.
+        self._post("fresh-post", days_ago=1)
+        subscriber = self._subscriber()
+
+        with mock.patch.object(
+            newsletter_digest, "send", side_effect=OperationalError("down")
+        ):
+            with self.assertRaises(OperationalError):
+                _run()
+
+        subscriber.refresh_from_db()
+        self.assertIsNone(subscriber.last_sent_at)
+        self.assertIsNone(cache.get(LOCK_KEY))
+
+    def test_a_lost_claim_sends_nothing_and_counts_no_failure(self):
+        # Another run stamped the row after this one read it.
+        self._post("fresh-post", days_ago=1)
+        subscriber = self._subscriber()
+        theirs = self.now - timedelta(minutes=5)
+        real_new_posts = newsletter_digest.new_posts
+
+        def other_run_claims_then_build(since, now):
+            BlogNewsletter.objects.filter(pk=subscriber.pk).update(last_sent_at=theirs)
+            return real_new_posts(since, now)
+
+        with mock.patch.object(
+            newsletter_digest, "new_posts", side_effect=other_run_claims_then_build
+        ):
+            out = _run()
+
+        self.assertEqual(mail.outbox, [])
+        self.assertIn("sent=0 failed=0", out)
+        subscriber.refresh_from_db()
+        self.assertEqual(subscriber.last_sent_at, theirs)
+
+    def test_the_prune_locks_the_rows_it_deletes(self):
+        stale = BlogNewsletter.objects.create(email="stale@example.com")
+        BlogNewsletter.objects.filter(pk=stale.pk).update(
+            subscribed_at=self.now - timedelta(days=30)
+        )
+
+        with CaptureQueriesContext(connection) as queries:
+            pruned = newsletter_digest.prune_stale_unconfirmed(self.now)
+
+        self.assertEqual(pruned, 1)
+        self.assertFalse(BlogNewsletter.objects.filter(pk=stale.pk).exists())
+        selects = [q["sql"] for q in queries if "FOR UPDATE" in q["sql"]]
+        self.assertEqual(len(selects), 1)
+        self.assertIn('"blog_blognewsletter"', selects[0])
+
     def test_a_reader_who_unsubscribes_mid_run_is_not_mailed(self):
         self._post("fresh-post", days_ago=1)
         subscriber = self._subscriber()
@@ -421,6 +523,32 @@ class NewsletterTaskTests(TestCase):
         # A redelivered batch would double-send: the default early ack stays.
         self.assertFalse(task.acks_late)
 
+    def test_a_database_outage_retries_after_60_120_240_seconds(self):
+        # docs/rules/celery.md: .apply() ignores countdown, so pin it the way
+        # test_rag_index_tasks does. retry_backoff is the factor; full jitter
+        # is patched to its maximum so the ceiling is observable.
+        from celery.exceptions import Retry
+
+        task = tasks.send_blog_weekly_newsletter
+        for prior_retries, ceiling in ((0, 60), (1, 120), (2, 240)):
+            with self.subTest(retries=prior_retries):
+                with mock.patch(
+                    "django.core.management.call_command",
+                    side_effect=OperationalError("down"),
+                ), mock.patch(
+                    "celery.utils.time.random.randrange", side_effect=lambda n: n - 1
+                ), mock.patch.object(
+                    task, "retry", side_effect=Retry("retried")
+                ) as retry:
+                    task.push_request(retries=prior_retries)
+                    try:
+                        with self.assertRaises(Retry):
+                            task.run()
+                    finally:
+                        task.pop_request()
+
+                self.assertEqual(retry.call_args.kwargs["countdown"], ceiling)
+
     def test_the_task_runs_the_command_and_logs_its_summary(self):
         def fake_command(name, stdout):
             stdout.write("[EMAIL] newsletter recipients=3 due=1 sent=1\n")
@@ -445,3 +573,91 @@ class NewsletterTaskTests(TestCase):
                 tasks.send_blog_weekly_newsletter.apply()
 
         again.assert_called_once_with(countdown=NEWSLETTER_CONTINUATION_DELAY)
+
+
+@override_settings(SITE_URL=SITE, API_PUBLIC_URL=API)
+class NewsletterConcurrencyTests(TransactionTestCase):
+    """Todo 534: what another database connection sees, so real commits.
+
+    No pages here: a TransactionTestCase flushes every table afterwards.
+    """
+
+    def setUp(self):
+        cache.clear()
+        self.now = timezone.now()
+
+    def _in_another_connection(self, work):
+        """Run `work` on a second connection (its own thread) and return it."""
+        result = {}
+
+        def target():
+            try:
+                result["value"] = work()
+            except BaseException as exc:  # surfaced to the test below
+                result["error"] = exc
+            finally:
+                connections.close_all()
+
+        thread = threading.Thread(target=target)
+        thread.start()
+        return thread, result
+
+    def test_the_claim_is_not_durable_until_the_send_returns(self):
+        # A hard kill mid-send drops the connection, and the server rolls back
+        # what it never committed: the row is still due.
+        subscriber = BlogNewsletter.objects.create(
+            email="reader@example.com", confirmed_at=self.now - timedelta(days=30)
+        )
+        post = newsletter_digest.DigestPost(
+            title="Fresh", url=f"{SITE}/blog/fresh", excerpt="", published_at=self.now
+        )
+        seen = {}
+
+        def send(row, posts):
+            thread, result = self._in_another_connection(
+                lambda: BlogNewsletter.objects.get(pk=row.pk).last_sent_at
+            )
+            thread.join(10)
+            seen.update(result)
+            return True
+
+        with mock.patch.object(
+            newsletter_digest, "new_posts", return_value=[post]
+        ), mock.patch.object(newsletter_digest, "send", side_effect=send):
+            _run()
+
+        self.assertNotIn("error", seen)
+        self.assertIsNone(seen["value"])  # outside, unclaimed during the send
+        subscriber.refresh_from_db()
+        self.assertIsNotNone(subscriber.last_sent_at)  # committed after it
+
+    def test_the_prune_spares_a_row_a_signup_re_stamps_meanwhile(self):
+        stale = BlogNewsletter.objects.create(email="stale@example.com")
+        BlogNewsletter.objects.filter(pk=stale.pk).update(
+            subscribed_at=self.now - timedelta(days=30)
+        )
+        locked = threading.Event()
+        release = threading.Event()
+
+        def signup_re_stamps():
+            # request_confirmation's shape: lock the row, stamp it, commit.
+            from django.db import transaction
+
+            with transaction.atomic():
+                row = BlogNewsletter.objects.select_for_update().get(pk=stale.pk)
+                locked.set()
+                release.wait(10)
+                row.confirmation_sent_at = timezone.now()
+                row.save(update_fields=["confirmation_sent_at"])
+
+        thread, result = self._in_another_connection(signup_re_stamps)
+        self.assertTrue(locked.wait(10))
+        # The prune must block on the signup's lock; let the signup commit
+        # shortly after the prune has started waiting.
+        threading.Timer(0.5, release.set).start()
+        pruned = newsletter_digest.prune_stale_unconfirmed(self.now)
+        thread.join(10)
+
+        self.assertNotIn("error", result)
+        self.assertEqual(pruned, 0)
+        self.assertTrue(BlogNewsletter.objects.filter(pk=stale.pk).exists())

@@ -56,18 +56,19 @@ def send_blog_weekly_newsletter(self):
     from celery.exceptions import SoftTimeLimitExceeded
     from django.core.management import call_command
 
-    logger.info(f"[EMAIL] blog newsletter: starting (task={self.request.id})")
+    logger.info("[EMAIL] blog newsletter: starting (task=%s)", self.request.id)
     out = StringIO()
     try:
         call_command("send_blog_newsletter", stdout=out)
     except SoftTimeLimitExceeded:
         logger.warning(
-            f"[EMAIL] blog newsletter hit the soft time limit (task={self.request.id}); "
-            "re-enqueuing to finish the subscribers still due"
+            "[EMAIL] blog newsletter hit the soft time limit (task=%s); "
+            "re-enqueuing to finish the subscribers still due",
+            self.request.id,
         )
         send_blog_weekly_newsletter.apply_async(countdown=NEWSLETTER_CONTINUATION_DELAY)
         return
     finally:
         for line in out.getvalue().splitlines():
             if line.strip():
-                logger.info(f"{line} (task={self.request.id})")
+                logger.info("%s (task=%s)", line, self.request.id)
