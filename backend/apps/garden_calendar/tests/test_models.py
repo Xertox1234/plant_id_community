@@ -11,15 +11,7 @@ from django.contrib.auth import get_user_model
 from django.test import TestCase
 from django.utils import timezone
 
-from ..models import (
-    CareLog,
-    CareTask,
-    GardenBed,
-    GrowingZone,
-    Harvest,
-    Plant,
-    PlantImage,
-)
+from ..models import CareLog, CareTask, GardenBed, GrowingZone, Harvest, Plant
 
 User = get_user_model()
 
@@ -367,6 +359,62 @@ class CareTaskModelTest(TestCase):
         self.assertFalse(task.completed)
         self.assertEqual(task.skip_reason, "Rainy weather")
         self.assertIsNotNone(task.skipped_at)
+
+    def test_mark_skip_schedules_next_occurrence_for_recurring_task(self):
+        """Skipping one occurrence must not end a recurring schedule (todo 386)."""
+        scheduled = timezone.now()
+        task = CareTask.objects.create(
+            plant=self.plant,
+            created_by=self.user,
+            task_type="watering",
+            title="Weekly watering",
+            priority="medium",
+            scheduled_date=scheduled,
+            is_recurring=True,
+            recurrence_interval_days=7,
+        )
+
+        created = task.mark_skip(self.user, reason="Soil still damp")
+
+        self.assertTrue(created)
+        next_task = CareTask.objects.get(
+            plant=self.plant, completed=False, skipped=False
+        )
+        self.assertEqual(next_task.scheduled_date, scheduled + timedelta(days=7))
+        self.assertTrue(next_task.is_recurring)
+        self.assertEqual(next_task.recurrence_interval_days, 7)
+
+    def test_mark_skip_non_recurring_creates_nothing(self):
+        """A one-off task that is skipped schedules no follow-up."""
+        task = CareTask.objects.create(
+            plant=self.plant,
+            created_by=self.user,
+            task_type="watering",
+            title="One-off watering",
+            priority="medium",
+            scheduled_date=timezone.now(),
+        )
+
+        self.assertFalse(task.mark_skip(self.user))
+        self.assertEqual(CareTask.objects.filter(plant=self.plant).count(), 1)
+
+    def test_mark_skip_past_recurrence_end_creates_nothing(self):
+        """The recurrence end date still stops the schedule on a skip."""
+        scheduled = timezone.now()
+        task = CareTask.objects.create(
+            plant=self.plant,
+            created_by=self.user,
+            task_type="watering",
+            title="Last watering",
+            priority="medium",
+            scheduled_date=scheduled,
+            is_recurring=True,
+            recurrence_interval_days=7,
+            recurrence_end_date=(scheduled + timedelta(days=3)).date(),
+        )
+
+        self.assertFalse(task.mark_skip(self.user))
+        self.assertEqual(CareTask.objects.filter(plant=self.plant).count(), 1)
 
 
 class HarvestModelTest(TestCase):

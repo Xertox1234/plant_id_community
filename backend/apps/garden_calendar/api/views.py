@@ -1542,14 +1542,14 @@ class CareTaskViewSet(viewsets.ModelViewSet):
             )
 
         # Use model method to handle completion and recurrence
-        task.mark_complete(request.user)
+        next_created = task.mark_complete(request.user)
 
         return Response(
             {
                 "message": "Task completed successfully.",
                 "uuid": str(task.uuid),
                 "completed_at": task.completed_at,
-                "next_occurrence_created": task.is_recurring,
+                "next_occurrence_created": next_created,
             }
         )
 
@@ -1613,13 +1613,15 @@ class CareTaskViewSet(viewsets.ModelViewSet):
             )
 
         # Use model method to handle skipping and recurrence
-        task.mark_skip(request.user, reason=request.data.get("reason", ""))
+        next_created = task.mark_skip(
+            request.user, reason=request.data.get("reason", "")
+        )
 
         return Response(
             {
                 "message": "Task skipped successfully.",
                 "uuid": str(task.uuid),
-                "next_occurrence_created": task.is_recurring,
+                "next_occurrence_created": next_created,
             }
         )
 

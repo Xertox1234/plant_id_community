@@ -1170,7 +1170,10 @@ class CareTask(models.Model):
         return not self.completed and not self.skipped
 
     def mark_complete(self, user):
-        """Mark task as completed."""
+        """Mark task as completed.
+
+        Returns whether a next occurrence was scheduled (recurring tasks).
+        """
         from django.utils import timezone
 
         self.completed = True
@@ -1178,12 +1181,16 @@ class CareTask(models.Model):
         self.completed_by = user
         self.save()
 
-        # Create next occurrence if recurring
-        if self.is_recurring and self.recurrence_interval_days:
-            self._create_next_occurrence()
+        return self._schedule_next_occurrence()
 
     def mark_skip(self, user, reason=""):
-        """Mark task as skipped."""
+        """Mark task as skipped.
+
+        A skipped occurrence of a recurring task still schedules the next
+        one, exactly as completing it does: skipping one watering must not
+        end the schedule (todo 386 review). Returns whether a next
+        occurrence was scheduled.
+        """
         from django.utils import timezone
 
         self.skipped = True
@@ -1191,8 +1198,16 @@ class CareTask(models.Model):
         self.skipped_at = timezone.now()
         self.save()
 
+        return self._schedule_next_occurrence()
+
+    def _schedule_next_occurrence(self):
+        """Create the next occurrence if this task recurs; return whether it did."""
+        if not (self.is_recurring and self.recurrence_interval_days):
+            return False
+        return self._create_next_occurrence() is not None
+
     def _create_next_occurrence(self):
-        """Create next recurring task instance."""
+        """Create next recurring task instance; None once past the end date."""
         from datetime import timedelta
 
         # Check if we've reached end date
@@ -1201,10 +1216,10 @@ class CareTask(models.Model):
                 days=self.recurrence_interval_days
             )
             if next_date.date() > self.recurrence_end_date:
-                return  # Stop recurring
+                return None  # Stop recurring
 
         # Create new task instance
-        CareTask.objects.create(
+        return CareTask.objects.create(
             plant=self.plant,
             created_by=self.created_by,
             task_type=self.task_type,

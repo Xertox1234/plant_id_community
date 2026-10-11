@@ -5,12 +5,14 @@
 // 286 (Apple provisioning still missing for a distributed build); this is
 // the closest coverage available until that lands.
 
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:firebase_messaging_platform_interface/firebase_messaging_platform_interface.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:plant_community_mobile/core/routing/app_router.dart';
+import 'package:plant_community_mobile/features/auth/login_screen.dart';
 import 'package:plant_community_mobile/features/forum/screens/forum_thread_screen.dart';
 import 'package:plant_community_mobile/features/forum/services/forum_api.dart';
 import 'package:plant_community_mobile/features/forum/services/forum_sync_store.dart';
@@ -74,6 +76,39 @@ ProviderContainer _careContainer() => ProviderContainer(
     forumSyncStoreProvider.overrideWithValue(InMemoryForumSyncStore()),
     // Signed in, Home (where splash lands) shows the onboarding card, which
     // would otherwise fetch over real Dio (todo 412).
+    onboardingChecklistServiceProvider.overrideWith(_NoChecklist.new),
+  ],
+);
+
+/// Signed in to Firebase at launch, with the JWT exchange still in flight:
+/// `isAuthenticated` is false until [finishRestore] — the cold-start state
+/// a tap that launches the app actually meets.
+class _RestoringAuthService extends AuthService {
+  @override
+  FirebaseAuth get firebaseAuth => _FakeFirebaseAuth();
+
+  @override
+  AuthState build() => AuthState(firebaseUser: _FakeUser());
+
+  void finishRestore() {
+    state = state.copyWith(jwtToken: 'jwt');
+  }
+}
+
+class _FakeFirebaseAuth extends Fake implements FirebaseAuth {
+  @override
+  Stream<User?> authStateChanges() => const Stream.empty();
+}
+
+class _FakeUser extends Fake implements User {}
+
+/// Like [_careContainer], but the session is still being restored.
+ProviderContainer _restoringCareContainer() => ProviderContainer(
+  overrides: [
+    authServiceProvider.overrideWith(_RestoringAuthService.new),
+    gardenApiProvider.overrideWithValue(FakeGardenApi()),
+    forumApiProvider.overrideWithValue(FakeForumApi()),
+    forumSyncStoreProvider.overrideWithValue(InMemoryForumSyncStore()),
     onboardingChecklistServiceProvider.overrideWith(_NoChecklist.new),
   ],
 );
@@ -146,6 +181,92 @@ void main() {
         expect(find.byType(GardenScreen), findsOneWidget);
       },
     );
+
+    testWidgets(
+      'a cold-start tap waits for the launch session restore, then opens '
+      'the garden instead of bouncing to login',
+      (tester) async {
+        final container = _restoringCareContainer();
+        addTearDown(container.dispose);
+        final router = container.read(appRouterProvider);
+        container.listen(appRouterProvider, (_, _) {});
+
+        await tester.pumpWidget(
+          UncontrolledProviderScope(
+            container: container,
+            child: MaterialApp.router(routerConfig: router),
+          ),
+        );
+        await tester.pump();
+
+        final service = _TestablePushMessageRouterService(
+          () => router,
+          _FakeMessaging(initialMessage: _careReminderPayload),
+          awaitAuthRestore: container.read(authRestoreWaiterProvider),
+        );
+        addTearDown(service.detach);
+
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 400));
+        // Restore still in flight: nothing pushed yet, so no login detour.
+        expect(find.byType(LoginScreen), findsNothing);
+        expect(find.byType(GardenScreen), findsNothing);
+
+        // The launch JWT exchange lands after splash's own go(home).
+        await _drainSplashTimer(tester);
+        (container.read(authServiceProvider.notifier) as _RestoringAuthService)
+            .finishRestore();
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 400));
+
+        expect(find.byType(GardenScreen), findsOneWidget);
+        expect(find.byType(LoginScreen), findsNothing);
+      },
+    );
+
+    test('waitForAuthRestore returns at once when there is nothing to '
+        'restore, and gives up after its timeout', () async {
+      final signedOut = ProviderContainer(
+        overrides: [authServiceProvider.overrideWithValue(const AuthState())],
+      );
+      addTearDown(signedOut.dispose);
+      await signedOut.read(authRestoreWaiterProvider)();
+
+      final restoring = ProviderContainer(
+        overrides: [
+          authServiceProvider.overrideWith(_RestoringAuthService.new),
+        ],
+      );
+      addTearDown(restoring.dispose);
+      final waiter = restoring.read(
+        Provider(
+          (ref) =>
+              () => waitForAuthRestore(
+                ref,
+                timeout: const Duration(milliseconds: 50),
+              ),
+        ),
+      );
+      final stopwatch = Stopwatch()..start();
+      await waiter();
+      expect(
+        stopwatch.elapsed,
+        greaterThanOrEqualTo(const Duration(milliseconds: 50)),
+      );
+    });
+
+    test('authRestoreSettled: only a Firebase user with no JWT and no error '
+        'is still restoring', () {
+      expect(authRestoreSettled(const AuthState()), isTrue);
+      expect(authRestoreSettled(const AuthState(jwtToken: 'jwt')), isTrue);
+      expect(authRestoreSettled(AuthState(firebaseUser: _FakeUser())), isFalse);
+      expect(
+        authRestoreSettled(
+          AuthState(firebaseUser: _FakeUser(), error: 'exchange failed'),
+        ),
+        isTrue,
+      );
+    });
   });
 
   group('PushMessageRouterService', () {
@@ -388,7 +509,11 @@ void main() {
 /// Overrides [PushMessageRouterService.messaging] test seam, mirroring
 /// `push_registration_service_test.dart`'s `_TestablePushRegistrationService`.
 class _TestablePushMessageRouterService extends PushMessageRouterService {
-  _TestablePushMessageRouterService(super.routerAccessor, this._messaging);
+  _TestablePushMessageRouterService(
+    super.routerAccessor,
+    this._messaging, {
+    super.awaitAuthRestore,
+  });
 
   final FirebaseMessaging _messaging;
 

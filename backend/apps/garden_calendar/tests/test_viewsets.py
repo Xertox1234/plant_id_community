@@ -417,6 +417,54 @@ class CareTaskViewSetTest(TestCase):
         self.assertTrue(task.skipped)
         self.assertEqual(task.skip_reason, "Heavy rainfall")
 
+    def test_skip_recurring_task_schedules_next_occurrence(self):
+        """Skipping a recurring task keeps its schedule alive (todo 386)."""
+        self.client.force_authenticate(user=self.user)
+
+        task = CareTask.objects.create(
+            plant=self.plant,
+            created_by=self.user,
+            task_type="watering",
+            title="Weekly watering",
+            priority="medium",
+            scheduled_date=timezone.now(),
+            is_recurring=True,
+            recurrence_interval_days=7,
+        )
+
+        response = self.client.post(
+            f"/api/v1/calendar/api/care-tasks/{task.uuid}/skip/"
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIs(response.data["next_occurrence_created"], True)
+        next_task = CareTask.objects.exclude(uuid=task.uuid).get(plant=self.plant)
+        self.assertFalse(next_task.skipped)
+        self.assertEqual(
+            next_task.scheduled_date, task.scheduled_date + timedelta(days=7)
+        )
+
+    def test_skip_one_off_task_reports_no_next_occurrence(self):
+        """The reply tells the truth for a task that does not recur."""
+        self.client.force_authenticate(user=self.user)
+
+        task = CareTask.objects.create(
+            plant=self.plant,
+            created_by=self.user,
+            task_type="watering",
+            title="One-off watering",
+            priority="medium",
+            scheduled_date=timezone.now(),
+        )
+
+        response = self.client.post(
+            f"/api/v1/calendar/api/care-tasks/{task.uuid}/skip/"
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIs(response.data["next_occurrence_created"], False)
+        self.assertEqual(CareTask.objects.filter(plant=self.plant).count(), 1)
+
 
 class HarvestViewSetTest(TestCase):
     """Test HarvestViewSet operations."""

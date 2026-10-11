@@ -62,7 +62,7 @@ Independent, either order:
 - [x] `garden` is either built and wired into the shell, or removed along with
       its route, its models and its `ALLOWED_ORPHANS` entry
 - [x] `python3 scripts/check_flutter_route_reachability.py` still exits 0
-- [ ] A CareTask created in the mobile garden fires an FCM push when it falls due, verified end to end on a device (moved from todo 410 AC 1) → todo 547 (re-pointed 2026-10-10; owner: split the device check out)
+- [ ] A CareTask created in the mobile garden fires an FCM push when it falls due, verified end to end on a device (moved from todo 410 AC 1). → todo 547 (re-pointed 2026-10-10; owner: split the device check out)
 - [x] Tapping a `care_task_due` push opens the garden (today the push router
       ignores a payload without `topic_id`).
 - [x] `GardenPlant.gardenBed` is nullable: the API returns `null` for a
@@ -185,3 +185,17 @@ not build on it. The care-guide cards list Wagtail blog posts tagged
 ### 2026-10-10 - Completed by the todo sweep (run 2026-10-11-0053)
 
 - Archived by `land.py archive`; evidence is quoted above, review is on the PR.
+
+### 2026-10-10 - Repaired by the todo sweep (run 2026-10-11-0053)
+
+- **Cold-start care tap:** a tap that launched the app pushed the protected
+  `/garden` before the launch JWT exchange finished, so the redirect sent a
+  signed-in user to `/login` (then `/profile`). It now waits for the session
+  restore to settle (`waitForAuthRestore`, 15 s cap) before routing; a new
+  test starts mid-restore and fails without the wait.
+- **Skip ends the schedule:** `CareTask.mark_skip` never scheduled the next
+  occurrence, so skipping a weekly watering in the new garden UI ended it.
+  It now schedules it exactly as `mark_complete` does, and both views report
+  `next_occurrence_created` from what actually happened (it was
+  `is_recurring`, wrong for a past-end-date task). Model and API tests cover
+  recurring, one-off and past-end skips.
