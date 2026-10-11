@@ -7,7 +7,7 @@ from wagtail.models import Workflow, WorkflowContentType, WorkflowTask
 
 from .conf import get_setting
 from .models import ForumProfile, Post, Topic
-from .models.moderation import SpamCheckTask
+from .models.moderation import SpamCheckTask, screen_without_publishing
 
 logger = logging.getLogger("wagtail_forum")
 
@@ -170,6 +170,39 @@ def submit_for_moderation(obj, user):
     return status
 
 
+def screens_without_publishing(post: Post) -> bool:
+    """Whether an edit to ``post`` is screened without being published (todo
+    579, owner decision 2026-10-10): a never-published opening post. Its
+    re-screen runs the spam workflow (``SpamCheckTask``) on the edited body
+    and records the verdict, and the moderator's approval of the topic stays
+    the gate that publishes the thread, for a trusted author too.
+
+    ``first_published_at is None``, not ``not live``: a post that was taken
+    down was published once, and an edit must never bring it back."""
+    return post.is_opening_post and not post.live and post.first_published_at is None
+
+
+def screen_admin_edit_of_pending_opening_post(post: Post, user) -> None:
+    """The admin half of todo 579 (owner decision 2026-10-11): a "Save draft"
+    of a never-published opening post in the snippet editor is screened the
+    same way as the author's API edit, without publishing it. Called from the
+    ``after_edit_snippet`` hook, after the edit view saved the row and its
+    revision. Never raises: the draft is saved either way, and a failed
+    screen leaves it pending for the moderator."""
+    if not screens_without_publishing(post):
+        return
+    try:
+        with transaction.atomic(), screen_without_publishing():
+            _route_revision_by_trust(
+                post, post.latest_revision, False, user=user, cancel_stale=True
+            )
+    except Exception:
+        logger.exception(
+            "[ERROR] wagtail_forum could not screen the admin edit of post %s",
+            post.pk,
+        )
+
+
 def _edit_is_trusted(obj: Post, acting_as_moderator: bool) -> bool:
     """Whether an edit may autopublish.
 
@@ -205,6 +238,12 @@ def submit_edit_for_moderation(
       Clean content auto-approves -> publishes; flagged content is rejected and
       the revision stays pending while the live row keeps its last-approved body.
       live is NEVER forced False; obj.save() is NEVER called with the new body.
+    - A never-published opening post (todo 579, ``screens_without_publishing``):
+      the edit is screened, trusted author or not, and never published. A
+      clean verdict ends the workflow APPROVED with nothing live; a flagged one
+      holds it in NEEDS_CHANGES. Topic approval publishes the thread.
+    - Any other post that is not live (taken down, or a never-published
+      reply): the edit stays a draft revision, unscreened.
 
     Trust derives from obj.author (see _edit_is_trusted); acting_as_moderator
     only matters for an account-deleted (author=None) post. `edited` is set in
@@ -236,8 +275,17 @@ def submit_edit_for_moderation(
             # Lock the row and re-read liveness UNDER the lock: a PATCH racing a
             # DELETE must not silently overwrite the take-down with publish().
             locked = Post.objects.select_for_update().get(pk=obj.pk)
-            if not locked.live:
-                # A concurrent take-down won; leave the edit as a draft revision
+            if screens_without_publishing(locked):
+                # A never-published opening post (todo 579): screen the edit,
+                # whoever the author, and publish nothing. Topic approval is
+                # the gate that publishes the thread.
+                with screen_without_publishing():
+                    _route_revision_by_trust(
+                        obj, revision, False, user=user, cancel_stale=True
+                    )
+            elif not locked.live:
+                # Taken down (a concurrent take-down, or long ago), or a
+                # never-published reply: leave the edit as a draft revision
                 # rather than resurrecting the post.
                 pass
             else:

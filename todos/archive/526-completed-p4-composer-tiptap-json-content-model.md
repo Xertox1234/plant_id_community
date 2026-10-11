@@ -117,3 +117,16 @@ normalisation from todo 443.
 ### 2026-10-10 - Completed by the todo sweep (run 2026-10-10-0234)
 
 - Archived by `land.py archive`; evidence is quoted above, review is on the PR.
+
+### 2026-10-11 - Scope and premise corrected by todo 554 (run 2026-10-11-1448)
+
+- Scope correction (PR #942 review, finding 7; owner decision 2026-10-11: record
+  it here, do not reopen this todo): the `data-image-id`, `data-decorative` and
+  `data-post-id` markers live in `web/src/components/forum/forumImageNode.ts`
+  and `web/src/components/forum/forumBlockquoteAttrs.ts` (and their tests), not
+  in `TipTapEditor.tsx`, so the Scope above missed those files.
+- Premise correction: "escaping cannot stop the HTML parser normalising
+  attribute values" holds only for NUL. A numeric reference keeps a CR
+  (`alt="a&#13;b"` reads back a CR), while `&#0;` still parses as U+FFFD. No
+  escape preserves NUL, and CR means nothing in alt text, so the server keeps
+  normalising on write (`api.sanitize.normalise_alt_text`, todo 554).

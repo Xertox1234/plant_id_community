@@ -1549,5 +1549,40 @@ class TestSocketRecvLoopTrigger(unittest.TestCase):
         self.assertNotIn("test-socket-recv-loop-no-eof-guard", ids(hits))
 
 
+
+class ForumFullRowPostSaveTrigger(unittest.TestCase):
+    """Todo 574 — pinned against the REAL index. A full-row save of a forum
+    post drops a pending revision on the topic-publish path."""
+
+    TID = "forum-full-row-post-save-over-pending-revision"
+
+    @classmethod
+    def setUpClass(cls):
+        root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+        cls.real = mt.load_triggers(root)
+
+    def fires(self, path, content):
+        tn, ti = write(path, content)
+        return self.TID in ids(mt.find_matches(tn, ti, self.real, None))
+
+    def test_full_row_save_in_the_package_fires(self):
+        self.assertTrue(self.fires(
+            "backend/packages/wagtail_forum/wagtail_forum/signals.py",
+            "    opening.body = new_body\n    opening.save()\n",
+        ))
+
+    def test_update_fields_save_and_save_revision_silent(self):
+        self.assertFalse(self.fires(
+            "backend/packages/wagtail_forum/wagtail_forum/workflow.py",
+            '    obj.save(update_fields=["live"])\n    revision = obj.save_revision(user=user)\n',
+        ))
+
+    def test_tests_silent(self):
+        self.assertFalse(self.fires(
+            "backend/packages/wagtail_forum/wagtail_forum/tests/test_topic_approval.py",
+            "    post.save()\n",
+        ))
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

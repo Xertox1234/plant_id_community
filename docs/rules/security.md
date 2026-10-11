@@ -380,7 +380,11 @@ Compact checklist auto-injected before edits. Long-form: `backend/docs/patterns/
   would have crash-looped the whole backend and `forum-prune-cron` over an
   editor-only button. Return a problem string and let `validate_environment()`
   put it in `warnings`; reserve `critical_errors` for what the app cannot run
-  without (PR #817).
+  without (PR #817). One recorded exception: an optional integration's key
+  holding a `.env.example` placeholder (`REQUIRED__...`, or a pre-436
+  `your-...`/`path/to/...` literal) is FATAL in production, a warning under
+  DEBUG. The placeholder switches the integration ON with a value published in
+  this public repo, so booting is the worse outcome (todos 436 and 561).
 - **Never name a Django setting `CSP_*`.** django-csp 4 treats ANY
   `CSP_`-prefixed setting as its pre-4.0 format and fails `manage.py check`
   with `csp.E001` — which surfaced only in a subprocess test (PR #817).

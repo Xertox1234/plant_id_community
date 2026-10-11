@@ -1070,34 +1070,73 @@ remain (no transfer in v1); no DM push/email exists for any kind.
 
 ## Pending opening posts: never save the row over a pending edit (todo 471)
 
-When a moderator approves a never-published topic, its never-published
-opening post goes live with it (`signals._publish_counterpart`, todos 422 and
-432). What goes live is whichever is newer: the post's latest revision or its
-row. `Post.updated_at` is `auto_now`, so the comparison is
-`latest_revision.created_at` against `updated_at`.
+A never-published opening post can carry an edit that exists only as a
+revision: the edit paths below save a revision and never write the row. Two
+paths then publish the post, and they choose differently.
 
-- An edit to such a post that exists only as a revision has no request path
-  today. The author API cannot reach the post: `PATCH /forum/posts/<id>/`
-  resolves through `_get_visible_post`, which 404s a post that is not live.
-  The Post snippet's "Save draft" in `/cms/` writes the row before its
-  revision for an object that is not live (Wagtail's `EditAction`), so the two
-  agree. A direct call does diverge: `submit_edit_for_moderation` and a bare
-  `save_revision()` leave the row untouched.
-- **The hazard:** a full-row `post.save()` on that post after such an edit makes
-  the row newer than the revision. Approval then publishes the row, and the
-  author's edit is dropped with no error. That branch is pinned by
-  `wagtail_forum/tests/test_topic_approval.py::test_admin_publishing_a_topic_publishes_an_opening_post_row_newer_than_its_revision`.
+- **Topic approval** (a moderator publishes the topic; the `published`
+  receiver publishes its never-published opening post,
+  `signals._publish_counterpart`, todos 422 and 432) publishes whichever is
+  newer: the post's latest revision or its row. `Post.updated_at` is
+  `auto_now`, so the comparison is `latest_revision.created_at` against
+  `updated_at`.
+- **The pending page's Approve** (`admin_views.approve_pending_post`) never
+  looks at the row. It publishes the revision the row stands for: the one the
+  active workflow state's task state holds, never a later draft saved over it,
+  else the latest revision (todos 432 and 561). A row written after the
+  revision is not what goes live there.
+
+**The hazard:** a full-row `post.save()` after such an edit makes the row
+newer than the revision, and topic approval then publishes the row: the edit
+is dropped with no error. Both branches are pinned in
+`wagtail_forum/tests/test_topic_approval.py`
+(`test_admin_publishing_a_topic_publishes_an_opening_post_row_newer_than_its_revision`
+for the row, `test_queue_approve_publishes_the_revision_even_when_the_row_is_newer`
+for Approve), and the edit path's own behaviour by
+`test_an_edit_to_a_pending_opening_post_never_moves_its_row`.
 
 The rule: on a post that is not yet live, change content through
 `save_revision()`, never through `post.save()`. Code that has to write such a
-post's row must not bump `updated_at` past a pending revision, or it must
-save a revision of its own.
+post's row must not bump `updated_at` past a pending revision (use
+`save(update_fields=[...])` without it), or it must save a revision of its
+own. The `forum-full-row-post-save-over-pending-revision` trigger in
+`docs/rules/triggers.json` flags a full-row `save()` in the package at edit
+time (todo 574).
 
-Who decides what goes live (owner decision 2026-10-10): a re-screen of an edit
-to a never-published opening post only screens it (spam and trust checks,
-starting the workflow). It never publishes. The moderator's topic approval is
-the gate that publishes the thread. Today `submit_edit_for_moderation` does
-not re-screen a post that is not live, and no request path reaches it for one.
+### Re-screening an edit to a pending opening post (todo 579)
+
+Owner decisions 2026-09-28, 2026-10-10 and 2026-10-11: an edit to a
+never-published opening post is screened, and the screen never publishes. The
+moderator's approval of the topic stays the gate that publishes the thread.
+
+- **Paths.** The author's `PATCH /forum/posts/<id>/` reaches their own pending
+  opening post (`PostWriteView._get_patchable`: a never-published opening post
+  under its never-published topic, on a visible board; anyone else gets the
+  same 404 as for any hidden post, and DELETE is not opened). A "Save draft"
+  of it in the snippet editor is screened the same way, from the
+  `after_edit_snippet` hook (`wagtail_hooks.screen_admin_edit_of_a_pending_opening_post`);
+  Publish and the workflow actions are left alone.
+- **Mechanism.** `workflow.submit_edit_for_moderation` routes the edit through
+  `_route_revision_by_trust` with trust forced off, inside
+  `models.moderation.screen_without_publishing()`, cancelling the held
+  workflow state first. `SpamCheckTask.start` runs the spam backend on the
+  latest revision. A flagged edit is rejected and held in NEEDS_CHANGES, as
+  before. A clean one approves the task, and the workflow finishes APPROVED,
+  but its finish action is replaced for that run
+  (`workflow_state.on_finish`), so nothing goes live: not the post, and so not
+  its topic. A trusted author is screened the same way. The API answers
+  `moderation_status: "pending"`.
+- **Any re-screen, not only an edit.** `SpamCheckTask` also treats a screen of
+  a never-published opening post that was screened before (a moderator's
+  Resubmit) as screen-only. The first screen, on the create path, still
+  publishes clean content: that is how an untrusted member's clean topic goes
+  live without a moderator.
+- **Restricted to `first_published_at is None`**
+  (`workflow.screens_without_publishing`). A taken-down post was published
+  once: its edit stays an unscreened draft revision and is never republished.
+  A never-published reply is not opened either.
+
+Pinned by the `Todo 579` tests in `wagtail_forum/tests/test_topic_approval.py`.
 
 ## Pruning derived files from storage (todo 428 slice D)
 

@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: p4
 issue_id: "554"
 tags: [todo-sweep, follow-ups, backend, web]
@@ -56,10 +56,34 @@ finding against main before acting on it.
 
 ## Acceptance Criteria
 
-- [ ] Each of its 8 findings is fixed with a test, or the Work Log records why it was left as is.
+- [x] Each of its 8 findings is fixed with a test, or the Work Log records why it was left as is.
 
 ## Work Log
 
 ### 2026-10-10 - Promoted out of todo 527
 
 - Split from the consolidated follow-up todo 527 (owner decision 2026-10-10: one todo per source PR).
+
+### 2026-10-11 - Implemented by the todo sweep (run 2026-10-11-1448)
+
+- F1: `PlantCareAskPanel` treats a 401 while auth is loading as an expired session (no latch) and drops its latch copy on an identity change; new tests cover a signed-in 403, the bootstrap 401 and sign-in, and the anonymous-401 assertion is tightened to `/premium account to ask/i`.
+- F2/F3: the throttle plural rows are anchored on the period with a 45 s case, the unmount test asserts the `visibilitychange` listener removal, `retryAfter.test.ts` pins both regex anchors, and `forumService.test.ts` pins each latch wrapper to its own key; `AuthContext.test.tsx` clears all three latches through their wrappers.
+- F4/F5/F7: `api/sanitize.py` gains `normalise_alt_text` (CR/CRLF to LF, NUL and U+FEFF deleted, strip, cap, strip again) shared with the upload's `_alt_text`, and deletes NUL from every text value in a body; the docstring no longer holds a literal NUL; the README documents the normalisation; the Scope and premise corrections are in archived todo 526's Work Log (owner decision).
+- F6: after a 404 the Summarize button stays mounted and disabled (owner decision; the 404 test now asserts `toBeDisabled()`), the too-short line is gated on no outcome, `ThreadDetailPage` passes `totalPosts + newReplyCount + 1`, and `backend/apps/core/tests/test_summary_min_posts_drift.py` pins `MIN_POSTS` to `SUMMARY_MIN_POSTS`.
+- F8: the `ComposeAssistError` comment points at `resetAllCapabilityLatches`, and `web/docs/patterns/testing.md` teaches the keyed registry instead of a per-feature `let`.
+
+### 2026-10-11 - Verified by the todo sweep (run 2026-10-11-1448)
+
+- AC 1: `cd backend && python3 scripts/todos/slot_env.py --main-root . 1 -- backend/venv/bin/python -m pytest packages/wagtail_forum/wagtail_forum/tests/test_blocks.py packages/wagtail_forum/wagtail_forum/tests/api/test_post_image_upload.py apps/core/tests/test_summary_min_posts_drift.py --create-db -q -p no:cacheprovider && cd web && npx vitest run src/components/forum/PlantCareAskPanel.test.tsx src/components/forum/ThreadSummaryPanel.test.tsx src/utils/retryAfter.test.ts src/services/forumService.test.ts src/contexts/AuthContext.test.tsx && grep -n 'Scope and premise corrected by todo 554' todos/archive/526-completed-p4-composer-tiptap-json-content-model.md` — evidence `.sweep-evidence/g2/554-ac0.txt` (not committed), last lines:
+
+  ```text
+        Tests  160 passed (160)
+     Start at  12:06:14
+     Duration  2.80s (transform 507ms, setup 613ms, import 987ms, tests 3.38s, environment 2.76s)
+
+  121:### 2026-10-11 - Scope and premise corrected by todo 554 (run 2026-10-11-1448)
+  ```
+
+### 2026-10-11 - Completed by the todo sweep (run 2026-10-11-1448)
+
+- Archived by `land.py archive`; evidence is quoted above, review is on the PR.

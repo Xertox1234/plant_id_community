@@ -8,6 +8,8 @@ publish and pin that either half now carries the other, under the same
 author-match guard as before.
 """
 
+from contextlib import contextmanager
+
 import pytest
 from django.contrib.auth import get_user_model
 from django.urls import reverse
@@ -342,6 +344,44 @@ def _reset(spies):
         spy.reset_mock()
 
 
+@contextmanager
+def _post_publishes_fail():
+    """Every Post revision publish raises; Topic publishes still run. The
+    failure is injected at Revision.publish, not Post.save_revision: the link
+    publishes the author's pending revision (todo 432), so it never calls
+    save_revision and patching that would not fail it."""
+    from unittest import mock
+
+    from wagtail.models import Revision
+
+    real_publish = Revision.publish
+
+    def publish_failing_for_posts(self, *args, **kwargs):
+        if self.content_type.model_class() is Post:
+            raise RuntimeError("boom")
+        return real_publish(self, *args, **kwargs)
+
+    with mock.patch.object(Revision, "publish", publish_failing_for_posts):
+        yield
+
+
+def _live_reply(topic, author, text="A reply"):
+    """A reply already live in ``topic``, written straight to the row so no
+    publish signal runs while the test sets up."""
+    reply = Post.objects.create(
+        topic=topic,
+        author=author,
+        body=[{"type": "paragraph", "value": f"<p>{text}</p>"}],
+    )
+    Post.objects.filter(pk=reply.pk).update(
+        live=True,
+        first_published_at=reply.created_at,
+        last_published_at=reply.created_at,
+    )
+    reply.refresh_from_db()
+    return reply
+
+
 def _assert_thread_counted_once(spies, author, board, topic, post):
     assert spies["_refresh_board_counters"].call_count == 1
     assert [c.args for c in spies["_refresh_profile"].call_args_list] == [(author.pk,)]
@@ -430,16 +470,7 @@ def test_approving_a_thread_recounts_a_second_author_in_the_topic(
     other = User.objects.create_user(username="replier")
     board = _board()
     topic, post = _pending_thread(author, board)
-    reply = Post.objects.create(
-        topic=topic,
-        author=other,
-        body=[{"type": "paragraph", "value": "<p>A reply</p>"}],
-    )
-    Post.objects.filter(pk=reply.pk).update(
-        live=True,
-        first_published_at=reply.created_at,
-        last_published_at=reply.created_at,
-    )
+    _live_reply(topic, other)
     ForumProfile.for_user(other)
     _reset(recount_spies)
 
@@ -464,26 +495,12 @@ def test_a_failed_opening_post_link_still_recounts_the_board(
     # Findings 4/5/6/8: the topic branch skips its board recount only when
     # the opening post's nested publish ran. When that publish fails,
     # linked_author_id stays None and the topic must recount the board.
-    # The failure is injected at Revision.publish, not Post.save_revision:
-    # the link publishes the author's pending revision here (todo 432), so
-    # it never calls save_revision and patching that would not fail it.
-    from unittest import mock
-
-    from wagtail.models import Revision
-
-    real_publish = Revision.publish
-
-    def publish_failing_for_posts(self, *args, **kwargs):
-        if self.content_type.model_class() is Post:
-            raise RuntimeError("boom")
-        return real_publish(self, *args, **kwargs)
-
     author = User.objects.create_user(username="plantadmin")
     board = _board()
     topic, post = _pending_thread(author, board)
     _reset(recount_spies)
 
-    with mock.patch.object(Revision, "publish", publish_failing_for_posts):
+    with _post_publishes_fail():
         _admin_publish_topic(client, topic)
 
     topic.refresh_from_db()
@@ -512,8 +529,12 @@ def test_approving_a_thread_whose_opening_post_is_scheduled_counts_the_topic(
     # `object.live_revision_id` is set; a never-published object is saved
     # live=False and still gets the signal. A bump that moves `_after_publish()`
     # under `if object.live:` or widens that early return turns this test red.
-    # The nested recount is then gone, so the topic branch's `linked_author_id`
-    # gate in signals.py must change, not this test (todo 517, findings 2/3).
+    # The board assertions below (one recount, `(1, 0)`) are the invariant
+    # such a bump must keep: the topic branch's `linked_author_id` gate in
+    # signals.py changes then. The `_refresh_profile` pin does not survive it:
+    # `[(author.pk,)]` is the nested Post receiver's 0 -> 0 recount, and with
+    # that signal gone the author has no live post, so the list becomes `[]`
+    # (todo 517 findings 2/3, todo 557).
     from datetime import timedelta
 
     from django.utils import timezone
@@ -553,33 +574,13 @@ def test_a_failed_opening_post_link_still_recounts_the_authors_live_reply(
     # linked publish recounted the author with the topic live. Here the author
     # also has a live reply in the never-published topic, the link fails, and
     # the topic's own recount must still reach that author.
-    from unittest import mock
-
-    from wagtail.models import Revision
-
-    real_publish = Revision.publish
-
-    def publish_failing_for_posts(self, *args, **kwargs):
-        if self.content_type.model_class() is Post:
-            raise RuntimeError("boom")
-        return real_publish(self, *args, **kwargs)
-
     author = User.objects.create_user(username="plantadmin")
     board = _board()
     topic, post = _pending_thread(author, board)
-    reply = Post.objects.create(
-        topic=topic,
-        author=author,
-        body=[{"type": "paragraph", "value": "<p>A reply</p>"}],
-    )
-    Post.objects.filter(pk=reply.pk).update(
-        live=True,
-        first_published_at=reply.created_at,
-        last_published_at=reply.created_at,
-    )
+    reply = _live_reply(topic, author)
     _reset(recount_spies)
 
-    with mock.patch.object(Revision, "publish", publish_failing_for_posts):
+    with _post_publishes_fail():
         _admin_publish_topic(client, topic)
 
     topic.refresh_from_db()
@@ -597,3 +598,344 @@ def test_a_failed_opening_post_link_still_recounts_the_authors_live_reply(
     assert ForumProfile.objects.get(user=author).post_count == 1
     board.refresh_from_db()
     assert (board.topic_count, board.post_count) == (1, 1)
+
+
+# --- Todo 557: PR #947 review follow-ups ---
+
+
+@pytest.mark.django_db
+def test_approving_a_thread_recounts_an_author_with_two_live_replies_once(
+    client, moderator, recount_spies
+):
+    # Finding 1: Post.Meta.ordering put created_at into the SELECT DISTINCT,
+    # so `_refresh_topic_authors` walked one row per live post, and an author
+    # with N live replies got N locked recounts instead of one.
+    author = User.objects.create_user(username="plantadmin")
+    other = User.objects.create_user(username="replier")
+    board = _board()
+    topic, post = _pending_thread(author, board)
+    _live_reply(topic, other, "first")
+    _live_reply(topic, other, "second")
+    ForumProfile.for_user(other)
+    _reset(recount_spies)
+
+    _admin_publish_topic(client, topic)
+
+    topic.refresh_from_db()
+    assert topic.live is True
+    assert [c.args for c in recount_spies["_refresh_profile"].call_args_list] == [
+        (author.pk,),
+        (other.pk,),
+    ]
+    assert ForumProfile.objects.get(user=other).post_count == 2
+
+
+# --- Todo 579: an edit to a never-published opening post is screened, never
+# published (owner decision 2026-10-10, mechanism and paths 2026-10-11) ---
+
+
+def _edit(post, author, text):
+    post.body = [{"type": "paragraph", "value": f"<p>{text}</p>"}]
+    return submit_edit_for_moderation(post, author)
+
+
+def _latest_task_state(post):
+    from wagtail.models import TaskState
+
+    return TaskState.objects.filter(revision_id=post.latest_revision_id).get()
+
+
+def _trusted(user):
+    profile = ForumProfile.for_user(user)
+    profile.trust_level = 3
+    profile.save()
+
+
+@pytest.mark.django_db
+def test_a_spammy_edit_to_a_pending_opening_post_is_screened_and_held():
+    author = User.objects.create_user(username="plantadmin")
+    topic, post = _pending_thread(author, _board())
+    held_before = post.latest_revision_id
+
+    assert _edit(post, author, f"still spam {SPAM}") == "pending"
+
+    post.refresh_from_db()
+    assert post.latest_revision_id != held_before
+    task = _latest_task_state(post)  # the screen ran on the edited body
+    assert task.status == task.STATUS_REJECTED
+    state = post.current_workflow_state
+    assert state.status == state.STATUS_NEEDS_CHANGES
+    assert state.current_task_state_id == task.pk
+    topic.refresh_from_db()
+    assert (post.live, topic.live) == (False, False)
+
+
+@pytest.mark.parametrize("trusted", [False, True], ids=["untrusted", "trusted"])
+@pytest.mark.django_db
+def test_a_clean_edit_to_a_pending_opening_post_never_publishes_the_thread(
+    client, moderator, trusted
+):
+    author = User.objects.create_user(username="plantadmin")
+    topic, post = _pending_thread(author, _board())
+    if trusted:
+        _trusted(author)  # trust gained after the hold: still only screened
+
+    assert _edit(post, author, "The fixed body") == "pending"
+
+    post.refresh_from_db()
+    topic.refresh_from_db()
+    task = _latest_task_state(post)
+    assert task.status == task.STATUS_APPROVED  # screened clean
+    assert post.current_workflow_state is None  # the workflow finished
+    assert (post.live, post.first_published_at) == (False, None)
+    assert (topic.live, topic.first_published_at) == (False, None)
+
+    _admin_publish_topic(client, topic)  # the moderator's approval is the gate
+
+    post.refresh_from_db()
+    topic.refresh_from_db()
+    assert (post.live, topic.live) == (True, True)
+    assert post.body.raw_data[0]["value"] == "<p>The fixed body</p>"
+
+
+@pytest.mark.django_db
+def test_resubmitting_a_held_opening_post_screens_it_without_publishing():
+    # The admin's Resubmit resumes the held workflow: a re-screen, so a clean
+    # verdict publishes nothing (SpamCheckTask, not the edit path, decides).
+    author = User.objects.create_user(username="plantadmin")
+    topic, post = _pending_thread(author, _board())
+    post.body = [{"type": "paragraph", "value": "<p>clean now</p>"}]
+    post.save_revision(user=author)
+
+    post.current_workflow_state.resume(user=None)
+
+    post.refresh_from_db()
+    topic.refresh_from_db()
+    assert _latest_task_state(post).status == "approved"
+    assert (post.live, topic.live) == (False, False)
+
+
+@pytest.mark.django_db
+def test_the_first_screen_of_a_new_opening_post_still_publishes_clean_content():
+    # The create path is not a re-screen: an untrusted member's clean topic
+    # still goes live on its spam check alone.
+    ensure_default_workflow()
+    author = User.objects.create_user(username="newbie")
+    ForumProfile.for_user(author)
+    topic = Topic.objects.create(
+        board=_board(), title="Hi", slug="hi", author=author, live=False
+    )
+    post = Post(
+        topic=topic,
+        author=author,
+        is_opening_post=True,
+        body=[{"type": "paragraph", "value": "<p>hello</p>"}],
+    )
+    post.save()
+
+    assert submit_for_moderation(post, author) == "published"
+
+    topic.refresh_from_db()
+    assert topic.live is True
+
+
+@pytest.mark.django_db
+def test_an_edit_to_a_taken_down_opening_post_is_never_republished():
+    author = User.objects.create_user(username="plantadmin")
+    topic, post = _pending_thread(author, _board())
+    _trusted(author)  # a trusted author's edit would publish a live post
+    moderator = User.objects.create_superuser(username="mod2", email="m2@x.io")
+    post.save_revision(user=moderator).publish(user=moderator)
+    post.refresh_from_db()
+    post.unpublish(user=moderator)
+    post.refresh_from_db()
+    states_before = post.workflow_states.count()
+
+    assert _edit(post, author, "bring it back") == "pending"
+
+    post.refresh_from_db()
+    assert post.live is False
+    assert post.workflow_states.count() == states_before  # no screen, no publish
+
+
+@pytest.mark.urls("wagtail_forum.tests.api.urls")
+@pytest.mark.django_db
+def test_the_author_can_patch_their_pending_opening_post_and_it_stays_pending():
+    from django.core.cache import cache
+    from rest_framework.test import APIClient
+
+    cache.clear()
+    author = User.objects.create_user(username="plantadmin")
+    topic, post = _pending_thread(author, _board())
+    payload = {"body": [{"type": "paragraph", "value": "<p>Fixed by the author</p>"}]}
+
+    stranger = APIClient()
+    stranger.force_authenticate(User.objects.create_user(username="stranger"))
+    assert (
+        stranger.patch(f"/forum/posts/{post.pk}/", payload, format="json").status_code
+        == 404
+    )
+
+    api = APIClient()
+    api.force_authenticate(author)
+    resp = api.patch(f"/forum/posts/{post.pk}/", payload, format="json")
+
+    assert resp.status_code == 200, resp.content
+    assert resp.data["moderation_status"] == "pending"
+    post.refresh_from_db()
+    topic.refresh_from_db()
+    assert (post.live, topic.live) == (False, False)
+    assert _latest_task_state(post).status == "approved"
+    # DELETE does not reach it: only the edit path was opened.
+    assert api.delete(f"/forum/posts/{post.pk}/").status_code == 404
+
+
+@pytest.mark.urls("wagtail_forum.tests.api.urls")
+@pytest.mark.django_db
+def test_the_author_cannot_patch_an_opening_post_under_a_taken_down_topic():
+    from django.core.cache import cache
+    from rest_framework.test import APIClient
+
+    cache.clear()
+    author = User.objects.create_user(username="plantadmin")
+    topic, post = _pending_thread(author, _board())
+    Topic.objects.filter(pk=topic.pk).update(first_published_at=topic.created_at)
+    api = APIClient()
+    api.force_authenticate(author)
+
+    resp = api.patch(
+        f"/forum/posts/{post.pk}/",
+        {"body": [{"type": "paragraph", "value": "<p>x</p>"}]},
+        format="json",
+    )
+
+    assert resp.status_code == 404
+
+
+@pytest.mark.django_db
+def test_a_moderators_admin_draft_of_a_pending_opening_post_is_screened(moderator):
+    # The snippet editor's "Save draft" runs EditAction and then the
+    # after_edit_snippet hooks; drive both as the edit view does (its
+    # StreamField form is JS-rendered, so it is not posted here).
+    from django.test import RequestFactory
+    from wagtail import hooks
+    from wagtail.actions.edit import EditAction
+    from wagtail_forum.wagtail_hooks import screen_admin_edit_of_a_pending_opening_post
+
+    assert screen_admin_edit_of_a_pending_opening_post in hooks.get_hooks(
+        "after_edit_snippet"
+    )
+    author = User.objects.create_user(username="plantadmin")
+    topic, post = _pending_thread(author, _board())
+    draft = post.get_latest_revision_as_object()
+    draft.body = [{"type": "paragraph", "value": "<p>Moderator fix</p>"}]
+    EditAction(draft, user=moderator).execute(skip_permission_checks=True)
+    request = RequestFactory().post("/cms/", {"title": "x"})
+    request.user = moderator
+
+    for hook in hooks.get_hooks("after_edit_snippet"):
+        hook(request, draft)
+
+    post.refresh_from_db()
+    topic.refresh_from_db()
+    task = _latest_task_state(post)
+    assert task.status == task.STATUS_APPROVED
+    assert (post.live, topic.live) == (False, False)
+
+    # Publish is the moderator approving: the hook leaves it alone.
+    publish = RequestFactory().post("/cms/", {"action-publish": "action-publish"})
+    publish.user = moderator
+    before = post.workflow_states.count()
+    screen_admin_edit_of_a_pending_opening_post(publish, post)
+    assert post.workflow_states.count() == before
+
+
+# --- Todo 561 finding 2: a Topic revision never reverts row-only state ---
+
+
+@pytest.mark.django_db
+def test_publishing_an_older_topic_revision_keeps_the_live_counters_and_answer(
+    moderator,
+):
+    from django.utils import timezone
+
+    author = User.objects.create_user(username="plantadmin")
+    topic, post = _pending_thread(author, _board())
+    topic.save_revision(user=moderator).publish(
+        user=moderator, skip_permission_checks=True
+    )
+    topic.refresh_from_db()
+    post.refresh_from_db()
+    stale = topic.save_revision(user=moderator)  # snapshots the counters now
+    answered_at = timezone.now()
+    Topic.objects.filter(pk=topic.pk).update(
+        view_count=42, solved_post=post, solved_at=answered_at
+    )
+    topic.refresh_from_db()
+    counters = (topic.reply_count, topic.last_post_at, topic.last_post_author_id)
+
+    stale.publish(user=moderator, skip_permission_checks=True)
+
+    topic.refresh_from_db()
+    assert topic.view_count == 42
+    assert (topic.solved_post_id, topic.solved_at) == (post.pk, answered_at)
+    assert (
+        topic.reply_count,
+        topic.last_post_at,
+        topic.last_post_author_id,
+    ) == counters
+
+
+@pytest.mark.django_db
+def test_a_topic_revision_keeps_the_row_counters_when_read_back(moderator):
+    author = User.objects.create_user(username="plantadmin")
+    topic, _post = _pending_thread(author, _board())
+    revision = topic.save_revision(user=moderator)
+    Topic.objects.filter(pk=topic.pk).update(view_count=7, reply_count=3)
+    topic.refresh_from_db()
+
+    obj = topic.with_content_json(revision.content)
+
+    assert (obj.view_count, obj.reply_count) == (7, 3)
+
+
+# --- Todo 574: the rules the "Pending opening posts" doc states, pinned ---
+
+
+@pytest.mark.django_db
+def test_an_edit_to_a_pending_opening_post_never_moves_its_row():
+    # The topic-publish link publishes whichever is newer, the latest
+    # revision or the row (updated_at). The edit path must leave the row
+    # alone, or a later approval would publish the row and drop the edit.
+    author = User.objects.create_user(username="plantadmin")
+    _topic, post = _pending_thread(author, _board())
+    before = Post.objects.get(pk=post.pk)
+
+    _edit(post, author, "The fixed body")
+
+    after = Post.objects.get(pk=post.pk)
+    assert after.updated_at == before.updated_at
+    assert list(after.body.raw_data) == list(before.body.raw_data)
+    assert after.latest_revision.created_at > after.updated_at
+
+
+@pytest.mark.django_db
+def test_queue_approve_publishes_the_revision_even_when_the_row_is_newer(client):
+    # Unlike the topic-publish link, the pending page's Approve ignores the
+    # row: it publishes the revision the row stands for (todos 432 and 561).
+    from wagtail_forum.admin_views import approve_pending_post, pending_posts
+
+    author = User.objects.create_user(username="plantadmin")
+    _topic, post = _pending_thread(author, _board())
+    _edit(post, author, "The screened edit")
+    Post.objects.filter(pk=post.pk).update(
+        body=[{"type": "paragraph", "value": "<p>Written to the row</p>"}]
+    )
+    moderator = User.objects.create_superuser(username="mod3", email="m3@x.io")
+    pending = pending_posts().get(pk=post.pk)
+
+    approve_pending_post(pending, moderator)
+
+    post.refresh_from_db()
+    assert post.live is True
+    assert post.body.raw_data[0]["value"] == "<p>The screened edit</p>"

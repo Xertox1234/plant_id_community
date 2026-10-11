@@ -18,6 +18,7 @@ from pathlib import Path
 
 from django.conf import settings
 from django.test import SimpleTestCase
+from plant_community_backend.env_placeholders import OPTIONAL_INTEGRATION_KEYS
 from plant_community_backend.r2_config import (
     R2_CACHE_CONTROL,
     R2_REGION_NAME,
@@ -52,6 +53,11 @@ def _run_check(**env_overrides):
     # backend/.env value into these tests.
     for key in ("USE_R2", *R2_REQUIRED_VARS):
         env[key] = ""
+    # The optional-integration keys too (todo 561): a backend/.env copied from
+    # .env.example carries their REQUIRED__ placeholders, which fail a
+    # production boot and turned the returncode == 0 tests below red.
+    for key in OPTIONAL_INTEGRATION_KEYS:
+        env[key] = ""
     env.update(env_overrides)
     return subprocess.run(
         [sys.executable, "manage.py", "check"],
@@ -70,7 +76,7 @@ def _print_storages(**env_overrides):
     # matters more here: this helper prints STORAGES to stdout, so a caller that
     # overrides only SOME vars would dump an operator's real backend/.env
     # credentials into the test output. Structural guard, not caller discipline.
-    for key in ("USE_R2", *R2_REQUIRED_VARS):
+    for key in ("USE_R2", *R2_REQUIRED_VARS, *OPTIONAL_INTEGRATION_KEYS):
         env[key] = ""
     env.update(env_overrides)
     result = subprocess.run(

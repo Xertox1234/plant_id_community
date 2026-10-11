@@ -16,6 +16,7 @@ from django.db.models import (
     Value,
 )
 from django.db.models.functions import Coalesce
+from django.http import Http404
 from django.shortcuts import get_object_or_404
 from django.urls import reverse
 from django.utils import timezone
@@ -98,7 +99,7 @@ from .exceptions import Conflict, UnprocessableEntity
 from .idempotency import fingerprint, idempotency_cache_key, remember, replay, reserve
 from .pagination import PostCursorPagination, TopicCursorPagination
 from .presence import effective_online_window_seconds
-from .sanitize import image_block_pk, serialize_forum_intro
+from .sanitize import image_block_pk, normalise_alt_text, serialize_forum_intro
 from .serializers import (
     AUTHOR_SCHEMA,
     FORUM_BODY_SCHEMA,
@@ -1092,6 +1093,40 @@ class PostWriteView(UnversionedForumAPIMixin, APIView):
         # patch()/delete() enforce it via _enforce_writable.
         return _get_visible_post(post_id)
 
+    def _get_patchable(self, request, post_id):
+        """``_get_editable``, plus the caller's own pending opening post (todo
+        579, owner decision 2026-10-11): a never-published opening post under
+        its never-published topic, on a visible board. Its edit is screened
+        and never published (``workflow.screens_without_publishing``), so the
+        author can fix what the spam check held while the moderator's
+        approval of the topic stays the gate. Only its author reaches it:
+        anyone else still gets the same 404 as for any hidden post, so the
+        draft's existence never leaks. DELETE keeps ``_get_editable``.
+
+        The visible lookup runs first, so an edit of a live post costs no
+        extra query."""
+        try:
+            return self._get_editable(request, post_id)
+        except Http404:
+            pass
+        pending = (
+            Post.objects.filter(
+                id=post_id,
+                author_id=request.user.pk,
+                is_opening_post=True,
+                live=False,
+                first_published_at__isnull=True,
+                topic__live=False,
+                topic__first_published_at__isnull=True,
+                topic__board__in=_visible_boards(),
+            )
+            .select_related("topic", "author__wagtail_forum_profile__avatar")
+            .first()
+        )
+        if pending is None:
+            raise Http404
+        return pending
+
     @staticmethod
     def _enforce_writable(block):
         """Map a ``Post.edit_block``/``delete_block`` result to an HTTP rejection.
@@ -1126,6 +1161,9 @@ class PostWriteView(UnversionedForumAPIMixin, APIView):
             "moderation_status is 'pending', the response body reflects the "
             "SUBMITTED revision (what you sent) — reads (GET) keep returning "
             "the last-approved live body until the edit clears moderation. "
+            "The author may also edit their own topic's opening post while the "
+            "topic awaits moderation: that edit is screened and always "
+            "'pending', and a moderator's approval of the topic publishes it. "
             "409 if the topic is closed/locked. Supports an Idempotency-Key "
             "header: a retry with the same key replays the original response "
             "instead of writing a second revision / re-firing moderation and "
@@ -1145,7 +1183,7 @@ class PostWriteView(UnversionedForumAPIMixin, APIView):
         if replayed is not None:
             return replayed
 
-        post = self._get_editable(request, post_id)
+        post = self._get_patchable(request, post_id)
         self._enforce_writable(post.edit_block(request.user))
         serializer = PostEditSerializer(
             data=request.data,
@@ -1432,7 +1470,9 @@ def _alt_text(request) -> str:
     value = request.data.get("alt")
     if not isinstance(value, str):
         return ""
-    return value.strip()[:255]
+    # The body's normalisation (todo 554): a NUL here reached the
+    # Image.description text column, which Postgres refuses (a 500).
+    return normalise_alt_text(value)
 
 
 class PostImageUploadView(UnversionedForumAPIMixin, APIView):

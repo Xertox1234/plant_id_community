@@ -299,27 +299,42 @@ The package registers **Pending forum content** under the Wagtail admin
 *Reports* menu (`wagtail_forum.admin_views.PendingContentView`, mounted at
 `<admin>/forum/pending/`, URL name `wagtail_forum_pending:index`; todo 423).
 It lists every post waiting for a moderator (a new topic's opening post, a
-held reply, a held edit to a live post, or a draft or an edit whose spam
-check crashed) with its body excerpt, kind, topic, author and author trust,
-oldest first. A live topic's own held edit (an admin retitle the spam check
+held reply, or a held edit to a live post) with its body excerpt, kind,
+topic, author and author trust, oldest first. A spam backend that raises
+holds the content like a flagged verdict, with the error as the task's
+comment (todo 561), so a crashed check is listed the same way. A live post
+whose unpublished changes no workflow holds (a moderator's "Save draft", a
+cancelled workflow) is not listed: nothing was submitted for a decision. A
+live topic's own held edit (an admin retitle the spam check
 held) is not listed, because a row shows a post and Approve would publish
 topic text the moderator never saw; it stays a draft on the topic's edit
 page. **Approve** (a POST to `wagtail_forum_pending:approve`) publishes the
-post's latest revision and, for a new topic, the topic with it, as one
-action; it never publishes a topic that was published before. A second
+revision the row stands for and, for a new topic, the topic with it, as one
+action: the revision the active workflow's task state holds, never a later
+draft saved over it, else the latest revision. It never publishes a topic
+that was published before. A second
 Approve of a decided row returns to the page with an "already decided"
 message. **Reject** (`wagtail_forum_pending:reject`, a confirmation page and
 a POST) re-checks the row under a lock and deletes a new topic's whole thread
 or a held reply, then returns here; a held edit has no Reject, because
 deleting would take the live post down. Under a topic that was taken down, a
-held reply gets Reject only, and an edit to a published post is not listed
-until the topic is restored. The page, Approve and the menu item need `publish` on both
+held reply gets Reject only, and neither an edit to a published post nor a
+never-published opening post is listed until the topic is restored (todo
+499). The page, Approve and the menu item need `publish` on both
 `wagtail_forum.post` and `wagtail_forum.topic` (superusers and the host's
 moderator group); Reject also needs `delete` on what it deletes. The
 dashboard's "N forum posts awaiting moderation" item counts exactly these
 rows (`admin_views.pending_posts`), links here, and shows only to users who
 can open this page. Moderators are not pushed or emailed when something is
 waiting; the count and this page are the signal.
+
+An edit to a never-published opening post is screened and never published
+(todo 579): the author's `PATCH /forum/posts/<id>/` reaches their own pending
+opening post, and a "Save draft" of it in the snippet editor is screened the
+same way. The spam check runs on the edited body and records its verdict
+(held, or approved with nothing published), and the moderator's approval of
+the topic stays the gate that publishes the thread, whatever the author's
+trust. The first screen of a new topic still publishes clean content.
 
 #### Reported content (admin report)
 
@@ -361,8 +376,8 @@ alone is not sufficient.
 #### Alt text (M7, per-usage since todo 357)
 
 `POST /forum/images/` accepts an optional **`alt`** multipart part alongside
-`image`. It is stripped, truncated to 255 chars, and stored on Wagtail's own
-`Image.description` field — the upload-time default.
+`image`. It is normalised like a body image's alt (below), and stored on
+Wagtail's own `Image.description` field — the upload-time default.
 
 The body block is a Wagtail **`ImageBlock`** (6.3+), not an `ImageChooserBlock`,
 so alt belongs to the **usage**:
@@ -378,6 +393,12 @@ pre-migration body still reads correctly).
 
 Things worth knowing before changing this:
 
+- **Alt is normalised on write** (todos 443 and 554): CRLF and CR become LF,
+  NUL (U+0000) and U+FEFF are deleted, the value is stripped, capped at 255
+  characters and stripped again, so a stored alt is its own normalisation and
+  the composer's `.trim()` round-trips it unchanged. No HTML escape keeps a NUL
+  (`&#0;` parses as U+FFFD), and Postgres refuses one in `jsonb` and text
+  columns. Every other text value in a post body has NUL deleted too.
 - **`alt` never falls back to `title`.** `title` is the upload filename, and
   filename-as-alt is an accessibility anti-pattern — a screen reader announcing
   `IMG_2481.jpg` is worse than announcing nothing. This matches Wagtail's own
@@ -917,10 +938,11 @@ time a client may be offline before it needs one.
 Everything goes to the `wagtail_forum` logger. Each message opens with a
 bracketed token naming the package's own subsystem, so a host's logs can be
 grepped by it: `[EMBED]`, `[LINK_PREVIEW]`, `[EMAIL]`, `[SECURITY]`, `[IMAGE]`,
-`[MODERATION]`, and `[ERROR]` for a failure with no narrower home. Never a
-token from a host's vocabulary: the package cannot know it, and the logger name
-already says which package wrote the line, so a host routes or silences the
-package by that name.
+`[MODERATION]`, and `[ERROR]` for a failure with no narrower home. The tokens
+are the package's own: a generic one such as `[ERROR]` or `[SECURITY]` may
+match a token in a host's vocabulary, but only by coincidence, never because
+the package borrowed it. The logger name already says which package wrote the
+line, so a host routes or silences the package by that name.
 
 ## Internationalization
 

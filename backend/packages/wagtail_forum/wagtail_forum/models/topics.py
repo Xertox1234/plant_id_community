@@ -153,6 +153,35 @@ class Topic(
     def __str__(self):
         return self.title
 
+    # Row-only state a revision must never carry live (todo 561): counters
+    # the publish/unpublish receivers recount and the API's view counter and
+    # accepted answer, none of which is revision content.
+    ROW_ONLY_FIELDS = (
+        "view_count",
+        "reply_count",
+        "last_post_at",
+        "last_post_author_id",
+        "solved_post_id",
+        "solved_at",
+    )
+
+    def with_content_json(self, content):
+        """The object a revision describes, keeping this row's counters and
+        solved state (todo 561), as ``Post.with_content_json`` keeps
+        ``reaction_counts``.
+
+        Wagtail restores every serialized field from the revision except a
+        few of its own, so publishing a draft or a held revision of a live
+        topic (the snippet editor's Publish, a workflow finish, a revert)
+        would put the snapshot's ``view_count``, ``reply_count``,
+        ``last_post_*`` and ``solved_*`` live. The Topic publish receiver
+        never recounts ``view_count`` or the solved state, so that revert
+        would stick."""
+        obj = super().with_content_json(content)
+        for field in self.ROW_ONLY_FIELDS:
+            setattr(obj, field, getattr(self, field))
+        return obj
+
     def solution_block(self, user):
         """Why *user* may not mark/unmark this topic's answer, or ``None``.
 

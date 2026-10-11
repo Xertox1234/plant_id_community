@@ -239,9 +239,13 @@ def _refresh_topic_authors(topic_id, *, exclude_author_id=None):
     """
     from .models import Post
 
+    # .order_by() clears Post.Meta.ordering: Django adds an ordering column to
+    # a SELECT DISTINCT, which would make it one row per post, and so one
+    # recount per post instead of per author (todo 557).
     author_ids = (
         Post.objects.filter(topic_id=topic_id, live=True, author_id__isnull=False)
         .values_list("author_id", flat=True)
+        .order_by()
         .distinct()
     )
     if exclude_author_id is not None:
@@ -263,16 +267,16 @@ def _publish_counterpart(obj, trigger_revision, *, prefer_latest_revision=False)
     ``prefer_latest_revision`` (the opening post, todo 432) when the latest
     revision is newer than the row: an edit to a never-published post can
     exist only as a revision, so publishing the row would put the ORIGINAL
-    body live. No request path creates that divergence today (todo 471). The
-    author API cannot reach a never-published post: PATCH /forum/posts/<id>/
-    resolves through api.views._get_visible_post, which 404s it. The Post
-    snippet's "Save draft" in /cms/ writes the row before its revision for an
-    object that is not live (wagtail.actions.edit.EditAction), so the two
-    agree. Only a direct call reaches it: submit_edit_for_moderation never
-    writes the row of a post that is not live, and neither does a bare
-    save_revision(). The reverse also holds: a full-row save() after such an
-    edit makes the row newer, and the row wins (see "Pending opening posts"
-    in backend/docs/patterns/domain/forum.md).
+    body live. The author's API edit creates exactly that divergence since
+    todo 579: PATCH /forum/posts/<id>/ reaches the author's own pending
+    opening post, and submit_edit_for_moderation screens the edit as a
+    revision without writing the row. (The Post snippet's "Save draft" in
+    /cms/ writes the row before its revision for an object that is not live,
+    wagtail.actions.edit.EditAction, so the two agree.) The reverse also
+    holds: a full-row save() after such an edit makes the row newer, and the
+    row wins, dropping the edit (see "Pending opening posts" in
+    backend/docs/patterns/domain/forum.md; the pending page's Approve differs,
+    it always publishes the revision).
     The topic keeps the row: it carries freshly recounted counters that a
     stale revision would overwrite.
 

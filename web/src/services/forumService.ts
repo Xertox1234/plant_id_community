@@ -770,8 +770,9 @@ export class ComposeAssistError extends Error {
     this.name = 'ComposeAssistError';
     this.status = status;
     this.code = code;
-    // 403 = not a premium account (permanent until the entitlement changes, which
-    // clears the latch — see resetComposeAssistAvailability's callers).
+    // 403 = not a premium account (permanent until the identity changes:
+    // AuthContext clears every latch through resetAllCapabilityLatches in
+    // ./capabilityLatch).
     // 503 = permanent ONLY when the deployment has the feature off.
     this.permanent = status === 403 || code === 'disabled';
   }

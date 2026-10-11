@@ -33,6 +33,8 @@ name: Harness CI
 #   python3 scripts/test_check_firebase_rules_drift.py && \
 #   python3 scripts/test_check_archived_todo_status.py && \
 #   python3 scripts/check_archived_todo_status.py --fail-over 0 && \
+#   python3 scripts/check_log_prefixes.py --root backend/packages --fail-over 0 && \
+#   python3 scripts/check_log_prefixes.py --root backend/plant_community_backend --fail-over 0 && \
 #   python3 scripts/todos/test_todofile.py && \
 #   python3 scripts/todos/test_state.py && \
 #   python3 scripts/todos/test_state_flow.py && \
@@ -60,6 +62,7 @@ name: Harness CI
       - 'scripts/test_check_firebase_rules_drift.py'
       - 'scripts/check_archived_todo_status.py'
       - 'scripts/test_check_archived_todo_status.py'
+      - 'scripts/check_log_prefixes.py'
       - 'plant_community_mobile/run_archive.sh'
       - 'plant_community_mobile/scripts/test_run_archive.sh'
       - 'todos/archive-status-allowlist.yml'
@@ -146,6 +149,14 @@ jobs:
 
       - name: New-advisory gate
         run: python3 scripts/test_new_vuln_gate.py
+
+      # Zero-baseline log-prefix gate (todo 561): the edit-time trigger of
+      # todo 392 misses scripted edits, so the two trees already at zero stay
+      # there. backend/apps still carries a backlog and is not gated here.
+      - name: Log prefix baseline
+        run: |
+          python3 scripts/check_log_prefixes.py --root backend/packages --fail-over 0
+          python3 scripts/check_log_prefixes.py --root backend/plant_community_backend --fail-over 0
 
       # Offline: drives a fake session, never touches the network or a credential.
       # The live comparison it backs runs in firebase-rules-drift.yml, which is not
