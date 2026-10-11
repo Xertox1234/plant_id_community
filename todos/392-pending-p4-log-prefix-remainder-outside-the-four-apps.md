@@ -5,10 +5,9 @@ issue_id: "392"
 tags: [code-quality, logging, backend, tech-debt, forum, garden]
 dependencies: []
 source_review: "todos/archive/388-completed-p3-backend-log-prefix-sweep.md"
-triage: blocked-owner
+triage: ready
 triaged: 2026-09-28
-blocked_on: "Owner decision on the forum log convention: keep forum.<event> as a machine-readable key, or switch it to a [FORUM] prose prefix"
-owner_decision: "Convert the forum_host forum.<event> log names to the bracketed [FORUM] prefix; record it in docs/rules/api.md (2026-09-28)"
+owner_decision: "Convert the forum_host forum.<event> log names to the bracketed [FORUM] prefix; record it in docs/rules/api.md (2026-09-28; reconfirmed by the owner 2026-10-10)"
 ---
 
 # The last 7 unprefixed log calls, in two apps todo 388 did not scope
@@ -137,3 +136,9 @@ minutes.
 
 Related: todo 388 (the sweep), todo 361 (which measured the gap and re-scoped),
 `docs/rules/api.md:13-14` (the binding rule).
+
+## Work Log
+
+### 2026-10-10 - Owner reconfirmed the decision
+
+- The owner reconfirmed the 2026-09-28 decision, so the blocked-owner triage is lifted and the todo is ready.

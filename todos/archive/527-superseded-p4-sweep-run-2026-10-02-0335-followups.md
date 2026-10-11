@@ -1,5 +1,5 @@
 ---
-status: pending
+status: superseded
 priority: p4
 issue_id: "527"
 tags: [todo-sweep, follow-ups]
@@ -7,6 +7,7 @@ dependencies: []
 triage: blocked-owner
 triaged: 2026-10-10
 blocked_on: "Owner must pick a slicing (per-PR or per-platform sub-todos) and decide the #954 embed-naming/full-URL calls and the #941-2 finding-5 re-check."
+owner_decision: "Slice per PR: each section becomes its own p4 todo (552-563). #941-2 and the finding-5 re-check: fix the IP resolver, keep the raw IP. #954: fix both the duplicate titles and the full-URL affordances (2026-10-10)"
 ---
 
 # Todo sweep run 2026-10-02-0335: verified follow-ups from 11 merged PRs
@@ -268,19 +269,20 @@ Line numbers are as of the merge. Re-check each finding against main before acti
 
 ## Acceptance Criteria
 
-- [ ] Sweep engine: its finding is fixed with a test, or the Work Log records why it was left as is.
-- [ ] PR #941: each of its 7 findings is fixed with a test, or the Work Log records why it was left as is.
-- [ ] PR #942: each of its 8 findings is fixed with a test, or the Work Log records why it was left as is.
-- [ ] PR #945: each of its 8 findings is fixed with a test, or the Work Log records why it was left as is.
-- [ ] PR #946: each of its 4 findings is fixed with a test, or the Work Log records why it was left as is.
-- [ ] PR #947: each of its 2 findings is fixed with a test, or the Work Log records why it was left as is.
-- [ ] PR #948: each of its 6 findings is fixed with a test, or the Work Log records why it was left as is.
-- [ ] PR #949: its finding is fixed with a test, or the Work Log records why it was left as is.
-- [ ] PR #950: each of its 3 findings is fixed with a test, or the Work Log records why it was left as is.
-- [ ] PR #952: each of its 7 findings is fixed with a test, or the Work Log records why it was left as is.
-- [ ] PR #953: each of its 4 findings is fixed with a test, or the Work Log records why it was left as is.
-- [ ] PR #954: each of its 5 findings is fixed with a test, or the Work Log records why it was left as is.
+- [ ] Sweep engine: its finding is fixed with a test, or the Work Log records why it was left as is. → todo 552 (re-pointed 2026-10-10)
+- [ ] PR #941: each of its 7 findings is fixed with a test, or the Work Log records why it was left as is. → todo 553 (re-pointed 2026-10-10)
+- [ ] PR #942: each of its 8 findings is fixed with a test, or the Work Log records why it was left as is. → todo 554 (re-pointed 2026-10-10)
+- [ ] PR #945: each of its 8 findings is fixed with a test, or the Work Log records why it was left as is. → todo 555 (re-pointed 2026-10-10)
+- [ ] PR #946: each of its 4 findings is fixed with a test, or the Work Log records why it was left as is. → todo 556 (re-pointed 2026-10-10)
+- [ ] PR #947: each of its 2 findings is fixed with a test, or the Work Log records why it was left as is. → todo 557 (re-pointed 2026-10-10)
+- [ ] PR #948: each of its 6 findings is fixed with a test, or the Work Log records why it was left as is. → todo 558 (re-pointed 2026-10-10)
+- [ ] PR #949: its finding is fixed with a test, or the Work Log records why it was left as is. → todo 559 (re-pointed 2026-10-10)
+- [ ] PR #950: each of its 3 findings is fixed with a test, or the Work Log records why it was left as is. → todo 560 (re-pointed 2026-10-10)
+- [ ] PR #952: each of its 7 findings is fixed with a test, or the Work Log records why it was left as is. → todo 561 (re-pointed 2026-10-10)
+- [ ] PR #953: each of its 4 findings is fixed with a test, or the Work Log records why it was left as is. → todo 562 (re-pointed 2026-10-10)
+- [ ] PR #954: each of its 5 findings is fixed with a test, or the Work Log records why it was left as is. → todo 563 (re-pointed 2026-10-10)
 
 ## Work Log
 
 - 2026-10-02: Filed from todo-sweep run 2026-10-02-0335 as the run's single consolidated follow-up (owner decision), curated from 307 raw review findings.
+- 2026-10-10: Superseded. The owner sliced it per PR; every criterion is re-pointed to its own todo (552–563).
