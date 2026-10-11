@@ -7,9 +7,9 @@ dependencies: []
 source_review: "PR #852 review round 1 (todo 413)"
 source_finding: "non-blocking findings"
 triage: blocked-owner
-triaged: 2026-09-28
-blocked_on: "Two choices: how the sw.js re-subscribe authenticates, and how sends fan out. Also the live /sw.js Cache-Control header needs measuring."
-owner_decision: "Owner: keep blocked; there is no web product yet (2026-09-28)"
+triaged: 2026-10-11
+blocked_on: "The owner's 2026-09-28 hold (no web product yet). Then two design choices: how the sw.js re-subscribe authenticates, and how sends fan out. Item 5 needs a live header measurement."
+owner_decision: "Owner lifts the 2026-09-28 hold and sweeps it now. Item 1: a narrow CSRF-exempt re-subscribe endpoint that authenticates by the old subscription's endpoint + auth key and swaps in the new one; when oldSubscription is null, fall back to page-load reconcile (item 2). Item 3: one shared requests.Session (requests_session=, allow_redirects off, which closes item 6) + one bulk last_used UPDATE, single task, no chunking/threads yet (2026-10-11)"
 ---
 
 # Web Push follow-ups from the PR #852 review
