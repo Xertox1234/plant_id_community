@@ -405,3 +405,16 @@ def test_alt_sent_as_a_file_part_is_ignored_not_a_500():
     assert resp.status_code == 201
     assert resp.data["alt"] == ""
     assert get_image_model().objects.get(id=resp.data["id"]).description == ""
+
+
+@pytest.mark.django_db
+def test_alt_with_a_nul_is_normalised_not_a_500():
+    # Todo 554 finding 5: Image.description is a text column, and Postgres
+    # refuses NUL in it. The body's alt normalisation now applies here too.
+    resp = _auth_client().post(
+        URL,
+        {"image": _upload(), "alt": "a fern\x00 frond\r\n﻿"},
+        format="multipart",
+    )
+    assert resp.status_code == 201
+    assert resp.data["alt"] == "a fern frond"

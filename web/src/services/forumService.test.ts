@@ -1,4 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import * as forumService from './forumService';
+import { resetAllCapabilityLatches } from './capabilityLatch';
 import {
   fetchCategories,
   fetchCategory,
@@ -1079,5 +1081,57 @@ describe('forumService (wagtail_forum API contract)', () => {
       });
       await expect(deleteForumImage(7)).rejects.toBeInstanceOf(ForumApiError);
     });
+  });
+});
+
+/**
+ * Capability latch wrappers (todo 554). Each feature's named wrappers must map
+ * to its OWN registry key: pointing the plant-care wrappers at
+ * 'composeAssist' left every consumer test green (each reads its own wrappers
+ * self-consistently) while a plant-care 403 would hide the compose-assist
+ * button.
+ */
+describe('capability latch wrappers', () => {
+  const capabilities = [
+    {
+      name: 'compose assist',
+      is: forumService.isComposeAssistUnavailable,
+      mark: forumService.markComposeAssistUnavailable,
+      reset: forumService.resetComposeAssistAvailability,
+    },
+    {
+      name: 'plant-care ask',
+      is: forumService.isPlantCareAskUnavailable,
+      mark: forumService.markPlantCareAskUnavailable,
+      reset: forumService.resetPlantCareAskAvailability,
+    },
+    {
+      name: 'topic summary',
+      is: forumService.isTopicSummaryUnavailable,
+      mark: forumService.markTopicSummaryUnavailable,
+      reset: forumService.resetTopicSummaryAvailability,
+    },
+  ];
+
+  beforeEach(() => {
+    resetAllCapabilityLatches();
+  });
+
+  it.each(capabilities)('$name latches only its own capability', ({ is, mark }) => {
+    mark();
+
+    for (const other of capabilities) {
+      expect(other.is()).toBe(other.is === is);
+    }
+  });
+
+  it.each(capabilities)('$name reset clears only its own capability', ({ reset }) => {
+    for (const capability of capabilities) capability.mark();
+
+    reset();
+
+    for (const other of capabilities) {
+      expect(other.is()).toBe(other.reset !== reset);
+    }
   });
 });

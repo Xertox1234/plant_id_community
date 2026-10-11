@@ -21,6 +21,10 @@ from django.core.exceptions import ImproperlyConfigured
 # Single source of truth for the R2 var list + object metadata, shared with
 # apps/core/management/commands/sync_media_to_r2.py (todo 321). Pure literals,
 # no Django imports — safe this early in settings.
+from plant_community_backend.env_placeholders import (
+    OPTIONAL_INTEGRATION_KEYS,
+    is_legacy_placeholder,
+)
 from plant_community_backend.r2_config import (
     R2_CACHE_CONTROL,
     R2_REGION_NAME,
@@ -1810,31 +1814,29 @@ def validate_environment():
     # authenticates with). Read through config() rather than the settings
     # above: OPENWEATHER_API_KEY is read by the weather service itself and the
     # OAuth pairs only inside SOCIALACCOUNT_PROVIDERS. Fatal in production, a
-    # warning under DEBUG -- the same split as the R2 vars above.
-    optional_integration_keys = (
-        "OPENWEATHER_API_KEY",
-        "TREFLE_API_KEY",
-        "PLANT_HEALTH_API_KEY",
-        "OPENAI_API_KEY",
-        "UNSPLASH_ACCESS_KEY",
-        "PEXELS_API_KEY",
-        "GOOGLE_OAUTH2_CLIENT_ID",
-        "GOOGLE_OAUTH2_CLIENT_SECRET",
-        "GITHUB_CLIENT_ID",
-        "GITHUB_CLIENT_SECRET",
-        "FIREBASE_PROJECT_ID",
-        "FIREBASE_CREDENTIALS_PATH",
-    )
-    for key_name in optional_integration_keys:
-        if is_required_placeholder(config(key_name, default="")):
+    # warning under DEBUG -- the same split as the R2 vars above. The values
+    # these keys had in the template before todo 436 (`your-...`,
+    # `path/to/...`) are refused the same way (todo 561): an environment built
+    # from that older template still carries them.
+    for key_name in OPTIONAL_INTEGRATION_KEYS:
+        key_value = config(key_name, default="")
+        if is_required_placeholder(key_value):
             message = (
                 f"{key_name} is still the unmodified .env.example placeholder. "
                 f"Set a real value, or unset it to leave that integration off."
             )
-            if not DEBUG:
-                critical_errors.append(message)
-            else:
-                warnings.append(message)
+        elif is_legacy_placeholder(key_name, key_value):
+            message = (
+                f"{key_name} is still the old .env.example placeholder "
+                f"(a your-.../path/to/... value). Set a real value, or unset it "
+                f"to leave that integration off."
+            )
+        else:
+            continue
+        if not DEBUG:
+            critical_errors.append(message)
+        else:
+            warnings.append(message)
 
     # ========================================
     # Redis Connection Test (Issue #156)

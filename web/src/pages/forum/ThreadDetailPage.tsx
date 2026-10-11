@@ -1170,9 +1170,16 @@ export default function ThreadDetailPage() {
           in-flight poll for the thread no longer shown. `postCount` is the live
           post count INCLUDING the opener — what the server's too_short counts —
           while `totalPosts` is the API's reply_count, which excludes it, hence
-          the +1 (todo 433). */}
+          the +1 (todo 433). At the end of a thread the new-replies poll only
+          moves `newReplyCount` until the pill is clicked, so add it, or the
+          button stays hidden on a thread that has grown past MIN_POSTS (todo
+          554). */}
       {isAuthenticated && topicId != null && (
-        <ThreadSummaryPanel key={topicId} topicId={topicId} postCount={totalPosts + 1} />
+        <ThreadSummaryPanel
+          key={topicId}
+          topicId={topicId}
+          postCount={totalPosts + newReplyCount + 1}
+        />
       )}
 
       {/* The plant-ID snapshot, above the opening post (audit M6). Outside the

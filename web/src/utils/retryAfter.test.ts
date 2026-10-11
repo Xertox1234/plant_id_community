@@ -24,6 +24,16 @@ describe('readRetryAfter', () => {
     // A hand-rolled test response — the error path must not throw on it.
     expect(readRetryAfter({} as Response)).toBeNull();
   });
+
+  it.each(['60s', 'x60', '6 0'])(
+    'returns null for digits beside other text (%s), so both regex anchors are pinned',
+    (value) => {
+      // '60s' fails without the $ anchor, 'x60' without the ^ (todo 554).
+      expect(
+        readRetryAfter({ headers: new Headers({ 'Retry-After': value }) } as Response)
+      ).toBeNull();
+    }
+  );
 });
 
 describe('describeWait', () => {

@@ -234,11 +234,11 @@ def _pending_moderation_count():
 
     SpamCheckTask resolves synchronously within the same request, so
     IN_PROGRESS never outlives it. What persists is NEEDS_CHANGES content the
-    spam check held, and — counted since todo 423, missed before — a draft
-    whose spam BACKEND crashed: Wagtail's AbstractWorkflow.start() is
-    @transaction.atomic, so the crash rolls its WorkflowState back and only
-    "never published, still a draft" still finds it (see
-    test_moderation_decided_signal_still_fires_when_spam_backend_crashes).
+    spam check held, a crashed spam BACKEND included (the task is rejected
+    with the error since todo 561), and a never-published draft whose
+    moderation step failed some other way: Wagtail's AbstractWorkflow.start()
+    is @transaction.atomic, so that rolls its WorkflowState back and only
+    "never published, still a draft" still finds it.
 
     This count and the page are the only signal: moderators are not pushed
     or emailed when something is waiting (owner decision 2026-09-28)."""
@@ -272,6 +272,30 @@ class ForumModerationSummaryItem(SummaryItem):
             # where one Approve publishes a whole thread (todo 423).
             "moderation_url": reverse("wagtail_forum_pending:index"),
         }
+
+
+@hooks.register("after_edit_snippet")
+def screen_admin_edit_of_a_pending_opening_post(request, instance):
+    """A plain "Save draft" of a never-published opening post is screened
+    like the author's API edit, and never published (todo 579). Publish and
+    the workflow actions are left alone: Publish is the moderator approving,
+    and Submit/Resubmit already run the spam check, which does not publish
+    such a post on a re-screen (``SpamCheckTask``)."""
+    if not isinstance(instance, Post) or request.method != "POST":
+        return None
+    if any(key.startswith("action-") for key in request.POST):
+        return None
+    if not request.accepts("text/html"):
+        # An autosave (Wagtail 8, on by default) is a JSON save of the same
+        # form, every few seconds: screening each one would restart the
+        # workflow and call the paid spam backend on half-typed text (PR
+        # #1035 review). Wagtail tells the two apart the same way
+        # (``expects_json_response``); only an explicit Save draft screens.
+        return None
+    from .workflow import screen_admin_edit_of_pending_opening_post
+
+    screen_admin_edit_of_pending_opening_post(instance, request.user)
+    return None
 
 
 @hooks.register("construct_homepage_summary_items")

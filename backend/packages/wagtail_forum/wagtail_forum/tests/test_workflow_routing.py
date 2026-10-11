@@ -183,14 +183,16 @@ def test_moderation_decided_signal_still_fires_when_spam_backend_crashes():
     assert post.live is False
     assert received == {"status": "pending", "obj_pk": post.pk}
 
-    # The crash rolled back the WorkflowState along with the TaskState (same
-    # @transaction.atomic as the orphan disproof above), so this crashed post
-    # has NO active WorkflowState. Todo 254 pinned that the count missed it;
-    # since todo 423 the count is the pending-content page's rows, which
-    # include a never-published draft with no state, so it is counted.
+    # Since todo 561 a crashed spam backend no longer rolls the workflow
+    # back: SpamCheckTask rejects with the error as its comment, so the post
+    # is held in NEEDS_CHANGES with a task state the pending page's Approve
+    # publishes. Todo 254 pinned that the count missed a crashed post; it is
+    # counted, as the pending-content page's row.
     from wagtail_forum.wagtail_hooks import _pending_moderation_count
 
-    assert post.current_workflow_state is None
+    state = post.current_workflow_state
+    assert state.status == state.STATUS_NEEDS_CHANGES
+    assert "spam check could not run" in state.current_task_state.comment
     assert _pending_moderation_count() == 1
 
 

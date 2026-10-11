@@ -79,7 +79,7 @@ from wagtail.admin.menu import MenuItem
 from wagtail.admin.ui.tables import Column, DateColumn, TitleColumn
 from wagtail.admin.views.generic.base import WagtailAdminTemplateMixin
 from wagtail.admin.views.reports import ReportView
-from wagtail.models import Revision, TaskState, WorkflowState
+from wagtail.models import Revision, WorkflowState
 from wagtail.permission_policies import ModelPermissionPolicy
 
 from .models import Post, Report, Topic, TrustLevel
@@ -336,18 +336,20 @@ def pending_posts():
       post itself is live: the thread is still invisible (todo 422's repair
       case), and approving the row publishes the topic.
     - A post with an active workflow state: a live post whose edit the spam
-      check held (the live row keeps its approved body).
-    - A live post with unpublished changes and no state (todo 495): an edit
-      whose moderation step crashed. The workflow start is atomic, so the
-      crash rolls its state back, and the API still tells the author the edit
-      is pending. Only while the latest revision is the author's own and no
-      workflow ever ran on it (todo 499): a moderator's "Save draft" on the
-      post's edit view leaves the same state, and so does a cancelled
-      workflow, and one Approve would publish that work in progress as the
-      author's, past trust and spam routing. A crash leaves neither mark: the
-      API saves the revision as the author, and the rollback takes the
-      workflow's task state with it. A moderator's own API edit that crashed
-      is not listed either; it is theirs to publish from the edit view.
+      check held (the live row keeps its approved body), a crashed spam
+      backend included: since todo 561 the task is rejected with the error,
+      so the crash leaves a NEEDS_CHANGES state like any other hold.
+
+    What a row shows and what its Approve publishes is the revision the
+    active state's task state holds (``held_revision_id``, owner decision
+    2026-10-11, todo 561), never simply the latest revision: a moderator's
+    "Save draft" over a held edit is their work in progress, and Approve
+    must not publish it as the author's. A live post with unpublished changes
+    and no active state is not listed at all: a moderator's draft or a
+    cancelled workflow, nothing a moderator was asked to decide. That
+    replaced a guess by who saved the latest revision (todo 499), which
+    listed a moderator's draft of their own post and missed a moderator's
+    crashed edit of someone else's.
 
     A live topic's own held edit (a spam-held admin retitle, say) is not a
     row (owner decision 2026-09-29, todo 495): a row shows a post, so Approve
@@ -372,18 +374,16 @@ def pending_posts():
     ``UnpublishAction`` does not cancel it, so without this exclusion the post
     would stay listed as an "Edit" and one Approve would publish the held
     revision, bringing back content someone removed. The edit path never
-    starts a new state on a post that is not live
+    starts a new state on a post that was published and is not live
     (``submit_edit_for_moderation`` leaves that edit as a draft revision), so
-    the only states such a post can carry predate its take-down.
+    the only states such a post can carry predate its take-down. It screens
+    an edit to a never-published opening post (todo 579), which this page
+    lists anyway.
     """
     post_type = ContentType.objects.get_for_model(Post)
     post_state = WorkflowState.objects.active().filter(
         content_type=post_type, object_id=Cast(OuterRef("pk"), CharField())
     )
-    authors_revision = Revision.objects.filter(
-        pk=OuterRef("latest_revision_id"), user_id=OuterRef("author_id")
-    )
-    screened = TaskState.objects.filter(revision_id=OuterRef("latest_revision_id"))
     taken_down = Q(live=False, first_published_at__isnull=False)
     topic_taken_down = Q(topic__live=False, topic__first_published_at__isnull=False)
     return Post.objects.filter(
@@ -395,18 +395,33 @@ def pending_posts():
                 topic__first_published_at__isnull=True,
             )
             | Exists(post_state)
-            | (
-                Q(live=True, has_unpublished_changes=True)
-                & Exists(authors_revision)
-                & ~Exists(screened)
-            )
         )
         & ~taken_down
         & ~(
             (Q(first_published_at__isnull=False) | Q(is_opening_post=True))
             & topic_taken_down
         )
+    ).annotate(
+        held_revision_id=Subquery(
+            post_state.values("current_task_state__revision_id")[:1]
+        )
     )
+
+
+def _held_revision_id(post):
+    """The revision a pending row stands for (todo 561): the one the active
+    workflow state's task state holds, else the latest. A post with no
+    active state (a never-published draft whose moderation step failed, or a
+    screened edit to a pending opening post, todo 579) has nothing held
+    besides its latest revision."""
+    return getattr(post, "held_revision_id", None) or post.latest_revision_id
+
+
+def _held_revision(post):
+    held_id = _held_revision_id(post)
+    if held_id is None or held_id == post.latest_revision_id:
+        return post.latest_revision
+    return Revision.objects.get(pk=held_id)
 
 
 def _pending_kind(post):
@@ -450,13 +465,14 @@ def _user_can_reject(user, target):
 
 
 def _pending_body(post):
-    """The body waiting for approval: the latest revision's, not the row's.
-    An edit to a live post exists only as a revision (the live row keeps its
-    approved body), so the row would show the moderator the wrong text.
+    """The body waiting for approval: the held revision's (``_held_revision``),
+    not the row's. An edit to a live post exists only as a revision (the live
+    row keeps its approved body), so the row would show the moderator the
+    wrong text.
 
     None when the revision's body cannot be read (todo 495): falling back to
     the row would show the approved text as if it were the pending one."""
-    revision = post.latest_revision
+    revision = _held_revision(post)
     if revision is None or "body" not in revision.content:
         return post.body
     raw = revision.content["body"]
@@ -504,8 +520,13 @@ def approve_pending_post(post, user):
     """Publish a pending post as ``user``. For a new topic, publish the topic
     and its opening post together.
 
-    What goes live is the latest revision, never a fresh copy of the row: a
-    held edit exists only as a revision (todo 432). Publishing cancels the
+    What goes live is the held revision (``_held_revision``): the one the
+    active workflow state's task state holds, never a moderator's later draft
+    over it (owner decision 2026-10-11, todo 561), else the latest revision.
+    Never a fresh copy of the row: a held edit exists only as a revision
+    (todo 432), so a row written after it is not what goes live here (the
+    topic-publish path, ``signals._publish_counterpart``, differs: it
+    publishes whichever is newer). Publishing cancels the
     post's active workflow state (``WAGTAIL_WORKFLOW_CANCEL_ON_PUBLISH``), so
     the row leaves the queue and the dashboard count drops. The revision's
     snapshot of ``reaction_counts`` does not go live: every publish keeps the
@@ -540,7 +561,7 @@ def approve_pending_post(post, user):
             or post.has_unpublished_changes
             or post.current_workflow_state is not None
         ):
-            revision = post.latest_revision or post.save_revision(user=user)
+            revision = _held_revision(post) or post.save_revision(user=user)
             revision.publish(user=user, skip_permission_checks=True)
         if post.is_opening_post:
             topic = Topic.objects.select_for_update().get(pk=post.topic_id)
@@ -589,20 +610,21 @@ def _no_reject(request, post):
 
 
 def _revision_missing(request):
-    """A Reject request that names no revision at all: not one the pending
-    page made, which always sends the revision its row showed (todo 499)."""
+    """An Approve or Reject request that names no revision at all: not one the
+    pending page made, which always sends the revision its row showed (todos
+    499 and 561)."""
     messages.warning(
         request,
         gettext(
-            "That Reject request did not name the revision it was for, so "
-            "nothing was deleted. Use Reject on the pending page."
+            "That request did not name the revision it was for, so nothing "
+            "was published or deleted. Use the buttons on the pending page."
         ),
     )
     return redirect("wagtail_forum_pending:index")
 
 
 def _shown_revision(post):
-    return str(post.latest_revision_id or "")
+    return str(_held_revision_id(post) or "")
 
 
 def _lock_pending_post(pk, *, whole_thread=False):
@@ -612,11 +634,11 @@ def _lock_pending_post(pk, *, whole_thread=False):
     committed. Approve and Reject both lock in this order. None when the post
     is gone or no longer pending. Call inside ``transaction.atomic()``.
 
-    Post before topic is also the order of every other write: an API edit,
+    Post before topic is also the order of most other writes: an API edit,
     an API delete and a reports auto-hide lock the post, then update the
-    topic's counters. The one write that runs the other way is a topic's
-    delete, which deletes every post in the thread after the topic row is
-    already held. So Reject passes ``whole_thread``, and for an opening post,
+    topic's counters. Two writes run the other way. A topic's delete deletes
+    every post in the thread after the topic row is already held. So Reject
+    passes ``whole_thread``, and for an opening post,
     whose Reject may delete its topic, every post in the thread is locked in
     pk order before the topic (todo 499). An Approve or Reject of a reply in
     that thread then waits on its post instead of holding it while it waits
@@ -624,7 +646,16 @@ def _lock_pending_post(pk, *, whole_thread=False):
     Taking the topic first instead would only move that deadlock onto the
     API paths above. An opening post under a live topic has no Reject, so
     only a hand-made request locks a live thread here, and only for this
-    transaction."""
+    transaction.
+
+    The second is a known residual window (todo 561): a topic's first
+    publish, from the snippet editor, saves the topic row and then, in its
+    ``published`` receiver, publishes the never-published opening post
+    (``signals._publish_counterpart``). An Approve or Reject of that opening
+    post at the same moment can deadlock against it, and Postgres then fails
+    one of the two with a 500. It needs two moderators deciding the same new
+    thread in two places within the same instant, and neither side is left
+    half-done: the failed transaction rolls back and can be repeated."""
     locked = Post.objects.select_for_update().filter(pk=pk).first()
     if locked is None:
         return None
@@ -767,7 +798,10 @@ class ApprovePendingView(View):
                     % {"title": post.topic.title},
                 )
                 return redirect("wagtail_forum_pending:index")
-            if request.POST.get("revision") != _shown_revision(post):
+            revision = request.POST.get("revision")
+            if revision is None:
+                return _revision_missing(request)
+            if revision != _shown_revision(post):
                 return _changed_since_loaded(request, post)
             approve_pending_post(post, request.user)
         messages.success(

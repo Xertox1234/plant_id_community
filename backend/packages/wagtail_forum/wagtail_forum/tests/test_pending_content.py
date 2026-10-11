@@ -245,8 +245,9 @@ def test_page_lists_new_topics_replies_and_held_edits_and_nothing_decided(client
     WAGTAILFORUM_SPAM_BACKEND="wagtail_forum.tests.api.test_topic_create.RaisingSpamBackend"
 )
 def test_page_lists_a_draft_whose_spam_backend_crashed():
-    # The old dashboard count missed this one (the crash rolls the workflow
-    # state back). It is still a never-published draft, so it is pending.
+    # The old dashboard count missed this one (the crash rolled the workflow
+    # state back). Since todo 561 the spam check holds it with the error as
+    # the task's comment, and it is a never-published draft either way.
     board = _board()
     author = _member("newbie")
     topic = Topic.objects.create(
@@ -255,7 +256,8 @@ def test_page_lists_a_draft_whose_spam_backend_crashed():
     post = Post(topic=topic, author=author, is_opening_post=True, body=_body("x"))
     post.save()
     assert submit_for_moderation(post, author) == "pending"
-    assert post.current_workflow_state is None
+    state = post.current_workflow_state
+    assert state.status == state.STATUS_NEEDS_CHANGES
 
     assert list(pending_posts()) == [post]
 
@@ -861,9 +863,10 @@ def test_a_taken_down_topic_with_a_held_edit_is_not_pending_and_stays_down(clien
 
 
 def test_an_edit_whose_moderation_step_crashed_is_listed_and_approvable(client):
-    # Finding 2: the crash rolls the workflow state back, so the post is live
-    # with an unpublished revision and no state. The API tells the author
-    # "pending"; the page must list it.
+    # Finding 2: the API tells the author "pending"; the page must list it.
+    # The crash used to roll the workflow state back and leave no state; since
+    # todo 561 the spam check holds the edit with the error as its comment,
+    # and Approve publishes the revision that task state holds.
     board = _board()
     author = _member("newbie")
     _topic, post = _live_topic(author, board)
@@ -871,7 +874,9 @@ def test_an_edit_whose_moderation_step_crashed_is_listed_and_approvable(client):
         WAGTAILFORUM_SPAM_BACKEND="wagtail_forum.tests.api.test_topic_create.RaisingSpamBackend"
     ):
         _pending_edit(author, post, "crashed edit")
-    assert post.current_workflow_state is None
+    state = post.current_workflow_state
+    assert state.status == state.STATUS_NEEDS_CHANGES
+    assert state.current_task_state.revision_id == post.latest_revision_id
     assert post.has_unpublished_changes is True
 
     assert list(pending_posts()) == [post]
@@ -1011,7 +1016,14 @@ def test_reject_refuses_a_revision_the_moderator_did_not_see(client):
     topic, _ = _live_topic(author, board)
     reply = _pending_reply(author, topic)
     seen = reply.latest_revision_id
-    reply.save_revision(user=author)  # the author edits the held reply again
+    # The held reply is edited and screened again, so the row now stands for
+    # the new held revision. (A draft saved over a held revision without a
+    # new screen does not change what the row stands for since todo 561: the
+    # row is the revision its task state holds.)
+    reply.body = [{"type": "paragraph", "value": f"<p>edited again {SPAM}</p>"}]
+    reply.save_revision(user=author)
+    reply.current_workflow_state.cancel(user=author)
+    reply.get_workflow().start(reply, None)
     client.force_login(_moderator())
 
     resp = client.post(_reject_url(reply), {"revision": seen})
@@ -1526,3 +1538,216 @@ def test_a_new_topics_held_retitle_is_the_title_shown_and_published(client):
     assert retitle in confirm.content.decode()
     topic.refresh_from_db()
     assert topic.live is True and topic.title == retitle
+
+
+# --- Todo 561: PR #952 review follow-ups ------------------------------------
+
+RAISING_BACKEND = "wagtail_forum.tests.api.test_topic_create.RaisingSpamBackend"
+
+
+def _draft_over_held_edit(post, text):
+    """A moderator's "Save draft" (EditAction) on a post whose edit is held."""
+    from wagtail.actions.edit import EditAction
+    from wagtail_forum.blocks import ForumBodyBlock
+
+    draft = post.get_latest_revision_as_object()
+    draft.body = ForumBodyBlock().to_python(_body(text))
+    EditAction(draft, user=_moderator("drafting-mod")).execute(
+        skip_permission_checks=True
+    )
+    post.refresh_from_db()
+    assert post.current_workflow_state is not None  # still held
+    return post
+
+
+def test_approve_of_a_held_edit_publishes_the_held_revision_not_a_later_draft(client):
+    # Finding 1 (owner decision 2026-10-11): a moderator's "Save draft" over a
+    # held edit kept the row listed, and Approve published the draft as the
+    # author's. The row stands for the revision the task state holds.
+    board = _board()
+    author = _member("newbie")
+    _topic, post = _live_topic(author, board)
+    _pending_edit(author, post, "held edit")
+    held = post.current_workflow_state.current_task_state.revision_id
+    _draft_over_held_edit(post, "moderator draft")
+    assert post.latest_revision_id != held
+    client.force_login(_moderator())
+
+    html = client.get(_page_url()).content.decode()
+    row = _row(html, post)
+    assert "held edit" in row["Pending content"]
+    assert f'value="{held}"' in row["_html"]
+
+    resp = _approve(client, post, revision=held)
+
+    assert any("Published" in m for m in _messages(resp))
+    post.refresh_from_db()
+    assert "held edit" in post.body.raw_data[0]["value"]
+    assert "moderator draft" not in post.body.raw_data[0]["value"]
+    assert not pending_posts().exists()
+
+
+def test_approve_naming_the_later_draft_over_a_held_edit_publishes_nothing(client):
+    board = _board()
+    author = _member("newbie")
+    _topic, post = _live_topic(author, board)
+    _pending_edit(author, post, "held edit")
+    _draft_over_held_edit(post, "moderator draft")
+    client.force_login(_moderator())
+
+    resp = _approve(client, post, revision=post.latest_revision_id)
+
+    assert any("changed after this page loaded" in m for m in _messages(resp))
+    post.refresh_from_db()
+    assert "held edit" not in post.body.raw_data[0]["value"]
+
+
+def test_a_moderators_draft_of_their_own_live_post_is_not_pending():
+    # Finding 1: the old crash clause keyed on revision.user == author, so a
+    # moderator's draft of their OWN post was listed, and another moderator's
+    # Approve published the work in progress.
+    board = _board()
+    mod = _moderator("author-mod")
+    _topic, post = _live_topic(mod, board)
+    from wagtail.actions.edit import EditAction
+    from wagtail_forum.blocks import ForumBodyBlock
+
+    draft = post.get_latest_revision_as_object()
+    draft.body = ForumBodyBlock().to_python(_body("work in progress"))
+    EditAction(draft, user=mod).execute(skip_permission_checks=True)
+    post.refresh_from_db()
+    assert post.has_unpublished_changes is True
+
+    assert not pending_posts().exists()
+
+
+def test_a_moderators_crashed_edit_of_a_members_post_is_listed():
+    # Finding 1: the revision is saved as the moderator, so the old clause
+    # (revision.user == author) dropped it while the API answered "pending".
+    from wagtail_forum.blocks import ForumBodyBlock
+
+    board = _board()
+    author = _member("newbie")
+    _topic, post = _live_topic(author, board)
+    post.body = ForumBodyBlock().to_python(_body("moderator's crashed edit"))
+    with override_settings(WAGTAILFORUM_SPAM_BACKEND=RAISING_BACKEND):
+        assert submit_edit_for_moderation(post, _moderator()) == "pending"
+
+    assert list(pending_posts()) == [post]
+
+
+def test_a_crashed_edit_of_an_account_deleted_authors_post_is_listed():
+    from wagtail_forum.blocks import ForumBodyBlock
+
+    board = _board()
+    author = _member("leaving")
+    _topic, post = _live_topic(author, board)
+    Post.objects.filter(pk=post.pk).update(author=None)
+    post.refresh_from_db()
+    post.body = ForumBodyBlock().to_python(_body("crashed edit"))
+    with override_settings(WAGTAILFORUM_SPAM_BACKEND=RAISING_BACKEND):
+        assert submit_edit_for_moderation(post, _member("someone")) == "pending"
+
+    assert list(pending_posts()) == [post]
+
+
+def test_reject_post_without_a_revision_says_so_and_deletes_nothing(client):
+    # Finding 4: the POST twin of the GET test above. Without the POST's own
+    # "revision is None" check it fell through to "changed after".
+    board = _board()
+    topic, opening = _pending_topic(_member("newbie"), board)
+    client.force_login(_moderator())
+
+    resp = client.post(_reject_url(opening))
+
+    assert resp.status_code == 302
+    assert any("did not name the revision" in m for m in _messages(resp))
+    assert not any("changed after" in m for m in _messages(resp))
+    assert Topic.objects.filter(pk=topic.pk).exists()
+
+
+def test_reject_post_of_a_held_edit_says_it_has_no_reject(client):
+    board = _board()
+    author = _member("newbie")
+    _topic, post = _live_topic(author, board)
+    _pending_edit(author, post)
+    client.force_login(_moderator())
+
+    resp = client.post(_reject_url(post), {"revision": post.latest_revision_id})
+
+    assert any("has no Reject" in m for m in _messages(resp))
+    post.refresh_from_db()
+    assert post.live is True
+
+
+def test_reject_post_of_an_opening_post_under_a_live_topic_says_it_has_no_reject(
+    client,
+):
+    board = _board()
+    topic, opening = _pending_topic(
+        _member("owner"), board, post_author=_member("other")
+    )
+    admin = User.objects.create_superuser(username="root", email="r@x.io")
+    topic.save_revision(user=admin).publish(user=admin)
+    opening.refresh_from_db()
+    client.force_login(_moderator())
+
+    resp = client.post(_reject_url(opening), {"revision": opening.latest_revision_id})
+
+    assert any("has no Reject" in m for m in _messages(resp))
+    assert Post.objects.filter(pk=opening.pk).exists()
+
+
+def test_reject_of_a_held_reply_never_locks_its_whole_thread(client):
+    # Finding 4: only an opening post's Reject may delete its topic, so only
+    # it locks the thread. A reply's Reject locks that reply and the topic.
+    board = _board()
+    author = _member("newbie")
+    topic, _opening = _live_topic(author, board)
+    reply = _pending_reply(author, topic)
+    client.force_login(_moderator())
+
+    sql = _sql_of(
+        lambda: client.post(_reject_url(reply), {"revision": reply.latest_revision_id})
+    )
+
+    assert _first(sql, _locks("wagtail_forum_post")) is not None
+    assert _first(sql, _locks_a_thread) is None
+    assert not Post.objects.filter(pk=reply.pk).exists()
+
+
+def test_reject_of_a_new_topic_locks_its_thread_in_pk_order(client):
+    # Finding 4: the pk order is what keeps two whole-thread locks from
+    # deadlocking each other.
+    board = _board()
+    author = _member("newbie")
+    topic, opening = _pending_topic(author, board)
+    Post.objects.create(topic=topic, author=author, body=_body("draft"), live=False)
+    client.force_login(_moderator())
+    opening.refresh_from_db()
+
+    sql = _sql_of(
+        lambda: client.post(
+            _reject_url(opening), {"revision": opening.latest_revision_id}
+        )
+    )
+
+    thread_lock = sql[_first(sql, _locks_a_thread)]
+    # The statement selects only the pk, so Postgres SQL names it `1`; without
+    # `.order_by("pk")` it would be Post.Meta.ordering, created_at.
+    assert thread_lock.startswith('SELECT "wagtail_forum_post"."id" AS "pk" ')
+    assert "ORDER BY 1 ASC FOR UPDATE" in thread_lock
+
+
+def test_approve_without_a_revision_says_so(client):
+    # Finding 7: Approve read a missing revision field as a change.
+    board = _board()
+    _topic, post = _pending_topic(_member("newbie"), board)
+    client.force_login(_moderator())
+
+    resp = client.post(_approve_url(post))
+
+    assert any("did not name the revision" in m for m in _messages(resp))
+    assert not any("changed after" in m for m in _messages(resp))
+    post.refresh_from_db()
+    assert post.live is False

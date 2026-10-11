@@ -522,3 +522,67 @@ def test_read_accessor_still_resolves_a_block_the_writer_would_reject():
     # ...while the writer still refuses the unknown key outright.
     assert _valid_image_block_value(unknown_key) is False
     assert _valid_image_block_value(long_alt) is True  # truncated, not rejected
+
+
+# --- Todo 554 (PR #942 follow-ups): alt is a fixed point; NUL never 500s ---
+
+
+def test_an_alt_capped_on_whitespace_keeps_no_trailing_space():
+    # Finding 4: the cap ran after strip, so a 255th character that is a
+    # space was stored, and the composer's .trim() dropped it on re-save.
+    from wagtail_forum.api.sanitize import MAX_ALT_TEXT_LENGTH, normalise_alt_text
+
+    stored = normalise_alt_text("x" * 254 + " " + "y" * 10)
+
+    assert stored == "x" * 254
+    assert len(stored) <= MAX_ALT_TEXT_LENGTH
+    assert normalise_alt_text(stored) == stored
+
+
+@pytest.mark.parametrize(
+    "raw",
+    ["﻿A leaf﻿", "A\x00 leaf\r\n", " A leaf \r", "\x00﻿ A leaf"],
+    ids=["bom-edges", "nul-and-crlf", "cr-edge", "nul-bom-lead"],
+)
+def test_a_stored_alt_is_its_own_normalisation(raw):
+    # Python's str.strip() keeps U+FEFF, which JavaScript's trim() removes.
+    from wagtail_forum.api.sanitize import normalise_alt_text
+
+    stored = normalise_alt_text(raw)
+
+    assert "﻿" not in stored and "\x00" not in stored
+    assert stored == stored.strip()
+    assert normalise_alt_text(stored) == stored
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    ("block", "expected"),
+    [
+        ({"type": "heading", "value": "Re\x00pot"}, "Repot"),
+        ({"type": "quote", "value": "Water \x00weekly"}, "Water weekly"),
+        (
+            {"type": "code", "value": {"language": "py\x00", "code": "x\x00 = 1"}},
+            {"language": "py", "code": "x = 1"},
+        ),
+    ],
+    ids=["heading", "quote", "code"],
+)
+def test_nul_is_deleted_from_every_text_block(block, expected):
+    # Finding 5: Postgres refuses U+0000 in the jsonb body, so these reached
+    # the save and answered 500 instead of storing or refusing.
+    from wagtail_forum.api.sanitize import validate_forum_body
+
+    cleaned = validate_forum_body([block], set())
+
+    assert cleaned[0]["value"] == expected
+
+
+def test_nul_is_deleted_from_a_post_quote_text():
+    # The post_quote's text sub-value goes through the same pass; its quoted
+    # post lookup needs a live post, so the pass is driven directly here.
+    from wagtail_forum.api.sanitize import _without_nul
+
+    block = {"type": "post_quote", "value": {"post": 7, "text": "As\x00 you said"}}
+
+    assert _without_nul(block)["value"] == {"post": 7, "text": "As you said"}

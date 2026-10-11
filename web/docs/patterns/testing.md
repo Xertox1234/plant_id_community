@@ -323,20 +323,37 @@ per-instance flag re-offered — and re-failed — a 403-ing premium action on e
 reply, while the code comment claimed the user was "not left clicking a dead
 button".
 
-Put a session-lifetime API fact in the service module and seed component state
-from it:
+Put a session-lifetime API fact in the service layer and seed component state
+from it. The facts live in one keyed registry, `src/services/capabilityLatch.ts`
+(todo 433), never a `let` per feature: each one is about the ACCOUNT, so
+`AuthContext` clears all of them on every identity change with one
+`resetAllCapabilityLatches()` call. A per-feature `let` needs its own reset line
+there, and the one nobody adds is the todo 275 bug again. A new capability adds a
+`CapabilityKey` and its named wrappers in `forumService.ts`:
 
 ```ts
-// forumService.ts
-let composeAssistUnavailable = false;
-export const isComposeAssistUnavailable = () => composeAssistUnavailable;
-export const markComposeAssistUnavailable = () => { composeAssistUnavailable = true; };
+// capabilityLatch.ts
+export type CapabilityKey = 'composeAssist' | 'plantCareAsk' | 'topicSummary' | 'newFeature';
+
+// forumService.ts — named wrappers over the registry
+export function isNewFeatureUnavailable(): boolean {
+  return isCapabilityUnavailable('newFeature');
+}
+export function markNewFeatureUnavailable(): void {
+  markCapabilityUnavailable('newFeature');
+}
 /** Test-only — module state otherwise leaks between cases in a file. */
-export const resetComposeAssistAvailability = () => { composeAssistUnavailable = false; };
+export function resetNewFeatureAvailability(): void {
+  resetCapabilityAvailability('newFeature');
+}
 
 // component
-const [unavailable, setUnavailable] = useState(isComposeAssistUnavailable);
+const [unavailable, setUnavailable] = useState(isNewFeatureUnavailable);
 ```
+
+Add the new wrappers to the `capability latch wrappers` table in
+`forumService.test.ts` (todo 554): it pins that each wrapper maps to its own key,
+which a consumer test reading its own wrappers cannot see.
 
 Two things this costs you, both worth paying deliberately:
 

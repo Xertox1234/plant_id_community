@@ -28,9 +28,10 @@ import type { PlantCareAnswer, PlantCareSource } from '../../types/forum';
  * Availability follows the compose-assist contract: 403/`code:disabled` — and
  * a 401 for an ANONYMOUS visitor, whom it teaches to sign in — are permanent
  * for the session and latch in the service (a remount cannot re-offer the
- * action; `AuthContext` clears the latch on auth change). A 401 for a
- * signed-in user is an expired access cookie, not "can't": it says so and
- * never latches (PR #816 / todo 433). `unavailable`/429/400 keep the form
+ * action; `AuthContext` clears the latch on auth change, and this panel drops
+ * its copy on the same identity change). A 401 for a signed-in user, or while
+ * auth is still loading, is an expired access cookie, not "can't": it says so
+ * and never latches (PR #816 / todos 433, 554). `unavailable`/429/400 keep the form
  * usable. The control stays MOUNTED when disabled so the focus the user just
  * placed on it is not dropped.
  */
@@ -143,13 +144,27 @@ interface PlantCareAskPanelProps {
 }
 
 export default function PlantCareAskPanel({ initialQuestion = '' }: PlantCareAskPanelProps) {
-  // Only to tell a signed-in user's 401 (expired cookie) from an anonymous one.
-  const { isAuthenticated } = useAuth();
+  // To tell a signed-in user's 401 (expired cookie) from an anonymous one, and
+  // to notice an identity change.
+  const { isAuthenticated, isLoading, user } = useAuth();
   const [open, setOpen] = useState(false);
   const [question, setQuestion] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [unavailable, setUnavailable] = useState(isPlantCareAskUnavailable);
+  // An identity change clears the service latch (AuthContext's
+  // resetAllCapabilityLatches), so it clears this copy of it too: a visitor
+  // whose anonymous 401 latched "sign in" and who then signs in gets the form
+  // back without a reload (todo 554). Adjusted during render, not in an
+  // effect: a child's effect runs before AuthContext's, so it would still
+  // read the old latch.
+  const userId = user?.id ?? null;
+  const [seenUserId, setSeenUserId] = useState(userId);
+  if (userId !== seenUserId) {
+    setSeenUserId(userId);
+    setUnavailable(false);
+    setError(null);
+  }
   const [result, setResult] = useState<PlantCareAnswer | null>(null);
   const [reporting, setReporting] = useState(false);
   const [reportDetail, setReportDetail] = useState('');
@@ -176,13 +191,16 @@ export default function PlantCareAskPanel({ initialQuestion = '' }: PlantCareAsk
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Something went wrong.';
       logger.error('Plant-care ask failed', { component: 'PlantCareAskPanel', error: message });
-      if (err instanceof RagError && err.status === 401 && isAuthenticated) {
+      if (err instanceof RagError && err.status === 401 && (isAuthenticated || isLoading)) {
         // A signed-in user's 401 is an expired access cookie (the refresh timer
         // is throttled in background tabs and stops during sleep), not "this
         // account can't": say so and keep the form. Latching it would hide a
         // paid feature until reload — the bug PR #816 fixed for the thread
-        // summary (todo 433). `RagError.permanent` still includes 401 for the
-        // anonymous visitor the branch below teaches to sign in.
+        // summary (todo 433). While AuthContext is still bootstrapping,
+        // `isAuthenticated` is false even for a signed-in user, so a 401 then
+        // is not proof of an anonymous visitor either: never latch it (todo
+        // 554). `RagError.permanent` still includes 401 for the anonymous
+        // visitor the branch below teaches to sign in.
         setError(SESSION_EXPIRED);
       } else if (err instanceof RagError && err.permanent) {
         // Retrying can never succeed for this visitor/deployment — remember it

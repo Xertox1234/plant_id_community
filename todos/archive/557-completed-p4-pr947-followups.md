@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: p4
 issue_id: "557"
 tags: [todo-sweep, follow-ups, backend]
@@ -31,10 +31,31 @@ finding against main before acting on it.
 
 ## Acceptance Criteria
 
-- [ ] Each of its 2 findings is fixed with a test, or the Work Log records why it was left as is.
+- [x] Each of its 2 findings is fixed with a test, or the Work Log records why it was left as is.
 
 ## Work Log
 
 ### 2026-10-10 - Promoted out of todo 527
 
 - Split from the consolidated follow-up todo 527 (owner decision 2026-10-10: one todo per source PR).
+
+### 2026-10-11 - Implemented by the todo sweep (run 2026-10-11-1448)
+
+- F1: `_refresh_topic_authors` in `signals.py` adds `.order_by()` before `.distinct()`, so `Post.Meta.ordering` no longer puts `created_at` into the SELECT DISTINCT; `test_approving_a_thread_recounts_an_author_with_two_live_replies_once` was red before the fix (the second author was recounted twice).
+- F2: `test_topic_approval.py` hoists `_post_publishes_fail()` (carrying the "patch Revision.publish" reason) and `_live_reply()`, used by the three tests that copied them, and the scheduled-post comment now says the board assertions are the invariant and the `_refresh_profile` pin becomes `[]` after such a Wagtail bump.
+
+### 2026-10-11 - Verified by the todo sweep (run 2026-10-11-1448)
+
+- AC 1: `cd backend && python3 scripts/todos/slot_env.py --main-root . 1 -- backend/venv/bin/python -m pytest packages/wagtail_forum/wagtail_forum/tests/test_topic_approval.py --create-db -v -p no:cacheprovider` — evidence `.sweep-evidence/g2/557-ac0.txt` (not committed), last lines:
+
+  ```text
+  ============================== ENVIRONMENT DRIFT ===============================
+  backend/venv does not match backend/requirements.txt — these results describe a tree CI does not run.
+    mismatched: pyjwt (pinned 2.15.0, installed 2.13.0), urllib3 (pinned 2.8.0, installed 2.7.0)
+  Fix: pip install -r backend/requirements.txt (see todo 378).
+  ======================= 34 passed, 3 warnings in 21.52s ========================
+  ```
+
+### 2026-10-11 - Completed by the todo sweep (run 2026-10-11-1448)
+
+- Archived by `land.py archive`; evidence is quoted above, review is on the PR.
