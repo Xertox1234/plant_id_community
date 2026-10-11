@@ -228,6 +228,31 @@ class FirebaseTokenExchangeTestCase(TestCase):
         self.assertEqual(response.data["error"], "firebase_token is required")
 
     @patch("apps.users.firebase_auth_views.firebase_auth.verify_id_token")
+    def test_an_over_long_name_claim_is_truncated_not_a_500(self, mock_verify):
+        """first_name is max_length=150; the claim is not limited. Unsliced, a
+        longer name was a DataError on PostgreSQL: a 500 on every sign-in for
+        that account (todo 562 finding 1). Covers the create path and, on
+        the second sign-in, the bound-uid path with an empty first_name."""
+        mock_verify.return_value = {**self.decoded_token, "name": "N" * 151}
+
+        response = self.client.post(
+            self.url, {"firebase_token": self.firebase_token}, format="json"
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        user = User.objects.get(firebase_uid="test-firebase-uid-123")
+        self.assertEqual(user.first_name, "N" * 150)
+
+        User.objects.filter(pk=user.pk).update(first_name="")
+        response = self.client.post(
+            self.url, {"firebase_token": self.firebase_token}, format="json"
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        user.refresh_from_db()
+        self.assertEqual(user.first_name, "N" * 150)
+
+    @patch("apps.users.firebase_auth_views.firebase_auth.verify_id_token")
     def test_invalid_firebase_token(self, mock_verify):
         """Test error when Firebase token is invalid."""
         # Mock Firebase token verification failure
@@ -253,18 +278,34 @@ class FirebaseTokenExchangeTestCase(TestCase):
         """A 401 here is deliberately not brute-force input (todo 419 item 3,
         decided in the PR #818 review; pinned over HTTP since todo 435 moved
         the tracking call into the login view). The reasons are on
-        ``SecurityMonitor.track_failed_login``."""
-        from firebase_admin.auth import InvalidIdTokenError
+        ``SecurityMonitor.track_failed_login``. Both of the view's 401
+        branches are driven, and the message says which one ran (todo 553
+        finding 4)."""
+        from firebase_admin.auth import ExpiredIdTokenError, InvalidIdTokenError
 
-        mock_verify.side_effect = InvalidIdTokenError("Invalid token", cause=None)
+        for error, message in (
+            (
+                InvalidIdTokenError("Invalid token", cause=None),
+                "Invalid Firebase token",
+            ),
+            (
+                ExpiredIdTokenError("Token expired", cause=None),
+                "Firebase token has expired",
+            ),
+        ):
+            with self.subTest(error=type(error).__name__):
+                mock_verify.side_effect = error
 
-        with patch("apps.core.security.SecurityMonitor.track_failed_login") as track:
-            response = self.client.post(
-                self.url, {"firebase_token": "invalid-token"}, format="json"
-            )
+                with patch(
+                    "apps.core.security.SecurityMonitor.track_failed_login"
+                ) as track:
+                    response = self.client.post(
+                        self.url, {"firebase_token": "invalid-token"}, format="json"
+                    )
 
-        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
-        track.assert_not_called()
+                self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+                self.assertEqual(response.data["error"], message)
+                track.assert_not_called()
 
     @patch("apps.users.firebase_auth_views.firebase_auth.verify_id_token")
     def test_expired_firebase_token(self, mock_verify):
@@ -323,17 +364,54 @@ class FirebaseTokenExchangeTestCase(TestCase):
         self.assertEqual(response.status_code, status.HTTP_500_INTERNAL_SERVER_ERROR)
 
     @patch("apps.users.firebase_auth_views.firebase_auth.verify_id_token")
-    def test_disabled_firebase_account_is_a_refusal(self, mock_verify):
-        """A disabled account (check_revoked) is refused, never an outage."""
-        mock_verify.side_effect = firebase_auth.UserDisabledError(
-            "The user record is disabled."
-        )
+    def test_revocation_is_not_checked(self, mock_verify):
+        """Todo 567 finding 1, owner decision 2026-10-11: the documented 401
+        for a revoked token or a disabled Firebase account is retracted, not
+        built. Without check_revoked=True, verify_id_token raises neither, so
+        the UserDisabledError branch that test once drove was dead code.
+        Turning the check on means changing this test, the schema and
+        FIREBASE_AUTHENTICATION.md together."""
+        mock_verify.return_value = {**self.decoded_token, "name": "Test User"}
 
         response = self.client.post(
             self.url, {"firebase_token": self.firebase_token}, format="json"
         )
 
-        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        mock_verify.assert_called_once_with(self.firebase_token)
+
+    @patch("apps.users.firebase_auth_views.firebase_auth.verify_id_token")
+    def test_a_bug_after_verification_is_logged_with_its_traceback(self, mock_verify):
+        """The 500 is debuggable: the log record carries exc_info, so Sentry
+        gets the stack, not only a message (todo 567 finding 6)."""
+        mock_verify.return_value = {"email": "x@example.com", "email_verified": True}
+
+        with self.assertLogs("apps.users.firebase_auth_views", level="ERROR") as logs:
+            response = self.client.post(
+                self.url, {"firebase_token": self.firebase_token}, format="json"
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_500_INTERNAL_SERVER_ERROR)
+        [record] = [r for r in logs.records if "Unexpected error" in r.getMessage()]
+        self.assertIsNotNone(record.exc_info)
+        self.assertIs(record.exc_info[0], KeyError)
+
+    def test_the_schema_documents_429_and_no_revocation_promise(self):
+        """Todo 567 findings 1 and 4: the view is rate-limited, so the schema
+        lists the 429, and it no longer promises a 401 for a revoked token or
+        a disabled account."""
+        from drf_spectacular.generators import SchemaGenerator
+
+        schema = SchemaGenerator().get_schema(request=None, public=True)
+        [operation] = [
+            item["post"]
+            for path, item in schema["paths"].items()
+            if path.endswith("/auth/firebase-token-exchange/")
+        ]
+
+        self.assertIn("429", operation["responses"])
+        refusal = operation["responses"]["401"]["description"]
+        self.assertIn("Revocation is not checked", refusal)
 
     @patch("apps.users.firebase_auth_views.firebase_auth.verify_id_token")
     def test_certificate_fetch_failure_is_503_not_401(self, mock_verify):

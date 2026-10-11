@@ -1,3 +1,4 @@
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -84,6 +85,7 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
   bool _bioLoaded = false;
   bool _saving = false;
   bool _uploading = false;
+  bool _removing = false;
 
   @override
   void dispose() {
@@ -129,6 +131,39 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
     }
   }
 
+  Future<void> _removePhoto() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Remove your photo?'),
+        content: const Text('Your profile will show the default icon.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('Remove'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    setState(() => _removing = true);
+    try {
+      await ref.read(userProfileServiceProvider.notifier).deleteAvatar();
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Photo removed')));
+    } catch (e) {
+      _showError(e);
+    } finally {
+      if (mounted) setState(() => _removing = false);
+    }
+  }
+
   Future<void> _save() async {
     setState(() => _saving = true);
     try {
@@ -157,14 +192,26 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
     final ext =
         Theme.of(context).extension<GreenThumbExtension>() ??
         GreenThumbExtension.fallback;
-    final busy = _saving || _uploading;
+    final busy = _saving || _uploading || _removing;
+    // Save only while the form is on screen, so the bio field holds the
+    // profile's bio. An error or reload state can still carry an old value
+    // while the field was never filled, and Save then sent "", erasing the
+    // bio (todo 565 finding 5).
+    final shownProfile = switch (profileAsync) {
+      AsyncData(:final value) when value != null => value,
+      _ => null,
+    };
+    if (shownProfile != null && !_bioLoaded) {
+      _bioController.text = shownProfile.bio ?? '';
+      _bioLoaded = true;
+    }
 
     return Scaffold(
       appBar: AppBar(
         title: const Text('Edit profile'),
         actions: [
           TextButton(
-            onPressed: busy || profileAsync.value == null ? null : _save,
+            onPressed: busy || shownProfile == null ? null : _save,
             child: _saving
                 ? const SizedBox(
                     width: 18,
@@ -176,7 +223,7 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
         ],
       ),
       body: switch (profileAsync) {
-        AsyncData(:final value) when value != null => _form(value, ext, busy),
+        _ when shownProfile != null => _form(shownProfile, ext, busy),
         AsyncError(:final error) => Center(
           child: Padding(
             padding: EdgeInsets.all(ext.padScreen),
@@ -209,10 +256,6 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
   }
 
   Widget _form(UserProfile profile, GreenThumbExtension ext, bool busy) {
-    if (!_bioLoaded) {
-      _bioController.text = profile.bio ?? '';
-      _bioLoaded = true;
-    }
     final cs = Theme.of(context).colorScheme;
     final avatarUrl = profile.avatar;
 
@@ -232,8 +275,9 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
                 child: CircleAvatar(
                   radius: 48,
                   backgroundColor: cs.primaryContainer,
+                  // Cached, like every other network image in the app.
                   backgroundImage: avatarUrl != null
-                      ? NetworkImage(avatarUrl)
+                      ? CachedNetworkImageProvider(avatarUrl)
                       : null,
                   onBackgroundImageError: avatarUrl != null
                       ? (error, _) {
@@ -242,7 +286,7 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
                           }
                         }
                       : null,
-                  child: _uploading
+                  child: _uploading || _removing
                       ? const CircularProgressIndicator()
                       : avatarUrl == null
                       ? Icon(LucideIcons.user, size: 40, color: cs.primary)
@@ -251,12 +295,23 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
               ),
             ),
             SizedBox(height: ext.gapY),
-            Center(
-              child: TextButton.icon(
-                onPressed: busy ? null : _changePhoto,
-                icon: const Icon(LucideIcons.camera),
-                label: Text(avatarUrl == null ? 'Add photo' : 'Change photo'),
-              ),
+            Wrap(
+              alignment: WrapAlignment.center,
+              children: [
+                TextButton.icon(
+                  onPressed: busy ? null : _changePhoto,
+                  icon: const Icon(LucideIcons.camera),
+                  label: Text(avatarUrl == null ? 'Add photo' : 'Change photo'),
+                ),
+                // A photo added here can be taken away here, not only
+                // replaced (todo 565 finding 9).
+                if (avatarUrl != null)
+                  TextButton.icon(
+                    onPressed: busy ? null : _removePhoto,
+                    icon: const Icon(LucideIcons.trash2),
+                    label: const Text('Remove photo'),
+                  ),
+              ],
             ),
             SizedBox(height: ext.gapY * 2),
             TextField(

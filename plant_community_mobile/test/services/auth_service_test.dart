@@ -575,6 +575,152 @@ void main() {
     });
   });
 
+  group('account profile across sign-outs (todo 558)', () {
+    Future<(_Harness, ProviderSubscription<AsyncValue<UserProfile?>>)>
+    watched(List<Override> overrides) async {
+      final harness = _Harness(
+        currentUser: _FakeUser(uid: 'ada'),
+        overrides: overrides,
+      );
+      addTearDown(harness.dispose);
+      await pumpEventQueue();
+      final watching = harness.container.listen(
+        userProfileServiceProvider,
+        (_, _) {},
+      );
+      addTearDown(watching.close);
+      await harness.container.read(userProfileServiceProvider.future);
+      return (harness, watching);
+    }
+
+    test('#1: a second expiry under a paused watcher sends no bearerless '
+        'profile fetch', () async {
+      // The re-login's invalidate is deferred under the paused watcher, so
+      // the element is dirty; the expiry's `.notifier` read flushes it. Its
+      // build() used to GET /auth/user/ just after setAuthToken(null).
+      final fetches = <bool>[];
+      final (harness, watching) = await watched([
+        userProfileServiceProvider.overrideWith(
+          () => _FetchRecordingUserProfileService(fetches),
+        ),
+      ]);
+      expect(fetches, [true]);
+      watching.pause();
+
+      await harness.api.sessionExpiredHandler!();
+      await harness.emitAuthState(null);
+      await harness.signIn(_FakeUser(uid: 'ada'));
+      await harness.api.sessionExpiredHandler!();
+      await harness.emitAuthState(null);
+      await pumpEventQueue();
+
+      expect(fetches, isNot(contains(false)), reason: 'a fetch went out with '
+          'no bearer');
+      final profile = harness.container.read(userProfileServiceProvider);
+      expect(profile.value, isNull);
+      expect(profile.hasError, isFalse);
+    });
+
+    test('#1: with no bearer, build() returns no profile and sends no '
+        'request', () async {
+      final fetches = <bool>[];
+      final harness = _Harness(
+        overrides: [
+          userProfileServiceProvider.overrideWith(
+            () => _FetchRecordingUserProfileService(fetches),
+          ),
+        ],
+      );
+      addTearDown(harness.dispose);
+
+      final profile = await harness.container.read(
+        userProfileServiceProvider.future,
+      );
+
+      expect(profile, isNull);
+      expect(fetches, isEmpty);
+    });
+
+    test('#2: an external Firebase sign-out clears the profile a screen '
+        'still watches', () async {
+      // A revoked token or a disabled account: Firebase reports the
+      // sign-out, and no session-expiry handler runs.
+      final (harness, _) = await watched([
+        userProfileServiceProvider.overrideWith(
+          () => _FakeUserProfileService('ada'),
+        ),
+      ]);
+      expect(
+        harness.container.read(userProfileServiceProvider).value?.username,
+        'ada',
+      );
+
+      await harness.emitAuthState(null);
+
+      final profile = harness.container.read(userProfileServiceProvider);
+      expect(profile.value, isNull);
+      expect(profile.hasError, isFalse);
+      expect(harness.container.read(authServiceProvider).jwtToken, isNull);
+    });
+
+    test('#3: the profile is held until the auth state flips', () async {
+      final (harness, _) = await watched([
+        userProfileServiceProvider.overrideWith(
+          () => _FakeUserProfileService('ada'),
+        ),
+      ]);
+      final gate = harness.firebaseAuth.signOutGate = Completer<void>();
+
+      final expiry = harness.api.sessionExpiredHandler!();
+      await pumpEventQueue();
+
+      // Mid-sign-out: still authenticated, so the profile must still be
+      // there; an identity-less signed-in screen was the bug.
+      expect(harness.container.read(authServiceProvider).isAuthenticated, isTrue);
+      expect(
+        harness.container.read(userProfileServiceProvider).value?.username,
+        'ada',
+      );
+
+      gate.complete();
+      await expiry;
+
+      expect(harness.container.read(authServiceProvider).isAuthenticated, isFalse);
+      expect(harness.container.read(userProfileServiceProvider).value, isNull);
+    });
+
+    test('#4: the post-login fetch is a reload, so the profile screen shows '
+        'its spinner, not "No profile data available"', () async {
+      final builds = _ProfileBuilds();
+      final (harness, _) = await watched([builds.override]);
+      await harness.api.sessionExpiredHandler!();
+      await harness.emitAuthState(null);
+      expect(harness.container.read(userProfileServiceProvider).value, isNull);
+
+      final states = <AsyncValue<UserProfile?>>[];
+      final recording = harness.container.listen(
+        userProfileServiceProvider,
+        (_, next) => states.add(next),
+      );
+      addTearDown(recording.close);
+      await harness.signIn(_FakeUser(uid: 'ada'));
+      await harness.container.read(userProfileServiceProvider.future);
+
+      // A refresh over AsyncData(null) would be `isRefreshing`, which
+      // `when()` skips by default.
+      expect(
+        states.any((s) => s.isLoading && !s.isRefreshing),
+        isTrue,
+        reason: 'states: $states',
+      );
+      expect(builds.count, 2);
+      expect(
+        harness.container.read(userProfileServiceProvider).value?.username,
+        'ada',
+      );
+    });
+  });
+
   group('access-token refresh (todo 462)', () {
     test('build() registers a refresher that re-exchanges the Firebase token '
         'without signing out or re-running push registration', () async {
@@ -1237,6 +1383,69 @@ void main() {
     });
   });
 
+  group('todo 567', () {
+    test('F2: a Firebase refusal after the user switched signs nobody out',
+        () async {
+      final harness = _Harness(currentUser: _FakeUser(uid: 'ada'));
+      addTearDown(harness.dispose);
+      await pumpEventQueue();
+      harness.firebaseAuth.currentUser = _FakeUser(
+        uid: 'ada',
+        getIdTokenOverride: () async {
+          // B signs in while A's token is being fetched; then Firebase
+          // refuses A's.
+          harness.firebaseAuth.currentUser = _FakeUser(uid: 'bob');
+          throw FirebaseAuthException(code: 'user-disabled');
+        },
+      );
+
+      await expectLater(
+        harness.api.accessTokenRefresher!(),
+        throwsA(isA<RefreshSupersededException>()),
+      );
+    });
+
+    test('F2: the same refusal for the current user still refuses', () async {
+      final harness = _Harness(currentUser: _FakeUser(uid: 'ada'));
+      addTearDown(harness.dispose);
+      await pumpEventQueue();
+      harness.firebaseAuth.currentUser = _FakeUser(
+        uid: 'ada',
+        getIdTokenOverride: () async =>
+            throw FirebaseAuthException(code: 'user-disabled'),
+      );
+
+      expect(await harness.api.accessTokenRefresher!(), isNull);
+    });
+
+    test('F5: a refresh 409 drops the expired JWT like the launch 409',
+        () async {
+      final harness = _Harness(currentUser: _FakeUser(uid: 'ada'));
+      addTearDown(harness.dispose);
+      await pumpEventQueue();
+      expect(harness.container.read(authServiceProvider).jwtToken, isNotNull);
+      harness.api.postError = ApiException(
+        'Account linking conflict',
+        statusCode: 409,
+        code: 'account_conflict',
+      );
+
+      await expectLater(
+        harness.api.accessTokenRefresher!(),
+        throwsA(isA<ApiException>()),
+      );
+
+      final state = harness.container.read(authServiceProvider);
+      expect(state.jwtToken, isNull);
+      expect(state.isAuthenticated, isFalse);
+      expect(state.error, accountLinkFailedMessage);
+      expect(state.firebaseUser?.uid, 'ada');
+      const storage = FlutterSecureStorage();
+      expect(await storage.read(key: 'django_jwt_token'), isNull);
+      expect(await storage.read(key: 'django_refresh_token'), isNull);
+    });
+  });
+
   group('session-expiry exemption', () {
     test('signOut\'s FCM-clear PATCH carries skipSessionExpiryKey', () async {
       // Asserted through the REQUEST options, not a notifier flag — there is
@@ -1419,6 +1628,26 @@ class _FakeUserProfileService extends UserProfileService {
     email: '$_username@example.com',
     dateJoined: DateTime(2026, 1, 1),
   );
+}
+
+/// Runs the REAL `build()` (its bearer gate included) and fakes only the
+/// request, recording whether each fetch would have carried a bearer.
+class _FetchRecordingUserProfileService extends UserProfileService {
+  _FetchRecordingUserProfileService(this.fetches);
+
+  /// One entry per GET /auth/user/: was a bearer installed when it went out.
+  final List<bool> fetches;
+
+  @override
+  Future<UserProfile> fetchProfile() async {
+    fetches.add(ref.read(apiServiceProvider).hasAuthToken);
+    return UserProfile(
+      id: 1,
+      username: 'ada',
+      email: 'ada@example.com',
+      dateJoined: DateTime(2026, 1, 1),
+    );
+  }
 }
 
 /// Counts how often the account profile is built. Riverpod 3 keeps one
@@ -1610,9 +1839,15 @@ class _FakeFirebaseAuth implements FirebaseAuth {
   @override
   Stream<User?> authStateChanges() => authStateController.stream;
 
+  /// Holds `signOut()` open, so a test can look at the app between the
+  /// session expiry's start and its auth flip.
+  Completer<void>? signOutGate;
+
   @override
   Future<void> signOut() async {
     _events.add('firebase.signOut');
+    final gate = signOutGate;
+    if (gate != null) await gate.future;
     _currentUser = null;
   }
 

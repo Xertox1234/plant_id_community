@@ -22,6 +22,13 @@ logger = logging.getLogger(__name__)
 # step, keeping "save_topic" (owner, 2026-09-28).
 CHECKLIST_STEPS = ("identify_plant", "forum_post", "save_topic", "profile")
 
+# The steps that make the checklist ``complete``: the first three, not
+# "profile" (owner decision 2026-10-11, todo 565 finding 3). App builds from
+# before todo 455 skip a step key they do not know, so with "profile"
+# required they showed "3 of 3 done", nothing to tap, and a card that never
+# cleared. "profile" is still listed, and still ticked when done.
+COMPLETION_STEPS = CHECKLIST_STEPS[:3]
+
 
 def onboarding_checklist(
     user: "User", progress: "OnboardingProgress"
@@ -51,7 +58,10 @@ def onboarding_checklist(
     # Completion is recorded ONCE: a step can be undone (a saved topic
     # removed, the only live post unpublished), and a finished checklist must
     # not reappear on the home screen because of it (review round 2).
-    if all(step["done"] for step in steps) and progress.onboarding_completed_at is None:
+    if (
+        all(done[key] for key in COMPLETION_STEPS)
+        and progress.onboarding_completed_at is None
+    ):
         from django.utils import timezone
 
         progress.onboarding_completed_at = timezone.now()

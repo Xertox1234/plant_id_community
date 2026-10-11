@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: p4
 issue_id: "558"
 tags: [todo-sweep, follow-ups, mobile]
@@ -48,10 +48,34 @@ finding against main before acting on it.
 
 ## Acceptance Criteria
 
-- [ ] Each of its 6 findings is fixed with a test, or the Work Log records why it was left as is.
+- [x] Each of its 6 findings is fixed with a test, or the Work Log records why it was left as is.
 
 ## Work Log
 
 ### 2026-10-10 - Promoted out of todo 527
 
 - Split from the consolidated follow-up todo 527 (owner decision 2026-10-10: one todo per source PR).
+
+### 2026-10-11 - Implemented by the todo sweep (run 2026-10-11-1448)
+
+- #1 (owner decision): new `ApiService.hasAuthToken` getter; `UserProfileService.build()` returns null with no request when no bearer is installed. Tested with a paused watcher through expiry, re-login and a second expiry: no bearerless fetch. Mutation-checked: removing the gate fails both #1 tests.
+- #2 and #3: `_clearAccountProfile()` runs just before the auth flip, both in `_handleSessionExpired` (after the `_clearJWT`/`signOut` awaits, not before them) and in the Firebase listener's null branch (an external sign-out). The comments and the `_refetchAccountProfile` doc now say which paths clear it. Tests: an external sign-out clears a watched profile; with `signOut()` held open the profile is still there while `isAuthenticated` is true.
+- #4: `_refetchAccountProfile` invalidates with `asReload: true`; a test records the states after re-login and finds a loading state that is not a refresh.
+- #5: `clear()` bumps a generation that `build()`, `refresh()`, `updateProfile()` and `uploadAvatar()` check before writing; tests hold a refresh, an update and a build in flight across a `clear()`. #6: the three remaining `ensureSemantics` handles in `forum_avatar_cluster_test.dart` are disposed in try/finally.
+- Test fakes in `user_profile_service_test.dart` and `edit_profile_screen_test.dart` now construct `ApiService` with a token, since `build()` fetches only when signed in. `auth_service.g.dart` and `user_profile_service.g.dart` were regenerated (hashes only).
+
+### 2026-10-11 - Verified by the todo sweep (run 2026-10-11-1448)
+
+- AC 1: `bash -c 'cd plant_community_mobile && flutter test test/services/auth_service_test.dart test/services/user_profile_service_test.dart test/features/forum/widgets/forum_avatar_cluster_test.dart'` — evidence `.sweep-evidence/g1/558-ac0.txt` (not committed), last lines:
+
+  ```text
+  00:00 +80: plant_community_mobile/test/features/forum/widgets/forum_avatar_cluster_test.dart: AuthorAvatarCluster (todo 350) no "+N" disc when the others fit, and a one-other group reads in the singular
+  00:00 +81: plant_community_mobile/test/features/forum/widgets/forum_avatar_cluster_test.dart: AuthorAvatarCluster (todo 350) an unknown viewer shows everyone, "+N" included
+  00:00 +82: plant_community_mobile/test/features/forum/widgets/forum_avatar_cluster_test.dart: AuthorAvatarCluster (todo 350) an empty roster falls back to the group glyph
+  00:00 +83: plant_community_mobile/test/features/forum/widgets/forum_avatar_cluster_test.dart: AuthorAvatarCluster (todo 350) the bare group glyph reads "No members" when the viewer is unknown and "No other members" when only the viewer is left (todo 507)
+  00:00 +84: All tests passed!
+  ```
+
+### 2026-10-11 - Completed by the todo sweep (run 2026-10-11-1448)
+
+- Archived by `land.py archive`; evidence is quoted above, review is on the PR.

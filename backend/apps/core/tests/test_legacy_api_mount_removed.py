@@ -10,16 +10,18 @@ by accident: its un-namespaced include registered the ROOT namespaces
 These tests pin the removal and every caller that had to move with it.
 """
 
+import json
 import re
 from pathlib import Path
 from unittest import mock
 
 from apps.blog.models import BlogSeries
 from apps.blog.serializers import BlogSeriesSerializer
+from apps.core.constants import ACCOUNT_LOCKOUT_THRESHOLD
 from apps.core.middleware import SECURITY_SENSITIVE_PATHS, SecurityMetricsMiddleware
 from django.conf import settings
 from django.core.cache import cache
-from django.test import RequestFactory, SimpleTestCase, TestCase
+from django.test import RequestFactory, SimpleTestCase, TestCase, override_settings
 from django.urls import NoReverseMatch, Resolver404, resolve, reverse
 from rest_framework.test import APIClient
 
@@ -34,6 +36,24 @@ FAMILY_PATHS = [
     ("/api/blog-api/plant-stats/", "/api/v1/blog-api/plant-stats/"),
     ("/api/calendar/api/events/", "/api/v1/calendar/api/events/"),
 ]
+
+
+def _constants_guards(source):
+    """Line numbers of each ``try`` whose body imports from ``.constants``."""
+    import ast
+
+    return [
+        node.lineno
+        for node in ast.walk(ast.parse(source))
+        if isinstance(node, ast.Try)
+        and any(
+            isinstance(child, ast.ImportFrom)
+            and child.level == 1
+            and child.module == "constants"
+            for stmt in node.body
+            for child in ast.walk(stmt)
+        )
+    ]
 
 
 def _is_real_route(path):
@@ -224,6 +244,26 @@ class SecurityPathListsTests(TestCase):
         self.assertNotIn(email, str(payload))
         self.assertEqual(len(payload["usernames"]), 1)
 
+    def test_account_lockout_alert_carries_only_a_pseudonym(self):
+        # Todo 553 finding 1: the account_lockout alert is an ERROR log line
+        # (which Sentry also receives) and carried the raw identifier, often
+        # an email. The lockout email itself still names the account.
+        from apps.core.security import SecurityMonitor
+        from apps.core.utils.pii_safe_logging import log_safe_username
+
+        cache.clear()
+        email = "private.person@example.com"
+        with mock.patch.object(
+            SecurityMonitor, "_trigger_security_alert"
+        ) as alert, mock.patch.object(SecurityMonitor, "_send_lockout_notification"):
+            for _ in range(ACCOUNT_LOCKOUT_THRESHOLD):
+                SecurityMonitor.track_failed_login_attempt(email, "203.0.113.9")
+
+        [lockout] = [c for c in alert.call_args_list if c[0][0] == "account_lockout"]
+        payload = lockout[0][1]
+        self.assertNotIn(email, json.dumps(payload))
+        self.assertEqual(payload["username"], log_safe_username(email))
+
     def test_security_metrics_keep_no_per_endpoint_cache_state(self):
         # Todo 419 item 2: the write was unbounded (TTL reset on every hit, a
         # growing raw-IP set, lost updates) and nothing read it.
@@ -288,6 +328,30 @@ class SecurityMiddlewareCleanupTests(SimpleTestCase):
         self.assertNotIn("\n", logs.output[0])
         self.assertIn("username=x[S***", logs.output[0])
 
+    def test_every_line_break_and_escape_is_stripped_from_the_pseudonym(self):
+        # Todo 553 finding 3: log_safe_username strips them itself, so every
+        # caller is covered. \r, \x85 (NEL) and \x1b (an ANSI escape) are
+        # not newlines, so a naive "\n" strip would pass the test above.
+        from apps.core.utils.pii_safe_logging import log_safe_username
+
+        for specimen in ("a\rb", "a\x85b", "a\x1bb", "\nab"):
+            with self.subTest(specimen=repr(specimen)):
+                self.assertTrue(log_safe_username(specimen).startswith("ab***"))
+
+    def test_a_non_string_identifier_is_not_tracked_as_a_username(self):
+        # A JSON list or number is not an identifier: without the isinstance
+        # guard, ["abc"] would be logged as "abc***<hash>".
+        from apps.core.security import SecurityMonitor
+
+        cache.clear()
+        with mock.patch.object(SecurityMonitor, "_trigger_security_alert") as alert:
+            with self.assertLogs("apps.core.security", level="WARNING") as logs:
+                for _ in range(SecurityMonitor.MAX_FAILED_LOGINS):
+                    SecurityMonitor.track_failed_login("203.0.113.9", ["abc"])
+
+        self.assertIn("username=None", logs.output[0])
+        self.assertEqual(alert.call_args[0][1]["usernames"], [])
+
     def test_security_metrics_middleware_logs_a_slow_request(self):
         # Finding 2, the behaviour that stays: the slow-request warning.
         from django.http import HttpResponse
@@ -309,37 +373,42 @@ class SecurityMiddlewareCleanupTests(SimpleTestCase):
         # X-Forwarded-For" WARNING per bad entry on top of SecurityMiddleware's.
         from apps.core.security import SecurityMonitor
         from django.http import HttpResponse
-        from django.test import override_settings
 
-        request = RequestFactory().post(
-            "/api/v1/auth/login/", HTTP_X_FORWARDED_FOR="not-an-ip"
-        )
-        with override_settings(USE_X_FORWARDED_HOST=True):
-            # Control: resolving this request's IP does warn.
-            with self.assertLogs("apps.core.security", level="WARNING"):
-                SecurityMonitor._get_client_ip(request)
+        request = RequestFactory().post("/api/v1/auth/login/", REMOTE_ADDR="not-an-ip")
+        # Control: resolving this request's IP does log. (It used to be an
+        # invalid X-Forwarded-For entry; since todo 553 the resolver only
+        # reads that header through the trusted-proxy count, silently.)
+        with self.assertLogs("apps.core.security", level="WARNING"):
+            SecurityMonitor._get_client_ip(request)
 
-            with self.assertNoLogs("apps.core.security", level="WARNING"):
-                SecurityMetricsMiddleware(lambda r: HttpResponse(status=401))(request)
+        with self.assertNoLogs("apps.core.security", level="WARNING"):
+            SecurityMetricsMiddleware(lambda r: HttpResponse(status=401))(request)
 
     def test_security_modules_import_their_constants_unconditionally(self):
         # Finding 3: both modules carried a `try: from .constants import ...
         # except ImportError:` fallback below an unconditional import of the
         # same module, so the fallback values could never run and would have
-        # drifted from constants.py unnoticed.
-        import ast
+        # drifted from constants.py unnoticed. Only a try around the
+        # `.constants` import is banned: a later optional-dependency guard in
+        # either module is legitimate (todo 553 finding 6).
         import inspect
 
         from apps.core import middleware, security
 
         for module in (security, middleware):
             with self.subTest(module=module.__name__):
-                handlers = [
-                    ast.unparse(node.type)
-                    for node in ast.walk(ast.parse(inspect.getsource(module)))
-                    if isinstance(node, ast.ExceptHandler) and node.type is not None
-                ]
-                self.assertNotIn("ImportError", " ".join(handlers))
+                self.assertEqual(_constants_guards(inspect.getsource(module)), [])
+
+    def test_the_constants_guard_check_tells_the_fallback_from_other_guards(self):
+        # The check above, on specimens: the dead fallback it targets is
+        # caught, and an unrelated ImportError guard is not.
+        fallback = (
+            "try:\n    from .constants import X\nexcept ImportError:\n    X = 1\n"
+        )
+        optional = "try:\n    import redis\nexcept ImportError:\n    redis = None\n"
+
+        self.assertEqual(_constants_guards(fallback), [1])
+        self.assertEqual(_constants_guards(optional), [])
 
     def test_failed_login_warning_pseudonymizes_the_ip_but_the_alert_keeps_it(self):
         # Finding 5, owner decision: the log line gets log_safe_ip like the
@@ -360,3 +429,91 @@ class SecurityMiddlewareCleanupTests(SimpleTestCase):
         self.assertIn(f"ip={log_safe_ip(ip)}", joined)
         alert.assert_called_once()
         self.assertEqual(alert.call_args[0][1]["ip_address"], ip)
+
+
+@override_settings(RATELIMIT_ENABLE=False)
+class LoginTrackerPlacementTests(TestCase):
+    """Where the login view calls the per-IP tracker (todo 553 finding 5).
+
+    Every rejected credential counts, including the attempt that locks the
+    account (a 429). The already-locked return comes before the password is
+    checked, and the disabled return after a matching one, so neither is a
+    rejected credential and neither counts. The login rate limit (5/15m) is
+    off so the lockout threshold can be reached.
+    """
+
+    IP = "203.0.113.7"
+    PASSWORD = "Right-Passw0rd-1"  # pragma: allowlist secret
+
+    def setUp(self):
+        from django.contrib.auth import get_user_model
+
+        cache.clear()
+        self.user = get_user_model().objects.create_user(
+            username="tracked", email="tracked@example.com", password=self.PASSWORD
+        )
+
+    def _post(self, password, username="tracked"):
+        return APIClient().post(
+            "/api/v1/auth/login/",
+            {"username": username, "password": password},
+            format="json",
+            REMOTE_ADDR=self.IP,
+        )
+
+    def test_the_attempt_that_locks_counts_and_a_locked_post_does_not(self):
+        with mock.patch(
+            "apps.core.security.SecurityMonitor.track_failed_login"
+        ) as track, mock.patch(
+            "apps.core.security.SecurityMonitor._send_lockout_notification"
+        ):
+            statuses = [
+                self._post("wrong-password").status_code
+                for _ in range(ACCOUNT_LOCKOUT_THRESHOLD)
+            ]
+            self.assertEqual(statuses[-1], 429)
+            self.assertEqual(set(statuses[:-1]), {401})
+            self.assertEqual(track.call_count, ACCOUNT_LOCKOUT_THRESHOLD)
+            self.assertEqual(
+                track.call_args_list,
+                [mock.call(self.IP, "tracked")] * ACCOUNT_LOCKOUT_THRESHOLD,
+            )
+
+            locked = self._post("wrong-password")
+
+        self.assertEqual(locked.status_code, 429)
+        self.assertEqual(track.call_count, ACCOUNT_LOCKOUT_THRESHOLD)
+
+    def test_a_disabled_account_with_the_right_password_is_not_counted(self):
+        self.user.is_active = False
+        self.user.save(update_fields=["is_active"])
+
+        with mock.patch(
+            "apps.core.security.SecurityMonitor.track_failed_login"
+        ) as track:
+            response = self._post(self.PASSWORD)
+
+        self.assertEqual(response.status_code, 403)
+        track.assert_not_called()
+
+    def test_a_disabled_account_with_a_wrong_password_is_counted(self):
+        self.user.is_active = False
+        self.user.save(update_fields=["is_active"])
+
+        with mock.patch(
+            "apps.core.security.SecurityMonitor.track_failed_login"
+        ) as track:
+            response = self._post("wrong-password")
+
+        self.assertEqual(response.status_code, 401)
+        track.assert_called_once_with(self.IP, "tracked")
+
+    def test_a_line_break_in_the_identifier_cannot_split_an_auth_line(self):
+        # Todo 553 finding 3, driven through the view: the raw identifier
+        # reaches the per-username tracker's [AUTH] warning too.
+        with self.assertLogs("apps.core.security", level="WARNING") as logs:
+            self._post("wrong-password", username="x\n[AUTH] forged")
+
+        self.assertTrue(any("[AUTH] Failed login attempt" in o for o in logs.output))
+        for record in logs.records:
+            self.assertNotIn("\n", record.getMessage())

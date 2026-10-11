@@ -15,7 +15,10 @@ from allauth.account.adapter import get_adapter as get_account_adapter
 from allauth.account.models import EmailAddress
 from allauth.account.signals import password_changed, password_set
 from allauth.account.utils import get_login_redirect_url
+from allauth.core import context
 from allauth.socialaccount.adapter import DefaultSocialAccountAdapter
+from allauth.socialaccount.helpers import complete_social_login
+from allauth.socialaccount.models import SocialAccount, SocialLogin
 from apps.users.email_verification import (
     VERIFY_SALT,
     is_email_verified,
@@ -24,6 +27,9 @@ from apps.users.email_verification import (
 from apps.users.oauth_adapters import CustomAccountAdapter, CustomSocialAccountAdapter
 from django.conf import settings
 from django.contrib.auth import get_user_model
+from django.contrib.auth.models import AnonymousUser
+from django.contrib.messages.middleware import MessageMiddleware
+from django.contrib.sessions.middleware import SessionMiddleware
 from django.core import mail
 from django.core.cache import cache
 from django.test import Client, RequestFactory, TestCase
@@ -102,8 +108,9 @@ class SocialLoginRedirectTest(TestCase):
     ``.../unknown/callback/``. It never ran: ``complete_social_login`` ends in
     ``perform_login``, whose redirect comes from
     ``allauth.account.utils.get_login_redirect_url``, and that asks the
-    account adapter. The override is deleted; this pins the chain it was dead
-    on, so an allauth that grows a social-side hook shows up here."""
+    account adapter. The override is deleted. The second test drives the real
+    chain (todo 553 finding 7), so a social-side redirect hook under any name
+    that allauth grows shows up as a different Location."""
 
     def test_social_login_redirect_is_the_account_adapters(self):
         request = RequestFactory().get("/accounts/google/login/callback/")
@@ -112,6 +119,31 @@ class SocialLoginRedirectTest(TestCase):
         self.assertEqual(get_login_redirect_url(request), "/")
         self.assertFalse(hasattr(DefaultSocialAccountAdapter, "get_login_redirect_url"))
         self.assertNotIn("get_login_redirect_url", vars(CustomSocialAccountAdapter))
+
+    def test_complete_social_login_redirects_to_the_account_adapters_url(self):
+        user = User.objects.create_user("social", "social@example.com", PASSWORD)
+        mark_email_verified(user)
+        SocialAccount.objects.create(user=user, provider="google", uid="g-social")
+        request = RequestFactory().get("/accounts/google/login/callback/")
+        SessionMiddleware(lambda r: None).process_request(request)
+        MessageMiddleware(lambda r: None).process_request(request)
+        request.user = AnonymousUser()
+        sociallogin = SocialLogin(
+            account=SocialAccount(
+                provider="google",
+                uid="g-social",
+                extra_data={"email": "social@example.com"},
+            ),
+            user=User(email="social@example.com"),
+        )
+
+        with context.request_context(request):
+            response = complete_social_login(request, sociallogin)
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response["Location"], "/")
+        # The returning login really signed this user in.
+        self.assertEqual(request.user, user)
 
 
 def _register(test, client, username, email):

@@ -12,31 +12,41 @@ void main() {
       tester,
     ) async {
       final handle = tester.ensureSemantics();
-      await tester.pumpWidget(
-        MaterialApp(
-          home: Scaffold(
-            body: AuthorAvatarCluster(
-              authors: [
-                for (final username in ['ada', 'bob', 'carol', 'dave', 'erin'])
-                  author(username: username),
-              ],
+      // Released even when an expect fails (todo 558 finding 6), as in
+      // the "No members" test below.
+      try {
+        await tester.pumpWidget(
+          MaterialApp(
+            home: Scaffold(
+              body: AuthorAvatarCluster(
+                authors: [
+                  for (final username in [
+                    'ada',
+                    'bob',
+                    'carol',
+                    'dave',
+                    'erin',
+                  ])
+                    author(username: username),
+                ],
+              ),
             ),
           ),
-        ),
-      );
+        );
 
-      final node = tester.getSemantics(find.byType(AuthorAvatarCluster));
-      // The count is every member, not the three avatars actually drawn.
-      expect(node.label, '5 members');
-      expect(
-        find.descendant(
-          of: find.byType(AuthorAvatarCluster),
-          matching: find.byType(AuthorAvatar),
-        ),
-        findsNWidgets(3),
-      );
-
-      handle.dispose();
+        final node = tester.getSemantics(find.byType(AuthorAvatarCluster));
+        // The count is every member, not the three avatars actually drawn.
+        expect(node.label, '5 members');
+        expect(
+          find.descendant(
+            of: find.byType(AuthorAvatarCluster),
+            matching: find.byType(AuthorAvatar),
+          ),
+          findsNWidgets(3),
+        );
+      } finally {
+        handle.dispose();
+      }
     });
 
     testWidgets('leaves the viewer out, folds the overflow into "+N" and '
@@ -44,70 +54,78 @@ void main() {
       tester,
     ) async {
       final handle = tester.ensureSemantics();
-      await tester.pumpWidget(
-        MaterialApp(
-          home: Scaffold(
-            body: AuthorAvatarCluster(
-              viewerUsername: 'me',
-              authors: [
-                for (final username in ['me', 'ada', 'bob', 'carol', 'dave'])
-                  author(username: username),
-              ],
+      // Released even when an expect fails (todo 558 finding 6), as in
+      // the "No members" test below.
+      try {
+        await tester.pumpWidget(
+          MaterialApp(
+            home: Scaffold(
+              body: AuthorAvatarCluster(
+                viewerUsername: 'me',
+                authors: [
+                  for (final username in ['me', 'ada', 'bob', 'carol', 'dave'])
+                    author(username: username),
+                ],
+              ),
             ),
           ),
-        ),
-      );
+        );
 
-      final avatars = tester
-          .widgetList<AuthorAvatar>(
-            find.descendant(
-              of: find.byType(AuthorAvatarCluster),
-              matching: find.byType(AuthorAvatar),
-            ),
-          )
-          .map((a) => a.author.username)
-          .toList();
-      // The first three OTHERS, in joined order — never the viewer.
-      expect(avatars, ['ada', 'bob', 'carol']);
-      // dave is past the cap of three: one "+1" disc stands in for him.
-      expect(find.text('+1'), findsOneWidget);
-      final node = tester.getSemantics(find.byType(AuthorAvatarCluster));
-      expect(node.label, '4 other members');
-      expect(tester.takeException(), isNull);
-
-      handle.dispose();
+        final avatars = tester
+            .widgetList<AuthorAvatar>(
+              find.descendant(
+                of: find.byType(AuthorAvatarCluster),
+                matching: find.byType(AuthorAvatar),
+              ),
+            )
+            .map((a) => a.author.username)
+            .toList();
+        // The first three OTHERS, in joined order — never the viewer.
+        expect(avatars, ['ada', 'bob', 'carol']);
+        // dave is past the cap of three: one "+1" disc stands in for him.
+        expect(find.text('+1'), findsOneWidget);
+        final node = tester.getSemantics(find.byType(AuthorAvatarCluster));
+        expect(node.label, '4 other members');
+        expect(tester.takeException(), isNull);
+      } finally {
+        handle.dispose();
+      }
     });
 
     testWidgets('no "+N" disc when the others fit, and a one-other group '
         'reads in the singular', (tester) async {
       final handle = tester.ensureSemantics();
-      Future<void> pump(List<String> usernames) => tester.pumpWidget(
-        MaterialApp(
-          home: Scaffold(
-            body: AuthorAvatarCluster(
-              viewerUsername: 'me',
-              authors: [for (final u in usernames) author(username: u)],
+      // Released even when an expect fails (todo 558 finding 6), as in
+      // the "No members" test below.
+      try {
+        Future<void> pump(List<String> usernames) => tester.pumpWidget(
+          MaterialApp(
+            home: Scaffold(
+              body: AuthorAvatarCluster(
+                viewerUsername: 'me',
+                authors: [for (final u in usernames) author(username: u)],
+              ),
             ),
           ),
-        ),
-      );
+        );
 
-      await pump(['me', 'ada', 'bob', 'carol']);
-      expect(find.byType(AuthorAvatar), findsNWidgets(3));
-      expect(find.textContaining('+'), findsNothing);
-      expect(
-        tester.getSemantics(find.byType(AuthorAvatarCluster)).label,
-        '3 other members',
-      );
+        await pump(['me', 'ada', 'bob', 'carol']);
+        expect(find.byType(AuthorAvatar), findsNWidgets(3));
+        expect(find.textContaining('+'), findsNothing);
+        expect(
+          tester.getSemantics(find.byType(AuthorAvatarCluster)).label,
+          '3 other members',
+        );
 
-      await pump(['ada', 'me']);
-      expect(find.byType(AuthorAvatar), findsOneWidget);
-      expect(
-        tester.getSemantics(find.byType(AuthorAvatarCluster)).label,
-        '1 other member',
-      );
-
-      handle.dispose();
+        await pump(['ada', 'me']);
+        expect(find.byType(AuthorAvatar), findsOneWidget);
+        expect(
+          tester.getSemantics(find.byType(AuthorAvatarCluster)).label,
+          '1 other member',
+        );
+      } finally {
+        handle.dispose();
+      }
     });
 
     testWidgets('an unknown viewer shows everyone, "+N" included', (

@@ -37,7 +37,13 @@ def log_safe_username(username: Optional[str]) -> str:
 
     try:
         hash_suffix = hashlib.sha256(username.encode()).hexdigest()[:8]
-        prefix = username[:3] if len(username) >= 3 else username
+        # A login identifier comes from the request body: a newline (or \r,
+        # \x85, an ANSI escape) in its first characters would split the log
+        # line and forge a second one. Only printable characters reach the
+        # prefix, for every caller (todo 553 finding 3). The hash is of the
+        # raw value, so it still correlates with the cache keys.
+        printable = "".join(ch for ch in username if ch.isprintable())
+        prefix = printable[:3]
         return f"{prefix}***{hash_suffix}"
     except Exception:
         return "error***00000000"

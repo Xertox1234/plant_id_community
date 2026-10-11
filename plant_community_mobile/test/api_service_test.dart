@@ -455,6 +455,43 @@ void main() {
       },
     );
 
+    test('a refresh overtaken within the same session re-sends with the '
+        'token installed meanwhile (todo 567 finding 9)', () async {
+      // Whatever overtook the refresh (it throws RefreshSupersededException)
+      // installed a token for this same session, so the request is not
+      // failed with the raw 401.
+      api.setAccessTokenRefresher(() async {
+        refreshCalls++;
+        api.replaceAuthToken('fresh');
+        throw const RefreshSupersededException();
+      });
+
+      final response = await api.get('/forum/topics/');
+
+      expect(response.statusCode, 200);
+      expect(refreshCalls, 1);
+      expect(sessionExpiredCalls, 0);
+      expect(server.requests.map((r) => r.auth), [
+        'Bearer stale',
+        'Bearer fresh',
+      ]);
+    });
+
+    test('a refresh overtaken with no new token re-sends nothing and signs '
+        'nobody out', () async {
+      api.setAccessTokenRefresher(() async {
+        refreshCalls++;
+        throw const RefreshSupersededException();
+      });
+
+      await expectLater(
+        api.get('/forum/topics/'),
+        throwsA(isA<ApiException>()),
+      );
+      expect(server.requests, hasLength(1));
+      expect(sessionExpiredCalls, 0);
+    });
+
     test('a refresh overtaken by a sign-out does not report an expired '
         'session', () async {
       api.setAccessTokenRefresher(() async {

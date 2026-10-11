@@ -37,6 +37,7 @@ urlpatterns = [
     # User profile endpoints
     path("user/", views.current_user, name="current_user"),
     path("user/update/", views.update_profile, name="update_profile"),
+    path("user/avatar/", views.delete_avatar, name="delete_avatar"),
     # User collections endpoints
     path("me/collections/", views.user_collections, name="user_collections"),
     path(

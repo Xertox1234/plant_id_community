@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/semantics.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
@@ -650,6 +651,42 @@ void main() {
       );
     });
 
+    test('an inline image that 404s fails at once, not after ten retries '
+        '(todo 567 finding 3)', () async {
+      final api = FakeBlogApi();
+      api.imageErrors[9] = ApiException('Not found', statusCode: 404);
+      final container = ProviderContainer(
+        overrides: [blogApiProvider.overrideWithValue(api)],
+      );
+      addTearDown(container.dispose);
+      final sub = container.listen(blogInlineImageUrlProvider(9), (_, _) {});
+      addTearDown(sub.close);
+
+      await expectLater(
+        container.read(blogInlineImageUrlProvider(9).future),
+        throwsA(isA<ApiException>()),
+      );
+      // Riverpod's default first retry comes after 200 ms.
+      await Future<void>.delayed(const Duration(milliseconds: 600));
+
+      expect(api.imageLookups, [9]);
+    });
+
+    test('an inline image that fails with a 5xx is still retried', () async {
+      final api = FakeBlogApi();
+      api.imageErrors[9] = ApiException('Server error', statusCode: 503);
+      final container = ProviderContainer(
+        overrides: [blogApiProvider.overrideWithValue(api)],
+      );
+      addTearDown(container.dispose);
+      final sub = container.listen(blogInlineImageUrlProvider(9), (_, _) {});
+      addTearDown(sub.close);
+
+      await Future<void>.delayed(const Duration(milliseconds: 600));
+
+      expect(api.imageLookups.length, greaterThan(1));
+    });
+
     testWidgets('an inline image embed is looked up by id and shown', (
       tester,
     ) async {
@@ -725,6 +762,35 @@ void main() {
           'https://unsplash.com/?utm_source=plant_community',
         ]);
         expect(find.text('Photo by Jane on Unsplash'), findsNothing);
+      });
+
+      testWidgets('each credit link is ONE labelled link node with the tap '
+          '(todo 567 finding 7)', (tester) async {
+        final handle = tester.ensureSemantics();
+        try {
+          final opened = await pumpBlock(tester, lead);
+          for (final label in ['Photo by Jane', 'Unsplash']) {
+            final node = tester.getSemantics(
+              find
+                  .ancestor(
+                    of: find.text(label),
+                    matching: find.byType(Semantics),
+                  )
+                  .first,
+            );
+            final data = node.getSemanticsData();
+            expect(data.label, label);
+            expect(data.flagsCollection.isLink, isTrue);
+            expect(data.hasAction(SemanticsAction.tap), isTrue);
+            // No unlabelled InkWell tap node underneath.
+            expect(node.childrenCount, 0, reason: '"$label" has child nodes');
+          }
+
+          tester.semantics.tap(find.semantics.byLabel('Unsplash'));
+          expect(opened, ['https://unsplash.com/?utm_source=plant_community']);
+        } finally {
+          handle.dispose();
+        }
       });
 
       testWidgets('each credit link is a full-size tap target', (tester) async {

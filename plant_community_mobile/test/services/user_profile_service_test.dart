@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -309,6 +311,109 @@ void main() {
       );
     });
 
+    test('build() sends no request and holds no profile when signed out',
+        () async {
+      // Todo 558 finding 1: a bearerless GET /auth/user/ 401s into
+      // Riverpod's retry loop over a cleared profile.
+      fakeApi.setAuthToken(null);
+      fakeApi.getResult = _response(_profileJson());
+      final container = makeContainer();
+
+      expect(await container.read(userProfileServiceProvider.future), isNull);
+      expect(fakeApi.gets, 0);
+    });
+
+    test('a refresh in flight when clear() runs does not bring the old '
+        'profile back', () async {
+      // Todo 558 finding 5: Riverpod drops a pending build() only on a
+      // rebuild or dispose, not on a manual state write.
+      fakeApi.getResult = _response(_profileJson(username: 'old'));
+      final container = makeContainer();
+      await container.read(userProfileServiceProvider.future);
+      final notifier = container.read(userProfileServiceProvider.notifier);
+
+      final gate = fakeApi.getGate = Completer<void>();
+      final refreshing = notifier.refresh();
+      await pumpEventQueue();
+      notifier.clear();
+      gate.complete();
+      await refreshing;
+
+      final state = container.read(userProfileServiceProvider);
+      expect(state, isA<AsyncData<UserProfile?>>());
+      expect(state.value, isNull);
+    });
+
+    test('an update that lands after clear() does not write the profile',
+        () async {
+      fakeApi.getResult = _response(_profileJson());
+      final container = makeContainer();
+      await container.read(userProfileServiceProvider.future);
+      final notifier = container.read(userProfileServiceProvider.notifier);
+      fakeApi.patchResult = _response({
+        'message': 'ok',
+        'user': _profileJson(username: 'old'),
+      });
+      final gate = fakeApi.patchGate = Completer<void>();
+
+      final updating = notifier.updateProfile(bio: 'x');
+      await pumpEventQueue();
+      notifier.clear();
+      gate.complete();
+      await updating;
+
+      expect(container.read(userProfileServiceProvider).value, isNull);
+    });
+
+    test('a build in flight when clear() runs settles on no profile',
+        () async {
+      fakeApi.getResult = _response(_profileJson(username: 'old'));
+      final gate = fakeApi.getGate = Completer<void>();
+      final container = makeContainer();
+      await pumpEventQueue();
+
+      container.read(userProfileServiceProvider.notifier).clear();
+      gate.complete();
+      await pumpEventQueue();
+
+      expect(container.read(userProfileServiceProvider).value, isNull);
+    });
+
+    test('deleteAvatar removes the photo and keeps the returned profile',
+        () async {
+      // Todo 565 finding 9.
+      fakeApi.getResult = _response(_profileJson());
+      final container = makeContainer();
+      await container.read(userProfileServiceProvider.future);
+      fakeApi.deleteResult = _response({
+        'message': 'Profile photo removed',
+        'user': _profileJson(username: 'nophoto'),
+      });
+
+      final profile = await container
+          .read(userProfileServiceProvider.notifier)
+          .deleteAvatar();
+
+      expect(fakeApi.lastDeletePath, '/auth/user/avatar/');
+      expect(profile.username, 'nophoto');
+      expect(
+        container.read(userProfileServiceProvider).value?.username,
+        'nophoto',
+      );
+    });
+
+    test('deleteAvatar throws UserProfileException on API failure', () async {
+      fakeApi.getResult = _response(_profileJson());
+      final container = makeContainer();
+      await container.read(userProfileServiceProvider.future);
+      fakeApi.deleteResult = ApiException('Rate limit exceeded', statusCode: 429);
+
+      await expectLater(
+        container.read(userProfileServiceProvider.notifier).deleteAvatar(),
+        throwsA(isA<UserProfileException>()),
+      );
+    });
+
     test('clear() resets state to data(null)', () async {
       fakeApi.getResult = _response(_profileJson());
       final container = makeContainer();
@@ -326,12 +431,23 @@ void main() {
 /// Minimal [ApiService] stand-in for tests. Each method returns its configured
 /// result, or throws it when the result is an [Exception]. No real network.
 class _FakeApiService extends ApiService {
-  _FakeApiService() : super(baseUrl: 'http://fake.local', authToken: null);
+  // Signed in: build() fetches only with a bearer installed (todo 558).
+  _FakeApiService()
+    : super(baseUrl: 'http://fake.local', authToken: 'django-jwt');
 
   Object? getResult;
   Object? patchResult;
+  Object? deleteResult;
   String? lastPatchPath;
+  String? lastDeletePath;
   Map<String, dynamic>? lastPatchData;
+  int gets = 0;
+
+  /// When set, `get` waits on it: a fetch in flight.
+  Completer<void>? getGate;
+
+  /// When set, `patch` waits on it: an update in flight.
+  Completer<void>? patchGate;
 
   @override
   Future<Response> get(
@@ -339,7 +455,23 @@ class _FakeApiService extends ApiService {
     Map<String, dynamic>? queryParameters,
     Options? options,
   }) async {
+    gets++;
+    final gate = getGate;
+    if (gate != null) await gate.future;
     final result = getResult;
+    if (result is Exception) throw result;
+    return result as Response;
+  }
+
+  @override
+  Future<Response> delete(
+    String path, {
+    dynamic data,
+    Map<String, dynamic>? queryParameters,
+    Options? options,
+  }) async {
+    lastDeletePath = path;
+    final result = deleteResult;
     if (result is Exception) throw result;
     return result as Response;
   }
@@ -353,6 +485,8 @@ class _FakeApiService extends ApiService {
   }) async {
     lastPatchPath = path;
     lastPatchData = data as Map<String, dynamic>?;
+    final gate = patchGate;
+    if (gate != null) await gate.future;
     final result = patchResult;
     if (result is Exception) throw result;
     return result as Response;

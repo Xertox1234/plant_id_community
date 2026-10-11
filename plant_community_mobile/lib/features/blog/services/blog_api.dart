@@ -133,12 +133,6 @@ class HttpBlogApi implements BlogApi {
   }
 }
 
-/// The resolved URL of a rich-text inline image, cached per id so a rebuild
-/// (scrolling, a theme change) never fetches it again.
-final blogInlineImageUrlProvider = FutureProvider.family<String?, int>(
-  (ref, id) => ref.watch(blogApiProvider).fetchImageUrl(id),
-);
-
 final blogApiProvider = Provider<BlogApi>(
   (ref) => HttpBlogApi(ref.watch(apiServiceProvider)),
 );

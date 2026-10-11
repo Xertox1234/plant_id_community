@@ -327,8 +327,16 @@ class ApiService {
           // Reached when the refresher reports it was overtaken
           // ([RefreshSupersededException]: the Firebase user changed or
           // signed out under it), even if the API session has not ended yet
-          // (todo 500). Nobody to sign out, nothing to re-send.
-          return handler.next(error);
+          // (todo 500). Nobody to sign out. But when this request's session
+          // is still current and its token was replaced meanwhile, whatever
+          // overtook the refresh installed a token for this same session:
+          // re-send with it, like any request whose token was replaced since
+          // it was sent (todo 567 finding 9).
+          final replacedMeanwhile =
+              options.extra[_sentEpochKey] != _authEpoch && _authToken != null;
+          if (!replacedMeanwhile) {
+            return handler.next(error);
+          }
       }
     }
 
@@ -483,6 +491,12 @@ class ApiService {
       }
     }
   }
+
+  /// Whether a bearer token is installed, so a request would be sent signed
+  /// in. The account profile checks it before fetching: with none, that GET
+  /// would go out anonymous, 401, and land over a cleared profile as a
+  /// retrying error (todo 558 finding 1).
+  bool get hasAuthToken => _authToken != null;
 
   /// Set or clear the bearer token for a sign-in or sign-out.
   ///

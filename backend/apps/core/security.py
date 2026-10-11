@@ -11,6 +11,7 @@ import time
 from datetime import timedelta
 from typing import Any, Dict, Optional, Tuple
 
+from apps.core.ratelimit import get_trusted_client_ip
 from apps.core.utils.pii_safe_logging import (
     log_safe_ip,
     log_safe_user_context,
@@ -48,15 +49,16 @@ User = get_user_model()
 
 
 def _printable(value: Any) -> Optional[str]:
-    """``value`` with its control characters dropped, or None.
+    """``value`` when it is a non-empty string, else None.
 
-    An identifier read from a request body is attacker-controlled: a newline
-    in it would forge a log line. A non-string (a JSON number or list) is not
-    an identifier worth tracking.
+    A non-string identifier (a JSON number or list) is not one worth
+    tracking. Control characters, which would let an attacker-controlled
+    identifier forge a log line, are dropped by ``log_safe_username`` itself,
+    so every caller is covered, not only this tracker (todo 553 finding 3).
     """
     if not isinstance(value, str):
         return None
-    return "".join(ch for ch in value if ch.isprintable()) or None
+    return value or None
 
 
 class SecurityMonitor:
@@ -238,7 +240,10 @@ class SecurityMonitor:
         cls._trigger_security_alert(
             "account_lockout",
             {
-                "username": username,
+                # The alert is an ERROR log line, which Sentry also receives:
+                # only the pseudonym leaves (todo 553 finding 1). The lockout
+                # email above still needs the real account.
+                "username": log_safe_username(username),
                 "attempts": len(attempts),
                 "ip_addresses": lockout_data["ip_addresses"],
                 "lockout_duration": ACCOUNT_LOCKOUT_DURATION,
@@ -376,7 +381,7 @@ This is an automated security message from Houseplant-MD.
         """
         key = cls.FAILED_LOGIN_KEY.format(ip=ip_address)
         # The attempted identifier is attacker-controlled and is often an
-        # email: drop control characters, then keep only its pseudonym, in
+        # email: keep only its pseudonym (which drops control characters), in
         # the log line, the cached attempts and the alert payload alike
         # (docs/rules/security.md, PR #818 review).
         username = _printable(username)
@@ -418,7 +423,8 @@ This is an automated security message from Houseplant-MD.
         # Log the event. The IP is pseudonymized here like the rest of this
         # module's log lines; the brute_force_login alert payload above keeps
         # it raw so an operator can block it (todo 435 finding 5, owner
-        # decision).
+        # decision). It is the real client's address, resolved past the
+        # proxy by _get_client_ip, not Railway's (todo 553 finding 2).
         logger.warning(
             f"[SECURITY] Failed login attempt: ip={log_safe_ip(ip_address)}, "
             f"username={username}, total_attempts_in_window={len(attempts)}"
@@ -548,10 +554,18 @@ This is an automated security message from Houseplant-MD.
     @classmethod
     def _get_client_ip(cls, request: HttpRequest) -> str:
         """
-        Get the real IP address of the client with spoofing protection.
+        The real client's IP address, validated, or ``UNKNOWN_IP_ADDRESS``.
 
-        SECURITY: X-Forwarded-For header can be spoofed by attackers.
-        We validate IP format and use the rightmost trustworthy IP.
+        Resolved by ``apps.core.ratelimit.get_trusted_client_ip``, the one the
+        login rate limit keys on (todo 553 finding 2). Behind Railway's proxy
+        ``REMOTE_ADDR`` is the proxy, so this used to put every client in one
+        per-IP failed-login bucket: any user's success cleared it, and the
+        brute-force alert and lockout email named the proxy. It read
+        ``X-Forwarded-For`` only under ``USE_X_FORWARDED_HOST``, which nothing
+        set, and then trusted its rightmost entry. The shared resolver counts
+        ``RATELIMIT_TRUSTED_PROXY_COUNT`` hops from the right (or reads
+        ``RATELIMIT_CLIENT_IP_META_KEY``), so a left-prepended, spoofed entry
+        cannot move the result.
 
         Args:
             request: Django request object
@@ -559,42 +573,21 @@ This is an automated security message from Houseplant-MD.
         Returns:
             Client IP address (validated)
         """
-        from ipaddress import AddressValueError, ip_address
+        from ipaddress import ip_address
 
-        # If behind trusted proxy/load balancer, use X-Forwarded-For
-        if getattr(settings, "USE_X_FORWARDED_HOST", False):
-            x_forwarded_for = request.META.get("HTTP_X_FORWARDED_FOR")
-            if x_forwarded_for:
-                # X-Forwarded-For format: client, proxy1, proxy2, ...
-                # Use rightmost IP (closest to server, hardest to spoof)
-                # In production, you'd extract the rightmost N IPs based on known proxy count
-                ips = [ip_str.strip() for ip_str in x_forwarded_for.split(",")]
-                for ip_str in reversed(ips):
-                    try:
-                        # Validate IP format to prevent injection attacks
-                        ip_address(ip_str)
-                        return ip_str
-                    except (ValueError, AddressValueError):
-                        # Skip invalid IPs (possible spoofing attempt)
-                        logger.warning(
-                            f"{LOG_PREFIX_SECURITY} Invalid IP in X-Forwarded-For: {ip_str}"
-                        )
-                        continue
-
-        # Fallback to REMOTE_ADDR (always trustworthy, set by web server)
-        remote_addr = request.META.get("REMOTE_ADDR", UNKNOWN_IP_ADDRESS)
-
-        # Validate REMOTE_ADDR format (should always be valid, but defensive programming)
-        if remote_addr != UNKNOWN_IP_ADDRESS:
-            try:
-                ip_address(remote_addr)
-                return remote_addr
-            except (ValueError, AddressValueError):
-                logger.error(
-                    f"{LOG_PREFIX_SECURITY} REMOTE_ADDR has invalid format: {log_safe_ip(remote_addr)}"
-                )
-
-        return UNKNOWN_IP_ADDRESS
+        resolved = get_trusted_client_ip(request)
+        if not resolved:
+            return UNKNOWN_IP_ADDRESS
+        # The resolver validates a forwarded address, but returns REMOTE_ADDR
+        # as is. It is server-set, so this is defensive.
+        try:
+            ip_address(resolved)
+        except ValueError:
+            logger.error(
+                f"{LOG_PREFIX_SECURITY} Client IP has invalid format: {log_safe_ip(resolved)}"
+            )
+            return UNKNOWN_IP_ADDRESS
+        return resolved
 
 
 class SecurityMiddleware:

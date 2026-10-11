@@ -14,6 +14,7 @@ from unittest.mock import patch
 
 from apps.core.constants import ACCOUNT_LOCKOUT_DURATION, ACCOUNT_LOCKOUT_THRESHOLD
 from apps.core.security import SecurityMonitor
+from apps.core.utils.pii_safe_logging import log_safe_username
 from django.contrib.auth import get_user_model
 from django.core import mail
 from django.core.cache import cache
@@ -287,7 +288,9 @@ class AccountLockoutTestCase(TestCase):
 
             # Check alert details
             alert_details = call_args[1]
-            self.assertEqual(alert_details["username"], "testuser")
+            # The alert is an ERROR log line that Sentry also receives, so it
+            # carries the pseudonym, not the identifier (todo 553 finding 1).
+            self.assertEqual(alert_details["username"], log_safe_username("testuser"))
             self.assertEqual(alert_details["attempts"], ACCOUNT_LOCKOUT_THRESHOLD)
 
     def test_lockout_with_nonexistent_user(self):

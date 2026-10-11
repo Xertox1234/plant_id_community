@@ -8,7 +8,7 @@ from typing import Any, Optional
 from allauth.account.adapter import DefaultAccountAdapter
 from allauth.core.exceptions import ImmediateHttpResponse
 from allauth.socialaccount.adapter import DefaultSocialAccountAdapter
-from allauth.socialaccount.models import SocialLogin
+from allauth.socialaccount.models import SocialAccount, SocialLogin
 from apps.core.utils.pii_safe_logging import log_safe_user_context
 from apps.users.account_links import on_first_provider_link
 from apps.users.email_verification import (
@@ -18,6 +18,7 @@ from apps.users.email_verification import (
 )
 from apps.users.oauth_views import get_oauth_redirect_url
 from django.contrib.auth import get_user_model
+from django.db import IntegrityError, transaction
 from django.http import HttpRequest, HttpResponseRedirect
 
 logger = logging.getLogger(__name__)
@@ -113,11 +114,54 @@ class CustomSocialAccountAdapter(DefaultSocialAccountAdapter):
             raise ImmediateHttpResponse(HttpResponseRedirect(error_url))
 
         # Verified: link the social account to the existing local user. It is
-        # a new link (is_existing returned above): revoke and notify first.
-        on_first_provider_link(existing_user, sociallogin.account.provider)
-        sociallogin.connect(request, existing_user)
+        # a new link (is_existing returned above): revoke and notify.
+        self._connect_first_link(request, sociallogin, existing_user)
+
+    @staticmethod
+    def _connect_first_link(
+        request: HttpRequest, sociallogin: SocialLogin, existing_user: User
+    ) -> None:
+        """Connect ``sociallogin`` to ``existing_user``, its first link.
+
+        Mirrors ``oauth_views._record_provider_link`` (todo 562 finding 2).
+        The revoke/notice and the ``SocialAccount`` insert share one
+        savepoint, so sessions are never revoked, nor a notice queued, for a
+        link that was not recorded. Of two concurrent first logins, the one
+        whose insert loses on unique (provider, uid) re-reads the row: ours
+        means the other request already linked and notified, so this login
+        goes on without a second notice; anyone else's is refused.
+        """
+        provider = sociallogin.account.provider
+        try:
+            with transaction.atomic():
+                on_first_provider_link(existing_user, provider)
+                sociallogin.connect(request, existing_user)
+        except IntegrityError:
+            linked = SocialAccount.objects.filter(
+                provider=provider, uid=sociallogin.account.uid
+            ).first()
+            if linked is None:
+                # No row: the error came from the revoke/notice work, not a
+                # lost race. Don't report it as a conflicting link.
+                raise
+            if linked.user_id != existing_user.pk:
+                logger.warning(
+                    f"[SECURITY] Refused {provider} login: this {provider} "
+                    f"identity was linked concurrently to a different account "
+                    f"than {log_safe_user_context(existing_user)}"
+                )
+                # The code the web callback page already knows, as for the
+                # ambiguous-email refusal above and oauth_views' refused link.
+                error_url = (
+                    f"{get_oauth_redirect_url(provider)}?error=user_creation_failed"
+                )
+                raise ImmediateHttpResponse(HttpResponseRedirect(error_url))
+            # The concurrent login linked this account: sign in through its row.
+            sociallogin.account = linked
+            sociallogin.user = existing_user
+            return
         logger.info(
-            f"[AUTH] Connected {sociallogin.account.provider} account "
+            f"[AUTH] Connected {provider} account "
             f"to existing {log_safe_user_context(existing_user)}"
         )
 

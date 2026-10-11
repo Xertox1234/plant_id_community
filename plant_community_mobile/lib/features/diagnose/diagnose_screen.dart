@@ -252,11 +252,29 @@ String diagnoseErrorMessage(Object error) {
   return 'Diagnosis unavailable — please try again.';
 }
 
-/// The pixel width to decode the preview at: its laid-out width in physical
-/// pixels, or null (full size) when the width is unbounded.
+/// The preview box's aspect ratio (width / height).
+const double previewAspectRatio = 4 / 3;
+
+/// The widest photo the preview shows without upscaling: a 16:9 one.
+const double previewWidestSharpAspect = 16 / 9;
+
+/// The pixel width to decode the preview at, or null (full size) when the
+/// width is unbounded.
+///
+/// Not just the box's width: under `BoxFit.cover` a photo wider than the 4:3
+/// box is scaled to the box's HEIGHT, so decoded at the box's width a 16:9
+/// photo came out shorter than the box and was upscaled about 1.33x, blurred
+/// (todo 567 finding 8). Decoding at 4/3 of the box's width gives a 16:9
+/// photo exactly the box's height; a narrower one has room to spare. Only a
+/// panorama wider than 16:9 is still upscaled. Still far below the up to
+/// 2048 px a picked photo has (todo 461).
 int? previewCacheWidth(double maxWidth, double devicePixelRatio) {
   if (!maxWidth.isFinite || maxWidth <= 0) return null;
-  return (maxWidth * devicePixelRatio).ceil();
+  return (maxWidth *
+          devicePixelRatio *
+          previewWidestSharpAspect /
+          previewAspectRatio)
+      .ceil();
 }
 
 class _PhotoPicker extends StatelessWidget {
@@ -281,7 +299,7 @@ class _PhotoPicker extends StatelessWidget {
           ClipRRect(
             borderRadius: BorderRadius.circular(12),
             child: AspectRatio(
-              aspectRatio: 4 / 3,
+              aspectRatio: previewAspectRatio,
               child: Semantics(
                 image: true,
                 label: 'Selected plant photo',

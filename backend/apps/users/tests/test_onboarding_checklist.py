@@ -129,6 +129,22 @@ class OnboardingChecklistTests(TestCase):
         self.assertEqual(_steps(resp), {key: True for key in CHECKLIST_STEPS})
         self.assertTrue(resp.data["checklist"]["complete"])
 
+    def test_the_first_three_steps_complete_it_without_the_profile(self):
+        # Owner decision 2026-10-11 (todo 565 finding 3): builds from before
+        # todo 455 skip the "profile" key they do not know, so requiring it
+        # left them at "3 of 3 done" with a card that never cleared.
+        topic = self._topic()
+        Post.objects.create(
+            topic=topic, author=self.user, is_opening_post=True, live=True
+        )
+        TopicBookmark.objects.create(user=self.user, topic=topic)
+        record_first_identification(self.user)
+
+        resp = self.client.get(PROGRESS_URL)
+
+        self.assertFalse(_steps(resp)["profile"])  # still listed, still open
+        self.assertTrue(resp.data["checklist"]["complete"])
+
     def test_a_finished_checklist_stays_finished_after_a_step_is_undone(self):
         topic = self._topic()
         Post.objects.create(

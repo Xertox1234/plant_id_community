@@ -257,8 +257,10 @@ def _error_body(name: str) -> serializers.Serializer:
         400: _error_body("FirebaseTokenExchangeBadRequest"),
         401: OpenApiResponse(
             _error_body("FirebaseTokenExchangeRefused"),
-            description="Invalid, expired or revoked Firebase token, or a "
-            "disabled Firebase account. The mobile client signs out.",
+            description="Invalid or expired Firebase token. The mobile client "
+            "signs out. Revocation is not checked: a revoked token, or one "
+            "for a disabled Firebase account, is accepted until it expires "
+            "(about an hour).",
         ),
         403: OpenApiResponse(
             _error_body("FirebaseTokenExchangeUnverified"),
@@ -268,6 +270,20 @@ def _error_body(name: str) -> serializers.Serializer:
             _error_body("FirebaseTokenExchangeConflict"),
             description="Account linking conflict; `code` is "
             "`unverified_account` or `account_conflict`.",
+        ),
+        429: OpenApiResponse(
+            inline_serializer(
+                "FirebaseTokenExchangeRateLimited",
+                {
+                    "error": serializers.BooleanField(),
+                    "message": serializers.CharField(),
+                    "code": serializers.CharField(),
+                    "status_code": serializers.IntegerField(),
+                },
+            ),
+            description="The per-IP exchange rate limit; `code` is "
+            "`rate_limit_exceeded`, with a `Retry-After` header. The mobile "
+            "client keeps the session and retries.",
         ),
         503: OpenApiResponse(
             _error_body("FirebaseTokenExchangeUnavailable"),
@@ -326,8 +342,10 @@ def firebase_token_exchange(request: Request) -> Response:
             "error": "firebase_token is required"
         }
 
-    Response (401 Unauthorized): an invalid, expired or revoked token, or a
-    disabled Firebase account. The mobile client signs out.
+    Response (401 Unauthorized): an invalid or expired token. The mobile
+    client signs out. Revocation is not checked (no ``check_revoked``), so a
+    revoked token, or one for a disabled Firebase account, is accepted until
+    it expires, about an hour (todo 567 finding 1, owner decision).
         {
             "error": "Invalid Firebase token"
         }
@@ -337,8 +355,12 @@ def firebase_token_exchange(request: Request) -> Response:
     Response (409 Conflict): the account cannot be linked; ``code`` is
     ``unverified_account`` or ``account_conflict``.
 
-    Response (500): a bug on our side after the token was verified. Sentry
-    sees it; the mobile client treats it as transient.
+    Response (429 Too Many Requests): the per-IP rate limit, with
+    ``Retry-After``. The mobile client keeps the session and retries.
+
+    Response (500): a bug on our side after the token was verified. It is
+    logged with its traceback, so Sentry sees where; the mobile client treats
+    it as transient.
 
     Response (503 Service Unavailable): the token could not be checked, a
     fault on our side (Google's public certs unreachable, Firebase Admin not
@@ -385,19 +407,15 @@ def firebase_token_exchange(request: Request) -> Response:
                 status=status.HTTP_401_UNAUTHORIZED,
             )
         except firebase_auth.InvalidIdTokenError as e:
-            # Also a revoked token (RevokedIdTokenError is a subclass).
             logger.warning(f"[FIREBASE AUTH] Invalid Firebase token: {str(e)}")
             return Response(
                 {"error": "Invalid Firebase token"}, status=status.HTTP_401_UNAUTHORIZED
             )
-        except firebase_auth.UserDisabledError as e:
-            # Raised only with check_revoked=True: the account is refused, so
-            # the client must sign out, never wait it out as an outage.
-            logger.warning(f"[FIREBASE AUTH] Disabled Firebase account: {str(e)}")
-            return Response(
-                {"error": "Firebase account is disabled"},
-                status=status.HTTP_401_UNAUTHORIZED,
-            )
+        # No check_revoked=True, so no UserDisabledError or
+        # RevokedIdTokenError either (owner decision 2026-10-11, todo 567
+        # finding 1): checking would look the user up through the Firebase
+        # Auth API on every exchange, which the verify-only credential tier
+        # (_VerifyOnlyCredential) cannot do.
         except (firebase_auth.CertificateFetchError, ValueError) as e:
             # On our side, not the token's: Google's public certs could not be
             # fetched (CertificateFetchError), or the Admin app is not set up
@@ -492,8 +510,10 @@ def firebase_token_exchange(request: Request) -> Response:
             status=status.HTTP_409_CONFLICT,
         )
 
-    except Exception as e:
-        logger.error(f"[FIREBASE AUTH ERROR] Unexpected error: {str(e)}")
+    except Exception:
+        # With the traceback: a bug after verification (a KeyError on a claim)
+        # is debuggable only from where it was raised (todo 567 finding 6).
+        logger.exception("[FIREBASE AUTH ERROR] Unexpected error")
         return Response(
             {"error": "Internal server error"},
             status=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -589,6 +609,12 @@ def get_or_create_user_from_firebase(
     if not firebase_email or "@" not in firebase_email:
         # Redact: this message is surfaced via str(e) into a warning log upstream.
         raise ValueError(f"Invalid Firebase email: {redact_email(firebase_email)}")
+
+    # The token's `name` claim has no length limit, but first_name does: a
+    # longer value is a DataError on PostgreSQL, a 500 on every sign-in for
+    # that account (todo 562 finding 1). Truncated once, for all three writes.
+    first_name_max = User._meta.get_field("first_name").max_length
+    display_name = (display_name or "")[:first_name_max]
 
     # Prefer the stable Firebase UID. Linking by email alone is a takeover risk
     # if an email is ever reassigned at the identity provider.
