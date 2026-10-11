@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: p4
 issue_id: "569"
 tags: [backend, blog, newsletter, follow-ups]
@@ -31,7 +31,31 @@ PR #1007 (todo sweep run 2026-10-11-0053, group g7, todos 534); follow-ups: veri
 
 ## Acceptance Criteria
 
-- [ ] Each finding above is fixed with a test where it is a behaviour change, or recorded in the Work Log as
+- [x] Each finding above is fixed with a test where it is a behaviour change, or recorded in the Work Log as
       declined with a reason.
 
 ## Work Log
+
+### 2026-10-11 - Implemented by the todo sweep (run 2026-10-11-1448)
+
+- Findings 1 and 6 fixed: `NewsletterConcurrencyTests` (a `TransactionTestCase` with real threads, banned by `docs/rules/testing.md`) is gone, and with it the unjoined 0.5 s `threading.Timer`. Replaced in `NewsletterSenderTests` by deterministic tests: an interrupted send (`SystemExit` from the send) leaves no claim; the prune's one `FOR UPDATE` select carries the staleness predicate and its delete takes only those pks; a re-stamp landing before the locked read spares the row. The cross-connection lock wait itself is Postgres's guarantee, stated in the test docstrings.
+- Finding 2 declined as written, hardened instead: `docs/rules/celery.md` prescribes the `celery.utils.time.random.randrange` patch (three other suites use it), and `retry_jitter` is captured at decoration time in `celery/app/autoretry.py`, so there is no public seam. The test now asserts `randrange(ceiling + 1)` was called once per retry, so a Celery change fails by name instead of randomly or vacuously.
+- Finding 3 fixed in `backend/apps/blog/management/commands/send_blog_newsletter.py`: the lock value is a per-run token, and `finally` deletes the key only when this run took it (`cache.add` returned True) and it still holds this run's token. Tests: the cache-outage path never deletes; a later run's lock taken mid-run survives. Both fail against the old unconditional delete.
+- Finding 4 documented, not changed: the `_send_one` comment now says the row lock, transaction and connection are held across the SMTP round-trip and which concurrent writers (unsubscribe, one-click POST, account deletion, `request_confirmation`) wait on that row. Finding 5 fixed in `backend/apps/blog/newsletter.py`: `_lock_or_create`'s `DoesNotExist` names the row pk, not the address; tested in `backend/apps/blog/tests/test_newsletter.py`.
+- Only the six listed findings were in scope; the "6 more locations dropped by the cap" were never named, so nothing was done for them.
+
+### 2026-10-11 - Verified by the todo sweep (run 2026-10-11-1448)
+
+- AC 1: `cd backend && python3 scripts/todos/slot_env.py --main-root . 4 -- backend/venv/bin/python -m pytest backend/apps/blog/tests/test_newsletter_digest.py backend/apps/blog/tests/test_newsletter.py --create-db -v` — evidence `.sweep-evidence/g10/569-ac0.txt` (not committed), last lines:
+
+  ```text
+  ============================== ENVIRONMENT DRIFT ===============================
+  backend/venv does not match backend/requirements.txt — these results describe a tree CI does not run.
+    mismatched: pyjwt (pinned 2.15.0, installed 2.13.0), urllib3 (pinned 2.8.0, installed 2.7.0)
+  Fix: pip install -r backend/requirements.txt (see todo 378).
+  ============== 67 passed, 3 warnings, 3 subtests passed in 19.01s ==============
+  ```
+
+### 2026-10-11 - Completed by the todo sweep (run 2026-10-11-1448)
+
+- Archived by `land.py archive`; evidence is quoted above, review is on the PR.

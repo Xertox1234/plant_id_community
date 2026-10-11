@@ -251,6 +251,35 @@ class RequestConfirmationTests(TestCase):
         self.assertIsNotNone(row.confirmation_sent_at)
         self.assertEqual(mail.outbox[0].to, ["reader@example.com"])
 
+    def test_a_row_that_keeps_vanishing_is_named_by_pk_not_address(self):
+        # Todo 569: the error reaches Celery failure logs and Sentry, which
+        # does not scrub exception text, so it must not carry the address.
+        # Simulated: the row is gone both times the lock looks for it.
+        real = BlogNewsletter.objects.get_or_create
+        rows = []
+
+        def read(**kwargs):
+            row, created = real(**kwargs)
+            rows.append(row)
+            return row, created
+
+        gone = mock.Mock()
+        gone.filter.return_value.first.return_value = None
+        with mock.patch.object(
+            BlogNewsletter.objects, "get_or_create", side_effect=read
+        ), mock.patch.object(
+            BlogNewsletter.objects, "select_for_update", return_value=gone
+        ):
+            with self.assertRaises(BlogNewsletter.DoesNotExist) as raised:
+                newsletter.request_confirmation("reader@example.com")
+
+        self.assertEqual(len(rows), 2)  # both passes ran
+        message = str(raised.exception)
+        self.assertNotIn("reader@example.com", message)
+        self.assertNotIn("reader", message)
+        self.assertIn(f"pk={rows[-1].pk}", message)
+        self.assertEqual(mail.outbox, [])
+
 
 @override_settings(SITE_URL=SITE)
 class TokenTests(TestCase):

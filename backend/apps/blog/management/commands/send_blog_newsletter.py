@@ -17,6 +17,7 @@ rows the prune would delete. It sends nothing and writes nothing.
 """
 
 import logging
+from uuid import uuid4
 
 from celery.exceptions import SoftTimeLimitExceeded
 from django.core.cache import cache
@@ -47,8 +48,14 @@ class Command(BaseCommand):
         dry_run = options["dry_run"]
         now = timezone.now()
 
+        # Only the run that took the lock may drop it (todo 569). A run that
+        # went ahead without it (the cache-outage path below) must not delete
+        # another run's lock in `finally`, and neither may a run that outlived
+        # its own lock's TTL: the key may by then belong to a later run.
+        token = uuid4().hex
+        owned = False
         if not dry_run:
-            locked = cache.add(LOCK_KEY, now.isoformat(), NEWSLETTER_RUN_LOCK_SECONDS)
+            locked = cache.add(LOCK_KEY, token, NEWSLETTER_RUN_LOCK_SECONDS)
             if locked is False:
                 self.stdout.write(
                     "[EMAIL] newsletter: another run holds the lock, exiting"
@@ -64,6 +71,8 @@ class Command(BaseCommand):
                     "[EMAIL] newsletter: the run lock is unavailable "
                     "(cache down?), sending without it"
                 )
+            else:
+                owned = True
         try:
             totals = self._send(now, dry_run)
             if dry_run:
@@ -71,7 +80,9 @@ class Command(BaseCommand):
             else:
                 totals["pruned"] = newsletter_digest.prune_stale_unconfirmed(now)
         finally:
-            if not dry_run:
+            # get-then-delete is not atomic, but the gap is one round-trip
+            # against a 35-minute TTL; the row claims stop a double send.
+            if owned and cache.get(LOCK_KEY) == token:
                 cache.delete(LOCK_KEY)
 
         label = "would send" if dry_run else "sent"
@@ -144,6 +155,14 @@ class Command(BaseCommand):
         # next week's run). That window is milliseconds against an SMTP
         # round-trip; a lost week is worse than a rare repeat. The forum
         # digest has the same property.
+        #
+        # The other cost (todo 569): the claim's row lock, its open
+        # transaction and a database connection are held for the whole SMTP
+        # round-trip, up to EMAIL_TIMEOUT per connect or operation. For that
+        # long, anything else that locks this one row waits on it: an
+        # unsubscribe (link or one-click List-Unsubscribe POST), an account
+        # deletion, or `newsletter.request_confirmation`'s select_for_update.
+        # Other rows are not blocked, and the wait ends when the send returns.
         previous = subscriber.last_sent_at
         with transaction.atomic():
             claimed = BlogNewsletter.objects.filter(
