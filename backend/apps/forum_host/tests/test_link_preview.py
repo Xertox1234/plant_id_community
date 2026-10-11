@@ -881,49 +881,68 @@ def test_item6_a_tcp_connect_that_used_up_the_deadline_is_a_timeout():
     assert sock.closed
 
 
+@pytest.mark.parametrize(
+    "connect_seconds",
+    [0.2, 1.3],
+    ids=["connect-leaves-time", "connect-uses-the-budget"],
+)
 def test_item6_a_slow_connect_then_a_stalled_handshake_ends_at_the_deadline(
-    loopback_drip,
+    loopback_drip, connect_seconds
 ):
-    """The TCP connect takes most of the budget, then the server stalls the
-    TLS handshake. Before, the handshake got a fresh timeout and the fetch
-    ran about 0.5 s past its deadline. Asserted on the timeout the socket
-    was handed, not on wall time (todo 539 item 7)."""
+    """The TCP connect takes part (or all) of a 1 s budget, then the server
+    stalls the TLS handshake. Before, the handshake got a fresh timeout and
+    the fetch ran past its deadline. Asserted on the timeout the socket was
+    handed, not on wall time (todo 539 item 7).
+
+    Each case lands in its branch by a wide margin, not by the test's own
+    clock read (todo 550 items 2 and 3): the old ``if connected_at <
+    deadline`` raced production's later read, and its else branch, reached
+    only on a loaded runner, also passed under the bug. A connect that used
+    the whole budget must now never reach the handshake at all."""
     import socket as socket_module
+    import ssl
 
     port = loopback_drip(b"\x16\x03\x03\x40\x00")
     real_create_connection = socket_module.create_connection
+    real_wrap_socket = ssl.SSLContext.wrap_socket
     connected = []
+    handshaken = []
 
     def slow_connect(address, timeout, *args, **kwargs):
-        time.sleep(0.5)
+        time.sleep(connect_seconds)
         sock = real_create_connection(address, timeout, *args, **kwargs)
-        connected.append((sock, time.monotonic(), timeout))
+        connected.append((sock, time.monotonic()))
         return sock
+
+    def recording_wrap_socket(context, sock, *args, **kwargs):
+        handshaken.append(sock)
+        return real_wrap_socket(context, sock, *args, **kwargs)
 
     target = _Target(
         f"https://127.0.0.1:{port}/page", "https", "127.0.0.1", port, "127.0.0.1"
     )
     deadline = time.monotonic() + 1.0
-    with patch(
-        "apps.forum_host.link_preview.socket.create_connection",
-        side_effect=slow_connect,
+    with (
+        patch(
+            "apps.forum_host.link_preview.socket.create_connection",
+            side_effect=slow_connect,
+        ),
+        patch.object(ssl.SSLContext, "wrap_socket", recording_wrap_socket),
     ):
         with pytest.raises(_FetchFailed) as failure:
             _fetch_html(target, deadline)
 
-    [(sock, connected_at, connect_timeout)] = connected
-    if connected_at < deadline:
+    [(sock, connected_at)] = connected
+    if connect_seconds < 1.0:
         # The handshake got at most what the connect left of the budget.
+        assert handshaken == [sock]
         assert sock.gettimeout() <= deadline - connected_at
+        assert failure.value.reason in {"deadline", "timeout"}
     else:
-        # A loaded runner's connect used the whole budget: the socket must
-        # then never have been handed to the handshake, so its timeout is
-        # still the connect's own (todo 545 item 1: this branch used to
-        # assert nothing). The exact cut is pinned without a clock by
-        # test_item6_the_socket_gets_only_the_time_left_after_the_tcp_connect.
-        assert sock.gettimeout() == connect_timeout
+        # The socket was closed instead of handed to the handshake.
+        assert handshaken == []
         assert sock.fileno() == -1
-    assert failure.value.reason in {"deadline", "timeout"}
+        assert failure.value.reason == "deadline"
 
 
 def test_545_item2_a_drip_server_nothing_connected_to_stops_promptly():
@@ -938,9 +957,71 @@ def test_545_item2_a_drip_server_nothing_connected_to_stops_promptly():
     assert not server.thread.is_alive()
 
 
+def test_550_item5_a_client_that_never_sends_does_not_stall_stop():
+    """A client that connects and sends nothing left the drip thread blocked
+    in ``recv()``, which ``stop()`` could not wake: teardown waited out the
+    whole join."""
+    import socket as socket_module
+
+    from apps.forum_host.tests.conftest import DripServer
+
+    server = DripServer(b"prefix")
+    with socket_module.create_connection(("127.0.0.1", server.port)):
+        time.sleep(0.2)  # several accept polls: the server is in recv()
+        started = time.monotonic()
+        server.stop(timeout=2)
+        stopped_in = time.monotonic() - started
+
+    assert not server.thread.is_alive()
+    assert stopped_in < 1.0
+
+
+def test_550_item6_a_transient_accept_error_does_not_end_the_server():
+    """``accept()`` failing for one client (ECONNABORTED) is not the
+    listener closing: the server keeps listening and drips to the next
+    client."""
+    import errno
+    import socket as socket_module
+
+    from apps.forum_host.tests.conftest import DripServer
+
+    real_accept = socket_module.socket.accept
+    calls = []
+
+    def flaky_accept(listener):
+        calls.append(listener)
+        if len(calls) == 1:
+            raise ConnectionAbortedError(errno.ECONNABORTED, "connection aborted")
+        return real_accept(listener)
+
+    with patch.object(socket_module.socket, "accept", flaky_accept):
+        server = DripServer(b"prefix")
+        try:
+            with socket_module.create_connection(
+                ("127.0.0.1", server.port), timeout=2
+            ) as client:
+                client.sendall(b"GET / HTTP/1.1\r\n\r\n")
+                received = b""
+                while len(received) < len(b"prefix"):
+                    chunk = client.recv(len(b"prefix") - len(received))
+                    if not chunk:
+                        break
+                    received += chunk
+        finally:
+            server.stop(timeout=2)
+
+    assert len(calls) >= 2
+    assert received == b"prefix"
+
+
 def test_545_item2_a_client_reset_ends_the_drip_thread_quietly():
-    """A client that resets the connection mid-exchange ends the drip
-    thread without an unhandled exception in it."""
+    """A client that resets the connection mid-drip ends the drip thread
+    without an unhandled exception in it.
+
+    The reset now comes only after the client has read the prefix, so the
+    server is past ``accept()`` and inside its send loop, and the reset must
+    reach its ``except OSError`` (todo 550 item 1): before, the RST could
+    beat the 50 ms accept poll and the thread ended in ``_accept`` instead."""
     import socket as socket_module
     import struct
     import threading
@@ -950,7 +1031,11 @@ def test_545_item2_a_client_reset_ends_the_drip_thread_quietly():
     raised = []
     server = DripServer(b"prefix")
     with patch.object(threading, "excepthook", side_effect=raised.append):
-        client = socket_module.create_connection(("127.0.0.1", server.port))
+        client = socket_module.create_connection(("127.0.0.1", server.port), timeout=2)
+        client.sendall(b"GET / HTTP/1.1\r\n\r\n")
+        received = b""
+        while len(received) < len(b"prefix"):
+            received += client.recv(len(b"prefix") - len(received))
         # SO_LINGER 0: close() sends a RST, not a FIN.
         client.setsockopt(
             socket_module.SOL_SOCKET,
@@ -961,7 +1046,9 @@ def test_545_item2_a_client_reset_ends_the_drip_thread_quietly():
         server.thread.join(2)
         server.stop(timeout=2)
 
+    assert received == b"prefix"
     assert not server.thread.is_alive()
+    assert server.hung_up
     assert raised == []
 
 

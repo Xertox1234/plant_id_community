@@ -1321,7 +1321,11 @@ def test_539_item4_a_raw_angle_bracket_in_a_link_keeps_its_discount():
 
 
 def _backtracking_repeats(parsed):
-    """Every greedy or lazy (so backtracking) repeat in a parsed pattern."""
+    """Every greedy or lazy (so backtracking) repeat in a parsed pattern.
+
+    Walks every node that holds a sub-pattern (todo 550 item 4): an
+    ATOMIC_GROUP's argument is the sub-pattern itself, not a tuple ending in
+    one, and a repeat inside a lookaround or a conditional backtracks too."""
     from re import _constants as sre
 
     found = []
@@ -1333,9 +1337,40 @@ def _backtracking_repeats(parsed):
         elif op == sre.BRANCH:
             for branch in av[1]:
                 found += _backtracking_repeats(branch)
-        elif op in (sre.SUBPATTERN, sre.ATOMIC_GROUP):
+        elif op == sre.SUBPATTERN:
             found += _backtracking_repeats(av[-1])
+        elif op == sre.ATOMIC_GROUP:
+            found += _backtracking_repeats(av)
+        elif op in (sre.ASSERT, sre.ASSERT_NOT):
+            found += _backtracking_repeats(av[1])
+        elif op == sre.GROUPREF_EXISTS:
+            for arm in av[1:]:
+                if arm is not None:
+                    found += _backtracking_repeats(arm)
     return found
+
+
+@pytest.mark.parametrize(
+    "pattern, repeats",
+    [
+        ("(a*)", 1),
+        ("(?>a*)", 1),
+        ("(?>a)", 0),
+        ("(?=a*)", 1),
+        ("(?!a*?)", 1),
+        ("(?<=a)", 0),
+        ("(a)(?(1)a*|b*)", 2),
+        ("(a)(?(1)a*)", 1),
+        ("a*+", 0),
+    ],
+)
+def test_550_item4_the_repeat_walk_reaches_every_sub_pattern(pattern, repeats):
+    """The linearity guard below must see a backtracking repeat wherever the
+    pattern nests it: before, an atomic group raised TypeError and a repeat
+    inside a lookaround or a conditional went unseen."""
+    from re import _parser
+
+    assert len(_backtracking_repeats(_parser.parse(pattern, 0))) == repeats
 
 
 def test_539_item4_the_anchor_scan_of_raw_input_is_linear():
