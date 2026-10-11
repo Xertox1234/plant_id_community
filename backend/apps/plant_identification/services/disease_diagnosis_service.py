@@ -9,6 +9,7 @@ import logging
 from typing import Callable, Dict, List, Optional
 
 from django.db import transaction
+from django.db.models import F
 from django.utils import timezone
 
 from ..models import (
@@ -86,8 +87,10 @@ class DiseaseAutostorageService:
         self, disease: "PlantDiseaseDatabase", result: "PlantDiseaseResult"
     ) -> "PlantDiseaseDatabase":
         """Update existing disease with new diagnosis data."""
-        # Increment diagnosis count
-        disease.diagnosis_count += 1
+        # Increment in the database, not in Python (todo 467). `count += 1` on
+        # an instance read before a concurrent diagnosis of the same disease
+        # writes back the stale value plus one, and that increment is lost.
+        disease.diagnosis_count = F("diagnosis_count") + 1
 
         # Update confidence score if higher
         if result.confidence_score > disease.confidence_score:
@@ -102,6 +105,8 @@ class DiseaseAutostorageService:
             disease.symptoms["identified"] = merged_symptoms
 
         disease.save()
+        # The instance holds the F() expression until it is re-read.
+        disease.refresh_from_db(fields=["diagnosis_count"])
         return disease
 
     def _create_new_disease(
