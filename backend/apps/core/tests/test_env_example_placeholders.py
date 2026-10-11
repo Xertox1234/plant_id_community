@@ -39,6 +39,10 @@ import subprocess
 import sys
 
 import pytest
+from plant_community_backend.env_placeholders import (
+    LEGACY_PLACEHOLDERS,
+    OPTIONAL_INTEGRATION_KEYS,
+)
 
 BACKEND = pathlib.Path(__file__).resolve().parents[3]
 ENV_EXAMPLE = BACKEND / ".env.example"
@@ -97,12 +101,22 @@ def _boot_output(overrides):
     return result.stdout + result.stderr
 
 
+def _blanked_keys():
+    """Every key this file sets or asserts on. Each is passed as "" unless the
+    baseline or a test sets it (todo 561): blank, never absent, because
+    python-decouple falls through to backend/.env for a key missing from the
+    environment, and a developer `.env` copied from `.env.example` would feed
+    its verbatim REQUIRED__ lines into every boot here."""
+    return {key for key, _ in _placeholders()} | set(OPTIONAL_INTEGRATION_KEYS)
+
+
 def _boot(overrides):
     """Import settings in a clean interpreter. Returns the CompletedProcess."""
     env = {
         # Enough of the real environment for the interpreter to run at all.
         "PATH": os.environ.get("PATH", ""),
         "HOME": os.environ.get("HOME", ""),
+        **dict.fromkeys(_blanked_keys(), ""),
         **BASELINE,
         **overrides,
     }
@@ -198,22 +212,9 @@ def test_a_padded_placeholder_refuses_to_boot(key, value):
 
 
 # The optional integrations todo 436 converted from `your-...` / `path/to/...`
-# placeholders, which booted clean in production. Unset leaves each one off;
-# only the verbatim placeholder is refused.
-OPTIONAL_INTEGRATION_KEYS = {
-    "OPENWEATHER_API_KEY",
-    "TREFLE_API_KEY",
-    "PLANT_HEALTH_API_KEY",
-    "OPENAI_API_KEY",
-    "UNSPLASH_ACCESS_KEY",
-    "PEXELS_API_KEY",
-    "GOOGLE_OAUTH2_CLIENT_ID",
-    "GOOGLE_OAUTH2_CLIENT_SECRET",
-    "GITHUB_CLIENT_ID",
-    "GITHUB_CLIENT_SECRET",
-    "FIREBASE_PROJECT_ID",
-    "FIREBASE_CREDENTIALS_PATH",
-}
+# placeholders, which booted clean in production (the shared tuple in
+# plant_community_backend/env_placeholders.py, which settings reads too).
+# Unset leaves each one off; only a placeholder is refused.
 
 
 def test_optional_integration_placeholders_are_required_markers():
@@ -222,18 +223,83 @@ def test_optional_integration_placeholders_are_required_markers():
     `your-...` value would drop it from both tests and leave them green, so
     pin the conversion itself."""
     names = {key for key, _ in _placeholders()}
-    assert OPTIONAL_INTEGRATION_KEYS <= names, OPTIONAL_INTEGRATION_KEYS - names
+    keys = set(OPTIONAL_INTEGRATION_KEYS)
+    assert keys <= names, keys - names
 
 
-def test_an_optional_integration_placeholder_only_warns_under_debug():
-    """DEBUG keeps booting with a copied `.env.example`: an optional key's
-    placeholder is a configuration warning there, not a critical error."""
-    value = dict(_placeholders())["OPENAI_API_KEY"]
-    combined = _boot_output({"DEBUG": "True", "OPENAI_API_KEY": value})
+def test_every_optional_integration_key_has_its_legacy_literal():
+    """The legacy guard covers exactly the twelve keys todo 436 converted."""
+    assert set(LEGACY_PLACEHOLDERS) == set(OPTIONAL_INTEGRATION_KEYS)
 
-    warning = "OPENAI_API_KEY is still the unmodified .env.example placeholder"
-    assert f"⚠️  {warning}" in combined, combined[-3000:]
-    assert f"[ENV VALIDATION] {warning}" not in combined, combined[-3000:]
+
+def test_optional_integration_placeholders_only_warn_under_debug():
+    """DEBUG keeps booting with a copied `.env.example`: every optional key's
+    placeholder is a configuration warning there, not a critical error (todo
+    561: all twelve, the exit code, and no fatal banner). File logging is off
+    so the test never appends to the real backend/logs/django.log."""
+    placeholders = dict(_placeholders())
+    overrides = {key: placeholders[key] for key in OPTIONAL_INTEGRATION_KEYS}
+    result = _boot({"DEBUG": "True", "ENABLE_FILE_LOGGING": "False", **overrides})
+    combined = result.stdout + result.stderr
+
+    assert result.returncode == 0, combined[-3000:]
+    assert "CRITICAL ENVIRONMENT CONFIGURATION ERRORS" not in combined
+    for key in OPTIONAL_INTEGRATION_KEYS:
+        warning = f"{key} is still the unmodified .env.example placeholder"
+        assert warning in combined, (key, combined[-3000:])
+
+
+@pytest.mark.parametrize("key,value", sorted(LEGACY_PLACEHOLDERS.items()))
+def test_a_legacy_placeholder_refuses_to_boot(key, value):
+    """An environment built from the pre-436 template still carries its
+    `your-...` / `path/to/...` values (todo 561, owner decision 2026-10-11).
+    Each switched its integration on with a value published in this public
+    repository, and booted clean in production."""
+    result = _boot({key: f" {value} "})
+    combined = result.stdout + result.stderr
+
+    assert result.returncode != 0, combined[-2000:]
+    assert f"{key} is still the old .env.example placeholder" in combined, combined[
+        -3000:
+    ]
+
+
+def test_a_legacy_placeholder_only_warns_under_debug():
+    result = _boot(
+        {
+            "DEBUG": "True",
+            "ENABLE_FILE_LOGGING": "False",
+            "GITHUB_CLIENT_SECRET": LEGACY_PLACEHOLDERS["GITHUB_CLIENT_SECRET"],
+        }
+    )
+    combined = result.stdout + result.stderr
+
+    assert result.returncode == 0, combined[-3000:]
+    assert "GITHUB_CLIENT_SECRET is still the old .env.example placeholder" in (
+        combined
+    )
+
+
+# Key shapes that hold a secret or a credential location. A new line of this
+# shape in `.env.example` must be blank or a REQUIRED__ placeholder, or the
+# parametrised tests above never see it (todo 561).
+SECRET_SHAPE_RE = re.compile(
+    r"^([A-Z0-9_]*(?:_KEY|_SECRET|_TOKEN|_CLIENT_ID|_PATH|_PROJECT_ID))=(.*)$"
+)
+# Non-secret defaults that happen to match the shape.
+SECRET_SHAPE_EXEMPT = {"LOG_FILE_PATH"}
+
+
+def test_every_secret_shaped_template_line_is_blank_or_required():
+    offenders = []
+    for raw in ENV_EXAMPLE.read_text(encoding="utf-8").splitlines():
+        match = SECRET_SHAPE_RE.match(raw.strip())
+        if not match or match.group(1) in SECRET_SHAPE_EXEMPT:
+            continue
+        value = match.group(2).strip()
+        if value and not value.startswith(PLACEHOLDER_PREFIX):
+            offenders.append(raw)
+    assert not offenders, offenders
 
 
 def test_the_removed_encryption_setting_is_gone():

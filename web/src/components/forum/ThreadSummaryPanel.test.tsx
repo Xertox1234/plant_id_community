@@ -262,7 +262,7 @@ describe('ThreadSummaryPanel', () => {
     expect(screen.queryByText(/at least 3 posts/i)).not.toBeInTheDocument();
   });
 
-  it('on 404 (topic gone or restricted) says the thread is unavailable, offers no retry, and does not latch', async () => {
+  it('on 404 (topic gone or restricted) says the thread is unavailable, keeps the button mounted but disabled, and does not latch', async () => {
     vi.spyOn(forumService, 'fetchTopicSummary').mockRejectedValue(
       new forumService.TopicSummaryError(404, 'No Topic matches the given query.')
     );
@@ -273,7 +273,9 @@ describe('ThreadSummaryPanel', () => {
 
     expect(statusRegion()).toHaveTextContent(/thread is unavailable/i);
     // No retry: each one would spend a 30/h slot on a thread that cannot answer.
-    expect(screen.queryByRole('button', { name: /summarize thread/i })).not.toBeInTheDocument();
+    // Disabled, not unmounted (owner decision 2026-10-11, todo 554): unmounting
+    // the button just clicked dropped keyboard focus to <body>.
+    expect(summarize()).toBeDisabled();
     // Nothing about the ACCOUNT changed: no service latch, and the next thread offers it.
     expect(forumService.isTopicSummaryUnavailable()).toBe(false);
     unmount();
@@ -281,9 +283,13 @@ describe('ThreadSummaryPanel', () => {
     expect(summarize()).toBeEnabled();
   });
 
+  // Anchored on the period (todo 554): a substring match let the pre-fix
+  // "about 1 minutes" pass as "about 1 minute", and 45 s is a case the old
+  // minutes-only formula got wrong outright.
   it.each([
-    [60, 'about 1 minute'],
-    [90, 'about 2 minutes'],
+    [45, /about 45 seconds\./],
+    [60, /about 1 minute\./],
+    [90, /about 2 minutes\./],
   ])('pluralizes the throttled wait (%i s)', async (retryAfter, text) => {
     vi.spyOn(forumService, 'fetchTopicSummary').mockRejectedValue(
       new forumService.TopicSummaryError(
@@ -332,7 +338,13 @@ describe('ThreadSummaryPanel', () => {
     await advance(0);
     setVisibility('hidden');
     await advance(5000); // the poll delay elapsed; the run is parked on visibility
+    // The unmount itself must remove the listener (todo 554): without the
+    // cleanup the leaked listener settled on the dispatch below and the run
+    // still exited at its token check, so the poll count alone could not tell.
+    const removeListener = vi.spyOn(document, 'removeEventListener');
     unmount();
+    expect(removeListener).toHaveBeenCalledWith('visibilitychange', expect.any(Function));
+    removeListener.mockRestore();
 
     setVisibility('visible');
     await act(async () => {
@@ -340,5 +352,18 @@ describe('ThreadSummaryPanel', () => {
     });
     await advance(60_000);
     expect(fetchSummary).toHaveBeenCalledTimes(1);
+  });
+  it('never shows the too-short line beside a summary already shown (todo 554)', async () => {
+    vi.spyOn(forumService, 'fetchTopicSummary').mockResolvedValue(READY);
+    const { rerender } = render(<ThreadSummaryPanel topicId={12} postCount={5} />);
+    fireEvent.click(summarize());
+    await advance(0);
+    expect(screen.getByText(READY.summary)).toBeInTheDocument();
+
+    // A post deleted after the summary was written drops the count below MIN_POSTS.
+    rerender(<ThreadSummaryPanel topicId={12} postCount={2} />);
+
+    expect(screen.getByText(READY.summary)).toBeInTheDocument();
+    expect(screen.queryByText(/at least 3 posts/i)).not.toBeInTheDocument();
   });
 });

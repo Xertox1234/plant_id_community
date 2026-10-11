@@ -1997,5 +1997,27 @@
     "source": "codify: docs/codify-p4-sweeps-2026-10-11",
     "added": "2026-10-11",
     "severity": "warn"
+  },
+  {
+    "id": "forum-full-row-post-save-over-pending-revision",
+    "domains": [
+      "forum",
+      "wagtail"
+    ],
+    "path_glob": [
+      "backend/packages/wagtail_forum/wagtail_forum/signals.py",
+      "backend/packages/wagtail_forum/wagtail_forum/workflow.py",
+      "backend/packages/wagtail_forum/wagtail_forum/admin_views.py",
+      "backend/packages/wagtail_forum/wagtail_forum/wagtail_hooks.py",
+      "backend/packages/wagtail_forum/wagtail_forum/api/*.py",
+      "backend/packages/wagtail_forum/wagtail_forum/models/*.py",
+      "backend/apps/forum_host/*.py"
+    ],
+    "content_present": "\\b(?:post|opening|reply|locked|obj)\\.save\\(\\s*\\)",
+    "message": "A full-row save() of a forum Post bumps updated_at (auto_now). On a never-published post that holds a pending revision (an author's screened edit, todo 579), the row is then newer than the revision, and approving the topic publishes the ROW: the edit is dropped with no error (signals._publish_counterpart). Change content with save_revision(), or save(update_fields=[...]) without updated_at. See 'Pending opening posts' in backend/docs/patterns/domain/forum.md.",
+    "pattern_ref": "backend/docs/patterns/domain/forum.md",
+    "source": "todo 574 (PR #1013 follow-ups)",
+    "added": "2026-10-11",
+    "severity": "warn"
   }
 ]

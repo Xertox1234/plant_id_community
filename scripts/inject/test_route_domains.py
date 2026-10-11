@@ -93,6 +93,13 @@ class SubprocessTests(unittest.TestCase):
         self.assertIn("database", out)  # fallback fired
         self.assertIn("firebase", out)  # stacked on top
 
+    def test_real_routing_sends_the_env_template_to_security(self):
+        # Todo 561: its secret-key lines must stay blank or REQUIRED__, and an
+        # edit there injected no rules at all.
+        r = self._run("backend/.env.example\n")
+        self.assertEqual(r.returncode, 0)
+        self.assertEqual(set(filter(None, r.stdout.split(","))), {"security"})
+
     def test_union_across_multiple_paths(self):
         # kimi passes the whole staged list in one call; per-path then unioned.
         r = self._run("backend/apps/users/views.py\nweb/src/x.ts\n")

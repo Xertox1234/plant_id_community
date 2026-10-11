@@ -206,19 +206,19 @@ django-insecure-r3a!5$x^w8%y*z#k@m+n=p&q~s[t]u{v}w|x,y.z/a<b>c?d
 SECRET_KEY=django-insecure-r3a!5$x^w8%y*z#k@m+n=p&q~s[t]u{v}w|x,y.z/a<b>c?d
 DEBUG=True
 
-# External APIs
-PLANT_ID_API_KEY=your-plant-id-api-key-50-characters-long-example
-PLANTNET_API_KEY=your-plantnet-api-key-24chars
-OPENAI_API_KEY=sk-your-openai-api-key-here
+# External APIs (the real keys from each provider's console)
+PLANT_ID_API_KEY=<your Plant.id key>
+PLANTNET_API_KEY=<your PlantNet key>
+OPENAI_API_KEY=<your OpenAI key>
 
-# JWT Authentication
-JWT_SECRET_KEY=your-jwt-secret-key-here-at-least-50-characters-long
+# JWT Authentication (python -c 'import secrets; print(secrets.token_urlsafe(64))')
+JWT_SECRET_KEY=<a generated value, at least 50 characters>
 
-# OAuth (if using)
-GOOGLE_OAUTH2_CLIENT_ID=your-google-client-id.apps.googleusercontent.com
-GOOGLE_OAUTH2_CLIENT_SECRET=your-google-client-secret
-GITHUB_CLIENT_ID=your-github-client-id
-GITHUB_CLIENT_SECRET=your-github-client-secret
+# OAuth (if using; leave unset to keep the integration off)
+GOOGLE_OAUTH2_CLIENT_ID=<the client id from the Google console>
+GOOGLE_OAUTH2_CLIENT_SECRET=<its client secret>
+GITHUB_CLIENT_ID=<the client id from GitHub>
+GITHUB_CLIENT_SECRET=<its client secret>
 
 # Database
 DATABASE_URL=postgres://user:password@localhost:5432/plant_community
@@ -242,24 +242,17 @@ CORS_ALLOWED_ORIGINS=http://localhost:5174
 
 ```bash
 # Django Core
-# Generate with: python -c 'from django.core.management.utils import get_random_secret_key; print(get_random_secret_key())'
-SECRET_KEY=your-secret-key-here
+SECRET_KEY=REQUIRED__GENERATE_WITH__python_-c_from_django_get_random_secret_key
 DEBUG=True
 ALLOWED_HOSTS=localhost,127.0.0.1
 
 # External APIs
-# Plant.id: Sign up at https://web.plant.id/
-PLANT_ID_API_KEY=your-plant-id-api-key-here
-
-# PlantNet: Sign up at https://my.plantnet.org/
-PLANTNET_API_KEY=your-plantnet-api-key-here
-
-# OpenAI: Get from https://platform.openai.com/api-keys
-OPENAI_API_KEY=sk-your-openai-api-key-here
+PLANT_ID_API_KEY=REQUIRED__GET_FROM__https://web.plant.id/
+PLANTNET_API_KEY=REQUIRED__GET_FROM__https://my.plantnet.org/
+OPENAI_API_KEY=REQUIRED__GET_FROM__https://platform.openai.com/api-keys
 
 # JWT Authentication
-# Generate with: python -c 'import secrets; print(secrets.token_urlsafe(50))'
-JWT_SECRET_KEY=your-jwt-secret-key-here
+JWT_SECRET_KEY=REQUIRED__GENERATE_WITH__python_-c_import_secrets_token_urlsafe_64
 
 # Database (use SQLite for dev, PostgreSQL for prod)
 DATABASE_URL=sqlite:///db.sqlite3
@@ -270,6 +263,12 @@ REDIS_URL=redis://localhost:6379/1
 # CORS (frontend URL)
 CORS_ALLOWED_ORIGINS=http://localhost:5174
 ```
+
+Every secret-shaped line (`*_KEY`, `*_SECRET`, `*_TOKEN`, `*_CLIENT_ID`,
+`*_PATH`, `*_PROJECT_ID`) in `backend/.env.example` is blank or a `REQUIRED__`
+placeholder, never a `your-...` example value: pinned by
+`apps/core/tests/test_env_example_placeholders.py::test_every_secret_shaped_template_line_is_blank_or_required`
+(todo 561), with `LOG_FILE_PATH` the one named exemption.
 
 **Key Differences**:
 
@@ -349,17 +348,25 @@ at all, and four of the five placeholders booted clean. Todo 436 converted the
 12 optional integrations' `your-...-here` / `path/to/...` placeholders, which
 nothing checked (`GITHUB_CLIENT_SECRET`'s literally contained "secret"), to
 `REQUIRED__GET_FROM__<url>` as well. Unset still leaves each of those
-integrations off; only the placeholder itself is refused.
+integrations off; only the placeholder itself is refused. Todo 561 refuses the
+twelve pre-436 literals too (`GITHUB_CLIENT_SECRET=your-github-client-secret`,
+`FIREBASE_CREDENTIALS_PATH=path/to/firebase-service-account.json`, ...): an
+environment built from the older template still carries them. They live in
+`backend/plant_community_backend/env_placeholders.py` (`LEGACY_PLACEHOLDERS`,
+matched as a substring like the prefix), with the same split: fatal in
+production, a warning under `DEBUG`.
 
 The mechanism, in one place:
 `reject_insecure_value(name, value)` in
 `backend/plant_community_backend/settings.py` raises `ImproperlyConfigured` when
-a value starts with `REQUIRED_PLACEHOLDER_PREFIX` (`"REQUIRED__"`), or contains
-any `INSECURE_PATTERNS` substring. The prefix test is `is_required_placeholder()`,
-which strips surrounding whitespace and quotes first (todo 391): python-decouple
-strips `.env` file lines but not `os.environ`, so a placeholder pasted into
-Railway with a leading space slipped a bare `startswith`. The `api_key_checks`
-loop in `validate_environment()` calls the same helper. The prefix is reported separately because its
+a value contains `REQUIRED_PLACEHOLDER_PREFIX` (`"REQUIRED__"`) anywhere, or
+contains any `INSECURE_PATTERNS` substring. The placeholder test is
+`is_required_placeholder()`, a substring test rather than a stripped prefix
+(todos 391 and 561): python-decouple strips `.env` file lines but not
+`os.environ`, so a placeholder pasted into Railway with a leading space, quotes,
+backticks or a whole `KEY=...` line slipped a bare `startswith`, and no real
+key contains `REQUIRED__`. The `api_key_checks` loop and the optional-integration
+loop in `validate_environment()` call the same helper. The prefix is reported separately because its
 remedy differs — "you copied `.env.example` and did not fill this in" is a
 different mistake from "you chose a weak value".
 

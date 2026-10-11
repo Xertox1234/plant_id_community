@@ -204,9 +204,65 @@ describe('PlantCareAskPanel', () => {
     );
     renderPanel();
     await openAndAsk();
-    expect(await screen.findByText(/sign in/i)).toBeInTheDocument();
+    // Tightened (todo 554): /sign in/i also matched the session-expired copy
+    // ("Sign in again"), so it could not tell the two branches apart.
+    expect(await screen.findByText(/premium account to ask/i)).toBeInTheDocument();
+    expect(screen.queryByText(/session expired/i)).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Ask' })).toBeDisabled();
     expect(forumService.isPlantCareAskUnavailable()).toBe(true);
+  });
+
+  it('on a 403 for a SIGNED-IN user explains premium, disables Ask and latches (todo 554)', async () => {
+    // Without this case, dropping `err.status === 401 &&` from the expired-
+    // session branch stayed green while a non-premium member's 403 read
+    // "session expired", never latched, and invited repeated failing asks.
+    authState.current = { user: { id: 1 }, isAuthenticated: true, isLoading: false };
+    vi.spyOn(forumService, 'askPlantCare').mockRejectedValue(
+      new forumService.RagError(403, 'This feature requires a premium account.')
+    );
+    renderPanel();
+    await openAndAsk();
+    expect(await screen.findByText(/requires a premium account/i)).toBeInTheDocument();
+    expect(screen.queryByText(/session expired/i)).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Ask' })).toBeDisabled();
+    expect(forumService.isPlantCareAskUnavailable()).toBe(true);
+  });
+
+  it('never latches a 401 that lands while auth is still loading (todo 554)', async () => {
+    // isAuthenticated is !!user, false while AuthProvider bootstraps a tab with
+    // no stored user: a signed-in member's 401 then is an expired cookie too.
+    authState.current = { user: null, isAuthenticated: false, isLoading: true };
+    vi.spyOn(forumService, 'askPlantCare').mockRejectedValue(
+      new forumService.RagError(401, 'Authentication credentials were not provided.')
+    );
+    renderPanel();
+    await openAndAsk();
+    expect(await screen.findByText(/session expired/i)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Ask' })).toBeEnabled();
+    expect(forumService.isPlantCareAskUnavailable()).toBe(false);
+  });
+
+  it('offers the form again once the visitor signs in (todo 554)', async () => {
+    vi.spyOn(forumService, 'askPlantCare').mockRejectedValue(
+      new forumService.RagError(401, 'Authentication credentials were not provided.')
+    );
+    const view = renderPanel();
+    await openAndAsk();
+    expect(await screen.findByText(/premium account to ask/i)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Ask' })).toBeDisabled();
+
+    // AuthContext clears the service latch on the identity change...
+    forumService.resetPlantCareAskAvailability();
+    authState.current = { user: { id: 7 }, isAuthenticated: true, isLoading: false };
+    view.rerender(
+      <MemoryRouter>
+        <PlantCareAskPanel />
+      </MemoryRouter>
+    );
+
+    // ...and the mounted panel drops its own copy of it.
+    expect(screen.getByRole('button', { name: 'Ask' })).toBeEnabled();
+    expect(screen.queryByText(/premium account to ask/i)).not.toBeInTheDocument();
   });
 
   it('on a 401 for a SIGNED-IN user says the session expired, keeps the form, and never latches (todo 433)', async () => {

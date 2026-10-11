@@ -22,8 +22,9 @@ import type { TopicSummary } from '../../types/forum';
  * thread) renders nothing. `AuthContext` clears the latch on identity change.
  * A 401 is an expired access cookie (never latched), and a 404 — the topic
  * unpublished, or moved to a board this account cannot see — is about THIS
- * thread, not the account: the panel stops offering the button, with no latch
- * (todo 433).
+ * thread, not the account: the button stays mounted but disabled, so the focus
+ * the click placed on it is not dropped to <body> (docs/rules/react.md; owner
+ * decision 2026-10-11, todo 554), with no latch (todo 433).
  *
  * The endpoint never generates in-request: a cache miss returns 202 `pending`
  * and a Celery task writes the summary, so this polls. Sparingly — the 30/h
@@ -38,7 +39,8 @@ import type { TopicSummary } from '../../types/forum';
 const POLL_DELAY_MS = 5000;
 /** Polls after the first request (≈30s total; the pending lock's TTL is 120s). */
 const MAX_POLLS = 6;
-/** Mirrors SUMMARY_MIN_POSTS in apps/forum_host/constants.py. */
+/** Mirrors SUMMARY_MIN_POSTS in apps/forum_host/constants.py; a backend test
+ * (apps/core/tests/test_summary_min_posts_drift.py) fails when they drift. */
 const MIN_POSTS = 3;
 
 const TOO_SHORT = `Threads need at least ${MIN_POSTS} posts before they can be summarized.`;
@@ -60,7 +62,8 @@ interface ThreadSummaryPanelProps {
   /**
    * Live posts in the thread INCLUDING the opening post — what the server's
    * `too_short` counts (`build_summary_source`). The page keeps it current as
-   * replies land. Below MIN_POSTS the button is not offered at all: every click
+   * replies land, counting the replies its new-replies poll has seen but the
+   * reader has not loaded yet (todo 554). Below MIN_POSTS the button is not offered at all: every click
    * on a too-short thread would spend a 30/h slot only to learn `too_short`
    * (PR #816 review). The server's own `too_short` answer stays handled, for
    * the race where the count moved between the page's read and the click.
@@ -72,8 +75,11 @@ export default function ThreadSummaryPanel({ topicId, postCount }: ThreadSummary
   // Read once per mount: a latch set by an EARLIER panel means this account
   // can't use it — render nothing. One set during THIS mount keeps the notice.
   const [hiddenAtMount] = useState(isTopicSummaryUnavailable);
-  // Set by a 403 (latched in the service too) or a 404 (this panel only).
+  // Set by a 403 (latched in the service too): the premium notice replaces
+  // the button.
   const [unavailable, setUnavailable] = useState(false);
+  // Set by a 404 (this panel only): the button stays mounted, disabled.
+  const [threadGone, setThreadGone] = useState(false);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [outcome, setOutcome] = useState<Outcome | null>(null);
@@ -128,7 +134,7 @@ export default function ThreadSummaryPanel({ topicId, postCount }: ThreadSummary
     });
 
   const summarize = async () => {
-    if (busy || unavailable || tooShort) return;
+    if (busy || unavailable || threadGone || tooShort) return;
     const run = ++runRef.current;
     const controller = new AbortController();
     abortRef.current = controller;
@@ -173,7 +179,7 @@ export default function ThreadSummaryPanel({ topicId, postCount }: ThreadSummary
         // moved to a restricted board): a retry could only spend another slot.
         // About THIS thread, not the account — so panel-local, never the
         // service latch, and the next thread offers the button again.
-        setUnavailable(true);
+        setThreadGone(true);
         setMessage(THREAD_UNAVAILABLE);
       } else if (err instanceof TopicSummaryError && err.status === 401) {
         // An expired access cookie, not "can't": say so, never latch.
@@ -202,7 +208,7 @@ export default function ThreadSummaryPanel({ topicId, postCount }: ThreadSummary
             className="ml-auto"
             loading={busy}
             loadingText="Summarizing…"
-            disabled={busy}
+            disabled={busy || threadGone}
             onClick={() => void summarize()}
           >
             Summarize thread
@@ -210,8 +216,10 @@ export default function ThreadSummaryPanel({ topicId, postCount }: ThreadSummary
         )}
       </div>
 
-      {/* Below MIN_POSTS the line stands in for the button (PR #816 review). */}
-      {tooShort && <p className="mt-3 text-body-sm text-ink-2">{TOO_SHORT}</p>}
+      {/* Below MIN_POSTS the line stands in for the button (PR #816 review).
+          Not beside a summary already shown: a post deleted after it was
+          written must not put "too short" next to it (todo 554). */}
+      {tooShort && !outcome && <p className="mt-3 text-body-sm text-ink-2">{TOO_SHORT}</p>}
 
       {/* Persistent live region — mounted for the panel's whole life. */}
       <p

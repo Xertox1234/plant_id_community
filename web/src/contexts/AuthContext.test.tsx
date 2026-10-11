@@ -67,6 +67,39 @@ describe('AuthContext', () => {
       expect(forumService.isComposeAssistUnavailable()).toBe(false);
       expect(forumService.isTopicSummaryUnavailable()).toBe(false);
     });
+
+    it('clears every capability latch, plant-care included, through its wrapper on identity change (todo 554)', async () => {
+      // The plant-care latch is the anonymous visitor's 401 that signing in
+      // must clear; the test above never marked it.
+      const latches = [
+        [forumService.markComposeAssistUnavailable, forumService.isComposeAssistUnavailable],
+        [forumService.markPlantCareAskUnavailable, forumService.isPlantCareAskUnavailable],
+        [forumService.markTopicSummaryUnavailable, forumService.isTopicSummaryUnavailable],
+      ] as const;
+      const visitor: User = { id: 3, email: 'visitor@example.com', name: 'Visitor' };
+      vi.mocked(authService.getStoredUser).mockReturnValue(null);
+      vi.mocked(authService.getCurrentUser).mockResolvedValue(null);
+
+      const { result } = renderHook(() => useAuth(), { wrapper: AuthProvider });
+      await waitFor(() => expect(result.current.isLoading).toBe(false));
+      for (const [mark, is] of latches) {
+        mark();
+        expect(is()).toBe(true);
+      }
+
+      vi.mocked(authService.login).mockResolvedValue(visitor);
+      await act(async () => {
+        await result.current.login({
+          email: 'visitor@example.com',
+          password: 'x',
+        } as LoginCredentials);
+      });
+
+      await waitFor(() => expect(result.current.user).toEqual(visitor));
+      for (const [, is] of latches) {
+        expect(is()).toBe(false);
+      }
+    });
   });
 
   describe('Initialization', () => {

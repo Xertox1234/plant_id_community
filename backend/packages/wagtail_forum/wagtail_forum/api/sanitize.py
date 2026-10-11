@@ -578,6 +578,50 @@ def _valid_image_block_value(block_value):
     return True
 
 
+def normalise_alt_text(alt: str) -> str:
+    """The stored form of an image alt: a fixed point of the web composer's
+    round trip (todos 443 and 554).
+
+    The composer carries the alt through an HTML attribute, and the
+    browser's parser normalises attribute values on the way in: CR and CRLF
+    become LF, NUL becomes U+FFFD. No escape preserves a NUL (``&#0;`` also
+    parses as U+FFFD), and a CR means nothing in alt text, so the API
+    normalises on write instead: CRLF and lone CR become LF, and NUL
+    (U+0000) is deleted rather than replaced, because Postgres refuses it in
+    jsonb and in text columns (the save raised, and the API answered 500).
+    U+FEFF is deleted too: JavaScript's ``trim()`` removes it and Python's
+    ``str.strip()`` does not. The value is stripped, capped and stripped
+    again, because a cap landing on whitespace would otherwise store a
+    trailing space the composer's ``.trim()`` drops, and re-saving an
+    untouched post would PATCH a changed alt.
+
+    Before strip and cap: the cap must apply to the final form, and an alt
+    of only NULs must not count as authored text. Shared by the body's image
+    blocks and the upload's ``alt`` part (``api.views._alt_text``)."""
+    alt = alt.replace("\r\n", "\n").replace("\r", "\n")
+    alt = alt.replace("\x00", "").replace("\ufeff", "")
+    return alt.strip()[:MAX_ALT_TEXT_LENGTH].rstrip()
+
+
+def _without_nul(block):
+    """``block`` with NUL (U+0000) deleted from every string in its value
+    (todo 554): Postgres refuses NUL in the jsonb body, so a heading, quote,
+    code or post-quote text carrying one raised on save and the API answered
+    500, not 400. Deleted, like an alt's (``normalise_alt_text``)."""
+    block_value = block.get("value")
+    if isinstance(block_value, str):
+        return {**block, "value": block_value.replace("\x00", "")}
+    if isinstance(block_value, dict):
+        return {
+            **block,
+            "value": {
+                k: v.replace("\x00", "") if isinstance(v, str) else v
+                for k, v in block_value.items()
+            },
+        }
+    return block
+
+
 def _normalise_image_value(block_value, descriptions):
     """Rewrite a validated image block value into the ImageBlock dict shape.
 
@@ -594,19 +638,9 @@ def _normalise_image_value(block_value, descriptions):
        silently drop the author's words. *descriptions* carries the descriptions
        already fetched by the ownership query below, so this costs no extra
        query.
-    3. **Line endings and NUL are normalised on write, so the alt the composer
-       reads back is the alt that was stored.** The web composer carries the
-       alt through an HTML attribute, and the browser's parser normalises
-       attribute values on the way in: CR and CRLF become LF, NUL becomes
-       U+FFFD. Escaping cannot stop that, so an alt stored with a CR (possible
-       only through a direct API write — the composer never sends one) came
-       back different on rehydrate, and re-saving an untouched post PATCHed a
-       changed ``alt_text`` (PR #826 review, todo 443). Storing the normalised
-       form — CRLF and lone CR as LF, NUL deleted — makes rehydrate -> re-save
-       a no-op for every alt this API accepts. NUL is deleted, not replaced
-       with U+FFFD: the body column is jsonb, and Postgres rejects ``\u0000``
-       in jsonb outright, so a NUL alt could never have been stored anyway
-       (the save raised, and the API answered 500).
+    3. **The alt is normalised on write (``normalise_alt_text``), so the alt
+       the composer reads back is the alt that was stored.** See that
+       function for what and why.
     """
     if isinstance(block_value, int):
         pk = block_value
@@ -617,11 +651,7 @@ def _normalise_image_value(block_value, descriptions):
         # Both may be None — see image_block_pk on Wagtail writing that shape.
         alt = block_value.get("alt_text") or ""
         decorative = block_value.get("decorative")
-    # Normalise BEFORE strip/truncate: the length cap must apply to the final
-    # form, and str.strip() removes CR but not NUL, so an alt of only NULs
-    # would otherwise count as authored text and reach jsonb as \u0000.
-    alt = alt.replace("\r\n", "\n").replace("\r", "\n").replace("\x00", "")
-    alt = alt.strip()[:MAX_ALT_TEXT_LENGTH]
+    alt = normalise_alt_text(alt)
     # A blank alt IS decorative, whatever flag the client sent: `alt_text=""`
     # with `decorative=False` is exactly the pair ImageBlock.clean() refuses, so
     # honouring an explicit False here would store the one state the CMS cannot
@@ -753,6 +783,7 @@ def validate_forum_body(
                 raise serializers.ValidationError(_("Invalid post body."))
         elif not isinstance(block_value, str):
             raise serializers.ValidationError(_("Invalid post body."))
+    value = [_without_nul(block) for block in value]
 
     # Embed blocks (todo 344): a URL string, only when the host opted in,
     # only from a provider the host's finders accept. Then the ONE network

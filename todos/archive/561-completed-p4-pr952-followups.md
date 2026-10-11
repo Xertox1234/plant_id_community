@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: p4
 issue_id: "561"
 tags: [todo-sweep, follow-ups, backend]
@@ -53,10 +53,35 @@ finding against main before acting on it.
 
 ## Acceptance Criteria
 
-- [ ] Each of its 7 findings is fixed with a test, or the Work Log records why it was left as is.
+- [x] Each of its 7 findings is fixed with a test, or the Work Log records why it was left as is.
 
 ## Work Log
 
 ### 2026-10-10 - Promoted out of todo 527
 
 - Split from the consolidated follow-up todo 527 (owner decision 2026-10-10: one todo per source PR).
+
+### 2026-10-11 - Implemented by the todo sweep (run 2026-10-11-1448)
+
+- F1 (owner decision): `pending_posts()` annotates `held_revision_id` (the active workflow state's task-state revision), and the row's excerpt, its form's revision and Approve all use it, never a later draft; the `revision.user` crash clause is gone. To keep crashed edits listed, `SpamCheckTask` now rejects with the error as its comment when the spam backend raises, so a crash leaves a NEEDS_CHANGES state; three existing tests that asserted "no state after a crash" now assert that state, and one stale-revision test re-screens instead of drafting.
+- F2: `Topic.with_content_json` keeps the row's `view_count`, `reply_count`, `last_post_*` and `solved_*`, with two tests that were red before.
+- F3/F5 (owner decision): `backend/plant_community_backend/env_placeholders.py` holds the shared key tuple and the 12 legacy literals, refused fatally in production and as a warning under DEBUG; the boot tests blank every placeholder key, the DEBUG test covers all 12 with the exit code and no fatal banner, a shape test pins `.env.example`, `test_r2_storage.py` blanks the keys too, `backend/.env.example` routes to security, and `secret-management.md` and `docs/rules/security.md` are corrected. The owner checks the Railway values before merge.
+- F4/F7: POST twins of the Reject messages, a held reply's Reject without a thread lock and the pk ORDER BY are pinned; Approve reports a missing revision; the lock-order docstring names the topic-publish window as a known residual (a deadlock retry was not added: two moderators deciding one new thread in the same instant, and the loser rolls back cleanly).
+- F6: the package README's pending-content and logging sections are corrected, and `harness-ci.yml` gates the zero log-prefix baseline for `backend/packages` and `backend/plant_community_backend`.
+- Residual, by the F1 decision: a live post's edit whose workflow start fails outside the spam backend (a database error, say) still rolls its state back, leaves no state, and is no longer listed, though the API told the author "pending". Todo 495 listed it by guessing from `revision.user`; the owner chose the task state over that guess. Also: a row whose held revision has a draft saved over it costs one extra query to render, and a host that adds a human task after `SpamCheckTask` keeps the todo 579 screen-only guarantee only up to that task.
+
+### 2026-10-11 - Verified by the todo sweep (run 2026-10-11-1448)
+
+- AC 1: `cd backend && python3 scripts/todos/slot_env.py --main-root . 1 -- backend/venv/bin/python -m pytest packages/wagtail_forum/wagtail_forum/tests/test_pending_content.py packages/wagtail_forum/wagtail_forum/tests/test_topic_approval.py packages/wagtail_forum/wagtail_forum/tests/test_workflow_routing.py apps/core/tests/test_env_example_placeholders.py apps/core/tests/test_r2_storage.py --create-db -q -p no:cacheprovider && python3 scripts/inject/test_route_domains.py && python3 scripts/check_log_prefixes.py --root backend/packages --fail-over 0 && python3 scripts/check_log_prefixes.py --root backend/plant_community_backend --fail-over 0` — evidence `.sweep-evidence/g2/561-ac0.txt` (not committed), last lines:
+
+  ```text
+  channels_middleware.py           0         3       0
+  settings.py                      0         5       0
+  TOTAL                            0         8       0
+
+  0 unprefixed of 8 judgeable (0.0%), 0 files
+  ```
+
+### 2026-10-11 - Completed by the todo sweep (run 2026-10-11-1448)
+
+- Archived by `land.py archive`; evidence is quoted above, review is on the PR.
