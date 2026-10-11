@@ -1,10 +1,12 @@
 ---
 status: pending
 priority: p3
-owner_decision: "Raised to p3: findings 1-3 cut against the stay-signed-in decision or leak push to a signed-out user (2026-09-29)"
+owner_decision: "F3: use a sign-out generation-counter / request-side guard, not a _signingOut flag (keeps the no-flag design). F1: keep 409 out of the sign-out path, keep state and surface unverifiedAccountConflict (2026-10-10)"
 issue_id: "500"
 tags: [mobile, flutter, auth, backend]
 dependencies: []
+triage: ready
+triaged: 2026-10-10
 ---
 
 # Mobile token refresh: follow-ups from PR #898's review

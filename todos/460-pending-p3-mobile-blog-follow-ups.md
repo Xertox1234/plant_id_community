@@ -5,10 +5,10 @@ issue_id: "460"
 tags: [mobile, flutter, blog, follow-up]
 dependencies: []
 source_review: "todos/archive/385-completed-p3-mobile-blog-and-diagnose-missing.md"
-triage: needs-design
-triaged: 2026-09-28
+triage: ready
+triaged: 2026-10-10
 blocked_on: "Choice of rich-text approach (server-side expansion vs mobile renderer vs out of scope) and a single blog name."
-owner_decision: "Teach the mobile renderer headings, embeds and page links; name it 'Blog' on mobile (2026-09-28)"
+owner_decision: "linktype=page links: resolve the id via /api/v2/pages/N/ at tap time; open in-app if a blog post, else its web URL (2026-10-10)"
 ---
 
 # Mobile blog: non-blocking follow-ups from the PR #856 review

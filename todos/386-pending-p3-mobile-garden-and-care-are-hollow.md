@@ -5,9 +5,10 @@ issue_id: "386"
 tags: [mobile, flutter, dead-code]
 dependencies: []
 source_review: "todos/384-mobile-navigation-shell-missing"
-triage: ready
-triaged: 2026-09-28
-owner_decision: "Each care card opens care-guide plus its own topic tag listing (2026-09-28)"
+triage: blocked-device
+triaged: 2026-10-10
+owner_decision: "Owner: ship the care-guide + garden code now; AC4 (on-device FCM check of a due CareTask push) split into its own todo, re-pointed in the triage PR (2026-10-10)"
+blocked_on: "AC4: on-device FCM check that a due CareTask fires a push. All the code (the care-guide slice and the garden slice) can ship first."
 ---
 
 # `/garden` is dead code and `/care` is a stub that promises navigation
@@ -62,7 +63,7 @@ Independent, either order:
       its route, its models and its `ALLOWED_ORPHANS` entry
 - [ ] `python3 scripts/check_flutter_route_reachability.py` still exits 0
 - [ ] A CareTask created in the mobile garden fires an FCM push when it
-      falls due, verified end to end on a device (moved from todo 410 AC 1).
+      falls due, verified end to end on a device (moved from todo 410 AC 1). → todo 544 (re-pointed 2026-10-10; owner: split the device check out)
 - [ ] Tapping a `care_task_due` push opens the garden (today the push router
       ignores a payload without `topic_id`).
 - [ ] `GardenPlant.gardenBed` is nullable: the API returns `null` for a

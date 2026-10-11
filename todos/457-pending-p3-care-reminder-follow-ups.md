@@ -5,8 +5,8 @@ issue_id: "457"
 tags: [backend, garden_calendar, celery, notifications]
 dependencies: ["410"]
 triage: ready
-triaged: 2026-09-28
-owner_decision: "Item 12: filter companion_planting_service by owner. Item 10: GardenBedAdmin owner read-only on change. Item 11: fix the race (2026-09-28)"
+triaged: 2026-10-10
+owner_decision: "Item 1: date the next occurrence from max(scheduled_date, completed_at). Item 3: clear dead FCM tokens in both the care sweep and the forum push (2026-10-10)"
 ---
 
 # Care reminder follow-ups (PR #853 review, todo 410 slice A)
