@@ -252,3 +252,9 @@ Compact checklist auto-injected before edits. Long-form:
   for an error response, so web push never deactivated a dead subscription.
   Test `e.response is not None`. Only 404/410 mean a push subscription is gone;
   413 and 429 are the sender's problem (todo 413).
+- **On a paginated `ListAPIView`, `@extend_schema(responses={200: …})` names
+  the ITEM, never the page.** drf-spectacular wraps a list view's response in
+  the paginator's `{next, previous, results}` itself, so a hand-written page
+  dict is wrapped twice and documents a page of pages (`/forum/images/mine/`,
+  PR #1040). A hand-built page dict is right only on a plain `APIView` that
+  paginates by hand. Assert the generated shape in a schema test.

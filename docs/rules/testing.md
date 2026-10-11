@@ -692,3 +692,12 @@ Compact checklist auto-injected before edits.
   (PR #1033). (3) Testing a child with a literal prop: the parent's
   `+ newReplyCount` in `postCount` had no test at all (PR #1035). For each guard
   you add, delete it, run the test, and expect red.
+- **A gate that reads "no problems found" needs a canary that proves it can
+  find one.** A checker that silently stops collecting (a renamed private
+  attribute, a config that scopes the check to nothing) turns the gate green
+  by emptiness. Pair it with a test that feeds it one known-bad input and
+  expects a finding. For drf-spectacular: `GENERATOR_STATS.silence()` only
+  stops printing (the caches still fill), and `SchemaGenerator(patterns=…)`
+  skips any path outside `SCHEMA_PATH_PREFIX` (`/api/v[0-9]`) without a word,
+  so the canary view must sit under `api/v1/` (PR #1040,
+  `apps/core/tests/test_openapi_schema_warnings.py`).
