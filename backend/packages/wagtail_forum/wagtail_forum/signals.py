@@ -260,6 +260,13 @@ def _same_author(a_id, b_id):
     return a_id is not None and a_id == b_id
 
 
+def _held_for_changes(post):
+    """Whether ``post`` has an active workflow state the spam screen left in
+    NEEDS_CHANGES."""
+    state = post.current_workflow_state
+    return state is not None and state.status == state.STATUS_NEEDS_CHANGES
+
+
 def _publish_counterpart(obj, trigger_revision, *, prefer_latest_revision=False):
     """Publish the other half of a thread (topic <-> opening post, todo 422).
 
@@ -331,8 +338,15 @@ def update_counters_on_publish(sender, instance, **kwargs):
             # never-published opening post too, or the thread goes live empty
             # (todo 422). Never-published, not merely `not live`: an opening
             # post a moderator took down stays down.
+            # An author edit the spam screen held (todo 579) exists only as
+            # the latest revision, in an active NEEDS_CHANGES state: publish
+            # the row, the body the moderator approved, never that edit
+            # (PR #1035 review). A thread held at creation has one body, in
+            # the row and its revision alike, so it still goes live (todo 422).
             if _publish_counterpart(
-                opening, kwargs.get("revision"), prefer_latest_revision=True
+                opening,
+                kwargs.get("revision"),
+                prefer_latest_revision=not _held_for_changes(opening),
             ):
                 # revision.publish() saves a copy built from the revision, so
                 # this instance still reads live=False; hosts get the live row.

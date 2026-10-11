@@ -285,6 +285,13 @@ def screen_admin_edit_of_a_pending_opening_post(request, instance):
         return None
     if any(key.startswith("action-") for key in request.POST):
         return None
+    if not request.accepts("text/html"):
+        # An autosave (Wagtail 8, on by default) is a JSON save of the same
+        # form, every few seconds: screening each one would restart the
+        # workflow and call the paid spam backend on half-typed text (PR
+        # #1035 review). Wagtail tells the two apart the same way
+        # (``expects_json_response``); only an explicit Save draft screens.
+        return None
     from .workflow import screen_admin_edit_of_pending_opening_post
 
     screen_admin_edit_of_pending_opening_post(instance, request.user)

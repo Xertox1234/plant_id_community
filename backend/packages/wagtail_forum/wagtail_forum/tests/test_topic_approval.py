@@ -850,6 +850,49 @@ def test_a_moderators_admin_draft_of_a_pending_opening_post_is_screened(moderato
     assert post.workflow_states.count() == before
 
 
+@pytest.mark.django_db
+def test_an_autosave_of_a_pending_opening_post_is_not_screened(moderator):
+    # PR #1035 review: Wagtail 8 autosaves the snippet editor as a JSON save
+    # with no action-* key. Screening each one would restart the workflow and
+    # call the paid spam backend every few seconds on half-typed text.
+    from django.test import RequestFactory
+    from wagtail_forum.wagtail_hooks import screen_admin_edit_of_a_pending_opening_post
+
+    author = User.objects.create_user(username="plantadmin")
+    topic, post = _pending_thread(author, _board())
+    before = post.workflow_states.count()
+    autosave = RequestFactory().post(
+        "/cms/", {"title": "x"}, HTTP_ACCEPT="application/json"
+    )
+    autosave.user = moderator
+
+    screen_admin_edit_of_a_pending_opening_post(autosave, post)
+
+    assert post.workflow_states.count() == before
+
+
+@pytest.mark.django_db
+def test_a_topic_publish_never_puts_a_held_edit_of_its_opening_post_live(
+    client, moderator
+):
+    # PR #1035 review: the author can PATCH a pending opening post (todo 579).
+    # A Topic Publish from the snippet editor used to publish the post's
+    # newest revision, so an edit the spam screen held went live unseen. The
+    # body the moderator approved, the row, goes live instead (todo 422).
+    author = User.objects.create_user(username="plantadmin")
+    topic, post = _pending_thread(author, _board())
+    assert _edit(post, author, f"sneaked in {SPAM}") == "pending"
+    post.refresh_from_db()
+    assert post.current_workflow_state.status == "needs_changes"
+
+    _admin_publish_topic(client, topic)
+
+    post.refresh_from_db()
+    topic.refresh_from_db()
+    assert (post.live, topic.live) == (True, True)
+    assert post.body.raw_data[0]["value"] == f"<p>{SPAM}</p>"
+
+
 # --- Todo 561 finding 2: a Topic revision never reverts row-only state ---
 
 
