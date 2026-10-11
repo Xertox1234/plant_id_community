@@ -125,7 +125,9 @@ const results = await pipeline(
       if (!refuted.has(n)) return
       const why = i.on_main === 'fixed' ? `fixed on main: ${i.note}; the refuter agreed: ${refuted.get(n)}`
         : `refuted: ${refuted.get(n)}`
-      dropped.push({ line: `${i.severity}: ${i.file}:${i.line} ${i.summary}`, why })
+      // Todo 546: with its merged phrasings, so ingest-followups knows the duplicates merged into it are refuted too.
+      const also = i.also && i.also.length ? ` | also: ${i.also.join(' | ')}` : ''
+      dropped.push({ line: `${i.severity}: ${i.file}:${i.line} ${i.summary}${also}`, why })
     })
     if (refuted.size) log(`${g.group}: the refuter dismissed ${refuted.size} of ${items.length} follow-up(s)`)
     return { ...base, kept, dropped, refuter_ok: Boolean(judged) }

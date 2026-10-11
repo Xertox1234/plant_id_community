@@ -182,9 +182,22 @@ REPOINT_RE = re.compile(
     re.I,
 )
 STATUS_RE = re.compile(r"^status:\s*(.+?)\s*$", re.M)
-# A home directory where a path starts: not after a character a path name is made of, so the `home/` inside
-# `apps/blog/templates/wagtailadmin/home/` or `components/home/` is not one. A name must follow it.
-HOME_PATH_RE = re.compile(r"(?<![\w./~-])/(?:Users|home)/[^/\s'\"`;:,=|&<>()\[\]{}]+")
+# A home directory, followed by a name (todo 546 widened it):
+#   - `/Users/<name>` anywhere, glued to a flag (`-I/Users/x`) or after a URL scheme (`file:///Users/x`) too.
+#     A capitalised `Users` directory inside a repo path is not a thing this repo has;
+#   - `/home/<name>` where a path starts, one or more slashes deep (`//home/x`, `file:///home/x`), but not after
+#     a character a path name is made of, so the `home/` inside `apps/blog/templates/wagtailadmin/home/` or
+#     `components/home/` is not one. A URL route in prose (`/home/feed`) still matches: it cannot be told from a
+#     home directory without knowing the user names, and the grandfather list excuses a file that needs it;
+#   - the sandbox TMPDIR spelling, where `/` became `-` (`/private/tmp/claude-501/-Users-<name>-projects-...`);
+#   - a Windows profile path (`C:\Users\<name>`).
+_NAME = r"[^/\\\s'\"`;:,=|&<>()\[\]{}]+"
+HOME_PATH_RE = re.compile(
+    rf"/Users/{_NAME}"
+    rf"|(?<![\w.~])/+home/{_NAME}"
+    r"|(?<![\w-])-(?:Users|home)-[^-/\s'\"`<>]+"
+    r"|\b[A-Za-z]:\\+Users\\+[^\\/\s'\"`;:,<>]+"
+)
 HOME_KIND = "ARCHIVED_HOME_PATH"
 
 DEFAULT_ROOTS = ("todos", "backend/todos", "backend/github-issues")
@@ -212,12 +225,17 @@ def parse(path):
 
 
 def work_log_home_paths(text):
-    """The lines of a todo's `## Work Log` section (to the next `## ` heading) that name a home path."""
-    out, inside = [], False
+    """The lines of a todo's `## Work Log` section (to the next `## ` heading) that name a home path. A `## `
+    line inside a fenced block (a quoted evidence tail) is output, not a heading: it neither ends the section
+    nor starts one (todo 546), so a home path quoted after it is still found."""
+    out, inside, fenced = [], False, False
     for line in text.splitlines():
-        if line.startswith("## "):
+        if FENCE_RE.match(line):
+            fenced = not fenced
+        elif line.startswith("## ") and not fenced:
             inside = line.rstrip() == "## Work Log"
-        elif inside and HOME_PATH_RE.search(line):
+            continue
+        if inside and HOME_PATH_RE.search(line):
             out.append(line)
     return out
 

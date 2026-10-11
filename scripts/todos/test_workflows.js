@@ -836,6 +836,10 @@ async function main() {
     && /the refuter agreed: gone on main/.test(fr.dropped[0].why)
     && r.calls[1].prompt.includes('"file":"b.py"') && r.calls[1].prompt.includes('"curator":"fixed"'), fr)
   r = await run('todo-followups', { run_id: 'r', groups: [fg()] },
+    (p, o) => (isCurator(o) ? curated : { judgments: [{ index: 0, refuted: true, reason: 'wrong' }] }))
+  check('546 #993-6: a refuted item is dropped with its merged phrasings, so its merged duplicates stay refuted',
+    r.result.results[0].dropped[0].line === 'medium: a.py:9 real | also: nit', r.result.results[0].dropped)
+  r = await run('todo-followups', { run_id: 'r', groups: [fg()] },
     (p, o) => (isCurator(o) ? curated : { judgments: [{ index: 1, refuted: false, reason: 'still there' }] }))
   check('541 #982-3: a fixed claim the refuter does not confirm keeps the item',
     r.result.results[0].kept.map(i => i.file).join() === 'a.py,b.py,c.py' && r.result.results[0].dropped.length === 0,

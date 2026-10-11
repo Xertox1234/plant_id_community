@@ -63,6 +63,26 @@ assert_deny  "worker in its worktree: a path in another group's worktree is deni
 assert_deny  "worker in its worktree: a path in the main checkout is denied" \
   "$(mkdir -p "$WT/backend"; event todo-worker "$WT/backend" "$REPO/backend/x.py")"
 
+# ---- todo 546: a session worktree as the cwd, human worktrees, plain files, harness worktrees ----
+SESSION="$REPO/.claude/worktrees/session-x"
+HUMAN="$REPO/.claude/worktrees/todo-543-hand-round-guards"
+AGENT="$REPO/.claude/worktrees/agent-abc123"
+git -C "$REPO" worktree add -q -b wt-session "$SESSION"
+git -C "$REPO" worktree add -q -b wt-human "$HUMAN"
+git -C "$REPO" worktree add -q -b wt-agent "$AGENT"
+assert_allow "546 #1: the engine ran from a session worktree: its worker may edit its sweep worktree" \
+  "$(event todo-worker "$SESSION" "$WT/scripts/x.py")"
+assert_deny  "546 #1: ... but not the session worktree it inherited as its cwd (a relative path)" \
+  "$(event todo-worker "$SESSION" scripts/x.py)"
+assert_deny  "546 #9: worker in the main checkout: a human's worktree is denied" \
+  "$(event todo-worker "$REPO" "$HUMAN/scripts/x.py")"
+assert_deny  "546 #9: worker in the main checkout: a plain file directly in .claude/worktrees/ is denied" \
+  "$(event todo-worker "$REPO" "$REPO/.claude/worktrees/notes.txt")"
+assert_allow "546: a harness-isolated worker (agent-*) edits its own worktree" \
+  "$(event todo-worker "$AGENT" "$AGENT/scripts/x.py")"
+assert_deny  "546: ... and not a sweep worktree" \
+  "$(event todo-worker "$AGENT" "$WT/scripts/x.py")"
+
 # ---- everyone else passes through ----
 assert_allow "the main session (no agent_type) is untouched" \
   "$(printf '{"cwd":"%s","tool_input":{"file_path":"%s"}}' "$REPO" "$REPO/x.py")"

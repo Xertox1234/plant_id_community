@@ -1407,6 +1407,7 @@ def main():
     todo_497_tests()
     todo_541_tests()
     todo_492_tests()
+    todo_546_tests()
     print()
     if FAILURES:
         print(f"FAILED: {len(FAILURES)} check(s): {', '.join(FAILURES)}")
@@ -3013,15 +3014,15 @@ def todo_497_tests():
           raises(lambda: state.release_incomplete(copy.deepcopy(run), "g1", " ")))
     state.release_incomplete(run, "g1", "owner: the router flaked twice (2026-10-10)")
     e = run["todos"]["1"]
-    check("497 F4: it sends the group back to pr_open with the round before it done and the count reset",
-          e["stage"] == "pr_open" and e["review_round"] == 0 and e["review_reruns"] == {"1": 0}
+    # Todo 546 (#993-5) changed the count from 0 to one short of the limit: the release is one more try.
+    check("497 F4 / 546 #5: it sends the group back to pr_open with the round before it done, one try left",
+          e["stage"] == "pr_open" and e["review_round"] == 0 and e["review_reruns"] == {"1": state.MAX_INCOMPLETE - 1}
           and e["reason"] == "" and "round 1 released: owner: the router flaked" in e["owner_decision"], e)
     check("497 F4: ... and review-args then offers it for that round again",
           [p["group"] for p in state.review_args(run, 1, 0, git=clean_git, held={})] == ["g1"])
-    for n in (3, 4):
-        state.ingest_review(run, [review_result(reviewers_ok=False)], 1, git=clean_git, source=f"/tmp/{n}.out")
-    check("497 F4: a released round that is incomplete twice again stays blocked: once per round",
-          run["todos"]["1"]["stage"] == "blocked"
+    got = state.ingest_review(run, [review_result(reviewers_ok=False)], 1, git=clean_git, source="/tmp/3.out")
+    check("497 F4 / 546 #5: a released round that is incomplete once more blocks again, and stays blocked",
+          got["g1"] == "blocked" and run["todos"]["1"]["stage"] == "blocked"
           and raises(lambda: state.release_incomplete(run, "g1", "owner: again (2026-10-10)")), run["todos"]["1"])
     other = pr_open_run()
     other["todos"]["1"].update(stage="blocked", reason="2 blocking findings after round 2")
@@ -3157,13 +3158,16 @@ def todo_541_tests():
         brief = {"group": "g1", "ids": ["1"], "main_root": tmp, "reverify": None}
         run1 = {"run_id": "r", "todos": {"1": {}}}
         _, err = expect(lambda: state.add_worktrees(run1, [dict(brief)], root, git=fake(False)))
-        check("541 #982-7: a path in the way names the real recovery (worktree remove, then branch -D)",
-              isinstance(err, RuntimeError) and "worktree remove" in str(err) and "branch -D" in str(err)
-              and "move it aside" not in str(err), err)
+        # Todo 546 (#993-3) changed this: the recovery moves the worktree and renames its branch, deleting nothing.
+        check("541 #982-7 / 546 #3: a path in the way names a recovery that works and deletes nothing",
+              isinstance(err, RuntimeError) and "worktree move" in str(err) and "branch -m" in str(err)
+              and "worktree remove" not in str(err) and "branch -D" not in str(err) and "--force" not in str(err), err)
         (root / "sweep-r-g1").rmdir()
         _, err = expect(lambda: state.add_worktrees(run1, [dict(brief)], root, git=fake(True)))
         check("541 #982-7: a branch left behind without its directory is refused before `worktree add -b`",
               isinstance(err, RuntimeError) and "already exists, but" in str(err), err)
+        check("546 #3: ... and its recovery prunes and renames the branch, never `branch -D`",
+              "worktree prune" in str(err) and "branch -m" in str(err) and "branch -D" not in str(err), err)
         cwd = os.getcwd()
         os.chdir(tmp)
         try:
@@ -3261,6 +3265,81 @@ def todo_492_tests():
     check("492 AC1 / 541 #982-12: after Land, an owner-confirmed box may be ticked though the verifier's list "
           "does not verify it", state.criteria_problem(SAMPLE_TODO, flipped, ignore_boxes=True, flippable={1})
           is None)
+
+
+def todo_546_tests():
+    """Todo 546: the follow-ups of PR #993 that live in state.py (#3 and #5 changed the 541/497 checks above)."""
+    def f(sev, line, summary="s", file="a.py"):
+        return {"severity": sev, "file": file, "line": line, "summary": summary, "suggested_fix": ""}
+
+    # #4: confirm refuses a blocked todo that already has a PR (it is never re-executed or re-verified).
+    run = pr_open_run()
+    run["todos"]["1"].update(stage="blocked", reason="2 blocking findings after round 2")
+    check("546 #4: confirm refuses a blocked todo with a PR",
+          raises(lambda: state.confirm(run, "1", 0, "it works (2026-10-10)", "2026-10-10"))
+          and "confirmed" not in run["todos"]["1"], run["todos"]["1"])
+    nopr = copy.deepcopy(run)
+    nopr["todos"]["1"].pop("pr")
+    check("546 #4: ... while a blocked todo without one is still confirmed",
+          state.confirm(nopr, "1", 0, "it works (2026-10-10)", "2026-10-10")["index"] == 0)
+
+    # #6 and beyond-the-cap: what ingest-followups counts as accounted for.
+    def merged_run(findings):
+        r = pr_open_run()
+        ingest(r, [review_result(findings=findings)], 1)
+        ingest(r, [review_result()], 2)
+        state.set_group(r, "g1", "merged")
+        return r
+    run = merged_run([f("medium", 9, "real"), f("low", 2, "nit")])
+    state.ingest_followups(run, [{"group": "g1", "ids": ["1"], "refuter_ok": True, "kept": [], "dropped": [
+        {"line": "medium: a.py:9 real | also: nit", "why": "refuted: wrong"}]}])
+    check("546 #6: a duplicate merged into a refuted item does not come back as uncovered",
+          run["groups"]["g1"]["curated"] == [] and "did not return" not in run["groups"]["g1"]["curation"],
+          run["groups"]["g1"])
+    run = merged_run([f("medium", 9, "real"), f("low", 2, "nit")])
+    state.ingest_followups(run, [{"group": "g1", "ids": ["1"], "refuter_ok": True, "dropped": [], "kept": [
+        {"severity": "high", "file": "a.py", "line": 9, "summary": "real", "also": ["nit"]}]}])
+    record = run["groups"]["g1"]
+    check("546 (beyond the cap): an item rejected for its severity leaves the stored lines it covered in place",
+          record["curated"] == ["medium: a.py:9 real", "low: a.py:2 nit"]
+          and any("a.py:9" in d["line"] for d in record["curation_dropped"]), record)
+    run = merged_run([f("low", 2, "nit")])
+    state.ingest_followups(run, [{"group": "g1", "ids": ["1"], "refuter_ok": True, "dropped": [], "kept": [
+        {"severity": "low", "file": "made-up.py", "line": 1, "summary": "invented", "also": ["nit"]}]}])
+    check("546 (beyond the cap): an item rejected for its location does not cover a stored phrasing",
+          run["groups"]["g1"]["curated"] == ["low: a.py:2 nit"], run["groups"]["g1"])
+
+    # Beyond the cap: a re-verify brief records an absolute --main-root too.
+    with tempfile.TemporaryDirectory() as tmp:
+        cwd = os.getcwd()
+        os.chdir(tmp)
+        try:
+            run = {"run_id": "r", "todos": {"1": {"main_root": "."}}}
+            briefs = [{"group": "g1", "ids": ["1"], "main_root": ".", "reverify": {"tree_id": "T"}}]
+            state.add_worktrees(run, briefs, "wts", git=lambda *a: "")
+        finally:
+            os.chdir(cwd)
+        check("546 (beyond the cap): a re-verify brief and its entry get an absolute main_root",
+              os.path.isabs(briefs[0]["main_root"]) and os.path.isabs(run["todos"]["1"]["main_root"])
+              and "worktree" not in briefs[0], (briefs, run))
+
+    # Beyond the cap, checked and declined: a stray worktree on the retry does not overwrite the first, because
+    # the retry (failed -> ready) moves the attempt's fields, stray_worktree included, to `previous`.
+    run = ready_run([("1", ["a.py"])], workers=1)
+    state.apply_grouping(run)
+    b = state.execute_args(run, 0, "/m")[0]
+    run["todos"]["1"]["worktree"] = "/wt/given"
+    state.ingest_execute(run, [{"group": b["group"], "ids": ["1"], "retried": False,
+                                "worker": worker(["1"]) | {"worktree": "/wt/stray1"}, "verdict": verdict(["1"])}])
+    state.transition(run, "1", "ready")
+    state.apply_grouping(run)
+    b = state.execute_args(run, 1, "/m")[0]
+    run["todos"]["1"]["worktree"] = "/wt/given2"
+    state.ingest_execute(run, [{"group": b["group"], "ids": ["1"], "retried": False,
+                                "worker": worker(["1"]) | {"worktree": "/wt/stray2"}, "verdict": verdict(["1"])}])
+    listed = state.recorded_worktrees(run).get("1", [])
+    check("546 (beyond the cap): both stray worktrees of two attempts are listed",
+          "/wt/stray1" in listed and "/wt/stray2" in listed, listed)
 
 
 def raises(fn, exc=state.TransitionError):
