@@ -8,6 +8,9 @@ set -uo pipefail
 
 HOOK="$(cd "$(dirname "$0")" && pwd)/guard-todo-worker-git.sh"
 PASS=0; FAIL=0
+# Todo 496 round 3: the guard reads the top-level shell from $SHELL; the agents' shell here is zsh
+# (CI runners default to bash). Cases that need another shell set it per call (shell_raw).
+export SHELL=/bin/zsh
 
 event() {
   python3 -c 'import json, sys; print(json.dumps({"agent_type": sys.argv[1], "tool_input": {"command": sys.argv[2]}}))' "$1" "$2"
@@ -343,6 +346,117 @@ if [ -n "$R" ] && git init -q "$R/main" && git -C "$R/main" -c user.email=t@t -c
   assert_allow "477: a tracked, not-ignored .worktreeinclude entry does not block staging" $W "git -C $R/wt add -A"
   git -C "$R/wt" rm -q --cached web/.env
   assert_deny_msg "477: the same file untracked is still refused" $W "git -C $R/wt add -A" "web/.env"
+
+  # Todo 496 — routes into MAIN that PR #880's review rounds 2 and 3 found allowed.
+  printf 'backend/.env\nweb/.env\n' > "$R/wt/.gitignore"
+  # Finding 1: env -C / --chdir and sudo -D run the command in another directory.
+  assert_raw "496.1: env -C MAIN git add" deny "$(cwd_event $W "$R/wt" "env -C $R/main git add -A")"
+  assert_raw "496.1: env --chdir=MAIN git add" deny "$(cwd_event $W "$R/wt" "env --chdir=$R/main git add x")"
+  assert_raw "496.1: env -iC MAIN (bundled)" deny "$(cwd_event $W "$R/wt" "/usr/bin/env -iC $R/main git add x")"
+  assert_raw "496.1: sudo -D MAIN git add" deny "$(cwd_event $W "$R/wt" "sudo -D $R/main git add x")"
+  assert_raw "496.1: env -C WT git add is fine" allow "$(cwd_event $W "$R/main" "env -C $R/wt git add -A")"
+  assert_raw "496.1: env -C moves only its own command" allow \
+    "$(cwd_event $W "$R/wt" "env -C $R/main true; git add -A")"
+  assert_raw "496.1: command cd MAIN still moves this shell" deny \
+    "$(cwd_event $W "$R/wt" "command cd $R/main; git add -A")"
+  # Finding 2: zsh runs a pipeline's last stage in the current shell, so its cd sticks.
+  assert_raw "496.2: a cd in the last pipeline stage sticks (zsh)" deny \
+    "$(cwd_event $W "$R/wt" "true | cd $R/main; git add -A")"
+  assert_raw "496.2: a backgrounded last stage does not" allow \
+    "$(cwd_event $W "$R/wt" "true | cd $R/main & git add -A")"
+  # Round-1 repair: bash/sh/dash run every pipeline stage in a subshell, so in a `bash -c` body the cd is undone.
+  assert_raw "496.2r: bash -c 'true | cd WT; git add' from MAIN runs in MAIN" deny \
+    "$(cwd_event $W "$R/main" "bash -c 'true | cd $R/wt; git add -A'")"
+  assert_raw "496.2r: sh -c 'true | cd WT; git add' from MAIN runs in MAIN" deny \
+    "$(cwd_event $W "$R/main" "sh -c 'true | cd $R/wt; git add -A'")"
+  assert_raw "496.2r: dash -c 'true | cd WT; git add' from MAIN runs in MAIN" deny \
+    "$(cwd_event $W "$R/main" "dash -c 'true | cd $R/wt; git add -A'")"
+  assert_raw "496.2r: bash -c 'true | cd MAIN; git add' from WT runs in WT" allow \
+    "$(cwd_event $W "$R/wt" "bash -c 'true | cd $R/main; git add -A'")"
+  # zsh -c and ksh (ksh93) keep the last stage in the current shell, like the top level.
+  assert_raw "496.2r: zsh -c 'true | cd MAIN; git add' sticks" deny \
+    "$(cwd_event $W "$R/wt" "zsh -c 'true | cd $R/main; git add -A'")"
+  assert_raw "496.2r: ksh -c 'true | cd MAIN; git add' sticks" deny \
+    "$(cwd_event $W "$R/wt" "ksh -c 'true | cd $R/main; git add -A'")"
+  assert_raw "496.2r: a \$(...) in a bash -c body is bash too" deny \
+    "$(cwd_event $W "$R/main" "bash -c 'echo \$(true | cd $R/wt; git add -A)'")"
+  # Finding 3: a $(...) runs after the cd before it.
+  assert_raw "496.3: cd MAIN && echo \$(git add -A)" deny "$(cwd_event $W "$R/wt" "cd $R/main && echo \$(git add -A)")"
+  assert_raw "496.3: cd MAIN; x=\$(git add -A)" deny "$(cwd_event $W "$R/wt" "cd $R/main; x=\$(git add -A)")"
+  assert_raw "496.3: cd MAIN, then a heredoc body's \$(git add)" deny \
+    "$(cwd_event $W "$R/wt" "$(printf 'cd %s\ncat <<EOF\n$(git add -A)\nEOF' "$R/main")")"
+  assert_raw "496.3: a case word's \$(...) after a cd" deny \
+    "$(cwd_event $W "$R/wt" "cd $R/main; case \$(git add -A) in *) ;; esac")"
+  assert_raw "496.3: \$(git add) before a cd runs in WT" allow \
+    "$(cwd_event $W "$R/wt" "echo \$(git add -A) && cd $R/main")"
+  # Finding 4: ~ and ~/... are the home directory (HOME points at the fixture here).
+  OLD_HOME=$HOME; export HOME="$R"
+  assert_raw "496.4: git -C ~/main add" deny "$(cwd_event $W "$R/wt" 'git -C ~/main add x')"
+  assert_raw "496.4: cd ~/main && git add" deny "$(cwd_event $W "$R/wt" 'cd ~/main && git add x')"
+  assert_raw "496.4: git -C ~/wt add is fine" allow "$(cwd_event $W "$R/main" 'git -C ~/wt add x')"
+  export HOME="$OLD_HOME"
+
+  # Todo 496 round 3 (owner-approved) — the routes round 2 found still open.
+  # B: env -S splits its string into words that env parses as its own options, so -C inside it moves the command.
+  assert_raw "496.B: env -S '-C MAIN git add -A' from WT" deny "$(cwd_event $W "$R/wt" "env -S '-C $R/main git add -A'")"
+  assert_raw "496.B: env -S'-C MAIN' git add -A (glued) from WT" deny "$(cwd_event $W "$R/wt" "env -S'-C $R/main' git add -A")"
+  assert_raw "496.B: env -iS '-C MAIN git add x' from WT" deny "$(cwd_event $W "$R/wt" "env -iS '-C $R/main git add x'")"
+  assert_raw "496.B: env -S '-C WT git add -A' from MAIN is fine" allow "$(cwd_event $W "$R/main" "env -S '-C $R/wt git add -A'")"
+  # C: macOS env -P altpath takes a value.
+  assert_raw "496.C: env -P /x -C MAIN git add -A from WT" deny "$(cwd_event $W "$R/wt" "env -P /x -C $R/main git add -A")"
+  assert_raw "496.C: env -P /usr/bin git add -A from WT is fine" allow "$(cwd_event $W "$R/wt" "env -P /usr/bin git add -A")"
+  # D: bash with lastpipe keeps a pipeline's last stage in the shell, so its cd sticks.
+  assert_raw "496.D: bash -c 'shopt -s lastpipe; true | cd MAIN; git add -A' from WT" deny \
+    "$(cwd_event $W "$R/wt" "bash -c 'shopt -s lastpipe; true | cd $R/main; git add -A'")"
+  assert_raw "496.D: bash -c 'set -o lastpipe; ...' from WT" deny \
+    "$(cwd_event $W "$R/wt" "bash -c 'set -o lastpipe; true | cd $R/main; git add -A'")"
+  assert_raw "496.D: shopt -s with a runtime operand counts as lastpipe" deny \
+    "$(cwd_event $W "$R/wt" "bash -c 'shopt -s \$o; true | cd $R/main; git add -A'")"
+  assert_raw "496.D: bash -O lastpipe -c ... from WT" deny \
+    "$(cwd_event $W "$R/wt" "bash -O lastpipe -c 'true | cd $R/main; git add -A'")"
+  assert_raw "496.D: shopt -s extglob does not make the last stage stick" allow \
+    "$(cwd_event $W "$R/wt" "bash -c 'shopt -s extglob; true | cd $R/main; git add -A'")"
+  assert_raw "496.D: lastpipe in one bash -c body does not leak into the next" allow \
+    "$(cwd_event $W "$R/wt" "bash -c 'shopt -s lastpipe'; bash -c 'true | cd $R/main; git add -A'")"
+  # E: the top-level shell is \$SHELL's (zsh when unset); an unknown shell's piped cd fails closed.
+  shell_raw() {  # name SHELL deny|allow event
+    local out ok=0
+    out=$(printf '%s' "$4" | SHELL="$2" bash "$HOOK" 2>/dev/null)
+    if [ "$3" = deny ]; then grep -q '"permissionDecision": "deny"' <<< "$out" && ok=1
+    else [ -z "$out" ] && ok=1; fi
+    if [ $ok -eq 1 ]; then echo "PASS: $1"; PASS=$((PASS+1))
+    else echo "FAIL: $1 (expected $3)"; echo "  got: $out"; FAIL=$((FAIL+1)); fi
+  }
+  shell_raw "496.E: SHELL=bash: a last-stage cd MAIN does not stick" /bin/bash allow \
+    "$(cwd_event $W "$R/wt" "true | cd $R/main; git add -A")"
+  shell_raw "496.E: SHELL=bash: a last-stage cd WT from MAIN leaves git in MAIN" /bin/bash deny \
+    "$(cwd_event $W "$R/main" "true | cd $R/wt; git add -A")"
+  shell_raw "496.E: SHELL=bash with shopt -s lastpipe sticks" /bin/bash deny \
+    "$(cwd_event $W "$R/wt" "shopt -s lastpipe; true | cd $R/main; git add -A")"
+  shell_raw "496.E: SHELL unset is zsh: the cd sticks" "" deny \
+    "$(cwd_event $W "$R/wt" "true | cd $R/main; git add -A")"
+  shell_raw "496.E: an unknown SHELL, cd MAIN in the last stage from WT" /usr/local/bin/nu deny \
+    "$(cwd_event $W "$R/wt" "true | cd $R/main; git add -A")"
+  shell_raw "496.E: an unknown SHELL, cd WT in the last stage from MAIN" /usr/local/bin/nu deny \
+    "$(cwd_event $W "$R/main" "true | cd $R/wt; git add -A")"
+  shell_raw "496.E: an unknown SHELL, cd elsewhere from WT is unknown (not checked)" /usr/local/bin/nu allow \
+    "$(cwd_event $W "$R/wt" "true | cd /tmp; git add -A")"
+  # J: sudo and env take an unambiguous prefix of a long option.
+  assert_raw "496.J: sudo --chd=MAIN git add -A from WT" deny "$(cwd_event $W "$R/wt" "sudo --chd=$R/main git add -A")"
+  assert_raw "496.J: sudo --chdi MAIN git add -A from WT" deny "$(cwd_event $W "$R/wt" "sudo --chdi $R/main git add -A")"
+  assert_raw "496.J: env --chd=MAIN git add -A from WT" deny "$(cwd_event $W "$R/wt" "env --chd=$R/main git add -A")"
+  assert_raw "496.J: sudo --chd=WT git add -A from MAIN is fine" allow "$(cwd_event $W "$R/main" "sudo --chd=$R/wt git add -A")"
+  # K: a value glued onto a short option is cut at the same index as the option's letters.
+  assert_raw "496.K: env -C<MAIN> (glued) from WT" deny "$(cwd_event $W "$R/wt" "env -C$R/main git add -A")"
+  assert_raw "496.K: sudo -D<MAIN> (glued) from WT" deny "$(cwd_event $W "$R/wt" "sudo -D$R/main git add x")"
+  assert_raw "496.K: env -iC<MAIN> (bundled, glued) from WT" deny "$(cwd_event $W "$R/wt" "env -iC$R/main git add x")"
+  OLD_HOME=$HOME; export HOME="$R"
+  # A glued -C~/main is not tilde-expanded by the shell: env gets a literal ~ (and fails), not HOME/main.
+  assert_raw "496.K: env -C~/main (glued, no tilde expansion) is not HOME/main" allow \
+    "$(cwd_event $W "$R/wt" 'env -C~/main git add -A')"
+  export HOME="$OLD_HOME"
+  assert_raw "496.ordinary: set -euo pipefail, then git -C WT add -A" allow \
+    "$(cwd_event $W "$R/wt" "set -euo pipefail; /usr/bin/git -C $R/wt add -A && /usr/bin/git -C $R/wt diff --cached --stat")"
 else
   echo "FAIL: m7 setup (could not build a main checkout and a worktree)"; FAIL=$((FAIL+1))
 fi
@@ -398,6 +512,126 @@ assert_deny  "477: reviewer deleting a branch"           $V 'git branch -D main'
 assert_deny  "477: reviewer worktree add"                $V 'git worktree add /tmp/x'
 assert_deny  "477: reviewer cat-file --textconv"         $V 'git cat-file --textconv HEAD:a.py'
 assert_deny  "477: a worker still may not list branches" $W 'git branch --show-current'
+
+# Todo 496 finding 5 — a GIT_* variable set by a builtin other than NAME=value.
+assert_deny_msg "496.5: read GIT_DIR, export GIT_DIR"   $W 'read GIT_DIR <<< /x/.git; export GIT_DIR; git add x' "GIT_DIR"
+assert_deny_msg "496.5: export of a bare GIT_DIR"       $W 'export GIT_DIR; git add x' "GIT_DIR"
+assert_deny_msg "496.5: printf -v GIT_DIR"              $W 'printf -v GIT_DIR %s /x/.git; git add x' "GIT_DIR"
+assert_deny_msg "496.5: printf -vGIT_PAGER (glued)"     $V 'printf -vGIT_PAGER %s /tmp/x; git log' "GIT_PAGER"
+assert_deny_msg "496.5: for GIT_DIR in ..."             $W 'for GIT_DIR in /x/.git; do git add x; done' "GIT_DIR"
+assert_deny_msg "496.5: mapfile GIT_X"                  $W 'mapfile GIT_X < f' "GIT_X"
+assert_deny_msg "496.5: a quoted export 'GIT_DIR=x'"    $W "export 'GIT_DIR=/x/.git'; git add x" "GIT_DIR"
+assert_allow "496.5: read / printf -v / for of other names" $W 'read A <<< x; printf -v B %s y; for f in GIT_DIR; do echo $f; done; git status'
+# Finding 6 — a 2-letter prefix reaches the dangerous option too (owner decision 2026-10-11).
+assert_deny  "496.6: git grep --op=<cmd> (--open-files-in-pager)" $V 'git grep --op=vim x'
+assert_deny  "496.6: git fetch --st (--stdin)"           $W 'echo main:main | git fetch --st origin'
+assert_deny  "496.6: git cat-file --te (--textconv)"     $V 'git cat-file --te HEAD:a.py'
+assert_deny  "496.6: git cat-file --fi (--filters)"      $V 'git cat-file --fi HEAD:a.py'
+assert_deny  "496.6: git diff --ou (--output)"           $W 'git diff --ou=/tmp/x'
+assert_allow "496.6: the exact --text is still a real option" $V 'git grep --text x && git diff --text'
+assert_deny  "496.6r: git cat-file --t (one-letter prefix of --textconv)" $V 'git cat-file --t HEAD:a.py'
+assert_deny  "496.6r: git diff --o=<file> (one-letter prefix of --output)" $W 'git diff --o=/tmp/x'
+assert_allow "496.6r: ordinary diff/log/show/cat-file/grep options" $V 'git diff --stat && git log --oneline -n 3 && git show --name-only HEAD && git cat-file -t HEAD && git grep -n x'
+assert_allow "496.6r: an ordinary git fetch" $W 'git fetch origin main'
+# Finding 7 — rev-list hands unknown options to the diff parser, which opens --output.
+assert_deny  "496.7: git rev-list --output"              $V 'git rev-list --output=/tmp/x HEAD'
+assert_allow "496.7: git rev-list --count"               $V 'git rev-list --count HEAD'
+# Finding 8 — git grep --textconv runs a configured driver program.
+assert_deny  "496.8: git grep --textconv"                $V 'git grep --textconv x'
+
+# Todo 496 round 3 (owner-approved) — A: env -S re-enters env's own option parser.
+assert_deny  "496.A: env -iS 'git push'"                 $W "env -iS 'git push'"
+assert_deny  "496.A: env -0S 'git commit -m x'"          $W "env -0S 'git commit -m x'"
+assert_deny  "496.A: env -S '-i git push'"               $W "env -S '-i git push'"
+assert_deny  "496.A: env -S '-u X -i git push'"          $W "env -S '-u X -i git push'"
+assert_deny  "496.A: env --split-string='-i git push'"   $W "env --split-string='-i git push'"
+assert_deny  "496.A: env --spl '-i git push' (abbreviated)" $W "env --spl '-i git push'"
+assert_deny  "496.A: env -S'-i' git push (glued)"        $W "env -S'-i' git push"
+assert_allow "496.A: env -iS 'git status'"               $W "env -iS 'git status'"
+# C: macOS env -P altpath takes a value.
+assert_deny  "496.C: env -P /usr/bin git commit -m x"    $W 'env -P /usr/bin git commit -m x'
+# F: allexport, in every spelling, is refused; other shell options are not.
+assert_deny  "496.F: set -a"                             $W 'set -a; git status'
+assert_deny  "496.F: set -ea (bundled)"                  $W 'set -ea; git status'
+assert_deny  "496.F: set -o allexport"                   $W 'set -o allexport; git status'
+assert_deny  "496.F: setopt allexport"                   $W 'setopt allexport; git status'
+assert_deny  "496.F: setopt all_export"                  $W 'setopt all_export'
+assert_deny  "496.F: setopt ALL_EXPORT"                  $W 'setopt ALL_EXPORT'
+assert_deny  "496.F: setopt AllExport"                   $W 'setopt AllExport'
+assert_deny  "496.F: unsetopt no_all_export"             $W 'unsetopt no_all_export'
+assert_deny  "496.F: setopt -m 'all*' (a pattern)"       $W "setopt -m 'all*'"
+assert_deny  "496.F: set -o \$opt (built at runtime)"    $W 'set -o $opt'
+assert_deny  "496.F: shopt -so allexport"                $W 'shopt -so allexport'
+assert_deny  "496.F: bash -a -c"                         $W "bash -a -c 'git status'"
+assert_deny  "496.F: bash -o allexport -c"               $W "bash -o allexport -c 'git status'"
+assert_deny  "496.F: zsh --all-export -c"                $W "zsh --all-export -c 'git status'"
+assert_deny  "496.F: emulate -o allexport zsh"           $W 'emulate -o allexport zsh'
+assert_deny  "496.F: SHELLOPTS=allexport bash -c"        $W "SHELLOPTS=allexport bash -c 'git status'"
+assert_deny  "496.F: env BASHOPTS=lastpipe bash -c"      $W "env BASHOPTS=lastpipe bash -c 'git status'"
+assert_allow "496.F: set -e"                             $W 'set -e; git status'
+assert_allow "496.F: set -euo pipefail"                  $W 'set -euo pipefail; git status'
+assert_allow "496.F: set -o pipefail / set -x / set +a"  $W 'set -o pipefail; set -x; set +a; git status'
+assert_allow "496.F: setopt extended_glob"               $W 'setopt extended_glob; git status'
+assert_allow "496.F: set -- a b"                         $W 'set -- a b; git status'
+assert_allow "496.F: bash -euo pipefail -c"              $W "bash -euo pipefail -c 'git status'"
+# G: a GIT_* variable assigned inside an expansion or arithmetic.
+assert_deny  "496.G: : \${GIT_DIR:=/x/.git}"             $W ': ${GIT_DIR:=/x/.git}; git add x'
+assert_deny  "496.G: : \${GIT_DIR=/x/.git}"              $W ': ${GIT_DIR=/x/.git}; git add x'
+assert_deny  "496.G: : \${GIT_DIR::=/x/.git} (zsh)"      $W ': ${GIT_DIR::=/x/.git}; git add x'
+assert_deny  "496.G: echo \"\${GIT_PAGER:=cat}\""        $V 'echo "${GIT_PAGER:=/tmp/x}"; git log'
+assert_deny  "496.G: case \${GIT_DIR:=x} in"             $W 'case ${GIT_DIR:=/x} in *) ;; esac; git add x'
+assert_deny  "496.G: an unquoted heredoc body"           $W $'cat <<EOF\n${GIT_DIR:=/x/.git}\nEOF\ngit add x'
+assert_deny  "496.G: zsh \${(P)n::=x}"                   $W 'n=GIT_DIR; : ${(P)n::=/x/.git}; git add x'
+assert_deny  "496.G: \$((GIT_X=1))"                      $W ': $((GIT_X=1)); git status'
+assert_deny  "496.G: (( GIT_X = 1 ))"                    $W '(( GIT_X = 1 )); git status'
+assert_deny  "496.G: let GIT_X=1"                        $W 'let GIT_X=1; git status'
+assert_allow "496.G: \${GIT_DIR:-default} only reads"    $W 'echo "${GIT_DIR:-unset}"; git status'
+assert_allow "496.G: other arithmetic"                   $W 'x=$((1 + 2)); (( i = 1 )); echo $(( x == 3 )); git status'
+assert_allow "496.G: grep for the text GIT_DIR="         $V "grep -n 'GIT_DIR=' scripts/todos/worker_git_guard.py"
+# H: a variable name built at runtime, and namerefs to GIT_* names.
+assert_deny  "496.H: p=GIT_; export \${p}DIR=x"          $W 'p=GIT_; export ${p}DIR=/x/.git; git add x'
+assert_deny  "496.H: declare \"\${p}DIR=x\""             $W 'declare "${p}DIR=/x/.git"; git add x'
+assert_deny  "496.H: export \"\$n\"=x"                   $W 'export "$n"=/x/.git; git add x'
+assert_deny  "496.H: read -r \"\$n\""                    $W 'read -r "$n" <<< /x/.git; git add x'
+assert_deny  "496.H: printf -v \"\$n\""                  $W 'printf -v "$n" %s /x/.git; git add x'
+assert_deny  "496.H: getopts ab \"\$n\""                 $W 'getopts ab "$n"; git add x'
+assert_deny  "496.H: declare -n r=GIT_DIR; export r=x"   $W 'declare -n r=GIT_DIR; export r=/x/.git; git add x'
+assert_deny  "496.H: typeset -n r=GIT_DIR"               $W 'typeset -n r=GIT_DIR; r=/x/.git; git add x'
+assert_deny  "496.H: local -n r=GIT_PAGER"               $V 'f(){ local -n r=GIT_PAGER; r=/tmp/x; git log; }; f'
+assert_deny  "496.H: declare -n r; r=GIT_DIR (unset nameref)" $W 'declare -n r; r=GIT_DIR; r=/x/.git; git add x'
+assert_deny  "496.H: ksh nameref r=GIT_DIR"              $W 'nameref r=GIT_DIR; r=/x/.git; git add x'
+assert_deny  "496.H: integer GIT_X=1 (zsh)"              $W 'integer GIT_X=1'
+assert_deny  "496.H: typeset GIT_DIR[1]=x (a subscript)" $W 'typeset GIT_DIR[1]=/x/.git'
+assert_allow "496.H: export PATH=\"\$HOME/bin:\$PATH\"" $W 'export PATH="$HOME/bin:$PATH"; git status'
+assert_allow "496.H: local x=\"\$(pwd)\" / declare -a"   $W 'f(){ local x="$(pwd)"; declare -a arr; }; f; git status'
+assert_allow "496.H: declare -n r=OTHER"                 $W 'declare -n r=OTHER; git status'
+assert_allow "496.H: read -r line / read -p \"\$P\" x"   $W 'read -r line <<< x; read -p "$P" x <<< y; git status'
+assert_allow "496.H: getopts ab opt \"\$@\""             $W 'getopts ab opt "$@"; git status'
+# I: every zsh loop variable, and read's NAME?prompt.
+assert_deny  "496.I: for a GIT_DIR in x y"               $W 'for a GIT_DIR in x y; do git add x; done'
+assert_deny  "496.I: for a GIT_DIR (x y) (zsh)"          $W 'for a GIT_DIR (x y) { git add x }'
+assert_deny  "496.I: select a GIT_DIR in x"              $W 'select a GIT_DIR in x; do git add x; done'
+assert_deny  "496.I: foreach GIT_DIR (x) (zsh)"          $W $'foreach GIT_DIR (/x/.git)\ngit add x\nend'
+assert_deny  "496.I: read 'GIT_DIR?prompt' (zsh)"        $W "read 'GIT_DIR?Dir: ' <<< /x/.git; git add x"
+assert_allow "496.I: for a b in x y"                     $W 'for a b in x y; do echo $a; done; git status'
+assert_allow "496.I: read 'ans?Continue? '"              $W "read 'ans?Continue? ' <<< y; git status"
+# J: an abbreviated sudo value option takes its value.
+assert_deny  "496.J: sudo --us root git push"            $W 'sudo --us root git push'
+# M: the other read-like builtins and print -v.
+assert_deny_msg "496.M: readarray GIT_X"                 $W 'readarray GIT_X < f' "GIT_X"
+assert_deny_msg "496.M: getopts ab GIT_DIR"              $W 'getopts ab GIT_DIR' "GIT_DIR"
+assert_deny_msg "496.M: vared GIT_DIR (zsh)"             $W 'vared GIT_DIR' "GIT_DIR"
+assert_deny_msg "496.M: print -v GIT_DIR (zsh)"          $W 'print -v GIT_DIR /x/.git; git add x' "GIT_DIR"
+assert_deny_msg "496.M: print -rv GIT_DIR (bundled)"     $W 'print -rv GIT_DIR /x/.git; git add x' "GIT_DIR"
+assert_allow "496.M: printf -v of another name"          $W 'printf -v OUT %s x; printf "%s\n" "-$v"; git status'
+# Round 3 extras: builtins that make a name or a trap run a command.
+assert_deny  "496.R3: alias g='git push'"                $W $'alias g=\'git push\'\ng'
+assert_deny  "496.R3: hash -p /usr/bin/git g"            $W 'hash -p /usr/bin/git g; g push'
+assert_deny  "496.R3: hash g=/usr/bin/git (zsh)"         $W 'hash g=/usr/bin/git; g push'
+assert_deny  "496.R3: trap 'git push' EXIT"              $W "trap 'git push' EXIT"
+assert_deny  "496.R3: emulate sh -c 'git push'"          $W "emulate sh -c 'git push'"
+assert_deny  "496.R3: mapfile -C 'git push' callback"    $W "mapfile -C 'git push' -c 1 arr < f"
+assert_allow "496.R3: trap cleanup / hash -r / alias list" $W "trap 'rm -rf \"\$TMP\"' EXIT; hash -r; alias; git status"
 
 # K10 — a missing script fails open (exit 0, no output) instead of blocking every Bash call
 # (a TMPDIR template, because the Bash sandbox denies mktemp's default /var/folders)
