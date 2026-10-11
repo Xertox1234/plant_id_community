@@ -9,6 +9,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import * as forumService from '../../services/forumService';
 import { draftKey, saveDraft, loadDraft } from '../../utils/forumDrafts';
 import type { JSONContent } from '@tiptap/react';
+import { logger } from '../../utils/logger';
 
 vi.mock('react-router-dom', async () => {
   const actual = await vi.importActual<typeof import('react-router-dom')>('react-router-dom');
@@ -516,6 +517,47 @@ describe('NewThreadPage', () => {
     renderPage();
     await screen.findByText('Plant Care');
     expect(screen.getByLabelText('body')).toHaveValue('<p>kept</p>');
+  });
+
+  it('leaves a draft the schema rejects untouched until the user edits (todo 538)', async () => {
+    // A JSON body the composer schema does not accept (what a future schema
+    // change would make of today's drafts). It mounts as an empty body;
+    // persisting that on mount would silently delete the stored draft. Owner decision 2026-10-10: log, do not salvage, and
+    // keep the stored value byte-for-byte until the user edits.
+    const warn = vi.spyOn(logger, 'warn');
+    const key = draftKey('new-thread', '3-plant-care');
+    // A paragraph nested in a paragraph: ProseMirror's check() quotes the
+    // offending content in its message, author text included.
+    const stored = JSON.stringify({
+      title: '',
+      body: {
+        type: 'doc',
+        content: [
+          {
+            type: 'paragraph',
+            content: [{ type: 'paragraph', content: [{ type: 'text', text: 'private words' }] }],
+          },
+        ],
+      },
+      tags: '',
+    });
+    saveDraft(key, stored);
+
+    renderPage();
+    await screen.findByText('Plant Care');
+
+    expect(screen.getByLabelText('body')).toHaveValue('');
+    expect(warn).toHaveBeenCalledWith(
+      expect.stringMatching(/schema check/),
+      expect.objectContaining({ component: 'forumBody' })
+    );
+    // The warning names the failure, never the draft's content.
+    expect(JSON.stringify(warn.mock.calls)).not.toContain('private words');
+    expect(loadDraft(key)).toBe(stored);
+
+    // The first edit is the user's call: from then on the draft follows the form.
+    await userEvent.type(screen.getByLabelText(/title/i), 'Fresh start');
+    await waitFor(() => expect(loadDraft(key)).toContain('Fresh start'));
   });
 
   describe('"Ask the community" handoff (audit M6)', () => {

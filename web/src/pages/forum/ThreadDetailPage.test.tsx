@@ -2237,6 +2237,37 @@ describe('ThreadDetailPage quote reply (todo 342)', () => {
     expect(screen.queryByTitle('Quote post')).not.toBeInTheDocument();
   });
 
+  it('keeps an image-only reply below the quote (todo 538)', async () => {
+    // isBlankDoc counts an image-only reply as blank (the submit gate), and
+    // Quote used it to decide whether to keep the draft — dropping the image.
+    // The stub composer cannot insert an image, so the draft is seeded.
+    const imageOnly = {
+      type: 'doc',
+      content: [
+        { type: 'image', attrs: { src: '/m/x.jpg', alt: 'leaf', imageId: '9', decorative: false } },
+      ],
+    };
+    sessionStorage.setItem('forum-draft:reply:12', JSON.stringify(imageOnly));
+    vi.spyOn(forumService, 'fetchThread').mockResolvedValue(createMockThread());
+    vi.spyOn(forumService, 'fetchPosts').mockResolvedValue({
+      items: [quotablePost()],
+      meta: { count: 1, next: null, previous: null },
+    });
+
+    renderThreadDetailPage();
+    await userEvent.click(await screen.findByTitle('Quote post'));
+
+    await waitFor(() =>
+      expect(JSON.parse(sessionStorage.getItem('forum-draft:reply:12') ?? '{}').content).toEqual([
+        expect.objectContaining({ type: 'blockquote', attrs: { postId: '5' } }),
+        expect.objectContaining({
+          type: 'image',
+          attrs: expect.objectContaining({ imageId: '9' }),
+        }),
+      ])
+    );
+  });
+
   it('refuses to quote a post with no text instead of inserting an empty quote', async () => {
     vi.spyOn(forumService, 'fetchThread').mockResolvedValue(createMockThread());
     vi.spyOn(forumService, 'fetchPosts').mockResolvedValue({

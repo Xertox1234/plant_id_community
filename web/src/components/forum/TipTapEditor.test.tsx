@@ -1,12 +1,18 @@
 import { StrictMode } from 'react';
 import { describe, it, expect, vi, beforeAll, beforeEach } from 'vitest';
-import { render, screen, waitFor, fireEvent } from '@testing-library/react';
+import { act, render, screen, waitFor, fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { Editor } from '@tiptap/react';
+import { Editor, type JSONContent } from '@tiptap/react';
 import TipTapEditor from './TipTapEditor';
 import * as forumService from '../../services/forumService';
 import { logger } from '../../utils/logger';
-import { bodyBlocksToDoc, postQuoteNode, toComposerDoc } from '../../utils/forumBody';
+import {
+  bodyBlocksToDoc,
+  isUnchangedBody,
+  postQuoteNode,
+  toComposerDoc,
+} from '../../utils/forumBody';
+import type { StreamFieldBlock } from '@/types/blog';
 
 // The editor's `content` is a TipTap JSON document (todo 526). Fixtures are
 // written as the HTML they render and parsed by the composer's own schema.
@@ -1278,5 +1284,90 @@ describe('reusing an already-uploaded photo (todo 374)', () => {
     expect(imgAt).toBeGreaterThanOrEqual(0);
     // At the caret (after the text), NOT at the abandoned drop coordinate.
     expect(imgAt).toBeGreaterThan(textAt);
+  });
+});
+
+// --- todo 538: an untouched re-save against the LIVE editor ----------------
+
+describe('TipTapEditor untouched body (todo 538)', () => {
+  // StarterKit v3's TrailingNode appends an empty paragraph on the editor's
+  // FIRST transaction (a click, a caret move) whenever the document does not
+  // already end in one. A body ending in an image, a heading, a list or a quote
+  // therefore reports a different document the moment the user touches it,
+  // without editing a thing. These cases mount the real composer (its full
+  // extension set: suggestion-wired mention, Placeholder), dispatch a
+  // selection-only transaction, and check what the page compares.
+  const endings: Array<[string, StreamFieldBlock[]]> = [
+    [
+      'an image',
+      [
+        { type: 'paragraph', value: '<p>intro</p>' },
+        { type: 'image', value: { id: 9, url: '/m/x.jpg', alt: 'leaf', decorative: false } },
+      ],
+    ],
+    ['a heading', [{ type: 'paragraph', value: '<p>intro</p><h2>Care</h2>' }]],
+    ['a list', [{ type: 'paragraph', value: '<ul><li><p>water</p></li></ul>' }]],
+    [
+      'a quote',
+      [
+        { type: 'paragraph', value: '<p>intro</p>' },
+        {
+          type: 'post_quote',
+          value: {
+            post_id: 5,
+            text: 'quoted',
+            available: true,
+            topic_id: 1,
+            author: null,
+            is_blocked: false,
+            is_muted: false,
+          },
+        },
+      ],
+    ],
+  ];
+
+  it.each(endings)(
+    'a body ending in %s compares unchanged after a selection transaction',
+    async (_label, stored) => {
+      const onChange = vi.fn<(doc: JSONContent) => void>();
+      const { container } = render(
+        <TipTapEditor content={bodyBlocksToDoc(stored)} onChange={onChange} />
+      );
+      await waitFor(() => expect(container.querySelector('.ProseMirror')).toBeInTheDocument());
+      const editor = (container.querySelector('.ProseMirror') as HTMLElement & { editor: Editor })
+        .editor;
+      expect(editor).toBeTruthy();
+
+      act(() => {
+        editor.commands.setTextSelection(1);
+      });
+
+      // The transaction really did append the trailing paragraph — without
+      // this the comparison below would pass against an unchanged document
+      // and prove nothing (the stubbed page test's flaw).
+      expect(onChange).toHaveBeenCalled();
+      const reported = onChange.mock.calls.at(-1)![0];
+      expect(reported.content?.at(-1)).toEqual({ type: 'paragraph' });
+      expect(isUnchangedBody(reported, stored)).toBe(true);
+      expect(isUnchangedBody(editor.getJSON(), stored)).toBe(true);
+    }
+  );
+
+  it('still reports a real edit as changed', async () => {
+    const stored: StreamFieldBlock[] = [{ type: 'paragraph', value: '<p>intro</p><h2>Care</h2>' }];
+    const onChange = vi.fn<(doc: JSONContent) => void>();
+    const { container } = render(
+      <TipTapEditor content={bodyBlocksToDoc(stored)} onChange={onChange} />
+    );
+    await waitFor(() => expect(container.querySelector('.ProseMirror')).toBeInTheDocument());
+    const editor = (container.querySelector('.ProseMirror') as HTMLElement & { editor: Editor })
+      .editor;
+
+    act(() => {
+      editor.chain().setTextSelection(1).insertContent('new ').run();
+    });
+
+    expect(isUnchangedBody(onChange.mock.calls.at(-1)![0], stored)).toBe(false);
   });
 });

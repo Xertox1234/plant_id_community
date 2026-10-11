@@ -195,7 +195,7 @@ export interface LinkPreviewBlock extends BaseStreamFieldBlock {
  * `is_blocked` / `is_muted` are the VIEWER's collapse signals for the quoted
  * author (the same `PostSerializer.is_blocked` / `is_muted` contract, todo
  * 284/347): both false for anonymous viewers, and independent of `available`.
- * The WRITE shape is `ForumBodyWriteBlock` in `utils/forumBody.ts`.
+ * The WRITE shape is `ForumBodyWriteBlock` in `types/forum.ts`.
  */
 export interface PostQuoteBlockValue {
   text: string;

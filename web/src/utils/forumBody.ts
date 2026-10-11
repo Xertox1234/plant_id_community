@@ -23,9 +23,11 @@ import type { JSONContent } from '@tiptap/react';
 import { elementFromString, getHTMLFromFragment, getSchema } from '@tiptap/react';
 import { DOMParser as SchemaDOMParser, Fragment, type Schema } from '@tiptap/pm/model';
 import type { StreamFieldBlock } from '@/types/blog';
+import type { ForumBodyWriteBlock } from '@/types/forum';
 import { FORUM_SCHEMA_EXTENSIONS } from '../components/forum/forumEditorSchema';
 import { stripHtml } from './sanitize';
 import { safeExternalUrl } from './externalUrl';
+import { logger } from './logger';
 
 /**
  * Whether `html` is an effectively-empty rich-text body.
@@ -55,25 +57,6 @@ import { safeExternalUrl } from './externalUrl';
 export function isBlankHtml(html: string): boolean {
   return stripHtml(html) === '';
 }
-
-/** A forum body block as SENT to the API (an image references the wagtail id). */
-export type ForumBodyWriteBlock =
-  | { type: 'paragraph'; value: string }
-  | { type: 'quote'; value: string }
-  /** A quote of a specific post (todo 342): the quoted post id + plain text.
-   * The server validates the id (visible, not block-paired), caps distinct
-   * quoted posts per body and the text length (QUOTE_MAX_CHARS, 1000) — none
-   * of that is re-checked here; a 400 surfaces as the reply error. */
-  | { type: 'post_quote'; value: { post: number; text: string } }
-  /** An inline image (todo 357). Wagtail's `ImageBlock`: the wagtail image id
-   * plus the PER-USAGE accessibility pair. A blank `alt_text` must ship with
-   * `decorative: true` — the server normalises it anyway, but sending the pair
-   * `ImageBlock.clean()` refuses would make the post un-editable in the CMS. */
-  | {
-      type: 'image';
-      value: { image: number; alt_text: string; decorative: boolean };
-    }
-  | { type: 'embed'; value: string };
 
 /**
  * Client-side cap on the text the Quote action lifts out of a post (todo
@@ -122,13 +105,40 @@ export function emptyDoc(): JSONContent {
   return { type: 'doc', content: [{ type: 'paragraph' }] };
 }
 
+/** isBlankDoc's answers, per document object. */
+const blankDocCache = new WeakMap<JSONContent, boolean>();
+
 /**
  * Whether a composer document is effectively empty — the submit gate. Same
  * rule as before todo 526, applied to the editor's own serialisation, so
  * "blank" did not move: an image-only body still counts as blank.
  */
 export function isBlankDoc(doc: JSONContent | null | undefined): boolean {
-  return isBlankHtml(nodesToHtml(doc?.content ?? []));
+  if (!doc) return true;
+  // Memoised per document object (todo 538): the pages ask this of the same
+  // `getJSON()` result several times per keystroke (the submit gate, the
+  // draft writer, the persist effect), and each answer serialised the whole
+  // document and ran it through DOMPurify. A WeakMap rather than a hand-rolled
+  // text scan keeps the rule byte-for-byte the one above (`&nbsp;` is NOT
+  // blank, because DOMPurify re-emits the entity — a `.trim()` scan would
+  // say it is). Documents are never mutated in place: TipTap returns a fresh
+  // object per transaction and the pages replace state, never edit it.
+  const cached = blankDocCache.get(doc);
+  if (cached !== undefined) return cached;
+  const blank = isBlankHtml(nodesToHtml(doc.content ?? []));
+  blankDocCache.set(doc, blank);
+  return blank;
+}
+
+/**
+ * Whether a composer document holds nothing at all — no text AND no image.
+ * Not the submit gate: `isBlankDoc` deliberately counts an image-only body as
+ * blank. This is for code that would otherwise DISCARD the document, e.g. the
+ * Quote action deciding whether to keep the reply already drafted (todo 538:
+ * an image-only reply was dropped when the user quoted a post).
+ */
+export function isEmptyDoc(doc: JSONContent | null | undefined): boolean {
+  return isBlankDoc(doc) && descendantsOfType(doc ?? {}, 'image').length === 0;
 }
 
 /**
@@ -136,6 +146,12 @@ export function isBlankDoc(doc: JSONContent | null | undefined): boolean {
  * the schema accepts it (a tampered or stale draft becomes an empty document
  * rather than crashing the editor on mount); a string is a pre-526 draft,
  * which was always the composer's own `getHTML()`, and is parsed by the schema.
+ *
+ * A rejected document is LOGGED, not salvaged (todo 538, owner decision
+ * 2026-10-10): after a future schema change this is the only signal that
+ * stored drafts stopped loading. The draft's content is never logged. The
+ * caller must leave the stored draft untouched until the user edits — see
+ * NewThreadPage's persist effect.
  */
 export function toComposerDoc(value: unknown): JSONContent {
   if (typeof value === 'string') {
@@ -145,11 +161,28 @@ export function toComposerDoc(value: unknown): JSONContent {
     try {
       forumSchema().nodeFromJSON(value).check();
       return value as JSONContent;
-    } catch {
+    } catch (error) {
+      logger.warn('Stored composer draft failed the schema check; starting empty', {
+        component: 'forumBody',
+        context: { reason: schemaFailureReason(error) },
+      });
       return emptyDoc();
     }
   }
   return emptyDoc();
+}
+
+/**
+ * Why the schema refused a document, without the document. ProseMirror's
+ * messages can quote it: "Invalid content for node paragraph: <…>" prints up
+ * to 50 characters of the author's text, so only the part before the first
+ * ": " is kept. A node name is schema, not content, so "Unknown node type: x"
+ * is kept whole — it is the line a schema change produces.
+ */
+function schemaFailureReason(error: unknown): string {
+  const message = error instanceof Error ? error.message : String(error);
+  if (/^Unknown node type: [\w-]+$/.test(message)) return message;
+  return message.split(': ')[0].slice(0, 80);
 }
 
 /** A stored reply draft (JSON since todo 526, HTML before it) -> a composer document. */
@@ -567,9 +600,32 @@ export function isUnchangedBody(
   doc: JSONContent | null | undefined,
   body: StreamFieldBlock[] | null | undefined
 ): boolean {
-  return (
-    JSON.stringify(docToBodyBlocks(doc)) === JSON.stringify(docToBodyBlocks(bodyBlocksToDoc(body)))
-  );
+  const blocksOf = (d: JSONContent | null | undefined) =>
+    JSON.stringify(docToBodyBlocks(withoutTrailingEmptyParagraphs(d)));
+  return blocksOf(doc) === blocksOf(bodyBlocksToDoc(body));
+}
+
+/**
+ * `doc` without the empty paragraphs at its end (todo 538). StarterKit v3's
+ * TrailingNode appends one (`{type: 'paragraph'}`, no content) on the
+ * editor's FIRST transaction — a click or a caret move — whenever the document
+ * does not already end in a paragraph. After an image or a quote it becomes
+ * its own `<p></p>` block; after a heading or a list it joins the same
+ * paragraph run (`<h2>Care</h2><p></p>`), which is why this trims NODES, not
+ * blocks. Only content-less paragraphs go: one holding a space or a hard break
+ * is something the user typed. Applied to BOTH sides, so a body saved with
+ * the trailing paragraph before this fix still compares equal.
+ */
+function withoutTrailingEmptyParagraphs(
+  doc: JSONContent | null | undefined
+): JSONContent | null | undefined {
+  const content = doc?.content;
+  if (!doc || !content) return doc;
+  let end = content.length;
+  while (end > 0 && content[end - 1].type === 'paragraph' && !content[end - 1].content?.length) {
+    end -= 1;
+  }
+  return end === content.length ? doc : { ...doc, content: content.slice(0, end) };
 }
 
 /**

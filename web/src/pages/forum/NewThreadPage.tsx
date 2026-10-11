@@ -13,7 +13,13 @@ import PageMeta from '../../components/PageMeta';
 import { useAnnounce } from '../../contexts/AnnouncerContext';
 import { useAuth } from '../../contexts/AuthContext';
 import { useScrollToTop } from '../../hooks/useScrollToTop';
-import { docToBodyBlocks, emptyDoc, isBlankDoc, toComposerDoc } from '../../utils/forumBody';
+import {
+  docToBodyBlocks,
+  emptyDoc,
+  isBlankDoc,
+  isEmptyDoc,
+  toComposerDoc,
+} from '../../utils/forumBody';
 import { logger } from '../../utils/logger';
 import type { Category, CreateIdentificationInput } from '@/types';
 import type { JSONContent } from '@tiptap/react';
@@ -137,6 +143,13 @@ export default function NewThreadPage() {
   // state (and in the draft) so a half-typed tag isn't destroyed mid-keystroke;
   // it is split/trimmed only at submit. The server normalizes and bounds it.
   const [tagsInput, setTagsInput] = useState<string>(() => initialDraft.tags || '');
+  // The composer as it mounted. Until the user changes something, the persist
+  // effect below writes nothing (todo 538): a stored draft the composer could
+  // not load (a JSON body the schema rejects after a schema change — logged by
+  // toComposerDoc) mounts as an empty body, and persisting that would delete
+  // the author's text before anyone could recover it. Compared by identity:
+  // every edit replaces the state value.
+  const [mounted] = useState(() => ({ title, body, tags: tagsInput }));
   // Optional poll (audit M8). Deliberately NOT part of the autosaved draft:
   // the draft is a plain string blob keyed on title/body/tags, and widening it
   // would invalidate every draft already in a member's browser.
@@ -217,11 +230,15 @@ export default function NewThreadPage() {
     };
   }, [categoryParam, reloadKey]);
 
-  // Persist the draft on every change; an all-empty draft is removed.
+  // Persist the draft on every change; an all-empty draft is removed. An
+  // untouched composer leaves the stored draft exactly as it was (see
+  // `mounted`).
   useEffect(() => {
-    const isEmpty = title.trim() === '' && isBlankDoc(body) && tagsInput.trim() === '';
+    if (title === mounted.title && body === mounted.body && tagsInput === mounted.tags) return;
+    // isEmptyDoc: an image-only body is not postable, but it is worth keeping.
+    const isEmpty = title.trim() === '' && isEmptyDoc(body) && tagsInput.trim() === '';
     saveDraft(newThreadDraftKey, isEmpty ? '' : JSON.stringify({ title, body, tags: tagsInput }));
-  }, [title, body, tagsInput, newThreadDraftKey]);
+  }, [title, body, tagsInput, newThreadDraftKey, mounted]);
 
   // A poll left blank/underfilled is not a smaller poll — the server drops
   // blank rows and then rejects fewer than MIN_POLL_OPTIONS, so "enabled but
