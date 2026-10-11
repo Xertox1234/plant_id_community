@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: p4
 issue_id: "565"
 tags: [mobile, backend, follow-ups]
@@ -36,7 +36,30 @@ PR #999 (todo sweep run 2026-10-11-0053, group g3, todos 455); follow-ups: verif
 
 ## Acceptance Criteria
 
-- [ ] Each finding above is fixed with a test where it is a behaviour change, or recorded in the Work Log as
+- [x] Each finding above is fixed with a test where it is a behaviour change, or recorded in the Work Log as
       declined with a reason.
 
 ## Work Log
+
+### 2026-10-11 - Implemented by the todo sweep (run 2026-10-11-1448)
+
+- #1: `update_profile` uses `is_valid(raise_exception=True)`, so a refusal is the API error envelope (`message` such as "avatar: ...", plus `errors`), which mobile and web both read. #2 (owner decision): a replaced avatar's original and imagekit thumbnail are deleted on commit (`backend/apps/users/avatars.py`). `update_profile` has a per-user throttle (`RATE_LIMITS["user_features"]["profile_updates"]`, raised from an unused 10/h to 30/h because the mobile profile screen PATCHes once per notification toggle). Tests cover deletion, a bio-only update keeping the files, and the 429.
+- #3 (owner decision): `complete` is the first three steps (`COMPLETION_STEPS`); "profile" stays listed and ticked. #4: the thumbnail fallback logs at ERROR with the traceback (`logger.exception`), tested with `exc_info`. #6 (owner decision): `UserProfileSerializer.validate_avatar` re-encodes the upload from its pixels after `exif_transpose`, so EXIF and GPS are gone and orientation is kept. The test checks the make, the GPS and the upright size.
+- #5: Save is enabled only while the form shows the profile, and the bio field is filled before the app bar is built. A test opens the screen during a reload holding an old value. #7: the avatar uses `CachedNetworkImageProvider`. #9 (owner decision): new `DELETE auth/user/avatar/` (`delete_avatar`, throttled, deletes both files), `UserProfileService.deleteAvatar()`, and a confirmed "Remove photo" action on the edit screen, tested on both sides.
+- #8 declined: a bio past 500 code points but under 500 graphemes is rare (long emoji sequences). With #1 the server's 400 now reads "bio: Ensure this field has no more than 500 characters." instead of "Bad Request". Code-point counting in the field would need a custom formatter and counter for a cosmetic edge.
+
+### 2026-10-11 - Verified by the todo sweep (run 2026-10-11-1448)
+
+- AC 1: `bash -c 'cd backend && python3 scripts/todos/slot_env.py --main-root . 1 -- backend/venv/bin/python -m pytest apps/users/tests/test_profile_update.py apps/users/tests/test_onboarding_checklist.py --create-db -q -p no:randomly && cd plant_community_mobile && flutter test test/features/profile/edit_profile_screen_test.dart test/services/user_profile_service_test.dart'` — evidence `.sweep-evidence/g1/565-ac0.txt` (not committed), last lines:
+
+  ```text
+  [USER_PROFILE] Profile fetched successfully
+  00:01 +29: plant_community_mobile/test/features/profile/edit_profile_screen_test.dart: cancelling the removal sends nothing
+  [USER_PROFILE] Fetching current user profile
+  [USER_PROFILE] Profile fetched successfully
+  00:01 +30: All tests passed!
+  ```
+
+### 2026-10-11 - Completed by the todo sweep (run 2026-10-11-1448)
+
+- Archived by `land.py archive`; evidence is quoted above, review is on the PR.

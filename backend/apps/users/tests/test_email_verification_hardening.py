@@ -228,6 +228,66 @@ class AllauthFirstLinkTest(TestCase):
         self.assertIn("error=user_creation_failed", ctx.exception.response.url)
         sociallogin.connect.assert_not_called()
 
+    # Todo 562 finding 2: the revoke/notice and connect share one savepoint,
+    # and a lost race on unique (provider, uid) is re-read, as in
+    # oauth_views._record_provider_link (ProviderLinkRaceTest).
+
+    def _losing_sociallogin(self, email="owner@example.com", uid="g-race"):
+        sociallogin = self._sociallogin(email)
+        sociallogin.account.uid = uid
+        sociallogin.connect.side_effect = IntegrityError("duplicate (provider, uid)")
+        return sociallogin
+
+    def test_a_failed_connect_leaves_sessions_and_sends_no_notice(self):
+        user = _verified_login_account()
+        session = RefreshToken.for_user(user)
+        sociallogin = self._sociallogin("owner@example.com")
+        sociallogin.connect.side_effect = RuntimeError("connect failed")
+
+        with self.assertRaises(RuntimeError):
+            self._pre_social_login(sociallogin)
+
+        self.assertFalse(_is_revoked(session))
+        self.assertEqual(_notices(), [])
+
+    def test_losing_the_race_to_this_account_signs_in_without_a_second_notice(self):
+        user = _verified_login_account()
+        session = RefreshToken.for_user(user)
+        linked = SocialAccount.objects.create(
+            user=user, provider="google", uid="g-race"
+        )
+        sociallogin = self._losing_sociallogin()
+
+        self._pre_social_login(sociallogin)
+
+        # The winning request revoked and notified; this one did neither.
+        self.assertFalse(_is_revoked(session))
+        self.assertEqual(_notices(), [])
+        self.assertEqual(sociallogin.account, linked)
+        self.assertEqual(sociallogin.user, user)
+
+    def test_losing_the_race_to_another_account_is_refused(self):
+        user = _verified_login_account()
+        session = RefreshToken.for_user(user)
+        other = User.objects.create_user(username="other", email="other@example.com")
+        SocialAccount.objects.create(user=other, provider="google", uid="g-race")
+        sociallogin = self._losing_sociallogin()
+
+        with self.assertRaises(ImmediateHttpResponse) as ctx:
+            self._pre_social_login(sociallogin)
+
+        self.assertIn("error=user_creation_failed", ctx.exception.response.url)
+        self.assertFalse(_is_revoked(session))
+        self.assertEqual(_notices(), [])
+
+    def test_an_integrity_error_with_no_row_is_not_a_lost_race(self):
+        _verified_login_account()
+        sociallogin = self._losing_sociallogin()
+
+        with self.assertRaises(IntegrityError):
+            self._pre_social_login(sociallogin)
+        self.assertEqual(_notices(), [])
+
 
 class FirebaseFirstLinkTest(TestCase):
     def setUp(self):
@@ -657,6 +717,11 @@ class ProviderLinkRaceTest(TestCase):
         with (
             self._concurrent_insert(winner=other, uid="g-new"),
             patch.object(oauth_views, "_linked_account", return_value=None),
+            # Not `_notices() == []`: both accounts are passwordless, so the
+            # notice could never be sent, and the rollback would discard one
+            # queued anyway. The call itself is what must not happen (todo
+            # 562 finding 4).
+            patch.object(oauth_views, "on_first_provider_link") as notify,
             self.assertLogs(oauth_views.logger, level="WARNING") as logs,
             self.captureOnCommitCallbacks(execute=True),
         ):
@@ -670,7 +735,7 @@ class ProviderLinkRaceTest(TestCase):
         self.assertEqual(
             SocialAccount.objects.get(provider="google", uid="g-new").user, other
         )
-        self.assertEqual(_notices(), [])
+        notify.assert_not_called()
 
     def test_a_failed_notice_leaves_no_link(self):
         user = _verified_login_account()
@@ -736,6 +801,34 @@ class FirebaseFirstLinkRaceTest(TestCase):
     def _uid(self, user):
         return User.objects.values_list("firebase_uid", flat=True).get(pk=user.pk)
 
+    def _assert_concurrent_link_refusal(self, exc):
+        # The plain ValueError, not UnverifiedAccountConflict: the view maps
+        # that subclass to `unverified_account`, on which mobile offers a
+        # password reset that cannot help a racing user (todo 562 finding 3).
+        self.assertIs(type(exc), ValueError)
+        self.assertIn("linked concurrently", str(exc))
+
+    @patch("apps.users.firebase_auth_views.firebase_auth.verify_id_token")
+    def test_a_concurrent_link_refusal_is_a_409_account_conflict(self, mock_verify):
+        cache.clear()
+        owner = _verified_login_account()
+        mock_verify.return_value = {
+            "uid": "fb-owner",
+            "email": "owner@example.com",
+            "email_verified": True,
+            "firebase": {"sign_in_provider": "google.com"},
+        }
+
+        with self._concurrent_bind(owner, "fb-other"):
+            response = APIClient().post(
+                reverse("v1:users:firebase_token_exchange"),
+                {"firebase_token": "a.b.c"},
+                format="json",
+            )
+
+        self.assertEqual(response.status_code, 409)
+        self.assertEqual(response.data["code"], "account_conflict")
+
     def test_losing_the_race_to_the_same_uid_signs_in_without_a_second_notice(self):
         owner = _verified_login_account()
         # Issued to the winning request's sign-in, after it revoked the rest.
@@ -755,8 +848,10 @@ class FirebaseFirstLinkRaceTest(TestCase):
         session = RefreshToken.for_user(owner)
 
         with self._concurrent_bind(owner, "fb-other"):
-            with self.assertRaises(ValueError):
+            with self.assertRaises(ValueError) as ctx:
                 self._sign_in()
+
+        self._assert_concurrent_link_refusal(ctx.exception)
 
         self.assertEqual(self._uid(owner), "fb-other")
         self.assertEqual(_notices(), [])
@@ -770,8 +865,10 @@ class FirebaseFirstLinkRaceTest(TestCase):
         session = RefreshToken.for_user(owner)
 
         with self._concurrent_bind(other, "fb-owner"):
-            with self.assertRaises(ValueError):
+            with self.assertRaises(ValueError) as ctx:
                 self._sign_in()
+
+        self._assert_concurrent_link_refusal(ctx.exception)
 
         self.assertFalse(self._uid(owner))
         self.assertEqual(self._uid(other), "fb-owner")

@@ -166,7 +166,10 @@ RATE_LIMITS = {
     # User Feature Endpoints (user-based)
     "user_features": {
         "push_notifications": "10/h",  # Push notification subscriptions
-        "profile_updates": "10/h",  # Profile modifications
+        # Per user, on PATCH auth/user/update/ and DELETE auth/user/avatar/
+        # (todo 565): each may carry a 2 MB avatar, and the mobile profile
+        # screen PATCHes once per notification toggle.
+        "profile_updates": "30/h",
     },
     # Blog/Content Endpoints (user_or_ip-based)
     "blog": {

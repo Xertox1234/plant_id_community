@@ -4,6 +4,7 @@ Authentication and user management views for the Plant Community application.
 
 import logging
 
+from apps.core import ratelimit as core_ratelimit
 from apps.core.ratelimit import client_ip_key
 from apps.core.security import SecurityMonitor, log_security_event
 from apps.core.utils.pii_safe_logging import log_safe_user_context, log_safe_username
@@ -23,6 +24,7 @@ from rest_framework.response import Response
 from rest_framework_simplejwt.tokens import RefreshToken
 
 from .authentication import RefreshTokenFromCookie, clear_jwt_cookies, set_jwt_cookies
+from .avatars import avatar_file_names, delete_avatar_files_on_commit
 from .constants import RATE_LIMIT_ONBOARDING_EVENT
 from .email_verification import (
     VerificationKeyInvalid,
@@ -330,8 +332,11 @@ def login(request: Request) -> Response:
     # view holds the identifier it resolved and the client IP, so it reports
     # here instead of SecurityMiddleware re-parsing the body on a 401 (todo
     # 435). Every rejected credential counts, including the one that locks
-    # the account; the early returns for a locked or disabled account, which
-    # never check the password, do not.
+    # the account (the 429 below). Neither early return is a rejected
+    # credential, so neither counts: the locked one comes before the password
+    # is checked, the disabled one after it matched. A wrong password on a
+    # disabled account falls through to here and counts (todo 553 finding 5,
+    # pinned by LoginTrackerPlacementTests).
     SecurityMonitor.track_failed_login(ip_address, username)
 
     if account_locked:
@@ -365,21 +370,54 @@ def current_user(request: Request) -> Response:
 
 @api_view(["PATCH"])
 @permission_classes([permissions.IsAuthenticated])
+@core_ratelimit.ratelimit(
+    key="user",
+    rate=RATE_LIMITS["user_features"]["profile_updates"],
+    method="PATCH",
+    block=True,
+)
 def update_profile(request: Request) -> Response:
     """
     Update current user's profile.
+
+    A refusal is the API's error envelope (``message`` plus the field
+    ``errors``), not the bare field map: the mobile client reads only
+    ``message``/``detail``/``error``, and showed every avatar refusal as "Bad
+    Request" (todo 565 finding 1). A replaced avatar is deleted with its
+    thumbnail, and the user is throttled (todo 565 finding 2).
     """
+    previous_avatar = avatar_file_names(request.user)
     serializer = UserProfileSerializer(
         request.user, data=request.data, partial=True, context={"request": request}
     )
+    serializer.is_valid(raise_exception=True)
+    user = serializer.save()
+    if previous_avatar and previous_avatar[0] != (user.avatar.name or ""):
+        delete_avatar_files_on_commit(user, previous_avatar)
+    return Response(
+        {"message": "Profile updated successfully", "user": serializer.data}
+    )
 
-    if serializer.is_valid():
-        serializer.save()
-        return Response(
-            {"message": "Profile updated successfully", "user": serializer.data}
-        )
 
-    return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+@api_view(["DELETE"])
+@permission_classes([permissions.IsAuthenticated])
+@core_ratelimit.ratelimit(
+    key="user",
+    rate=RATE_LIMITS["user_features"]["profile_updates"],
+    method="DELETE",
+    block=True,
+)
+def delete_avatar(request: Request) -> Response:
+    """Remove the current user's avatar and delete its files (todo 565
+    finding 9). Idempotent: with no avatar it changes nothing."""
+    user = request.user
+    previous_avatar = avatar_file_names(user)
+    if previous_avatar:
+        user.avatar = None
+        user.save(update_fields=["avatar"])
+        delete_avatar_files_on_commit(user, previous_avatar)
+    serializer = UserProfileSerializer(user, context={"request": request})
+    return Response({"message": "Profile photo removed", "user": serializer.data})
 
 
 @api_view(["POST"])

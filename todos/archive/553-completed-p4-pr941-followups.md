@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: p4
 issue_id: "553"
 tags: [todo-sweep, follow-ups, backend]
@@ -52,10 +52,33 @@ finding against main before acting on it.
 
 ## Acceptance Criteria
 
-- [ ] Each of its 7 findings is fixed with a test, or the Work Log records why it was left as is.
+- [x] Each of its 7 findings is fixed with a test, or the Work Log records why it was left as is.
 
 ## Work Log
 
 ### 2026-10-10 - Promoted out of todo 527
 
 - Split from the consolidated follow-up todo 527 (owner decision 2026-10-10: one todo per source PR).
+
+### 2026-10-11 - Implemented by the todo sweep (run 2026-10-11-1448)
+
+- F2 (owner decision): `SecurityMonitor._get_client_ip` delegates to `apps.core.ratelimit.get_trusted_client_ip`, then validates the result (fallback `UNKNOWN_IP_ADDRESS`). Finding-5 re-check: the brute_force_login alert keeps the raw IP as decided, and it is now the real client's, not Railway's proxy. `backend/apps/users/tests/test_ip_spoofing_protection.py` was rewritten around `RATELIMIT_TRUSTED_PROXY_COUNT=2`, with left-prepended spoof specimens and two clients behind one proxy. The old tests pinned the `USE_X_FORWARDED_HOST` path that is gone.
+- F1: the account_lockout alert carries `log_safe_username(username)`. The lockout email still names the account. The old `test_lockout_security_alert_triggered` assertion on the raw username now expects the pseudonym. F3: `log_safe_username` keeps only printable characters in its prefix (hash of the raw value), so every caller is covered; `_printable` keeps only its non-str guard. Tests cover \r, \x85, \x1b, a non-str identifier and a view-driven [AUTH] line.
+- F4: the Firebase not-tracked test drives both 401 branches (Invalid, Expired) in subTests and checks each message. F5: `LoginTrackerPlacementTests` pins that the lock-crossing 429 counts and a locked POST or a correct-password disabled POST does not, and that a wrong password on a disabled account does; it asserts the IP, not `mock.ANY`. The `views.py` comment now gives the right reason for each return.
+- F6 (owner decision): the constants guard flags only an `ast.Try` whose body imports from `.constants`, with a specimen test. The middleware IP-resolution test's control now uses an invalid `REMOTE_ADDR`, because the new resolver reads `X-Forwarded-For` silently. F7 (owner decision): `SocialLoginRedirectTest` drives the real `complete_social_login` for an existing verified link and asserts the 302 to `/`.
+
+### 2026-10-11 - Verified by the todo sweep (run 2026-10-11-1448)
+
+- AC 1: `bash -c 'cd backend && python3 scripts/todos/slot_env.py --main-root . 1 -- backend/venv/bin/python -m pytest apps/core/tests/test_legacy_api_mount_removed.py apps/core/tests/test_pii_safe_logging.py apps/users/tests/test_ip_spoofing_protection.py apps/users/tests/test_allauth_surface.py apps/users/tests/test_firebase_auth.py apps/users/tests/test_account_lockout.py --create-db -q -p no:randomly'` — evidence `.sweep-evidence/g1/553-ac0.txt` (not committed), last lines:
+
+  ```text
+  ============================== ENVIRONMENT DRIFT ===============================
+  backend/venv does not match backend/requirements.txt — these results describe a tree CI does not run.
+    mismatched: pyjwt (pinned 2.15.0, installed 2.13.0), urllib3 (pinned 2.8.0, installed 2.7.0)
+  Fix: pip install -r backend/requirements.txt (see todo 378).
+  ======================= 153 passed, 3 warnings in 30.59s =======================
+  ```
+
+### 2026-10-11 - Completed by the todo sweep (run 2026-10-11-1448)
+
+- Archived by `land.py archive`; evidence is quoted above, review is on the PR.

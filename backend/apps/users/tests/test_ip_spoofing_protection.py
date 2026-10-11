@@ -2,17 +2,16 @@
 Tests for IP Spoofing Protection.
 
 Tests SecurityMonitor IP validation and spoofing protection including:
-- X-Forwarded-For header validation
+- X-Forwarded-For read only through the trusted-proxy resolver the login rate
+  limit uses (``RATELIMIT_TRUSTED_PROXY_COUNT``, todo 553 finding 2)
 - IP format validation
 - Handling of invalid/spoofed IPs
 - Fallback to REMOTE_ADDR
 """
 
-from unittest.mock import patch
-
 from apps.core.security import SecurityMonitor
 from django.contrib.auth import get_user_model
-from django.test import RequestFactory, TestCase
+from django.test import RequestFactory, TestCase, override_settings
 
 User = get_user_model()
 
@@ -36,76 +35,93 @@ class IPSpoofingProtectionTestCase(TestCase):
 
         self.assertEqual(ip, "192.168.1.100")
 
-    def test_get_client_ip_with_x_forwarded_for(self):
-        """Test getting client IP from X-Forwarded-For when behind proxy."""
-        request = self.factory.get("/api/test/")
-        request.META["REMOTE_ADDR"] = "10.0.0.1"  # Proxy IP
-        request.META["HTTP_X_FORWARDED_FOR"] = "203.0.113.1, 198.51.100.1, 10.0.0.1"
-
-        # Mock USE_X_FORWARDED_HOST setting
-        with patch("apps.core.security.settings") as mock_settings:
-            mock_settings.USE_X_FORWARDED_HOST = True
-
-            ip = SecurityMonitor._get_client_ip(request)
-
-            # Should use rightmost valid IP from X-Forwarded-For
-            self.assertIn(ip, ["203.0.113.1", "198.51.100.1", "10.0.0.1"])
-
-    def test_get_client_ip_invalid_x_forwarded_for(self):
-        """Test that invalid IPs in X-Forwarded-For are rejected."""
+    def test_x_forwarded_for_is_ignored_without_a_trusted_proxy_count(self):
+        """Default settings (no proxy configured): REMOTE_ADDR is the client,
+        and a header any client can send is never read."""
         request = self.factory.get("/api/test/")
         request.META["REMOTE_ADDR"] = "192.168.1.100"
-        request.META["HTTP_X_FORWARDED_FOR"] = "invalid_ip, 192.168.1.1"
+        request.META["HTTP_X_FORWARDED_FOR"] = "203.0.113.1"
 
-        with patch("apps.core.security.settings") as mock_settings:
-            mock_settings.USE_X_FORWARDED_HOST = True
+        self.assertEqual(SecurityMonitor._get_client_ip(request), "192.168.1.100")
 
-            ip = SecurityMonitor._get_client_ip(request)
-
-            # Should skip invalid IP and use valid one
-            self.assertEqual(ip, "192.168.1.1")
-
-    def test_get_client_ip_all_invalid_x_forwarded_for(self):
-        """Test fallback to REMOTE_ADDR when all X-Forwarded-For IPs are invalid."""
+    @override_settings(USE_X_FORWARDED_HOST=True)
+    def test_use_x_forwarded_host_no_longer_selects_the_header(self):
+        """Todo 553 finding 2: the old resolver read XFF only under this
+        setting, which nothing set, and then trusted the rightmost entry."""
         request = self.factory.get("/api/test/")
-        request.META["REMOTE_ADDR"] = "192.168.1.100"
-        request.META["HTTP_X_FORWARDED_FOR"] = "not_an_ip, also_not_an_ip"
+        request.META["REMOTE_ADDR"] = "10.0.0.1"
+        request.META["HTTP_X_FORWARDED_FOR"] = "203.0.113.1, 10.0.0.1"
 
-        with patch("apps.core.security.settings") as mock_settings:
-            mock_settings.USE_X_FORWARDED_HOST = True
+        self.assertEqual(SecurityMonitor._get_client_ip(request), "10.0.0.1")
 
-            ip = SecurityMonitor._get_client_ip(request)
-
-            # Should fallback to REMOTE_ADDR
-            self.assertEqual(ip, "192.168.1.100")
-
-    def test_get_client_ip_sql_injection_attempt(self):
-        """Test that SQL injection attempts in IP headers are rejected."""
+    @override_settings(RATELIMIT_TRUSTED_PROXY_COUNT=2)
+    def test_the_client_behind_two_trusted_proxies_is_resolved(self):
+        """The shape the login rate limit is configured for in production:
+        ``client, proxy1`` appended by two trusted hops, REMOTE_ADDR the
+        last proxy."""
         request = self.factory.get("/api/test/")
-        request.META["REMOTE_ADDR"] = "192.168.1.100"
-        request.META["HTTP_X_FORWARDED_FOR"] = "1.2.3.4'; DROP TABLE users; --"
+        request.META["REMOTE_ADDR"] = "10.0.0.2"
+        request.META["HTTP_X_FORWARDED_FOR"] = "203.0.113.7, 10.0.0.1"
 
-        with patch("apps.core.security.settings") as mock_settings:
-            mock_settings.USE_X_FORWARDED_HOST = True
+        self.assertEqual(SecurityMonitor._get_client_ip(request), "203.0.113.7")
 
-            ip = SecurityMonitor._get_client_ip(request)
+    @override_settings(RATELIMIT_TRUSTED_PROXY_COUNT=2)
+    def test_a_left_prepended_spoofed_entry_does_not_move_the_result(self):
+        """A client may pre-set X-Forwarded-For. Counting hops from the right
+        means whatever it prepends cannot become the resolved address."""
+        for xff in (
+            "198.51.100.66, 203.0.113.7, 10.0.0.1",
+            "1.2.3.4, 198.51.100.66, 203.0.113.7, 10.0.0.1",
+        ):
+            with self.subTest(xff=xff):
+                request = self.factory.get("/api/test/")
+                request.META["REMOTE_ADDR"] = "10.0.0.2"
+                request.META["HTTP_X_FORWARDED_FOR"] = xff
 
-            # Should reject injection attempt and use REMOTE_ADDR
-            self.assertEqual(ip, "192.168.1.100")
+                self.assertEqual(SecurityMonitor._get_client_ip(request), "203.0.113.7")
 
-    def test_get_client_ip_xss_attempt(self):
-        """Test that XSS attempts in IP headers are rejected."""
-        request = self.factory.get("/api/test/")
-        request.META["REMOTE_ADDR"] = "192.168.1.100"
-        request.META["HTTP_X_FORWARDED_FOR"] = '<script>alert("xss")</script>'
+    @override_settings(RATELIMIT_TRUSTED_PROXY_COUNT=2)
+    def test_two_clients_behind_the_proxy_get_separate_addresses(self):
+        """The production symptom: every client shared the proxy's address,
+        so one per-IP failed-login bucket for everybody."""
+        ips = set()
+        for client in ("203.0.113.7", "203.0.113.8"):
+            request = self.factory.get("/api/test/")
+            request.META["REMOTE_ADDR"] = "10.0.0.2"
+            request.META["HTTP_X_FORWARDED_FOR"] = f"{client}, 10.0.0.1"
+            ips.add(SecurityMonitor._get_client_ip(request))
 
-        with patch("apps.core.security.settings") as mock_settings:
-            mock_settings.USE_X_FORWARDED_HOST = True
+        self.assertEqual(ips, {"203.0.113.7", "203.0.113.8"})
 
-            ip = SecurityMonitor._get_client_ip(request)
+    @override_settings(RATELIMIT_TRUSTED_PROXY_COUNT=2)
+    def test_a_non_ip_in_the_trusted_position_falls_back_to_remote_addr(self):
+        for xff in (
+            "invalid_ip, 10.0.0.1",
+            "1.2.3.4'; DROP TABLE users; --, 10.0.0.1",
+            '<script>alert("xss")</script>, 10.0.0.1',
+        ):
+            with self.subTest(xff=xff):
+                request = self.factory.get("/api/test/")
+                request.META["REMOTE_ADDR"] = "192.168.1.100"
+                request.META["HTTP_X_FORWARDED_FOR"] = xff
 
-            # Should reject XSS attempt and use REMOTE_ADDR
-            self.assertEqual(ip, "192.168.1.100")
+                self.assertEqual(
+                    SecurityMonitor._get_client_ip(request), "192.168.1.100"
+                )
+
+    @override_settings(RATELIMIT_TRUSTED_PROXY_COUNT=2)
+    def test_too_few_entries_fall_back_to_remote_addr(self):
+        """Fewer entries than trusted hops means an expected hop is missing:
+        the header is not trusted at all."""
+        for xff in ("", "203.0.113.7"):
+            with self.subTest(xff=xff):
+                request = self.factory.get("/api/test/")
+                request.META["REMOTE_ADDR"] = "192.168.1.100"
+                request.META["HTTP_X_FORWARDED_FOR"] = xff
+
+                self.assertEqual(
+                    SecurityMonitor._get_client_ip(request), "192.168.1.100"
+                )
 
     def test_get_client_ip_ipv6_address(self):
         """Test handling of IPv6 addresses."""
@@ -116,33 +132,14 @@ class IPSpoofingProtectionTestCase(TestCase):
 
         self.assertEqual(ip, "2001:0db8:85a3:0000:0000:8a2e:0370:7334")
 
+    @override_settings(RATELIMIT_TRUSTED_PROXY_COUNT=2)
     def test_get_client_ip_ipv6_in_x_forwarded_for(self):
         """Test IPv6 in X-Forwarded-For header."""
         request = self.factory.get("/api/test/")
-        request.META["REMOTE_ADDR"] = "10.0.0.1"
+        request.META["REMOTE_ADDR"] = "10.0.0.2"
         request.META["HTTP_X_FORWARDED_FOR"] = "2001:db8::1, 10.0.0.1"
 
-        with patch("apps.core.security.settings") as mock_settings:
-            mock_settings.USE_X_FORWARDED_HOST = True
-
-            ip = SecurityMonitor._get_client_ip(request)
-
-            # Should accept IPv6 address
-            self.assertIn(ip, ["2001:db8::1", "10.0.0.1"])
-
-    def test_get_client_ip_empty_x_forwarded_for(self):
-        """Test handling of empty X-Forwarded-For header."""
-        request = self.factory.get("/api/test/")
-        request.META["REMOTE_ADDR"] = "192.168.1.100"
-        request.META["HTTP_X_FORWARDED_FOR"] = ""
-
-        with patch("apps.core.security.settings") as mock_settings:
-            mock_settings.USE_X_FORWARDED_HOST = True
-
-            ip = SecurityMonitor._get_client_ip(request)
-
-            # Should fallback to REMOTE_ADDR
-            self.assertEqual(ip, "192.168.1.100")
+        self.assertEqual(SecurityMonitor._get_client_ip(request), "2001:db8::1")
 
     def test_get_client_ip_missing_remote_addr(self):
         """Test handling when REMOTE_ADDR is missing."""
@@ -165,44 +162,16 @@ class IPSpoofingProtectionTestCase(TestCase):
         # Should return 'unknown' when REMOTE_ADDR is invalid
         self.assertEqual(ip, "unknown")
 
-    def test_ip_spoofing_logged(self):
-        """Test that IP spoofing attempts are logged."""
+    def test_an_invalid_remote_addr_is_logged_without_the_raw_value(self):
         request = self.factory.get("/api/test/")
-        request.META["REMOTE_ADDR"] = "192.168.1.100"
-        request.META["HTTP_X_FORWARDED_FOR"] = "spoofed_ip_123"
+        request.META["REMOTE_ADDR"] = "spoofed_ip_123"
 
-        with patch("apps.core.security.settings") as mock_settings:
-            mock_settings.USE_X_FORWARDED_HOST = True
-
-            # Mock logger to verify warning is logged
-            with patch("apps.core.security.logger") as mock_logger:
-                ip = SecurityMonitor._get_client_ip(request)
-
-                # The spoofed value is rejected; the real REMOTE_ADDR wins.
-                self.assertEqual(ip, "192.168.1.100")
-                # Should log warning about invalid IP
-                mock_logger.warning.assert_called()
-                warning_message = mock_logger.warning.call_args[0][0]
-                self.assertIn("Invalid IP", warning_message)
-                self.assertIn("spoofed_ip_123", warning_message)
-
-    def test_multiple_proxies_in_x_forwarded_for(self):
-        """Test handling of multiple proxies in X-Forwarded-For chain."""
-        request = self.factory.get("/api/test/")
-        request.META["REMOTE_ADDR"] = "10.0.0.5"
-        # Client IP, Proxy1, Proxy2, Proxy3
-        request.META["HTTP_X_FORWARDED_FOR"] = (
-            "203.0.113.1, 198.51.100.1, 10.0.0.3, 10.0.0.5"
-        )
-
-        with patch("apps.core.security.settings") as mock_settings:
-            mock_settings.USE_X_FORWARDED_HOST = True
-
+        with self.assertLogs("apps.core.security", level="ERROR") as logs:
             ip = SecurityMonitor._get_client_ip(request)
 
-            # Should use rightmost valid IP (most trustworthy)
-            # In production, you'd configure number of trusted proxies
-            self.assertIn(ip, ["203.0.113.1", "198.51.100.1", "10.0.0.3", "10.0.0.5"])
+        self.assertEqual(ip, "unknown")
+        self.assertIn("invalid format", logs.output[0])
+        self.assertNotIn("spoofed_ip_123", logs.output[0])
 
     def test_localhost_ips_accepted(self):
         """Test that localhost IPs are accepted."""
@@ -245,12 +214,13 @@ class IPValidationInSecurityContextTestCase(TestCase):
             username="testuser", email="test@example.com", password="TestPassword123!"
         )
 
+    @override_settings(RATELIMIT_TRUSTED_PROXY_COUNT=2)
     def test_failed_login_tracking_with_spoofed_ip(self):
         """Failed-login tracking must use the validated REMOTE_ADDR, not a spoofed
         X-Forwarded-For value."""
         request = self.factory.post("/api/v1/auth/login/")
         request.META["REMOTE_ADDR"] = "192.168.1.100"
-        request.META["HTTP_X_FORWARDED_FOR"] = "spoofed_ip"
+        request.META["HTTP_X_FORWARDED_FOR"] = "spoofed_ip, 10.0.0.1"
 
         validated_ip = SecurityMonitor._get_client_ip(request)
 

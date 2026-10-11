@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: p4
 issue_id: "567"
 tags: [mobile, backend, auth, follow-ups]
@@ -36,7 +36,30 @@ PR #1006 (todo sweep run 2026-10-11-0053, group g5, todos 460, 461, 500); follow
 
 ## Acceptance Criteria
 
-- [ ] Each finding above is fixed with a test where it is a behaviour change, or recorded in the Work Log as
+- [x] Each finding above is fixed with a test where it is a behaviour change, or recorded in the Work Log as
       declined with a reason.
 
 ## Work Log
+
+### 2026-10-11 - Implemented by the todo sweep (run 2026-10-11-1448)
+
+- F1 (owner decision, retract): the schema, docstring and `backend/docs/FIREBASE_AUTHENTICATION.md` now say revocation is not checked: a revoked token or a disabled account is accepted until it expires. The dead `UserDisabledError` branch is gone, and no `check_revoked`. Its test (`test_disabled_firebase_account_is_a_refusal`) only drove that dead branch; it is replaced by `test_revocation_is_not_checked`, which pins the plain `verify_id_token(token)` call. F4: the schema documents the 429 (`rate_limit_exceeded`). F6: the outer `except` uses `logger.exception`. Both are tested (schema generation, `exc_info` is the `KeyError`).
+- F2: in `_refreshAccessToken`, a `FirebaseAuthException` is checked against `_isCurrentExchange` before it counts as a refusal, so a refusal for A after a switch to B throws `RefreshSupersededException`. F5: `_surfaceAccountConflict` deletes the stored JWT and leaves `jwtToken` null, as the launch 409 does. The bearer stays installed, so the request still fails with the conflict and not as overtaken. Tests pin `jwtToken`, `isAuthenticated` and storage.
+- F3: `blogInlineImageUrlProvider` moved to `blog_providers.dart` with `retry: blogRetry`; tests show a 404 is looked up once and a 503 is retried. F7: the credit link's `Semantics` has a label and `onTap`, and sets `excludeSemantics`. The test asserts one link node with no children and a working semantics tap, and was mutation-checked.
+- F8: `previewCacheWidth` decodes at 4/3 of the box width, which is enough for photos up to 16:9 under `BoxFit.cover`. The existing decode-width test now expects that factor, and a new test checks aspects from 9:16 to 16:9. F9: every `_authGeneration` bump comes with a new API session, so the reported case reduces to a refresh overtaken within the same session after a token was installed. `ApiService` now re-sends with that token (an `_authEpoch` change, `_authToken` set), tested with a control that re-sends nothing.
+
+### 2026-10-11 - Verified by the todo sweep (run 2026-10-11-1448)
+
+- AC 1: `bash -c 'cd backend && python3 scripts/todos/slot_env.py --main-root . 1 -- backend/venv/bin/python -m pytest apps/users/tests/test_firebase_auth.py --create-db -q -p no:randomly && cd plant_community_mobile && flutter test test/services/auth_service_test.dart test/api_service_test.dart test/features/blog/blog_screens_test.dart test/features/diagnose/diagnose_test.dart'` — evidence `.sweep-evidence/g1/567-ac0.txt` (not committed), last lines:
+
+  ```text
+  00:02 +165 ~3: plant_community_mobile/test/features/blog/blog_screens_test.dart: todo 460 spotlight an Unsplash credit links the photographer and Unsplash separately
+  00:02 +166 ~3: plant_community_mobile/test/features/blog/blog_screens_test.dart: todo 460 spotlight each credit link is ONE labelled link node with the tap (todo 567 finding 7)
+  00:02 +167 ~3: plant_community_mobile/test/features/blog/blog_screens_test.dart: todo 460 spotlight each credit link is a full-size tap target
+  00:02 +168 ~3: plant_community_mobile/test/features/blog/blog_screens_test.dart: todo 460 spotlight a photo that fails to load leaves no empty 2:1 box
+  00:02 +169 ~3: All tests passed!
+  ```
+
+### 2026-10-11 - Completed by the todo sweep (run 2026-10-11-1448)
+
+- Archived by `land.py archive`; evidence is quoted above, review is on the PR.

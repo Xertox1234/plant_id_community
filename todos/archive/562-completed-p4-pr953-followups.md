@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: p4
 issue_id: "562"
 tags: [todo-sweep, follow-ups, backend]
@@ -39,10 +39,33 @@ finding against main before acting on it.
 
 ## Acceptance Criteria
 
-- [ ] Each of its 4 findings is fixed with a test, or the Work Log records why it was left as is.
+- [x] Each of its 4 findings is fixed with a test, or the Work Log records why it was left as is.
 
 ## Work Log
 
 ### 2026-10-10 - Promoted out of todo 527
 
 - Split from the consolidated follow-up todo 527 (owner decision 2026-10-10: one todo per source PR).
+
+### 2026-10-11 - Implemented by the todo sweep (run 2026-10-11-1448)
+
+- #1: `get_or_create_user_from_firebase` truncates the `name` claim once, at entry, to `first_name`'s `max_length` (150, read from the model). A view-level test with a 151-character claim covers the create path and the bound-uid path: 200 and a 150-character `first_name`.
+- #2: `CustomSocialAccountAdapter._connect_first_link` puts `on_first_provider_link` and `sociallogin.connect` in one `transaction.atomic()`. On `IntegrityError` it re-reads `SocialAccount(provider, uid)`. A row for this user means sign in through it with no second notice. A row for another user is refused with `?error=user_creation_failed`, a code the web callback page already knows. No row re-raises. Tests cover a failed connect (sessions kept, no notice) and the three race outcomes.
+- #3: both Firebase race tests assert `type(exc) is ValueError` and 'linked concurrently'. A new APIClient case under `_concurrent_bind` asserts 409 with `code == "account_conflict"`.
+- #4: the signup-race test patches `oauth_views.on_first_provider_link` and calls `assert_not_called()`, in place of the `_notices() == []` assertion that could never fail.
+
+### 2026-10-11 - Verified by the todo sweep (run 2026-10-11-1448)
+
+- AC 1: `bash -c 'cd backend && python3 scripts/todos/slot_env.py --main-root . 1 -- backend/venv/bin/python -m pytest apps/users/tests/test_email_verification_hardening.py apps/users/tests/test_firebase_auth.py --create-db -q -p no:randomly'` — evidence `.sweep-evidence/g1/562-ac0.txt` (not committed), last lines:
+
+  ```text
+  ============================== ENVIRONMENT DRIFT ===============================
+  backend/venv does not match backend/requirements.txt — these results describe a tree CI does not run.
+    mismatched: pyjwt (pinned 2.15.0, installed 2.13.0), urllib3 (pinned 2.8.0, installed 2.7.0)
+  Fix: pip install -r backend/requirements.txt (see todo 378).
+  ======================= 95 passed, 3 warnings in 22.78s ========================
+  ```
+
+### 2026-10-11 - Completed by the todo sweep (run 2026-10-11-1448)
+
+- Archived by `land.py archive`; evidence is quoted above, review is on the PR.

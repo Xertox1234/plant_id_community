@@ -34,11 +34,27 @@ part 'user_profile_service.g.dart';
 /// ```
 @riverpod
 class UserProfileService extends _$UserProfileService {
+  /// Bumped by [clear]. A fetch or an update captures it before its request
+  /// and drops its result when it has moved: Riverpod discards a pending
+  /// `build()` only on a rebuild or a dispose, not on a manual state write,
+  /// so a response accepted under the session [clear] ended would otherwise
+  /// put the previous account's profile back (todo 558 finding 5).
+  int _clears = 0;
+
   @override
   Future<UserProfile?> build() async {
+    // Signed out (or not signed in yet): no profile, and no request. An
+    // anonymous GET would 401 into Riverpod's retry loop, over the
+    // AsyncData(null) a sign-out's clear() left (todo 558 finding 1). The
+    // next completed sign-in invalidates this provider, so it fetches then.
+    if (!ref.read(apiServiceProvider).hasAuthToken) {
+      return null;
+    }
+    final clears = _clears;
     // Auto-fetch on init. A thrown UserProfileException propagates out of
     // build() and Riverpod surfaces it as AsyncValue.error.
-    return fetchProfile();
+    final profile = await fetchProfile();
+    return clears == _clears ? profile : null;
   }
 
   /// Fetch the current user's profile from the backend.
@@ -131,6 +147,8 @@ class UserProfileService extends _$UserProfileService {
         updateData['forum_notifications'] = forumNotifications;
       }
 
+      final clears = _clears;
+
       // Backend response: PATCH /api/v1/auth/user/update/
       // Returns wrapped response with message and user data:
       // {
@@ -157,8 +175,8 @@ class UserProfileService extends _$UserProfileService {
         response.data['user'] as Map<String, dynamic>,
       );
 
-      // Update state
-      state = AsyncValue.data(updatedProfile);
+      // Update state, unless a sign-out cleared it meanwhile.
+      if (clears == _clears) state = AsyncValue.data(updatedProfile);
 
       return updatedProfile;
     } on ApiException catch (e) {
@@ -186,6 +204,7 @@ class UserProfileService extends _$UserProfileService {
   ///
   /// Throws [UserProfileException] if the upload fails.
   Future<UserProfile> uploadAvatar(String filePath) async {
+    final clears = _clears;
     try {
       final formData = FormData.fromMap({
         'avatar': await MultipartFile.fromFile(
@@ -201,7 +220,7 @@ class UserProfileService extends _$UserProfileService {
       final updatedProfile = UserProfile.fromJson(
         response.data['user'] as Map<String, dynamic>,
       );
-      state = AsyncValue.data(updatedProfile);
+      if (clears == _clears) state = AsyncValue.data(updatedProfile);
       return updatedProfile;
     } on ApiException catch (e) {
       if (kDebugMode) {
@@ -216,16 +235,49 @@ class UserProfileService extends _$UserProfileService {
     }
   }
 
-  /// Refresh profile data from the backend, updating [state] with the result.
-  /// A failed fetch lands as `AsyncValue.error` (via [AsyncValue.guard]) so the
-  /// UI can show its error/retry branch.
-  Future<void> refresh() async {
-    state = const AsyncValue<UserProfile?>.loading();
-    state = await AsyncValue.guard(fetchProfile);
+  /// Remove the user's avatar (todo 565 finding 9). The backend deletes the
+  /// photo and its thumbnail from storage.
+  ///
+  /// Throws [UserProfileException] if the request fails.
+  Future<UserProfile> deleteAvatar() async {
+    final clears = _clears;
+    try {
+      final response = await ref
+          .read(apiServiceProvider)
+          .delete('/auth/user/avatar/');
+      final updatedProfile = UserProfile.fromJson(
+        response.data['user'] as Map<String, dynamic>,
+      );
+      if (clears == _clears) state = AsyncValue.data(updatedProfile);
+      return updatedProfile;
+    } on ApiException catch (e) {
+      if (kDebugMode) {
+        debugPrint('[USER_PROFILE ERROR] Avatar removal failed: ${e.message}');
+      }
+      throw UserProfileException('Failed to remove photo: ${e.message}');
+    } catch (e) {
+      if (kDebugMode) {
+        debugPrint('[USER_PROFILE ERROR] Unexpected avatar removal error: $e');
+      }
+      throw UserProfileException('Failed to remove photo: $e');
+    }
   }
 
-  /// Clear profile state (on logout)
+  /// Refresh profile data from the backend, updating [state] with the result.
+  /// A failed fetch lands as `AsyncValue.error` (via [AsyncValue.guard]) so the
+  /// UI can show its error/retry branch. A [clear] while it runs wins: the
+  /// result is dropped.
+  Future<void> refresh() async {
+    final clears = _clears;
+    state = const AsyncValue<UserProfile?>.loading();
+    final result = await AsyncValue.guard(fetchProfile);
+    if (clears == _clears) state = result;
+  }
+
+  /// Clear profile state (on logout). Also fences off a fetch or update
+  /// already in flight, whose result is then dropped ([_clears]).
   void clear() {
+    _clears++;
     state = const AsyncValue.data(null);
   }
 }

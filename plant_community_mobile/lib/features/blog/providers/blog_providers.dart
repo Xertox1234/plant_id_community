@@ -1,3 +1,4 @@
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
 import '../../../services/api_service.dart';
@@ -17,6 +18,15 @@ Duration? blogRetry(int retryCount, Object error) {
   }
   return ProviderContainer.defaultRetry(retryCount, error);
 }
+
+/// The resolved URL of a rich-text inline image, cached per id so a rebuild
+/// (scrolling, a theme change) never fetches it again. With [blogRetry]: a
+/// deleted image's 404 used to be retried 10 times (about 40 s) per image
+/// (todo 567 finding 3).
+final blogInlineImageUrlProvider = FutureProvider.family<String?, int>(
+  (ref, id) => ref.watch(blogApiProvider).fetchImageUrl(id),
+  retry: blogRetry,
+);
 
 /// Published posts, newest first, offset-paginated with [loadMore]. [tag]
 /// narrows to one tag (the care guides pass `care-guide`); null = all posts.

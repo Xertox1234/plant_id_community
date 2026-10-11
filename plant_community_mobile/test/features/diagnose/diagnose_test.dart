@@ -548,8 +548,30 @@ void main() {
       final box = tester.getSize(find.byType(AspectRatio).first);
       final dpr = tester.view.devicePixelRatio;
       expect(image.image, isA<ResizeImage>());
-      expect((image.image as ResizeImage).width, (box.width * dpr).ceil());
+      // 4/3 of the box's width since todo 567 finding 8 (see the next test).
+      expect(
+        (image.image as ResizeImage).width,
+        (box.width * dpr * 4 / 3).ceil(),
+      );
       expect(previewCacheWidth(double.infinity, 3), isNull);
+    });
+
+    test('a 16:9 photo decodes at least as tall as the 4:3 preview, so '
+        'BoxFit.cover never upscales it', () {
+      // Todo 567 finding 8: decoded at the box's width, a 16:9 photo came
+      // out 3/4 of the box's height and was blurred up ~1.33x.
+      const boxWidth = 360.0, dpr = 3.0;
+      final boxHeightPx = boxWidth / previewAspectRatio * dpr;
+      for (final aspect in [16 / 9, 3 / 2, 4 / 3, 1.0, 3 / 4, 9 / 16]) {
+        final decodedWidth = previewCacheWidth(boxWidth, dpr)!;
+        final decodedHeight = decodedWidth / aspect;
+        expect(
+          decodedHeight,
+          greaterThanOrEqualTo(boxHeightPx - 1),
+          reason: 'aspect $aspect',
+        );
+        expect(decodedWidth, greaterThanOrEqualTo(boxWidth * dpr));
+      }
     });
 
     test('an Android HEIC pick uploads with a .jpg name; other names pass '

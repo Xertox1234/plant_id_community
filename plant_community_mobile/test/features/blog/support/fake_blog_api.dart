@@ -21,6 +21,9 @@ class FakeBlogApi implements BlogApi {
   final imageUrls = <int, String>{};
   final imageLookups = <int>[];
 
+  /// Inline-image ids whose lookup throws this error (a 404, a 500).
+  final imageErrors = <int, Object>{};
+
   /// When set, a `fetchPosts` past the first page waits on it.
   Completer<void>? moreGate;
 
@@ -61,6 +64,8 @@ class FakeBlogApi implements BlogApi {
   @override
   Future<String?> fetchImageUrl(int id) async {
     imageLookups.add(id);
+    final error = imageErrors[id];
+    if (error != null) throw error;
     return imageUrls[id];
   }
 

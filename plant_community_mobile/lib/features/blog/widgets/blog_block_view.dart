@@ -5,7 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/constants/app_spacing.dart';
 import '../../forum/widgets/forum_html_text.dart';
 import '../models/blog_post.dart';
-import '../services/blog_api.dart';
+import '../providers/blog_providers.dart';
 
 /// Blog rich text: [ForumHtmlText] with the blog's internal links and inline
 /// images wired in.
@@ -289,8 +289,14 @@ class _SpotlightCredit extends StatelessWidget {
   Widget build(BuildContext context) {
     final style = Theme.of(context).textTheme.bodySmall;
     final creditUrl = block.imageCreditUrl;
+    // One node: a labelled link with the tap. Without excludeSemantics the
+    // InkWell added its own unlabelled tap node under it, so a screen reader
+    // reached the link twice (todo 567 finding 7).
     Widget link(String text, String href) => Semantics(
       link: true,
+      label: text,
+      onTap: () => onOpenLink(href),
+      excludeSemantics: true,
       child: InkWell(
         onTap: () => onOpenLink(href),
         child: ConstrainedBox(

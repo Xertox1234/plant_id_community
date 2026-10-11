@@ -111,16 +111,20 @@ This document describes the Firebase Authentication integration for the Plant ID
 **Error Responses** (each a JSON object with `error`, and `code` where noted):
 
 - **400 Bad Request**: `firebase_token` missing or not a string
-- **401 Unauthorized**: invalid, expired or revoked Firebase token, or a
-  disabled Firebase account. The mobile app signs the user out.
+- **401 Unauthorized**: invalid or expired Firebase token. The mobile app
+  signs the user out. Revocation is not checked (`verify_id_token` runs
+  without `check_revoked`, owner decision 2026-10-11, todo 567): a revoked
+  token, or one for a disabled Firebase account, is accepted until it
+  expires, about an hour.
 - **403 Forbidden**: the token's email is not verified
 - **409 Conflict**: the account cannot be linked; `code` is
   `unverified_account` (the app offers a password reset) or
   `account_conflict`. The app keeps the user signed in to Firebase and shows
   the conflict.
-- **429 Too Many Requests**: the per-IP exchange rate limit, with `Retry-After`
+- **429 Too Many Requests**: the per-IP exchange rate limit, with `Retry-After`;
+  `code` is `rate_limit_exceeded`
 - **500 Internal Server Error**: a bug on our side after the token was
-  verified (Sentry sees it)
+  verified, logged with its traceback (Sentry sees where it was raised)
 - **503 Service Unavailable**: the token could not be checked (Google's public
   certificates unreachable, Firebase Admin not set up); `code` is
   `verifier_unavailable`. The app keeps the session and retries.

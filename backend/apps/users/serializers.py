@@ -196,12 +196,23 @@ class UserProfileSerializer(serializers.ModelSerializer):
             if request and hasattr(obj, "avatar_thumbnail"):
                 try:
                     return request.build_absolute_uri(obj.avatar_thumbnail.url)
-                except Exception as exc:
-                    logger.warning(
-                        "[PROFILE] Avatar thumbnail unavailable: %s",
-                        type(exc).__name__,
-                    )
+                except Exception:
+                    # Still a null thumbnail, never a 500, but logged at ERROR
+                    # with the traceback: a storage outage or a config bug on
+                    # every GET /auth/user/ must reach Sentry as what it is,
+                    # not as a bare exception type (todo 565 finding 4).
+                    logger.exception("[PROFILE] Avatar thumbnail unavailable")
         return None
+
+    def validate_avatar(self, value):
+        """Store the photo without its metadata: EXIF (GPS included) would be
+        served to anyone who sees the avatar (todo 565 finding 6). Runs after
+        the field's own validators, so ``value`` is a valid image."""
+        if not value:
+            return value
+        from .avatars import strip_image_metadata
+
+        return strip_image_metadata(value)
 
     def get_plant_collections_count(self, obj):
         """Get count of user's plant collections."""

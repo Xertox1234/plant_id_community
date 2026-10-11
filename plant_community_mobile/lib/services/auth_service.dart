@@ -176,6 +176,10 @@ class AuthService extends _$AuthService {
           await _clearJWT();
           final signedOutMessage = _pendingSignedOutMessage;
           _pendingSignedOutMessage = null;
+          // An external sign-out (a revoked token, a disabled account) ends
+          // the session too, so it forgets whose account this was, in the
+          // same frame as the auth flip (todo 558 finding 2).
+          _clearAccountProfile();
           state = AuthState(error: signedOutMessage);
         }
       },
@@ -657,6 +661,12 @@ class AuthService extends _$AuthService {
     try {
       firebaseToken = await user.getIdToken();
     } on FirebaseAuthException catch (e) {
+      // Overtaken first, as the exchange's ApiException branch below does: a
+      // refusal for A after Firebase switched to B must not sign B out (todo
+      // 567 finding 2).
+      if (!_isCurrentExchange(user, generation)) {
+        throw const RefreshSupersededException();
+      }
       if (_firebaseRefusalCodes.contains(e.code)) {
         if (kDebugMode) {
           debugPrint('[AUTH] Access token refresh refused: ${e.code}');
@@ -705,7 +715,7 @@ class AuthService extends _$AuthService {
         return null;
       }
       if (e.statusCode == 409) {
-        _surfaceAccountConflict(user, e);
+        await _surfaceAccountConflict(user, generation, e);
       }
       rethrow;
     }
@@ -759,11 +769,24 @@ class AuthService extends _$AuthService {
   /// signing out with "session expired" (todo 500 finding 1, owner decision
   /// 2026-10-10). The flag survives, so the sign-in screen still offers the
   /// password reset for `unverified_account`.
-  void _surfaceAccountConflict(User user, ApiException e) {
+  ///
+  /// Like the launch 409, the expired JWT goes too: it is deleted from
+  /// storage and `jwtToken` is null, so `isAuthenticated` is false (todo 567
+  /// finding 5). The bearer stays installed until a sign-out: clearing it
+  /// here would end the API session under the refresh, and the request that
+  /// asked for it would fail as "overtaken" instead of with the conflict.
+  Future<void> _surfaceAccountConflict(
+    User user,
+    int generation,
+    ApiException e,
+  ) async {
+    // The caller checked this generation is current just before; the clear
+    // is the first await.
+    await _clearJWT();
+    if (!_isCurrentExchange(user, generation)) return;
     final unverified = e.code == 'unverified_account';
     state = AuthState(
       firebaseUser: user,
-      jwtToken: state.jwtToken,
       error: unverified ? accountConflictMessage : accountLinkFailedMessage,
       unverifiedAccountConflict: unverified,
     );
@@ -785,24 +808,38 @@ class AuthService extends _$AuthService {
     // that lands meanwhile sees the session over and does not start a second
     // sign-out (todo 498).
     ref.read(apiServiceProvider).setAuthToken(null);
-    // Forget whose account this was. A forum screen that is still mounted
-    // reads the account profile's `.value`, which keeps the last profile
-    // through a reload and a failed refresh by design (todo 507) — so
-    // without this the previous user's username would attribute messages
-    // until that screen unmounted. The profile-screen logout clears it
-    // itself; this is the app's only other sign-out path (todo 520).
-    // `clear()`, not `invalidate()`: a rebuild keeps the old profile in
-    // `.value` while it re-fetches, and that fetch would go out anonymous
-    // into Riverpod's retry loop. Guarded, because reading an unwatched
-    // autoDispose provider would build it and start that same fetch. The
-    // next completed sign-in fetches it again (_refetchAccountProfile).
-    if (ref.exists(userProfileServiceProvider)) {
-      ref.read(userProfileServiceProvider.notifier).clear();
-    }
     await _clearJWT();
     await _firebaseAuth.signOut();
 
+    // After the awaits, in the same frame as the auth flip: clearing it
+    // first left signed-in screens identity-less for those frames ("No
+    // profile data available", every group message read as theirs) (todo
+    // 558 finding 3). The Firebase listener's null branch clears it too.
+    _clearAccountProfile();
     state = const AuthState(error: message);
+  }
+
+  /// Forget whose account this was, on every sign-out path but the
+  /// profile-screen logout, which clears it itself: session expiry
+  /// ([_handleSessionExpired]) and a sign-out Firebase reports (the
+  /// listener's null branch, which also covers a revoked token or a disabled
+  /// account) (todos 520, 558).
+  ///
+  /// A forum screen that is still mounted reads the account profile's
+  /// `.value`, which keeps the last profile through a reload and a failed
+  /// refresh by design (todo 507), so without this the previous user's
+  /// username would attribute messages until that screen unmounted.
+  /// `clear()`, not `invalidate()`: a rebuild keeps the old profile in
+  /// `.value` while it re-fetches. Guarded, because reading an unwatched
+  /// autoDispose provider would build it. A dirty one (an invalidate
+  /// deferred under a paused watcher) is flushed by the `.notifier` read,
+  /// and its build() returns null without a request now that the bearer is
+  /// gone (todo 558 finding 1). The next completed sign-in fetches it again
+  /// ([_refetchAccountProfile]).
+  void _clearAccountProfile() {
+    if (ref.exists(userProfileServiceProvider)) {
+      ref.read(userProfileServiceProvider.notifier).clear();
+    }
   }
 
   /// Fetch the account profile again for the account that just signed in,
@@ -821,15 +858,22 @@ class AuthService extends _$AuthService {
   /// the process restarted (todo 520 review).
   ///
   /// Invalidate, not `clear()`: the rebuild fetches under the bearer just
-  /// installed, and for a different account it replaces the last one's
-  /// profile. Riverpod rebuilds an invalidated provider only when something
-  /// actively listens, so with every watcher paused the rebuild waits for the
-  /// next read — ProfileScreen's fresh watch, or the tab coming back
-  /// on-screen. No `ref.exists` guard: invalidating a provider nothing holds
-  /// is a no-op (it is not built), and a screen's first watch builds it
-  /// under the new bearer when it is wanted.
+  /// installed. Every sign-out path that ends a session cleared the last
+  /// account's profile ([_clearAccountProfile], or the profile-screen
+  /// logout), so the rebuild starts from no profile. Riverpod rebuilds an
+  /// invalidated provider only when something actively listens, so with
+  /// every watcher paused the rebuild waits for the next read —
+  /// ProfileScreen's fresh watch, or the tab coming back on-screen. No
+  /// `ref.exists` guard: invalidating a provider nothing holds is a no-op (it
+  /// is not built), and a screen's first watch builds it under the new
+  /// bearer when it is wanted.
+  ///
+  /// As a reload, not a refresh (todo 558 finding 4): a refresh over the
+  /// cleared AsyncData(null) stays a data value, so ProfileScreen's `when()`
+  /// showed "No profile data available" for the whole GET instead of its
+  /// spinner, and Riverpod's retry counter was not reset.
   void _refetchAccountProfile() {
-    ref.invalidate(userProfileServiceProvider);
+    ref.invalidate(userProfileServiceProvider, asReload: true);
   }
 
   /// Clear stored JWT tokens

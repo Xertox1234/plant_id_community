@@ -1,5 +1,7 @@
+import 'dart:async';
 import 'dart:io';
 
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -7,6 +9,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:plant_community_mobile/features/profile/edit_profile_screen.dart';
 import 'package:plant_community_mobile/services/api_service.dart';
+import 'package:plant_community_mobile/services/user_profile_service.dart';
 
 /// Todo 455: a mobile user can set a bio and an avatar.
 ///
@@ -24,23 +27,48 @@ Map<String, dynamic> _user({String bio = '', String? avatar}) => {
 };
 
 class _FakeApi extends ApiService {
+  // Signed in: the profile is fetched only with a bearer (todo 558).
   _FakeApi({this.failPatch = false})
-    : super(baseUrl: 'https://api.example.test/api/v1');
+    : super(baseUrl: 'https://api.example.test/api/v1', authToken: 'jwt');
 
   final bool failPatch;
   Map<String, dynamic> user = _user();
   final patches = <({String path, Object? data})>[];
+  final deletes = <String>[];
+
+  /// When set, `get` waits on it: a fetch in flight.
+  Completer<void>? getGate;
 
   @override
   Future<Response> get(
     String path, {
     Map<String, dynamic>? queryParameters,
     Options? options,
-  }) async => Response(
-    requestOptions: RequestOptions(path: path),
-    statusCode: 200,
-    data: user,
-  );
+  }) async {
+    final gate = getGate;
+    if (gate != null) await gate.future;
+    return Response(
+      requestOptions: RequestOptions(path: path),
+      statusCode: 200,
+      data: user,
+    );
+  }
+
+  @override
+  Future<Response> delete(
+    String path, {
+    dynamic data,
+    Map<String, dynamic>? queryParameters,
+    Options? options,
+  }) async {
+    deletes.add(path);
+    user = {...user, 'avatar': null};
+    return Response(
+      requestOptions: RequestOptions(path: path),
+      statusCode: 200,
+      data: {'message': 'Profile photo removed', 'user': user},
+    );
+  }
 
   @override
   Future<Response> patch(
@@ -196,6 +224,101 @@ void main() {
 
     expect(api.patches, isEmpty);
     expect(find.textContaining('over 2 MB'), findsOneWidget);
+  });
+  testWidgets('Save stays off while a reload holds an old profile the form '
+      'never showed (todo 565 finding 5)', (tester) async {
+    // The provider is alive before the screen opens (another screen holds
+    // it) and reloading: `.value` is the old profile, but the form, and so
+    // the bio field, is not on screen. Save used to send "" here.
+    final api = _FakeApi()..user = _user(bio: 'Grows ferns.');
+    final container = ProviderContainer(
+      overrides: [apiServiceProvider.overrideWithValue(api)],
+    );
+    addTearDown(container.dispose);
+    final holding = container.listen(userProfileServiceProvider, (_, _) {});
+    addTearDown(holding.close);
+    await container.read(userProfileServiceProvider.future);
+    final gate = api.getGate = Completer<void>();
+    container.invalidate(userProfileServiceProvider, asReload: true);
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: EditProfileScreen()),
+      ),
+    );
+    await tester.pump();
+
+    expect(container.read(userProfileServiceProvider).value, isNotNull);
+    final save = tester.widget<TextButton>(
+      find.widgetWithText(TextButton, 'Save'),
+    );
+    expect(save.onPressed, isNull);
+
+    gate.complete();
+    await tester.pumpAndSettle();
+    expect(find.widgetWithText(TextField, 'Grows ferns.'), findsOneWidget);
+    expect(
+      tester
+          .widget<TextButton>(find.widgetWithText(TextButton, 'Save'))
+          .onPressed,
+      isNotNull,
+    );
+  });
+
+  testWidgets('the avatar is a cached network image (todo 565 finding 7)', (
+    tester,
+  ) async {
+    final api = _FakeApi()
+      ..user = _user(avatar: 'https://cdn.example.test/avatars/me.jpg');
+    await _pump(tester, api);
+
+    final avatar = tester.widget<CircleAvatar>(find.byType(CircleAvatar));
+    expect(avatar.backgroundImage, isA<CachedNetworkImageProvider>());
+    expect(
+      (avatar.backgroundImage! as CachedNetworkImageProvider).url,
+      'https://cdn.example.test/avatars/me.jpg',
+    );
+  });
+
+  testWidgets('Remove photo deletes the avatar after a confirmation '
+      '(todo 565 finding 9)', (tester) async {
+    final api = _FakeApi()
+      ..user = _user(avatar: 'https://cdn.example.test/avatars/me.jpg');
+    await _pump(tester, api);
+
+    await tester.tap(find.text('Remove photo'));
+    await tester.pumpAndSettle();
+    expect(api.deletes, isEmpty, reason: 'removed before confirming');
+    await tester.tap(find.widgetWithText(TextButton, 'Remove'));
+    await tester.pumpAndSettle();
+
+    expect(api.deletes, ['/auth/user/avatar/']);
+    expect(find.text('Photo removed'), findsOneWidget);
+    expect(find.text('Add photo'), findsOneWidget);
+    expect(find.text('Remove photo'), findsNothing);
+  });
+
+  testWidgets('Remove photo is offered only when there is a photo', (
+    tester,
+  ) async {
+    await _pump(tester, _FakeApi());
+
+    expect(find.text('Remove photo'), findsNothing);
+  });
+
+  testWidgets('cancelling the removal sends nothing', (tester) async {
+    final api = _FakeApi()
+      ..user = _user(avatar: 'https://cdn.example.test/avatars/me.jpg');
+    await _pump(tester, api);
+
+    await tester.tap(find.text('Remove photo'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Cancel'));
+    await tester.pumpAndSettle();
+
+    expect(api.deletes, isEmpty);
+    expect(find.text('Remove photo'), findsOneWidget);
   });
 }
 
