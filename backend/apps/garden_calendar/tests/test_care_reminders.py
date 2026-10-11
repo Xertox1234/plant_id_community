@@ -738,3 +738,160 @@ def test_the_sweep_interval_constant_matches_the_beat_schedule():
     assert entry["schedule"].minute == set(
         range(0, 60, CARE_REMINDER_SWEEP_INTERVAL_MINUTES)
     )
+
+
+class CareReminderCredentialsErrorTest(TestCase):
+    """Todo 593 #1 (owner decision 2026-10-11): a Firebase credentials error
+    fails every send the same way, so the sweep releases its claims, stops,
+    and logs one ERROR; the next sweep retries once the deploy is fixed."""
+
+    _set_token = CareReminderSweepTest._set_token
+    _run = CareReminderSweepTest._run
+    _sent_tokens = CareReminderSweepTest._sent_tokens
+
+    def setUp(self):
+        CareReminderSweepTest.setUp(self)
+        self.bob = User.objects.create_user(username="bob", email="b@x.com")
+        self._set_token(self.bob, "bob-device")
+        self.alices = _task(self.plant, due=self.now - timedelta(minutes=10))
+        self.bobs = _task(_plant(self.bob), due=self.now - timedelta(minutes=5))
+
+    def _claimed(self, task):
+        task.refresh_from_db()
+        return task.notification_sent
+
+    def test_a_credentials_error_releases_every_claim_and_stops(self):
+        from firebase_admin import messaging
+
+        for exc in (
+            messaging.SenderIdMismatchError("other project"),
+            messaging.ThirdPartyAuthError("apns cert"),
+        ):
+            with self.subTest(exc=type(exc).__name__):
+                with self.assertLogs("apps.garden_calendar.tasks", "ERROR") as logs:
+                    fcm = self._run(send=exc)
+
+                # Alice's send failed; Bob's was never tried.
+                self.assertEqual(fcm.send.call_count, 1)
+                self.assertFalse(self._claimed(self.alices))
+                self.assertFalse(self._claimed(self.bobs))
+                errors = [m for m in logs.output if m.startswith("ERROR:")]
+                self.assertEqual(len(errors), 1, logs.output)
+                self.assertIn("2 tasks released", errors[0])
+
+    def test_the_next_sweep_sends_once_the_credentials_are_fixed(self):
+        from firebase_admin import messaging
+
+        self._run(send=messaging.SenderIdMismatchError("other project"))
+        fcm = self._run()
+
+        self.assertEqual(sorted(self._sent_tokens(fcm)), ["alice-device", "bob-device"])
+        self.assertTrue(self._claimed(self.alices))
+        self.assertTrue(self._claimed(self.bobs))
+
+    def test_a_dead_token_does_not_stop_the_sweep(self):
+        from firebase_admin import messaging
+
+        calls = []
+
+        def send(message):
+            calls.append(message)
+            if len(calls) == 1:
+                raise messaging.UnregisteredError("gone")
+            return "ok"
+
+        self._run(send=send)
+
+        self.assertEqual(len(calls), 2)
+        self.assertTrue(self._claimed(self.alices))
+        self.assertTrue(self._claimed(self.bobs))
+
+
+class CareReminderAutoretryAgeOutTest(TestCase):
+    """Todo 593 #2: an autoretried failure still warns about a task that
+    leaves the lookback before the retry's claim, and the retry window is
+    read from the task's own autoretry options."""
+
+    setUp = CareReminderSweepTest.setUp
+    _set_token = CareReminderSweepTest._set_token
+    _run = CareReminderSweepTest._run
+
+    def _warnings_after_db_error(self):
+        from django.db import OperationalError
+
+        with patch(
+            "apps.garden_calendar.tasks._push_to_owners",
+            side_effect=OperationalError("db blip"),
+        ), patch("apps.garden_calendar.tasks.logger") as log:
+            with self.assertRaises(OperationalError):
+                self._run()
+        return [
+            str(c.args[0])
+            for c in log.warning.call_args_list
+            if "will not be sent" in str(c.args[0])
+        ]
+
+    def test_a_task_at_the_edge_is_warned_even_when_autoretry_follows(self):
+        # Leaves the 24h window 30s from now; the first retry comes up to
+        # 60s later, so the retry cannot claim it.
+        _task(self.plant, due=self.now - timedelta(hours=24) + timedelta(seconds=30))
+
+        self.assertEqual(len(self._warnings_after_db_error()), 1)
+
+    def test_the_retry_window_follows_the_decorator(self):
+        from django.db import OperationalError
+
+        from ..tasks import _next_claim_within
+
+        task = send_due_care_task_reminders
+        task.push_request(retries=1)
+        try:
+            self.assertEqual(
+                _next_claim_within(task, OperationalError("x")),
+                timedelta(seconds=task.retry_backoff * 2 + 60),
+            )
+            # Not autoretried: the next beat sweep claims it.
+            self.assertEqual(
+                _next_claim_within(task, RuntimeError("x")), timedelta(minutes=15)
+            )
+            with patch.object(task, "autoretry_for", ()):
+                self.assertEqual(
+                    _next_claim_within(task, OperationalError("x")),
+                    timedelta(minutes=15),
+                )
+        finally:
+            task.pop_request()
+
+
+class ResolveKeepsCachedRelationsTest(TestCase):
+    """Todo 593 #4: the lock's refresh_from_db() dropped the caller's cached
+    plant, so building the next occurrence re-queried it."""
+
+    def setUp(self):
+        self.alice = User.objects.create_user(username="alice", email="a@x.com")
+        self.plant = _plant(self.alice)
+
+    def test_mark_complete_keeps_the_select_related_plant(self):
+        _task(
+            self.plant,
+            due=timezone.now(),
+            is_recurring=True,
+            recurrence_interval_days=7,
+        )
+        task = CareTask.objects.select_related("plant").get(plant=self.plant)
+        plant = task.plant
+
+        task.mark_complete(self.alice)
+
+        self.assertIs(task.plant, plant)
+        self.assertEqual(CareTask.objects.filter(plant=self.plant).count(), 2)
+
+    def test_a_changed_key_is_not_re_attached(self):
+        other = _plant(self.alice)
+        task = _task(self.plant, due=timezone.now())
+        task = CareTask.objects.select_related("plant").get(pk=task.pk)
+        CareTask.objects.filter(pk=task.pk).update(plant=other)
+
+        task.mark_complete(self.alice)
+
+        self.assertEqual(task.plant, other)

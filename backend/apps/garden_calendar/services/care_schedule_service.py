@@ -16,6 +16,7 @@ from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional
 
 from django.contrib.auth import get_user_model
+from django.db import transaction
 from django.utils import timezone
 
 from ..models import CareTask, GrowingZone, Plant, SeasonalTemplate
@@ -466,25 +467,40 @@ class CareScheduleService:
 
         cutoff_date = timezone.now() - timedelta(days=days_overdue)
 
-        overdue_tasks = CareTask.objects.filter(
-            plant__owner=user,
-            completed=False,
-            skipped=False,
-            scheduled_date__lt=cutoff_date,
+        overdue_tasks = list(
+            CareTask.objects.filter(
+                plant__owner=user,
+                completed=False,
+                skipped=False,
+                scheduled_date__lt=cutoff_date,
+            ).select_related(
+                "plant"
+            )  # each LogEntry's object_repr reads it
         )
 
-        count = overdue_tasks.count()
+        count = len(overdue_tasks)
         if count == 0:
             return 0
 
         # Reschedule to tomorrow
         tomorrow = timezone.now() + timedelta(days=1)
-        # A new time is a new reminder: re-arm it (todo 410).
-        overdue_tasks.update(
-            scheduled_date=tomorrow,
-            notes="Rescheduled from overdue status",
-            notification_sent=False,
-        )
+        # One save() per task, not QuerySet.update(): CareTask is audited
+        # (auditlog.py), and update() sends no save signal, so a bulk
+        # reschedule would leave no LogEntry (todo 586 #6).
+        with transaction.atomic():
+            for task in overdue_tasks:
+                task.scheduled_date = tomorrow
+                task.notes = "Rescheduled from overdue status"
+                # A new time is a new reminder: re-arm it (todo 410).
+                task.notification_sent = False
+                task.save(
+                    update_fields=[
+                        "scheduled_date",
+                        "notes",
+                        "notification_sent",
+                        "updated_at",
+                    ]
+                )
 
         logger.info(f"[CARE_SCHEDULE] Rescheduled {count} overdue tasks")
         return count

@@ -745,6 +745,41 @@ def test_send_forum_push_batch_does_not_re_enqueue_on_permanent_error(exc):
     mock_single.assert_not_called()
 
 
+# --- todo 593 #1: a credentials error stops the batch -------------------------
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("exc", _permanent_fcm_errors(), ids=lambda e: type(e).__name__)
+def test_a_credentials_error_stops_the_batch(exc):
+    """Every remaining send would fail the same way, so the batch stops after
+    the first one instead of logging an ERROR per recipient. A token-level
+    permanent error still moves on to the next recipient."""
+    name = type(exc).__name__.lower()
+    users = []
+    for i in range(3):
+        user = User.objects.create_user(username=f"stop-{name}-{i}")
+        profile = ForumProfile.for_user(user)
+        profile.fcm_token = f"token-{i}"
+        profile.save()
+        users.append(user)
+
+    mock_fcm = MagicMock()
+    mock_fcm.send.side_effect = exc
+
+    with patch(
+        "apps.core.firebase_config.is_firebase_available", return_value=True
+    ), patch("apps.core.firebase_config.get_fcm_client", return_value=mock_fcm), patch(
+        "apps.forum_host.tasks.send_forum_push.delay"
+    ) as single:
+        from apps.forum_host.tasks import send_forum_push_batch
+
+        send_forum_push_batch("reply_added", [u.pk for u in users], {"topic_id": "1"})
+
+    expected = 1 if type(exc).__name__ in _CREDENTIALS_CLASSES else 3
+    assert mock_fcm.send.call_count == expected
+    single.assert_not_called()
+
+
 # --- todo 457 item 3: a dead device token is cleared -------------------------
 
 # SenderIdMismatchError left this set in todo 566 (owner decision
@@ -1017,10 +1052,22 @@ def test_weekly_digest_relays_the_real_command_output_with_one_prefix():
     """
     from apps.forum_host import tasks
     from django.core.cache import cache
+    from django.test import override_settings
 
-    cache.delete("wagtail_forum:digest-run:weekly")
-    with patch.object(tasks.logger, "info") as info:
-        tasks.send_forum_weekly_digest.apply()
+    # A private cache: the default one is the shared Redis in dev and sweep
+    # runs, where deleting the run lock could free a live worker's digest
+    # run (todo 593 #9).
+    with override_settings(
+        CACHES={
+            "default": {
+                "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+                "LOCATION": "todo-593-digest-relay",
+            }
+        }
+    ):
+        cache.delete("wagtail_forum:digest-run:weekly")
+        with patch.object(tasks.logger, "info") as info:
+            tasks.send_forum_weekly_digest.apply()
 
     relayed = relayed_lines(info)
     assert any("recipients=" in line for line in relayed), relayed

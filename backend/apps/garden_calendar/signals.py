@@ -7,10 +7,8 @@ Signal handlers for automatic actions when calendar events occur.
 import logging
 
 from apps.core.services.notification_service import NotificationService
-from django.core.management.base import BaseCommand
 from django.db.models.signals import post_delete, post_save
 from django.dispatch import receiver
-from django.utils import timezone
 
 from .models import CommunityEvent, EventAttendee, WeatherAlert
 
@@ -147,27 +145,3 @@ def cleanup_orphaned_forum_topics(sender, instance, **kwargs):
         pass
     except Exception as e:
         logger.exception("[GARDEN] Error cleaning up deleted community event: %s", e)
-
-
-class Command(BaseCommand):
-    """
-    Weather alert cleanup task: a management command that removes expired
-    weather alerts.
-    This should be run periodically via cron or Celery Beat.
-    """
-
-    help = "Remove expired weather alerts from the database"
-
-    def handle(self, *args, **options):
-        now = timezone.now()
-        expired_count = WeatherAlert.objects.filter(
-            expires_at__lt=now, is_active=True
-        ).count()
-
-        WeatherAlert.objects.filter(expires_at__lt=now, is_active=True).update(
-            is_active=False
-        )
-
-        self.stdout.write(
-            self.style.SUCCESS(f"Deactivated {expired_count} expired weather alerts")
-        )

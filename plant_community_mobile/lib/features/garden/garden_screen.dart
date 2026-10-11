@@ -286,13 +286,19 @@ Future<void> _run(
 const int careTaskTitleMaxLength = 200;
 
 /// The title of a task scheduled from the add-task form: the type label,
-/// a space and the plant name, cut to [careTaskTitleMaxLength]. A plant name may be 200 characters
-/// itself, and an over-long title is a 400 (todo 570 #4, #7).
+/// a space and the plant name, cut to [careTaskTitleMaxLength]. A plant name
+/// may be 200 characters itself, and an over-long title is a 400 (todo 570
+/// #4, #7).
+///
+/// Counted and cut in code points (runes), as the server counts: cutting
+/// UTF-16 code units could split an emoji's surrogate pair (todo 593 #3).
 @visibleForTesting
 String careTaskTitle(String typeLabel, String plantName) {
   final title = '$typeLabel $plantName';
-  if (title.length <= careTaskTitleMaxLength) return title;
-  return '${title.substring(0, careTaskTitleMaxLength - 1).trimRight()}…';
+  final runes = title.runes;
+  if (runes.length <= careTaskTitleMaxLength) return title;
+  final cut = String.fromCharCodes(runes.take(careTaskTitleMaxLength - 1));
+  return '${cut.trimRight()}…';
 }
 
 /// When a task first due on [day] is due: 9 am local on that calendar day

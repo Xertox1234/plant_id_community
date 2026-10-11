@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: p4
 issue_id: "593"
 tags: [todos, follow-ups]
@@ -36,7 +36,7 @@ PR #1034 (todo sweep run 2026-10-11-1448, group g8, todos 566, 570, 573); follow
 
 ## Acceptance Criteria
 
-- [ ] Each finding above is fixed with a test where it is a behaviour change, or recorded in the Work Log as
+- [x] Each finding above is fixed with a test where it is a behaviour change, or recorded in the Work Log as
       declined with a reason.
 
 ## Work Log
@@ -44,3 +44,27 @@ PR #1034 (todo sweep run 2026-10-11-1448, group g8, todos 566, 570, 573); follow
 ### 2026-10-11 - Filed from todo-sweep run 2026-10-11-1448
 
 Follow-ups for PR #1034 (todos 566, 570, 573).
+
+### 2026-10-11 - Implemented by the todo sweep (run 2026-10-11-2219)
+
+- #1 fixed (owner decision): in `backend/apps/garden_calendar/tasks.py`, a Firebase credentials error releases the failing owner's tasks and every owner's not yet tried, logs one ERROR and stops the sweep; the next sweep retries. `send_forum_push_batch` (`backend/apps/forum_host/tasks.py`) stops at the first credentials error too. Tests in `test_care_reminders.py` and `forum_host/tests/test_tasks.py`.
+- #2 fixed: `_next_claim_within()` reads `autoretry_for`, `retry_backoff`, `retry_backoff_max` and `max_retries` from the task itself. The age-out warning now fires for any task that leaves the lookback before the next claim, autoretry or beat sweep, instead of being switched off whenever an autoretry follows.
+- #3, #6, #10 fixed: `careTaskTitle` (`plant_community_mobile/lib/features/garden/garden_screen.dart`) counts and cuts in runes (code points, as the server counts), so an emoji at the cut is never split; the doc comment is rewrapped to 80 columns. #4 fixed: `CareTask._resolve` re-attaches cached relations whose key did not change after the lock's `refresh_from_db()`. #5 fixed: the dead `Command` in `signals.py` is now the `deactivate_expired_weather_alerts` management command (smoke test). #9 fixed: the digest relay test runs on a private LocMem cache, not the shared default.
+- #7 declined: `test_signals.py` (todo 573) pins the message template ending in `%s` with the exception, so a one-line log view still shows the cause next to the traceback.
+- #8 declined: keeping the token on `SenderIdMismatchError` is the owner's todo 566 decision. With #1, a truly device-level mismatch now stops each sweep at that owner; revisit if that is seen in the logs.
+
+### 2026-10-11 - Verified by the todo sweep (run 2026-10-11-2219)
+
+- AC 1: `bash -c 'set -eo pipefail; cd backend && python3 scripts/todos/slot_env.py --main-root . 4 -- backend/venv/bin/python -m pytest apps/garden_calendar/tests/test_care_reminders.py apps/garden_calendar/tests/test_signals.py apps/forum_host/tests/test_tasks.py --create-db -q -p no:cacheprovider 2>&1 | tail -n 8; cd plant_community_mobile && flutter test test/features/garden/garden_screen_test.dart 2>&1 | tail -n 4; sed -n "/^## Work Log/,/^## Notes/p" todos/archive/593-completed-p4-garden-care-reminders-pr1034-followups.md'` — evidence `.sweep-evidence/g4/593-ac0.txt` (not committed), last lines:
+
+  ```text
+  - #1 fixed (owner decision): in `backend/apps/garden_calendar/tasks.py`, a Firebase credentials error releases the failing owner's tasks and every owner's not yet tried, logs one ERROR and stops the sweep; the next sweep retries. `send_forum_push_batch` (`backend/apps/forum_host/tasks.py`) stops at the first credentials error too. Tests in `test_care_reminders.py` and `forum_host/tests/test_tasks.py`.
+  - #2 fixed: `_next_claim_within()` reads `autoretry_for`, `retry_backoff`, `retry_backoff_max` and `max_retries` from the task itself. The age-out warning now fires for any task that leaves the lookback before the next claim, autoretry or beat sweep, instead of being switched off whenever an autoretry follows.
+  - #3, #6, #10 fixed: `careTaskTitle` (`plant_community_mobile/lib/features/garden/garden_screen.dart`) counts and cuts in runes (code points, as the server counts), so an emoji at the cut is never split; the doc comment is rewrapped to 80 columns. #4 fixed: `CareTask._resolve` re-attaches cached relations whose key did not change after the lock's `refresh_from_db()`. #5 fixed: the dead `Command` in `signals.py` is now the `deactivate_expired_weather_alerts` management command (smoke test). #9 fixed: the digest relay test runs on a private LocMem cache, not the shared default.
+  - #7 declined: `test_signals.py` (todo 573) pins the message template ending in `%s` with the exception, so a one-line log view still shows the cause next to the traceback.
+  - #8 declined: keeping the token on `SenderIdMismatchError` is the owner's todo 566 decision. With #1, a truly device-level mismatch now stops each sweep at that owner; revisit if that is seen in the logs.
+  ```
+
+### 2026-10-11 - Completed by the todo sweep (run 2026-10-11-2219)
+
+- Archived by `land.py archive`; evidence is quoted above, review is on the PR.

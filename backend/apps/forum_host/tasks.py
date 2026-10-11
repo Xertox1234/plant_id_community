@@ -319,6 +319,16 @@ def send_forum_push_batch(event: str, recipient_user_ids: list[int], data: dict)
                     user.pk,
                     exc,
                 )
+                if core_fcm.is_fcm_credentials_error(exc):
+                    # The server's credentials: every remaining recipient
+                    # fails the same way. Stop, rather than spend an FCM
+                    # call and an ERROR line on each (todo 593 #1).
+                    logger.error(
+                        "[FCM] forum.%s batch stopped on a Firebase "
+                        "credentials error; remaining recipients not sent",
+                        event,
+                    )
+                    break
                 continue
             # Transient: hand off to the retry-capable single-recipient task
             # rather than retrying (and re-sending) the whole batch.
