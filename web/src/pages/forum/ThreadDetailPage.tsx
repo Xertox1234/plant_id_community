@@ -603,10 +603,10 @@ export default function ThreadDetailPage() {
   // the caret (autofocus 'end') lands outside the blockquote rather than
   // extending it. "Empty" is isEmptyDoc, not the submit gate's isBlankDoc: an
   // image-only reply counts as blank for Post Reply, but it is the user's
-  // content and quoting must keep it (todo 538). TipTap's `content` is init-only, so the composer is
-  // remounted through composerKey — the same mechanism as the post-reply
-  // reset — and the draft store is written directly, since a remount fires
-  // no onChange.
+  // content and quoting must keep it (todo 538). TipTap's `content` is
+  // init-only, so the composer is remounted through composerKey — the same
+  // mechanism as the post-reply reset — and the draft store is written
+  // directly, since a remount fires no onChange.
   const handleQuote = useCallback(
     (post: Post) => {
       if (topicId == null) return;

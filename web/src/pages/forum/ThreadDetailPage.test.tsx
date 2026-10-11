@@ -2268,6 +2268,35 @@ describe('ThreadDetailPage quote reply (todo 342)', () => {
     );
   });
 
+  it('saves an image-only reply as a draft from the composer (todo 544)', async () => {
+    // The reply onChange writer uses isEmptyDoc, not the submit gate's
+    // isBlankDoc: an image-only reply cannot be posted yet but is kept.
+    vi.spyOn(forumService, 'fetchThread').mockResolvedValue(createMockThread());
+    vi.spyOn(forumService, 'fetchPosts').mockResolvedValue({
+      items: [quotablePost()],
+      meta: { count: 1, next: null, previous: null },
+    });
+
+    renderThreadDetailPage();
+    const composer = await screen.findByLabelText('Write a reply...');
+    fireEvent.change(composer, {
+      target: { value: '<img src="https://cdn/x.jpg" data-image-id="9">' },
+    });
+
+    await waitFor(() =>
+      expect(
+        JSON.parse(sessionStorage.getItem('forum-draft:reply:12') ?? '{}').content
+      ).toContainEqual(
+        expect.objectContaining({
+          type: 'image',
+          attrs: expect.objectContaining({ imageId: '9' }),
+        })
+      )
+    );
+    // Still blank for the submit gate.
+    expect(screen.getByRole('button', { name: /post reply/i })).toBeDisabled();
+  });
+
   it('refuses to quote a post with no text instead of inserting an empty quote', async () => {
     vi.spyOn(forumService, 'fetchThread').mockResolvedValue(createMockThread());
     vi.spyOn(forumService, 'fetchPosts').mockResolvedValue({

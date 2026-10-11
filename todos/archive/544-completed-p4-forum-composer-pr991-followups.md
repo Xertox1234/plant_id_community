@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: p4
 issue_id: "544"
 tags: [forum, web, follow-ups, todo-sweep]
@@ -29,7 +29,35 @@ PR #991 (todo sweep run 2026-10-10-2307, group g2, todos 538); follow-ups: verif
 
 ## Acceptance Criteria
 
-- [ ] Each finding above is fixed with a test where it is a behaviour change, or recorded in the Work Log as
+- [x] Each finding above is fixed with a test where it is a behaviour change, or recorded in the Work Log as
       declined with a reason.
 
 ## Work Log
+
+### 2026-10-10 - Implemented by the todo sweep (run 2026-10-11-0149)
+
+- Finding 1 fixed: `web/src/pages/forum/NewThreadPage.tsx` latches a `touchedRef` on the first change, so an
+  edit undone back to the mounted value still persists (a cleared form removes the draft; 'abcd' then
+  backspace stores 'abc'). Two new tests in `NewThreadPage.test.tsx`, both failing on the old guard (finding 2).
+- Finding 3 fixed: new tests pin the image-only draft for the new-thread persist effect and the reply
+  onChange writer (`ThreadDetailPage.test.tsx`), which also checks Post Reply stays disabled.
+- Findings 5 and 6 fixed: re-wrapped the over-long `handleQuote` comment and the owner-decision test comment.
+- Finding 4 declined: TipTap's `getJSON()` returns a fresh object per transaction and both pages only replace
+  state, never mutate it; a runtime guard (deep-freeze or re-check) would cost the per-keystroke serialisation
+  the cache exists to save. The invariant stays documented at `blankDocCache` in `web/src/utils/forumBody.ts`.
+
+### 2026-10-10 - Verified by the todo sweep (run 2026-10-11-0149)
+
+- AC 1: `bash -c 'cd web && npx vitest run src/pages/forum/NewThreadPage.test.tsx src/pages/forum/ThreadDetailPage.test.tsx src/utils/forumBody.test.ts 2>&1 | grep -E "todo 544|Test Files|Tests "; grep -nE "^- Finding" todos/archive/544-completed-p4-forum-composer-pr991-followups.md'` — evidence `.sweep-evidence/g1/544-ac0.txt` (not committed), last lines:
+
+  ```text
+        Tests  213 passed (213)
+  39:- Finding 1 fixed: `web/src/pages/forum/NewThreadPage.tsx` latches a `touchedRef` on the first change, so an
+  42:- Finding 3 fixed: new tests pin the image-only draft for the new-thread persist effect and the reply
+  44:- Findings 5 and 6 fixed: re-wrapped the over-long `handleQuote` comment and the owner-decision test comment.
+  45:- Finding 4 declined: TipTap's `getJSON()` returns a fresh object per transaction and both pages only replace
+  ```
+
+### 2026-10-10 - Completed by the todo sweep (run 2026-10-11-0149)
+
+- Archived by `land.py archive`; evidence is quoted above, review is on the PR.
