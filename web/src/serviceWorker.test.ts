@@ -18,24 +18,55 @@ interface FakeClient {
   navigate: ReturnType<typeof vi.fn>;
 }
 
-function loadWorker(windows: FakeClient[] = []) {
+const API = 'https://api.houseplant-md.com';
+
+function loadWorker(windows: FakeClient[] = [], href = `${ORIGIN}/sw.js?api=${API}`) {
   const listeners: Record<string, Listener> = {};
+  const fetch = vi.fn(async () => new Response('{}', { status: 200 }));
   const self = {
-    location: { origin: ORIGIN },
+    location: { origin: ORIGIN, href },
     addEventListener: (type: string, fn: Listener) => {
       listeners[type] = fn;
     },
     skipWaiting: vi.fn(),
-    registration: { showNotification: vi.fn(async () => undefined) },
+    registration: {
+      showNotification: vi.fn(async () => undefined),
+      pushManager: { subscribe: vi.fn(async () => fakeSubscription('fresh')) },
+    },
     clients: {
       claim: vi.fn(async () => undefined),
       matchAll: vi.fn(async () => windows),
       openWindow: vi.fn(async () => null),
     },
   };
-  const context: Record<string, unknown> = { self, URL };
+  const context: Record<string, unknown> = { self, URL, fetch };
   runInNewContext(SOURCE, context);
-  return { self, listeners, context };
+  return { self, listeners, context, fetch };
+}
+
+function fakeSubscription(id: string, applicationServerKey: ArrayBuffer | null = null) {
+  const endpoint = `https://fcm.googleapis.com/fcm/send/${id}`;
+  return {
+    endpoint,
+    options: { applicationServerKey },
+    toJSON: () => ({ endpoint, keys: { p256dh: `p-${id}`, auth: `a-${id}` } }),
+  };
+}
+
+async function subscriptionChange(
+  listeners: Record<string, Listener>,
+  oldSubscription: unknown,
+  newSubscription: unknown
+) {
+  let pending: Promise<unknown> = Promise.resolve();
+  listeners.pushsubscriptionchange({
+    oldSubscription,
+    newSubscription,
+    waitUntil: (p: Promise<unknown>) => {
+      pending = p;
+    },
+  });
+  await pending;
 }
 
 async function click(listeners: Record<string, Listener>, url: unknown) {
@@ -141,5 +172,66 @@ describe('service worker (public/sw.js)', () => {
       badge: '/favicon.svg',
       tag: 'houseplant-md',
     });
+  });
+
+  // --- Todo 456: pushsubscriptionchange --------------------------------------
+
+  function postedBody(fetch: ReturnType<typeof vi.fn>) {
+    const [url, init] = fetch.mock.calls[0] as unknown as [string, RequestInit];
+    return { url, init, body: JSON.parse(String(init.body)) };
+  }
+
+  it('a replaced subscription is swapped on the server with the old secret', async () => {
+    const { listeners, fetch } = loadWorker();
+
+    await subscriptionChange(listeners, fakeSubscription('old'), fakeSubscription('new'));
+
+    const { url, init, body } = postedBody(fetch);
+    expect(url).toBe(`${API}/api/v1/auth/push-notifications/resubscribe/`);
+    // No cookies: the old subscription is the credential, not a session.
+    expect(init).toMatchObject({ method: 'POST', credentials: 'omit' });
+    expect(body).toEqual({
+      old_subscription: { endpoint: 'https://fcm.googleapis.com/fcm/send/old', auth: 'a-old' },
+      subscription: {
+        endpoint: 'https://fcm.googleapis.com/fcm/send/new',
+        keys: { p256dh: 'p-new', auth: 'a-new' },
+      },
+    });
+  });
+
+  it('with no new subscription it subscribes again with the old key', async () => {
+    const key = new Uint8Array([4, 1, 2]).buffer;
+    const { self, listeners, fetch } = loadWorker();
+
+    await subscriptionChange(listeners, fakeSubscription('old', key), null);
+
+    expect(self.registration.pushManager.subscribe).toHaveBeenCalledWith({
+      userVisibleOnly: true,
+      applicationServerKey: key,
+    });
+    expect(postedBody(fetch).body.subscription.endpoint).toBe(
+      'https://fcm.googleapis.com/fcm/send/fresh'
+    );
+  });
+
+  it.each([
+    ['no old subscription', null, `${ORIGIN}/sw.js?api=${API}`],
+    ['no API origin on the registration URL', fakeSubscription('old'), `${ORIGIN}/sw.js`],
+    ['a non-http API origin', fakeSubscription('old'), `${ORIGIN}/sw.js?api=javascript:x`],
+  ])('does nothing with %s (the page reconciles on load)', async (_name, old, href) => {
+    const { listeners, fetch } = loadWorker([], href);
+
+    await subscriptionChange(listeners, old, fakeSubscription('new'));
+
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it('does nothing when the old key is unknown and there is no new subscription', async () => {
+    const { self, listeners, fetch } = loadWorker();
+
+    await subscriptionChange(listeners, fakeSubscription('old', null), null);
+
+    expect(self.registration.pushManager.subscribe).not.toHaveBeenCalled();
+    expect(fetch).not.toHaveBeenCalled();
   });
 });

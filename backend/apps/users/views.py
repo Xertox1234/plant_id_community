@@ -2,6 +2,7 @@
 Authentication and user management views for the Plant Community application.
 """
 
+import hashlib
 import logging
 import uuid
 from typing import Optional
@@ -20,7 +21,11 @@ from django.views.decorators.csrf import csrf_protect, ensure_csrf_cookie
 from django_ratelimit.decorators import ratelimit
 from rest_framework import permissions, status
 from rest_framework.authentication import CSRFCheck
-from rest_framework.decorators import api_view, permission_classes
+from rest_framework.decorators import (
+    api_view,
+    authentication_classes,
+    permission_classes,
+)
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework_simplejwt.tokens import RefreshToken
@@ -28,7 +33,7 @@ from rest_framework_simplejwt.tokens import RefreshToken
 from . import view_schemas as vs
 from .authentication import RefreshTokenFromCookie, clear_jwt_cookies, set_jwt_cookies
 from .avatars import avatar_file_names, delete_avatar_files_on_commit
-from .constants import RATE_LIMIT_ONBOARDING_EVENT
+from .constants import RATE_LIMIT_ONBOARDING_EVENT, RATE_LIMIT_PUSH_RESUBSCRIBE
 from .email_verification import (
     VerificationKeyInvalid,
     confirm_verification_key,
@@ -888,6 +893,51 @@ def subscribe_push_notifications(request: Request) -> Response:
         )
 
 
+# CSRF-exempt by design (todo 456, owner decision 2026-10-11). The caller is
+# the service worker's `pushsubscriptionchange` handler: a worker has no
+# document.cookie and so no CSRF token, and when the event fires there may be
+# no page open at all. `authentication_classes([])` means no session or JWT
+# cookie is read, so a cross-site POST carries no ambient authority. The
+# credential is the old subscription itself: its endpoint plus its `auth`
+# secret, compared in constant time. Same SSRF allowlist on the new endpoint
+# as subscribe; one 404 for "no row" and "wrong secret"; rate-limited per IP.
+@vs.RESUBSCRIBE_PUSH_SCHEMA
+@api_view(["POST"])
+@authentication_classes([])
+@permission_classes([permissions.AllowAny])
+@ratelimit(
+    key=client_ip_key, rate=RATE_LIMIT_PUSH_RESUBSCRIBE, method="POST", block=True
+)
+def resubscribe_push_notifications(request: Request) -> Response:
+    """Replace a browser's push subscription after the browser changed it."""
+    from .services import NotificationService
+    from .web_push import clean_subscription
+
+    old = request.data.get("old_subscription")
+    old = old if isinstance(old, dict) else {}
+    subscription_data = clean_subscription(request.data.get("subscription"))
+    if not subscription_data:
+        return Response(
+            {
+                "error": "A browser push subscription (an https endpoint on a "
+                "known push service, with p256dh and auth keys) is required."
+            },
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    subscription = NotificationService.resubscribe_push(
+        old.get("endpoint"),
+        old.get("auth"),
+        subscription_data,
+        user_agent=request.META.get("HTTP_USER_AGENT", ""),
+    )
+    if subscription is None:
+        return Response(
+            {"error": "Subscription not found"}, status=status.HTTP_404_NOT_FOUND
+        )
+    return Response({"message": "Push subscription replaced"})
+
+
 @vs.UNSUBSCRIBE_PUSH_SCHEMA
 @api_view(["POST"])
 @permission_classes([permissions.IsAuthenticated])
@@ -956,6 +1006,9 @@ def push_subscriptions(request: Request) -> Response:
                     if len(sub.endpoint) > 50
                     else sub.endpoint
                 ),  # Truncate for security
+                # The web app finds its own browser's row by this (todo 456):
+                # an exact match that does not hand back the capability URL.
+                "endpoint_sha256": hashlib.sha256(sub.endpoint.encode()).hexdigest(),
             }
         )
 

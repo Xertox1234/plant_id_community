@@ -63,6 +63,13 @@ urlpatterns = [
         views.unsubscribe_push_notifications,
         name="unsubscribe_push_notifications",
     ),
+    # No user session: the service worker proves the old subscription instead
+    # (todo 456), so this is not under me/.
+    path(
+        "push-notifications/resubscribe/",
+        views.resubscribe_push_notifications,
+        name="resubscribe_push_notifications",
+    ),
     path(
         "me/push-notifications/public-key/",
         views.push_public_key,

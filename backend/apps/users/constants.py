@@ -6,6 +6,10 @@ RATE_LIMIT_ONBOARDING_EVENT = "50/h"
 # Signed-link email unsubscribe (todo 408), per client IP. The token is the
 # credential, so this bounds probing, not a real user clicking twice.
 RATE_LIMIT_EMAIL_UNSUBSCRIBE = "30/h"
+# The service worker's push re-subscribe (todo 456), per client IP: it has no
+# user to key on. A browser replaces its subscription rarely (expiry, or a
+# Firefox reset), so this only caps guessing at an endpoint's auth secret.
+RATE_LIMIT_PUSH_RESUBSCRIBE = "20/h"
 # Verification mails per account per window, the registration mail included
 # (todo 447). Past it, resend answers `limit_reached` and nothing is queued
 # until the window, which starts at the first mail, has passed.

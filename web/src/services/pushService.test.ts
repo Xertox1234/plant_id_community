@@ -244,3 +244,123 @@ describe('pushService', () => {
     }
   });
 });
+
+// --- Todo 456: reconcile the "on" state with the server ------------------------
+
+describe('pushService reconcile (todo 456)', () => {
+  const ENDPOINT = 'https://fcm.googleapis.com/fcm/send/old';
+
+  async function sha256(text: string) {
+    const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text));
+    return Array.from(new Uint8Array(digest), (b) => b.toString(16).padStart(2, '0')).join('');
+  }
+
+  function existing() {
+    return {
+      endpoint: ENDPOINT,
+      options: { applicationServerKey: urlBase64ToUint8Array(KEY).buffer.slice(0) },
+      toJSON: () => ({ endpoint: ENDPOINT, keys: { p256dh: 'op', auth: 'oa' } }),
+      unsubscribe: vi.fn(async () => true),
+    };
+  }
+
+  /** The server's list: `rows` hashes, or a status/body to fail with. */
+  function serverList(rows: string[] | null, status = 200) {
+    const calls: { url: string; init?: RequestInit }[] = [];
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string, init?: RequestInit) => {
+        calls.push({ url, init });
+        if (url.endsWith('/public-key/'))
+          return new Response(JSON.stringify({ enabled: true, public_key: KEY }), { status: 200 });
+        if (url.endsWith('/push-notifications/')) {
+          const body =
+            rows === null ? {} : { subscriptions: rows.map((h) => ({ endpoint_sha256: h })) };
+          return new Response(JSON.stringify(body), { status });
+        }
+        return new Response('{}', { status: 201 });
+      })
+    );
+    return calls;
+  }
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    Reflect.deleteProperty(window, 'PushManager');
+  });
+
+  it('is on when the server holds this browser subscription', async () => {
+    fakeBrowser({ existing: existing() });
+    serverList([await sha256('https://fcm.googleapis.com/fcm/send/other'), await sha256(ENDPOINT)]);
+
+    expect(await getBrowserPushState()).toBe('on');
+  });
+
+  it('moves an already-subscribed browser onto the worker URL with the API origin', async () => {
+    fakeBrowser({ existing: existing() });
+    serverList([await sha256(ENDPOINT)]);
+
+    await getBrowserPushState();
+
+    const register = navigator.serviceWorker.register as unknown as ReturnType<typeof vi.fn>;
+    expect(String(register.mock.calls[0][0])).toMatch(/^\/sw\.js\?api=/);
+  });
+
+  it('is off when the server deactivated it, though the browser still has it', async () => {
+    fakeBrowser({ existing: existing() });
+    serverList([await sha256('https://fcm.googleapis.com/fcm/send/other')]);
+
+    expect(await getBrowserPushState()).toBe('off');
+  });
+
+  it.each([
+    ['an error status', [] as string[], 500],
+    ['an unexpected body', null, 200],
+  ])('keeps the browser answer when the server gives %s', async (_name, rows, status) => {
+    fakeBrowser({ existing: existing() });
+    serverList(rows, status);
+
+    expect(await getBrowserPushState()).toBe('on');
+  });
+
+  it('turning on again replaces a subscription the server dropped', async () => {
+    const old = existing();
+    const { pushManager } = fakeBrowser({ existing: old });
+    const calls = serverList([]);
+
+    expect(await enableBrowserPush()).toBe('on');
+
+    expect(old.unsubscribe).toHaveBeenCalled();
+    expect(pushManager.subscribe).toHaveBeenCalledOnce();
+    const subscribe = calls.find((c) => c.url.endsWith('/subscribe/'));
+    expect(JSON.parse(String(subscribe?.init?.body)).subscription.endpoint).toBe(
+      'https://fcm.googleapis.com/fcm/send/abc'
+    );
+  });
+
+  it('registers the worker with the API origin it re-subscribes to', async () => {
+    fakeBrowser();
+    serverList([]);
+
+    await enableBrowserPush();
+
+    const register = navigator.serviceWorker.register as unknown as ReturnType<typeof vi.fn>;
+    const url = new URL(String(register.mock.calls[0][0]), 'https://houseplant-md.com');
+    expect(url.pathname).toBe('/sw.js');
+    expect(url.searchParams.get('api')).toMatch(/^https?:\/\//);
+  });
+
+  it('a key rotation tells the server to drop the old row', async () => {
+    const old = existing();
+    const rotated = urlBase64ToUint8Array(KEY);
+    rotated[10] ^= 0xff;
+    old.options.applicationServerKey = rotated.buffer.slice(0);
+    fakeBrowser({ existing: old });
+    const calls = serverList([]);
+
+    expect(await enableBrowserPush()).toBe('on');
+
+    const unsubscribe = calls.find((c) => c.url.endsWith('/unsubscribe/'));
+    expect(JSON.parse(String(unsubscribe?.init?.body))).toEqual({ endpoint: ENDPOINT });
+  });
+});

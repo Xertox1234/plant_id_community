@@ -69,3 +69,55 @@ self.addEventListener('notificationclick', (event) => {
   const raw = event.notification.data && event.notification.data.url;
   event.waitUntil(openClick(resolveClickUrl(raw, self.location.origin)));
 });
+
+/** The API origin, from the registration URL (`/sw.js?api=<origin>`): this
+ * file is served as-is, outside Vite, so it cannot read VITE_API_URL. Null
+ * when it is missing or not an http(s) URL. */
+function apiOrigin() {
+  try {
+    const raw = new URL(self.location.href).searchParams.get('api');
+    if (!raw) return null;
+    const url = new URL(raw);
+    return url.protocol === 'https:' || url.protocol === 'http:' ? url.origin : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The browser replaced this subscription (Firefox, or Chrome on expiry), todo
+ * 456. Tell the server, or it keeps sending to the dead endpoint and
+ * notifications stop without an error. The worker has no cookie or CSRF
+ * token, so it proves it holds the old subscription with that subscription's
+ * own endpoint and auth secret instead. With no oldSubscription there is
+ * nothing to prove it with: the Settings page reconciles on its next load.
+ */
+async function resubscribe(oldSubscription, newSubscription) {
+  const api = apiOrigin();
+  if (!oldSubscription || !api) return;
+  const old = oldSubscription.toJSON();
+  if (!old || !old.endpoint || !old.keys || !old.keys.auth) return;
+  let fresh = newSubscription;
+  if (!fresh) {
+    const applicationServerKey =
+      oldSubscription.options && oldSubscription.options.applicationServerKey;
+    if (!applicationServerKey) return;
+    fresh = await self.registration.pushManager.subscribe({
+      userVisibleOnly: true,
+      applicationServerKey,
+    });
+  }
+  await fetch(`${api}/api/v1/auth/push-notifications/resubscribe/`, {
+    method: 'POST',
+    credentials: 'omit',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      old_subscription: { endpoint: old.endpoint, auth: old.keys.auth },
+      subscription: fresh.toJSON(),
+    }),
+  });
+}
+
+self.addEventListener('pushsubscriptionchange', (event) => {
+  event.waitUntil(resubscribe(event.oldSubscription, event.newSubscription).catch(() => undefined));
+});

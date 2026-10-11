@@ -363,10 +363,19 @@ def send_forum_web_push_batch(event: str, recipient_user_ids: list[int], data: d
     not retried, and a gone subscription (404/410) is deactivated by
     NotificationService. autoretry covers only the up-front fetch, which runs
     before any send.
+
+    Sends stay sequential in this one task (owner decision 2026-10-11, todo
+    456): one shared session and one bulk ``last_used`` UPDATE, no chunked
+    subtasks or thread pool until a topic's fan-out proves it needs them.
     """
     from apps.users.models import PushSubscription
-    from apps.users.services import NotificationService, web_push_enabled
+    from apps.users.services import (
+        NotificationService,
+        web_push_enabled,
+        web_push_session,
+    )
     from django.contrib.auth import get_user_model
+    from django.utils import timezone
     from wagtail_forum.models import ForumProfile
 
     if not recipient_user_ids or not web_push_enabled():
@@ -402,16 +411,36 @@ def send_forum_web_push_batch(event: str, recipient_user_ids: list[int], data: d
     url = _web_topic_path(data.get("topic_id"), data.get("post_id"))
     tag = f"forum-{event}-{data.get('post_id') or data.get('topic_id') or ''}"
 
-    for subscription in subscriptions:
-        NotificationService.send_web_push_notification(
-            subscription,
-            title=title,
-            body=body,
-            icon="/favicon.svg",
-            badge="/favicon.svg",
-            data={"url": url, "event": event},
-            tag=tag,
-        )
+    # One session for the whole batch, so every send to a push service reuses
+    # its pooled TLS connection, with redirects off (todo 456 items 3 and 6).
+    # last_used is written once for every row sent, not once per send.
+    sent = []
+    with web_push_session() as session:
+        for subscription in subscriptions:
+            if NotificationService.send_web_push_notification(
+                subscription,
+                title=title,
+                body=body,
+                icon="/favicon.svg",
+                badge="/favicon.svg",
+                data={"url": url, "event": event},
+                tag=tag,
+                requests_session=session,
+                mark_used=False,
+            ):
+                sent.append(subscription.pk)
+    if sent:
+        # Never let this bookkeeping raise: an OperationalError here would
+        # autoretry the task and send every notification again.
+        try:
+            PushSubscription.objects.filter(pk__in=sent).update(
+                last_used=timezone.now()
+            )
+        except OperationalError:
+            logger.warning(
+                "[WEB_PUSH] Could not record last_used for %d sent subscription(s)",
+                len(sent),
+            )
 
 
 @shared_task(

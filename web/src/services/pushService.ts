@@ -9,6 +9,10 @@ import { getCsrfToken } from '../utils/csrf';
 
 const BASE = `${API_ORIGIN}/api/v1/auth/me/push-notifications`;
 export const SERVICE_WORKER_URL = '/sw.js';
+// The worker's own re-subscribe (pushsubscriptionchange, todo 456) needs the
+// API origin, and public/sw.js is served as-is, outside Vite: it reads it
+// from its registration URL.
+const SERVICE_WORKER_REGISTRATION_URL = `${SERVICE_WORKER_URL}?api=${encodeURIComponent(API_ORIGIN)}`;
 
 export type BrowserPushState =
   | 'unsupported' // this browser has no Push API
@@ -73,11 +77,44 @@ async function currentSubscription(): Promise<PushSubscription | null> {
   return registration ? registration.pushManager.getSubscription() : null;
 }
 
+async function sha256Hex(text: string): Promise<string> {
+  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text));
+  return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, '0')).join('');
+}
+
+/**
+ * Whether the server holds this browser's subscription as active (todo 456).
+ * After a 404/410 from the push service, or another account subscribing
+ * this browser, the server has deactivated the row while the browser still
+ * has the subscription. Null when it can't tell (a failed or odd response):
+ * the caller then keeps the browser's own answer, never a guess.
+ */
+async function serverHasSubscription(subscription: PushSubscription): Promise<boolean | null> {
+  try {
+    const response = await fetch(`${BASE}/`, { credentials: 'include' });
+    if (!response.ok) return null;
+    const data = (await response.json()) as {
+      subscriptions?: { endpoint_sha256?: unknown }[];
+    };
+    if (!Array.isArray(data.subscriptions)) return null;
+    const mine = await sha256Hex(subscription.endpoint);
+    return data.subscriptions.some((row) => row.endpoint_sha256 === mine);
+  } catch {
+    return null;
+  }
+}
+
 export async function getBrowserPushState(): Promise<BrowserPushState> {
   if (!browserSupportsPush()) return 'unsupported';
   if (!(await fetchPublicKey())) return 'unavailable';
   if (Notification.permission === 'denied') return 'denied';
-  return (await currentSubscription()) ? 'on' : 'off';
+  const subscription = await currentSubscription();
+  if (!subscription) return 'off';
+  // A worker registered before todo 456 has no `?api=` on its URL, so its
+  // re-subscribe cannot run: re-register it (a no-op once the URL matches).
+  await navigator.serviceWorker.register(SERVICE_WORKER_REGISTRATION_URL).catch(() => undefined);
+  // "On" only if the server still sends to it (todo 456 item 2).
+  return (await serverHasSubscription(subscription)) === false ? 'off' : 'on';
 }
 
 /** Ask permission, subscribe this browser, and register it with the server. */
@@ -91,12 +128,21 @@ export async function enableBrowserPush(): Promise<BrowserPushState> {
   if (!publicKey) return 'unavailable';
   const applicationServerKey = urlBase64ToUint8Array(publicKey);
 
-  const registration = await navigator.serviceWorker.register(SERVICE_WORKER_URL);
+  const registration = await navigator.serviceWorker.register(SERVICE_WORKER_REGISTRATION_URL);
   await navigator.serviceWorker.ready;
   let subscription = await registration.pushManager.getSubscription();
   if (subscription && !sameKey(subscription.options?.applicationServerKey, applicationServerKey)) {
     // Made with a key the server no longer signs with (a rotation): every
-    // send to it would fail, so replace it.
+    // send to it would fail, so replace it, and tell the server to drop the
+    // old row now rather than on its next 404/410 (PR #852 round-2 note).
+    const { endpoint } = subscription;
+    await subscription.unsubscribe();
+    await post('unsubscribe/', { endpoint }).catch(() => undefined);
+    subscription = null;
+  } else if (subscription && (await serverHasSubscription(subscription)) === false) {
+    // The server deactivated it (the push service said it is gone, or another
+    // account took this browser over): start a fresh one rather than
+    // re-register an endpoint that may be dead (todo 456 item 2).
     await subscription.unsubscribe();
     subscription = null;
   }
