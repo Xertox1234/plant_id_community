@@ -11,7 +11,13 @@ Compact checklist auto-injected before edits. Long-form:
 - **Type-hint service methods** — params and return types on anything in a
   service layer or called across app boundaries.
 - **Bracketed log prefixes** — `logger.info("[CACHE] ...")`, `[AUTH]`, `[PLANT_ID]`
-  — so logs are greppable by subsystem.
+  — so logs are greppable by subsystem. A dotted event or module name
+  (`forum.topic_created`, `forum_host.notifications:`) is NOT a second
+  convention: forum host code logs `[FORUM] topic_created ...` (owner decision,
+  todo 392). The only exemption is a line we relay but did not write (a task
+  re-logging a command's stdout that already carries its own prefix): mark it
+  `# log-prefix: exempt (<why>)` so `scripts/check_log_prefixes.py` reports it
+  as exempt instead of stamping a second prefix on it.
 - Serializer field changes are API-contract changes — version or document them.
 - Validate at the boundary (request data); trust internal calls.
 - **Adding `choices=` to an existing WRITABLE field is a breaking change.** DRF

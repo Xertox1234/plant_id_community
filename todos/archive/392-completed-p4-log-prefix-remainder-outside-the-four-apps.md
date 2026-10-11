@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: p4
 issue_id: "392"
 tags: [code-quality, logging, backend, tech-debt, forum, garden]
@@ -106,21 +106,21 @@ that reason alone.
 
 ## Acceptance Criteria
 
-- [ ] `python3 scripts/check_log_prefixes.py` reports **0 unprefixed** across
+- [x] `python3 scripts/check_log_prefixes.py` reports **0 unprefixed** across
       `backend/apps/`, or each remaining call carries an in-code comment saying
       why it is deliberately exempt
-- [ ] The `forum.<event>` vs `[FORUM]` question is decided and the answer is
+- [x] The `forum.<event>` vs `[FORUM]` question is decided and the answer is
       written into `docs/rules/api.md`, so the next reader is not taught two
       conventions by the same file
-- [ ] `tasks.py:71` is resolved without stamping a prefix onto output the
+- [x] `tasks.py:71` is resolved without stamping a prefix onto output the
       module did not write — verified by running the digest task and reading a
       real emitted line, not by reasoning about it
-- [ ] `garden_calendar/signals.py` uses a module-level logger rather than
+- [x] `garden_calendar/signals.py` uses a module-level logger rather than
       re-importing `logging` inside each `except`
-- [ ] No log message reworded, proven the way todo 388 proved it: every
+- [x] No log message reworded, proven the way todo 388 proved it: every
       `logger.*` message AST-reconstructed as constant chunks plus
       `ast.unparse` of each interpolation, before and after, and compared
-- [ ] Backend suite green
+- [x] Backend suite green
 
 ## Notes
 
@@ -142,3 +142,76 @@ Related: todo 388 (the sweep), todo 361 (which measured the gap and re-scoped),
 ### 2026-10-10 - Owner reconfirmed the decision
 
 - The owner reconfirmed the 2026-09-28 decision, so the blocked-owner triage is lifted and the todo is ready.
+
+### 2026-10-10 - Implemented by the todo sweep (run 2026-10-11-0401)
+
+- `backend/apps/garden_calendar/signals.py`: one module-level logger replaces the four in-`except` `import logging` blocks; the three notification failures take `[NOTIFY]` and the cleanup `[GARDEN]`. The stray mid-file `BaseCommand` import moved to the top (flake8 E402 blocked the commit).
+- `backend/apps/forum_host/notifications.py`: per the owner decision, `forum.topic_created` and `forum_host.notifications:` became `[FORUM] topic_created` and `[FORUM] notifications:`; `docs/rules/api.md` now says the dotted form is not a second convention.
+- The relay loops in `backend/apps/forum_host/tasks.py` and (found since filing, same shape) `backend/apps/blog/tasks.py` keep no prefix: both commands already write `[EMAIL] ...`. They carry a `# log-prefix: exempt` comment, which `scripts/check_log_prefixes.py` now reports in its own column. A new test runs the real `send_forum_digest` through the task and asserts each relayed line has exactly one `[EMAIL]`.
+- No message reworded: 50 logger calls in the four files AST-reconstructed at the merge-base and now, identical apart from the added token (and the two owner-decided dotted names).
+
+### 2026-10-10 - Verified by the todo sweep (run 2026-10-11-0401)
+
+- AC 1: `python3 scripts/check_log_prefixes.py --root backend/apps --list --fail-over 0` — evidence `.sweep-evidence/g1/392-ac0.txt` (not committed), last lines:
+
+  ```text
+  2 call(s) marked `# log-prefix: exempt`, not counted as unprefixed
+
+  backend/apps/blog/tasks.py:78  info      %s (task=%s)  [exempt]
+  backend/apps/forum_host/tasks.py:76  info      %s (task=%s)  [exempt]
+  exit=0
+  ```
+
+- AC 2: `bash -c "grep -n -A10 'Bracketed log prefixes' docs/rules/api.md; echo '--- forum_host logger calls using a dotted forum name:'; grep -rnE 'logger\.[a-z]+\(\s*\"forum(_host)?\.' backend/apps/forum_host || echo none; echo '--- [FORUM] calls:'; grep -rn -A1 'logger\.' backend/apps/forum_host/notifications.py | grep '\[FORUM\]'"` — evidence `.sweep-evidence/g1/392-ac1.txt` (not committed), last lines:
+
+  ```text
+  --- forum_host logger calls using a dotted forum name:
+  none
+  --- [FORUM] calls:
+  backend/apps/forum_host/notifications.py-470-                        "[FORUM] topic_created topic=%s (no author to auto-subscribe)",
+  backend/apps/forum_host/notifications.py:523:        logger.warning("[FORUM] notifications: unknown event %r", event)
+  ```
+
+- AC 3: `bash -c "cd backend && python3 scripts/todos/slot_env.py --main-root . 1 -- backend/venv/bin/python -m pytest backend/apps/forum_host/tests/test_tasks.py::test_weekly_digest_relays_the_real_command_output_with_one_prefix --create-db -s -q"` — evidence `.sweep-evidence/g1/392-ac2.txt` (not committed), last lines:
+
+  ```text
+  backend/venv does not match backend/requirements.txt — these results describe a tree CI does not run.
+    mismatched: pyjwt (pinned 2.15.0, installed 2.13.0), urllib3 (pinned 2.8.0, installed 2.7.0)
+  Fix: pip install -r backend/requirements.txt (see todo 378).
+  ======================== 1 passed, 2 warnings in 18.44s ========================
+  exit=0
+  ```
+
+- AC 4: `grep -n 'import logging\|logger = logging.getLogger\|logger\.' backend/apps/garden_calendar/signals.py` — evidence `.sweep-evidence/g1/392-ac3.txt` (not committed), last lines:
+
+  ```text
+  17:logger = logging.getLogger(__name__)
+  60:            logger.error(f"[NOTIFY] Failed to send community event notifications: {e}")
+  84:            logger.error(f"[NOTIFY] Failed to send RSVP notification: {e}")
+  129:            logger.error(f"[NOTIFY] Failed to send weather alert notifications: {e}")
+  145:        logger.error(f"[GARDEN] Error cleaning up deleted community event: {e}")
+  ```
+
+- AC 5: `python3 .sweep-evidence/g1/compare_log_messages.py . 1bd2d0fac1afc270937424ed631a38d3a0b6fe7f` — evidence `.sweep-evidence/g1/392-ac4.txt` (not committed), last lines:
+
+  ```text
+  == backend/apps/forum_host/tasks.py: 31 before, 31 after
+  == backend/apps/blog/tasks.py: 3 before, 3 after
+
+  50 logger calls compared, 0 reworded
+  exit=0
+  ```
+
+- AC 6: `bash -c "cd backend && python3 scripts/todos/slot_env.py --main-root . 1 -- backend/venv/bin/python -m pytest --create-db -q -p no:cacheprovider"` — evidence `.sweep-evidence/g1/392-ac5.txt` (not committed), last lines:
+
+  ```text
+    File "backend/apps/plant_identification/services/combined_identification_service.py", line 121, in _cleanup_executor
+      logger.info("[SHUTDOWN] ThreadPoolExecutor cleanup complete")
+  Message: '[SHUTDOWN] ThreadPoolExecutor cleanup complete'
+  Arguments: ()
+  exit=0
+  ```
+
+### 2026-10-10 - Completed by the todo sweep (run 2026-10-11-0401)
+
+- Archived by `land.py archive`; evidence is quoted above, review is on the PR.

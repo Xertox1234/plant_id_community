@@ -57,6 +57,14 @@ WHAT COUNTS AS PREFIXED
   That matters: 3 of the 7 unprefixed calls in the file that motivated this
   script span multiple lines and a `grep` for `logger\\.\\w+\\("` misses them.
 
+DELIBERATE EXEMPTIONS
+  A call with `log-prefix: exempt` in a comment on the line directly above it,
+  or on any of its own lines, is counted in a separate EXEMPT column, never as
+  prefixed. Use it only where a prefix would be wrong, and say why in the same
+  comment. The one shape that needs it (todo 392): a Celery task relaying a
+  management command's captured stdout line by line, where the command already
+  prefixes every line it writes -- stamping a token there doubles it.
+
 WHAT IS EXCLUDED
   Test files (`*/tests/*`, `test_*.py`, `*_test.py`) and `migrations/`. Tests
   assert ON log content rather than emitting it; see todo 388 for the 17
@@ -92,6 +100,7 @@ PREFIX_CONST_RE = re.compile(r"^LOG_PREFIX_[A-Z0-9_]+$")
 # (apps/core/security.py:646,653); counting them as violations would have made a
 # sweep double-prefix them to "[SECURITY] [SECURITY] ...".
 LEADING_FMT_RE = re.compile(r"^\s*%s")
+EXEMPT_MARK = "log-prefix: exempt"
 SKIP_DIRS = {"venv", ".venv", "node_modules", "migrations", "__pycache__", ".git"}
 
 
@@ -151,6 +160,16 @@ def logger_level(call: ast.Call) -> "str | None":
     return func.attr if name.lower() in RECEIVERS else None
 
 
+def is_exempt(lines: "list[str]", call: ast.Call) -> bool:
+    """True when EXEMPT_MARK sits in a comment above or on the call's lines."""
+    first = max(call.lineno - 2, 0)
+    last = call.end_lineno or call.lineno
+    return any(
+        "#" in line and EXEMPT_MARK in line.split("#", 1)[1]
+        for line in lines[first:last]
+    )
+
+
 def is_test(path: str, filename: str) -> bool:
     return (
         "/tests/" in path
@@ -161,7 +180,7 @@ def is_test(path: str, filename: str) -> bool:
 
 
 def scan(root: str):
-    """Yield (relpath, lineno, level, leading_text_or_None) for every logger call."""
+    """Yield (relpath, lineno, level, leading_text_or_None, exempt) per logger call."""
     for dirpath, dirnames, filenames in os.walk(root):
         dirnames[:] = [d for d in dirnames if d not in SKIP_DIRS]
         for filename in sorted(filenames):
@@ -171,16 +190,20 @@ def scan(root: str):
             if is_test(full, filename):
                 continue
             try:
-                tree = ast.parse(open(full, encoding="utf-8").read())
+                source = open(full, encoding="utf-8").read()
+                tree = ast.parse(source)
             except (SyntaxError, UnicodeDecodeError):
                 continue
+            lines = source.splitlines()
             for node in ast.walk(tree):
                 if not isinstance(node, ast.Call):
                     continue
                 level = logger_level(node)
                 if level is None:
                     continue
-                yield full, node.lineno, level, leading_literal(node)
+                yield full, node.lineno, level, leading_literal(node), is_exempt(
+                    lines, node
+                )
 
 
 def app_of(relpath: str, root: str) -> str:
@@ -197,7 +220,9 @@ def main() -> int:
     )
     parser.add_argument("--app", help="only report this top-level app")
     parser.add_argument(
-        "--list", action="store_true", help="list every unprefixed call site"
+        "--list",
+        action="store_true",
+        help="list every unprefixed and exempt call site",
     )
     parser.add_argument(
         "--fail-over",
@@ -212,8 +237,9 @@ def main() -> int:
         return 2
 
     prefixed, unprefixed, undeterminable = Counter(), Counter(), Counter()
-    sites = []
-    for path, lineno, level, text in scan(args.root):
+    exempt = Counter()
+    sites, exempt_sites = [], []
+    for path, lineno, level, text, is_marked in scan(args.root):
         app = app_of(path, args.root)
         if args.app and app != args.app:
             continue
@@ -221,22 +247,30 @@ def main() -> int:
             undeterminable[app] += 1
         elif PREFIX_RE.match(text):
             prefixed[app] += 1
+        elif is_marked:
+            exempt[app] += 1
+            exempt_sites.append((path, lineno, level, text[:60]))
         else:
             unprefixed[app] += 1
             sites.append((path, lineno, level, text[:60]))
 
-    apps = sorted(set(prefixed) | set(unprefixed) | set(undeterminable))
+    apps = sorted(set(prefixed) | set(unprefixed) | set(undeterminable) | set(exempt))
     total_u = sum(unprefixed.values())
     total_p = sum(prefixed.values())
     total_d = sum(undeterminable.values())
+    total_e = sum(exempt.values())
 
     width = max((len(a) for a in apps), default=10)
-    print(f"{'app'.ljust(width)}  unprefixed  prefixed")
+    print(f"{'app'.ljust(width)}  unprefixed  prefixed  exempt")
     for app in apps:
-        print(f"{app.ljust(width)}  {unprefixed[app]:10d}  {prefixed[app]:8d}")
-    print(f"{'TOTAL'.ljust(width)}  {total_u:10d}  {total_p:8d}")
+        print(
+            f"{app.ljust(width)}  {unprefixed[app]:10d}  {prefixed[app]:8d}"
+            f"  {exempt[app]:6d}"
+        )
+    print(f"{'TOTAL'.ljust(width)}  {total_u:10d}  {total_p:8d}  {total_e:6d}")
 
-    judgeable = total_u + total_p
+    # Exempt calls stay in the denominator: they are judgeable, just excused.
+    judgeable = total_u + total_p + total_e
     share = (100.0 * total_u / judgeable) if judgeable else 0.0
     print(
         f"\n{total_u} unprefixed of {judgeable} judgeable ({share:.1f}%), "
@@ -244,11 +278,15 @@ def main() -> int:
     )
     if total_d:
         print(f"{total_d} call(s) undeterminable (first arg not a literal), excluded")
+    if total_e:
+        print(f"{total_e} call(s) marked `# {EXEMPT_MARK}`, not counted as unprefixed")
 
     if args.list:
         print()
         for path, lineno, level, text in sorted(sites):
             print(f"{path}:{lineno}  {level:<9} {text}")
+        for path, lineno, level, text in sorted(exempt_sites):
+            print(f"{path}:{lineno}  {level:<9} {text}  [exempt]")
 
     if args.fail_over is not None and total_u > args.fail_over:
         print(
