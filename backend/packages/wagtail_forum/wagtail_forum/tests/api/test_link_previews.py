@@ -1320,13 +1320,54 @@ def test_539_item4_a_raw_angle_bracket_in_a_link_keeps_its_discount():
         assert _server_markup_chars(cleaned) == markup
 
 
+def _backtracking_repeats(parsed):
+    """Every greedy or lazy (so backtracking) repeat in a parsed pattern."""
+    from re import _constants as sre
+
+    found = []
+    for op, av in parsed:
+        if op in (sre.MAX_REPEAT, sre.MIN_REPEAT):
+            found.append(op)
+        if op in (sre.MAX_REPEAT, sre.MIN_REPEAT, sre.POSSESSIVE_REPEAT):
+            found += _backtracking_repeats(av[2])
+        elif op == sre.BRANCH:
+            for branch in av[1]:
+                found += _backtracking_repeats(branch)
+        elif op in (sre.SUBPATTERN, sre.ATOMIC_GROUP):
+            found += _backtracking_repeats(av[-1])
+    return found
+
+
 def test_539_item4_the_anchor_scan_of_raw_input_is_linear():
-    """The measure runs on the raw client body. The old pattern scanned to
-    the end of the string from every ``<a``: about 4 s for this input."""
-    from wagtail_forum.api.sanitize import MAX_BODY_RAW_CHARS, _server_markup_chars
+    """The measure runs on the raw client body. The old pattern
+    ``<a\\b[^>]*>`` scanned to the end of the string from every ``<a``:
+    about 4 s for this input.
+
+    Counted, not timed (todo 545 item 3): with no backtracking repeat, a
+    failed attempt at a ``<a`` costs exactly the span the pattern minus its
+    closing ``>`` matches there, so the sum of those spans is the scan's
+    work. ``re._parser`` is private API; the venv pins the interpreter."""
+    import re
+    from re import _parser
+
+    from wagtail_forum.api.sanitize import (
+        _ANCHOR_START_TAG,
+        MAX_BODY_RAW_CHARS,
+        _server_markup_chars,
+    )
+
+    pattern = _ANCHOR_START_TAG.pattern
+    assert _backtracking_repeats(_parser.parse(pattern, _ANCHOR_START_TAG.flags)) == []
+    assert pattern.endswith(">")
+    scan = re.compile(pattern[:-1], _ANCHOR_START_TAG.flags)
 
     for chunk in ("<a ", '<a "', '<a "<a '):
         raw = chunk * (MAX_BODY_RAW_CHARS // len(chunk))
-        started = time.monotonic()
-        _server_markup_chars(raw)
-        assert time.monotonic() - started < 1.0
+        budget = 4 * len(raw)
+        work = 0
+        for start in range(len(raw)):
+            attempt = scan.match(raw, start)
+            if attempt:
+                work += attempt.end() - start
+                assert work <= budget, f"quadratic scan of {chunk!r} * n"
+        assert _server_markup_chars(raw) == 0

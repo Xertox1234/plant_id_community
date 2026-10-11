@@ -894,10 +894,10 @@ def test_item6_a_slow_connect_then_a_stalled_handshake_ends_at_the_deadline(
     real_create_connection = socket_module.create_connection
     connected = []
 
-    def slow_connect(*args, **kwargs):
+    def slow_connect(address, timeout, *args, **kwargs):
         time.sleep(0.5)
-        sock = real_create_connection(*args, **kwargs)
-        connected.append((sock, time.monotonic()))
+        sock = real_create_connection(address, timeout, *args, **kwargs)
+        connected.append((sock, time.monotonic(), timeout))
         return sock
 
     target = _Target(
@@ -911,12 +911,58 @@ def test_item6_a_slow_connect_then_a_stalled_handshake_ends_at_the_deadline(
         with pytest.raises(_FetchFailed) as failure:
             _fetch_html(target, deadline)
 
-    [(sock, connected_at)] = connected
-    # The handshake got at most what the connect left of the budget. (A
-    # connect that used it all up never reaches the handshake.)
+    [(sock, connected_at, connect_timeout)] = connected
     if connected_at < deadline:
+        # The handshake got at most what the connect left of the budget.
         assert sock.gettimeout() <= deadline - connected_at
+    else:
+        # A loaded runner's connect used the whole budget: the socket must
+        # then never have been handed to the handshake, so its timeout is
+        # still the connect's own (todo 545 item 1: this branch used to
+        # assert nothing). The exact cut is pinned without a clock by
+        # test_item6_the_socket_gets_only_the_time_left_after_the_tcp_connect.
+        assert sock.gettimeout() == connect_timeout
+        assert sock.fileno() == -1
     assert failure.value.reason in {"deadline", "timeout"}
+
+
+def test_545_item2_a_drip_server_nothing_connected_to_stops_promptly():
+    """Teardown must not wait on ``accept()`` waking from another thread's
+    ``close()``: Linux never wakes it, so a test whose fetch aborted before
+    connecting stalled the fixture's join for its full timeout."""
+    from apps.forum_host.tests.conftest import DripServer
+
+    server = DripServer(b"prefix")
+    server.stop(timeout=2)
+
+    assert not server.thread.is_alive()
+
+
+def test_545_item2_a_client_reset_ends_the_drip_thread_quietly():
+    """A client that resets the connection mid-exchange ends the drip
+    thread without an unhandled exception in it."""
+    import socket as socket_module
+    import struct
+    import threading
+
+    from apps.forum_host.tests.conftest import DripServer
+
+    raised = []
+    server = DripServer(b"prefix")
+    with patch.object(threading, "excepthook", side_effect=raised.append):
+        client = socket_module.create_connection(("127.0.0.1", server.port))
+        # SO_LINGER 0: close() sends a RST, not a FIN.
+        client.setsockopt(
+            socket_module.SOL_SOCKET,
+            socket_module.SO_LINGER,
+            struct.pack("ii", 1, 0),
+        )
+        client.close()
+        server.thread.join(2)
+        server.stop(timeout=2)
+
+    assert not server.thread.is_alive()
+    assert raised == []
 
 
 @pytest.mark.parametrize(
