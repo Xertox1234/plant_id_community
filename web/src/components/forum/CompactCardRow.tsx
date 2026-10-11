@@ -8,6 +8,11 @@ interface CompactCardRowProps {
   block: StreamFieldBlock;
   /** The block's full card, shown in place of a video row once it is clicked. */
   renderFull: () => ReactNode;
+  /**
+   * An untitled video's ordinal in its body, when its name would collide with
+   * another untitled video's (`untitledEmbedOrdinals`, todo 563).
+   */
+  embedOrdinal?: number;
 }
 
 const ROW_CLASS =
@@ -27,7 +32,7 @@ const ROW_CLASS =
  * until asked for, and focus moves to the player so a keyboard user is not
  * dropped to <body>. Any other row is a link, like its full card.
  */
-export default function CompactCardRow({ block, renderFull }: CompactCardRowProps) {
+export default function CompactCardRow({ block, renderFull, embedOrdinal }: CompactCardRowProps) {
   const [expanded, setExpanded] = useState(false);
   const [imageFailed, setImageFailed] = useState(false);
   const playerRef = useRef<HTMLDivElement>(null);
@@ -47,7 +52,7 @@ export default function CompactCardRow({ block, renderFull }: CompactCardRowProp
     const { url, thumbnail_url, embed_url } = block.value;
     href = safeExternalUrl(url);
     // The video's own derivation, shared with its full card (todo 518).
-    ({ title, detail, label } = embedDisplay(block.value));
+    ({ title, detail, label } = embedDisplay(block.value, embedOrdinal));
     thumbnail = safeExternalUrl(thumbnail_url);
     playable = Boolean(embed_url);
   } else if (block.type === 'link_preview') {

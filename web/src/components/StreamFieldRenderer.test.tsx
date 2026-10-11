@@ -5,6 +5,8 @@
  * Priority: Phase 1 - Critical security component (XSS protection).
  */
 
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { describe, it, expect } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
@@ -177,6 +179,115 @@ describe('StreamFieldRenderer', () => {
       expect(link).toHaveTextContent('https://vimeo.com/…');
       expect(link).not.toHaveTextContent('148751763');
       expect(link).toHaveAttribute('href', 'https://vimeo.com/148751763');
+    });
+
+    // Todo 563, finding 1 (owner decision 2026-10-11): two untitled videos on
+    // one host would share a short address, so a frame list could not tell
+    // them apart. Within one body, colliding names each carry an ordinal.
+    it('numbers untitled players that would share a name in one body (todo 563)', () => {
+      const player = (id: string, url: string) => ({
+        type: 'embed' as const,
+        id,
+        value: {
+          url,
+          provider_name: 'YouTube',
+          title: '',
+          thumbnail_url: '',
+          embed_url: 'https://www.youtube-nocookie.com/embed/x',
+        },
+      });
+      const { container } = render(
+        <StreamFieldRenderer
+          blocks={[
+            player('p1', 'https://youtu.be/one'),
+            { type: 'paragraph', id: 'p', value: '<p>and</p>' },
+            player('p2', 'https://youtu.be/two'),
+            player('p3', 'https://youtu.be/three'),
+          ]}
+        />
+      );
+      // p2 starts a run, so p3 is a compact row: its name carries the ordinal too.
+      expect(
+        Array.from(container.querySelectorAll('iframe')).map((f) => f.getAttribute('title'))
+      ).toEqual(['https://youtu.be/… (1)', 'https://youtu.be/… (2)']);
+      expect(
+        screen.getByRole('button', { name: 'https://youtu.be/… (3), YouTube' })
+      ).toBeInTheDocument();
+    });
+
+    it("keeps the expanded row's player on its numbered name (todo 563)", async () => {
+      const player = (id: string, url: string) => ({
+        type: 'embed' as const,
+        id,
+        value: {
+          url,
+          provider_name: 'YouTube',
+          title: '',
+          thumbnail_url: '',
+          embed_url: 'https://www.youtube-nocookie.com/embed/x',
+        },
+      });
+      const { container } = render(
+        <StreamFieldRenderer
+          blocks={[player('a', 'https://youtu.be/one'), player('b', 'https://youtu.be/two')]}
+        />
+      );
+      await userEvent.click(
+        screen.getByRole('button', { name: 'https://youtu.be/… (2), YouTube' })
+      );
+      expect(
+        Array.from(container.querySelectorAll('iframe')).map((f) => f.getAttribute('title'))
+      ).toEqual(['https://youtu.be/… (1)', 'https://youtu.be/… (2)']);
+    });
+
+    // Todo 563, finding 2 (owner decision 2026-10-10): an untitled fallback
+    // card shows only the short address, so the full URL is its hover title,
+    // and the new-tab hint is its description so that title is never spoken.
+    it('gives an untitled fallback card the full URL on hover, never spoken (todo 563)', () => {
+      render(
+        <StreamFieldRenderer
+          blocks={[
+            {
+              type: 'embed',
+              id: 'e5',
+              value: {
+                url: 'https://vimeo.com/148751763',
+                provider_name: '',
+                title: '',
+                thumbnail_url: '',
+                embed_url: null,
+              },
+            },
+          ]}
+        />
+      );
+      const link = screen.getByRole('link');
+      expect(link).toHaveAttribute('title', 'https://vimeo.com/148751763');
+      expect(link).toHaveAccessibleName(/^https:\/\/vimeo\.com\/…\s*Open link$/);
+      expect(link).toHaveAccessibleDescription('Opens in a new tab');
+    });
+
+    it('leaves a titled fallback card as it was: no hover URL (todo 563)', () => {
+      render(
+        <StreamFieldRenderer
+          blocks={[
+            {
+              type: 'embed',
+              id: 'e6',
+              value: {
+                url: 'https://vimeo.com/148751763',
+                provider_name: 'Vimeo',
+                title: 'Repotting',
+                thumbnail_url: '',
+                embed_url: null,
+              },
+            },
+          ]}
+        />
+      );
+      const link = screen.getByRole('link');
+      expect(link).not.toHaveAttribute('title');
+      expect(link).toHaveAccessibleName(/^Repotting\s*Watch on Vimeo$/);
     });
 
     it('renders image block as an <img> with the rendition url and alt', () => {
@@ -857,7 +968,9 @@ describe('StreamFieldRenderer', () => {
     it.each([
       ['forum post', { mentionHighlight: true }],
       ['blog article', { variant: 'article' as const }],
-    ])('wraps a %s paragraph in .rich-text, which restores list markers', (_label, props) => {
+    ])("wraps a %s paragraph's lists in .rich-text", (_label, props) => {
+      // jsdom never loads index.css, so this pins only the wrapper; the
+      // index.css test below pins that .rich-text restores the markers.
       const { container } = render(
         <StreamFieldRenderer blocks={[{ type: 'paragraph', value: listBody }]} {...props} />
       );
@@ -867,6 +980,20 @@ describe('StreamFieldRenderer', () => {
       expect(ol?.querySelectorAll('li')).toHaveLength(2);
     });
 
+    // Todo 564, finding 2: the markers come from CSS jsdom never applies, so
+    // pin the rules themselves.
+    it('restores list markers in index.css: disc for ul, decimal for ol', () => {
+      const css = readFileSync(join(__dirname, '..', 'index.css'), 'utf8');
+      // Every declaration block whose selector list names `selector`.
+      const rule = (selector: string) =>
+        Array.from(css.matchAll(/([^{}]+)\{([^}]*)\}/g))
+          .filter(([, selectors]) => selectors.split(',').some((sel) => sel.trim() === selector))
+          .map(([, , body]) => body)
+          .join('\n');
+      expect(rule('.rich-text ul')).toMatch(/list-style(-type)?:\s*disc\b/);
+      expect(rule('.rich-text ol')).toMatch(/list-style(-type)?:\s*decimal\b/);
+    });
+
     it('carries no typography-plugin class, which never compiled', () => {
       const { container } = render(
         <StreamFieldRenderer blocks={[{ type: 'paragraph', value: listBody }]} />
@@ -874,6 +1001,10 @@ describe('StreamFieldRenderer', () => {
       const classes = Array.from(container.querySelectorAll('[class]')).flatMap((el) =>
         Array.from(el.classList)
       );
+      // Todo 564, findings 3 and 5: anchor the absence check on what IS
+      // rendered, so an empty render cannot pass it.
+      expect(classes).toContain('rich-text');
+      expect(container.querySelector('.rich-text > ul')).not.toBeNull();
       expect(classes.filter((c) => /^prose(-|$)/.test(c))).toEqual([]);
     });
   });

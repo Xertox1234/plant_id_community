@@ -37,7 +37,8 @@
  * Outside class position, the branches of one conditional (and either side of
  * `||` / `??`) are the values one expression can take, so they are checked
  * together (todo 450): when one branch is a class list (every token in it a
- * built class), every token of every branch is checked as a class. That is
+ * built class), every token of each sibling branch that reads like a class
+ * list (`classValuedLiterals`, todo 564) is checked as a class. That is
  * what catches `variant === 'article' ? 'mx-auto w-full' : 'prose prose-lg'`
  * in a constant: `prose` has no `-`, and no built class starts with `prose`,
  * so the utility heuristic alone skipped both tokens.
@@ -358,29 +359,57 @@ export function asCandidate(token, heads, strict = false) {
   return heads.has(utilityHead(root)) ? cleaned : null;
 }
 
+// A token spelled like a class name: lower case, no prose punctuation at
+// either end. Bracketed arbitrary values (`bg-[#FFF]`, `font-[Inter]`) may
+// hold anything, so they are blanked before the test.
+const CLASS_SHAPED = /^[!@-]?[a-z0-9][a-z0-9_:/.%!*&>@()-]*$/;
+
+function classShaped(token) {
+  const plain = token.replace(/\[[^\]]*\]/g, 'x');
+  return CLASS_SHAPED.test(plain) && !plain.endsWith('.');
+}
+
 /**
- * The conditional groups (see literalTokens) that hold a class list: a branch
- * literal whose every token is a built class, at least one of them shaped like
- * a utility (`-`, `:`, `/` or `[`). Every branch of such a group is then a
- * class string, so all its tokens are checked strictly (todo 450). The shape
- * rule keeps a lone word that happens to be a class (`'block'` in
- * `isBlocked ? 'block' : 'mute'`, a reason code) from making its siblings
- * classes.
+ * The branch literals (see literalTokens) to check as class strings because a
+ * sibling branch is a class list (todo 450). A group holds a class list when
+ * one branch literal is all built classes, at least one of them shaped like a
+ * utility (`-`, `:`, `/` or `[`). The shape rule keeps a lone word that
+ * happens to be a class (`'block'` in `isBlocked ? 'block' : 'mute'`, a
+ * reason code) from making its siblings classes.
+ *
+ * A sibling is then checked as classes only when it reads like a class list
+ * itself: every token class-shaped (lower case, no prose punctuation) and at
+ * least one shaped like a utility (todo 564). So `'prose prose-lg'` or
+ * `'never-compiled'` beside `'mx-auto w-full'` is checked, while the prose or
+ * CSS-value branch of a mixed conditional (`x ? 'sr-only' : 'Show details'`,
+ * `big ? 'w-full' : 'auto'`, `x ? 'flex-col' : 'row'`) is left to the utility
+ * heuristic, as any other string is. The price: a lone bare word beside a
+ * class list (`x ? 'p-2' : 'prose'`) is no longer caught.
  */
-export function classValuedGroups(tokens, known) {
+export function classValuedLiterals(tokens, known) {
   const literals = new Map();
   for (const { token, literal, group } of tokens) {
     if (group === null) continue;
-    const entry = literals.get(literal) ?? { group, allKnown: true, utility: false };
+    const entry = literals.get(literal) ?? {
+      group,
+      allKnown: true,
+      utility: false,
+      shaped: true,
+    };
     if (!known.has(token)) entry.allKnown = false;
     if (/[-:/[]/.test(token)) entry.utility = true;
+    if (!classShaped(token)) entry.shaped = false;
     literals.set(literal, entry);
   }
   const groups = new Set();
   for (const { group, allKnown, utility } of literals.values()) {
     if (allKnown && utility) groups.add(group);
   }
-  return groups;
+  const strict = new Set();
+  for (const [literal, { group, utility, shaped }] of literals) {
+    if (groups.has(group) && utility && shaped) strict.add(literal);
+  }
+  return strict;
 }
 
 /** Check source files against a set of known classes. */
@@ -392,9 +421,9 @@ export function findUnknownClasses(files, known, allowlist = ALLOWLIST) {
   for (const { fileName, text } of files) {
     const found = literalTokens(fileName, text);
     fragments += found.fragments.length;
-    const classGroups = classValuedGroups(found.tokens, known);
-    for (const { token, line, strict, group } of found.tokens) {
-      const candidate = asCandidate(token, heads, strict || classGroups.has(group));
+    const classLiterals = classValuedLiterals(found.tokens, known);
+    for (const { token, line, strict, literal } of found.tokens) {
+      const candidate = asCandidate(token, heads, strict || classLiterals.has(literal));
       if (candidate === null) continue;
       checked++;
       if (known.has(candidate) || allowlist.has(candidate)) continue;

@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: p4
 issue_id: "563"
 tags: [todo-sweep, follow-ups, web, mobile]
@@ -44,10 +44,34 @@ finding against main before acting on it.
 
 ## Acceptance Criteria
 
-- [ ] Each of its 5 findings is fixed with a test, or the Work Log records why it was left as is.
+- [x] Each of its 5 findings is fixed with a test, or the Work Log records why it was left as is.
 
 ## Work Log
 
 ### 2026-10-10 - Promoted out of todo 527
 
 - Split from the consolidated follow-up todo 527 (owner decision 2026-10-10: one todo per source PR).
+
+### 2026-10-11 - Implemented by the todo sweep (run 2026-10-11-1448)
+
+- Finding 1 (owner decision 2026-10-11): untitled videos that would share a short address in ONE body each carry an ordinal, `https://youtu.be/… (1)`, `… (2)`, on the full card, the compact row and the expanded row alike. `untitledEmbedOrdinals` in `web/src/components/forum/embedDisplay.ts` and its Flutter twin in `forum_body_renderer.dart` compute it per renderer, never per page; a lone untitled video keeps its bare short address. Tests: `embedDisplay.test.ts`, `StreamFieldRenderer.test.tsx`, `forum_body_renderer_test.dart`. Two existing tests that rendered two identical untitled videos (`CompactCardRow.test.tsx`, `forum_card_runs_test.dart`) now expect the ordinals: that collision is the case the owner asked to change.
+- Finding 2 (owner decision 2026-10-10): an untitled web fallback card (`EmbedFallbackCard` in `StreamFieldRenderer.tsx`) has the full URL as its hover `title` and `aria-describedby` on an sr-only "Opens in a new tab" hint placed outside the anchor, so the hint never joins the name. An untitled mobile `_EmbedCard` has the link card's long-press sheet and "Show full address" / "Copy link" actions. Titled cards are unchanged, as the decision scoped it.
+- Finding 4: the mobile card's second line reads "Open link" with no provider, as the web does. The spoken label is unchanged. The existing `forum_body_renderer_test.dart` check that pinned the full URL on that line now pins "Open link" and the URL's absence.
+- Finding 3 is docs only, so it has no test: `flutter-patterns.md` and the `_embedTitle` doc comment now name `_embedTitle` / `_embedRow` as the twin of `embedDisplay`. Both pattern docs also record the per-body naming scope and the untitled-card affordances.
+- Finding 5: the full card reads `const { title } = embedDisplay(...)`, and the dead `provider_name || ''` guard is dropped, because the field is typed `string` and `embed_envelope` always sends one. Behaviour is unchanged, and the existing `embedDisplay.test.ts` cases still pin the output.
+
+### 2026-10-11 - Verified by the todo sweep (run 2026-10-11-1448)
+
+- AC 1: `cd web && npx vitest run src/components/forum/embedDisplay.test.ts src/components/StreamFieldRenderer.test.tsx src/components/forum/CompactCardRow.test.tsx && cd plant_community_mobile && flutter test test/features/forum/widgets/forum_body_renderer_test.dart test/features/forum/widgets/forum_card_runs_test.dart && grep -n _embedRow plant_community_mobile/docs/patterns/flutter-patterns.md` — evidence `.sweep-evidence/g7/563-ac0.txt` (not committed), last lines:
+
+  ```text
+  00:01 +55: plant_community_mobile/test/features/forum/widgets/forum_body_renderer_test.dart: link preview card (todo 428) a card with no usable link renders nothing
+  00:01 +56: plant_community_mobile/test/features/forum/widgets/forum_body_renderer_test.dart: link preview card (todo 428) a stored card image is shown from its own URL
+  00:01 +57: All tests passed!
+  398:decision 2026-10-02, todo 518): one rule, `_embedTitle` / `_embedRow`, whose
+  399:web twin is `embedDisplay` (`_embedTitle` gives its `title`, `_embedRow` its
+  ```
+
+### 2026-10-11 - Completed by the todo sweep (run 2026-10-11-1448)
+
+- Archived by `land.py archive`; evidence is quoted above, review is on the PR.

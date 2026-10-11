@@ -498,16 +498,19 @@ void main() {
       await _pump(tester, const [untitled, untitled]);
 
       // The full card keeps its "Watch on PROVIDER" label (todo 453), the row
-      // its "title, provider" one; both are titled by the short address.
+      // its "title, provider" one; both are titled by the short address. The
+      // two share it, so each carries its ordinal in this body (todo 563,
+      // owner decision 2026-10-11).
       expect(
-        find.bySemanticsLabel('https://youtu.be/…, Watch on YouTube'),
+        find.bySemanticsLabel('https://youtu.be/… (1), Watch on YouTube'),
         findsOneWidget,
       );
       expect(
-        find.bySemanticsLabel('https://youtu.be/…, YouTube'),
+        find.bySemanticsLabel('https://youtu.be/… (2), YouTube'),
         findsOneWidget,
       );
-      expect(find.text('https://youtu.be/…'), findsNWidgets(2));
+      expect(find.text('https://youtu.be/… (1)'), findsOneWidget);
+      expect(find.text('https://youtu.be/… (2)'), findsOneWidget);
       // The full URL is neither shown nor spoken.
       expect(find.bySemanticsLabel(RegExp('xyz')), findsNothing);
       expect(find.textContaining('xyz'), findsNothing);

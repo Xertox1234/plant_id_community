@@ -108,9 +108,115 @@ void main() {
     expect(find.text('Watch on YouTube'), findsOneWidget);
     expect(find.byType(CachedNetworkImage), findsOneWidget); // thumbnail only
     // No provider, no title: titled by its short address (owner decision,
-    // todo 518); the second line still shows the link itself.
+    // todo 518); the second line reads "Open link", as the web's fallback
+    // card does (owner decision 2026-10-10, todo 563).
     expect(find.text('https://vimeo.com/…'), findsOneWidget);
-    expect(find.text('https://vimeo.com/148751763'), findsOneWidget);
+    expect(find.text('Open link'), findsOneWidget);
+    expect(find.text('https://vimeo.com/148751763'), findsNothing);
+  });
+
+  // Todo 563, finding 1 (owner decision 2026-10-11): untitled videos that
+  // would share a name in one body each carry an ordinal, on full cards and
+  // rows alike. The web pins the same names (embedDisplay.test.ts).
+  testWidgets('numbers untitled videos that would share a name in one body', (
+    tester,
+  ) async {
+    final handle = tester.ensureSemantics();
+    await _pump(tester, const [
+      EmbedBlock(url: 'https://youtu.be/one', providerName: 'YouTube'),
+      ParagraphBlock('<p>and</p>'),
+      EmbedBlock(url: 'https://youtu.be/two', providerName: 'YouTube'),
+      EmbedBlock(url: 'https://youtu.be/three', providerName: 'YouTube'),
+      ParagraphBlock('<p>and</p>'),
+      EmbedBlock(url: 'https://vimeo.com/1'),
+    ]);
+    expect(
+      find.bySemanticsLabel('https://youtu.be/… (1), Watch on YouTube'),
+      findsOneWidget,
+    );
+    expect(
+      find.bySemanticsLabel('https://youtu.be/… (2), Watch on YouTube'),
+      findsOneWidget,
+    );
+    // The third starts no card of its own: it is the second's compact row.
+    expect(
+      find.bySemanticsLabel('https://youtu.be/… (3), YouTube'),
+      findsOneWidget,
+    );
+    // A lone untitled video keeps its bare short address.
+    expect(find.bySemanticsLabel('https://vimeo.com/…'), findsOneWidget);
+    handle.dispose();
+  });
+
+  test('untitledEmbedOrdinals numbers only colliding untitled videos', () {
+    expect(
+      untitledEmbedOrdinals(const [
+        EmbedBlock(url: 'https://youtu.be/a'),
+        ParagraphBlock('<p>and</p>'),
+        EmbedBlock(url: 'https://vimeo.com/1'),
+        EmbedBlock(url: 'https://youtu.be/b', title: 'Titled'),
+        EmbedBlock(url: 'https://youtu.be/c'),
+        EmbedBlock(url: ''),
+        EmbedBlock(url: ''),
+      ]),
+      {0: 1, 4: 2},
+    );
+  });
+
+  // Todo 563, finding 2 (owner decision 2026-10-10): an untitled video card
+  // shows no full URL, so it keeps the link card's ways to reach it.
+  group('an untitled video card reaches its full address', () {
+    const fullUrl = 'https://vimeo.com/148751763';
+
+    Future<void> pumpEmbed(WidgetTester tester, EmbedBlock block) {
+      return tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(body: ForumBodyRenderer([block], onOpenLink: (_) {})),
+        ),
+      );
+    }
+
+    testWidgets('by a long-press sheet with "Copy link"', (tester) async {
+      await pumpEmbed(tester, const EmbedBlock(url: fullUrl));
+      await tester.longPress(find.text('https://vimeo.com/…'));
+      await tester.pumpAndSettle();
+      expect(find.text(fullUrl), findsOneWidget);
+      expect(find.text('Copy link'), findsOneWidget);
+    });
+
+    testWidgets('by "Show full address", a custom semantics action', (
+      tester,
+    ) async {
+      final handle = tester.ensureSemantics();
+      await pumpEmbed(tester, const EmbedBlock(url: fullUrl));
+      tester.semantics.customAction(
+        find.semantics.byLabel('https://vimeo.com/…'),
+        const CustomSemanticsAction(label: 'Show full address'),
+      );
+      await tester.pumpAndSettle();
+      expect(find.text(fullUrl), findsOneWidget);
+      // Never spoken: no label anywhere holds the full URL.
+      expect(find.bySemanticsLabel(RegExp('148751763')), findsNothing);
+      handle.dispose();
+    });
+
+    testWidgets('a titled card is left as it was: no long-press sheet', (
+      tester,
+    ) async {
+      final handle = tester.ensureSemantics();
+      await pumpEmbed(
+        tester,
+        const EmbedBlock(url: fullUrl, title: 'Repotting'),
+      );
+      await tester.longPress(find.text('Repotting'));
+      await tester.pumpAndSettle();
+      expect(find.text(fullUrl), findsNothing);
+      final data = tester
+          .getSemantics(find.bySemanticsLabel('Repotting'))
+          .getSemanticsData();
+      expect(data.hasAction(SemanticsAction.longPress), isFalse);
+      handle.dispose();
+    });
   });
 
   testWidgets(

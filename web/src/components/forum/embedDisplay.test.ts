@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { embedDisplay, type EmbedDisplay } from './embedDisplay';
+import type { StreamFieldBlock } from '@/types/blog';
+import { embedDisplay, untitledEmbedOrdinals, type EmbedDisplay } from './embedDisplay';
 
 // Todo 518: one derivation of a video card's name, read by its compact row
 // and its full card. The mobile tests pin the first four labels below too
@@ -42,5 +43,55 @@ describe('embedDisplay (todo 518)', () => {
 
   it.each(cases)('%s', (_name, value, expected) => {
     expect(embedDisplay(value)).toEqual(expected);
+  });
+});
+
+// Todo 563 (owner decision 2026-10-11): untitled videos that would share a
+// name in one post body each carry an ordinal. The mobile twin
+// (forum_body_renderer_test.dart) pins the same names.
+describe('untitled embed names are unique within one body (todo 563)', () => {
+  const embed = (url: string, title = '', provider_name = 'YouTube'): StreamFieldBlock => ({
+    type: 'embed',
+    value: { url, title, provider_name, thumbnail_url: '', embed_url: null },
+  });
+
+  it('numbers only the untitled videos whose names collide, in body order', () => {
+    const blocks: StreamFieldBlock[] = [
+      embed('https://youtu.be/a'),
+      { type: 'paragraph', value: '<p>and</p>' },
+      embed('https://vimeo.com/1', '', 'Vimeo'),
+      embed('https://youtu.be/b', 'Titled'),
+      embed('https://youtu.be/c'),
+    ];
+    expect([...untitledEmbedOrdinals(blocks)]).toEqual([
+      [0, 1],
+      [4, 2],
+    ]);
+  });
+
+  it('gives a lone untitled video no ordinal', () => {
+    expect(
+      untitledEmbedOrdinals([embed('https://youtu.be/a'), embed('https://vimeo.com/1')]).size
+    ).toBe(0);
+  });
+
+  it('skips a video with no URL at all', () => {
+    expect(untitledEmbedOrdinals([embed(''), embed('')]).size).toBe(0);
+  });
+
+  it('appends the ordinal to the short address, in the title and the label', () => {
+    expect(
+      embedDisplay({ url: 'https://youtu.be/b', title: '', provider_name: 'YouTube' }, 2)
+    ).toEqual({
+      title: 'https://youtu.be/… (2)',
+      detail: 'YouTube',
+      label: 'https://youtu.be/… (2), YouTube',
+    });
+  });
+
+  it('never numbers a titled video', () => {
+    expect(
+      embedDisplay({ url: 'https://youtu.be/b', title: 'Bravo', provider_name: '' }, 2).title
+    ).toBe('Bravo');
   });
 });
