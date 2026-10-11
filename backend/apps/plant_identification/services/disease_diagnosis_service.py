@@ -51,10 +51,14 @@ class DiseaseAutostorageService:
 
         try:
             with transaction.atomic():
-                # Check if disease already exists
-                existing_disease = PlantDiseaseDatabase.objects.filter(
-                    disease_name__iexact=result.suggested_disease_name
-                ).first()
+                # Check if disease already exists. Lock the row (todo 568) so
+                # a concurrent diagnosis of the same disease waits here and
+                # then reads the committed confidence and symptoms.
+                existing_disease = (
+                    PlantDiseaseDatabase.objects.select_for_update()
+                    .filter(disease_name__iexact=result.suggested_disease_name)
+                    .first()
+                )
 
                 if existing_disease:
                     # Update existing disease
@@ -86,25 +90,42 @@ class DiseaseAutostorageService:
     def _update_existing_disease(
         self, disease: "PlantDiseaseDatabase", result: "PlantDiseaseResult"
     ) -> "PlantDiseaseDatabase":
-        """Update existing disease with new diagnosis data."""
-        # Increment in the database, not in Python (todo 467). `count += 1` on
-        # an instance read before a concurrent diagnosis of the same disease
-        # writes back the stale value plus one, and that increment is lost.
-        disease.diagnosis_count = F("diagnosis_count") + 1
+        """Update existing disease with new diagnosis data.
 
-        # Update confidence score if higher
-        if result.confidence_score > disease.confidence_score:
-            disease.confidence_score = result.confidence_score
+        The merge reads the row under a lock and writes only the fields it
+        changes (todo 568). `disease` may be a copy read before a concurrent
+        diagnosis committed: merging into that stale copy and saving every
+        field would drop the other diagnosis's symptoms or lower a higher
+        confidence score. The returned instance is the fresh, updated row.
+        """
+        with transaction.atomic():
+            disease = PlantDiseaseDatabase.objects.select_for_update().get(
+                pk=disease.pk
+            )
 
-        # Update symptoms if we have new ones
-        if result.symptoms_identified:
-            existing_symptoms = disease.symptoms.get("identified", [])
-            new_symptoms = result.symptoms_identified
-            # Merge unique symptoms
-            merged_symptoms = list(set(existing_symptoms + new_symptoms))
-            disease.symptoms["identified"] = merged_symptoms
+            # Increment in the database, not in Python (todo 467).
+            disease.diagnosis_count = F("diagnosis_count") + 1
 
-        disease.save()
+            # Update confidence score if higher
+            if result.confidence_score > disease.confidence_score:
+                disease.confidence_score = result.confidence_score
+
+            # Update symptoms if we have new ones
+            if result.symptoms_identified:
+                existing_symptoms = disease.symptoms.get("identified", [])
+                new_symptoms = result.symptoms_identified
+                # Merge unique symptoms
+                merged_symptoms = list(set(existing_symptoms + new_symptoms))
+                disease.symptoms["identified"] = merged_symptoms
+
+            disease.save(
+                update_fields=[
+                    "diagnosis_count",
+                    "confidence_score",
+                    "symptoms",
+                    "updated_at",
+                ]
+            )
         # The instance holds the F() expression until it is re-read.
         disease.refresh_from_db(fields=["diagnosis_count"])
         return disease

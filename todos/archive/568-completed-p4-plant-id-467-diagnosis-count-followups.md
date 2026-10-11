@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: p4
 issue_id: "568"
 tags: [backend, plant-identification, follow-ups]
@@ -26,7 +26,41 @@ PR #1001 (todo sweep run 2026-10-11-0053, group g6, todos 467); follow-ups: veri
 
 ## Acceptance Criteria
 
-- [ ] Each finding above is fixed with a test where it is a behaviour change, or recorded in the Work Log as
+- [x] Each finding above is fixed with a test where it is a behaviour change, or recorded in the Work Log as
       declined with a reason.
 
 ## Work Log
+
+### 2026-10-11 - Implemented by the todo sweep (run 2026-10-11-1448)
+
+- Finding 1 (fixed): `_update_existing_disease` in
+  `backend/apps/plant_identification/services/disease_diagnosis_service.py` now re-reads the row with
+  `select_for_update()` inside `transaction.atomic()`, merges confidence and symptoms into that fresh row,
+  and saves only `diagnosis_count`, `confidence_score`, `symptoms` and `updated_at`. A stale caller copy can
+  no longer drop another diagnosis's symptoms, lower a higher confidence, or clobber unrelated fields.
+- The name lookup in `store_disease_if_qualified` also takes the row lock (`select_for_update().filter(...).first()`),
+  so overlapping diagnoses of the same disease serialise on the read path.
+- Tests: `DiagnosisMergeStaleInstanceTest` in
+  `backend/apps/plant_identification/tests/test_disease_diagnosis_count.py` (both stale copies keep all
+  symptoms and the higher confidence; unrelated fields survive; both reads issue `FOR UPDATE`). All three fail
+  on the pre-fix service and pass after.
+- Finding 2 (declined, owner decision 2026-10-11): no two-thread `TransactionTestCase`. With `select_for_update`
+  on the read path the second diagnosis blocks until the first commits, so the `.first()` lost-update window no
+  longer exists; the stale-instance tests reproduce the remaining overlap deterministically, and the lock is
+  asserted by query capture, without a timing-dependent threaded test.
+
+### 2026-10-11 - Verified by the todo sweep (run 2026-10-11-1448)
+
+- AC 1: `cd backend && python3 scripts/todos/slot_env.py --main-root . 3 -- backend/venv/bin/python -m pytest apps/plant_identification/tests/test_disease_diagnosis_count.py --create-db -v && grep -n -E 'Finding [12] \((fixed|declined)' todos/archive/568-completed-p4-plant-id-467-diagnosis-count-followups.md` — evidence `.sweep-evidence/g9/568-ac0.txt` (not committed), last lines:
+
+  ```text
+    mismatched: pyjwt (pinned 2.15.0, installed 2.13.0), urllib3 (pinned 2.8.0, installed 2.7.0)
+  Fix: pip install -r backend/requirements.txt (see todo 378).
+  ======================== 6 passed, 2 warnings in 17.15s ========================
+  36:- Finding 1 (fixed): `_update_existing_disease` in
+  47:- Finding 2 (declined, owner decision 2026-10-11): no two-thread `TransactionTestCase`. With `select_for_update`
+  ```
+
+### 2026-10-11 - Completed by the todo sweep (run 2026-10-11-1448)
+
+- Archived by `land.py archive`; evidence is quoted above, review is on the PR.
