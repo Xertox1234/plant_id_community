@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: p4
 issue_id: "560"
 tags: [todo-sweep, follow-ups, backend]
@@ -36,10 +36,44 @@ finding against main before acting on it.
 
 ## Acceptance Criteria
 
-- [ ] Each of its 3 findings is fixed with a test, or the Work Log records why it was left as is.
+- [x] Each of its 3 findings is fixed with a test, or the Work Log records why it was left as is.
 
 ## Work Log
 
 ### 2026-10-10 - Promoted out of todo 527
 
 - Split from the consolidated follow-up todo 527 (owner decision 2026-10-10: one todo per source PR).
+
+### 2026-10-11 - Implemented by the todo sweep (run 2026-10-11-1448)
+
+- Finding 1: `test_reusability.py` gains a multi-line positive specimen shaped like a module header
+  (`import pytest\n\nfrom apps.forum_host import x\n`); dropping `re.MULTILINE` now turns two tests red.
+- Finding 2: `test_conftest_isolation.py` extracts the guard's verdict into `provider_verdict(providers,
+  host_installed)` and unit-tests its skip, fail and check arms with synthetic inputs (todo 523 cited in the
+  assert message). The docstring now says the strict check covers only `apps.forum_host`; other hosts still
+  skip on an empty list. Reverting to skip-on-empty, or dropping the `host_installed` operand, goes red.
+- Finding 3: the regex is unchanged (owner decision 2026-10-11). The `HOST_IMPORT` comment now names only
+  what matches (line-start import statements, quoted dotted `apps.` paths) and lists the known misses
+  (`__import__("apps", fromlist=...)`, `import_module(".forum_host", "apps")`, `import os; import apps.x`,
+  one-line `if X: from apps.y import z`), each pinned by a test. `# see 'apps.py'` is pinned as a known false
+  positive. New negatives `from appstore import x` and `x = "apps"` kill the dropped-boundary-group and
+  dropped-quoted-dot mutants. The package scan now reports `path:line` per hit via `finditer` and says a
+  quoted host path counts.
+- Mutation check (backups restored byte-identical afterwards): baseline 26 passed; each of the five mutants
+  above fails at least one test.
+
+### 2026-10-11 - Verified by the todo sweep (run 2026-10-11-1448)
+
+- AC 1: `bash .sweep-evidence/g6/mut560.sh` — evidence `.sweep-evidence/g6/560-ac0.txt` (not committed), last lines:
+
+  ```text
+  == mutant: drop host_installed operand
+  =================== 1 failed, 25 passed, 2 warnings in 0.38s ===================
+  == restored
+  ======================== 26 passed, 2 warnings in 0.29s ========================
+  files restored byte-identical
+  ```
+
+### 2026-10-11 - Completed by the todo sweep (run 2026-10-11-1448)
+
+- Archived by `land.py archive`; evidence is quoted above, review is on the PR.
