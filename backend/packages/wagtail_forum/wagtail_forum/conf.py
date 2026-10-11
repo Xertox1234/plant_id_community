@@ -187,6 +187,11 @@ DEFAULTS = {
     "DIGEST_MAX_WATCHED_TOPICS": 10,  # "new replies on topics you follow" rows
     "DIGEST_MAX_TRENDING_TOPICS": 10,  # "active topics you have not seen" rows
     "DIGEST_SETTINGS_PATH": "/settings",  # where the email's manage link points
+    # TTL (seconds) of `send_forum_digest`'s cache run lock (todo 548). Size
+    # it to the host task's hard time limit plus a few minutes: a hard-killed
+    # run never releases the lock, so this is how long it blocks the next
+    # one. The default is the host's 30-minute DIGEST_TIME_LIMIT + 5 minutes.
+    "DIGEST_RUN_LOCK_SECONDS": 35 * 60,
     # Dotted path to a host callable(user) -> {"url": <absolute signed
     # unsubscribe page>, "headers": {<List-Unsubscribe headers>}} or None.
     # Set, the digest shows the link and sends the headers; unset, only the

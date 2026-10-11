@@ -971,3 +971,15 @@ def test_weekly_digest_relays_the_real_command_output_with_one_prefix(caplog):
     assert relayed, "the command wrote nothing for the task to relay"
     assert all(line.startswith("[EMAIL] digest frequency=weekly") for line in relayed)
     assert not any("[EMAIL] [EMAIL]" in line for line in relayed)
+
+
+def test_the_digest_run_lock_outlives_the_task_but_not_by_much():
+    """Todo 548: the command's run lock TTL (package setting
+    WAGTAILFORUM_DIGEST_RUN_LOCK_SECONDS) is the task's hard time limit plus
+    a few minutes. Shorter, a live run could lose its lock; much longer, a
+    hard-killed run blocks the continuation and the next fire for hours."""
+    from apps.forum_host import tasks
+    from wagtail_forum.conf import get_setting
+
+    ttl = get_setting("DIGEST_RUN_LOCK_SECONDS")
+    assert tasks.DIGEST_TIME_LIMIT < ttl <= tasks.DIGEST_TIME_LIMIT + 5 * 60

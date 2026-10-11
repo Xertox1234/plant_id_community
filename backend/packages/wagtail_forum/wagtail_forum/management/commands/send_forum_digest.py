@@ -9,12 +9,18 @@ the window a no-op, and a member with nothing new gets no email.
 `--dry-run` builds every digest and prints the recipient/due/empty counts
 without sending or writing anything — run it against production data before
 the first real send.
+
+Overlap safety is a cache run lock held for `DIGEST_RUN_LOCK_SECONDS`, plus a
+conditional per-member claim. The claim and the send share one transaction,
+so the claim is durable only once the email has been handed over (todo 548,
+mirroring send_blog_newsletter after todo 534).
 """
 
 import logging
 
 from django.core.cache import cache
 from django.core.management.base import BaseCommand, CommandError
+from django.db import transaction
 from django.utils import timezone
 
 from ...conf import get_setting
@@ -22,12 +28,6 @@ from ...digest import build_digest, digest_recipients, is_due, send_digest, sinc
 from ...models import DigestFrequency, ForumProfile
 
 logger = logging.getLogger("wagtail_forum")
-
-# A run holds this cache lock while it iterates; an overlapping fire (beat
-# re-firing after a worker restart, two containers during a deploy) sees it
-# and exits. Released in `finally`, so a continuation after a killed run can
-# take over; sized so a crashed holder cannot block the next real run.
-RUN_LOCK_SECONDS = 2 * 60 * 60
 
 
 class Command(BaseCommand):
@@ -59,12 +59,35 @@ class Command(BaseCommand):
             raise CommandError("--window-days must be at least 2")
         now = timezone.now()
 
+        # A run holds this cache lock while it iterates; an overlapping fire
+        # (beat re-firing after a worker restart, two containers during a
+        # deploy) sees it and exits. Released in `finally`, so a continuation
+        # after a soft time limit can take over. Its TTL
+        # (DIGEST_RUN_LOCK_SECONDS) is the host task's hard time limit plus a
+        # margin, so a hard-killed holder blocks the next run for minutes,
+        # not hours (todo 548).
         lock_key = f"wagtail_forum:digest-run:{frequency}"
-        if not dry_run and not cache.add(lock_key, now.isoformat(), RUN_LOCK_SECONDS):
-            self.stdout.write(
-                f"[EMAIL] digest frequency={frequency}: another run holds the lock — exiting"
+        if not dry_run:
+            locked = cache.add(
+                lock_key, now.isoformat(), get_setting("DIGEST_RUN_LOCK_SECONDS")
             )
-            return
+            if locked is False:
+                self.stdout.write(
+                    f"[EMAIL] digest frequency={frequency}: another run holds the lock — exiting"
+                )
+                return
+            if locked is None:
+                # A cache with IGNORE_EXCEPTIONS (django-redis) swallows an
+                # outage and answers None, where a held lock answers False.
+                # Exiting would skip every member for a week, and the lock is
+                # only a shortcut: each member's conditional claim is what
+                # stops a second send, so an overlapping run cannot mail
+                # anyone twice (todo 548).
+                logger.warning(
+                    "[EMAIL] digest frequency=%s: the run lock is unavailable "
+                    "(cache down?), sending without it",
+                    frequency,
+                )
         try:
             totals = self._run(frequency, dry_run, window_days, now)
         finally:
@@ -110,37 +133,43 @@ class Command(BaseCommand):
                 )
                 totals["sent"] += 1
                 continue
-            # Claim the member atomically BEFORE sending (conditional UPDATE on
-            # the marker we read): belt to the run lock's braces — two runs
-            # racing on the same row can only both succeed if the marker is
-            # unchanged, and only one UPDATE matches. Reverted on a failed send
-            # so the member is due again next time.
-            previous = profile.last_digest_sent_at
+            sent = self._send_one(profile, digest, now)
+            if sent:
+                totals["sent"] += 1
+            elif sent is False:
+                totals["failed"] += 1
+        return totals
+
+    def _send_one(self, profile, digest, now) -> bool | None:
+        """True sent, False failed, None not ours to send any more."""
+        # Claim the member before sending, on the marker we read: belt to the
+        # run lock's braces. A second run racing on the row cannot also
+        # match: its UPDATE waits on our row lock, then finds the marker
+        # changed.
+        #
+        # The claim commits only after the send returns (todo 548). Anything
+        # that stops the send gives the member back with the rollback: a
+        # failed send, a soft time limit or a re-raised Warning (todo 537), a
+        # database error, and a hard kill too (the task's hard time limit, a
+        # deploy), since the server rolls back the dead connection's
+        # transaction. No separate release can fail and leave the member
+        # stamped with nothing sent.
+        #
+        # At-least-once on purpose, as in send_blog_newsletter (todo 541,
+        # owner decision 2026-10-10): a soft limit, a kill or a failed commit
+        # landing after SMTP accepted the mail rolls the claim back too, and
+        # the member gets that digest again on the next run. That window is
+        # milliseconds against an SMTP round-trip; skipping a member whose
+        # digest never went out is worse than a rare repeat.
+        previous = profile.last_digest_sent_at
+        with transaction.atomic():
             claimed = ForumProfile.objects.filter(
                 pk=profile.pk, last_digest_sent_at=previous
             ).update(last_digest_sent_at=now)
             if not claimed:
-                continue
-            try:
-                sent = send_digest(digest)
-            except BaseException:
-                # A soft time limit or a re-raised Warning (todo 537) stops
-                # the run: give back our own claim, never a later run's, so
-                # the member is due again. At-least-once on purpose, as in
-                # send_blog_newsletter (todo 541, owner decision 2026-10-10):
-                # a soft limit that fires after SMTP accepted the mail sends
-                # this member a duplicate digest on the next run. That is the
-                # accepted cost; keeping the claim instead would skip a member
-                # whose digest never went out.
-                ForumProfile.objects.filter(
-                    pk=profile.pk, last_digest_sent_at=now
-                ).update(last_digest_sent_at=previous)
-                raise
-            if sent:
-                totals["sent"] += 1
-            else:
-                ForumProfile.objects.filter(pk=profile.pk).update(
-                    last_digest_sent_at=previous
-                )
-                totals["failed"] += 1
-        return totals
+                return None
+            sent = send_digest(digest)
+            if not sent:
+                # Nothing went out: undo the claim so the member stays due.
+                transaction.set_rollback(True)
+        return sent

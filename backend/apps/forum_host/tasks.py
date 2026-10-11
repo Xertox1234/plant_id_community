@@ -44,10 +44,13 @@ def send_forum_weekly_digest(self):
 
     Overlap safety is the COMMAND's: a cache run-lock makes a second fire
     (beat re-firing after a worker restart, two containers during a deploy)
-    exit immediately, and `last_digest_sent_at` is written per member before
-    the loop advances, so a run killed by the time limit resumes where it
-    stopped — the continuation re-enqueued below simply picks up the members
-    still due. Retrying on OperationalError is safe for the same reason.
+    exit immediately, and `last_digest_sent_at` is committed per member with
+    that member's send before the loop advances, so a run killed by the time
+    limit resumes where it stopped — the continuation re-enqueued below
+    simply picks up the members still due. Retrying on OperationalError is
+    safe for the same reason. The lock's TTL is the package setting
+    WAGTAILFORUM_DIGEST_RUN_LOCK_SECONDS, whose default (35 min) is
+    DIGEST_TIME_LIMIT plus 5 minutes; change both together (todo 548).
     """
     from io import StringIO
 

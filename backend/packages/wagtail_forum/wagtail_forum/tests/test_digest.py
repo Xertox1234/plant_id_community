@@ -301,7 +301,9 @@ def test_an_overlapping_run_exits_on_the_lock_but_a_dry_run_ignores_it():
     fire while the first holds the lock sends nothing; the lock is released
     afterwards; dry-run never takes or honours it."""
     from django.core.cache import cache
-    from wagtail_forum.management.commands.send_forum_digest import RUN_LOCK_SECONDS
+    from wagtail_forum.conf import get_setting
+
+    RUN_LOCK_SECONDS = get_setting("DIGEST_RUN_LOCK_SECONDS")
 
     index = _index()
     board = _board(index, "general")
@@ -675,3 +677,151 @@ def test_a_soft_time_limit_in_the_send_gives_the_members_claim_back(monkeypatch)
 
     profile.refresh_from_db()
     assert profile.last_digest_sent_at is None
+
+
+def _member_with_a_reply(prefix):
+    index = _index()
+    board = _board(index, "general")
+    friend = User.objects.create_user(username=f"{prefix}-poster")
+    topic = _topic(board, friend, f"{prefix} topic")
+    member = User.objects.create_user(username=prefix, email=f"{prefix}@example.com")
+    profile = _opt_in(member)
+    _reply_note(member, friend, topic)
+    return profile
+
+
+@pytest.mark.django_db
+@override_settings(
+    SITE_URL="https://forum.example", WAGTAILFORUM_DIGEST_UNSUBSCRIBE=None
+)
+def test_a_cache_outage_sends_the_digest_without_the_lock(caplog, monkeypatch):
+    """Todo 548: with IGNORE_EXCEPTIONS a Redis outage makes cache.add answer
+    None; only False means another run holds the lock."""
+    from unittest.mock import MagicMock
+
+    from wagtail_forum.management.commands import send_forum_digest
+
+    profile = _member_with_a_reply("dg-cache-down")
+    down = MagicMock()
+    down.add.return_value = None
+    monkeypatch.setattr(send_forum_digest, "cache", down)
+
+    out = StringIO()
+    with caplog.at_level("WARNING", logger="wagtail_forum"):
+        call_command("send_forum_digest", frequency="weekly", stdout=out)
+
+    assert [m.to for m in mail.outbox] == [["dg-cache-down@example.com"]]
+    assert "sent=1" in out.getvalue()
+    assert any(
+        r.levelname == "WARNING" and "lock is unavailable" in r.getMessage()
+        for r in caplog.records
+    )
+    profile.refresh_from_db()
+    assert profile.last_digest_sent_at is not None
+
+
+@pytest.mark.django_db
+@override_settings(
+    SITE_URL="https://forum.example", WAGTAILFORUM_DIGEST_UNSUBSCRIBE=None
+)
+def test_a_held_lock_answering_false_still_exits(monkeypatch):
+    from unittest.mock import MagicMock
+
+    from wagtail_forum.management.commands import send_forum_digest
+
+    profile = _member_with_a_reply("dg-cache-held")
+    held = MagicMock()
+    held.add.return_value = False
+    monkeypatch.setattr(send_forum_digest, "cache", held)
+
+    out = StringIO()
+    call_command("send_forum_digest", frequency="weekly", stdout=out)
+
+    assert mail.outbox == []
+    assert "another run holds the lock" in out.getvalue()
+    held.delete.assert_not_called()  # never release a lock we do not hold
+    profile.refresh_from_db()
+    assert profile.last_digest_sent_at is None
+
+
+@pytest.mark.django_db
+@override_settings(WAGTAILFORUM_DIGEST_RUN_LOCK_SECONDS=123)
+def test_the_run_lock_ttl_comes_from_the_package_setting(monkeypatch):
+    """Todo 548: the TTL is DIGEST_RUN_LOCK_SECONDS (default 35 minutes, the
+    host task's 30-minute hard limit + 5), not a fixed 2 hours."""
+    from unittest.mock import MagicMock
+
+    from wagtail_forum.conf import DEFAULTS
+    from wagtail_forum.management.commands import send_forum_digest
+
+    assert DEFAULTS["DIGEST_RUN_LOCK_SECONDS"] == 35 * 60
+    lock = MagicMock()
+    lock.add.return_value = True
+    monkeypatch.setattr(send_forum_digest, "cache", lock)
+
+    call_command("send_forum_digest", frequency="weekly", stdout=StringIO())
+
+    key, _value, ttl = lock.add.call_args.args
+    assert key == "wagtail_forum:digest-run:weekly" and ttl == 123
+    lock.delete.assert_called_once_with(key)
+
+
+@pytest.mark.django_db(transaction=True)
+@override_settings(
+    SITE_URL="https://forum.example", WAGTAILFORUM_DIGEST_UNSUBSCRIBE=None
+)
+def test_the_claim_is_not_durable_until_the_send_returns(monkeypatch):
+    """Todo 548: the claim and the send share one transaction. Another
+    database connection sees the member unclaimed during send_digest(), so a
+    hard kill mid-send (the server rolls back the dead connection's work)
+    leaves the member due. No pages: a transactional test flushes tables."""
+    import threading
+
+    from django.core.cache import cache
+    from django.db import connections
+    from wagtail_forum.digest import Digest, DigestTopic
+    from wagtail_forum.management.commands import send_forum_digest
+
+    member = User.objects.create_user(username="dg-txn", email="txn@example.com")
+    profile = _opt_in(member)
+    cache.delete("wagtail_forum:digest-run:weekly")
+    topic = DigestTopic(
+        id=1,
+        title="Fresh",
+        url="https://forum.example/t/1",
+        board_title="General",
+        reply_count=1,
+        last_post_at=timezone.now(),
+    )
+    seen = {}
+
+    def build(user, since, profile=None):
+        return Digest(user=user, since=since, watched=[topic])
+
+    def read_from_another_connection():
+        try:
+            seen["outside"] = ForumProfile.objects.get(
+                pk=profile.pk
+            ).last_digest_sent_at
+        except BaseException as exc:  # surfaced by the assertions below
+            seen["error"] = exc
+        finally:
+            connections.close_all()
+
+    def send(digest):
+        seen["inside"] = ForumProfile.objects.get(pk=profile.pk).last_digest_sent_at
+        thread = threading.Thread(target=read_from_another_connection)
+        thread.start()
+        thread.join(10)
+        return True
+
+    monkeypatch.setattr(send_forum_digest, "build_digest", build)
+    monkeypatch.setattr(send_forum_digest, "send_digest", send)
+
+    call_command("send_forum_digest", frequency="weekly", stdout=StringIO())
+
+    assert "error" not in seen
+    assert seen["inside"] is not None  # claimed before the send, in our txn
+    assert seen["outside"] is None  # another connection: still unclaimed
+    profile.refresh_from_db()
+    assert profile.last_digest_sent_at == seen["inside"]  # committed after it

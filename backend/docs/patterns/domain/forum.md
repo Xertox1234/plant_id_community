@@ -987,7 +987,14 @@ them to restyle) and sends with `EmailMultiAlternatives` from
 `digest_recipients()` (opted-in, active, has an email), skips members not
 `is_due` (last digest younger than the window minus a jitter day), skips
 empty digests without writing, and stamps `last_digest_sent_at` after a
-send. Opt-in lives on `ForumProfile.digest_frequency` (`me/profile/`);
+send. The stamp is a conditional claim (`filter(last_digest_sent_at=<read>)`)
+made inside one `transaction.atomic()` with `send_digest()`; a failed send
+calls `transaction.set_rollback(True)`, and an exception or a hard kill rolls
+it back too, so no separate release can strand a member. A cache run lock
+(TTL `DIGEST_RUN_LOCK_SECONDS`, the host task's hard limit + 5 min) stops
+overlapping runs; `cache.add` answering `None` (a Redis outage under
+`IGNORE_EXCEPTIONS`) sends without it with a warning, only `False` exits
+(todo 548, mirroring `send_blog_newsletter` after todo 534). Opt-in lives on `ForumProfile.digest_frequency` (`me/profile/`);
 `DIGEST_DEFAULT_FREQUENCY` seeds NEW profiles only. The host schedules it
 (`CELERY_BEAT_SCHEDULE` → `send_forum_weekly_digest` → `call_command`) with
 beat embedded in the co-located worker.
