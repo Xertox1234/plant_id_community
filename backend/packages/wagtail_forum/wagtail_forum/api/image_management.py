@@ -48,18 +48,12 @@ FORUM_IMAGE_SCHEMA = {
         "height": {"type": "integer"},
     },
 }
-FORUM_IMAGE_PAGE_SCHEMA = {
-    "type": "object",
-    "properties": {
-        "next": {"type": "string", "nullable": True},
-        "previous": {"type": "string", "nullable": True},
-        "results": {"type": "array", "items": FORUM_IMAGE_SCHEMA},
-    },
-}
 
 
 @extend_schema(
-    responses={200: FORUM_IMAGE_PAGE_SCHEMA, 403: dict},
+    # The item shape: spectacular adds the list and the cursor-page wrapper
+    # itself, because this is a paginated ListAPIView.
+    responses={200: FORUM_IMAGE_SCHEMA, 403: dict},
     description="The caller's own uploaded forum images, newest first "
     "(cursor-paginated).",
 )

@@ -213,7 +213,8 @@ COLLECTION_RETRIEVE_SCHEMA = extend_schema(
 )
 COLLECTION_UPDATE_SCHEMA = extend_schema(
     methods=["PUT"],
-    request=UserPlantCollectionSerializer,
+    # The view saves with partial=True, so no field is required in the body.
+    request=UserPlantCollectionSerializer(partial=True),
     responses={
         200: UserPlantCollectionSerializer,
         400: OpenApiTypes.OBJECT,
