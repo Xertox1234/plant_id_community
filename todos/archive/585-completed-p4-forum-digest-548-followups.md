@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: p4
 issue_id: "585"
 tags: [backend, forum, digest, follow-ups]
@@ -35,7 +35,7 @@ Dropped by curation (fixed on main, refuted, or not a reported location):
 
 ## Acceptance Criteria
 
-- [ ] Each finding above is fixed with a test where it is a behaviour change, or recorded in the Work Log as
+- [x] Each finding above is fixed with a test where it is a behaviour change, or recorded in the Work Log as
       declined with a reason.
 
 ## Work Log
@@ -43,3 +43,27 @@ Dropped by curation (fixed on main, refuted, or not a reported location):
 ### 2026-10-11 - Filed from todo-sweep run 2026-10-11-1434
 
 Follow-ups for PR #1024 (todo 548).
+
+### 2026-10-11 - Implemented by the todo sweep (run 2026-10-11-2219)
+
+- Finding 1 fixed: `send_forum_digest` now deletes the run lock in `finally` only when its own `cache.add` returned True, so a run that went ahead during a cache outage never deletes a lock another fire took. Test: `test_a_run_without_the_lock_never_releases_anothers_lock`.
+- Finding 2, sub-item on opt-out/deactivation fixed: the claim UPDATE now also matches `digest_frequency=frequency` and `user__is_active=True` (as `send_blog_newsletter`'s claim does), so a member who left after their 200-row chunk was read is neither claimed nor mailed. Test: `test_the_claim_skips_a_member_who_left_after_the_chunk_was_read` (opted out, deactivated).
+- Finding 3 fixed: `_send_one` coerces the send result to a strict bool and the loop treats only None as "not ours", so a falsy non-bool from a send counts as a failure and rolls the claim back. Test: `test_a_falsy_non_bool_send_result_counts_as_a_failure` (None, 0). All three new tests fail on the previous command.
+- Findings 2 (row lock and transaction held across SMTP), 4 and 5 (duplicates of 2) declined: the claim and the send share one transaction on purpose (todo 548, at-least-once per owner decision 2026-10-10 in todo 541), and splitting them reintroduces the stamped-but-unsent member. The cost is now written in the command's comment, mirroring `send_blog_newsletter` (todo 569): one row waits, up to EMAIL_TIMEOUT, during a weekly batch.
+- Finding 2, sub-item on a host unsubscribe hook swallowing a DB error declined: the current host hook does no DB I/O, and guarding it needs a savepoint around a hook the package does not own; revisit if the hook ever touches the database.
+
+### 2026-10-11 - Verified by the todo sweep (run 2026-10-11-2219)
+
+- AC 1: `python3 scripts/todos/slot_env.py --main-root . 3 -- backend/venv/bin/python -m pytest backend/packages/wagtail_forum/wagtail_forum/tests/test_digest.py --create-db -v` — evidence `.sweep-evidence/g3/585-ac0.txt` (not committed), last lines:
+
+  ```text
+  ============================== ENVIRONMENT DRIFT ===============================
+  backend/venv does not match backend/requirements.txt — these results describe a tree CI does not run.
+    mismatched: pyjwt (pinned 2.15.0, installed 2.13.0), urllib3 (pinned 2.8.0, installed 2.7.0)
+  Fix: pip install -r backend/requirements.txt (see todo 378).
+  ======================= 36 passed, 3 warnings in 18.25s ========================
+  ```
+
+### 2026-10-11 - Completed by the todo sweep (run 2026-10-11-2219)
+
+- Archived by `land.py archive`; evidence is quoted above, review is on the PR.

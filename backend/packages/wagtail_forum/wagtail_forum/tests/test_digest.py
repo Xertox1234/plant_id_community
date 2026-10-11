@@ -859,3 +859,92 @@ def test_a_failed_send_rolls_the_claim_back_with_its_transaction(monkeypatch, ou
     assert seen["claim"] is not None  # the claim was applied, then undone
     profile.refresh_from_db()
     assert profile.last_digest_sent_at is None
+
+
+@pytest.mark.django_db
+@override_settings(
+    SITE_URL="https://forum.example", WAGTAILFORUM_DIGEST_UNSUBSCRIBE=None
+)
+def test_a_run_without_the_lock_never_releases_anothers_lock(monkeypatch):
+    """Todo 585: after a cache outage (add answered None) the run holds no
+    lock, so its `finally` must not delete one another fire took meanwhile."""
+    from unittest.mock import MagicMock
+
+    from wagtail_forum.management.commands import send_forum_digest
+
+    _member_with_a_reply("dg-no-release")
+    down = MagicMock()
+    down.add.return_value = None
+    monkeypatch.setattr(send_forum_digest, "cache", down)
+
+    call_command("send_forum_digest", frequency="weekly", stdout=StringIO())
+
+    assert len(mail.outbox) == 1
+    down.delete.assert_not_called()
+
+
+@pytest.mark.django_db
+@override_settings(
+    SITE_URL="https://forum.example", WAGTAILFORUM_DIGEST_UNSUBSCRIBE=None
+)
+@pytest.mark.parametrize("change", ["opted_out", "deactivated"])
+def test_the_claim_skips_a_member_who_left_after_the_chunk_was_read(
+    monkeypatch, change
+):
+    """Todo 585: the recipient iterator reads 200 rows at a time; a member
+    who opts out or is deactivated after that read is not claimed or mailed."""
+    from wagtail_forum.management.commands import send_forum_digest
+
+    member = User.objects.create_user(
+        username=f"dg-left-{change}", email=f"left-{change}@example.com"
+    )
+    profile = _opt_in(member)
+    sends = []
+
+    def send(digest):
+        sends.append(digest.user.pk)
+        return True
+
+    _one_topic_digest_patches(monkeypatch, send)
+    stub_build = send_forum_digest.build_digest
+
+    def build_then_leave(user, since, profile=None):
+        # Lands between the iterator's read and the claim.
+        if change == "opted_out":
+            ForumProfile.objects.filter(user=user).update(
+                digest_frequency=DigestFrequency.OFF
+            )
+        else:
+            User.objects.filter(pk=user.pk).update(is_active=False)
+        return stub_build(user, since, profile)
+
+    monkeypatch.setattr(send_forum_digest, "build_digest", build_then_leave)
+    out = StringIO()
+    call_command("send_forum_digest", frequency="weekly", stdout=out)
+
+    assert sends == []
+    assert "sent=0 failed=0" in out.getvalue()
+    profile.refresh_from_db()
+    assert profile.last_digest_sent_at is None
+
+
+@pytest.mark.django_db
+@override_settings(
+    SITE_URL="https://forum.example", WAGTAILFORUM_DIGEST_UNSUBSCRIBE=None
+)
+@pytest.mark.parametrize("falsy", [None, 0])
+def test_a_falsy_non_bool_send_result_counts_as_a_failure(monkeypatch, falsy):
+    """Todo 585: the loop no longer relies on send_digest returning a strict
+    bool; None or 0 is a failed send, rolled back and counted."""
+    member = User.objects.create_user(
+        username=f"dg-falsy-{falsy}", email=f"falsy-{falsy}@example.com"
+    )
+    profile = _opt_in(member)
+    _one_topic_digest_patches(monkeypatch, lambda digest: falsy)
+
+    out = StringIO()
+    call_command("send_forum_digest", frequency="weekly", stdout=out)
+
+    assert "sent=0 failed=1" in out.getvalue()
+    profile.refresh_from_db()
+    assert profile.last_digest_sent_at is None
