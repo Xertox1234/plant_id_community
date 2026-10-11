@@ -122,6 +122,16 @@ assert_allow "577 #5: an unreadable run file records nothing and breaks nothing 
   "$(event todo-worker "$REPO" "$WF/scripts/x.py")"
 assert_allow "577 #5: a sweep-* worktree needs no record" \
   "$(event todo-worker "$REPO" "$OTHER/scripts/x.py")"
+# PR #1038 review: a brief with no worktree gets a harness-isolated one, and its retry edits it from the main
+# checkout before ingest-execute records it. While a run has such a todo executing, that edit is allowed.
+rm -f "$SESSION/todos/.sweep-run-s.json"
+printf '{"todos":{"7":{"stage":"executing"}}}' > "$REPO/todos/.sweep-run-inflight.json"
+assert_allow "PR #1038: a retry edits the unrecorded wf_* of a brief that named no worktree" \
+  "$(event todo-worker "$REPO" "$STRAY/scripts/x.py")"
+printf '{"todos":{"7":{"stage":"verified"}}}' > "$REPO/todos/.sweep-run-inflight.json"
+assert_deny  "PR #1038: ... and once nothing executes without one, it is denied again" \
+  "$(event todo-worker "$REPO" "$STRAY/scripts/x.py")"
+rm -f "$REPO/todos/.sweep-run-inflight.json"
 
 # ---- everyone else passes through ----
 assert_allow "the main session (no agent_type) is untouched" \

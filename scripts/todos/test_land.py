@@ -687,6 +687,10 @@ def main():
         (f"git -C {wt}/web diff {wt}/web/src", "git -C web diff src"),
         (f"cd {wt}/backend && git -C ../web diff {wt}/web/a", "cd backend && git -C ../web diff a"),
         (f"git -C {wt}/web -C src log {wt}/web/src/x", "git -C web -C src log x"),
+        # PR #1038 review: a subcommand's own -C (context lines, copy detection) is not `git -C <dir>`.
+        (f"cd {wt}/backend && git grep -C 3 foo {wt}/backend/x", "cd backend && git grep -C 3 foo x"),
+        (f"git diff -C {wt}/web/a {wt}/web/b", "git diff -C web/a web/b"),
+        (f"git -c core.pager=cat -C {wt}/web diff {wt}/web/a", "git -c core.pager=cat -C web diff a"),
     ]
     for raw, want in cases578:
         got = land._relativize_command(raw, wt, main, rel552)

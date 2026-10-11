@@ -77,22 +77,30 @@ def _checkout_root(cwd):
     return os.path.realpath(proc.stdout.strip()) if proc.returncode == 0 and proc.stdout.strip() else None
 
 
-def recorded_worktrees(*roots):
-    """Every todo `worktree` the sweep run files under each root's `todos/` record, realpath'd (todo 577 #5)."""
-    found = set()
+def _run_entries(*roots):
+    """Every todo entry in the sweep run files under each root's `todos/`. An unreadable file has none."""
     for root in {r for r in roots if r}:
         for path in glob.glob(os.path.join(root, "todos", ".sweep-run-*.json")):
             try:
                 with open(path, encoding="utf-8") as fh:
                     run = json.load(fh)
-                todos = run.get("todos", {}) if isinstance(run, dict) else {}
-                for entry in todos.values() if isinstance(todos, dict) else ():
-                    wt = entry.get("worktree") if isinstance(entry, dict) else None
-                    if isinstance(wt, str) and wt:
-                        found.add(os.path.realpath(wt))
-            except (OSError, ValueError, AttributeError):
+            except (OSError, ValueError):
                 continue
-    return found
+            todos = run.get("todos", {}) if isinstance(run, dict) else {}
+            yield from (e for e in (todos.values() if isinstance(todos, dict) else ()) if isinstance(e, dict))
+
+
+def recorded_worktrees(*roots):
+    """Every todo `worktree` the sweep run files under each root's `todos/` record, realpath'd (todo 577 #5)."""
+    return {os.path.realpath(e["worktree"]) for e in _run_entries(*roots)
+            if isinstance(e.get("worktree"), str) and e["worktree"]}
+
+
+def awaiting_a_worktree(*roots):
+    """Whether a run has a todo executing with no recorded worktree (PR #1038 review). Its brief named none, so
+    todo-execute gave the worker a harness-isolated one, and its retry edits that from the main checkout before
+    ingest-execute records it. Dormant since todo 528 (execute-args always records one), but not refused."""
+    return any(e.get("stage") == "executing" and not e.get("worktree") for e in _run_entries(*roots))
 
 
 def decide(event):
@@ -125,7 +133,9 @@ def decide(event):
         return (f"a todo-worker edits only inside its worktree (the prompt's WORKTREE), not {wt}, which is no "
                 "worker's worktree")
     # Todo 577 #5: a harness worktree is a worker's only when a run records it as a group's.
-    if not os.path.basename(wt).startswith("sweep-") and wt not in recorded_worktrees(main, _checkout_root(cwd)):
+    roots = (main, _checkout_root(cwd))
+    if (not os.path.basename(wt).startswith("sweep-") and wt not in recorded_worktrees(*roots)
+            and not awaiting_a_worktree(*roots)):
         return (f"a todo-worker edits only inside its worktree (the prompt's WORKTREE), not {wt}: no sweep run "
                 "records it as a todo's worktree")
     return None

@@ -276,7 +276,11 @@ _CD_RE = re.compile(r"\s*(?P<cmd>cd|pushd)(?:\s+(?P<q>['\"]?)(?P<target>[^'\"\s]
 _POPD_RE = re.compile(r"\s*popd\s*$")
 _MARKED_RE = re.compile(_MARK + rf"(?P<path>[^{_SEP}{_MARK}{_END}]*)")
 _GIT_RE = re.compile(r"\s*(?:[A-Za-z_]\w*=\S*\s+)*git\s")
-_GIT_C_RE = re.compile(r"(?<=\s)-C\s+(?P<q>['\"]?)(?P<dir>[^'\"\s]*)(?P=q)")
+_GIT_TOKEN_RE = re.compile(r"\s*(?P<q>['\"]?)(?P<tok>[^'\"\s]+)(?P=q)")
+# git's global options that take their value as the next word. Only the words between `git` and the
+# subcommand are global options: `git grep -C 3` and `git diff -C` are the subcommand's own -C (PR #1038
+# review), which must not re-root anything.
+_GIT_GLOBAL_WITH_VALUE = {"-C", "-c", "--git-dir", "--work-tree", "--namespace", "--exec-path", "--config-env"}
 
 
 def _operator(command, i):
@@ -355,12 +359,30 @@ def _rebase(path, dirs):
     return result + "/" if trail and not result.endswith("/") else result
 
 
+def _git_c_events(part):
+    """`(end, dir)` for each `-C <dir>` among git's global options in one part: the words between `git`
+    and its subcommand. Stops at the first word that is not an option or an option's value."""
+    git = _GIT_RE.match(part)
+    if not git:
+        return []
+    events, pos, takes_value = [], git.end(), None
+    while (word := _GIT_TOKEN_RE.match(part, pos)) is not None:
+        pos, tok = word.end(), word.group("tok")
+        if takes_value is not None:
+            if takes_value == "-C":
+                events.append((pos, tok))
+            takes_value = None
+        elif tok in _GIT_GLOBAL_WITH_VALUE:
+            takes_value = tok
+        elif not tok.startswith("-"):
+            break
+    return events
+
+
 def _rebase_part(part, dirs):
     """Each marked path in one part, rebased against `dirs`. In a `git -C <dir>` part, a path after the `-C`
     resolves against that directory, not the shell's (todo 578 #6); repeated `-C` options compose."""
-    events = []
-    if _GIT_RE.match(part):
-        events = [(m.end(), m.group("dir")) for m in _GIT_C_RE.finditer(part)]
+    events = _git_c_events(part)
 
     def sub(match):
         here = set(dirs)
