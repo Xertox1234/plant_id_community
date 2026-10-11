@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: p4
 issue_id: "575"
 tags: [forum, web, follow-ups, todo-sweep]
@@ -35,7 +35,31 @@ Dropped by curation (fixed on main, refuted, or not a reported location):
 
 ## Acceptance Criteria
 
-- [ ] Each finding above is fixed with a test where it is a behaviour change, or recorded in the Work Log as
+- [x] Each finding above is fixed with a test where it is a behaviour change, or recorded in the Work Log as
       declined with a reason.
 
 ## Work Log
+
+### 2026-10-11 - Implemented by the todo sweep (run 2026-10-11-1448)
+
+- Findings 1, 3, 4 (one issue) fixed in `web/src/pages/forum/NewThreadPage.tsx`: on a `?category=` change, a board with a stored draft now loads it into the form (title, body, tags; the editor remounts) with the guard baseline set to the loaded values, so loading writes nothing. A board with no stored draft keeps the previous text in the form, which stays saved under the old key (owner decision 2026-10-11). A stored draft the composer cannot read on the new board shows an empty form and stays byte-for-byte until the user edits, as on mount (todo 538): a deliberate choice, not a regression.
+- Changed one existing assertion in the todo-549 test "leaves another board's draft alone…": typing 'y' after the switch expected `"title":"y"`, which pinned the lossy overwrite of board B's unseen draft that findings 1, 3, 4 report. It now checks that B's draft appears in the form and that 'y' extends it (`"title":"Board B wordsy"`). Two new tests cover loading B's draft (both keys unchanged until an edit) and an unreadable B draft.
+- Findings 2, 6 (one issue) fixed in `web/src/pages/forum/NewThreadPage.test.tsx`: the "does not copy a touched form…" test now edits after the switch and asserts the whole form lands under B's key while A's stored draft is unchanged, so a guard that skipped only one effect run would fail it.
+- Finding 5 declined: a verification note, not a defect; nothing to change.
+- `npx vitest run src/pages/forum/NewThreadPage.test.tsx` passes 35/35; against the old component the three switch tests fail.
+
+### 2026-10-11 - Verified by the todo sweep (run 2026-10-11-1448)
+
+- AC 1: `cd web && npx vitest run src/pages/forum/NewThreadPage.test.tsx` — evidence `.sweep-evidence/g12/575-ac0.txt` (not committed), last lines:
+
+  ```text
+
+   Test Files  1 passed (1)
+        Tests  35 passed (35)
+     Start at  12:22:30
+     Duration  3.24s (transform 105ms, setup 103ms, import 281ms, tests 2.34s, environment 450ms)
+  ```
+
+### 2026-10-11 - Completed by the todo sweep (run 2026-10-11-1448)
+
+- Archived by `land.py archive`; evidence is quoted above, review is on the PR.

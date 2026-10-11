@@ -678,14 +678,88 @@ describe('NewThreadPage', () => {
       </MemoryRouter>
     );
     await waitFor(() => expect(forumService.fetchCategory).toHaveBeenCalledWith(5));
+    // Board B's draft is loaded into the form (todo 575), not left unseen
+    // under a form the next keystroke would save over it.
+    await waitFor(() => expect(screen.getByLabelText(/title/i)).toHaveValue('Board B words'));
+    expect(screen.getByLabelText('body')).toHaveValue('<p>b</p>');
+    expect(loadDraft(keyB)).toBe(storedB);
+    expect(loadDraft(keyA)).toBeNull();
+
+    // The guard re-arms per key: the user's next edit extends B's draft.
+    await userEvent.type(screen.getByLabelText(/title/i), 'y');
+    await waitFor(() => expect(loadDraft(keyB)).toContain('"title":"Board B wordsy"'));
+    expect(loadDraft(keyA)).toBeNull();
+  });
+
+  it("loads the new board's draft and keeps the old board's text under its own key on a ?category= change (todo 575)", async () => {
+    const keyA = draftKey('new-thread', '3-plant-care');
+    const keyB = draftKey('new-thread', '5-pests');
+    const storedB = JSON.stringify({ title: 'Pest question', body: '<p>aphids</p>', tags: 'bugs' });
+    saveDraft(keyB, storedB);
+    const view = renderPage();
+    await screen.findByText('Plant Care');
+    await userEvent.type(screen.getByLabelText(/title/i), 'Board A');
+    await waitFor(() => expect(loadDraft(keyA)).toContain('"title":"Board A"'));
+    const storedA = loadDraft(keyA);
+
+    vi.mocked(ReactRouter.useSearchParams).mockReturnValue([
+      new URLSearchParams('category=5-pests'),
+      vi.fn(),
+    ]);
+    view.rerender(
+      <MemoryRouter>
+        <AnnouncerProvider>
+          <NewThreadPage />
+        </AnnouncerProvider>
+      </MemoryRouter>
+    );
+    await waitFor(() => expect(forumService.fetchCategory).toHaveBeenCalledWith(5));
+    await waitFor(() => expect(screen.getByLabelText(/title/i)).toHaveValue('Pest question'));
+    expect(screen.getByLabelText('body')).toHaveValue('<p>aphids</p>');
+    expect(screen.getByLabelText(/tags/i)).toHaveValue('bugs');
+    // Loading writes nothing: both stored drafts are exactly as they were.
+    expect(loadDraft(keyB)).toBe(storedB);
+    expect(loadDraft(keyA)).toBe(storedA);
+
+    await userEvent.type(screen.getByLabelText(/title/i), '!');
+    await waitFor(() => expect(loadDraft(keyB)).toContain('"title":"Pest question!"'));
+    expect(JSON.parse(loadDraft(keyB) ?? '{}').tags).toBe('bugs');
+    expect(loadDraft(keyA)).toBe(storedA);
+  });
+
+  it("keeps a new board's unreadable draft untouched until the user edits, on a ?category= change (todo 575)", async () => {
+    const keyB = draftKey('new-thread', '5-pests');
+    const storedB = '{not json';
+    saveDraft(keyB, storedB);
+    const view = renderPage();
+    await screen.findByText('Plant Care');
+    await userEvent.type(screen.getByLabelText(/title/i), 'Board A');
+    await waitFor(() =>
+      expect(loadDraft(draftKey('new-thread', '3-plant-care'))).toContain('Board A')
+    );
+
+    vi.mocked(ReactRouter.useSearchParams).mockReturnValue([
+      new URLSearchParams('category=5-pests'),
+      vi.fn(),
+    ]);
+    view.rerender(
+      <MemoryRouter>
+        <AnnouncerProvider>
+          <NewThreadPage />
+        </AnnouncerProvider>
+      </MemoryRouter>
+    );
+    await waitFor(() => expect(forumService.fetchCategory).toHaveBeenCalledWith(5));
+    // B has a stored draft, so the form switches to it — empty, as on mount.
+    await waitFor(() => expect(screen.getByLabelText(/title/i)).toHaveValue(''));
     expect(loadDraft(keyB)).toBe(storedB);
 
-    // The guard re-arms per key: the user's next edit is theirs to keep.
-    await userEvent.type(screen.getByLabelText(/title/i), 'y');
-    await waitFor(() => expect(loadDraft(keyB)).toContain('"title":"y"'));
+    await userEvent.type(screen.getByLabelText(/title/i), 'New');
+    await waitFor(() => expect(loadDraft(keyB)).toContain('"title":"New"'));
   });
 
   it('does not copy a touched form into the new board key on a ?category= change (todo 549)', async () => {
+    const keyA = draftKey('new-thread', '3-plant-care');
     const keyB = draftKey('new-thread', '5-pests');
     const view = renderPage();
     await screen.findByText('Plant Care');
@@ -707,6 +781,16 @@ describe('NewThreadPage', () => {
     );
     await waitFor(() => expect(forumService.fetchCategory).toHaveBeenCalledWith(5));
     expect(loadDraft(keyB)).toBeNull();
+    // Board B has no stored draft, so the form keeps board A's text (owner
+    // decision 2026-10-11) and A's draft stays saved under A's key.
+    expect(screen.getByLabelText(/title/i)).toHaveValue('Board A');
+
+    // The next edit is the user's: it is saved under B's key — the whole
+    // form, not just the keystroke — and A's stored draft is not touched.
+    await userEvent.type(screen.getByLabelText(/title/i), 'x');
+    await waitFor(() => expect(loadDraft(keyB)).toContain('"title":"Board Ax"'));
+    expect(loadDraft(keyA)).toContain('"title":"Board A"');
+    expect(loadDraft(keyA)).not.toContain('Board Ax');
   });
 
   describe('"Ask the community" handoff (audit M6)', () => {
