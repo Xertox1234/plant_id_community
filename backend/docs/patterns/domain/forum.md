@@ -1061,6 +1061,37 @@ kind, `message_send`), `POST/DELETE conversations/<id>/participants[/<user>]`
 member's messages from the blocker; the creator cannot leave while others
 remain (no transfer in v1); no DM push/email exists for any kind.
 
+## Pending opening posts: never save the row over a pending edit (todo 471)
+
+When a moderator approves a never-published topic, its never-published
+opening post goes live with it (`signals._publish_counterpart`, todos 422 and
+432). What goes live is whichever is newer: the post's latest revision or its
+row. `Post.updated_at` is `auto_now`, so the comparison is
+`latest_revision.created_at` against `updated_at`.
+
+- An edit to such a post that exists only as a revision has no request path
+  today. The author API cannot reach the post: `PATCH /forum/posts/<id>/`
+  resolves through `_get_visible_post`, which 404s a post that is not live.
+  The Post snippet's "Save draft" in `/cms/` writes the row before its
+  revision for an object that is not live (Wagtail's `EditAction`), so the two
+  agree. A direct call does diverge: `submit_edit_for_moderation` and a bare
+  `save_revision()` leave the row untouched.
+- **The hazard:** a full-row `post.save()` on that post after such an edit makes
+  the row newer than the revision. Approval then publishes the row, and the
+  author's edit is dropped with no error. That branch is pinned by
+  `wagtail_forum/tests/test_topic_approval.py::test_admin_publishing_a_topic_publishes_an_opening_post_row_newer_than_its_revision`.
+
+The rule: on a post that is not yet live, change content through
+`save_revision()`, never through `post.save()`. Code that has to write such a
+post's row must not bump `updated_at` past a pending revision, or it must
+save a revision of its own.
+
+Who decides what goes live (owner decision 2026-10-10): a re-screen of an edit
+to a never-published opening post only screens it (spam and trust checks,
+starting the workflow). It never publishes. The moderator's topic approval is
+the gate that publishes the thread. Today `submit_edit_for_moderation` does
+not re-screen a post that is not live, and no request path reaches it for one.
+
 ## Pruning derived files from storage (todo 428 slice D)
 
 `manage.py prune_link_preview_images` deletes cached link-card images that no
