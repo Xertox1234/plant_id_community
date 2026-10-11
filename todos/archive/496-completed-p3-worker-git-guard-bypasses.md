@@ -111,3 +111,15 @@ re-found both.
 ### 2026-10-11 - Completed by the todo sweep (run 2026-10-11-1434)
 
 - Archived by `land.py archive`; evidence is quoted above, review is on the PR.
+
+### 2026-10-11 - Repaired by the todo sweep (run 2026-10-11-1434): round 1 repair
+
+- Finding 2 regression (PR #1023 review): the "a cd in a pipeline's last stage sticks" rule now applies only
+  to shells that keep the last stage, `LAST_STAGE_SHELLS` in `scripts/todos/worker_git_guard.py` (zsh, the
+  agents' shell, and ksh: macOS `/bin/ksh` is ksh93, which keeps it, probed with `ksh -c 'true | cd /; pwd'`).
+  A `bash -c`, `sh -c` or `dash -c` body undoes a piped stage's cd again; `$(...)` and eval keep the caller's shell.
+- Finding 6: `denied_option` denies any non-empty prefix of a listed option, so the one-letter `git cat-file --t`
+  (git resolves it to `--textconv`) is refused; `GIT_EXACT_OPTIONS` (`--text`) stays exact-match only.
+- `.claude/hooks/test-guard-todo-worker-git.sh` gained cases 496.2r and 496.6r (additions only): 310 to 321
+  passing. Reverting each fix in a temporary copy fails its new cases (5, 1 and 2 failures).
+- Left for a follow-up todo, as the owner decided: env -P, zsh allexport, a multi-variable for, sudo --chd.

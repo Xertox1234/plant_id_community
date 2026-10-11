@@ -60,7 +60,7 @@ GUARDED_AGENTS = set(ALLOWED_BY_AGENT)
 MAIN_REASON = ("git {sub} would run in the main checkout at {path}; name your worktree explicitly: "
                "git -C <WT> {sub} ...")
 # The calling agent's allowed set and working directory, set by decide() for one hook call.
-CONTEXT = {"allowed": GIT_ALLOWED, "cwd": None}
+CONTEXT = {"allowed": GIT_ALLOWED, "cwd": None, "shell": "zsh"}
 GIT_GLOBAL_WITH_VALUE = {"-C", "--git-dir", "--work-tree"}
 GIT_GLOBAL_FLAGS = {"--no-pager", "-P", "--no-optional-locks"}
 # Long options that make an allowed subcommand run a program, write a file or
@@ -76,6 +76,9 @@ GIT_EXACT_OPTIONS = {"text"}  # a real option, so not a prefix of --textconv
 FORCE_SUBCOMMANDS = {"add", "mv", "rm"}
 FORCE_REASON = "force-staging ignored files is not allowed (git add/mv/rm -f / --force)"
 SHELLS = {"sh", "bash", "zsh", "dash", "ksh", "fish"}
+# Shells that run a pipeline's LAST stage in the current shell, so a cd there sticks (todo 496 finding 2).
+# bash, sh and dash run every stage in a subshell; macOS /bin/ksh (ksh93) keeps the last, like zsh.
+LAST_STAGE_SHELLS = {"zsh", "ksh"}
 SOURCES = {"source", "."}  # run a script in the current shell: same stdin risk as a shell
 # Unquoted reserved words (and zsh precommand modifiers) that only prefix the
 # real command. `for`, `select` and `case` start a word list or a pattern, which
@@ -372,12 +375,13 @@ def check_segments(segs, depth):
         # Todo 477: a `cd` moves the directory the next git runs in, but not out of a ( subshell ), a
         # pipeline stage or a background job: those run in a child shell, so the directory is restored.
         # Todo 496 finding 2: zsh (the agents' shell) runs a pipeline's LAST stage in the current shell,
-        # so a cd there sticks: only a stage followed by a pipe, or a background job, is undone.
+        # so a cd there sticks; bash/sh/dash (a `bash -c` body) undo it like any other stage.
         before = CONTEXT["cwd"]
         reason = check_words(seg.words, seg.piped, seg.stdin, depth)
         if reason:
             return reason
-        if seg.end in ("|", "|&", "&"):
+        last_stage_sticks = CONTEXT["shell"] in LAST_STAGE_SHELLS
+        if seg.end in ("|", "|&", "&") or (seg.piped and not last_stage_sticks):
             CONTEXT["cwd"] = before
         if seg.end == "(":
             subshells.append(CONTEXT["cwd"])
@@ -465,7 +469,7 @@ def check_words(words, piped, stdin, depth, wrapped=False):
     if program == "gh":
         return "gh is reserved for the main session (Land)"
     if program in SHELLS:
-        return check_shell(rest, piped, stdin, depth)
+        return check_shell(program, rest, piped, stdin, depth)
     if program in SOURCES:
         CONTEXT["cwd"] = UNKNOWN  # a sourced script runs in this shell and may cd
         return shell_reads_stdin(rest[0] if rest else None, False, piped, stdin)
@@ -557,7 +561,7 @@ def _check_wrapper(name, args, piped, stdin, depth):
     return check_words(args[j + operands:], piped, stdin, depth, wrapped=True)
 
 
-def check_shell(args, piped, stdin, depth):
+def check_shell(program, args, piped, stdin, depth):
     j, has_script, reads_stdin = 0, False, False
     while j < len(args):
         arg = args[j].value
@@ -578,7 +582,7 @@ def check_shell(args, piped, stdin, depth):
             break
     operand = args[j] if j < len(args) else None
     if has_script:  # a child shell: a cd in its script does not move this one (decide_command restores)
-        return decide_command(operand.value, depth + 1) if operand else "sh -c without a script"
+        return decide_command(operand.value, depth + 1, shell=program) if operand else "sh -c without a script"
     return shell_reads_stdin(operand, reads_stdin, piped, stdin)
 
 
@@ -728,7 +732,7 @@ def main_checkout(path):
 
 def denied_option(arg, names):
     name = arg[2:].partition("=")[0] if arg.startswith("--") else ""
-    return any(n == name or (len(name) >= 2 and n.startswith(name) and name not in GIT_EXACT_OPTIONS)
+    return any(n == name or (name and n.startswith(name) and name not in GIT_EXACT_OPTIONS)
                for n in names)
 
 
@@ -794,9 +798,10 @@ def grep_opens_pager(values):
     return False
 
 
-def decide_command(command, depth=0, keep_cwd=False):
+def decide_command(command, depth=0, keep_cwd=False, shell=None):
     """The reason to deny `command`, or None. A nested command ($(...), `sh -c`) runs in a child shell,
-    so a cd inside it does not move the caller's directory; eval (keep_cwd) runs in this one."""
+    so a cd inside it does not move the caller's directory; eval (keep_cwd) runs in this one. `shell`
+    names the shell a `sh -c` body runs in; $(...) and eval keep the caller's."""
     if depth > MAX_DEPTH:
         return "command nests too deeply; simplify it"
     try:
@@ -805,7 +810,8 @@ def decide_command(command, depth=0, keep_cwd=False):
         segs = list(segments(lexer.tokens))
     except (ValueError, RecursionError):
         return PARSE_REASON
-    outer = CONTEXT["cwd"]
+    outer, outer_shell = CONTEXT["cwd"], CONTEXT["shell"]
+    CONTEXT["shell"] = shell or outer_shell
     try:
         # Each segment judges its own substitutions in place (todo 496). Should any substitution not
         # belong to a word the segments carry, judge them all up front, as before.
@@ -817,6 +823,7 @@ def decide_command(command, depth=0, keep_cwd=False):
             CONTEXT["cwd"] = outer
         return check_segments(segs, depth)
     finally:
+        CONTEXT["shell"] = outer_shell
         if not keep_cwd and depth > 0:
             CONTEXT["cwd"] = outer
 
@@ -830,7 +837,8 @@ def decide(event):
     if not isinstance(command, str):
         return "unexpected hook input; tool_input.command is not a string"
     cwd = event.get("cwd")
-    CONTEXT.update(allowed=ALLOWED_BY_AGENT[agent], cwd=cwd if isinstance(cwd, str) and cwd else None)
+    CONTEXT.update(allowed=ALLOWED_BY_AGENT[agent], cwd=cwd if isinstance(cwd, str) and cwd else None,
+                   shell="zsh")  # the agents' Bash tool runs zsh
     try:
         return decide_command(command)
     except Exception:  # a guard bug must not wave a guarded agent through

@@ -361,6 +361,22 @@ if [ -n "$R" ] && git init -q "$R/main" && git -C "$R/main" -c user.email=t@t -c
     "$(cwd_event $W "$R/wt" "true | cd $R/main; git add -A")"
   assert_raw "496.2: a backgrounded last stage does not" allow \
     "$(cwd_event $W "$R/wt" "true | cd $R/main & git add -A")"
+  # Round-1 repair: bash/sh/dash run every pipeline stage in a subshell, so in a `bash -c` body the cd is undone.
+  assert_raw "496.2r: bash -c 'true | cd WT; git add' from MAIN runs in MAIN" deny \
+    "$(cwd_event $W "$R/main" "bash -c 'true | cd $R/wt; git add -A'")"
+  assert_raw "496.2r: sh -c 'true | cd WT; git add' from MAIN runs in MAIN" deny \
+    "$(cwd_event $W "$R/main" "sh -c 'true | cd $R/wt; git add -A'")"
+  assert_raw "496.2r: dash -c 'true | cd WT; git add' from MAIN runs in MAIN" deny \
+    "$(cwd_event $W "$R/main" "dash -c 'true | cd $R/wt; git add -A'")"
+  assert_raw "496.2r: bash -c 'true | cd MAIN; git add' from WT runs in WT" allow \
+    "$(cwd_event $W "$R/wt" "bash -c 'true | cd $R/main; git add -A'")"
+  # zsh -c and ksh (ksh93) keep the last stage in the current shell, like the top level.
+  assert_raw "496.2r: zsh -c 'true | cd MAIN; git add' sticks" deny \
+    "$(cwd_event $W "$R/wt" "zsh -c 'true | cd $R/main; git add -A'")"
+  assert_raw "496.2r: ksh -c 'true | cd MAIN; git add' sticks" deny \
+    "$(cwd_event $W "$R/wt" "ksh -c 'true | cd $R/main; git add -A'")"
+  assert_raw "496.2r: a \$(...) in a bash -c body is bash too" deny \
+    "$(cwd_event $W "$R/main" "bash -c 'echo \$(true | cd $R/wt; git add -A)'")"
   # Finding 3: a $(...) runs after the cd before it.
   assert_raw "496.3: cd MAIN && echo \$(git add -A)" deny "$(cwd_event $W "$R/wt" "cd $R/main && echo \$(git add -A)")"
   assert_raw "496.3: cd MAIN; x=\$(git add -A)" deny "$(cwd_event $W "$R/wt" "cd $R/main; x=\$(git add -A)")"
@@ -448,6 +464,10 @@ assert_deny  "496.6: git cat-file --te (--textconv)"     $V 'git cat-file --te H
 assert_deny  "496.6: git cat-file --fi (--filters)"      $V 'git cat-file --fi HEAD:a.py'
 assert_deny  "496.6: git diff --ou (--output)"           $W 'git diff --ou=/tmp/x'
 assert_allow "496.6: the exact --text is still a real option" $V 'git grep --text x && git diff --text'
+assert_deny  "496.6r: git cat-file --t (one-letter prefix of --textconv)" $V 'git cat-file --t HEAD:a.py'
+assert_deny  "496.6r: git diff --o=<file> (one-letter prefix of --output)" $W 'git diff --o=/tmp/x'
+assert_allow "496.6r: ordinary diff/log/show/cat-file/grep options" $V 'git diff --stat && git log --oneline -n 3 && git show --name-only HEAD && git cat-file -t HEAD && git grep -n x'
+assert_allow "496.6r: an ordinary git fetch" $W 'git fetch origin main'
 # Finding 7 — rev-list hands unknown options to the diff parser, which opens --output.
 assert_deny  "496.7: git rev-list --output"              $V 'git rev-list --output=/tmp/x HEAD'
 assert_allow "496.7: git rev-list --count"               $V 'git rev-list --count HEAD'
