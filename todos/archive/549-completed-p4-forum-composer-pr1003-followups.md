@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: p4
 issue_id: "549"
 tags: [forum, web, follow-ups, todo-sweep]
@@ -30,7 +30,35 @@ Dropped by curation (fixed on main, refuted, or not a reported location):
 
 ## Acceptance Criteria
 
-- [ ] Each finding above is fixed with a test where it is a behaviour change, or recorded in the Work Log as
+- [x] Each finding above is fixed with a test where it is a behaviour change, or recorded in the Work Log as
       declined with a reason.
 
 ## Work Log
+
+### 2026-10-10 - Implemented by the todo sweep (run 2026-10-11-0401)
+
+- Findings 1 and 4 (same defect): `web/src/pages/forum/NewThreadPage.tsx` replaces the `mounted` state and
+  `touchedRef` with one `baselineRef` that records the draft key it belongs to. A `?category=` change without a
+  remount re-arms the guard against the form as it stands, so a touched form no longer deletes (emptied) or
+  overwrites (with the previous board's text) the new board's stored draft. Two new tests fail on the old code.
+- Finding 2: the image-only draft test now also types a title and asserts Post Thread stays disabled, pinning
+  the `isBlankDoc` submit gate next to the `isEmptyDoc` persist rule.
+- Finding 3: new tests revert the tags field (typed) and the body (changed) back to their mounted values and
+  assert the stored draft follows each.
+- Tests: `npx vitest --run src/pages/forum/NewThreadPage.test.tsx` from `web/` (33 passed), `npm run type-check`, eslint on both files.
+
+### 2026-10-10 - Verified by the todo sweep (run 2026-10-11-0401)
+
+- AC 1: `sh -c 'cd web && npx vitest --run src/pages/forum/NewThreadPage.test.tsx'` — evidence `.sweep-evidence/g3/549-ac0.txt` (not committed), last lines:
+
+  ```text
+
+   Test Files  1 passed (1)
+        Tests  33 passed (33)
+     Start at  22:27:08
+     Duration  3.31s (transform 105ms, setup 102ms, import 336ms, tests 2.31s, environment 489ms)
+  ```
+
+### 2026-10-10 - Completed by the todo sweep (run 2026-10-11-0401)
+
+- Archived by `land.py archive`; evidence is quoted above, review is on the PR.

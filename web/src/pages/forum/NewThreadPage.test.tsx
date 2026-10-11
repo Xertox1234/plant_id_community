@@ -607,6 +607,106 @@ describe('NewThreadPage', () => {
     const stored = JSON.parse(loadDraft(key) ?? '{}');
     expect(stored.title).toBe('');
     expect(JSON.stringify(stored.body)).toContain('"imageId":"5"');
+
+    // Still blank for the submit gate (todo 549): with a title, Post stays
+    // disabled because isBlankDoc, not isEmptyDoc, gates the body.
+    await userEvent.type(screen.getByLabelText(/title/i), 'Pictured');
+    await waitFor(() => expect(loadDraft(key)).toContain('"title":"Pictured"'));
+    expect(screen.getByRole('button', { name: /post thread/i })).toBeDisabled();
+  });
+
+  it('stores the reverted tags when an edit returns them to their mounted value (todo 549)', async () => {
+    const key = draftKey('new-thread', '3-plant-care');
+    saveDraft(key, JSON.stringify({ title: 'T', body: '<p>kept</p>', tags: 'fern' }));
+    renderPage();
+    await screen.findByText('Plant Care');
+
+    const tagsInput = screen.getByLabelText(/tags/i);
+    await userEvent.type(tagsInput, 's');
+    await waitFor(() => expect(JSON.parse(loadDraft(key) ?? '{}').tags).toBe('ferns'));
+    await userEvent.type(tagsInput, '{Backspace}');
+
+    await waitFor(() => expect(JSON.parse(loadDraft(key) ?? '{}').tags).toBe('fern'));
+  });
+
+  it('stores the reverted body when an edit returns it to its mounted text (todo 549)', async () => {
+    const key = draftKey('new-thread', '3-plant-care');
+    saveDraft(key, JSON.stringify({ title: 'T', body: '<p>kept</p>', tags: '' }));
+    renderPage();
+    await screen.findByText('Plant Care');
+
+    const bodyInput = screen.getByLabelText('body');
+    const storedText = () => JSON.stringify(JSON.parse(loadDraft(key) ?? '{}').body);
+    fireEvent.change(bodyInput, { target: { value: 'kept more' } });
+    await waitFor(() => expect(storedText()).toContain('kept more'));
+    fireEvent.change(bodyInput, { target: { value: 'kept' } });
+
+    await waitFor(() =>
+      expect(JSON.parse(loadDraft(key) ?? '{}').body).toEqual({
+        type: 'doc',
+        content: [{ type: 'paragraph', content: [{ type: 'text', text: 'kept' }] }],
+      })
+    );
+  });
+
+  it("leaves another board's draft alone when ?category= changes without a remount (todo 549)", async () => {
+    // The route has no key: the AppShell/palette "Start a thread" link
+    // changes ?category= under a mounted page. A touched form emptied
+    // before the switch must not delete the new board's stored draft, and a
+    // touched form with text must not overwrite it.
+    const keyA = draftKey('new-thread', '3-plant-care');
+    const keyB = draftKey('new-thread', '5-pests');
+    const storedB = JSON.stringify({ title: 'Board B words', body: '<p>b</p>', tags: '' });
+    saveDraft(keyB, storedB);
+    const view = renderPage();
+    await screen.findByText('Plant Care');
+
+    await userEvent.type(screen.getByLabelText(/title/i), 'x');
+    await waitFor(() => expect(loadDraft(keyA)).toContain('"title":"x"'));
+    await userEvent.clear(screen.getByLabelText(/title/i));
+    await waitFor(() => expect(loadDraft(keyA)).toBeNull());
+
+    vi.mocked(ReactRouter.useSearchParams).mockReturnValue([
+      new URLSearchParams('category=5-pests'),
+      vi.fn(),
+    ]);
+    view.rerender(
+      <MemoryRouter>
+        <AnnouncerProvider>
+          <NewThreadPage />
+        </AnnouncerProvider>
+      </MemoryRouter>
+    );
+    await waitFor(() => expect(forumService.fetchCategory).toHaveBeenCalledWith(5));
+    expect(loadDraft(keyB)).toBe(storedB);
+
+    // The guard re-arms per key: the user's next edit is theirs to keep.
+    await userEvent.type(screen.getByLabelText(/title/i), 'y');
+    await waitFor(() => expect(loadDraft(keyB)).toContain('"title":"y"'));
+  });
+
+  it('does not copy a touched form into the new board key on a ?category= change (todo 549)', async () => {
+    const keyB = draftKey('new-thread', '5-pests');
+    const view = renderPage();
+    await screen.findByText('Plant Care');
+    await userEvent.type(screen.getByLabelText(/title/i), 'Board A');
+    await waitFor(() =>
+      expect(loadDraft(draftKey('new-thread', '3-plant-care'))).toContain('Board A')
+    );
+
+    vi.mocked(ReactRouter.useSearchParams).mockReturnValue([
+      new URLSearchParams('category=5-pests'),
+      vi.fn(),
+    ]);
+    view.rerender(
+      <MemoryRouter>
+        <AnnouncerProvider>
+          <NewThreadPage />
+        </AnnouncerProvider>
+      </MemoryRouter>
+    );
+    await waitFor(() => expect(forumService.fetchCategory).toHaveBeenCalledWith(5));
+    expect(loadDraft(keyB)).toBeNull();
   });
 
   describe('"Ask the community" handoff (audit M6)', () => {

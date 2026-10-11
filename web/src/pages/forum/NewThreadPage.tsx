@@ -143,18 +143,31 @@ export default function NewThreadPage() {
   // state (and in the draft) so a half-typed tag isn't destroyed mid-keystroke;
   // it is split/trimmed only at submit. The server normalizes and bounds it.
   const [tagsInput, setTagsInput] = useState<string>(() => initialDraft.tags || '');
-  // The composer as it mounted. Until the user changes something, the persist
-  // effect below writes nothing (todo 538): a stored draft the composer could
-  // not load (a JSON body the schema rejects after a schema change — logged by
-  // toComposerDoc) mounts as an empty body, and persisting that would delete
-  // the author's text before anyone could recover it. Compared by identity:
-  // every edit replaces the state value.
-  const [mounted] = useState(() => ({ title, body, tags: tagsInput }));
-  // Latches on the first change and never resets (todo 544). The comparison
-  // above is by value for title and tags, so an edit that puts them back to
-  // their mounted value (type 'x', delete it) would look untouched again and
-  // leave the mid-edit draft stored; once touched, every change persists.
-  const touchedRef = useRef(false);
+  // The composer as it mounted, and the draft key it mounted under. Until the
+  // user changes something, the persist effect below writes nothing (todo
+  // 538): a stored draft the composer could not load (a JSON body the schema
+  // rejects after a schema change — logged by toComposerDoc) mounts as an
+  // empty body, and persisting that would delete the author's text before
+  // anyone could recover it. Compared by identity: every edit replaces the
+  // state value.
+  //
+  // `touched` latches on the first change (todo 544). The comparison is by
+  // value for title and tags, so an edit that puts them back to their mounted
+  // value (type 'x', delete it) would look untouched again and leave the
+  // mid-edit draft stored; once touched, every change persists.
+  //
+  // The route has no key, so a `?category=` change (the AppShell or palette
+  // "Start a thread" link) keeps this page mounted and changes the draft key
+  // under a form that still holds the previous board's text. That re-arms
+  // the guard against the form as it stands (todo 549): a touched form must
+  // not write — or, emptied, delete — the new board's stored draft.
+  const baselineRef = useRef({
+    key: newThreadDraftKey,
+    title,
+    body,
+    tags: tagsInput,
+    touched: false,
+  });
   // Optional poll (audit M8). Deliberately NOT part of the autosaved draft:
   // the draft is a plain string blob keyed on title/body/tags, and widening it
   // would invalidate every draft already in a member's browser.
@@ -237,16 +250,27 @@ export default function NewThreadPage() {
 
   // Persist the draft on every change; an all-empty draft is removed. An
   // untouched composer leaves the stored draft exactly as it was (see
-  // `mounted` and `touchedRef`).
+  // `baselineRef`).
   useEffect(() => {
-    if (!touchedRef.current) {
-      if (title === mounted.title && body === mounted.body && tagsInput === mounted.tags) return;
-      touchedRef.current = true;
+    const base = baselineRef.current;
+    if (base.key !== newThreadDraftKey) {
+      baselineRef.current = {
+        key: newThreadDraftKey,
+        title,
+        body,
+        tags: tagsInput,
+        touched: false,
+      };
+      return;
+    }
+    if (!base.touched) {
+      if (title === base.title && body === base.body && tagsInput === base.tags) return;
+      base.touched = true;
     }
     // isEmptyDoc: an image-only body is not postable, but it is worth keeping.
     const isEmpty = title.trim() === '' && isEmptyDoc(body) && tagsInput.trim() === '';
     saveDraft(newThreadDraftKey, isEmpty ? '' : JSON.stringify({ title, body, tags: tagsInput }));
-  }, [title, body, tagsInput, newThreadDraftKey, mounted]);
+  }, [title, body, tagsInput, newThreadDraftKey]);
 
   // A poll left blank/underfilled is not a smaller poll — the server drops
   // blank rows and then rejects fewer than MIN_POLL_OPTIONS, so "enabled but
