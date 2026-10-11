@@ -14,8 +14,11 @@ import wagtail_forum
 # (``import os; import apps.x``, ``if X: from apps.y import z``), a comma
 # import (``import x, apps.y``), and a load whose string is not a dotted
 # ``apps.`` path (``__import__("apps", fromlist=[...])``,
-# ``import_module(".forum_host", "apps")``). isort and flake8 (pre-commit)
-# split the first two onto their own lines for backend/.
+# ``import_module(".forum_host", "apps")``). Under backend/, pre-commit
+# rewrites the three import forms onto lines of their own, where the pattern
+# sees them: Black splits ``import os; import apps.x`` and
+# ``if X: from apps.y import z``, and isort splits ``import x, apps.y``
+# (todo 591). flake8 rewrites nothing; it only reports E701/E702.
 # Known false positive: quoted prose that opens with ``apps.`` (a comment
 # ``# see 'apps.py'``) matches; reword it. The regex stays this narrow on
 # purpose (owner decision 2026-10-11, todo 560).
@@ -24,13 +27,16 @@ HOST_IMPORT = re.compile(r"^\s*(from|import)\s+apps(\.|\s|$)|['\"]apps\.", re.MU
 
 
 def host_import_lines(source):
-    """1-based line numbers of every HOST_IMPORT hit in ``source``."""
+    """1-based line numbers of the lines with a HOST_IMPORT hit in
+    ``source``, each named once however many hits it has (todo 591)."""
     lines = []
     for match in HOST_IMPORT.finditer(source):
         # ``^\s*`` can start on a blank line above the statement; count
         # from the keyword, not from the match start.
         start = match.start(1) if match.group(1) else match.start()
-        lines.append(source.count("\n", 0, start) + 1)
+        line = source.count("\n", 0, start) + 1
+        if line not in lines:
+            lines.append(line)
     return lines
 
 
@@ -109,3 +115,11 @@ def test_host_import_lines_names_the_line_of_each_hit():
     source = "import pytest\n\nfrom apps.forum_host import x\nX = 'apps.y'\n"
 
     assert host_import_lines(source) == [3, 4]
+
+
+def test_host_import_lines_names_a_line_with_two_hits_once():
+    # An import and a quoted host path on one line are two regex hits but
+    # one offending line (todo 591).
+    source = "import pytest\nfrom apps.x import y  # 'apps.z'\n"
+
+    assert host_import_lines(source) == [2]
