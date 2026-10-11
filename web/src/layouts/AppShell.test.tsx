@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { act, render, screen, within, fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
@@ -61,6 +61,13 @@ beforeEach(() => {
     previous: null,
   });
   vi.mocked(notificationService.markNotificationsRead).mockResolvedValue(0);
+});
+
+// A fake-timer test restores real timers in its own finally, but one that
+// times out never reaches it, and the fakes would then leak into every later
+// userEvent test (todo 556).
+afterEach(() => {
+  vi.useRealTimers();
 });
 
 describe('AppShell', () => {
@@ -261,20 +268,28 @@ describe('AppShell', () => {
     return { md, fire };
   };
 
-  // Run every deferral (rAF or timeout, however long) that a close scheduled,
-  // so a focus assertion that follows sees where focus SETTLES, not only where
-  // the commit left it. A useModalFocus that restored to the trigger in a rAF
-  // or a timeout would pass a synchronous check and then steal focus back from
-  // <main> (todo 509). Fake timers: a real 50 ms sleep caught only deferrals
-  // shorter than itself (todo 522). A caller installs vi.useFakeTimers() BEFORE
-  // rendering and opens the drawer with fireEvent, not userEvent: user-event
-  // runs inside RTL's asyncWrapper, whose setTimeout(0) drain is only advanced
-  // under Jest fake timers, so under Vitest's it hangs until the test times
-  // out. runOnlyPendingTimers, not runAllTimers: the unread-count poll is an
-  // interval, which runAllTimers would spin on until Vitest aborts it.
+  // Run the deferrals a close schedules -- rAF or timeout, and the ones those
+  // schedule in turn -- so a focus assertion that follows sees where focus
+  // SETTLES, not only where the commit left it. A useModalFocus that restored
+  // to the trigger in a rAF or a timeout would pass a synchronous check and
+  // then steal focus back from <main> (todo 509). Fake timers: a real 50 ms
+  // sleep caught only deferrals shorter than itself (todo 522).
+  //
+  // What is flushed: one simulated second, timers scheduled during the advance
+  // included. runOnlyPendingTimersAsync ran only the timers pending when it was
+  // called, so a restore deferred twice (setTimeout(0) -> setTimeout(0), rAF ->
+  // rAF) never ran and passed (todo 556). A deferral longer than 1000 ms is not
+  // flushed; the unread-count poll (30 s) would not start anyway, since these
+  // tests are logged out. requestAnimationFrame is faked because Vitest derives
+  // the faked globals from jsdom's, which include it.
+  //
+  // A caller installs vi.useFakeTimers() BEFORE rendering and opens the drawer
+  // with fireEvent, not userEvent: user-event runs inside RTL's asyncWrapper,
+  // whose setTimeout(0) drain is only advanced under Jest fake timers, so
+  // under Vitest's it hangs until the test times out.
   const flushDeferred = () =>
     act(async () => {
-      await vi.runOnlyPendingTimersAsync();
+      await vi.advanceTimersByTimeAsync(1000);
     });
 
   it('drawer closes when the window widens past md (todo 420)', async () => {
@@ -413,9 +428,9 @@ describe('AppShell', () => {
     // subscriber to the same query is legitimate. So AppShell must add at
     // least one listener -- not exactly 1, by todo 509's decision -- and
     // unmount must bring the count back to where it started (todo 522). The
-    // bystander stands in for that other subscriber, so "back to the start"
-    // is not just "zero" and AppShell's cleanup is shown to remove only its
-    // own listeners.
+    // bystander keeps the baseline non-zero, so the assertion is relative to
+    // it rather than "back to zero" (todo 556). It is never handed to
+    // AppShell, so it cannot show which listeners the cleanup removes.
     const originalMatchMedia = window.matchMedia;
     const { md } = stubMdMatchMedia(false);
     try {

@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: p4
 issue_id: "556"
 tags: [todo-sweep, follow-ups, backend, web]
@@ -39,10 +39,32 @@ finding against main before acting on it.
 
 ## Acceptance Criteria
 
-- [ ] Each of its 4 findings is fixed with a test, or the Work Log records why it was left as is.
+- [x] Each of its 4 findings is fixed with a test, or the Work Log records why it was left as is.
 
 ## Work Log
 
 ### 2026-10-10 - Promoted out of todo 527
 
 - Split from the consolidated follow-up todo 527 (owner decision 2026-10-10: one todo per source PR).
+
+### 2026-10-11 - Implemented by the todo sweep (run 2026-10-11-1448)
+
+- Finding 1: `flushDeferred` in `web/src/layouts/AppShell.test.tsx` now runs `vi.advanceTimersByTimeAsync(1000)`, which also runs timers scheduled during the advance; its comment states what is flushed (one simulated second; the 30 s unread poll never starts logged out; rAF is faked via jsdom's globals). Probed by deferring `useModalFocus`'s restore twice (`setTimeout(0)` -> `setTimeout(0)`, then rAF -> rAF): both widen tests fail, and pass again once reverted. The "however long" claim in archived todo 522's Work Log is corrected in place.
+- Findings 2 and 4: `DiseaseDiagnosePage.test.tsx` reads the choices through `readInlineChoices`, which bounds the field slice so it stops at the next 4-space-indented line (a one-liner cannot run into the next field), drops `#` comment lines, accepts Black's trailing comma inside a tuple, and returns the unparsed residue instead of counting `(` lines. The guard expects the residue to be empty and quotes it; every expect names its remedy. A new `readInlineChoices` describe pins each review probe: list-form, spread, gettext and single-quoted choices are reported; commented, Black-exploded and one-line lists parse clean; a one-liner field reports "no inline choices". The `]`-in-label limit is noted in the comment.
+- Finding 3: an `afterEach(() => { vi.useRealTimers(); })` restores real timers even when a fake-timer test times out before its `finally`, and the unmount test's comment no longer claims the bystander shows which listeners the cleanup removes.
+
+### 2026-10-11 - Verified by the todo sweep (run 2026-10-11-1448)
+
+- AC 1: `bash -c "cd web && ./node_modules/.bin/vitest run src/layouts/AppShell.test.tsx src/pages/diagnosis/DiseaseDiagnosePage.test.tsx && grep -n '^- Finding' todos/archive/556-completed-p4-pr946-followups.md"` — evidence `.sweep-evidence/g4/556-ac0.txt` (not committed), last lines:
+
+  ```text
+     Duration  1.53s (transform 152ms, setup 267ms, import 453ms, tests 975ms, environment 1.12s)
+
+  52:- Finding 1: `flushDeferred` in `web/src/layouts/AppShell.test.tsx` now runs `vi.advanceTimersByTimeAsync(1000)`, which also runs timers scheduled during the advance; its comment states what is flushed (one simulated second; the 30 s unread poll never starts logged out; rAF is faked via jsdom's globals). Probed by deferring `useModalFocus`'s restore twice (`setTimeout(0)` -> `setTimeout(0)`, then rAF -> rAF): both widen tests fail, and pass again once reverted. The "however long" claim in archived todo 522's Work Log is corrected in place.
+  53:- Findings 2 and 4: `DiseaseDiagnosePage.test.tsx` reads the choices through `readInlineChoices`, which bounds the field slice so it stops at the next 4-space-indented line (a one-liner cannot run into the next field), drops `#` comment lines, accepts Black's trailing comma inside a tuple, and returns the unparsed residue instead of counting `(` lines. The guard expects the residue to be empty and quotes it; every expect names its remedy. A new `readInlineChoices` describe pins each review probe: list-form, spread, gettext and single-quoted choices are reported; commented, Black-exploded and one-line lists parse clean; a one-liner field reports "no inline choices". The `]`-in-label limit is noted in the comment.
+  54:- Finding 3: an `afterEach(() => { vi.useRealTimers(); })` restores real timers even when a fake-timer test times out before its `finally`, and the unmount test's comment no longer claims the bystander shows which listeners the cleanup removes.
+  ```
+
+### 2026-10-11 - Completed by the todo sweep (run 2026-10-11-1448)
+
+- Archived by `land.py archive`; evidence is quoted above, review is on the PR.
