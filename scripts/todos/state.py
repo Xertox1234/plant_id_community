@@ -836,6 +836,21 @@ def execute_args(run, wave, main_root, git=run_git):
     return briefs
 
 
+def _free_aside(root, name, main_root, git):
+    """`<name>.aside-<today>`, or `-2`, `-3`, ... after it: the first one that is neither a directory under root
+    nor a `worktree-<aside>` branch (todo 551). Bounded, so a git that answers yes to every ref cannot spin it."""
+    stem = f"{name}.aside-{datetime.date.today().isoformat()}"
+    for n in range(1, 100):
+        aside = stem if n == 1 else f"{stem}-{n}"
+        if (root / aside).exists():
+            continue
+        try:
+            git(main_root, "rev-parse", "--verify", "--quiet", f"refs/heads/worktree-{aside}")
+        except RuntimeError:
+            return aside
+    return f"{stem}-{datetime.datetime.now().strftime('%H%M%S')}"
+
+
 def add_worktrees(run, briefs, root, git=run_git):
     """Create each worker brief's worktree before the workflow runs, and put its path and branch on the
     brief and on every todo of the group (todo 528, owner decision 2026-10-10). The workflow used to let
@@ -862,11 +877,17 @@ def add_worktrees(run, briefs, root, git=run_git):
         # The recovery (#982-7): a directory moved aside with `mv` leaves the registered worktree and the branch,
         # so `worktree add -b` still fails. Todo 546: what is in the way may hold a worker's uncommitted changes,
         # so the recovery moves it and renames its branch, and deletes nothing.
-        aside = f"{name}.aside-{datetime.date.today().isoformat()}"
-        rename = f"`git -C {main_root} branch -m {branch} worktree-{aside}`, then rerun execute-args"
-        recover = (f"move it aside without losing anything: `git -C {main_root} worktree move {path} "
-                   f"{root / aside}` (if git does not list it as a worktree, `mv` it there and run `git -C "
-                   f"{main_root} worktree prune`), then {rename}")
+        # Todo 551: the aside name is computed only on a failure, and is one neither a directory nor a branch
+        # already holds, so a second collision on the same day names a command that works.
+        def rename():
+            return (f"`git -C {main_root} branch -m {branch} worktree-{_free_aside(root, name, main_root, git)}`, "
+                    "then rerun execute-args")
+
+        def recover():
+            aside = _free_aside(root, name, main_root, git)
+            return (f"move it aside without losing anything: `git -C {main_root} worktree move {path} "
+                    f"{root / aside}` (if git does not list it as a worktree, `mv` it there and run `git -C "
+                    f"{main_root} worktree prune`), then {rename()}")
         if path.exists():
             try:
                 same = (git(path, "rev-parse", "--abbrev-ref", "HEAD").strip() == branch
@@ -875,7 +896,7 @@ def add_worktrees(run, briefs, root, git=run_git):
                 same = False
             if not same:
                 raise RuntimeError(f"{brief['group']}: {path} already exists and is not this group's fresh "
-                                   f"worktree; {recover}")
+                                   f"worktree; {recover()}")
         else:
             try:
                 git(main_root, "rev-parse", "--verify", "--quiet", f"refs/heads/{branch}")
@@ -885,7 +906,7 @@ def add_worktrees(run, briefs, root, git=run_git):
             if taken:
                 raise RuntimeError(f"{brief['group']}: branch {branch} already exists, but {path} does not; "
                                    f"keep its commits under another name: `git -C {main_root} worktree prune`, "
-                                   f"then {rename}")
+                                   f"then {rename()}")
             root.mkdir(parents=True, exist_ok=True)
             git(main_root, "worktree", "add", "--no-track", "-b", branch, str(path), "origin/main")
         _copy_worktreeinclude(main_root, path, git)
@@ -1423,8 +1444,16 @@ def ingest_followups(run, results):
             outcome[gid] = "uncurated"
             continue
         known = {_followup_key(line) for line in raw}
-        accounted = list(result.get("dropped") or [])  # the workflow's drops: refuted, or fixed on main
-        kept, rejected = [], []
+        accounted, rejected = [], []
+        for d in result.get("dropped") or []:  # the workflow's drops: refuted, or fixed on main
+            # Todo 551: a drop is held to the same location check as a kept item; one at a file:line the review
+            # never reported accounts for nothing, so the stored lines it names stay as stored.
+            if _followup_key(str(d.get("line", ""))) in known:
+                accounted.append(d)
+            else:
+                rejected.append({"line": str(d.get("line", "")), "why": "dropped at a location the review did not "
+                                 f"report, so it covers nothing: {d.get('why', '')}"[:300]})
+        kept = []
         for item in result["kept"]:
             line = _refuted_line(item)
             if f"{item['file']}:{item['line']}" not in known or item["severity"] not in {"medium", "low"}:
@@ -1436,13 +1465,18 @@ def ingest_followups(run, results):
         # item this ingest rejects accounts for nothing -- the stored line at its location stays as stored -- and
         # one the workflow dropped accounts for every phrasing merged into it, so a refuted item's merged
         # duplicate does not come back as uncovered.
+        # Todo 551: a dropped phrasing covers a stored line only in the drop's own file. The curator merges
+        # duplicates on nearby lines; an identical summary elsewhere (`missing test`) is a different finding,
+        # and is kept as stored rather than lost with the drop.
         returned = {_followup_key(line) for _, line in kept} | {_followup_key(str(d.get("line", ""))) for d in accounted}
-        phrased = ({p for item, _ in kept for p in [item.get("summary", ""), *item.get("also", [])]}
-                   | {p for d in accounted for p in _line_phrasings_followup(str(d.get("line", "")))})
+        phrased = {p for item, _ in kept for p in [item.get("summary", ""), *item.get("also", [])]}
+        dropped_phrased = {(_followup_file(str(d.get("line", ""))), p) for d in accounted
+                           for p in _line_phrasings_followup(str(d.get("line", "")))}
         kept = [line for _, line in kept]
         dropped = accounted + rejected
         uncovered = [line for line in raw if _followup_key(line) not in returned
-                   and not set(_line_phrasings_followup(line)) & phrased]
+                     and not set(_line_phrasings_followup(line)) & phrased
+                     and not {(_followup_file(line), p) for p in _line_phrasings_followup(line)} & dropped_phrased]
         record["curated"] = sorted(dict.fromkeys(kept + uncovered), key=_followup_rank)
         record["curation_dropped"] = dropped
         record["curation"] = "verified" if result.get("refuter_ok") else "curated; the refuter returned nothing"
@@ -1450,6 +1484,12 @@ def ingest_followups(run, results):
             record["curation"] += f"; {len(uncovered)} item(s) the curator did not return were kept as stored"
         outcome[gid] = record["curation"]
     return outcome
+
+
+def _followup_file(line):
+    """The file of a follow-up's file:line key (todo 551), or the whole key when it has no `:<line>`."""
+    key = _followup_key(line)
+    return key.rsplit(":", 1)[0] if re.search(r":\d+\Z", key) else key
 
 
 def _line_phrasings_followup(line):

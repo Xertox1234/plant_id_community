@@ -10,6 +10,7 @@ moved, or leaves the working tree dirty, must void the verdict.
 
 import contextlib
 import copy
+import datetime
 import io
 import json
 import os
@@ -3168,6 +3169,25 @@ def todo_541_tests():
               isinstance(err, RuntimeError) and "already exists, but" in str(err), err)
         check("546 #3: ... and its recovery prunes and renames the branch, never `branch -D`",
               "worktree prune" in str(err) and "branch -m" in str(err) and "branch -D" not in str(err), err)
+        # Todo 551 (#1005 finding 6): a second collision the same day names a free aside, not the first one again.
+        today = datetime.date.today().isoformat()
+        (root / "sweep-r-g1").mkdir()
+        (root / f"sweep-r-g1.aside-{today}").mkdir()
+        _, err = expect(lambda: state.add_worktrees(run1, [dict(brief)], root, git=fake(False)))
+        check("551 #6: an aside directory already there from today makes the hint name `-2` for the move and the branch",
+              f"wts/sweep-r-g1.aside-{today}-2` (if" in str(err) and f"worktree-sweep-r-g1.aside-{today}-2`" in str(err), err)
+        (root / "sweep-r-g1").rmdir()
+        (root / f"sweep-r-g1.aside-{today}").rmdir()
+
+        def taken_aside(repo, *args):
+            if args[:2] == ("rev-parse", "--verify"):
+                if args[-1] in ("refs/heads/worktree-sweep-r-g1", f"refs/heads/worktree-sweep-r-g1.aside-{today}"):
+                    return "abc\n"
+                raise RuntimeError("no such ref")
+            return ""
+        _, err = expect(lambda: state.add_worktrees(run1, [dict(brief)], root, git=taken_aside))
+        check("551 #6: an aside branch already there from today makes the rename name `-2`",
+              f"branch -m worktree-sweep-r-g1 worktree-sweep-r-g1.aside-{today}-2`" in str(err), err)
         cwd = os.getcwd()
         os.chdir(tmp)
         try:
@@ -3308,6 +3328,18 @@ def todo_546_tests():
         {"severity": "low", "file": "made-up.py", "line": 1, "summary": "invented", "also": ["nit"]}]}])
     check("546 (beyond the cap): an item rejected for its location does not cover a stored phrasing",
           run["groups"]["g1"]["curated"] == ["low: a.py:2 nit"], run["groups"]["g1"])
+    # Todo 551 (#1005 finding 3): a drop is held to the same checks as a kept item.
+    run = merged_run([f("low", 2, "nit")])
+    state.ingest_followups(run, [{"group": "g1", "ids": ["1"], "refuter_ok": True, "kept": [], "dropped": [
+        {"line": "low: made-up.py:1 invented | also: nit", "why": "refuted: wrong"}]}])
+    check("551 #3: a drop at a location the review never reported covers nothing; the stored line stays",
+          run["groups"]["g1"]["curated"] == ["low: a.py:2 nit"]
+          and any("did not report" in d["why"] for d in run["groups"]["g1"]["curation_dropped"]), run["groups"]["g1"])
+    run = merged_run([f("medium", 9, "missing test"), f("low", 4, "missing test", file="b.py")])
+    state.ingest_followups(run, [{"group": "g1", "ids": ["1"], "refuter_ok": True, "kept": [], "dropped": [
+        {"line": "medium: a.py:9 missing test", "why": "refuted: there is one"}]}])
+    check("551 #3: a dropped phrasing does not cover an identical summary in another file the curator left out",
+          run["groups"]["g1"]["curated"] == ["low: b.py:4 missing test"], run["groups"]["g1"])
 
     # Beyond the cap: a re-verify brief records an absolute --main-root too.
     with tempfile.TemporaryDirectory() as tmp:

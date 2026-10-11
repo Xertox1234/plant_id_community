@@ -83,6 +83,22 @@ assert_allow "546: a harness-isolated worker (agent-*) edits its own worktree" \
 assert_deny  "546: ... and not a sweep worktree" \
   "$(event todo-worker "$AGENT" "$WT/scripts/x.py")"
 
+# ---- todo 551 (#1005 finding 2): a retry/repair worker edits the group's recorded harness worktree ----
+WF="$REPO/.claude/worktrees/wf_6b13b590-b1b-1"
+git -C "$REPO" worktree add -q -b wt-wf "$WF"
+assert_allow "551 #2: worker in the main checkout: a recorded agent-* worktree is allowed" \
+  "$(event todo-worker "$REPO" "$AGENT/scripts/x.py")"
+assert_allow "551 #2: worker in the main checkout: a recorded wf_* worktree is allowed" \
+  "$(event todo-worker "$REPO" "$WF/scripts/x.py")"
+assert_deny  "551 #2: ... while a human's worktree is still denied" \
+  "$(event todo-worker "$REPO" "$HUMAN/scripts/x.py")"
+assert_deny  "551 #2: ... and so is the session worktree the worker inherited" \
+  "$(event todo-worker "$SESSION" "$SESSION/scripts/x.py")"
+assert_allow "551 #2: a harness-isolated worker in wf_* edits its own worktree" \
+  "$(event todo-worker "$WF" scripts/x.py)"
+assert_deny  "551 #2: ... and not a sweep worktree" \
+  "$(event todo-worker "$WF" "$WT/scripts/x.py")"
+
 # ---- everyone else passes through ----
 assert_allow "the main session (no agent_type) is untouched" \
   "$(printf '{"cwd":"%s","tool_input":{"file_path":"%s"}}' "$REPO" "$REPO/x.py")"

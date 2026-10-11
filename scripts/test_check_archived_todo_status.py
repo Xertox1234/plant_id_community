@@ -345,6 +345,39 @@ def main():
     check("546 #8: ... nor does a fenced `## Work Log` start one",
           chk.work_log_home_paths(f"## Problem\n```\n## Work Log\n```\n{users}/a\n") == [])
 
+    # Todo 551 (#1005 finding 1): a fence closes only on its own character and length, and an unclosed one is
+    # plain text, so neither can hide the real `## Work Log` heading.
+    nested = f"## Problem\n````\n```\n````\n## Work Log\n- {users}/a\n"
+    check("551 #1: a ``` line quoted inside a ```` block does not close it; the Work Log after it is scanned",
+          chk.work_log_home_paths(nested) == [f"- {users}/a"], chk.work_log_home_paths(nested))
+    mixed = f"## Problem\n```\n~~~\n```\n## Work Log\n- {home}/b\n"
+    check("551 #1: a ~~~ line inside a ``` block does not close it either",
+          chk.work_log_home_paths(mixed) == [f"- {home}/b"], chk.work_log_home_paths(mixed))
+    unclosed = f"## Problem\n```python\nx = 1\n## Work Log\n- {users}/c\n"
+    check("551 #1: an unclosed fence before `## Work Log` is plain text, so the Work Log is still scanned",
+          chk.work_log_home_paths(unclosed) == [f"- {users}/c"], chk.work_log_home_paths(unclosed))
+    check("551 #1: a closer with text after it closes nothing, and a longer closer closes",
+          chk.fenced_lines(["```", "``` x", "````", "after"]) == [True, True, True, False],
+          chk.fenced_lines(["```", "``` x", "````", "after"]))
+    with tempfile.TemporaryDirectory() as tmp2:
+        p = pathlib.Path(tmp2) / "t.md"
+        p.write_text("---\nstatus: completed\n---\n````\n- [ ] quoted\n```\n````\n```markdown\n```python\n```\n"
+                     "## Acceptance Criteria\n- [ ] real\n")
+        check("551 #1: parse() matches fences the same way: quoted boxes are skipped, a box after a nested block counts",
+              chk.parse(str(p))[3] == ["- [ ] real"], chk.parse(str(p)))
+
+    # Todo 551 (#1005 finding 5): prose with a dash and a doubled slash inside a path are not home paths.
+    safe = ["a -home-made fix", "the -Users-guide", "apps//home/x", "web/src//home/A.tsx"]
+    hit = [s for s in safe if chk.HOME_PATH_RE.search(s)]
+    check("551 #5: `-home-` in prose and a `//home/` inside a longer path do not match", not hit, hit)
+    leaks = ["~/.claude/projects/-" + "Users" + "-someone-projects-x", "//" + "home/someone", "x //" + "home/someone"]
+    missed = [s for s in leaks if not chk.HOME_PATH_RE.search(s)]
+    check("551 #5: ... while the TMPDIR spelling after a `/` and a `//home/` path start still do", not missed, missed)
+    bare = ["`-" + "Users" + "-alice-projects-app`", "cd -" + "Users" + "-alice-projects-app",
+            '"-' + 'home' + '-alice-projects-app"']
+    missed = [s for s in bare if not chk.HOME_PATH_RE.search(s)]
+    check("551 #5 (PR #1016 review): a bare, quoted or backticked project-key slug still matches", not missed, missed)
+
     print()
     if FAILURES:
         print(f"FAILED: {len(FAILURES)} check(s): {', '.join(FAILURES)}")
