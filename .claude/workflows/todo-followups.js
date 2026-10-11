@@ -58,6 +58,24 @@ const JUDGED = {
 
 const groups = (args && args.groups) || []
 
+// Todo 577 #4: where each stored phrasing came from. A stored line is `<severity>: <file>:<line> <summary>` with
+// any merged phrasings after ` | also: `, joined by ` | ` (state.py FOLLOWUP_LINE). A phrasing found at its own
+// line's head wins over one found in another line's `also`, and the first such line wins over later ones.
+const STORED = /^(critical|high|medium|low): (.+?):(\d+) ([\s\S]*)$/
+function origins(followups) {
+  const heads = new Map()
+  const merged = new Map()
+  for (const line of followups || []) {
+    const m = STORED.exec(line)
+    if (!m) continue
+    const [head, ...also] = m[4].split(' | also: ').flatMap((part, n) => (n ? part.split(' | ') : [part]))
+    const at = { severity: m[1], file: m[2], line: Number(m[3]) }
+    if (!heads.has(head)) heads.set(head, at)
+    for (const p of also) if (!merged.has(p)) merged.set(p, at)
+  }
+  return phrasing => heads.get(phrasing) || merged.get(phrasing) || null
+}
+
 // The main checkout may sit on another branch: every read is of origin/main, through git, never the files on disk.
 function mainReads(g) {
   return `Read code only as it is on origin/main: \`/usr/bin/git -C '${g.main_root}' show origin/main:<path>\` and ` +
@@ -128,26 +146,46 @@ const results = await pipeline(
     const verdicts = new Map((judged ? judged.judgments : []).map(j => [j.index, j]))
     const kept = []
     const dropped = []
+    const originOf = origins(g.followups)
     let gone = 0
     items.forEach((i, n) => {
       const j = verdicts.get(n)
       const also = i.also || []
       // Todo 551 (owner decision 2026-10-10): only the phrasings the refuter refuted drop; the rest of the item
-      // stays a follow-up at its location, led by its first surviving phrasing. Before, refuting the summary
-      // dropped every merged phrasing with it, a different problem the refuter never judged among them.
+      // stays a follow-up. Before, refuting the summary dropped every merged phrasing with it, a different problem
+      // the refuter never judged among them.
       const alsoGone = new Set(((j && j.also_refuted) || []).filter(k => Number.isInteger(k) && k >= 0 && k < also.length))
-      const refuted = [...(j && j.refuted ? [i.summary] : []), ...also.filter((_, k) => alsoGone.has(k))]
-      const stay = [...(j && j.refuted ? [] : [i.summary]), ...also.filter((_, k) => !alsoGone.has(k))]
-      if (stay.length) kept.push({ ...i, summary: stay[0], also: stay.slice(1) })
-      if (!refuted.length) return
-      gone += refuted.length
-      const why = i.on_main === 'fixed' ? `fixed on main: ${i.note}; the refuter agreed: ${j.reason}`
-        : `refuted: ${j.reason}`
+      const summaryGone = Boolean(j && j.refuted)
+      const stay = [...(summaryGone ? [] : [i.summary]), ...also.filter((_, k) => !alsoGone.has(k))]
+      if (stay.length) {
+        // Todo 577 #4: with its summary refuted, the item is led by a merged phrasing, which goes back to its OWN
+        // stored location and severity: a low nit merged in from a.py:2 is not a medium at a.py:9. A phrasing the
+        // curator reworded, found on no stored line, keeps the item's location and severity, as before.
+        const at = (summaryGone && originOf(stay[0])) || null
+        const home = at && ['medium', 'low'].includes(at.severity) ? at : { severity: i.severity, file: i.file, line: i.line }
+        kept.push({ ...i, ...home, summary: stay[0], also: stay.slice(1) })
+      }
+      const refutedAlso = also.filter((_, k) => alsoGone.has(k))
+      if (!summaryGone && !refutedAlso.length) return
+      gone += (summaryGone ? 1 : 0) + refutedAlso.length
+      const at = `${i.severity}: ${i.file}:${i.line}`
+      const refutedWhy = `refuted: ${j.reason}`
+      // Todo 577 #7: "fixed on main" is the curator's claim about the item's summary. It names only the summary's
+      // own drop; a merged phrasing refuted alongside it, or alone, was judged separately and reads `refuted:`.
+      if (summaryGone && i.on_main === 'fixed') {
+        dropped.push({ line: `${at} ${i.summary}`, why: `fixed on main: ${i.note}; the refuter agreed: ${j.reason}` })
+        if (refutedAlso.length) {
+          const more = refutedAlso.length > 1 ? ` | also: ${refutedAlso.slice(1).join(' | ')}` : ''
+          dropped.push({ line: `${at} ${refutedAlso[0]}${more}`, why: refutedWhy })
+        }
+        return
+      }
+      const refuted = [...(summaryGone ? [i.summary] : []), ...refutedAlso]
       // Todo 546: with the refuted merged phrasings, so ingest-followups knows those duplicates are refuted too.
       const more = refuted.length > 1 ? ` | also: ${refuted.slice(1).join(' | ')}` : ''
-      dropped.push({ line: `${i.severity}: ${i.file}:${i.line} ${refuted[0]}${more}`, why })
+      dropped.push({ line: `${at} ${refuted[0]}${more}`, why: refutedWhy })
     })
-    if (gone) log(`${g.group}: the refuter dismissed ${gone} phrasing(s) across ${dropped.length} of ${items.length} follow-up(s)`)
+    if (gone) log(`${g.group}: the refuter dismissed ${gone} phrasing(s) in ${dropped.length} drop(s) across ${items.length} follow-up(s)`)
     return { ...base, kept, dropped, refuter_ok: Boolean(judged) }
   },
 )

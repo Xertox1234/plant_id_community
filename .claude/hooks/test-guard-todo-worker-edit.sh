@@ -86,6 +86,9 @@ assert_deny  "546: ... and not a sweep worktree" \
 # ---- todo 551 (#1005 finding 2): a retry/repair worker edits the group's recorded harness worktree ----
 WF="$REPO/.claude/worktrees/wf_6b13b590-b1b-1"
 git -C "$REPO" worktree add -q -b wt-wf "$WF"
+# Todo 577 #5: "recorded" is now checked: a sweep run file in the main checkout names both as a todo's worktree.
+mkdir -p "$REPO/todos"
+printf '{"todos":{"1":{"worktree":"%s"},"2":{"worktree":"%s"},"3":{}}}' "$AGENT" "$WF" > "$REPO/todos/.sweep-run-r.json"
 assert_allow "551 #2: worker in the main checkout: a recorded agent-* worktree is allowed" \
   "$(event todo-worker "$REPO" "$AGENT/scripts/x.py")"
 assert_allow "551 #2: worker in the main checkout: a recorded wf_* worktree is allowed" \
@@ -98,6 +101,27 @@ assert_allow "551 #2: a harness-isolated worker in wf_* edits its own worktree" 
   "$(event todo-worker "$WF" scripts/x.py)"
 assert_deny  "551 #2: ... and not a sweep worktree" \
   "$(event todo-worker "$WF" "$WT/scripts/x.py")"
+
+# ---- todo 577 #5: from the main checkout, a harness worktree is allowed only when a run records it ----
+STRAY="$REPO/.claude/worktrees/wf_other-workflow-9"
+OTHER_AGENT="$REPO/.claude/worktrees/agent-def456"
+git -C "$REPO" worktree add -q -b wt-stray "$STRAY"
+git -C "$REPO" worktree add -q -b wt-other-agent "$OTHER_AGENT"
+assert_deny  "577 #5: worker in the main checkout: another workflow's unrecorded wf_* worktree is denied" \
+  "$(event todo-worker "$REPO" "$STRAY/scripts/x.py")"
+assert_deny  "577 #5: worker in the main checkout: another agent's unrecorded agent-* worktree is denied" \
+  "$(event todo-worker "$REPO" "$OTHER_AGENT/scripts/x.py")"
+assert_deny  "577 #5: ... and so from the session worktree the engine ran from" \
+  "$(event todo-worker "$SESSION" "$STRAY/scripts/x.py")"
+mkdir -p "$SESSION/todos"
+printf '{"todos":{"9":{"worktree":"%s"}}}' "$STRAY" > "$SESSION/todos/.sweep-run-s.json"
+assert_allow "577 #5: a run file in the session worktree the engine ran from records a worktree too" \
+  "$(event todo-worker "$SESSION" "$STRAY/scripts/x.py")"
+printf 'not json' > "$REPO/todos/.sweep-run-bad.json"
+assert_allow "577 #5: an unreadable run file records nothing and breaks nothing else" \
+  "$(event todo-worker "$REPO" "$WF/scripts/x.py")"
+assert_allow "577 #5: a sweep-* worktree needs no record" \
+  "$(event todo-worker "$REPO" "$OTHER/scripts/x.py")"
 
 # ---- everyone else passes through ----
 assert_allow "the main session (no agent_type) is untouched" \

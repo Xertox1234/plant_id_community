@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: p4
 issue_id: "577"
 tags: [todo-sweep, scripts, follow-ups]
@@ -39,7 +39,30 @@ Dropped by curation (fixed on main, refuted, or not a reported location):
 
 ## Acceptance Criteria
 
-- [ ] Each finding above is fixed with a test where it is a behaviour change, or recorded in the Work Log as
+- [x] Each finding above is fixed with a test where it is a behaviour change, or recorded in the Work Log as
       declined with a reason.
 
 ## Work Log
+
+### 2026-10-11 - Implemented by the todo sweep (run 2026-10-11-1448)
+
+- #1: `todofile.ac_lines` uses `fenced_lines` (character and length, as the tripwire) instead of the `FENCE_RE` toggle; tested in `scripts/todos/test_todofile.py`. #2/#3: `state.ingest_followups` pools every returned phrasing with a count, and each covers one stored line wherever it is, after the lines returned at their own location take theirs. So a cross-file merged duplicate stays covered (kept or refuted), while an identical, unmerged summary elsewhere, in the same file or another, is kept as stored. Tested in `scripts/todos/test_state_flow.py`.
+- #4: in `.claude/workflows/todo-followups.js`, when the summary is refuted the surviving merged phrasing leads the item at its own stored file:line and severity (looked up in the group's stored follow-ups); a reworded phrasing keeps the item's place. #7: the "fixed on main" wording names only the summary's own drop; a refuted `also` phrasing reads `refuted:`, as its own drop when both are refuted.
+- #5: `scripts/todos/worker_edit_guard.py` allows a `wf_*`/`agent-*` worktree from the main checkout (or a session worktree) only when a sweep run file (`todos/.sweep-run-*.json` in the main checkout or the cwd's checkout) records it as a todo's worktree. That closes another workflow's or agent's isolated worktree and a human's `wf_*` one. It does not tell the worker's own group from another recorded group: a PreToolUse event carries `agent_id`/`agent_type` but not the prompt or a transcript, so the hook cannot read the brief. Tests in `.claude/hooks/test-guard-todo-worker-edit.sh`; its 551 #2 fixture now writes the run file its "recorded" cases name.
+- #6: removed the overwritten `run(...)` call in `scripts/todos/test_workflows.js` (it repeated the 551 #3 case that asserts). The 551 #3 expectation changed with #4: the surviving `nit` now comes back at `low: a.py:2`. New JS cases pin #4 and #7.
+
+### 2026-10-11 - Verified by the todo sweep (run 2026-10-11-1448)
+
+- AC 1: `python3 scripts/todos/test_todofile.py && python3 scripts/todos/test_state_flow.py && node scripts/todos/test_workflows.js && bash .claude/hooks/test-guard-todo-worker-edit.sh` — evidence `.sweep-evidence/g11/577-ac0.txt` (not committed), last lines:
+
+  ```text
+  PASS: a todo-verifier is not this hook's business
+  PASS: a cwd in no git checkout fails open
+  PASS: malformed JSON fails open
+
+  Results: 31 passed, 0 failed
+  ```
+
+### 2026-10-11 - Completed by the todo sweep (run 2026-10-11-1448)
+
+- Archived by `land.py archive`; evidence is quoted above, review is on the PR.

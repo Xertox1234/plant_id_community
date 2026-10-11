@@ -835,9 +835,9 @@ async function main() {
     && fr.dropped.map(d => d.why.split(':')[0]).join() === 'fixed on main,refuted'
     && /the refuter agreed: gone on main/.test(fr.dropped[0].why)
     && r.calls[1].prompt.includes('"file":"b.py"') && r.calls[1].prompt.includes('"curator":"fixed"'), fr)
-  r = await run('todo-followups', { run_id: 'r', groups: [fg()] },
-    (p, o) => (isCurator(o) ? curated : { judgments: [{ index: 0, refuted: true, also_refuted: [], reason: 'wrong' }] }))
   // Todo 551 (owner decision 2026-10-10, changed from 546's expectation): each phrasing is judged on its own.
+  // (Todo 577 #6: a run() here whose result the next call overwrote unchecked was removed; it repeated the
+  // 551 #3 case below, which asserts on it.)
   r = await run('todo-followups', { run_id: 'r', groups: [fg()] },
     (p, o) => (isCurator(o) ? curated : { judgments: [{ index: 0, refuted: true, also_refuted: [0], reason: 'wrong' }] }))
   check('546 #993-6: an item whose every phrasing is refuted is dropped with them, so its merged duplicates stay refuted',
@@ -846,9 +846,38 @@ async function main() {
   r = await run('todo-followups', { run_id: 'r', groups: [fg()] },
     (p, o) => (isCurator(o) ? curated : { judgments: [{ index: 0, refuted: true, also_refuted: [], reason: 'wrong' }] }))
   let f551 = r.result.results[0]
+  // Todo 577 #4 changed this expectation: the surviving `nit` goes back to its own stored line, `low: a.py:2`.
   check('551 #3: a refuted summary drops alone; a merged phrasing the refuter did not refute stays a follow-up',
     f551.dropped.length === 1 && f551.dropped[0].line === 'medium: a.py:9 real'
-    && f551.kept.some(i => i.file === 'a.py' && i.line === 9 && i.summary === 'nit' && i.also.length === 0), f551)
+    && f551.kept.some(i => i.file === 'a.py' && i.line === 2 && i.severity === 'low' && i.summary === 'nit'
+      && i.also.length === 0), f551)
+  // Todo 577 #4: ... from another file too, with its own severity; a reworded phrasing keeps the item's place.
+  const crossFile = { pr_on_main: true, items: [item({ also: ['gone', 'reworded by the curator'] })] }
+  r = await run('todo-followups', { run_id: 'r', groups: [fg()] },
+    (p, o) => (isCurator(o) ? crossFile : { judgments: [{ index: 0, refuted: true, also_refuted: [], reason: 'wrong' }] }))
+  check('577 #4: a surviving merged phrasing leads the item at its own file:line and severity',
+    r.result.results[0].kept.length === 1 && r.result.results[0].kept[0].file === 'b.py'
+    && r.result.results[0].kept[0].line === 30 && r.result.results[0].kept[0].severity === 'low'
+    && r.result.results[0].kept[0].also.join() === 'reworded by the curator', r.result.results[0])
+  r = await run('todo-followups', { run_id: 'r', groups: [fg()] },
+    (p, o) => (isCurator(o) ? { pr_on_main: true, items: [item({ also: ['reworded by the curator'] })] }
+      : { judgments: [{ index: 0, refuted: true, also_refuted: [], reason: 'wrong' }] }))
+  check('577 #4: ... while a phrasing on no stored line keeps the item\'s location and severity',
+    r.result.results[0].kept[0].file === 'a.py' && r.result.results[0].kept[0].line === 9
+    && r.result.results[0].kept[0].severity === 'medium', r.result.results[0])
+  // Todo 577 #7: the curator's "fixed on main" names only the summary's own drop.
+  const fixedItem = { pr_on_main: true, items: [item({ on_main: 'fixed', note: 'removed by #901' })] }
+  r = await run('todo-followups', { run_id: 'r', groups: [fg()] },
+    (p, o) => (isCurator(o) ? fixedItem : { judgments: [{ index: 0, refuted: false, also_refuted: [0], reason: 'nit is wrong' }] }))
+  check('577 #7: an `also` phrasing refuted alone under a fixed item reads `refuted:`, not "fixed on main"',
+    r.result.results[0].dropped.length === 1 && r.result.results[0].dropped[0].why === 'refuted: nit is wrong'
+    && r.result.results[0].dropped[0].line === 'medium: a.py:9 nit', r.result.results[0])
+  r = await run('todo-followups', { run_id: 'r', groups: [fg()] },
+    (p, o) => (isCurator(o) ? fixedItem : { judgments: [{ index: 0, refuted: true, also_refuted: [0], reason: 'gone' }] }))
+  check('577 #7: ... and refuted with its summary, it is its own `refuted:` drop beside the "fixed on main" one',
+    r.result.results[0].dropped.map(d => `${d.line} / ${d.why}`).join(' ; ') ===
+      'medium: a.py:9 real / fixed on main: removed by #901; the refuter agreed: gone ; medium: a.py:9 nit / refuted: gone'
+    && r.result.results[0].kept.length === 0, r.result.results[0])
   r = await run('todo-followups', { run_id: 'r', groups: [fg()] },
     (p, o) => (isCurator(o) ? curated : { judgments: [{ index: 0, refuted: false, also_refuted: [0, 7], reason: 'nit is wrong' }] }))
   f551 = r.result.results[0]

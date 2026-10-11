@@ -648,6 +648,49 @@ def main():
     for raw, want in cases552:
         got = land._relativize_command(raw, wt, main, rel552)
         check(f"552: relativize command {raw!r}", got == want, got)
+    # Todo 578: the follow-ups of PR #1017, one case per finding (and per shape a finding named).
+    cases578 = [
+        # 1: a cd into a rooted directory makes an unknown directory known again.
+        (f"cd ~ && cd {wt}/web && ls {wt}/web/src", "cd ~ && cd web && ls src"),
+        (f"cd /opt && cd {wt}/backend && ls {wt}/scripts", "cd /opt && cd backend && ls ../scripts"),
+        # 2/9: a trailing slash is kept; `<root>//x` is `x`; a sentence's full stop after the bare root stays.
+        (f"cd {wt}/backend && rsync -a {wt}/web/ /tmp/y", "cd backend && rsync -a ../web/ /tmp/y"),
+        (f"rsync -a {wt}/web/ /tmp/y", "rsync -a web/ /tmp/y"),
+        (f"cd {wt}/backend && ls {wt}//x", "cd backend && ls ../x"),
+        (f"cd {wt}/backend && echo {wt}.", "cd backend && echo ..."),
+        (f"cd {wt}/backend/apps && ls {wt}.", "cd backend/apps && ls ../..."),
+        # 3: a cd after `||` may not run; a later path is rebased only when both directories agree.
+        (f"cd {wt}/backend && false || cd {wt}/web/src && ls {wt}/x", "cd backend && false || cd ../web/src && ls x"),
+        (f"cd {wt}/backend && false || cd {wt}/web && ls {wt}/x", "cd backend && false || cd ../web && ls ../x"),
+        (f"cd {wt}/backend && false || cd {wt}/backend/apps && ls {wt}/backend/y",
+         "cd backend && false || cd apps && ls backend/y"),
+        (f"cd {wt}/backend; ls {wt}/web || cd {wt}/web && echo \"a && {wt}/b\"",
+         "cd backend; ls ../web || cd ../web && echo \"a && ../b\""),
+        # 4/7/8/10: a newline, `&`, a pipe, a subshell, `$(...)`, pushd and popd.
+        (f"cd {wt}/backend\npython3 {wt}/scripts/x.py", "cd backend\npython3 ../scripts/x.py"),
+        (f"(cd {wt}/web && ls {wt}/a) && ls {wt}/b", "(cd web && ls ../a) && ls b"),
+        (f"( cd {wt}/backend; ls {wt}/a ); ls {wt}/b", "( cd backend; ls ../a ); ls b"),
+        (f"echo $(cd {wt}/web && ls {wt}/a) {wt}/b", "echo $(cd web && ls ../a) b"),
+        (f"cd {wt}/web & ls {wt}/a", "cd web & ls a"),
+        (f"cd {wt}/web | cat && ls {wt}/a", "cd web | cat && ls a"),
+        (f"cd {wt}/backend && ls {wt}/a 2>&1 | grep x && ls {wt}/b", "cd backend && ls ../a 2>&1 | grep x && ls ../b"),
+        (f"pushd {wt}/web/src && ls {wt}/a && popd && ls {wt}/b", "pushd web/src && ls ../../a && popd && ls b"),
+        (f"pushd {wt}/backend && ls {wt}/scripts", "pushd backend && ls ../scripts"),
+        (f"popd && ls {wt}/a", "popd && ls a"),
+        # 5: an apostrophe that closes nothing, and escaped quotes, hide no separator.
+        (f"cd {wt}/backend && echo it's && cd {wt}/web && ls {wt}/backend/y",
+         "cd backend && echo it's && cd ../web && ls ../backend/y"),
+        (f"cd {wt}/backend && echo \\\" && cd {wt}/web && ls {wt}/a", "cd backend && echo \\\" && cd ../web && ls ../a"),
+        (f"cd {wt}/backend && echo \"it's && x\" && ls {wt}/a", "cd backend && echo \"it's && x\" && ls ../a"),
+        # 6: `git -C <dir>` re-roots the paths after it.
+        (f"cd {wt}/backend && git -C {wt} diff {wt}/web", "cd backend && git -C .. diff web"),
+        (f"git -C {wt}/web diff {wt}/web/src", "git -C web diff src"),
+        (f"cd {wt}/backend && git -C ../web diff {wt}/web/a", "cd backend && git -C ../web diff a"),
+        (f"git -C {wt}/web -C src log {wt}/web/src/x", "git -C web -C src log x"),
+    ]
+    for raw, want in cases578:
+        got = land._relativize_command(raw, wt, main, rel552)
+        check(f"578: relativize command {raw!r}", got == want, got)
     check("552: a NUL in the command cannot forge a rooted-path marker",
           land._relativize_command("cd backend && ls \x00scripts/a", wt, main) == "cd backend && ls scripts/a")
     with tempfile.TemporaryDirectory() as tmp:
@@ -662,6 +705,42 @@ def main():
         check("552: the Verified entry's command re-runs from its leading cd",
               "- AC 1: `cd backend && python3 ../scripts/todos/slot_env.py 6 -- venv/bin/python -m pytest apps/x.py`"
               in note, note)
+
+    # Todo 572: a criterion re-pointed at triage with the marker on its WRAPPED line (todo 386's AC 4 in run
+    # 2026-10-11-0053). The engine's check passes, flip-acs leaves it alone, and archive now accepts it too.
+    with tempfile.TemporaryDirectory() as tmp:
+        repo = setup(tmp)
+        rel = "todos/572-pending-p4-w.md"
+        text = ('---\nstatus: pending\npriority: p4\nissue_id: "572"\ndependencies: []\n---\n\n# W\n\n'
+                "## Acceptance Criteria\n\n- [ ] Done one\n"
+                "- [ ] Checked on a device by the owner, which this sweep\n"
+                "      cannot do \u2192 todo 547 (re-pointed 2026-10-11)\n\n## Work Log\n\n### d - created\n")
+        (repo / rel).write_text(text)
+        (repo / ".sweep-evidence/g1/572-ac1.txt").write_text("1 passed\n")
+        subprocess.run(["git", "-C", str(repo), "add", "todos"], check=True)
+        subprocess.run(["git", "-C", str(repo), "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q", "-m",
+                        "572"], check=True)
+        check("572: criteria_problem accepts the wrapped re-point (it is the merge-base text)",
+              land.state.criteria_problem(text, text) is None)
+        moved = "Checked on a device by the owner, which this sweep cannot do \u2192 todo 547 (re-pointed 2026-10-11)"
+        entries = [{"todo": "572", "index": 0, "text": "Done one", "command": "pytest a",
+                    "evidence_path": ".sweep-evidence/g1/572-ac1.txt", "pass": True},
+                   {"todo": "572", "index": 1, "text": moved, "command": "", "evidence_path": "", "pass": False,
+                    "note": "re-pointed"}]
+        flipped, remaining = land.flip_acs(repo, rel, entries, [agree("572", 0), agree("572", 1)], "r", "2026-10-11")
+        check("572: flip-acs ticks the open criterion and never the re-pointed one",
+              flipped == [0] and remaining == [1], (flipped, remaining))
+        after = (repo / rel).read_text()
+        check("572: ... and the ticked file still passes criteria_problem after Land",
+              land.state.criteria_problem(text, after, ignore_boxes=True, flippable={0}) is None)
+        try:
+            result, refused = land.archive(repo, rel, "r", "2026-10-11"), ""
+        except land.LandError as exc:
+            result, refused = None, str(exc)
+        check("572: archive accepts a criterion whose marker is on its wrapped line", result is not None, refused)
+        if result:
+            check("572: ... and the archived file passes the CI tripwire",
+                  check_archived_todo_status.parse(str(repo / result["archived"]))[3] == [])
 
     # F6: evidence_path must resolve inside <repo>/.sweep-evidence/, or it counts as missing.
     with tempfile.TemporaryDirectory() as tmp:

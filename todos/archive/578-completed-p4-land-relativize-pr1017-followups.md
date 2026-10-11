@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: p4
 issue_id: "578"
 tags: [todo-sweep, scripts, follow-ups]
@@ -37,7 +37,30 @@ PR #1017 (todo sweep run 2026-10-11-0401, group g6, todos 552); follow-ups: veri
 
 ## Acceptance Criteria
 
-- [ ] Each finding above is fixed with a test where it is a behaviour change, or recorded in the Work Log as
+- [x] Each finding above is fixed with a test where it is a behaviour change, or recorded in the Work Log as
       declined with a reason.
 
 ## Work Log
+
+### 2026-10-11 - Implemented by the todo sweep (run 2026-10-11-1448)
+
+- `scripts/todos/land.py` `_relativize_command` now tracks a set of possible directories. #1: a rooted `cd` after an unknown one makes the directory known again. #3: a `cd` after `||` leaves either directory possible, and a later path is rebased only when both agree (otherwise it reads repo-root-relative).
+- #2/#9: a trailing slash is kept, `<root>//x` reads `x`, and a marked bare root carries an end sentinel so `<wt>.` keeps its full stop instead of reading as `..`.
+- #4/#7/#8/#10: `_split_command` also cuts at a newline, `|`, `|&` and a single `&` (not inside `2>&1`-style redirections), and at `(`/`)`. A subshell or `$(...)` restores the directory when it closes; a part in a pipeline or the background keeps its `cd` to itself; `pushd` changes directory and `popd` returns. #5: backslash escapes are honoured, and a quote never closed is read as a literal (`echo it's`).
+- #6: in a `git -C <dir>` part, later paths resolve against `<dir>` (repeated `-C` compose). Every case is a `cases578` entry in `scripts/todos/test_land.py`; one existing `cases552` entry (the `||` one) still passes unchanged, because `../b` reads the same from both directories.
+
+### 2026-10-11 - Verified by the todo sweep (run 2026-10-11-1448)
+
+- AC 1: `python3 scripts/todos/test_land.py` — evidence `.sweep-evidence/g11/578-ac0.txt` (not committed), last lines:
+
+  ```text
+    PASS  m9: the verify-only heading is 'Checked by'
+    PASS  m9: no worker Work Log heading satisfies Land's Verified-note check
+    PASS  m9: flip_acs's own heading still does
+
+  All checks passed.
+  ```
+
+### 2026-10-11 - Completed by the todo sweep (run 2026-10-11-1448)
+
+- Archived by `land.py archive`; evidence is quoted above, review is on the PR.
