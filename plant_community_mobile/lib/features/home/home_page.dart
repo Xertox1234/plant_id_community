@@ -10,6 +10,7 @@ import '../../shared/widgets/canopy_surfaces.dart';
 import '../../core/theme/green_thumb_extension.dart';
 import '../../shared/widgets/clay_button.dart';
 import '../../shared/widgets/feature_card.dart';
+import '../blog/screens/blog_format.dart';
 import '../onboarding/onboarding_checklist_card.dart';
 
 /// Home page with hero section and feature cards
@@ -18,7 +19,8 @@ import '../onboarding/onboarding_checklist_card.dart';
 ///
 /// Features:
 /// - Hero section with logo and title
-/// - 4 feature cards (Camera, Care, Community, Collection)
+/// - 6 feature cards (Identify, Care, Community, Collection, Diagnose,
+///   Plant Journal)
 /// - Get Started CTA button
 class HomePage extends StatelessWidget {
   const HomePage({super.key});
@@ -192,7 +194,7 @@ class HomePage extends StatelessWidget {
       // rather than taking a fifth tab (todo 385).
       _FeatureData(
         icon: LucideIcons.newspaper,
-        title: 'Plant Journal',
+        title: blogDisplayName,
         description:
             'Read care guides, plant spotlights and stories from our blog',
         type: FeatureType.blog,

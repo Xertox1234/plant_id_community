@@ -50,8 +50,10 @@ class _NoIdApiService extends ApiService {
     String path, {
     required String filePath,
     String fieldName = 'image',
+    String? filename,
     Map<String, dynamic>? data,
     void Function(int sent, int total)? onSendProgress,
+    Duration? receiveTimeout,
   }) async {
     return Response(
       requestOptions: RequestOptions(path: path),

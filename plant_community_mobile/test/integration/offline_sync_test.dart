@@ -184,8 +184,10 @@ class OfflineApiService extends ApiService {
     String path, {
     required String filePath,
     String fieldName = 'image',
+    String? filename,
     Map<String, dynamic>? data,
     void Function(int sent, int total)? onSendProgress,
+    Duration? receiveTimeout,
   }) async {
     await Future.delayed(const Duration(milliseconds: 100));
     throw ApiException('No internet connection');
@@ -263,8 +265,10 @@ class OnlineApiService extends ApiService {
     String path, {
     required String filePath,
     String fieldName = 'image',
+    String? filename,
     Map<String, dynamic>? data,
     void Function(int sent, int total)? onSendProgress,
+    Duration? receiveTimeout,
   }) async {
     await Future.delayed(const Duration(milliseconds: 500));
 

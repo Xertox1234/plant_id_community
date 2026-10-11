@@ -12,14 +12,35 @@ import 'package:html/parser.dart' as html_parser;
 /// (via [onOpenLink]), `<span class="mention">` is tinted, and block elements
 /// (`p`, `br`, `li`) introduce line breaks. Anything outside the allowlist
 /// contributes its text only, never raw markup.
+///
+/// The blog reuses it for Wagtail's stored rich-text format (todo 460), which
+/// adds three things the forum never sends: `h2`–`h4` headings, internal
+/// links as `<a linktype="page" id="N">` with no `href` ([onOpenPage]), and
+/// inline images as a text-less `<embed embedtype="image" id="N">`
+/// ([inlineImageBuilder]).
 class ForumHtmlText extends StatefulWidget {
-  const ForumHtmlText(this.html, {super.key, this.onOpenLink});
+  const ForumHtmlText(
+    this.html, {
+    super.key,
+    this.onOpenLink,
+    this.onOpenPage,
+    this.inlineImageBuilder,
+  });
 
   final String html;
 
   /// Called with the `href` when a link is tapped. When null, links render
   /// styled but inert.
   final void Function(String href)? onOpenLink;
+
+  /// Called with the page id when a Wagtail internal link
+  /// (`<a linktype="page" id="N">`) is tapped. When null, those links render
+  /// styled but inert.
+  final void Function(int pageId)? onOpenPage;
+
+  /// Builds a Wagtail inline image (`<embed embedtype="image" id="N"
+  /// alt="…">`). When null, or when it returns null, the image is dropped.
+  final Widget? Function(int imageId, String alt)? inlineImageBuilder;
 
   @override
   State<ForumHtmlText> createState() => _ForumHtmlTextState();
@@ -77,6 +98,39 @@ class _ForumHtmlTextState extends State<ForumHtmlText> {
         if (out.isNotEmpty) out.add(const TextSpan(text: '\n\n'));
         _appendChildren(node, style, theme, out);
         return;
+      case 'h2':
+      case 'h3':
+      case 'h4':
+        // A heading is its own block, never run into the text around it.
+        if (out.isNotEmpty) out.add(const TextSpan(text: '\n\n'));
+        final heading = tag == 'h2'
+            ? theme.textTheme.titleLarge
+            : theme.textTheme.titleMedium;
+        _appendChildren(
+          node,
+          style.merge(heading).copyWith(fontWeight: FontWeight.w700),
+          theme,
+          out,
+        );
+        return;
+      case 'embed':
+        final imageId = int.tryParse(node.attributes['id'] ?? '');
+        final builder = widget.inlineImageBuilder;
+        if (node.attributes['embedtype'] != 'image' ||
+            imageId == null ||
+            builder == null) {
+          return;
+        }
+        final image = builder(imageId, node.attributes['alt'] ?? '');
+        if (image == null) return;
+        if (out.isNotEmpty) out.add(const TextSpan(text: '\n'));
+        out.add(
+          WidgetSpan(
+            alignment: PlaceholderAlignment.middle,
+            child: SizedBox(width: double.infinity, child: image),
+          ),
+        );
+        return;
       case 'strong':
       case 'b':
         _appendChildren(
@@ -113,9 +167,16 @@ class _ForumHtmlTextState extends State<ForumHtmlText> {
           decoration: TextDecoration.underline,
         );
         final onOpen = widget.onOpenLink;
+        final onOpenPage = widget.onOpenPage;
+        final pageId = node.attributes['linktype'] == 'page'
+            ? int.tryParse(node.attributes['id'] ?? '')
+            : null;
         TapGestureRecognizer? recognizer;
         if (href != null && href.isNotEmpty && onOpen != null) {
           recognizer = TapGestureRecognizer()..onTap = () => onOpen(href);
+          _recognizers.add(recognizer);
+        } else if (pageId != null && onOpenPage != null) {
+          recognizer = TapGestureRecognizer()..onTap = () => onOpenPage(pageId);
           _recognizers.add(recognizer);
         }
         // Links may wrap styled children; render their text with the link

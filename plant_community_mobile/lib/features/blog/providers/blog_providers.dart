@@ -22,8 +22,13 @@ Duration? blogRetry(int retryCount, Object error) {
 /// narrows to one tag (the care guides pass `care-guide`); null = all posts.
 @Riverpod(retry: blogRetry)
 class BlogPosts extends _$BlogPosts {
+  /// Bumped by every [build], so a [loadMore] that outlives a refresh can
+  /// tell its page belongs to the feed the refresh replaced.
+  int _builds = 0;
+
   @override
   Future<BlogFeed> build(String? tag) async {
+    _builds++;
     final page = await ref.watch(blogApiProvider).fetchPosts(tag: tag);
     return BlogFeed(
       items: page.items,
@@ -35,7 +40,16 @@ class BlogPosts extends _$BlogPosts {
 
   /// Fetch and append the next page. Rethrows on failure with the loading
   /// flag reset so the caller can surface an error and the user can retry.
+  ///
+  /// A refresh while the page is in flight rebuilds the feed, and leaving
+  /// the screen disposes it: either way the late page belongs to a feed that
+  /// no longer exists, so it is dropped, and so is its failure (todo 460).
+  /// Appended to the refreshed feed it would advance the wrong offset; after
+  /// a dispose, writing `state` throws `UnmountedRefException`, which the
+  /// button reported as "Could not load more."
   Future<void> loadMore() async {
+    final build = _builds;
+    bool superseded() => !ref.mounted || build != _builds;
     final current = state.asData?.value;
     if (current == null || !current.hasMore || current.isLoadingMore) return;
     state = AsyncData(current.copyWith(isLoadingMore: true));
@@ -43,6 +57,7 @@ class BlogPosts extends _$BlogPosts {
       final page = await ref
           .read(blogApiProvider)
           .fetchPosts(tag: tag, offset: current.nextOffset);
+      if (superseded()) return;
       final latest = state.asData?.value ?? current;
       // Offset paging can repeat a row when a post is published between
       // pages; keep the first copy.
@@ -57,6 +72,7 @@ class BlogPosts extends _$BlogPosts {
         ),
       );
     } catch (_) {
+      if (superseded()) return;
       final latest = state.asData?.value ?? current;
       state = AsyncData(latest.copyWith(isLoadingMore: false));
       rethrow;

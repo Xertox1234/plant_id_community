@@ -105,9 +105,16 @@ try {
 
 #### Authentication
 
+`AuthService` does this; nothing else should. Its exchange
+(`_exchangeFirebaseTokenForJWT`) opens the user's session with
+`setAuthToken(null)` before the request, and installs the JWT with
+`replaceAuthToken`, which keeps that session (see below):
+
 ```dart
 // After user logs in with Firebase
 final firebaseToken = await user.getIdToken();
+
+apiService.setAuthToken(null); // opens this user's session
 
 // Exchange for Django JWT
 final response = await apiService.post(
@@ -117,8 +124,8 @@ final response = await apiService.post(
 
 final jwtToken = response.data['access_token'];
 
-// Set token in ApiService
-apiService.setAuthToken(jwtToken);
+// Completes the session the setAuthToken(null) opened
+apiService.replaceAuthToken(jwtToken);
 
 // All subsequent requests will include: Authorization: Bearer {token}
 ```
@@ -144,20 +151,33 @@ from that silently:
 4. Only a **refused** refresh, or a second 401 on the re-sent request, signs
    the user out, with the same "Your session expired. Please sign in again."
    message as before (todo 498, owner decision: "Users expect to stay logged
-   in"). Refused means the exchange answered 401, 403 or 409, Firebase
-   reported the account gone (`user-disabled`, `user-not-found`,
-   `user-token-expired`, `invalid-user-token`), or there is no Firebase user.
-   The refresher returns `null` for those.
+   in"). Refused means the exchange answered 401 or 403 with the view's own
+   JSON body, or Firebase reported the account gone (`user-disabled`,
+   `user-not-found`, `user-token-expired`, `invalid-user-token`). The
+   refresher returns `null` for those, and only those (todo 500).
 5. Any other failure is **transient**: offline, a timeout, a 5xx, a 429 from
-   the exchange's per-IP limit, a Firebase network error. The refresher
-   throws, the user stays signed in, and the request fails with that failure
-   (for example `ApiException(503)`, or a status-less "Could not renew your
-   session right now" when offline), never with the 401's "session expired".
-   The next 401 tries the refresh again.
-6. A refresh overtaken by a sign-out or user switch does not report an
-   expired session, and each session gets its own refresh: the next user's
-   first 401 never joins the last user's. All the 401s of one session share
-   a single sign-out.
+   the exchange's per-IP limit, a Firebase network error, a 401/403 page
+   that is not JSON (a proxy or a WAF), a 400/404/405. The refresher throws,
+   the user stays signed in, and the request fails with its own
+   `ApiException` (code `session_refresh_unavailable`, no status, "Could not
+   renew your session right now"), never with the 401's "session expired"
+   and never with the exchange's status, which would read as the endpoint's
+   own (todo 500). The next 401 tries the refresh again: there is no
+   backoff, so during an outage each 401 runs one exchange, bounded by the
+   exchange's per-IP rate limit (a deliberate choice: the owner decision is
+   that the next 401 retries).
+6. A 409 (the account cannot be linked) is not a refusal either: the user
+   stays signed in to Firebase and the conflict goes on screen, as at launch,
+   with `unverifiedAccountConflict` kept for the password-reset link (todo
+   500, owner decision).
+7. A refresh overtaken by a sign-out or user switch (no Firebase user, a
+   different one, a newer generation) throws `RefreshSupersededException`:
+   no one is signed out, nothing is re-sent. Each session gets its own
+   refresh: the next user's first 401 never joins the last user's. All the
+   401s of one session share a single sign-out.
+8. A refresh that serves `signOut()`'s own FCM clear (it runs in the
+   sign-out's generation) installs the token for the clear's re-send and
+   nothing else: no signed-in state, no push registration (todo 500).
 
 Request-extra flags opt out, independently: `ApiService.skipSessionExpiryKey`
 means the 401 never signs out, though the request is still refreshed and
@@ -165,11 +185,10 @@ re-sent once (sign-out's own FCM clear, so it still reaches the server when
 the token expired while the app sat idle). `ApiService.skipAuthRefreshKey`
 skips the refresh (the token exchange itself), and on its own goes straight
 to sign-out. `ApiService.omitAuthHeaderKey` sends the request with no bearer.
-The refresh's exchange carries it, because DRF authenticates any
-`Authorization: Bearer` before it checks `AllowAny`, so the expired token
-would 401 the exchange. The backend view now also runs no authenticator
-(`@authentication_classes([])`), so a stale bearer from any client is
-ignored there.
+The refresh's exchange carries it: the exchange trusts only the Firebase token
+in its body, and its view runs no authenticator
+(`@authentication_classes([])`), so a stale bearer is ignored there; omitting
+it keeps the expired token off the wire.
 
 A session is one signed-in user. `setAuthToken` starts a new one every time
 it is called, with a token or with `null`, so a sign-in path that sets a
@@ -178,9 +197,9 @@ refresh installs its token with `replaceAuthToken`, which keeps the session,
 and so does the sign-in exchange: its `setAuthToken(null)` opened the
 session, and the JWT completes it, so a request sent while the exchange ran
 is still re-sent with the JWT. `signOut()` calls `endSession()` first, which
-ends the session but keeps the token its FCM clear still needs. A 401 for a request sent under an ended
-session is not retried, refreshed or turned into a sign-out: re-sending it
-would act as whoever is signed in now.
+ends the session but keeps the token its FCM clear still needs. A 401 for a
+request sent under an ended session is not retried, refreshed or turned into
+a sign-out: re-sending it would act as whoever is signed in now.
 
 Each exchange mints a 7-day refresh token (an `OutstandingToken` row). The
 nightly `forum-prune-cron` runs `manage.py flushexpiredtokens` to delete the
@@ -210,9 +229,11 @@ try {
   // Handle specific errors
   switch (e.statusCode) {
     case 401:
-      // Only after a refused token refresh (see above) - AuthService has
-      // already cleared local tokens and signed the user out. A transient
-      // refresh failure arrives as its own status (503, 429, or null).
+      // After a refused token refresh (see above), AuthService has already
+      // cleared local tokens and signed the user out. A 401 from a request
+      // sent before a sign-out or user switch is also passed through as is,
+      // with no sign-out. A transient refresh failure arrives with no status
+      // and code `session_refresh_unavailable`.
       break;
     case 429:
       // Rate limited - show retry message

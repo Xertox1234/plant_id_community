@@ -3,9 +3,12 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:dio/dio.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:plant_community_mobile/services/api_service.dart';
+
+import 'support/wait_until.dart';
 
 void main() {
   setUpAll(() async {
@@ -590,11 +593,14 @@ void main() {
           return 'fresh';
         });
 
+        // Its own error, not the exchange's 503 (todo 500 F5): that status
+        // would read as the endpoint's outage.
         await expectLater(
           api.post('/forum/topics/', data: {'title': 'my draft'}),
           throwsA(
             isA<ApiException>()
-                .having((e) => e.statusCode, 'statusCode', 503)
+                .having((e) => e.statusCode, 'statusCode', isNull)
+                .having((e) => e.code, 'code', sessionRefreshUnavailableCode)
                 .having((e) => e.message, 'message', contains('try again')),
           ),
         );
@@ -782,6 +788,148 @@ void main() {
     });
   });
 
+  group('todo 500', () {
+    late _AuthServer server;
+    late ApiService api;
+    HttpOverrides? savedOverrides;
+
+    setUp(() async {
+      savedOverrides = HttpOverrides.current;
+      HttpOverrides.global = null;
+      server = await _AuthServer.start();
+      api = ApiService(baseUrl: server.baseUrl, authToken: 'stale');
+    });
+
+    tearDown(() async {
+      await server.close();
+      HttpOverrides.global = savedOverrides;
+    });
+
+    test('F9: a 401 with no session-expired handler does not stop the next '
+        '401 of that session from reaching one registered later', () async {
+      api.setAccessTokenRefresher(() async => null); // refused
+
+      await expectLater(
+        api.get('/forum/topics/'),
+        throwsA(isA<ApiException>()),
+      );
+
+      var sessionExpiredCalls = 0;
+      api.setSessionExpiredHandler(() async => sessionExpiredCalls++);
+      await expectLater(
+        api.get('/forum/topics/'),
+        throwsA(isA<ApiException>()),
+      );
+
+      expect(sessionExpiredCalls, 1);
+    });
+
+    test('F7: a bug (an Error) in the refresher is reported as one, and the '
+        'user stays signed in', () async {
+      final reported = <Object>[];
+      final previous = FlutterError.onError;
+      FlutterError.onError = (details) => reported.add(details.exception);
+      addTearDown(() => FlutterError.onError = previous);
+      var sessionExpiredCalls = 0;
+      api.setSessionExpiredHandler(() async => sessionExpiredCalls++);
+      api.setAccessTokenRefresher(
+        () async => throw StateError('refresher bug'),
+      );
+
+      await expectLater(
+        api.get('/forum/topics/'),
+        throwsA(
+          isA<ApiException>().having(
+            (e) => e.code,
+            'code',
+            sessionRefreshUnavailableCode,
+          ),
+        ),
+      );
+
+      expect(reported.single, isA<StateError>());
+      expect(sessionExpiredCalls, 0);
+    });
+
+    test('F7: an ordinary exception is not reported as a bug', () async {
+      final reported = <Object>[];
+      final previous = FlutterError.onError;
+      FlutterError.onError = (details) => reported.add(details.exception);
+      addTearDown(() => FlutterError.onError = previous);
+      api.setAccessTokenRefresher(
+        () async => throw const SocketException('offline'),
+      );
+
+      await expectLater(
+        api.get('/forum/topics/'),
+        throwsA(isA<ApiException>()),
+      );
+      expect(reported, isEmpty);
+    });
+  });
+
+  group('handleDioException (todo 500)', () {
+    final api = ApiService(baseUrl: 'http://test.invalid');
+    final options = RequestOptions(path: '/x');
+
+    test('F5: a connection error reads as offline, not "unexpected"', () {
+      final e =
+          api.handleDioException(
+                DioException(
+                  requestOptions: options,
+                  type: DioExceptionType.connectionError,
+                ),
+              )
+              as ApiException;
+      expect(e.message, contains('No internet connection'));
+    });
+
+    test('F8: a non-JSON error body is marked unstructured, a JSON one is '
+        'not', () {
+      ApiException convert(Object? body, int status) =>
+          api.handleDioException(
+                DioException(
+                  requestOptions: options,
+                  type: DioExceptionType.badResponse,
+                  response: Response(
+                    requestOptions: options,
+                    statusCode: status,
+                    data: body,
+                  ),
+                ),
+              )
+              as ApiException;
+
+      expect(convert('<html>Forbidden</html>', 403).unstructured, isTrue);
+      expect(convert('<html>401</html>', 401).unstructured, isTrue);
+      expect(convert({'error': 'Invalid'}, 403).unstructured, isFalse);
+      expect(convert({'error': 'Invalid'}, 401).unstructured, isFalse);
+    });
+
+    test('F11: only the refresh failure passes through as carried, not any '
+        'ApiException some other layer wrapped', () {
+      final carried = ApiException(
+        'Could not renew',
+        code: sessionRefreshUnavailableCode,
+      );
+      final passed = api.handleDioException(
+        DioException(requestOptions: options, error: carried),
+      );
+      expect(passed, same(carried));
+
+      final other =
+          api.handleDioException(
+                DioException(
+                  requestOptions: options,
+                  type: DioExceptionType.cancel,
+                  error: ApiException('something else', statusCode: 418),
+                ),
+              )
+              as ApiException;
+      expect(other.message, 'Request was cancelled');
+    });
+  });
+
   group('Integration Tests', () {
     // NOTE: Integration tests require a running Django backend
     // To run these tests:
@@ -843,17 +991,6 @@ void main() {
 ///   expect(response.data['species'], isNotNull);
 /// });
 /// ```
-
-/// Polls until [done] holds, and fails naming [what] after about two seconds
-/// instead of hanging until the suite timeout when a regression stops a
-/// request from arriving (todo 498).
-Future<void> waitUntil(bool Function() done, String what) async {
-  for (var poll = 0; poll < 400; poll++) {
-    if (done()) return;
-    await Future<void>.delayed(const Duration(milliseconds: 5));
-  }
-  fail('Timed out waiting for $what');
-}
 
 class _SeenRequest {
   _SeenRequest(this.method, this.path, this.auth, this.body);

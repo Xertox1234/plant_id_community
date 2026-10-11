@@ -28,11 +28,39 @@ class _DiagnoseScreenState extends ConsumerState<DiagnoseScreen> {
   String? _error;
   DiagnosisOutcome? _outcome;
 
+  /// The field texts the last listener call saw, so a cursor move (which
+  /// also notifies) is not mistaken for an edit.
+  String _symptomsText = '';
+  String _locationText = '';
+
   @override
   void initState() {
     super.initState();
-    // Rebuild so the submit button tracks the symptoms field.
-    _symptoms.addListener(() => setState(() {}));
+    // Rebuild so the submit button tracks the symptoms field, and drop a
+    // result the edited inputs no longer describe.
+    _symptoms.addListener(() {
+      final text = _symptoms.text;
+      setState(() {
+        if (text != _symptomsText) {
+          _symptomsText = text;
+          _clearResult();
+        }
+      });
+    });
+    _location.addListener(() {
+      final text = _location.text;
+      if (text == _locationText) return;
+      _locationText = text;
+      if (_outcome != null || _error != null) setState(_clearResult);
+    });
+  }
+
+  /// A diagnosis describes the inputs it was made from: once a photo, the
+  /// symptoms, the condition or the location change, the old result (or
+  /// error) would sit under inputs it never saw (todo 461).
+  void _clearResult() {
+    _outcome = null;
+    _error = null;
   }
 
   @override
@@ -51,7 +79,7 @@ class _DiagnoseScreenState extends ConsumerState<DiagnoseScreen> {
       if (path == null || !mounted) return;
       setState(() {
         _imagePath = path;
-        _error = null;
+        _clearResult();
       });
     } catch (e) {
       if (!mounted) return;
@@ -84,6 +112,12 @@ class _DiagnoseScreenState extends ConsumerState<DiagnoseScreen> {
       setState(() {
         if (outcome.failed) {
           _error = 'Diagnosis unavailable — please try again.';
+        } else if (outcome.inProgress) {
+          // Unreachable while the server diagnoses synchronously; an async
+          // server answers this way first (see DiagnoseApi).
+          _error =
+              'Your diagnosis is still being prepared. Please try again in '
+              'a minute.';
         } else {
           _outcome = outcome;
         }
@@ -148,7 +182,10 @@ class _DiagnoseScreenState extends ConsumerState<DiagnoseScreen> {
                 ],
                 onChanged: _loading
                     ? null
-                    : (value) => setState(() => _condition = value),
+                    : (value) => setState(() {
+                        if (value != _condition) _clearResult();
+                        _condition = value;
+                      }),
               ),
               const SizedBox(height: AppSpacing.md),
               TextField(
@@ -215,6 +252,13 @@ String diagnoseErrorMessage(Object error) {
   return 'Diagnosis unavailable — please try again.';
 }
 
+/// The pixel width to decode the preview at: its laid-out width in physical
+/// pixels, or null (full size) when the width is unbounded.
+int? previewCacheWidth(double maxWidth, double devicePixelRatio) {
+  if (!maxWidth.isFinite || maxWidth <= 0) return null;
+  return (maxWidth * devicePixelRatio).ceil();
+}
+
 class _PhotoPicker extends StatelessWidget {
   const _PhotoPicker({
     required this.imagePath,
@@ -241,11 +285,20 @@ class _PhotoPicker extends StatelessWidget {
               child: Semantics(
                 image: true,
                 label: 'Selected plant photo',
-                child: Image.file(
-                  File(path),
-                  fit: BoxFit.cover,
-                  errorBuilder: (context, _, _) =>
-                      ColoredBox(color: theme.colorScheme.surfaceContainerHigh),
+                // Decode at the preview's width, not the photo's: a picked
+                // photo is up to 2048 px a side (todo 461).
+                child: LayoutBuilder(
+                  builder: (context, constraints) => Image.file(
+                    File(path),
+                    fit: BoxFit.cover,
+                    cacheWidth: previewCacheWidth(
+                      constraints.maxWidth,
+                      MediaQuery.devicePixelRatioOf(context),
+                    ),
+                    errorBuilder: (context, _, _) => ColoredBox(
+                      color: theme.colorScheme.surfaceContainerHigh,
+                    ),
+                  ),
                 ),
               ),
             ),

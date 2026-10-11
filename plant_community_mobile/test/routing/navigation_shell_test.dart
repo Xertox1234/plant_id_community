@@ -375,6 +375,37 @@ void main() {
 
       await tester.pump(const Duration(seconds: 4));
     });
+
+    testWidgets('Back from a post returns to the list, still under Home '
+        '(todo 460)', (tester) async {
+      final h = await pumpShell(tester, loggedIn: false);
+      final card = find.text('Plant Journal');
+      await tester.ensureVisible(card);
+      await tester.pump();
+      await tester.tap(card);
+      await settle(tester);
+      await tester.tap(find.text('Post 1'));
+      await settle(tester);
+      expect(h.path, '${AppRoutes.blog}/post-1');
+
+      await tester.tap(find.byType(BackButton));
+      await settle(tester);
+
+      expect(h.path, AppRoutes.blog);
+      expect(find.byType(BlogListScreen), findsOneWidget);
+      expect(find.byType(BlogPostScreen), findsNothing);
+      expect(find.byType(NavigationBar), findsOneWidget);
+      // The list's own app bar names the blog the way the Home card does.
+      expect(
+        find.descendant(
+          of: find.byType(AppBar),
+          matching: find.text('Plant Journal'),
+        ),
+        findsOneWidget,
+      );
+
+      await tester.pump(const Duration(seconds: 4));
+    });
   });
 
   group('Diagnose is reachable from Home (todo 444)', () {

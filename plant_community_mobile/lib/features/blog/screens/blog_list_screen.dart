@@ -12,7 +12,8 @@ import 'blog_format.dart';
 /// Published blog posts, newest first, with a "Load more" footer (todo 385).
 ///
 /// [tag] narrows the list to one tag; the care guides open it with
-/// `care-guide` (todo 386). [title] overrides the app bar title.
+/// `care-guide` (todo 386). [title] overrides the app bar title, which is
+/// otherwise the blog's one name, [blogDisplayName] (todo 460).
 class BlogListScreen extends ConsumerWidget {
   const BlogListScreen({super.key, this.tag, this.title});
 
@@ -23,10 +24,15 @@ class BlogListScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final feed = ref.watch(blogPostsProvider(tag));
     return Scaffold(
-      appBar: AppBar(title: Text(title ?? 'Blog')),
+      appBar: AppBar(title: Text(title ?? blogDisplayName)),
       body: SafeArea(
         child: RefreshIndicator(
-          onRefresh: () async => ref.invalidate(blogPostsProvider(tag)),
+          // Await the reload itself, so the spinner stays until the posts
+          // are back (todo 460). A failure is shown by the error state
+          // below, not thrown out of the indicator.
+          onRefresh: () => ref
+              .refresh(blogPostsProvider(tag).future)
+              .then<void>((_) {}, onError: (Object _) {}),
           child: feed.when(
             loading: () => const Center(child: CircularProgressIndicator()),
             error: (_, _) => _ErrorRetry(
