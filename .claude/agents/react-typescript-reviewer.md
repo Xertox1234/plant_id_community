@@ -158,6 +158,14 @@ build, the linter, nor a careful read will flag them.
   genuinely cannot discriminate, require that the limitation be stated in the
   test rather than left to imply coverage.
 
+- **A form state keyed by a value that can change in place.** When a page's
+  draft or storage key comes from a route or query param (`?category=`) and the
+  route has no `key`, `useState` initializers never re-run: check that the
+  change reloads every field from the new key, or that the page remounts per
+  key. A dirty-guard that only skips one save just delays the overwrite of the
+  other key's draft. Flag a test that asserts the overwrite as expected
+  behaviour (todo 549, follow-up 575).
+
 ### Link card additions (2026-09-26, todo 428 slice C)
 
 - A link carrying a `title` (e.g. the full URL, for hover) with no

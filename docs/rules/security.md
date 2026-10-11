@@ -512,3 +512,10 @@ Compact checklist auto-injected before edits. Long-form: `backend/docs/patterns/
   `REMOTE_ADDR` is the proxy, so per-IP brute-force tracking keyed on it pools
   every client (`SecurityMonitor._get_client_ip`, todo 435 review, follow-up in
   todo 527).
+- **Narrow a leak detector by the SHAPE of what it matches, never by the
+  context before it, and test both lists.** Requiring a `/` before
+  `-Users-<name>` silenced `a -home-made fix` but also let a bare or backticked
+  `-Users-alice-projects-x` through; requiring the name to be followed by
+  another `-` segment kills the prose case and keeps every real spelling. Every
+  narrowing change adds the leaks it must still catch to the test, beside the
+  false positives it removes (PR #1016 review, `HOME_PATH_RE`).

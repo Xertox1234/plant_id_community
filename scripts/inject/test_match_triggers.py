@@ -1511,5 +1511,43 @@ class TestMarkdownHashNumberTrigger(unittest.TestCase):
         self.assertFalse(self.fires("backend/apps/core/checks.py", "#123 comment\n"))
 
 
+
+class TestSocketRecvLoopTrigger(unittest.TestCase):
+    """Codify 2026-10-11 (todo 550 review) — pinned against the REAL index.
+
+    The positive fixture is the loop that shipped in
+    backend/apps/forum_host/tests/test_link_preview.py; the negative is its
+    guarded sibling from the same file, which still contains `.recv(` and `+=`.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+        cls.real = mt.load_triggers(root)
+
+    def test_unguarded_recv_append_fires(self):
+        tn, ti = write(
+            "backend/apps/forum_host/tests/test_link_preview.py",
+            '        received = b""\n'
+            '        while len(received) < len(b"prefix"):\n'
+            '            received += client.recv(len(b"prefix") - len(received))\n',
+        )
+        hits = mt.find_matches(tn, ti, self.real, None)
+        self.assertIn("test-socket-recv-loop-no-eof-guard", ids(hits))
+
+    def test_guarded_recv_into_chunk_silent(self):
+        tn, ti = write(
+            "backend/apps/forum_host/tests/test_link_preview.py",
+            '                received = b""\n'
+            '                while len(received) < len(b"prefix"):\n'
+            '                    chunk = client.recv(len(b"prefix") - len(received))\n'
+            '                    if not chunk:\n'
+            '                        break\n'
+            '                    received += chunk\n',
+        )
+        hits = mt.find_matches(tn, ti, self.real, None)
+        self.assertNotIn("test-socket-recv-loop-no-eof-guard", ids(hits))
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
