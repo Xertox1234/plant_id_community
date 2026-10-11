@@ -231,6 +231,50 @@ class AvatarStorageHygieneTests(TestCase):
             self.assertEqual(dict(image.getexif()), {})
             self.assertEqual(image.size, (60, 80))  # rotated upright
 
+    def test_a_multi_picture_phone_jpeg_is_stored_as_a_jpeg(self):
+        # PR #1028 review: Pillow reports a JPEG with extra frames as MPO; it
+        # fell through to PNG and grew past the 2 MB cap.
+        buf = io.BytesIO()
+        frames = [Image.new("RGB", (80, 60), c) for c in ((10, 120, 40), (90, 0, 0))]
+        frames[0].save(buf, format="MPO", save_all=True, append_images=frames[1:])
+        with Image.open(io.BytesIO(buf.getvalue())) as probe:
+            self.assertEqual(probe.format, "MPO")
+
+        self._upload(
+            SimpleUploadedFile("me.jpg", buf.getvalue(), content_type="image/jpeg")
+        )
+
+        self.assertTrue(self.user.avatar.name.endswith(".jpg"), self.user.avatar.name)
+        with default_storage.open(self.user.avatar.name, "rb") as stored:
+            with Image.open(stored) as image:
+                self.assertEqual(image.format, "JPEG")
+
+    def test_a_photo_too_large_once_re_encoded_is_refused(self):
+        # The size cap is re-checked on what is stored, not only on the upload.
+        with patch("apps.users.avatars.MAX_AVATAR_SIZE", 64):
+            resp = self.client.patch(UPDATE_URL, {"avatar": _png()}, format="multipart")
+
+        self.assertEqual(resp.status_code, 400, resp.data)
+        self.assertIn("once its metadata is removed", resp.data["message"])
+        self.user.refresh_from_db()
+        self.assertFalse(self.user.avatar)
+
+    def test_pixels_that_do_not_decode_are_a_400_not_a_500(self):
+        # The upload validators read the header only; a truncated body used to
+        # raise OSError out of the re-encode.
+        from apps.users.avatars import AvatarReencodeError, strip_image_metadata
+
+        whole = _jpeg_with_metadata(size=(400, 300))
+        truncated = SimpleUploadedFile(
+            "me.jpg", whole[: len(whole) // 2], content_type="image/jpeg"
+        )
+        with self.assertRaises(AvatarReencodeError):
+            strip_image_metadata(truncated)
+
+        resp = self.client.patch(UPDATE_URL, {"avatar": truncated}, format="multipart")
+
+        self.assertEqual(resp.status_code, 400, resp.data)
+
     def test_profile_updates_are_throttled_per_user(self):
         from apps.plant_identification.constants import RATE_LIMITS
 

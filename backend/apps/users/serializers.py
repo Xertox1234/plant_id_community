@@ -210,9 +210,12 @@ class UserProfileSerializer(serializers.ModelSerializer):
         the field's own validators, so ``value`` is a valid image."""
         if not value:
             return value
-        from .avatars import strip_image_metadata
+        from .avatars import AvatarReencodeError, strip_image_metadata
 
-        return strip_image_metadata(value)
+        try:
+            return strip_image_metadata(value)
+        except AvatarReencodeError as exc:
+            raise serializers.ValidationError(str(exc)) from exc
 
     def get_plant_collections_count(self, obj):
         """Get count of user's plant collections."""

@@ -15,6 +15,7 @@ import logging
 import os
 from typing import TYPE_CHECKING, List
 
+from apps.core.validators import MAX_AVATAR_SIZE
 from django.core.files.base import ContentFile
 from django.db import transaction
 from PIL import Image, ImageOps
@@ -27,9 +28,17 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 # What each stored format is re-encoded as. GIF becomes PNG: an avatar is one
-# frame anyway (the mobile picker flattens it too), and PNG keeps alpha.
-_REENCODE = {"JPEG": "JPEG", "PNG": "PNG", "WEBP": "WEBP", "GIF": "PNG"}
+# frame anyway (the mobile picker flattens it too), and PNG keeps alpha. MPO is
+# how Pillow reports a phone JPEG that carries extra frames (an HDR gain map, a
+# depth map): it is a JPEG, and re-encoded as PNG it grew past the size cap.
+_REENCODE = {"JPEG": "JPEG", "MPO": "JPEG", "PNG": "PNG", "WEBP": "WEBP", "GIF": "PNG"}
 _EXTENSION = {"JPEG": None, "PNG": ".png", "WEBP": ".webp"}
+
+
+class AvatarReencodeError(ValueError):
+    """The upload passed the header checks but cannot be stored."""
+
+
 _SAVE_OPTIONS = {"JPEG": {"quality": 90}, "WEBP": {"quality": 90}, "PNG": {}}
 
 
@@ -74,22 +83,32 @@ def strip_image_metadata(upload: "UploadedFile") -> ContentFile:
     (``apps.forum_host.link_preview``).
 
     ``upload`` has already passed ``validate_avatar_image`` (type, size,
-    dimensions), so it decodes as one of the allowed formats.
+    dimensions), but that check reads only the header. A file whose pixels
+    fail to decode, a format outside ``_REENCODE``, or a re-encoded photo larger
+    than ``MAX_AVATAR_SIZE`` raises ``AvatarReencodeError``, which the
+    serializer turns into a 400.
     """
     upload.seek(0)
-    with Image.open(upload) as source:
-        source_format = source.format
-        source.load()
-        image = ImageOps.exif_transpose(source)
-    target = _REENCODE.get(source_format, "PNG")
-    has_alpha = image.mode in {"RGBA", "LA", "PA"} or "transparency" in image.info
-    mode = "RGBA" if has_alpha and target != "JPEG" else "RGB"
-    image = image.convert(mode)
-    # Rebuilt from pixels alone, so nothing still in ``image.info`` (EXIF,
-    # XMP, ICC, comments) can reach the encoder.
-    clean = Image.frombytes(mode, image.size, image.tobytes())
-    output = io.BytesIO()
-    clean.save(output, target, **_SAVE_OPTIONS[target])
+    try:
+        with Image.open(upload) as source:
+            source_format = source.format
+            source.load()
+            image = ImageOps.exif_transpose(source)
+        target = _REENCODE[source_format]
+        has_alpha = image.mode in {"RGBA", "LA", "PA"} or "transparency" in image.info
+        mode = "RGBA" if has_alpha and target != "JPEG" else "RGB"
+        image = image.convert(mode)
+        # Rebuilt from pixels alone, so nothing still in ``image.info`` (EXIF,
+        # XMP, ICC, comments) can reach the encoder.
+        clean = Image.frombytes(mode, image.size, image.tobytes())
+        output = io.BytesIO()
+        clean.save(output, target, **_SAVE_OPTIONS[target])
+    except (OSError, ValueError, KeyError, Image.DecompressionBombError) as exc:
+        raise AvatarReencodeError("This image could not be read.") from exc
+    if output.tell() > MAX_AVATAR_SIZE:
+        raise AvatarReencodeError(
+            f"This image is larger than {MAX_AVATAR_SIZE // (1024 * 1024)} MB once its metadata is removed."
+        )
 
     name = os.path.basename(upload.name or "avatar")
     extension = _EXTENSION[target]
