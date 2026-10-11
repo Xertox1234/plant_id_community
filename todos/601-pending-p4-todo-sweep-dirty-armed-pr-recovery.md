@@ -4,6 +4,8 @@ priority: p4
 issue_id: "601"
 tags: [todo-sweep, tooling, docs]
 dependencies: []
+triage: ready
+triaged: 2026-10-11
 ---
 
 # `completing-todos` has no recovery step for an armed PR that goes conflicting

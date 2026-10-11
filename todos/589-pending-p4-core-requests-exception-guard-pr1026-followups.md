@@ -4,6 +4,8 @@ priority: p4
 issue_id: "589"
 tags: [todos, follow-ups]
 dependencies: []
+triage: ready
+triaged: 2026-10-11
 ---
 
 # Follow-ups from PR #1026 (todo 555)

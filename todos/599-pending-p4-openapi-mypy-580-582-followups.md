@@ -4,6 +4,8 @@ priority: p4
 issue_id: "599"
 tags: [backend, api-docs, ci, follow-ups]
 dependencies: []
+triage: ready
+triaged: 2026-10-11
 ---
 
 # Follow-ups from PR #1040 (todos 580-582, mypy gate, spectacular fail-on-warn, request examples)

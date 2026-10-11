@@ -4,6 +4,9 @@ priority: p4
 issue_id: "592"
 tags: [todos, follow-ups]
 dependencies: []
+triage: ready
+triaged: 2026-10-11
+owner_decision: "Worker picks: web adopts mobile's http(s)-only gate; decline the rest with reasons (owner, 2026-10-11)"
 ---
 
 # Follow-ups from PR #1031 (todos 563, 564)
