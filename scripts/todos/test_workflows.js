@@ -679,8 +679,22 @@ async function main() {
   r = await run('todo-execute', { run_id: 'r', briefs: [brief()] }, (p, o) => (o.agentType === 'todo-worker' ? worker()
     : ++verifies === 1 ? null : verifies === 2 ? { ...dirty, reasons: [...dirty.reasons, 'acceptance criteria were edited'] }
       : verdict('pass')))
-  check('476: a re-run that also found a real problem still retries the worker',
-    byType(r.calls, 'todo-worker').length === 2 && r.result.results[0].retried, r.result.results[0])
+  // Todo 497 F6 (changed from 476's expectation): a re-run that found the tree dirty never retries the worker,
+  // whatever else it lists. A dirty re-run changes nothing and runs nothing else, so any other reason it gives
+  // is about the first verifier's leftovers too.
+  check('497 F6: a dirty-tree re-run that also lists another reason gets no worker retry',
+    byType(r.calls, 'todo-worker').length === 1 && !r.result.results[0].retried, r.result.results[0])
+  const dirtySplit = async mutate => {
+    let n = 0
+    const rr = await run('todo-execute', { run_id: 'r', briefs: [brief()] }, (p, o) => (o.agentType === 'todo-worker'
+      ? worker() : ++n === 1 ? null : n === 2 ? { ...dirty, reasons: ['tree not clean before verification', 'out.txt'] }
+        : verdict('pass')), { mutate })
+    return byType(rr.calls, 'todo-worker').length === 1 && !rr.result.results[0].retried
+  }
+  check('497 F6: a re-run listing the dirty paths as separate reasons gets no worker retry', await dirtySplit(null))
+  check('497 F6: ... and that check fails with the old every-reason test',
+    !(await dirtySplit(['(v.reasons || []).some(r => String(r).startsWith(DIRTY))',
+      '(v.reasons || []).length > 0 && v.reasons.every(r => r.startsWith(DIRTY))'])))
   verifies = 0
   r = await run('todo-execute', { run_id: 'r', briefs: [brief()] },
     (p, o) => (o.agentType === 'todo-worker' ? worker() : ++verifies === 1 ? dirty : verdict('pass')))
@@ -731,6 +745,23 @@ async function main() {
   check('528: the repair prompt carries the limits',
     byType(r.calls, 'todo-worker')[0].prompt.includes('Keep summary under 400 characters'))
 
+  // --- todo 540 (owner decision 2026-10-10): the worker runs pre-commit on what it staged, re-stages, and only
+  // then writes the tree; the triager checks the relations of a model a todo deletes.
+  const finish = workerDoc.slice(workerDoc.indexOf('## Finish'))
+  const at = needle => finish.indexOf(needle)
+  check('540 AC1: todo-worker.md Finish runs pre-commit (kimi-review skipped) on the staged paths, after staging '
+    + 'and before write-tree, and re-stages what a fixer rewrote',
+  at('add -A') > 0 && at('SKIP=kimi-review') > at('add -A') && at('pre-commit run --files') > at('add -A')
+    && at('re-stage them') > at('pre-commit run --files') && at('write-tree') > at('pre-commit run --files')
+    && at('--diff-filter=d -z') > 0, finish.slice(0, 1200))
+  const triagerDoc = fs.readFileSync(path.join(ROOT, '.claude', 'agents', 'todo-triager.md'), 'utf8')
+  check('540 AC2: todo-triager.md tells it to check ForeignKey/on_delete on a model a todo deletes',
+    /deletes a model[\s\S]{0,200}`ForeignKey`[\s\S]{0,80}`on_delete`/.test(triagerDoc), triagerDoc.slice(0, 200))
+  check('497 F7: the worker\'s and the verifier\'s clean checks list untracked files one by one',
+    /status\s+--porcelain --untracked-files=all/.test(finish)
+    && (fs.readFileSync(path.join(ROOT, '.claude', 'agents', 'todo-verifier.md'), 'utf8')
+      .match(/--porcelain --untracked-files=all/g) || []).length >= 2)
+
   // --- todo 494 F17: the record reverifyWorker builds is a valid WORKER record (a missing branch would crash ingest)
   const rvOk = async mutate => {
     const rr = await run('todo-execute', { run_id: 'r', briefs: [brief({ reverify: rv })] },
@@ -749,8 +780,11 @@ async function main() {
   r = await run('todo-execute', { run_id: 'r', briefs: [brief({ reverify: rv })] },
     () => verdict('pass', { tree_id_before: 'T9', tree_id_after: 'T9' }),
     { chain: true, allowErrors: true, mutate: ['  async (plan, b) => {\n    if (b.reverify)', '  (plan, b) => {\n    if (b.reverify)'] })
-  check('494 F8: ... and that check fails on a synchronous stage', r.errors.length > 0 && r.result.results[0] === null
-    || r.result.results[0].worker === null, r.result)
+  // Todo 541 (#982-14): both halves asserted, parenthesised, and a null result is a failure, not a throw.
+  const syncRecord = r.result && r.result.results ? r.result.results[0] : undefined
+  check('494 F8: ... and that check fails on a synchronous stage (the stage errors AND the record is lost)',
+    r.errors.length > 0 && (syncRecord === null || (syncRecord !== undefined && syncRecord.worker === null)),
+    { errors: r.errors, result: r.result })
   // --- todo 494 F4: each re-point marker is a JSON string on the REPOINTS line, in both workflows
   const odd = { 1: [{ index: 0, to: '8', marker: 'a "quoted"; marker' }] }
   r = await run('todo-execute', { run_id: 'r', briefs: [brief({ reverify: rv, repoints: odd })] },
@@ -761,6 +795,22 @@ async function main() {
   check('494 F4: a marker with a quote and a semicolon is JSON-quoted on the REPOINTS line (execute and review)',
     execLine === 'REPOINTS: 1#0 "a \\"quoted\\"; marker"' && reviewLine === execLine, [execLine, reviewLine])
 
+  // --- todo 492 AC1: owner-confirmed criteria reach the verifier (execute and review) and the repair worker
+  const conf = { 1: [{ index: 2, date: '2026-10-10' }] }
+  r = await run('todo-execute', { run_id: 'r', briefs: [brief({ confirmed: conf })] },
+    (p, o) => (o.agentType === 'todo-worker' ? worker() : verdict('pass')))
+  const execConf = byType(r.calls, 'todo-verifier')[0].prompt.split('\n').find(l => l.startsWith('CONFIRMED:'))
+  r = await run('todo-review', { round: 1, prs: [pr({ confirmed: conf })] }, reviewStub({ lens: high }))
+  const reviewConf = byType(r.calls, 'todo-verifier')[0].prompt.split('\n').find(l => l.startsWith('CONFIRMED:'))
+  const repairConf = byType(r.calls, 'todo-worker')[0].prompt.split('\n').find(l => l.startsWith('CONFIRMED:'))
+  check('492 AC1: the CONFIRMED line reaches the execute verifier, the review verifier and the repair worker',
+    execConf === 'CONFIRMED: 1#2 2026-10-10' && reviewConf === execConf && repairConf === execConf,
+    [execConf, reviewConf, repairConf])
+  r = await run('todo-execute', { run_id: 'r', briefs: [brief()] },
+    (p, o) => (o.agentType === 'todo-worker' ? worker() : verdict('pass')))
+  check('492 AC1: no CONFIRMED line without a confirmation',
+    !byType(r.calls, 'todo-verifier')[0].prompt.includes('CONFIRMED:'))
+
   // --- todo 529 item 3: todo-followups curates each PR's follow-ups, then a refuter tries to refute them
   const fg = (over = {}) => ({ run_id: 'r', group: 'g1', ids: ['1'], pr: 900, main_root: '/main',
     followups: ['medium: a.py:9 real', 'low: a.py:2 nit', 'low: b.py:30 gone'], ...over })
@@ -769,19 +819,27 @@ async function main() {
   const curated = { pr_on_main: true, items: [item(), item({ severity: 'low', file: 'b.py', line: 30, summary: 'gone', also: [],
     on_main: 'fixed', note: 'removed by #901' }), item({ severity: 'low', file: 'c.py', line: 4, summary: 'maybe', also: [] })] }
   const isCurator = o => Boolean(o.schema && o.schema.properties.items)
+  // Todo 541 (#982-3, changed from 529's expectation): the `fixed` item (index 1) goes to the refuter too, and
+  // is dropped only because the refuter confirms it; index 2 is refuted outright.
   r = await run('todo-followups', { run_id: 'r', groups: [fg()] },
     (p, o) => (isCurator(o) ? curated : { judgments: [{ index: 0, refuted: false, reason: 'holds' },
-      { index: 1, refuted: true, reason: 'handled upstream' }] }))
+      { index: 1, refuted: true, reason: 'gone on main' }, { index: 2, refuted: true, reason: 'handled upstream' }] }))
   const fr = r.result.results[0]
   check('529 item 3: one curator, then one refuter per PR, both the guarded read-only todo-reviewer',
     r.calls.length === 2 && r.calls.every(c => c.opts.agentType === 'todo-reviewer') && isCurator(r.calls[0].opts), r.calls)
   check('529 item 3: the curator gets the follow-ups as JSON data and reads only origin/main through git',
     r.calls[0].prompt.includes(JSON.stringify(fg().followups)) && r.calls[0].prompt.includes("/usr/bin/git -C '/main' show origin/main:")
     && r.calls[0].prompt.includes('Never read files from disk'), r.calls[0].prompt)
-  check('529 item 3: an item fixed on main is dropped before the refuter, and a refuted one after it',
+  check('541 #982-3: an item the curator calls fixed reaches the refuter with that claim, and drops only on its word',
     fr.kept.length === 1 && fr.kept[0].file === 'a.py' && fr.refuter_ok
     && fr.dropped.map(d => d.why.split(':')[0]).join() === 'fixed on main,refuted'
-    && !r.calls[1].prompt.includes('b.py'), fr)
+    && /the refuter agreed: gone on main/.test(fr.dropped[0].why)
+    && r.calls[1].prompt.includes('"file":"b.py"') && r.calls[1].prompt.includes('"curator":"fixed"'), fr)
+  r = await run('todo-followups', { run_id: 'r', groups: [fg()] },
+    (p, o) => (isCurator(o) ? curated : { judgments: [{ index: 1, refuted: false, reason: 'still there' }] }))
+  check('541 #982-3: a fixed claim the refuter does not confirm keeps the item',
+    r.result.results[0].kept.map(i => i.file).join() === 'a.py,b.py,c.py' && r.result.results[0].dropped.length === 0,
+    r.result.results[0])
   r = await run('todo-followups', { run_id: 'r', groups: [fg()] },
     (p, o) => (isCurator(o) ? { ...curated, pr_on_main: false } : { judgments: [] }))
   check('529 repair: a PR not on origin/main drops nothing as fixed and gets no refuter (left uncurated)',
@@ -794,8 +852,8 @@ async function main() {
   check('529 item 3: a dead curator curates nothing (kept null: the stored list stays, marked uncurated)',
     r.result.results[0].kept === null && r.calls.length === 1, r.result)
   r = await run('todo-followups', { run_id: 'r', groups: [fg()] }, (p, o) => (isCurator(o) ? curated : null))
-  check('529 item 3: a dead refuter refutes nothing (every open item is kept)',
-    r.result.results[0].kept.length === 2 && r.result.results[0].refuter_ok === false, r.result)
+  check('529 item 3: a dead refuter refutes nothing (every item is kept, a fixed one too: todo 541 #982-3)',
+    r.result.results[0].kept.length === 3 && r.result.results[0].refuter_ok === false, r.result)
   r = await run('todo-followups', { run_id: 'r', groups: [fg({ refuted: ['critical: x.py:1 secret'] })] },
     (p, o) => (isCurator(o) ? curated : { judgments: [] }))
   check('529 item 3: a refuted line never reaches the curator or the refuter, even if passed in',

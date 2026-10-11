@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: p4
 issue_id: "541"
 tags: [todo-sweep, follow-ups]
@@ -89,8 +89,63 @@ re-check each finding against main before acting on it.
 
 ## Acceptance Criteria
 
-- [ ] Each finding above is fixed, or closed with a dated reason, or promoted to its own todo.
+- [x] Each finding above is fixed, or closed with a dated reason, or promoted to its own todo.
+
+## Resolution
+
+Run 2026-10-10-2307 fixed every finding; none was promoted. Tests are in `scripts/todos/test_state_flow.py`
+(`541 ...` checks) unless named.
+
+- PR 982 finding 1: `ingest-followups` keeps any stored item the curator neither kept, merged nor dropped,
+  and says how many; `followups-md` lists what curation dropped under its own heading.
+- PR 982 finding 2: a legacy line is keyed by its leading `file:line`, and a new finding merges with it.
+- PR 982 finding 3: an item the curator calls `fixed` now goes to the refuter with that claim and drops only
+  when the refuter confirms it (`scripts/todos/test_workflows.js`).
+- PR 982 finding 4: `followups-args` offers an `uncurated: ...` group again.
+- PR 982 finding 5: `git_criteria` compares the index copy (what ships) as well as the file on disk.
+- PR 982 finding 6: both criteria checks read the group's recorded worktree, never the reported one.
+- PR 982 finding 7: the error names `git worktree remove` and `git branch -D`, a branch left without its
+  directory is refused before `worktree add -b`, and both roots are made absolute.
+- PR 982 finding 8: `scan.ids_in` skips `worktree-sweep-` branches (`scripts/todos/test_scan.py`).
+- PR 982 finding 9 (owner decision: built here): `.claude/hooks/guard-todo-worker-edit.sh` with
+  `scripts/todos/worker_edit_guard.py` denies a todo-worker's edit outside a `.claude/worktrees/<name>/`
+  worktree; registered in `.claude/settings.json`, tested by `.claude/hooks/test-guard-todo-worker-edit.sh`.
+- PR 982 finding 10: `.worktreeinclude` patterns are un-anchored; negations, `..` and symlinked or outside
+  sources are skipped.
+- PR 982 finding 11: a mismatched worker's worktree is recorded (`stray_worktree`) and listed.
+- PR 982 finding 12: after Land only a verified or owner-confirmed box may have changed, never back to `[ ]`,
+  and a recorded re-point marker must still be there.
+- PR 982 finding 13: `_reverify_tree` refuses an entry with no `tree_id`.
+- PR 982 finding 14: the F8 negative check asserts both halves, parenthesised, without throwing on null.
+- PR 983 finding 1 (owner decision: at-least-once): the claim is still released on any exception; the comment
+  says why, and a test raises a soft time limit from the send itself.
+- PR 983 finding 2: the long docstring line in `backend/apps/forum_host/tasks.py` is re-wrapped.
+- PR 983 finding 3: `_release_confirmation_stamp` is annotated `now: datetime, previous: datetime | None`.
+- PR 983 finding 4: the `backend/apps/core/checks.py` comment names Django 6.1.1 and keeps the installed-Django
+  test as the guard.
 
 ## Work Log
 
 - 2026-10-10: Filed from run 2026-10-10-1537's review rounds (#982 rounds 1–3, #983 rounds 1–2).
+
+### 2026-10-10 - Implemented by the todo sweep (run 2026-10-10-2307)
+
+- Fixed the fourteen PR 982 engine findings in `scripts/todos/state.py`, `scan.py` and the two workflows,
+  each with a test, and built the todo-worker edit guard hook the owner asked for.
+- Fixed the four PR 983 backend findings, keeping at-least-once delivery for the forum digest with a test.
+
+### 2026-10-10 - Verified by the todo sweep (run 2026-10-10-2307)
+
+- AC 1: `bash -c 'set -eo pipefail; cd . && sed -n "/^## Resolution/,/^## Work Log/p" todos/archive/541-completed-p4-todo-sweep-2026-10-10-1537-followups.md; grep -n "now: datetime, previous: datetime | None" backend/apps/blog/newsletter.py; grep -n "Django 6.1.1" backend/apps/core/checks.py; echo "tasks.py lines over 100 chars: $(awk "length>100" backend/apps/forum_host/tasks.py | wc -l | tr -d " ")"; python3 scripts/todos/test_scan.py | grep -E "541|All checks passed|FAIL"; node scripts/todos/test_workflows.js | grep -E "541|All checks passed|FAIL"; bash .claude/hooks/test-guard-todo-worker-edit.sh | tail -1; (cd backend && python3 ../scripts/todos/slot_env.py --main-root . 4 -- backend/venv/bin/python -m pytest packages/wagtail_forum/wagtail_forum/tests/test_digest.py apps/core/tests/test_mailers_and_deprecation_gate.py -q --create-db -p no:cacheprovider 2>&1 | grep -E "passed|failed|error"); python3 scripts/todos/test_state_flow.py | grep -E "541|All checks passed|FAIL"'` — evidence `.sweep-evidence/g4/541-ac0.txt` (not committed), last lines:
+
+  ```text
+    PASS  541 #982-12: ... and a box unchecked after Land fails
+    PASS  541 #982-12: a recorded re-point whose marker was removed is an edit
+    PASS  541 #982-13: _reverify_tree refuses an entry with no tree_id
+    PASS  492 AC1 / 541 #982-12: after Land, an owner-confirmed box may be ticked though the verifier's list does not verify it
+  All checks passed.
+  ```
+
+### 2026-10-10 - Completed by the todo sweep (run 2026-10-10-2307)
+
+- Archived by `land.py archive`; evidence is quoted above, review is on the PR.

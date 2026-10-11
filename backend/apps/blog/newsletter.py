@@ -18,7 +18,7 @@ given. Now:
 """
 
 import logging
-from datetime import timedelta
+from datetime import datetime, timedelta
 from urllib.parse import urlencode
 
 from django.conf import settings
@@ -210,7 +210,9 @@ def request_confirmation(email: str) -> bool:
     return False
 
 
-def _release_confirmation_stamp(subscriber: BlogNewsletter, now, previous) -> None:
+def _release_confirmation_stamp(
+    subscriber: BlogNewsletter, now: datetime, previous: datetime | None
+) -> None:
     # Only our own stamp: never overwrite a later request's.
     BlogNewsletter.objects.filter(pk=subscriber.pk, confirmation_sent_at=now).update(
         confirmation_sent_at=previous

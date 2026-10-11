@@ -117,3 +117,50 @@ grandfathered_unchecked_acs:
   - todos/archive/360-completed-p1-firebase-secret-alerts-disposition.md
   - todos/archive/382-completed-p1-firebase-api-key-shared-across-platforms.md
   - todos/archive/383-completed-p2-firebase-hardening-carryover.md
+
+# Todo 492 (owner decision 2026-10-10): archived todos whose `## Work Log` already
+# named a local home path (`/Users/<name>` or `/home/<name>`) when the
+# ARCHIVED_HOME_PATH rule landed. Workers recorded absolute worktree and venv
+# paths before todo 524 made Land rewrite what it quotes. A fixed snapshot, like
+# the list above: a file leaves it by having its Work Log made repo-relative,
+# never by being added back, and a stale entry fails the check.
+
+grandfathered_home_paths:
+  - backend/todos/archive/2025-10-28-parallel-resolution/003-resolved-p1-lock-release-error-handling.md
+  - todos/archive/213-completed-p3-persist-fire-telemetry-log.md
+  - todos/archive/423-completed-p2-streamline-forum-moderation.md
+  - todos/archive/431-completed-p4-thread-publish-link-double-recount.md
+  - todos/archive/434-completed-p4-apiclient-migration-followups.md
+  - todos/archive/439-completed-p4-profile-dashboard-stats-followups.md
+  - todos/archive/440-completed-p4-drift-guard-and-budget-followups.md
+  - todos/archive/447-completed-p2-email-verification-follow-ups.md
+  - todos/archive/459-completed-p3-web-diagnose-plant-condition-free-text.md
+  - todos/archive/462-completed-p2-mobile-never-refreshes-access-token.md
+  - todos/archive/463-completed-p3-mobile-avatar-cluster-parity-and-stat-tile-noop.md
+  - todos/archive/464-completed-p3-test-gaps-from-archived-todo-triage.md
+  - todos/archive/465-completed-p3-reaction-double-tap-guard.md
+  - todos/archive/473-completed-p4-todo-sweep-part-b-review-followups.md
+  - todos/archive/474-completed-p4-todo-sweep-468-slice-a-review-followups.md
+  - todos/archive/476-completed-p4-todo-sweep-468-slice-d-review-followups.md
+  - todos/archive/477-completed-p4-todo-sweep-468-slice-b-review-followups.md
+  - todos/archive/478-completed-p3-todo-review-full-depth-followups.md
+  - todos/archive/479-completed-p4-web-env-in-worker-worktrees.md
+  - todos/archive/481-completed-p4-todo-review-router-hardening.md
+  - todos/archive/482-completed-p4-refuted-hold-efficiency.md
+  - todos/archive/483-completed-p4-repair-commits-preexisting-untracked-files.md
+  - todos/archive/484-completed-p4-stage-c-step1-read-residue-key.md
+  - todos/archive/486-completed-p4-mobile-inbox-viewer-filter-followups.md
+  - todos/archive/487-completed-p4-test-gap-tests-followups.md
+  - todos/archive/489-completed-p4-http-error-translator-followups.md
+  - todos/archive/495-completed-p2-forum-pending-queue-followups.md
+  - todos/archive/498-completed-p3-mobile-token-refresh-followups.md
+  - todos/archive/502-completed-p4-web-diagnose-condition-select-904-followups.md
+  - todos/archive/503-completed-p4-reaction-double-tap-guard-905-followups.md
+  - todos/archive/504-completed-p4-thread-publish-single-recount-906-followups.md
+  - todos/archive/505-completed-p4-link-card-display-helper-907-followups.md
+  - todos/archive/506-completed-p4-sweep-landpy-sibling-reporting-908-followups.md
+  - todos/archive/507-completed-p4-mobile-inbox-viewer-refresh-909-followups.md
+  - todos/archive/508-completed-p4-todo-464-test-gap-tests-910-followups.md
+  - todos/archive/509-completed-p4-drawer-widen-focus-to-main-911-followups.md
+  - todos/archive/510-completed-p4-http-error-network-codes-912-followups.md
+  - todos/archive/512-completed-p3-todo-sweep-land-friction-run-2026-10-01.md

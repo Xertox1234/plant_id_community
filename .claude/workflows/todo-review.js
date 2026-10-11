@@ -194,6 +194,12 @@ function repointLines(p) {
   return items.length ? [`REPOINTS: ${items.join('; ')}`] : []
 }
 
+// Todo 492 AC1: the owner-confirmed criteria (`state.py confirm`), the same line todo-execute gives its verifier.
+function confirmedLines(p) {
+  const items = Object.entries(p.confirmed || {}).flatMap(([id, list]) => list.map(c => `${id}#${c.index} ${c.date}`))
+  return items.length ? [`CONFIRMED: ${items.join('; ')}`] : []
+}
+
 // Todo 528: the same limits todo-execute states, under the WORKER schema's maxLength.
 const LIMITS = 'Keep summary under 400 characters, and blockers and discoveries under 250 each: a WORKER record ' +
   'over the schema limits is refused, and a refused record loses your finished work.'
@@ -288,10 +294,11 @@ function untrackedLine(p) {
 function repairPrompt(p, blocking) {
   return ['MODE: repair', `RUN_ID: ${p.run_id}`, `WORKTREE: ${p.worktree}`, `SLOT: ${p.slot}`,
     `MAIN_ROOT: ${p.main_root}`, `EVIDENCE_DIR: ${p.evidence_dir}`, `IDS: ${p.ids.join(', ')}`, ...pathLines(p),
-    untrackedLine(p),
+    ...confirmedLines(p), untrackedLine(p),
     'FINDINGS:', JSON.stringify(blocking, null, 1),
     `Fix only these findings. ${LANDED} Do not flip, uncheck or otherwise edit any box.`,
-    'Then re-run every criterion except those already `[x]` at the merge-base (ORIGIN_PATHS) or re-pointed, and ' +
+    'Then re-run every criterion except those already `[x]` at the merge-base (ORIGIN_PATHS), re-pointed, or ' +
+      'listed on the CONFIRMED line (owner-confirmed: `pass: false`, `command: ""`, note `owner-confirmed`), and ' +
       'regenerate evidence for the criteria you re-ran; ac.json still has one entry for EVERY criterion ' +
       '(recreate EVIDENCE_DIR if it is missing).',
     'Stage only the paths you changed (`/usr/bin/git -C WT add -- <path>...`), never `git add -A`, and list them ' +
@@ -305,10 +312,11 @@ function verifyPrompt(p, w, again = false) {
     `Verify todo group ${p.group} after a round-1 review repair.`,
     `IDS: ${p.ids.join(', ')}`,
     `WORKTREE: ${w.worktree}`, `SLOT: ${p.slot}`, `MAIN_ROOT: ${p.main_root}`,
-    `AC_FILE: ${w.ac_file}`, ...pathLines(p), ...repointLines(p),  // no tree id: state.evaluate compares it (todo 468)
+    `AC_FILE: ${w.ac_file}`, ...pathLines(p), ...repointLines(p), ...confirmedLines(p),  // no tree id (todo 468)
     untrackedLine(p), `FILES_CHANGED: ${JSON.stringify(w.files_changed)}`,
     `${LANDED} Ignore \`[ ]\` vs \`[x]\` in the unchanged-criteria check. Every criterion that is not ` +
-      'already-checked-at-merge-base or re-pointed must carry a non-empty `command`; re-run each yourself.',
+      'already-checked-at-merge-base or re-pointed must carry a non-empty `command`; re-run each yourself. The ' +
+      'one exception is a criterion on the CONFIRMED line, which the owner confirmed (todo 492): it has no command.',
     'The clean checks ignore untracked paths in UNTRACKED_BEFORE, and only those. Staged paths ' +
       '(`/usr/bin/git -C WT diff --cached --name-only HEAD`) must all be in FILES_CHANGED; any other is a fail, ' +
       'with reason `staged paths the repair did not change: <paths>`.',

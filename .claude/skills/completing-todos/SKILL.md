@@ -172,6 +172,13 @@ With `--limit N`, execute only the first ⌈N / workers⌉ waves and list the de
      make the todo `failed` with `no verdict`. No verifier judged that tree, but `--reverify` stays refused
      (it needs a block by the first worker). Retry it the usual way (`set … ready`, a fresh worker); the
      re-pointed work is in `previous` for the owner to compare. There is no other path.
+   - **An owner-only criterion the owner confirmed** (todo 492, owner decision 2026-10-10) — a prod email
+     arrived, a header is present — is ticked at Land, not hand-closed. After Decide (Decide writes
+     `owner_decision` over) and before `execute-args`, run `state.py confirm $RUN <id> --index <i> --decision
+     "<the owner's words>" --date $TODAY` for each such criterion: a ready todo, or a blocked one before its
+     reopen (`--reverify` when its first worker blocked only on that criterion). The brief carries it, the worker
+     records it `owner-confirmed`, the verifier accepts only listed ones, and `flip-acs` ticks the box and quotes
+     the owner's words in the Work Log. Never tick one by hand.
    - A wave the run deferred (`--limit`) blocks every later wave. Block its todos with the reason
      `deferred by --limit` first, and list them in the wrap-up.
 
@@ -185,6 +192,8 @@ Steps 1–8 run with the sandbox off (see **Sandbox**).
    If `remaining` has a criterion that is not a re-point, stop this group:
    `state.py set-group $RUN G blocked --field reason="criteria not verified: …"`.
 4. For each todo id: `python3 scripts/todos/land.py archive --run $RUN --id <id> --repo $WT --date $TODAY`
+   (it refuses a todo whose Work Log names a home path, `/Users/<name>` or `/home/<name>`, as CI's tripwire
+   does: make those lines repo-relative by hand, `git add`, and archive again; todo 492)
    → stage exactly its `paths`: `/usr/bin/git -C $WT add <paths…>` (after `git mv`, re-add the new path).
 5. Rename the branch to the repo convention: `/usr/bin/git -C $WT branch -m <type>/<id>-<slug>`, then
    `state.py annotate $RUN G --field branch=<new>`. A reopened todo (todo 473) may find that name taken: an
@@ -205,7 +214,9 @@ Steps 1–8 run with the sandbox off (see **Sandbox**).
    commit again. Step 1 accepts only `trailing-whitespace` and `end-of-file-fixer` rewrites: a path passes when its new
    contents are exactly those two fixers' output on the verified ones, on a file they treat as text (todo 513).
    A refusal means the diff is a real change, or another configured fixer rewrote the file (black, isort,
-   prettier, dart-format, `markdownlint --fix`, `mixed-line-ending`). Either way, stop the group.
+   prettier, dart-format, `markdownlint --fix`, `mixed-line-ending`). Either way, stop the group. Since todo 540
+   the worker runs `pre-commit run --files <staged>` before it writes its tree, so a Black or detect-secrets stop
+   here is rare; it means that step was skipped, and the owner decided `ensure-worktree` stays strict.
 7. Rebase when origin/main moved (spec §7.2): `/usr/bin/git -C $WT fetch origin main`; if
    `/usr/bin/git -C $WT merge-base --is-ancestor origin/main HEAD` fails, `/usr/bin/git -C $WT rebase origin/main`.
    A conflict outside `todos/` and append-only docs (`docs/LEARNINGS.md`, `docs/rules/*.md`) is not
@@ -230,7 +241,11 @@ Steps 1–8 run with the sandbox off (see **Sandbox**).
    - `repair-staged` → `ensure-worktree`, `git -C $WT diff --cached --stat`, commit `fix: address review round 1 (todo <id>)`,
      `ensure-worktree` again, push, then round 2.
    - `rerun` → run round 1 again once. The run file counts it (`review_reruns`, todo 478), so a second
-     incomplete round (`rerun` or `residue`) comes back `blocked` from `ingest-review` itself.
+     incomplete round (`rerun` or `residue`) comes back `blocked` from `ingest-review` itself. Re-ingesting the
+     same output file never counts twice (todo 497). A group blocked `review round N was incomplete twice` has
+     a PR, so a reopen and `clear-hold` both refuse it. When the owner approves one more try, run
+     `state.py release-incomplete $RUN G --decision "<their words, dated>"`: it goes back to `pr_open` with
+     round N-1 done and that round's count reset. Once per round; a third incomplete round blocks for good.
    - `residue` → see step 5. Nothing was repaired.
    - `held` (todo 482) → a critical was dismissed only by the refuters, so the PR would be held at round 2 anyway;
      `ingest-review` has already blocked the group. Do not commit, push or run round 2. Report it as in step 2's
@@ -292,8 +307,10 @@ Steps 1–8 run with the sandbox off (see **Sandbox**).
      `(#<pr>)` squash commit is on origin/main; when it is not, the group stays `uncurated` with nothing dropped.
    - `state.py followups-args $RUN --main-root REPO` → `Workflow({name: "todo-followups", args})` →
      `state.py ingest-followups $RUN --output <task output file>`. Per PR, one curator merges duplicates and
-     checks each item on origin/main, then one refuter tries to refute what is left; fixed and refuted items
-     drop out. A dead curator leaves the stored list, marked `uncurated`. The `refuted` lines never go
+     checks each item on origin/main, then one refuter tries to refute every item, with the curator's `fixed` claim
+     where it made one; an item drops out only when the refuter refutes it (todo 541), and `followups-md` lists
+     what dropped. An item the curator left out is kept as stored. A dead curator leaves the stored list, marked
+     `uncurated`, and `followups-args` offers an uncurated group again on the next run. The `refuted` lines never go
      through it.
    - For each group, `state.py followups-md $RUN G --out $SCRATCH/followups-G.md` writes its Findings: each
      item with its severity, the cap's dropped count, and the refuted lines under their own heading so the
@@ -354,14 +371,15 @@ findings the refuters dismissed (per PR), deferred groups (`--limit`), and the f
 ## Safety rails
 
 1. **Acceptance criteria are gospel.** A box flips only through `land.py flip-acs` (worker pass + verifier
-   agreement + evidence file). The only exception is a re-point naming a numbered target
+   agreement + evidence file), or, for an owner-only criterion, the owner's dated `state.py confirm` record plus
+   verifier agreement (todo 492). The only exception is a re-point naming a numbered target
    (`→ todo NNN (re-pointed DATE)`). `scripts/check_archived_todo_status.py` enforces this in CI.
 2. **External verification leaves evidence in the file:** the date and the observed result, quoted.
    "Verified" alone is not evidence.
 3. **No destructive recovery.** Never reset, force-push, delete or `git checkout --` to recover. Stop and report.
 4. **Two review rounds.** Round 2 never repairs; non-blocking findings become follow-up todos.
 5. **One committer.** Workflows never commit, push or call `gh`; `guard-todo-worker-git.sh` enforces it for
-   workers and verifiers.
+   workers and verifiers. `guard-todo-worker-edit.sh` keeps a worker's edits inside a worktree (todo 541).
 6. **Never read production.** A todo needing prod data is `blocked-prod` and an owner hand-off.
 7. **Only `state.py` writes the run file; stage names never go in `status:`.**
 8. **The sandbox goes off only for the steps listed under Sandbox.**

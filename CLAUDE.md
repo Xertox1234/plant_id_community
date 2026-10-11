@@ -286,6 +286,10 @@ reach only **new** worktrees; existing worktrees keep their setup until rebased.
   surfaced as context. Bypass with `SKIP_KIMI_REVIEW=1`.
 - **`guard-worktree-isolation.sh`** — blocks a worktree session from editing
   files in the main checkout.
+- **`guard-todo-worker-edit.sh`** — for a `todo-worker` subagent only, blocks an
+  Edit/Write whose path is in the main checkout rather than a
+  `.claude/worktrees/<name>/` worktree (its cwd is the main checkout since todo
+  528, where the isolation guard above does not act).
 - **`guard-main-branch-edit.sh`** — blocks Edit/Write/MultiEdit while checked
   out on `main`, forcing a feature branch first (see Working Conventions
   above and the `using-git-worktrees` skill). Bypass with

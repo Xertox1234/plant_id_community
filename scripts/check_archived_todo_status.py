@@ -102,6 +102,21 @@ TWO LISTS, NOT ONE
   of what predated the AC rule. A single shared counter would let progress in one
   bucket manufacture slack in the other.
 
+A THIRD RULE, ON THE WORK LOG (todo 492, owner decision 2026-10-10)
+
+  ARCHIVED_HOME_PATH An archived todo whose `## Work Log` section still names a
+                     local home path: `/Users/<name>` or `/home/<name>` where a
+                     path starts. Workers once recorded commands and evidence as
+                     absolute worktree and venv paths. The worktree is deleted
+                     after landing, so the command cannot be re-run, and the repo
+                     is public, so the path leaks the home user name. Land
+                     rewrites what it quotes (`land._relativize`), and refuses to
+                     archive a todo whose Work Log still holds one; this rule is
+                     the CI half. A path inside a longer one (`components/home/x`)
+                     does not count. It is a separate pass with its own
+                     grandfather list (`grandfathered_home_paths`), so a file
+                     excused for another rule can never hide a home path.
+
 THE ALLOWLIST IS NOT A MUTE BUTTON
 
   `todos/archive-status-allowlist.yml` carries one entry per grandfathered file
@@ -167,6 +182,10 @@ REPOINT_RE = re.compile(
     re.I,
 )
 STATUS_RE = re.compile(r"^status:\s*(.+?)\s*$", re.M)
+# A home directory where a path starts: not after a character a path name is made of, so the `home/` inside
+# `apps/blog/templates/wagtailadmin/home/` or `components/home/` is not one. A name must follow it.
+HOME_PATH_RE = re.compile(r"(?<![\w./~-])/(?:Users|home)/[^/\s'\"`;:,=|&<>()\[\]{}]+")
+HOME_KIND = "ARCHIVED_HOME_PATH"
 
 DEFAULT_ROOTS = ("todos", "backend/todos", "backend/github-issues")
 ALLOWLIST_PATH = "todos/archive-status-allowlist.yml"
@@ -190,6 +209,35 @@ def parse(path):
         elif not in_fence and UNCHECKED_AC_RE.match(line) and not REPOINT_RE.search(line):
             bare.append(line)
     return status, (name_match.group(1).lower() if name_match else None), True, bare
+
+
+def work_log_home_paths(text):
+    """The lines of a todo's `## Work Log` section (to the next `## ` heading) that name a home path."""
+    out, inside = [], False
+    for line in text.splitlines():
+        if line.startswith("## "):
+            inside = line.rstrip() == "## Work Log"
+        elif inside and HOME_PATH_RE.search(line):
+            out.append(line)
+    return out
+
+
+def scan_home_paths(roots):
+    """{path: [Work Log lines naming a home path]} for every archived todo with one."""
+    found = {}
+    for root in roots:
+        if not os.path.isdir(root):
+            continue
+        for dirpath, _dirnames, filenames in os.walk(root):
+            for name in sorted(filenames):
+                path = os.path.join(dirpath, name)
+                if not name.endswith(".md") or name in SKIP_NAMES or f"{os.sep}archive{os.sep}" not in f"{path}{os.sep}":
+                    continue
+                with open(path, encoding="utf-8", errors="replace") as fh:
+                    lines = work_log_home_paths(fh.read())
+                if lines:
+                    found[path] = lines
+    return found
 
 
 SEVERITY = (
@@ -320,6 +368,18 @@ def load_ac_grandfathers(path):
     return set(data.get("grandfathered_unchecked_acs", []) or [])
 
 
+def load_home_grandfathers(path):
+    """The archived todos whose Work Log already named a home path when that rule landed (todo 492): a
+    fixed snapshot, like the unchecked-AC list. An entry whose file no longer names one is stale and fails."""
+    if not os.path.exists(path):
+        return set()
+    import yaml
+
+    with open(path, encoding="utf-8") as fh:
+        data = yaml.safe_load(fh) or {}
+    return set(data.get("grandfathered_home_paths", []) or [])
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument(
@@ -358,6 +418,8 @@ def main():
 
     allow = {} if args.no_allowlist else load_allowlist(args.allowlist)
     ac_allow = set() if args.no_allowlist else load_ac_grandfathers(args.allowlist)
+    home = scan_home_paths(roots)
+    home_allow = set() if args.no_allowlist else load_home_grandfathers(args.allowlist)
 
     # A stale entry fails. An allowlist nobody can be wrong about is an
     # allowlist nobody ever removes from.
@@ -372,19 +434,27 @@ def main():
             stale.append((path, "file no longer exists (unchecked-AC list)"))
         elif AC_KIND not in kinds.get(path, set()):
             stale.append((path, "file no longer has bare unchecked ACs"))
+    for path in home_allow:
+        if not os.path.exists(path):
+            stale.append((path, "file no longer exists (home-path list)"))
+        elif path not in home:
+            stale.append((path, "file's Work Log no longer names a home path"))
 
     def excused(path, kind):
         return path in (ac_allow if kind == AC_KIND else allow)
 
     remaining = [v for v in violations if not excused(v[0], v[1])]
+    home_remaining = sorted(p for p in home if p not in home_allow)
 
     by_kind = Counter(kind for _p, kind, _d in violations)
     by_kind_remaining = Counter(kind for _p, kind, _d in remaining)
-    width = max((len(k) for k in by_kind), default=18)
+    width = max([len(k) for k in by_kind] + ([len(HOME_KIND)] if home else []), default=18)
     print(f"{'violation'.ljust(width)}  total  unallowed")
     for kind in sorted(by_kind):
         print(f"{kind.ljust(width)}  {by_kind[kind]:5d}  {by_kind_remaining[kind]:9d}")
-    print(f"{'TOTAL'.ljust(width)}  {len(violations):5d}  {len(remaining):9d}")
+    if home:
+        print(f"{HOME_KIND.ljust(width)}  {len(home):5d}  {len(home_remaining):9d}")
+    print(f"{'TOTAL'.ljust(width)}  {len(violations) + len(home):5d}  {len(remaining) + len(home_remaining):9d}")
 
     allowed_kinds = Counter(e["kind"] for e in allow.values())
     if allow:
@@ -394,6 +464,8 @@ def main():
         )
     if ac_allow:
         print(f"{len(ac_allow)} grandfathered for unchecked acceptance criteria")
+    if home_allow:
+        print(f"{len(home_allow)} grandfathered for a home path in the Work Log")
     if skipped:
         print(f"{len(skipped)} file(s) skipped: no frontmatter block, cannot be judged")
 
@@ -401,6 +473,9 @@ def main():
         print()
         for path, kind, detail in sorted(remaining):
             print(f"{path}\n    {kind}: {detail}")
+        for path in home_remaining:
+            print(f"{path}\n    {HOME_KIND}: the Work Log names a home path ({len(home[path])} line(s)); make it "
+                  "repo-relative")
     if args.list_skipped:
         print()
         for path in sorted(skipped):
@@ -417,9 +492,9 @@ def main():
             print(f"  {path}: {why}", file=sys.stderr)
         return 1
 
-    if args.fail_over is not None and len(remaining) > args.fail_over:
+    if args.fail_over is not None and len(remaining) + len(home_remaining) > args.fail_over:
         print(
-            f"\nFAIL: {len(remaining)} unallowed violation(s) "
+            f"\nFAIL: {len(remaining) + len(home_remaining)} unallowed violation(s) "
             f"exceeds the allowed {args.fail_over}",
             file=sys.stderr,
         )

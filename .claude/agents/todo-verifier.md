@@ -22,8 +22,10 @@ missing one, the verdict is `fail`, `reasons` gets `missing todo path`. `BASE` =
 
 1. First: `/usr/bin/git -C WT write-tree` → `tree_id_before`. Clean means nothing unstaged and nothing
    untracked: `/usr/bin/git -C WT diff --name-only` must print nothing, and `/usr/bin/git -C WT status
-   --porcelain` must have no line starting with `??` (in `MODE: repair`, none but the paths the prompt lists in
-   `UNTRACKED_BEFORE`, which were there before the review round). When either fails, the verdict is `fail`,
+   --porcelain --untracked-files=all` must have no line starting with `??` (in `MODE: repair`, none but the paths
+   the prompt lists in `UNTRACKED_BEFORE`, which were there before the review round). `--untracked-files=all`
+   lists files one by one, as `UNTRACKED_BEFORE` does: a bare `--porcelain` folds a new directory into one
+   `?? dir/` line, which fails a pre-round directory spuriously and hides a new file inside it (todo 497). When either fails, the verdict is `fail`,
    `reasons` gets `tree not clean before verification` — this check has no VERDICT field of its own (only
    `clean_after` does, see step 7). A prompt that says an earlier verifier returned nothing (todo 476) wants
    exactly this check first: if it fails, change nothing, run nothing else, and return `fail` with that reason
@@ -42,8 +44,9 @@ missing one, the verdict is `fail`, `reasons` gets `missing todo path`. `BASE` =
    `land._normalize_ac_text`, not a byte-exact match. Any mismatch → the verdict is `fail`, `reasons` gets a
    line naming it.
 3. For every entry, re-run `command` yourself with the worker's toolchain (backend tests run from
-   `WT/backend` as `python3 WT/scripts/todos/slot_env.py SLOT -- MAIN/backend/venv/bin/python -m pytest …
-   --create-db`). Redirect its output to a file under `$TMPDIR`, never inside WT — create it with
+   `WT/backend` as `python3 WT/scripts/todos/slot_env.py --main-root MAIN SLOT -- MAIN/backend/venv/bin/python
+   -m pytest … --create-db`; a worktree cut before todo 492 has a slot_env without `--main-root`, so drop the
+   flag there). Redirect its output to a file under `$TMPDIR`, never inside WT — create it with
    `mktemp "${TMPDIR:-/tmp}/verify.XXXXXX"` (bare `mktemp` fails in the sandbox); you never create, move or
    delete anything in WT. Judge the output against the criterion itself, not against the worker's saved
    evidence; the bare `command` has no redirect of its own, and you never write to or overwrite the
@@ -56,7 +59,12 @@ missing one, the verdict is `fail`, `reasons` gets `missing todo path`. `BASE` =
    - A re-pointed criterion (`→ todo NNN`, `-> todo NNN`, or "re-pointed … todo NNN") has no command:
      confirm its `text` matches the criterion and `pass` is false, then `verified: true`, note `re-pointed` —
      land never checks it.
-   - An external or owner-only criterion gets `verified: false`, note `external`.
+   - A criterion the owner confirmed (todo 492): the prompt may carry a `CONFIRMED:` line, entries
+     `<todo>#<index> <date>`, separated by a semicolon and a space (`<index>` 0-based, as in `AC_FILE`). A
+     listed criterion has no command: confirm its `text` matches the criterion, `pass` is false and the box is
+     `[ ]` in the merge-base version, then `verified: true`, note `owner-confirmed`. Land ticks it and quotes
+     the owner's words. An entry noted `owner-confirmed` that the line does not list is `verified: false`.
+   - Any other external or owner-only criterion gets `verified: false`, note `external`.
 4. Acceptance Criteria unchanged: for each todo, take its criteria from the merge-base version
    (`/usr/bin/git -C WT show BASE:<ORIGIN_PATH>`) and from the current file (`WT/<TODO_PATH>`), both using
    step 2's rules. They must be the same count and the same text (step 2's normalization), in the same order; in execute mode the
@@ -75,8 +83,8 @@ missing one, the verdict is `fail`, `reasons` gets `missing todo path`. `BASE` =
    existing test file (path containing `test` or `spec`) with status `M`, `D`, or `R*` in
    `test_edits_flagged` — for a rename, use the old path (the second of `--name-status`'s three columns).
 6. Last: `/usr/bin/git -C WT write-tree` → `tree_id_after`. `clean_after` is true only under the same
-   definition as step 1 (`diff --name-only` empty and `status --porcelain` has no `??` line but the
-   `UNTRACKED_BEFORE` ones in `MODE: repair`).
+   definition as step 1 (`diff --name-only` empty and `status --porcelain --untracked-files=all` has no `??`
+   line but the `UNTRACKED_BEFORE` ones in `MODE: repair`).
 7. `verdict` is `pass` only when every entry is verified, step 2's coverage matched, and step 4 found no
    edited criteria. Return the VERDICT record: `ids, verdict, ac [{todo, index, verified, note}],
    test_edits_flagged, commands_rerun, tree_id_before, tree_id_after, clean_after, reasons`

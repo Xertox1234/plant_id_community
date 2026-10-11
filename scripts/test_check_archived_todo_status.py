@@ -280,6 +280,52 @@ def main():
         code, out = run(root, allowlist=al)
         check("an entry missing reason/date exits 2, not 0", code == 2, out)
 
+    # Todo 492 AC2 (owner decision 2026-10-10): an archived todo whose Work Log names a home path fails. The
+    # paths are built, not written out, so this file's own output never prints one.
+    users, home = "/" + "Users" + "/someone", "/" + "home" + "/someone"
+    with tempfile.TemporaryDirectory() as tmp:
+        root = pathlib.Path(tmp) / "todos"
+        arch = root / "archive"
+        log = "\n## Work Log\n\n### d - x\n\n- AC 1: `python3 {}/wt/scripts/x.py`\n\n## Notes\n"
+
+        print("a home path in an archived todo's Work Log")
+        for n, base in enumerate((users, home)):
+            todo(arch, f"05{n}-completed-p3-leak.md", "completed", body="# t\n" + log.format(base))
+        code, out = run(root, no_allowlist=True)
+        check("492 AC2: a Work Log naming a home directory fails the check (both spellings)",
+              code == 1 and unallowed(out, "ARCHIVED_HOME_PATH") == 2, out)
+        for n in range(2):
+            os.remove(arch / f"05{n}-completed-p3-leak.md")
+
+        todo(arch, "052-completed-p3-ok.md", "completed",
+             body="# t\n" + log.format("~/projects") + "- `apps/blog/templates/wagtailadmin/home/x.html`, "
+             "`web/src/components/home/A.tsx`, `/home/` alone\n")
+        todo(arch, "053-completed-p3-elsewhere.md", "completed",
+             body=f"# t\n\nSee {users}/notes outside the Work Log.\n" + log.format("."))
+        todo(root, "054-pending-p3-live.md", "pending", body="# t\n" + log.format(users))
+        code, out = run(root, no_allowlist=True)
+        check("492 AC2: a relative or `~` path, a `home/` inside a longer path, a home path outside the Work Log, "
+              "and a live todo all pass", code == 0, out)
+
+        leak = arch / "055-completed-p3-old.md"
+        todo(arch, leak.name, "completed", body="# t\n" + log.format(users))
+        al = pathlib.Path(tmp) / "al.yml"
+        al.write_text(f"grandfathered_home_paths:\n  - {leak}\n")
+        code, out = run(root, allowlist=al)
+        check("492 AC2: a grandfathered file is excused", code == 0 and unallowed(out, "ARCHIVED_HOME_PATH") == 0, out)
+        al.write_text(f"grandfathered_unchecked_acs:\n  - {leak}\n")
+        code, out = run(root, allowlist=al)
+        check("492 AC2: the unchecked-AC list does not excuse a home path (its own list)",
+              code == 1 and unallowed(out, "ARCHIVED_HOME_PATH") == 1, out)
+        todo(arch, leak.name, "completed", body="# t\n" + log.format("."))
+        al.write_text(f"grandfathered_home_paths:\n  - {leak}\n")
+        code, out = run(root, allowlist=al)
+        check("492 AC2: a grandfathered file whose Work Log was made relative is a stale entry",
+              code == 1 and "no longer names a home path" in out, out)
+        check("492 AC2: work_log_home_paths reads the Work Log section only",
+              chk.work_log_home_paths(f"## Problem\n{users}/a\n## Work Log\n- ok\n- {home}/b\n## Notes\n{users}/c\n")
+              == [f"- {home}/b"])
+
     print()
     if FAILURES:
         print(f"FAILED: {len(FAILURES)} check(s): {', '.join(FAILURES)}")

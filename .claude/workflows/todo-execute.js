@@ -75,6 +75,13 @@ function repointLines(b) {
   return items.length ? [`REPOINTS: ${items.join('; ')}`] : []
 }
 
+// Todo 492 AC1: the owner-confirmed criteria (`state.py confirm`). The verifier accepts a listed criterion as
+// `owner-confirmed` without a command; Land ticks it and quotes the owner's words. The same code is in todo-review.js.
+function confirmedLines(b) {
+  const items = Object.entries(b.confirmed || {}).flatMap(([id, list]) => list.map(c => `${id}#${c.index} ${c.date}`))
+  return items.length ? [`CONFIRMED: ${items.join('; ')}`] : []
+}
+
 // Todo 528: a worker whose record fails the WORKER schema returns nothing, and its finished work is lost. The
 // worker is told the limits with headroom under the schema's maxLength, as reviewers are. Same words in todo-review.js.
 const LIMITS = 'Keep summary under 400 characters, and blockers and discoveries under 250 each: a WORKER record ' +
@@ -116,7 +123,7 @@ function verifyPrompt(b, w, again = false) {
     `Verify todo group ${b.group}.`,
     `IDS: ${b.ids.join(', ')}`,
     `WORKTREE: ${w.worktree}`, `SLOT: ${b.slot}`, `MAIN_ROOT: ${b.main_root}`,
-    `AC_FILE: ${w.ac_file}`, ...pathLines(b), ...repointLines(b),
+    `AC_FILE: ${w.ac_file}`, ...pathLines(b), ...repointLines(b), ...confirmedLines(b),
     again ? AGAIN : '',
     'Return the VERDICT record.',
   ].filter(Boolean).join('\n')
@@ -131,15 +138,17 @@ async function verify(b, w, label) {
   if (first) return first
   log(`Verifier returned nothing for ${b.group}; running it once more, tree check first`)
   const again = await agent(verifyPrompt(b, w, true), { ...opts, label: `${label}-again` })
-  // Marks the re-run for dirtyOnly() below; state.evaluate and ingest-execute ignore the extra key.
+  // Marks the re-run for dirtyBefore() below; state.evaluate and ingest-execute ignore the extra key.
   return again && { ...again, rerun_after_null: true }
 }
 
-// Todo 476: a re-run that fails only because the tree was dirty before it started judged the first
-// verifier's leftovers, not the worker's work. Retrying the worker there would build on those leftovers.
-function dirtyOnly(v) {
-  return Boolean(v && v.rerun_after_null) && v.verdict === 'fail' && (v.reasons || []).length > 0
-    && v.reasons.every(r => r.startsWith(DIRTY))
+// Todo 476: a re-run that fails because the tree was dirty before it started judged the first verifier's
+// leftovers, not the worker's work. Retrying the worker there would build on those leftovers. Any reason that
+// starts with the dirty-tree text counts (todo 497 F6): a verifier that lists the dirty paths as separate
+// reasons, or adds another reason, still found the tree dirty first.
+function dirtyBefore(v) {
+  return Boolean(v && v.rerun_after_null) && v.verdict === 'fail'
+    && (v.reasons || []).some(r => String(r).startsWith(DIRTY))
 }
 
 function retryPrompt(b, w, v) {
@@ -176,7 +185,7 @@ const results = await pipeline(
     if (!worker || worker.status !== 'staged') return { ...base, worker, verdict: null, retried: false }
     const verdict = await verify(b, worker, `verify:${b.group}`)
     if (!verdict || verdict.verdict === 'pass') return { ...base, worker, verdict, retried: false }
-    if (dirtyOnly(verdict)) {
+    if (dirtyBefore(verdict)) {
       log(`${b.group}: the re-run verifier found the tree dirty before it started; no worker retry`)
       return { ...base, worker, verdict, retried: false }
     }

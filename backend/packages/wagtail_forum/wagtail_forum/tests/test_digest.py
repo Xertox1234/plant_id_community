@@ -645,3 +645,33 @@ def test_a_deprecation_raised_by_the_send_gives_the_members_claim_back(monkeypat
 
     profile.refresh_from_db()
     assert profile.last_digest_sent_at is None
+
+
+@pytest.mark.django_db
+@override_settings(
+    SITE_URL="https://forum.example", WAGTAILFORUM_DIGEST_UNSUBSCRIBE=None
+)
+def test_a_soft_time_limit_in_the_send_gives_the_members_claim_back(monkeypatch):
+    """Todo 541 (owner decision 2026-10-10): delivery is at-least-once, as in
+    send_blog_newsletter. A soft time limit raised by the send itself stops
+    the run, and the member's claim is given back, so the member is due again
+    (a duplicate digest is possible if the mail had already gone out)."""
+    from wagtail_forum.management.commands import send_forum_digest
+
+    def time_limited_send(digest):
+        raise SoftTimeLimitExceeded()
+
+    index = _index()
+    board = _board(index, "general")
+    friend = User.objects.create_user(username="dg-soft-poster")
+    topic = _topic(board, friend, "Soft limit")
+    member = User.objects.create_user(username="dg-soft", email="soft-send@example.com")
+    profile = _opt_in(member)
+    _reply_note(member, friend, topic)
+    monkeypatch.setattr(send_forum_digest, "send_digest", time_limited_send)
+
+    with pytest.raises(SoftTimeLimitExceeded):
+        call_command("send_forum_digest", frequency="weekly", stdout=StringIO())
+
+    profile.refresh_from_db()
+    assert profile.last_digest_sent_at is None
