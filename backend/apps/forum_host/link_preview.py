@@ -45,6 +45,13 @@ class InvalidPreviewURL(ValueError):
     """Raised when a preview target is not a public HTTP(S) URL."""
 
 
+class _LookupTimedOut(InvalidPreviewURL):
+    """The DNS lookup itself ran out of time: not a refusal of the target.
+    Flagged here, where the timeout happens, so a refusal whose lookup merely
+    FINISHED late (a private address, say) is never mistaken for one (todo
+    539 item 5)."""
+
+
 @dataclass(frozen=True)
 class _Target:
     url: str
@@ -139,7 +146,7 @@ def _resolve_addresses(
         return future.result(timeout=timeout)
     except FutureTimeoutError as exc:
         future.cancel()
-        raise InvalidPreviewURL from exc
+        raise _LookupTimedOut from exc
     except OSError as exc:
         raise InvalidPreviewURL from exc
 
@@ -456,12 +463,17 @@ def _fetch_html(target: _Target, deadline: float) -> tuple[str, bytes]:
                         urljoin(current.url, location),
                         dns_timeout=max(deadline - time.monotonic(), 0.01),
                     )
-                except InvalidPreviewURL as exc:
+                except _LookupTimedOut as exc:
                     # The hop's DNS lookup gets only the time left, so a
                     # lookup that ran out of it is our deadline, not a
-                    # refusal of the redirect (todo 535 item 4).
-                    if time.monotonic() >= deadline:
-                        raise _FetchFailed(_DEADLINE) from exc
+                    # refusal of the redirect (todo 535 item 4). One that
+                    # hit its own cap with time still left is a slow site.
+                    reason = _DEADLINE if time.monotonic() >= deadline else "timeout"
+                    raise _FetchFailed(reason) from exc
+                except InvalidPreviewURL as exc:
+                    # A refusal is a refusal, however late its lookup
+                    # finished: it is cached like any other (todo 539
+                    # item 5).
                     raise _FetchFailed("redirect refused") from exc
                 continue
             if not 200 <= response.status < 300:

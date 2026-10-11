@@ -12,7 +12,6 @@ import hashlib
 import io
 import os
 import socket
-import threading
 import time
 from unittest.mock import Mock, patch
 from urllib.parse import urlsplit
@@ -371,28 +370,6 @@ def test_a_body_short_of_its_content_length_is_not_an_image():
     assert lp._read_image(response, time.monotonic() + 5) is None
 
 
-def _loopback_drip(prefix):
-    """A server that answers with ``prefix`` then drips a byte every 50 ms
-    for 3 s. Returns (server, port, thread)."""
-    server = socket.create_server(("127.0.0.1", 0))
-
-    def drip():
-        connection, _ = server.accept()
-        with connection:
-            connection.recv(4096)
-            connection.sendall(prefix)
-            for _ in range(60):
-                try:
-                    connection.sendall(b"X")
-                except OSError:
-                    return
-                time.sleep(0.05)
-
-    thread = threading.Thread(target=drip, daemon=True)
-    thread.start()
-    return server, server.getsockname()[1], thread
-
-
 @pytest.mark.parametrize(
     "scheme, prefix",
     [
@@ -403,24 +380,22 @@ def _loopback_drip(prefix):
     ],
     ids=["headers", "tls-handshake"],
 )
-def test_the_watchdog_ends_a_response_that_drips_past_the_deadline(scheme, prefix):
+def test_the_watchdog_ends_a_response_that_drips_past_the_deadline(
+    scheme, prefix, loopback_drip
+):
     """Nothing dripped outlives the deadline. Headers: a socket timeout
     bounds each recv, not the request, so only the watchdog shutting the
     socket ends it on time (without it, the drip runs its full 3 s).
     Handshake: CPython bounds the WHOLE handshake by the socket timeout,
     which ``_fetch_image`` caps at the time left; this pins that, since the
     watchdog is only armed after ``connect()``."""
-    server, port, thread = _loopback_drip(prefix)
+    port = loopback_drip(prefix)
     target = lp._Target(
         f"{scheme}://127.0.0.1:{port}/og.png", scheme, "127.0.0.1", port, "127.0.0.1"
     )
     started = time.monotonic()
-    try:
-        assert lp._fetch_image(target, time.monotonic() + 0.3) is None
-        elapsed = time.monotonic() - started
-    finally:
-        server.close()
-        thread.join(5)
+    assert lp._fetch_image(target, time.monotonic() + 0.3) is None
+    elapsed = time.monotonic() - started
 
     assert elapsed < 1.5
 
@@ -527,26 +502,32 @@ def test_item8_an_image_not_downloaded_logs_the_host_only():
     ]
 
 
-def test_item6_an_image_after_a_slow_connect_ends_at_the_deadline():
+def test_item6_an_image_after_a_slow_connect_ends_at_the_deadline(loopback_drip):
     """The image download shares ``_open_connection``: a TCP connect that
-    takes most of the budget leaves the TLS handshake only what is left."""
-    server, port, thread = _loopback_drip(b"\x16\x03\x03\x40\x00")
+    takes most of the budget leaves the TLS handshake only what is left.
+
+    Asserted on the timeout the socket was handed, not on wall time (todo
+    539 item 7): the old bug handed the handshake the whole budget again,
+    and a loaded runner cannot make that look smaller."""
+    port = loopback_drip(b"\x16\x03\x03\x40\x00")
     real_create_connection = socket.create_connection
+    connected = []
 
     def slow_connect(*args, **kwargs):
         time.sleep(0.5)
-        return real_create_connection(*args, **kwargs)
+        sock = real_create_connection(*args, **kwargs)
+        connected.append((sock, time.monotonic()))
+        return sock
 
     target = lp._Target(
         f"https://127.0.0.1:{port}/og.png", "https", "127.0.0.1", port, "127.0.0.1"
     )
-    started = time.monotonic()
-    try:
-        with patch.object(lp.socket, "create_connection", side_effect=slow_connect):
-            assert lp._fetch_image(target, time.monotonic() + 0.6) is None
-        elapsed = time.monotonic() - started
-    finally:
-        server.close()
-        thread.join(5)
+    deadline = time.monotonic() + 1.0
+    with patch.object(lp.socket, "create_connection", side_effect=slow_connect):
+        assert lp._fetch_image(target, deadline) is None
 
-    assert elapsed < 0.9  # was ~1.1: 0.5 connect + a fresh 0.6 handshake
+    [(sock, connected_at)] = connected
+    # The handshake got at most what the connect left of the budget. (A
+    # connect that used it all up never reaches the handshake.)
+    if connected_at < deadline:
+        assert sock.gettimeout() <= deadline - connected_at
