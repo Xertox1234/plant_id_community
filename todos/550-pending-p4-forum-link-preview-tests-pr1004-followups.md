@@ -4,6 +4,8 @@ priority: p4
 issue_id: "550"
 tags: [forum, backend, tests, follow-ups, todo-sweep]
 dependencies: []
+triage: ready
+triaged: 2026-10-10
 ---
 
 # Follow-ups from PR #1004 (todo 545, forum link-preview tests)

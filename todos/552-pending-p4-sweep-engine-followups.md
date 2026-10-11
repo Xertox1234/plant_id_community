@@ -4,6 +4,9 @@ priority: p4
 issue_id: "552"
 tags: [todo-sweep, follow-ups, scripts]
 dependencies: []
+triage: ready
+triaged: 2026-10-10
+owner_decision: "Keep the leading cd <sub> and rewrite later paths relative to it (e.g. ../scripts/...), resolving chained cds; leave already-archived lines alone (2026-10-10)"
 ---
 
 # Sweep engine follow-up, run 2026-10-02-0335

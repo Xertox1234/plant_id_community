@@ -6,7 +6,7 @@ tags: [code-quality, logging, backend, tech-debt, forum, garden]
 dependencies: []
 source_review: "todos/archive/388-completed-p3-backend-log-prefix-sweep.md"
 triage: ready
-triaged: 2026-09-28
+triaged: 2026-10-10
 owner_decision: "Convert the forum_host forum.<event> log names to the bracketed [FORUM] prefix; record it in docs/rules/api.md (2026-09-28; reconfirmed by the owner 2026-10-10)"
 ---
 

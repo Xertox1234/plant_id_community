@@ -4,6 +4,8 @@ priority: p4
 issue_id: "549"
 tags: [forum, web, follow-ups, todo-sweep]
 dependencies: []
+triage: ready
+triaged: 2026-10-10
 ---
 
 # Follow-ups from PR #1003 (todo 544, forum composer draft persist)
