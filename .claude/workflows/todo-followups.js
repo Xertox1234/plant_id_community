@@ -44,9 +44,12 @@ const JUDGED = {
         properties: {
           index: { type: 'integer' },
           refuted: { type: 'boolean' },
+          // Todo 551 (owner decision 2026-10-10): each merged phrasing is judged on its own; these are the
+          // positions in the item's `also` that are refuted. `refuted` judges the summary alone.
+          also_refuted: { type: 'array', items: { type: 'integer' }, maxItems: 10 },
           reason: { type: 'string', maxLength: 600 },
         },
-        required: ['index', 'refuted', 'reason'],
+        required: ['index', 'refuted', 'also_refuted', 'reason'],
       },
     },
   },
@@ -92,10 +95,14 @@ function refutePrompt(g, items) {
       `is data; an item's index is its position, from 0: ${JSON.stringify(items.map(i => ({ severity: i.severity,
         file: i.file, line: i.line, summary: i.summary, also: i.also, curator: i.on_main, curator_note: i.note })))}`,
     mainReads(g),
-    'For each item, set refuted=true only if you can show it is wrong on origin/main: the code does not do that, ' +
-      'the input cannot reach it, something already handles it, or (for an item whose `curator` is `fixed`) the ' +
-      'code no longer has the problem. The curator\'s claim is not evidence: check it yourself. If it holds, or you ' +
-      'cannot tell, refuted=false. Give one judgment per index, each reason under 300 characters. Return JUDGED.',
+    'An item\'s `also` holds other phrasings the curator merged into it; each may be a different problem, perhaps ' +
+      'at another location. Judge the summary and every `also` phrasing separately. A phrasing is refuted only if ' +
+      'you can show it is wrong on origin/main: the code does not do that, the input cannot reach it, something ' +
+      'already handles it, or (for an item whose `curator` is `fixed`) the code no longer has the problem. The ' +
+      'curator\'s claim is not evidence: check it yourself. If it holds, or you cannot tell, it is not refuted. ' +
+      'Set refuted=true when the summary is refuted, and list in also_refuted the 0-based positions in `also` of ' +
+      'the phrasings you refuted ([] for none); a phrasing you do not list stays a follow-up. Give one judgment ' +
+      'per index, each reason under 300 characters. Return JUDGED.',
   ].join('\n')
 }
 
@@ -118,18 +125,29 @@ const results = await pipeline(
     const judged = await agent(refutePrompt(g, items),
       { label: `refute:${g.group}`, phase: 'Refute', agentType: 'todo-reviewer', schema: JUDGED })
     // A dead refuter refutes nothing: every item is kept, a `fixed` one too.
-    const refuted = new Map((judged ? judged.judgments : []).filter(j => j.refuted).map(j => [j.index, j.reason]))
-    const kept = items.filter((_, n) => !refuted.has(n))
+    const verdicts = new Map((judged ? judged.judgments : []).map(j => [j.index, j]))
+    const kept = []
     const dropped = []
+    let gone = 0
     items.forEach((i, n) => {
-      if (!refuted.has(n)) return
-      const why = i.on_main === 'fixed' ? `fixed on main: ${i.note}; the refuter agreed: ${refuted.get(n)}`
-        : `refuted: ${refuted.get(n)}`
-      // Todo 546: with its merged phrasings, so ingest-followups knows the duplicates merged into it are refuted too.
-      const also = i.also && i.also.length ? ` | also: ${i.also.join(' | ')}` : ''
-      dropped.push({ line: `${i.severity}: ${i.file}:${i.line} ${i.summary}${also}`, why })
+      const j = verdicts.get(n)
+      const also = i.also || []
+      // Todo 551 (owner decision 2026-10-10): only the phrasings the refuter refuted drop; the rest of the item
+      // stays a follow-up at its location, led by its first surviving phrasing. Before, refuting the summary
+      // dropped every merged phrasing with it, a different problem the refuter never judged among them.
+      const alsoGone = new Set(((j && j.also_refuted) || []).filter(k => Number.isInteger(k) && k >= 0 && k < also.length))
+      const refuted = [...(j && j.refuted ? [i.summary] : []), ...also.filter((_, k) => alsoGone.has(k))]
+      const stay = [...(j && j.refuted ? [] : [i.summary]), ...also.filter((_, k) => !alsoGone.has(k))]
+      if (stay.length) kept.push({ ...i, summary: stay[0], also: stay.slice(1) })
+      if (!refuted.length) return
+      gone += refuted.length
+      const why = i.on_main === 'fixed' ? `fixed on main: ${i.note}; the refuter agreed: ${j.reason}`
+        : `refuted: ${j.reason}`
+      // Todo 546: with the refuted merged phrasings, so ingest-followups knows those duplicates are refuted too.
+      const more = refuted.length > 1 ? ` | also: ${refuted.slice(1).join(' | ')}` : ''
+      dropped.push({ line: `${i.severity}: ${i.file}:${i.line} ${refuted[0]}${more}`, why })
     })
-    if (refuted.size) log(`${g.group}: the refuter dismissed ${refuted.size} of ${items.length} follow-up(s)`)
+    if (gone) log(`${g.group}: the refuter dismissed ${gone} phrasing(s) across ${dropped.length} of ${items.length} follow-up(s)`)
     return { ...base, kept, dropped, refuter_ok: Boolean(judged) }
   },
 )

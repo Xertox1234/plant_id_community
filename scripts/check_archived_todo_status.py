@@ -52,7 +52,7 @@ WHAT IS CHECKED (two rules, both on the same status vocabulary)
                      The predicate is deliberately narrow. A loose one ("see todo
                      x", "tracked in y") matches ordinary prose, and an exemption
                      that is easy to satisfy by accident is the same as no rule.
-                     Zero of the 62 files carrying unchecked ACs clear it today,
+                     Zero of the 63 files carrying unchecked ACs clear it today,
                      so the exemption starts unused -- the honest starting point.
 
   FILENAME_OVERCLAIM The filename's status class and the frontmatter's status
@@ -165,17 +165,45 @@ SKIP_NAMES = {
 FILENAME_RE = re.compile(r"^(?:\d{4}-\d{2}-\d{2}-)?\d+-([a-z_]+)-")
 UNCHECKED_AC_RE = re.compile(r"^\s*-\s\[ \]")
 # Fenced blocks are EXAMPLES, not criteria. Two archived todos illustrate the
-# convention inside ``` fences, and one of them
-# (2025-10-28-parallel-resolution/044-resolved-p2-pii-logging-not-enforced.md)
-# has three unchecked boxes in fences and none outside -- counting those would
-# fail a file whose real criteria are all done.
+# convention inside ``` fences -- counting those would fail a file whose real
+# criteria are all done. (044-resolved-p2-pii-logging-not-enforced.md was once
+# cited here as having three boxes in fences; they were outside, hidden by a
+# toggle that a ```python line inside a ```markdown block flipped -- todo 551.)
 FENCE_RE = re.compile(r"^\s*(?:```|~~~)")
+# A fence's opening run (todo 551): the closer must be the same character, at least as long, and nothing else.
+_FENCE_OPEN_RE = re.compile(r"^\s*(`{3,}|~{3,})")
+
+
+def fenced_lines(lines):
+    """One flag per line: True for a line inside a fenced block, its opening and closing lines included (todo 551).
+
+    A fence closes only on a line of the same character, at least as long as its opener and with nothing after
+    it, so a ``` line quoted inside a ```` block, or a ~~~ line inside a ``` block, is content, not a closer. An
+    opener never closed before the end of the file is plain text, not a block that swallows the rest of it: a
+    stray fence before `## Work Log` must not hide that section (and every home path in it) from the check."""
+    flags = [False] * len(lines)
+    n = 0
+    while n < len(lines):
+        opened = _FENCE_OPEN_RE.match(lines[n])
+        if not opened:
+            n += 1
+            continue
+        run = opened.group(1)
+        closer = re.compile(rf"^\s*{re.escape(run[0])}{{{len(run)},}}\s*$")
+        end = next((k for k in range(n + 1, len(lines)) if closer.match(lines[k])), None)
+        if end is None:
+            n += 1  # unclosed: the opener is plain text, and scanning resumes on the next line
+            continue
+        for k in range(n, end + 1):
+            flags[k] = True
+        n = end + 1
+    return flags
 # CLAUDE.md's re-point convention, deliberately narrow: a NUMBERED TARGET, marked
 # by an arrow or by the words "re-pointed". A bare todo number is not enough --
 #   - [ ] #M2 bookmarks -> todo 283 (re-pointed 2026-07-26; promoted out of 263)
 # A loose predicate ("see todo", "tracked in") matches ordinary prose, and the
 # whole value of this exemption is that it is HARD to satisfy. Measured against
-# the repo: zero of the 62 files with unchecked ACs clear this bar, so the
+# the repo: zero of the 63 files with unchecked ACs clear this bar, so the
 # exemption starts unused -- which is the honest starting point, not a failure.
 REPOINT_RE = re.compile(
     r"(?:\u2192|->)\s*todo\s*\d+|re-?pointed\b.*\btodo\s*\d+|\btodo\s*\d+\b.*re-?pointed",
@@ -187,15 +215,17 @@ STATUS_RE = re.compile(r"^status:\s*(.+?)\s*$", re.M)
 #     A capitalised `Users` directory inside a repo path is not a thing this repo has;
 #   - `/home/<name>` where a path starts, one or more slashes deep (`//home/x`, `file:///home/x`), but not after
 #     a character a path name is made of, so the `home/` inside `apps/blog/templates/wagtailadmin/home/` or
-#     `components/home/` is not one. A URL route in prose (`/home/feed`) still matches: it cannot be told from a
+#     `components/home/` is not one, and neither is a doubled slash inside a path (`apps//home/x`, todo 551): the
+#     match must start at the first slash of the run. A URL route in prose (`/home/feed`) still matches: it cannot be told from a
 #     home directory without knowing the user names, and the grandfather list excuses a file that needs it;
-#   - the sandbox TMPDIR spelling, where `/` became `-` (`/private/tmp/claude-501/-Users-<name>-projects-...`);
+#   - the sandbox TMPDIR spelling, where `/` became `-` (`/private/tmp/claude-501/-Users-<name>-projects-...`),
+#     only right after a `/` as it always is there, so prose such as `a -home-made fix` is not one (todo 551);
 #   - a Windows profile path (`C:\Users\<name>`).
 _NAME = r"[^/\\\s'\"`;:,=|&<>()\[\]{}]+"
 HOME_PATH_RE = re.compile(
     rf"/Users/{_NAME}"
-    rf"|(?<![\w.~])/+home/{_NAME}"
-    r"|(?<![\w-])-(?:Users|home)-[^-/\s'\"`<>]+"
+    rf"|(?<![\w.~/])/+home/{_NAME}"
+    r"|(?<=/)-(?:Users|home)-[^-/\s'\"`<>]+"
     r"|\b[A-Za-z]:\\+Users\\+[^\\/\s'\"`;:,<>]+"
 )
 HOME_KIND = "ARCHIVED_HOME_PATH"
@@ -215,11 +245,10 @@ def parse(path):
     found = STATUS_RE.search(block)
     status = found.group(1).strip().lower() if found else None
     name_match = FILENAME_RE.match(os.path.basename(path))
-    bare, in_fence = [], False
-    for line in text.splitlines():
-        if FENCE_RE.match(line):
-            in_fence = not in_fence
-        elif not in_fence and UNCHECKED_AC_RE.match(line) and not REPOINT_RE.search(line):
+    bare = []
+    lines = text.splitlines()
+    for line, fenced in zip(lines, fenced_lines(lines)):
+        if not fenced and UNCHECKED_AC_RE.match(line) and not REPOINT_RE.search(line):
             bare.append(line)
     return status, (name_match.group(1).lower() if name_match else None), True, bare
 
@@ -227,12 +256,12 @@ def parse(path):
 def work_log_home_paths(text):
     """The lines of a todo's `## Work Log` section (to the next `## ` heading) that name a home path. A `## `
     line inside a fenced block (a quoted evidence tail) is output, not a heading: it neither ends the section
-    nor starts one (todo 546), so a home path quoted after it is still found."""
-    out, inside, fenced = [], False, False
-    for line in text.splitlines():
-        if FENCE_RE.match(line):
-            fenced = not fenced
-        elif line.startswith("## ") and not fenced:
+    nor starts one (todo 546), so a home path quoted after it is still found. Fences are matched by character
+    and length, and an unclosed one is plain text (`fenced_lines`, todo 551)."""
+    out, inside = [], False
+    lines = text.splitlines()
+    for line, fenced in zip(lines, fenced_lines(lines)):
+        if line.startswith("## ") and not fenced:
             inside = line.rstrip() == "## Work Log"
             continue
         if inside and HOME_PATH_RE.search(line):
@@ -371,7 +400,7 @@ def load_ac_grandfathers(path):
 
     Paths only, no per-entry reason: this is one dated historical snapshot of
     every archived todo that already had bare unchecked ACs when the rule landed,
-    not 62 individual judgements. Kept in its OWN list because the two buckets
+    not 63 individual judgements. Kept in its OWN list because the two buckets
     have opposite futures -- the `allow` list above should shrink to zero as
     people triage, while this one is a fixed record of what predates the rule.
     Sharing one counter between them would let progress in one manufacture slack

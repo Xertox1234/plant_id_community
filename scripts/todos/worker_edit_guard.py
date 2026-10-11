@@ -9,11 +9,15 @@ land in the main checkout. This hook denies, for agent_type `todo-worker` only:
   - any target under the main checkout that is not inside one of its `.claude/worktrees/<name>/` worktrees
     (a relative path resolves against the cwd, so from the main checkout it is denied too), including a plain
     file placed directly in `.claude/worktrees/`;
-  - when the cwd is itself inside a worker's worktree (`sweep-*`, made by execute-args, or `agent-*`, a
-    harness-isolated one), a target inside a different one;
+  - when the cwd is itself inside a worker's worktree (`sweep-*`, made by execute-args, or a harness-isolated
+    one: `wf_*` from a workflow's `isolation: 'worktree'`, `agent-*` from an agent's), a target inside a
+    different one;
   - otherwise (the cwd is the main checkout, or a session's own worktree that the engine ran from and the
-    worker inherited, todo 546), a target in a worktree that is not a sweep worktree (`sweep-*`): neither that
-    session's worktree nor a human's (`todo-543-hand-round-guards`) is a worker's to edit.
+    worker inherited, todo 546), a target in a worktree that is no worker's: neither that session's worktree
+    nor a human's (`todo-543-hand-round-guards`) is a worker's to edit. Any worker worktree is allowed, not
+    only `sweep-*` (todo 551): a retry or a round-1 repair worker runs without isolation and edits the
+    group's recorded worktree, which is a harness one (`wf_*`, `agent-*`) when the brief had no worktree or
+    the attempt predates todo 528.
 
 A target outside the repository ($TMPDIR, a scratchpad, the review round's repair worktrees) is allowed. Every
 other agent passes through. The hook cannot read the brief, so it cannot tell the worker's own sweep worktree
@@ -42,7 +46,9 @@ def main_checkout(cwd):
     return os.path.realpath(os.path.dirname(os.path.normpath(proc.stdout.strip())))
 
 
-WORKER_PREFIXES = ("sweep-", "agent-")  # execute-args' worktrees (todo 528) and the harness's isolated ones
+# execute-args' worktrees (todo 528), and the harness's isolated ones: a workflow agent's (`wf_*`, todo 551) and
+# an Agent-tool subagent's (`agent-*`).
+WORKER_PREFIXES = ("sweep-", "wf_", "agent-")
 
 
 def worktree_of(path, main):
@@ -85,10 +91,11 @@ def decide(event):
             return f"a todo-worker edits only inside its own worktree {own}, not {wt}"
         return None
     # Todo 546: the cwd is the main checkout, or a non-worker worktree the engine's session ran from (the worker
-    # inherits it). Its sweep worktree is allowed; that session's worktree and a human's are not.
-    if not os.path.basename(wt).startswith("sweep-"):
-        return (f"a todo-worker edits only inside its sweep worktree (the prompt's WORKTREE), not {wt}, which is no "
-                "sweep worktree")
+    # inherits it). A worker worktree is allowed (todo 551: a retry or repair edits a recorded `wf_*`/`agent-*`
+    # one too); that session's worktree and a human's are not.
+    if not _is_worker(wt):
+        return (f"a todo-worker edits only inside its worktree (the prompt's WORKTREE), not {wt}, which is no "
+                "worker's worktree")
     return None
 
 

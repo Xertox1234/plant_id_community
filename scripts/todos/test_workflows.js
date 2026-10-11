@@ -822,8 +822,8 @@ async function main() {
   // Todo 541 (#982-3, changed from 529's expectation): the `fixed` item (index 1) goes to the refuter too, and
   // is dropped only because the refuter confirms it; index 2 is refuted outright.
   r = await run('todo-followups', { run_id: 'r', groups: [fg()] },
-    (p, o) => (isCurator(o) ? curated : { judgments: [{ index: 0, refuted: false, reason: 'holds' },
-      { index: 1, refuted: true, reason: 'gone on main' }, { index: 2, refuted: true, reason: 'handled upstream' }] }))
+    (p, o) => (isCurator(o) ? curated : { judgments: [{ index: 0, refuted: false, also_refuted: [], reason: 'holds' },
+      { index: 1, refuted: true, also_refuted: [], reason: 'gone on main' }, { index: 2, refuted: true, also_refuted: [], reason: 'handled upstream' }] }))
   const fr = r.result.results[0]
   check('529 item 3: one curator, then one refuter per PR, both the guarded read-only todo-reviewer',
     r.calls.length === 2 && r.calls.every(c => c.opts.agentType === 'todo-reviewer') && isCurator(r.calls[0].opts), r.calls)
@@ -836,11 +836,30 @@ async function main() {
     && /the refuter agreed: gone on main/.test(fr.dropped[0].why)
     && r.calls[1].prompt.includes('"file":"b.py"') && r.calls[1].prompt.includes('"curator":"fixed"'), fr)
   r = await run('todo-followups', { run_id: 'r', groups: [fg()] },
-    (p, o) => (isCurator(o) ? curated : { judgments: [{ index: 0, refuted: true, reason: 'wrong' }] }))
-  check('546 #993-6: a refuted item is dropped with its merged phrasings, so its merged duplicates stay refuted',
-    r.result.results[0].dropped[0].line === 'medium: a.py:9 real | also: nit', r.result.results[0].dropped)
+    (p, o) => (isCurator(o) ? curated : { judgments: [{ index: 0, refuted: true, also_refuted: [], reason: 'wrong' }] }))
+  // Todo 551 (owner decision 2026-10-10, changed from 546's expectation): each phrasing is judged on its own.
   r = await run('todo-followups', { run_id: 'r', groups: [fg()] },
-    (p, o) => (isCurator(o) ? curated : { judgments: [{ index: 1, refuted: false, reason: 'still there' }] }))
+    (p, o) => (isCurator(o) ? curated : { judgments: [{ index: 0, refuted: true, also_refuted: [0], reason: 'wrong' }] }))
+  check('546 #993-6: an item whose every phrasing is refuted is dropped with them, so its merged duplicates stay refuted',
+    r.result.results[0].dropped[0].line === 'medium: a.py:9 real | also: nit'
+    && !r.result.results[0].kept.some(i => i.file === 'a.py'), r.result.results[0])
+  r = await run('todo-followups', { run_id: 'r', groups: [fg()] },
+    (p, o) => (isCurator(o) ? curated : { judgments: [{ index: 0, refuted: true, also_refuted: [], reason: 'wrong' }] }))
+  let f551 = r.result.results[0]
+  check('551 #3: a refuted summary drops alone; a merged phrasing the refuter did not refute stays a follow-up',
+    f551.dropped.length === 1 && f551.dropped[0].line === 'medium: a.py:9 real'
+    && f551.kept.some(i => i.file === 'a.py' && i.line === 9 && i.summary === 'nit' && i.also.length === 0), f551)
+  r = await run('todo-followups', { run_id: 'r', groups: [fg()] },
+    (p, o) => (isCurator(o) ? curated : { judgments: [{ index: 0, refuted: false, also_refuted: [0, 7], reason: 'nit is wrong' }] }))
+  f551 = r.result.results[0]
+  check('551 #3: a refuted `also` phrasing drops alone, the summary stays, and an out-of-range position is ignored',
+    f551.dropped.length === 1 && f551.dropped[0].line === 'medium: a.py:9 nit' && f551.dropped[0].why === 'refuted: nit is wrong'
+    && f551.kept.some(i => i.file === 'a.py' && i.summary === 'real' && i.also.length === 0), f551)
+  check('551 #3: the refuter is asked to judge every phrasing separately',
+    /Judge the summary and every `also` phrasing separately/.test(r.calls[1].prompt) && /also_refuted/.test(r.calls[1].prompt),
+    r.calls[1].prompt)
+  r = await run('todo-followups', { run_id: 'r', groups: [fg()] },
+    (p, o) => (isCurator(o) ? curated : { judgments: [{ index: 1, refuted: false, also_refuted: [], reason: 'still there' }] }))
   check('541 #982-3: a fixed claim the refuter does not confirm keeps the item',
     r.result.results[0].kept.map(i => i.file).join() === 'a.py,b.py,c.py' && r.result.results[0].dropped.length === 0,
     r.result.results[0])
