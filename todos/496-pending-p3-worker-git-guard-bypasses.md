@@ -4,6 +4,9 @@ priority: p3
 issue_id: "496"
 tags: [harness, todo-sweep, security]
 dependencies: []
+triage: ready
+triaged: 2026-10-11
+owner_decision: "Owner: finding 6 — refuse any 2+ letter unambiguous prefix of a listed dangerous option, keeping exact-match exceptions such as --text; do not derive option lists from git (2026-10-11)"
 ---
 
 # Todo sweep: close the git-guard routes into the main checkout and into files
