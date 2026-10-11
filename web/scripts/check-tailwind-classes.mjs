@@ -32,8 +32,17 @@
  * prose, so there a token is checked
  * only when it looks like a utility: it contains `-`, `:`, `/` or `[`, and the
  * part of its utility name before the first `-` (`rounded` in
- * `md:rounded-card`) is the start of some class the build does define. A token
- * that fails the lookup and is not in ALLOWLIST is reported as
+ * `md:rounded-card`) is the start of some class the build does define.
+ *
+ * Outside class position, the branches of one conditional (and either side of
+ * `||` / `??`) are the values one expression can take, so they are checked
+ * together (todo 450): when one branch is a class list (every token in it a
+ * built class), every token of every branch is checked as a class. That is
+ * what catches `variant === 'article' ? 'mx-auto w-full' : 'prose prose-lg'`
+ * in a constant: `prose` has no `-`, and no built class starts with `prose`,
+ * so the utility heuristic alone skipped both tokens.
+ *
+ * A token that fails the lookup and is not in ALLOWLIST is reported as
  * `file:line token`, and the exit code is 1.
  *
  * Usage: `npm run check:classes` (builds first), or
@@ -279,10 +288,17 @@ export function literalTokens(fileName, sourceText) {
   const source = ts.createSourceFile(fileName, sourceText, ts.ScriptTarget.Latest, true);
   const tokens = [];
   const fragments = [];
-  const add = (node, text, sides, strict) => {
+  // `literal` is the whole string or template literal the piece belongs to;
+  // `group` is the conditional / `||` / `??` expression whose value it can be
+  // (null when it is nobody's branch). findUnknownClasses uses both to check a
+  // conditional's branches together.
+  const add = (node, text, sides, strict, literal) => {
     const line = source.getLineAndCharacterOfPosition(node.getStart(source)).line + 1;
     const piece = splitPiece(text, sides);
-    for (const token of piece.tokens) tokens.push({ token, line, strict });
+    const value = valueExpression(literal);
+    const group = value === literal ? null : `${value.pos}:${value.end}`;
+    const id = `${literal.pos}:${literal.end}`;
+    for (const token of piece.tokens) tokens.push({ token, line, strict, literal: id, group });
     for (const token of piece.fragments) fragments.push({ token, line });
   };
   const visit = (node) => {
@@ -311,12 +327,12 @@ export function literalTokens(fileName, sourceText) {
       return;
     }
     if (ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node)) {
-      add(node, node.text, {}, strict);
+      add(node, node.text, {}, strict, node);
     } else if (ts.isTemplateExpression(node)) {
-      add(node.head, node.head.text, { openEnd: true }, strict);
+      add(node.head, node.head.text, { openEnd: true }, strict, node);
       node.templateSpans.forEach((span, i) => {
         const last = i === node.templateSpans.length - 1;
-        add(span.literal, span.literal.text, { openStart: true, openEnd: !last }, strict);
+        add(span.literal, span.literal.text, { openStart: true, openEnd: !last }, strict, node);
       });
     }
     ts.forEachChild(node, visit);
@@ -342,6 +358,31 @@ export function asCandidate(token, heads, strict = false) {
   return heads.has(utilityHead(root)) ? cleaned : null;
 }
 
+/**
+ * The conditional groups (see literalTokens) that hold a class list: a branch
+ * literal whose every token is a built class, at least one of them shaped like
+ * a utility (`-`, `:`, `/` or `[`). Every branch of such a group is then a
+ * class string, so all its tokens are checked strictly (todo 450). The shape
+ * rule keeps a lone word that happens to be a class (`'block'` in
+ * `isBlocked ? 'block' : 'mute'`, a reason code) from making its siblings
+ * classes.
+ */
+export function classValuedGroups(tokens, known) {
+  const literals = new Map();
+  for (const { token, literal, group } of tokens) {
+    if (group === null) continue;
+    const entry = literals.get(literal) ?? { group, allKnown: true, utility: false };
+    if (!known.has(token)) entry.allKnown = false;
+    if (/[-:/[]/.test(token)) entry.utility = true;
+    literals.set(literal, entry);
+  }
+  const groups = new Set();
+  for (const { group, allKnown, utility } of literals.values()) {
+    if (allKnown && utility) groups.add(group);
+  }
+  return groups;
+}
+
 /** Check source files against a set of known classes. */
 export function findUnknownClasses(files, known, allowlist = ALLOWLIST) {
   const heads = knownHeads(known);
@@ -351,8 +392,9 @@ export function findUnknownClasses(files, known, allowlist = ALLOWLIST) {
   for (const { fileName, text } of files) {
     const found = literalTokens(fileName, text);
     fragments += found.fragments.length;
-    for (const { token, line, strict } of found.tokens) {
-      const candidate = asCandidate(token, heads, strict);
+    const classGroups = classValuedGroups(found.tokens, known);
+    for (const { token, line, strict, group } of found.tokens) {
+      const candidate = asCandidate(token, heads, strict || classGroups.has(group));
       if (candidate === null) continue;
       checked++;
       if (known.has(candidate) || allowlist.has(candidate)) continue;

@@ -51,15 +51,10 @@ class ProfileScreen extends ConsumerWidget {
             tooltip: 'Settings',
             onPressed: () => context.push(AppRoutes.settings),
           ),
-          // Edit button (navigate to edit screen - not implemented yet)
           IconButton(
             icon: const Icon(LucideIcons.pencil),
-            onPressed: () {
-              // TODO: Navigate to profile edit screen
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('Edit profile coming soon!')),
-              );
-            },
+            tooltip: 'Edit profile',
+            onPressed: () => context.push(AppRoutes.editProfile),
           ),
         ],
       ),

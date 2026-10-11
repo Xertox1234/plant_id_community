@@ -11,7 +11,12 @@ from collections import defaultdict
 from datetime import datetime, timedelta
 from typing import Any
 
-from apps.core.fcm import is_permanent_fcm_error, send_fcm_message
+from apps.core.fcm import (
+    clear_dead_fcm_token,
+    is_dead_fcm_token_error,
+    is_permanent_fcm_error,
+    send_fcm_message,
+)
 from celery import shared_task
 from celery.exceptions import SoftTimeLimitExceeded
 from django.db import OperationalError, transaction
@@ -24,6 +29,7 @@ from .constants import (
     CARE_REMINDER_EVENT,
     CARE_REMINDER_LOOKBACK_HOURS,
     CARE_REMINDER_SOFT_TIME_LIMIT,
+    CARE_REMINDER_SWEEP_INTERVAL_MINUTES,
     CARE_REMINDER_TIME_LIMIT,
     CARE_REMINDER_TITLE_MAX_CHARS,
 )
@@ -75,6 +81,7 @@ def _claim_due_tasks(now: datetime) -> list[dict]:
             .values(
                 "uuid",
                 "title",
+                "scheduled_date",
                 "plant_id",
                 "plant__common_name",
                 "plant__owner_id",
@@ -87,16 +94,38 @@ def _claim_due_tasks(now: datetime) -> list[dict]:
     return claimed
 
 
-def _release(tasks: list[dict]) -> None:
-    """Un-claim tasks after a transient send failure, so the next sweep retries."""
+def _release(tasks: list[dict], now: datetime, task_id: str | None) -> None:
+    """Un-claim tasks after a transient send failure, so the next sweep retries.
+
+    A released task is re-claimed every sweep only while it is inside the
+    lookback window; after that no sweep selects it again. Warn when this is
+    its last chance, so a reminder that keeps failing is not dropped silently
+    (todo 457).
+    """
     from .models import CareTask
 
     CareTask.objects.filter(uuid__in=[t["uuid"] for t in tasks]).update(
         notification_sent=False
     )
+    ages_out_before = (
+        now
+        - timedelta(hours=CARE_REMINDER_LOOKBACK_HOURS)
+        + timedelta(minutes=CARE_REMINDER_SWEEP_INTERVAL_MINUTES)
+    )
+    for task in tasks:
+        if task["scheduled_date"] < ages_out_before:
+            logger.warning(
+                "[FCM] care reminder for task %s (user=%s) leaves the %sh "
+                "lookback before the next sweep; it will not be sent (task=%s)",
+                task["uuid"],
+                task["plant__owner_id"],
+                CARE_REMINDER_LOOKBACK_HOURS,
+                task_id,
+            )
 
 
 @shared_task(
+    bind=True,
     autoretry_for=(OperationalError,),
     retry_backoff=60,
     max_retries=3,
@@ -104,7 +133,7 @@ def _release(tasks: list[dict]) -> None:
     time_limit=CARE_REMINDER_TIME_LIMIT,
     ignore_result=True,
 )
-def send_due_care_task_reminders() -> None:
+def send_due_care_task_reminders(self) -> None:
     """Celery beat entry (settings.CELERY_BEAT_SCHEDULE): push due CareTasks.
 
     Delivery is FCM only (owner decision 2026-09-24). The device token lives
@@ -114,6 +143,7 @@ def send_due_care_task_reminders() -> None:
     """
     from apps.core.firebase_config import get_fcm_client, is_firebase_available
 
+    task_id = self.request.id
     if not is_firebase_available():
         # Nothing is claimed, so enabling Firebase later still delivers the
         # tasks that fell due within the lookback window.
@@ -122,10 +152,14 @@ def send_due_care_task_reminders() -> None:
 
     fcm = get_fcm_client()
     if fcm is None:
-        logger.error("[FCM] FCM client unavailable — cannot send care reminders")
+        logger.error(
+            "[FCM] FCM client unavailable — cannot send care reminders (task=%s)",
+            task_id,
+        )
         return
 
-    claimed = _claim_due_tasks(timezone.now())
+    now = timezone.now()
+    claimed = _claim_due_tasks(now)
     if not claimed:
         return
 
@@ -140,27 +174,29 @@ def send_due_care_task_reminders() -> None:
     done: set[int] = set()
     retry_later: list[dict] = []
     try:
-        sent = _push_to_owners(fcm, by_owner, done, retry_later)
+        sent = _push_to_owners(fcm, by_owner, done, retry_later, task_id)
         if retry_later:
-            _release(retry_later)
+            _release(retry_later, now, task_id)
     except BaseException:  # re-raised below; a worker shutdown must un-claim too
         unfinished = [t for o, ts in by_owner.items() if o not in done for t in ts]
         try:
-            _release(unfinished + retry_later)
+            _release(unfinished + retry_later, now, task_id)
         except Exception:
             logger.exception(
                 "[FCM] care reminders: could not release %s claimed tasks; "
-                "they will not push",
+                "they will not push (task=%s)",
                 len(unfinished) + len(retry_later),
+                task_id,
             )
         raise
 
     logger.info(
         "[FCM] care reminders: %s tasks claimed, %s pushes sent, %s tasks "
-        "released for retry",
+        "released for retry (task=%s)",
         len(claimed),
         sent,
         len(retry_later),
+        task_id,
     )
 
 
@@ -169,6 +205,7 @@ def _push_to_owners(
     by_owner: dict[int, list[dict]],
     done: set[int],
     retry_later: list[dict],
+    task_id: str | None = None,
 ) -> int:
     """Send one push per owner; returns the number sent.
 
@@ -215,16 +252,22 @@ def _push_to_owners(
             raise
         except Exception as exc:
             if is_permanent_fcm_error(exc):
+                if is_dead_fcm_token_error(exc):
+                    # Forget the dead device, so the next sweep does not
+                    # send to it again (todo 457).
+                    clear_dead_fcm_token(owner_id, token)
                 logger.warning(
-                    "[FCM] care reminder failed permanently (user=%s): %s",
+                    "[FCM] care reminder failed permanently (user=%s, task=%s): %s",
                     owner_id,
+                    task_id,
                     exc,
                 )
             else:
                 logger.warning(
-                    "[FCM] care reminder failed (user=%s): %s — released for "
-                    "the next sweep",
+                    "[FCM] care reminder failed (user=%s, task=%s): %s — "
+                    "released for the next sweep",
                     owner_id,
+                    task_id,
                     exc,
                 )
                 retry_later.extend(tasks)

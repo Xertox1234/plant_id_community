@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:go_router/go_router.dart';
+import 'package:plant_community_mobile/core/routing/app_router.dart';
 import 'package:plant_community_mobile/core/theme/app_theme.dart';
 import 'package:plant_community_mobile/core/theme/green_thumb_extension.dart';
 import 'package:plant_community_mobile/features/profile/profile_screen.dart';
@@ -100,5 +102,42 @@ void main() {
       find.widgetWithText(OutlinedButton, 'Create an account'),
       findsOneWidget,
     );
+  });
+
+  testWidgets('the pencil opens the edit-profile screen (todo 455)', (
+    tester,
+  ) async {
+    final router = GoRouter(
+      initialLocation: AppRoutes.profile,
+      routes: [
+        GoRoute(
+          path: AppRoutes.profile,
+          builder: (_, _) => const ProfileScreen(),
+        ),
+        GoRoute(
+          path: AppRoutes.editProfile,
+          builder: (_, _) => const Text('edit profile screen'),
+        ),
+      ],
+    );
+    addTearDown(router.dispose);
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          authServiceProvider.overrideWith(
+            () => _FakeAuthService(loggedIn: true),
+          ),
+          userProfileServiceProvider.overrideWith(_FakeUserProfileService.new),
+        ],
+        child: MaterialApp.router(routerConfig: router),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byTooltip('Edit profile'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('edit profile screen'), findsOneWidget);
+    expect(find.text('Edit profile coming soon!'), findsNothing);
   });
 }

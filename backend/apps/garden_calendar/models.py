@@ -783,7 +783,9 @@ class GardenBed(models.Model):
         # setter) and raises AttributeError when the queryset is evaluated.
         if hasattr(self, "_plant_count"):
             return self._plant_count
-        return self.plants.filter(is_active=True).count()
+        # Same rule as the annotation: only the bed owner's plants count
+        # (todo 457).
+        return self.plants.filter(is_active=True, owner_id=self.owner_id).count()
 
     @property
     def utilization_rate(self):
@@ -1242,16 +1244,23 @@ class CareTask(models.Model):
         return self._create_next_occurrence() is not None
 
     def _create_next_occurrence(self):
-        """Create next recurring task instance; None once past the end date."""
+        """Create the next recurring task instance; None once past the end date.
+
+        The next one is dated from the later of the due date and the
+        completion (owner decision 2026-10-10, todo 457). Dating it from the
+        due date alone made a late completion create a task that was already
+        overdue, past the reminder sweep's lookback, so it never pushed.
+        """
         from datetime import timedelta
 
+        base = self.scheduled_date
+        if self.completed_at and self.completed_at > base:
+            base = self.completed_at
+        next_date = base + timedelta(days=self.recurrence_interval_days)
+
         # Check if we've reached end date
-        if self.recurrence_end_date:
-            next_date = self.scheduled_date + timedelta(
-                days=self.recurrence_interval_days
-            )
-            if next_date.date() > self.recurrence_end_date:
-                return None  # Stop recurring
+        if self.recurrence_end_date and next_date.date() > self.recurrence_end_date:
+            return None  # Stop recurring
 
         # Create new task instance
         return CareTask.objects.create(
@@ -1262,8 +1271,7 @@ class CareTask(models.Model):
             title=self.title,
             notes=self.notes,
             priority=self.priority,
-            scheduled_date=self.scheduled_date
-            + timedelta(days=self.recurrence_interval_days),
+            scheduled_date=next_date,
             is_recurring=True,
             recurrence_interval_days=self.recurrence_interval_days,
             recurrence_end_date=self.recurrence_end_date,

@@ -1,3 +1,4 @@
+import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 import '../models/user_profile.dart';
@@ -177,9 +178,43 @@ class UserProfileService extends _$UserProfileService {
     }
   }
 
-  // TODO: Add uploadAvatar() using the existing FirebaseStorageService
-  // (the `avatar` URL is already accepted by updateProfile above).
-  // TODO: Add deleteAvatar() using the existing FirebaseStorageService.
+  /// Upload [filePath] as the user's avatar (todo 455).
+  ///
+  /// The backend `avatar` is an ImageField, not a URL: it takes the file
+  /// itself as a multipart PATCH to the same endpoint as [updateProfile], and
+  /// validates it server side (an image, at most 2 MB, 50 to 4096 px).
+  ///
+  /// Throws [UserProfileException] if the upload fails.
+  Future<UserProfile> uploadAvatar(String filePath) async {
+    try {
+      final formData = FormData.fromMap({
+        'avatar': await MultipartFile.fromFile(
+          filePath,
+          filename: filePath.split('/').last,
+        ),
+      });
+      final apiService = ref.read(apiServiceProvider);
+      final response = await apiService.patch(
+        '/auth/user/update/',
+        data: formData,
+      );
+      final updatedProfile = UserProfile.fromJson(
+        response.data['user'] as Map<String, dynamic>,
+      );
+      state = AsyncValue.data(updatedProfile);
+      return updatedProfile;
+    } on ApiException catch (e) {
+      if (kDebugMode) {
+        debugPrint('[USER_PROFILE ERROR] Avatar upload failed: ${e.message}');
+      }
+      throw UserProfileException('Failed to upload photo: ${e.message}');
+    } catch (e) {
+      if (kDebugMode) {
+        debugPrint('[USER_PROFILE ERROR] Unexpected avatar error: $e');
+      }
+      throw UserProfileException('Failed to upload photo: $e');
+    }
+  }
 
   /// Refresh profile data from the backend, updating [state] with the result.
   /// A failed fetch lands as `AsyncValue.error` (via [AsyncValue.guard]) so the

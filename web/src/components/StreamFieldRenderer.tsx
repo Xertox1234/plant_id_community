@@ -117,10 +117,10 @@ export default function StreamFieldRenderer({
     return null;
   }
 
-  const wrapper =
-    variant === 'article'
-      ? 'mx-auto w-full max-w-[70ch] text-body-lg'
-      : 'prose prose-lg max-w-none';
+  // The inline variant needs no wrapper class: its rich text is styled per
+  // paragraph by `.rich-text` (todo 450). The typography-plugin classes it
+  // used to carry never compiled: @tailwindcss/typography is not installed.
+  const wrapper = variant === 'article' ? 'mx-auto w-full max-w-[70ch] text-body-lg' : undefined;
 
   const full = (block: StreamFieldBlockType, index: number) => (
     <StreamFieldBlock
@@ -196,10 +196,14 @@ function StreamFieldBlock({ block, mentionHighlight, currentTopicId }: StreamFie
     case 'paragraph':
       // Backend: RichTextBlock (HTML string). Forum posts (mentionHighlight)
       // sanitize under the tighter FORUM allowlist to match nh3 (M32).
+      // `.rich-text` (index.css) restores the list markers, paragraph spacing
+      // and link styling that Tailwind's preflight strips (todo 450); it sets
+      // the ink-2 colour and relaxed leading itself, and no font size, so the
+      // article variant's text-body-lg still applies.
       return (
         <SafeHTML
           html={block.value}
-          className="mb-4 leading-relaxed text-ink-2"
+          className="rich-text mb-4"
           preset={mentionHighlight ? SANITIZE_PRESETS.FORUM : SANITIZE_PRESETS.STREAMFIELD}
           postProcess={mentionHighlight ? highlightMentions : undefined}
         />

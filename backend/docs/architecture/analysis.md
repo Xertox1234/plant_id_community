@@ -113,7 +113,6 @@ services/
 ├── species_lookup_service.py             # Local-first lookup with API fallback
 ├── trefle_service.py                     # Trefle API enrichment
 ├── disease_diagnosis_service.py          # Health analysis
-├── ai_care_service.py                    # OpenAI care instructions
 ├── ai_image_service.py                   # Image processing
 └── monitoring_service.py                 # Performance tracking
 ```

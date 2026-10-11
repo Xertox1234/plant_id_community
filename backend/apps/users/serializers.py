@@ -2,11 +2,15 @@
 Serializers for user authentication and profile management.
 """
 
+import logging
+
 from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import ValidationError
 from rest_framework import serializers
 
 from .models import User, UserPlantCollection
+
+logger = logging.getLogger(__name__)
 
 
 class UserRegistrationSerializer(serializers.ModelSerializer):
@@ -181,11 +185,22 @@ class UserProfileSerializer(serializers.ModelSerializer):
         ]
 
     def get_avatar_thumbnail(self, obj):
-        """Get avatar thumbnail URL."""
+        """Get avatar thumbnail URL, or None if it cannot be generated.
+
+        The profile views pass the request since todo 455, so this now runs
+        on every GET /auth/user/. The thumbnail is generated on first access:
+        a missing or unreadable source file must not 500 the whole profile.
+        """
         if obj.avatar:
             request = self.context.get("request")
             if request and hasattr(obj, "avatar_thumbnail"):
-                return request.build_absolute_uri(obj.avatar_thumbnail.url)
+                try:
+                    return request.build_absolute_uri(obj.avatar_thumbnail.url)
+                except Exception as exc:
+                    logger.warning(
+                        "[PROFILE] Avatar thumbnail unavailable: %s",
+                        type(exc).__name__,
+                    )
         return None
 
     def get_plant_collections_count(self, obj):

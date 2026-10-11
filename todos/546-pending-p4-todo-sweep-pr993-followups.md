@@ -4,6 +4,9 @@ priority: p4
 issue_id: "546"
 tags: [todo-sweep, follow-ups]
 dependencies: []
+triage: ready
+triaged: 2026-10-10
+owner_decision: "Run in this batch alongside 544/545 (2026-10-10)"
 ---
 
 # Follow-ups from PR #993 (todos 492, 497, 540, 541, the sweep engine)

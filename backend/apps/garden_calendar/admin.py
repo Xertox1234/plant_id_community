@@ -362,6 +362,18 @@ class GardenBedAdmin(admin.ModelAdmin):
         ),
     )
 
+    def get_readonly_fields(self, request, obj=None):
+        """The owner is fixed once a bed exists (todo 457).
+
+        A bed's plants keep their own owner, so moving the bed to another
+        user would split it from its plants: the old owner's plants would sit
+        in a bed they no longer own, and editing one would fail.
+        """
+        fields = list(super().get_readonly_fields(request, obj))
+        if obj is not None:
+            fields.append("owner")
+        return fields
+
     def area_display(self, obj):
         area = obj.area_square_feet
         if area:
@@ -574,6 +586,21 @@ class CareTaskAdmin(admin.ModelAdmin):
             {"fields": ("uuid", "created_at", "updated_at"), "classes": ("collapse",)},
         ),
     )
+
+    def save_model(self, request, obj, form, change):
+        """A rescheduled task is a new reminder (todo 457).
+
+        Clear ``notification_sent`` when staff move the date, as the API's
+        CareTaskSerializer.update does, unless they set the flag themselves
+        in the same edit.
+        """
+        if (
+            change
+            and "scheduled_date" in form.changed_data
+            and "notification_sent" not in form.changed_data
+        ):
+            obj.notification_sent = False
+        super().save_model(request, obj, form, change)
 
     def priority_display(self, obj):
         colors = {

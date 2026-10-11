@@ -48,7 +48,7 @@ def test_batch_push_skips_only_the_opted_out_recipient():
     opted_out = _pushable("batch-out", {"reply": {"push": False}})
     kept = _pushable("batch-in", {"reply": {"email": False}})  # email off, push stays
     mock_fcm, available, client = _fcm()
-    with available, client, patch("apps.forum_host.tasks._send_fcm_message") as send:
+    with available, client, patch("apps.core.fcm.send_fcm_message") as send:
         from apps.forum_host.tasks import send_forum_push_batch
 
         send_forum_push_batch("reply_added", [opted_out.pk, kept.pk], {"topic_id": "1"})
@@ -113,7 +113,7 @@ def test_master_switch_off_wins_over_an_explicit_push_on_override():
     user.forum_notifications = False
     user.save(update_fields=["forum_notifications"])
     mock_fcm, available, client = _fcm()
-    with available, client, patch("apps.forum_host.tasks._send_fcm_message") as send:
+    with available, client, patch("apps.core.fcm.send_fcm_message") as send:
         from apps.forum_host.tasks import send_forum_push, send_forum_push_batch
 
         send_forum_push("reply_added", user.pk, {"topic_id": "1"})
@@ -127,7 +127,7 @@ def test_batch_push_with_every_recipient_opted_out_sends_nothing_and_does_not_ra
     first = _pushable("all-out-1", {"reply": {"push": False}})
     second = _pushable("all-out-2", {"reply": {"push": False}})
     mock_fcm, available, client = _fcm()
-    with available, client, patch("apps.forum_host.tasks._send_fcm_message") as send:
+    with available, client, patch("apps.core.fcm.send_fcm_message") as send:
         from apps.forum_host.tasks import send_forum_push_batch
 
         send_forum_push_batch("reply_added", [first.pk, second.pk], {"topic_id": "1"})

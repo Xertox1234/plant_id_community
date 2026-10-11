@@ -4,6 +4,7 @@ import 'package:flutter/semantics.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
+import 'package:plant_community_mobile/core/routing/app_router.dart';
 import 'package:plant_community_mobile/features/onboarding/onboarding_checklist_card.dart';
 import 'package:plant_community_mobile/features/onboarding/onboarding_checklist_service.dart';
 import 'package:plant_community_mobile/services/api_service.dart';
@@ -205,6 +206,70 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.text('1 of 3 done'), findsOneWidget);
+    },
+  );
+
+  testWidgets(
+    'the profile step ticks when the server says so, and opens the edit screen',
+    (tester) async {
+      // Todo 455: the server's fourth step. Its own payload, so the three-step
+      // fixtures above keep testing an older server's shape.
+      Map<String, dynamic> withProfile({required bool profile}) => {
+        'steps': [
+          {'key': 'identify_plant', 'done': false},
+          {'key': 'forum_post', 'done': false},
+          {'key': 'save_topic', 'done': false},
+          {'key': 'profile', 'done': profile},
+        ],
+        'complete': false,
+        'dismissed': false,
+      };
+      final api = _FakeApi(withProfile(profile: false));
+      final router = GoRouter(
+        initialLocation: '/home',
+        routes: [
+          GoRoute(
+            path: '/home',
+            builder: (_, _) => const Scaffold(body: OnboardingChecklistCard()),
+          ),
+          GoRoute(
+            path: '/profile/edit',
+            builder: (_, _) => const Text('edit profile screen'),
+          ),
+        ],
+      );
+      addTearDown(router.dispose);
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            apiServiceProvider.overrideWithValue(api),
+            authServiceProvider.overrideWith(() => _Auth(true)),
+          ],
+          child: MaterialApp.router(routerConfig: router),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('0 of 4 done'), findsOneWidget);
+      expect(onboardingSteps['profile']!.route, AppRoutes.editProfile);
+
+      await tester.tap(find.text('Add a bio or a photo'));
+      await tester.pumpAndSettle();
+      expect(find.text('edit profile screen'), findsOneWidget);
+      // Pushed, so Back returns to Home.
+      expect(router.canPop(), isTrue);
+
+      // The user saves a bio; the server now ticks the step.
+      api.checklist = withProfile(profile: true);
+      router.pop();
+      await tester.pumpAndSettle();
+
+      expect(find.text('1 of 4 done'), findsOneWidget);
+      final handle = tester.ensureSemantics();
+      expect(
+        find.bySemanticsLabel('Done: Add a bio or a photo'),
+        findsOneWidget,
+      );
+      handle.dispose();
     },
   );
 

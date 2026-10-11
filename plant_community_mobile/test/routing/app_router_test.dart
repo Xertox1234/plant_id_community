@@ -16,6 +16,7 @@ import 'package:plant_community_mobile/features/forum/screens/forum_user_profile
 import 'package:plant_community_mobile/features/forum/services/forum_api.dart';
 import 'package:plant_community_mobile/features/forum/services/forum_sync_store.dart';
 import 'package:plant_community_mobile/features/garden/services/garden_api_service.dart';
+import 'package:plant_community_mobile/features/profile/edit_profile_screen.dart';
 import 'package:plant_community_mobile/models/plant.dart';
 import 'package:plant_community_mobile/services/api_service.dart';
 import 'package:plant_community_mobile/services/auth_service.dart';
@@ -1269,6 +1270,77 @@ void main() {
                 'signed-out users must reach the profile tab, not bounce '
                 'to /login; ProfileScreen renders the sign-in CTA itself',
           );
+
+          await tester.pump(const Duration(seconds: 4));
+        },
+      );
+
+      testWidgets(
+        'edit profile redirects a signed-out user to login (todo 455)',
+        (WidgetTester tester) async {
+          final container = ProviderContainer(
+            overrides: [
+              authServiceProvider.overrideWith(
+                _MockUnauthenticatedAuthNotifier.new,
+              ),
+            ],
+          );
+          addTearDown(container.dispose);
+
+          final router = container.read(appRouterProvider);
+
+          await tester.pumpWidget(
+            UncontrolledProviderScope(
+              container: container,
+              child: MaterialApp.router(routerConfig: router),
+            ),
+          );
+
+          router.go(AppRoutes.editProfile);
+          await tester.pump(const Duration(milliseconds: 100));
+
+          expect(
+            router.routerDelegate.currentConfiguration.uri.path,
+            equals(AppRoutes.login),
+          );
+
+          await tester.pump(const Duration(seconds: 4));
+        },
+      );
+
+      testWidgets(
+        'edit profile builds EditProfileScreen for a signed-in user (todo 455)',
+        (WidgetTester tester) async {
+          final container = ProviderContainer(
+            overrides: [
+              authServiceProvider.overrideWith(
+                _MockAuthenticatedAuthNotifier.new,
+              ),
+              userProfileServiceProvider.overrideWith(
+                () => FakeUserProfileService(username: 'tester'),
+              ),
+            ],
+          );
+          addTearDown(container.dispose);
+
+          final router = container.read(appRouterProvider);
+
+          await tester.pumpWidget(
+            UncontrolledProviderScope(
+              container: container,
+              child: MaterialApp.router(routerConfig: router),
+            ),
+          );
+
+          router.go(AppRoutes.editProfile);
+          await tester.pump(const Duration(milliseconds: 100));
+          await tester.pump(const Duration(milliseconds: 400));
+
+          expect(
+            router.routerDelegate.currentConfiguration.uri.path,
+            equals(AppRoutes.editProfile),
+          );
+          expect(find.byType(EditProfileScreen), findsOneWidget);
 
           await tester.pump(const Duration(seconds: 4));
         },
