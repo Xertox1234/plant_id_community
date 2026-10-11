@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: p4
 issue_id: "559"
 tags: [todo-sweep, follow-ups, backend]
@@ -27,10 +27,36 @@ finding against main before acting on it.
 
 ## Acceptance Criteria
 
-- [ ] Its finding is fixed with a test, or the Work Log records why it was left as is.
+- [x] Its finding is fixed with a test, or the Work Log records why it was left as is.
 
 ## Work Log
 
 ### 2026-10-10 - Promoted out of todo 527
 
 - Split from the consolidated follow-up todo 527 (owner decision 2026-10-10: one todo per source PR).
+
+### 2026-10-11 - Implemented by the todo sweep (run 2026-10-11-1448)
+
+- Re-checked against main: `Reaction.recount` (`wagtail_forum/models/reactions.py`) still issues the only
+  reaction COUNT, and the test's `counted` filter still keeps any reaction COUNT in the INSERT..write window.
+- `test_reaction_toggle_recounts_under_a_post_row_lock`: corrected the `counted` comment (it collects every
+  reaction COUNT in the window, recount's today) and added a trip-wire comment saying an earlier COUNT from
+  other code moves the `counted[0]` bound ahead of recount's lock and fails the check with recount unchanged.
+- The failure message now names that second cause and quotes the first COUNT's SQL, so a failure points at
+  the real culprit. Test logic is unchanged; `test_replies_reactions.py` passes (16 tests).
+
+### 2026-10-11 - Verified by the todo sweep (run 2026-10-11-1448)
+
+- AC 1: `cd backend && python3 scripts/todos/slot_env.py --main-root . 4 -- backend/venv/bin/python -m pytest backend/packages/wagtail_forum/wagtail_forum/tests/api/test_replies_reactions.py --create-db -q && grep -n 'todo 559' backend/packages/wagtail_forum/wagtail_forum/tests/api/test_replies_reactions.py` — evidence `.sweep-evidence/g5/559-ac0.txt` (not committed), last lines:
+
+  ```text
+  Fix: pip install -r backend/requirements.txt (see todo 378).
+  ======================= 16 passed, 3 warnings in 19.43s ========================
+  exit=0
+  380:    # a serializer) lands here too (todo 559).
+  399:    # Trip-wire (todo 559): counted[0] is the first reaction COUNT in the
+  ```
+
+### 2026-10-11 - Completed by the todo sweep (run 2026-10-11-1448)
+
+- Archived by `land.py archive`; evidence is quoted above, review is on the PR.
