@@ -326,6 +326,25 @@ def main():
               chk.work_log_home_paths(f"## Problem\n{users}/a\n## Work Log\n- ok\n- {home}/b\n## Notes\n{users}/c\n")
               == [f"- {home}/b"])
 
+    # Todo 546 (#993 finding 2): the spellings that still leak the user name, and the ones that do not.
+    leaks = [f"file://{users}/x", f"-I{users}/inc", f"/{users}", f"file://{home}/x", f"/{home}",
+             "/private/tmp/claude-501/-" + "Users" + "-someone-projects-x", "C:\\" + "Users" + "\\someone\\x"]
+    missed = [s for s in leaks if not chk.HOME_PATH_RE.search(s)]
+    check("546 #2: a URL, a flag-glued, a double-slash, the sandbox TMPDIR and a Windows home path all match",
+          not missed, missed)
+    safe = ["apps/blog/templates/wagtailadmin/home/x.html", "web/src/components/home/A.tsx", "~/home/x",
+            "`/home/` alone", "the TMPDIR spelling `-" + "Users" + "-<name>-...`", "/" + "Users" + "/<name>",
+            "C:\\" + "Users" + "\\<name>", "my-home-page"]
+    hit = [s for s in safe if chk.HOME_PATH_RE.search(s)]
+    check("546 #2: a home/ inside a longer path, `~`, and a `<name>` placeholder still do not", not hit, hit)
+
+    # Todo 546 (#993 finding 8): a `## ` line inside a fenced block (a quoted evidence tail) ends nothing.
+    fenced = f"## Work Log\n- a\n```\n## not a heading\n{users}/in-fence\n```\n- {home}/after\n## Notes\n{users}/n\n"
+    check("546 #8: a fenced `## ` line does not end the Work Log; paths inside and after the fence are found",
+          chk.work_log_home_paths(fenced) == [f"{users}/in-fence", f"- {home}/after"], chk.work_log_home_paths(fenced))
+    check("546 #8: ... nor does a fenced `## Work Log` start one",
+          chk.work_log_home_paths(f"## Problem\n```\n## Work Log\n```\n{users}/a\n") == [])
+
     print()
     if FAILURES:
         print(f"FAILED: {len(FAILURES)} check(s): {', '.join(FAILURES)}")

@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: p4
 issue_id: "546"
 tags: [todo-sweep, follow-ups]
@@ -55,7 +55,31 @@ they are not lost. Re-check each against main before acting on it.
 
 ## Acceptance Criteria
 
-- [ ] Each finding above is fixed with a test where it is a behaviour change, or recorded in the Work Log as
+- [x] Each finding above is fixed with a test where it is a behaviour change, or recorded in the Work Log as
       declined with a reason.
 
 ## Work Log
+
+### 2026-10-10 - Implemented by the todo sweep (run 2026-10-11-0149)
+
+- Fixed with tests, findings 1 and 9 (`scripts/todos/worker_edit_guard.py`, `.claude/hooks/test-guard-todo-worker-edit.sh`): a cwd counts as the worker's own worktree only when it is a worker's (`sweep-*` or harness `agent-*`); from the main checkout or an inherited session worktree a worker may edit only a `sweep-*` worktree, so a human's worktree, the session's own worktree and a plain file directly in `.claude/worktrees/` are denied. The APFS case-folding gap (beyond the cap) is documented in the docstring, as the finding asked.
+- Fixed with tests, findings 2 and 8 (`scripts/check_archived_todo_status.py`, `scripts/test_check_archived_todo_status.py`): `HOME_PATH_RE` now matches `file:///Users/<name>`, `-I/Users/<name>`, `//Users/<name>`, `//home/<name>`, the sandbox TMPDIR spelling `-Users-<name>-` and `C:\Users\<name>`, while a `<name>` placeholder and `home/` inside a longer path still pass (all 38 grandfathered files unchanged, no new violation); `work_log_home_paths` ignores a `##` line inside a fence. Declined: the false positive on a URL route under `/home/` in prose (it cannot be told from a home directory without knowing user names; it fails safe and `grandfathered_home_paths` excuses a file) and scanning beyond the Work Log (8 more archived files would trip on review findings quoted in their Problem text, which Land never writes).
+- Fixed with tests in `scripts/todos/state.py` / `scripts/todos/test_state_flow.py`: finding 3, the `add_worktrees` recovery now moves the worktree (`git worktree move`) and renames its branch (`branch -m`), deleting nothing; finding 4, `confirm` refuses a todo that has a PR (closing the hole there, so `review_criteria` keeps accepting confirmed indexes); finding 5, `release_incomplete` sets the count to `MAX_INCOMPLETE - 1`, so the release is exactly one more try and the docstring and `.claude/skills/completing-todos/SKILL.md` now read true; finding 6, `.claude/workflows/todo-followups.js` drops a refuted item with its `also` phrasings and `ingest_followups` counts the workflow's drops as covering them (test in `scripts/todos/test_workflows.js` too).
+- Fixed with tests, beyond the cap: an item `ingest_followups` rejects (bad location or severity) no longer counts as returned or feeds `phrased`, so the stored line stays; a re-verify brief and its entry get an absolute `main_root`. Checked and declined: `stray_worktree` is not overwritten on a retry, because failed -> ready moves it to `previous` with the other attempt fields; a new test pins that both stray worktrees are listed.
+- Finding 7 (`.claude/agents/todo-worker.md`): the worker no longer re-runs pre-commit with the sandbox off; it fixes a `.claude/agents/` file by hand and names it for the commit-time run. Two existing checks changed with the behaviour: 541 #982-7 (recovery text) and 497 F4 (the released count, and one more incomplete review now blocks).
+
+### 2026-10-10 - Verified by the todo sweep (run 2026-10-11-0149)
+
+- AC 1: `bash -c 'python3 scripts/todos/test_state_flow.py && python3 scripts/todos/test_state.py && python3 scripts/todos/test_land.py && python3 scripts/todos/test_scan.py && python3 scripts/test_check_archived_todo_status.py && node scripts/todos/test_workflows.js && bash .claude/hooks/test-guard-todo-worker-edit.sh'` — evidence `.sweep-evidence/g3/546-ac0.txt` (not committed), last lines:
+
+  ```text
+  PASS: a todo-verifier is not this hook's business
+  PASS: a cwd in no git checkout fails open
+  PASS: malformed JSON fails open
+
+  Results: 19 passed, 0 failed
+  ```
+
+### 2026-10-10 - Completed by the todo sweep (run 2026-10-11-0149)
+
+- Archived by `land.py archive`; evidence is quoted above, review is on the PR.

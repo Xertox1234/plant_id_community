@@ -245,7 +245,8 @@ Steps 1–8 run with the sandbox off (see **Sandbox**).
      same output file never counts twice (todo 497). A group blocked `review round N was incomplete twice` has
      a PR, so a reopen and `clear-hold` both refuse it. When the owner approves one more try, run
      `state.py release-incomplete $RUN G --decision "<their words, dated>"`: it goes back to `pr_open` with
-     round N-1 done and that round's count reset. Once per round; a third incomplete round blocks for good.
+     round N-1 done and that round's count one short of the limit, so the next incomplete review of that round
+     (the third) blocks it again (todo 546). Once per round: then it stays blocked.
    - `residue` → see step 5. Nothing was repaired.
    - `held` (todo 482) → a critical was dismissed only by the refuters, so the PR would be held at round 2 anyway;
      `ingest-review` has already blocked the group. Do not commit, push or run round 2. Report it as in step 2's

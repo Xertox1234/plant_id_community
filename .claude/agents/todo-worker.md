@@ -121,8 +121,9 @@ Log names a home path, and CI's archived-todo tripwire fails on one.
    re-stage them (step 1 again) and run it again until it passes. Fix by hand what no fixer can (flake8;
    detect-secrets on a fake secret: use an obviously fake value), then re-stage. The kimi-review gate is
    skipped here; the main session runs it at commit. A fixer that fails with `Operation not permitted` on a
-   `.claude/agents/` file is the sandbox (it denies opening those for writing), not the file: re-run that
-   command with the sandbox off.
+   `.claude/agents/` file is the sandbox (it denies opening those for writing), not the file. Never re-run
+   pre-commit with the sandbox off: that runs every hook unsandboxed (todo 546). Make the fix it names by hand
+   with Edit, re-stage, and say in `discoveries` which file the main session's commit-time run must check.
 3. Clean means nothing unstaged and nothing untracked: `/usr/bin/git -C WT diff --name-only` must print
    nothing, and `/usr/bin/git -C WT status --porcelain --untracked-files=all` must have no line starting with
    `??` (in `MODE: repair`, none but the `UNTRACKED_BEFORE` paths). `--untracked-files=all` lists files one by

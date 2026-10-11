@@ -452,6 +452,11 @@ def confirm(run, todo_id, index, decision, date):
     if entry["stage"] not in CONFIRM_STAGES:
         raise TransitionError(f"{todo_id}: is {entry['stage']}; confirm a criterion after Decide and before "
                               "execute-args (a ready or blocked todo)")
+    if entry.get("pr"):
+        # Todo 546: a blocked todo with a PR is never reopened, so no worker or verifier would see this
+        # confirmation, yet review_criteria would let a hand-ticked box at its index pass.
+        raise TransitionError(f"{todo_id}: has PR #{entry['pr']}; a criterion is confirmed before execute-args, "
+                              "and a todo with a PR is never re-executed")
     if not decision.strip():
         raise TransitionError(f"{todo_id}: a confirmation needs the owner's words")
     if not _valid_date(date):
@@ -844,16 +849,24 @@ def add_worktrees(run, briefs, root, git=run_git):
     # Todo 541 (#982-7): absolute, so a relative --main-root or --worktree-root never records a relative path.
     root = Path(os.path.abspath(root))
     for brief in briefs:
-        if brief.get("reverify"):
-            continue
         main_root = os.path.abspath(brief["main_root"])
+        if brief.get("reverify"):
+            # Todo 546: a re-verify brief records an absolute --main-root too.
+            brief["main_root"] = main_root
+            for todo_id in brief["ids"]:
+                if todo_id in run["todos"]:
+                    run["todos"][todo_id]["main_root"] = main_root
+            continue
         name = f"sweep-{run['run_id']}-{brief['group']}"
         path, branch = root / name, f"worktree-{name}"
-        # The real recovery (#982-7): moving the directory aside leaves the branch and the registered worktree,
-        # so `worktree add -b` still fails. Remove the worktree and delete the branch instead.
-        recover = (f"if nothing in it is wanted, `git -C {main_root} worktree remove --force {path}` (or `git "
-                   f"worktree prune` once the directory is gone), then `git -C {main_root} branch -D {branch}`, "
-                   "then rerun execute-args")
+        # The recovery (#982-7): a directory moved aside with `mv` leaves the registered worktree and the branch,
+        # so `worktree add -b` still fails. Todo 546: what is in the way may hold a worker's uncommitted changes,
+        # so the recovery moves it and renames its branch, and deletes nothing.
+        aside = f"{name}.aside-{datetime.date.today().isoformat()}"
+        rename = f"`git -C {main_root} branch -m {branch} worktree-{aside}`, then rerun execute-args"
+        recover = (f"move it aside without losing anything: `git -C {main_root} worktree move {path} "
+                   f"{root / aside}` (if git does not list it as a worktree, `mv` it there and run `git -C "
+                   f"{main_root} worktree prune`), then {rename}")
         if path.exists():
             try:
                 same = (git(path, "rev-parse", "--abbrev-ref", "HEAD").strip() == branch
@@ -871,7 +884,8 @@ def add_worktrees(run, briefs, root, git=run_git):
                 taken = False
             if taken:
                 raise RuntimeError(f"{brief['group']}: branch {branch} already exists, but {path} does not; "
-                                   f"{recover}")
+                                   f"keep its commits under another name: `git -C {main_root} worktree prune`, "
+                                   f"then {rename}")
             root.mkdir(parents=True, exist_ok=True)
             git(main_root, "worktree", "add", "--no-track", "-b", branch, str(path), "origin/main")
         _copy_worktreeinclude(main_root, path, git)
@@ -1409,17 +1423,24 @@ def ingest_followups(run, results):
             outcome[gid] = "uncurated"
             continue
         known = {_followup_key(line) for line in raw}
-        kept, dropped = [], list(result.get("dropped") or [])
+        accounted = list(result.get("dropped") or [])  # the workflow's drops: refuted, or fixed on main
+        kept, rejected = [], []
         for item in result["kept"]:
             line = _refuted_line(item)
             if f"{item['file']}:{item['line']}" not in known or item["severity"] not in {"medium", "low"}:
-                dropped.append({"line": line, "why": "not a location or severity the review reported"})
+                rejected.append({"line": line, "why": "not a location or severity the review reported"})
             else:
-                kept.append(line)
+                kept.append((item, line))
         # Todo 541 (#982-1): every stored item must come back kept, merged into a kept one (its phrasing in
-        # `also`) or dropped with a reason. One the curator left out is kept as stored, never lost.
-        returned = {_followup_key(line) for line in kept} | {_followup_key(str(d.get("line", ""))) for d in dropped}
-        phrased = {p for item in result["kept"] for p in [item.get("summary", ""), *item.get("also", [])]}
+        # `also`) or dropped with a reason. One the curator left out is kept as stored, never lost. Todo 546: an
+        # item this ingest rejects accounts for nothing -- the stored line at its location stays as stored -- and
+        # one the workflow dropped accounts for every phrasing merged into it, so a refuted item's merged
+        # duplicate does not come back as uncovered.
+        returned = {_followup_key(line) for _, line in kept} | {_followup_key(str(d.get("line", ""))) for d in accounted}
+        phrased = ({p for item, _ in kept for p in [item.get("summary", ""), *item.get("also", [])]}
+                   | {p for d in accounted for p in _line_phrasings_followup(str(d.get("line", "")))})
+        kept = [line for _, line in kept]
+        dropped = accounted + rejected
         uncovered = [line for line in raw if _followup_key(line) not in returned
                    and not set(_line_phrasings_followup(line)) & phrased]
         record["curated"] = sorted(dict.fromkeys(kept + uncovered), key=_followup_rank)
@@ -1508,8 +1529,8 @@ def release_incomplete(run, gid, decision):
     """The owner sends a group blocked by two incomplete review rounds back for one more try at that round (todo
     497 F4, owner decision 2026-10-10). Such a group has a PR, so a reopen refuses it, and it is not a hold, so
     clear-hold refuses it too. Like those it bypasses ALLOWED on purpose: the group goes back to pr_open with the
-    round before it done and that round's incomplete count reset. Once per round: a third incomplete round
-    blocks for good."""
+    round before it done and that round's incomplete count one short of the limit, so it gets exactly one more
+    try. Once per round: a third incomplete round blocks for good."""
     if not decision.strip():
         raise TransitionError(f"{gid}: releasing an incomplete round needs the owner's decision")
     entries = _group_entries(run, gid)
@@ -1526,7 +1547,8 @@ def release_incomplete(run, gid, decision):
         earlier = entry.get("owner_decision")
         entry.pop("blocked_by", None)
         entry.update(stage="pr_open", review_round=int(round_no) - 1, reason="",
-                     review_reruns={**entry.get("review_reruns", {}), round_no: 0},
+                     # Todo 546: one short of the limit, so the next incomplete review of this round blocks.
+                     review_reruns={**entry.get("review_reruns", {}), round_no: MAX_INCOMPLETE - 1},
                      incomplete_released=entry.get("incomplete_released", []) + [round_no],
                      owner_decision=(f"{earlier}; round {round_no} released: {decision}" if earlier
                                      else f"round {round_no} released: {decision}"))
