@@ -4,6 +4,10 @@ priority: p4
 issue_id: "565"
 tags: [mobile, backend, follow-ups]
 dependencies: []
+triage: needs-design
+triaged: 2026-10-11
+blocked_on: "Owner picks the onboarding fix for old builds (#3), plus the avatar storage policy: delete old files and strip EXIF server-side (#2, #6), and build or decline deleteAvatar (#9)"
+owner_decision: "#3: keep the 'profile' step but leave it out of complete (complete = the first 3 steps). #2/#6: delete the old original and its imagekit thumbnail on replace, strip EXIF (GPS included) server-side, and add a per-user throttle on update_profile. #9: build a backend avatar-delete route and a mobile 'Remove photo' action (2026-10-11)"
 ---
 
 # Follow-ups from PR #999 (todo 455, mobile profile edit)

@@ -4,6 +4,10 @@ priority: p4
 issue_id: "561"
 tags: [todo-sweep, follow-ups, backend]
 dependencies: []
+triage: needs-design
+triaged: 2026-10-11
+blocked_on: "Owner choice of fix for finding 1 (origin discrimination vs publish held revision) and finding 5 (refuse legacy literals vs record gap)"
+owner_decision: "F1: Approve publishes the revision the workflow TaskState holds, never the latest draft; that replaces the revision.user guess. F5: extend the fatal production guard to the 12 legacy your-.../path/to/... literals and fix the stale docs. The worker never reads prod; the owner checks the Railway values before merge (2026-10-11)"
 ---
 
 # Follow-ups from PR #952 (todos 436, 499), run 2026-10-02-0335

@@ -4,6 +4,8 @@ priority: p4
 issue_id: "574"
 tags: [forum, backend, docs, follow-ups, todo-sweep]
 dependencies: []
+triage: ready
+triaged: 2026-10-11
 ---
 
 # Follow-ups from PR #1013 (todo 471, forum pending-post revision notes)

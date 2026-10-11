@@ -4,6 +4,9 @@ priority: p4
 issue_id: "570"
 tags: [mobile, backend, garden-calendar, follow-ups]
 dependencies: []
+triage: ready
+triaged: 2026-10-11
+owner_decision: "#8: keep the 10-page cap and show a 'list truncated' notice when it is reached. #14: add a real two-transaction TransactionTestCase that pins the select_for_update lock, despite the testing.md constraint (2026-10-11)"
 ---
 
 # Follow-ups from PR #998 (todo 386, mobile Care Schedule garden)

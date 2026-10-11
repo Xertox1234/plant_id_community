@@ -4,6 +4,9 @@ priority: p4
 issue_id: "577"
 tags: [todo-sweep, scripts, follow-ups]
 dependencies: []
+triage: ready
+triaged: 2026-10-11
+owner_decision: "Fix all seven findings, #3 (cross-file merged duplicates) and #5 (worker-edit guard vs the brief) included; declining is not allowed (2026-10-11)"
 ---
 
 # Follow-ups from PR #1016 (todo 551, the sweep engine)

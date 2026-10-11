@@ -4,7 +4,9 @@ priority: p4
 issue_id: "553"
 tags: [todo-sweep, follow-ups, backend]
 dependencies: []
-owner_decision: "Finding 2 and the finding-5 re-check: make SecurityMonitor._get_client_ip use the trusted-proxy resolver the login rate limit already uses (apps.core.ratelimit.get_trusted_client_ip), and keep the raw IP, now the real client's, in the brute-force alert as the 2026-10-02 finding-5 decision intended (2026-10-10)"
+owner_decision: "Finding 2 and the finding-5 re-check: make SecurityMonitor._get_client_ip use the trusted-proxy resolver the login rate limit already uses (apps.core.ratelimit.get_trusted_client_ip), and keep the raw IP, now the real client's, in the brute-force alert as the 2026-10-02 finding-5 decision intended (2026-10-10) Fix both guards properly: narrow the ImportError guard to the .constants Try nodes, and drive the real complete_social_login chain in the allauth test (2026-10-11)"
+triage: ready
+triaged: 2026-10-11
 ---
 
 # Follow-ups from PR #941 (todos 418, 435), run 2026-10-02-0335
