@@ -11,11 +11,11 @@ This service handles:
 """
 
 import logging
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional
 
 from django.core.cache import cache
 
-from ..constants import CACHE_KEY_COMPANION_PLANTS, CACHE_TIMEOUT_ANALYTICS
+from ..constants import CACHE_KEY_COMPANION_PLANTS
 from ..models import GardenBed, Plant
 
 logger = logging.getLogger(__name__)
@@ -278,7 +278,8 @@ class CompanionPlantingService:
         """
         logger.info(f"[COMPANION] Analyzing garden bed {garden_bed.uuid}")
 
-        plants = garden_bed.plants.filter(is_active=True)
+        # Only the bed owner's plants (todo 457).
+        plants = garden_bed.plants.filter(is_active=True, owner_id=garden_bed.owner_id)
         plant_count = plants.count()
 
         if plant_count < 2:
@@ -372,13 +373,12 @@ class CompanionPlantingService:
             return []
 
         companion_names = [c["name"] for c in recommendations["companions"]]
-        antagonist_names = recommendations["antagonists"]
 
         # If garden bed specified, filter out antagonists already in the bed
         if garden_bed:
-            existing_plants = garden_bed.plants.filter(is_active=True).exclude(
-                uuid=plant.uuid
-            )
+            existing_plants = garden_bed.plants.filter(
+                is_active=True, owner_id=garden_bed.owner_id
+            ).exclude(uuid=plant.uuid)
             existing_names = [p.common_name.lower() for p in existing_plants]
 
             # Remove companions that are antagonists to existing plants

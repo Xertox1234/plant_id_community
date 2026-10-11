@@ -745,6 +745,84 @@ def test_send_forum_push_batch_does_not_re_enqueue_on_permanent_error(exc):
     mock_single.assert_not_called()
 
 
+# --- todo 457 item 3: a dead device token is cleared -------------------------
+
+_DEAD_TOKEN_CLASSES = {"UnregisteredError", "SenderIdMismatchError"}
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("batch", [False, True], ids=["single", "batch"])
+@pytest.mark.parametrize("exc", _permanent_fcm_errors(), ids=lambda e: type(e).__name__)
+def test_a_dead_token_is_cleared_and_other_permanent_errors_keep_it(exc, batch):
+    """Only the token-is-dead classes clear it. ThirdPartyAuthError (APNs
+    credentials) and InvalidArgumentError (a bad message) are permanent too,
+    but the token is fine, so clearing on them would wipe healthy devices."""
+    name = type(exc).__name__.lower()
+    user = User.objects.create_user(username=f"clear-{name}-{batch}")
+    profile = ForumProfile.for_user(user)
+    profile.fcm_token = "maybe-dead-token"
+    profile.save()
+
+    mock_fcm = MagicMock()
+    mock_fcm.send.side_effect = exc
+
+    with patch(
+        "apps.core.firebase_config.is_firebase_available", return_value=True
+    ), patch("apps.core.firebase_config.get_fcm_client", return_value=mock_fcm), patch(
+        "apps.forum_host.tasks.send_forum_push.delay"
+    ):
+        from apps.forum_host.tasks import send_forum_push, send_forum_push_batch
+
+        if batch:
+            send_forum_push_batch("reply_added", [user.pk], {"topic_id": "1"})
+        else:
+            send_forum_push("reply_added", user.pk, {"topic_id": "1"})
+
+    profile.refresh_from_db()
+    if type(exc).__name__ in _DEAD_TOKEN_CLASSES:
+        assert profile.fcm_token == ""
+    else:
+        assert profile.fcm_token == "maybe-dead-token"
+
+
+@pytest.mark.django_db
+def test_a_token_reregistered_during_the_send_is_kept():
+    """The clear matches on the token that failed, so a device that
+    registered a new token while the send was in flight keeps it."""
+    from firebase_admin import messaging
+
+    user = User.objects.create_user(username="rereg")
+    profile = ForumProfile.for_user(user)
+    profile.fcm_token = "old-token"
+    profile.save()
+
+    def send(_message):
+        ForumProfile.objects.filter(user=user).update(fcm_token="new-token")
+        raise messaging.UnregisteredError("old token gone")
+
+    mock_fcm = MagicMock()
+    mock_fcm.send.side_effect = send
+
+    with patch(
+        "apps.core.firebase_config.is_firebase_available", return_value=True
+    ), patch("apps.core.firebase_config.get_fcm_client", return_value=mock_fcm):
+        from apps.forum_host.tasks import send_forum_push
+
+        send_forum_push("reply_added", user.pk, {"topic_id": "1"})
+
+    profile.refresh_from_db()
+    assert profile.fcm_token == "new-token"
+
+
+def test_the_fcm_wrappers_are_gone():
+    """Todo 457 item 7: tests patch ``apps.core.fcm`` directly, so the
+    one-line forwarding wrappers have no reason to exist."""
+    from apps.forum_host import tasks
+
+    assert not hasattr(tasks, "_send_fcm_message")
+    assert not hasattr(tasks, "_is_permanent_fcm_error")
+
+
 # --- audit 2026-09-04 M8 / L3 -------------------------------------------------
 
 

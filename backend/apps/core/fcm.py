@@ -4,7 +4,10 @@ Lifted out of ``apps/forum_host/tasks.py`` for todo 410, so the care-reminder
 sweep in ``garden_calendar`` does not import the forum's private helpers.
 """
 
+import logging
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 
 def is_permanent_fcm_error(exc: Exception) -> bool:
@@ -28,6 +31,45 @@ def is_permanent_fcm_error(exc: Exception) -> bool:
             fb_exceptions.InvalidArgumentError,
         ),
     )
+
+
+def is_dead_fcm_token_error(exc: Exception) -> bool:
+    """True when the device token itself can never receive again (todo 457).
+
+    A narrower test than ``is_permanent_fcm_error``: an unregistered token, or
+    one minted for another sender, is dead and should be cleared. The other
+    permanent classes are not the token's fault. ``ThirdPartyAuthError`` is a
+    project-wide APNs credential problem, and ``InvalidArgumentError`` is most
+    often a malformed message; clearing on either would wipe healthy tokens.
+    """
+    try:
+        from firebase_admin import messaging
+    except ImportError:  # pragma: no cover — Firebase not installed
+        return False
+    return isinstance(
+        exc, (messaging.UnregisteredError, messaging.SenderIdMismatchError)
+    )
+
+
+def clear_dead_fcm_token(user_id: int, token: str) -> int:
+    """Forget a dead device token, so later sends stop targeting it (todo 457).
+
+    Matches on the token as well as the user: if the device re-registered a new
+    token after this send was built, the new one is kept. Best-effort: a
+    database error is logged, not raised, because it runs inside a send
+    failure handler and must not turn one dead token into a task retry that
+    re-sends to everyone else. Returns the number of profiles cleared.
+    """
+    from django.db import DatabaseError
+    from wagtail_forum.models import ForumProfile
+
+    try:
+        return ForumProfile.objects.filter(user_id=user_id, fcm_token=token).update(
+            fcm_token=""
+        )
+    except DatabaseError:
+        logger.exception("[FCM] could not clear a dead token (user=%s)", user_id)
+        return 0
 
 
 def send_fcm_message(
