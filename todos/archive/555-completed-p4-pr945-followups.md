@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: p4
 issue_id: "555"
 tags: [todo-sweep, follow-ups, backend]
@@ -55,10 +55,34 @@ finding against main before acting on it.
 
 ## Acceptance Criteria
 
-- [ ] Each of its 8 findings is fixed with a test, or the Work Log records why it was left as is.
+- [x] Each of its 8 findings is fixed with a test, or the Work Log records why it was left as is.
 
 ## Work Log
 
 ### 2026-10-10 - Promoted out of todo 527
 
 - Split from the consolidated follow-up todo 527 (owner decision 2026-10-10: one todo per source PR).
+
+### 2026-10-11 - Implemented by the todo sweep (run 2026-10-11-1448)
+
+- All 8 findings fixed, each with a test; nothing left as is. In `backend/apps/core/tests/test_requests_exception_drift.py`: a handler-derived `nonlocal`/`global` name now seeds the scope even when the handler raises or returns (new `_global_names`) (1). `_local_names` skips class-body stores and counts `import` names (3). New `_comprehension_shadowed` masks a comprehension's own variable when its iterable is untainted, in both response guards (4). A def later in the same loop body as the handler is seeded (`_loop_bodies`) (5), and so is a parameter whose default reads the exception (`_params_defaulting_to`) (6).
+- New `test_the_logger_guard_reports_in_line_order_once` pins the exact ordered `(line, src)` list. PLANTED gained a nested-def handler between two outer ones (2).
+- PLANTED_SCOPE gained positives for findings 1/3/5/6, the six finding-7 positives (`with contextlib.suppress`, break before raise, `except*`, starred and list unpacking, a lambda on the handler's last line), and quiet cases: a child's own import, a child's comprehension variable (list, genexp, exception), a walrus in a child's comprehension, and nearest-binder `nonlocal` (whose middle dict is the positive).
+- `scripts/inject/test_budget_rules.py`: new `test_tail_only_empty_edge_is_exactly_the_marker_cost` pins share 139 to `""`, 140 to the marker alone, and 141 to the first content (8).
+- Mutation-checked: a mutant of each fix, the eight finding-7 branches, a walk-order logger `found`, and a 50 B marker over-reservation each fail a planted test. The live sweep of every backend file stays green.
+
+### 2026-10-11 - Verified by the todo sweep (run 2026-10-11-1448)
+
+- AC 1: `cd backend && sh -c 'python3 scripts/todos/slot_env.py --main-root . 2 -- backend/venv/bin/python -m pytest backend/apps/core/tests/test_requests_exception_drift.py scripts/inject/test_budget_rules.py -q -p no:cacheprovider --create-db && backend/venv/bin/python .sweep-evidence/g3/mutants.py .'` — evidence `.sweep-evidence/g3/555-ac0.txt` (not committed), last lines:
+
+  ```text
+  KILLED   f7 walrus widened -> ['guards_resolve_scopes_the_way_python_doe']
+  KILLED   f7 owner farthest -> ['guards_resolve_scopes_the_way_python_doe']
+  budget UNMUTATED failing: []
+  KILLED   f8 marker over-reserved 50 B -> ['test_tail_only_empty_edge_is_exactly_the_marker_cost']
+  RESULT: every mutant killed, unmutated green
+  ```
+
+### 2026-10-11 - Completed by the todo sweep (run 2026-10-11-1448)
+
+- Archived by `land.py archive`; evidence is quoted above, review is on the PR.

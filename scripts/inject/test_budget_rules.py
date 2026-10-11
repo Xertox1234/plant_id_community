@@ -113,6 +113,20 @@ class EveryRoutedDomainContributesTests(unittest.TestCase):
         self.assertIn("were not injected", out)
         self.assertTrue(out.endswith("x\n"))
 
+    def test_tail_only_empty_edge_is_exactly_the_marker_cost(self):
+        # Todo 555 (finding 8): the loose bracket above (1/40/120 vs 200) let a
+        # 50 B over-reservation for the marker pass -- empty up to share 189.
+        # Pin the literal edges for this file: 139 B cannot carry the marker,
+        # 140 B carries the marker and nothing else, 141 B is the first share
+        # with content. Re-measure these when the tail marker's text changes.
+        text = long_final_line_file()
+        self.assertEqual(br.excerpt(text, 139, "docs/rules/x.md"), "")
+        at_edge = br.excerpt(text, 140, "docs/rules/x.md")
+        self.assertNotEqual(at_edge, "")
+        self.assertTrue(at_edge.startswith("\n[... the first "), at_edge)
+        self.assertIn("were not injected", at_edge)
+        self.assertTrue(br.excerpt(text, 141, "docs/rules/x.md").endswith("x\n"))
+
 
 if __name__ == "__main__":
     unittest.main()
