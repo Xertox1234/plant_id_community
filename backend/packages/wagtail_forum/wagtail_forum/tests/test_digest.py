@@ -948,3 +948,43 @@ def test_a_falsy_non_bool_send_result_counts_as_a_failure(monkeypatch, falsy):
     assert "sent=0 failed=1" in out.getvalue()
     profile.refresh_from_db()
     assert profile.last_digest_sent_at is None
+
+
+@pytest.mark.django_db
+@override_settings(
+    SITE_URL="https://forum.example", WAGTAILFORUM_DIGEST_UNSUBSCRIBE=None
+)
+def test_the_claim_update_stays_on_one_table_with_the_marker_outside(monkeypatch):
+    """Todo 585 review: a join in the claim (`user__is_active`) makes Django
+    rewrite the UPDATE as `id IN (SELECT ... JOIN ...)`, and PostgreSQL's
+    recheck after a racing claim then tests only that stale subquery, so two
+    runs both claim. The UPDATE must have no JOIN and keep the marker check
+    in its outer WHERE, on the row it locks."""
+    from django.db import connection
+    from django.test.utils import CaptureQueriesContext
+
+    member = User.objects.create_user(username="dg-one-table", email="one@example.com")
+    profile = _opt_in(member)
+    _one_topic_digest_patches(monkeypatch, lambda digest: True)
+
+    table = ForumProfile._meta.db_table
+    with CaptureQueriesContext(connection) as ctx:
+        call_command("send_forum_digest", frequency="weekly", stdout=StringIO())
+
+    claims = [
+        q["sql"]
+        for q in ctx.captured_queries
+        if q["sql"].startswith(f'UPDATE "{table}"')
+        and "last_digest_sent_at" in q["sql"]
+    ]
+    assert len(claims) == 1, claims
+    sql = claims[0]
+    assert "JOIN" not in sql.upper()
+    where = sql.split(" WHERE ", 1)[1]
+    # The outer WHERE (before any subquery) carries the pk and the marker.
+    outer = where.split("(SELECT", 1)[0]
+    assert f'"{table}"."id" = ' in outer
+    assert f'"{table}"."last_digest_sent_at" IS NULL' in outer
+    assert f'"{table}"."digest_frequency" = ' in outer
+    profile.refresh_from_db()
+    assert profile.last_digest_sent_at is not None

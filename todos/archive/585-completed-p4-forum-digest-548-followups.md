@@ -67,3 +67,9 @@ Follow-ups for PR #1024 (todo 548).
 ### 2026-10-11 - Completed by the todo sweep (run 2026-10-11-2219)
 
 - Archived by `land.py archive`; evidence is quoted above, review is on the PR.
+
+### 2026-10-11 - Repaired by the todo sweep (run 2026-10-11-2219)
+
+- Round-1 review (two high findings, same defect): the `user__is_active=True` filter added to the claim joined the user table, so Django rewrote the UPDATE as `id IN (SELECT ... JOIN ...)` and PostgreSQL's recheck after a racing claim tested only that stale subquery, not `last_digest_sent_at`; two racing runs could both claim and mail the member twice.
+- Fix: the claim in `send_forum_digest._send_one` stays on one table. It filters pk, the marker and `digest_frequency` directly and checks the account with `user_id__in=<active user pk subquery>`, which adds no join.
+- Test: `test_the_claim_update_stays_on_one_table_with_the_marker_outside` captures the claim UPDATE and asserts it has no JOIN and keeps the pk, marker and frequency checks in its outer WHERE. It fails on the previous join-based claim.

@@ -18,6 +18,7 @@ mirroring send_blog_newsletter after todo 534).
 
 import logging
 
+from django.contrib.auth import get_user_model
 from django.core.cache import cache
 from django.core.management.base import BaseCommand, CommandError
 from django.db import transaction
@@ -181,13 +182,23 @@ class Command(BaseCommand):
         # The claim rechecks the opt-in and the account (todo 585): the
         # recipient query was read up to a 200-row chunk ago, and a member
         # who has since opted out or been deactivated must not be mailed.
+        #
+        # The UPDATE must stay on one table. A join (`user__is_active`) makes
+        # Django rewrite it as `id IN (SELECT ... JOIN user ...)`, and then
+        # PostgreSQL's recheck after waiting on a racing claim tests only that
+        # stale subquery, not the marker: both runs claim and the member gets
+        # two emails. `user_id__in` is a join-free subquery, so the marker
+        # stays in the outer WHERE on the locked row.
         previous = profile.last_digest_sent_at
+        active_account = get_user_model().objects.filter(
+            pk=profile.user_id, is_active=True
+        )
         with transaction.atomic():
             claimed = ForumProfile.objects.filter(
                 pk=profile.pk,
                 last_digest_sent_at=previous,
                 digest_frequency=frequency,
-                user__is_active=True,
+                user_id__in=active_account.values("pk"),
             ).update(last_digest_sent_at=now)
             if not claimed:
                 return None
