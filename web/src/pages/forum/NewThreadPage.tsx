@@ -92,6 +92,26 @@ function readHandoff(state: unknown): IdentificationHandoff | null {
   };
 }
 
+/** The composer fields a stored new-thread draft carries. */
+interface StoredDraft {
+  title?: string;
+  body?: unknown;
+  tags?: string;
+}
+
+/**
+ * Parse a stored draft string. A missing or unparseable draft reads as no
+ * fields at all — the stored value itself is left alone (see `baselineRef`).
+ */
+function parseDraft(raw: string | null): StoredDraft {
+  try {
+    const parsed: unknown = JSON.parse(raw || '{}');
+    return parsed && typeof parsed === 'object' ? (parsed as StoredDraft) : {};
+  } catch {
+    return {};
+  }
+}
+
 /**
  * NewThreadPage Component
  *
@@ -125,13 +145,7 @@ export default function NewThreadPage() {
   // Parse the saved draft once (per key), not once per field.
   // `body` is the composer's TipTap document since todo 526; a draft saved
   // before it holds the editor's HTML instead, which toComposerDoc still reads.
-  const initialDraft = useMemo<{ title?: string; body?: unknown; tags?: string }>(() => {
-    try {
-      return JSON.parse(loadDraft(newThreadDraftKey) || '{}');
-    } catch {
-      return {};
-    }
-  }, [newThreadDraftKey]);
+  const initialDraft = useMemo(() => parseDraft(loadDraft(newThreadDraftKey)), [newThreadDraftKey]);
   // A saved draft always wins over the handoff's suggestion — the user's own
   // half-written title must never be overwritten by a machine guess.
   const [title, setTitle] = useState<string>(
@@ -159,8 +173,12 @@ export default function NewThreadPage() {
   // The route has no key, so a `?category=` change (the AppShell or palette
   // "Start a thread" link) keeps this page mounted and changes the draft key
   // under a form that still holds the previous board's text. That re-arms
-  // the guard against the form as it stands (todo 549): a touched form must
-  // not write — or, emptied, delete — the new board's stored draft.
+  // the guard (todo 549): a touched form must not write — or, emptied,
+  // delete — the new board's stored draft. When the new board HAS a stored
+  // draft, the form loads it (todo 575) — otherwise the next keystroke would
+  // save the old board's text over a draft the user never saw. When it has
+  // none, the form keeps the old board's text (owner decision 2026-10-11),
+  // which also stays saved under the old board's key.
   const baselineRef = useRef({
     key: newThreadDraftKey,
     title,
@@ -254,13 +272,34 @@ export default function NewThreadPage() {
   useEffect(() => {
     const base = baselineRef.current;
     if (base.key !== newThreadDraftKey) {
-      baselineRef.current = {
+      const stored = loadDraft(newThreadDraftKey);
+      if (stored === null) {
+        baselineRef.current = {
+          key: newThreadDraftKey,
+          title,
+          body,
+          tags: tagsInput,
+          touched: false,
+        };
+        return;
+      }
+      // Load the new board's draft. The baseline holds the very values set
+      // here, so the re-render they cause compares untouched and writes
+      // nothing: a draft the composer cannot read stays byte-for-byte.
+      const draft = parseDraft(stored);
+      const next = {
         key: newThreadDraftKey,
-        title,
-        body,
-        tags: tagsInput,
+        title: draft.title || '',
+        body: toComposerDoc(draft.body),
+        tags: draft.tags || '',
         touched: false,
       };
+      baselineRef.current = next;
+      setTitle(next.title);
+      setBody(next.body);
+      setTagsInput(next.tags);
+      // TipTap takes its content at mount only.
+      setComposerEpoch((e) => e + 1);
       return;
     }
     if (!base.touched) {

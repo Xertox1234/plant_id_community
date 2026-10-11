@@ -378,6 +378,26 @@ def main():
     missed = [s for s in bare if not chk.HOME_PATH_RE.search(s)]
     check("551 #5 (PR #1016 review): a bare, quoted or backticked project-key slug still matches", not missed, missed)
 
+    # Todo 572: a re-point marker on a criterion's wrapped line counts, as todofile.ac_lines reads it.
+    with tempfile.TemporaryDirectory() as tmp3:
+        p = pathlib.Path(tmp3) / "t.md"
+        p.write_text("---\nstatus: completed\n---\n## Acceptance Criteria\n"
+                     "- [ ] Moved criterion, wrapped onto a second\n"
+                     "      line \u2192 todo 547 (re-pointed 2026-10-11)\n"
+                     "- [ ] Bare criterion, also wrapped\n"
+                     "      onto a second line.\n"
+                     "- [ ] Bare one followed by a separate bullet\n"
+                     "  - see -> todo 9 (re-pointed 2026-01-01)\n")
+        bare = chk.parse(str(p))[3]
+        check("572: a marker on a wrapped continuation line re-points the criterion",
+              "- [ ] Moved criterion, wrapped onto a second" not in bare, bare)
+        check("572: ... a wrapped criterion with no marker is still bare, and a marker in a NEW bullet below one "
+              "does not excuse it",
+              bare == ["- [ ] Bare criterion, also wrapped", "- [ ] Bare one followed by a separate bullet"], bare)
+        p.write_text("---\nstatus: completed\n---\n- [ ] Fenced wrap\n```\n  -> todo 5 (re-pointed 2026-01-01)\n```\n")
+        check("572: a fenced line is never a continuation",
+              chk.parse(str(p))[3] == ["- [ ] Fenced wrap"], chk.parse(str(p)))
+
     print()
     if FAILURES:
         print(f"FAILED: {len(FAILURES)} check(s): {', '.join(FAILURES)}")

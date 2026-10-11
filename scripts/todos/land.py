@@ -98,6 +98,12 @@ Todo 552: the quoted command keeps a leading `cd <wt>/<sub> && `, which reads
 main_root is rewritten relative to <sub> (`../scripts/...`), and a chained
 `cd` is resolved against the previous one (`_relativize_command`). A path the
 command already wrote relative is left alone. Archived lines are not rewritten.
+
+Todo 578 makes that directory tracking follow the shell more closely: a newline, `|` and a single `&`
+separate commands too, quotes honour backslash escapes and an unclosed one is literal, a subshell or a
+pipeline or background part keeps its `cd` to itself, `pushd`/`popd` count, a `cd` after `||` leaves either
+directory possible, a rooted `cd` after an unknown one is known again, `git -C <dir>` re-roots the paths
+after it, and a trailing slash and a sentence's full stop survive.
 """
 
 import argparse
@@ -216,7 +222,9 @@ def _strip(text, root, bare, mark=""):
     """`text` with each path under the root regex `root` made relative to it: `<root>/x` reads `x` (or
     `~/x`), and the root alone reads `bare`, never nothing (todo 525: `cd <wt>/ && ls` read `cd  && ls`).
     With `mark`, each path it rewrites starts with it, so a later pass knows which paths were rooted."""
-    text = re.sub(_PATH_START + root + _BARE_END, lambda _: mark + bare, text)
+    # A marked bare root also gets _END (todo 578 #2): `<root>.` ending a sentence reads `\x00.\x01.`, so the
+    # full stop is never read as part of the path (`..`).
+    text = re.sub(_PATH_START + root + _BARE_END, lambda _: mark + bare + (_END if mark else ""), text)
     return re.sub(_PATH_START + root + "/", lambda _: mark + ("" if bare == "." else bare + "/"), text)
 
 
@@ -259,28 +267,131 @@ def _relativize(text, repo, main_root="", todo_rel="", mark=""):
 
 
 _MARK = "\x00"
-_CMD_SPLIT_RE = re.compile(r"&&|\|\||;")
-_CD_RE = re.compile(r"\s*cd(?:\s+(?P<q>['\"]?)(?P<target>[^'\"\s]*)(?P=q))?\s*$")
-_MARKED_RE = re.compile(_MARK + rf"(?P<path>[^{_SEP}{_MARK}]*)")
+_END = "\x01"  # ends a marked bare root (todo 578 #2)
+# A command's separators (todo 578 #4): the two-character forms first. `(` and `)` open and close a subshell (a
+# `$(` substitution is one too); `|` and `&` put the part beside them in a subshell of its own.
+_OPERATORS = ("&&", "||", "|&", ";", "\n", "|", "&", "(", ")")
+_DIR_RE = re.compile(r"\s*(?P<cmd>cd|pushd|popd)\b")
+_CD_RE = re.compile(r"\s*(?P<cmd>cd|pushd)(?:\s+(?P<q>['\"]?)(?P<target>[^'\"\s]*)(?P=q))?\s*$")
+_POPD_RE = re.compile(r"\s*popd\s*$")
+_MARKED_RE = re.compile(_MARK + rf"(?P<path>[^{_SEP}{_MARK}{_END}]*)")
+_GIT_RE = re.compile(r"\s*(?:[A-Za-z_]\w*=\S*\s+)*git\s")
+_GIT_TOKEN_RE = re.compile(r"\s*(?P<q>['\"]?)(?P<tok>[^'\"\s]+)(?P=q)")
+# git's global options that take their value as the next word. Only the words between `git` and the
+# subcommand are global options: `git grep -C 3` and `git diff -C` are the subcommand's own -C (PR #1038
+# review), which must not re-root anything.
+_GIT_GLOBAL_WITH_VALUE = {"-C", "-c", "--git-dir", "--work-tree", "--namespace", "--exec-path", "--config-env"}
+
+
+def _operator(command, i):
+    """The separator starting at command[i], or "". A `&` or `|` inside a redirection (`2>&1`, `&>`, `>|`) is
+    not one."""
+    for op in _OPERATORS:
+        if command.startswith(op, i):
+            if op in ("&", "|") and i and command[i - 1] in "<>":
+                return ""
+            if op == "&" and command[i + 1:i + 2] == ">":
+                return ""
+            return op
+    return ""
 
 
 def _split_command(command):
-    """`command` cut into [part, separator, part, ...] at each `&&`, `||` or `;` outside quotes."""
-    pieces, start, quote, i = [], 0, "", 0
-    while i < len(command):
-        char = command[i]
-        if quote:
-            quote = "" if char == quote else quote
-        elif char in "'\"":
-            quote = char
-        else:
-            sep = _CMD_SPLIT_RE.match(command, i)
-            if sep:
-                pieces += [command[start:i], sep.group()]
-                start = i = sep.end()
+    """`command` cut into [part, separator, part, ...] at each separator outside quotes (`_OPERATORS`).
+
+    A backslash outside single quotes escapes the next character, so `\'` or `\"` opens nothing (todo 578 #5).
+    A quote never closed before the end of the command is read as a literal character instead (`echo it's`),
+    so it does not hide every separator after it."""
+    literal = set()
+    while True:
+        pieces, start, quote, opened, i = [], 0, "", -1, 0
+        while i < len(command):
+            char = command[i]
+            if quote == "'":
+                quote = "" if char == "'" else quote
+            elif char == "\\":
+                i += 2
                 continue
-        i += 1
-    return pieces + [command[start:]]
+            elif quote:
+                quote = "" if char == '"' else quote
+            elif char in "'\"" and i not in literal:
+                quote, opened = char, i
+            else:
+                op = _operator(command, i)
+                if op:
+                    pieces += [command[start:i], op]
+                    start = i = i + len(op)
+                    continue
+            i += 1
+        if not quote:
+            return pieces + [command[start:]]
+        literal.add(opened)
+
+
+def _resolve(base, target):
+    """The repo-relative directory `target` names from `base` ("" the repo root, None unknown), or None when it
+    cannot be known: a target that was not under the repo (`~`, `/opt`, `-`, `$X`) or that climbs out of it."""
+    target = target.replace(_END, "")
+    if target.startswith(_MARK):
+        new = posixpath.normpath(target[len(_MARK):].lstrip("/") or ".")
+    elif target and not re.match(r"[~/$-]", target) and _MARK not in target and base is not None:
+        new = posixpath.normpath(posixpath.join(base or ".", target))
+    else:
+        return None
+    if new == ".." or new.startswith("../"):
+        return None
+    return "" if new == "." else new
+
+
+def _rebase(path, dirs):
+    """A marked, repo-relative `path` written relative to the directory the command is in (todo 552). `dirs` is
+    every directory it may be in (todo 578 #3: after a `cd` that follows `||`, either); when they disagree on
+    the result, or one is unknown, the path reads repo-root-relative, as for an unknown directory. A trailing
+    slash is kept (`rsync -a web/` copies the contents, todo 578 #2), and `<root>//x` is `x`."""
+    trail = path.endswith("/") and path.strip("/") != ""
+    path = path.lstrip("/") or "."
+    if None in dirs:
+        return path
+    out = {posixpath.relpath(posixpath.normpath(path), d) if d else path for d in dirs}
+    if len(out) != 1:
+        return path
+    result = out.pop()
+    return result + "/" if trail and not result.endswith("/") else result
+
+
+def _git_c_events(part):
+    """`(end, dir)` for each `-C <dir>` among git's global options in one part: the words between `git`
+    and its subcommand. Stops at the first word that is not an option or an option's value."""
+    git = _GIT_RE.match(part)
+    if not git:
+        return []
+    events, pos, takes_value = [], git.end(), None
+    while (word := _GIT_TOKEN_RE.match(part, pos)) is not None:
+        pos, tok = word.end(), word.group("tok")
+        if takes_value is not None:
+            if takes_value == "-C":
+                events.append((pos, tok))
+            takes_value = None
+        elif tok in _GIT_GLOBAL_WITH_VALUE:
+            takes_value = tok
+        elif not tok.startswith("-"):
+            break
+    return events
+
+
+def _rebase_part(part, dirs):
+    """Each marked path in one part, rebased against `dirs`. In a `git -C <dir>` part, a path after the `-C`
+    resolves against that directory, not the shell's (todo 578 #6); repeated `-C` options compose."""
+    events = _git_c_events(part)
+
+    def sub(match):
+        here = set(dirs)
+        for end, target in events:
+            if end <= match.start():
+                here = {_resolve(d, target) for d in here}
+        return _rebase(match.group("path"), here)
+
+    return _MARKED_RE.sub(sub, part)
 
 
 def _relativize_command(command, repo, main_root="", todo_rel=""):
@@ -293,38 +404,50 @@ def _relativize_command(command, repo, main_root="", todo_rel=""):
     (`cd ../plant_community_mobile`), each resolved against the previous one. The leading `cd` stays
     (owner decision). A path the command already wrote relative is left alone; a `cd` to an unrelated
     place (`~`, `/opt`, `-`, `$X`, or bare) leaves the directory unknown, and later paths read
-    repo-root-relative as before."""
-    text = _relativize(command.replace(_MARK, ""), repo, main_root, todo_rel, mark=_MARK)
-    cwd = ""  # repo-relative; None once it is unknown
+    repo-root-relative as before, until a `cd` into a rooted directory makes it known again (todo 578 #1).
+
+    Todo 578 widens what counts as a directory change. Parts are cut at `&&`, `||`, `;`, a newline, `|` and a
+    single `&` too, outside quotes and backslash escapes. A `(...)` or `$(...)` subshell keeps its `cd` to
+    itself, and so does a part run in the background (`&`) or in a pipeline (`|`). `pushd <dir>` changes
+    directory like `cd`, and `popd` returns to where it was. A `cd` after `||` may not have run, so the
+    command may be in either directory: a later path is rebased only when both read the same. A `git -C <dir>`
+    part rebases its later paths against <dir>."""
+    text = _relativize(command.replace(_MARK, "").replace(_END, ""), repo, main_root, todo_rel, mark=_MARK)
+    pieces = _split_command(text)
+    dirs = frozenset({""})  # every directory the command may be in: repo-relative, "" the root, None unknown
+    scopes, pushed = [], []  # the directories saved by each open subshell; pushd's stack
     out = []
-    for index, part in enumerate(_split_command(text)):
+    for index, part in enumerate(pieces):
         if index % 2:
             out.append(part)
+            if part == "(":
+                scopes.append((dirs, list(pushed)))
+            elif part == ")" and scopes:
+                dirs, pushed = scopes.pop()
             continue
-        here = cwd
-
-        def rebase(match):
-            path = match.group("path")
-            if not here:
-                return path
-            return posixpath.relpath(posixpath.normpath(path or "."), here)
-
-        cd = _CD_RE.match(part)
-        out.append(_MARKED_RE.sub(rebase, part))
-        if not cd and re.match(r"\s*cd\b", part):
-            cwd = None  # a cd this cannot read (quoted blanks, more arguments): the directory is unknown
-        elif cd and cwd is not None:
+        out.append(_rebase_part(part, dirs))
+        if not _DIR_RE.match(part):
+            continue
+        before = pieces[index - 1] if index else ""
+        after = pieces[index + 1] if index + 1 < len(pieces) else ""
+        if before in ("|", "|&") or after in ("|", "|&", "&"):
+            continue  # run in a subshell of its own: the directory change ends with the part
+        cd, popd = _CD_RE.match(part), _POPD_RE.match(part)
+        if popd:
+            new = pushed.pop() if pushed else frozenset({None})
+        elif cd and cd.group("cmd") == "pushd" and not cd.group("target"):
+            new = pushed.pop() if pushed else frozenset({None})  # pushd alone swaps the top two
+            pushed.append(dirs)
+        elif cd:
             target = cd.group("target") or ""
-            if target.startswith(_MARK):
-                cwd = posixpath.normpath(target[len(_MARK):] or ".")
-            elif target and not re.match(r"[~/$-]", target) and _MARK not in target:
-                cwd = posixpath.normpath(posixpath.join(cwd or ".", target))
-            else:
-                cwd = None
-            cwd = "" if cwd == "." else cwd
-            if cwd is not None and (cwd == ".." or cwd.startswith("../")):
-                cwd = None
-    return "".join(out).replace(_MARK, "")
+            new = frozenset(_resolve(d, target) for d in dirs)
+            if cd.group("cmd") == "pushd":
+                pushed.append(dirs)
+        else:
+            new = frozenset({None})  # a cd this cannot read (quoted blanks, more arguments): the directory is unknown
+        # After `||` the change runs only when what came before failed, so either directory may be current.
+        dirs = dirs | new if before == "||" else new
+    return "".join(out).replace(_MARK, "").replace(_END, "")
 
 
 def _sanitize(value):

@@ -370,6 +370,31 @@ class CareTaskViewSetTest(TestCase):
         self.assertEqual(len(response.data["results"]), 1)
         self.assertEqual(response.data["results"][0]["title"], "Pending task")
 
+    def test_list_care_tasks_of_active_plants_only(self):
+        """Todo 570 #12: the mobile garden asks for active plants' tasks."""
+        self.client.force_authenticate(user=self.user)
+        archived = Plant.objects.create(
+            owner=self.user,
+            common_name="Old fern",
+            planted_date=timezone.now().date(),
+            is_active=False,
+        )
+        for plant, title in ((self.plant, "Active"), (archived, "Archived")):
+            CareTask.objects.create(
+                plant=plant,
+                created_by=self.user,
+                task_type="watering",
+                title=title,
+                scheduled_date=timezone.now() + timedelta(days=1),
+            )
+
+        response = self.client.get(
+            "/api/v1/calendar/api/care-tasks/?completed=false&plant__is_active=true"
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual([t["title"] for t in response.data["results"]], ["Active"])
+
     def test_mark_task_complete_action(self):
         """Test mark_complete custom action."""
         self.client.force_authenticate(user=self.user)

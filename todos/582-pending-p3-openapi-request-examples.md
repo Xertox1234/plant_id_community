@@ -4,6 +4,8 @@ priority: p3
 issue_id: "582"
 tags: [backend, api-docs]
 dependencies: []
+triage: ready
+triaged: 2026-10-11
 ---
 
 # Add `OpenApiExample` request examples for plant_identification, users and blog

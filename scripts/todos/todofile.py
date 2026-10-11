@@ -15,7 +15,7 @@ from pathlib import Path
 import yaml
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from check_archived_todo_status import FENCE_RE, REPOINT_RE  # noqa: E402
+from check_archived_todo_status import REPOINT_RE, continues, fenced_lines  # noqa: E402
 
 FM_RE = re.compile(r"\A---\n(.*?\n)---\n", re.S)
 # Written unquoted: lowercase words joined by - or _ (triage classes, statuses)
@@ -25,8 +25,6 @@ FM_RE = re.compile(r"\A---\n(.*?\n)---\n", re.S)
 BARE_RE = re.compile(r"[a-z]+(?:[-_][a-z]+)*|\d{4}-\d{2}-\d{2}")
 YAML_WORDS = {"yes", "no", "on", "off", "true", "false", "null", "none", "y", "n"}
 CHECKBOX_RE = re.compile(r"^\s*-\s\[( |x|X)\]")
-INTERRUPT_RE = re.compile(r"^\s*(?:[-*+]|1[.)])\s")  # a list item that can interrupt a paragraph
-HEADING_RE = re.compile(r"^\s*#{1,6}(?:\s|$)")
 FILENAME_RE = re.compile(r"^((?:\d{4}-\d{2}-\d{2}-)?\d+-)([a-z_]+)(-.+)$")
 
 
@@ -170,12 +168,8 @@ def append_work_log(path, block):
 
 
 def _continues(line):
-    """True when `line` wraps the bullet above it: indented, non-blank, and not a
-    new bullet, a heading or a fence (a fence must still reach the toggle). As in
-    CommonMark, only a `1.` item can start a list inside a paragraph, and a heading
-    needs a space after its #s, so a wrapped `10. …` or `#42 …` is text (todo 468 N2)."""
-    return (line[:1] in (" ", "\t") and bool(line.strip()) and not INTERRUPT_RE.match(line)
-            and not HEADING_RE.match(line) and not FENCE_RE.match(line))
+    """True when `line` wraps the bullet above it (`check_archived_todo_status.continues`, todo 572)."""
+    return continues(line)
 
 
 def ac_lines(text):
@@ -188,20 +182,18 @@ def ac_lines(text):
     bounds = _section_bounds([line + "\n" for line in lines], "Acceptance Criteria")
     if bounds is None:
         return []
-    found, in_fence = [], False
+    # Todo 577 #1: fences are matched by character and length, as the archive tripwire matches them
+    # (`fenced_lines`, todo 551), not by a toggle that a ```python line inside a ```markdown block flips.
+    found, fenced = [], fenced_lines(lines)
     i, end = bounds
     while i < end:
         line = lines[i]
-        if FENCE_RE.match(line):
-            in_fence = not in_fence
-            i += 1
-            continue
-        match = None if in_fence else CHECKBOX_RE.match(line)
+        match = None if fenced[i] else CHECKBOX_RE.match(line)
         if not match:
             i += 1
             continue
         parts, j = [line.rstrip()], i + 1
-        while j < end and _continues(lines[j]):
+        while j < end and not fenced[j] and _continues(lines[j]):
             parts.append(lines[j].strip())
             j += 1
         found.append((i, match.group(1) != " ", " ".join(parts)))

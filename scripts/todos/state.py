@@ -22,6 +22,7 @@ import shlex
 import shutil
 import subprocess
 import sys
+from collections import Counter
 from pathlib import Path
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -352,9 +353,9 @@ def repoint(run, todo_id, index, to, decision, date, git=run_git):
 
     Re-points normally land in the triage PR, before any worker runs. This one is for a criterion
     found owner-only mid-run (todo 423's on-device walkthrough, moved to a follow-up todo). It
-    appends the marker to the criterion's checkbox line in the worktree (the archive tripwire reads
-    that line only), stages it, updates the criterion's `ac.json` text (flip-acs compares the two),
-    and records the re-point on the entry. The verifier treats a changed criterion as edited unless
+    appends the marker to the criterion's checkbox line in the worktree (since todo 572 the archive
+    tripwire reads the whole criterion, its wrapped lines too), stages it, updates the criterion's
+    `ac.json` text (flip-acs compares the two), and records the re-point on the entry. The verifier treats a changed criterion as edited unless
     the brief lists it, so this record is the only thing that lets the change through.
     """
     entry = run["todos"].get(todo_id)
@@ -403,7 +404,7 @@ def repoint(run, todo_id, index, to, decision, date, git=run_git):
     boxes = todofile.ac_lines(text)
     if not 0 <= index < len(boxes):
         raise TransitionError(f"{todo_id}: no criterion at index {index} (it has {len(boxes)})")
-    line_no, checked, _ = boxes[index]
+    line_no, checked, joined = boxes[index]
     if checked:
         raise TransitionError(f"{todo_id}: criterion {index} is already checked")
     acp = Path(worktree, ac_file)
@@ -412,9 +413,9 @@ def repoint(run, todo_id, index, to, decision, date, git=run_git):
     if len(mine) != 1:
         raise TransitionError(f"{todo_id}: {ac_file} has {len(mine)} entries for criterion {index}, not one")
     lines = text.splitlines(keepends=True)
-    if todofile.is_repoint(lines[line_no]):
+    if todofile.is_repoint(joined):  # the whole criterion, so a marker on a wrapped line counts (todo 572)
         # Compare only `→ todo NNN` (todo 494 F5): a rerun on a later day keeps the marker already there.
-        same = [m.group(0) for m in REPOINT_MARKER_RE.finditer(lines[line_no]) if m.group(1) == str(to)]
+        same = [m.group(0) for m in REPOINT_MARKER_RE.finditer(joined) if m.group(1) == str(to)]
         if not same:
             raise TransitionError(f"{todo_id}: criterion {index} is already re-pointed elsewhere")
         marker = " " + same[0]
@@ -1465,18 +1466,30 @@ def ingest_followups(run, results):
         # item this ingest rejects accounts for nothing -- the stored line at its location stays as stored -- and
         # one the workflow dropped accounts for every phrasing merged into it, so a refuted item's merged
         # duplicate does not come back as uncovered.
-        # Todo 551: a dropped phrasing covers a stored line only in the drop's own file. The curator merges
-        # duplicates on nearby lines; an identical summary elsewhere (`missing test`) is a different finding,
-        # and is kept as stored rather than lost with the drop.
+        # Todo 577 #2/#3: a returned phrasing covers ONE stored line, wherever it is. Every phrasing a kept or
+        # dropped item carries goes into one pool, counted; a stored line the curator returned at its own location
+        # takes its phrasings out of the pool first, and each other stored line is covered only by a phrasing still
+        # left, which it then uses up. So a curator's cross-file merge ("in other words") stays covered, kept or
+        # refuted alike, while an identical summary elsewhere (two separate `missing test` findings, in one file or
+        # two) that nobody merged is kept as stored, not swallowed by an unrelated item. Before, kept phrasings
+        # covered every file and dropped ones only the drop's own file (todo 551), and the two disagreed.
         returned = {_followup_key(line) for _, line in kept} | {_followup_key(str(d.get("line", ""))) for d in accounted}
-        phrased = {p for item, _ in kept for p in [item.get("summary", ""), *item.get("also", [])]}
-        dropped_phrased = {(_followup_file(str(d.get("line", ""))), p) for d in accounted
-                           for p in _line_phrasings_followup(str(d.get("line", "")))}
+        pool = Counter(p for item, _ in kept for p in [item.get("summary", ""), *item.get("also", [])])
+        pool.update(p for d in accounted for p in _line_phrasings_followup(str(d.get("line", ""))))
         kept = [line for _, line in kept]
         dropped = accounted + rejected
-        uncovered = [line for line in raw if _followup_key(line) not in returned
-                     and not set(_line_phrasings_followup(line)) & phrased
-                     and not {(_followup_file(line), p) for p in _line_phrasings_followup(line)} & dropped_phrased]
+        for line in raw:
+            if _followup_key(line) in returned:
+                pool.subtract(p for p in _line_phrasings_followup(line) if pool[p] > 0)
+        uncovered = []
+        for line in raw:
+            if _followup_key(line) in returned:
+                continue
+            hit = next((p for p in _line_phrasings_followup(line) if pool[p] > 0), None)
+            if hit is None:
+                uncovered.append(line)
+            else:
+                pool.subtract(p for p in _line_phrasings_followup(line) if pool[p] > 0)
         record["curated"] = sorted(dict.fromkeys(kept + uncovered), key=_followup_rank)
         record["curation_dropped"] = dropped
         record["curation"] = "verified" if result.get("refuter_ok") else "curated; the refuter returned nothing"
@@ -1484,12 +1497,6 @@ def ingest_followups(run, results):
             record["curation"] += f"; {len(uncovered)} item(s) the curator did not return were kept as stored"
         outcome[gid] = record["curation"]
     return outcome
-
-
-def _followup_file(line):
-    """The file of a follow-up's file:line key (todo 551), or the whole key when it has no `:<line>`."""
-    key = _followup_key(line)
-    return key.rsplit(":", 1)[0] if re.search(r":\d+\Z", key) else key
 
 
 def _line_phrasings_followup(line):

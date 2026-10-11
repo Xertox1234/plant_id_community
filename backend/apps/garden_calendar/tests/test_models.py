@@ -8,7 +8,7 @@ from datetime import timedelta
 from decimal import Decimal
 
 from django.contrib.auth import get_user_model
-from django.test import TestCase
+from django.test import TestCase, TransactionTestCase
 from django.utils import timezone
 
 from ..models import CareLog, CareTask, GardenBed, GrowingZone, Harvest, Plant
@@ -487,6 +487,131 @@ class CareTaskModelTest(TestCase):
         )
         self.assertEqual(next_task.scheduled_date, task.skipped_at + timedelta(days=7))
         self.assertGreater(next_task.scheduled_date, timezone.now())
+
+    def test_the_next_occurrence_uses_the_recurrence_as_committed(self):
+        """Todo 570 #15: a PATCH to the interval that commits between the
+        view's fetch and the lock is not lost; the next task is built from
+        the locked row, not the stale instance."""
+        task = self._recurring_task()
+        stale = CareTask.objects.get(pk=task.pk)
+        CareTask.objects.filter(pk=task.pk).update(recurrence_interval_days=3)
+
+        self.assertTrue(stale.mark_complete(self.user))
+
+        next_task = CareTask.objects.get(
+            plant=self.plant, completed=False, skipped=False
+        )
+        self.assertEqual(next_task.recurrence_interval_days, 3)
+        # Due now, completed a moment later: dated from the completion.
+        self.assertEqual(
+            next_task.scheduled_date, stale.completed_at + timedelta(days=3)
+        )
+
+
+# docs/rules/testing.md says to simulate interleavings rather than use a
+# TransactionTestCase, because its teardown flush deletes Wagtail's
+# migration-seeded rows. The owner chose a real two-transaction test here
+# anyway (todo 570 #14, owner decision 2026-10-11): the sequential race tests
+# above still pass with select_for_update() removed from CareTask._resolve,
+# so only a second connection pins the lock. pytest-django runs transactional
+# tests after every TestCase, and serialized_rollback is not used, as in
+# users/tests/test_migration_0017_remap.py (the host's post_migrate bootstrap
+# re-creates rows a snapshot also carries).
+class CareTaskResolveLockTest(TransactionTestCase):
+    """Two real transactions race to resolve one recurring task."""
+
+    def setUp(self):
+        self.user = User.objects.create_user(username="racer", email="r@test.com")
+        self.plant = Plant.objects.create(
+            owner=self.user,
+            common_name="Pothos",
+            planted_date=timezone.now().date(),
+        )
+        self.task = CareTask.objects.create(
+            plant=self.plant,
+            created_by=self.user,
+            task_type="watering",
+            title="Weekly watering",
+            scheduled_date=timezone.now(),
+            is_recurring=True,
+            recurrence_interval_days=7,
+        )
+
+    def _wait_for_a_lock_waiter(self, timeout=10.0):
+        """Block until some backend of this database waits on a lock."""
+        import time
+
+        from django.db import connection
+
+        deadline = time.monotonic() + timeout
+        with connection.cursor() as cursor:
+            while time.monotonic() < deadline:
+                cursor.execute(
+                    "SELECT count(*) FROM pg_stat_activity "
+                    "WHERE datname = current_database() "
+                    "AND wait_event_type = 'Lock'"
+                )
+                if cursor.fetchone()[0]:
+                    return
+                time.sleep(0.02)
+        self.fail("the second transaction never waited on the first")
+
+    def test_the_second_resolve_waits_for_the_first_and_loses(self):
+        import threading
+
+        from django.db import connection, transaction
+
+        stale = CareTask.objects.get(pk=self.task.pk)  # the view's fetch
+        first_resolved = threading.Event()
+        commit_first = threading.Event()
+        outcome = {}
+
+        def first():
+            try:
+                with transaction.atomic():
+                    CareTask.objects.get(pk=self.task.pk).mark_complete(self.user)
+                    first_resolved.set()
+                    # Hold the transaction open: the row stays locked and
+                    # the completion uncommitted until the test says so.
+                    commit_first.wait(10)
+            except BaseException as exc:  # surfaced by the assertions below
+                outcome["first"] = exc
+            finally:
+                first_resolved.set()
+                connection.close()
+
+        def second():
+            try:
+                outcome["second"] = stale.mark_complete(self.user)
+            except BaseException as exc:
+                outcome["second"] = exc
+            finally:
+                connection.close()
+
+        a = threading.Thread(target=first)
+        a.start()
+        self.assertTrue(first_resolved.wait(10))
+        b = threading.Thread(target=second)
+        b.start()
+        try:
+            # With the lock, the second resolve waits at its locked read; a
+            # resolve without it would read the uncommitted-away "pending"
+            # state at once and wait only at its UPDATE, then win too.
+            self._wait_for_a_lock_waiter()
+        finally:
+            commit_first.set()
+            a.join(10)
+            b.join(10)
+
+        self.assertNotIn("first", outcome)
+        self.assertIsInstance(outcome.get("second"), CareTask.AlreadyResolved)
+        self.assertEqual(CareTask.objects.filter(plant=self.plant).count(), 2)
+        self.assertEqual(
+            CareTask.objects.filter(
+                plant=self.plant, completed=False, skipped=False
+            ).count(),
+            1,
+        )
 
 
 class HarvestModelTest(TestCase):

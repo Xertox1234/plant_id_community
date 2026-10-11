@@ -168,8 +168,19 @@ class PushMessageRouterService {
     final router = routerAccessor();
     if (isColdStart) {
       router.go(AppRoutes.home);
+    } else if (_showsGarden(router)) {
+      // Already open: pushing again would stack a second GardenScreen
+      // (todo 570 #6).
+      return;
     }
     router.push(AppRoutes.garden);
+  }
+
+  /// Whether the top-most route is the garden.
+  static bool _showsGarden(GoRouter router) {
+    final current = router.routerDelegate.currentConfiguration;
+    return current.isNotEmpty &&
+        router.state.matchedLocation == AppRoutes.garden;
   }
 
   /// Stops listening. Called on provider disposal — this service is scoped

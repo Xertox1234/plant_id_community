@@ -1,6 +1,5 @@
 """The weekly blog newsletter sender (todo 409, slice B)."""
 
-import threading
 from datetime import date, timedelta
 from io import StringIO
 from unittest import mock
@@ -24,8 +23,8 @@ from django.contrib.auth import get_user_model
 from django.core import mail
 from django.core.cache import cache
 from django.core.management import call_command
-from django.db import OperationalError, connection, connections
-from django.test import TestCase, TransactionTestCase, override_settings
+from django.db import OperationalError, connection
+from django.test import TestCase, override_settings
 from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 from wagtail.models import Page, PageViewRestriction
@@ -349,6 +348,38 @@ class NewsletterSenderTests(TestCase):
         self.assertIn("another run holds the lock", out)
         held.delete.assert_not_called()
 
+    def test_a_run_without_the_lock_never_deletes_it(self):
+        # Todo 569: the cache-outage path took no lock, so it has none to drop.
+        # Deleting anyway could drop the lock of a run that took it meanwhile.
+        self._post("fresh-post", days_ago=1)
+        self._subscriber()
+
+        with mock.patch.object(command_module, "cache") as down:
+            down.add.return_value = None
+            with self.assertLogs(command_module.logger, "WARNING"):
+                out = _run()
+
+        self.assertIn("sent=1", out)
+        down.delete.assert_not_called()
+
+    def test_a_run_never_deletes_a_lock_it_no_longer_holds(self):
+        # Todo 569: this run's lock expired mid-run and a later run took the
+        # key; finishing must leave the later run's lock in place.
+        self._post("fresh-post", days_ago=1)
+        self._subscriber()
+
+        def later_run_takes_the_lock(row, posts):
+            cache.set(LOCK_KEY, "later-run", 60)
+            return True
+
+        with mock.patch.object(
+            newsletter_digest, "send", side_effect=later_run_takes_the_lock
+        ):
+            out = _run()
+
+        self.assertIn("sent=1", out)
+        self.assertEqual(cache.get(LOCK_KEY), "later-run")
+
     def test_the_claim_and_the_send_share_one_transaction(self):
         # Todo 534: nothing outside the transaction can strand the claim.
         self._post("fresh-post", days_ago=1)
@@ -379,6 +410,25 @@ class NewsletterSenderTests(TestCase):
             newsletter_digest, "send", side_effect=OperationalError("down")
         ):
             with self.assertRaises(OperationalError):
+                _run()
+
+        subscriber.refresh_from_db()
+        self.assertIsNone(subscriber.last_sent_at)
+        self.assertIsNone(cache.get(LOCK_KEY))
+
+    def test_an_interrupted_send_leaves_no_claim(self):
+        # Todo 534/569: a hard kill mid-send stands in as a BaseException,
+        # which no `except Exception` catches. The claim was never committed,
+        # so the rollback leaves the row due. (Watching this from a second
+        # connection needs real commits, a TransactionTestCase, which
+        # docs/rules/testing.md bans: its flush wipes Wagtail's seeded rows.)
+        self._post("fresh-post", days_ago=1)
+        subscriber = self._subscriber()
+
+        with mock.patch.object(
+            newsletter_digest, "send", side_effect=SystemExit("killed")
+        ):
+            with self.assertRaises(SystemExit):
                 _run()
 
         subscriber.refresh_from_db()
@@ -420,6 +470,64 @@ class NewsletterSenderTests(TestCase):
         selects = [q["sql"] for q in queries if "FOR UPDATE" in q["sql"]]
         self.assertEqual(len(selects), 1)
         self.assertIn('"blog_blognewsletter"', selects[0])
+
+    def test_the_prune_rechecks_staleness_in_its_locking_select(self):
+        # Todo 534/569: a signup holding a stale row makes the prune wait on
+        # its lock, and Postgres then re-evaluates the WHERE on the row it
+        # locked. That spares a re-stamped row only if the staleness test is
+        # in the FOR UPDATE select itself, and the delete takes just its pks.
+        # The cross-connection wait is the database's guarantee; reproducing
+        # it needs real commits from a second connection, a TransactionTestCase
+        # that docs/rules/testing.md bans.
+        stale = BlogNewsletter.objects.create(email="stale@example.com")
+        BlogNewsletter.objects.filter(pk=stale.pk).update(
+            subscribed_at=self.now - timedelta(days=30)
+        )
+
+        with CaptureQueriesContext(connection) as queries:
+            newsletter_digest.prune_stale_unconfirmed(self.now)
+
+        (locking,) = [q["sql"] for q in queries if "FOR UPDATE" in q["sql"]]
+        self.assertIn('"confirmed_at" IS NULL', locking)
+        self.assertIn('"confirmation_sent_at"', locking)
+        self.assertIn('"subscribed_at"', locking)
+        deletes = [
+            q["sql"]
+            for q in queries
+            if q["sql"].startswith('DELETE FROM "blog_blognewsletter"')
+        ]
+        self.assertEqual(len(deletes), 1)
+        self.assertIn(f"IN ({stale.pk})", deletes[0])
+        self.assertNotIn('"subscribed_at"', deletes[0])
+
+    def test_the_prune_spares_a_row_re_stamped_before_its_locked_read(self):
+        # The interleaving, simulated on one connection: the signup's re-stamp
+        # commits after the prune built its query and before the locked read
+        # returns the row (the moment the lock wait ends).
+        stale = BlogNewsletter.objects.create(email="stale@example.com")
+        BlogNewsletter.objects.filter(pk=stale.pk).update(
+            subscribed_at=self.now - timedelta(days=30)
+        )
+        real_stale_unconfirmed = newsletter_digest.stale_unconfirmed
+        restamped = {}
+
+        def built_then_signup_commits(now):
+            query = real_stale_unconfirmed(now)  # lazy: not read yet
+            restamped["rows"] = BlogNewsletter.objects.filter(pk=stale.pk).update(
+                confirmation_sent_at=timezone.now()
+            )
+            return query
+
+        with mock.patch.object(
+            newsletter_digest,
+            "stale_unconfirmed",
+            side_effect=built_then_signup_commits,
+        ):
+            pruned = newsletter_digest.prune_stale_unconfirmed(self.now)
+
+        self.assertEqual(restamped["rows"], 1)
+        self.assertEqual(pruned, 0)
+        self.assertTrue(BlogNewsletter.objects.filter(pk=stale.pk).exists())
 
     def test_a_reader_who_unsubscribes_mid_run_is_not_mailed(self):
         self._post("fresh-post", days_ago=1)
@@ -537,7 +645,7 @@ class NewsletterTaskTests(TestCase):
                     side_effect=OperationalError("down"),
                 ), mock.patch(
                     "celery.utils.time.random.randrange", side_effect=lambda n: n - 1
-                ), mock.patch.object(
+                ) as jitter, mock.patch.object(
                     task, "retry", side_effect=Retry("retried")
                 ) as retry:
                     task.push_request(retries=prior_retries)
@@ -548,6 +656,11 @@ class NewsletterTaskTests(TestCase):
                         task.pop_request()
 
                 self.assertEqual(retry.call_args.kwargs["countdown"], ceiling)
+                # Todo 569: the patch is Celery-private (docs/rules/celery.md
+                # prescribes it). If Celery stops drawing full jitter through
+                # randrange(ceiling + 1), fail here by name, not by a random
+                # countdown or a pass that never touched the patch.
+                jitter.assert_called_once_with(ceiling + 1)
 
     def test_the_task_runs_the_command_and_logs_its_summary(self):
         def fake_command(name, stdout):
@@ -573,91 +686,3 @@ class NewsletterTaskTests(TestCase):
                 tasks.send_blog_weekly_newsletter.apply()
 
         again.assert_called_once_with(countdown=NEWSLETTER_CONTINUATION_DELAY)
-
-
-@override_settings(SITE_URL=SITE, API_PUBLIC_URL=API)
-class NewsletterConcurrencyTests(TransactionTestCase):
-    """Todo 534: what another database connection sees, so real commits.
-
-    No pages here: a TransactionTestCase flushes every table afterwards.
-    """
-
-    def setUp(self):
-        cache.clear()
-        self.now = timezone.now()
-
-    def _in_another_connection(self, work):
-        """Run `work` on a second connection (its own thread) and return it."""
-        result = {}
-
-        def target():
-            try:
-                result["value"] = work()
-            except BaseException as exc:  # surfaced to the test below
-                result["error"] = exc
-            finally:
-                connections.close_all()
-
-        thread = threading.Thread(target=target)
-        thread.start()
-        return thread, result
-
-    def test_the_claim_is_not_durable_until_the_send_returns(self):
-        # A hard kill mid-send drops the connection, and the server rolls back
-        # what it never committed: the row is still due.
-        subscriber = BlogNewsletter.objects.create(
-            email="reader@example.com", confirmed_at=self.now - timedelta(days=30)
-        )
-        post = newsletter_digest.DigestPost(
-            title="Fresh", url=f"{SITE}/blog/fresh", excerpt="", published_at=self.now
-        )
-        seen = {}
-
-        def send(row, posts):
-            thread, result = self._in_another_connection(
-                lambda: BlogNewsletter.objects.get(pk=row.pk).last_sent_at
-            )
-            thread.join(10)
-            seen.update(result)
-            return True
-
-        with mock.patch.object(
-            newsletter_digest, "new_posts", return_value=[post]
-        ), mock.patch.object(newsletter_digest, "send", side_effect=send):
-            _run()
-
-        self.assertNotIn("error", seen)
-        self.assertIsNone(seen["value"])  # outside, unclaimed during the send
-        subscriber.refresh_from_db()
-        self.assertIsNotNone(subscriber.last_sent_at)  # committed after it
-
-    def test_the_prune_spares_a_row_a_signup_re_stamps_meanwhile(self):
-        stale = BlogNewsletter.objects.create(email="stale@example.com")
-        BlogNewsletter.objects.filter(pk=stale.pk).update(
-            subscribed_at=self.now - timedelta(days=30)
-        )
-        locked = threading.Event()
-        release = threading.Event()
-
-        def signup_re_stamps():
-            # request_confirmation's shape: lock the row, stamp it, commit.
-            from django.db import transaction
-
-            with transaction.atomic():
-                row = BlogNewsletter.objects.select_for_update().get(pk=stale.pk)
-                locked.set()
-                release.wait(10)
-                row.confirmation_sent_at = timezone.now()
-                row.save(update_fields=["confirmation_sent_at"])
-
-        thread, result = self._in_another_connection(signup_re_stamps)
-        self.assertTrue(locked.wait(10))
-        # The prune must block on the signup's lock; let the signup commit
-        # shortly after the prune has started waiting.
-        threading.Timer(0.5, release.set).start()
-        pruned = newsletter_digest.prune_stale_unconfirmed(self.now)
-        thread.join(10)
-
-        self.assertNotIn("error", result)
-        self.assertEqual(pruned, 0)
-        self.assertTrue(BlogNewsletter.objects.filter(pk=stale.pk).exists())

@@ -57,7 +57,9 @@ def notify_community_event_created(sender, instance, created, **kwargs):
 
         except Exception as e:
             # Log error but don't fail the event creation
-            logger.error(f"[NOTIFY] Failed to send community event notifications: {e}")
+            logger.exception(
+                "[NOTIFY] Failed to send community event notifications: %s", e
+            )
 
 
 @receiver(post_save, sender=EventAttendee)
@@ -81,7 +83,7 @@ def notify_event_rsvp_updated(sender, instance, created, **kwargs):
                     },
                 )
         except Exception as e:
-            logger.error(f"[NOTIFY] Failed to send RSVP notification: {e}")
+            logger.exception("[NOTIFY] Failed to send RSVP notification: %s", e)
 
 
 @receiver(post_save, sender=WeatherAlert)
@@ -126,7 +128,9 @@ def notify_weather_alert_created(sender, instance, created, **kwargs):
                 )
 
         except Exception as e:
-            logger.error(f"[NOTIFY] Failed to send weather alert notifications: {e}")
+            logger.exception(
+                "[NOTIFY] Failed to send weather alert notifications: %s", e
+            )
 
 
 @receiver(post_delete, sender=CommunityEvent)
@@ -142,15 +146,13 @@ def cleanup_orphaned_forum_topics(sender, instance, **kwargs):
         # For now, we'll leave forum topics intact
         pass
     except Exception as e:
-        logger.error(f"[GARDEN] Error cleaning up deleted community event: {e}")
-
-
-# Weather alert cleanup task - remove expired alerts
+        logger.exception("[GARDEN] Error cleaning up deleted community event: %s", e)
 
 
 class Command(BaseCommand):
     """
-    Management command to clean up expired weather alerts.
+    Weather alert cleanup task: a management command that removes expired
+    weather alerts.
     This should be run periodically via cron or Celery Beat.
     """
 

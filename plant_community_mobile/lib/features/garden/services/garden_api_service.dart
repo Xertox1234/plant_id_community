@@ -10,11 +10,11 @@ import '../models/models.dart';
 /// convention as `BlogApi` and `DiagnoseApi`.
 abstract class GardenApi {
   /// The signed-in user's active plants, newest planting first.
-  Future<List<GardenPlant>> fetchPlants();
+  Future<GardenList<GardenPlant>> fetchPlants();
 
-  /// The user's pending care tasks (neither completed nor skipped), soonest
-  /// first.
-  Future<List<CareTask>> fetchPendingTasks();
+  /// The user's pending care tasks (neither completed nor skipped) on active
+  /// plants, soonest first.
+  Future<GardenList<CareTask>> fetchPendingTasks();
 
   /// Create a plant with no bed. [plantedDate] is a calendar date.
   Future<GardenPlant> createPlant({
@@ -44,8 +44,20 @@ abstract class GardenApi {
 
 /// Pages followed per list. The API pages at 20 (`PAGE_SIZE`); a houseplant
 /// collection past 200 plants or pending tasks is not a case worth an
-/// unbounded loop.
+/// unbounded loop. Hitting the cap is reported, not silent: the list comes
+/// back [GardenList.truncated], and the screen says so (todo 570, owner
+/// decision 2026-10-11).
 const int gardenMaxPages = 10;
+
+/// A list fetched page by page, and whether [gardenMaxPages] cut it short.
+class GardenList<T> {
+  const GardenList(this.items, {this.truncated = false});
+
+  final List<T> items;
+
+  /// True when the server had more pages than [gardenMaxPages].
+  final bool truncated;
+}
 
 class HttpGardenApi implements GardenApi {
   HttpGardenApi(this._api);
@@ -54,40 +66,43 @@ class HttpGardenApi implements GardenApi {
 
   static const _base = '/calendar/api';
 
-  /// Follows DRF `PageNumberPagination`'s `next` links. Dio uses an
-  /// absolute `next` URL as-is.
-  Future<List<Map<String, dynamic>>> _all(
+  /// Follows DRF `PageNumberPagination`'s `next` links, up to
+  /// [gardenMaxPages]. Dio uses an absolute `next` URL as-is.
+  Future<GardenList<T>> _all<T>(
     String path,
     Map<String, dynamic> query,
+    T Function(Map<String, dynamic>) parse,
   ) async {
-    final rows = <Map<String, dynamic>>[];
+    final rows = <T>[];
     String? url = path;
     Map<String, dynamic>? params = query;
     for (var page = 0; url != null && page < gardenMaxPages; page++) {
       final resp = await _api.get(url, queryParameters: params);
       final body = resp.data as Map<String, dynamic>;
-      rows.addAll((body['results'] as List).cast<Map<String, dynamic>>());
+      rows.addAll(
+        (body['results'] as List).cast<Map<String, dynamic>>().map(parse),
+      );
       url = body['next'] as String?;
       params = null; // `next` already carries the query.
     }
-    return rows;
+    // A `next` still in hand is a page the cap left unread.
+    return GardenList(rows, truncated: url != null);
   }
 
   @override
-  Future<List<GardenPlant>> fetchPlants() async {
-    final rows = await _all('$_base/plants/', {'is_active': 'true'});
-    return rows.map(GardenPlant.fromJson).toList();
-  }
+  Future<GardenList<GardenPlant>> fetchPlants() =>
+      _all('$_base/plants/', {'is_active': 'true'}, GardenPlant.fromJson);
 
   @override
-  Future<List<CareTask>> fetchPendingTasks() async {
-    final rows = await _all('$_base/care-tasks/', {
-      'completed': 'false',
-      'skipped': 'false',
-      'ordering': 'scheduled_date',
-    });
-    return rows.map(CareTask.fromJson).toList();
-  }
+  Future<GardenList<CareTask>> fetchPendingTasks() =>
+      _all('$_base/care-tasks/', {
+        'completed': 'false',
+        'skipped': 'false',
+        // An archived plant's tasks are not shown or reminded (the reminder
+        // sweep filters `plant__is_active` too; todo 570 #12).
+        'plant__is_active': 'true',
+        'ordering': 'scheduled_date',
+      }, CareTask.fromJson);
 
   @override
   Future<GardenPlant> createPlant({

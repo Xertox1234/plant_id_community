@@ -1,6 +1,5 @@
 import 'dart:async';
 
-import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -49,48 +48,6 @@ Map<String, dynamic> _taskJson() => {
   'is_overdue': false,
 };
 
-/// Records requests and answers them from [responses], keyed by
-/// `METHOD path`. A missing key throws a 500 [ApiException].
-class _RecordingApiService extends ApiService {
-  _RecordingApiService(this.responses) : super(baseUrl: 'http://test/api/v1');
-
-  final Map<String, Object?> responses;
-  final List<(String, String, Object?, Map<String, dynamic>?)> requests = [];
-
-  Response<dynamic> _answer(String method, String path) {
-    final key = '$method $path';
-    if (!responses.containsKey(key)) {
-      throw ApiException('no fake for $key', statusCode: 500);
-    }
-    return Response(
-      requestOptions: RequestOptions(path: path),
-      data: responses[key],
-      statusCode: 200,
-    );
-  }
-
-  @override
-  Future<Response> get(
-    String path, {
-    Map<String, dynamic>? queryParameters,
-    Options? options,
-  }) async {
-    requests.add(('GET', path, null, queryParameters));
-    return _answer('GET', path);
-  }
-
-  @override
-  Future<Response> post(
-    String path, {
-    dynamic data,
-    Map<String, dynamic>? queryParameters,
-    Options? options,
-  }) async {
-    requests.add(('POST', path, data, queryParameters));
-    return _answer('POST', path);
-  }
-}
-
 /// A [FakeGardenApi] whose [completeTask] hangs on [gate] until the test
 /// completes it — a mutation still in flight.
 class _GatedGardenApi extends FakeGardenApi {
@@ -103,6 +60,40 @@ class _GatedGardenApi extends FakeGardenApi {
     calls.add('completeTask:${task.id}');
     await gate.future;
     return logSaves;
+  }
+}
+
+/// A [FakeGardenApi] whose task fetches hang on [reloadGate] once
+/// [holdReloads] is set: a garden reload still in flight. Its mutations
+/// leave the task pending, so the tile outlives the reload.
+class _SlowReloadGardenApi extends FakeGardenApi {
+  _SlowReloadGardenApi({super.tasks});
+
+  bool holdReloads = false;
+  Completer<void> reloadGate = Completer<void>();
+
+  @override
+  Future<GardenList<CareTask>> fetchPendingTasks() async {
+    if (holdReloads) await reloadGate.future;
+    return super.fetchPendingTasks();
+  }
+
+  @override
+  Future<bool> completeTask(CareTask task) async {
+    calls.add('completeTask:${task.id}');
+    return true;
+  }
+}
+
+/// A [FakeGardenApi] whose skip fails with something that is not an
+/// [ApiException]: a response that did not parse, say.
+class _BrokenSkipGardenApi extends FakeGardenApi {
+  _BrokenSkipGardenApi({super.tasks});
+
+  @override
+  Future<void> skipTask(CareTask task) async {
+    calls.add('skipTask:${task.id}');
+    throw TypeError();
   }
 }
 
@@ -184,7 +175,7 @@ void main() {
     test(
       'fetchPlants follows DRF pagination and asks for active plants',
       () async {
-        final api = _RecordingApiService({
+        final api = RecordingApiService({
           'GET /calendar/api/plants/': {
             'count': 2,
             'next': 'http://test/api/v1/calendar/api/plants/?page=2',
@@ -199,14 +190,16 @@ void main() {
           },
         });
         final plants = await HttpGardenApi(api).fetchPlants();
-        expect(plants.map((p) => p.commonName), ['Monstera', 'Fern']);
+        expect(plants.items.map((p) => p.commonName), ['Monstera', 'Fern']);
+        expect(plants.truncated, isFalse);
         expect(api.requests.first.$4, {'is_active': 'true'});
         expect(api.requests[1].$4, isNull);
       },
     );
 
-    test('fetchPendingTasks filters out completed and skipped tasks', () async {
-      final api = _RecordingApiService({
+    test('fetchPendingTasks filters out completed and skipped tasks, and '
+        "inactive plants' tasks", () async {
+      final api = RecordingApiService({
         'GET /calendar/api/care-tasks/': {
           'count': 1,
           'next': null,
@@ -214,16 +207,17 @@ void main() {
         },
       });
       final tasks = await HttpGardenApi(api).fetchPendingTasks();
-      expect(tasks, hasLength(1));
+      expect(tasks.items, hasLength(1));
       expect(api.requests.single.$4, {
         'completed': 'false',
         'skipped': 'false',
+        'plant__is_active': 'true',
         'ordering': 'scheduled_date',
       });
     });
 
     test('createPlant sends a bedless plant with a calendar date', () async {
-      final api = _RecordingApiService({
+      final api = RecordingApiService({
         'POST /calendar/api/plants/': _bedlessPlantJson(),
       });
       await HttpGardenApi(
@@ -236,7 +230,7 @@ void main() {
     });
 
     test('createTask sends a UTC due time and the recurrence', () async {
-      final api = _RecordingApiService({'POST /calendar/api/care-tasks/': {}});
+      final api = RecordingApiService({'POST /calendar/api/care-tasks/': {}});
       final when = DateTime(2026, 10, 12, 9);
       await HttpGardenApi(api).createTask(
         plantId: 'p1',
@@ -256,7 +250,7 @@ void main() {
     });
 
     test('a one-off task is not recurring and sends no interval', () async {
-      final api = _RecordingApiService({'POST /calendar/api/care-tasks/': {}});
+      final api = RecordingApiService({'POST /calendar/api/care-tasks/': {}});
       await HttpGardenApi(api).createTask(
         plantId: 'p1',
         taskType: 'pruning',
@@ -269,7 +263,7 @@ void main() {
     });
 
     test('completeTask completes, then writes the care log', () async {
-      final api = _RecordingApiService({
+      final api = RecordingApiService({
         'POST /calendar/api/care-tasks/t1/complete/': {},
         'POST /calendar/api/care-logs/': {},
       });
@@ -287,19 +281,62 @@ void main() {
     });
 
     test('a failed care-log write still reports the task complete', () async {
-      final api = _RecordingApiService({
+      final api = RecordingApiService({
         'POST /calendar/api/care-tasks/t1/complete/': {},
       });
       expect(await HttpGardenApi(api).completeTask(_task()), isFalse);
     });
 
     test('a failed completion throws and writes no care log', () async {
-      final api = _RecordingApiService({});
+      final api = RecordingApiService({});
       await expectLater(
         HttpGardenApi(api).completeTask(_task()),
         throwsA(isA<ApiException>()),
       );
       expect(api.requests, hasLength(1));
+    });
+  });
+
+  group('careTaskTitle (todo 570 #4, #7)', () {
+    test('a short title is unchanged', () {
+      expect(careTaskTitle('Watering', 'Fern'), 'Watering Fern');
+    });
+
+    test('a long one is cut to the server max with an ellipsis', () {
+      final title = careTaskTitle('Pest inspection', 'x' * 200);
+      expect(title.length, careTaskTitleMaxLength);
+      expect(title, startsWith('Pest inspection xxx'));
+      expect(title, endsWith('…'));
+    });
+  });
+
+  group('firstDueAt (todo 570 #10)', () {
+    test('a future day is due at 9 am local, from its date fields', () {
+      final now = DateTime(2026, 3, 1, 12);
+      for (final day in [
+        DateTime(2026, 3, 8), // US spring-forward
+        DateTime(2026, 3, 29), // EU spring-forward
+        DateTime(2026, 11, 1), // US fall-back
+        DateTime(2026, 10, 25), // EU fall-back
+      ]) {
+        final due = firstDueAt(day, now: now);
+        expect(due.hour, 9, reason: '$day');
+        expect(due.minute, 0, reason: '$day');
+        expect((due.year, due.month, due.day), (day.year, day.month, day.day));
+      }
+    });
+
+    test('today after 9 am is due now, not in the past', () {
+      final now = DateTime(2026, 10, 11, 14, 30);
+      expect(firstDueAt(DateTime(2026, 10, 11), now: now), now);
+    });
+
+    test('today before 9 am is due at 9', () {
+      final now = DateTime(2026, 10, 11, 7);
+      expect(
+        firstDueAt(DateTime(2026, 10, 11), now: now),
+        DateTime(2026, 10, 11, 9),
+      );
     });
   });
 
@@ -437,6 +474,135 @@ void main() {
       expect(api.calls, contains('createTask:p1:watering:7'));
       expect(find.text('Watering Fern'), findsOneWidget);
     });
+
+    testWidgets('a short list still pulls to refresh (todo 570 #1)', (
+      tester,
+    ) async {
+      final api = await _pump(tester, FakeGardenApi());
+      final before = api.calls.where((c) => c == 'fetchPlants').length;
+
+      await tester.fling(find.text('DUE CARE'), const Offset(0, 300), 1000);
+      await tester.pumpAndSettle();
+
+      expect(
+        api.calls.where((c) => c == 'fetchPlants').length,
+        greaterThan(before),
+      );
+    });
+
+    testWidgets('the error state pulls to refresh too (todo 570 #1)', (
+      tester,
+    ) async {
+      final api = FakeGardenApi()
+        ..failWith = ApiException('down', statusCode: 403);
+      await _pump(tester, api);
+      expect(find.text('Could not load your garden.'), findsOneWidget);
+      api.failWith = null;
+
+      await tester.fling(
+        find.text('Could not load your garden.'),
+        const Offset(0, 300),
+        1000,
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('No plants yet.'), findsOneWidget);
+    });
+
+    testWidgets(
+      'the refresh spinner stays up until the reload lands (todo 570 #11)',
+      (tester) async {
+        final api = _SlowReloadGardenApi();
+        await _pump(tester, api);
+        api.holdReloads = true;
+
+        await tester.fling(find.text('DUE CARE'), const Offset(0, 300), 1000);
+        await tester.pump();
+        await tester.pump(const Duration(seconds: 1));
+        expect(find.byType(RefreshProgressIndicator), findsOneWidget);
+
+        await tester.pump(const Duration(seconds: 5));
+        expect(find.byType(RefreshProgressIndicator), findsOneWidget);
+
+        api.reloadGate.complete();
+        await tester.pumpAndSettle();
+        expect(find.byType(RefreshProgressIndicator), findsNothing);
+      },
+    );
+
+    testWidgets(
+      "a finished task's buttons stay disabled until the reload lands "
+      '(todo 570 #9)',
+      (tester) async {
+        final api = _SlowReloadGardenApi(tasks: [_task()]);
+        await _pump(tester, api);
+        api.holdReloads = true;
+
+        await tester.tap(find.byTooltip('Mark done'));
+        await tester.pump();
+        await tester.pump();
+        expect(api.calls, contains('completeTask:t1'));
+        expect(find.text('Done.'), findsOneWidget);
+
+        // The request is done; the reload is not.
+        expect(_button(tester, 'Mark done').onPressed, isNull);
+        expect(_button(tester, 'Skip').onPressed, isNull);
+
+        api.reloadGate.complete();
+        await tester.pumpAndSettle();
+        // The fake left the task pending, so it is usable again.
+        expect(_button(tester, 'Mark done').onPressed, isNotNull);
+      },
+    );
+
+    testWidgets('an unexpected error is reported, not thrown (todo 570 #5)', (
+      tester,
+    ) async {
+      final api = await _pump(tester, _BrokenSkipGardenApi(tasks: [_task()]));
+      final before = api.calls.where((c) => c == 'fetchPlants').length;
+
+      await tester.tap(find.byTooltip('Skip'));
+      await tester.pumpAndSettle();
+
+      expect(tester.takeException(), isNull);
+      expect(find.text('That did not work. Please try again.'), findsOneWidget);
+      expect(
+        api.calls.where((c) => c == 'fetchPlants').length,
+        greaterThan(before),
+      );
+    });
+
+    testWidgets('a truncated list says so (todo 570 #8)', (tester) async {
+      await _pump(tester, FakeGardenApi()..truncated = true);
+      expect(find.text(gardenTruncatedNotice), findsOneWidget);
+    });
+
+    testWidgets('a complete list shows no truncation notice', (tester) async {
+      await _pump(tester, FakeGardenApi());
+      expect(find.text(gardenTruncatedNotice), findsNothing);
+    });
+
+    testWidgets(
+      'scheduling care for a long-named plant sends a title the server '
+      'accepts (todo 570 #4, #7)',
+      (tester) async {
+        final name = 'F' * 200;
+        final api = await _pump(
+          tester,
+          FakeGardenApi(
+            plants: [GardenPlant(id: 'p1', commonName: name)],
+          ),
+        );
+        await tester.tap(find.byTooltip('Schedule care for $name'));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('Schedule'));
+        await tester.pumpAndSettle();
+
+        expect(api.calls, contains('createTask:p1:watering:7'));
+        expect(api.tasks.single.title.length, careTaskTitleMaxLength);
+        expect(api.tasks.single.title, startsWith('Watering FFF'));
+      },
+    );
 
     testWidgets('a load failure offers Retry', (tester) async {
       final api = FakeGardenApi()

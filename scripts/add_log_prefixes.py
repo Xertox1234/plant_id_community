@@ -21,7 +21,10 @@ a single token, rather than being forced under one -- `blog/api_views.py`
 caches, looks plant data up and generates AI copy in one module.
 
 Idempotent: a call the checker already considers prefixed is skipped, so a second
-run is a no-op.
+run is a no-op. A call marked `# log-prefix: exempt` is skipped too, by the
+checker's own rule (`check_log_prefixes.is_exempt`): it relays lines that are
+already prefixed, and stamping a token there writes `[EMAIL] [EMAIL] ...`
+(todo 573).
 
 Usage:
     add_log_prefixes.py --check     # report what would change, write nothing
@@ -37,6 +40,9 @@ import re
 import sys
 
 REPO = pathlib.Path(__file__).resolve().parents[1]
+
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
+from check_log_prefixes import exempt_marks, is_exempt  # noqa: E402
 
 # Same judgeability rules as scripts/check_log_prefixes.py, so the counts this
 # prints and the counts the acceptance criteria use cannot disagree.
@@ -329,11 +335,14 @@ def rewrite(path: pathlib.Path, spec):
     lines = source.splitlines(keepends=True)
     tree = ast.parse(source)
 
+    marks = exempt_marks(source)
     edits = []
     all_texts = []
     for call in (n for n in ast.walk(tree) if isinstance(n, ast.Call)):
         if not logger_level(call):
             continue
+        if is_exempt(marks, call):
+            continue  # a deliberate exemption; the checker counts it apart
         # Every logger call's message, prefixed or not: a key resolving against
         # an ALREADY-PREFIXED call is the idempotent case, not a stale key, and
         # the staleness check below must tell those two apart.

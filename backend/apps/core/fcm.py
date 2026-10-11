@@ -36,18 +36,36 @@ def is_permanent_fcm_error(exc: Exception) -> bool:
 def is_dead_fcm_token_error(exc: Exception) -> bool:
     """True when the device token itself can never receive again (todo 457).
 
-    A narrower test than ``is_permanent_fcm_error``: an unregistered token, or
-    one minted for another sender, is dead and should be cleared. The other
-    permanent classes are not the token's fault. ``ThirdPartyAuthError`` is a
-    project-wide APNs credential problem, and ``InvalidArgumentError`` is most
-    often a malformed message; clearing on either would wipe healthy tokens.
+    A narrower test than ``is_permanent_fcm_error``: only an unregistered
+    token is dead and should be cleared. The other permanent classes are not
+    the token's fault, and clearing on them would wipe healthy tokens:
+    ``InvalidArgumentError`` is most often a malformed message, and the two
+    in ``is_fcm_credentials_error`` are project-wide (todo 566).
+    """
+    try:
+        from firebase_admin import messaging
+    except ImportError:  # pragma: no cover — Firebase not installed
+        return False
+    return isinstance(exc, messaging.UnregisteredError)
+
+
+def is_fcm_credentials_error(exc: Exception) -> bool:
+    """True for a permanent failure that is the server's setup, not the device.
+
+    ``ThirdPartyAuthError`` is a project-wide APNs credential problem.
+    ``SenderIdMismatchError`` almost always means the server's Firebase
+    credentials belong to another project, so one bad
+    ``FIREBASE_CREDENTIALS_B64`` deploy fails every send. Clearing tokens on
+    either would wipe every user's healthy device, and the app re-registers
+    only at sign-in or launch (owner decision 2026-10-11, todo 566). Callers
+    keep the token and log at ERROR, so the misconfiguration is seen.
     """
     try:
         from firebase_admin import messaging
     except ImportError:  # pragma: no cover — Firebase not installed
         return False
     return isinstance(
-        exc, (messaging.UnregisteredError, messaging.SenderIdMismatchError)
+        exc, (messaging.SenderIdMismatchError, messaging.ThirdPartyAuthError)
     )
 
 

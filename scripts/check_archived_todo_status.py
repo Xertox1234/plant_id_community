@@ -210,6 +210,17 @@ REPOINT_RE = re.compile(
     re.I,
 )
 STATUS_RE = re.compile(r"^status:\s*(.+?)\s*$", re.M)
+INTERRUPT_RE = re.compile(r"^\s*(?:[-*+]|1[.)])\s")  # a list item that can interrupt a paragraph
+HEADING_RE = re.compile(r"^\s*#{1,6}(?:\s|$)")
+
+
+def continues(line):
+    """True when `line` wraps the bullet above it: indented, non-blank, and not a new bullet, a heading or a
+    fence. As in CommonMark, only a `1.` item can start a list inside a paragraph, and a heading needs a space
+    after its #s, so a wrapped `10. ...` or `#42 ...` is text (todo 468 N2). The one rule both criteria parsers
+    use (todo 572): `todofile.ac_lines` and `parse` below join a criterion's wrapped lines the same way."""
+    return (line[:1] in (" ", "\t") and bool(line.strip()) and not INTERRUPT_RE.match(line)
+            and not HEADING_RE.match(line) and not FENCE_RE.match(line))
 # A home directory, followed by a name (todo 546 widened it):
 #   - `/Users/<name>` anywhere, glued to a flag (`-I/Users/x`) or after a URL scheme (`file:///Users/x`) too.
 #     A capitalised `Users` directory inside a repo path is not a thing this repo has;
@@ -249,8 +260,18 @@ def parse(path):
     name_match = FILENAME_RE.match(os.path.basename(path))
     bare = []
     lines = text.splitlines()
-    for line, fenced in zip(lines, fenced_lines(lines)):
-        if not fenced and UNCHECKED_AC_RE.match(line) and not REPOINT_RE.search(line):
+    flags = fenced_lines(lines)
+    for n, (line, fenced) in enumerate(zip(lines, flags)):
+        if fenced or not UNCHECKED_AC_RE.match(line):
+            continue
+        # Todo 572: a criterion is its checkbox line plus the lines that wrap it, as todofile.ac_lines reads it,
+        # so a re-point marker on a wrapped line counts. Matched per physical line, the engine accepted such a
+        # criterion and archive refused it.
+        parts, k = [line.strip()], n + 1
+        while k < len(lines) and not flags[k] and continues(lines[k]):
+            parts.append(lines[k].strip())
+            k += 1
+        if not REPOINT_RE.search(" ".join(parts)):
             bare.append(line)
     return status, (name_match.group(1).lower() if name_match else None), True, bare
 
