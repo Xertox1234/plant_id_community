@@ -502,37 +502,56 @@ def test_item8_an_image_not_downloaded_logs_the_host_only():
     ]
 
 
-def test_item6_an_image_after_a_slow_connect_ends_at_the_deadline(loopback_drip):
+@pytest.mark.parametrize(
+    "connect_seconds",
+    [0.2, 1.3],
+    ids=["connect-leaves-time", "connect-uses-the-budget"],
+)
+def test_item6_an_image_after_a_slow_connect_ends_at_the_deadline(
+    loopback_drip, connect_seconds
+):
     """The image download shares ``_open_connection``: a TCP connect that
-    takes most of the budget leaves the TLS handshake only what is left.
+    takes part of the budget leaves the TLS handshake only what is left, and
+    one that takes all of it never reaches the handshake.
 
     Asserted on the timeout the socket was handed, not on wall time (todo
-    539 item 7): the old bug handed the handshake the whole budget again,
-    and a loaded runner cannot make that look smaller."""
+    539 item 7). Each case lands in its branch by a wide margin, not by the
+    test's own clock read, which raced production's (todo 550 items 2
+    and 3)."""
+    import ssl
+
     port = loopback_drip(b"\x16\x03\x03\x40\x00")
     real_create_connection = socket.create_connection
+    real_wrap_socket = ssl.SSLContext.wrap_socket
     connected = []
+    handshaken = []
 
     def slow_connect(address, timeout, *args, **kwargs):
-        time.sleep(0.5)
+        time.sleep(connect_seconds)
         sock = real_create_connection(address, timeout, *args, **kwargs)
-        connected.append((sock, time.monotonic(), timeout))
+        connected.append((sock, time.monotonic()))
         return sock
+
+    def recording_wrap_socket(context, sock, *args, **kwargs):
+        handshaken.append(sock)
+        return real_wrap_socket(context, sock, *args, **kwargs)
 
     target = lp._Target(
         f"https://127.0.0.1:{port}/og.png", "https", "127.0.0.1", port, "127.0.0.1"
     )
     deadline = time.monotonic() + 1.0
-    with patch.object(lp.socket, "create_connection", side_effect=slow_connect):
+    with (
+        patch.object(lp.socket, "create_connection", side_effect=slow_connect),
+        patch.object(ssl.SSLContext, "wrap_socket", recording_wrap_socket),
+    ):
         assert lp._fetch_image(target, deadline) is None
 
-    [(sock, connected_at, connect_timeout)] = connected
-    if connected_at < deadline:
+    [(sock, connected_at)] = connected
+    if connect_seconds < 1.0:
         # The handshake got at most what the connect left of the budget.
+        assert handshaken == [sock]
         assert sock.gettimeout() <= deadline - connected_at
     else:
-        # A connect that used the whole budget never reaches the handshake:
-        # the socket keeps the connect's own timeout and was closed (todo
-        # 545 item 1: this branch used to assert nothing).
-        assert sock.gettimeout() == connect_timeout
+        # The socket was closed instead of handed to the handshake.
+        assert handshaken == []
         assert sock.fileno() == -1
