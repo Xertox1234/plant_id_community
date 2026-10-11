@@ -4,6 +4,9 @@ priority: p3
 issue_id: "580"
 tags: [backend, ci, typing]
 dependencies: []
+triage: ready
+triaged: 2026-10-11
+owner_decision: "Everything incl. tests: the gate type-checks apps/users app code AND apps/users/tests; only the generated apps/users/migrations is excluded, via a narrow per-module override (2026-10-11)"
 ---
 
 # Gate one backend app on mypy in CI, with the django-stubs plugin

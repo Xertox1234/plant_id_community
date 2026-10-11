@@ -4,6 +4,9 @@ priority: p3
 issue_id: "581"
 tags: [backend, ci, api-docs]
 dependencies: []
+triage: ready
+triaged: 2026-10-11
+owner_decision: "Fix all (large): keep the AC as written; fix every spectacular warning and error in all apps so --validate --fail-on-warn exits 0; runs in sequence with 582, which touches the same views (2026-10-11)"
 ---
 
 # Fix the auth schema warnings and run `spectacular` with `--fail-on-warn`
