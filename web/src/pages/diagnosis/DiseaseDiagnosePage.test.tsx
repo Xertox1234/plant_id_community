@@ -19,6 +19,42 @@ vi.mock('../../components/PlantIdentification/FileUpload', () => ({
   ),
 }));
 
+const MODELS_PY = join(__dirname, '../../../../backend/apps/plant_identification/models.py');
+
+type InlineChoices = { error: string } | { choices: [string, string][]; residue: string };
+
+// Read a CharField's inline `choices=[...]` out of models.py source (todos 502,
+// 515, 556). Bound the match to the field's declaration: from its `CharField(`
+// up to the next line that starts at the field's own 4-space indent -- its
+// closing `)` when the declaration spans lines, the next field when it is a
+// one-liner -- so it can never run on into another field's list. Unbounded,
+// a lazy match blamed the NEXT field's choices once this one moved to a
+// constant or TextChoices (todo 515).
+//
+// `#` comment lines are dropped first. Every `("key", "label")` tuple is
+// parsed, a trailing comma inside it (Black's magic one) allowed, and whatever
+// the parse did not consume is returned as the residue: anything there but
+// whitespace and commas is a choice this parser cannot read -- a list-form
+// `["dormant", "Dormant"]`, a `*EXTRA` spread, a gettext `_("...")` label,
+// single quotes -- which a line count missed (todo 556). Known limit: a `]`
+// inside a label ends the list early.
+function readInlineChoices(source: string, field: string): InlineChoices {
+  const decl = source.match(
+    new RegExp(`^ {4}${field} = models\\.CharField\\(((?:(?!\\n {4}\\S)[\\s\\S])*)`, 'm')
+  );
+  if (!decl) return { error: `${field} declaration not found in models.py` };
+  const body = decl[1].replace(/^\s*#.*$/gm, '');
+  const list = body.match(/choices=\[([\s\S]*?)\]/);
+  if (!list) return { error: `${field} has no inline choices=[...] list` };
+  const tuple = /\(\s*"([^"]+)"\s*,\s*"([^"]+)"\s*,?\s*\)/g;
+  const choices = [...list[1].matchAll(tuple)].map((m) => [m[1], m[2]] as [string, string]);
+  const residue = list[1]
+    .replace(tuple, '')
+    .replace(/[\s,]+/g, ' ')
+    .trim();
+  return { choices, residue };
+}
+
 describe('DiseaseDiagnosePage', () => {
   beforeEach(() => vi.clearAllMocks());
 
@@ -162,29 +198,22 @@ describe('DiseaseDiagnosePage', () => {
   // job, checks out the whole repo, and a missing file throws rather than
   // passing (todo 515).
   it('offers exactly the plant_condition choices declared on the backend model', () => {
-    const models = readFileSync(
-      join(__dirname, '../../../../backend/apps/plant_identification/models.py'),
-      'utf8'
-    );
-    // Bound the match to the plant_condition declaration -- its `CharField(`
-    // through the field-level `)` on its own 4-space line -- and look for the
-    // choices list only inside it. Unbounded, a lazy `[\s\S]*?choices=\[` ran
-    // on to the NEXT field's list once this one moved to a constant or
-    // TextChoices, and the failure diff blamed that field (todo 515).
-    const field = models.match(/^ {4}plant_condition = models\.CharField\(([\s\S]*?)^ {4}\)/m);
-    expect(field, 'plant_condition declaration not found in models.py').not.toBeNull();
-    const choices = field![1].match(/choices=\[([\s\S]*?)\]/);
-    expect(choices, 'plant_condition has no inline choices=[...] list').not.toBeNull();
-    const backendChoices = [...choices![1].matchAll(/\(\s*"([^"]+)",\s*"([^"]+)"\s*\)/g)].map(
-      (m) => [m[1], m[2]]
-    );
-    expect(backendChoices.length).toBeGreaterThan(0);
-    // Every tuple in the list, parsed or not. One the key/label regex cannot
-    // read -- `("dormant", _("Dormant"))`, single quotes -- used to be dropped
-    // silently, and when web lacked it too the tie passed on exactly the drift
-    // it guards (todo 515).
-    const tupleLines = choices![1].match(/^\s*\(/gm) ?? [];
-    expect(backendChoices).toHaveLength(tupleLines.length);
+    const read = readInlineChoices(readFileSync(MODELS_PY, 'utf8'), 'plant_condition');
+    if ('error' in read) {
+      expect.fail(`${read.error}: move this guard to wherever the choices now live`);
+    }
+    const { choices: backendChoices, residue } = read;
+    expect(
+      backendChoices.length,
+      'no ("key", "label") tuple parsed from plant_condition choices; update readInlineChoices'
+    ).toBeGreaterThan(0);
+    // A choice the parser cannot read used to be dropped silently, and when
+    // web lacked it too the tie passed on exactly the drift it guards (todos
+    // 515, 556).
+    expect(
+      residue,
+      `plant_condition choices hold entries readInlineChoices cannot parse: ${residue}`
+    ).toBe('');
 
     render(<DiseaseDiagnosePage />);
     const options = Array.from(
@@ -246,5 +275,81 @@ describe('DiseaseDiagnosePage', () => {
     // And the button is still the last element in its own slot, so nothing
     // downstream of it picks up a margin it did not have before.
     expect(spaced?.lastElementChild?.contains(region!)).toBe(true);
+  });
+});
+
+// The reader's own cases (todo 556), each a probe from PR #946's review: run
+// against the real plant_condition declaration with one edit applied.
+describe('readInlineChoices', () => {
+  const models = readFileSync(MODELS_PY, 'utf8');
+  const LAST = '            ("critical", "Critical - plant may die"),\n';
+  const withLast = (replacement: string) => {
+    expect(models, 'fixture anchor moved; update LAST').toContain(LAST);
+    return models.replace(LAST, replacement);
+  };
+  const ok = (source: string) => {
+    const read = readInlineChoices(source, 'plant_condition');
+    if ('error' in read) expect.fail(read.error);
+    return read;
+  };
+
+  it('parses the real declaration with nothing left over', () => {
+    const read = ok(models);
+    expect(read.choices).toHaveLength(5);
+    expect(read.residue).toBe('');
+  });
+
+  it.each([
+    // Its own `]` ends the list early (the known limit), but what precedes it
+    // is still left over, so the drift is still caught.
+    ['a list-form choice', LAST + '            ["dormant", "Dormant"],\n', '["dormant" "Dormant"'],
+    ['a spread', LAST + '            *EXTRA_CONDITIONS,\n', '*EXTRA_CONDITIONS'],
+    [
+      'a gettext label',
+      LAST + '            ("dormant", _("Dormant")),\n',
+      '("dormant" _("Dormant"))',
+    ],
+    ['single quotes', LAST + "            ('dormant', 'Dormant'),\n", "('dormant' 'Dormant')"],
+  ])('reports %s as residue instead of passing', (_name, replacement, residue) => {
+    const read = ok(withLast(replacement));
+    expect(read.choices).toHaveLength(5);
+    expect(read.residue).toBe(residue);
+  });
+
+  it('ignores a commented-out tuple', () => {
+    const read = ok(withLast(LAST + '            # ("dormant", "Dormant"),\n'));
+    expect(read.choices).toHaveLength(5);
+    expect(read.residue).toBe('');
+  });
+
+  it('parses a Black-exploded tuple with its magic trailing comma', () => {
+    const read = ok(
+      withLast(
+        '            (\n                "critical",\n                "Critical - plant may die",\n            ),\n'
+      )
+    );
+    expect(read.choices).toHaveLength(5);
+    expect(read.choices[4]).toEqual(['critical', 'Critical - plant may die']);
+    expect(read.residue).toBe('');
+  });
+
+  it('parses a one-line choices list', () => {
+    const read = ok(
+      '    plant_condition = models.CharField(\n        choices=[("a", "A"), ("b", "B")], blank=True\n    )\n'
+    );
+    expect(read.choices).toEqual([
+      ['a', 'A'],
+      ['b', 'B'],
+    ]);
+    expect(read.residue).toBe('');
+  });
+
+  it('does not read the next field when the declaration is a one-liner', () => {
+    const source =
+      '    plant_condition = models.CharField(max_length=20, blank=True)\n' +
+      '    location = models.CharField(\n        choices=[("in", "Indoors")],\n    )\n';
+    expect(readInlineChoices(source, 'plant_condition')).toEqual({
+      error: 'plant_condition has no inline choices=[...] list',
+    });
   });
 });
