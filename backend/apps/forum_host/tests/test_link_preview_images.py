@@ -513,10 +513,10 @@ def test_item6_an_image_after_a_slow_connect_ends_at_the_deadline(loopback_drip)
     real_create_connection = socket.create_connection
     connected = []
 
-    def slow_connect(*args, **kwargs):
+    def slow_connect(address, timeout, *args, **kwargs):
         time.sleep(0.5)
-        sock = real_create_connection(*args, **kwargs)
-        connected.append((sock, time.monotonic()))
+        sock = real_create_connection(address, timeout, *args, **kwargs)
+        connected.append((sock, time.monotonic(), timeout))
         return sock
 
     target = lp._Target(
@@ -526,8 +526,13 @@ def test_item6_an_image_after_a_slow_connect_ends_at_the_deadline(loopback_drip)
     with patch.object(lp.socket, "create_connection", side_effect=slow_connect):
         assert lp._fetch_image(target, deadline) is None
 
-    [(sock, connected_at)] = connected
-    # The handshake got at most what the connect left of the budget. (A
-    # connect that used it all up never reaches the handshake.)
+    [(sock, connected_at, connect_timeout)] = connected
     if connected_at < deadline:
+        # The handshake got at most what the connect left of the budget.
         assert sock.gettimeout() <= deadline - connected_at
+    else:
+        # A connect that used the whole budget never reaches the handshake:
+        # the socket keeps the connect's own timeout and was closed (todo
+        # 545 item 1: this branch used to assert nothing).
+        assert sock.gettimeout() == connect_timeout
+        assert sock.fileno() == -1
