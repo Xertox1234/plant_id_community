@@ -766,24 +766,12 @@ def test_the_run_lock_ttl_comes_from_the_package_setting(monkeypatch):
     lock.delete.assert_called_once_with(key)
 
 
-@pytest.mark.django_db(transaction=True)
-@override_settings(
-    SITE_URL="https://forum.example", WAGTAILFORUM_DIGEST_UNSUBSCRIBE=None
-)
-def test_the_claim_is_not_durable_until_the_send_returns(monkeypatch):
-    """Todo 548: the claim and the send share one transaction. Another
-    database connection sees the member unclaimed during send_digest(), so a
-    hard kill mid-send (the server rolls back the dead connection's work)
-    leaves the member due. No pages: a transactional test flushes tables."""
-    import threading
-
+def _one_topic_digest_patches(monkeypatch, send):
+    """Stub the digest build and the send so a test needs no pages."""
     from django.core.cache import cache
-    from django.db import connections
     from wagtail_forum.digest import Digest, DigestTopic
     from wagtail_forum.management.commands import send_forum_digest
 
-    member = User.objects.create_user(username="dg-txn", email="txn@example.com")
-    profile = _opt_in(member)
     cache.delete("wagtail_forum:digest-run:weekly")
     topic = DigestTopic(
         id=1,
@@ -793,35 +781,81 @@ def test_the_claim_is_not_durable_until_the_send_returns(monkeypatch):
         reply_count=1,
         last_post_at=timezone.now(),
     )
-    seen = {}
 
     def build(user, since, profile=None):
         return Digest(user=user, since=since, watched=[topic])
 
-    def read_from_another_connection():
-        try:
-            seen["outside"] = ForumProfile.objects.get(
-                pk=profile.pk
-            ).last_digest_sent_at
-        except BaseException as exc:  # surfaced by the assertions below
-            seen["error"] = exc
-        finally:
-            connections.close_all()
-
-    def send(digest):
-        seen["inside"] = ForumProfile.objects.get(pk=profile.pk).last_digest_sent_at
-        thread = threading.Thread(target=read_from_another_connection)
-        thread.start()
-        thread.join(10)
-        return True
-
     monkeypatch.setattr(send_forum_digest, "build_digest", build)
     monkeypatch.setattr(send_forum_digest, "send_digest", send)
 
+
+@pytest.mark.django_db
+@override_settings(
+    SITE_URL="https://forum.example", WAGTAILFORUM_DIGEST_UNSUBSCRIBE=None
+)
+def test_the_claim_and_the_send_share_one_transaction(monkeypatch):
+    """Todo 548: send_digest() runs inside an atomic block the command opened
+    (deeper than the test's own), and the claim UPDATE is already applied in
+    that block. A hard kill mid-send therefore rolls the claim back with the
+    rest of the uncommitted transaction. Not django_db(transaction=True): its
+    flush wipes Wagtail's seeded rows (docs/rules/testing.md)."""
+    from django.db import connection
+
+    member = User.objects.create_user(username="dg-txn", email="txn@example.com")
+    profile = _opt_in(member)
+    outer_depth = len(connection.atomic_blocks)
+    seen = {}
+
+    def send(digest):
+        seen["in_atomic"] = connection.in_atomic_block
+        seen["depth"] = len(connection.atomic_blocks)
+        seen["claim"] = ForumProfile.objects.get(pk=profile.pk).last_digest_sent_at
+        return True
+
+    _one_topic_digest_patches(monkeypatch, send)
     call_command("send_forum_digest", frequency="weekly", stdout=StringIO())
 
-    assert "error" not in seen
-    assert seen["inside"] is not None  # claimed before the send, in our txn
-    assert seen["outside"] is None  # another connection: still unclaimed
+    assert seen["in_atomic"] is True
+    assert seen["depth"] > outer_depth  # the command's own atomic block
+    assert seen["claim"] is not None  # claimed before the send, same txn
     profile.refresh_from_db()
-    assert profile.last_digest_sent_at == seen["inside"]  # committed after it
+    assert profile.last_digest_sent_at == seen["claim"]  # kept after a send
+
+
+@pytest.mark.django_db
+@override_settings(
+    SITE_URL="https://forum.example", WAGTAILFORUM_DIGEST_UNSUBSCRIBE=None
+)
+@pytest.mark.parametrize("outcome", ["returns_false", "raises"])
+def test_a_failed_send_rolls_the_claim_back_with_its_transaction(monkeypatch, outcome):
+    """Todo 548: the claim was applied inside the send's transaction, and a
+    send that fails (returns False, or raises) leaves the marker unchanged."""
+    from django.db import connection
+
+    member = User.objects.create_user(
+        username=f"dg-txn-{outcome}", email=f"txn-{outcome}@example.com"
+    )
+    profile = _opt_in(member)
+    outer_depth = len(connection.atomic_blocks)
+    seen = {}
+
+    def send(digest):
+        seen["depth"] = len(connection.atomic_blocks)
+        seen["claim"] = ForumProfile.objects.get(pk=profile.pk).last_digest_sent_at
+        if outcome == "raises":
+            raise ConnectionError("smtp down")
+        return False
+
+    _one_topic_digest_patches(monkeypatch, send)
+    out = StringIO()
+    if outcome == "raises":  # a stubbed send_digest's error is not caught
+        with pytest.raises(ConnectionError):
+            call_command("send_forum_digest", frequency="weekly", stdout=out)
+    else:
+        call_command("send_forum_digest", frequency="weekly", stdout=out)
+        assert "failed=1" in out.getvalue()
+
+    assert seen["depth"] > outer_depth
+    assert seen["claim"] is not None  # the claim was applied, then undone
+    profile.refresh_from_db()
+    assert profile.last_digest_sent_at is None

@@ -96,14 +96,14 @@ and `backend/apps/blog/constants.py`, as changed by todo 534):
   ======================== 3 passed, 2 warnings in 16.84s ========================
   ```
 
-- AC 2: `cd backend && python3 scripts/todos/slot_env.py --main-root . 3 -- backend/venv/bin/python -m pytest backend/packages/wagtail_forum/wagtail_forum/tests/test_digest.py::test_the_claim_is_not_durable_until_the_send_returns backend/packages/wagtail_forum/wagtail_forum/tests/test_digest.py::test_a_soft_time_limit_in_the_send_gives_the_members_claim_back backend/packages/wagtail_forum/wagtail_forum/tests/test_digest.py::test_a_failed_send_is_logged_counted_and_leaves_the_member_due --create-db -p no:cacheprovider` — evidence `.sweep-evidence/g3/548-ac1.txt` (not committed), last lines:
+- AC 2: `cd backend && python3 scripts/todos/slot_env.py --main-root . 3 -- backend/venv/bin/python -m pytest backend/packages/wagtail_forum/wagtail_forum/tests/test_digest.py::test_the_claim_and_the_send_share_one_transaction backend/packages/wagtail_forum/wagtail_forum/tests/test_digest.py::test_a_failed_send_rolls_the_claim_back_with_its_transaction backend/packages/wagtail_forum/wagtail_forum/tests/test_digest.py::test_a_soft_time_limit_in_the_send_gives_the_members_claim_back backend/packages/wagtail_forum/wagtail_forum/tests/test_digest.py::test_a_failed_send_is_logged_counted_and_leaves_the_member_due --create-db -p no:cacheprovider` — evidence `.sweep-evidence/g3/548-ac1.txt` (not committed), last lines:
 
   ```text
   ============================== ENVIRONMENT DRIFT ===============================
   backend/venv does not match backend/requirements.txt — these results describe a tree CI does not run.
     mismatched: pyjwt (pinned 2.15.0, installed 2.13.0), urllib3 (pinned 2.8.0, installed 2.7.0)
   Fix: pip install -r backend/requirements.txt (see todo 378).
-  ======================== 3 passed, 2 warnings in 17.03s ========================
+  ======================== 5 passed, 2 warnings in 20.33s ========================
   ```
 
 - AC 3: `cd backend && python3 scripts/todos/slot_env.py --main-root . 3 -- backend/venv/bin/python -m pytest backend/packages/wagtail_forum/wagtail_forum/tests/test_digest.py::test_the_run_lock_ttl_comes_from_the_package_setting backend/apps/forum_host/tests/test_tasks.py::test_the_digest_run_lock_outlives_the_task_but_not_by_much --create-db -p no:cacheprovider` — evidence `.sweep-evidence/g3/548-ac2.txt` (not committed), last lines:
@@ -119,3 +119,16 @@ and `backend/apps/blog/constants.py`, as changed by todo 534):
 ### 2026-10-11 - Completed by the todo sweep (run 2026-10-11-1434)
 
 - Archived by `land.py archive`; evidence is quoted above, review is on the PR.
+
+### 2026-10-11 - Repaired by the todo sweep (run 2026-10-11-1434)
+
+- Round 1 repair: review (PR #1024) flagged `test_the_claim_is_not_durable_until_the_send_returns`:
+  it used `django_db(transaction=True)`, which `docs/rules/testing.md` bans (the
+  teardown flush wipes Wagtail's seeded root page, Collection and Site rows).
+- Replaced it in `backend/packages/wagtail_forum/wagtail_forum/tests/test_digest.py`
+  with two ordinary `django_db` tests: `send_digest()` runs in an atomic block
+  deeper than the test's own, with the claim UPDATE already applied in it; a send
+  that returns `False` or raises leaves `last_digest_sent_at` unchanged.
+- Mutation check: with `transaction.atomic()` in `_send_one` swapped for `if True:`,
+  all three cases fail; the command file was restored byte-identical. No production
+  code changed. The AC 2 evidence command above names the new tests.
