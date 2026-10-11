@@ -373,8 +373,11 @@ def test_reaction_toggle_recounts_under_a_post_row_lock():
         if sql.startswith(f"UPDATE {post_table}") and "reaction_counts" in sql
     ]
     assert inserted and written, "the toggle no longer inserts, then recounts"
-    # recount's aggregate read: the COUNT over the reaction rows that the
-    # written-back reaction_counts comes from.
+    # Every COUNT over the reaction rows between the INSERT and the
+    # reaction_counts write. Today recount issues the only one, so this is
+    # recount's aggregate read; but the filter does not know who issued it, so
+    # a COUNT from anything else in that window (a signal receiver, a helper,
+    # a serializer) lands here too (todo 559).
     counted = [
         i
         for i, sql in enumerate(sqls)
@@ -393,6 +396,11 @@ def test_reaction_toggle_recounts_under_a_post_row_lock():
     # so an earlier FOR UPDATE would pass even if its transaction had ended.
     # A future view that locks the post first in an outer atomic must widen
     # this window on purpose.
+    # Trip-wire (todo 559): counted[0] is the first reaction COUNT in the
+    # window, not necessarily recount's. Code that counts reactions after the
+    # INSERT but before recount's FOR UPDATE moves that bound ahead of the
+    # lock and fails this check even though Reaction.recount is unchanged.
+    # On a failure, look for a new earlier COUNT before touching recount.
     recount_locks = [
         i
         for i, sql in enumerate(sqls)
@@ -403,7 +411,9 @@ def test_reaction_toggle_recounts_under_a_post_row_lock():
     ]
     assert recount_locks, (
         "Reaction.recount no longer locks the post row (SELECT ... FOR UPDATE) "
-        "before it first counts the reactions and writes reaction_counts"
+        "before it first counts the reactions and writes reaction_counts, "
+        "or something else now counts the reactions before recount's lock "
+        f"(first COUNT in the window: {sqls[counted[0]]!r})"
     )
 
 
