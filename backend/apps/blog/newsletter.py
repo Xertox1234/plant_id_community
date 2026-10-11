@@ -223,7 +223,11 @@ def _lock_or_create(email: str) -> BlogNewsletter:
         )
         if subscriber is not None:
             return subscriber
-    raise BlogNewsletter.DoesNotExist(f"newsletter row for {email!r} keeps vanishing")
+    # The pk, never the address: this message reaches Celery failure logs
+    # and Sentry, which does not scrub exception text (todo 569).
+    raise BlogNewsletter.DoesNotExist(
+        f"newsletter row pk={row.pk} keeps vanishing under its lock"
+    )
 
 
 def _release_confirmation_stamp(
