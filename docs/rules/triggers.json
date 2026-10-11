@@ -2019,5 +2019,38 @@
     "source": "todo 574 (PR #1013 follow-ups)",
     "added": "2026-10-11",
     "severity": "warn"
+  },
+  {
+    "id": "wagtail-edit-hook-autosave",
+    "domains": [
+      "wagtail",
+      "forum"
+    ],
+    "path_glob": [
+      "backend/**/wagtail_hooks.py"
+    ],
+    "content_present": "@hooks\\.register\\(\\s*[\"']after_edit_(snippet|page)[\"']",
+    "content_absent": "request\\.accepts\\(\\s*[\"']text/html",
+    "message": "after_edit_snippet/after_edit_page also fire on every Wagtail 8 JSON autosave; return early on `if not request.accepts(\"text/html\")` before any side effect.",
+    "pattern_ref": "docs/rules/wagtail.md",
+    "source": "codify: docs/codify-run-2026-10-11-1448",
+    "added": "2026-10-11",
+    "severity": "warn"
+  },
+  {
+    "id": "image-reencode-map-needs-mpo",
+    "domains": [
+      "security"
+    ],
+    "path_glob": [
+      "backend/**/*.py"
+    ],
+    "content_present": "[\"']JPEG[\"']\\s*:\\s*[\"'](JPEG|PNG|WEBP)",
+    "content_absent": "[\"']MPO[\"']",
+    "message": "Format-keyed re-encode map without MPO: Pillow opens phone JPEGs as \"MPO\". Map MPO to JPEG, raise on unknown formats (no PNG fallback), and re-check the encoded size.",
+    "pattern_ref": "docs/rules/security.md",
+    "source": "codify: docs/codify-run-2026-10-11-1448",
+    "added": "2026-10-11",
+    "severity": "warn"
   }
 ]

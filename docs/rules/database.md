@@ -291,3 +291,10 @@ Compact checklist auto-injected before edits. Long-form:
   test the migration through `MigrationExecutor` with a seeded row — a direct
   call to the RunPython function cannot see this (todo 531; users 0017
   would have failed its deploy had prod held such a row).
+- **`select_for_update()` locks only rows that already exist.** A
+  "lock, else create" path (`.select_for_update().filter(...).first()` then
+  `create()`) leaves two first writers both creating; the loser hits the unique
+  constraint. Lock something that always exists (a parent row, an advisory lock),
+  or create with `get_or_create` and re-run the locked update on
+  `IntegrityError`. Never swallow that error and return `None`: the caller's
+  count is silently lost (todo 568 review, open as todo 594).

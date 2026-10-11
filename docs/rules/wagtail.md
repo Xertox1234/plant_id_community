@@ -308,3 +308,10 @@ Compact checklist auto-injected before edits. Long-form:
   foreign key, on the live row AND the latest revision, or keep the image.
   Todo 442's cleanup missed a block, then `featured_image`/`social_image`, then
   intro embeds, across three review rounds (PR #944).
+- **An `after_edit_snippet` / `after_edit_page` hook runs on every Wagtail 8
+  autosave too.** Autosave is on by default (`WAGTAIL_AUTOSAVE_INTERVAL`),
+  POSTs with `Accept: application/json` and no `action-*` key. A hook with side
+  effects (restart a workflow, call a paid backend) must return early on
+  `if not request.accepts("text/html"):`, the same test Wagtail's own
+  `expects_json_response` uses. Without it, each autosave of a pending forum
+  post re-ran the spam screen (todo 579 review, PR #1035).
