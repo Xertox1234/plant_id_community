@@ -13,7 +13,7 @@ also silences push) or ``User.email_notifications`` (no UI re-enables it).
 
 from dataclasses import dataclass
 from datetime import timedelta
-from typing import Callable
+from typing import TYPE_CHECKING, Callable
 from urllib.parse import urlencode
 
 from django.conf import settings
@@ -21,7 +21,11 @@ from django.contrib.auth import get_user_model
 from django.core import signing
 from django.db import transaction
 
-User = get_user_model()
+if TYPE_CHECKING:
+    # The concrete class, so `User` is valid as an annotation (todo 580).
+    from apps.users.models import User
+else:
+    User = get_user_model()
 
 UNSUBSCRIBE_SALT = "apps.users.email_unsubscribe"
 # Generous on purpose: people act on an email weeks after it arrives, and a
@@ -55,7 +59,7 @@ def _forum_overrides(user):
 def _forum_reply_subscribed(user) -> bool:
     from wagtail_forum.preferences import wants_channel
 
-    return wants_channel(_forum_overrides(user), "reply_added", "email")
+    return bool(wants_channel(_forum_overrides(user), "reply_added", "email"))
 
 
 def _forum_reply_unsubscribe(user) -> None:

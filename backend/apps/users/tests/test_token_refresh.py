@@ -11,6 +11,7 @@ Tests token refresh, blacklisting, rotation, and CSRF protection including:
 
 import time
 from datetime import timedelta
+from typing import Optional, cast
 from unittest.mock import patch
 
 from django.conf import settings
@@ -25,8 +26,15 @@ from rest_framework_simplejwt.tokens import AccessToken, RefreshToken
 User = get_user_model()
 
 
+def _lifetime(key: str) -> timedelta:
+    """A SIMPLE_JWT lifetime; the dict is mixed-type, these entries are timedeltas."""
+    return cast(timedelta, settings.SIMPLE_JWT[key])
+
+
 class TokenRefreshTestCase(TestCase):
     """Test cases for token refresh functionality."""
+
+    client: APIClient  # DRF test client; TestCase declares Django's Client
 
     def setUp(self):
         """Set up test fixtures."""
@@ -264,6 +272,8 @@ class TokenRefreshTestCase(TestCase):
 class TokenRefreshErrorHandlingTestCase(TestCase):
     """Test error handling for token refresh."""
 
+    client: APIClient  # DRF test client; TestCase declares Django's Client
+
     def setUp(self):
         """Set up test fixtures."""
         cache.clear()  # Prevent rate limiter state leaking from other test classes
@@ -330,6 +340,8 @@ class TokenRefreshErrorHandlingTestCase(TestCase):
 class TokenLifetimeTestCase(TestCase):
     """Test cases for JWT token lifetime configuration (OWASP compliance)."""
 
+    client: APIClient  # DRF test client; TestCase declares Django's Client
+
     def setUp(self):
         """Set up test fixtures."""
         cache.clear()  # Prevent rate limiter state leaking from other test classes
@@ -341,7 +353,7 @@ class TokenLifetimeTestCase(TestCase):
     def test_access_token_lifetime_configuration(self):
         """Test that access token lifetime is configured correctly (1 hour max)."""
         # Get the configured access token lifetime
-        access_lifetime = settings.SIMPLE_JWT["ACCESS_TOKEN_LIFETIME"]
+        access_lifetime = _lifetime("ACCESS_TOKEN_LIFETIME")
 
         # OWASP recommends 15-60 minutes for access tokens
         # Phase 1: 1 hour (60 minutes) is acceptable
@@ -366,7 +378,7 @@ class TokenLifetimeTestCase(TestCase):
     def test_refresh_token_lifetime_configuration(self):
         """Test that refresh token lifetime is reasonable (7-30 days)."""
         # Get the configured refresh token lifetime
-        refresh_lifetime = settings.SIMPLE_JWT["REFRESH_TOKEN_LIFETIME"]
+        refresh_lifetime = _lifetime("REFRESH_TOKEN_LIFETIME")
 
         # Reasonable range: 7-30 days
         min_lifetime = timedelta(days=7)
@@ -408,7 +420,8 @@ class TokenLifetimeTestCase(TestCase):
 
         # Check token is valid now
         try:
-            AccessToken(str(access))
+            # simplejwt hints Token, but decodes an encoded token string.
+            AccessToken(str(access))  # type: ignore[arg-type]
             token_valid = True
         except TokenError:
             token_valid = False
@@ -420,9 +433,7 @@ class TokenLifetimeTestCase(TestCase):
 
         # Verify expiration time matches configured lifetime
         token_lifetime = access["exp"] - access["iat"]
-        configured_lifetime = int(
-            settings.SIMPLE_JWT["ACCESS_TOKEN_LIFETIME"].total_seconds()
-        )
+        configured_lifetime = int(_lifetime("ACCESS_TOKEN_LIFETIME").total_seconds())
 
         # Allow 1 second tolerance for processing time
         self.assertAlmostEqual(
@@ -459,7 +470,8 @@ class TokenLifetimeTestCase(TestCase):
         # Attempt to access a protected endpoint (if available)
         # For now, just verify the token is considered invalid
         try:
-            AccessToken(str(access))
+            # simplejwt hints Token, but decodes an encoded token string.
+            AccessToken(str(access))  # type: ignore[arg-type]
             token_valid = True
         except TokenError:
             token_valid = False
@@ -469,9 +481,7 @@ class TokenLifetimeTestCase(TestCase):
     def test_security_window_reduced(self):
         """Test that the security window for stolen tokens is acceptable."""
         # Get the configured access token lifetime in seconds
-        access_lifetime_seconds = settings.SIMPLE_JWT[
-            "ACCESS_TOKEN_LIFETIME"
-        ].total_seconds()
+        access_lifetime_seconds = _lifetime("ACCESS_TOKEN_LIFETIME").total_seconds()
 
         # Phase 1 target: ≤1 hour (3600 seconds)
         # Phase 2 target: ≤15 minutes (900 seconds)
@@ -504,11 +514,13 @@ class TokenLifetimeTestCase(TestCase):
         # ACCESS_TOKEN_LIFETIME_DEBUG is set at settings load time based on DEBUG env var.
         # pytest-django overrides settings.DEBUG to False during test execution,
         # so we check the invariant directly: if it's set, it must exceed production lifetime.
-        debug_lifetime = settings.SIMPLE_JWT.get("ACCESS_TOKEN_LIFETIME_DEBUG")
+        debug_lifetime = cast(
+            Optional[timedelta], settings.SIMPLE_JWT.get("ACCESS_TOKEN_LIFETIME_DEBUG")
+        )
 
         if debug_lifetime is not None:
             # When debug lifetime is configured, it must be longer than production for dev convenience
-            production_lifetime = settings.SIMPLE_JWT["ACCESS_TOKEN_LIFETIME"]
+            production_lifetime = _lifetime("ACCESS_TOKEN_LIFETIME")
 
             self.assertGreater(
                 debug_lifetime,

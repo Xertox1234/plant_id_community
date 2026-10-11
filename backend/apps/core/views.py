@@ -13,6 +13,8 @@ from django.middleware.csrf import get_token
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_http_methods
 from django.views.generic import TemplateView
+from drf_spectacular.utils import OpenApiResponse, extend_schema, inline_serializer
+from rest_framework import serializers
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
@@ -94,6 +96,20 @@ class ReactAppView(TemplateView):
         return context
 
 
+@extend_schema(
+    request=inline_serializer(
+        "CspReport",
+        {
+            "csp-report": serializers.DictField(
+                help_text="The browser's violation report."
+            )
+        },
+    ),
+    responses={
+        204: OpenApiResponse(description="Report received."),
+        400: OpenApiResponse(description="Empty or malformed report."),
+    },
+)
 @api_view(["POST"])
 @permission_classes([AllowAny])
 @csrf_exempt  # CSP reports are POST from browser, no CSRF token

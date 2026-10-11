@@ -104,7 +104,8 @@ def strip_image_metadata(upload: "UploadedFile") -> ContentFile:
             source_format = source.format
             source.load()
             image = ImageOps.exif_transpose(source)
-        target = _REENCODE[source_format]
+        # No format at all is a KeyError too, like an unsupported one.
+        target = _REENCODE[source_format or ""]
         has_alpha = image.mode in {"RGBA", "LA", "PA"} or "transparency" in image.info
         mode = "RGBA" if has_alpha and target != "JPEG" else "RGB"
         image = image.convert(mode)

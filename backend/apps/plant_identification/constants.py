@@ -178,3 +178,13 @@ RATE_LIMITS = {
         "comment": "20/h",  # Comments (when implemented)
     },
 }
+
+# PlantDiseaseRequest.status. A named constant so SPECTACULAR_SETTINGS
+# ["ENUM_NAME_OVERRIDES"] can pin its OpenAPI enum name (todo 581).
+DISEASE_REQUEST_STATUS_CHOICES = [
+    ("pending", "Pending Diagnosis"),
+    ("processing", "Processing with AI"),
+    ("diagnosed", "Disease Diagnosed"),
+    ("needs_help", "Needs Community Help"),
+    ("failed", "Diagnosis Failed"),
+]

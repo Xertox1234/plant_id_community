@@ -25,7 +25,12 @@ from django.conf import settings
 from django.db import transaction
 from django.http import HttpResponseRedirect
 from django_ratelimit.decorators import ratelimit
-from drf_spectacular.utils import OpenApiParameter, extend_schema, inline_serializer
+from drf_spectacular.utils import (
+    OpenApiExample,
+    OpenApiParameter,
+    extend_schema,
+    inline_serializer,
+)
 from rest_framework import permissions, serializers, status
 from rest_framework.decorators import (
     api_view,
@@ -82,6 +87,13 @@ _TOKEN_SCHEMA = extend_schema(
         "NewsletterTokenRequest", {"token": serializers.CharField()}
     ),
     responses={200: _STATE, 400: _TOKEN_ERROR},
+    examples=[
+        OpenApiExample(
+            "Token from the email link",
+            value={"token": "example-signed-newsletter-token"},
+            request_only=True,
+        )
+    ],
 )
 
 
@@ -92,6 +104,11 @@ _TOKEN_SCHEMA = extend_schema(
             "NewsletterSubscribeAccepted", {"detail": serializers.CharField()}
         )
     },
+    examples=[
+        OpenApiExample(
+            "Subscribe", value={"email": "reader@example.com"}, request_only=True
+        )
+    ],
 )
 @api_view(["POST"])
 @parser_classes([JSONParser])

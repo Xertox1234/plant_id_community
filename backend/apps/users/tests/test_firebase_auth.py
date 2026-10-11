@@ -23,6 +23,8 @@ User = get_user_model()
 class FirebaseTokenExchangeTestCase(TestCase):
     """Test cases for Firebase token exchange endpoint."""
 
+    client: APIClient  # DRF test client; TestCase declares Django's Client
+
     def setUp(self):
         """Set up test fixtures."""
         self.client = APIClient()
@@ -394,6 +396,7 @@ class FirebaseTokenExchangeTestCase(TestCase):
         self.assertEqual(response.status_code, status.HTTP_500_INTERNAL_SERVER_ERROR)
         [record] = [r for r in logs.records if "Unexpected error" in r.getMessage()]
         self.assertIsNotNone(record.exc_info)
+        assert record.exc_info is not None  # narrows the Optional for mypy
         self.assertIs(record.exc_info[0], KeyError)
 
     def test_the_schema_documents_429_and_no_revocation_promise(self):
@@ -736,6 +739,8 @@ class FirebaseTrustedProviderTestCase(TestCase):
     any other, matching web Google's `verified_email` rule.
     """
 
+    client: APIClient  # DRF test client; TestCase declares Django's Client
+
     def setUp(self):
         self.client = APIClient()
         self.url = reverse("v1:users:firebase_token_exchange")
@@ -909,7 +914,9 @@ class GetOrCreateUserFromFirebaseTestCase(TestCase):
         self.assertTrue(created)
         collections = UserPlantCollection.objects.filter(user=user)
         self.assertEqual(collections.count(), 1)
-        self.assertEqual(collections.first().name, "My Plants")
+        first = collections.first()
+        assert first is not None  # count() == 1 above
+        self.assertEqual(first.name, "My Plants")
 
     def test_get_existing_user(self):
         """Test retrieving an existing user."""
@@ -1102,6 +1109,8 @@ class FirebaseTokenExchangeRateLimitTestCase(TestCase):
     one did not until the 2026-06-02 audit (finding M6).
     """
 
+    client: APIClient  # DRF test client; TestCase declares Django's Client
+
     def setUp(self):
         self.client = APIClient()
         self.url = reverse("v1:users:firebase_token_exchange")
@@ -1178,6 +1187,8 @@ class FirebaseInitFailureTestCase(TestCase):
     the view's try block — before the never-raises guard, a typo'd
     FIREBASE_CREDENTIALS_PATH meant an unhandled 500 on every login.
     """
+
+    client: APIClient  # DRF test client; TestCase declares Django's Client
 
     def setUp(self):
         from apps.core.firebase_config import reset_firebase

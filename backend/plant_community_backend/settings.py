@@ -709,6 +709,18 @@ SPECTACULAR_SETTINGS = {
         "name": "MIT License",
     },
     "COMPONENT_SPLIT_REQUEST": True,
+    # Distinct choice sets that share a field name (`status`, `priority`,
+    # `task_type`) and one set used under several field names get a fixed,
+    # readable component name. Without these, generation warns and falls back
+    # to hashed names like "Status7dfEnum" (todo 581).
+    "ENUM_NAME_OVERRIDES": {
+        "CareTaskPriorityEnum": "apps.garden_calendar.constants.CARE_TASK_PRIORITY",
+        "CareTaskTypeEnum": "apps.garden_calendar.constants.CARE_TASK_TYPES",
+        "PlantHealthStatusEnum": "apps.garden_calendar.constants.HEALTH_STATUS_CHOICES",
+        "DiseaseRequestStatusEnum": (
+            "apps.plant_identification.constants.DISEASE_REQUEST_STATUS_CHOICES"
+        ),
+    },
     "SORT_OPERATIONS": False,
     "SCHEMA_PATH_PREFIX": r"/api/v[0-9]",
     "SCHEMA_PATH_PREFIX_TRIM": True,

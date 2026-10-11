@@ -3,6 +3,8 @@ Authentication and user management views for the Plant Community application.
 """
 
 import logging
+import uuid
+from typing import Optional
 
 from apps.core import ratelimit as core_ratelimit
 from apps.core.ratelimit import client_ip_key
@@ -23,6 +25,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework_simplejwt.tokens import RefreshToken
 
+from . import view_schemas as vs
 from .authentication import RefreshTokenFromCookie, clear_jwt_cookies, set_jwt_cookies
 from .avatars import avatar_file_names, delete_avatar_files_on_commit
 from .constants import RATE_LIMIT_ONBOARDING_EVENT
@@ -47,7 +50,7 @@ logger = logging.getLogger(__name__)
 def create_error_response(
     code: str,
     message: str,
-    details: str = None,
+    details: Optional[str] = None,
     status_code: int = status.HTTP_400_BAD_REQUEST,
 ) -> Response:
     """
@@ -79,6 +82,7 @@ def create_error_response(
     return Response(error_data, status=status_code)
 
 
+@vs.CSRF_TOKEN_SCHEMA
 @api_view(["GET"])
 @permission_classes([permissions.AllowAny])
 @ensure_csrf_cookie
@@ -89,6 +93,7 @@ def get_csrf_token(request: Request) -> Response:
     return Response({"detail": "CSRF cookie set"})
 
 
+@vs.REGISTER_SCHEMA
 @api_view(["POST"])
 @permission_classes([permissions.AllowAny])
 @csrf_protect  # SECURITY: Enforce CSRF protection for registration
@@ -160,6 +165,7 @@ def register(request: Request) -> Response:
     return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 
+@vs.VERIFY_EMAIL_SCHEMA
 @api_view(["POST"])
 @permission_classes([permissions.IsAuthenticated])
 @ratelimit(
@@ -190,6 +196,7 @@ def verify_email(request: Request) -> Response:
     return Response({"verified": True})
 
 
+@vs.RESEND_VERIFICATION_SCHEMA
 @api_view(["POST"])
 @permission_classes([permissions.IsAuthenticated])
 @ratelimit(
@@ -215,6 +222,7 @@ def resend_verification_email(request: Request) -> Response:
     return Response({"verified": False, "sent": sent, "limit_reached": limit_reached})
 
 
+@vs.LOGIN_SCHEMA
 @api_view(["POST"])
 @permission_classes([permissions.AllowAny])
 @csrf_protect
@@ -245,7 +253,7 @@ def login(request: Request) -> Response:
     # Check if account is locked (before authentication attempt)
     is_locked, time_remaining = SecurityMonitor.is_account_locked(username)
     if is_locked:
-        minutes_remaining = time_remaining // 60
+        minutes_remaining = (time_remaining or 0) // 60
         return create_error_response(
             "ACCOUNT_LOCKED",
             "Account temporarily locked",
@@ -296,7 +304,8 @@ def login(request: Request) -> Response:
             # Update last_login (Django's login() does this automatically but we use JWT)
             from django.contrib.auth.models import update_last_login
 
-            update_last_login(None, user)
+            # The signal receiver ignores its sender; Django passes the model.
+            update_last_login(None, user)  # type: ignore[arg-type]
 
             # Create response with user data
             response = Response(
@@ -355,6 +364,7 @@ def login(request: Request) -> Response:
     )
 
 
+@vs.CURRENT_USER_SCHEMA
 @api_view(["GET"])
 @permission_classes([permissions.IsAuthenticated])
 def current_user(request: Request) -> Response:
@@ -368,6 +378,7 @@ def current_user(request: Request) -> Response:
     return Response(serializer.data)
 
 
+@vs.UPDATE_PROFILE_SCHEMA
 @api_view(["PATCH"])
 @permission_classes([permissions.IsAuthenticated])
 @core_ratelimit.ratelimit(
@@ -399,6 +410,7 @@ def update_profile(request: Request) -> Response:
     )
 
 
+@vs.DELETE_AVATAR_SCHEMA
 @api_view(["DELETE"])
 @permission_classes([permissions.IsAuthenticated])
 @core_ratelimit.ratelimit(
@@ -420,6 +432,7 @@ def delete_avatar(request: Request) -> Response:
     return Response({"message": "Profile photo removed", "user": serializer.data})
 
 
+@vs.LOGOUT_SCHEMA
 @api_view(["POST"])
 @permission_classes([permissions.IsAuthenticated])
 @csrf_protect
@@ -431,7 +444,8 @@ def logout(request: Request) -> Response:
         # Get refresh token from cookie or request data
         refresh_token = RefreshTokenFromCookie.get_refresh_token(request)
         if refresh_token:
-            token = RefreshToken(refresh_token)
+            # simplejwt hints Token, but decodes an encoded token string.
+            token = RefreshToken(refresh_token)  # type: ignore[arg-type]
             token.blacklist()
 
         # Create response
@@ -449,6 +463,7 @@ def logout(request: Request) -> Response:
         return response
 
 
+@vs.TOKEN_REFRESH_SCHEMA
 @api_view(["POST"])
 @permission_classes([permissions.AllowAny])
 @csrf_protect  # CRITICAL: Validates CSRF for ALL POST requests (not just cookie-based)
@@ -484,7 +499,8 @@ def token_refresh(request: Request) -> Response:
 
     try:
         # Parse and validate provided refresh token
-        used_refresh = RefreshToken(refresh_token)
+        # simplejwt hints Token, but decodes an encoded token string.
+        used_refresh = RefreshToken(refresh_token)  # type: ignore[arg-type]
 
         # OPTIMIZATION: Fetch user early to avoid multiple queries
         # This prevents N+1 queries by loading the user once at the beginning
@@ -536,6 +552,8 @@ def token_refresh(request: Request) -> Response:
         )
 
 
+@vs.COLLECTIONS_LIST_SCHEMA
+@vs.COLLECTIONS_CREATE_SCHEMA
 @api_view(["GET", "POST"])
 @permission_classes([permissions.IsAuthenticated])
 def user_collections(request: Request) -> Response:
@@ -563,6 +581,9 @@ def user_collections(request: Request) -> Response:
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 
+@vs.COLLECTION_RETRIEVE_SCHEMA
+@vs.COLLECTION_UPDATE_SCHEMA
+@vs.COLLECTION_DELETE_SCHEMA
 @api_view(["GET", "PUT", "DELETE"])
 @permission_classes([permissions.IsAuthenticated])
 def user_collection_detail(request: Request, collection_id: int) -> Response:
@@ -603,6 +624,7 @@ def user_collection_detail(request: Request, collection_id: int) -> Response:
         )
 
 
+@vs.PREVIOUS_SEARCHES_SCHEMA
 @api_view(["GET"])
 @permission_classes([permissions.IsAuthenticated])
 def previous_searches(request: Request) -> Response:
@@ -665,9 +687,10 @@ def previous_searches(request: Request) -> Response:
     )
 
 
+@vs.SEARCH_DETAIL_SCHEMA
 @api_view(["GET"])
 @permission_classes([permissions.IsAuthenticated])
-def search_detail(request: Request, request_id: int) -> Response:
+def search_detail(request: Request, request_id: uuid.UUID) -> Response:
     """
     Get detailed information about a specific search/identification request.
     """
@@ -692,6 +715,7 @@ def search_detail(request: Request, request_id: int) -> Response:
     return Response(serializer.data)
 
 
+@vs.DASHBOARD_STATS_SCHEMA
 @api_view(["GET"])
 @permission_classes([permissions.IsAuthenticated])
 def dashboard_stats(request: Request) -> Response:
@@ -809,6 +833,7 @@ def dashboard_stats(request: Request) -> Response:
 # === Push Notification Endpoints ===
 
 
+@vs.SUBSCRIBE_PUSH_SCHEMA
 @api_view(["POST"])
 @permission_classes([permissions.IsAuthenticated])
 @ratelimit(
@@ -863,6 +888,7 @@ def subscribe_push_notifications(request: Request) -> Response:
         )
 
 
+@vs.UNSUBSCRIBE_PUSH_SCHEMA
 @api_view(["POST"])
 @permission_classes([permissions.IsAuthenticated])
 def unsubscribe_push_notifications(request: Request) -> Response:
@@ -889,6 +915,7 @@ def unsubscribe_push_notifications(request: Request) -> Response:
         )
 
 
+@vs.PUSH_PUBLIC_KEY_SCHEMA
 @api_view(["GET"])
 @permission_classes([permissions.IsAuthenticated])
 def push_public_key(request: Request) -> Response:
@@ -907,6 +934,7 @@ def push_public_key(request: Request) -> Response:
     return Response({"enabled": enabled, "public_key": public_key if enabled else ""})
 
 
+@vs.PUSH_SUBSCRIPTIONS_SCHEMA
 @api_view(["GET"])
 @permission_classes([permissions.IsAuthenticated])
 def push_subscriptions(request: Request) -> Response:
@@ -939,6 +967,8 @@ def push_subscriptions(request: Request) -> Response:
 # Onboarding Management Views
 
 
+@vs.ONBOARDING_GET_SCHEMA
+@vs.ONBOARDING_PATCH_SCHEMA
 @api_view(["GET", "PATCH"])
 @permission_classes([permissions.IsAuthenticated])
 def onboarding_progress(request: Request) -> Response:
@@ -1047,6 +1077,7 @@ def onboarding_progress(request: Request) -> Response:
     )
 
 
+@vs.TRACK_ONBOARDING_EVENT_SCHEMA
 @api_view(["POST"])
 @permission_classes([permissions.IsAuthenticated])
 @ratelimit(key="user", rate=RATE_LIMIT_ONBOARDING_EVENT, method="POST", block=True)

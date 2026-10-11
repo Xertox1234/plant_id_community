@@ -11,8 +11,13 @@ from django.contrib.auth import get_user_model
 from django.db.models import Count, F, Prefetch, Q
 from django.utils.decorators import method_decorator
 from django_filters.rest_framework import DjangoFilterBackend
-from drf_spectacular.utils import extend_schema
-from rest_framework import filters, permissions, status, viewsets
+from drf_spectacular.utils import (
+    OpenApiExample,
+    OpenApiParameter,
+    extend_schema,
+    inline_serializer,
+)
+from rest_framework import filters, permissions, serializers, status, viewsets
 from rest_framework.decorators import action, api_view
 from rest_framework.pagination import PageNumberPagination
 from rest_framework.response import Response
@@ -67,6 +72,10 @@ class BlogPostPageViewSet(viewsets.ReadOnlyModelViewSet):
 
     def get_queryset(self):
         """Get published blog posts with related data."""
+        if getattr(self, "swagger_fake_view", False):
+            # Schema generation: the model is all it needs, and `.public()`
+            # would query the database.
+            return BlogPostPage.objects.none()
         # Nested categories/series carry a `_post_count` annotation so their
         # serializers read it instead of issuing a COUNT per nested object.
         # `_comment_count` is annotated on the post itself for the same reason.
@@ -221,6 +230,20 @@ class BlogPostPageViewSet(viewsets.ReadOnlyModelViewSet):
             "is_approved (false = awaiting moderation, visible to the author "
             "only); 403 when the post has comments disabled."
         ),
+        examples=[
+            OpenApiExample(
+                "Top-level comment",
+                value={
+                    "content": "Mine flowered after I moved it to a brighter window."
+                },
+                request_only=True,
+            ),
+            OpenApiExample(
+                "Reply to a comment",
+                value={"content": "Same here, thanks for the tip.", "parent": 42},
+                request_only=True,
+            ),
+        ],
     )
     @action(
         detail=True, methods=["post"], permission_classes=[permissions.IsAuthenticated]
@@ -433,6 +456,7 @@ class BlogCommentViewSet(viewsets.ReadOnlyModelViewSet):
         )
 
     @extend_schema(
+        request=None,
         responses={200: dict, 400: dict, 401: dict, 404: dict, 429: dict},
         description=(
             "Flag a comment for moderation. Rate-limited per user (429); one "
@@ -477,6 +501,22 @@ class BlogCommentViewSet(viewsets.ReadOnlyModelViewSet):
 # Additional API views for blog statistics and search
 
 
+@extend_schema(
+    responses={
+        200: inline_serializer(
+            "BlogStats",
+            {
+                "total_posts": serializers.IntegerField(),
+                "total_categories": serializers.IntegerField(),
+                "total_authors": serializers.IntegerField(),
+                "total_comments": serializers.IntegerField(),
+                "featured_posts": serializers.IntegerField(),
+                "recent_posts": BlogPostListSerializer(many=True),
+                "popular_categories": BlogCategorySerializer(many=True),
+            },
+        )
+    }
+)
 @api_view(["GET"])
 def blog_stats(request):
     """Get blog statistics."""
@@ -514,6 +554,21 @@ def blog_stats(request):
     return Response(stats)
 
 
+@extend_schema(
+    parameters=[OpenApiParameter("q", str, OpenApiParameter.QUERY, required=True)],
+    responses={
+        200: inline_serializer(
+            "BlogSearchResults",
+            {
+                "posts": BlogPostListSerializer(many=True),
+                "categories": BlogCategorySerializer(many=True),
+                "query": serializers.CharField(),
+                "total_results": serializers.IntegerField(),
+            },
+        ),
+        400: inline_serializer("BlogSearchError", {"detail": serializers.CharField()}),
+    },
+)
 @api_view(["GET"])
 def blog_search(request):
     """Search blog content."""

@@ -5,6 +5,7 @@ Custom OAuth views for handling social authentication with JWT token generation.
 import logging
 import re
 import secrets
+from typing import Any, cast
 from urllib.parse import urlencode
 
 from apps.core.ratelimit import client_ip_key, ratelimit
@@ -12,12 +13,13 @@ from apps.core.utils.pii_safe_logging import log_safe_user_context
 from django.conf import settings
 from django.contrib.auth import login as django_login
 from django.db import IntegrityError, transaction
-from django.http import HttpResponseRedirect
+from django.http import HttpResponse, HttpResponseRedirect
 from rest_framework import status
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 
+from . import view_schemas as vs
 from .account_links import on_first_provider_link
 from .authentication import set_jwt_cookies
 from .email_verification import (
@@ -28,6 +30,13 @@ from .email_verification import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+def _provider_settings(provider: str) -> dict[str, Any]:
+    """One provider's block of SOCIALACCOUNT_PROVIDERS (a nested dict)."""
+    providers = cast(dict[str, dict[str, Any]], settings.SOCIALACCOUNT_PROVIDERS)
+    return providers[provider]
+
 
 # The only values `provider` may take. Both views validate against this before
 # building any URL from it: the route is `oauth/<str:provider>/...`, and Django's
@@ -50,6 +59,7 @@ def get_oauth_redirect_url(provider):
     return f"{frontend_base}/auth/{provider}/callback"
 
 
+@vs.OAUTH_LOGIN_SCHEMA
 @api_view(["GET"])
 @permission_classes([AllowAny])
 @ratelimit(key=client_ip_key, rate="10/m", method="GET", block=True)
@@ -69,7 +79,7 @@ def oauth_login(request, provider):
 
         if provider == "google":
             # Build Google OAuth URL
-            client_id = settings.SOCIALACCOUNT_PROVIDERS["google"]["APP"]["client_id"]
+            client_id = _provider_settings("google")["APP"]["client_id"]
             if not client_id:
                 return Response(
                     {"error": "Google OAuth not configured"},
@@ -82,7 +92,7 @@ def oauth_login(request, provider):
                 redirect_uri = "http://localhost:8000/api/auth/oauth/google/callback/"
             else:
                 redirect_uri = f"{request.build_absolute_uri('/').rstrip('/')}/api/auth/oauth/google/callback/"
-            scope = "+".join(settings.SOCIALACCOUNT_PROVIDERS["google"]["SCOPE"])
+            scope = "+".join(_provider_settings("google")["SCOPE"])
 
             oauth_url = (
                 f"https://accounts.google.com/o/oauth2/v2/auth?"
@@ -97,7 +107,7 @@ def oauth_login(request, provider):
 
         elif provider == "github":
             # Build GitHub OAuth URL
-            client_id = settings.SOCIALACCOUNT_PROVIDERS["github"]["APP"]["client_id"]
+            client_id = _provider_settings("github")["APP"]["client_id"]
             if not client_id:
                 return Response(
                     {"error": "GitHub OAuth not configured"},
@@ -110,7 +120,7 @@ def oauth_login(request, provider):
                 redirect_uri = "http://localhost:8000/api/auth/oauth/github/callback/"
             else:
                 redirect_uri = f"{request.build_absolute_uri('/').rstrip('/')}/api/auth/oauth/github/callback/"
-            scope = "+".join(settings.SOCIALACCOUNT_PROVIDERS["github"]["SCOPE"])
+            scope = "+".join(_provider_settings("github")["SCOPE"])
 
             oauth_url = (
                 f"https://github.com/login/oauth/authorize?"
@@ -137,6 +147,7 @@ def oauth_login(request, provider):
         )
 
 
+@vs.OAUTH_CALLBACK_SCHEMA
 @api_view(["GET"])
 @permission_classes([AllowAny])
 @ratelimit(key=client_ip_key, rate="10/m", method="GET", block=True)
@@ -226,7 +237,7 @@ def oauth_callback(request, provider):
         # Cookies are scoped to the host (localhost), not the port; they'll be sent with API requests to backend
         frontend_url = get_oauth_redirect_url(provider)
         redirect_url = f"{frontend_url}?success=true"
-        response = HttpResponseRedirect(redirect_url)
+        response: HttpResponse = HttpResponseRedirect(redirect_url)
         response = set_jwt_cookies(response, user)
 
         logger.info(
@@ -256,10 +267,8 @@ def _handle_google_callback(request, code):
             redirect_uri = f"{request.build_absolute_uri('/').rstrip('/')}/api/auth/oauth/google/callback/"
 
         token_data = {
-            "client_id": settings.SOCIALACCOUNT_PROVIDERS["google"]["APP"]["client_id"],
-            "client_secret": settings.SOCIALACCOUNT_PROVIDERS["google"]["APP"][
-                "secret"
-            ],
+            "client_id": _provider_settings("google")["APP"]["client_id"],
+            "client_secret": _provider_settings("google")["APP"]["secret"],
             "code": code,
             "grant_type": "authorization_code",
             "redirect_uri": redirect_uri,
@@ -316,10 +325,8 @@ def _handle_github_callback(request, code):
         token_url = "https://github.com/login/oauth/access_token"
 
         token_data = {
-            "client_id": settings.SOCIALACCOUNT_PROVIDERS["github"]["APP"]["client_id"],
-            "client_secret": settings.SOCIALACCOUNT_PROVIDERS["github"]["APP"][
-                "secret"
-            ],
+            "client_id": _provider_settings("github")["APP"]["client_id"],
+            "client_secret": _provider_settings("github")["APP"]["secret"],
             "code": code,
         }
 

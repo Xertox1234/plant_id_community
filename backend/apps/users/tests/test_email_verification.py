@@ -83,6 +83,8 @@ class VerifyEmailEndpointTest(TestCase):
     alone would let a victim who clicks the link in their inbox verify an
     attacker's pre-registered account."""
 
+    client: APIClient  # DRF test client; TestCase declares Django's Client
+
     def setUp(self):
         cache.clear()
         self.client = APIClient()
@@ -179,7 +181,8 @@ class AllauthMailIsRoutedTest(TestCase):
         confirmation.email_address = address
 
         with self.captureOnCommitCallbacks(execute=True):
-            CustomAccountAdapter().send_confirmation_mail(None, confirmation, True)
+            # The adapter never reads the request.
+            CustomAccountAdapter().send_confirmation_mail(None, confirmation, True)  # type: ignore[arg-type]
 
         self.assertEqual(len(mail.outbox), 1)
         self.assertIn("/verify-email?key=", mail.outbox[0].body)
@@ -187,6 +190,8 @@ class AllauthMailIsRoutedTest(TestCase):
 
 
 class ResendVerificationTest(TestCase):
+    client: APIClient  # DRF test client; TestCase declares Django's Client
+
     def setUp(self):
         cache.clear()
         self.client = APIClient()

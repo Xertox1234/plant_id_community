@@ -471,6 +471,8 @@ class MarkEmailVerifiedTest(TestCase):
 
 
 class VerificationCapTest(TestCase):
+    client: APIClient  # DRF test client; TestCase declares Django's Client
+
     def setUp(self):
         cache.clear()
         self.client = APIClient()
@@ -548,7 +550,8 @@ class VerificationCapTest(TestCase):
         confirmation.email_address.user = self.user
 
         with self.captureOnCommitCallbacks(execute=True):
-            CustomAccountAdapter().send_confirmation_mail(None, confirmation, False)
+            # The adapter never reads the request.
+            CustomAccountAdapter().send_confirmation_mail(None, confirmation, False)  # type: ignore[arg-type]
 
         self.assertEqual(mail.outbox, [])
 

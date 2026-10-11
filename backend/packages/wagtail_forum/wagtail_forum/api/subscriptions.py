@@ -18,6 +18,7 @@ class TopicSubscriptionView(UnversionedForumAPIMixin, APIView):
     permission_classes = [IsAuthenticated]
 
     @extend_schema(
+        request=None,
         responses={200: SUBSCRIPTION_SCHEMA},
         description="Subscribe the authenticated user to a topic (idempotent).",
     )

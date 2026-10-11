@@ -9,6 +9,7 @@ Identification itself is ``api/simple_views.identify_plant``.
 from django.db.models import Count
 from django.shortcuts import get_object_or_404
 from django.utils.decorators import method_decorator
+from drf_spectacular.utils import OpenApiExample, extend_schema, extend_schema_view
 from rest_framework import permissions, viewsets
 from rest_framework.decorators import action
 from rest_framework.parsers import FormParser, MultiPartParser
@@ -44,6 +45,35 @@ from .services.disease_diagnosis_service import PlantDiseaseService
 logger = logging.getLogger(__name__)
 
 
+_USER_PLANT_EXAMPLE = OpenApiExample(
+    "Add a plant",
+    value={
+        "nickname": "Fern by the window",
+        "species": 1,
+        "collection": 1,
+        "acquisition_date": "2026-01-15",
+        "location_in_home": "Bathroom shelf",
+        "notes": "Likes the humidity.",
+        "is_alive": True,
+        "is_public": False,
+    },
+    request_only=True,
+)
+
+
+@extend_schema_view(
+    create=extend_schema(examples=[_USER_PLANT_EXAMPLE]),
+    update=extend_schema(examples=[_USER_PLANT_EXAMPLE]),
+    partial_update=extend_schema(
+        examples=[
+            OpenApiExample(
+                "Update notes",
+                value={"notes": "Repotted in spring."},
+                request_only=True,
+            )
+        ]
+    ),
+)
 class UserPlantViewSet(viewsets.ModelViewSet):
     """
     ViewSet for user's plant collection.
@@ -53,6 +83,10 @@ class UserPlantViewSet(viewsets.ModelViewSet):
     permission_classes = [permissions.IsAuthenticated]
 
     def get_queryset(self):
+        if getattr(self, "swagger_fake_view", False):
+            # Schema generation runs with an AnonymousUser, which the user
+            # filter below cannot take.
+            return UserPlant.objects.none()
         # select_related: the serializer reads user (StringRelatedField),
         # species (nested), collection.name, and
         # from_identification_request.request_id on every row
@@ -76,6 +110,35 @@ class UserPlantViewSet(viewsets.ModelViewSet):
 # =============================================================================
 
 
+_DISEASE_REQUEST_EXAMPLE = OpenApiExample(
+    "Describe the symptoms",
+    value={
+        "symptoms_description": "Brown spots with yellow rims on the lower leaves.",
+        "plant_condition": "fair",
+        "location": "Indoors, east-facing window",
+        "recent_weather": "Humid",
+        "recent_care_changes": "Moved it away from the radiator last week.",
+    },
+    description="Attach up to three photos as the `image_1`..`image_3` file parts.",
+    request_only=True,
+    media_type="multipart/form-data",
+)
+
+
+@extend_schema_view(
+    create=extend_schema(examples=[_DISEASE_REQUEST_EXAMPLE]),
+    update=extend_schema(examples=[_DISEASE_REQUEST_EXAMPLE]),
+    partial_update=extend_schema(
+        examples=[
+            OpenApiExample(
+                "Add a care note",
+                value={"recent_care_changes": "Cut back on watering."},
+                request_only=True,
+                media_type="multipart/form-data",
+            )
+        ]
+    ),
+)
 class PlantDiseaseRequestViewSet(viewsets.ModelViewSet):
     """
     ViewSet for plant disease diagnosis requests.
@@ -86,6 +149,10 @@ class PlantDiseaseRequestViewSet(viewsets.ModelViewSet):
     parser_classes = [MultiPartParser, FormParser]
 
     def get_queryset(self):
+        if getattr(self, "swagger_fake_view", False):
+            # Schema generation runs with an AnonymousUser, which the user
+            # filter below cannot take.
+            return PlantDiseaseRequest.objects.none()
         # `_results_count` annotation feeds both PlantDiseaseRequestSerializer
         # and the WithResults variant without a per-request COUNT query.
         return (

@@ -16,6 +16,8 @@ from imagekit.models import ImageSpecField, ProcessedImageField
 from imagekit.processors import ResizeToFill, ResizeToFit
 from taggit.managers import TaggableManager
 
+from .constants import DISEASE_REQUEST_STATUS_CHOICES
+
 # Wagtail models will be appended at the end to avoid circular imports
 
 
@@ -231,7 +233,7 @@ class PlantSpecies(models.Model):
         return reverse("plant_identification:species_detail", kwargs={"pk": self.pk})
 
     @property
-    def display_name(self):
+    def display_name(self) -> str:
         """Return the best display name for the species."""
         if self.common_names:
             first_common = self.common_names.split(",")[0].strip()
@@ -239,7 +241,7 @@ class PlantSpecies(models.Model):
         return self.scientific_name
 
     @property
-    def common_names_list(self):
+    def common_names_list(self) -> list[str]:
         """Return common names as a list."""
         if self.common_names:
             return [name.strip() for name in self.common_names.split(",")]
@@ -597,7 +599,7 @@ class PlantIdentificationResult(models.Model):
         return f"ID: {name} (confidence: {self.confidence_score:.2%})"
 
     @property
-    def display_name(self):
+    def display_name(self) -> str:
         """Return the best display name for this identification."""
         if self.identified_species:
             return self.identified_species.display_name
@@ -610,7 +612,7 @@ class PlantIdentificationResult(models.Model):
         return self.suggested_common_name or "Unknown Species"
 
     @property
-    def vote_score(self):
+    def vote_score(self) -> int:
         """Calculate the net vote score."""
         return self.upvotes - self.downvotes
 
@@ -742,7 +744,7 @@ class UserPlant(models.Model):
         return reverse("plant_identification:user_plant_detail", kwargs={"pk": self.pk})
 
     @property
-    def display_name(self):
+    def display_name(self) -> str:
         """Return the best display name for this plant."""
         if self.nickname:
             return self.nickname
@@ -883,13 +885,7 @@ class PlantDiseaseRequest(RequestImagesMixin, models.Model):
     # Request Status
     status = models.CharField(
         max_length=20,
-        choices=[
-            ("pending", "Pending Diagnosis"),
-            ("processing", "Processing with AI"),
-            ("diagnosed", "Disease Diagnosed"),
-            ("needs_help", "Needs Community Help"),
-            ("failed", "Diagnosis Failed"),
-        ],
+        choices=DISEASE_REQUEST_STATUS_CHOICES,
         default="pending",
     )
 
@@ -1064,7 +1060,7 @@ class PlantDiseaseDatabase(models.Model):
         return f"{self.disease_name} ({self.disease_type})"
 
     @property
-    def display_name(self):
+    def display_name(self) -> str:
         """Return the best display name for the disease."""
         if self.scientific_name:
             return f"{self.disease_name} ({self.scientific_name})"
@@ -1383,7 +1379,7 @@ class PlantDiseaseResult(models.Model):
         return f"Disease: {disease_name} (confidence: {self.confidence_score:.2%})"
 
     @property
-    def display_name(self):
+    def display_name(self) -> str:
         """Return the best display name for this diagnosis."""
         if self.identified_disease:
             return self.identified_disease.display_name
@@ -1392,7 +1388,7 @@ class PlantDiseaseResult(models.Model):
         return "Unknown Disease"
 
     @property
-    def vote_score(self):
+    def vote_score(self) -> int:
         """Calculate the net vote score."""
         return self.upvotes - self.downvotes
 
@@ -1520,7 +1516,7 @@ class SavedCareInstructions(models.Model):
         return f"{self.user.username} saved care for: {display_name}"
 
     @property
-    def display_name(self):
+    def display_name(self) -> str:
         """Get the best display name for this plant."""
         if self.custom_nickname:
             return self.custom_nickname

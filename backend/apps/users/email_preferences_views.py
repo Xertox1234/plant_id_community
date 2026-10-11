@@ -13,7 +13,12 @@ from urllib.parse import urlencode
 from apps.core.ratelimit import client_ip_key
 from apps.core.utils.pii_safe_logging import log_safe_user_context
 from django_ratelimit.decorators import ratelimit
-from drf_spectacular.utils import OpenApiParameter, extend_schema, inline_serializer
+from drf_spectacular.utils import (
+    OpenApiExample,
+    OpenApiParameter,
+    extend_schema,
+    inline_serializer,
+)
 from rest_framework import permissions, serializers, status
 from rest_framework.decorators import (
     api_view,
@@ -80,6 +85,13 @@ _UNSUBSCRIBE_SCHEMA = extend_schema(
         "EmailUnsubscribeRequest", {"token": serializers.CharField()}
     ),
     responses=_UNSUBSCRIBE_SCHEMA_RESPONSES,
+    examples=[
+        OpenApiExample(
+            "Token from the email link",
+            value={"token": "example-signed-unsubscribe-token"},
+            request_only=True,
+        )
+    ],
 )
 
 

@@ -15,7 +15,9 @@ from imagekit.processors import ResizeToFill
 from taggit.managers import TaggableManager
 
 
-class User(AbstractUser):
+# The stubs plugin cannot resolve the reverse manager that wagtail's BlogPostPage.author
+# adds (Page multi-table inheritance), so it reports the class itself.
+class User(AbstractUser):  # type: ignore[django-manager-missing]
     """
     Custom User model extending Django's AbstractUser with plant community features.
     """
@@ -259,19 +261,19 @@ class User(AbstractUser):
         return reverse("users:profile", kwargs={"username": self.username})
 
     @property
-    def display_name(self):
+    def display_name(self) -> str:
         """Return the best display name for the user."""
         if self.get_full_name():
             return self.get_full_name()
         return self.username
 
     @property
-    def follower_count(self):
+    def follower_count(self) -> int:
         """Return the number of followers."""
         return self.followers.count()
 
     @property
-    def following_count(self):
+    def following_count(self) -> int:
         """Return the number of users being followed."""
         return self.following.count()
 
@@ -355,7 +357,7 @@ class UserPlantCollection(models.Model):
         return f"{self.user.username}'s {self.name}"
 
     @property
-    def plant_count(self):
+    def plant_count(self) -> int:
         """Return the number of plants in this collection."""
         return self.plants.count()
 

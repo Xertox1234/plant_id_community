@@ -19,6 +19,8 @@ DASHBOARD_URL = "/api/v1/auth/me/dashboard-stats/"
 
 
 class DashboardStatsForumTests(TestCase):
+    client: APIClient  # DRF test client; TestCase declares Django's Client
+
     def setUp(self):
         self.client = APIClient()
         self.user = User.objects.create_user(username="ada", password="TestPass123!")

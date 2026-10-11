@@ -5,6 +5,9 @@ URL configuration for plant identification API endpoints.
 import logging
 
 from django.urls import include, path
+from drf_spectacular.types import OpenApiTypes
+from drf_spectacular.utils import extend_schema, inline_serializer
+from rest_framework import serializers
 from rest_framework import status as http_status
 from rest_framework.decorators import api_view
 from rest_framework.response import Response
@@ -18,6 +21,20 @@ app_name = "plant_identification"
 logger = logging.getLogger(__name__)
 
 
+@extend_schema(
+    responses={
+        200: inline_serializer(
+            "PlantIdApiHealth",
+            {
+                "status": serializers.CharField(),
+                "message": serializers.CharField(),
+                "endpoints": serializers.DictField(
+                    child=serializers.ListField(child=serializers.CharField())
+                ),
+            },
+        )
+    }
+)
 @api_view(["GET"])
 def health_check(request):
     """Simple health check endpoint for plant identification API."""
@@ -42,6 +59,15 @@ def health_check(request):
     )
 
 
+@extend_schema(
+    responses={
+        200: OpenApiTypes.OBJECT,
+        503: inline_serializer(
+            "PlantIdServiceStatusError",
+            {"error": serializers.CharField(), "status": serializers.CharField()},
+        ),
+    }
+)
 @api_view(["GET"])
 def service_status(request):
     """Check status of external API services."""

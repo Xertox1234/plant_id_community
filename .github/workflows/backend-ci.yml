@@ -86,10 +86,18 @@ jobs:
         # non-existent model field raises ImproperlyConfigured during generation,
         # which silently breaks /api/schema, /api/docs and /api/redoc AND crashes
         # the affected endpoint at runtime. --validate also rejects malformed
-        # generated OpenAPI documents. No --fail-on-warn yet: the pre-existing
-        # "unable to guess serializer" diagnostics on auth APIViews are intentional
-        # non-structural fallbacks and must not fail the build.
-        run: python manage.py spectacular --file /dev/null --validate
+        # generated OpenAPI documents. --fail-on-warn fails on any generator
+        # warning or error too (todo 581): a view whose request or response
+        # shape drf-spectacular cannot see needs an @extend_schema, so /api/docs
+        # never silently drops an endpoint's shapes.
+        run: python manage.py spectacular --file /dev/null --validate --fail-on-warn
+
+      - name: Type-check apps/users (mypy + django-stubs)
+        # One app at a time (todo 580). pyproject.toml loads the django-stubs
+        # plugin with this job's settings env and sets follow_imports=silent, so
+        # only the files named here report errors. Widen the gate by naming
+        # another app.
+        run: python -m mypy apps/users
 
   backend-tests:
     name: Run backend test suite (pytest, postgres + redis)

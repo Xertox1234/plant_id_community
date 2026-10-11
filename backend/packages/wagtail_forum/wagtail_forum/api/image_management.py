@@ -35,9 +35,28 @@ from ..collections import get_forum_image_collection
 from .pagination import ForumImageCursorPagination
 from .serializers import serialize_image_for_api
 from .versioning import UnversionedForumAPIMixin
-from .views import PrivateForumReadCacheMixin
+from .views import PrivateForumReadCacheMixin, extend_schema
+
+FORUM_IMAGE_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "id": {"type": "integer"},
+        "url": {"type": "string"},
+        "alt": {"type": "string"},
+        "decorative": {"type": "boolean"},
+        "width": {"type": "integer"},
+        "height": {"type": "integer"},
+    },
+}
 
 
+@extend_schema(
+    # The item shape: spectacular adds the list and the cursor-page wrapper
+    # itself, because this is a paginated ListAPIView.
+    responses={200: FORUM_IMAGE_SCHEMA, 403: dict},
+    description="The caller's own uploaded forum images, newest first "
+    "(cursor-paginated).",
+)
 class MyForumImagesView(
     UnversionedForumAPIMixin, PrivateForumReadCacheMixin, generics.ListAPIView
 ):
@@ -113,6 +132,11 @@ class ForumImageDetailView(UnversionedForumAPIMixin, APIView):
 
     permission_classes = [IsAuthenticated]
 
+    @extend_schema(
+        responses={204: None, 403: dict, 404: dict},
+        description="Delete one forum image you may delete (your own, or any "
+        "as a moderator).",
+    )
     def delete(self, request, image_id):
         image = get_object_or_404(
             get_image_model(),

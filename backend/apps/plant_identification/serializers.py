@@ -2,6 +2,8 @@
 Django REST Framework serializers for plant identification.
 """
 
+from typing import Optional
+
 from rest_framework import serializers
 
 from .models import (
@@ -79,7 +81,7 @@ class PlantSpeciesSerializer(serializers.ModelSerializer):
             "primary_image_thumbnail",
         ]
 
-    def get_primary_image_thumbnail(self, obj):
+    def get_primary_image_thumbnail(self, obj) -> Optional[str]:
         """Get thumbnail URL for primary image."""
         if obj.primary_image:
             request = self.context.get("request")
@@ -123,15 +125,15 @@ class PlantIdentificationRequestSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = ["status", "processed_by_ai", "ai_processing_date"]
 
-    def get_images(self, obj):
+    def get_images(self, obj) -> list[str]:
         """Get list of all uploaded image URLs."""
         return serialize_image_urls(obj.images, self.context.get("request"))
 
-    def get_image_thumbnails(self, obj):
+    def get_image_thumbnails(self, obj) -> list[str]:
         """Get list of all image thumbnail URLs."""
         return serialize_image_urls(obj.image_thumbnails, self.context.get("request"))
 
-    def get_results_count(self, obj):
+    def get_results_count(self, obj) -> int:
         """Get count of identification results."""
         if hasattr(obj, "_results_count"):
             return obj._results_count
@@ -181,15 +183,15 @@ class PlantDiseaseRequestSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = ["status", "processed_by_ai", "ai_processing_date"]
 
-    def get_images(self, obj):
+    def get_images(self, obj) -> list[str]:
         """Get list of all uploaded symptom image URLs."""
         return serialize_image_urls(obj.images, self.context.get("request"))
 
-    def get_image_thumbnails(self, obj):
+    def get_image_thumbnails(self, obj) -> list[str]:
         """Get list of all image thumbnail URLs."""
         return serialize_image_urls(obj.image_thumbnails, self.context.get("request"))
 
-    def get_results_count(self, obj):
+    def get_results_count(self, obj) -> int:
         """Get count of diagnosis results."""
         if hasattr(obj, "_results_count"):
             return obj._results_count
@@ -277,7 +279,7 @@ class PlantDiseaseResultSerializer(serializers.ModelSerializer):
             "display_name",
         ]
 
-    def get_confidence_percentage(self, obj):
+    def get_confidence_percentage(self, obj) -> float:
         """Convert confidence score to percentage."""
         return round(obj.confidence_score * 100, 1) if obj.confidence_score else 0
 
@@ -325,7 +327,7 @@ class PlantIdentificationResultSerializer(serializers.ModelSerializer):
             "user_vote",
         ]
 
-    def get_confidence_percentage(self, obj):
+    def get_confidence_percentage(self, obj) -> float:
         """Convert confidence score to percentage."""
         return round(obj.confidence_score * 100, 1) if obj.confidence_score else 0
 
@@ -383,7 +385,7 @@ class UserPlantSerializer(serializers.ModelSerializer):
             "display_name",
         ]
 
-    def get_image_thumbnail(self, obj):
+    def get_image_thumbnail(self, obj) -> Optional[str]:
         """Get thumbnail URL for plant image."""
         if obj.image:
             request = self.context.get("request")
@@ -431,15 +433,15 @@ class PlantIdentificationRequestWithResultsSerializer(serializers.ModelSerialize
         ]
         read_only_fields = ["status", "processed_by_ai", "ai_processing_date"]
 
-    def get_images(self, obj):
+    def get_images(self, obj) -> list[str]:
         """Get list of all uploaded image URLs."""
         return serialize_image_urls(obj.images, self.context.get("request"))
 
-    def get_image_thumbnails(self, obj):
+    def get_image_thumbnails(self, obj) -> list[str]:
         """Get list of all image thumbnail URLs."""
         return serialize_image_urls(obj.image_thumbnails, self.context.get("request"))
 
-    def get_results_count(self, obj):
+    def get_results_count(self, obj) -> int:
         """Get count of identification results."""
         if hasattr(obj, "_results_count"):
             return obj._results_count
@@ -489,15 +491,15 @@ class PlantDiseaseRequestWithResultsSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = ["status", "processed_by_ai", "ai_processing_date"]
 
-    def get_images(self, obj):
+    def get_images(self, obj) -> list[str]:
         """Get list of all uploaded symptom image URLs."""
         return serialize_image_urls(obj.images, self.context.get("request"))
 
-    def get_image_thumbnails(self, obj):
+    def get_image_thumbnails(self, obj) -> list[str]:
         """Get list of all image thumbnail URLs."""
         return serialize_image_urls(obj.image_thumbnails, self.context.get("request"))
 
-    def get_results_count(self, obj):
+    def get_results_count(self, obj) -> int:
         """Get count of diagnosis results."""
         if hasattr(obj, "_results_count"):
             return obj._results_count

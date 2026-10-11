@@ -51,7 +51,7 @@ class UserAdmin(BaseUserAdmin):
         "avatar_display",
     )
 
-    fieldsets = BaseUserAdmin.fieldsets + (
+    fieldsets = tuple(BaseUserAdmin.fieldsets or ()) + (
         (
             "Profile Information",
             {
@@ -101,6 +101,7 @@ class UserAdmin(BaseUserAdmin):
         ("Additional Info", {"fields": ("email", "first_name", "last_name")}),
     )
 
+    @admin.display(description="Avatar Preview")
     def avatar_display(self, obj):
         """Display avatar thumbnail in admin."""
         if obj.avatar:
@@ -110,19 +111,15 @@ class UserAdmin(BaseUserAdmin):
             )
         return "No avatar"
 
-    avatar_display.short_description = "Avatar Preview"
-
+    @admin.display(description="Followers")
     def follower_count(self, obj):
         """Display follower count."""
         return obj.follower_count
 
-    follower_count.short_description = "Followers"
-
+    @admin.display(description="Following")
     def following_count(self, obj):
         """Display following count."""
         return obj.following_count
-
-    following_count.short_description = "Following"
 
 
 @admin.register(UserPlantCollection)
@@ -143,11 +140,10 @@ class UserPlantCollectionAdmin(admin.ModelAdmin):
         ("Timestamps", {"fields": ("created_at", "updated_at")}),
     )
 
+    @admin.display(description="Plants")
     def plant_count(self, obj):
         """Display plant count for the collection."""
         return obj.plant_count
-
-    plant_count.short_description = "Plants"
 
 
 @admin.register(UserMessage)

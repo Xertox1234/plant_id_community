@@ -32,6 +32,8 @@ def _steps(resp):
 
 
 class OnboardingChecklistTests(TestCase):
+    client: APIClient  # DRF test client; TestCase declares Django's Client
+
     def setUp(self):
         self.client = APIClient()
         self.user = User.objects.create_user(username="ada", password="TestPass123!")
@@ -236,6 +238,8 @@ class IdentifyTicksTheChecklistTests(TestCase):
     persisted (todo 411), so there is no row to derive it from."""
 
     URL = "/api/v1/plant-identification/identify/"
+
+    client: APIClient  # DRF test client; TestCase declares Django's Client
 
     def setUp(self):
         self.client = APIClient()

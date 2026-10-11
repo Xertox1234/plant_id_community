@@ -47,6 +47,7 @@ class UserBlockView(UnversionedForumAPIMixin, APIView):
     permission_classes = [IsAuthenticated]
 
     @extend_schema(
+        request=None,
         responses={200: BLOCK_SCHEMA, 400: dict, 404: dict},
         description=(
             "Block a user for the authenticated member (idempotent). "
