@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: p4
 issue_id: "576"
 tags: [forum, backend, tests, follow-ups, todo-sweep]
@@ -32,7 +32,40 @@ PR #1015 (todo sweep run 2026-10-11-0401, group g4, todos 550); follow-ups: veri
 
 ## Acceptance Criteria
 
-- [ ] Each finding above is fixed with a test where it is a behaviour change, or recorded in the Work Log as
+- [x] Each finding above is fixed with a test where it is a behaviour change, or recorded in the Work Log as
       declined with a reason.
 
 ## Work Log
+
+### 2026-10-11 - Implemented by the todo sweep (run 2026-10-11-1448)
+
+- Items 1, 6, 7 (one finding, reported three times): the reset test's prefix-read loop in
+  `backend/apps/forum_host/tests/test_link_preview.py` now breaks on `b""`, so a server that closes early
+  fails `received == b"prefix"` instead of hanging. Checked by making the drip skip the prefix: it fails in 0.6 s.
+- Item 2: `DripServer._receive_request` (`backend/apps/forum_host/tests/conftest.py`) treats a clean EOF as
+  the client leaving and sends nothing; `hung_up` now means a hang-up mid-drip. New test
+  `test_576_item2_a_client_that_closes_before_sending_gets_nothing` (failed before the fix with `b'prefixX'`).
+- Item 3: `test_550_item4_the_repeat_walk_reaches_every_sub_pattern` gains `(?:a*)*`, `(?:a*)*+`, `a*|b*`
+  and `(?:a*|b*)*`. Removing the BRANCH, MAX_REPEAT or POSSESSIVE_REPEAT recursion now fails it.
+- Item 4: the transient-accept test asserts the abort really was injected instead of `len(calls) >= 2`; the
+  item-5 test drops `stopped_in < 1.0`, since `not thread.is_alive()` after `stop(timeout=2)` is the real check.
+- Item 5 (owner decision: re-run in a clean environment): built a fresh `backend/venv` from
+  `backend/requirements-dev.txt` and re-ran the three link-preview suites. Header `deps: 221 pinned,
+  0 mismatched, 0 not installed, 1 unpinned, 0 removed-but-installed`, no ENVIRONMENT DRIFT section,
+  `200 passed`. The main checkout's venv still has pyjwt 2.13.0 and urllib3 2.7.0 (pins 2.15.0 and 2.8.0).
+
+### 2026-10-11 - Verified by the todo sweep (run 2026-10-11-1448)
+
+- AC 1: `python3 scripts/todos/slot_env.py --main-root . 1 -- backend/venv/bin/python -m pytest backend/apps/forum_host/tests/test_link_preview.py backend/apps/forum_host/tests/test_link_preview_images.py backend/packages/wagtail_forum/wagtail_forum/tests/api/test_link_previews.py --create-db -p no:cacheprovider -v` — evidence `.sweep-evidence/g13/576-ac0.txt` (not committed), last lines:
+
+  ```text
+    backend/packages/wagtail_forum/wagtail_forum/api/image_management.py:32: RemovedInWagtail90Warning: wagtail.images.permissions.permission_policy is deprecated. Use wagtail.permissions.policy_registry.get_by_type(get_image_model()) instead.
+      from wagtail.images import permissions as image_permissions
+
+  -- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+  ======================= 200 passed, 3 warnings in 53.95s =======================
+  ```
+
+### 2026-10-11 - Completed by the todo sweep (run 2026-10-11-1448)
+
+- Archived by `land.py archive`; evidence is quoted above, review is on the PR.

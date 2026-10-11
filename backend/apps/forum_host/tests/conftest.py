@@ -24,7 +24,8 @@ class DripServer:
     whether or not a client that connected ever sent anything (todo 545
     item 2, todo 550 item 5): ``accept()`` and the first ``recv()`` poll a
     stop event instead of relying on another thread's ``close()`` to wake
-    them, which Linux never does. A client that resets the connection ends
+    them, which Linux never does. A client that closes before sending
+    anything gets nothing. A client that hangs up or resets mid-drip ends
     the thread quietly rather than raising in it; ``hung_up`` records that
     it did."""
 
@@ -55,10 +56,12 @@ class DripServer:
         return None
 
     def _receive_request(self, connection):
-        """The client's first bytes, or None when the test ended first."""
+        """The client's first bytes, or None when the test ended first or
+        the client closed without sending anything (todo 576 item 2): a
+        clean EOF is the client leaving, not a request to answer."""
         while not self._stop.is_set():
             try:
-                return connection.recv(4096)
+                return connection.recv(4096) or None
             except TimeoutError:
                 continue
         return None

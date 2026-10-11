@@ -960,7 +960,10 @@ def test_545_item2_a_drip_server_nothing_connected_to_stops_promptly():
 def test_550_item5_a_client_that_never_sends_does_not_stall_stop():
     """A client that connects and sends nothing left the drip thread blocked
     in ``recv()``, which ``stop()`` could not wake: teardown waited out the
-    whole join."""
+    whole join.
+
+    A thread still alive after ``stop()``'s join is the failure; no
+    wall-clock bound, which a loaded runner could trip (todo 576 item 4)."""
     import socket as socket_module
 
     from apps.forum_host.tests.conftest import DripServer
@@ -968,12 +971,36 @@ def test_550_item5_a_client_that_never_sends_does_not_stall_stop():
     server = DripServer(b"prefix")
     with socket_module.create_connection(("127.0.0.1", server.port)):
         time.sleep(0.2)  # several accept polls: the server is in recv()
-        started = time.monotonic()
         server.stop(timeout=2)
-        stopped_in = time.monotonic() - started
 
     assert not server.thread.is_alive()
-    assert stopped_in < 1.0
+
+
+def test_576_item2_a_client_that_closes_before_sending_gets_nothing():
+    """A clean EOF before any request is the client leaving, not a request
+    (todo 576 item 2): the drip ends without sending the prefix, and
+    ``hung_up`` stays reserved for a client that hangs up mid-drip.
+
+    The client half-closes (``SHUT_WR``) and keeps reading, so anything the
+    server sent would arrive; before, the drip sent the prefix to it."""
+    import socket as socket_module
+
+    from apps.forum_host.tests.conftest import DripServer
+
+    server = DripServer(b"prefix")
+    try:
+        with socket_module.create_connection(
+            ("127.0.0.1", server.port), timeout=2
+        ) as client:
+            client.shutdown(socket_module.SHUT_WR)
+            received = client.recv(64)
+        server.thread.join(2)
+    finally:
+        server.stop(timeout=2)
+
+    assert received == b""
+    assert not server.thread.is_alive()
+    assert not server.hung_up
 
 
 def test_550_item6_a_transient_accept_error_does_not_end_the_server():
@@ -986,11 +1013,11 @@ def test_550_item6_a_transient_accept_error_does_not_end_the_server():
     from apps.forum_host.tests.conftest import DripServer
 
     real_accept = socket_module.socket.accept
-    calls = []
+    aborted = []
 
     def flaky_accept(listener):
-        calls.append(listener)
-        if len(calls) == 1:
+        if not aborted:
+            aborted.append(errno.ECONNABORTED)
             raise ConnectionAbortedError(errno.ECONNABORTED, "connection aborted")
         return real_accept(listener)
 
@@ -1010,7 +1037,9 @@ def test_550_item6_a_transient_accept_error_does_not_end_the_server():
         finally:
             server.stop(timeout=2)
 
-    assert len(calls) >= 2
+    # The abort really was injected (todo 576 item 4: a call count proved
+    # nothing, since the accept poll calls accept repeatedly anyway).
+    assert aborted == [errno.ECONNABORTED]
     assert received == b"prefix"
 
 
@@ -1035,7 +1064,10 @@ def test_545_item2_a_client_reset_ends_the_drip_thread_quietly():
         client.sendall(b"GET / HTTP/1.1\r\n\r\n")
         received = b""
         while len(received) < len(b"prefix"):
-            received += client.recv(len(b"prefix") - len(received))
+            chunk = client.recv(len(b"prefix") - len(received))
+            if not chunk:
+                break  # the server closed early: fail below, never spin
+            received += chunk
         # SO_LINGER 0: close() sends a RST, not a FIN.
         client.setsockopt(
             socket_module.SOL_SOCKET,
