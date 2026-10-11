@@ -1175,9 +1175,10 @@ class CareTask(models.Model):
         """A concurrent request completed or skipped this task first.
 
         Raised by ``mark_complete``/``mark_skip`` when the locked row is no
-        longer pending. The caller's instance has already been refreshed with
-        the winning ``completed``/``skipped`` state, so the view can answer
-        with the same 400 its pre-check gives.
+        longer pending, whether it was resolved long ago or by a concurrent
+        request a moment ago. The caller's instance has already been
+        refreshed with the winning ``completed``/``skipped`` state, so the
+        view builds its 400 from it.
         """
 
     def mark_complete(self, user):
@@ -1223,17 +1224,13 @@ class CareTask(models.Model):
         audited (imported from ``GardenCalendarConfig.ready()``, todo 571).
         """
         with transaction.atomic():
-            state = (
-                CareTask.objects.select_for_update()
-                .filter(pk=self.pk)
-                .values("completed", "skipped")
-                .first()
-            )
-            if state is None:
-                raise CareTask.DoesNotExist()
-            if state["completed"] or state["skipped"]:
-                self.completed = state["completed"]
-                self.skipped = state["skipped"]
+            # Lock the row and reload EVERY field from it, not only the two
+            # the check reads: the next occurrence is built from this
+            # instance, and a PATCH to the recurrence committed between the
+            # caller's fetch and this lock must not be lost (todo 570 #15).
+            # Raises CareTask.DoesNotExist if the row is gone.
+            self.refresh_from_db(from_queryset=CareTask.objects.select_for_update())
+            if self.completed or self.skipped:
                 raise CareTask.AlreadyResolved()
             for field, value in changes.items():
                 setattr(self, field, value)

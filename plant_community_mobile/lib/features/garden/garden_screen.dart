@@ -33,10 +33,15 @@ class GardenScreen extends ConsumerWidget {
       ),
       body: SafeArea(
         child: RefreshIndicator(
-          onRefresh: () async => ref.invalidate(gardenProvider),
+          // Awaits the reload, so the spinner stays up until it lands
+          // (todo 570 #11).
+          onRefresh: () => _reload(ref),
           child: garden.when(
             loading: () => const Center(child: CircularProgressIndicator()),
             error: (_, _) => ListView(
+              // Scrollable even when the content is shorter than the
+              // screen, or pull-to-refresh never fires (todo 570 #1).
+              physics: const AlwaysScrollableScrollPhysics(),
               children: [
                 const SizedBox(height: 120),
                 const Center(child: Text('Could not load your garden.')),
@@ -75,6 +80,8 @@ class _GardenList extends ConsumerWidget {
     ).textTheme.bodyMedium?.copyWith(color: ext.ink2);
 
     return ListView(
+      // See the error state: a short list must still pull to refresh.
+      physics: const AlwaysScrollableScrollPhysics(),
       padding: EdgeInsets.fromLTRB(
         ext.padScreen,
         ext.padScreen,
@@ -82,6 +89,10 @@ class _GardenList extends ConsumerWidget {
         AppSpacing.xl3 * 2,
       ),
       children: [
+        if (data.truncated) ...[
+          Text(gardenTruncatedNotice, style: muted),
+          SizedBox(height: ext.gapY),
+        ],
         Text('DUE CARE', style: eyebrow),
         SizedBox(height: ext.gapY),
         if (data.tasks.isEmpty)
@@ -221,8 +232,29 @@ String _dueLabel(CareTask task) {
   return 'Due $date';
 }
 
+/// Shown above the lists when either stopped at [gardenMaxPages] (todo 570,
+/// owner decision 2026-10-11: keep the cap, say when it is reached).
+const String gardenTruncatedNotice =
+    'List truncated: you have more plants or care tasks than the app can '
+    'show, so some are missing below.';
+
+/// Reloads the garden and completes when the reload has landed. A failed
+/// reload is not rethrown: the screen shows it as its error state.
+Future<void> _reload(WidgetRef ref) async {
+  final reloaded = ref.refresh(gardenProvider.future);
+  try {
+    await reloaded;
+  } catch (_) {
+    // Rendered by the error state.
+  }
+}
+
 /// Runs a mutation, refreshes the garden, and reports the outcome. [action]
 /// may return a message that replaces [done] (a partial success).
+///
+/// Completes only once the refresh has landed, so a task tile keeps its
+/// buttons disabled until the list no longer shows the finished task (todo
+/// 570 #9).
 Future<void> _run(
   BuildContext context,
   WidgetRef ref,
@@ -238,11 +270,40 @@ Future<void> _run(
     message = e.statusCode == 429
         ? 'Too many changes at once. Try again in a minute.'
         : 'That did not work. Please try again.';
+  } catch (_) {
+    // Anything else (a response that does not parse, say) must still be
+    // reported, and the list still refreshed, rather than escape the
+    // button's handler (todo 570 #5).
+    message = 'That did not work. Please try again.';
   }
   messenger.showSnackBar(SnackBar(content: Text(message)));
   // A WidgetRef is dead once its widget is gone (the user navigated away
   // mid-request); the next visit fetches fresh anyway.
-  if (context.mounted) ref.invalidate(gardenProvider);
+  if (context.mounted) await _reload(ref);
+}
+
+/// CareTask.title's `max_length` on the server.
+const int careTaskTitleMaxLength = 200;
+
+/// The title of a task scheduled from the add-task form: the type label,
+/// a space and the plant name, cut to [careTaskTitleMaxLength]. A plant name may be 200 characters
+/// itself, and an over-long title is a 400 (todo 570 #4, #7).
+@visibleForTesting
+String careTaskTitle(String typeLabel, String plantName) {
+  final title = '$typeLabel $plantName';
+  if (title.length <= careTaskTitleMaxLength) return title;
+  return '${title.substring(0, careTaskTitleMaxLength - 1).trimRight()}…';
+}
+
+/// When a task first due on [day] is due: 9 am local on that calendar day
+/// (a reminder at midnight would arrive while the owner sleeps), or [now]
+/// if 9 am that day has already passed. Built from the date's fields rather
+/// than midnight plus nine hours, which lands at 8 or 10 am on a
+/// daylight-saving change day (todo 570 #10).
+@visibleForTesting
+DateTime firstDueAt(DateTime day, {required DateTime now}) {
+  final nineAm = DateTime(day.year, day.month, day.day, 9);
+  return nineAm.isBefore(now) ? now : nineAm;
 }
 
 Future<void> _addPlant(BuildContext context, WidgetRef ref) async {
@@ -419,10 +480,11 @@ class _AddTaskDialogState extends State<_AddTaskDialog> {
           onPressed: () => Navigator.of(context).pop(
             _TaskDraft(
               taskType: _type,
-              title: '${houseplantTaskTypes[_type]} ${widget.plant.commonName}',
-              // 9 am local on the chosen day: a reminder at midnight would
-              // arrive while the owner sleeps.
-              when: _date.add(const Duration(hours: 9)),
+              title: careTaskTitle(
+                houseplantTaskTypes[_type] ?? _type,
+                widget.plant.commonName,
+              ),
+              when: firstDueAt(_date, now: DateTime.now()),
               repeatDays: _repeat,
             ),
           ),

@@ -1,6 +1,49 @@
+import 'package:dio/dio.dart';
 import 'package:plant_community_mobile/features/garden/models/models.dart';
 import 'package:plant_community_mobile/features/garden/services/garden_api_service.dart';
 import 'package:plant_community_mobile/services/api_service.dart';
+
+/// Records requests and answers them from [responses], keyed by
+/// `METHOD path`. A missing key throws a 500 [ApiException].
+class RecordingApiService extends ApiService {
+  RecordingApiService(this.responses) : super(baseUrl: 'http://test/api/v1');
+
+  final Map<String, Object?> responses;
+  final List<(String, String, Object?, Map<String, dynamic>?)> requests = [];
+
+  Response<dynamic> _answer(String method, String path) {
+    final key = '$method $path';
+    if (!responses.containsKey(key)) {
+      throw ApiException('no fake for $key', statusCode: 500);
+    }
+    return Response(
+      requestOptions: RequestOptions(path: path),
+      data: responses[key],
+      statusCode: 200,
+    );
+  }
+
+  @override
+  Future<Response> get(
+    String path, {
+    Map<String, dynamic>? queryParameters,
+    Options? options,
+  }) async {
+    requests.add(('GET', path, null, queryParameters));
+    return _answer('GET', path);
+  }
+
+  @override
+  Future<Response> post(
+    String path, {
+    dynamic data,
+    Map<String, dynamic>? queryParameters,
+    Options? options,
+  }) async {
+    requests.add(('POST', path, data, queryParameters));
+    return _answer('POST', path);
+  }
+}
 
 /// In-memory [GardenApi] for widget tests: records every call, and fails
 /// any call while [failWith] is set.
@@ -17,23 +60,26 @@ class FakeGardenApi implements GardenApi {
   /// What [completeTask] reports about the care-log write.
   bool logSaves = true;
 
+  /// Whether the fetches report hitting [gardenMaxPages].
+  bool truncated = false;
+
   void _maybeFail() {
     final e = failWith;
     if (e != null) throw e;
   }
 
   @override
-  Future<List<GardenPlant>> fetchPlants() async {
+  Future<GardenList<GardenPlant>> fetchPlants() async {
     calls.add('fetchPlants');
     _maybeFail();
-    return List.of(plants);
+    return GardenList(List.of(plants), truncated: truncated);
   }
 
   @override
-  Future<List<CareTask>> fetchPendingTasks() async {
+  Future<GardenList<CareTask>> fetchPendingTasks() async {
     calls.add('fetchPendingTasks');
     _maybeFail();
-    return tasks.where((t) => t.isPending).toList();
+    return GardenList(tasks.where((t) => t.isPending).toList());
   }
 
   @override

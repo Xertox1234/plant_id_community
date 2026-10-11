@@ -19,6 +19,7 @@ import 'package:plant_community_mobile/features/forum/services/forum_sync_store.
 import 'package:plant_community_mobile/features/garden/garden_screen.dart';
 import 'package:plant_community_mobile/features/garden/services/garden_api_service.dart';
 import 'package:plant_community_mobile/features/onboarding/onboarding_checklist_service.dart';
+import 'package:plant_community_mobile/services/api_service.dart';
 import 'package:plant_community_mobile/services/auth_service.dart';
 import 'package:plant_community_mobile/services/push_message_router_service.dart';
 
@@ -68,10 +69,13 @@ const _careReminderPayload = RemoteMessage(
 );
 
 /// Signed in (the garden is a protected route) with a faked garden API.
-ProviderContainer _careContainer() => ProviderContainer(
+ProviderContainer _careContainer({
+  AuthState auth = const AuthState(jwtToken: 'jwt'),
+  FakeGardenApi? garden,
+}) => ProviderContainer(
   overrides: [
-    authServiceProvider.overrideWithValue(const AuthState(jwtToken: 'jwt')),
-    gardenApiProvider.overrideWithValue(FakeGardenApi()),
+    authServiceProvider.overrideWithValue(auth),
+    gardenApiProvider.overrideWithValue(garden ?? FakeGardenApi()),
     forumApiProvider.overrideWithValue(FakeForumApi()),
     forumSyncStoreProvider.overrideWithValue(InMemoryForumSyncStore()),
     // Signed in, Home (where splash lands) shows the onboarding card, which
@@ -221,6 +225,122 @@ void main() {
 
         expect(find.byType(GardenScreen), findsOneWidget);
         expect(find.byType(LoginScreen), findsNothing);
+      },
+    );
+
+    testWidgets(
+      'a warm-resume tap while the garden is open does not stack a second '
+      'one (todo 570 #6)',
+      (tester) async {
+        final container = _careContainer();
+        addTearDown(container.dispose);
+        final router = container.read(appRouterProvider);
+        container.listen(appRouterProvider, (_, _) {});
+
+        await tester.pumpWidget(
+          UncontrolledProviderScope(
+            container: container,
+            child: MaterialApp.router(routerConfig: router),
+          ),
+        );
+        await tester.pump();
+
+        final service = _TestablePushMessageRouterService(
+          () => router,
+          _FakeMessaging(),
+        );
+        addTearDown(service.detach);
+
+        FirebaseMessagingPlatform.onMessageOpenedApp.add(_careReminderPayload);
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 400));
+        expect(find.byType(GardenScreen), findsOneWidget);
+
+        FirebaseMessagingPlatform.onMessageOpenedApp.add(_careReminderPayload);
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 400));
+
+        expect(find.byType(GardenScreen, skipOffstage: false), findsOneWidget);
+
+        await _drainSplashTimer(tester);
+      },
+    );
+
+    testWidgets(
+      'a warm-resume tap while signed out lands on login, not the garden '
+      '(todo 570 #3)',
+      (tester) async {
+        final container = _careContainer(auth: const AuthState());
+        addTearDown(container.dispose);
+        final router = container.read(appRouterProvider);
+        container.listen(appRouterProvider, (_, _) {});
+
+        await tester.pumpWidget(
+          UncontrolledProviderScope(
+            container: container,
+            child: MaterialApp.router(routerConfig: router),
+          ),
+        );
+        await tester.pump();
+
+        final service = _TestablePushMessageRouterService(
+          () => router,
+          _FakeMessaging(),
+        );
+        addTearDown(service.detach);
+
+        FirebaseMessagingPlatform.onMessageOpenedApp.add(_careReminderPayload);
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 400));
+
+        expect(find.byType(LoginScreen), findsOneWidget);
+        expect(find.byType(GardenScreen, skipOffstage: false), findsNothing);
+
+        await _drainSplashTimer(tester);
+      },
+    );
+
+    testWidgets(
+      'a cold-start tap whose garden fetch fails shows the garden error '
+      'with Retry (todo 570 #3)',
+      (tester) async {
+        final garden = FakeGardenApi()
+          ..failWith = ApiException('down', statusCode: 503);
+        final container = _careContainer(garden: garden);
+        addTearDown(container.dispose);
+        final router = container.read(appRouterProvider);
+        container.listen(appRouterProvider, (_, _) {});
+
+        await tester.pumpWidget(
+          UncontrolledProviderScope(
+            container: container,
+            child: MaterialApp.router(routerConfig: router),
+          ),
+        );
+        await tester.pump();
+
+        final service = _TestablePushMessageRouterService(
+          () => router,
+          _FakeMessaging(initialMessage: _careReminderPayload),
+        );
+        addTearDown(service.detach);
+
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 400));
+        // A 503 retries with backoff before the error shows; past splash.
+        await _drainSplashTimer(tester);
+        for (var i = 0; i < 20; i++) {
+          await tester.pump(const Duration(seconds: 3));
+        }
+
+        expect(find.byType(GardenScreen), findsOneWidget);
+        expect(find.text('Could not load your garden.'), findsOneWidget);
+
+        garden.failWith = null;
+        await tester.tap(find.text('Retry'));
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 400));
+        expect(find.text('No plants yet.'), findsOneWidget);
       },
     );
 

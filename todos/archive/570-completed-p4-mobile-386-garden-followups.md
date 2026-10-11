@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: p4
 issue_id: "570"
 tags: [mobile, backend, garden-calendar, follow-ups]
@@ -41,7 +41,31 @@ engine's cap of 10. Line numbers are as of the PR head; re-check against main be
 
 ## Acceptance Criteria
 
-- [ ] Each finding above is fixed with a test where it is a behaviour change, or recorded in the Work Log as
+- [x] Each finding above is fixed with a test where it is a behaviour change, or recorded in the Work Log as
       declined with a reason.
 
 ## Work Log
+
+### 2026-10-11 - Implemented by the todo sweep (run 2026-10-11-1448)
+
+- Mobile garden (`plant_community_mobile/lib/features/garden/`): #1 both ListViews set `AlwaysScrollableScrollPhysics` (tests pull a short list and the error state; the tests showed pull-to-refresh already worked because a primary vertical ListView defaults to that physics, so this makes it explicit rather than inferred); #11 `onRefresh` awaits `ref.refresh(gardenProvider.future)`; #5 `_run` catches any error (snackbar, list still reloads); #9 `_run` completes only after the reload, so Done/Skip stay disabled until the list drops the finished task; #4/#7 `careTaskTitle` caps the title at 200; #10 `firstDueAt` builds 9 am from the date fields and clamps a past time to now. Each has a test that fails with the fix reverted.
+- #8 (owner decision 2026-10-11): the 10-page cap stays; `GardenList.truncated` reports a `next` left unread and the screen shows a 'List truncated' notice (`garden_api_service_test.dart`, widget tests). #12: `plant__is_active` is now a care-task filter (`backend/apps/garden_calendar/api/views.py`) and the app sends it. #2: `garden_provider_test.dart` pins `gardenRetry`. #3: tests for a signed-out warm tap (lands on login) and a cold start whose garden fetch fails (error + Retry). #6: a warm tap while `/garden` is on top no longer pushes a second one.
+- Backend: #14 (owner decision 2026-10-11, overriding docs/rules/testing.md) `CareTaskResolveLockTest` is a real two-transaction `TransactionTestCase`; it fails with `select_for_update` removed from `CareTask._resolve`. #15 `_resolve` reloads the whole row under the lock (`refresh_from_db(from_queryset=...select_for_update())`), so a committed recurrence PATCH is used (`test_the_next_occurrence_uses_the_recurrence_as_committed`). #16 the views drop the duplicate pre-check; `AlreadyResolved` is the one refusal path.
+- #13 declined, checked against the plugin source: firebase_auth 6.5.4 seeds `currentUser` from the `APP_CURRENT_USER` plugin constant that `Firebase.initializeApp()` collects (iOS `FLTFirebaseAuthPlugin.m:326`, Android `FlutterFirebaseAuthPlugin.java:742`, read in `FirebaseAuthPlatform.instanceFor`), before `runApp`, so a persisted user is non-null when `AuthService.build` runs on a cold start. Web, where restore is async, is not a target.
+- The `GardenApi` fetches now return `GardenList`, so the test fake (`test/features/garden/support/garden_test_support.dart`) and the existing `HttpGardenApi` tests changed with it; the recording `ApiService` moved into that support file.
+
+### 2026-10-11 - Verified by the todo sweep (run 2026-10-11-1448)
+
+- AC 1: `bash -c 'cd backend && python3 scripts/todos/slot_env.py --main-root . 2 -- backend/venv/bin/python -m pytest apps/garden_calendar/tests/test_models.py apps/garden_calendar/tests/test_viewsets.py --create-db -q -p no:cacheprovider && cd plant_community_mobile && flutter test --no-pub -r expanded test/features/garden test/services/push_message_router_service_test.dart'` — evidence `.sweep-evidence/g8/570-ac0.txt` (not committed), last lines:
+
+  ```text
+  00:01 +51: plant_community_mobile/test/services/push_message_router_service_test.dart: PushMessageRouterService payload edge cases a moderation_decided-shaped payload (no post_id key) routes to the topic without a postId query param
+  00:01 +52: plant_community_mobile/test/services/push_message_router_service_test.dart: PushMessageRouterService payload edge cases an unparseable topic_id does not navigate at all (silent no-op, not a crash)
+  00:01 +53: plant_community_mobile/test/services/push_message_router_service_test.dart: pushBackgroundMessageHandler completes without throwing
+  [PUSH] Background message received: {topic_id: 42}
+  00:01 +54: All tests passed!
+  ```
+
+### 2026-10-11 - Completed by the todo sweep (run 2026-10-11-1448)
+
+- Archived by `land.py archive`; evidence is quoted above, review is on the PR.

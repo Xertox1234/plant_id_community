@@ -33,6 +33,7 @@ name: Harness CI
 #   python3 scripts/test_check_firebase_rules_drift.py && \
 #   python3 scripts/test_check_archived_todo_status.py && \
 #   python3 scripts/check_archived_todo_status.py --fail-over 0 && \
+#   python3 scripts/test_check_log_prefixes.py && \
 #   python3 scripts/todos/test_todofile.py && \
 #   python3 scripts/todos/test_state.py && \
 #   python3 scripts/todos/test_state_flow.py && \
@@ -60,6 +61,9 @@ name: Harness CI
       - 'scripts/test_check_firebase_rules_drift.py'
       - 'scripts/check_archived_todo_status.py'
       - 'scripts/test_check_archived_todo_status.py'
+      - 'scripts/check_log_prefixes.py'
+      - 'scripts/add_log_prefixes.py'
+      - 'scripts/test_check_log_prefixes.py'
       - 'plant_community_mobile/run_archive.sh'
       - 'plant_community_mobile/scripts/test_run_archive.sh'
       - 'todos/archive-status-allowlist.yml'
@@ -131,6 +135,11 @@ jobs:
           # todos/archive-status-allowlist.yml, and a stale entry there fails
           # too, so the list can only shrink.
           python3 scripts/check_archived_todo_status.py --fail-over 0
+
+      # The `# log-prefix: exempt` rule (todo 573): which comment excuses a
+      # logger call, and add_log_prefixes.py honouring it. Stdlib only.
+      - name: Log-prefix checker self-test
+        run: python3 scripts/test_check_log_prefixes.py
 
       - name: Todo sweep engine tests
         run: |

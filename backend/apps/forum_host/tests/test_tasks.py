@@ -747,16 +747,21 @@ def test_send_forum_push_batch_does_not_re_enqueue_on_permanent_error(exc):
 
 # --- todo 457 item 3: a dead device token is cleared -------------------------
 
-_DEAD_TOKEN_CLASSES = {"UnregisteredError", "SenderIdMismatchError"}
+# SenderIdMismatchError left this set in todo 566 (owner decision
+# 2026-10-11): it means the server's credentials are another project's, so
+# clearing on it would wipe every healthy token after one bad deploy.
+_DEAD_TOKEN_CLASSES = {"UnregisteredError"}
+_CREDENTIALS_CLASSES = {"SenderIdMismatchError", "ThirdPartyAuthError"}
 
 
 @pytest.mark.django_db
 @pytest.mark.parametrize("batch", [False, True], ids=["single", "batch"])
 @pytest.mark.parametrize("exc", _permanent_fcm_errors(), ids=lambda e: type(e).__name__)
 def test_a_dead_token_is_cleared_and_other_permanent_errors_keep_it(exc, batch):
-    """Only the token-is-dead classes clear it. ThirdPartyAuthError (APNs
-    credentials) and InvalidArgumentError (a bad message) are permanent too,
-    but the token is fine, so clearing on them would wipe healthy devices."""
+    """Only the token-is-dead class clears it. ThirdPartyAuthError (APNs
+    credentials), SenderIdMismatchError (another project's credentials) and
+    InvalidArgumentError (a bad message) are permanent too, but the token is
+    fine, so clearing on them would wipe healthy devices."""
     name = type(exc).__name__.lower()
     user = User.objects.create_user(username=f"clear-{name}-{batch}")
     profile = ForumProfile.for_user(user)
@@ -783,6 +788,44 @@ def test_a_dead_token_is_cleared_and_other_permanent_errors_keep_it(exc, batch):
         assert profile.fcm_token == ""
     else:
         assert profile.fcm_token == "maybe-dead-token"
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("batch", [False, True], ids=["single", "batch"])
+@pytest.mark.parametrize("exc", _permanent_fcm_errors(), ids=lambda e: type(e).__name__)
+def test_a_credentials_error_logs_at_error_level(exc, batch):
+    """Todo 566: a project-wide credentials failure must be seen, so it logs
+    at ERROR; the token-level ones stay at WARNING."""
+    import logging
+
+    name = type(exc).__name__.lower()
+    user = User.objects.create_user(username=f"level-{name}-{batch}")
+    profile = ForumProfile.for_user(user)
+    profile.fcm_token = "a-token"
+    profile.save()
+
+    mock_fcm = MagicMock()
+    mock_fcm.send.side_effect = exc
+
+    with patch(
+        "apps.core.firebase_config.is_firebase_available", return_value=True
+    ), patch("apps.core.firebase_config.get_fcm_client", return_value=mock_fcm), patch(
+        "apps.forum_host.tasks.send_forum_push.delay"
+    ), patch(
+        "apps.forum_host.tasks.logger.log"
+    ) as log:
+        from apps.forum_host.tasks import send_forum_push, send_forum_push_batch
+
+        if batch:
+            send_forum_push_batch("reply_added", [user.pk], {"topic_id": "1"})
+        else:
+            send_forum_push("reply_added", user.pk, {"topic_id": "1"})
+
+    levels = [c.args[0] for c in log.call_args_list if "permanently" in c.args[1]]
+    expected = (
+        logging.ERROR if type(exc).__name__ in _CREDENTIALS_CLASSES else logging.WARNING
+    )
+    assert levels == [expected]
 
 
 @pytest.mark.django_db
@@ -951,26 +994,39 @@ def test_weekly_digest_task_re_enqueues_itself_after_a_soft_time_limit():
     again.assert_called_once_with(countdown=tasks.DIGEST_CONTINUATION_DELAY)
 
 
+# The relay loop's own format string: it marks exactly the relayed lines,
+# with no word filter that could drop one (todo 573).
+RELAY_FORMAT = "%s (task=%s)"
+
+
+def relayed_lines(info_mock):
+    """The command output lines a task relayed through ``logger.info``."""
+    return [c.args[1] for c in info_mock.call_args_list if c.args[0] == RELAY_FORMAT]
+
+
 @pytest.mark.django_db
-def test_weekly_digest_relays_the_real_command_output_with_one_prefix(caplog):
+def test_weekly_digest_relays_the_real_command_output_with_one_prefix():
     """Todo 392: the relay loop adds no prefix because the package command
     already writes `[EMAIL] ...`. Run the REAL command (no call_command mock)
-    and read what the task actually logs: exactly one `[EMAIL]` per line."""
-    from apps.forum_host import tasks
+    and read what the task actually logs: exactly one `[EMAIL]` per line.
 
-    with caplog.at_level("INFO", logger=tasks.logger.name):
+    The task logger's ``info`` is patched rather than read through caplog,
+    which depends on the app logger propagating to the root handler (todo
+    573). The run lock is cleared first, and the summary line is required:
+    a leaked lock relays only its "holds the lock" line, which would fail.
+    """
+    from apps.forum_host import tasks
+    from django.core.cache import cache
+
+    cache.delete("wagtail_forum:digest-run:weekly")
+    with patch.object(tasks.logger, "info") as info:
         tasks.send_forum_weekly_digest.apply()
 
-    relayed = [
-        r.getMessage()
-        for r in caplog.records
-        if r.name == tasks.logger.name and "starting" not in r.getMessage()
-    ]
+    relayed = relayed_lines(info)
+    assert any("recipients=" in line for line in relayed), relayed
     for line in relayed:
-        print(f"relayed: {line}")
-    assert relayed, "the command wrote nothing for the task to relay"
-    assert all(line.startswith("[EMAIL] digest frequency=weekly") for line in relayed)
-    assert not any("[EMAIL] [EMAIL]" in line for line in relayed)
+        assert line.startswith("[EMAIL] "), line
+        assert line.count("[EMAIL]") == 1, line
 
 
 def test_the_digest_run_lock_outlives_the_task_but_not_by_much():

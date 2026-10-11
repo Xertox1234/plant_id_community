@@ -52,4 +52,4 @@ final class GardenProvider
   }
 }
 
-String _$gardenHash() => r'7d6f2a17b904c01924a81d1ef573fadd15a5ba5f';
+String _$gardenHash() => r'2dd830d59bae1e393da5a071d3ad3253d479c421';

@@ -14,6 +14,7 @@ from typing import Any
 from apps.core.fcm import (
     clear_dead_fcm_token,
     is_dead_fcm_token_error,
+    is_fcm_credentials_error,
     is_permanent_fcm_error,
     send_fcm_message,
 )
@@ -94,13 +95,22 @@ def _claim_due_tasks(now: datetime) -> list[dict]:
     return claimed
 
 
-def _release(tasks: list[dict], now: datetime, task_id: str | None) -> None:
+def _release(
+    tasks: list[dict],
+    now: datetime,
+    task_id: str | None,
+    *,
+    warn_age_out: bool = True,
+) -> None:
     """Un-claim tasks after a transient send failure, so the next sweep retries.
 
     A released task is re-claimed every sweep only while it is inside the
     lookback window; after that no sweep selects it again. Warn when this is
     its last chance, so a reminder that keeps failing is not dropped silently
-    (todo 457).
+    (todo 457). ``warn_age_out=False`` when the task's own autoretry will
+    re-claim the tasks within a minute or two, long before the next beat
+    sweep: the warning would say "will not be sent" of a reminder that will
+    be (todo 566).
     """
     from .models import CareTask
 
@@ -113,7 +123,7 @@ def _release(tasks: list[dict], now: datetime, task_id: str | None) -> None:
         + timedelta(minutes=CARE_REMINDER_SWEEP_INTERVAL_MINUTES)
     )
     for task in tasks:
-        if task["scheduled_date"] < ages_out_before:
+        if warn_age_out and task["scheduled_date"] < ages_out_before:
             logger.warning(
                 "[FCM] care reminder for task %s (user=%s) leaves the %sh "
                 "lookback before the next sweep; it will not be sent (task=%s)",
@@ -177,10 +187,18 @@ def send_due_care_task_reminders(self) -> None:
         sent = _push_to_owners(fcm, by_owner, done, retry_later, task_id)
         if retry_later:
             _release(retry_later, now, task_id)
-    except BaseException:  # re-raised below; a worker shutdown must un-claim too
+    except BaseException as exc:  # re-raised below; a worker shutdown must un-claim too
         unfinished = [t for o, ts in by_owner.items() if o not in done for t in ts]
+        # autoretry_for re-runs the task soon after an OperationalError, so
+        # the age-out warning (which assumes the next BEAT sweep) is wrong
+        # there, unless the retries are spent (todo 566).
+        autoretries = isinstance(exc, OperationalError) and (
+            self.request.retries < self.max_retries
+        )
         try:
-            _release(unfinished + retry_later, now, task_id)
+            _release(
+                unfinished + retry_later, now, task_id, warn_age_out=not autoretries
+            )
         except Exception:
             logger.exception(
                 "[FCM] care reminders: could not release %s claimed tasks; "
@@ -256,7 +274,14 @@ def _push_to_owners(
                     # Forget the dead device, so the next sweep does not
                     # send to it again (todo 457).
                     clear_dead_fcm_token(owner_id, token)
-                logger.warning(
+                # A credentials error is the server's setup, not this device:
+                # the token is kept, and it logs at ERROR (todo 566).
+                logger.log(
+                    (
+                        logging.ERROR
+                        if is_fcm_credentials_error(exc)
+                        else logging.WARNING
+                    ),
                     "[FCM] care reminder failed permanently (user=%s, task=%s): %s",
                     owner_id,
                     task_id,

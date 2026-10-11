@@ -580,6 +580,92 @@ class CareReminderFollowUpSweepTest(TestCase):
 
         self.assertEqual(self._token(self.alice), "alice-device")
 
+    def test_a_sender_id_mismatch_keeps_the_token_and_logs_an_error(self):
+        """Todo 566 (owner decision 2026-10-11): SenderIdMismatchError means
+        the server's credentials are another project's, so one bad deploy
+        would wipe every token. Keep it, and log at ERROR."""
+        from firebase_admin import messaging
+
+        _task(self.plant, due=self.now)
+
+        with self.assertLogs("apps.garden_calendar.tasks", level="ERROR") as logs:
+            self._run(send=messaging.SenderIdMismatchError("other project"))
+
+        self.assertEqual(self._token(self.alice), "alice-device")
+        self.assertTrue(
+            any(m.startswith("ERROR:") and "permanently" in m for m in logs.output),
+            logs.output,
+        )
+
+    def test_a_dead_token_logs_a_warning_not_an_error(self):
+        from firebase_admin import messaging
+
+        _task(self.plant, due=self.now)
+
+        with self.assertLogs("apps.garden_calendar.tasks", level="WARNING") as logs:
+            self._run(send=messaging.UnregisteredError("gone"))
+
+        permanent = [m for m in logs.output if "permanently" in m]
+        self.assertEqual(len(permanent), 1, logs.output)
+        self.assertTrue(permanent[0].startswith("WARNING:"), permanent)
+
+    def test_a_token_reregistered_during_the_sweep_send_is_kept(self):
+        """Todo 566 item 7: drive the sweep itself. The device registers a new
+        token while the send to the old one is failing; the clear matches on
+        the failed token, so the new one survives."""
+        from firebase_admin import messaging
+
+        _task(self.plant, due=self.now)
+
+        def send(_message):
+            self._set_token(self.alice, "alice-new-device")
+            raise messaging.UnregisteredError("old token gone")
+
+        self._run(send=send)
+
+        self.assertEqual(self._token(self.alice), "alice-new-device")
+
+    def test_an_autoretried_db_error_does_not_warn_of_an_age_out(self):
+        """Todo 566 item 6: an OperationalError after the claim releases the
+        batch and autoretry re-claims it within minutes, so the "will not be
+        sent" warning would be false."""
+        from django.db import OperationalError
+
+        _task(self.plant, due=self.now - timedelta(hours=23, minutes=50))
+
+        with patch(
+            "apps.garden_calendar.tasks._push_to_owners",
+            side_effect=OperationalError("db blip"),
+        ), patch("apps.garden_calendar.tasks.logger") as log:
+            with self.assertRaises(OperationalError):
+                self._run()
+
+        messages = [str(c.args[0]) for c in log.warning.call_args_list]
+        self.assertFalse([m for m in messages if "will not be sent" in m], messages)
+
+    def test_a_db_error_on_the_last_retry_still_warns_of_an_age_out(self):
+        from django.db import OperationalError
+
+        _task(self.plant, due=self.now - timedelta(hours=23, minutes=50))
+
+        send_due_care_task_reminders.push_request(
+            retries=send_due_care_task_reminders.max_retries
+        )
+        try:
+            with patch(
+                "apps.garden_calendar.tasks._push_to_owners",
+                side_effect=OperationalError("db blip"),
+            ), patch("apps.garden_calendar.tasks.logger") as log:
+                with self.assertRaises(OperationalError):
+                    self._run()
+        finally:
+            send_due_care_task_reminders.pop_request()
+
+        messages = [str(c.args[0]) for c in log.warning.call_args_list]
+        self.assertEqual(
+            len([m for m in messages if "will not be sent" in m]), 1, messages
+        )
+
     def test_a_token_reregistered_since_the_send_is_kept(self):
         from apps.core.fcm import clear_dead_fcm_token
 
