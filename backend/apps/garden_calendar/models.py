@@ -1219,8 +1219,8 @@ class CareTask(models.Model):
         same transaction.
 
         The write is a ``save()``, not a ``QuerySet.update()``, so save
-        signals see it: ``auditlog.py`` declares CareTask completion/skip as
-        audited (that module is not yet imported anywhere; todo follow-up).
+        signals see it: ``auditlog.py`` registers CareTask completion/skip as
+        audited (imported from ``GardenCalendarConfig.ready()``, todo 571).
         """
         with transaction.atomic():
             state = (
