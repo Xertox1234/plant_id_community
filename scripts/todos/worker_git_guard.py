@@ -63,8 +63,10 @@ GUARDED_AGENTS = set(ALLOWED_BY_AGENT)
 MAIN_REASON = ("git {sub} would run in the main checkout at {path}; name your worktree explicitly: "
                "git -C <WT> {sub} ...")
 # The calling agent's allowed set and working directory, set by decide() for one hook call.
-# `lastpipe`: a bash body ran `shopt -s lastpipe`, so its last pipeline stage stays in the shell (todo 496 D).
-CONTEXT = {"allowed": GIT_ALLOWED, "cwd": None, "shell": "zsh", "lastpipe": False}
+# `lastpipe`: a bash body ran `shopt -s lastpipe`, so its last pipeline stage stays in the shell (todo 496 D);
+# None when that cannot be told (a runtime shopt operand, bash's invalid `set -o lastpipe`: todo 584).
+# `deferred`: judging code that runs later -- a trap action, a mapfile -C callback, a function body (todo 584).
+CONTEXT = {"allowed": GIT_ALLOWED, "cwd": None, "shell": "zsh", "lastpipe": False, "deferred": False}
 GIT_GLOBAL_WITH_VALUE = {"-C", "--git-dir", "--work-tree"}
 GIT_GLOBAL_FLAGS = {"--no-pager", "-P", "--no-optional-locks"}
 # Long options that make an allowed subcommand run a program, write a file or
@@ -95,6 +97,14 @@ SOURCES = {"source", "."}  # run a script in the current shell: same stdin risk 
 KEYWORDS = {"then", "do", "else", "elif", "if", "while", "until", "in", "esac", "fi", "done",
             "{", "}", "!", "coproc", "builtin", "always", "noglob", "nocorrect"}
 DATA_KEYWORDS = {"for", "select", "case"}
+# Reserved words that open and close a compound command, counted to find where a piped compound stage or a
+# function body ends (todo 584). zsh's short forms (`if x { }`) over-count, which only makes the extent longer.
+OPENERS = {"{", "if", "case", "while", "until", "for", "select", "foreach"}
+CLOSERS = {"}", "fi", "esac", "done", "end"}
+PIPES = ("|", "|&")
+CD_PROGRAMS = {"cd", "pushd", "popd"}
+# Signals whose trap runs around every command or on any failure, so their action cannot be placed (todo 584).
+EVERY_COMMAND_TRAPS = {"DEBUG", "ERR", "ZERR", "RETURN"}
 # wrapper -> (options that take a separate value, operands before the command)
 WRAPPERS = {
     "rtk": ((), 0), "command": ((), 0), "nohup": ((), 0), "exec": (("-a",), 0),
@@ -383,13 +393,88 @@ def segments(tokens):
     yield Segment(words, stdin, piped, None, (n for t in targets for n in t.nested))
 
 
+def compound_delta(words):
+    """Compound openers minus closers among a segment's leading reserved words, plus a `}` ending it (todo 584).
+    The words after `function NAME`, and after for/select/case/foreach (a word list or pattern), are skipped."""
+    i, delta, last = (2 if words and keyword(words[0]) == "function" else 0), 0, -1
+    while i < len(words):
+        k = keyword(words[i])
+        if k in OPENERS:
+            delta += 1
+        elif k in CLOSERS:
+            delta -= 1
+        elif k not in KEYWORDS:
+            break
+        last = i
+        if k in DATA_KEYWORDS or k == "foreach":
+            break
+        i += 1
+    if words and last < len(words) - 1 and keyword(words[-1]) == "}":
+        delta -= 1
+    return delta
+
+
+def function_body_start(segs, idx):
+    """The index of the segment where a function body starts when segs[idx] begins a definition --
+    `NAME ( )`, `function NAME`, `function NAME ( )` -- else None (todo 584 finding 5)."""
+    seg, nxt = segs[idx], segs[idx + 1] if idx + 1 < len(segs) else None
+    parens = seg.end == "(" and nxt is not None and not nxt.words and nxt.end == ")"
+    first = keyword(seg.words[0]) if seg.words else None
+    if first == "function":
+        if len(seg.words) > 2:
+            return idx  # function NAME { ...: the body starts in this segment
+        return idx + 2 if parens else idx + 1
+    if len(seg.words) == 1 and first and parens and first not in KEYWORDS | DATA_KEYWORDS:
+        return idx + 2
+    return None
+
+
+def last_stage_cwd(before, after):
+    """The directory after a pipeline's LAST stage (todo 496 finding 2, D, E; todo 584 finding 2)."""
+    shell, lastpipe = CONTEXT["shell"], CONTEXT["lastpipe"]
+    if shell in AMBIGUOUS_STAGE_SHELLS or (shell not in LAST_STAGE_SHELLS and lastpipe is None):
+        return either_main(before, after)
+    return after if shell in LAST_STAGE_SHELLS or lastpipe else before
+
+
 def check_segments(segs, depth):
+    segs = list(segs)
+    saved = CONTEXT["cwd"], CONTEXT["deferred"]
+    try:
+        return _check_segments(segs, depth)
+    finally:
+        if CONTEXT["deferred"] != saved[1]:  # a function body left open at the end of the command
+            CONTEXT["cwd"], CONTEXT["deferred"] = saved
+
+
+def _check_segments(segs, depth):
     cases, pattern, subshells, opens = 0, False, [], 0
-    for seg in segs:
+    # Todo 584 finding 4: `stages` holds each open compound command (nesting `level`, the directory before it,
+    # whether it is a piped stage), so a cd inside holds for the rest of it and the pipeline rule applies once,
+    # where it ends. `body`: an open function body (todo 584 finding 5), judged as deferred code.
+    level, stages, body, body_at, prev_end = 0, [], None, None, None
+    for idx, seg in enumerate(segs):
+        if body is None and body_at is None:
+            body_at = function_body_start(segs, idx)
+        if body is None and body_at is not None and idx >= body_at and (seg.words or seg.end == "("):
+            body = {"level": level, "subshells": None if seg.words else len(subshells),
+                    "saved": (CONTEXT["cwd"], CONTEXT["deferred"])}
+            if seg.words and compound_delta(seg.words) <= 0:
+                body["level"] = float("-inf")  # cannot bound it: runs to the end (fail closed)
+            CONTEXT["cwd"], CONTEXT["deferred"], body_at = DEFERRED, True, None
+        if CONTEXT["deferred"] and any(os.path.basename(w.value) in CD_PROGRAMS for w in seg.words):
+            return DEFERRED_CD_REASON
         # Todo 496 G: `(( GIT_X = 1 ))` is two ( operators, then words; it assigns like $((...)).
         if opens >= 2 and ARITH_ASSIGN.search(" ".join(w.raw for w in seg.words)):
             return PARAM_REASON
         opens = opens + 1 if seg.end == "(" and not seg.words else 0
+        delta = compound_delta(seg.words)
+        stage_piped = seg.piped and prev_end in PIPES
+        prev_end = seg.end
+        before = CONTEXT["cwd"]
+        if delta > 0:
+            stages.append((level, before, stage_piped))
+        level += delta
         # Todo 496 finding 3: a $(...) runs where its command runs, so after any earlier cd -- and before
         # the case/for handling below, whose words are data but whose substitutions still run.
         for inner in seg.nested:
@@ -398,36 +483,54 @@ def check_segments(segs, depth):
                 return reason
         first = next((w for w in seg.words if keyword(w) not in KEYWORDS - {"esac"}), None)
         lead = keyword(first) if first else None
+        skip = False
         if pattern:  # a case pattern such as `*)` is data
             if lead != "esac":
-                pattern = seg.end != ")"
-                continue
-            cases, pattern = cases - 1, False
+                pattern, skip = seg.end != ")", True
+            else:
+                cases, pattern = cases - 1, False
         elif lead == "case":
-            cases, pattern = cases + 1, seg.end != ")"
-            continue
-        # Todo 477: a `cd` moves the directory the next git runs in, but not out of a ( subshell ), a
-        # pipeline stage or a background job: those run in a child shell, so the directory is restored.
-        # Todo 496 finding 2: zsh (the agents' shell) runs a pipeline's LAST stage in the current shell,
-        # so a cd there sticks; bash/sh/dash (a `bash -c` body) undo it like any other stage.
-        # Todo 496 D: bash with `shopt -s lastpipe` keeps the last stage too. Todo 496 E: an unknown shell
-        # (or fish) might keep any stage, so the directory becomes whichever side is a main checkout.
-        before = CONTEXT["cwd"]
-        reason = check_words(seg.words, seg.piped, seg.stdin, depth)
-        if reason:
-            return reason
-        shell = CONTEXT["shell"]
-        stage = seg.piped or seg.end in ("|", "|&")
-        if seg.end == "&":
-            CONTEXT["cwd"] = before
-        elif stage and shell in AMBIGUOUS_STAGE_SHELLS:
-            CONTEXT["cwd"] = either_main(before, CONTEXT["cwd"])
-        elif stage and (seg.end in ("|", "|&") or not (shell in LAST_STAGE_SHELLS or CONTEXT["lastpipe"])):
-            CONTEXT["cwd"] = before
-        if seg.end == "(":
-            subshells.append(CONTEXT["cwd"])
-        elif seg.end == ")":
-            CONTEXT["cwd"] = subshells.pop() if subshells else UNKNOWN
+            cases, pattern, skip = cases + 1, seg.end != ")", True
+        if not skip:
+            reason = check_words(seg.words, seg.piped, seg.stdin, depth)
+            if reason:
+                return reason
+            # Todo 477: a `cd` moves the directory the next git runs in, but not out of a ( subshell ), a
+            # pipeline stage or a background job: those run in a child shell, so the directory is restored.
+            # Todo 496 finding 2: zsh (the agents' shell) runs a pipeline's LAST stage in the current shell,
+            # so a cd there sticks; bash/sh/dash (a `bash -c` body) undo it like any other stage.
+            # Todo 496 D: bash with `shopt -s lastpipe` keeps the last stage too. Todo 496 E: an unknown shell
+            # (or fish) might keep any stage, so the directory becomes whichever side is a main checkout.
+            # Todo 584 finding 4: a segment that opens a compound command is not a stage of its own.
+            if seg.end == "&":
+                CONTEXT["cwd"] = before
+            elif seg.end in PIPES:
+                ambiguous = CONTEXT["shell"] in AMBIGUOUS_STAGE_SHELLS
+                CONTEXT["cwd"] = either_main(before, CONTEXT["cwd"]) if ambiguous else before
+            elif stage_piped and delta <= 0:
+                CONTEXT["cwd"] = last_stage_cwd(before, CONTEXT["cwd"])
+            if seg.end == "(":
+                subshells.append(CONTEXT["cwd"])
+            elif seg.end == ")":
+                CONTEXT["cwd"] = subshells.pop() if subshells else DEFERRED if CONTEXT["deferred"] else UNKNOWN
+        # A compound command that ended here: whether it was a pipeline stage shows in the operator after
+        # it, which follows a `}` as an empty segment of its own.
+        nxt = segs[idx + 1] if idx + 1 < len(segs) else None
+        term = nxt.end if seg.end == "}" and nxt is not None and not nxt.words else seg.end
+        while stages and level <= stages[-1][0]:
+            _, stage_before, piped = stages.pop()
+            if term == "&":
+                CONTEXT["cwd"] = stage_before
+            elif term in PIPES:
+                ambiguous = CONTEXT["shell"] in AMBIGUOUS_STAGE_SHELLS
+                CONTEXT["cwd"] = either_main(stage_before, CONTEXT["cwd"]) if ambiguous else stage_before
+            elif piped:
+                CONTEXT["cwd"] = last_stage_cwd(stage_before, CONTEXT["cwd"])
+            term = None  # an inner compound closing in the same segment is not a stage of its own
+        if body is not None and (level <= body["level"] if body["subshells"] is None
+                                 else seg.end == ")" and len(subshells) <= body["subshells"]):
+            CONTEXT["cwd"], CONTEXT["deferred"] = body["saved"]
+            body = None
         if cases and seg.end in CASE_ENDS:
             pattern = True
     return None
@@ -538,7 +641,7 @@ def check_setters(program, rest, depth):
                     if c == "a" and program == "read":
                         operands.append(value)
                     elif c == "C" and program in ("mapfile", "readarray"):
-                        reason = decide_command(value.value, depth + 1)  # the callback runs as a command
+                        reason = decide_deferred(value.value, depth)  # the callback runs as a command
                         if reason:
                             return reason
                     elif git_name(value.value):
@@ -582,6 +685,13 @@ GIT_ENV_REASON = ("environment variables ({names}) are not allowed for this agen
 ALLEXPORT_REASON = "turning on allexport (set -a, set -o allexport, setopt allexport) is not allowed for this agent"
 OPTION_REASON = "a shell option name built at runtime ({raw}) is not allowed here; name the option literally"
 DEFINE_REASON = "{program} definitions are not allowed for this agent; run the command by its name"
+DEFERRED_CD_REASON = ("a cd, pushd or popd in a trap action, mapfile -C callback or function body runs later and "
+                      "moves wherever git runs next; not allowed for this agent")
+DEFERRED_GIT_REASON = ("git {sub} in a trap action, mapfile -C callback or function body runs later, in whatever "
+                       "directory the shell is in then; name the worktree: git -C <absolute WT> {sub} ...")
+TRAP_REASON = "a {signal} trap runs around every command or on any failure; not allowed for this agent"
+KEYWORD_REASON = ("turning on keyword (set -k, set -o keyword, bash -k) exports every NAME=value argument, so a "
+                  "GIT_* one would reach git; not allowed for this agent")
 
 
 def option_is(text, name):
@@ -592,8 +702,9 @@ def option_is(text, name):
 
 def check_shell_options(program, rest, depth):
     """set / setopt / unsetopt / shopt / emulate: deny allexport in every spelling (todo 496 F) and note a
-    bash `shopt -s lastpipe` (todo 496 D). Names built at runtime are denied, or for shopt -s taken as
-    lastpipe. Also zsh's `set -A NAME` and fish's `set NAME` set a variable."""
+    bash `shopt -s/-u lastpipe` (todo 496 D, todo 584). Names built at runtime are denied, or for shopt -s/-u
+    leave lastpipe unknown. keyword (set -k) is denied like allexport (todo 584). Also zsh's `set -A NAME`
+    and fish's `set NAME` set a variable."""
     flags, k = "", 0
     while k < len(rest):
         w, v = rest[k], rest[k].value
@@ -607,6 +718,8 @@ def check_shell_options(program, rest, depth):
             flags += letters
             if v[0] == "-" and "a" in letters and program in ("set", "setopt", "unsetopt"):
                 return ALLEXPORT_REASON  # set -a; zsh's single-letter -a is ALL_EXPORT too
+            if v[0] == "-" and "k" in letters and program in ("set", "setopt", "unsetopt"):
+                return KEYWORD_REASON  # todo 584 finding 3: set -k (zsh's -k is another option: fail closed)
             if program in ("setopt", "unsetopt") and "m" in letters:
                 return ALLEXPORT_REASON  # setopt -m 'all*' sets every option matching a pattern
             if program == "emulate" and "c" in letters and k < len(rest):
@@ -626,8 +739,12 @@ def check_shell_options(program, rest, depth):
                     return OPTION_REASON.format(raw=opt.raw)
                 if option_is(opt.value, "allexport"):
                     return ALLEXPORT_REASON
+                if option_is(opt.value, "keyword"):
+                    return KEYWORD_REASON
                 if option_is(opt.value, "lastpipe"):
-                    CONTEXT["lastpipe"] = True
+                    # Todo 584 finding 2: lastpipe is not a `set -o` option in bash (an error that changes
+                    # nothing), so either sign leaves it unknown.
+                    CONTEXT["lastpipe"] = None
             continue
         if v.startswith("--") and program == "set":
             continue
@@ -639,14 +756,26 @@ def check_shell_options(program, rest, depth):
             continue
         if runtime(w.raw):
             if program == "shopt" and "o" not in flags:
-                CONTEXT["lastpipe"] = CONTEXT["lastpipe"] or "s" in flags
+                # Todo 584 finding 2: a runtime operand may name lastpipe or not, so unless it already holds
+                # the value -s / -u would give it, lastpipe becomes unknown.
+                if set(flags) & {"s", "u"} and CONTEXT["lastpipe"] is not shopt_lastpipe(flags):
+                    CONTEXT["lastpipe"] = None
                 continue
             return OPTION_REASON.format(raw=w.raw)
         if option_is(v, "allexport"):
             return ALLEXPORT_REASON
-        if program == "shopt" and option_is(v, "lastpipe") and "s" in flags:
-            CONTEXT["lastpipe"] = True
+        if option_is(v, "keyword"):
+            return KEYWORD_REASON
+        if program == "shopt" and "o" not in flags and option_is(v, "lastpipe"):
+            if set(flags) & {"s", "u"}:
+                CONTEXT["lastpipe"] = shopt_lastpipe(flags)
     return None
+
+
+def shopt_lastpipe(flags):
+    """lastpipe after `shopt -s` (True), `shopt -u` (False; todo 584 finding 2), or None (both, or neither)."""
+    on, off = "s" in flags, "u" in flags
+    return None if on == off else on
 
 
 def check_definitions(program, rest, depth):
@@ -665,8 +794,23 @@ def check_definitions(program, rest, depth):
             if stop:
                 break
         if len(operands) >= 2 and operands[0].value not in ("", "-"):
-            return decide_command(operands[0].value, depth + 1)
+            for sig in operands[1:]:  # todo 584: DEBUG / ERR / ZERR / RETURN (also SIGDEBUG, debug) run anywhere
+                name = sig.value.upper()
+                if runtime(sig.raw) or (name[3:] if name.startswith("SIG") else name) in EVERY_COMMAND_TRAPS:
+                    return TRAP_REASON.format(signal=sig.value)
+            return decide_deferred(operands[0].value, depth)
     return None
+
+
+def decide_deferred(command, depth):
+    """Judge code that runs later -- a trap action, a mapfile -C callback (todo 584 finding 1): a cd in it is
+    refused, since it moves wherever the next command runs, and a staging git must name an absolute -C."""
+    saved = CONTEXT["cwd"], CONTEXT["deferred"]
+    CONTEXT["cwd"], CONTEXT["deferred"] = DEFERRED, True
+    try:
+        return decide_command(command, depth + 1)
+    finally:
+        CONTEXT["cwd"], CONTEXT["deferred"] = saved
 
 
 def check_words(words, piped, stdin, depth, wrapped=False):
@@ -720,7 +864,8 @@ def check_words(words, piped, stdin, depth, wrapped=False):
     if program in SHELLS:
         return check_shell(program, rest, piped, stdin, depth)
     if program in SOURCES:
-        CONTEXT["cwd"] = UNKNOWN  # a sourced script runs in this shell and may cd
+        if CONTEXT["cwd"] is not DEFERRED:
+            CONTEXT["cwd"] = UNKNOWN  # a sourced script runs in this shell and may cd
         return shell_reads_stdin(rest[0] if rest else None, False, piped, stdin)
     if program == "eval":
         # eval runs in this shell, so a cd inside it moves this command's directory too: no restore.
@@ -869,12 +1014,16 @@ def check_shell(program, args, piped, stdin, depth):
         elif arg.startswith("--"):
             if option_is(arg[2:], "allexport"):  # zsh --allexport / --all-export (todo 496 F)
                 return ALLEXPORT_REASON
+            if option_is(arg[2:], "keyword"):  # zsh --keyword (todo 584 finding 3)
+                return KEYWORD_REASON
             j += 2 if arg in ("--rcfile", "--init-file") else 1
         elif arg[:1] in ("-", "+") and len(arg) > 1:
             if runtime(args[j].raw):
                 return OPTION_REASON.format(raw=args[j].raw)
             if arg[0] == "-" and "a" in arg:  # bash -a / zsh -a: allexport (todo 496 F)
                 return ALLEXPORT_REASON
+            if arg[0] == "-" and "k" in arg:  # bash -k: keyword (todo 584 finding 3)
+                return KEYWORD_REASON
             has_script = has_script or (arg[0] == "-" and "c" in arg)
             reads_stdin = reads_stdin or (arg[0] == "-" and "s" in arg)
             if set(arg) & {"o", "O"}:
@@ -884,7 +1033,10 @@ def check_shell(program, args, piped, stdin, depth):
                     return OPTION_REASON.format(raw=opt.raw)
                 if option_is(opt.value, "allexport"):
                     return ALLEXPORT_REASON
-                lastpipe = lastpipe or (arg[0] == "-" and option_is(opt.value, "lastpipe"))
+                if option_is(opt.value, "keyword"):
+                    return KEYWORD_REASON
+                if option_is(opt.value, "lastpipe"):  # -O sets it, +O clears it (todo 584 finding 2)
+                    lastpipe = arg[0] == "-" if "O" in arg else lastpipe or arg[0] == "-"
                 j += 2
             else:
                 j += 1
@@ -962,6 +1114,8 @@ def check_staging(sub, where, tree, git_dir):
         return None
     if git_dir:
         return f"git --git-dir with {sub} is not allowed; use git -C WT {sub}"
+    if where is DEFERRED:
+        return DEFERRED_GIT_REASON.format(sub=sub)
     for path in (where, tree):
         main = isinstance(path, str) and main_checkout(path)
         if main:
@@ -1005,6 +1159,9 @@ def unignored_includes(path):
 
 
 UNKNOWN = object()  # a directory built at runtime ($WT, `...`): cannot tell, so not checked
+# The directory of code that runs later (a trap action, a function body): whatever it is then, so a staging
+# git there must name its repository with an absolute -C (todo 584).
+DEFERRED = object()
 
 
 def _join(where, word):
@@ -1019,8 +1176,8 @@ def _join(where, word):
         return UNKNOWN
     if os.path.isabs(word.value):
         return word.value
-    if where is UNKNOWN:
-        return UNKNOWN
+    if where is UNKNOWN or where is DEFERRED:
+        return where
     return os.path.join(where or "", word.value)
 
 
@@ -1043,7 +1200,9 @@ def main_checkout(path):
 
 
 def denied_option(arg, names):
-    name = arg[2:].partition("=")[0] if arg.startswith("--") else ""
+    # Any non-empty prefix counts, one letter included (`git cat-file --t` is --textconv): the round-1 repair of
+    # PR #1023, owner-approved 2026-10-11, which widened the "2+ letters" in the todo 496 owner decision (todo 584).
+    name =arg[2:].partition("=")[0] if arg.startswith("--") else ""
     return any(n == name or (name and n.startswith(name) and name not in GIT_EXACT_OPTIONS)
                for n in names)
 
@@ -1159,7 +1318,7 @@ def decide(event):
     # know makes a cd in a pipeline stage ambiguous (check_segments).
     shell = os.path.basename(os.environ.get("SHELL") or "") or "zsh"
     CONTEXT.update(allowed=ALLOWED_BY_AGENT[agent], cwd=cwd if isinstance(cwd, str) and cwd else None,
-                   shell=shell if shell in SHELLS else OTHER_SHELL, lastpipe=False)
+                   shell=shell if shell in SHELLS else OTHER_SHELL, lastpipe=False, deferred=False)
     try:
         return decide_command(command)
     except Exception:  # a guard bug must not wave a guarded agent through
