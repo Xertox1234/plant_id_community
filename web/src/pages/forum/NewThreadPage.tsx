@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo, FormEvent } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef, FormEvent } from 'react';
 import { useNavigate, useSearchParams, useLocation, Link } from 'react-router-dom';
 import { createThread, fetchCategories, fetchCategory } from '../../services/forumService';
 import { parseLeadingId, threadPath, categoryPath } from '../../utils/forumUrls';
@@ -150,6 +150,11 @@ export default function NewThreadPage() {
   // the author's text before anyone could recover it. Compared by identity:
   // every edit replaces the state value.
   const [mounted] = useState(() => ({ title, body, tags: tagsInput }));
+  // Latches on the first change and never resets (todo 544). The comparison
+  // above is by value for title and tags, so an edit that puts them back to
+  // their mounted value (type 'x', delete it) would look untouched again and
+  // leave the mid-edit draft stored; once touched, every change persists.
+  const touchedRef = useRef(false);
   // Optional poll (audit M8). Deliberately NOT part of the autosaved draft:
   // the draft is a plain string blob keyed on title/body/tags, and widening it
   // would invalidate every draft already in a member's browser.
@@ -232,9 +237,12 @@ export default function NewThreadPage() {
 
   // Persist the draft on every change; an all-empty draft is removed. An
   // untouched composer leaves the stored draft exactly as it was (see
-  // `mounted`).
+  // `mounted` and `touchedRef`).
   useEffect(() => {
-    if (title === mounted.title && body === mounted.body && tagsInput === mounted.tags) return;
+    if (!touchedRef.current) {
+      if (title === mounted.title && body === mounted.body && tagsInput === mounted.tags) return;
+      touchedRef.current = true;
+    }
     // isEmptyDoc: an image-only body is not postable, but it is worth keeping.
     const isEmpty = title.trim() === '' && isEmptyDoc(body) && tagsInput.trim() === '';
     saveDraft(newThreadDraftKey, isEmpty ? '' : JSON.stringify({ title, body, tags: tagsInput }));

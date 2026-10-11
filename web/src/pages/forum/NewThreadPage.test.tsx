@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import * as ReactRouter from 'react-router-dom';
@@ -522,8 +522,9 @@ describe('NewThreadPage', () => {
   it('leaves a draft the schema rejects untouched until the user edits (todo 538)', async () => {
     // A JSON body the composer schema does not accept (what a future schema
     // change would make of today's drafts). It mounts as an empty body;
-    // persisting that on mount would silently delete the stored draft. Owner decision 2026-10-10: log, do not salvage, and
-    // keep the stored value byte-for-byte until the user edits.
+    // persisting that on mount would silently delete the stored draft.
+    // Owner decision 2026-10-10: log, do not salvage, and keep the stored
+    // value byte-for-byte until the user edits.
     const warn = vi.spyOn(logger, 'warn');
     const key = draftKey('new-thread', '3-plant-care');
     // A paragraph nested in a paragraph: ProseMirror's check() quotes the
@@ -558,6 +559,54 @@ describe('NewThreadPage', () => {
     // The first edit is the user's call: from then on the draft follows the form.
     await userEvent.type(screen.getByLabelText(/title/i), 'Fresh start');
     await waitFor(() => expect(loadDraft(key)).toContain('Fresh start'));
+  });
+
+  it('removes the draft when an edit is undone back to an empty form (todo 544)', async () => {
+    // The untouched guard compared title by value, so typing 'x' and
+    // deleting it looked untouched again and left {title: 'x'} stored.
+    const key = draftKey('new-thread', '3-plant-care');
+    renderPage();
+    await screen.findByText('Plant Care');
+
+    await userEvent.type(screen.getByLabelText(/title/i), 'x');
+    await waitFor(() => expect(loadDraft(key)).toContain('"title":"x"'));
+    await userEvent.clear(screen.getByLabelText(/title/i));
+
+    await waitFor(() => expect(loadDraft(key)).toBeNull());
+  });
+
+  it('stores the reverted value when an edit returns a field to its mounted value (todo 544)', async () => {
+    // Restored title 'abc'; type 'd' (stored 'abcd'), then backspace. The
+    // stored draft must follow the form back to 'abc', not keep 'abcd'.
+    const key = draftKey('new-thread', '3-plant-care');
+    saveDraft(key, JSON.stringify({ title: 'abc', body: '<p>kept</p>', tags: '' }));
+    renderPage();
+    await screen.findByText('Plant Care');
+
+    const titleInput = screen.getByLabelText(/title/i);
+    await userEvent.type(titleInput, 'd');
+    await waitFor(() => expect(loadDraft(key)).toContain('"title":"abcd"'));
+    await userEvent.type(titleInput, '{Backspace}');
+
+    await waitFor(() => expect(loadDraft(key)).toContain('"title":"abc"'));
+    expect(loadDraft(key)).not.toContain('abcd');
+  });
+
+  it('keeps an image-only body as a draft (todo 544)', async () => {
+    // isBlankDoc counts an image-only body as blank (not postable), but the
+    // persist effect uses isEmptyDoc: the upload is the user's content.
+    const key = draftKey('new-thread', '3-plant-care');
+    renderPage();
+    await screen.findByText('Plant Care');
+
+    fireEvent.change(screen.getByLabelText('body'), {
+      target: { value: '<img src="https://cdn/x.jpg" data-image-id="5">' },
+    });
+
+    await waitFor(() => expect(loadDraft(key)).not.toBeNull());
+    const stored = JSON.parse(loadDraft(key) ?? '{}');
+    expect(stored.title).toBe('');
+    expect(JSON.stringify(stored.body)).toContain('"imageId":"5"');
   });
 
   describe('"Ask the community" handoff (audit M6)', () => {
