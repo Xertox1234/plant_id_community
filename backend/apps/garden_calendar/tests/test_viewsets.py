@@ -429,7 +429,7 @@ class CareTaskViewSetTest(TestCase):
             task_type="watering",
             title="Weekly watering",
             priority="medium",
-            scheduled_date=timezone.now(),
+            scheduled_date=timezone.now() + timedelta(days=1),
             is_recurring=True,
             recurrence_interval_days=7,
         )

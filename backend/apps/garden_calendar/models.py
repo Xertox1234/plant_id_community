@@ -1174,10 +1174,10 @@ class CareTask(models.Model):
     class AlreadyResolved(Exception):
         """A concurrent request completed or skipped this task first.
 
-        Raised by ``mark_complete``/``mark_skip`` when their conditional
-        UPDATE matched no row because the task is no longer pending. The caller's instance has already been
-        refreshed with the winning ``completed``/``skipped`` state, so the view
-        can answer with the same 400 its pre-check gives.
+        Raised by ``mark_complete``/``mark_skip`` when the locked row is no
+        longer pending. The caller's instance has already been refreshed with
+        the winning ``completed``/``skipped`` state, so the view can answer
+        with the same 400 its pre-check gives.
         """
 
     def mark_complete(self, user):
@@ -1213,28 +1213,31 @@ class CareTask(models.Model):
         Check-then-act on an unlocked read let two concurrent POSTs (a double
         tap on Done, or Done then Skip) both pass the "still pending" check and
         both create the next occurrence, duplicating a recurring task for good.
-        The write is a conditional UPDATE on ``completed=False, skipped=False``,
-        so exactly one request changes the row, and only that request creates
-        the next occurrence, in the same transaction.
+        The row is locked (``select_for_update``) before the check, so a second
+        request waits for the first to commit, then sees it resolved. Exactly
+        one request writes the row and creates the next occurrence, in the
+        same transaction.
+
+        The write is a ``save()``, not a ``QuerySet.update()``, so save
+        signals see it: ``auditlog.py`` declares CareTask completion/skip as
+        audited (that module is not yet imported anywhere; todo follow-up).
         """
-        changes["updated_at"] = timezone.now()
         with transaction.atomic():
-            changed = CareTask.objects.filter(
-                pk=self.pk, completed=False, skipped=False
-            ).update(**changes)
-            if not changed:
-                state = (
-                    CareTask.objects.filter(pk=self.pk)
-                    .values("completed", "skipped")
-                    .first()
-                )
-                if state is None:
-                    raise CareTask.DoesNotExist()
+            state = (
+                CareTask.objects.select_for_update()
+                .filter(pk=self.pk)
+                .values("completed", "skipped")
+                .first()
+            )
+            if state is None:
+                raise CareTask.DoesNotExist()
+            if state["completed"] or state["skipped"]:
                 self.completed = state["completed"]
                 self.skipped = state["skipped"]
                 raise CareTask.AlreadyResolved()
             for field, value in changes.items():
                 setattr(self, field, value)
+            self.save(update_fields=[*changes, "updated_at"])
             return self._schedule_next_occurrence()
 
     def _schedule_next_occurrence(self):
@@ -1247,15 +1250,18 @@ class CareTask(models.Model):
         """Create the next recurring task instance; None once past the end date.
 
         The next one is dated from the later of the due date and the
-        completion (owner decision 2026-10-10, todo 457). Dating it from the
-        due date alone made a late completion create a task that was already
-        overdue, past the reminder sweep's lookback, so it never pushed.
+        completion or skip (owner decision 2026-10-10, todo 457). Dating it
+        from the due date alone made a late completion or skip create a task
+        that was already overdue, past the reminder sweep's lookback, so it
+        never pushed.
         """
         from datetime import timedelta
 
-        base = self.scheduled_date
-        if self.completed_at and self.completed_at > base:
-            base = self.completed_at
+        base = max(
+            moment
+            for moment in (self.scheduled_date, self.completed_at, self.skipped_at)
+            if moment is not None
+        )
         next_date = base + timedelta(days=self.recurrence_interval_days)
 
         # Check if we've reached end date

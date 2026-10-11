@@ -361,8 +361,11 @@ class CareTaskModelTest(TestCase):
         self.assertIsNotNone(task.skipped_at)
 
     def test_mark_skip_schedules_next_occurrence_for_recurring_task(self):
-        """Skipping one occurrence must not end a recurring schedule (todo 386)."""
-        scheduled = timezone.now()
+        """Skipping one occurrence must not end a recurring schedule (todo 386).
+
+        Skipped ahead of its due date, so the next one counts from the due
+        date (a late skip counts from the skip; see the test below)."""
+        scheduled = timezone.now() + timedelta(days=1)
         task = CareTask.objects.create(
             plant=self.plant,
             created_by=self.user,
@@ -461,6 +464,29 @@ class CareTaskModelTest(TestCase):
         self.assertFalse(task.skipped)
         self.assertEqual(task.skip_reason, "")
         self.assertEqual(CareTask.objects.filter(plant=self.plant).count(), 2)
+
+    def test_late_skip_dates_the_next_occurrence_from_the_skip(self):
+        """A skip three weeks late must not create a next task that is already
+        overdue: it is dated from the skip, as a late completion is (todo 457)."""
+        due = timezone.now() - timedelta(days=21)
+        task = CareTask.objects.create(
+            plant=self.plant,
+            created_by=self.user,
+            task_type="watering",
+            title="Weekly watering",
+            priority="medium",
+            scheduled_date=due,
+            is_recurring=True,
+            recurrence_interval_days=7,
+        )
+
+        self.assertTrue(task.mark_skip(self.user))
+
+        next_task = CareTask.objects.get(
+            plant=self.plant, completed=False, skipped=False
+        )
+        self.assertEqual(next_task.scheduled_date, task.skipped_at + timedelta(days=7))
+        self.assertGreater(next_task.scheduled_date, timezone.now())
 
 
 class HarvestModelTest(TestCase):
