@@ -366,4 +366,22 @@ describe('ThreadSummaryPanel', () => {
     expect(screen.getByText(READY.summary)).toBeInTheDocument();
     expect(screen.queryByText(/at least 3 posts/i)).not.toBeInTheDocument();
   });
+
+  it('keeps explaining a server too_short once the count drops below MIN_POSTS (todo 588)', async () => {
+    vi.spyOn(forumService, 'fetchTopicSummary').mockResolvedValue({
+      status: 'too_short',
+      post_count: 2,
+    });
+    const { rerender } = render(<ThreadSummaryPanel topicId={12} postCount={5} />);
+    fireEvent.click(summarize());
+    await advance(0);
+    expect(screen.getAllByText(/at least 3 posts/i)).toHaveLength(1);
+
+    // The page's count catches up with the server's: the button goes, and the
+    // line that explains why must stay, once (not zero times, not twice).
+    rerender(<ThreadSummaryPanel topicId={12} postCount={2} />);
+
+    expect(screen.queryByRole('button', { name: /summarize thread/i })).not.toBeInTheDocument();
+    expect(screen.getAllByText(/at least 3 posts/i)).toHaveLength(1);
+  });
 });

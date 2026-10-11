@@ -1,5 +1,6 @@
 import pytest
 from django.contrib.auth import get_user_model
+from django.db import connection
 from django.test import override_settings
 from wagtail.models import Page
 from wagtail_forum.models import (
@@ -10,9 +11,19 @@ from wagtail_forum.models import (
     Topic,
     TrustLevel,
 )
+from wagtail_forum.spam.base import SpamBackend
 from wagtail_forum.workflow import ensure_default_workflow, submit_for_moderation
 
 User = get_user_model()
+
+
+class DatabaseErrorSpamBackend(SpamBackend):
+    """A backend whose failure is a DB error: Postgres aborts the transaction
+    it ran in, so any later write in it raises (todo 588)."""
+
+    def check(self, obj):
+        with connection.cursor() as cursor:
+            cursor.execute("SELECT 1/0")
 
 
 def _post(author, text="hello world"):
@@ -194,6 +205,37 @@ def test_moderation_decided_signal_still_fires_when_spam_backend_crashes():
     assert state.status == state.STATUS_NEEDS_CHANGES
     assert "spam check could not run" in state.current_task_state.comment
     assert _pending_moderation_count() == 1
+
+
+@pytest.mark.django_db
+@override_settings(
+    WAGTAILFORUM_SPAM_BACKEND=(
+        "wagtail_forum.tests.test_workflow_routing.DatabaseErrorSpamBackend"
+    )
+)
+def test_spam_backend_db_error_still_fails_closed_with_a_record():
+    """Todo 588: a backend that fails with a DB error runs inside Wagtail's
+    atomic workflow start. Without a savepoint around the backend call the
+    error poisons that transaction, and SpamCheckTask's reject() (a DB write)
+    raises TransactionManagementError: the fail-closed record is lost and the
+    backend's own error is masked. With it, the post is held in NEEDS_CHANGES
+    with the error named, exactly as a non-DB backend crash is."""
+    user = User.objects.create_user(username="dbcrash")  # NEW trust: untrusted
+    ensure_default_workflow()
+
+    post = _post(user)
+    post.save()
+    status = submit_for_moderation(post, user)
+
+    assert status == "pending"
+    post.refresh_from_db()
+    assert post.live is False
+    state = post.current_workflow_state
+    assert state is not None
+    assert state.status == state.STATUS_NEEDS_CHANGES
+    comment = state.current_task_state.comment
+    assert "spam check could not run" in comment
+    assert "DataError" in comment  # the backend's own error, not masked
 
 
 @pytest.mark.django_db
