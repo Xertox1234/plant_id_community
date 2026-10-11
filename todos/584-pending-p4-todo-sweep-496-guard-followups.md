@@ -4,6 +4,9 @@ priority: p4
 issue_id: "584"
 tags: [harness, todo-sweep, security, follow-ups]
 dependencies: []
+triage: ready
+triaged: 2026-10-11
+owner_decision: "Item 4: track cwd through the piped { }/if/while stage (owner, 2026-10-11)"
 ---
 
 # Follow-ups from PR #1023 (todo 496, worker git-guard bypasses)

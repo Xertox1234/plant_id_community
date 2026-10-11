@@ -4,6 +4,9 @@ priority: p4
 issue_id: "597"
 tags: [todos, follow-ups]
 dependencies: []
+triage: ready
+triaged: 2026-10-11
+owner_decision: "On a category switch to board B's draft, reset the poll fields and drop the identification attachment (owner, 2026-10-11)"
 ---
 
 # Follow-ups from PR #1036 (todo 575)

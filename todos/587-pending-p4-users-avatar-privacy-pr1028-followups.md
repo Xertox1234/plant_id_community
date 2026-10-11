@@ -4,6 +4,9 @@ priority: p4
 issue_id: "587"
 tags: [todos, follow-ups]
 dependencies: []
+triage: ready
+triaged: 2026-10-11
+owner_decision: "Item 7: convert wide-gamut avatars to sRGB with ImageCms before stripping metadata (owner, 2026-10-11)"
 ---
 
 # Follow-ups from PR #1028 (todos 553, 558, 562, 565, 567)

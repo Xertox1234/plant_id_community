@@ -4,6 +4,10 @@ priority: p4
 issue_id: "586"
 tags: [backend, garden-calendar, auditlog, privacy, follow-ups]
 dependencies: []
+triage: blocked-owner
+triaged: 2026-10-11
+blocked_on: "Owner decision on garden LogEntry erasure: purge vs anonymise on account deletion, plus whether object_repr may keep the username"
+owner_decision: "Purge the user's LogEntry rows on account deletion (owner, 2026-10-11)"
 ---
 
 # Follow-ups from PR #1025 (todo 571, garden auditlog registration)

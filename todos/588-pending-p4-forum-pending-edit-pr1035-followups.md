@@ -4,6 +4,9 @@ priority: p4
 issue_id: "588"
 tags: [todos, follow-ups]
 dependencies: []
+triage: ready
+triaged: 2026-10-11
+owner_decision: "Item 1: decline as the intended todo 432 behaviour; a clean unheld edit publishes (owner, 2026-10-11)"
 ---
 
 # Follow-ups from PR #1035 (todos 554, 557, 561, 574, 579)

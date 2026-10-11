@@ -4,6 +4,9 @@ priority: p4
 issue_id: "593"
 tags: [todos, follow-ups]
 dependencies: []
+triage: ready
+triaged: 2026-10-11
+owner_decision: "Finding 1: on an FCM credentials error, release the claims and stop the batch so the next sweep retries (owner, 2026-10-11)"
 ---
 
 # Follow-ups from PR #1034 (todos 566, 570, 573)

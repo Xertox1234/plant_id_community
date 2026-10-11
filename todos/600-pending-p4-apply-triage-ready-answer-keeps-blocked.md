@@ -4,6 +4,8 @@ priority: p4
 issue_id: "600"
 tags: [todo-sweep, tooling]
 dependencies: []
+triage: ready
+triaged: 2026-10-11
 ---
 
 # `apply-triage` keeps a triager's block after the owner answers "ready"
