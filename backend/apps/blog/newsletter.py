@@ -123,7 +123,7 @@ def confirm(token) -> BlogNewsletter:
                 "confirmation_sent_at",
             ]
         )
-        logger.info(f"[EMAIL] newsletter subscriber={subscriber.pk} confirmed")
+        logger.info("[EMAIL] newsletter subscriber=%s confirmed", subscriber.pk)
     return subscriber
 
 
@@ -134,7 +134,7 @@ def unsubscribe(token) -> BlogNewsletter:
     )
     if subscriber.is_active:
         subscriber.unsubscribe()
-        logger.info(f"[EMAIL] newsletter subscriber={subscriber.pk} unsubscribed")
+        logger.info("[EMAIL] newsletter subscriber=%s unsubscribed", subscriber.pk)
     return subscriber
 
 
@@ -184,10 +184,7 @@ def request_confirmation(email: str) -> bool:
     email = normalize_email(email)
     now = timezone.now()
     with transaction.atomic():
-        # get_or_create re-reads the row itself when a concurrent signup for
-        # the same address wins the insert.
-        row, _ = BlogNewsletter.objects.get_or_create(email=email)
-        subscriber = BlogNewsletter.objects.select_for_update().get(pk=row.pk)
+        subscriber = _lock_or_create(email)
         if subscriber.is_subscribed:
             return False
         previous = subscriber.confirmation_sent_at
@@ -208,6 +205,25 @@ def request_confirmation(email: str) -> bool:
         return True
     _release_confirmation_stamp(subscriber, now, previous)
     return False
+
+
+def _lock_or_create(email: str) -> BlogNewsletter:
+    """The row for `email`, locked for this transaction, created if missing.
+
+    get_or_create re-reads the row itself when a concurrent signup for the
+    same address wins the insert. The weekly prune may delete the row between
+    that read and the lock (todo 534): the lock then finds nothing, and the
+    second pass makes a fresh row. The prune holds its rows locked until it
+    commits, so it cannot take that new one too.
+    """
+    for _ in range(2):
+        row, _ = BlogNewsletter.objects.get_or_create(email=email)
+        subscriber = (
+            BlogNewsletter.objects.select_for_update().filter(pk=row.pk).first()
+        )
+        if subscriber is not None:
+            return subscriber
+    raise BlogNewsletter.DoesNotExist(f"newsletter row for {email!r} keeps vanishing")
 
 
 def _release_confirmation_stamp(
@@ -250,8 +266,8 @@ def _send_confirmation_email(subscriber: BlogNewsletter) -> bool:
         raise
     except Exception:
         logger.exception(
-            f"[EMAIL] newsletter confirmation failed for subscriber={subscriber.pk}"
+            "[EMAIL] newsletter confirmation failed for subscriber=%s", subscriber.pk
         )
         return False
-    logger.info(f"[EMAIL] newsletter confirmation sent to subscriber={subscriber.pk}")
+    logger.info("[EMAIL] newsletter confirmation sent to subscriber=%s", subscriber.pk)
     return True

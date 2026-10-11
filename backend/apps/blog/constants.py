@@ -155,11 +155,14 @@ NEWSLETTER_WINDOW_DAYS = 7
 NEWSLETTER_MAX_POSTS = 10
 # Words of each post's introduction shown in the email.
 NEWSLETTER_EXCERPT_WORDS = 40
-# Held by a run while it sends; a crashed holder cannot block the next week.
-NEWSLETTER_RUN_LOCK_SECONDS = 2 * 60 * 60
 # The beat task's own budget: the global 90 s limit is sized for a request.
 # A run costs a query and one SMTP round-trip per due subscriber. On the soft
 # limit the task re-enqueues itself after the delay to finish the rest.
 NEWSLETTER_SOFT_TIME_LIMIT = 25 * 60
 NEWSLETTER_TIME_LIMIT = 30 * 60
 NEWSLETTER_CONTINUATION_DELAY = 60
+# Held by a run while it sends. The task cannot outlive its hard time limit,
+# so a killed holder frees the lock a few minutes after that, not hours later
+# (todo 534). A longer manual run may then overlap the next one; each row's
+# claim still stops a second send.
+NEWSLETTER_RUN_LOCK_SECONDS = NEWSLETTER_TIME_LIMIT + 5 * 60

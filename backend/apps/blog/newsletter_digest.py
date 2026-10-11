@@ -22,6 +22,7 @@ from datetime import datetime, timedelta
 from celery.exceptions import SoftTimeLimitExceeded
 from django.conf import settings
 from django.core.mail import EmailMultiAlternatives
+from django.db import transaction
 from django.db.models import Q
 from django.template.loader import render_to_string
 from django.utils.html import strip_tags
@@ -165,10 +166,10 @@ def send(subscriber: BlogNewsletter, posts: list[DigestPost]) -> bool:
         # (todo 364) and must fail the run, not one send (todo 454).
         raise
     except Exception:
-        logger.exception(f"[EMAIL] newsletter failed for subscriber={subscriber.pk}")
+        logger.exception("[EMAIL] newsletter failed for subscriber=%s", subscriber.pk)
         return False
     logger.info(
-        f"[EMAIL] newsletter sent to subscriber={subscriber.pk} posts={len(posts)}"
+        "[EMAIL] newsletter sent to subscriber=%s posts=%s", subscriber.pk, len(posts)
     )
     return True
 
@@ -187,3 +188,28 @@ def stale_unconfirmed(now: datetime):
         Q(confirmation_sent_at__lt=cutoff)
         | Q(confirmation_sent_at__isnull=True, subscribed_at__lt=cutoff)
     )
+
+
+def prune_stale_unconfirmed(now: datetime) -> int:
+    """Delete `stale_unconfirmed` rows; returns how many (todo 534).
+
+    The category links block a fast delete, so `delete()` selects the rows
+    and then deletes them by pk. A signup re-stamping one of them in between
+    (`newsletter.request_confirmation`) would lose its row, and the link just
+    emailed would come back invalid. Locking the rows first closes that: a
+    signup holding the row makes this wait, and the row, re-checked once
+    the signup commits, is no longer stale; a signup arriving later waits
+    for this delete, then makes a fresh row.
+    """
+    with transaction.atomic():
+        pks = list(
+            stale_unconfirmed(now)
+            .select_for_update()
+            .order_by("pk")
+            .values_list("pk", flat=True)
+        )
+        if not pks:
+            return 0
+        # delete() also counts the rows' category links; report rows.
+        _, per_model = BlogNewsletter.objects.filter(pk__in=pks).delete()
+    return per_model.get(BlogNewsletter._meta.label, 0)

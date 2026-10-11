@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: p3
 issue_id: "534"
 tags: [backend, blog, email, celery]
@@ -60,7 +60,7 @@ These are the findings it left.
 
 - [x] Items 1 and 2 fixed with tests (multi-paragraph excerpt; a build
   `OperationalError` propagates).
-- [ ] Items 3–10 fixed, or each declined here with a reason.
+- [x] Items 3–10 fixed, or each declined here with a reason.
 
 ## Work Log
 
@@ -77,3 +77,45 @@ These are the findings it left.
   Test: `test_a_database_outage_while_building_reaches_the_task_retry`.
 - Mutation check: reverting either fix fails exactly its own test.
 - Items 3–10 remain open.
+
+### 2026-10-10 - Implemented by the todo sweep (run 2026-10-11-0053)
+
+- Items 3, 4 and 7 (claim): `_send_one` now claims and sends inside one
+  `transaction.atomic()`; a failed send calls `set_rollback(True)`, so there is
+  no separate `_release` left to fail (item 3), and a hard kill rolls the
+  uncommitted claim back (item 7). The comment there states the cost (item 4):
+  a kill, soft limit or failed commit after the hand-over mails that reader
+  again, as owner-accepted at-least-once for the forum digest (todo 541).
+- Items 5 and 7 (lock): `cache.add` answering `None` (a Redis outage under
+  `IGNORE_EXCEPTIONS`) now logs a warning and sends without the lock; only
+  `False` exits. `NEWSLETTER_RUN_LOCK_SECONDS` is the hard time limit plus
+  5 min instead of 2 h.
+- Item 6: `newsletter_digest.prune_stale_unconfirmed` locks the stale rows
+  (`select_for_update`) before deleting them, so a signup's re-stamp is
+  re-checked and spared; `request_confirmation` makes the row again when the
+  prune deleted it between `get_or_create` and the lock.
+- Item 8: tests for a lost claim, a pinned 60/120/240 s retry countdown, and two
+  real-commit tests (the claim is invisible to another connection during the
+  send; the prune spares a row re-stamped meanwhile). Item 8's `_release`
+  bullet is obsolete: `_release` no longer exists. Item 9: blog newsletter
+  logging uses `%s` arguments.
+- Item 10 declined: the status line is `tabIndex={-1}`, focused only so screen
+  readers announce it, and never keyboard-reachable, so a focus ring would
+  mark nothing the user can act on. Items 5 and 7 for the forum digest are
+  todo 548 (item 6 has no forum counterpart).
+
+### 2026-10-10 - Verified by the todo sweep (run 2026-10-11-0053)
+
+- AC 2: `python3 scripts/todos/slot_env.py --main-root . 1 -- backend/venv/bin/python -m pytest backend/apps/blog/tests/test_newsletter_digest.py backend/apps/blog/tests/test_newsletter.py --create-db -v -p no:cacheprovider` — evidence `.sweep-evidence/g7/534-ac1.txt` (not committed), last lines:
+
+  ```text
+  ============================== ENVIRONMENT DRIFT ===============================
+  backend/venv does not match backend/requirements.txt — these results describe a tree CI does not run.
+    mismatched: pyjwt (pinned 2.15.0, installed 2.13.0), urllib3 (pinned 2.8.0, installed 2.7.0)
+  Fix: pip install -r backend/requirements.txt (see todo 378).
+  ============== 63 passed, 3 warnings, 3 subtests passed in 19.70s ==============
+  ```
+
+### 2026-10-10 - Completed by the todo sweep (run 2026-10-11-0053)
+
+- Archived by `land.py archive`; evidence is quoted above, review is on the PR.

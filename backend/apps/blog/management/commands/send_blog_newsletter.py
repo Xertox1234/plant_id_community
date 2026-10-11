@@ -6,6 +6,8 @@ The beat entry `blog-weekly-newsletter` runs this through
 `apps.blog.tasks.send_blog_weekly_newsletter`. Safe to run twice: a run lock
 makes an overlapping run exit, and each subscriber is claimed through
 `last_sent_at` before their email goes out, so nobody is due again that week.
+The claim and the send share one transaction, so the claim is durable only
+once the email has been handed over (todo 534).
 
 The run also deletes signups that never confirmed once their link has
 expired (`newsletter_digest.stale_unconfirmed`).
@@ -19,7 +21,7 @@ import logging
 from celery.exceptions import SoftTimeLimitExceeded
 from django.core.cache import cache
 from django.core.management.base import BaseCommand
-from django.db import OperationalError
+from django.db import OperationalError, transaction
 from django.utils import timezone
 
 from ... import newsletter_digest
@@ -45,20 +47,29 @@ class Command(BaseCommand):
         dry_run = options["dry_run"]
         now = timezone.now()
 
-        if not dry_run and not cache.add(
-            LOCK_KEY, now.isoformat(), NEWSLETTER_RUN_LOCK_SECONDS
-        ):
-            self.stdout.write("[EMAIL] newsletter: another run holds the lock, exiting")
-            return
+        if not dry_run:
+            locked = cache.add(LOCK_KEY, now.isoformat(), NEWSLETTER_RUN_LOCK_SECONDS)
+            if locked is False:
+                self.stdout.write(
+                    "[EMAIL] newsletter: another run holds the lock, exiting"
+                )
+                return
+            if locked is None:
+                # The cache swallows a Redis outage (IGNORE_EXCEPTIONS) and
+                # answers None, where a held lock answers False. Waiting a
+                # week for Redis would skip every reader, and the lock is
+                # only a shortcut: each row's claim is what stops a second
+                # send, so an overlapping run cannot mail anyone twice.
+                logger.warning(
+                    "[EMAIL] newsletter: the run lock is unavailable "
+                    "(cache down?), sending without it"
+                )
         try:
             totals = self._send(now, dry_run)
-            stale = newsletter_digest.stale_unconfirmed(now)
             if dry_run:
-                totals["pruned"] = stale.count()
+                totals["pruned"] = newsletter_digest.stale_unconfirmed(now).count()
             else:
-                # delete() also counts the rows' category links; report rows.
-                _, per_model = stale.delete()
-                totals["pruned"] = per_model.get(BlogNewsletter._meta.label, 0)
+                totals["pruned"] = newsletter_digest.prune_stale_unconfirmed(now)
         finally:
             if not dry_run:
                 cache.delete(LOCK_KEY)
@@ -91,7 +102,7 @@ class Command(BaseCommand):
                 # One bad row must not end the run for everyone after it; it
                 # stays unclaimed, so it is due again next time.
                 logger.exception(
-                    f"[EMAIL] newsletter build failed for subscriber={subscriber.pk}"
+                    "[EMAIL] newsletter build failed for subscriber=%s", subscriber.pk
                 )
                 totals["failed"] += 1
                 continue
@@ -116,31 +127,35 @@ class Command(BaseCommand):
     def _send_one(self, subscriber, posts, now) -> bool | None:
         """True sent, False failed, None not ours to send any more."""
         # Claim the row before sending, on the marker we read. A second run
-        # racing on it cannot also match. The row must still be subscribed:
-        # it may have unsubscribed since its chunk was read.
+        # racing on it cannot also match: its UPDATE waits on our row lock,
+        # then finds the marker changed. The row must still be subscribed: it
+        # may have unsubscribed since its chunk was read.
+        #
+        # The claim commits only after the send returns. Anything that stops
+        # the send gives the row back with the rollback: a failed send, the
+        # soft time limit, a database error, and a hard kill too, since the
+        # server rolls back the dead connection's transaction. No separate
+        # release can fail and leave the row stamped with nothing sent.
+        #
+        # The price is a small window after `message.send()` has handed the
+        # mail over and before the commit: the soft time limit, a kill or a
+        # failed commit landing there gives the row back too, and the reader
+        # is mailed those posts again (by the continuation, the retry, or
+        # next week's run). That window is milliseconds against an SMTP
+        # round-trip; a lost week is worse than a rare repeat. The forum
+        # digest has the same property.
         previous = subscriber.last_sent_at
-        claimed = BlogNewsletter.objects.filter(
-            pk=subscriber.pk,
-            last_sent_at=previous,
-            is_active=True,
-            confirmed_at__isnull=False,
-        ).update(last_sent_at=now)
-        if not claimed:
-            return None
-        try:
+        with transaction.atomic():
+            claimed = BlogNewsletter.objects.filter(
+                pk=subscriber.pk,
+                last_sent_at=previous,
+                is_active=True,
+                confirmed_at__isnull=False,
+            ).update(last_sent_at=now)
+            if not claimed:
+                return None
             sent = newsletter_digest.send(subscriber, posts)
-        except BaseException:
-            # The soft time limit, or anything else stopping the run: give
-            # the row back so the continuation sends it.
-            self._release(subscriber, now, previous)
-            raise
-        if not sent:
-            self._release(subscriber, now, previous)
+            if not sent:
+                # Nothing went out: undo the claim so the row stays due.
+                transaction.set_rollback(True)
         return sent
-
-    @staticmethod
-    def _release(subscriber, now, previous):
-        # Only our own claim: never overwrite a later run's stamp.
-        BlogNewsletter.objects.filter(pk=subscriber.pk, last_sent_at=now).update(
-            last_sent_at=previous
-        )
