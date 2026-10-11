@@ -92,11 +92,18 @@ symlink. The `-COMPLETED` twin also counts as present when git still tracks
 it but it was deleted from disk, so the rename is skipped instead of
 clobbering the twin's index entry. The CLI maps `yaml.YAMLError` (malformed
 frontmatter) to exit 2 with a `land: ` message instead of a traceback.
+
+Todo 552: the quoted command keeps a leading `cd <wt>/<sub> && `, which reads
+`cd <sub> && `, so every later path that was under the repo, a worktree or
+main_root is rewritten relative to <sub> (`../scripts/...`), and a chained
+`cd` is resolved against the previous one (`_relativize_command`). A path the
+command already wrote relative is left alone. Archived lines are not rewritten.
 """
 
 import argparse
 import json
 import os
+import posixpath
 import re
 import subprocess
 import sys
@@ -205,14 +212,15 @@ def _root_forms(*paths):
     return sorted((f for f in forms if f not in ("", ".")), key=len, reverse=True)
 
 
-def _strip(text, root, bare):
+def _strip(text, root, bare, mark=""):
     """`text` with each path under the root regex `root` made relative to it: `<root>/x` reads `x` (or
-    `~/x`), and the root alone reads `bare`, never nothing (todo 525: `cd <wt>/ && ls` read `cd  && ls`)."""
-    text = re.sub(_PATH_START + root + _BARE_END, bare, text)
-    return re.sub(_PATH_START + root + "/", "" if bare == "." else bare + "/", text)
+    `~/x`), and the root alone reads `bare`, never nothing (todo 525: `cd <wt>/ && ls` read `cd  && ls`).
+    With `mark`, each path it rewrites starts with it, so a later pass knows which paths were rooted."""
+    text = re.sub(_PATH_START + root + _BARE_END, lambda _: mark + bare, text)
+    return re.sub(_PATH_START + root + "/", lambda _: mark + ("" if bare == "." else bare + "/"), text)
 
 
-def _relativize(text, repo, main_root="", todo_rel=""):
+def _relativize(text, repo, main_root="", todo_rel="", mark=""):
     """`text` with no absolute worktree, main-checkout or home path (todo 524): it is quoted
     into a public repo's Work Log, where `/Users/<name>/.../.claude/worktrees/wf_...` names a
     directory that is gone after the merge and leaks the local user name.
@@ -230,12 +238,15 @@ def _relativize(text, repo, main_root="", todo_rel=""):
 
     With `todo_rel`, the todo's own path becomes its archived path where a path starts (after
     any `./` or `../`), never inside a longer path (`backend/todos/...`) or one read at a
-    revision (`REV:todos/...`)."""
+    revision (`REV:todos/...`).
+
+    With `mark` (todo 552), every path that was under the repo, a worktree or main_root starts with
+    it, so `_relativize_command` can tell a repo-root path from one the command wrote relative."""
     for form in _root_forms(repo):
-        text = _strip(text, re.escape(form), ".")
-    text = _strip(text, _WORKTREE, ".")
+        text = _strip(text, re.escape(form), ".", mark)
+    text = _strip(text, _WORKTREE, ".", mark)
     for form in _root_forms(main_root):
-        text = _strip(text, re.escape(form), ".")
+        text = _strip(text, re.escape(form), ".", mark)
     for form in _root_forms(Path.home()):
         text = _strip(text, re.escape(form), "~")
     text = _strip(text, _ANY_HOME, "~")
@@ -245,6 +256,75 @@ def _relativize(text, repo, main_root="", todo_rel=""):
         text = re.sub(r"(?<![\w./:-])((?:\.\.?/)*)" + re.escape(todo_rel) + r"(?![\w.-])",
                       lambda m: m.group(1) + todofile.archived_path(todo_rel), text)
     return text
+
+
+_MARK = "\x00"
+_CMD_SPLIT_RE = re.compile(r"&&|\|\||;")
+_CD_RE = re.compile(r"\s*cd(?:\s+(?P<q>['\"]?)(?P<target>[^'\"\s]*)(?P=q))?\s*$")
+_MARKED_RE = re.compile(_MARK + rf"(?P<path>[^{_SEP}{_MARK}]*)")
+
+
+def _split_command(command):
+    """`command` cut into [part, separator, part, ...] at each `&&`, `||` or `;` outside quotes."""
+    pieces, start, quote, i = [], 0, "", 0
+    while i < len(command):
+        char = command[i]
+        if quote:
+            quote = "" if char == quote else quote
+        elif char in "'\"":
+            quote = char
+        else:
+            sep = _CMD_SPLIT_RE.match(command, i)
+            if sep:
+                pieces += [command[start:i], sep.group()]
+                start = i = sep.end()
+                continue
+        i += 1
+    return pieces + [command[start:]]
+
+
+def _relativize_command(command, repo, main_root="", todo_rel=""):
+    """`_relativize` for a quoted acceptance-criterion command, which may change directory (todo 552).
+
+    `cd <wt>/backend && python3 <wt>/scripts/x.py` relativized whole reads `cd backend && python3
+    scripts/x.py`, which no longer re-runs: the second path now resolves under backend/. So each path
+    that was under the repo, a worktree or main_root is rewritten relative to the directory the
+    command is in by then (`../scripts/x.py`), and a later `cd` into another rooted directory is too
+    (`cd ../plant_community_mobile`), each resolved against the previous one. The leading `cd` stays
+    (owner decision). A path the command already wrote relative is left alone; a `cd` to an unrelated
+    place (`~`, `/opt`, `-`, `$X`, or bare) leaves the directory unknown, and later paths read
+    repo-root-relative as before."""
+    text = _relativize(command.replace(_MARK, ""), repo, main_root, todo_rel, mark=_MARK)
+    cwd = ""  # repo-relative; None once it is unknown
+    out = []
+    for index, part in enumerate(_split_command(text)):
+        if index % 2:
+            out.append(part)
+            continue
+        here = cwd
+
+        def rebase(match):
+            path = match.group("path")
+            if not here:
+                return path
+            return posixpath.relpath(posixpath.normpath(path or "."), here)
+
+        cd = _CD_RE.match(part)
+        out.append(_MARKED_RE.sub(rebase, part))
+        if not cd and re.match(r"\s*cd\b", part):
+            cwd = None  # a cd this cannot read (quoted blanks, more arguments): the directory is unknown
+        elif cd and cwd is not None:
+            target = cd.group("target") or ""
+            if target.startswith(_MARK):
+                cwd = posixpath.normpath(target[len(_MARK):] or ".")
+            elif target and not re.match(r"[~/$-]", target) and _MARK not in target:
+                cwd = posixpath.normpath(posixpath.join(cwd or ".", target))
+            else:
+                cwd = None
+            cwd = "" if cwd == "." else cwd
+            if cwd is not None and (cwd == ".." or cwd.startswith("../")):
+                cwd = None
+    return "".join(out).replace(_MARK, "")
 
 
 def _sanitize(value):
@@ -349,7 +429,7 @@ def flip_acs(repo, todo_rel, ac_entries, verdict_ac, run_id, date, main_root="",
         lines[line_no] = lines[line_no].replace("[ ]", "[x]", 1)
         flipped.append(index)
         # Mask first, as the tail is: a path-valued .env entry must still match before it is shortened.
-        command = _sanitize(_relativize(_mask(entry["command"], secrets), repo, main_root, todo_rel))
+        command = _sanitize(_relativize_command(_mask(entry["command"], secrets), repo, main_root, todo_rel))
         command = command.removeprefix("cd . && ")  # what `cd <repo> && ` reads once relativized (todo 525)
         evidence_display = _sanitize(entry["evidence_path"])
         fence, quoted = _fence_quote([_relativize(line, repo, main_root) for line in _tail(evidence, secrets)])
