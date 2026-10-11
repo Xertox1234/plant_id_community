@@ -1362,6 +1362,12 @@ def _backtracking_repeats(parsed):
         ("(a)(?(1)a*|b*)", 2),
         ("(a)(?(1)a*)", 1),
         ("a*+", 0),
+        # Nested repeats and alternation (todo 576 item 3): the recursion
+        # through MAX_REPEAT, POSSESSIVE_REPEAT and BRANCH is pinned too.
+        ("(?:a*)*", 2),
+        ("(?:a*)*+", 1),
+        ("a*|b*", 2),
+        ("(?:a*|b*)*", 3),
     ],
 )
 def test_550_item4_the_repeat_walk_reaches_every_sub_pattern(pattern, repeats):
