@@ -301,7 +301,9 @@ def test_an_overlapping_run_exits_on_the_lock_but_a_dry_run_ignores_it():
     fire while the first holds the lock sends nothing; the lock is released
     afterwards; dry-run never takes or honours it."""
     from django.core.cache import cache
-    from wagtail_forum.management.commands.send_forum_digest import RUN_LOCK_SECONDS
+    from wagtail_forum.conf import get_setting
+
+    RUN_LOCK_SECONDS = get_setting("DIGEST_RUN_LOCK_SECONDS")
 
     index = _index()
     board = _board(index, "general")
@@ -673,5 +675,187 @@ def test_a_soft_time_limit_in_the_send_gives_the_members_claim_back(monkeypatch)
     with pytest.raises(SoftTimeLimitExceeded):
         call_command("send_forum_digest", frequency="weekly", stdout=StringIO())
 
+    profile.refresh_from_db()
+    assert profile.last_digest_sent_at is None
+
+
+def _member_with_a_reply(prefix):
+    index = _index()
+    board = _board(index, "general")
+    friend = User.objects.create_user(username=f"{prefix}-poster")
+    topic = _topic(board, friend, f"{prefix} topic")
+    member = User.objects.create_user(username=prefix, email=f"{prefix}@example.com")
+    profile = _opt_in(member)
+    _reply_note(member, friend, topic)
+    return profile
+
+
+@pytest.mark.django_db
+@override_settings(
+    SITE_URL="https://forum.example", WAGTAILFORUM_DIGEST_UNSUBSCRIBE=None
+)
+def test_a_cache_outage_sends_the_digest_without_the_lock(caplog, monkeypatch):
+    """Todo 548: with IGNORE_EXCEPTIONS a Redis outage makes cache.add answer
+    None; only False means another run holds the lock."""
+    from unittest.mock import MagicMock
+
+    from wagtail_forum.management.commands import send_forum_digest
+
+    profile = _member_with_a_reply("dg-cache-down")
+    down = MagicMock()
+    down.add.return_value = None
+    monkeypatch.setattr(send_forum_digest, "cache", down)
+
+    out = StringIO()
+    with caplog.at_level("WARNING", logger="wagtail_forum"):
+        call_command("send_forum_digest", frequency="weekly", stdout=out)
+
+    assert [m.to for m in mail.outbox] == [["dg-cache-down@example.com"]]
+    assert "sent=1" in out.getvalue()
+    assert any(
+        r.levelname == "WARNING" and "lock is unavailable" in r.getMessage()
+        for r in caplog.records
+    )
+    profile.refresh_from_db()
+    assert profile.last_digest_sent_at is not None
+
+
+@pytest.mark.django_db
+@override_settings(
+    SITE_URL="https://forum.example", WAGTAILFORUM_DIGEST_UNSUBSCRIBE=None
+)
+def test_a_held_lock_answering_false_still_exits(monkeypatch):
+    from unittest.mock import MagicMock
+
+    from wagtail_forum.management.commands import send_forum_digest
+
+    profile = _member_with_a_reply("dg-cache-held")
+    held = MagicMock()
+    held.add.return_value = False
+    monkeypatch.setattr(send_forum_digest, "cache", held)
+
+    out = StringIO()
+    call_command("send_forum_digest", frequency="weekly", stdout=out)
+
+    assert mail.outbox == []
+    assert "another run holds the lock" in out.getvalue()
+    held.delete.assert_not_called()  # never release a lock we do not hold
+    profile.refresh_from_db()
+    assert profile.last_digest_sent_at is None
+
+
+@pytest.mark.django_db
+@override_settings(WAGTAILFORUM_DIGEST_RUN_LOCK_SECONDS=123)
+def test_the_run_lock_ttl_comes_from_the_package_setting(monkeypatch):
+    """Todo 548: the TTL is DIGEST_RUN_LOCK_SECONDS (default 35 minutes, the
+    host task's 30-minute hard limit + 5), not a fixed 2 hours."""
+    from unittest.mock import MagicMock
+
+    from wagtail_forum.conf import DEFAULTS
+    from wagtail_forum.management.commands import send_forum_digest
+
+    assert DEFAULTS["DIGEST_RUN_LOCK_SECONDS"] == 35 * 60
+    lock = MagicMock()
+    lock.add.return_value = True
+    monkeypatch.setattr(send_forum_digest, "cache", lock)
+
+    call_command("send_forum_digest", frequency="weekly", stdout=StringIO())
+
+    key, _value, ttl = lock.add.call_args.args
+    assert key == "wagtail_forum:digest-run:weekly" and ttl == 123
+    lock.delete.assert_called_once_with(key)
+
+
+def _one_topic_digest_patches(monkeypatch, send):
+    """Stub the digest build and the send so a test needs no pages."""
+    from django.core.cache import cache
+    from wagtail_forum.digest import Digest, DigestTopic
+    from wagtail_forum.management.commands import send_forum_digest
+
+    cache.delete("wagtail_forum:digest-run:weekly")
+    topic = DigestTopic(
+        id=1,
+        title="Fresh",
+        url="https://forum.example/t/1",
+        board_title="General",
+        reply_count=1,
+        last_post_at=timezone.now(),
+    )
+
+    def build(user, since, profile=None):
+        return Digest(user=user, since=since, watched=[topic])
+
+    monkeypatch.setattr(send_forum_digest, "build_digest", build)
+    monkeypatch.setattr(send_forum_digest, "send_digest", send)
+
+
+@pytest.mark.django_db
+@override_settings(
+    SITE_URL="https://forum.example", WAGTAILFORUM_DIGEST_UNSUBSCRIBE=None
+)
+def test_the_claim_and_the_send_share_one_transaction(monkeypatch):
+    """Todo 548: send_digest() runs inside an atomic block the command opened
+    (deeper than the test's own), and the claim UPDATE is already applied in
+    that block. A hard kill mid-send therefore rolls the claim back with the
+    rest of the uncommitted transaction. Not django_db(transaction=True): its
+    flush wipes Wagtail's seeded rows (docs/rules/testing.md)."""
+    from django.db import connection
+
+    member = User.objects.create_user(username="dg-txn", email="txn@example.com")
+    profile = _opt_in(member)
+    outer_depth = len(connection.atomic_blocks)
+    seen = {}
+
+    def send(digest):
+        seen["in_atomic"] = connection.in_atomic_block
+        seen["depth"] = len(connection.atomic_blocks)
+        seen["claim"] = ForumProfile.objects.get(pk=profile.pk).last_digest_sent_at
+        return True
+
+    _one_topic_digest_patches(monkeypatch, send)
+    call_command("send_forum_digest", frequency="weekly", stdout=StringIO())
+
+    assert seen["in_atomic"] is True
+    assert seen["depth"] > outer_depth  # the command's own atomic block
+    assert seen["claim"] is not None  # claimed before the send, same txn
+    profile.refresh_from_db()
+    assert profile.last_digest_sent_at == seen["claim"]  # kept after a send
+
+
+@pytest.mark.django_db
+@override_settings(
+    SITE_URL="https://forum.example", WAGTAILFORUM_DIGEST_UNSUBSCRIBE=None
+)
+@pytest.mark.parametrize("outcome", ["returns_false", "raises"])
+def test_a_failed_send_rolls_the_claim_back_with_its_transaction(monkeypatch, outcome):
+    """Todo 548: the claim was applied inside the send's transaction, and a
+    send that fails (returns False, or raises) leaves the marker unchanged."""
+    from django.db import connection
+
+    member = User.objects.create_user(
+        username=f"dg-txn-{outcome}", email=f"txn-{outcome}@example.com"
+    )
+    profile = _opt_in(member)
+    outer_depth = len(connection.atomic_blocks)
+    seen = {}
+
+    def send(digest):
+        seen["depth"] = len(connection.atomic_blocks)
+        seen["claim"] = ForumProfile.objects.get(pk=profile.pk).last_digest_sent_at
+        if outcome == "raises":
+            raise ConnectionError("smtp down")
+        return False
+
+    _one_topic_digest_patches(monkeypatch, send)
+    out = StringIO()
+    if outcome == "raises":  # a stubbed send_digest's error is not caught
+        with pytest.raises(ConnectionError):
+            call_command("send_forum_digest", frequency="weekly", stdout=out)
+    else:
+        call_command("send_forum_digest", frequency="weekly", stdout=out)
+        assert "failed=1" in out.getvalue()
+
+    assert seen["depth"] > outer_depth
+    assert seen["claim"] is not None  # the claim was applied, then undone
     profile.refresh_from_db()
     assert profile.last_digest_sent_at is None

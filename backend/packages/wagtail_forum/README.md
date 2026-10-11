@@ -191,7 +191,9 @@ sends with Django's mail API from `DEFAULT_FROM_EMAIL`; the templates
 `wagtail_forum/email/digest.txt` and `digest.html` are overridable through
 normal template resolution. Scheduling is the host's (cron or Celery beat —
 the package never imports Celery); `last_digest_sent_at` makes a re-run
-inside the window a no-op, and `--dry-run` reports recipient/due/empty
+inside the window a no-op (it is claimed and committed in one transaction
+with each member's send, so a killed run leaves the member due; delivery is
+at-least-once), and `--dry-run` reports recipient/due/empty
 counts without sending or writing. Links use `EMAIL_SITE_URL` (or the
 host's `SITE_URL`) and the manage link points at `DIGEST_SETTINGS_PATH`.
 
@@ -439,6 +441,7 @@ Things worth knowing before changing this:
 | `WAGTAILFORUM_DIGEST_WINDOW_DAYS` | `7` | Activity window of one digest; a member is due again once their last digest is older than the window minus a day of scheduler jitter. |
 | `WAGTAILFORUM_DIGEST_MAX_WATCHED_TOPICS` | `10` | Max "new replies on topics you follow" rows per digest. |
 | `WAGTAILFORUM_DIGEST_MAX_TRENDING_TOPICS` | `10` | Max "active topics you have not seen" rows per digest. |
+| `WAGTAILFORUM_DIGEST_RUN_LOCK_SECONDS` | `2100` (35 min) | TTL of `send_forum_digest`'s cache run lock. Set it to the hard time limit of whatever runs the command plus a few minutes: a hard-killed run never releases the lock, so this is how long it blocks the next run. A cache outage (`cache.add` answering `None`) sends without the lock, with a warning; the per-member claim still stops a second send. |
 | `WAGTAILFORUM_DIGEST_SETTINGS_PATH` | `"/settings"` | Path (under the site origin) the digest's "change or turn it off" link points to. |
 | `WAGTAILFORUM_DIGEST_UNSUBSCRIBE` | `None` | Dotted path to a host callable `(user) -> {"url": str, "headers": dict} \| None`. `url` is an absolute, signed unsubscribe page shown in the digest; `headers` (e.g. `List-Unsubscribe`, `List-Unsubscribe-Post`) are added to the message. The package never mints tokens itself. |
 | `WAGTAILFORUM_DM_GROUP_MAX_PARTICIPANTS` | `8` | Members per group conversation INCLUDING the creator (todo 350). Creation and `participants/` adds reject beyond it. |
