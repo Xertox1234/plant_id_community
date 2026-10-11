@@ -36,20 +36,49 @@ def providers_before_fixture():
     ), "conftest did not restore conf._override_providers after the test"
 
 
+def provider_verdict(providers, host_installed):
+    """``"skip"``, ``"fail"`` or ``"check"`` for the provider list the host left.
+
+    apps.forum_host registers its provider at ready(), so where it is
+    installed an empty list means that registration is gone, or an earlier
+    test removed it without putting it back: fail, since a skip would hide a
+    deleted fixture (todo 523). The strict check covers only apps.forum_host:
+    for any other host an empty list cannot tell "registers none" from
+    "lost", so it still skips.
+    """
+    if providers:
+        return "check"
+    return "fail" if host_installed else "skip"
+
+
 def test_package_tests_run_without_host_override_providers(providers_before_fixture):
-    # apps.forum_host registers its provider at ready(). Where it is
-    # installed, an empty list means that registration is gone or an earlier
-    # test removed it without putting it back, and a skip would hide a deleted
-    # fixture. Skip only for a host that registers no provider at all.
-    if not providers_before_fixture and not apps.is_installed("apps.forum_host"):
+    verdict = provider_verdict(
+        providers_before_fixture, apps.is_installed("apps.forum_host")
+    )
+    if verdict == "skip":
         pytest.skip("no host override provider is registered in this project")
 
-    assert providers_before_fixture, (
+    assert verdict == "check", (
         "apps.forum_host is installed, but conf._override_providers was empty "
         "before the conftest fixture ran: its ready() registration is gone, or "
-        "an earlier test unregistered it without restoring it"
+        "an earlier test unregistered it without restoring it (todo 523)"
     )
     assert conf._override_providers == []
+
+
+@pytest.mark.parametrize(
+    ("providers", "host_installed", "expected"),
+    [
+        ([], False, "skip"),
+        ([], True, "fail"),
+        ([object()], True, "check"),
+        ([object()], False, "check"),
+    ],
+)
+def test_provider_verdict_arms(providers, host_installed, expected):
+    # Pins todo 523's fail-instead-of-skip arm with synthetic inputs: a
+    # healthy run never feeds the guard an empty list (todo 560).
+    assert provider_verdict(providers, host_installed) == expected
 
 
 def test_conftest_imports_nothing_from_the_host():
