@@ -4,6 +4,9 @@ priority: p3
 issue_id: "534"
 tags: [backend, blog, email, celery]
 dependencies: ["409"]
+triage: ready
+triaged: 2026-10-10
+owner_decision: "Items 5-7: fix in the blog newsletter here; file a follow-up todo for the same fixes in the forum digest (2026-10-10)"
 ---
 
 # Non-blocking review findings from PR #969 (todo 409, slice B)

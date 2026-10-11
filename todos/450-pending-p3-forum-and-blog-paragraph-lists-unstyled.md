@@ -6,7 +6,7 @@ tags: [web, tailwind, design-system, forum, blog]
 dependencies: []
 source_review: "todos/archive/401-completed-p3-web-rich-text-styles-for-category-intro-and-care-blocks.md"
 triage: ready
-triaged: 2026-09-28
+triaged: 2026-10-10
 owner_decision: "AC2 means only the typography-plugin tokens (prose, prose-*); max-w-prose is fine (2026-09-28)"
 ---
 
