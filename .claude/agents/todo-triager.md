@@ -26,6 +26,10 @@ another branch or behind origin/main. `predicted_files` stay repo-relative: stri
 2. Check whether the work already exists: grep for the symbols, settings, routes, flags or files the
    Recommended Action would add or change. Put what you searched and what it showed in `evidence`
    (paths + one-line findings, ≤ 400 chars).
+   When the todo deletes a model, read that model's class and grep for `ForeignKey`, `OneToOneField`,
+   `ManyToManyField` and `on_delete` in it and in every model that points at it (todo 540: a triage once said
+   "the model has no FK" while `created_by` was an FK to `User`). Name each relation and its `on_delete` in
+   `evidence`, or say you found none; a relation means a migration and a data question the worker must plan for.
 3. `class` — the first that fits:
    - `already-done` — the code the todo asks for is present and each criterion looks satisfiable as written. `evidence` names the files.
    - `stale` — the premise no longer holds: the target code was removed or rewritten, or a later todo superseded it.

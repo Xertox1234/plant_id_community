@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: p4
 issue_id: "497"
 tags: [harness, todo-sweep]
@@ -69,8 +69,32 @@ Line numbers are as of PR #880's merge (fd7305de).
 
 ## Acceptance Criteria
 
-- [ ] Findings 1–9 are fixed, or each has a line in this todo saying why not.
-- [ ] Findings 1, 3, 6 and 8 each have a test that fails when the fix is removed.
+- [x] Findings 1–9 are fixed, or each has a line in this todo saying why not.
+- [x] Findings 1, 3, 6 and 8 each have a test that fails when the fix is removed.
+
+## Resolution
+
+Run 2026-10-10-2307 fixed all nine; each test below lives in `scripts/todos/test_state_flow.py` unless named.
+
+1. Fixed: a cleared critical is matched at its location and, when a repair moved it, at another line of the
+   same file whose phrasings the owner all cleared (fails closed only on a new phrasing). A phrasing a cleared
+   location gains is not held but is named in the refuted comment and any hold or block reason. Tests run
+   against a copy with each guard removed (`497 F1`).
+2. Fixed: phrasings are kept as a list (`refuted_phrasings`, `hold_cleared_phrasings`); the rendered line is
+   unchanged. Test `497 F2`.
+3. Fixed: `ingest-review` passes its output file as the source, and an incomplete outcome already counted for
+   that file is not counted again. Test `497 F3` (with the guard removed it blocks); todo-resume says so.
+4. Fixed (owner decision): `state.py release-incomplete RUN G --decision ...`, owner-gated and once per round,
+   sends the group back to `pr_open` with the count reset. Documented in completing-todos and todo-resume.
+5. Fixed: the failed-repair message says the criticals hold at the next round (`clear-hold` cannot clear them
+   from that block), and `refuted-comment` marks a cleared line `(cleared by the owner)`.
+6. Fixed: `todo-execute.js` skips the worker retry when ANY reason starts with the dirty-tree text. Tests in
+   `scripts/todos/test_workflows.js` (`497 F6`, one against the old every-reason check).
+7. Fixed: the worker's and the verifier's clean checks use `--untracked-files=all` (pinned in
+   `test_workflows.js`).
+8. Fixed: `slot_env.web_env` keeps only `VITE_*` keys and warns instead of raising on an unreadable file. Tests
+   in `scripts/todos/test_slot_env.py`, each also run against a copy without the fix.
+9. Fixed: tests for a residue outcome setting `review_reruns`, and residue then a rerun blocking (`497 F9`).
 
 ## Work Log
 
@@ -79,3 +103,37 @@ Line numbers are as of PR #880's merge (fd7305de).
 Round 2 never repairs, and round 3 (the owner's call) did not either. All were rated non-blocking.
 Finding 7 was first reported in round 2's wrap-up but never written to the run file; round 3 re-found
 it.
+
+### 2026-10-10 - Implemented by the todo sweep (run 2026-10-10-2307)
+
+- Reworked the cleared-critical key, stored phrasings as lists, made an incomplete round count once per output
+  file, and added the owner-gated `state.py release-incomplete`.
+- Fixed the two owner-facing messages, the dirty-tree retry check, the clean checks' untracked listing and
+  `slot_env.web_env`.
+- Each of findings 1, 3, 6 and 8 has a test that also runs against a copy with its fix removed.
+
+### 2026-10-10 - Verified by the todo sweep (run 2026-10-10-2307)
+
+- AC 1: `bash -c 'set -eo pipefail; cd . && sed -n "/^## Resolution/,/^## Work Log/p" todos/archive/497-completed-p4-todo-sweep-880-followups.md; python3 scripts/todos/test_state_flow.py | grep -E "497|All checks passed|FAIL"; node scripts/todos/test_workflows.js | grep -E "497|All checks passed|FAIL"; python3 scripts/todos/test_slot_env.py | grep -E "497|All checks passed|FAIL"'` — evidence `.sweep-evidence/g4/497-ac0.txt` (not committed), last lines:
+
+  ```text
+    PASS  497 F8: web_env keeps only VITE_* keys -- and fails with the fix removed
+    PASS  497 F8: an unreadable web/.env inherits nothing instead of raising
+    PASS  497 F8: an unreadable web/.env inherits nothing instead of raising -- and fails with the fix removed
+    PASS  497 F8: ... and slot_env still runs the command, with a warning
+  All checks passed.
+  ```
+
+- AC 2: `bash -c 'set -eo pipefail; cd . && python3 scripts/todos/test_state_flow.py | grep -E "497 F(1|3)|All checks passed|FAIL"; node scripts/todos/test_workflows.js | grep -E "497 F6|All checks passed|FAIL"; python3 scripts/todos/test_slot_env.py | grep -E "497 F8|All checks passed|FAIL"'` — evidence `.sweep-evidence/g4/497-ac1.txt` (not committed), last lines:
+
+  ```text
+    PASS  497 F8: web_env keeps only VITE_* keys -- and fails with the fix removed
+    PASS  497 F8: an unreadable web/.env inherits nothing instead of raising
+    PASS  497 F8: an unreadable web/.env inherits nothing instead of raising -- and fails with the fix removed
+    PASS  497 F8: ... and slot_env still runs the command, with a warning
+  All checks passed.
+  ```
+
+### 2026-10-10 - Completed by the todo sweep (run 2026-10-10-2307)
+
+- Archived by `land.py archive`; evidence is quoted above, review is on the PR.

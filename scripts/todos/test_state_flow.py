@@ -1404,6 +1404,9 @@ def main():
     fixer_514_tests()
     hand_round_542_tests()
     todo_543_tests()
+    todo_497_tests()
+    todo_541_tests()
+    todo_492_tests()
     print()
     if FAILURES:
         print(f"FAILED: {len(FAILURES)} check(s): {', '.join(FAILURES)}")
@@ -2911,6 +2914,353 @@ def todo_543_tests():
          '        if result.get("round") not in (None, round_no):', "        if False:")
     check("543 #2: a result without a round (written before todo 543) is still accepted",
           ingest(run_at(2, **hand), [review_result()], 3) == {"g1": "clean"})
+
+
+def todo_497_tests():
+    """Todo 497: the follow-ups of PR #880 (the hold key, stored phrasings, an idempotent incomplete count, the
+    owner's release of an incomplete round, messages that point the right way, residue in the counter)."""
+    crit = {"severity": "critical", "file": "d.py", "line": 4, "summary": "dismissed in round 1", "suggested_fix": "",
+            "also": [], "refutations": ["no", "no"]}
+
+    def cleared_round2(st, refs):
+        """Round 1 holds `crit`, the owner clears it, round 2 dismisses `refs`; returns (outcome, run)."""
+        run = pr_open_run()
+        for _, entry in st._group_entries(run, "g1"):
+            entry["review_baseline"] = {"round": 1, "head": "H", "files": {}}
+        st.ingest_review(run, [review_result(refuted=[crit])], 1, git=clean_git)
+        st.clear_hold(run, "g1", "owner: a false positive (2026-10-10)")
+        for _, entry in st._group_entries(run, "g1"):
+            entry["review_baseline"] = {"round": 2, "head": "H", "files": {}}
+        return st.ingest_review(run, [review_result(refuted=refs)], 2, git=clean_git)["g1"], run
+
+    # F1, failing closed: the round-1 repair moved the cleared critical from line 4 to line 6.
+    both("497 F1: a cleared critical the repair moved to another line (same words) does not hold again",
+         lambda st: cleared_round2(st, [dict(crit, line=6)])[0] == "clean",
+         "        if phrasings and set(phrasings) <= here:\n", "        if False:\n")
+    got, run = cleared_round2(state, [dict(crit, line=6, summary="a new bug here")])
+    check("497 F1: ... but a moved line with a phrasing the owner never cleared still holds",
+          got == "held" and "d.py:6" in run["todos"]["1"]["reason"], (got, run["todos"]["1"].get("reason")))
+
+    # F1, failing open: a different critical at the cleared location joins its line and does not hold, but the
+    # refuted comment and any hold or block reason name it.
+    def named(st):
+        outcome, r = cleared_round2(st, [dict(crit, summary="a different bug")])
+        body = st.refuted_comment(r, "g1")
+        return outcome == "clean" and "(cleared by the owner; new since the clear: a different bug)" in body
+    both("497 F1: a new phrasing at a cleared location is named in the refuted comment", named,
+         "        return [p for p in phrasings if p not in cleared[location]]\n", "        return []\n")
+    _, run = cleared_round2(state, [dict(crit, summary="a different bug"),
+                                    dict(crit, file="e.py", line=1, summary="a fresh critical")])
+    check("497 F1: ... and in the reason when the group holds for another critical",
+          run["todos"]["1"]["stage"] == "blocked"
+          and "a critical the owner cleared gained a phrasing since: critical: d.py:4: a different bug"
+          in run["todos"]["1"]["reason"], run["todos"]["1"].get("reason"))
+
+    # F5: a cleared line reads as cleared; a failed repair no longer says the owner can clear it from there.
+    _, run = cleared_round2(state, [crit])
+    check("497 F5: refuted_comment marks a line the owner already cleared",
+          "- critical: d.py:4 dismissed in round 1 (cleared by the owner)\n" in state.refuted_comment(run, "g1"),
+          state.refuted_comment(run, "g1"))
+    failed = pr_open_run()
+    ingest(failed, [review_result(blocking=[{"severity": "high", "file": "a.py", "line": 1, "summary": "bug"}],
+                                  refuted=[crit], repair=worker(["1"], status="failed"), residue=[])], 1)
+    reason = failed["todos"]["1"]["reason"]
+    check("497 F5: a failed round-1 repair's reason no longer says the owner must clear it there",
+          "which the owner must clear" not in reason and "at its next review round" in reason, reason)
+
+    # F2: a phrasing that contains " | " is stored as one phrasing and never appended again.
+    piped = dict(crit, severity="high", summary="s", also=["a | b"])
+
+    def stable(st):
+        kept, phr = [], {}
+        once = st._merge_refuted(kept, [piped], phr)
+        twice = st._merge_refuted(once, [piped], phr)
+        return twice == once == ["high: d.py:4 s | also: a | b"] and phr == {"high: d.py:4": ["s", "a | b"]}
+    both("497 F2: a phrasing holding ' | ' is merged once, however often it is reported", stable,
+         "        have = _line_phrasings(out[at], phrasings)\n", "        have = _line_phrasings(out[at])\n")
+    run = pr_open_run()
+    ingest(run, [review_result(refuted=[piped])], 1)
+    ingest(run, [review_result(refuted=[piped])], 2)
+    check("497 F2: the run file keeps the phrasings as a list beside the unchanged line, across rounds",
+          run["todos"]["1"]["refuted"] == ["high: d.py:4 s | also: a | b"]
+          and run["todos"]["1"]["refuted_phrasings"] == {"high: d.py:4": ["s", "a | b"]}, run["todos"]["1"])
+
+    # F3: re-ingesting one incomplete output does not count it twice.
+    def reingest(st):
+        run = pr_open_run()
+        for _, entry in st._group_entries(run, "g1"):
+            entry["review_baseline"] = {"round": 1, "head": "H", "files": {}}
+        out = [review_result(reviewers_ok=False)]
+        first = st.ingest_review(run, out, 1, git=clean_git, source="/tmp/task-1.out")["g1"]
+        second = st.ingest_review(run, out, 1, git=clean_git, source="/tmp/task-1.out")["g1"]
+        e = run["todos"]["1"]
+        return first == second == "rerun" and e["stage"] == "pr_open" and e["review_reruns"] == {"1": 1}
+    both("497 F3: the same round-1 output ingested twice counts once (todo-resume's re-ingest)", reingest,
+         '    if source and source in entries[0][1].get("review_counted", {}).get(key, []):\n',
+         "    if False:\n")
+    run = pr_open_run()
+    for _, entry in state._group_entries(run, "g1"):
+        entry["review_baseline"] = {"round": 1, "head": "H", "files": {}}
+    for n in (1, 2):
+        got = state.ingest_review(run, [review_result(reviewers_ok=False)], 1, git=clean_git, source=f"/tmp/{n}.out")
+    check("497 F3: ... while a second, different incomplete output still blocks the group",
+          got["g1"] == "blocked" and "incomplete twice" in run["todos"]["1"]["reason"], run["todos"]["1"])
+    check("497 F3: the ingest-review CLI passes its output file as the source",
+          "source=str(Path(args.output).resolve())" in Path(state.STATE_PY).read_text())
+
+    # F4: the owner releases a group blocked by two incomplete rounds, once per round.
+    check("497 F4: release-incomplete needs the owner's decision",
+          raises(lambda: state.release_incomplete(copy.deepcopy(run), "g1", " ")))
+    state.release_incomplete(run, "g1", "owner: the router flaked twice (2026-10-10)")
+    e = run["todos"]["1"]
+    check("497 F4: it sends the group back to pr_open with the round before it done and the count reset",
+          e["stage"] == "pr_open" and e["review_round"] == 0 and e["review_reruns"] == {"1": 0}
+          and e["reason"] == "" and "round 1 released: owner: the router flaked" in e["owner_decision"], e)
+    check("497 F4: ... and review-args then offers it for that round again",
+          [p["group"] for p in state.review_args(run, 1, 0, git=clean_git, held={})] == ["g1"])
+    for n in (3, 4):
+        state.ingest_review(run, [review_result(reviewers_ok=False)], 1, git=clean_git, source=f"/tmp/{n}.out")
+    check("497 F4: a released round that is incomplete twice again stays blocked: once per round",
+          run["todos"]["1"]["stage"] == "blocked"
+          and raises(lambda: state.release_incomplete(run, "g1", "owner: again (2026-10-10)")), run["todos"]["1"])
+    other = pr_open_run()
+    other["todos"]["1"].update(stage="blocked", reason="2 blocking findings after round 2")
+    check("497 F4: it refuses a group blocked for any other reason",
+          raises(lambda: state.release_incomplete(other, "g1", "owner: ok (2026-10-10)")))
+    with tempfile.TemporaryDirectory() as tmp:
+        runfile = Path(tmp) / "run.json"
+        blocked = pr_open_run()
+        blocked["todos"]["1"].update(stage="blocked", reason="review round 2 was incomplete twice (last: rerun, x)",
+                                     review_round=1)
+        state.save(blocked, runfile)
+        rc = state.main(["release-incomplete", str(runfile), "g1", "--decision", "owner: retry (2026-10-10)"])
+        saved = state.load(runfile)["todos"]["1"]
+        check("497 F4: the release-incomplete command (round 2: back to pr_open with round 1 done)",
+              rc == 0 and saved["stage"] == "pr_open" and saved["review_round"] == 1, (rc, saved))
+
+    # F9: residue counts toward the two-strike counter, and residue then a rerun in one round blocks.
+    run = pr_open_run()
+    first = ingest(run, [review_result(residue=["stray.txt"])], 1)["g1"]
+    check("497 F9: a residue outcome sets review_reruns", first == "residue" and run["todos"]["1"]["review_reruns"] ==
+          {"1": 1}, (first, run["todos"]["1"]))
+    second = ingest(run, [review_result(reviewers_ok=False)], 1)["g1"]
+    check("497 F9: residue then a rerun in one round blocks the group",
+          second == "blocked" and "incomplete twice (last: rerun" in run["todos"]["1"]["reason"], run["todos"]["1"])
+
+
+def todo_541_tests():
+    """Todo 541: the follow-ups of PR #982 that live in state.py and scan.py."""
+    def f(sev, line, summary="s", file="a.py"):
+        return {"severity": sev, "file": file, "line": line, "summary": summary, "suggested_fix": ""}
+
+    # #982-1: an item the curator leaves out is kept as stored, and what curation dropped is listed.
+    def merged_run():
+        run = pr_open_run()
+        ingest(run, [review_result(findings=[f("low", 2, "nit"), f("medium", 9, "real"), f("low", 30, "left out")])], 1)
+        ingest(run, [review_result()], 2)
+        state.set_group(run, "g1", "merged")
+        return run
+    curated = {"group": "g1", "ids": ["1"], "refuter_ok": True,
+               "kept": [{"severity": "medium", "file": "a.py", "line": 9, "summary": "real", "also": ["nit"]}],
+               "dropped": []}
+
+    def omitted(st):
+        run = merged_run()
+        st.ingest_followups(run, [copy.deepcopy(curated)])
+        record = run["groups"]["g1"]
+        return ("low: a.py:30 left out" in record["curated"] and "1 item(s) the curator did not return" in
+                record["curation"])
+    both("541 #982-1: a follow-up the curator did not return is kept as stored, not lost", omitted,
+         "        record[\"curated\"] = sorted(dict.fromkeys(kept + uncovered), key=_followup_rank)\n",
+         "        record[\"curated\"] = sorted(dict.fromkeys(kept), key=_followup_rank)\n")
+    run = merged_run()
+    state.ingest_followups(run, [{**curated, "items": [], "kept": [], "dropped": [
+        {"line": "medium: a.py:9 real", "why": "fixed on main: gone"}, {"line": "low: a.py:2 nit", "why": "refuted: no"},
+        {"line": "low: a.py:30 left out", "why": "refuted: no"}]}])
+    md = state.followups_md(run, "g1")
+    check("541 #982-1: followups-md lists what curation dropped under its own heading",
+          "Dropped by curation" in md and "- medium: a.py:9 real (fixed on main: gone)" in md, md)
+
+    # #982-2: a pre-529 line is keyed by its leading file:line, so curation keeps it and a new finding merges.
+    check("541 #982-2: a legacy follow-up line is keyed by its leading file:line",
+          state._followup_key("old.py:1 legacy nit") == "old.py:1" and state._followup_key("no location") ==
+          "no location", state._followup_key("old.py:1 legacy nit"))
+    run = pr_open_run()
+    run["todos"]["1"]["followups"] = ["old.py:1 legacy nit"]
+    ingest(run, [review_result(findings=[f("low", 1, "new words", file="old.py")])], 1)
+    check("541 #982-2: a new finding at a legacy line's location merges with it",
+          run["groups"]["g1"]["followups"] == ["low: old.py:1 legacy nit | also: new words"], run["groups"]["g1"])
+    run = pr_open_run()
+    run["todos"]["1"]["followups"] = ["old.py:1 legacy nit"]
+    ingest(run, [review_result()], 1)
+    ingest(run, [review_result()], 2)
+    state.set_group(run, "g1", "merged")
+    state.ingest_followups(run, [{"group": "g1", "ids": ["1"], "refuter_ok": True, "dropped": [], "kept": [
+        {"severity": "low", "file": "old.py", "line": 1, "summary": "legacy nit", "also": []}]}])
+    check("541 #982-2: curation keeps a legacy line at its reported location",
+          run["groups"]["g1"]["curated"] == ["low: old.py:1 legacy nit"]
+          and not run["groups"]["g1"]["curation_dropped"], run["groups"]["g1"])
+
+    # #982-4: an uncurated group is offered again; a curated one is not.
+    run = merged_run()
+    state.ingest_followups(run, [{"group": "g1", "ids": ["1"], "kept": None, "dropped": [], "refuter_ok": False,
+                                  "why": "the curator returned nothing"}])
+    check("541 #982-4: a group left uncurated (a dead curator) is offered for curation again",
+          len(state.followups_args(run, "/main")) == 1, run["groups"]["g1"])
+    state.ingest_followups(run, [copy.deepcopy(curated)])
+    check("541 #982-4: ... and a curated one is not", state.followups_args(run, "/main") == [])
+
+    # #982-5: the index copy of the todo, which is what ships, is compared too.
+    with tempfile.TemporaryDirectory() as tmp:
+        run, repo, wt = blocked_world(tmp)
+        path = wt / "todos" / "7-pending-p3-x.md"
+        path.write_text(SAMPLE_TODO.replace("Pinned by tests.", "Pinned."))
+        _g("-C", str(wt), "add", "todos/7-pending-p3-x.md")
+        path.write_text(SAMPLE_TODO)
+        check("541 #982-5: an edited criterion that is staged but restored on disk is still caught",
+              state.execute_criteria(run, "7", str(wt)) == "criterion 0 was edited",
+              state.execute_criteria(run, "7", str(wt)))
+
+    # #982-6: ingest-execute reads the criteria in the worktree the group was given.
+    seen = []
+    run = ready_run([("1", ["a.py"])], workers=1)
+    state.apply_grouping(run)
+    b = state.execute_args(run, 0, "/m")[0]
+    run["todos"]["1"]["worktree"] = "/wt/given"
+    state.ingest_execute(run, [{"group": b["group"], "ids": ["1"], "retried": False,
+                                "worker": worker(["1"]) | {"worktree": "/wt/given"}, "verdict": verdict(["1"])}],
+                         criteria=lambda r, i, w: seen.append(w))
+    check("541 #982-6: ingest-execute checks the criteria in the given worktree", seen == ["/wt/given"], seen)
+    seen.clear()
+    run = pr_open_run()
+    ingest_res = state.ingest_review({**run}, [review_result(
+        blocking=[{"severity": "high", "file": "a.py", "line": 1, "summary": "b"}], residue=[],
+        repair=worker(["1"], tree="T2") | {"worktree": "/somewhere/else"}, verdict=verdict(["1"], "T2", "T2"))], 1,
+        git=clean_git, criteria=lambda r, i, w: seen.append(w))
+    check("541 #982-6: a round-1 repair's criteria are read in the recorded PR worktree, not the reported one",
+          seen == ["/wt/g1"], (seen, ingest_res))
+
+    # #982-7: the real recovery is named, a branch left without its directory is refused, roots are absolute.
+    def fake(existing_branch):
+        def git(repo, *args):
+            if args[:2] == ("rev-parse", "--verify"):
+                if existing_branch:
+                    return "abc\n"
+                raise RuntimeError("no such ref")
+            if args[:1] == ("rev-parse",):
+                return "other-branch\n"
+            return ""
+        return git
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp) / "wts"
+        (root / "sweep-r-g1").mkdir(parents=True)
+        brief = {"group": "g1", "ids": ["1"], "main_root": tmp, "reverify": None}
+        run1 = {"run_id": "r", "todos": {"1": {}}}
+        _, err = expect(lambda: state.add_worktrees(run1, [dict(brief)], root, git=fake(False)))
+        check("541 #982-7: a path in the way names the real recovery (worktree remove, then branch -D)",
+              isinstance(err, RuntimeError) and "worktree remove" in str(err) and "branch -D" in str(err)
+              and "move it aside" not in str(err), err)
+        (root / "sweep-r-g1").rmdir()
+        _, err = expect(lambda: state.add_worktrees(run1, [dict(brief)], root, git=fake(True)))
+        check("541 #982-7: a branch left behind without its directory is refused before `worktree add -b`",
+              isinstance(err, RuntimeError) and "already exists, but" in str(err), err)
+        cwd = os.getcwd()
+        os.chdir(tmp)
+        try:
+            rel = [dict(brief, main_root=".")]
+            state.add_worktrees({"run_id": "r", "todos": {"1": {}}}, rel, "wts", git=fake(False))
+        finally:
+            os.chdir(cwd)
+        check("541 #982-7: a relative --main-root and --worktree-root record absolute paths",
+              os.path.isabs(rel[0]["worktree"]) and os.path.isabs(rel[0]["main_root"]), rel)
+
+    # #982-10: anchored, negated, `..` and symlinked .worktreeinclude entries never raise, and never copy a link.
+    with tempfile.TemporaryDirectory() as tmp:
+        main, wt = Path(tmp) / "main", Path(tmp) / "wt"
+        (main / "backend").mkdir(parents=True)
+        wt.mkdir()
+        (main / "backend" / ".env").write_text("K=v\n")
+        (Path(tmp) / "outside.txt").write_text("secret\n")
+        (main / "link.txt").symlink_to(Path(tmp) / "outside.txt")
+        (main / ".worktreeinclude").write_text("/backend/.env\n!backend/x\n../outside.txt\nlink.txt\n")
+        _, err = expect(lambda: state._copy_worktreeinclude(str(main), wt, lambda *a: ""))
+        check("541 #982-10: an anchored entry is copied; a negation, a `..` and a symlink are skipped, nothing raises",
+              err is None and (wt / "backend" / ".env").read_text() == "K=v\n" and not (wt / "link.txt").exists()
+              and not (Path(tmp) / "outside.txt").samefile(wt / "backend" / ".env"), err)
+
+    # #982-11: a worker that reports another worktree fails with that path recorded, and `worktrees` lists it.
+    run = ready_run([("1", ["a.py"])], workers=1)
+    state.apply_grouping(run)
+    b = state.execute_args(run, 0, "/m")[0]
+    run["todos"]["1"]["worktree"] = "/wt/given"
+    state.ingest_execute(run, [{"group": b["group"], "ids": ["1"], "retried": False,
+                                "worker": worker(["1"]) | {"worktree": "/wt/stray"}, "verdict": verdict(["1"])}])
+    check("541 #982-11: the stray worktree is recorded and listed",
+          run["todos"]["1"]["stray_worktree"] == "/wt/stray"
+          and state.recorded_worktrees(run)["1"] == ["/wt/given", "/wt/stray"], state.recorded_worktrees(run))
+
+    # #982-12: after Land, only a box Land may flip may change, never back; a recorded marker must stay.
+    base = SAMPLE_TODO
+    flipped = base.replace("- [ ] The code works.", "- [x] The code works.")
+    check("541 #982-12: after Land, a box flipped on a verified index passes and one on an unverified index fails",
+          state.criteria_problem(base, flipped, ignore_boxes=True, flippable={0}) is None
+          and state.criteria_problem(base, flipped, ignore_boxes=True, flippable={1}) == "criterion 0's box changed")
+    check("541 #982-12: ... and a box unchecked after Land fails",
+          state.criteria_problem(flipped, base, ignore_boxes=True, flippable={0}) == "criterion 0's box changed")
+    marker = "→ todo 8 (re-pointed 2026-10-10)"
+    check("541 #982-12: a recorded re-point whose marker was removed is an edit",
+          state.criteria_problem(base, base, [{"index": 1, "to": "8", "marker": marker}])
+          == "criterion 1 lost its re-point marker")
+
+    # #982-13: a re-verify brief needs the blocked attempt's tree.
+    with tempfile.TemporaryDirectory() as tmp:
+        entry = {"worktree": tmp, "path": "todos/7.md"}
+        check("541 #982-13: _reverify_tree refuses an entry with no tree_id",
+              raises(lambda: state._reverify_tree("7", entry, lambda *a: "T\n")))
+
+
+def todo_492_tests():
+    """Todo 492 AC1 (owner decision 2026-10-10): the owner's dated confirmation of an owner-only criterion is
+    recorded by `state.py confirm` and briefed to the verifier, in execute and in review."""
+    decision = "the prod email arrived (2026-10-10)"
+    run = ready_run([("1", ["a.py"])], workers=1)
+    check("492 AC1: confirm needs the owner's words and a real date",
+          raises(lambda: state.confirm(copy.deepcopy(run), "1", 1, " ", "2026-10-10"))
+          and raises(lambda: state.confirm(copy.deepcopy(run), "1", 1, decision, "today")))
+    triaged = copy.deepcopy(run)
+    triaged["todos"]["1"]["stage"] = "triaged"
+    check("492 AC1: confirm refuses a todo Decide has not moved yet (decide writes owner_decision over)",
+          raises(lambda: state.confirm(triaged, "1", 1, decision, "2026-10-10")))
+    run["todos"]["1"]["owner_decision"] = "ship it (2026-10-09)"
+    with tempfile.TemporaryDirectory() as tmp:
+        runfile = Path(tmp) / "run.json"
+        state.save(run, runfile)
+        rc = state.main(["confirm", str(runfile), "1", "--index", "1", "--decision", decision, "--date", "2026-10-10"])
+        run = state.load(runfile)
+    e = run["todos"]["1"]
+    check("492 AC1: the confirm command records a dated record and appends it to owner_decision",
+          rc == 0 and e["confirmed"] == [{"index": 1, "date": "2026-10-10", "decision": decision}]
+          and e["owner_decision"] == f"ship it (2026-10-09); criterion 1 confirmed by the owner (2026-10-10): {decision}",
+          (rc, e))
+    state.apply_grouping(run)
+    b = state.execute_args(run, 0, "/m")[0]
+    check("492 AC1: execute-args briefs the confirmation", b["confirmed"] == {"1": [{"index": 1, "date": "2026-10-10"}]},
+          b)
+    state.ingest_execute(run, [{"group": b["group"], "ids": ["1"], "retried": False, "worker": worker(["1"]),
+                                "verdict": verdict(["1"]) | {"ac": [{"todo": "1", "index": 0, "verified": True,
+                                                                     "note": ""}]}}])
+    check("492 AC1: confirm refuses a todo already briefed", raises(lambda: state.confirm(run, "1", 0, decision,
+                                                                                          "2026-10-10")))
+    state.set_group(run, b["group"], "pr_open", pr=5)
+    for _, entry in state._group_entries(run, b["group"]):
+        entry["slot"] = 1
+    prs = state.review_args(run, 1, 0, git=clean_git, held={})
+    check("492 AC1: review-args briefs it too", prs and prs[0]["confirmed"] == {"1": [{"index": 1,
+                                                                                     "date": "2026-10-10"}]}, prs)
+    flipped = SAMPLE_TODO.replace("- [ ] A walkthrough", "- [x] A walkthrough")
+    check("492 AC1 / 541 #982-12: after Land, an owner-confirmed box may be ticked though the verifier's list "
+          "does not verify it", state.criteria_problem(SAMPLE_TODO, flipped, ignore_boxes=True, flippable={1})
+          is None)
 
 
 def raises(fn, exc=state.TransitionError):

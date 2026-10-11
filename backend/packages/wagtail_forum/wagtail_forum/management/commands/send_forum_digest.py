@@ -126,7 +126,12 @@ class Command(BaseCommand):
             except BaseException:
                 # A soft time limit or a re-raised Warning (todo 537) stops
                 # the run: give back our own claim, never a later run's, so
-                # the member is due again.
+                # the member is due again. At-least-once on purpose, as in
+                # send_blog_newsletter (todo 541, owner decision 2026-10-10):
+                # a soft limit that fires after SMTP accepted the mail sends
+                # this member a duplicate digest on the next run. That is the
+                # accepted cost; keeping the claim instead would skip a member
+                # whose digest never went out.
                 ForumProfile.objects.filter(
                     pk=profile.pk, last_digest_sent_at=now
                 ).update(last_digest_sent_at=previous)

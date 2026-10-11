@@ -3,10 +3,15 @@
 
     python3 <worktree>/scripts/todos/slot_env.py <slot> -- <command> [args...]
     python3 slot_env.py --worktree <worktree> <slot> -- <command> [args...]
+    python3 slot_env.py --main-root <main checkout> <slot> -- <command> [args...]
 
 The worktree defaults to the one this file lives in. --worktree points a newer
 copy at a worktree cut before a slot_env fix (todo 469), which would otherwise
-keep running its own old copy.
+keep running its own old copy. --main-root names the env root explicitly (todo
+492): the checkout whose backend/.env and web/.env a worktree without its own
+inherits, and whose backend/venv and web/node_modules the worker uses (the
+brief's `main_root`). Without it, the main checkout is the worktree's git common
+directory's parent, as before.
 
 Slot N (1..6) gets its own Postgres database -- pytest then creates
 test_plant_community_wN -- and Redis DB 9+N, so the six slots of two
@@ -83,12 +88,23 @@ def dotenv_path(worktree, main_root, app="backend"):
 
 
 def web_env(worktree, main_root):
-    """The main checkout's web/.env values, when the worktree has no web/.env of its own (todo 479: the
+    """The main checkout's VITE_* web/.env values, when the worktree has no web/.env of its own (todo 479: the
     harness copies .worktreeinclude files from ITS main checkout, which may sit on a branch without the
     file). Vite reads VITE_* from the process environment ahead of any .env file, so a worker's Vitest
-    or `npm run build` sees them. Vite's dotenv strips an inline ` # note`, so this reading does too."""
+    or `npm run build` sees them. Vite's dotenv strips an inline ` # note`, so this reading does too.
+
+    Only VITE_* keys (todo 497 F8): these go into every slot_env command, backend pytest included, and
+    python-decouple reads os.environ before backend/.env, so any other web key of the same name would
+    override the backend's value. An unreadable file inherits nothing, with a warning, not a traceback."""
     path, inherited = dotenv_path(worktree, main_root, app="web")
-    return parse_dotenv(path.read_text()) if inherited and path.is_file() else {}
+    if not inherited or not path.is_file():
+        return {}
+    try:
+        text = path.read_text()
+    except (OSError, UnicodeDecodeError) as exc:
+        print(f"slot_env: cannot read {path} ({type(exc).__name__}); no web values inherited", file=sys.stderr)
+        return {}
+    return {k: v for k, v in parse_dotenv(text).items() if k.startswith("VITE_")}
 
 
 def top_level(path):
@@ -147,12 +163,16 @@ def slot_env(environ, dotenv_text, slot, worktree, inherit_dotenv=False, exists=
 
 
 def main(argv):
-    args, worktree = argv[1:], Path(__file__).resolve().parents[2]
-    if args[:1] == ["--worktree"] and len(args) > 1:
-        worktree, args = Path(args[1]).resolve(), args[2:]
-        if not worktree.is_dir():
-            print(f"slot_env: --worktree {worktree} is not a directory", file=sys.stderr)
+    args, worktree, explicit_main = argv[1:], Path(__file__).resolve().parents[2], None
+    while args[:1] in (["--worktree"], ["--main-root"]) and len(args) > 1:
+        flag, value, args = args[0], Path(args[1]).resolve(), args[2:]
+        if not value.is_dir():
+            print(f"slot_env: {flag} {value} is not a directory", file=sys.stderr)
             return 2
+        if flag == "--main-root":
+            explicit_main = value
+            continue
+        worktree = value
         # Todo 473: `--worktree .` from WT/backend would give WT/backend/backend/packages/... on PYTHONPATH
         # and fall back to the main checkout's .env without a word.
         top = top_level(worktree)
@@ -164,7 +184,7 @@ def main(argv):
         print(__doc__, file=sys.stderr)
         return 2
     try:
-        main_root = main_checkout(worktree)
+        main_root = explicit_main or main_checkout(worktree)
         dotenv, inherited = dotenv_path(worktree, main_root)
         web = web_env(worktree, main_root)
     except subprocess.CalledProcessError:

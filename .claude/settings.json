@@ -25,6 +25,17 @@
         ]
       },
       {
+        "matcher": "Edit|Write|MultiEdit|NotebookEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "cd \"$(git rev-parse --show-toplevel 2>/dev/null || echo '.')\" && bash .claude/hooks/guard-todo-worker-edit.sh",
+            "timeout": 10,
+            "statusMessage": "Checking todo-worker edit scope..."
+          }
+        ]
+      },
+      {
         "matcher": "Bash",
         "hooks": [
           {

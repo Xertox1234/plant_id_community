@@ -31,6 +31,8 @@ PRIORITIES = ["p1", "p2", "p3", "p4"]
 # todo 468), and before - _ / or the end, allowing one slice letter ("feat/410b-...").
 ID_RE = re.compile(r"(?:^|(?<=[/_-])|(?<=wt)|(?<=/todo))(\d{3,4})(?=[a-z]?(?:[-_/]|$))")
 AGENT_BRANCH_PREFIX = "worktree-agent-"
+# state.add_worktrees names each sweep group's branch so (todo 528).
+SWEEP_BRANCH_PREFIX = "worktree-sweep-"
 MERGED_PR_LIMIT = 5000
 MAX_WORKERS = 3  # six slots across two overlapping waves; Redis has 16 DBs
 
@@ -75,9 +77,10 @@ def load_todos(todos_dir, ref=None, repo="."):
 
 def ids_in(names):
     """Todo ids named by branch names. Harness `worktree-agent-<hex>` branches are skipped
-    (their hex holds digit runs: a367c0a10e427e588 read as 367, 427 and 588), and an id
-    counts only as a whole delimited token (final review m3)."""
-    return {found for name in names if not name.startswith(AGENT_BRANCH_PREFIX)
+    (their hex holds digit runs: a367c0a10e427e588 read as 367, 427 and 588), and so are the
+    sweep's own `worktree-sweep-<run_id>-<group>` ones (todo 541, #982-8: `2026` and the HHMM
+    read as ids). An id counts only as a whole delimited token (final review m3)."""
+    return {found for name in names if not name.startswith((AGENT_BRANCH_PREFIX, SWEEP_BRANCH_PREFIX))
             for found in ID_RE.findall(name)}
 
 

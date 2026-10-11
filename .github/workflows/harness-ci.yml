@@ -96,6 +96,7 @@ jobs:
           bash .claude/hooks/test-format-on-edit.sh
           bash .claude/hooks/test-check-test-env.sh
           bash .claude/hooks/test-guard-todo-worker-git.sh
+          bash .claude/hooks/test-guard-todo-worker-edit.sh
 
       - name: Python inject tests
         run: |

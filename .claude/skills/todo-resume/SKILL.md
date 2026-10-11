@@ -28,7 +28,9 @@ description: Resume, restart, or discard an interrupted todo run from its checkp
        the repair was committed but never pushed. Run `ensure-worktree`, then push.
 
      When `review_round` is 0 and the round-1 output was never ingested, run `ingest-review --round 1`
-     on it first, if its task output file still exists; otherwise rerun round 1.
+     on it first, if its task output file still exists; otherwise rerun round 1. Check `review_reruns` first: a
+     re-ingested output that was already counted is not counted again (todo 497), but one ingested by hand under
+     another path would be.
      A group with `review_residue` ended its last round on `residue`: follow `completing-todos` Stage C step 5
      before rerunning that round.
    - `reviewed` / `merged` → merge confirmation and cleanup
@@ -37,8 +39,10 @@ description: Resume, restart, or discard an interrupted todo run from its checkp
      hold then goes to `reviewed`: arm it (Stage C step 2). A round-1 hold (`(round 1)` in the reason) goes back
      to `pr_open` with round 1 done: resume it as `pr_open` above. A group round 2 blocked on blocking findings
      (`blocked_by: review round 2`) gets a round 3 only when the owner approves one: `state.py hand-round`
-     (`completing-todos` Stage C step 2). Any other blocked group whose blocker has
-     since cleared is reopened as in Stage B step 5.
+     (`completing-todos` Stage C step 2). A group blocked `review round N was incomplete twice` has a PR, so
+     a reopen refuses it: only with the owner's approval, `state.py release-incomplete $RUN G --decision "…"`
+     sends it back to `pr_open` for one more round N (todo 497; once per round). Any other blocked group whose
+     blocker has since cleared is reopened as in Stage B step 5.
 4. **restart**: list `state.py worktrees $RUN` in your reply, delete RUN (confirm first), then re-run the original selector.
 5. **discard**: list `state.py worktrees $RUN` in your reply, delete RUN (confirm first). No todo file on `main`
    changes: v2 never leaves a todo `in_progress` on `main`, so there's nothing to reset.

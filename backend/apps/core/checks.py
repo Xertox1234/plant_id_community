@@ -47,7 +47,11 @@ def check_default_mailer(app_configs, **kwargs):
     backend_name = f"{type(backend).__module__}.{type(backend).__qualname__}"
     try:
         # The same kwargs MailersHandler.create_connection passes for that
-        # legacy call, _ignore_unknown_kwargs included (todo 537).
+        # legacy call, _ignore_unknown_kwargs included (todo 537). This mirrors
+        # Django 6.1.1 (django/core/mail/handler.py, the pin in
+        # backend/requirements.txt). The kwarg is private: a Django upgrade
+        # that renames it would surface here as a misleading core.E364, so the
+        # test that runs this against the installed Django stays (todo 541).
         options = settings.MAILERS["default"].get("OPTIONS", {})
         merged = type(backend)(
             alias="default",

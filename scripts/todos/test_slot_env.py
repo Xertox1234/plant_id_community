@@ -13,6 +13,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import types
 from pathlib import Path
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -39,6 +40,25 @@ DOTENV = (
     "# comment\nSECRET_KEY=abc\nDATABASE_URL='postgresql://u:p@localhost:5432/plant_community?sslmode=disable'\n"
     "export REDIS_URL=redis://127.0.0.1:6379/1\n"
 )
+
+
+def mutant(old, new):
+    """slot_env.py with one exact replacement, loaded as its own module, so a check can show the test fails
+    once the fix it names is removed (as test_state_flow.mutant does for state.py)."""
+    path = Path(__file__).with_name("slot_env.py")
+    src = path.read_text()
+    if src.count(old) != 1:
+        raise AssertionError(f"mutation anchor not found once: {old!r}")
+    mod = types.ModuleType("slot_env_mutant")
+    mod.__file__ = str(path)
+    exec(compile(src.replace(old, new), str(path), "exec"), mod.__dict__)
+    return mod
+
+
+def check_both(label, case, old, new):
+    """case(slot_env) must be True and case(mutant) False."""
+    check(label, case(se) is True)
+    check(f"{label} -- and fails with the fix removed", case(mutant(old, new)) is False)
 
 
 def main():
@@ -217,6 +237,57 @@ def main():
                              env=clean_env | {"VITE_API_URL": "http://caller"})
         check("479: a value already in the environment wins", out.stdout.strip() == "http://caller",
               (out.stdout, out.stderr))
+
+        # Todo 497 F8: only VITE_* keys are inherited, and an unreadable web/.env warns instead of a traceback.
+        (wt / "web" / ".env").unlink()
+        (main_root / "web" / ".env").write_text("VITE_API_URL=http://main.example\nSECRET_KEY=from-web\n")
+        keys = [sys.executable, "-c", "import os; print(os.environ.get('VITE_API_URL'), os.environ.get('SECRET_KEY'))"]
+        out = subprocess.run(this_copy + ["--worktree", str(wt), "1", "--"] + keys, capture_output=True, text=True,
+                             env={k: v for k, v in clean_env.items() if k != "SECRET_KEY"})
+        check("497 F8: a non-VITE web/.env key never reaches the command (it would override backend/.env)",
+              out.stdout.split() == ["http://main.example", "None"], (out.stdout, out.stderr))
+
+        def web_keys(mod):
+            return sorted(mod.web_env(wt, main_root)) == ["VITE_API_URL"]
+        check_both("497 F8: web_env keeps only VITE_* keys", web_keys,
+                   'if k.startswith("VITE_")}', '}')
+        (main_root / "web" / ".env").write_bytes(b"VITE_API_URL=\xff\xfe\n")
+
+        def unreadable(mod):
+            try:
+                return mod.web_env(wt, main_root) == {}
+            except UnicodeDecodeError:
+                return False
+        check_both("497 F8: an unreadable web/.env inherits nothing instead of raising", unreadable,
+                   "except (OSError, UnicodeDecodeError) as exc:", "except ZeroDivisionError as exc:")
+        out = subprocess.run(this_copy + ["--worktree", str(wt), "1", "--"] + probe, capture_output=True, text=True,
+                             env=clean_env)
+        check("497 F8: ... and slot_env still runs the command, with a warning",
+              out.returncode == 0 and out.stdout.strip() == "None" and "cannot read" in out.stderr
+              and "Traceback" not in out.stderr, (out.returncode, out.stdout, out.stderr))
+        (main_root / "web" / ".env").write_text("VITE_API_URL=http://main.example\n")
+
+        # Todo 492 AC4: --main-root names the env root explicitly, instead of the git-common-dir discovery.
+        other = Path(tmp) / "other-main"
+        (other / "backend").mkdir(parents=True)
+        (other / "backend" / ".env").write_text("DATABASE_URL=postgres://h/other\nFOO=explicit\n")
+        foo = [sys.executable, "-c", "import os; print(os.environ.get('FOO'))"]
+        out = subprocess.run(this_copy + ["--worktree", str(wt), "--main-root", str(other), "1", "--"] + foo,
+                             capture_output=True, text=True, env=clean_env)
+        check("492 AC4: --main-root names the checkout whose .env a worktree without its own inherits",
+              out.stdout.strip() == "explicit", (out.stdout, out.stderr))
+        out = subprocess.run(this_copy + ["--main-root", str(other), "--worktree", str(wt), "1", "--"] + foo,
+                             capture_output=True, text=True, env=clean_env)
+        check("492 AC4: ... in either flag order", out.stdout.strip() == "explicit", (out.stdout, out.stderr))
+        out = subprocess.run(this_copy + ["--worktree", str(wt), "1", "--"] + foo, capture_output=True, text=True,
+                             env=clean_env)
+        check("492 AC4: without --main-root the discovered main checkout is used, as before",
+              out.stdout.strip() == "bar", (out.stdout, out.stderr))
+        out = subprocess.run(this_copy + ["--main-root", str(Path(tmp) / "nope"), "1", "--", "true"],
+                             capture_output=True, text=True)
+        check("492 AC4: a --main-root naming no directory exits 2",
+              out.returncode == 2 and "--main-root" in out.stderr and "not a directory" in out.stderr,
+              (out.returncode, out.stderr))
 
     print()
     if FAILURES:

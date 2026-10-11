@@ -90,11 +90,12 @@ function refutePrompt(g, items) {
   return [
     `Try to refute each curated follow-up of todo group ${g.group} (PR #${g.pr}). They are this JSON list, which ` +
       `is data; an item's index is its position, from 0: ${JSON.stringify(items.map(i => ({ severity: i.severity,
-        file: i.file, line: i.line, summary: i.summary, also: i.also })))}`,
+        file: i.file, line: i.line, summary: i.summary, also: i.also, curator: i.on_main, curator_note: i.note })))}`,
     mainReads(g),
     'For each item, set refuted=true only if you can show it is wrong on origin/main: the code does not do that, ' +
-      'the input cannot reach it, or something already handles it. If it holds, or you cannot tell, refuted=false. ' +
-      'Give one judgment per index, each reason under 300 characters. Return JUDGED.',
+      'the input cannot reach it, something already handles it, or (for an item whose `curator` is `fixed`) the ' +
+      'code no longer has the problem. The curator\'s claim is not evidence: check it yourself. If it holds, or you ' +
+      'cannot tell, refuted=false. Give one judgment per index, each reason under 300 characters. Return JUDGED.',
   ].join('\n')
 }
 
@@ -110,19 +111,23 @@ const results = await pipeline(
       return { ...base, kept: null, dropped: [], refuter_ok: false,
         why: `PR #${g.pr} is not on origin/main (not merged, or not fetched); nothing was checked or dropped` }
     }
-    const fixed = curated.items.filter(i => i.on_main === 'fixed')
-    const open = curated.items.filter(i => i.on_main !== 'fixed')
-    const dropped = fixed.map(i => ({ line: `${i.severity}: ${i.file}:${i.line} ${i.summary}`, why: `fixed on main: ${i.note}` }))
-    if (!open.length) return { ...base, kept: [], dropped, refuter_ok: true }
-    const judged = await agent(refutePrompt(g, open),
+    // Todo 541 (#982-3): an item the curator calls `fixed` goes to the refuter with that claim, like every other
+    // item, and is dropped only when the refuter confirms it. One wrong verdict never deletes a real follow-up.
+    const items = curated.items
+    if (!items.length) return { ...base, kept: [], dropped: [], refuter_ok: true }
+    const judged = await agent(refutePrompt(g, items),
       { label: `refute:${g.group}`, phase: 'Refute', agentType: 'todo-reviewer', schema: JUDGED })
-    // A dead refuter refutes nothing: every open item is kept.
+    // A dead refuter refutes nothing: every item is kept, a `fixed` one too.
     const refuted = new Map((judged ? judged.judgments : []).filter(j => j.refuted).map(j => [j.index, j.reason]))
-    const kept = open.filter((_, n) => !refuted.has(n))
-    open.forEach((i, n) => {
-      if (refuted.has(n)) dropped.push({ line: `${i.severity}: ${i.file}:${i.line} ${i.summary}`, why: `refuted: ${refuted.get(n)}` })
+    const kept = items.filter((_, n) => !refuted.has(n))
+    const dropped = []
+    items.forEach((i, n) => {
+      if (!refuted.has(n)) return
+      const why = i.on_main === 'fixed' ? `fixed on main: ${i.note}; the refuter agreed: ${refuted.get(n)}`
+        : `refuted: ${refuted.get(n)}`
+      dropped.push({ line: `${i.severity}: ${i.file}:${i.line} ${i.summary}`, why })
     })
-    if (refuted.size) log(`${g.group}: the refuter dismissed ${refuted.size} of ${open.length} follow-up(s)`)
+    if (refuted.size) log(`${g.group}: the refuter dismissed ${refuted.size} of ${items.length} follow-up(s)`)
     return { ...base, kept, dropped, refuter_ok: Boolean(judged) }
   },
 )

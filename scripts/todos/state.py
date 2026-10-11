@@ -53,7 +53,7 @@ LANDED = {"merged", "archived"}
 WORK_FIELDS = ("worktree", "branch", "tree_id", "ac_file")
 # What a blocked attempt leaves on its entry; reopening moves it to `previous` (see _reopen).
 ATTEMPT_FIELDS = ("reason", "group", "slot", "wave", *WORK_FIELDS, "verified_ac", "test_edits", "review_round",
-                  "repoints", "reverify", "blocked_by", "hand_round", "hand_round_head")
+                  "repoints", "reverify", "stray_worktree", "blocked_by", "hand_round", "hand_round_head")
 
 
 class TransitionError(Exception):
@@ -211,7 +211,8 @@ def recorded_worktrees(run):
     out = {}
     for todo_id, entry in sorted(run["todos"].items()):
         current = entry.get("worktree")
-        earlier = [a.get("worktree") for a in entry.get("previous", [])]
+        earlier = [w for a in [entry] + entry.get("previous", []) for w in (a.get("worktree"), a.get("stray_worktree"))
+                   if w and w != current]
         if entry["stage"] == "archived":
             paths = [p for p in earlier if p and p != current]
         else:
@@ -429,6 +430,49 @@ def repoint(run, todo_id, index, to, decision, date, git=run_git):
     repoints = [r for r in entry.get("repoints", []) if r["index"] != index]
     entry["repoints"] = repoints + [{"index": index, "to": str(to), "marker": marker.strip(), "decision": decision}]
     return marker.strip()
+
+
+CONFIRM_STAGES = {"ready", "blocked"}
+
+
+def confirm(run, todo_id, index, decision, date):
+    """Record the owner's dated confirmation of one owner-only criterion (todo 492 AC1, owner decision
+    2026-10-10). 364 and 437 each had a criterion only the owner could check (a prod email arrived, a raw header
+    is present); the owner confirmed both, and both came back `blocked` and needed a manual close.
+
+    The confirmation is kept on the entry (`confirmed`, one record per criterion) and appended to
+    `owner_decision`. execute-args and review-args brief it, the worker records the criterion as
+    `owner-confirmed` instead of blocking on it, the verifier accepts only listed ones, and `land.py flip-acs`
+    ticks the box and quotes the confirmation into the Work Log. Before execute-args only, and after Decide
+    (which writes `owner_decision` over): a ready todo not yet briefed, or a blocked one, which is then reopened
+    (`set … ready`, with `--reverify` when its first worker blocked on this criterion)."""
+    entry = run["todos"].get(todo_id)
+    if entry is None:
+        raise TransitionError(f"{todo_id}: not in this run")
+    if entry["stage"] not in CONFIRM_STAGES:
+        raise TransitionError(f"{todo_id}: is {entry['stage']}; confirm a criterion after Decide and before "
+                              "execute-args (a ready or blocked todo)")
+    if not decision.strip():
+        raise TransitionError(f"{todo_id}: a confirmation needs the owner's words")
+    if not _valid_date(date):
+        raise TransitionError(f"{todo_id}: --date must be a YYYY-MM-DD date, not {date!r}")
+    if not isinstance(index, int) or index < 0:
+        raise TransitionError(f"{todo_id}: --index is a 0-based criterion index, not {index!r}")
+    if any(r["index"] == index for r in entry.get("repoints", [])):
+        raise TransitionError(f"{todo_id}: criterion {index} is re-pointed; a re-pointed criterion is never ticked")
+    record = {"index": index, "date": date, "decision": " ".join(decision.split())}
+    entry["confirmed"] = sorted([c for c in entry.get("confirmed", []) if c["index"] != index] + [record],
+                                key=lambda c: c["index"])
+    words = f"criterion {index} confirmed by the owner ({date}): {record['decision']}"
+    earlier = entry.get("owner_decision")
+    entry["owner_decision"] = f"{earlier}; {words}" if earlier else words
+    return record
+
+
+def _confirmed(entries):
+    """{todo id: [{index, date}]}: the owner-confirmed criteria the verifier may accept (todo 492 AC1)."""
+    return {i: [{"index": c["index"], "date": c["date"]} for c in e["confirmed"]]
+            for i, e in entries if e.get("confirmed")}
 
 
 def _triage_fields(entry, record, today):
@@ -649,8 +693,12 @@ def _reverify_tree(todo_id, entry, git):
     if not worktree or not Path(worktree).is_dir():
         raise TransitionError(f"{todo_id}: its worktree {worktree} is gone, so there is nothing to re-verify; "
                               "block it (`set … blocked`), then reopen it without --reverify")
+    if not entry.get("tree_id"):
+        # Todo 541 (#982-13): without the blocked attempt's tree nothing can show what changed since the block.
+        raise TransitionError(f"{todo_id}: no recorded tree_id to compare the worktree with; block it (`set … "
+                              "blocked`), then reopen it without --reverify")
     tree = git(worktree, "write-tree").strip()
-    if entry.get("tree_id") and tree != entry["tree_id"]:
+    if tree != entry["tree_id"]:
         changed = [p for p in git(worktree, "diff-tree", "-r", "--name-only", "--no-renames", "-z",
                                   entry["tree_id"], tree).split("\0") if p]
         targets = {str(r["to"]) for r in entry.get("repoints", [])}
@@ -774,6 +822,7 @@ def execute_args(run, wave, main_root, git=run_git):
             "evidence_dir": _evidence_dir(reverify["ac_file"] if reverify else "", gid),
             "main_root": main_root,
             "repoints": _repoints(entries),
+            "confirmed": _confirmed(entries),
             "reverify": reverify,
         })
         for todo_id, entry in entries:
@@ -792,13 +841,19 @@ def add_worktrees(run, briefs, root, git=run_git):
     then the main checkout's .worktreeinclude files are copied in, as the harness did. A rerun after a
     failure part-way reuses a worktree this function already made (same branch, nothing changed in it);
     anything else at the path is refused. A re-verify brief already names its worktree and is skipped."""
-    root = Path(root)
+    # Todo 541 (#982-7): absolute, so a relative --main-root or --worktree-root never records a relative path.
+    root = Path(os.path.abspath(root))
     for brief in briefs:
         if brief.get("reverify"):
             continue
-        main_root = brief["main_root"]
+        main_root = os.path.abspath(brief["main_root"])
         name = f"sweep-{run['run_id']}-{brief['group']}"
         path, branch = root / name, f"worktree-{name}"
+        # The real recovery (#982-7): moving the directory aside leaves the branch and the registered worktree,
+        # so `worktree add -b` still fails. Remove the worktree and delete the branch instead.
+        recover = (f"if nothing in it is wanted, `git -C {main_root} worktree remove --force {path}` (or `git "
+                   f"worktree prune` once the directory is gone), then `git -C {main_root} branch -D {branch}`, "
+                   "then rerun execute-args")
         if path.exists():
             try:
                 same = (git(path, "rev-parse", "--abbrev-ref", "HEAD").strip() == branch
@@ -807,14 +862,22 @@ def add_worktrees(run, briefs, root, git=run_git):
                 same = False
             if not same:
                 raise RuntimeError(f"{brief['group']}: {path} already exists and is not this group's fresh "
-                                   "worktree; move it aside, then rerun execute-args")
+                                   f"worktree; {recover}")
         else:
+            try:
+                git(main_root, "rev-parse", "--verify", "--quiet", f"refs/heads/{branch}")
+                taken = True
+            except RuntimeError:
+                taken = False
+            if taken:
+                raise RuntimeError(f"{brief['group']}: branch {branch} already exists, but {path} does not; "
+                                   f"{recover}")
             root.mkdir(parents=True, exist_ok=True)
             git(main_root, "worktree", "add", "--no-track", "-b", branch, str(path), "origin/main")
         _copy_worktreeinclude(main_root, path, git)
-        brief.update(worktree=str(path), branch=branch)
+        brief.update(worktree=str(path), branch=branch, main_root=main_root)
         for todo_id in brief["ids"]:
-            run["todos"][todo_id].update(worktree=str(path), branch=branch)
+            run["todos"][todo_id].update(worktree=str(path), branch=branch, main_root=main_root)
     return briefs
 
 
@@ -825,12 +888,18 @@ def _copy_worktreeinclude(main_root, worktree, git):
     include = Path(main_root, ".worktreeinclude")
     if not include.is_file():
         return
+    top = Path(main_root).resolve()
     for line in include.read_text().splitlines():
-        pattern = line.strip()
-        if not pattern or pattern.startswith("#"):
+        # Todo 541 (#982-10): an anchored pattern (`/backend/.env`) is relative to the checkout, a negation or a
+        # `..` is skipped (it must never raise after `git worktree add` has run), and so is any source that is a
+        # symlink or resolves outside the main checkout: copy2 would follow it.
+        pattern = line.strip().lstrip("/")
+        if not pattern or pattern.startswith(("#", "!")) or ".." in Path(pattern).parts:
             continue
-        for src in sorted(Path(main_root).glob(pattern)):
-            rel = src.relative_to(main_root).as_posix()
+        for src in sorted(top.glob(pattern)):
+            if src.is_symlink() or not src.resolve().is_relative_to(top):
+                continue
+            rel = src.relative_to(top).as_posix()
             dest = Path(worktree, rel)
             if not src.is_file() or dest.exists():
                 continue
@@ -867,11 +936,13 @@ def _ac_text(box):
     return " ".join(todofile.CHECKBOX_RE.sub("", box[2], count=1).split())
 
 
-def criteria_problem(base_text, current_text, repoints=(), ignore_boxes=False):
+def criteria_problem(base_text, current_text, repoints=(), ignore_boxes=False, flippable=None):
     """Why the current Acceptance Criteria are not the merge-base ones, or None (todo 494 F1). The verifier's
     step 4 in code: the same count, text and order, and (unless Land already flipped boxes) the same box
     state. The one allowed change is an owner-authorized re-point: a listed criterion whose text, with its
-    marker removed exactly once, is the merge-base text. An unlisted marker is an edit."""
+    marker removed exactly once, is the merge-base text. An unlisted marker is an edit, and so is a listed
+    criterion whose marker is gone (todo 541, #982-12). After Land (`ignore_boxes`), `flippable` names the
+    indexes Land may have checked: any other box change, and any box unchecked, is an edit too."""
     base, now = todofile.ac_lines(base_text), todofile.ac_lines(current_text)
     if len(base) != len(now):
         return f"{len(base)} criteria at the merge-base, {len(now)} now"
@@ -883,23 +954,32 @@ def criteria_problem(base_text, current_text, repoints=(), ignore_boxes=False):
             text = " ".join(text.replace(marker, "", 1).split())
         if text != was:
             return f"criterion {index} was edited"
-        if not ignore_boxes and old[1] != new[1]:
+        if old[1] != new[1] and (not ignore_boxes or (flippable is not None and (old[1] or index not in flippable))):
             return f"criterion {index}'s box changed"
+    for index, marker in sorted(markers.items()):
+        if index < len(now) and marker not in _ac_text(now[index]) and marker not in _ac_text(base[index]):
+            return f"criterion {index} lost its re-point marker"
     return None
 
 
-def git_criteria(run, todo_id, worktree, current_path, ignore_boxes, git=run_git):
+def git_criteria(run, todo_id, worktree, current_path, ignore_boxes, git=run_git, flippable=None):
     """criteria_problem for one todo of a worktree: its merge-base file (origin/main...HEAD, at the pending
-    path) against the file in the worktree now (`current_path`: the archived one after Land). A file
-    either side cannot be read is itself a problem, so the check fails closed."""
+    path) against the file in the worktree now (`current_path`: the archived one after Land). Both the index
+    copy, which is what ships (todo 541, #982-5), and the file on disk are compared. A file that cannot be
+    read is itself a problem, so the check fails closed."""
     entry = run["todos"][todo_id]
     try:
         base = git(worktree, "merge-base", "origin/main", "HEAD").strip()
         base_text = git(worktree, "show", f"{base}:{entry['path']}")
+        staged = git(worktree, "show", f":{current_path}")
         current = Path(worktree, current_path).read_text()
     except (RuntimeError, OSError) as exc:
         return f"could not read the criteria to compare: {exc}"[:300]
-    return criteria_problem(base_text, current, entry.get("repoints", []), ignore_boxes)
+    for text in (staged, current):
+        problem = criteria_problem(base_text, text, entry.get("repoints", []), ignore_boxes, flippable)
+        if problem:
+            return problem
+    return None
 
 
 def execute_criteria(run, todo_id, worktree, git=run_git):
@@ -908,8 +988,15 @@ def execute_criteria(run, todo_id, worktree, git=run_git):
 
 
 def review_criteria(run, todo_id, worktree, git=run_git):
-    """After Land: the archived file, whose verified boxes Land already flipped."""
-    return git_criteria(run, todo_id, worktree, todofile.archived_path(run["todos"][todo_id]["path"]), True, git)
+    """After Land: the archived file, whose verified boxes Land already flipped. Only a box the verifier
+    verified (or the owner confirmed) may have been checked, and none unchecked (todo 541, #982-12)."""
+    entry = run["todos"][todo_id]
+    # A run file without the verifier's record (written before todo 541) cannot say which boxes Land flipped.
+    flippable = None
+    if "verified_ac" in entry:
+        flippable = {v["index"] for v in entry["verified_ac"] if str(v.get("todo")) == todo_id and v.get("verified")}
+        flippable |= {c["index"] for c in entry.get("confirmed", [])}
+    return git_criteria(run, todo_id, worktree, todofile.archived_path(entry["path"]), True, git, flippable)
 
 
 def _same_path(a, b):
@@ -933,15 +1020,19 @@ def ingest_execute(run, results, criteria=None):
         edited = None
         if criteria and worker is not None and worker.get("status") == "staged" and not evaluate(worker, verdict):
             for todo_id in result["ids"]:
-                problem = criteria(run, todo_id, worker["worktree"])
+                # Todo 541 (#982-6): read in the worktree the group was given, never one the worker reports (a
+                # mismatched report fails below anyway).
+                problem = criteria(run, todo_id, run["todos"][todo_id].get("worktree") or worker["worktree"])
                 if problem:
                     edited = f"todo {todo_id}: {problem}"
                     break
         for todo_id in result["ids"]:
             given = run["todos"][todo_id].get("worktree")
             if worker is not None and given and worker.get("worktree") and not _same_path(worker["worktree"], given):
+                # Todo 541 (#982-11): recorded, so `state.py worktrees` lists the stray one too.
                 transition(run, todo_id, "failed", reason=f"the worker reported worktree {worker['worktree']}, "
-                                                          f"not the one it was given ({given})"[:500])
+                                                          f"not the one it was given ({given})"[:500],
+                           stray_worktree=worker["worktree"])
                 outcome[todo_id] = run["todos"][todo_id]["stage"]
                 continue
             if worker is None:
@@ -1123,6 +1214,7 @@ def review_args(run, round_no, wave, git=run_git, run_file="", held=None, not_re
             "todo_paths": [todofile.archived_path(e["path"]) for _, e in entries],
             "origin_paths": [e["path"] for _, e in entries],
             "repoints": _repoints(entries),
+            "confirmed": _confirmed(entries),
             # Todo 478: routing reads this list, not one an LLM router reports. -z: no path quoting;
             # --no-renames: a moved file lists its old path too, so the old path's reviewers still see it.
             "changed_files": [f for f in git(first["worktree"], "diff", "--name-only", "--no-renames", "-z",
@@ -1161,13 +1253,83 @@ def _location(line):
     return m.group(0) if m else line
 
 
+def _severity_file(location):
+    """`severity: file` of a `severity: file:line` location, or None for an unlabelled line's key."""
+    return location.rsplit(":", 1)[0] if LOCATION.match(location + " ") else None
+
+
+def _line_phrasings(line, stored=None):
+    """[summary, *also] of a refuted line. The run file keeps them as a list (todo 497 F2), because a phrasing
+    may itself contain " | "; a line written before that is read back by splitting it."""
+    location = _location(line)
+    if stored and location in stored:
+        return list(stored[location])
+    body = line[len(location) + 1:] if location != line else line
+    head, _, also = body.partition(" | also: ")
+    return [head] + (also.split(" | ") if also else [])
+
+
+def _stored_phrasings(entries, key="refuted_phrasings"):
+    merged = {}
+    for _, e in entries:
+        for location, phrasings in e.get(key, {}).items():
+            merged.setdefault(location, [])
+            merged[location] += [p for p in phrasings if p not in merged[location]]
+    return merged
+
+
+def _cleared(entries):
+    """{location: set of phrasings} the owner cleared with `clear-hold`."""
+    stored = _stored_phrasings(entries, "hold_cleared_phrasings")
+    out = {}
+    for _, e in entries:
+        for r in e.get("hold_cleared", []):
+            out.setdefault(_location(r), set()).update(_line_phrasings(r, stored))
+    return out
+
+
+def _cleared_status(line, cleared, stored):
+    """None when the owner never cleared this critical, else the phrasings it gained since the clear ([] for
+    none). A critical counts as cleared at its own location, and also at another line of the same file when
+    every phrasing is one the owner cleared there: a round-1 repair committed after `clear-hold` moves lines
+    (todo 497 F1, failing closed)."""
+    location = _location(line)
+    phrasings = _line_phrasings(line, stored)
+    if location in cleared:
+        return [p for p in phrasings if p not in cleared[location]]
+    same_file = _severity_file(location)
+    if same_file:
+        here = set().union(*[c for loc, c in cleared.items() if _severity_file(loc) == same_file] or [set()])
+        if phrasings and set(phrasings) <= here:
+            return []
+    return None
+
+
 def _open_criticals(entries):
     """The group's dismissed criticals the owner has not cleared (todo 482: a round-1 hold is cleared
     before round 2, which must not hold again for the same lines). Matched by location, not by text:
     _merge_refuted rewrites a location's line when a later round adds a phrasing, and a cleared critical
-    reworded in round 2 must not hold again."""
-    cleared = {_location(r) for _, e in entries for r in e.get("hold_cleared", [])}
-    return [r for r in _group_refuted(entries) if _holds(r) and _location(r) not in cleared]
+    reworded in round 2 must not hold again. A phrasing a cleared location gained is not held either (no text
+    test can tell a rewording from a new bug there), but `_cleared_gains` names it in the refuted comment and
+    in a hold or block reason, so the owner sees it (todo 497 F1)."""
+    cleared, stored = _cleared(entries), _stored_phrasings(entries)
+    return [r for r in _group_refuted(entries) if _holds(r) and _cleared_status(r, cleared, stored) is None]
+
+
+def _cleared_gains(entries):
+    """["location: new phrasing; …"] for each cleared critical that gained a phrasing since the owner cleared it."""
+    cleared, stored = _cleared(entries), _stored_phrasings(entries)
+    out = []
+    for r in _group_refuted(entries):
+        gained = _cleared_status(r, cleared, stored) if _holds(r) else None
+        if gained:
+            out.append(f"{_location(r)}: {'; '.join(gained)}")
+    return out
+
+
+def _gains_note(entries):
+    gains = _cleared_gains(entries)
+    return f"; a critical the owner cleared gained a phrasing since: {' | '.join(gains)}" if gains else ""
 
 
 def held_groups(run):
@@ -1179,12 +1341,23 @@ def held_groups(run):
 def refuted_comment(run, gid):
     """PR comment body for the group's refuter-dismissed findings, or "" when there are none (todo 478).
     Written to a file for `gh pr comment --body-file`: the lines are LLM text and never meet a shell."""
-    lines = _group_refuted(_group_entries(run, gid))
+    entries = _group_entries(run, gid)
+    lines = _group_refuted(entries)
     if not lines:
         return ""
+    cleared, stored = _cleared(entries), _stored_phrasings(entries)
+
+    def mark(r):
+        # Todo 497 F5: a line the owner already cleared no longer holds, so it must not read as holding.
+        gained = _cleared_status(r, cleared, stored) if _holds(r) else None
+        if gained is None:
+            return r
+        return r + (f" (cleared by the owner; new since the clear: {'; '.join(gained)})" if gained
+                    else " (cleared by the owner)")
     return "\n".join([f"**Dismissed by refuters, not fixed** (todo sweep run {run['run_id']}, group {gid}). "
-                      "A critical here holds the PR until the owner clears it.", ""]
-                     + [f"- {r}" for r in lines]) + "\n"
+                      "A critical here holds the PR until the owner clears it; one marked cleared by the owner "
+                      "no longer holds.", ""]
+                     + [f"- {mark(r)}" for r in lines]) + "\n"
 
 
 # Curation reads origin/main, so a group is curated only once its PR is on it (todo 529 repair): a reviewed,
@@ -1213,7 +1386,9 @@ def followups_args(run, main_root):
             continue
         record = run["groups"][gid]
         followups = _group_followups(run, gid)
-        if not followups or "curation" in record:
+        # Todo 541 (#982-4): only a finished curation is final. An `uncurated: …` one (a dead curator, or a PR
+        # not yet on the origin/main it read) is tried again.
+        if not followups or not str(record.get("curation", "uncurated")).startswith("uncurated"):
             continue
         items.append({"run_id": run["run_id"], "group": gid, "ids": [i for i, _ in entries],
                       "pr": entries[0][1].get("pr"), "main_root": main_root, "followups": followups})
@@ -1241,11 +1416,27 @@ def ingest_followups(run, results):
                 dropped.append({"line": line, "why": "not a location or severity the review reported"})
             else:
                 kept.append(line)
-        record["curated"] = sorted(dict.fromkeys(kept), key=_followup_rank)
+        # Todo 541 (#982-1): every stored item must come back kept, merged into a kept one (its phrasing in
+        # `also`) or dropped with a reason. One the curator left out is kept as stored, never lost.
+        returned = {_followup_key(line) for line in kept} | {_followup_key(str(d.get("line", ""))) for d in dropped}
+        phrased = {p for item in result["kept"] for p in [item.get("summary", ""), *item.get("also", [])]}
+        uncovered = [line for line in raw if _followup_key(line) not in returned
+                   and not set(_line_phrasings_followup(line)) & phrased]
+        record["curated"] = sorted(dict.fromkeys(kept + uncovered), key=_followup_rank)
         record["curation_dropped"] = dropped
         record["curation"] = "verified" if result.get("refuter_ok") else "curated; the refuter returned nothing"
+        if uncovered:
+            record["curation"] += f"; {len(uncovered)} item(s) the curator did not return were kept as stored"
         outcome[gid] = record["curation"]
     return outcome
+
+
+def _line_phrasings_followup(line):
+    """[summary, *also] of a stored follow-up line, current or legacy."""
+    m = FOLLOWUP_LINE.match(line)
+    body = m.group(3) if m else ((LEGACY_FOLLOWUP.match(line) or re.match(r"(.*)", line)).groups()[-1] or "")
+    head, _, also = body.partition(" | also: ")
+    return [head] + (also.split(" | ") if also else [])
 
 
 def followups_md(run, gid):
@@ -1265,10 +1456,19 @@ def followups_md(run, gid):
     if record.get("followups_dropped"):
         out.append(f"\n{record['followups_dropped']} more location(s) were dropped by the cap of {FOLLOWUP_CAP} "
                    "(the most severe are kept).")
+    # Todo 541 (#982-1): what curation dropped is listed, so a wrong drop can be seen and undone.
+    if record.get("curation_dropped"):
+        out += ["", "Dropped by curation (fixed on main, refuted, or not a reported location):", ""]
+        out += [f"- {_sanitize_md(d.get('line', ''))} ({_sanitize_md(d.get('why', ''))})"
+                for d in record["curation_dropped"]]
     refuted = _group_refuted(entries)
     if refuted:
         out += ["", "Dismissed by refuters, not fixed (re-judge each):", ""] + [f"- {r}" for r in refuted]
     return "\n".join(out) + "\n"
+
+
+def _sanitize_md(text):
+    return " ".join(str(text).split())
 
 
 def clear_hold(run, gid, decision):
@@ -1282,6 +1482,7 @@ def clear_hold(run, gid, decision):
     if not entries or any(e["stage"] != "blocked" or not e.get("reason", "").startswith(HELD) for _, e in entries):
         raise TransitionError(f"{gid}: not held for the owner; nothing to clear")
     cleared = _open_criticals(entries)
+    stored = _stored_phrasings(entries)
     for _, entry in entries:
         # Keep any triage-time decision: this one is added to it, not written over it.
         earlier = entry.get("owner_decision")
@@ -1290,9 +1491,45 @@ def clear_hold(run, gid, decision):
             resume = {"stage": "pr_open", "review_round": 1}
         else:  # a round-2 hold, or a round-3 one after hand_round (todo 542)
             resume = {"stage": "reviewed", "review_round": held_round}
+        # Todo 497 F1: the phrasings cleared at each location, so a later phrasing there can be named.
+        phrasings = entry.setdefault("hold_cleared_phrasings", {})
+        for r in cleared:
+            have = phrasings.setdefault(_location(r), [])
+            have += [p for p in _line_phrasings(r, stored) if p not in have]
         entry.update(reason="", hold_cleared=list(dict.fromkeys(entry.get("hold_cleared", []) + cleared)),
                      owner_decision=f"{earlier}; hold cleared: {decision}" if earlier else f"hold cleared: {decision}",
                      **resume)
+
+
+INCOMPLETE_TWICE = re.compile(r"review round (\d) was incomplete twice")
+
+
+def release_incomplete(run, gid, decision):
+    """The owner sends a group blocked by two incomplete review rounds back for one more try at that round (todo
+    497 F4, owner decision 2026-10-10). Such a group has a PR, so a reopen refuses it, and it is not a hold, so
+    clear-hold refuses it too. Like those it bypasses ALLOWED on purpose: the group goes back to pr_open with the
+    round before it done and that round's incomplete count reset. Once per round: a third incomplete round
+    blocks for good."""
+    if not decision.strip():
+        raise TransitionError(f"{gid}: releasing an incomplete round needs the owner's decision")
+    entries = _group_entries(run, gid)
+    if not entries:
+        raise TransitionError(f"{gid}: no such group")
+    rounds = {m.group(1) if m else None for _, e in entries
+              for m in [INCOMPLETE_TWICE.match(e.get("reason", "")) if e["stage"] == "blocked" else None]}
+    if len(rounds) != 1 or None in rounds:
+        raise TransitionError(f"{gid}: not blocked by two incomplete review rounds; nothing to release")
+    round_no = rounds.pop()
+    if any(round_no in e.get("incomplete_released", []) for _, e in entries):
+        raise TransitionError(f"{gid}: round {round_no} was already released once; it stays blocked")
+    for _, entry in entries:
+        earlier = entry.get("owner_decision")
+        entry.pop("blocked_by", None)
+        entry.update(stage="pr_open", review_round=int(round_no) - 1, reason="",
+                     review_reruns={**entry.get("review_reruns", {}), round_no: 0},
+                     incomplete_released=entry.get("incomplete_released", []) + [round_no],
+                     owner_decision=(f"{earlier}; round {round_no} released: {decision}" if earlier
+                                     else f"round {round_no} released: {decision}"))
 
 
 def hand_round(run, gid, decision, git=run_git):
@@ -1339,31 +1576,41 @@ def _merged_phrasings(body, f):
     return merged[0], merged[1:]
 
 
-def _merge_refuted(kept, findings):
+def _merge_refuted(kept, findings, phrasings=None):
     """Todo 482: one line per severity and file:line across both rounds. A later round's new phrasings of the
-    same location join its line, so one dismissed bug is counted once and posted once."""
+    same location join its line, so one dismissed bug is counted once and posted once. `phrasings` (the
+    entry's `refuted_phrasings`, updated in place) keeps each location's phrasings as a list, so one that
+    contains " | " is never split and appended again (todo 497 F2); the line itself reads as before."""
     out = list(kept)
+    phrasings = {} if phrasings is None else phrasings
     for f in findings:
-        prefix = f"{f['severity']}: {f['file']}:{f['line']} "
-        at = next((n for n, line in enumerate(out) if line.startswith(prefix)), None)
+        location = f"{f['severity']}: {f['file']}:{f['line']}"
+        at = next((n for n, line in enumerate(out) if line.startswith(location + " ")), None)
+        new = list(dict.fromkeys([f["summary"], *f.get("also", [])]))
         if at is None:
             out.append(_refuted_line(f))
+            phrasings[location] = new
             continue
-        summary, also = _merged_phrasings(out[at][len(prefix):], f)
-        out[at] = _refuted_line({**f, "summary": summary, "also": also})
+        have = _line_phrasings(out[at], phrasings)
+        merged = have + [p for p in new if p not in have]
+        phrasings[location] = merged
+        out[at] = _refuted_line({**f, "summary": merged[0], "also": merged[1:]})
     return out
 
 
 SEVERITY_RANK = {"critical": 0, "high": 1, "medium": 2, "low": 3}
 FOLLOWUP_CAP = 10
 FOLLOWUP_LINE = re.compile(r"(critical|high|medium|low): (.+?:\d+) (.*)\Z", re.S)
+# A line written before todo 529: `file:line summary`, no severity.
+LEGACY_FOLLOWUP = re.compile(r"(\S+?:\d+)(?: (.*))?\Z", re.S)
 
 
 def _followup_key(line):
-    """A follow-up's file:line, the one key it merges on (todo 529); a line written before todo 529
-    (`file:line summary`, no severity) is its own key."""
-    m = FOLLOWUP_LINE.match(line)
-    return m.group(2) if m else line
+    """A follow-up's file:line, the one key it merges on (todo 529). A line written before todo 529
+    (`file:line summary`, no severity) is keyed by its leading file:line too (todo 541, #982-2), so curation
+    can keep it and a new finding at that location merges with it; a line without one is its own key."""
+    m = FOLLOWUP_LINE.match(line) or LEGACY_FOLLOWUP.match(line)
+    return m.group(2 if m.re is FOLLOWUP_LINE else 1) if m else line
 
 
 def _followup_rank(line):
@@ -1382,8 +1629,10 @@ def _merge_followups(kept, findings):
             out.append(_refuted_line(f))
             continue
         m = FOLLOWUP_LINE.match(out[at])
-        summary, also = _merged_phrasings(m.group(3), f)
-        severity = min(m.group(1), f["severity"], key=SEVERITY_RANK.__getitem__)
+        # A legacy line (no severity) takes the new finding's severity; its text is the rest of the line.
+        body = m.group(3) if m else (LEGACY_FOLLOWUP.match(out[at]).group(2) or "")
+        summary, also = _merged_phrasings(body, f)
+        severity = min(m.group(1), f["severity"], key=SEVERITY_RANK.__getitem__) if m else f["severity"]
         out[at] = _refuted_line({**f, "severity": severity, "summary": summary, "also": also})
     return out
 
@@ -1442,11 +1691,19 @@ def _found_residue(run, result, round_no, git):
     return [] if reported == [] else (reported or ["the round-1 repair ran without a residue check"])
 
 
-def _incomplete(run, gid, entries, round_no, outcome, why):
-    """Count a rerun or residue outcome in the run file (todo 478); the second one in a round blocks."""
-    n = entries[0][1].get("review_reruns", {}).get(str(round_no), 0) + 1
+def _incomplete(run, gid, entries, round_no, outcome, why, source=None):
+    """Count a rerun or residue outcome in the run file (todo 478); the second one in a round blocks. `source`
+    names the output file it came from: one already counted this round is not counted again (todo 497 F3), so
+    re-ingesting a round-1 output on resume cannot block a group after one real incomplete round."""
+    key = str(round_no)
+    if source and source in entries[0][1].get("review_counted", {}).get(key, []):
+        return outcome
+    n = entries[0][1].get("review_reruns", {}).get(key, 0) + 1
     for _, entry in entries:
-        entry["review_reruns"] = {**entry.get("review_reruns", {}), str(round_no): n}
+        entry["review_reruns"] = {**entry.get("review_reruns", {}), key: n}
+        if source:
+            counted = entry.setdefault("review_counted", {})
+            counted[key] = counted.get(key, []) + [source]
     if n < MAX_INCOMPLETE:
         return outcome
     set_group(run, gid, "blocked",
@@ -1487,9 +1744,10 @@ def _repair_problem(result, entries, git):
     return None
 
 
-def ingest_review(run, results, round_no, git=run_git, criteria=None):
+def ingest_review(run, results, round_no, git=run_git, criteria=None, source=None):
     """Record a todo-review output. `criteria` is ingest_execute's check, run on a kept round-1 repair; the
-    CLI always passes review_criteria (todo 494 F1)."""
+    CLI always passes review_criteria (todo 494 F1). `source` is the output file, so re-ingesting one never
+    counts its incomplete outcome twice (todo 497 F3)."""
     # Todo 468: checked for every group before anything is written, so a stale output (a round-1
     # file re-ingested after round 1) cannot overwrite tree_id and verified_ac, even in part.
     for result in results:
@@ -1517,11 +1775,11 @@ def ingest_review(run, results, round_no, git=run_git, criteria=None):
             if found:
                 entry["review_residue"] = found
         if found:
-            outcome[gid] = _incomplete(run, gid, entries, round_no, "residue", ", ".join(found[:5]))
+            outcome[gid] = _incomplete(run, gid, entries, round_no, "residue", ", ".join(found[:5]), source)
             continue
         if not result["reviewers_ok"]:
             outcome[gid] = _incomplete(run, gid, entries, round_no, "rerun",
-                                       "a reviewer or the router returned nothing")
+                                       "a reviewer or the router returned nothing", source)
             continue
         worktree = entries[0][1].get("worktree", "")
         follow = [{**f, "file": _rel_file(f["file"], worktree)} for f in result["findings"]
@@ -1531,18 +1789,24 @@ def ingest_review(run, results, round_no, git=run_git, criteria=None):
         # PR comment before arming, the follow-up todos and the critical hold below all read them (todo 478).
         dismissed = [{**f, "file": _rel_file(f["file"], worktree)} for f in result.get("refuted", [])]
         for _, entry in entries:
-            entry["refuted"] = _merge_refuted(entry.get("refuted", []), dismissed)
+            entry["refuted"] = _merge_refuted(entry.get("refuted", []), dismissed,
+                                              entry.setdefault("refuted_phrasings", {}))
         blocking = result["blocking"]
         # An LLM refutation alone never clears a critical, from either round: hold the PR for the owner.
         criticals = _open_criticals(entries)
-        also = (f"; also {len(criticals)} critical finding(s) dismissed only by refuters, which the owner "
-                "must clear") if criticals else ""
+        # Todo 497 F5: clear-hold refuses a block that is not a hold, so the owner cannot clear these from it;
+        # they hold the PR at its next review round instead.
+        also = (f"; also {len(criticals)} critical finding(s) dismissed only by refuters, which hold the PR for "
+                "the owner (`clear-hold`) at its next review round") if criticals else ""
+        also += _gains_note(entries)
         if round_no == 1:
             if blocking:
                 problem = _repair_problem(result, entries, git)
+                # Todo 541 (#982-6): the criteria are read in the group's recorded PR worktree, never in the one
+                # the repair worker reports.
                 if not problem and criteria:
                     edited = next((f"todo {i}: {p}" for i, _ in entries
-                                   for p in [criteria(run, i, result["repair"]["worktree"])] if p), None)
+                                   for p in [criteria(run, i, worktree)] if p), None)
                     problem = f"acceptance criteria were edited: {edited}" if edited else None
                 if problem:
                     set_group(run, gid, "blocked", reason=f"round-1 repair failed: {problem}{also}")
@@ -1556,7 +1820,7 @@ def ingest_review(run, results, round_no, git=run_git, criteria=None):
             # Todo 482: a dismissed critical would hold the PR at round 2 anyway, so hold it now and save the
             # commit, push and round 2. A verified repair stays staged, uncommitted, for the owner.
             if criticals:
-                note = "; a verified repair waits staged, uncommitted" if blocking else ""
+                note = ("; a verified repair waits staged, uncommitted" if blocking else "") + _gains_note(entries)
                 _hold(run, gid, entries, criticals, 1, note)
                 outcome[gid] = "held"
                 continue
@@ -1569,7 +1833,7 @@ def ingest_review(run, results, round_no, git=run_git, criteria=None):
                       blocked_by=f"review round {round_no}")
             outcome[gid] = "blocked"
         elif criticals:
-            _hold(run, gid, entries, criticals, round_no)
+            _hold(run, gid, entries, criticals, round_no, _gains_note(entries))
             outcome[gid] = "held"
         else:
             set_group(run, gid, "reviewed", review_round=round_no)
@@ -1847,6 +2111,11 @@ def build_parser():
     p.add_argument("--to", required=True, help="the open todo the criterion moves to")
     p.add_argument("--decision", required=True, help="the owner's decision, dated")
     p.add_argument("--date", required=True)
+    p = sub.add_parser("confirm", help="the owner's dated confirmation of one owner-only criterion (todo 492)")
+    p.add_argument("runfile"), p.add_argument("id")
+    p.add_argument("--index", type=int, required=True, help="0-based criterion index")
+    p.add_argument("--decision", required=True, help="the owner's words")
+    p.add_argument("--date", required=True)
     p = sub.add_parser("record-triage")
     p.add_argument("runfile"), p.add_argument("--output", required=True, help="workflow task output file")
     p.add_argument("--root", help="the triage-args --root, stripped from predicted_files")
@@ -1887,6 +2156,9 @@ def build_parser():
     p = sub.add_parser("clear-hold")
     p.add_argument("runfile"), p.add_argument("group"), p.add_argument("--decision", required=True)
     p = sub.add_parser("hand-round", help="owner-approved review round 3 for a group round 2 blocked (todo 542)")
+    p.add_argument("runfile"), p.add_argument("group"), p.add_argument("--decision", required=True)
+    p = sub.add_parser("release-incomplete", help="owner-approved retry of a round that was incomplete twice "
+                                                  "(todo 497)")
     p.add_argument("runfile"), p.add_argument("group"), p.add_argument("--decision", required=True)
     p = sub.add_parser("ensure-worktree")
     p.add_argument("runfile"), p.add_argument("group"), p.add_argument("--scratch", required=True)
@@ -1949,6 +2221,8 @@ def main(argv=None):
                 transition(run, args.id, args.stage, **fields)
         elif args.cmd == "repoint":
             print(json.dumps({"marker": repoint(run, args.id, args.index, args.to, args.decision, args.date)}))
+        elif args.cmd == "confirm":
+            print(json.dumps(confirm(run, args.id, args.index, args.decision, args.date)))
         elif args.cmd == "record-triage":
             left = record_triage(run, records_from_output(args.output, "records"), args.root)
             print(json.dumps({"without_record": left}))
@@ -1984,13 +2258,16 @@ def main(argv=None):
             print(json.dumps({"round": args.round, "prs": prs, "residue": held, "not_ready": not_ready}))
         elif args.cmd == "ingest-review":
             print(json.dumps(ingest_review(run, records_from_output(args.output, "results"), args.round,
-                                           criteria=review_criteria), indent=1))
+                                           criteria=review_criteria, source=str(Path(args.output).resolve())),
+                             indent=1))
         elif args.cmd == "set-group":
             set_group(run, args.group, args.stage, **_parse_fields(args.field))
         elif args.cmd == "clear-hold":
             clear_hold(run, args.group, args.decision)
         elif args.cmd == "hand-round":
             hand_round(run, args.group, args.decision)
+        elif args.cmd == "release-incomplete":
+            release_incomplete(run, args.group, args.decision)
         elif args.cmd == "ensure-worktree":
             print(ensure_worktree(run, args.group, args.scratch))
         elif args.cmd == "annotate":

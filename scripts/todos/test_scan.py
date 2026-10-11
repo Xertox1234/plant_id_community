@@ -111,6 +111,8 @@ def main():
     # Final review m3: a harness agent branch's hex name is not a list of todo ids.
     check("ids_in skips worktree-agent-* branches", scan.ids_in(["worktree-agent-a367c0a10e427e588"]) == set(),
           scan.ids_in(["worktree-agent-a367c0a10e427e588"]))
+    check("541 #982-8: ids_in skips the sweep's own worktree-sweep-<run_id>-<group> branches",
+          scan.ids_in(["worktree-sweep-2026-10-10-2307-g4"]) == set(), scan.ids_in(["worktree-sweep-2026-10-10-2307-g4"]))
     check("ids_in reads an id only as a whole token", scan.ids_in(["pr819", "x1234y", "feat/12345-x"]) == set(),
           scan.ids_in(["pr819", "x1234y", "feat/12345-x"]))
     check("ids_in keeps real branch shapes: <type>/<id>-, a slice letter, a mid-name id, wt<id>",

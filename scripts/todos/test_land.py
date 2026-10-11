@@ -456,6 +456,57 @@ def main():
         check("512: the archived file still passes the CI tripwire",
               check_archived_todo_status.parse(str(repo / result["archived"]))[3] == [])
 
+    # Todo 492 AC1 (owner decision 2026-10-10): an owner-only criterion with the owner's dated confirmation
+    # (`state.py confirm`) is ticked at Land when the verifier accepted it, with the owner's words quoted, and
+    # the archived file passes the CI tripwire. Without the record, or without the verifier, it stays open.
+    with tempfile.TemporaryDirectory() as tmp:
+        repo = setup(tmp)
+        rel = "todos/412-pending-p3-a.md"
+        owner = entry("412", 2, passed=False, evidence=False)
+        owner.update(command="", note="owner-confirmed")
+        record = [{"index": 2, "date": "2026-10-10", "decision": "the prod email arrived  \n with the header"}]
+        agreed = [agree("412", 0), agree("412", 1), agree("412", 2)]
+        _, left = land.flip_acs(repo, rel, [entry("412", 0), entry("412", 1), owner], agreed, "r", "2026-10-10")
+        check("492 AC1: without the owner's record an owner-only criterion stays open", left == [2], left)
+        repo = setup(Path(tmp) / "b")
+        flipped, left = land.flip_acs(repo, rel, [entry("412", 0), entry("412", 1), owner],
+                                      [agree("412", 0), agree("412", 1), agree("412", 2, ok=False)], "r", "2026-10-10",
+                                      confirmed=record)
+        check("492 AC1: ... and so it does when the verifier did not accept it", left == [2] and 2 not in flipped, left)
+        repo = setup(Path(tmp) / "c")
+        flipped, left = land.flip_acs(repo, rel, [entry("412", 0), entry("412", 1), owner], agreed, "r", "2026-10-10",
+                                      confirmed=record)
+        text = (repo / rel).read_text()
+        check("492 AC1: an owner-confirmed criterion is ticked at Land",
+              flipped == [0, 1, 2] and left == [] and "- [x] three" in text, (flipped, left))
+        check("492 AC1: ... with the owner's words, dated, quoted into the Work Log under their own heading",
+              "### 2026-10-10 - Confirmed by the owner, ticked by the todo sweep (run r)" in text
+              and '- AC 3: confirmed by the owner on 2026-10-10: "the prod email arrived with the header"' in text,
+              text)
+        result = land.archive(repo, rel, "r", "2026-10-10")
+        archived = (repo / result["archived"]).read_text()
+        check("492 AC1: the archived file passes the CI tripwire (no bare box) and has no trailing whitespace",
+              check_archived_todo_status.parse(str(repo / result["archived"]))[3] == []
+              and re.search(r"[ \t]+\n", archived) is None, archived)
+        check("492 AC1: flip-acs (the CLI) passes the run entry's confirmations",
+              'confirmed=entry.get("confirmed", [])' in Path(land.__file__).read_text())
+
+    # Todo 492 AC2: archive refuses, before any write, a todo whose Work Log still names a home path.
+    with tempfile.TemporaryDirectory() as tmp:
+        repo = setup(tmp)
+        rel = "todos/413-pending-p3-b.md"
+        land.flip_acs(repo, rel, [entry("413", 0), entry("413", 1)], [agree("413", 0), agree("413", 1)], "r", "d")
+        path = repo / rel
+        leak = "/" + "Users" + "/someone/projects/x/.claude/worktrees/wf_1/scripts/a.py"
+        path.write_text(path.read_text().replace("### d - created", f"### d - created\n\n- ran `python3 {leak}`"))
+        err = raises(lambda: land.archive(repo, rel, "r", "2026-10-10"))
+        check("492 AC2: archive refuses a todo whose Work Log names a home path, and writes nothing",
+              "names a home path" in err and path.is_file()
+              and not (repo / "todos" / "archive" / "413-completed-p3-b.md").exists(), err)
+        path.write_text(path.read_text().replace(leak, "scripts/a.py"))
+        result = land.archive(repo, rel, "r", "2026-10-10")
+        check("492 AC2: ... and archives it once the path is repo-relative", result["archived"].endswith("413-completed-p3-b.md"))
+
     # Todo 524: the Verified entry names no absolute worktree / main-checkout / home path, the
     # command names the todo's archived path, and the .sweep-evidence pointer says it is not committed.
     main, wt = "/Users/u/projects/pic", "/Users/u/projects/pic/.claude/worktrees/wf_ab-1"

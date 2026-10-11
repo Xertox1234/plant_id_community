@@ -418,10 +418,11 @@ def send_forum_email_batch(event: str, recipient_user_ids: list[int], data: dict
     and 537): it is re-raised on purpose to fail the test run, and it is not
     an OperationalError, so it can never trigger the retry.
 
-    This ordering is load-bearing: email has no collapse-key dedup, so autoretry_for=(OperationalError,) must be able to
-    fire ONLY before any email is sent, or a transient-DB retry would
-    double-email everyone. All OperationalError-raising DB access happens in the
-    up-front fetch; the send loop does none.
+    This ordering is load-bearing: email has no collapse-key dedup, so
+    autoretry_for=(OperationalError,) must be able to fire ONLY before any
+    email is sent, or a transient-DB retry would double-email everyone. All
+    OperationalError-raising DB access happens in the up-front fetch; the send
+    loop does none.
 
     Args:
         event: only "reply_added" is wired (todo 253 slice 2, H1); mention/

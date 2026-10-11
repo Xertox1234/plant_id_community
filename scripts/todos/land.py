@@ -75,6 +75,14 @@ list keeps its earlier entries), a root alone or with a trailing slash reads
 `~`, and this machine's home is replaced wherever it is left. A leading
 `cd . && ` is dropped from the command.
 
+Todo 492 adds two things. An owner-only criterion the owner confirmed
+(`state.py confirm`: a dated record on the run entry, also appended to
+`owner_decision`) is ticked by flip-acs when the verifier accepted it as
+`owner-confirmed`, and the owner's words are quoted into the Work Log under
+their own heading; it needs no worker pass and no evidence file. And archive
+refuses, in phase 1, a todo whose Work Log still names a home path
+(`check_archived_todo_status.work_log_home_paths`, the CI rule's own test).
+
 Fix round 4 closes the last phase-2 raise sites found by the round-3
 re-review. The todo's own destination check is `os.path.lexists`, not
 `is_file`: a directory or a dangling symlink at `todos/archive/<name>.md`
@@ -300,8 +308,9 @@ def _fence_quote(lines):
     return fence, quoted
 
 
-def flip_acs(repo, todo_rel, ac_entries, verdict_ac, run_id, date, main_root=""):
+def flip_acs(repo, todo_rel, ac_entries, verdict_ac, run_id, date, main_root="", confirmed=()):
     repo = Path(repo)
+    confirmed = {int(c["index"]): c for c in confirmed}
     secrets = _env_secrets(repo, main_root)
     path = repo / todo_rel
     todo_id = str((todofile.read_frontmatter(path) or {}).get("issue_id", ""))
@@ -318,10 +327,21 @@ def flip_acs(repo, todo_rel, ac_entries, verdict_ac, run_id, date, main_root="")
                             f"the todo's AC line ({expected!r})")
     agreed = {v["index"] for v in verdict_ac if str(v["todo"]) == todo_id and v["verified"] is True}
     lines = text.splitlines(keepends=True)
-    flipped, notes = [], []
+    flipped, notes, owner_notes = [], [], []
     for (line_no, checked, line), entry in zip(boxes, mine):
         index = entry["index"]
         if checked or todofile.is_repoint(line):
+            continue
+        if index in confirmed:
+            # Todo 492 AC1: ticked on the owner's dated record plus the verifier's acceptance, never on the
+            # worker's word; the record is quoted, made one line, relativized and masked like a command.
+            if index in agreed and _valid_date(confirmed[index].get("date", "")):
+                lines[line_no] = lines[line_no].replace("[ ]", "[x]", 1)
+                flipped.append(index)
+                words = " ".join(_relativize(_mask(confirmed[index].get("decision", ""), secrets), repo,
+                                             main_root).split())
+                owner_notes.append(f"- AC {index + 1}: confirmed by the owner on {confirmed[index]['date']}: "
+                                   f"\"{words}\" (`state.py confirm`; no command or evidence)\n")
             continue
         evidence = _valid_evidence(repo, entry.get("evidence_path"))
         if not (entry["pass"] is True and index in agreed and evidence):
@@ -336,10 +356,17 @@ def flip_acs(repo, todo_rel, ac_entries, verdict_ac, run_id, date, main_root="")
         notes.append(f"- AC {index + 1}: `{command}` — evidence `{evidence_display}` (not committed), "
                      f"last lines:\n\n  {fence}text\n{quoted}\n  {fence}\n")
     path.write_text("".join(lines))
-    if flipped:
+    if notes:
         todofile.append_work_log(path, f"### {date} - Verified by the todo sweep (run {run_id})\n\n" + "\n".join(notes))
+    if owner_notes:
+        todofile.append_work_log(path, f"### {date} - Confirmed by the owner, ticked by the todo sweep (run {run_id})"
+                                       "\n\n" + "".join(owner_notes))
     remaining = [e["index"] for (_, checked, _), e in zip(boxes, mine) if not checked and e["index"] not in flipped]
     return flipped, remaining
+
+
+def _valid_date(date):
+    return bool(re.fullmatch(r"\d{4}-\d{2}-\d{2}", str(date)))
 
 
 def fix_baseline(repo, old_rel, new_rel):
@@ -690,6 +717,11 @@ def archive(repo, todo_rel, run_id, date, git=run_git):
     if bare_acs:
         raise LandError(f"{todo_rel}: {len(bare_acs)} unchecked criteria; "
                         "flip them with evidence or re-point them first")
+    # Todo 492 AC2: CI refuses an archived todo whose Work Log names a home path, so Land refuses first.
+    home = check_archived_todo_status.work_log_home_paths(text)
+    if home:
+        raise LandError(f"{todo_rel}: its Work Log names a home path on {len(home)} line(s); make each repo-relative "
+                        "(or `~`) by hand, then archive again")
     review_plan = plan_review(repo, src, date)
     settable = ["status"]
     if review_plan and review_plan["action"] == "checkoff" and review_plan["renamed"]:
@@ -728,7 +760,8 @@ def main(argv=None):
         if args.cmd == "flip-acs":
             ac_entries = json.loads((Path(args.repo) / entry["ac_file"]).read_text())
             flipped, remaining = flip_acs(args.repo, entry["path"], ac_entries, entry.get("verified_ac", []),
-                                          run["run_id"], args.date, main_root=entry.get("main_root", ""))
+                                          run["run_id"], args.date, main_root=entry.get("main_root", ""),
+                                          confirmed=entry.get("confirmed", []))
             print(json.dumps({"flipped": flipped, "remaining": remaining}))
         else:
             print(json.dumps(archive(args.repo, entry["path"], run["run_id"], args.date)))

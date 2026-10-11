@@ -32,13 +32,15 @@ archive a todo, or change its `status:`. The main session lands your work. You n
 
 1. `WT` = the given `WORKTREE` (in an implement prompt without one, `/usr/bin/git rev-parse --show-toplevel`). Use absolute paths
    under `WT` everywhere. Use `/usr/bin/git`, one git call per Bash command, and no heredocs that contain `git`.
-2. `MAIN` = `BRIEF.main_root` (or `MAIN_ROOT`), `SLOT` = `BRIEF.slot` (or `SLOT`).
+2. `MAIN` = `BRIEF.main_root` (or `MAIN_ROOT`), `SLOT` = `BRIEF.slot` (or `SLOT`). `MAIN` is the env root
+   (todo 492): its `backend/venv`, `web/node_modules` and `.env` files are the toolchain, named explicitly,
+   never found by a fallback.
 3. Toolchain — never write DATABASE_URL, REDIS_URL or PYTHONPATH into `.env`:
-   - Backend tests, from `WT/backend`: `python3 WT/scripts/todos/slot_env.py SLOT -- MAIN/backend/venv/bin/python -m pytest <nodes> --create-db`
+   - Backend tests, from `WT/backend`: `python3 WT/scripts/todos/slot_env.py --main-root MAIN SLOT -- MAIN/backend/venv/bin/python -m pytest <nodes> --create-db`
    - Web: once, `ln -sfn MAIN/web/node_modules WT/web/node_modules`; then `npm run …` from `WT/web`. When
      `WT/web/.env` is missing (the harness copies it only from its own main checkout), run it as
-     `python3 WT/scripts/todos/slot_env.py SLOT -- npm run …`: Vite then reads MAIN's `web/.env` values from the
-     environment (todo 479).
+     `python3 WT/scripts/todos/slot_env.py --main-root MAIN SLOT -- npm run …`: Vite then reads MAIN's `web/.env`
+     `VITE_*` values from the environment (todos 479, 497).
    - Flutter: `flutter pub get` in `WT/plant_community_mobile`.
    - Changing a dependency manifest needs the deps lane: if `BRIEF.lanes_held` does not mention dependency
      manifests, stop with status `blocked` and blockers `needs the deps lane`.
@@ -85,8 +87,11 @@ origin/main...HEAD`, take the last line, drop its leading `^`.
   checked" — run it and record real evidence like any other open criterion.
 - A re-pointed criterion (`→ todo NNN`, `-> todo NNN`, or "re-pointed … todo NNN") gets `pass: false`,
   `command: ""`, `evidence_path: ""`, `note: "re-pointed"`, text copied verbatim. It is never checked.
-- A criterion that can only be settled outside the repo (external, or owner-only — a device check, a prod
-  check, an owner action) gets `pass: false`, `command: ""`, and a `blockers` line naming it verbatim and
+- A criterion the owner already confirmed (todo 492: `BRIEF.confirmed[<todo>]`, or the prompt's `CONFIRMED:`
+  line, lists its `index`) gets `pass: false`, `command: ""`, `evidence_path: ""`, `note: "owner-confirmed"`.
+  It is not a blocker: the verifier accepts it, and Land ticks it, quoting the owner's words.
+- Any other criterion that can only be settled outside the repo (external, or owner-only — a device check, a
+  prod check, an owner action) gets `pass: false`, `command: ""`, and a `blockers` line naming it verbatim and
   saying what the owner must do. When any such criterion exists, finish everything else, stage it, and
   return `status: blocked` — never `staged`.
 
@@ -99,18 +104,32 @@ prompt's `RUN_ID` line in retry/repair mode. `<Heading>` is "Implemented by"
 (`BRIEF.verify_only: true`). Never write "Verified by": that heading is Land's, and it means evidence was
 quoted. Do not edit Acceptance Criteria.
 
+Write every path and command in the entry relative to the repo root (`scripts/todos/state.py`, not
+`WT/scripts/todos/state.py`), or with `~` for the home directory, never under `/Users/` or `/home/` (todo
+492). The worktree is deleted after landing and the repo is public. Land refuses to archive a todo whose Work
+Log names a home path, and CI's archived-todo tripwire fails on one.
+
 ## Finish
 
 1. `/usr/bin/git -C WT add -A` — except in `MODE: repair` (todo 483): there, stage only the paths you
    changed, `/usr/bin/git -C WT add -- <path>...` (and `git rm` / `git mv` for a delete or a move), list every
    one in `files_changed`, and never stage, edit or delete a path in the prompt's `UNTRACKED_BEFORE`: those
    were untracked before the review round, and staging one would commit it into the PR.
-2. Clean means nothing unstaged and nothing untracked: `/usr/bin/git -C WT diff --name-only` must print
-   nothing, and `/usr/bin/git -C WT status --porcelain` must have no line starting with `??` (in `MODE:
-   repair`, none but the `UNTRACKED_BEFORE` paths). Fix it if either does — staged lines (`A`, `M`, ...) are
-   expected and fine.
-3. `/usr/bin/git -C WT write-tree` → `tree_id`.
-4. Return the WORKER record: `ids` (= `BRIEF.ids` in `MODE: implement` and `MODE: retry` — both carry
+2. Run pre-commit on what you staged (todo 540, owner decision 2026-10-10), so Land's commit never stops on a
+   fixer: `/usr/bin/git -C WT diff --cached --name-only --diff-filter=d -z | (cd WT && SKIP=kimi-review xargs -0
+   pre-commit run --files)`. When a fixer rewrote files (Black, isort, prettier, trailing whitespace, …),
+   re-stage them (step 1 again) and run it again until it passes. Fix by hand what no fixer can (flake8;
+   detect-secrets on a fake secret: use an obviously fake value), then re-stage. The kimi-review gate is
+   skipped here; the main session runs it at commit. A fixer that fails with `Operation not permitted` on a
+   `.claude/agents/` file is the sandbox (it denies opening those for writing), not the file: re-run that
+   command with the sandbox off.
+3. Clean means nothing unstaged and nothing untracked: `/usr/bin/git -C WT diff --name-only` must print
+   nothing, and `/usr/bin/git -C WT status --porcelain --untracked-files=all` must have no line starting with
+   `??` (in `MODE: repair`, none but the `UNTRACKED_BEFORE` paths). `--untracked-files=all` lists files one by
+   one, as `UNTRACKED_BEFORE` does, so an untracked directory never hides a new file in it (todo 497). Fix it if
+   either does — staged lines (`A`, `M`, ...) are expected and fine.
+4. `/usr/bin/git -C WT write-tree` → `tree_id`.
+5. Return the WORKER record: `ids` (= `BRIEF.ids` in `MODE: implement` and `MODE: retry` — both carry
    `BRIEF`; the prompt's `IDS` line in `MODE: repair`, which has none), `status` — `staged` only when
    nothing is blocked; `blocked` when the work is staged but at least one criterion is external or
    owner-only; `failed` or `no_change` otherwise — `worktree` WT, `branch` (`/usr/bin/git -C WT rev-parse
