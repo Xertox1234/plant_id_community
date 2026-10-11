@@ -74,7 +74,9 @@ directory or a trailing comment no longer counts, while an indented key, a
 flow mapping or list, and a value after a comment line now do. Todo 525 adds
 one `_relativize` case per reported form (`file://`, flag-glued, `:`-joined,
 bracketed, trailing slash, another user's home) and a foreign worktree in a
-quoted tail.
+quoted tail. Todo 552 adds: after the quoted command's leading `cd <wt>/<sub>`,
+each rooted path reads relative to <sub> and a chained cd resolves against the
+previous one, while a path the command wrote relative is left alone.
 """
 
 import json
@@ -619,6 +621,47 @@ def main():
               "  backend/x.py:12: in test_x\n" in note and "wf_other-3" not in note and str(tmp) not in note, note)
         check("525 #11: the command's leading `cd <repo> && ` is dropped, not quoted as `cd . && `",
               "- AC 1: `python3 -m pytest backend/x.py` — evidence" in note, note)
+
+    # Todo 552: the quoted command keeps its leading `cd <wt>/<sub>`, so every later path that was under the
+    # repo, a worktree or main_root reads relative to <sub>; a chained cd resolves against the previous one.
+    rel552 = "todos/552-pending-p4-x.md"
+    cases552 = [
+        (f"cd {wt}/backend && python3 {wt}/scripts/todos/slot_env.py --main-root {main} 6 -- "
+         f"{main}/backend/venv/bin/python -m pytest apps/x/tests.py --create-db",
+         "cd backend && python3 ../scripts/todos/slot_env.py --main-root .. 6 -- venv/bin/python -m pytest "
+         "apps/x/tests.py --create-db"),
+        (f"cd {wt}/web && npm test && cd {wt}/plant_community_mobile && flutter test {wt}/plant_community_mobile/t.dart",
+         "cd web && npm test && cd ../plant_community_mobile && flutter test t.dart"),
+        (f"cd {wt}/web && cd src && ls {other}/backend", "cd web && cd src && ls ../../backend"),
+        (f"cd {wt}/backend; ls {wt}/web || cd {wt}/web && echo \"a && {wt}/b\"",
+         "cd backend; ls ../web || cd ../web && echo \"a && ../b\""),
+        (f"cd '{other}/web' && ls {main}", "cd 'web' && ls .."),
+        (f"cd {wt}/backend && PYTHONPATH={wt}/backend:{main}/lib x", "cd backend && PYTHONPATH=.:../lib x"),
+        (f"cd {wt}/backend && grep -c x {wt}/{rel552}", "cd backend && grep -c x ../todos/archive/552-completed-p4-x.md"),
+        (f"cd {wt}/backend && pytest apps/foo/tests.py", "cd backend && pytest apps/foo/tests.py"),
+        (f"cd ~/x && ls {wt}/a", "cd ~/x && ls a"),
+        (f"cd {wt}/backend && cd /opt && ls {wt}/a", "cd backend && cd /opt && ls a"),
+        (f"cd \"{wt}/a b\" && ls {wt}/c", "cd \"a b\" && ls c"),
+        (f"python3 {wt}/scripts/a.py && git -C {wt} status", "python3 scripts/a.py && git -C . status"),
+        (f"cd {wt} && ls {wt}/backend", "cd . && ls backend"),
+    ]
+    for raw, want in cases552:
+        got = land._relativize_command(raw, wt, main, rel552)
+        check(f"552: relativize command {raw!r}", got == want, got)
+    check("552: a NUL in the command cannot forge a rooted-path marker",
+          land._relativize_command("cd backend && ls \x00scripts/a", wt, main) == "cd backend && ls scripts/a")
+    with tempfile.TemporaryDirectory() as tmp:
+        main_root = Path(tmp) / "main"
+        repo = setup(main_root / ".claude" / "worktrees" / "wf_t-1")
+        rel = "todos/412-pending-p3-a.md"
+        entries = [dict(entry("412", 0), command=f"cd {repo}/backend && python3 {repo}/scripts/todos/slot_env.py 6 -- "
+                                                 f"{main_root}/backend/venv/bin/python -m pytest apps/x.py"),
+                   entry("412", 1), entry("412", 2)]
+        land.flip_acs(repo, rel, entries, [agree("412", 0)], "r", "2026-10-10", main_root=str(main_root))
+        note = (repo / rel).read_text().split("Verified by the todo sweep", 1)[-1]
+        check("552: the Verified entry's command re-runs from its leading cd",
+              "- AC 1: `cd backend && python3 ../scripts/todos/slot_env.py 6 -- venv/bin/python -m pytest apps/x.py`"
+              in note, note)
 
     # F6: evidence_path must resolve inside <repo>/.sweep-evidence/, or it counts as missing.
     with tempfile.TemporaryDirectory() as tmp:

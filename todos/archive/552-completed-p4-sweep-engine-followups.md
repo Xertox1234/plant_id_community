@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: p4
 issue_id: "552"
 tags: [todo-sweep, follow-ups, scripts]
@@ -27,10 +27,33 @@ finding against main before acting on it.
 
 ## Acceptance Criteria
 
-- [ ] Its finding is fixed with a test, or the Work Log records why it was left as is.
+- [x] Its finding is fixed with a test, or the Work Log records why it was left as is.
 
 ## Work Log
 
 ### 2026-10-10 - Promoted out of todo 527
 
 - Split from the consolidated follow-up todo 527 (owner decision 2026-10-10: one todo per source PR).
+
+### 2026-10-10 - Implemented by the todo sweep (run 2026-10-11-0401)
+
+- `scripts/todos/land.py`: new `_relativize_command`, used for the quoted acceptance-criterion command only. `_relativize` marks each path it took off the repo, a worktree or main_root; the command is cut at `&&`, `||` and `;` outside quotes, and each marked path is rewritten relative to the directory the command has changed into by then (`cd backend && python3 ../scripts/todos/slot_env.py ... -- venv/bin/python`).
+- A chained `cd` into another rooted directory resolves against the previous one (`cd web && ... && cd ../plant_community_mobile`). A path the command already wrote relative is left alone. A `cd` to an unrelated place (`~`, `/opt`, `$X`, bare) leaves the directory unknown, so later paths stay repo-root-relative, as before.
+- The leading `cd` is kept (owner decision). Evidence tails and `_relativize` itself are unchanged, and already-archived lines are not rewritten.
+- `scripts/todos/test_land.py`: 13 `_relativize_command` cases (subdirectory, chained, nested, `;`/`||`, quoted, `:`-joined, the todo's own path, already-relative, unknown cwd, NUL marker forgery) and one `flip_acs` case on the Verified entry.
+
+### 2026-10-10 - Verified by the todo sweep (run 2026-10-11-0401)
+
+- AC 1: `python3 scripts/todos/test_land.py` — evidence `.sweep-evidence/g6/552-ac0.txt` (not committed), last lines:
+
+  ```text
+    PASS  m9: the verify-only heading is 'Checked by'
+    PASS  m9: no worker Work Log heading satisfies Land's Verified-note check
+    PASS  m9: flip_acs's own heading still does
+
+  All checks passed.
+  ```
+
+### 2026-10-10 - Completed by the todo sweep (run 2026-10-11-0401)
+
+- Archived by `land.py archive`; evidence is quoted above, review is on the PR.
