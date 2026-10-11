@@ -373,6 +373,10 @@ def main():
     leaks = ["~/.claude/projects/-" + "Users" + "-someone-projects-x", "//" + "home/someone", "x //" + "home/someone"]
     missed = [s for s in leaks if not chk.HOME_PATH_RE.search(s)]
     check("551 #5: ... while the TMPDIR spelling after a `/` and a `//home/` path start still do", not missed, missed)
+    bare = ["`-" + "Users" + "-alice-projects-app`", "cd -" + "Users" + "-alice-projects-app",
+            '"-' + 'home' + '-alice-projects-app"']
+    missed = [s for s in bare if not chk.HOME_PATH_RE.search(s)]
+    check("551 #5 (PR #1016 review): a bare, quoted or backticked project-key slug still matches", not missed, missed)
 
     print()
     if FAILURES:

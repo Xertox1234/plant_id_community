@@ -218,14 +218,16 @@ STATUS_RE = re.compile(r"^status:\s*(.+?)\s*$", re.M)
 #     `components/home/` is not one, and neither is a doubled slash inside a path (`apps//home/x`, todo 551): the
 #     match must start at the first slash of the run. A URL route in prose (`/home/feed`) still matches: it cannot be told from a
 #     home directory without knowing the user names, and the grandfather list excuses a file that needs it;
-#   - the sandbox TMPDIR spelling, where `/` became `-` (`/private/tmp/claude-501/-Users-<name>-projects-...`),
-#     only right after a `/` as it always is there, so prose such as `a -home-made fix` is not one (todo 551);
+#   - the sandbox TMPDIR / project-key spelling, where `/` became `-` (`/private/tmp/claude-501/-Users-<name>-projects-...`),
+#     after a `/`, a quote, a backtick or a space alike, but only when the name is followed by another `-` segment, as
+#     that spelling always is: so a bare `-Users-<name>-projects-x` is one, and prose such as `a -home-made fix` or
+#     `the -Users-guide` is not (todo 551, review of PR #1016);
 #   - a Windows profile path (`C:\Users\<name>`).
 _NAME = r"[^/\\\s'\"`;:,=|&<>()\[\]{}]+"
 HOME_PATH_RE = re.compile(
     rf"/Users/{_NAME}"
     rf"|(?<![\w.~/])/+home/{_NAME}"
-    r"|(?<=/)-(?:Users|home)-[^-/\s'\"`<>]+"
+    r"|(?<![\w-])-(?:Users|home)-[^-/\s'\"`<>]+-"
     r"|\b[A-Za-z]:\\+Users\\+[^\\/\s'\"`;:,<>]+"
 )
 HOME_KIND = "ARCHIVED_HOME_PATH"
