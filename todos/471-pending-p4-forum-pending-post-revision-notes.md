@@ -5,10 +5,9 @@ issue_id: "471"
 tags: [forum, backend, moderation]
 dependencies: []
 source_review: "PR #865"
-triage: blocked-owner
+triage: ready
 triaged: 2026-09-28
-blocked_on: "Owner decision on item 2: whether an edit to a never-published opening post is re-screened"
-owner_decision: "Item 2: submit_edit_for_moderation re-screens the edit through _route_revision_by_trust (2026-09-28)"
+owner_decision: "Item 2: submit_edit_for_moderation re-screens the edit through _route_revision_by_trust (2026-09-28; reconfirmed by the owner 2026-10-10)"
 ---
 
 # Pending opening post edits: reachability, re-screening and full-row saves
@@ -53,3 +52,7 @@ Correct the docstring (item 1). Decide item 2 with the owner. Add a comment at
 ## Work Log
 
 ### 2026-09-28 - Filed from PR #865 review
+
+### 2026-10-10 - Owner reconfirmed the decision
+
+- The owner reconfirmed the 2026-09-28 decision, so the blocked-owner triage is lifted and the todo is ready.
