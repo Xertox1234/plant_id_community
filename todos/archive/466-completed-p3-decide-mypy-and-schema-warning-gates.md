@@ -88,3 +88,25 @@ are now `superseded`, pointing here.
 ### 2026-10-11 - Completed by the todo sweep (run 2026-10-11-1434)
 
 - Archived by `land.py archive`; evidence is quoted above, review is on the PR.
+
+### 2026-10-11 - AC 4 evidence corrected by the todo sweep (run 2026-10-11-2219, todo 583)
+
+- The AC 4 "last lines" quoted above are out of order (581 before 580) and show
+  nothing from 582, so they do not prove 582 was filed with `status: pending`.
+  The quoted block is left as Land wrote it; this entry supersedes it.
+- Todos 580–582 have since been archived (PR #1040), so the AC 4 command no
+  longer matches today's paths. Re-run against the tree PR #1022 merged
+  (`9338c8a6`), each file read with `git show 9338c8a6:<path>` and the same
+  `grep -E '^(issue_id|status):|^# '`, the full output is:
+
+  ```text
+  todos/580-pending-p3-mypy-ci-gate-one-app.md:status: pending
+  todos/580-pending-p3-mypy-ci-gate-one-app.md:issue_id: "580"
+  todos/580-pending-p3-mypy-ci-gate-one-app.md:# Gate one backend app on mypy in CI, with the django-stubs plugin
+  todos/581-pending-p3-openapi-fail-on-warn.md:status: pending
+  todos/581-pending-p3-openapi-fail-on-warn.md:issue_id: "581"
+  todos/581-pending-p3-openapi-fail-on-warn.md:# Fix the auth schema warnings and run `spectacular` with `--fail-on-warn`
+  todos/582-pending-p3-openapi-request-examples.md:status: pending
+  todos/582-pending-p3-openapi-request-examples.md:issue_id: "582"
+  todos/582-pending-p3-openapi-request-examples.md:# Add `OpenApiExample` request examples for plant_identification, users and blog
+  ```
