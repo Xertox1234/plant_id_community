@@ -10,7 +10,7 @@ Fired by forum_host/notifications.py dispatch() via .delay() so that:
 
 import logging
 
-from apps.core.fcm import is_permanent_fcm_error, send_fcm_message
+from apps.core import fcm as core_fcm
 from celery import shared_task
 from django.db import OperationalError
 from wagtail_forum.preferences import wants_channel
@@ -72,11 +72,6 @@ def send_forum_weekly_digest(self):
                 logger.info("%s (task=%s)", line, self.request.id)
 
 
-def _is_permanent_fcm_error(exc: Exception) -> bool:
-    """See ``apps.core.fcm.is_permanent_fcm_error`` (shared since todo 410)."""
-    return is_permanent_fcm_error(exc)
-
-
 def _notification_content(event: str, data: dict) -> tuple[str, str] | None:
     """Human-readable (title, body) for an FCM tray notification (todo 253
     slice 6, AC6), or None for events that must stay tray-silent.
@@ -118,15 +113,9 @@ def _notification_content(event: str, data: dict) -> tuple[str, str] | None:
     return push_content(event, topic_title, actor)
 
 
-def _send_fcm_message(fcm, token: str, str_data: dict, content, event: str):
-    """Build and send one forum FCM message.
-
-    Shared by send_forum_push (single) and send_forum_push_batch (todo 268) so
-    the message construction can never drift between the two shapes; the
-    builder itself is ``apps.core.fcm.send_fcm_message`` (todo 410). The
-    collapse key is per EVENT TYPE, not per post (see docs/rules/celery.md).
-    """
-    return send_fcm_message(fcm, token, str_data, content, f"forum-{event}")
+def _forum_collapse_key(event: str) -> str:
+    """Per EVENT TYPE, not per post (see docs/rules/celery.md)."""
+    return f"forum-{event}"
 
 
 @shared_task(bind=True, max_retries=3, default_retry_delay=30, ignore_result=True)
@@ -194,13 +183,18 @@ def send_forum_push(self, event: str, recipient_user_id: int, data: dict):
     content = _notification_content(event, data)
 
     try:
-        response = _send_fcm_message(fcm, token, str_data, content, event)
+        response = core_fcm.send_fcm_message(
+            fcm, token, str_data, content, _forum_collapse_key(event)
+        )
         logger.info(
             "[FCM] forum.%s sent to user=%s: %s", event, recipient_user_id, response
         )
     except Exception as exc:
-        if _is_permanent_fcm_error(exc):
+        if core_fcm.is_permanent_fcm_error(exc):
             # e.g. the device token is stale — retrying can never succeed.
+            if core_fcm.is_dead_fcm_token_error(exc):
+                # Forget it, so the next push does not target it (todo 457).
+                core_fcm.clear_dead_fcm_token(recipient_user_id, token)
             logger.warning(
                 "[FCM] forum.%s send failed permanently (user=%s, task_id=%s):"
                 " %s — not retrying",
@@ -292,12 +286,14 @@ def send_forum_push_batch(event: str, recipient_user_ids: list[int], data: dict)
         if not profile.fcm_token:
             continue
         try:
-            response = _send_fcm_message(
-                fcm, profile.fcm_token, str_data, content, event
+            response = core_fcm.send_fcm_message(
+                fcm, profile.fcm_token, str_data, content, _forum_collapse_key(event)
             )
             logger.info("[FCM] forum.%s sent to user=%s: %s", event, user.pk, response)
         except Exception as exc:
-            if _is_permanent_fcm_error(exc):
+            if core_fcm.is_permanent_fcm_error(exc):
+                if core_fcm.is_dead_fcm_token_error(exc):
+                    core_fcm.clear_dead_fcm_token(user.pk, profile.fcm_token)
                 logger.warning(
                     "[FCM] forum.%s send failed permanently (user=%s): %s"
                     " — not retrying",

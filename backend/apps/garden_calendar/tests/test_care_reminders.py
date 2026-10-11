@@ -436,3 +436,219 @@ def test_care_reminders_are_scheduled_on_a_registered_task():
     assert entry["task"] == send_due_care_task_reminders.name
     assert isinstance(entry["schedule"], crontab)
     assert entry["schedule"].minute == {0, 15, 30, 45}
+
+
+# ---- Todo 457: care-reminder follow-ups from the PR #853 review ----
+
+
+class RecurrenceAfterLateCompletionTest(TestCase):
+    """Item 1 (owner decision 2026-10-10): the next occurrence is dated from
+    the later of the due date and the completion."""
+
+    def setUp(self):
+        self.alice = User.objects.create_user(username="alice", email="a@x.com")
+        self.plant = _plant(self.alice)
+
+    def _weekly(self, due, **kwargs):
+        return _task(
+            self.plant,
+            due=due,
+            is_recurring=True,
+            recurrence_interval_days=7,
+            **kwargs,
+        )
+
+    def _next(self, task):
+        return CareTask.objects.exclude(pk=task.pk).get(plant=self.plant)
+
+    def test_a_late_completion_dates_the_next_one_from_the_completion(self):
+        task = self._weekly(timezone.now() - timedelta(days=9))
+
+        task.mark_complete(self.alice)
+
+        task.refresh_from_db()
+        nxt = self._next(task)
+        self.assertEqual(nxt.scheduled_date, task.completed_at + timedelta(days=7))
+        # Not already overdue, so the reminder sweep will see it fall due.
+        self.assertGreater(nxt.scheduled_date, timezone.now())
+
+    def test_an_early_completion_keeps_the_schedule(self):
+        due = timezone.now() + timedelta(days=2)
+        task = self._weekly(due)
+
+        task.mark_complete(self.alice)
+
+        self.assertEqual(self._next(task).scheduled_date, due + timedelta(days=7))
+
+    def test_the_end_date_is_checked_against_the_new_date(self):
+        # Due-date + 7 would fall before the end date; completion + 7 does not.
+        due = timezone.now() - timedelta(days=9)
+        task = self._weekly(due, recurrence_end_date=(due + timedelta(days=8)).date())
+
+        task.mark_complete(self.alice)
+
+        self.assertFalse(CareTask.objects.exclude(pk=task.pk).exists())
+
+
+class BedCapSerializerTest(TestCase):
+    """Item 2: the bed cap counts a plant moving INTO a full bed."""
+
+    def setUp(self):
+        self.alice = User.objects.create_user(username="alice", email="a@x.com")
+        self.client = APIClient()
+        self.client.force_authenticate(self.alice)
+        self.bed = GardenBed.objects.create(owner=self.alice, name="Bed")
+        self.inside = [_plant(self.alice, garden_bed=self.bed) for _ in range(2)]
+        self.cap = patch("apps.garden_calendar.constants.MAX_PLANTS_PER_GARDEN_BED", 2)
+        self.cap.start()
+        self.addCleanup(self.cap.stop)
+
+    def test_a_plant_cannot_move_into_a_full_bed(self):
+        outside = _plant(self.alice)
+
+        response = self.client.patch(
+            f"{PLANTS}{outside.uuid}/",
+            {"garden_bed": str(self.bed.uuid)},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("garden_bed", response.data["errors"])
+        outside.refresh_from_db()
+        self.assertIsNone(outside.garden_bed)
+
+    def test_a_plant_already_in_a_full_bed_can_still_be_edited(self):
+        response = self.client.patch(
+            f"{PLANTS}{self.inside[0].uuid}/",
+            {"garden_bed": str(self.bed.uuid), "notes": "fine"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.data)
+
+
+class OwnerFilteredBedReadsTest(TestCase):
+    """Item 12: bed reads count only the bed owner's plants."""
+
+    def setUp(self):
+        self.alice = User.objects.create_user(username="alice", email="a@x.com")
+        self.bob = User.objects.create_user(username="bob", email="b@x.com")
+        self.bed = GardenBed.objects.create(owner=self.alice, name="Bed")
+        self.mine = _plant(self.alice, garden_bed=self.bed, common_name="tomato")
+        self.theirs = _plant(self.alice, garden_bed=self.bed, common_name="basil")
+        # A diverged row (the shape item 10 stops the admin from creating).
+        Plant.objects.filter(pk=self.theirs.pk).update(owner=self.bob)
+
+    def test_plant_count_fallback_ignores_another_owners_plant(self):
+        self.assertEqual(GardenBed.objects.get(pk=self.bed.pk).plant_count, 1)
+
+    def test_companion_reads_ignore_another_owners_plant(self):
+        from ..services.companion_planting_service import CompanionPlantingService
+
+        analysis = CompanionPlantingService.analyze_garden_bed(self.bed)
+
+        self.assertEqual(analysis["total_plants"], 1)
+
+
+class CareReminderFollowUpSweepTest(TestCase):
+    """Items 3, 4 and 5 on the beat sweep (borrows the sweep fixtures without
+    inheriting, and so re-running, that class's tests)."""
+
+    setUp = CareReminderSweepTest.setUp
+    _set_token = CareReminderSweepTest._set_token
+    _run = CareReminderSweepTest._run
+
+    def _token(self, user):
+        return ForumProfile.objects.get(user=user).fcm_token
+
+    def test_a_dead_token_is_cleared(self):
+        from firebase_admin import messaging
+
+        _task(self.plant, due=self.now)
+
+        self._run(send=messaging.UnregisteredError("gone"))
+
+        self.assertEqual(self._token(self.alice), "")
+
+    def test_a_credential_error_keeps_the_token(self):
+        """ThirdPartyAuthError is permanent but project-wide, not the token."""
+        from firebase_admin import messaging
+
+        _task(self.plant, due=self.now)
+
+        self._run(send=messaging.ThirdPartyAuthError("apns cert"))
+
+        self.assertEqual(self._token(self.alice), "alice-device")
+
+    def test_a_token_reregistered_since_the_send_is_kept(self):
+        from apps.core.fcm import clear_dead_fcm_token
+
+        self.assertEqual(clear_dead_fcm_token(self.alice.pk, "an-older-token"), 0)
+        self.assertEqual(self._token(self.alice), "alice-device")
+
+    def test_a_released_task_about_to_age_out_is_logged(self):
+        last_chance = _task(self.plant, due=self.now - timedelta(hours=23, minutes=50))
+        _task(_plant(self.alice), due=self.now - timedelta(minutes=5))
+
+        with self.assertLogs("apps.garden_calendar.tasks", level="WARNING") as logs:
+            self._run(send=RuntimeError("503"))
+
+        aging = [m for m in logs.output if "will not be sent" in m]
+        self.assertEqual(len(aging), 1, logs.output)
+        self.assertIn(str(last_chance.uuid), aging[0])
+
+    def test_the_sweep_logs_carry_the_task_id(self):
+        _task(self.plant, due=self.now)
+        send_due_care_task_reminders.push_request(id="sweep-123")
+        try:
+            with self.assertLogs("apps.garden_calendar.tasks", level="INFO") as logs:
+                self._run()
+        finally:
+            send_due_care_task_reminders.pop_request()
+
+        self.assertTrue(any("task=sweep-123" in m for m in logs.output), logs.output)
+
+
+class CareReminderAutoretryCountdownTest(TestCase):
+    """Item 6: pin retry_backoff=60 for OperationalError. ``.apply()`` ignores
+    countdown (docs/rules/celery.md), so fake the retry counter, mock retry()
+    and patch full jitter to its maximum."""
+
+    def test_the_countdown_is_exponential_from_60_seconds(self):
+        from celery.exceptions import Retry
+        from django.db import OperationalError
+
+        for prior_retries, ceiling in ((0, 60), (1, 120), (2, 240)):
+            with self.subTest(retries=prior_retries), patch(
+                "apps.core.firebase_config.is_firebase_available", return_value=True
+            ), patch(
+                "apps.core.firebase_config.get_fcm_client", return_value=MagicMock()
+            ), patch(
+                "apps.garden_calendar.tasks._claim_due_tasks",
+                side_effect=OperationalError("db blip"),
+            ), patch(
+                "celery.utils.time.random.randrange", side_effect=lambda n: n - 1
+            ), patch.object(
+                send_due_care_task_reminders, "retry", side_effect=Retry("retried")
+            ) as mock_retry:
+                send_due_care_task_reminders.push_request(retries=prior_retries)
+                try:
+                    with self.assertRaises(Retry):
+                        send_due_care_task_reminders.run()
+                finally:
+                    send_due_care_task_reminders.pop_request()
+
+                self.assertEqual(mock_retry.call_args.kwargs["countdown"], ceiling)
+
+
+def test_the_sweep_interval_constant_matches_the_beat_schedule():
+    """Item 4's age-out warning assumes the sweep runs every
+    CARE_REMINDER_SWEEP_INTERVAL_MINUTES."""
+    from django.conf import settings
+
+    from ..constants import CARE_REMINDER_SWEEP_INTERVAL_MINUTES
+
+    entry = settings.CELERY_BEAT_SCHEDULE["care-task-reminders"]
+    assert entry["schedule"].minute == set(
+        range(0, 60, CARE_REMINDER_SWEEP_INTERVAL_MINUTES)
+    )

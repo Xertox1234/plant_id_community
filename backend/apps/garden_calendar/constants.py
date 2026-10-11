@@ -362,7 +362,9 @@ LOG_PREFIX_ERROR = "[ERROR]"
 # =============================================================================
 
 # The beat sweep that pushes due CareTasks runs every 15 minutes
-# (settings.CELERY_BEAT_SCHEDULE["care-task-reminders"]).
+# (settings.CELERY_BEAT_SCHEDULE["care-task-reminders"]). Keep this equal to
+# that crontab: the sweep uses it to warn before a reminder ages out unsent.
+CARE_REMINDER_SWEEP_INTERVAL_MINUTES = 15
 
 # Only tasks that fell due within this window are pushed (owner decision
 # 2026-09-27). An older overdue task never pushes; it still shows as overdue

@@ -569,10 +569,15 @@ class PlantCreateUpdateSerializer(serializers.ModelSerializer):
 
         garden_bed = data.get("garden_bed")
         if garden_bed:
-            # For updates, exclude current plant from count
-            current_count = garden_bed.plants.filter(is_active=True).count()
-            if self.instance:
-                current_count -= 1
+            # Count the bed owner's active plants other than this one. Excluding
+            # this plant by pk (not subtracting 1) keeps a plant moving INTO a
+            # full bed from slipping past the cap (todo 457).
+            others = garden_bed.plants.filter(
+                is_active=True, owner_id=garden_bed.owner_id
+            )
+            if self.instance is not None:
+                others = others.exclude(pk=self.instance.pk)
+            current_count = others.count()
 
             if current_count >= MAX_PLANTS_PER_GARDEN_BED:
                 raise serializers.ValidationError(
