@@ -11,15 +11,7 @@ from django.contrib.auth import get_user_model
 from django.test import TestCase
 from django.utils import timezone
 
-from ..models import (
-    CareLog,
-    CareTask,
-    GardenBed,
-    GrowingZone,
-    Harvest,
-    Plant,
-    PlantImage,
-)
+from ..models import CareLog, CareTask, GardenBed, GrowingZone, Harvest, Plant
 
 User = get_user_model()
 
@@ -367,6 +359,134 @@ class CareTaskModelTest(TestCase):
         self.assertFalse(task.completed)
         self.assertEqual(task.skip_reason, "Rainy weather")
         self.assertIsNotNone(task.skipped_at)
+
+    def test_mark_skip_schedules_next_occurrence_for_recurring_task(self):
+        """Skipping one occurrence must not end a recurring schedule (todo 386).
+
+        Skipped ahead of its due date, so the next one counts from the due
+        date (a late skip counts from the skip; see the test below)."""
+        scheduled = timezone.now() + timedelta(days=1)
+        task = CareTask.objects.create(
+            plant=self.plant,
+            created_by=self.user,
+            task_type="watering",
+            title="Weekly watering",
+            priority="medium",
+            scheduled_date=scheduled,
+            is_recurring=True,
+            recurrence_interval_days=7,
+        )
+
+        created = task.mark_skip(self.user, reason="Soil still damp")
+
+        self.assertTrue(created)
+        next_task = CareTask.objects.get(
+            plant=self.plant, completed=False, skipped=False
+        )
+        self.assertEqual(next_task.scheduled_date, scheduled + timedelta(days=7))
+        self.assertTrue(next_task.is_recurring)
+        self.assertEqual(next_task.recurrence_interval_days, 7)
+
+    def test_mark_skip_non_recurring_creates_nothing(self):
+        """A one-off task that is skipped schedules no follow-up."""
+        task = CareTask.objects.create(
+            plant=self.plant,
+            created_by=self.user,
+            task_type="watering",
+            title="One-off watering",
+            priority="medium",
+            scheduled_date=timezone.now(),
+        )
+
+        self.assertFalse(task.mark_skip(self.user))
+        self.assertEqual(CareTask.objects.filter(plant=self.plant).count(), 1)
+
+    def test_mark_skip_past_recurrence_end_creates_nothing(self):
+        """The recurrence end date still stops the schedule on a skip."""
+        scheduled = timezone.now()
+        task = CareTask.objects.create(
+            plant=self.plant,
+            created_by=self.user,
+            task_type="watering",
+            title="Last watering",
+            priority="medium",
+            scheduled_date=scheduled,
+            is_recurring=True,
+            recurrence_interval_days=7,
+            recurrence_end_date=(scheduled + timedelta(days=3)).date(),
+        )
+
+        self.assertFalse(task.mark_skip(self.user))
+        self.assertEqual(CareTask.objects.filter(plant=self.plant).count(), 1)
+
+    def _recurring_task(self):
+        return CareTask.objects.create(
+            plant=self.plant,
+            created_by=self.user,
+            task_type="watering",
+            title="Weekly watering",
+            priority="medium",
+            scheduled_date=timezone.now(),
+            is_recurring=True,
+            recurrence_interval_days=7,
+        )
+
+    def test_concurrent_double_complete_creates_one_next_occurrence(self):
+        """Two requests that both read the task as pending (a double tap on
+        Done) must not both schedule the next occurrence (todo 386 review)."""
+        task = self._recurring_task()
+        first = CareTask.objects.get(pk=task.pk)
+        second = CareTask.objects.get(pk=task.pk)  # stale: read before first
+
+        self.assertTrue(first.mark_complete(self.user))
+        with self.assertRaises(CareTask.AlreadyResolved):
+            second.mark_complete(self.user)
+
+        self.assertTrue(second.completed)
+        self.assertEqual(
+            CareTask.objects.filter(plant=self.plant, completed=False).count(), 1
+        )
+        self.assertEqual(CareTask.objects.filter(plant=self.plant).count(), 2)
+
+    def test_concurrent_complete_then_skip_creates_one_next_occurrence(self):
+        """Done then Skip on the same pending task: the skip loses and neither
+        overwrites the completion nor schedules a second occurrence."""
+        task = self._recurring_task()
+        first = CareTask.objects.get(pk=task.pk)
+        second = CareTask.objects.get(pk=task.pk)
+
+        self.assertTrue(first.mark_complete(self.user))
+        with self.assertRaises(CareTask.AlreadyResolved):
+            second.mark_skip(self.user, reason="late tap")
+
+        task.refresh_from_db()
+        self.assertTrue(task.completed)
+        self.assertFalse(task.skipped)
+        self.assertEqual(task.skip_reason, "")
+        self.assertEqual(CareTask.objects.filter(plant=self.plant).count(), 2)
+
+    def test_late_skip_dates_the_next_occurrence_from_the_skip(self):
+        """A skip three weeks late must not create a next task that is already
+        overdue: it is dated from the skip, as a late completion is (todo 457)."""
+        due = timezone.now() - timedelta(days=21)
+        task = CareTask.objects.create(
+            plant=self.plant,
+            created_by=self.user,
+            task_type="watering",
+            title="Weekly watering",
+            priority="medium",
+            scheduled_date=due,
+            is_recurring=True,
+            recurrence_interval_days=7,
+        )
+
+        self.assertTrue(task.mark_skip(self.user))
+
+        next_task = CareTask.objects.get(
+            plant=self.plant, completed=False, skipped=False
+        )
+        self.assertEqual(next_task.scheduled_date, task.skipped_at + timedelta(days=7))
+        self.assertGreater(next_task.scheduled_date, timezone.now())
 
 
 class HarvestModelTest(TestCase):

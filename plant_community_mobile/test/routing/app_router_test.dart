@@ -15,6 +15,7 @@ import 'package:plant_community_mobile/features/forum/screens/forum_topics_scree
 import 'package:plant_community_mobile/features/forum/screens/forum_user_profile_screen.dart';
 import 'package:plant_community_mobile/features/forum/services/forum_api.dart';
 import 'package:plant_community_mobile/features/forum/services/forum_sync_store.dart';
+import 'package:plant_community_mobile/features/garden/services/garden_api_service.dart';
 import 'package:plant_community_mobile/features/profile/edit_profile_screen.dart';
 import 'package:plant_community_mobile/models/plant.dart';
 import 'package:plant_community_mobile/services/api_service.dart';
@@ -23,6 +24,7 @@ import 'package:plant_community_mobile/services/user_profile_service.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../features/forum/support/forum_test_support.dart';
+import '../features/garden/support/garden_test_support.dart';
 
 // TODO: Add Firebase mocking to enable widget tests
 // See test/routing/TEST_STATUS.md for details
@@ -1353,6 +1355,9 @@ void main() {
             authServiceProvider.overrideWith(
               _MockAuthenticatedAuthNotifier.new,
             ),
+            // /garden was a placeholder; it is the real care schedule now
+            // (todo 386) and fetches on mount, so fake its API.
+            gardenApiProvider.overrideWithValue(FakeGardenApi()),
           ],
         );
         addTearDown(container.dispose);
@@ -1366,9 +1371,9 @@ void main() {
           ),
         );
 
-        // Navigate to a protected route. Use /garden (a placeholder screen)
-        // rather than /profile — ProfileScreen performs network I/O on mount,
-        // which a pure routing test should not exercise.
+        // Navigate to a protected route. Use /garden (its API is faked
+        // above) rather than /profile — ProfileScreen performs network I/O
+        // on mount, which a pure routing test should not exercise.
         router.go(AppRoutes.garden);
         await tester.pump(const Duration(milliseconds: 100));
 

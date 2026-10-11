@@ -30,12 +30,12 @@ import '../../features/forum/screens/forum_notifications_screen.dart';
 import '../../features/forum/screens/forum_search_screen.dart';
 import '../../features/forum/screens/forum_user_profile_screen.dart';
 import '../../features/collection/collection_screen.dart';
+import '../../features/garden/garden_screen.dart';
 
 import '../../models/plant.dart';
 import '../../services/auth_service.dart';
 import 'error_screen.dart';
 import 'main_shell.dart';
-import 'placeholder_screen.dart';
 
 part 'app_router.g.dart';
 
@@ -50,13 +50,13 @@ abstract class AppRoutes {
   // redirect below bounces an already-authenticated user off both.
   static const login = '/login';
   static const register = '/register';
-  // `profile` has a screen and is a shell branch root. `garden` does not:
-  // it is still a PlaceholderScreen for the unbuilt garden-calendar
-  // feature, and is deliberately not a shell destination (todo 384).
+  // `profile` has a screen and is a shell branch root.
   static const profile = '/profile';
   // Auth-only: edits the caller's own bio and avatar (todo 455). Top-level,
   // outside the shell, so it is NOT a branch root and the redirect is safe.
   static const editProfile = '/profile/edit';
+  // The care schedule (todo 386): nested under the Home tab, opened from its
+  // feature grid and from a tapped care-reminder push. Auth-only.
   static const garden = '/garden';
   // Phase 2 feature routes
   static const care = '/care';
@@ -165,8 +165,8 @@ GoRouter appRouter(Ref ref) {
         builder: (context, state, navigationShell) =>
             MainShell(navigationShell: navigationShell),
         branches: [
-          // 0 Home -- /care, /diagnose and /blog hang off the Home feature grid, so they
-          // keep the bar.
+          // 0 Home -- /care, /diagnose, /garden and /blog hang off the Home feature
+          // grid, so they keep the bar.
           StatefulShellBranch(
             routes: [
               GoRoute(
@@ -194,6 +194,18 @@ GoRouter appRouter(Ref ref) {
                   context: context,
                   state: state,
                   child: const DiagnoseScreen(),
+                ),
+              ),
+              // Auth-only (protectedRoutes): the plants and tasks are the
+              // caller's own. Opened from the Home feature grid and from a
+              // tapped `care_task_due` push (todo 386).
+              GoRoute(
+                path: AppRoutes.garden,
+                name: 'garden',
+                pageBuilder: (context, state) => _buildPageWithTransition(
+                  context: context,
+                  state: state,
+                  child: const GardenScreen(),
                 ),
               ),
               GoRoute(
@@ -479,15 +491,6 @@ GoRouter appRouter(Ref ref) {
           context: context,
           state: state,
           child: const RegisterScreen(),
-        ),
-      ),
-      GoRoute(
-        path: AppRoutes.garden,
-        name: 'garden',
-        pageBuilder: (context, state) => _buildPageWithTransition(
-          context: context,
-          state: state,
-          child: const PlaceholderScreen(title: 'Garden'),
         ),
       ),
       if (kDebugMode)

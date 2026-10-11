@@ -10,7 +10,7 @@ import uuid
 from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError
 from django.core.validators import MaxValueValidator, MinValueValidator
-from django.db import models
+from django.db import models, transaction
 from django.utils import timezone
 
 from .constants import (
@@ -1171,49 +1171,105 @@ class CareTask(models.Model):
         """Check if task is still pending."""
         return not self.completed and not self.skipped
 
+    class AlreadyResolved(Exception):
+        """A concurrent request completed or skipped this task first.
+
+        Raised by ``mark_complete``/``mark_skip`` when the locked row is no
+        longer pending. The caller's instance has already been refreshed with
+        the winning ``completed``/``skipped`` state, so the view can answer
+        with the same 400 its pre-check gives.
+        """
+
     def mark_complete(self, user):
-        """Mark task as completed."""
-        from django.utils import timezone
+        """Mark task as completed.
 
-        self.completed = True
-        self.completed_at = timezone.now()
-        self.completed_by = user
-        self.save()
-
-        # Create next occurrence if recurring
-        if self.is_recurring and self.recurrence_interval_days:
-            self._create_next_occurrence()
+        Returns whether a next occurrence was scheduled (recurring tasks).
+        Raises ``CareTask.AlreadyResolved`` if the task is no longer pending.
+        """
+        return self._resolve(
+            completed=True,
+            completed_at=timezone.now(),
+            completed_by=user,
+        )
 
     def mark_skip(self, user, reason=""):
-        """Mark task as skipped."""
-        from django.utils import timezone
+        """Mark task as skipped.
 
-        self.skipped = True
-        self.skip_reason = reason
-        self.skipped_at = timezone.now()
-        self.save()
+        A skipped occurrence of a recurring task still schedules the next
+        one, exactly as completing it does: skipping one watering must not
+        end the schedule (todo 386 review). Returns whether a next
+        occurrence was scheduled. Raises ``CareTask.AlreadyResolved`` if the
+        task is no longer pending.
+        """
+        return self._resolve(
+            skipped=True,
+            skip_reason=reason,
+            skipped_at=timezone.now(),
+        )
+
+    def _resolve(self, **changes):
+        """Atomically move a pending task to done/skipped and schedule the next.
+
+        Check-then-act on an unlocked read let two concurrent POSTs (a double
+        tap on Done, or Done then Skip) both pass the "still pending" check and
+        both create the next occurrence, duplicating a recurring task for good.
+        The row is locked (``select_for_update``) before the check, so a second
+        request waits for the first to commit, then sees it resolved. Exactly
+        one request writes the row and creates the next occurrence, in the
+        same transaction.
+
+        The write is a ``save()``, not a ``QuerySet.update()``, so save
+        signals see it: ``auditlog.py`` declares CareTask completion/skip as
+        audited (that module is not yet imported anywhere; todo follow-up).
+        """
+        with transaction.atomic():
+            state = (
+                CareTask.objects.select_for_update()
+                .filter(pk=self.pk)
+                .values("completed", "skipped")
+                .first()
+            )
+            if state is None:
+                raise CareTask.DoesNotExist()
+            if state["completed"] or state["skipped"]:
+                self.completed = state["completed"]
+                self.skipped = state["skipped"]
+                raise CareTask.AlreadyResolved()
+            for field, value in changes.items():
+                setattr(self, field, value)
+            self.save(update_fields=[*changes, "updated_at"])
+            return self._schedule_next_occurrence()
+
+    def _schedule_next_occurrence(self):
+        """Create the next occurrence if this task recurs; return whether it did."""
+        if not (self.is_recurring and self.recurrence_interval_days):
+            return False
+        return self._create_next_occurrence() is not None
 
     def _create_next_occurrence(self):
-        """Create next recurring task instance.
+        """Create the next recurring task instance; None once past the end date.
 
         The next one is dated from the later of the due date and the
-        completion (owner decision 2026-10-10, todo 457). Dating it from the
-        due date alone made a late completion create a task that was already
-        overdue, past the reminder sweep's lookback, so it never pushed.
+        completion or skip (owner decision 2026-10-10, todo 457). Dating it
+        from the due date alone made a late completion or skip create a task
+        that was already overdue, past the reminder sweep's lookback, so it
+        never pushed.
         """
         from datetime import timedelta
 
-        base = self.scheduled_date
-        if self.completed_at and self.completed_at > base:
-            base = self.completed_at
+        base = max(
+            moment
+            for moment in (self.scheduled_date, self.completed_at, self.skipped_at)
+            if moment is not None
+        )
         next_date = base + timedelta(days=self.recurrence_interval_days)
 
         # Check if we've reached end date
         if self.recurrence_end_date and next_date.date() > self.recurrence_end_date:
-            return  # Stop recurring
+            return None  # Stop recurring
 
         # Create new task instance
-        CareTask.objects.create(
+        return CareTask.objects.create(
             plant=self.plant,
             created_by=self.created_by,
             task_type=self.task_type,

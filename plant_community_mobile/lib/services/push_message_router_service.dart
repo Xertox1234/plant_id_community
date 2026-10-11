@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../core/routing/app_router.dart';
+import 'auth_service.dart';
 
 /// Registered via `FirebaseMessaging.onBackgroundMessage` in `main.dart`,
 /// immediately after `Firebase.initializeApp()` succeeds and before
@@ -28,8 +29,10 @@ Future<void> pushBackgroundMessageHandler(RemoteMessage message) async {
   }
 }
 
-/// Routes a tapped forum push notification to its topic (and highlights the
-/// post, when the payload carries one) — todo 311.
+/// Routes a tapped push notification: a forum push to its topic (and
+/// highlights the post, when the payload carries one) — todo 311; a care
+/// reminder (`event: care_task_due`, sent by `garden_calendar`'s reminder
+/// sweep, todo 410) to the garden — todo 386.
 ///
 /// A sibling to `PushRegistrationService`, not an extension of it: token
 /// registration is scoped to login/logout, tap-routing is scoped to the
@@ -66,7 +69,7 @@ Future<void> pushBackgroundMessageHandler(RemoteMessage message) async {
 /// in the app, and forcing a detour through home would discard whatever
 /// screen they were on.
 class PushMessageRouterService {
-  PushMessageRouterService(this.routerAccessor) {
+  PushMessageRouterService(this.routerAccessor, {this.awaitAuthRestore}) {
     _openedAppSubscription = FirebaseMessaging.onMessageOpenedApp.listen(
       (message) => _route(message, isColdStart: false),
     );
@@ -78,6 +81,14 @@ class PushMessageRouterService {
   /// `BuildContext`/`navigatorKey` needed. Built by the provider factory as
   /// `() => ref.read(appRouterProvider)`.
   final GoRouter Function() routerAccessor;
+
+  /// Completes once the launch-time session restore has settled (see
+  /// [waitForAuthRestore]). A cold-start care tap awaits it before pushing
+  /// the protected `/garden`: until the launch JWT exchange finishes,
+  /// `isAuthenticated` is false, and the router's redirect would send a
+  /// signed-in user to `/login` (then on to `/profile`) instead of the
+  /// garden. Null — no wait — for callers with no auth to restore.
+  final Future<void> Function()? awaitAuthRestore;
 
   /// Test seam, mirroring `PushRegistrationService.messaging`: a lazy
   /// getter so constructing this service in a unit test never touches
@@ -112,6 +123,14 @@ class PushMessageRouterService {
   }
 
   void _route(RemoteMessage message, {required bool isColdStart}) {
+    // A care reminder carries `care_task_uuid`/`plant_uuid`/`count` and no
+    // `topic_id`, so it must be recognised before the forum parse below
+    // discards it as unroutable.
+    if (message.data['event'] == careTaskDueEvent) {
+      unawaited(_routeCareReminder(isColdStart: isColdStart));
+      return;
+    }
+
     final topicId = _parseId(message.data['topic_id']);
     if (topicId == null) {
       // Malformed/unroutable payload (e.g. a future moderation_decided-
@@ -131,6 +150,28 @@ class PushMessageRouterService {
     );
   }
 
+  Future<void> _routeCareReminder({required bool isColdStart}) async {
+    // Warm resume: the session was restored long ago (or the user is
+    // signed out, and the login redirect is the right answer).
+    final wait = awaitAuthRestore;
+    if (isColdStart && wait != null) {
+      final epoch = _epoch;
+      try {
+        await wait();
+      } catch (e) {
+        if (kDebugMode) {
+          debugPrint('[PUSH] Waiting for auth restore failed: $e');
+        }
+      }
+      if (epoch != _epoch) return;
+    }
+    final router = routerAccessor();
+    if (isColdStart) {
+      router.go(AppRoutes.home);
+    }
+    router.push(AppRoutes.garden);
+  }
+
   /// Stops listening. Called on provider disposal — this service is scoped
   /// to the app's lifetime, not to login/logout like `PushRegistrationService`.
   void detach() {
@@ -139,6 +180,10 @@ class PushMessageRouterService {
     _openedAppSubscription = null;
   }
 }
+
+/// The `event` of a care-reminder push (`CARE_REMINDER_EVENT` in
+/// `backend/apps/garden_calendar/constants.py`).
+const String careTaskDueEvent = 'care_task_due';
 
 /// Parses an FCM data-payload value as an int. FCM data values are always
 /// strings, but a missing key must be treated as absent — not as an empty
@@ -156,7 +201,45 @@ int? _parseId(dynamic raw) {
 final pushMessageRouterServiceProvider = Provider<PushMessageRouterService>((
   ref,
 ) {
-  final service = PushMessageRouterService(() => ref.read(appRouterProvider));
+  final service = PushMessageRouterService(
+    () => ref.read(appRouterProvider),
+    awaitAuthRestore: ref.read(authRestoreWaiterProvider),
+  );
   ref.onDispose(service.detach);
   return service;
 });
+
+/// How long a cold-start care tap waits for the launch session restore
+/// before giving up and routing anyway (the login redirect then applies).
+const Duration authRestoreTimeout = Duration(seconds: 15);
+
+/// Whether the launch-time session restore has settled: signed in (JWT in
+/// hand), signed out (no Firebase user to exchange), or the exchange failed
+/// (`AuthService` keeps the Firebase user and sets an error). A Firebase
+/// user with no JWT and no error is a restore still in flight.
+bool authRestoreSettled(AuthState state) =>
+    state.isAuthenticated || state.firebaseUser == null || state.error != null;
+
+/// Builds the [PushMessageRouterService.awaitAuthRestore] function: it
+/// completes at once when [authRestoreSettled], otherwise on the first auth
+/// state that is, or after [timeout].
+final authRestoreWaiterProvider = Provider<Future<void> Function()>((ref) {
+  return () => waitForAuthRestore(ref);
+});
+
+/// See [authRestoreWaiterProvider].
+Future<void> waitForAuthRestore(
+  Ref ref, {
+  Duration timeout = authRestoreTimeout,
+}) async {
+  if (authRestoreSettled(ref.read(authServiceProvider))) return;
+  final settled = Completer<void>();
+  final subscription = ref.listen<AuthState>(authServiceProvider, (_, next) {
+    if (authRestoreSettled(next) && !settled.isCompleted) settled.complete();
+  });
+  try {
+    await settled.future.timeout(timeout, onTimeout: () {});
+  } finally {
+    subscription.close();
+  }
+}

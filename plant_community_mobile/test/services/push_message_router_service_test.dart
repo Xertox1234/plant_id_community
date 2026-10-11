@@ -5,19 +5,25 @@
 // 286 (Apple provisioning still missing for a distributed build); this is
 // the closest coverage available until that lands.
 
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:firebase_messaging_platform_interface/firebase_messaging_platform_interface.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:plant_community_mobile/core/routing/app_router.dart';
+import 'package:plant_community_mobile/features/auth/login_screen.dart';
 import 'package:plant_community_mobile/features/forum/screens/forum_thread_screen.dart';
 import 'package:plant_community_mobile/features/forum/services/forum_api.dart';
 import 'package:plant_community_mobile/features/forum/services/forum_sync_store.dart';
+import 'package:plant_community_mobile/features/garden/garden_screen.dart';
+import 'package:plant_community_mobile/features/garden/services/garden_api_service.dart';
+import 'package:plant_community_mobile/features/onboarding/onboarding_checklist_service.dart';
 import 'package:plant_community_mobile/services/auth_service.dart';
 import 'package:plant_community_mobile/services/push_message_router_service.dart';
 
 import '../features/forum/support/forum_test_support.dart';
+import '../features/garden/support/garden_test_support.dart';
 
 /// The reply_added/mention/answer_accepted shape from the backend's
 /// `_build_payload` (`backend/apps/forum_host/notifications.py`) — all
@@ -50,7 +56,219 @@ Future<void> _drainSplashTimer(WidgetTester tester) async {
   }
 }
 
+/// The care-reminder shape from `garden_calendar.tasks` (todo 410): no
+/// `topic_id`, so the forum parse alone would drop it.
+const _careReminderPayload = RemoteMessage(
+  data: {
+    'event': 'care_task_due',
+    'care_task_uuid': '6f1c2d3e-0000-4000-8000-000000000001',
+    'plant_uuid': '6f1c2d3e-0000-4000-8000-000000000002',
+    'count': '2',
+  },
+);
+
+/// Signed in (the garden is a protected route) with a faked garden API.
+ProviderContainer _careContainer() => ProviderContainer(
+  overrides: [
+    authServiceProvider.overrideWithValue(const AuthState(jwtToken: 'jwt')),
+    gardenApiProvider.overrideWithValue(FakeGardenApi()),
+    forumApiProvider.overrideWithValue(FakeForumApi()),
+    forumSyncStoreProvider.overrideWithValue(InMemoryForumSyncStore()),
+    // Signed in, Home (where splash lands) shows the onboarding card, which
+    // would otherwise fetch over real Dio (todo 412).
+    onboardingChecklistServiceProvider.overrideWith(_NoChecklist.new),
+  ],
+);
+
+/// Signed in to Firebase at launch, with the JWT exchange still in flight:
+/// `isAuthenticated` is false until [finishRestore] — the cold-start state
+/// a tap that launches the app actually meets.
+class _RestoringAuthService extends AuthService {
+  @override
+  FirebaseAuth get firebaseAuth => _FakeFirebaseAuth();
+
+  @override
+  AuthState build() => AuthState(firebaseUser: _FakeUser());
+
+  void finishRestore() {
+    state = state.copyWith(jwtToken: 'jwt');
+  }
+}
+
+class _FakeFirebaseAuth extends Fake implements FirebaseAuth {
+  @override
+  Stream<User?> authStateChanges() => const Stream.empty();
+}
+
+class _FakeUser extends Fake implements User {}
+
+/// Like [_careContainer], but the session is still being restored.
+ProviderContainer _restoringCareContainer() => ProviderContainer(
+  overrides: [
+    authServiceProvider.overrideWith(_RestoringAuthService.new),
+    gardenApiProvider.overrideWithValue(FakeGardenApi()),
+    forumApiProvider.overrideWithValue(FakeForumApi()),
+    forumSyncStoreProvider.overrideWithValue(InMemoryForumSyncStore()),
+    onboardingChecklistServiceProvider.overrideWith(_NoChecklist.new),
+  ],
+);
+
+/// No onboarding checklist, without touching the network.
+class _NoChecklist extends OnboardingChecklistService {
+  @override
+  Future<OnboardingChecklist?> build() async => null;
+}
+
 void main() {
+  group('care_task_due pushes (todo 386)', () {
+    testWidgets('a warm-resume tap opens the garden', (tester) async {
+      final container = _careContainer();
+      addTearDown(container.dispose);
+      final router = container.read(appRouterProvider);
+      container.listen(appRouterProvider, (_, _) {});
+
+      await tester.pumpWidget(
+        UncontrolledProviderScope(
+          container: container,
+          child: MaterialApp.router(routerConfig: router),
+        ),
+      );
+      await tester.pump();
+
+      final service = _TestablePushMessageRouterService(
+        () => router,
+        _FakeMessaging(),
+      );
+      addTearDown(service.detach);
+
+      FirebaseMessagingPlatform.onMessageOpenedApp.add(_careReminderPayload);
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 400));
+
+      expect(find.byType(GardenScreen), findsOneWidget);
+
+      await _drainSplashTimer(tester);
+    });
+
+    testWidgets(
+      'a cold-start tap opens the garden and survives the splash redirect',
+      (tester) async {
+        final container = _careContainer();
+        addTearDown(container.dispose);
+        final router = container.read(appRouterProvider);
+        container.listen(appRouterProvider, (_, _) {});
+
+        await tester.pumpWidget(
+          UncontrolledProviderScope(
+            container: container,
+            child: MaterialApp.router(routerConfig: router),
+          ),
+        );
+        await tester.pump();
+
+        final service = _TestablePushMessageRouterService(
+          () => router,
+          _FakeMessaging(initialMessage: _careReminderPayload),
+        );
+        addTearDown(service.detach);
+
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 400));
+        expect(find.byType(GardenScreen), findsOneWidget);
+
+        // Past splash's own ~1.8 s go(home): the garden must still be up.
+        await _drainSplashTimer(tester);
+        expect(find.byType(GardenScreen), findsOneWidget);
+      },
+    );
+
+    testWidgets(
+      'a cold-start tap waits for the launch session restore, then opens '
+      'the garden instead of bouncing to login',
+      (tester) async {
+        final container = _restoringCareContainer();
+        addTearDown(container.dispose);
+        final router = container.read(appRouterProvider);
+        container.listen(appRouterProvider, (_, _) {});
+
+        await tester.pumpWidget(
+          UncontrolledProviderScope(
+            container: container,
+            child: MaterialApp.router(routerConfig: router),
+          ),
+        );
+        await tester.pump();
+
+        final service = _TestablePushMessageRouterService(
+          () => router,
+          _FakeMessaging(initialMessage: _careReminderPayload),
+          awaitAuthRestore: container.read(authRestoreWaiterProvider),
+        );
+        addTearDown(service.detach);
+
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 400));
+        // Restore still in flight: nothing pushed yet, so no login detour.
+        expect(find.byType(LoginScreen), findsNothing);
+        expect(find.byType(GardenScreen), findsNothing);
+
+        // The launch JWT exchange lands after splash's own go(home).
+        await _drainSplashTimer(tester);
+        (container.read(authServiceProvider.notifier) as _RestoringAuthService)
+            .finishRestore();
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 400));
+
+        expect(find.byType(GardenScreen), findsOneWidget);
+        expect(find.byType(LoginScreen), findsNothing);
+      },
+    );
+
+    test('waitForAuthRestore returns at once when there is nothing to '
+        'restore, and gives up after its timeout', () async {
+      final signedOut = ProviderContainer(
+        overrides: [authServiceProvider.overrideWithValue(const AuthState())],
+      );
+      addTearDown(signedOut.dispose);
+      await signedOut.read(authRestoreWaiterProvider)();
+
+      final restoring = ProviderContainer(
+        overrides: [
+          authServiceProvider.overrideWith(_RestoringAuthService.new),
+        ],
+      );
+      addTearDown(restoring.dispose);
+      final waiter = restoring.read(
+        Provider(
+          (ref) =>
+              () => waitForAuthRestore(
+                ref,
+                timeout: const Duration(milliseconds: 50),
+              ),
+        ),
+      );
+      final stopwatch = Stopwatch()..start();
+      await waiter();
+      expect(
+        stopwatch.elapsed,
+        greaterThanOrEqualTo(const Duration(milliseconds: 50)),
+      );
+    });
+
+    test('authRestoreSettled: only a Firebase user with no JWT and no error '
+        'is still restoring', () {
+      expect(authRestoreSettled(const AuthState()), isTrue);
+      expect(authRestoreSettled(const AuthState(jwtToken: 'jwt')), isTrue);
+      expect(authRestoreSettled(AuthState(firebaseUser: _FakeUser())), isFalse);
+      expect(
+        authRestoreSettled(
+          AuthState(firebaseUser: _FakeUser(), error: 'exchange failed'),
+        ),
+        isTrue,
+      );
+    });
+  });
+
   group('PushMessageRouterService', () {
     testWidgets(
       'a warm-resume tap (onMessageOpenedApp) routes to the topic and post',
@@ -291,7 +509,11 @@ void main() {
 /// Overrides [PushMessageRouterService.messaging] test seam, mirroring
 /// `push_registration_service_test.dart`'s `_TestablePushRegistrationService`.
 class _TestablePushMessageRouterService extends PushMessageRouterService {
-  _TestablePushMessageRouterService(super.routerAccessor, this._messaging);
+  _TestablePushMessageRouterService(
+    super.routerAccessor,
+    this._messaging, {
+    super.awaitAuthRestore,
+  });
 
   final FirebaseMessaging _messaging;
 

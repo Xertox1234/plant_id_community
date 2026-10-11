@@ -62,13 +62,6 @@ NAV_VERBS = r"go|push|replace|pushReplacement|goNamed|pushNamed"
 # very bug this script exists to catch.
 ALLOWED_ORPHANS = {
     "splash": "GoRouter initialLocation; entered by the router itself, not navigated to",
-    "garden": (
-        "placeholder for the unbuilt garden-calendar feature; its 5 models "
-        "(GardenBed/GardenPlant/CareTask/WeatherData -> apps/garden_calendar) "
-        "are referenced by nothing in lib/ or test/. Deliberately not a shell "
-        "destination -- there is no screen to show. Remove this entry when the "
-        "feature is built (todo 384 follow-up)"
-    ),
 }
 
 # Constants in AppRoutes that are NOT destinations. These are matched as path

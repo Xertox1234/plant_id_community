@@ -190,6 +190,17 @@ class HomePage extends StatelessWidget {
         route: AppRoutes.diagnose,
         isTab: false,
       ),
+      // The care schedule (todo 386). Signed out, the router sends the tap
+      // to sign-in.
+      _FeatureData(
+        icon: LucideIcons.calendarCheck,
+        title: 'Care Schedule',
+        description:
+            'Add your plants, schedule watering and feeding, and get reminded',
+        type: FeatureType.garden,
+        route: AppRoutes.garden,
+        isTab: false,
+      ),
       // The blog's documented entry point: it nests under the Home tab
       // rather than taking a fifth tab (todo 385).
       _FeatureData(

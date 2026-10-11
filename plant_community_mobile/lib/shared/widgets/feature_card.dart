@@ -85,7 +85,9 @@ enum FeatureType {
   // (the web's /diagnose tile is bloom too).
   diagnose(CanopyTileTone.bloom),
   // The blog shares identify's sage.
-  blog(CanopyTileTone.sage);
+  blog(CanopyTileTone.sage),
+  // The care schedule shares care's orchid.
+  garden(CanopyTileTone.orchid);
 
   const FeatureType(this.tone);
 
