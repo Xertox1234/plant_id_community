@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: p4
 issue_id: "573"
 tags: [logging, backend, scripts, follow-ups, todo-sweep]
@@ -36,7 +36,31 @@ PR #1012 (todo sweep run 2026-10-11-0401, group g1, todos 392); follow-ups: veri
 
 ## Acceptance Criteria
 
-- [ ] Each finding above is fixed with a test where it is a behaviour change, or recorded in the Work Log as
+- [x] Each finding above is fixed with a test where it is a behaviour change, or recorded in the Work Log as
       declined with a reason.
 
 ## Work Log
+
+### 2026-10-11 - Implemented by the todo sweep (run 2026-10-11-1448)
+
+- #1 fixed: `scripts/check_log_prefixes.py` finds the mark with the tokenizer (a `#` in a string no longer counts) and accepts the line above only when it is a comment-only line; `scripts/add_log_prefixes.py` skips exempt calls by the same rule. New `scripts/test_check_log_prefixes.py` covers own-line, continuation-line, comment-only-above, trailing-above, two-lines-up, no-mark and hash-in-string cases plus the adder; it runs in `.github/workflows/harness-ci.yml`.
+- #2, #7, #8, #9 fixed: the forum relay test drops the debug print and the `"starting"` filter, selects relayed lines by the relay's own format string, clears the digest run lock first, requires the summary line, and asserts one `[EMAIL]` per line instead of an exact wording. #3 fixed: it patches the task logger's `info` instead of relying on caplog propagation.
+- #4 fixed: new `backend/apps/blog/tests/test_tasks.py` runs the real `send_blog_newsletter` through `send_blog_weekly_newsletter` and pins one `[EMAIL]` per relayed line.
+- #5, #10 fixed: the orphaned "Weather alert cleanup task" comment is folded into the `Command` docstring in `backend/apps/garden_calendar/signals.py`. #6 fixed: its four `logger.error(f"...")` calls are `logger.exception("...: %s", e)` with the same rendered text and the traceback (`test_signals.py`).
+- Declined from #5/#10: moving the signal receivers' `NotificationService` calls to `transaction.on_commit`. It is pre-existing behaviour outside PR #1012's diff, and it changes when the community-event emails are sent relative to the save, which belongs in its own change.
+
+### 2026-10-11 - Verified by the todo sweep (run 2026-10-11-1448)
+
+- AC 1: `bash -c 'cd backend && python3 scripts/todos/slot_env.py --main-root . 2 -- backend/venv/bin/python -m pytest apps/forum_host/tests/test_tasks.py apps/blog/tests/test_tasks.py apps/garden_calendar/tests/test_signals.py --create-db -q -p no:cacheprovider && python3 scripts/test_check_log_prefixes.py -v && python3 scripts/check_log_prefixes.py --root backend/apps --list --fail-over 0'` — evidence `.sweep-evidence/g8/573-ac0.txt` (not committed), last lines:
+
+  ```text
+  7 call(s) undeterminable (first arg not a literal), excluded
+  2 call(s) marked `# log-prefix: exempt`, not counted as unprefixed
+
+  backend/apps/blog/tasks.py:78  info      %s (task=%s)  [exempt]
+  backend/apps/forum_host/tasks.py:79  info      %s (task=%s)  [exempt]
+  ```
+
+### 2026-10-11 - Completed by the todo sweep (run 2026-10-11-1448)
+
+- Archived by `land.py archive`; evidence is quoted above, review is on the PR.

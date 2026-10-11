@@ -58,9 +58,11 @@ WHAT COUNTS AS PREFIXED
   script span multiple lines and a `grep` for `logger\\.\\w+\\("` misses them.
 
 DELIBERATE EXEMPTIONS
-  A call with `log-prefix: exempt` in a comment on the line directly above it,
-  or on any of its own lines, is counted in a separate EXEMPT column, never as
-  prefixed. Use it only where a prefix would be wrong, and say why in the same
+  A call with `log-prefix: exempt` in a comment on any of its own lines, or in
+  a comment-only line directly above it, is counted in a separate EXEMPT
+  column, never as prefixed. A trailing comment on the line above (the end of
+  another statement) does not count, and comments are found by the tokenizer,
+  so a `#` inside a string is not one (todo 573). Use it only where a prefix would be wrong, and say why in the same
   comment. The one shape that needs it (todo 392): a Celery task relaying a
   management command's captured stdout line by line, where the command already
   prefixes every line it writes -- stamping a token there doubles it.
@@ -73,9 +75,11 @@ WHAT IS EXCLUDED
 
 import argparse
 import ast
+import io
 import os
 import re
 import sys
+import tokenize
 from collections import Counter
 
 LEVELS = {"debug", "info", "warning", "warn", "error", "exception", "critical"}
@@ -160,14 +164,37 @@ def logger_level(call: ast.Call) -> "str | None":
     return func.attr if name.lower() in RECEIVERS else None
 
 
-def is_exempt(lines: "list[str]", call: ast.Call) -> bool:
-    """True when EXEMPT_MARK sits in a comment above or on the call's lines."""
-    first = max(call.lineno - 2, 0)
+def exempt_marks(source: str) -> "dict[int, bool]":
+    """Lines whose comment holds EXEMPT_MARK -> whether the comment is alone
+    on its line.
+
+    Comments come from the tokenizer, not from splitting on `#`: a `#` inside
+    a string literal (`"#%s"`) is not a comment, and must neither hide nor
+    fake the mark (todo 573).
+    """
+    marks: "dict[int, bool]" = {}
+    try:
+        for tok in tokenize.generate_tokens(io.StringIO(source).readline):
+            if tok.type == tokenize.COMMENT and EXEMPT_MARK in tok.string:
+                row, col = tok.start
+                marks[row] = not tok.line[:col].strip()
+    except (tokenize.TokenError, SyntaxError):
+        return {}
+    return marks
+
+
+def is_exempt(marks: "dict[int, bool]", call: ast.Call) -> bool:
+    """True when EXEMPT_MARK is in a comment on one of the call's own lines,
+    or in a comment-only line directly above it.
+
+    The line above counts only when it holds nothing but the comment: a
+    trailing mark there belongs to the statement on that line, and must not
+    excuse an unprefixed call on the next (todo 573).
+    """
     last = call.end_lineno or call.lineno
-    return any(
-        "#" in line and EXEMPT_MARK in line.split("#", 1)[1]
-        for line in lines[first:last]
-    )
+    if any(row in marks for row in range(call.lineno, last + 1)):
+        return True
+    return marks.get(call.lineno - 1, False)
 
 
 def is_test(path: str, filename: str) -> bool:
@@ -194,7 +221,7 @@ def scan(root: str):
                 tree = ast.parse(source)
             except (SyntaxError, UnicodeDecodeError):
                 continue
-            lines = source.splitlines()
+            marks = exempt_marks(source)
             for node in ast.walk(tree):
                 if not isinstance(node, ast.Call):
                     continue
@@ -202,7 +229,7 @@ def scan(root: str):
                 if level is None:
                     continue
                 yield full, node.lineno, level, leading_literal(node), is_exempt(
-                    lines, node
+                    marks, node
                 )
 
 

@@ -27,16 +27,28 @@ Future<GardenData> garden(Ref ref) async {
     api.fetchPlants(),
     api.fetchPendingTasks(),
   ).wait;
-  return GardenData(plants: plants, tasks: tasks);
+  return GardenData(
+    plants: plants.items,
+    tasks: tasks.items,
+    truncated: plants.truncated || tasks.truncated,
+  );
 }
 
 class GardenData {
-  const GardenData({required this.plants, required this.tasks});
+  const GardenData({
+    required this.plants,
+    required this.tasks,
+    this.truncated = false,
+  });
 
   final List<GardenPlant> plants;
 
   /// Pending tasks, soonest first (the server orders them).
   final List<CareTask> tasks;
+
+  /// True when either list stopped at [gardenMaxPages]: the due list and
+  /// the per-plant counts are then incomplete, and the screen says so.
+  final bool truncated;
 
   /// Pending tasks for one plant.
   List<CareTask> tasksFor(String plantId) =>

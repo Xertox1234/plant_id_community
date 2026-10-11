@@ -1357,6 +1357,11 @@ def _skip_refusal(task: CareTask) -> Optional[Response]:
                 "plant__uuid", OpenApiTypes.UUID, description="Filter by plant UUID"
             ),
             OpenApiParameter(
+                "plant__is_active",
+                OpenApiTypes.BOOL,
+                description="Filter by whether the task's plant is active",
+            ),
+            OpenApiParameter(
                 "task_type",
                 OpenApiTypes.STR,
                 description="Filter by task type (watering, fertilizing, pruning, etc.)",
@@ -1447,6 +1452,9 @@ class CareTaskViewSet(viewsets.ModelViewSet):
     filter_backends = [DjangoFilterBackend, OrderingFilter]
     filterset_fields = [
         "plant__uuid",
+        # The mobile garden lists only active plants, so it asks for their
+        # tasks only, as the reminder sweep does (todo 570 #12).
+        "plant__is_active",
         "task_type",
         "priority",
         "completed",
@@ -1560,19 +1568,16 @@ class CareTaskViewSet(viewsets.ModelViewSet):
         """
         task = self.get_object()
 
-        refusal = _complete_refusal(task)
-        if refusal is None:
-            # The model's write is conditional on the task still pending: if
-            # a concurrent complete/skip won the race, ``task`` is refreshed
-            # with that state and lands on the same 400 as the check above.
-            try:
-                next_created = task.mark_complete(request.user)
-            except CareTask.AlreadyResolved:
-                refusal = _complete_refusal(task)
-            except CareTask.DoesNotExist:
-                raise NotFound()
-        if refusal is not None:
-            return refusal
+        # The model checks "still pending" under a row lock, so one path
+        # covers both a task resolved long ago and one a concurrent
+        # complete/skip just won: ``task`` is refreshed with the winning
+        # state, and the refusal reads it (todo 570 #16).
+        try:
+            next_created = task.mark_complete(request.user)
+        except CareTask.AlreadyResolved:
+            return _complete_refusal(task)
+        except CareTask.DoesNotExist:
+            raise NotFound()
 
         return Response(
             {
@@ -1630,19 +1635,15 @@ class CareTaskViewSet(viewsets.ModelViewSet):
         """
         task = self.get_object()
 
-        refusal = _skip_refusal(task)
-        if refusal is None:
-            # See ``complete``: the lost side of a race gets the same 400.
-            try:
-                next_created = task.mark_skip(
-                    request.user, reason=request.data.get("reason", "")
-                )
-            except CareTask.AlreadyResolved:
-                refusal = _skip_refusal(task)
-            except CareTask.DoesNotExist:
-                raise NotFound()
-        if refusal is not None:
-            return refusal
+        # See ``complete``: one path for every no-longer-pending task.
+        try:
+            next_created = task.mark_skip(
+                request.user, reason=request.data.get("reason", "")
+            )
+        except CareTask.AlreadyResolved:
+            return _skip_refusal(task)
+        except CareTask.DoesNotExist:
+            raise NotFound()
 
         return Response(
             {

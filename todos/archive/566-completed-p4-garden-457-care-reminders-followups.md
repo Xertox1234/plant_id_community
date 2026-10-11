@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: p4
 issue_id: "566"
 tags: [backend, garden-calendar, fcm, follow-ups]
@@ -36,7 +36,31 @@ PR #1002 (todo sweep run 2026-10-11-0053, group g4, todos 457); follow-ups: veri
 
 ## Acceptance Criteria
 
-- [ ] Each finding above is fixed with a test where it is a behaviour change, or recorded in the Work Log as
+- [x] Each finding above is fixed with a test where it is a behaviour change, or recorded in the Work Log as
       declined with a reason.
 
 ## Work Log
+
+### 2026-10-11 - Implemented by the todo sweep (run 2026-10-11-1448)
+
+- #1, #4 fixed (owner decision 2026-10-11): `SenderIdMismatchError` no longer clears the token. `backend/apps/core/fcm.py` narrows `is_dead_fcm_token_error` to `UnregisteredError` and adds `is_fcm_credentials_error` (SenderIdMismatch + ThirdPartyAuth); the care sweep and both forum send paths keep the token and log those at ERROR. Tests: `test_a_sender_id_mismatch_keeps_the_token_and_logs_an_error`, `test_a_credentials_error_logs_at_error_level`; the forum `_DEAD_TOKEN_CLASSES` set shrank to match.
+- #2, #3 fixed: `test_staff_setting_the_flag_with_the_new_date_keeps_it` pins the `notification_sent not in changed_data` operand, and `test_an_add_is_never_re_armed` pins `change` (each fails with its operand deleted).
+- #6 fixed: `_release(..., warn_age_out=False)` when an `OperationalError` will be autoretried (retries left), so the "will not be sent" line no longer fires for a reminder the retry re-claims; tests cover the retry and the last-retry cases. #7 fixed: `test_a_token_reregistered_during_the_sweep_send_is_kept` drives the sweep with the token swapped mid-send.
+- #5, #9, #10 declined: the owner decided the next occurrence keeps the completion timestamp, time of day included (owner decision, reconfirmed 2026-10-10).
+- #8 declined: `test_the_fcm_wrappers_are_gone` is a cheap structural guard against re-adding the forwarding wrappers todo 457 removed; it pins a decision, not behaviour, and costs nothing to keep.
+
+### 2026-10-11 - Verified by the todo sweep (run 2026-10-11-1448)
+
+- AC 1: `bash -c 'cd backend && python3 scripts/todos/slot_env.py --main-root . 2 -- backend/venv/bin/python -m pytest apps/garden_calendar/tests/test_care_reminders.py apps/garden_calendar/tests/test_admin.py apps/forum_host/tests/test_tasks.py --create-db -q -p no:cacheprovider'` — evidence `.sweep-evidence/g8/566-ac0.txt` (not committed), last lines:
+
+  ```text
+  ============================== ENVIRONMENT DRIFT ===============================
+  backend/venv does not match backend/requirements.txt — these results describe a tree CI does not run.
+    mismatched: pyjwt (pinned 2.15.0, installed 2.13.0), urllib3 (pinned 2.8.0, installed 2.7.0)
+  Fix: pip install -r backend/requirements.txt (see todo 378).
+  ======================= 116 passed, 3 warnings in 18.33s =======================
+  ```
+
+### 2026-10-11 - Completed by the todo sweep (run 2026-10-11-1448)
+
+- Archived by `land.py archive`; evidence is quoted above, review is on the PR.

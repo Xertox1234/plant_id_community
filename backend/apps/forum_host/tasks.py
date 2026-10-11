@@ -79,6 +79,13 @@ def send_forum_weekly_digest(self):
                 logger.info("%s (task=%s)", line, self.request.id)
 
 
+def _permanent_failure_level(exc: Exception) -> int:
+    """ERROR for a project-wide credentials failure, else WARNING (todo 566)."""
+    if core_fcm.is_fcm_credentials_error(exc):
+        return logging.ERROR
+    return logging.WARNING
+
+
 def _notification_content(event: str, data: dict) -> tuple[str, str] | None:
     """Human-readable (title, body) for an FCM tray notification (todo 253
     slice 6, AC6), or None for events that must stay tray-silent.
@@ -202,7 +209,10 @@ def send_forum_push(self, event: str, recipient_user_id: int, data: dict):
             if core_fcm.is_dead_fcm_token_error(exc):
                 # Forget it, so the next push does not target it (todo 457).
                 core_fcm.clear_dead_fcm_token(recipient_user_id, token)
-            logger.warning(
+            # A credentials error keeps the token and logs at ERROR: it is
+            # the server's setup, not this device (todo 566).
+            logger.log(
+                _permanent_failure_level(exc),
                 "[FCM] forum.%s send failed permanently (user=%s, task_id=%s):"
                 " %s — not retrying",
                 event,
@@ -301,7 +311,8 @@ def send_forum_push_batch(event: str, recipient_user_ids: list[int], data: dict)
             if core_fcm.is_permanent_fcm_error(exc):
                 if core_fcm.is_dead_fcm_token_error(exc):
                     core_fcm.clear_dead_fcm_token(user.pk, profile.fcm_token)
-                logger.warning(
+                logger.log(
+                    _permanent_failure_level(exc),
                     "[FCM] forum.%s send failed permanently (user=%s): %s"
                     " — not retrying",
                     event,

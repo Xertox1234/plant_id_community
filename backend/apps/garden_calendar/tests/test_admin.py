@@ -68,6 +68,49 @@ class CareTaskAdminRearmTest(TestCase):
         self.assertEqual(self.task.title, "Water well")
         self.assertTrue(self.task.notification_sent)
 
+    def _later(self):
+        later = timezone.localtime(timezone.now() + timedelta(days=2))
+        return {
+            "scheduled_date_0": later.date().isoformat(),
+            "scheduled_date_1": later.time().strftime("%H:%M:%S"),
+        }
+
+    def test_staff_setting_the_flag_with_the_new_date_keeps_it(self):
+        """Todo 566 items 2/3: staff who tick notification_sent in the same
+        edit that moves the date override the re-arm."""
+        CareTask.objects.filter(pk=self.task.pk).update(notification_sent=False)
+        self.task.refresh_from_db()
+
+        self._save(notification_sent="on", **self._later())
+
+        self.assertTrue(self.task.notification_sent)
+
+    def test_an_add_is_never_re_armed(self):
+        """Todo 566 items 2/3: the guard acts on a change only. On an add the
+        date is always in changed_data, and save_model leaves the flag as
+        given."""
+        form_class = self.admin.get_form(self.request, None, change=False)
+        initial = form_class(instance=self.task).initial
+        data = {k: v for k, v in initial.items() if v is not None}
+        scheduled = data.pop("scheduled_date")
+        data["scheduled_date_0"] = scheduled.date().isoformat()
+        data["scheduled_date_1"] = scheduled.time().strftime("%H:%M:%S")
+        for flag in ("is_recurring", "completed", "skipped", "notification_sent"):
+            if not data.get(flag):
+                data.pop(flag, None)
+        data.pop("notification_sent", None)
+        form = form_class(data)
+        self.assertTrue(form.is_valid(), form.errors)
+        self.assertIn("scheduled_date", form.changed_data)
+        self.assertNotIn("notification_sent", form.changed_data)
+        obj = form.save(commit=False)
+        obj.notification_sent = True  # e.g. set by a save hook or an import
+
+        self.admin.save_model(self.request, obj, form, change=False)
+
+        obj.refresh_from_db()
+        self.assertTrue(obj.notification_sent)
+
 
 class GardenBedAdminOwnerTest(TestCase):
     """Item 10: a bed's owner cannot be changed in the admin."""
