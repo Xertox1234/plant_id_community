@@ -123,3 +123,23 @@ re-found both.
 - `.claude/hooks/test-guard-todo-worker-git.sh` gained cases 496.2r and 496.6r (additions only): 310 to 321
   passing. Reverting each fix in a temporary copy fails its new cases (5, 1 and 2 failures).
 - Left for a follow-up todo, as the owner decided: env -P, zsh allexport, a multi-variable for, sudo --chd.
+
+### 2026-10-11 - Repaired by the todo sweep (run 2026-10-11-1434): round 3 repair (owner-approved)
+
+- `env -S` (also bundled `-iS`/`-0S`, glued `-S'...'`, `--split-string` and its prefixes) now hands the split
+  words back to env's own option parser in `scripts/todos/worker_git_guard.py`, so `-i`, `-u`, `-P` and `-C`
+  inside the string apply (`env -S '-C MAIN git add -A'` is refused); macOS `env -P altpath` takes a value.
+- Pipeline cds: a bash body with `shopt -s lastpipe` (or `set -o lastpipe`, `bash -O lastpipe`, a runtime
+  `shopt -s` operand) keeps its last stage; the top-level shell is `$SHELL`'s (zsh when unset), and an unknown
+  shell's piped cd leaves the directory as whichever side is a main checkout, else unknown. The hook tests
+  pin `SHELL=/bin/zsh`, since CI runners default to bash.
+- Refused: allexport in every spelling (`set -a`, `set -o allexport`, `setopt all_export`, `setopt -m`,
+  `bash -a`, `zsh --all-export`, `emulate -o`), `SHELLOPTS`/`BASHOPTS`, `${GIT_X:=v}` / `${(P)n::=v}` /
+  arithmetic GIT_* assignment, declarer/read/printf names built at runtime, namerefs to GIT_* names, every
+  zsh loop variable, `read 'GIT_X?prompt'`, `GIT_X[1]=`; extras: `alias`/`hash` definitions, and `trap`,
+  `emulate -c` and `mapfile -C` bodies are judged as commands.
+- `sudo`/`env` long options resolve abbreviations (`sudo --chd=MAIN`, `sudo --us root`); a glued short-option
+  value is cut at the same index as the option letters (a glued `-C~/x` is not tilde-expanded).
+- `.claude/hooks/test-guard-todo-worker-git.sh` gained 112 cases (additions only): 321 to 433 passing;
+  reverting each fix in a temporary copy fails its new cases (A 8+3, C 2, D 5, E 3, F 14+2, G 8, H 6+5,
+  I 3+2, J 5, K 1, M 6, extras 4). `node scripts/todos/test_workflows.js` passes.
