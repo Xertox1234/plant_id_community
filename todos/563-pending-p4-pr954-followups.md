@@ -4,7 +4,9 @@ priority: p4
 issue_id: "563"
 tags: [todo-sweep, follow-ups, web, mobile]
 dependencies: []
-owner_decision: "Findings 1, 2 and 4, fix both: disambiguate repeated untitled embed names only on collision (append the provider or an ordinal); give untitled video cards the link card's full-URL affordances (web hover title plus an sr-only new-tab hint, mobile long-press sheet); mobile line 2 shows 'Open link' for web parity (2026-10-10)"
+owner_decision: "Findings 1, 2 and 4, fix both: disambiguate repeated untitled embed names only on collision (append the provider or an ordinal); give untitled video cards the link card's full-URL affordances (web hover title plus an sr-only new-tab hint, mobile long-press sheet); mobile line 2 shows 'Open link' for web parity (2026-10-10) F1: make untitled embed names unique within one post body (the renderer's scope); no page-level state (2026-10-11)"
+triage: ready
+triaged: 2026-10-11
 ---
 
 # Follow-ups from PR #954 (todo 518), run 2026-10-02-0335

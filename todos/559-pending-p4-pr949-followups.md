@@ -4,6 +4,8 @@ priority: p4
 issue_id: "559"
 tags: [todo-sweep, follow-ups, backend]
 dependencies: []
+triage: ready
+triaged: 2026-10-11
 ---
 
 # Follow-ups from PR #949 (todo 521), run 2026-10-02-0335

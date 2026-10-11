@@ -4,6 +4,9 @@ priority: p4
 issue_id: "566"
 tags: [backend, garden-calendar, fcm, follow-ups]
 dependencies: []
+triage: ready
+triaged: 2026-10-11
+owner_decision: "Recurrence: the next task keeps the completion timestamp, time of day included (reconfirms 2026-10-10); findings 5/9/10 are declined. SenderIdMismatchError: stop clearing the token and log an error, as for ThirdPartyAuthError (2026-10-11)"
 ---
 
 # Follow-ups from PR #1002 (todo 457, care-reminder follow-ups)

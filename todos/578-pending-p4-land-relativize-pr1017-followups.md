@@ -4,6 +4,9 @@ priority: p4
 issue_id: "578"
 tags: [todo-sweep, scripts, follow-ups]
 dependencies: []
+triage: ready
+triaged: 2026-10-11
+owner_decision: "Fix every case, the cheap ones and subshells, pushd, newlines, & and git -C alike; decline none (2026-10-11)"
 ---
 
 # Follow-ups from PR #1017 (todo 552, land.py evidence-command paths)

@@ -4,7 +4,10 @@ priority: p4
 issue_id: "579"
 tags: [forum, backend, moderation, needs-design]
 dependencies: []
-owner_decision: "An edit to a never-published opening post is re-screened through _route_revision_by_trust (2026-09-28, reconfirmed 2026-10-10); for a never-published post the re-screen only screens and never publishes, and the moderator's topic approval stays the gate that publishes it (2026-10-10)"
+owner_decision: "An edit to a never-published opening post is re-screened through _route_revision_by_trust (2026-09-28, reconfirmed 2026-10-10); for a never-published post the re-screen only screens and never publishes, and the moderator's topic approval stays the gate that publishes it (2026-10-10) Mechanism: start the spam workflow, and for a never-published post stop SpamCheckTask's approve from publishing; topic approval stays the gate. Paths: the author's API edit and the admin edit both reach a pending opening post (open the API edit path), screened the same way. Restricted to first_published_at is None (2026-10-11)"
+triage: needs-design
+triaged: 2026-10-11
+blocked_on: "A chosen mechanism for a non-publishing screen, and a choice of which edit path (API, admin, or both) must reach a pending opening post."
 ---
 
 # Re-screen edits to a never-published opening post without publishing it

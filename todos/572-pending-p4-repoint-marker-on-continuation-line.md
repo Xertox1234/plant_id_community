@@ -4,6 +4,9 @@ priority: p4
 issue_id: "572"
 tags: [todo-sweep, scripts]
 dependencies: []
+triage: ready
+triaged: 2026-10-11
+owner_decision: "parse() joins a criterion's continuation lines the way ac_lines does, so hand-written markers are covered too (2026-10-11)"
 ---
 
 # A re-point marker on a criterion's continuation line passes the engine but fails `land.py archive`

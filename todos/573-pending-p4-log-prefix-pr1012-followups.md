@@ -4,6 +4,8 @@ priority: p4
 issue_id: "573"
 tags: [logging, backend, scripts, follow-ups, todo-sweep]
 dependencies: []
+triage: ready
+triaged: 2026-10-11
 ---
 
 # Follow-ups from PR #1012 (todo 392, backend log prefixes)

@@ -4,6 +4,9 @@ priority: p4
 issue_id: "560"
 tags: [todo-sweep, follow-ups, backend]
 dependencies: []
+triage: ready
+triaged: 2026-10-11
+owner_decision: "Narrow the HOST_IMPORT comment and pin \"# see 'apps.py'\" as a known false positive; do not widen the regex (2026-10-11)"
 ---
 
 # Follow-ups from PR #950 (todo 523), run 2026-10-02-0335

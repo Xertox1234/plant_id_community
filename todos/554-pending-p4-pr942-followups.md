@@ -4,6 +4,9 @@ priority: p4
 issue_id: "554"
 tags: [todo-sweep, follow-ups, backend, web]
 dependencies: []
+triage: ready
+triaged: 2026-10-11
+owner_decision: "F7: put the Scope correction in archived todo 526's Work Log only; do not reopen it. F6: after a 404, keep the Summarize button mounted and disabled, per react.md (2026-10-11)"
 ---
 
 # Follow-ups from PR #942 (todos 433, 443, 516), run 2026-10-02-0335

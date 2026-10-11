@@ -4,6 +4,8 @@ priority: p4
 issue_id: "569"
 tags: [backend, blog, newsletter, follow-ups]
 dependencies: []
+triage: ready
+triaged: 2026-10-11
 ---
 
 # Follow-ups from PR #1007 (todo 534, newsletter sender)

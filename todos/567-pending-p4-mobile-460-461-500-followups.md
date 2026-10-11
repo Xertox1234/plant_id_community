@@ -4,6 +4,10 @@ priority: p4
 issue_id: "567"
 tags: [mobile, backend, auth, follow-ups]
 dependencies: []
+triage: needs-design
+triaged: 2026-10-11
+blocked_on: "Owner choice for finding 1: turn revocation checking on, or retract the documented 401 promise"
+owner_decision: "F1: retract the promise. Drop the revoked/disabled 401 from the schema and docs, delete the dead UserDisabledError branch, no check_revoked. Findings 2-9 are mechanical (2026-10-11)"
 ---
 
 # Follow-ups from PR #1006 (todos 460, 461, 500, mobile blog/diagnose/token refresh)

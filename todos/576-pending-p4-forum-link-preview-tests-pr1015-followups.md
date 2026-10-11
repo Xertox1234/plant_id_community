@@ -4,6 +4,9 @@ priority: p4
 issue_id: "576"
 tags: [forum, backend, tests, follow-ups, todo-sweep]
 dependencies: []
+triage: ready
+triaged: 2026-10-11
+owner_decision: "Item 5: re-run the env-drift evidence in a clean environment and record the result; do not decline it (2026-10-11)"
 ---
 
 # Follow-ups from PR #1015 (todo 550, forum link-preview tests)

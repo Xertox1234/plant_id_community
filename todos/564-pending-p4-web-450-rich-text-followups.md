@@ -4,6 +4,8 @@ priority: p4
 issue_id: "564"
 tags: [web, follow-ups]
 dependencies: []
+triage: ready
+triaged: 2026-10-11
 ---
 
 # Follow-ups from PR #997 (todo 450, rich-text list markers)

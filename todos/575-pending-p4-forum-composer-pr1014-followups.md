@@ -4,6 +4,9 @@ priority: p4
 issue_id: "575"
 tags: [forum, web, follow-ups, todo-sweep]
 dependencies: []
+triage: ready
+triaged: 2026-10-11
+owner_decision: "Switching to a board with no stored draft keeps the previous text in the form (it stays saved under the old key); a board that has a draft loads it (2026-10-11)"
 ---
 
 # Follow-ups from PR #1014 (todo 549, forum composer draft key)
