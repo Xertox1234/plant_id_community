@@ -31,6 +31,12 @@ const Map<String, ({String label, String route, bool push})> onboardingSteps = {
     route: AppRoutes.forum,
     push: false,
   ),
+  // Done once the bio says something or there is an avatar (todo 455).
+  'profile': (
+    label: 'Add a bio or a photo',
+    route: AppRoutes.editProfile,
+    push: true,
+  ),
 };
 
 /// The onboarding checklist on the home screen (todo 412, owner decisions

@@ -17,9 +17,10 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 # Order is the order the card shows them. "save_topic" replaced "profile" in
-# review (owner, 2026-09-26): the mobile app cannot edit a profile yet, so
-# that step could never be done from the card. Todo 455 restores it.
-CHECKLIST_STEPS = ("identify_plant", "forum_post", "save_topic")
+# review (owner, 2026-09-26) while the mobile app could not edit a profile.
+# Todo 455 built the mobile edit screen and added "profile" back as a fourth
+# step, keeping "save_topic" (owner, 2026-09-28).
+CHECKLIST_STEPS = ("identify_plant", "forum_post", "save_topic", "profile")
 
 
 def onboarding_checklist(
@@ -40,6 +41,9 @@ def onboarding_checklist(
         # visible to anyone yet, so it does not count.
         "forum_post": Post.objects.filter(author=user, live=True).exists(),
         "save_topic": TopicBookmark.objects.filter(user=user).exists(),
+        # A bio that says something, or an avatar. A whitespace-only bio is
+        # not a filled-in profile.
+        "profile": bool((user.bio or "").strip()) or bool(user.avatar),
     }
     steps: List[Dict[str, Any]] = [
         {"key": key, "done": done[key]} for key in CHECKLIST_STEPS
