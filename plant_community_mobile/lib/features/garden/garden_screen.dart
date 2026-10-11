@@ -92,7 +92,8 @@ class _GardenList extends ConsumerWidget {
             style: muted,
           )
         else
-          for (final task in data.tasks) _TaskTile(task: task),
+          for (final task in data.tasks)
+            _TaskTile(key: ValueKey(task.id), task: task),
         SizedBox(height: ext.gapY * 2),
         Text('YOUR PLANTS', style: eyebrow),
         SizedBox(height: ext.gapY),
@@ -106,13 +107,38 @@ class _GardenList extends ConsumerWidget {
   }
 }
 
-class _TaskTile extends ConsumerWidget {
-  const _TaskTile({required this.task});
+/// A due task with Skip and Mark done. Both buttons are disabled while
+/// either mutation is in flight, so a double tap (or Done then Skip) sends
+/// one request, not two (todo 386 review; the server also refuses the
+/// loser, but a disabled button never sends it).
+class _TaskTile extends ConsumerStatefulWidget {
+  const _TaskTile({super.key, required this.task});
 
   final CareTask task;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<_TaskTile> createState() => _TaskTileState();
+}
+
+class _TaskTileState extends ConsumerState<_TaskTile> {
+  bool _busy = false;
+
+  Future<void> _mutate(
+    Future<Object?> Function() action, {
+    required String done,
+  }) async {
+    if (_busy) return;
+    setState(() => _busy = true);
+    try {
+      await _run(context, ref, action, done: done);
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final task = widget.task;
     final cs = Theme.of(context).colorScheme;
     final due = _dueLabel(task);
     return Card(
@@ -128,22 +154,26 @@ class _TaskTile extends ConsumerWidget {
             IconButton(
               tooltip: 'Skip',
               icon: const Icon(LucideIcons.skipForward),
-              onPressed: () => _run(
-                context,
-                ref,
-                () => ref.read(gardenApiProvider).skipTask(task),
-                done: 'Skipped.',
-              ),
+              onPressed: _busy
+                  ? null
+                  : () => _mutate(
+                      () => ref.read(gardenApiProvider).skipTask(task),
+                      done: 'Skipped.',
+                    ),
             ),
             IconButton(
               tooltip: 'Mark done',
               icon: Icon(LucideIcons.check, color: cs.primary),
-              onPressed: () => _run(context, ref, () async {
-                final logged = await ref
-                    .read(gardenApiProvider)
-                    .completeTask(task);
-                return logged ? null : 'Done, but the care log was not saved.';
-              }, done: 'Done.'),
+              onPressed: _busy
+                  ? null
+                  : () => _mutate(() async {
+                      final logged = await ref
+                          .read(gardenApiProvider)
+                          .completeTask(task);
+                      return logged
+                          ? null
+                          : 'Done, but the care log was not saved.';
+                    }, done: 'Done.'),
             ),
           ],
         ),

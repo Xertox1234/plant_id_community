@@ -10,7 +10,7 @@ import uuid
 from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError
 from django.core.validators import MaxValueValidator, MinValueValidator
-from django.db import models
+from django.db import models, transaction
 from django.utils import timezone
 
 from .constants import (
@@ -1169,19 +1169,26 @@ class CareTask(models.Model):
         """Check if task is still pending."""
         return not self.completed and not self.skipped
 
+    class AlreadyResolved(Exception):
+        """A concurrent request completed or skipped this task first.
+
+        Raised by ``mark_complete``/``mark_skip`` when their conditional
+        UPDATE matched no row because the task is no longer pending. The caller's instance has already been
+        refreshed with the winning ``completed``/``skipped`` state, so the view
+        can answer with the same 400 its pre-check gives.
+        """
+
     def mark_complete(self, user):
         """Mark task as completed.
 
         Returns whether a next occurrence was scheduled (recurring tasks).
+        Raises ``CareTask.AlreadyResolved`` if the task is no longer pending.
         """
-        from django.utils import timezone
-
-        self.completed = True
-        self.completed_at = timezone.now()
-        self.completed_by = user
-        self.save()
-
-        return self._schedule_next_occurrence()
+        return self._resolve(
+            completed=True,
+            completed_at=timezone.now(),
+            completed_by=user,
+        )
 
     def mark_skip(self, user, reason=""):
         """Mark task as skipped.
@@ -1189,16 +1196,44 @@ class CareTask(models.Model):
         A skipped occurrence of a recurring task still schedules the next
         one, exactly as completing it does: skipping one watering must not
         end the schedule (todo 386 review). Returns whether a next
-        occurrence was scheduled.
+        occurrence was scheduled. Raises ``CareTask.AlreadyResolved`` if the
+        task is no longer pending.
         """
-        from django.utils import timezone
+        return self._resolve(
+            skipped=True,
+            skip_reason=reason,
+            skipped_at=timezone.now(),
+        )
 
-        self.skipped = True
-        self.skip_reason = reason
-        self.skipped_at = timezone.now()
-        self.save()
+    def _resolve(self, **changes):
+        """Atomically move a pending task to done/skipped and schedule the next.
 
-        return self._schedule_next_occurrence()
+        Check-then-act on an unlocked read let two concurrent POSTs (a double
+        tap on Done, or Done then Skip) both pass the "still pending" check and
+        both create the next occurrence, duplicating a recurring task for good.
+        The write is a conditional UPDATE on ``completed=False, skipped=False``,
+        so exactly one request changes the row, and only that request creates
+        the next occurrence, in the same transaction.
+        """
+        changes["updated_at"] = timezone.now()
+        with transaction.atomic():
+            changed = CareTask.objects.filter(
+                pk=self.pk, completed=False, skipped=False
+            ).update(**changes)
+            if not changed:
+                state = (
+                    CareTask.objects.filter(pk=self.pk)
+                    .values("completed", "skipped")
+                    .first()
+                )
+                if state is None:
+                    raise CareTask.DoesNotExist()
+                self.completed = state["completed"]
+                self.skipped = state["skipped"]
+                raise CareTask.AlreadyResolved()
+            for field, value in changes.items():
+                setattr(self, field, value)
+            return self._schedule_next_occurrence()
 
     def _schedule_next_occurrence(self):
         """Create the next occurrence if this task recurs; return whether it did."""

@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -88,6 +90,25 @@ class _RecordingApiService extends ApiService {
     return _answer('POST', path);
   }
 }
+
+/// A [FakeGardenApi] whose [completeTask] hangs on [gate] until the test
+/// completes it — a mutation still in flight.
+class _GatedGardenApi extends FakeGardenApi {
+  _GatedGardenApi({super.tasks});
+
+  final Completer<void> gate = Completer<void>();
+
+  @override
+  Future<bool> completeTask(CareTask task) async {
+    calls.add('completeTask:${task.id}');
+    await gate.future;
+    return logSaves;
+  }
+}
+
+IconButton _button(WidgetTester tester, String tooltip) => tester.widget(
+  find.ancestor(of: find.byTooltip(tooltip), matching: find.byType(IconButton)),
+);
 
 CareTask _task({
   String id = 't1',
@@ -323,6 +344,38 @@ void main() {
       expect(find.text('Water Fern'), findsNothing);
       expect(find.text('Done.'), findsOneWidget);
     });
+
+    testWidgets(
+      'Done and Skip are disabled while a completion is in flight, so a '
+      'double tap sends one request (todo 386 review)',
+      (tester) async {
+        final api = _GatedGardenApi(tasks: [_task()]);
+        await _pump(tester, api);
+
+        await tester.tap(find.byTooltip('Mark done'));
+        await tester.pump();
+
+        expect(_button(tester, 'Mark done').onPressed, isNull);
+        expect(_button(tester, 'Skip').onPressed, isNull);
+
+        await tester.tap(find.byTooltip('Mark done'), warnIfMissed: false);
+        await tester.tap(find.byTooltip('Skip'), warnIfMissed: false);
+        await tester.pump();
+        expect(
+          api.calls.where((c) => c.startsWith('completeTask')),
+          hasLength(1),
+        );
+        expect(api.calls.where((c) => c.startsWith('skipTask')), isEmpty);
+
+        api.gate.complete();
+        await tester.pumpAndSettle();
+
+        // The fake leaves the task pending, so the tile stays; it is usable
+        // again once the request settles.
+        expect(_button(tester, 'Mark done').onPressed, isNotNull);
+        expect(_button(tester, 'Skip').onPressed, isNotNull);
+      },
+    );
 
     testWidgets('a care log that did not save is reported', (tester) async {
       final api = FakeGardenApi(tasks: [_task()])..logSaves = false;

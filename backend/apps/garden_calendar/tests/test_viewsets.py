@@ -6,6 +6,7 @@ Tests CRUD operations, permissions, filtering, and custom actions.
 
 from datetime import timedelta
 from decimal import Decimal
+from unittest import mock
 
 from django.contrib.auth import get_user_model
 from django.test import TestCase
@@ -13,6 +14,7 @@ from django.utils import timezone
 from rest_framework import status
 from rest_framework.test import APIClient
 
+from ..api.views import CareTaskViewSet
 from ..models import CareLog, CareTask, GardenBed, Harvest, Plant
 
 User = get_user_model()
@@ -464,6 +466,82 @@ class CareTaskViewSetTest(TestCase):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertIs(response.data["next_occurrence_created"], False)
         self.assertEqual(CareTask.objects.filter(plant=self.plant).count(), 1)
+
+    def _post_with_stale_read(self, action, winner):
+        """POST ``action`` as a request whose read of the task predates a
+        concurrent request (``winner``) resolving it — the double-tap race."""
+        self.client.force_authenticate(user=self.user)
+        task = CareTask.objects.create(
+            plant=self.plant,
+            created_by=self.user,
+            task_type="watering",
+            title="Weekly watering",
+            priority="medium",
+            scheduled_date=timezone.now(),
+            is_recurring=True,
+            recurrence_interval_days=7,
+        )
+        stale = CareTask.objects.get(pk=task.pk)
+        winner(CareTask.objects.get(pk=task.pk))
+
+        with mock.patch.object(CareTaskViewSet, "get_object", return_value=stale):
+            response = self.client.post(
+                f"/api/v1/calendar/api/care-tasks/{task.uuid}/{action}/"
+            )
+        return response
+
+    def test_complete_losing_a_race_to_complete_returns_400(self):
+        response = self._post_with_stale_read(
+            "complete", lambda t: t.mark_complete(self.user)
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.data["error"], "Task is already completed.")
+        self.assertEqual(CareTask.objects.filter(plant=self.plant).count(), 2)
+
+    def test_skip_losing_a_race_to_complete_returns_400(self):
+        response = self._post_with_stale_read(
+            "skip", lambda t: t.mark_complete(self.user)
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.data["error"], "Cannot skip a completed task.")
+        self.assertEqual(CareTask.objects.filter(plant=self.plant).count(), 2)
+
+    def test_complete_losing_a_race_to_skip_returns_400(self):
+        response = self._post_with_stale_read(
+            "complete", lambda t: t.mark_skip(self.user)
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            response.data["error"],
+            "Cannot complete a skipped task. Create a new task instead.",
+        )
+        self.assertEqual(CareTask.objects.filter(plant=self.plant).count(), 2)
+
+    def test_second_complete_post_returns_400_and_creates_nothing(self):
+        """A sequential double POST: the second is refused, one occurrence."""
+        self.client.force_authenticate(user=self.user)
+        task = CareTask.objects.create(
+            plant=self.plant,
+            created_by=self.user,
+            task_type="watering",
+            title="Weekly watering",
+            priority="medium",
+            scheduled_date=timezone.now(),
+            is_recurring=True,
+            recurrence_interval_days=7,
+        )
+        url = f"/api/v1/calendar/api/care-tasks/{task.uuid}/complete/"
+
+        first = self.client.post(url)
+        second = self.client.post(url)
+
+        self.assertEqual(first.status_code, status.HTTP_200_OK)
+        self.assertIs(first.data["next_occurrence_created"], True)
+        self.assertEqual(second.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(CareTask.objects.filter(plant=self.plant).count(), 2)
 
 
 class HarvestViewSetTest(TestCase):

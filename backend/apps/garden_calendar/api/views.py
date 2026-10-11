@@ -24,6 +24,7 @@ from drf_spectacular.utils import (
 )
 from rest_framework import permissions, status, viewsets
 from rest_framework.decorators import action
+from rest_framework.exceptions import NotFound
 from rest_framework.filters import OrderingFilter, SearchFilter
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -1316,6 +1317,36 @@ class PlantViewSet(viewsets.ModelViewSet):
         )
 
 
+def _complete_refusal(task: CareTask) -> Optional[Response]:
+    """The 400 for completing a task that is no longer pending, else None."""
+    if task.completed:
+        return Response(
+            {"error": "Task is already completed."},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+    if task.skipped:
+        return Response(
+            {"error": "Cannot complete a skipped task. Create a new task instead."},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+    return None
+
+
+def _skip_refusal(task: CareTask) -> Optional[Response]:
+    """The 400 for skipping a task that is no longer pending, else None."""
+    if task.completed:
+        return Response(
+            {"error": "Cannot skip a completed task."},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+    if task.skipped:
+        return Response(
+            {"error": "Task is already skipped."},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+    return None
+
+
 @extend_schema_view(
     list=extend_schema(
         summary="List user's care tasks",
@@ -1529,20 +1560,19 @@ class CareTaskViewSet(viewsets.ModelViewSet):
         """
         task = self.get_object()
 
-        if task.completed:
-            return Response(
-                {"error": "Task is already completed."},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        if task.skipped:
-            return Response(
-                {"error": "Cannot complete a skipped task. Create a new task instead."},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        # Use model method to handle completion and recurrence
-        next_created = task.mark_complete(request.user)
+        refusal = _complete_refusal(task)
+        if refusal is None:
+            # The model's write is conditional on the task still pending: if
+            # a concurrent complete/skip won the race, ``task`` is refreshed
+            # with that state and lands on the same 400 as the check above.
+            try:
+                next_created = task.mark_complete(request.user)
+            except CareTask.AlreadyResolved:
+                refusal = _complete_refusal(task)
+            except CareTask.DoesNotExist:
+                raise NotFound()
+        if refusal is not None:
+            return refusal
 
         return Response(
             {
@@ -1600,22 +1630,19 @@ class CareTaskViewSet(viewsets.ModelViewSet):
         """
         task = self.get_object()
 
-        if task.completed:
-            return Response(
-                {"error": "Cannot skip a completed task."},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        if task.skipped:
-            return Response(
-                {"error": "Task is already skipped."},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        # Use model method to handle skipping and recurrence
-        next_created = task.mark_skip(
-            request.user, reason=request.data.get("reason", "")
-        )
+        refusal = _skip_refusal(task)
+        if refusal is None:
+            # See ``complete``: the lost side of a race gets the same 400.
+            try:
+                next_created = task.mark_skip(
+                    request.user, reason=request.data.get("reason", "")
+                )
+            except CareTask.AlreadyResolved:
+                refusal = _skip_refusal(task)
+            except CareTask.DoesNotExist:
+                raise NotFound()
+        if refusal is not None:
+            return refusal
 
         return Response(
             {

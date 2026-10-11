@@ -416,6 +416,52 @@ class CareTaskModelTest(TestCase):
         self.assertFalse(task.mark_skip(self.user))
         self.assertEqual(CareTask.objects.filter(plant=self.plant).count(), 1)
 
+    def _recurring_task(self):
+        return CareTask.objects.create(
+            plant=self.plant,
+            created_by=self.user,
+            task_type="watering",
+            title="Weekly watering",
+            priority="medium",
+            scheduled_date=timezone.now(),
+            is_recurring=True,
+            recurrence_interval_days=7,
+        )
+
+    def test_concurrent_double_complete_creates_one_next_occurrence(self):
+        """Two requests that both read the task as pending (a double tap on
+        Done) must not both schedule the next occurrence (todo 386 review)."""
+        task = self._recurring_task()
+        first = CareTask.objects.get(pk=task.pk)
+        second = CareTask.objects.get(pk=task.pk)  # stale: read before first
+
+        self.assertTrue(first.mark_complete(self.user))
+        with self.assertRaises(CareTask.AlreadyResolved):
+            second.mark_complete(self.user)
+
+        self.assertTrue(second.completed)
+        self.assertEqual(
+            CareTask.objects.filter(plant=self.plant, completed=False).count(), 1
+        )
+        self.assertEqual(CareTask.objects.filter(plant=self.plant).count(), 2)
+
+    def test_concurrent_complete_then_skip_creates_one_next_occurrence(self):
+        """Done then Skip on the same pending task: the skip loses and neither
+        overwrites the completion nor schedules a second occurrence."""
+        task = self._recurring_task()
+        first = CareTask.objects.get(pk=task.pk)
+        second = CareTask.objects.get(pk=task.pk)
+
+        self.assertTrue(first.mark_complete(self.user))
+        with self.assertRaises(CareTask.AlreadyResolved):
+            second.mark_skip(self.user, reason="late tap")
+
+        task.refresh_from_db()
+        self.assertTrue(task.completed)
+        self.assertFalse(task.skipped)
+        self.assertEqual(task.skip_reason, "")
+        self.assertEqual(CareTask.objects.filter(plant=self.plant).count(), 2)
+
 
 class HarvestModelTest(TestCase):
     """Test Harvest model."""
