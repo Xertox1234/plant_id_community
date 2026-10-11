@@ -4,6 +4,9 @@ priority: p4
 issue_id: "545"
 tags: [forum, backend, tests, follow-ups, todo-sweep]
 dependencies: []
+triage: ready
+triaged: 2026-10-10
+owner_decision: "Item 3: replace the wall-clock assert with a deterministic non-timing check (e.g. regex step / scan-call count) that still catches a quadratic regression (2026-10-10)"
 ---
 
 # Follow-ups from PR #992 (todo 539, forum link previews)
