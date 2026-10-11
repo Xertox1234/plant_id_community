@@ -597,10 +597,12 @@
   }
 }
 
-/* Rich text from the CMS (todo 401), e.g. the forum category intro. Tailwind's
-   preflight strips paragraph spacing, list markers and link styling, and the
-   app does not ship @tailwindcss/typography, so `prose` never compiled. These
-   rules mirror .forum-editor-content on the --gt-* tokens, so both themes follow. */
+/* Rich text from the CMS (todo 401), e.g. the forum category intro, and every
+   StreamField `paragraph` block: forum posts and blog articles (todo 450).
+   Tailwind's preflight strips paragraph spacing, list markers and link styling,
+   and the app does not ship @tailwindcss/typography, so its classes never
+   compiled. These rules mirror .forum-editor-content on the --gt-* tokens, so
+   both themes follow. */
 .rich-text {
   color: var(--gt-ink-2);
   line-height: 1.65;
@@ -626,6 +628,10 @@
 
 .rich-text h3 {
   font-size: 1.125rem;
+}
+
+.rich-text h4 {
+  font-size: 1rem;
 }
 
 .rich-text ul,

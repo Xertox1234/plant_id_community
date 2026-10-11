@@ -851,6 +851,33 @@ describe('StreamFieldRenderer', () => {
     // Removed test for embed block (no longer supported - TODO #033)
   });
 
+  describe('Paragraph rich text (todo 450)', () => {
+    const listBody = '<ul><li>Water</li><li>Light</li></ul><ol><li>Pot</li><li>Feed</li></ol>';
+
+    it.each([
+      ['forum post', { mentionHighlight: true }],
+      ['blog article', { variant: 'article' as const }],
+    ])('wraps a %s paragraph in .rich-text, which restores list markers', (_label, props) => {
+      const { container } = render(
+        <StreamFieldRenderer blocks={[{ type: 'paragraph', value: listBody }]} {...props} />
+      );
+      const ul = container.querySelector('.rich-text > ul');
+      const ol = container.querySelector('.rich-text > ol');
+      expect(ul?.querySelectorAll('li')).toHaveLength(2);
+      expect(ol?.querySelectorAll('li')).toHaveLength(2);
+    });
+
+    it('carries no typography-plugin class, which never compiled', () => {
+      const { container } = render(
+        <StreamFieldRenderer blocks={[{ type: 'paragraph', value: listBody }]} />
+      );
+      const classes = Array.from(container.querySelectorAll('[class]')).flatMap((el) =>
+        Array.from(el.classList)
+      );
+      expect(classes.filter((c) => /^prose(-|$)/.test(c))).toEqual([]);
+    });
+  });
+
   describe('Mention highlighting', () => {
     it('styles mentions in paragraphs when mentionHighlight is set', () => {
       const { container } = render(

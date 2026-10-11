@@ -162,6 +162,26 @@ describe('findUnknownClasses', () => {
     expect(flagged(source)).toEqual(['rounded-card']);
   });
 
+  it('checks both string branches of a conditional held in a constant (todo 450)', () => {
+    // `never` has no `-` and `never-compiled` starts with no built class, so the
+    // utility heuristic alone skips both; the class-list sibling settles it.
+    expect(flagged("const wrapper = cond ? 'p-2 rounded-sm' : 'never never-compiled';")).toEqual([
+      'never',
+      'never-compiled',
+    ]);
+    expect(flagged("const wrapper = cond ? 'never-compiled' : 'p-2';")).toEqual(['never-compiled']);
+    expect(flagged("const w = a ? 'p-2' : b ? 'rounded-sm' : 'never-compiled';")).toEqual([
+      'never-compiled',
+    ]);
+    expect(flagged("const w = mode ?? 'never-compiled' ?? 'p-2';")).toEqual(['never-compiled']);
+  });
+
+  it('does not treat a conditional of plain words as classes', () => {
+    // `group` is a built class but not utility-shaped, so its sibling stays prose.
+    expect(flagged("const reason = blocked ? 'group' : 'mute';")).toEqual([]);
+    expect(flagged("const label = open ? 'Close menu' : 'Open menu';")).toEqual([]);
+  });
+
   it('checks class strings held in constants', () => {
     expect(flagged("const CARD = { sm: 'p-2 rounded-card md:rounded-card' };")).toEqual([
       'rounded-card',
