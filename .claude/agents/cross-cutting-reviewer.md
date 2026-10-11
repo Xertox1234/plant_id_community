@@ -124,6 +124,11 @@ sharpens a rule already there, cite that rule rather than re-flagging it.
 - [ ] New endpoints have `@extend_schema`; rate-limited endpoints document 429
       in the schema; `SerializerMethodField`s carry `@extend_schema_field`;
       trust-level-gated endpoints document the required level
+- [ ] A paginated list view's `@extend_schema` 200 response is the item
+      shape, not a hand-built `{next, previous, results}` page (spectacular
+      adds the page wrapper, so a page dict documents a page of pages)
+- [ ] A new "zero findings" gate (schema warnings, type check, lint count)
+      has a canary test that feeds it one known-bad input and expects a finding
 - [ ] UUID endpoints: `lookup_field = 'uuid'`, URL `<uuid:uuid>` not
       `<int:pk>`, `SlugRelatedField(slug_field='uuid')` for nested refs
 

@@ -7250,3 +7250,25 @@ version) is phrased for leak guards, and was not applied to locks, saves or deri
 **The fix.** Filed as follow-ups (todos 594, 595, 588). The testing rule now names the three shapes.
 
 **General rule.** For every guard you add, delete it, run its test, and see red before you call it tested.
+
+## 2026-10-11 — A schema doc wrapped twice, and a gate test that first checked nothing (PR #1040, todos 580–582)
+
+**What happened.** Making `spectacular --fail-on-warn` pass, the worker gave `MyForumImagesView` (a cursor-paginated
+`ListAPIView`) `responses={200: <page dict>}`. drf-spectacular wrapped it again, so `/forum/images/mine/` was
+documented as `{next, previous, results: [{next, previous, results: [image]}]}`. The warning count went to
+zero, so no gate noticed; round-1 review caught it from the generated schema. Separately, the new pytest gate
+read drf-spectacular's private `GENERATOR_STATS._warn_cache`/`_error_cache`, and the first canary written to
+prove it could fail found nothing.
+
+**Root cause.** spectacular adds the paginator's page wrapper to a list view's response itself, so the declared
+response must be the item. The canary was skipped, not passing: `SchemaGenerator(patterns=…)` drops any path
+outside `SCHEMA_PATH_PREFIX` (`/api/v[0-9]`) silently, and the canary sat at `canary/`. (`GENERATOR_STATS.silence()`
+was suspected first; it only stops printing, and the caches still fill.)
+
+**The fix.** Declared the item shape, with a test that the response is wrapped once. Moved the canary under
+`api/v1/`; it now proves a serializer-less view produces a diagnostic, and the gate test fails loudly if the
+private caches are renamed.
+
+**General rule.** "Zero warnings" says nothing about whether the documented shape is right; assert the shape.
+And a gate that passes on an empty result needs a canary that proves it can see a problem, placed where the
+checker actually looks.
