@@ -760,9 +760,29 @@ class CareReminderCredentialsErrorTest(TestCase):
         task.refresh_from_db()
         return task.notification_sent
 
-    def test_a_credentials_error_releases_every_claim_and_stops(self):
+    def _more_owners(self):
+        """Carol and Dave, due after Alice and Bob, so a sweep tries them last."""
+        owners = []
+        for name, minutes in (("carol", 3), ("dave", 1)):
+            user = User.objects.create_user(username=name, email=f"{name}@x.com")
+            self._set_token(user, f"{name}-device")
+            owners.append(
+                _task(_plant(user), due=self.now - timedelta(minutes=minutes))
+            )
+        return owners
+
+    def test_a_credentials_error_on_several_owners_releases_every_claim_and_stops(
+        self,
+    ):
+        """Todo 593 repair: the sweep stops only once the error is seen on
+        CARE_REMINDER_CREDENTIALS_STOP_OWNERS distinct owners (3), which is the
+        server's setup; the owner after that is never tried."""
         from firebase_admin import messaging
 
+        from ..constants import CARE_REMINDER_CREDENTIALS_STOP_OWNERS
+
+        self.assertEqual(CARE_REMINDER_CREDENTIALS_STOP_OWNERS, 3)
+        carols, daves = self._more_owners()
         for exc in (
             messaging.SenderIdMismatchError("other project"),
             messaging.ThirdPartyAuthError("apns cert"),
@@ -771,13 +791,53 @@ class CareReminderCredentialsErrorTest(TestCase):
                 with self.assertLogs("apps.garden_calendar.tasks", "ERROR") as logs:
                     fcm = self._run(send=exc)
 
-                # Alice's send failed; Bob's was never tried.
-                self.assertEqual(fcm.send.call_count, 1)
-                self.assertFalse(self._claimed(self.alices))
-                self.assertFalse(self._claimed(self.bobs))
+                # Alice, Bob and Carol failed; Dave was never tried.
+                self.assertEqual(fcm.send.call_count, 3)
+                self.assertEqual(
+                    self._sent_tokens(fcm),
+                    ["alice-device", "bob-device", "carol-device"],
+                )
+                for task in (self.alices, self.bobs, carols, daves):
+                    self.assertFalse(self._claimed(task))
                 errors = [m for m in logs.output if m.startswith("ERROR:")]
                 self.assertEqual(len(errors), 1, logs.output)
-                self.assertIn("2 tasks released", errors[0])
+                self.assertIn("stopping the sweep; 4 tasks released", errors[0])
+
+    def test_a_credentials_error_on_one_owner_does_not_stop_the_sweep(self):
+        """Todo 593 repair: claims are oldest-first, so a device-level
+        credentials error (a dev-build token, an APNs-only fault) on the
+        oldest owner must not stall everyone else. Only that owner is
+        released; the token is kept; the sweep logs one ERROR."""
+        from firebase_admin import messaging
+
+        for exc in (
+            messaging.ThirdPartyAuthError("apns cert"),
+            messaging.SenderIdMismatchError("dev build"),
+        ):
+            with self.subTest(exc=type(exc).__name__):
+                self.bobs.notification_sent = False
+                self.bobs.save(update_fields=["notification_sent"])
+                calls = []
+
+                def send(message, exc=exc):
+                    calls.append(message)
+                    if len(calls) == 1:
+                        raise exc
+                    return "ok"
+
+                with self.assertLogs("apps.garden_calendar.tasks", "ERROR") as logs:
+                    fcm = self._run(send=send)
+
+                self.assertEqual(self._sent_tokens(fcm), ["alice-device", "bob-device"])
+                self.assertFalse(self._claimed(self.alices))
+                self.assertTrue(self._claimed(self.bobs))
+                self.assertEqual(
+                    ForumProfile.objects.get(user=self.alice).fcm_token,
+                    "alice-device",
+                )
+                errors = [m for m in logs.output if m.startswith("ERROR:")]
+                self.assertEqual(len(errors), 1, logs.output)
+                self.assertIn("1 tasks released", errors[0])
 
     def test_the_next_sweep_sends_once_the_credentials_are_fixed(self):
         from firebase_admin import messaging

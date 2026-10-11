@@ -382,6 +382,14 @@ CARE_REMINDER_BATCH_SIZE = 200
 CARE_REMINDER_SOFT_TIME_LIMIT = 4 * 60
 CARE_REMINDER_TIME_LIMIT = 5 * 60
 
+# A Firebase credentials error (SenderIdMismatch, ThirdPartyAuth) on this many
+# distinct owners in one sweep is taken as the server's setup, not a device:
+# the sweep releases every claim and stops (todo 593). Fewer is per device (a
+# token from a dev build, an APNs-only fault): only that owner's tasks are
+# released and the sweep goes on, so one bad device on the oldest due task
+# cannot stall everyone else's reminders.
+CARE_REMINDER_CREDENTIALS_STOP_OWNERS = 3
+
 # One collapse key for every care push: a newer reminder replaces an older
 # one in the tray instead of stacking (docs/rules/celery.md).
 CARE_REMINDER_COLLAPSE_KEY = "care-task-due"

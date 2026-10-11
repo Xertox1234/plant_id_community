@@ -68,3 +68,9 @@ Follow-ups for PR #1034 (todos 566, 570, 573).
 ### 2026-10-11 - Completed by the todo sweep (run 2026-10-11-2219)
 
 - Archived by `land.py archive`; evidence is quoted above, review is on the PR.
+
+### 2026-10-11 - Repaired by the todo sweep (run 2026-10-11-2219)
+
+- Round-1 review (high): stopping the care-reminder sweep on the first credentials error let one device-level `SenderIdMismatchError` or APNs-only `ThirdPartyAuthError` on the oldest due task stall every other owner each sweep until their reminders aged out.
+- `_push_to_owners` in `backend/apps/garden_calendar/tasks.py` now releases only the failing owner's tasks (token kept, one WARNING) and goes on; it stops and releases everyone not yet tried only after a credentials error on `CARE_REMINDER_CREDENTIALS_STOP_OWNERS` (3, `backend/apps/garden_calendar/constants.py`) distinct owners. Each sweep still logs one ERROR.
+- Tests in `backend/apps/garden_calendar/tests/test_care_reminders.py`: a credentials error on the first owner still sends the second; the stop test now uses four owners (three fail, the fourth is never tried), replacing the two-owner version that asserted the old stop-at-first behaviour.

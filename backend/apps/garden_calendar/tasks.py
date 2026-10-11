@@ -27,6 +27,7 @@ from .constants import (
     CARE_REMINDER_BATCH_SIZE,
     CARE_REMINDER_BODY_MAX_TASKS,
     CARE_REMINDER_COLLAPSE_KEY,
+    CARE_REMINDER_CREDENTIALS_STOP_OWNERS,
     CARE_REMINDER_EVENT,
     CARE_REMINDER_LOOKBACK_HOURS,
     CARE_REMINDER_SOFT_TIME_LIMIT,
@@ -255,8 +256,10 @@ def _push_to_owners(
 
     Adds each handled owner to ``done`` and a transient failure's tasks to
     ``retry_later``, so the caller can un-claim exactly what did not go out.
-    A credentials error moves every owner not yet sent to ``retry_later``
-    and ends the loop (todo 593).
+    A credentials error releases that owner's tasks and keeps going; on
+    ``CARE_REMINDER_CREDENTIALS_STOP_OWNERS`` distinct owners it is the
+    server's setup, so every owner not yet sent moves to ``retry_later`` and
+    the loop ends (todo 593). Either way the sweep logs one ERROR.
     """
     from django.contrib.auth import get_user_model
     from wagtail_forum.models import ForumProfile
@@ -274,6 +277,8 @@ def _push_to_owners(
     )
 
     sent = 0
+    credentials_failed: list[int] = []
+    credentials_released = 0
     for owner_id, tasks in by_owner.items():
         token = tokens.get(owner_id)
         if not token:
@@ -298,24 +303,45 @@ def _push_to_owners(
             raise
         except Exception as exc:
             if is_fcm_credentials_error(exc):
-                # The server's setup, not this device: every later send fails
-                # the same way. Keep the token, release this owner's tasks and
-                # every owner's not yet tried, and stop, so the next sweep
-                # retries once the credentials are fixed. One ERROR, not one
-                # per owner (owner decision 2026-10-11, todo 593).
-                pending = [t for o, ts in by_owner.items() if o not in done for t in ts]
-                retry_later.extend(pending)
-                done.update(by_owner)
-                logger.error(
-                    "[FCM] care reminder failed permanently on a Firebase "
-                    "credentials error (user=%s, task=%s): %s — stopping the "
-                    "sweep; %s tasks released for the next one",
+                # Keep the token: clearing it would wipe a healthy device on a
+                # server misconfiguration (todo 566). Release this owner's
+                # tasks for the next sweep. One owner is a device (a dev-build
+                # token, an APNs-only fault), so the sweep goes on; several
+                # distinct owners is the server's setup, where every later
+                # send fails the same way, so release everyone not yet tried
+                # and stop. One ERROR per sweep, not one per owner (owner
+                # decision 2026-10-11, todo 593).
+                retry_later.extend(tasks)
+                done.add(owner_id)
+                credentials_failed.append(owner_id)
+                credentials_released += len(tasks)
+                logger.warning(
+                    "[FCM] care reminder hit a Firebase credentials error "
+                    "(user=%s, task=%s): %s — token kept, released for the "
+                    "next sweep",
                     owner_id,
                     task_id,
                     exc,
-                    len(pending),
                 )
-                return sent
+                if len(credentials_failed) >= CARE_REMINDER_CREDENTIALS_STOP_OWNERS:
+                    pending = [
+                        t for o, ts in by_owner.items() if o not in done for t in ts
+                    ]
+                    retry_later.extend(pending)
+                    done.update(by_owner)
+                    logger.error(
+                        "[FCM] care reminders failed permanently on a Firebase "
+                        "credentials error for %s owners (users=%s, task=%s): "
+                        "%s — stopping the sweep; %s tasks released for the "
+                        "next one",
+                        len(credentials_failed),
+                        credentials_failed,
+                        task_id,
+                        exc,
+                        credentials_released + len(pending),
+                    )
+                    return sent
+                continue
             if is_permanent_fcm_error(exc):
                 if is_dead_fcm_token_error(exc):
                     # Forget the dead device, so the next sweep does not
@@ -337,4 +363,14 @@ def _push_to_owners(
                 )
                 retry_later.extend(tasks)
         done.add(owner_id)
+    if credentials_failed:
+        logger.error(
+            "[FCM] care reminders failed permanently on a Firebase credentials "
+            "error for %s owner(s) (users=%s, task=%s) — tokens kept; %s tasks "
+            "released for the next sweep",
+            len(credentials_failed),
+            credentials_failed,
+            task_id,
+            credentials_released,
+        )
     return sent
