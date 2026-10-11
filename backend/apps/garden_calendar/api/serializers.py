@@ -4,8 +4,11 @@ Garden Calendar API Serializers
 Serializers for community events, seasonal templates, and weather alerts.
 """
 
+from typing import Any, Optional
+
 from django.contrib.auth import get_user_model
 from django.utils import timezone
+from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 
 from ..models import (
@@ -41,7 +44,7 @@ class EventOrganizerSerializer(serializers.ModelSerializer):
             "avatar_thumbnail",
         ]
 
-    def get_avatar_thumbnail(self, obj):
+    def get_avatar_thumbnail(self, obj) -> Optional[str]:
         """Return the organizer's avatar thumbnail URL, or None if no avatar.
 
         `avatar_thumbnail` is an imagekit ImageSpecField descriptor, not a real
@@ -113,7 +116,7 @@ class CommunityEventListSerializer(serializers.ModelSerializer):
             "user_rsvp_status",
         ]
 
-    def get_user_rsvp_status(self, obj):
+    def get_user_rsvp_status(self, obj) -> Optional[str]:
         """Get current user's RSVP status for this event."""
         request = self.context.get("request")
         if request and request.user.is_authenticated:
@@ -150,14 +153,14 @@ class CommunityEventDetailSerializer(CommunityEventListSerializer):
             "updated_at",
         ]
 
-    def get_can_edit(self, obj):
+    def get_can_edit(self, obj) -> bool:
         """Check if current user can edit this event."""
         request = self.context.get("request")
         if request and request.user.is_authenticated:
             return obj.organizer == request.user
         return False
 
-    def get_can_rsvp(self, obj):
+    def get_can_rsvp(self, obj) -> bool:
         """Check if current user can RSVP to this event."""
         request = self.context.get("request")
         if not request or not request.user.is_authenticated:
@@ -353,7 +356,7 @@ class WeatherAlertSerializer(serializers.ModelSerializer):
             "updated_at",
         ]
 
-    def get_city_or_zip(self, obj):
+    def get_city_or_zip(self, obj) -> str:
         """Get display location (city if available, otherwise ZIP)."""
         return obj.city if obj.city else obj.zip_code
 
@@ -419,7 +422,7 @@ class PlantImageSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = ["uuid", "image_url", "thumbnail_url", "uploaded_at"]
 
-    def get_image_url(self, obj):
+    def get_image_url(self, obj) -> Optional[str]:
         """Get full image URL."""
         if obj.image:
             request = self.context.get("request")
@@ -428,7 +431,7 @@ class PlantImageSerializer(serializers.ModelSerializer):
             return obj.image.url
         return None
 
-    def get_thumbnail_url(self, obj):
+    def get_thumbnail_url(self, obj) -> Optional[str]:
         """Get thumbnail URL (could use image service in future)."""
         return self.get_image_url(obj)
 
@@ -478,6 +481,7 @@ class PlantListSerializer(serializers.ModelSerializer):
             "primary_image",
         ]
 
+    @extend_schema_field(PlantImageSerializer(allow_null=True))
     def get_primary_image(self, obj):
         """Get primary image for plant using prefetched images."""
         # Use prefetched images to avoid N+1 queries
@@ -510,19 +514,19 @@ class PlantDetailSerializer(PlantListSerializer):
             "updated_at",
         ]
 
-    def get_upcoming_tasks(self, obj):
+    def get_upcoming_tasks(self, obj) -> list[dict[str, Any]]:
         """Get next 3 upcoming care tasks using prefetched data."""
         # Use prefetched care_tasks to avoid additional query
         tasks = list(obj.care_tasks.all())[:3]
         return CareTaskListSerializer(tasks, many=True, context=self.context).data
 
-    def get_recent_logs(self, obj):
+    def get_recent_logs(self, obj) -> list[dict[str, Any]]:
         """Get last 5 care logs using prefetched data."""
         # Use prefetched care_logs to avoid additional query
         logs = list(obj.care_logs.all())[:5]
         return CareLogSerializer(logs, many=True, context=self.context).data
 
-    def get_can_edit(self, obj):
+    def get_can_edit(self, obj) -> bool:
         """Check if current user can edit this plant."""
         request = self.context.get("request")
         if request and request.user.is_authenticated:
@@ -645,7 +649,7 @@ class CareTaskDetailSerializer(CareTaskListSerializer):
             "updated_at",
         ]
 
-    def get_can_edit(self, obj):
+    def get_can_edit(self, obj) -> bool:
         """Check if current user can edit this task."""
         request = self.context.get("request")
         if request and request.user.is_authenticated:
@@ -833,7 +837,7 @@ class GardenBedDetailSerializer(GardenBedListSerializer):
             "updated_at",
         ]
 
-    def get_can_edit(self, obj):
+    def get_can_edit(self, obj) -> bool:
         """Check if current user can edit this garden bed."""
         request = self.context.get("request")
         if request and request.user.is_authenticated:

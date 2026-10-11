@@ -5,8 +5,11 @@ Provides JSON serialization for blog models following the existing patterns
 from plant identification and forum APIs.
 """
 
+from typing import Any, Optional
+
 from django.contrib.auth import get_user_model
 from django.urls import reverse
+from drf_spectacular.utils import extend_schema_serializer
 from rest_framework import serializers
 from taggit.serializers import TaggitSerializer, TagListSerializerField
 
@@ -56,7 +59,7 @@ class BlogCategorySerializer(serializers.ModelSerializer):
             "created_at",
         ]
 
-    def get_post_count(self, obj):
+    def get_post_count(self, obj) -> int:
         """Get the number of published posts in this category."""
         if hasattr(obj, "_post_count"):
             return obj._post_count
@@ -83,13 +86,13 @@ class BlogSeriesSerializer(serializers.ModelSerializer):
             "created_at",
         ]
 
-    def get_post_count(self, obj):
+    def get_post_count(self, obj) -> int:
         """Get the number of posts in this series."""
         if hasattr(obj, "_post_count"):
             return obj._post_count
         return obj.blogpostpage_set.live().public().count()
 
-    def get_posts_url(self, obj):
+    def get_posts_url(self, obj) -> Optional[str]:
         """Get URL to fetch posts in this series."""
         request = self.context.get("request")
         if request:
@@ -99,6 +102,7 @@ class BlogSeriesSerializer(serializers.ModelSerializer):
         return None
 
 
+@extend_schema_serializer(component_name="BlogAuthorUser")
 class UserSerializer(serializers.ModelSerializer):
     """Basic user serializer for blog authors."""
 
@@ -116,7 +120,7 @@ class UserSerializer(serializers.ModelSerializer):
             "avatar_url",
         ]
 
-    def get_avatar_url(self, obj):
+    def get_avatar_url(self, obj) -> Optional[str]:
         """Get avatar URL if available."""
         if hasattr(obj, "avatar") and obj.avatar:
             request = self.context.get("request")
@@ -145,7 +149,7 @@ class BlogAuthorSerializer(serializers.ModelSerializer):
             "post_count",
         ]
 
-    def get_post_count(self, obj):
+    def get_post_count(self, obj) -> int:
         """Get the number of published posts by this author."""
         if hasattr(obj, "_post_count"):
             return obj._post_count
@@ -193,7 +197,7 @@ class BlogCommentSerializer(serializers.ModelSerializer):
             "updated_at",
         ]
 
-    def get_replies(self, obj):
+    def get_replies(self, obj) -> list[dict[str, Any]]:
         """Replies to this comment — approved ones, plus the caller's own
         pending ones when the view prefetched `visible_replies` (todo 352).
         Thread depth is ONE level: a reply never nests replies."""
@@ -248,11 +252,11 @@ class BlogPostPageSerializer(TaggitSerializer, serializers.ModelSerializer):
             "meta_description",
         ]
 
-    def get_url(self, obj):
+    def get_url(self, obj) -> Optional[str]:
         """Get the full URL to the blog post (todo 326)."""
         return _absolute_page_url(self.context.get("request"), obj)
 
-    def get_excerpt(self, obj):
+    def get_excerpt(self, obj) -> str:
         """Get excerpt from introduction or content."""
         if obj.introduction:
             # Strip HTML and truncate
@@ -262,7 +266,7 @@ class BlogPostPageSerializer(TaggitSerializer, serializers.ModelSerializer):
             return text[:200] + "..." if len(text) > 200 else text
         return ""
 
-    def get_comment_count(self, obj):
+    def get_comment_count(self, obj) -> int:
         """Get the number of approved comments."""
         if not obj.allow_comments:
             return 0
@@ -303,11 +307,11 @@ class BlogPostListSerializer(serializers.ModelSerializer):
             "comment_count",
         ]
 
-    def get_url(self, obj):
+    def get_url(self, obj) -> Optional[str]:
         """Get the full URL to the blog post (todo 326)."""
         return _absolute_page_url(self.context.get("request"), obj)
 
-    def get_excerpt(self, obj):
+    def get_excerpt(self, obj) -> str:
         """Get excerpt from introduction."""
         if obj.introduction:
             # Strip HTML and truncate
@@ -317,7 +321,7 @@ class BlogPostListSerializer(serializers.ModelSerializer):
             return text[:150] + "..." if len(text) > 150 else text
         return ""
 
-    def get_comment_count(self, obj):
+    def get_comment_count(self, obj) -> int:
         """Get the number of approved comments."""
         if not obj.allow_comments:
             return 0

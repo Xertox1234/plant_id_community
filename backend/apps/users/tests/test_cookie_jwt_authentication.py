@@ -8,6 +8,8 @@ Tests the CookieJWTAuthentication class and cookie-based auth flow including:
 - httpOnly and Secure flags
 """
 
+from typing import Any
+
 from apps.users.authentication import (
     REFRESH_COOKIE_PATH,
     CookieJWTAuthentication,
@@ -29,6 +31,8 @@ User = get_user_model()
 
 class CookieJWTAuthenticationTestCase(TestCase):
     """Test cases for cookie-based JWT authentication."""
+
+    client: APIClient  # DRF test client; TestCase declares Django's Client
 
     def setUp(self):
         """Set up test fixtures."""
@@ -93,7 +97,8 @@ class CookieJWTAuthenticationTestCase(TestCase):
         access_token = str(refresh.access_token)
 
         # Create request with access token cookie
-        request = self.factory.get("/api/test/")
+        # A plain WSGIRequest standing in for DRF's Request, so untyped here.
+        request: Any = self.factory.get("/api/test/")
         request.COOKIES = {"access_token": access_token}
 
         # Mock user attribute
@@ -105,13 +110,16 @@ class CookieJWTAuthenticationTestCase(TestCase):
 
         # Should return (user, token)
         self.assertIsNotNone(result)
+        assert result is not None  # narrows the Optional for mypy
         authenticated_user, validated_token = result
-        self.assertEqual(authenticated_user.id, self.user.id)
+        # pk, not id: simplejwt types the user as AbstractBaseUser.
+        self.assertEqual(authenticated_user.pk, self.user.pk)
 
     def test_cookie_jwt_authentication_without_cookie(self):
         """Test authentication fails gracefully without cookie."""
         # Create request without cookies
-        request = self.factory.get("/api/test/")
+        # A plain WSGIRequest standing in for DRF's Request, so untyped here.
+        request: Any = self.factory.get("/api/test/")
         request.COOKIES = {}
 
         # Authenticate
@@ -124,7 +132,8 @@ class CookieJWTAuthenticationTestCase(TestCase):
     def test_cookie_jwt_authentication_with_invalid_token(self):
         """Test authentication fails with invalid token."""
         # Create request with invalid token
-        request = self.factory.get("/api/test/")
+        # A plain WSGIRequest standing in for DRF's Request, so untyped here.
+        request: Any = self.factory.get("/api/test/")
         request.COOKIES = {"access_token": "invalid_token_here"}
         request.user = None
 
@@ -157,7 +166,8 @@ class CookieJWTAuthenticationTestCase(TestCase):
         refresh_token_str = str(refresh)
 
         # Create request with refresh token in POST data
-        request = self.factory.post(
+        # A plain WSGIRequest standing in for DRF's Request, so untyped here.
+        request: Any = self.factory.post(
             "/api/v1/auth/token/refresh/", data={"refresh": refresh_token_str}
         )
 
@@ -240,6 +250,8 @@ class CookieJWTAuthenticationTestCase(TestCase):
 class LoginLogoutCookieFlowTestCase(TestCase):
     """Test complete login/logout flow with cookie-based auth."""
 
+    client: APIClient  # DRF test client; TestCase declares Django's Client
+
     def setUp(self):
         """Set up test fixtures."""
         cache.clear()  # Prevent rate limiter state leaking from other test classes
@@ -314,6 +326,8 @@ class LoginLogoutCookieFlowTestCase(TestCase):
 
 class CSRFProtectionTestCase(TestCase):
     """Test CSRF protection for cookie-based auth."""
+
+    client: APIClient  # DRF test client; TestCase declares Django's Client
 
     def setUp(self):
         """Set up test fixtures."""

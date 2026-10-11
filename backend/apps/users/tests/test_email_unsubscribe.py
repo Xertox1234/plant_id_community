@@ -47,7 +47,7 @@ def _reply_email_on(user) -> bool:
         .values_list("notification_preferences", flat=True)
         .first()
     )
-    return wants_channel(overrides, "reply_added", "email")
+    return bool(wants_channel(overrides, "reply_added", "email"))
 
 
 def _reply_push_on(user) -> bool:
@@ -56,7 +56,7 @@ def _reply_push_on(user) -> bool:
         .values_list("notification_preferences", flat=True)
         .first()
     )
-    return wants_channel(overrides, "reply_added", "push")
+    return bool(wants_channel(overrides, "reply_added", "push"))
 
 
 def _later(delta):
@@ -148,6 +148,8 @@ class UnsubscribeTokenTests(TestCase):
 
 
 class UnsubscribeEndpointTests(TestCase):
+    client: APIClient  # DRF test client; TestCase declares Django's Client
+
     def setUp(self):
         cache.clear()  # the per-IP rate limiter's counter lives in the cache
         self.client = APIClient()

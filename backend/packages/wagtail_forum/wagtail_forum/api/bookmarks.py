@@ -28,6 +28,7 @@ class TopicBookmarkView(UnversionedForumAPIMixin, APIView):
     permission_classes = [IsAuthenticated]
 
     @extend_schema(
+        request=None,
         responses={200: BOOKMARK_SCHEMA},
         description="Bookmark a topic for the authenticated user (idempotent).",
     )

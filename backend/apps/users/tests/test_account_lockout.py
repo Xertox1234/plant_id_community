@@ -28,6 +28,8 @@ User = get_user_model()
 class AccountLockoutTestCase(TestCase):
     """Test cases for account lockout after failed login attempts."""
 
+    client: APIClient  # DRF test client; TestCase declares Django's Client
+
     def setUp(self):
         """Set up test fixtures."""
         self.client = APIClient()
@@ -71,6 +73,7 @@ class AccountLockoutTestCase(TestCase):
         is_locked, time_remaining = SecurityMonitor.is_account_locked("testuser")
         self.assertTrue(is_locked)
         self.assertIsNotNone(time_remaining)
+        assert time_remaining is not None  # narrows the Optional for mypy
         self.assertGreater(time_remaining, 0)
 
     def test_lockout_prevents_further_login_attempts(self):
@@ -173,6 +176,7 @@ class AccountLockoutTestCase(TestCase):
         self.assertTrue(is_locked)
 
         # Time remaining should be close to lockout duration
+        assert time_remaining is not None  # a locked account reports its time left
         self.assertGreater(time_remaining, ACCOUNT_LOCKOUT_DURATION - 10)
         self.assertLessEqual(time_remaining, ACCOUNT_LOCKOUT_DURATION)
 
@@ -351,6 +355,8 @@ class AccountLockoutTestCase(TestCase):
 
 class AccountLockoutIntegrationTestCase(TestCase):
     """Integration tests for complete account lockout flow."""
+
+    client: APIClient  # DRF test client; TestCase declares Django's Client
 
     def setUp(self):
         """Set up test fixtures."""

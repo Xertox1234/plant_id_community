@@ -3,7 +3,7 @@ Custom adapters for django-allauth OAuth integration with JWT authentication.
 """
 
 import logging
-from typing import Any, Optional
+from typing import TYPE_CHECKING, Any, Optional
 
 from allauth.account.adapter import DefaultAccountAdapter
 from allauth.core.exceptions import ImmediateHttpResponse
@@ -22,7 +22,11 @@ from django.db import IntegrityError, transaction
 from django.http import HttpRequest, HttpResponseRedirect
 
 logger = logging.getLogger(__name__)
-User = get_user_model()
+if TYPE_CHECKING:
+    # The concrete class, so `User` is valid as an annotation (todo 580).
+    from apps.users.models import User
+else:
+    User = get_user_model()
 
 
 class CustomSocialAccountAdapter(DefaultSocialAccountAdapter):
@@ -203,7 +207,7 @@ class CustomSocialAccountAdapter(DefaultSocialAccountAdapter):
         Returns:
             Created or updated User instance
         """
-        user = super().save_user(request, sociallogin, form)
+        user: User = super().save_user(request, sociallogin, form)
 
         # Update user profile with social data
         extra_data = sociallogin.account.extra_data

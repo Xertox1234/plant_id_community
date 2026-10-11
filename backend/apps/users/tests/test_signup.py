@@ -67,7 +67,9 @@ class RegistrationSignupSideEffectTest(TestCase):
         user = User.objects.get(username="newsignup")
         collections = UserPlantCollection.objects.filter(user=user)
         self.assertEqual(collections.count(), 1)
-        self.assertEqual(collections.first().name, "My Plants")
+        first = collections.first()
+        assert first is not None  # count() == 1 above
+        self.assertEqual(first.name, "My Plants")
 
 
 class JoinForumMembersGroupTest(TestCase):

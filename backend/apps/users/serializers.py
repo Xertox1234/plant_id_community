@@ -6,6 +6,7 @@ import logging
 
 from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import ValidationError
+from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 
 from .models import User, UserPlantCollection
@@ -121,6 +122,7 @@ class UserSerializer(serializers.ModelSerializer):
             "date_joined",
         ]
 
+    @extend_schema_field(serializers.URLField(allow_null=True))
     def get_avatar_thumbnail(self, obj):
         """Get avatar thumbnail URL."""
         if obj.avatar:
@@ -184,6 +186,7 @@ class UserProfileSerializer(serializers.ModelSerializer):
             "forum_posts_count",
         ]
 
+    @extend_schema_field(serializers.URLField(allow_null=True))
     def get_avatar_thumbnail(self, obj):
         """Get avatar thumbnail URL, or None if it cannot be generated.
 
@@ -228,6 +231,7 @@ class UserProfileSerializer(serializers.ModelSerializer):
                 " once its metadata is removed."
             )
 
+    @extend_schema_field(serializers.IntegerField())
     def get_plant_collections_count(self, obj):
         """Get count of user's plant collections."""
         return obj.plant_collections.count()
@@ -254,6 +258,8 @@ class UserPlantCollectionSerializer(serializers.ModelSerializer):
             "updated_at",
         ]
 
+    # A list of UserPlantSerializer objects (that module imports this one).
+    @extend_schema_field(serializers.ListField(child=serializers.DictField()))
     def get_plants(self, obj):
         """Get plants in this collection from UserPlant model."""
         try:

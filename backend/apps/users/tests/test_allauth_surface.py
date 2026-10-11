@@ -125,8 +125,9 @@ class SocialLoginRedirectTest(TestCase):
         mark_email_verified(user)
         SocialAccount.objects.create(user=user, provider="google", uid="g-social")
         request = RequestFactory().get("/accounts/google/login/callback/")
-        SessionMiddleware(lambda r: None).process_request(request)
-        MessageMiddleware(lambda r: None).process_request(request)
+        # process_request never calls get_response, so a stub stands in for it.
+        SessionMiddleware(lambda r: None).process_request(request)  # type: ignore[arg-type]
+        MessageMiddleware(lambda r: None).process_request(request)  # type: ignore[arg-type]
         request.user = AnonymousUser()
         sociallogin = SocialLogin(
             account=SocialAccount(
@@ -184,8 +185,9 @@ class PasswordResetRevokesRefreshTokensTest(TestCase):
         owner = Client()
         owner.post("/accounts/password/reset/", {"email": "owner@example.com"})
         link = re.search(
-            r"https?://\S+/accounts/password/reset/key/\S+", mail.outbox[-1].body
+            r"https?://\S+/accounts/password/reset/key/\S+", str(mail.outbox[-1].body)
         )
+        assert link is not None, mail.outbox[-1].body
         response = owner.get(urlparse(link.group(0)).path, follow=True)
         owner.post(
             response.redirect_chain[-1][0],

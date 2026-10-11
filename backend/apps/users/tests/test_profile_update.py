@@ -23,12 +23,22 @@ from rest_framework.test import APIClient
 
 User = get_user_model()
 
+
+def _avatar_name(user) -> str:
+    """The stored avatar's name; the field types it Optional until a file is saved."""
+    name: str | None = user.avatar.name
+    assert name is not None, "no avatar stored"
+    return name
+
+
 UPDATE_URL = "/api/v1/auth/user/update/"
 ORIGINAL_EMAIL = "ada@example.com"
 OTHER_EMAIL = "attacker@example.com"
 
 
 class ProfileUpdateEmailTests(TestCase):
+    client: APIClient  # DRF test client; TestCase declares Django's Client
+
     def setUp(self):
         self.client = APIClient()
         self.user = User.objects.create_user(
@@ -78,6 +88,8 @@ class ProfileBioAndAvatarTests(TestCase):
     """What the mobile edit-profile screen sends (todo 455): a JSON bio, and
     the avatar as a multipart PATCH to the same endpoint."""
 
+    client: APIClient  # DRF test client; TestCase declares Django's Client
+
     def setUp(self):
         cache.clear()  # the per-user profile throttle counts in the cache
         self.client = APIClient()
@@ -104,7 +116,7 @@ class ProfileBioAndAvatarTests(TestCase):
 
         self.assertEqual(resp.status_code, 200, resp.data)
         self.user.refresh_from_db()
-        self.assertTrue(self.user.avatar.name.startswith("avatars/"))
+        self.assertTrue(_avatar_name(self.user).startswith("avatars/"))
         # Absolute, so the app can load it; and the thumbnail is filled.
         self.assertTrue(resp.data["user"]["avatar"].startswith("http"))
         self.assertTrue(resp.data["user"]["avatar_thumbnail"].startswith("http"))
@@ -152,6 +164,8 @@ def _jpeg_with_metadata(size=(80, 60)):
 
 class AvatarStorageHygieneTests(TestCase):
     """Todo 565, owner decisions 2026-10-11: findings 1, 2, 4, 6 and 9."""
+
+    client: APIClient  # DRF test client; TestCase declares Django's Client
 
     def setUp(self):
         cache.clear()
@@ -203,7 +217,7 @@ class AvatarStorageHygieneTests(TestCase):
 
         for name in old:
             self.assertFalse(default_storage.exists(name), name)
-        self.assertTrue(default_storage.exists(self.user.avatar.name))
+        self.assertTrue(default_storage.exists(_avatar_name(self.user)))
 
     def test_a_bio_only_update_keeps_the_avatar(self):
         self._upload()
@@ -223,7 +237,7 @@ class AvatarStorageHygieneTests(TestCase):
 
         self._upload(SimpleUploadedFile("me.jpg", original, content_type="image/jpeg"))
 
-        with default_storage.open(self.user.avatar.name, "rb") as stored:
+        with default_storage.open(_avatar_name(self.user), "rb") as stored:
             data = stored.read()
         self.assertNotIn(b"SpyCamMaker", data)
         with Image.open(io.BytesIO(data)) as image:
@@ -244,8 +258,10 @@ class AvatarStorageHygieneTests(TestCase):
             SimpleUploadedFile("me.jpg", buf.getvalue(), content_type="image/jpeg")
         )
 
-        self.assertTrue(self.user.avatar.name.endswith(".jpg"), self.user.avatar.name)
-        with default_storage.open(self.user.avatar.name, "rb") as stored:
+        self.assertTrue(
+            _avatar_name(self.user).endswith(".jpg"), _avatar_name(self.user)
+        )
+        with default_storage.open(_avatar_name(self.user), "rb") as stored:
             with Image.open(stored) as image:
                 self.assertEqual(image.format, "JPEG")
 
@@ -304,7 +320,9 @@ class AvatarStorageHygieneTests(TestCase):
 
         self.assertEqual(resp.status_code, 200)
         self.assertIsNone(resp.data["avatar_thumbnail"])
-        self.assertIs(logs.records[0].exc_info[0], PermissionError)
+        exc_info = logs.records[0].exc_info
+        assert exc_info is not None  # narrows the Optional for mypy
+        self.assertIs(exc_info[0], PermissionError)
 
     def test_removing_the_avatar_deletes_its_files(self):
         # Finding 9: a route to remove the photo, not only replace it.

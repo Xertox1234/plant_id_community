@@ -1363,6 +1363,9 @@ class PostRevisionListView(
 
     permission_classes = [IsAuthenticated]
 
+    # The detail view shares this path prefix; without its own id the list
+    # gets a numbered one (todo 581).
+    @extend_schema(operation_id="forum_posts_revisions_list")
     def get(self, request, post_id):
         _post, revisions = _readable_post_revisions(request, post_id)
         return Response(

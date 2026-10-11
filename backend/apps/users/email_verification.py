@@ -52,9 +52,11 @@ def is_email_verified(user) -> bool:
     """True only if ``user``'s CURRENT email carries a verified record."""
     if not user.email:
         return False
-    return EmailAddress.objects.filter(
-        user=user, email__iexact=user.email, verified=True
-    ).exists()
+    return bool(
+        EmailAddress.objects.filter(
+            user=user, email__iexact=user.email, verified=True
+        ).exists()
+    )
 
 
 def get_account_by_email(email):
@@ -80,7 +82,9 @@ def is_address_verified(email) -> bool:
     """True if ANY account holds ``email`` verified. Creation paths refuse such
     an address: a new account could never verify it, so its owner would be
     refused on their next sign-in (todo 447)."""
-    return EmailAddress.objects.filter(email__iexact=email, verified=True).exists()
+    return bool(
+        EmailAddress.objects.filter(email__iexact=email, verified=True).exists()
+    )
 
 
 def mark_email_verified(user) -> bool:
@@ -252,9 +256,7 @@ def confirm_verification_key(key, user, request=None):
     if not isinstance(key, str):
         raise VerificationKeyInvalid()
     try:
-        payload = signing.loads(
-            key, salt=VERIFY_SALT, max_age=VERIFY_MAX_AGE.total_seconds()
-        )
+        payload = signing.loads(key, salt=VERIFY_SALT, max_age=VERIFY_MAX_AGE)
         address = EmailAddress.objects.select_related("user").get(
             pk=payload["address"], verified=False
         )

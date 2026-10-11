@@ -16,7 +16,8 @@ import logging
 from apps.core.exceptions import readable_message
 from django.conf import settings
 from django_ratelimit.decorators import ratelimit
-from rest_framework import status
+from drf_spectacular.utils import OpenApiExample, extend_schema, inline_serializer
+from rest_framework import serializers, status
 from rest_framework.decorators import api_view, parser_classes, permission_classes
 from rest_framework.exceptions import ValidationError
 from rest_framework.parsers import FormParser, MultiPartParser
@@ -64,6 +65,62 @@ def get_rate_limit_key(group: str, request: Request) -> str:
     return f"anon:{ip}"
 
 
+_IDENTIFY_FAILURE = inline_serializer(
+    "PlantIdentifyFailure",
+    {"success": serializers.BooleanField(), "error": serializers.CharField()},
+)
+
+
+@extend_schema(
+    request=inline_serializer(
+        "PlantIdentifyRequest",
+        {"image": serializers.ImageField(help_text="JPEG, PNG or WebP, 10 MB max.")},
+    ),
+    responses={
+        200: inline_serializer(
+            "PlantIdentifyResult",
+            {
+                "success": serializers.BooleanField(),
+                "error": serializers.CharField(
+                    required=False,
+                    help_text="Only when success is false: no provider answered.",
+                ),
+                "plant_name": serializers.CharField(required=False),
+                "scientific_name": serializers.CharField(required=False),
+                "confidence": serializers.FloatField(required=False),
+                "suggestions": serializers.ListField(
+                    child=serializers.DictField(), required=False
+                ),
+                "care_instructions": serializers.DictField(
+                    required=False, allow_null=True
+                ),
+                "disease_detection": serializers.DictField(
+                    required=False, allow_null=True
+                ),
+                "summary": serializers.CharField(required=False),
+                "providers": serializers.DictField(required=False),
+                "degraded": serializers.BooleanField(required=False),
+                "disease_detection_status": serializers.ChoiceField(
+                    choices=["ok", "unavailable"], required=False
+                ),
+                "disease_detection_reason": serializers.CharField(
+                    required=False, allow_null=True
+                ),
+            },
+        ),
+        400: _IDENTIFY_FAILURE,
+        500: _IDENTIFY_FAILURE,
+    },
+    examples=[
+        OpenApiExample(
+            "Photo upload",
+            value={"image": "example-monstera-leaf.jpg"},
+            description="Attach the photo as the `image` file part.",
+            request_only=True,
+            media_type="multipart/form-data",
+        )
+    ],
+)
 @api_view(["POST"])
 @permission_classes(
     [
@@ -249,6 +306,23 @@ def identify_plant(request: Request) -> Response:
         )
 
 
+@extend_schema(
+    responses={
+        200: inline_serializer(
+            "PlantIdServiceHealth",
+            {
+                "status": serializers.CharField(),
+                "plant_id_available": serializers.BooleanField(),
+                "plantnet_available": serializers.BooleanField(),
+                "message": serializers.CharField(),
+            },
+        ),
+        503: inline_serializer(
+            "PlantIdServiceUnhealthy",
+            {"status": serializers.CharField(), "error": serializers.CharField()},
+        ),
+    }
+)
 @api_view(["GET"])
 @permission_classes([AllowAny])
 def health_check(request):

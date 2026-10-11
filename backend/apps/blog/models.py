@@ -953,7 +953,7 @@ class BlogComment(models.Model):
         return f"Comment by {self.author.username} on {self.post.title}"
 
     @property
-    def is_reply(self):
+    def is_reply(self) -> bool:
         """Check if this is a reply to another comment. `parent_id`, not
         `parent`: the FK access costs a query per row on every list
         (review finding, todo 352)."""

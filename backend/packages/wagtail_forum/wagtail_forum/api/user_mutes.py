@@ -43,6 +43,7 @@ class UserMuteView(UnversionedForumAPIMixin, APIView):
     permission_classes = [IsAuthenticated]
 
     @extend_schema(
+        request=None,
         responses={200: MUTE_SCHEMA, 400: dict, 404: dict},
         description=(
             "Mute a user for the authenticated member (idempotent): their "

@@ -50,6 +50,8 @@ User = get_user_model()
 class LoginRateLimitingTestCase(TestCase):
     """Test rate limiting for login endpoint."""
 
+    client: APIClient  # DRF test client; TestCase declares Django's Client
+
     def setUp(self):
         """Set up test fixtures."""
         self.client = APIClient()
@@ -175,6 +177,8 @@ class LoginRateLimitingTestCase(TestCase):
 class RegistrationRateLimitingTestCase(TestCase):
     """Test rate limiting for registration endpoint."""
 
+    client: APIClient  # DRF test client; TestCase declares Django's Client
+
     def setUp(self):
         """Set up test fixtures."""
         self.client = APIClient()
@@ -271,6 +275,8 @@ class RegistrationRateLimitingTestCase(TestCase):
 class TokenRefreshRateLimitingTestCase(TestCase):
     """Test rate limiting for token refresh endpoint."""
 
+    client: APIClient  # DRF test client; TestCase declares Django's Client
+
     def setUp(self):
         """Set up test fixtures."""
         self.client = APIClient()
@@ -326,6 +332,8 @@ class TokenRefreshRateLimitingTestCase(TestCase):
 
 class RateLimitHeadersTestCase(TestCase):
     """Test that rate limit information is communicated to clients."""
+
+    client: APIClient  # DRF test client; TestCase declares Django's Client
 
     def setUp(self):
         """Set up test fixtures."""

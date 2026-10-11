@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import logging
 import uuid
-from typing import Optional, Tuple
+from typing import TYPE_CHECKING, Optional, Tuple
 
 import firebase_admin
 import google.auth.credentials
@@ -29,7 +29,12 @@ from apps.users.signup import create_default_plant_collection, join_forum_member
 from django.contrib.auth import get_user_model
 from django.db import IntegrityError, transaction
 from django.db.models import Q
-from drf_spectacular.utils import OpenApiResponse, extend_schema, inline_serializer
+from drf_spectacular.utils import (
+    OpenApiExample,
+    OpenApiResponse,
+    extend_schema,
+    inline_serializer,
+)
 from firebase_admin import auth as firebase_auth
 from firebase_admin import credentials as firebase_credentials
 from rest_framework import serializers, status
@@ -80,7 +85,11 @@ class UnverifiedAccountConflict(ValueError):
     """
 
 
-User = get_user_model()
+if TYPE_CHECKING:
+    # The concrete class, so `User` is valid as an annotation (todo 580).
+    from apps.users.models import User
+else:
+    User = get_user_model()
 
 
 def redact_email(email: str) -> str:
@@ -293,6 +302,13 @@ def _error_body(name: str) -> serializers.Serializer:
             "retries.",
         ),
     },
+    examples=[
+        OpenApiExample(
+            "Firebase ID token",
+            value={"firebase_token": "example-firebase-id-token-not-real"},
+            request_only=True,
+        )
+    ],
 )
 @api_view(["POST"])
 # The exchange trusts only the Firebase ID token in its body, so it runs no
