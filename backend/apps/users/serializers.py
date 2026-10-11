@@ -210,12 +210,23 @@ class UserProfileSerializer(serializers.ModelSerializer):
         the field's own validators, so ``value`` is a valid image."""
         if not value:
             return value
-        from .avatars import AvatarReencodeError, strip_image_metadata
+        from apps.core.validators import MAX_AVATAR_SIZE
+
+        from .avatars import (
+            AvatarTooLargeError,
+            AvatarUnreadableError,
+            strip_image_metadata,
+        )
 
         try:
             return strip_image_metadata(value)
-        except AvatarReencodeError as exc:
-            raise serializers.ValidationError(str(exc)) from exc
+        except AvatarUnreadableError:
+            raise serializers.ValidationError("This image could not be read.")
+        except AvatarTooLargeError:
+            raise serializers.ValidationError(
+                f"This image is larger than {MAX_AVATAR_SIZE // (1024 * 1024)} MB"
+                " once its metadata is removed."
+            )
 
     def get_plant_collections_count(self, obj):
         """Get count of user's plant collections."""

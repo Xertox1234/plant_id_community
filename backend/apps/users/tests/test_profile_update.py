@@ -262,13 +262,13 @@ class AvatarStorageHygieneTests(TestCase):
     def test_pixels_that_do_not_decode_are_a_400_not_a_500(self):
         # The upload validators read the header only; a truncated body used to
         # raise OSError out of the re-encode.
-        from apps.users.avatars import AvatarReencodeError, strip_image_metadata
+        from apps.users.avatars import AvatarUnreadableError, strip_image_metadata
 
         whole = _jpeg_with_metadata(size=(400, 300))
         truncated = SimpleUploadedFile(
             "me.jpg", whole[: len(whole) // 2], content_type="image/jpeg"
         )
-        with self.assertRaises(AvatarReencodeError):
+        with self.assertRaises(AvatarUnreadableError):
             strip_image_metadata(truncated)
 
         resp = self.client.patch(UPDATE_URL, {"avatar": truncated}, format="multipart")

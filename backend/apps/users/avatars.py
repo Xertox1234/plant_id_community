@@ -36,7 +36,17 @@ _EXTENSION = {"JPEG": None, "PNG": ".png", "WEBP": ".webp"}
 
 
 class AvatarReencodeError(ValueError):
-    """The upload passed the header checks but cannot be stored."""
+    """The upload passed the header checks but cannot be stored. The
+    serializer answers each subclass with its own fixed message, so no
+    exception text reaches the client."""
+
+
+class AvatarUnreadableError(AvatarReencodeError):
+    """Its pixels do not decode, or its format is not one we store."""
+
+
+class AvatarTooLargeError(AvatarReencodeError):
+    """Larger than ``MAX_AVATAR_SIZE`` once re-encoded."""
 
 
 _SAVE_OPTIONS = {"JPEG": {"quality": 90}, "WEBP": {"quality": 90}, "PNG": {}}
@@ -104,11 +114,9 @@ def strip_image_metadata(upload: "UploadedFile") -> ContentFile:
         output = io.BytesIO()
         clean.save(output, target, **_SAVE_OPTIONS[target])
     except (OSError, ValueError, KeyError, Image.DecompressionBombError) as exc:
-        raise AvatarReencodeError("This image could not be read.") from exc
+        raise AvatarUnreadableError() from exc
     if output.tell() > MAX_AVATAR_SIZE:
-        raise AvatarReencodeError(
-            f"This image is larger than {MAX_AVATAR_SIZE // (1024 * 1024)} MB once its metadata is removed."
-        )
+        raise AvatarTooLargeError()
 
     name = os.path.basename(upload.name or "avatar")
     extension = _EXTENSION[target]
