@@ -618,10 +618,9 @@ def user_collection_detail(request: Request, collection_id: int) -> Response:
 
     elif request.method == "DELETE":
         collection.delete()
-        return Response(
-            {"message": "Collection deleted successfully"},
-            status=status.HTTP_204_NO_CONTENT,
-        )
+        # A 204 has no body (todo 599 item 5): the message it used to carry
+        # was undocumented, and HTTP clients may drop it anyway.
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
 
 @vs.PREVIOUS_SEARCHES_SCHEMA

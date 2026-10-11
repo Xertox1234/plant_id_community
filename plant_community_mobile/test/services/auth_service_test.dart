@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:collection';
 import 'dart:convert';
 import 'dart:io';
 
@@ -1446,6 +1447,47 @@ void main() {
     });
   });
 
+  group('todo 587', () {
+    test('item 2: a refresh 409 overtaken mid-clear keeps the newer tokens',
+        () async {
+      // The in-memory store the mock platform deletes from. Once armed, the
+      // first delete is where B signs in and its exchange stores B's refresh
+      // token, before A's conflict handler issues its second delete.
+      late _Harness harness;
+      late _OnRemoveMap store;
+      var armed = false;
+      store = _OnRemoveMap((key) {
+        if (!armed || key != 'django_jwt_token') return;
+        armed = false;
+        harness.firebaseAuth.currentUser = _FakeUser(uid: 'bob');
+        store['django_refresh_token'] = 'bob-refresh';
+      });
+      FlutterSecureStorage.setMockInitialValues(store);
+      harness = _Harness(currentUser: _FakeUser(uid: 'ada'));
+      addTearDown(harness.dispose);
+      await pumpEventQueue();
+      harness.api.postError = ApiException(
+        'Account linking conflict',
+        statusCode: 409,
+        code: 'account_conflict',
+      );
+      armed = true;
+
+      await expectLater(
+        harness.api.accessTokenRefresher!(),
+        throwsA(isA<ApiException>()),
+      );
+
+      const storage = FlutterSecureStorage();
+      expect(
+        await storage.read(key: 'django_refresh_token'),
+        'bob-refresh',
+        reason: "A's overtaken conflict handler deleted B's token",
+      );
+      expect(harness.container.read(authServiceProvider).error, isNull);
+    });
+  });
+
   group('session-expiry exemption', () {
     test('signOut\'s FCM-clear PATCH carries skipSessionExpiryKey', () async {
       // Asserted through the REQUEST options, not a notifier flag — there is
@@ -1526,6 +1568,35 @@ void main() {
 
 /// Wires a [ProviderContainer] with fakes for every collaborator the notifier
 /// reaches: Firebase auth, the API, and push registration.
+/// A string map that calls [onRemove] after each removal: the in-memory
+/// secure-storage mock deletes through `remove`, so a test can act at the
+/// exact moment the notifier's delete lands.
+class _OnRemoveMap extends MapBase<String, String> {
+  _OnRemoveMap(this.onRemove);
+
+  final void Function(String key) onRemove;
+  final Map<String, String> _inner = {};
+
+  @override
+  String? operator [](Object? key) => _inner[key];
+
+  @override
+  void operator []=(String key, String value) => _inner[key] = value;
+
+  @override
+  void clear() => _inner.clear();
+
+  @override
+  Iterable<String> get keys => _inner.keys;
+
+  @override
+  String? remove(Object? key) {
+    final removed = _inner.remove(key);
+    if (key is String) onRemove(key);
+    return removed;
+  }
+}
+
 class _Harness {
   _Harness({
     User? currentUser,

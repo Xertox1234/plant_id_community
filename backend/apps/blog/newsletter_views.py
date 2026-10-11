@@ -20,6 +20,7 @@ import logging
 from functools import partial
 from urllib.parse import urlencode
 
+from apps.core.openapi import RATE_LIMITED
 from apps.core.ratelimit import client_ip_key
 from django.conf import settings
 from django.db import transaction
@@ -86,7 +87,7 @@ _TOKEN_SCHEMA = extend_schema(
     request=inline_serializer(
         "NewsletterTokenRequest", {"token": serializers.CharField()}
     ),
-    responses={200: _STATE, 400: _TOKEN_ERROR},
+    responses={200: _STATE, 400: _TOKEN_ERROR, 429: RATE_LIMITED},
     examples=[
         OpenApiExample(
             "Token from the email link",
@@ -102,7 +103,8 @@ _TOKEN_SCHEMA = extend_schema(
     responses={
         202: inline_serializer(
             "NewsletterSubscribeAccepted", {"detail": serializers.CharField()}
-        )
+        ),
+        429: RATE_LIMITED,
     },
     examples=[
         OpenApiExample(
@@ -167,7 +169,7 @@ def newsletter_unsubscribe(request: Request) -> Response:
 @extend_schema(
     request=None,
     parameters=[OpenApiParameter("token", str, OpenApiParameter.QUERY, required=True)],
-    responses={200: _STATE, 400: _TOKEN_ERROR},
+    responses={200: _STATE, 400: _TOKEN_ERROR, 429: RATE_LIMITED},
 )
 @api_view(["GET", "POST"])
 @authentication_classes([])
