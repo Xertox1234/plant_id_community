@@ -523,3 +523,9 @@ Compact checklist auto-injected before edits. Long-form: `backend/docs/patterns/
   another `-` segment kills the prose case and keeps every real spelling. Every
   narrowing change adds the leaks it must still catch to the test, beside the
   false positives it removes (PR #1016 review, `HOME_PATH_RE`).
+- **A format-keyed image re-encode map must list `MPO`, have no fallback format,
+  and re-check the size after encoding.** Pillow opens most phone-camera JPEGs
+  (gain map / depth frame) as `MPO`, not `JPEG`. A `.get(fmt, "PNG")` fallback
+  turned a 2.56 MB photo into a 5.76 MB PNG after the 2 MB check had passed.
+  Map `MPO` to `JPEG`, raise on an unknown format, and compare the encoded
+  bytes against the upload limit (`backend/apps/users/avatars.py`, PR #1028).

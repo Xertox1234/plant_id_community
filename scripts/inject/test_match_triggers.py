@@ -1584,5 +1584,58 @@ class ForumFullRowPostSaveTrigger(unittest.TestCase):
         ))
 
 
+
+class TestRun1448Triggers(unittest.TestCase):
+    """Codify of todo-sweep run 2026-10-11-1448, against the REAL index. The
+    positives are the shipped code before its fix; the negatives are the fix."""
+
+    HOOK = "backend/packages/wagtail_forum/wagtail_forum/wagtail_hooks.py"
+    AVATARS = "backend/apps/users/avatars.py"
+
+    @classmethod
+    def setUpClass(cls):
+        root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+        cls.real = mt.load_triggers(root)
+
+    def hit(self, path, content, trigger):
+        tn, ti = write(path, content)
+        return trigger in ids(mt.find_matches(tn, ti, self.real, None))
+
+    def test_edit_hook_without_accepts_fires(self):
+        self.assertTrue(self.hit(self.HOOK, (
+            '@hooks.register("after_edit_snippet")\n'
+            "def screen_admin_edit_of_a_pending_opening_post(request, instance):\n"
+            '    if any(key.startswith("action-") for key in request.POST):\n'
+            "        return None\n"
+        ), "wagtail-edit-hook-autosave"))
+
+    def test_edit_hook_with_accepts_silent(self):
+        self.assertFalse(self.hit(self.HOOK, (
+            '@hooks.register("after_edit_snippet")\n'
+            "def screen_admin_edit_of_a_pending_opening_post(request, instance):\n"
+            '    if not request.accepts("text/html"):\n'
+            "        return None\n"
+        ), "wagtail-edit-hook-autosave"))
+
+    def test_other_hook_silent(self):
+        self.assertFalse(self.hit(self.HOOK, (
+            '@hooks.register("construct_main_menu")\ndef menu(request, items):\n    pass\n'
+        ), "wagtail-edit-hook-autosave"))
+
+    def test_reencode_map_without_mpo_fires(self):
+        self.assertTrue(self.hit(self.AVATARS, (
+            '_REENCODE = {"JPEG": "JPEG", "PNG": "PNG", "WEBP": "WEBP", "GIF": "PNG"}\n'
+        ), "image-reencode-map-needs-mpo"))
+
+    def test_reencode_map_with_mpo_silent(self):
+        self.assertFalse(self.hit(self.AVATARS, (
+            '_REENCODE = {"JPEG": "JPEG", "MPO": "JPEG", "PNG": "PNG", "WEBP": "WEBP", "GIF": "PNG"}\n'
+        ), "image-reencode-map-needs-mpo"))
+
+    def test_unrelated_jpeg_string_silent(self):
+        self.assertFalse(self.hit(self.AVATARS, (
+            'ALLOWED = ["JPEG", "PNG"]\nimg.save(out, format="JPEG")\n'
+        ), "image-reencode-map-needs-mpo"))
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

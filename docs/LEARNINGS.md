@@ -7215,3 +7215,38 @@ Two near-misses in run 2026-10-11-0401, both where the engine's verdict was corr
 criterion that tests the behaviour, not one that records the answer. Before arming a PR the review called
 clean, read its round-2 mediums for anything that weakens a guard, a leak check, or a CI tripwire, and
 take those to the owner; one confirmed in both rounds is not a nit.
+
+## 2026-10-11 — An armed PR stalled on a conflict no check reported (run 2026-10-11-1448, PRs #1034/#1035)
+
+**What happened.** #1034 and #1035 were in different waves of the same sweep and each added a log-prefix
+gate to `.github/workflows/harness-ci.yml` at the same two spots. #1034 merged first. #1035 was armed with
+every check green, but GitHub reported `mergeStateStatus: DIRTY` and auto-merge never fired. The poll
+watching it exited only on `MERGED`, `CLOSED` or a failed check, so it ran for 50 minutes and timed out
+before anyone looked.
+
+**Root cause.** A merge conflict is not a check. It shows up only in `mergeable: CONFLICTING` /
+`mergeStateStatus: DIRTY`, which a check-rollup poll never reads. The sweep's lanes keep two groups off the
+same source files, but CI workflow files are touched as a side effect (a new gate per todo), so two groups
+can both append to one.
+
+**The fix.** Merged origin/main into the branch (a merge commit, so no force-push), kept both sides, and
+re-ran the two gates on the merged tree before pushing. The poll now also exits on `DIRTY`.
+
+**General rule.** A loop that waits on an armed PR must read `mergeStateStatus` as well as the checks, and
+treat `DIRTY` as a stop. When two todos in one run each add a CI gate, expect them to collide in the
+workflow file, and resolve by keeping both.
+
+## 2026-10-11 — Three PRs in one run shipped guard tests that pass without the guard (run 2026-10-11-1448)
+
+**What happened.** Review rounds found a hollow guard test on three separate PRs: a whole-`Mock` cache that
+never exercised the `owned` arm of a lock release (#1037), an `update_fields` test that a re-read under lock
+made pass either way (#1033), and a parent-side `+ newReplyCount` with no test because the child's tests
+passed `postCount` as a literal (#1035). Workers wrote each one, and the verifier accepted it, because the
+test was green and named the behaviour.
+
+**Root cause.** Nobody deleted the guarded line and re-ran. The existing rule (mutate back to the naive
+version) is phrased for leak guards, and was not applied to locks, saves or derived props.
+
+**The fix.** Filed as follow-ups (todos 594, 595, 588). The testing rule now names the three shapes.
+
+**General rule.** For every guard you add, delete it, run its test, and see red before you call it tested.

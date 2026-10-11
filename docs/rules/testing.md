@@ -684,3 +684,11 @@ Compact checklist auto-injected before edits.
   read, so `while len(buf) < n: buf += sock.recv(...)` spins forever and hangs
   the suite instead of failing. Read into `chunk`, `break` when it is empty,
   then assert on `buf` (todo 550 review, `test_link_preview.py`).
+- **A guard test must fail with the guarded line deleted; three shapes hide
+  that.** (1) Mocking a whole collaborator: a `Mock()` cache makes `get()` return
+  a Mock that never equals the token, so an `owned and …` arm is never exercised
+  (PR #1037). (2) Asserting state the code re-reads anyway: a re-read under
+  lock keeps the moderator's field whether or not `update_fields` is passed
+  (PR #1033). (3) Testing a child with a literal prop: the parent's
+  `+ newReplyCount` in `postCount` had no test at all (PR #1035). For each guard
+  you add, delete it, run the test, and expect red.
