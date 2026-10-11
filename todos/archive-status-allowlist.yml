@@ -122,7 +122,6 @@ grandfathered_unchecked_acs:
   - todos/archive/328-completed-p4-page-url-nested-site-disambiguation-gap.md
   - todos/archive/360-completed-p1-firebase-secret-alerts-disposition.md
   - todos/archive/382-completed-p1-firebase-api-key-shared-across-platforms.md
-  - todos/archive/383-completed-p2-firebase-hardening-carryover.md
 
 # Todo 492 (owner decision 2026-10-10): archived todos whose `## Work Log` already
 # named a local home path (`/Users/<name>` or `/home/<name>`) when the

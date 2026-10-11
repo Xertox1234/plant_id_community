@@ -91,7 +91,7 @@ answer one yourself. Record each answer with `python3 scripts/todos/state.py dec
 | `ready` with a question | the question's options | `ready --decision "<answer> ($TODAY)"` |
 | `blocked-*`, `needs-design` | "Unblocked: …" / "Still blocked" / "Skip this run" | `ready --decision …` / `blocked --decision "<why>"` / `skipped` |
 | `already-done` | "Archive as done (verify only)" / "Not done" | `ready --verify-only` / `ready` |
-| `stale` | "Supersede" / "Keep" | Supersede: re-point each open criterion (`→ todo NNN (re-pointed $TODAY)`) and archive the todo as `superseded` inside the triage PR, then `skipped --decision "superseded: …"`. Keep: `blocked --decision …` |
+| `stale` | "Supersede" / "Keep" | Supersede: re-point each open criterion (`→ todo NNN (re-pointed $TODAY)`; put the marker at the end of the criterion's checkbox line, or of its last wrapped line, since both parsers read a wrapped criterion as one unit, todo 572) and archive the todo as `superseded` inside the triage PR, then `skipped --decision "superseded: …"`. Keep: `blocked --decision …` |
 | stranded (`in_progress`, nothing in flight) | "Reset to pending" / "Leave it" | `ready --reset-stranded` / `blocked --decision …` |
 | `needs-research` | none needed | `ready` (a planner runs first) |
 

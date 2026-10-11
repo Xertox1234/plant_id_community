@@ -3340,6 +3340,33 @@ def todo_546_tests():
         {"line": "medium: a.py:9 missing test", "why": "refuted: there is one"}]}])
     check("551 #3: a dropped phrasing does not cover an identical summary in another file the curator left out",
           run["groups"]["g1"]["curated"] == ["low: b.py:4 missing test"], run["groups"]["g1"])
+    # Todo 577 #2: a KEPT phrasing covers one stored line too, not every identical one in other files.
+    run = merged_run([f("medium", 9, "missing test"), f("low", 4, "missing test", file="b.py")])
+    state.ingest_followups(run, [{"group": "g1", "ids": ["1"], "refuter_ok": True, "dropped": [], "kept": [
+        {"severity": "medium", "file": "a.py", "line": 9, "summary": "missing test", "also": []}]}])
+    check("577 #2: a kept phrasing does not hide an identical stored summary in another file",
+          run["groups"]["g1"]["curated"] == ["medium: a.py:9 missing test", "low: b.py:4 missing test"],
+          run["groups"]["g1"])
+    # Todo 577 #3: ... nor one far away in the same file that nobody merged,
+    run = merged_run([f("medium", 9, "missing test"), f("low", 80, "missing test")])
+    state.ingest_followups(run, [{"group": "g1", "ids": ["1"], "refuter_ok": True, "kept": [], "dropped": [
+        {"line": "medium: a.py:9 missing test", "why": "refuted: there is one"}]}])
+    check("577 #3: a dropped phrasing does not swallow an identical, unmerged summary elsewhere in its file",
+          run["groups"]["g1"]["curated"] == ["low: a.py:80 missing test"], run["groups"]["g1"])
+    # ... while a duplicate the curator merged from ANOTHER file stays covered, refuted or kept (the 546 rule).
+    run = merged_run([f("medium", 9, "real"), f("low", 2, "the same thing in other words", file="b.py")])
+    state.ingest_followups(run, [{"group": "g1", "ids": ["1"], "refuter_ok": True, "kept": [], "dropped": [
+        {"line": "medium: a.py:9 real | also: the same thing in other words", "why": "refuted: wrong"}]}])
+    check("577 #3: a refuted cross-file merged duplicate stays refuted, not an uncovered follow-up",
+          run["groups"]["g1"]["curated"] == [] and "did not return" not in run["groups"]["g1"]["curation"],
+          run["groups"]["g1"])
+    run = merged_run([f("medium", 9, "real"), f("low", 2, "the same thing in other words", file="b.py")])
+    state.ingest_followups(run, [{"group": "g1", "ids": ["1"], "refuter_ok": True, "dropped": [], "kept": [
+        {"severity": "medium", "file": "a.py", "line": 9, "summary": "real",
+         "also": ["the same thing in other words"]}]}])
+    check("577 #3: ... and a kept cross-file merge covers its duplicate the same way",
+          run["groups"]["g1"]["curated"] == ["medium: a.py:9 real | also: the same thing in other words"],
+          run["groups"]["g1"])
 
     # Beyond the cap: a re-verify brief records an absolute --main-root too.
     with tempfile.TemporaryDirectory() as tmp:

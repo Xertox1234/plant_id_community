@@ -14,14 +14,18 @@ land in the main checkout. This hook denies, for agent_type `todo-worker` only:
     different one;
   - otherwise (the cwd is the main checkout, or a session's own worktree that the engine ran from and the
     worker inherited, todo 546), a target in a worktree that is no worker's: neither that session's worktree
-    nor a human's (`todo-543-hand-round-guards`) is a worker's to edit. Any worker worktree is allowed, not
-    only `sweep-*` (todo 551): a retry or a round-1 repair worker runs without isolation and edits the
-    group's recorded worktree, which is a harness one (`wf_*`, `agent-*`) when the brief had no worktree or
-    the attempt predates todo 528.
+    nor a human's (`todo-543-hand-round-guards`) is a worker's to edit. A `sweep-*` worktree is allowed. A
+    harness one (`wf_*`, `agent-*`) is allowed only when a sweep run file records it as a todo's `worktree`
+    (todo 577 #5): a retry or a round-1 repair worker runs without isolation and edits the group's recorded
+    worktree, which is a harness one when the brief had no worktree or the attempt predates todo 528 (todo
+    551), but another workflow's or agent's isolated worktree, or a human's named `wf_*`, is no group's. The
+    run files read are `todos/.sweep-run-*.json` in the main checkout and in the cwd's own checkout (the
+    engine's session may run from a worktree); one that cannot be read records nothing.
 
 A target outside the repository ($TMPDIR, a scratchpad, the review round's repair worktrees) is allowed. Every
-other agent passes through. The hook cannot read the brief, so it cannot tell the worker's own sweep worktree
-from another group's when the cwd is the main checkout; the worker's prompt names it. Fails open when the event
+other agent passes through. The hook cannot read the brief: a PreToolUse event names the subagent (`agent_id`,
+`agent_type`) but carries neither its prompt nor its transcript. So from the main checkout it cannot tell the
+worker's own recorded worktree from another group's recorded one; the worker's prompt names it. Fails open when the event
 is unparseable or the cwd is in no git checkout (exit 2 would block every edit in the session). A mistake guard,
 not a security boundary: paths are compared after realpath with `startswith`, which does not fold case, so on a
 case-insensitive APFS volume a differently-cased path into the main checkout is not caught.
@@ -29,6 +33,7 @@ case-insensitive APFS volume a differently-cased path into the main checkout is 
 Tests: .claude/hooks/test-guard-todo-worker-edit.sh
 """
 
+import glob
 import json
 import os
 import subprocess
@@ -67,6 +72,37 @@ def _is_worker(wt):
     return os.path.basename(wt).startswith(WORKER_PREFIXES)
 
 
+def _checkout_root(cwd):
+    proc = subprocess.run(["git", "-C", cwd, "rev-parse", "--show-toplevel"], capture_output=True, text=True)
+    return os.path.realpath(proc.stdout.strip()) if proc.returncode == 0 and proc.stdout.strip() else None
+
+
+def _run_entries(*roots):
+    """Every todo entry in the sweep run files under each root's `todos/`. An unreadable file has none."""
+    for root in {r for r in roots if r}:
+        for path in glob.glob(os.path.join(root, "todos", ".sweep-run-*.json")):
+            try:
+                with open(path, encoding="utf-8") as fh:
+                    run = json.load(fh)
+            except (OSError, ValueError):
+                continue
+            todos = run.get("todos", {}) if isinstance(run, dict) else {}
+            yield from (e for e in (todos.values() if isinstance(todos, dict) else ()) if isinstance(e, dict))
+
+
+def recorded_worktrees(*roots):
+    """Every todo `worktree` the sweep run files under each root's `todos/` record, realpath'd (todo 577 #5)."""
+    return {os.path.realpath(e["worktree"]) for e in _run_entries(*roots)
+            if isinstance(e.get("worktree"), str) and e["worktree"]}
+
+
+def awaiting_a_worktree(*roots):
+    """Whether a run has a todo executing with no recorded worktree (PR #1038 review). Its brief named none, so
+    todo-execute gave the worker a harness-isolated one, and its retry edits that from the main checkout before
+    ingest-execute records it. Dormant since todo 528 (execute-args always records one), but not refused."""
+    return any(e.get("stage") == "executing" and not e.get("worktree") for e in _run_entries(*roots))
+
+
 def decide(event):
     if event.get("agent_type") not in GUARDED:
         return None
@@ -96,6 +132,12 @@ def decide(event):
     if not _is_worker(wt):
         return (f"a todo-worker edits only inside its worktree (the prompt's WORKTREE), not {wt}, which is no "
                 "worker's worktree")
+    # Todo 577 #5: a harness worktree is a worker's only when a run records it as a group's.
+    roots = (main, _checkout_root(cwd))
+    if (not os.path.basename(wt).startswith("sweep-") and wt not in recorded_worktrees(*roots)
+            and not awaiting_a_worktree(*roots)):
+        return (f"a todo-worker edits only inside its worktree (the prompt's WORKTREE), not {wt}: no sweep run "
+                "records it as a todo's worktree")
     return None
 
 

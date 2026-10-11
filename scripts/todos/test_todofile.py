@@ -227,6 +227,20 @@ def main():
         check("468 N3: an indented fence under a criterion ends it, and the fenced example is skipped",
               [b[2] for b in boxes] == ["- [ ] Criterion one", "- [ ] Criterion two"], boxes)
 
+        # Todo 577 #1: a ```python line inside a ```markdown block is content, not a closer; the toggle
+        # this replaced flipped on it and hid the real boxes after the block.
+        nested = write(tmp, "---\nstatus: pending\n---\n# t\n\n## Acceptance Criteria\n\n"
+                            "```markdown\n- [ ] example\n```python\nx = 1\n```\n"
+                            "- [ ] Real one\n- [x] Real two\n\n## Work Log\n", "577-pending-p4-n.md")
+        boxes = tf.ac_lines(nested.read_text())
+        check("577 #1: ac_lines matches fences by character and length, so boxes after a nested block count",
+              [(b[1], b[2]) for b in boxes] == [(False, "- [ ] Real one"), (True, "- [x] Real two")], boxes)
+        quoted = write(tmp, "---\nstatus: pending\n---\n# t\n\n## Acceptance Criteria\n\n"
+                            "````\n```\n- [ ] quoted\n```\n````\n- [ ] Real\n", "577-pending-p4-q.md")
+        boxes = tf.ac_lines(quoted.read_text())
+        check("577 #1: ... and a ``` inside a ```` block neither closes it nor exposes its box",
+              [b[2] for b in boxes] == ["- [ ] Real"], boxes)
+
         tf.append_work_log(p, "### 2026-09-27 - Verified\n\n- ok.\n")
         text = p.read_text()
         check("work log entry lands before ## Notes",
