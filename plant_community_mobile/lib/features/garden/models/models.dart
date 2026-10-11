@@ -1,9 +1,5 @@
-/// Garden Models Barrel Export
-///
-/// Central export file for all garden-related data models.
+/// Garden models: the houseplant core of `apps/garden_calendar` (todo 386).
 library;
 
-export 'garden_bed.dart';
 export 'garden_plant.dart';
 export 'care_task.dart';
-export 'weather_data.dart';

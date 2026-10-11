@@ -28,8 +28,10 @@ Future<void> pushBackgroundMessageHandler(RemoteMessage message) async {
   }
 }
 
-/// Routes a tapped forum push notification to its topic (and highlights the
-/// post, when the payload carries one) — todo 311.
+/// Routes a tapped push notification: a forum push to its topic (and
+/// highlights the post, when the payload carries one) — todo 311; a care
+/// reminder (`event: care_task_due`, sent by `garden_calendar`'s reminder
+/// sweep, todo 410) to the garden — todo 386.
 ///
 /// A sibling to `PushRegistrationService`, not an extension of it: token
 /// registration is scoped to login/logout, tap-routing is scoped to the
@@ -112,6 +114,18 @@ class PushMessageRouterService {
   }
 
   void _route(RemoteMessage message, {required bool isColdStart}) {
+    // A care reminder carries `care_task_uuid`/`plant_uuid`/`count` and no
+    // `topic_id`, so it must be recognised before the forum parse below
+    // discards it as unroutable.
+    if (message.data['event'] == careTaskDueEvent) {
+      final router = routerAccessor();
+      if (isColdStart) {
+        router.go(AppRoutes.home);
+      }
+      router.push(AppRoutes.garden);
+      return;
+    }
+
     final topicId = _parseId(message.data['topic_id']);
     if (topicId == null) {
       // Malformed/unroutable payload (e.g. a future moderation_decided-
@@ -139,6 +153,10 @@ class PushMessageRouterService {
     _openedAppSubscription = null;
   }
 }
+
+/// The `event` of a care-reminder push (`CARE_REMINDER_EVENT` in
+/// `backend/apps/garden_calendar/constants.py`).
+const String careTaskDueEvent = 'care_task_due';
 
 /// Parses an FCM data-payload value as an int. FCM data values are always
 /// strings, but a missing key must be treated as absent — not as an empty

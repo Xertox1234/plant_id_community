@@ -1,11 +1,21 @@
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import '../../core/constants/app_spacing.dart';
+import '../../core/routing/app_router.dart';
 import '../../shared/widgets/canopy_surfaces.dart';
 import '../../core/theme/green_thumb_extension.dart';
 
-/// Plant care guides hub (stub). Lists the core care categories; full guides
-/// are not yet implemented.
+/// The tag the CMS care guides carry (`CARE_GUIDE_TAG` in
+/// `backend/apps/blog/care_topics.py`, todo 445).
+const String careGuideTag = 'care-guide';
+
+/// Plant care guides hub. Each category card opens the care guides: the
+/// published Wagtail blog posts tagged [careGuideTag], so guides are edited
+/// in the CMS without an app release (todo 386 owner decision).
+///
+/// The CMS has one tag for every guide, not one per category, so every card
+/// opens the same list, titled for the card that opened it.
 class CareScreen extends StatelessWidget {
   const CareScreen({super.key});
 
@@ -48,14 +58,6 @@ class CareScreen extends StatelessWidget {
                   padding: EdgeInsets.only(bottom: ext.gapY),
                   child: _CategoryCard(category: c, ext: ext),
                 ),
-              ),
-              SizedBox(height: ext.gapY),
-              Text(
-                'Full care guides coming soon',
-                style: Theme.of(
-                  context,
-                ).textTheme.bodySmall?.copyWith(color: ext.ink3),
-                textAlign: TextAlign.center,
               ),
             ],
           ),
@@ -116,6 +118,13 @@ class _CategoryCard extends StatelessWidget {
     return CanopyCard(
       padding: EdgeInsets.zero,
       child: ListTile(
+        onTap: () => context.push(
+          Uri(
+            path: AppRoutes.blog,
+            queryParameters: {'tag': careGuideTag},
+          ).toString(),
+          extra: '${category.title} guides',
+        ),
         contentPadding: EdgeInsets.all(ext.padCard),
         leading: Container(
           padding: const EdgeInsets.all(AppSpacing.sm),
