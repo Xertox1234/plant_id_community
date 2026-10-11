@@ -71,4 +71,8 @@ def send_blog_weekly_newsletter(self):
     finally:
         for line in out.getvalue().splitlines():
             if line.strip():
+                # No prefix of our own: this relays `send_blog_newsletter`'s stdout, and
+                # every line it writes already opens with [EMAIL]. Adding one
+                # here would log "[EMAIL] [EMAIL] ..." (todo 392).
+                # log-prefix: exempt (relayed command output, already prefixed)
                 logger.info("%s (task=%s)", line, self.request.id)

@@ -949,3 +949,25 @@ def test_weekly_digest_task_re_enqueues_itself_after_a_soft_time_limit():
             tasks.send_forum_weekly_digest.apply()
 
     again.assert_called_once_with(countdown=tasks.DIGEST_CONTINUATION_DELAY)
+
+
+@pytest.mark.django_db
+def test_weekly_digest_relays_the_real_command_output_with_one_prefix(caplog):
+    """Todo 392: the relay loop adds no prefix because the package command
+    already writes `[EMAIL] ...`. Run the REAL command (no call_command mock)
+    and read what the task actually logs: exactly one `[EMAIL]` per line."""
+    from apps.forum_host import tasks
+
+    with caplog.at_level("INFO", logger=tasks.logger.name):
+        tasks.send_forum_weekly_digest.apply()
+
+    relayed = [
+        r.getMessage()
+        for r in caplog.records
+        if r.name == tasks.logger.name and "starting" not in r.getMessage()
+    ]
+    for line in relayed:
+        print(f"relayed: {line}")
+    assert relayed, "the command wrote nothing for the task to relay"
+    assert all(line.startswith("[EMAIL] digest frequency=weekly") for line in relayed)
+    assert not any("[EMAIL] [EMAIL]" in line for line in relayed)

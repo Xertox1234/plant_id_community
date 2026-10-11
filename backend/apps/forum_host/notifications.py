@@ -467,7 +467,7 @@ def dispatch(event, **kwargs):
                         )
                 else:
                     logger.info(
-                        "forum.topic_created topic=%s (no author to auto-subscribe)",
+                        "[FORUM] topic_created topic=%s (no author to auto-subscribe)",
                         topic_id,
                     )
 
@@ -520,4 +520,4 @@ def dispatch(event, **kwargs):
             )
 
     else:
-        logger.warning("forum_host.notifications: unknown event %r", event)
+        logger.warning("[FORUM] notifications: unknown event %r", event)

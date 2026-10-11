@@ -4,12 +4,17 @@ Garden Calendar Signals
 Signal handlers for automatic actions when calendar events occur.
 """
 
+import logging
+
 from apps.core.services.notification_service import NotificationService
+from django.core.management.base import BaseCommand
 from django.db.models.signals import post_delete, post_save
 from django.dispatch import receiver
 from django.utils import timezone
 
 from .models import CommunityEvent, EventAttendee, WeatherAlert
+
+logger = logging.getLogger(__name__)
 
 
 @receiver(post_save, sender=CommunityEvent)
@@ -52,10 +57,7 @@ def notify_community_event_created(sender, instance, created, **kwargs):
 
         except Exception as e:
             # Log error but don't fail the event creation
-            import logging
-
-            logger = logging.getLogger(__name__)
-            logger.error(f"Failed to send community event notifications: {e}")
+            logger.error(f"[NOTIFY] Failed to send community event notifications: {e}")
 
 
 @receiver(post_save, sender=EventAttendee)
@@ -79,10 +81,7 @@ def notify_event_rsvp_updated(sender, instance, created, **kwargs):
                     },
                 )
         except Exception as e:
-            import logging
-
-            logger = logging.getLogger(__name__)
-            logger.error(f"Failed to send RSVP notification: {e}")
+            logger.error(f"[NOTIFY] Failed to send RSVP notification: {e}")
 
 
 @receiver(post_save, sender=WeatherAlert)
@@ -127,10 +126,7 @@ def notify_weather_alert_created(sender, instance, created, **kwargs):
                 )
 
         except Exception as e:
-            import logging
-
-            logger = logging.getLogger(__name__)
-            logger.error(f"Failed to send weather alert notifications: {e}")
+            logger.error(f"[NOTIFY] Failed to send weather alert notifications: {e}")
 
 
 @receiver(post_delete, sender=CommunityEvent)
@@ -146,14 +142,10 @@ def cleanup_orphaned_forum_topics(sender, instance, **kwargs):
         # For now, we'll leave forum topics intact
         pass
     except Exception as e:
-        import logging
-
-        logger = logging.getLogger(__name__)
-        logger.error(f"Error cleaning up deleted community event: {e}")
+        logger.error(f"[GARDEN] Error cleaning up deleted community event: {e}")
 
 
 # Weather alert cleanup task - remove expired alerts
-from django.core.management.base import BaseCommand
 
 
 class Command(BaseCommand):
