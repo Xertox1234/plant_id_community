@@ -597,7 +597,7 @@ def _local_names(func):
     return names
 
 
-def _scopes(tree, step):
+def _scopes(tree, step, is_source=lambda n: False, seeds=None):
     """Visit the module, then every function and lambda, parents first.
 
     ``step(scope, inherited)`` returns the scope's tainted names, which its
@@ -613,29 +613,59 @@ def _scopes(tree, step):
     until no scope learns a new name. ``step`` therefore runs more than once
     on such a file and must be idempotent; without a tainted ``nonlocal`` it is
     one pass, which is every file on the tree today.
+
+    A tainted ``global`` is hoisted the same way, to the module (todo 589,
+    finding 3): ``global LAST; LAST = str(e)`` in one function reaches a
+    SIBLING ``def status(): return {"error": LAST}``, not only the declaring
+    function and its closures.
+
+    Two more channels into a child (todo 589). ``seeds`` maps ``id(child)`` to
+    names its parent's ``step`` decided the child sees (a handler's exception
+    for a def that runs inside it). A parameter whose DEFAULT carries a tainted
+    name, or a source, is tainted in the child: the default is evaluated in the
+    parent (findings 1, 4, 8). And a def or lambda inside a comprehension does
+    NOT inherit the comprehension's own variable when it is bound from a clean
+    iterable -- it reads the comprehension's, not the parent's (finding 5).
     """
     hoisted = {}  # id(scope) -> names a nested def rebound there via nonlocal
+    seeds = {} if seeds is None else seeds
     while True:
         changed = False
-        stack = [(tree, frozenset(), ())]
+        stack = [(tree, frozenset(), (), frozenset(), frozenset())]
         while stack:
-            scope, inherited, enclosing = stack.pop()
+            scope, inherited, enclosing, masked, captured = stack.pop()
             if scope is not tree:
                 inherited = inherited - _local_names(scope)
-            # Hoisted names are the scope's OWN locals, so they join after the
-            # subtraction above.
-            tainted = frozenset(
-                step(scope, inherited | hoisted.get(id(scope), frozenset()))
-            )
+            # Hoisted names, seeds and captured parameters are the scope's
+            # OWN locals, so they join after the subtraction above.
+            inherited = (inherited | seeds.get(id(scope), frozenset())) - masked
+            inherited |= captured | hoisted.get(id(scope), frozenset())
+            tainted = frozenset(step(scope, inherited))
             for name in _nonlocal_names(scope) & tainted:
                 owner = _nonlocal_owner(name, enclosing)
                 if owner is not None and name not in hoisted.get(id(owner), ()):
                     hoisted.setdefault(id(owner), set()).add(name)
                     changed = True
+            if scope is not tree:
+                for name in _global_names(scope) & tainted:
+                    if name not in hoisted.get(id(tree), ()):
+                        hoisted.setdefault(id(tree), set()).add(name)
+                        changed = True
             chain = enclosing if scope is tree else (scope, *enclosing)
+            own = list(_own_nodes(scope))
+            masks = {}
+            shadowed = _comprehension_shadowed(own, tainted, is_source, masks)
             stack.extend(
-                (child, tainted, chain)
-                for child in _own_nodes(scope)
+                (
+                    child,
+                    tainted,
+                    chain,
+                    frozenset(masks.get(id(child), ())),
+                    frozenset(
+                        _params_defaulting_to(child, tainted, is_source, shadowed)
+                    ),
+                )
+                for child in own
                 if isinstance(child, _SCOPES)
             )
         if not changed:
@@ -746,17 +776,30 @@ def _tainted_names(scope, is_source, seed=()):
 
     ``seed`` names are tainted from the start: a closure's inherited taint, or
     the locals a handler derived from its exception (todo 440).
+
+    A read of a comprehension's own variable, bound from a clean iterable, is
+    not a read of the tainted name it spells (todo 589, findings 2 and 9):
+    ``out = ", ".join(line for line in items)`` in a child does not carry the
+    parent's ``line``. Recomputed every round, since a clean iterable can turn
+    tainted as the set grows.
     """
     bindings = list(_bindings(scope))
+    own = list(_own_nodes(scope))
     tainted = set(seed)
     changed = True
     while changed:
         changed = False
+        shadowed = _comprehension_shadowed(own, tainted, is_source)
         for names, value in bindings:
             if names <= tainted:
                 continue
             if any(
-                is_source(n) or (isinstance(n, ast.Name) and n.id in tainted)
+                is_source(n)
+                or (
+                    isinstance(n, ast.Name)
+                    and n.id in tainted
+                    and id(n) not in shadowed
+                )
                 for n in _carried(value)
             ):
                 tainted |= names
@@ -810,7 +853,7 @@ def _mentions(value, tainted, shadowed=frozenset()):
 _COMPREHENSIONS = (ast.ListComp, ast.SetComp, ast.GeneratorExp, ast.DictComp)
 
 
-def _comprehension_shadowed(nodes, tainted, is_source=lambda n: False):
+def _comprehension_shadowed(nodes, tainted, is_source=lambda n: False, masks=None):
     """``id()`` of every Name read, among ``nodes``, that resolves to a
     comprehension's own variable bound from an UNTAINTED iterable (todo 555).
 
@@ -821,6 +864,15 @@ def _comprehension_shadowed(nodes, tainted, is_source=lambda n: False):
     a tainted iterable is not shadowed -- ``[{"error": ln} for ln in
     response.text.splitlines()]`` still leaks. Nested comprehensions rebind in
     order, and a nested def or lambda is its own scope, so it is not entered.
+
+    Todo 589 (finding 5): that nested def or lambda still reads the
+    comprehension's variable as a free name, so its clean names go into
+    ``masks[id(scope)]`` for ``_scopes`` to withhold from it; its defaults and
+    decorators run in the comprehension, so they are visited here.
+
+    The iterable is judged with ``_carried``, like every other binding (todo
+    589, finding 6, declined): ``for msg in wrap(msg)`` is clean for the same
+    reason ``x = wrap(msg)`` is -- an opaque call's argument.
     """
     nodes = list(nodes)
     nested = {
@@ -841,6 +893,14 @@ def _comprehension_shadowed(nodes, tainted, is_source=lambda n: False):
 
     def visit(node, env):
         if isinstance(node, _SCOPES):
+            if masks is not None:
+                masks[id(node)] = {name for name, clean in env.items() if clean}
+            for outer in (
+                *node.args.defaults,
+                *(d for d in node.args.kw_defaults if d is not None),
+                *getattr(node, "decorator_list", []),
+            ):
+                visit(outer, env)
             return
         if isinstance(node, _COMPREHENSIONS):
             env = dict(env)  # name -> True when bound from an untainted iterable
@@ -935,19 +995,36 @@ def _loop_bodies(scope):
     return bodies
 
 
-def _params_defaulting_to(child, names):
-    """Parameters of ``child`` whose default mentions any of ``names``.
+def _params_defaulting_to(
+    child, names, is_source=lambda n: False, shadowed=frozenset()
+):
+    """Parameters of ``child`` whose default carries any of ``names``, or a
+    source.
 
     A default is evaluated where the def or lambda runs, not in its body:
     ``def render(exc=e)`` inside a handler captures the exception although the
-    parameter, as a local, shadows any inherited ``exc`` (todo 555)."""
+    parameter, as a local, shadows any inherited ``exc`` (todo 555). Todo 589
+    applies it to every def in every scope (``_scopes``), so ``def f(m=msg)``
+    after a handler that falls through, a def nested a level deeper, and
+    ``def g(b=response.text)`` are all followed. A default is a binding like
+    any other, so it carries what ``_carried`` carries: ``def f(m=clean(e))``
+    taints nothing. ``shadowed`` holds the reads that resolve to an enclosing
+    comprehension's own variable."""
     args = child.args
     positional = [*args.posonlyargs, *args.args]
     pairs = [
         *zip(positional[len(positional) - len(args.defaults) :], args.defaults),
         *((a, d) for a, d in zip(args.kwonlyargs, args.kw_defaults) if d is not None),
     ]
-    return {param.arg for param, default in pairs if _mentions(default, names)}
+    return {
+        param.arg
+        for param, default in pairs
+        if any(
+            is_source(n)
+            or (isinstance(n, ast.Name) and n.id in names and id(n) not in shadowed)
+            for n in _carried(default)
+        )
+    }
 
 
 def _exception_details_in_response_dicts(path):
@@ -1001,7 +1078,7 @@ def _exception_details_in_response_dicts(path):
     closure_seeds = {}
 
     def step(scope, inherited):
-        seeds = set(inherited) | closure_seeds.get(id(scope), set())
+        seeds = set(inherited)  # `_scopes` already joined closure_seeds
         enclosed = _enclosed_tries(scope)
         handlers = list(_named_handlers(scope))
         # The scope's own defs and lambdas, each with the names it binds itself
@@ -1013,7 +1090,9 @@ def _exception_details_in_response_dicts(path):
         )
         loops = _loop_bodies(scope) if handlers else []
         # Names that outlive the frame: a nonlocal or global the handler sets
-        # survives its raise or return (todo 555, finding 1).
+        # survives its raise or return (todo 555, finding 1). `_scopes` hoists
+        # a tainted global to the module, so a sibling function that reads it
+        # is flagged too (todo 589, finding 3).
         outliving = _nonlocal_names(scope) | _global_names(scope)
         for try_node, handler in handlers:
             # The exception itself, plus any local derived from it in the handler.
@@ -1050,7 +1129,7 @@ def _exception_details_in_response_dicts(path):
         check(_own_nodes(scope), tainted)
         return tainted
 
-    _scopes(tree, step)
+    _scopes(tree, step, seeds=closure_seeds)
     yield from ((line, src) for line, _, src in sorted(found.values()))
 
 
@@ -1097,7 +1176,9 @@ def _provider_body_in_response_dicts(path):
 
     def step(scope, inherited):
         if scope is tree:
-            return set()
+            # No taint pass over module code, but a global a function tainted
+            # (hoisted here by `_scopes`) reaches its siblings (todo 589).
+            return set(inherited)
         tainted = _tainted_names(scope, _is_body, seed=inherited)
         own = list(_own_nodes(scope))
         shadowed = _comprehension_shadowed(own, tainted, _is_body)
@@ -1113,7 +1194,7 @@ def _provider_body_in_response_dicts(path):
                     via_local.add(id(value))
         return tainted
 
-    _scopes(tree, step)
+    _scopes(tree, step, _is_body)
 
     found = set()  # (lineno, col, source): reported in line order (todo 490)
     for dict_node in (n for n in ast.walk(tree) if isinstance(n, ast.Dict)):
@@ -2063,6 +2144,153 @@ def nonlocal_rebinds_the_nearest_binder(response):
 
     middle()
     return {"error": f"outer {owner}"}
+
+
+# --- Todo 589 (PR #1026 follow-ups) --------------------------------------
+
+SIBLING_ERR = None
+BODY_CACHE = None
+
+
+def a_global_set_in_one_function():
+    global SIBLING_ERR
+    try:
+        requests.get("https://example.invalid")
+    except Exception as e:
+        SIBLING_ERR = str(e)
+        raise
+
+
+def a_sibling_reads_the_global():
+    return {"error": SIBLING_ERR}
+
+
+def approved_a_local_shadows_a_tainted_global():
+    SIBLING_ERR = "Service unavailable"
+    return {"error": f"local {SIBLING_ERR}"}
+
+
+def a_body_global_set_in_one_function(response):
+    global BODY_CACHE
+    BODY_CACHE = response.text
+
+
+def a_sibling_reads_the_body_global():
+    return {"error": BODY_CACHE}
+
+
+def a_later_default_reads_a_fallthrough_local():
+    try:
+        requests.get("https://example.invalid")
+    except Exception as e:
+        later_msg = str(e)
+        logger.error(later_msg)
+
+    def render(m=later_msg):
+        return {"error": f"later default {m}"}
+
+    return render()
+
+
+def a_default_two_defs_deep_captures_the_exception():
+    try:
+        requests.get("https://example.invalid")
+    except Exception as e:
+
+        def outer():
+            def render(c=e):
+                return {"error": f"deep default {c}"}
+
+            return render()
+
+        return outer()
+
+
+def approved_default_after_a_raising_handler():
+    try:
+        requests.get("https://example.invalid")
+    except Exception as e:
+        raised_msg = str(e)
+        logger.error(raised_msg)
+        raise
+
+    def render(rm=raised_msg):
+        return {"error": rm}
+
+    return render()
+
+
+def approved_default_through_an_opaque_call():
+    try:
+        requests.get("https://example.invalid")
+    except Exception as e:
+        opaque_msg = str(e)
+        logger.error(opaque_msg)
+
+    def render(om=readable_message(opaque_msg)):
+        return {"error": om}
+
+    return render()
+
+
+def a_default_carries_the_body(response):
+    def render(b=response.text):
+        return {"error": f"body default {b}"}
+
+    return render()
+
+
+def a_default_carries_a_body_local(response):
+    default_body = response.content
+
+    def render(b=default_body):
+        return {"error": f"body local default {b}"}
+
+    return render()
+
+
+def approved_child_joins_its_own_comprehension(response, items):
+    hop_line = response.text
+    logger.info("ok %s", hop_line)
+
+    def inner():
+        hop_out = ", ".join(hop_line for hop_line in items)
+        hop_list = [hop_line for hop_line in items]
+        return {"error": hop_out}, {"detail": hop_list}
+
+    return inner
+
+
+def approved_child_joins_a_comprehension_over_a_derived_name(items):
+    try:
+        requests.get("https://example.invalid")
+    except Exception as e:
+        hop_msg = str(e)
+        logger.error(hop_msg)
+
+    def inner():
+        hop_joined = ", ".join(hop_msg for hop_msg in items)
+        return {"error": hop_joined}
+
+    return inner
+
+
+def a_child_join_over_the_body_still_carries_it(response):
+    def inner():
+        joined_body = ", ".join(part for part in response.text.splitlines())
+        return {"error": joined_body}
+
+    return inner
+
+
+def approved_lambda_reads_its_comprehensions_clean_variable(response, items):
+    lam_line = response.text
+    logger.info("ok %s", lam_line)
+
+    def inner():
+        return [(lambda: {"error": lam_line})() for lam_line in items]
+
+    return inner
 """
 
 
@@ -2104,6 +2332,13 @@ def test_the_guards_resolve_scopes_the_way_python_does(tmp_path):
         "tail",  # starred unpacking
         "list_tail",  # list unpacking
         "f'last line {e}'",  # a lambda on the handler's closing line
+        # Todo 589 (PR #1026 follow-ups). Quiet beside these: a local that
+        # shadows the tainted global, a default after a handler that raises,
+        # a default through an opaque call, and a child's join over its own
+        # comprehension variable (one hop, finding 2).
+        "SIBLING_ERR",  # a tainted global reaches a SIBLING function
+        "f'later default {m}'",  # a default reads a fall-through local
+        "f'deep default {c}'",  # a default two defs below the handler
     }, exc
     assert {src for _, src in body} == {
         "body",  # nonlocal: a child taints its parent
@@ -2119,6 +2354,13 @@ def test_the_guards_resolve_scopes_the_way_python_does(tmp_path):
         # walrus in a child's comprehension, and the outer `owner`.
         "class_body",  # a class-body store binds nothing in the function
         "f'middle {owner}'",  # nonlocal rebinds the NEAREST binder
+        # Todo 589. Quiet beside these: a child's join and list over its own
+        # comprehension variable, and a lambda inside a comprehension that
+        # reads that comprehension's clean variable (finding 5).
+        "BODY_CACHE",  # a body global reaches a sibling function
+        "f'body default {b}'",  # a default carries the body itself
+        "f'body local default {b}'",  # ...or a local holding it
+        "joined_body",  # control: a join over the body still carries it
     }, body
     # Line order, not walk order (finding 7).
     assert [n for n, _ in exc] == sorted(n for n, _ in exc), exc

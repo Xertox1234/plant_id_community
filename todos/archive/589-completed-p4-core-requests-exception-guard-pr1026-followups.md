@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: p4
 issue_id: "589"
 tags: [todos, follow-ups]
@@ -38,7 +38,7 @@ Dropped by curation (fixed on main, refuted, or not a reported location):
 
 ## Acceptance Criteria
 
-- [ ] Each finding above is fixed with a test where it is a behaviour change, or recorded in the Work Log as
+- [x] Each finding above is fixed with a test where it is a behaviour change, or recorded in the Work Log as
       declined with a reason.
 
 ## Work Log
@@ -46,3 +46,27 @@ Dropped by curation (fixed on main, refuted, or not a reported location):
 ### 2026-10-11 - Filed from todo-sweep run 2026-10-11-1448
 
 Follow-ups for PR #1026 (todo 555).
+
+### 2026-10-11 - Implemented by the todo sweep (run 2026-10-11-2219)
+
+- Findings 1, 4, 8 (parameter defaults) fixed in `backend/apps/core/tests/test_requests_exception_drift.py`: `_scopes` now taints any child parameter whose default carries a tainted name or a source, in every scope and in both guards (`_params_defaulting_to` walks `_carried`). Specimens: `a_later_default_reads_a_fallthrough_local`, `a_default_two_defs_deep_captures_the_exception`, `a_default_carries_the_body`, `a_default_carries_a_body_local`; controls `approved_default_after_a_raising_handler`, `approved_default_through_an_opaque_call`.
+- Findings 2, 9 (one-hop comprehension shadow) fixed: `_tainted_names` skips reads that `_comprehension_shadowed` resolves to a comprehension's own clean variable, recomputed each round. Controls `approved_child_joins_its_own_comprehension`, `approved_child_joins_a_comprehension_over_a_derived_name` (both were false positives on main); positive `a_child_join_over_the_body_still_carries_it`.
+- Finding 3 (global siblings) fixed: `_scopes` hoists a tainted `global` to the module, so a sibling function inherits it, in both guards. Specimens `a_sibling_reads_the_global`, `a_sibling_reads_the_body_global`; control `approved_a_local_shadows_a_tainted_global`. Finding 5 (lambda in a comprehension) fixed: `_comprehension_shadowed` records a nested def's clean comprehension names and `_scopes` withholds them; control `approved_lambda_reads_its_comprehensions_clean_variable` (a false positive on main).
+- Finding 6 declined: a comprehension iterable is judged with `_carried` like every other binding, so `for msg in wrap(msg)` is clean for the same measured reason `x = wrap(msg)` is (opaque call arguments, todo 391); `msg = wrap(msg)` staying flagged is the flow-insensitive pass, not call-following. Recorded in the `_comprehension_shadowed` docstring.
+- Finding 7 fixed in `scripts/inject/test_budget_rules.py`: the 139/140/141 literals are replaced by edges derived from the tail marker read off a real excerpt and re-sized at the whole file's byte count. Mutation-checked: a 50 B over-reservation in `budget_rules.py` fails it, a marker wording change does not.
+
+### 2026-10-11 - Verified by the todo sweep (run 2026-10-11-2219)
+
+- AC 1: `zsh -c 'cd backend && python3 scripts/todos/slot_env.py --main-root . 1 -- backend/venv/bin/python -m pytest backend/apps/core/tests/test_requests_exception_drift.py --create-db -q -p no:cacheprovider && python3 scripts/inject/test_budget_rules.py -v && sed -n "/^## Work Log/,\$p" todos/archive/589-completed-p4-core-requests-exception-guard-pr1026-followups.md'` — evidence `.sweep-evidence/g7/589-ac0.txt` (not committed), last lines:
+
+  ```text
+  - Findings 1, 4, 8 (parameter defaults) fixed in `backend/apps/core/tests/test_requests_exception_drift.py`: `_scopes` now taints any child parameter whose default carries a tainted name or a source, in every scope and in both guards (`_params_defaulting_to` walks `_carried`). Specimens: `a_later_default_reads_a_fallthrough_local`, `a_default_two_defs_deep_captures_the_exception`, `a_default_carries_the_body`, `a_default_carries_a_body_local`; controls `approved_default_after_a_raising_handler`, `approved_default_through_an_opaque_call`.
+  - Findings 2, 9 (one-hop comprehension shadow) fixed: `_tainted_names` skips reads that `_comprehension_shadowed` resolves to a comprehension's own clean variable, recomputed each round. Controls `approved_child_joins_its_own_comprehension`, `approved_child_joins_a_comprehension_over_a_derived_name` (both were false positives on main); positive `a_child_join_over_the_body_still_carries_it`.
+  - Finding 3 (global siblings) fixed: `_scopes` hoists a tainted `global` to the module, so a sibling function inherits it, in both guards. Specimens `a_sibling_reads_the_global`, `a_sibling_reads_the_body_global`; control `approved_a_local_shadows_a_tainted_global`. Finding 5 (lambda in a comprehension) fixed: `_comprehension_shadowed` records a nested def's clean comprehension names and `_scopes` withholds them; control `approved_lambda_reads_its_comprehensions_clean_variable` (a false positive on main).
+  - Finding 6 declined: a comprehension iterable is judged with `_carried` like every other binding, so `for msg in wrap(msg)` is clean for the same measured reason `x = wrap(msg)` is (opaque call arguments, todo 391); `msg = wrap(msg)` staying flagged is the flow-insensitive pass, not call-following. Recorded in the `_comprehension_shadowed` docstring.
+  - Finding 7 fixed in `scripts/inject/test_budget_rules.py`: the 139/140/141 literals are replaced by edges derived from the tail marker read off a real excerpt and re-sized at the whole file's byte count. Mutation-checked: a 50 B over-reservation in `budget_rules.py` fails it, a marker wording change does not.
+  ```
+
+### 2026-10-11 - Completed by the todo sweep (run 2026-10-11-2219)
+
+- Archived by `land.py archive`; evidence is quoted above, review is on the PR.
