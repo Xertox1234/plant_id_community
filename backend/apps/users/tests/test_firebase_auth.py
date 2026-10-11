@@ -289,10 +289,13 @@ class FirebaseTokenExchangeTestCase(TestCase):
 
     @patch("apps.users.firebase_auth_views.firebase_auth.verify_id_token")
     def test_firebase_verification_exception(self, mock_verify):
-        """A verification fault that is not the token's answers 503, not 401.
+        """An unexpected verifier exception is a 500, not an outage 503.
 
-        The mobile client signs out on an exchange 401 and waits out a 503
-        (todo 498), so a 401 here would sign everyone out during an outage.
+        Todo 500 finding 4 narrowed the 503 to the two outage shapes
+        (CertificateFetchError, ValueError; both pinned below). Anything else
+        is a bug Sentry must see; the mobile client treats a 500 as transient
+        too, so nobody is signed out either way. This expected 503 until
+        then.
         """
         mock_verify.side_effect = Exception("Firebase service unavailable")
 
@@ -305,8 +308,32 @@ class FirebaseTokenExchangeTestCase(TestCase):
             format="json",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_503_SERVICE_UNAVAILABLE)
-        self.assertEqual(response.data["code"], "verifier_unavailable")
+        self.assertEqual(response.status_code, status.HTTP_500_INTERNAL_SERVER_ERROR)
+        self.assertNotEqual(response.data.get("code"), "verifier_unavailable")
+
+    @patch("apps.users.firebase_auth_views.firebase_auth.verify_id_token")
+    def test_bug_after_verification_is_500_not_503(self, mock_verify):
+        """A KeyError on a claim is our bug, not an outage (todo 500 F4)."""
+        mock_verify.return_value = {"email": "x@example.com", "email_verified": True}
+
+        response = self.client.post(
+            self.url, {"firebase_token": self.firebase_token}, format="json"
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+    @patch("apps.users.firebase_auth_views.firebase_auth.verify_id_token")
+    def test_disabled_firebase_account_is_a_refusal(self, mock_verify):
+        """A disabled account (check_revoked) is refused, never an outage."""
+        mock_verify.side_effect = firebase_auth.UserDisabledError(
+            "The user record is disabled."
+        )
+
+        response = self.client.post(
+            self.url, {"firebase_token": self.firebase_token}, format="json"
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
 
     @patch("apps.users.firebase_auth_views.firebase_auth.verify_id_token")
     def test_certificate_fetch_failure_is_503_not_401(self, mock_verify):
@@ -340,6 +367,7 @@ class FirebaseTokenExchangeTestCase(TestCase):
         response = self.client.post(self.url, {"firebase_token": 12345}, format="json")
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.data["error"], "firebase_token must be a string")
         mock_verify.assert_not_called()
 
     @patch("apps.users.firebase_auth_views.firebase_auth.verify_id_token")
@@ -586,6 +614,31 @@ class FirebaseProjectIdOnlyInitTestCase(TestCase):
             firebase_auth.verify_id_token(token)
 
         self.assertIn("plant-community-prod", str(ctx.exception))
+
+    @override_settings(
+        FIREBASE_CREDENTIALS_PATH=None, FIREBASE_PROJECT_ID="plant-community-prod"
+    )
+    def test_garbage_token_through_the_real_verifier_is_401(self):
+        """End to end through the view, with no mock (todo 500 finding 4).
+
+        The real verifier must reach the view's 401 branch, so a bad token
+        signs the mobile client out rather than reading as an outage. The
+        aud check runs before any certificate fetch, so no network is needed.
+        """
+        cache.clear()
+        token = (
+            "eyJhbGciOiJSUzI1NiIsImtpZCI6ImRlYWQiLCJ0eXAiOiJKV1QifQ"  # pragma: allowlist secret
+            ".eyJzdWIiOiJwcm9iZSJ9.bm90LWEtcmVhbC1zaWduYXR1cmU"  # pragma: allowlist secret
+        )
+        for garbage in [token, "not.a.real.token"]:
+            response = APIClient().post(
+                reverse("v1:users:firebase_token_exchange"),
+                {"firebase_token": garbage},
+                format="json",
+            )
+            self.assertEqual(
+                response.status_code, status.HTTP_401_UNAUTHORIZED, garbage
+            )
 
 
 class FirebaseTrustedProviderTestCase(TestCase):

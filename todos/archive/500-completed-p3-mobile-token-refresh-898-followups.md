@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: p3
 owner_decision: "F3: use a sign-out generation-counter / request-side guard, not a _signingOut flag (keeps the no-flag design). F1: keep 409 out of the sign-out path, keep state and surface unverifiedAccountConflict (2026-10-10)"
 issue_id: "500"
@@ -109,8 +109,8 @@ Paths are under `plant_community_mobile/lib/services/` unless noted. Line number
 
 ## Acceptance Criteria
 
-- [ ] Findings 1–11 are fixed, or each has a line here saying why not.
-- [ ] Findings 1, 2, 3 and 4 each have a test that fails when the fix is removed.
+- [x] Findings 1–11 are fixed, or each has a line here saying why not.
+- [x] Findings 1, 2, 3 and 4 each have a test that fails when the fix is removed.
 
 ## Work Log
 
@@ -118,3 +118,37 @@ Paths are under `plant_community_mobile/lib/services/` unless noted. Line number
 
 Round 2 never repairs, and round 3 (the owner's call) did not either. Nothing was dismissed by the
 refuters in any round.
+
+### 2026-10-10 - Implemented by the todo sweep (run 2026-10-11-0053)
+
+- F1 (owner decision): 409 left `_exchangeRefusalStatuses`. A refresh's 409 keeps the user signed in to Firebase, puts the conflict on screen with `unverifiedAccountConflict` kept, and fails the request as transient. F2: the refresher throws `RefreshSupersededException` (mapped to `_Superseded`) when there is no Firebase user, a different one, or a newer generation; `null` now means only a refusal. F3 (owner decision, a generation not a flag): `signOut()` records `_signOutGeneration`, and a refresh in it only installs the token for the clear's re-send; `_completeLogin` runs push sync and the profile re-fetch once per generation, so a 401 during the launch exchange no longer syncs twice.
+- F4: the 503 covers only `verify_id_token` raising `CertificateFetchError` or `ValueError`; a bug after it is a 500, and `UserDisabledError` is a 401. `@extend_schema` documents 200/400/401/403/409/503. No `Retry-After`: a 503 says nothing about when the verifier is back, and the client retries on its next 401 anyway. F5: a transient refresh failure reaches the caller as its own `ApiException` (no status, code `session_refresh_unavailable`), and `connectionError` reads as offline. F6: documented on `_logoutClearTimeout` and pinned by a test that the clear is given up at 3 s.
+- F7: an `Error` from the refresher goes to `FlutterError.reportError`; the user still stays signed in. No backoff, on purpose: the owner decision on 498 is that the next 401 tries again, and the exchange's per-IP limit bounds it. F8: a 401/403 refuses only when the body was JSON (`ApiException.unstructured`), and a comment lists the statuses kept transient. F9: `_expiringSession` is recorded only when a handler exists.
+- F10: tests for the real `signOut()` clear 401, refresh and re-send path, the early `setAuthToken(null)` on A to B, a null Firebase token, the guarded push loopback body, the shared `test/support/wait_until.dart`, a `_LoopbackBackend` exchange that ignores a bearer, and the non-string message. F11: the stale comments, README passages, "handled 401" notes and `FIREBASE_AUTHENTICATION.md` are updated; `_Superseded` is commented; the refresh's malformed-response message no longer implies connectivity; `authStateChanges` has an `onError`; the carried short-circuit matches only `session_refresh_unavailable`.
+- Changed tests (the behaviour changed on purpose): the 409 refusal case, two refresher-returns-null cases (now `RefreshSupersededException`), two 503-passthrough expectations (now `session_refresh_unavailable`), and `test_firebase_verification_exception` (now 500). Mutation-checked: re-adding 409, returning `null` when superseded, dropping the sign-out generation check, dropping the once-per-generation guard, and widening the 503 back to `Exception` each fail a test.
+
+### 2026-10-10 - Verified by the todo sweep (run 2026-10-11-0053)
+
+- AC 1: `bash -c 'cd plant_community_mobile && flutter test --no-pub test/services/auth_service_test.dart test/api_service_test.dart test/services/push_registration_service_test.dart && cd backend && python3 scripts/todos/slot_env.py --main-root . 5 -- backend/venv/bin/python -m pytest apps/users/tests/test_firebase_auth.py --create-db -p no:cacheprovider -q && grep -n -A12 "Implemented by the todo sweep (run 2026-10-11-0053)" todos/archive/500-completed-p3-mobile-token-refresh-898-followups.md'` — evidence `.sweep-evidence/g5/500-ac0.txt` (not committed), last lines:
+
+  ```text
+  126-- F7: an `Error` from the refresher goes to `FlutterError.reportError`; the user still stays signed in. No backoff, on purpose: the owner decision on 498 is that the next 401 tries again, and the exchange's per-IP limit bounds it. F8: a 401/403 refuses only when the body was JSON (`ApiException.unstructured`), and a comment lists the statuses kept transient. F9: `_expiringSession` is recorded only when a handler exists.
+  127-- F10: tests for the real `signOut()` clear 401, refresh and re-send path, the early `setAuthToken(null)` on A to B, a null Firebase token, the guarded push loopback body, the shared `test/support/wait_until.dart`, a `_LoopbackBackend` exchange that ignores a bearer, and the non-string message. F11: the stale comments, README passages, "handled 401" notes and `FIREBASE_AUTHENTICATION.md` are updated; `_Superseded` is commented; the refresh's malformed-response message no longer implies connectivity; `authStateChanges` has an `onError`; the carried short-circuit matches only `session_refresh_unavailable`.
+  128-- Changed tests (the behaviour changed on purpose): the 409 refusal case, two refresher-returns-null cases (now `RefreshSupersededException`), two 503-passthrough expectations (now `session_refresh_unavailable`), and `test_firebase_verification_exception` (now 500). Mutation-checked: re-adding 409, returning `null` when superseded, dropping the sign-out generation check, dropping the once-per-generation guard, and widening the 503 back to `Exception` each fail a test.
+
+  [exit 0]
+  ```
+
+- AC 2: `bash -c 'cd plant_community_mobile && flutter test --no-pub -r expanded test/services/auth_service_test.dart --name "todo 500 F[123]" && cd backend && python3 scripts/todos/slot_env.py --main-root . 5 -- backend/venv/bin/python -m pytest "apps/users/tests/test_firebase_auth.py::FirebaseTokenExchangeTestCase::test_firebase_verification_exception" "apps/users/tests/test_firebase_auth.py::FirebaseTokenExchangeTestCase::test_bug_after_verification_is_500_not_503" "apps/users/tests/test_firebase_auth.py::FirebaseTokenExchangeTestCase::test_disabled_firebase_account_is_a_refusal" "apps/users/tests/test_firebase_auth.py::FirebaseProjectIdOnlyInitTestCase::test_garbage_token_through_the_real_verifier_is_401" --create-db -p no:cacheprovider -v'` — evidence `.sweep-evidence/g5/500-ac1.txt` (not committed), last lines:
+
+  ```text
+    mismatched: pyjwt (pinned 2.15.0, installed 2.13.0), urllib3 (pinned 2.8.0, installed 2.7.0)
+  Fix: pip install -r backend/requirements.txt (see todo 378).
+  ======================== 4 passed, 3 warnings in 17.61s ========================
+
+  [exit 0]
+  ```
+
+### 2026-10-10 - Completed by the todo sweep (run 2026-10-11-0053)
+
+- Archived by `land.py archive`; evidence is quoted above, review is on the PR.

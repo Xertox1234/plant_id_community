@@ -29,9 +29,10 @@ from apps.users.signup import create_default_plant_collection, join_forum_member
 from django.contrib.auth import get_user_model
 from django.db import IntegrityError, transaction
 from django.db.models import Q
+from drf_spectacular.utils import OpenApiResponse, extend_schema, inline_serializer
 from firebase_admin import auth as firebase_auth
 from firebase_admin import credentials as firebase_credentials
-from rest_framework import status
+from rest_framework import serializers, status
 from rest_framework.decorators import (
     api_view,
     authentication_classes,
@@ -140,7 +141,8 @@ def _ensure_firebase_initialized() -> None:
        (FIREBASE_CREDENTIALS_PATH) and stays disabled in this tier.
 
     Never raises: a broken credential file or a lost first-touch init race
-    must degrade to failed verification (handled 401), not 500 every login.
+    must degrade to failed verification (a handled 503, todo 498), not 500
+    every login.
 
     TWO INIT HOMES — accepted as-is (todo 272 item 4, 2026-07-29). Firebase
     bootstrap is still split between this function and
@@ -180,7 +182,8 @@ def _ensure_firebase_initialized() -> None:
             # credential-less default app: the FCM sender's reuse branch
             # would adopt it and burn send+3 retries per push on credential
             # errors instead of its clean unavailable skip (review sweep).
-            # Verification fails as a handled 401; the bootstrap error was
+            # Verification fails as a handled 503 (with no app,
+            # verify_id_token raises ValueError); the bootstrap error was
             # already logged by initialize_firebase.
             logger.error(
                 "[FIREBASE AUTH ERROR] Credentials path configured but "
@@ -219,6 +222,62 @@ def _ensure_firebase_initialized() -> None:
         logger.exception("[FIREBASE AUTH ERROR] Firebase initialization failed")
 
 
+def _error_body(name: str) -> serializers.Serializer:
+    return inline_serializer(
+        name,
+        {
+            "error": serializers.CharField(),
+            "code": serializers.CharField(required=False),
+        },
+    )
+
+
+@extend_schema(
+    request=inline_serializer(
+        "FirebaseTokenExchange",
+        {"firebase_token": serializers.CharField()},
+    ),
+    responses={
+        200: inline_serializer(
+            "FirebaseTokenExchangeResponse",
+            {
+                "access_token": serializers.CharField(),
+                "refresh_token": serializers.CharField(),
+                "user": inline_serializer(
+                    "FirebaseTokenExchangeUser",
+                    {
+                        "id": serializers.IntegerField(),
+                        "email": serializers.EmailField(),
+                        "display_name": serializers.CharField(),
+                        "is_active": serializers.BooleanField(),
+                    },
+                ),
+            },
+        ),
+        400: _error_body("FirebaseTokenExchangeBadRequest"),
+        401: OpenApiResponse(
+            _error_body("FirebaseTokenExchangeRefused"),
+            description="Invalid, expired or revoked Firebase token, or a "
+            "disabled Firebase account. The mobile client signs out.",
+        ),
+        403: OpenApiResponse(
+            _error_body("FirebaseTokenExchangeUnverified"),
+            description="The token's email is not verified.",
+        ),
+        409: OpenApiResponse(
+            _error_body("FirebaseTokenExchangeConflict"),
+            description="Account linking conflict; `code` is "
+            "`unverified_account` or `account_conflict`.",
+        ),
+        503: OpenApiResponse(
+            _error_body("FirebaseTokenExchangeUnavailable"),
+            description="The token could not be checked (Google's public "
+            "certs unreachable, Firebase Admin not set up); `code` is "
+            "`verifier_unavailable`. The mobile client keeps the session and "
+            "retries.",
+        ),
+    },
+)
 @api_view(["POST"])
 # The exchange trusts only the Firebase ID token in its body, so it runs no
 # authenticator: DRF's JWTAuthentication would otherwise reject a stale
@@ -267,10 +326,19 @@ def firebase_token_exchange(request: Request) -> Response:
             "error": "firebase_token is required"
         }
 
-    Response (401 Unauthorized):
+    Response (401 Unauthorized): an invalid, expired or revoked token, or a
+    disabled Firebase account. The mobile client signs out.
         {
             "error": "Invalid Firebase token"
         }
+
+    Response (403 Forbidden): the token's email is not verified.
+
+    Response (409 Conflict): the account cannot be linked; ``code`` is
+    ``unverified_account`` or ``account_conflict``.
+
+    Response (500): a bug on our side after the token was verified. Sentry
+    sees it; the mobile client treats it as transient.
 
     Response (503 Service Unavailable): the token could not be checked, a
     fault on our side (Google's public certs unreachable, Firebase Admin not
@@ -302,39 +370,12 @@ def firebase_token_exchange(request: Request) -> Response:
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        # Validate Firebase token
+        # Validate Firebase token. Only verify_id_token itself is guarded:
+        # a bug in the code after it (a KeyError on a claim) is a 500 that
+        # Sentry sees, not an outage-shaped 503 the client quietly retries
+        # (todo 500 finding 4).
         try:
             decoded_token = firebase_auth.verify_id_token(firebase_token)
-            firebase_uid = decoded_token["uid"]
-            firebase_email = decoded_token.get("email")
-            email_verified = bool(decoded_token.get("email_verified"))
-            sign_in_provider = decoded_token.get("firebase", {}).get(
-                "sign_in_provider", ""
-            )
-
-            # Reject unverified-email tokens to prevent account takeover via Firebase
-            # email/password sign-up to a never-verified address that collides with an
-            # existing Django user. Google and Apple get no exemption (todo 447
-            # item 8): Firebase sets the claim true for a verified federated
-            # email, and web Google already requires `verified_email`, so a
-            # false claim is refused on every provider alike. That includes a
-            # uid already bound to an account (owner decision 2026-09-26, todo
-            # 449 item 1): before #285 and, for Google/Apple, before #842 a uid
-            # could be bound under a false claim, so a binding proves nothing.
-            if firebase_email and not email_verified:
-                logger.warning(
-                    f"[FIREBASE AUTH] Rejected unverified email login "
-                    f"(provider={sign_in_provider}, email={redact_email(firebase_email)})"
-                )
-                return Response(
-                    {"error": "Email address must be verified before logging in."},
-                    status=status.HTTP_403_FORBIDDEN,
-                )
-
-            logger.info(
-                f"[FIREBASE AUTH] Token validated for uid={firebase_uid}, email={redact_email(firebase_email)}"
-            )
-
         except firebase_auth.ExpiredIdTokenError as e:
             # NOTE: ExpiredIdTokenError must be caught before InvalidIdTokenError
             # because it's a subclass of InvalidIdTokenError
@@ -344,16 +385,25 @@ def firebase_token_exchange(request: Request) -> Response:
                 status=status.HTTP_401_UNAUTHORIZED,
             )
         except firebase_auth.InvalidIdTokenError as e:
+            # Also a revoked token (RevokedIdTokenError is a subclass).
             logger.warning(f"[FIREBASE AUTH] Invalid Firebase token: {str(e)}")
             return Response(
                 {"error": "Invalid Firebase token"}, status=status.HTTP_401_UNAUTHORIZED
             )
-        except Exception as e:
-            # Anything else is on our side, not the token's: Google's public
-            # certs could not be fetched (CertificateFetchError), or the Admin
-            # app is not set up (ValueError). A 401 here would sign every
-            # refreshing mobile user out during the outage (todo 498); 503 is
-            # a failure the client waits out.
+        except firebase_auth.UserDisabledError as e:
+            # Raised only with check_revoked=True: the account is refused, so
+            # the client must sign out, never wait it out as an outage.
+            logger.warning(f"[FIREBASE AUTH] Disabled Firebase account: {str(e)}")
+            return Response(
+                {"error": "Firebase account is disabled"},
+                status=status.HTTP_401_UNAUTHORIZED,
+            )
+        except (firebase_auth.CertificateFetchError, ValueError) as e:
+            # On our side, not the token's: Google's public certs could not be
+            # fetched (CertificateFetchError), or the Admin app is not set up
+            # (ValueError). A 401 here would sign every refreshing mobile user
+            # out during the outage (todo 498); 503 is a failure the client
+            # waits out.
             logger.error(f"[FIREBASE AUTH ERROR] Token verification failed: {str(e)}")
             return Response(
                 {
@@ -362,6 +412,34 @@ def firebase_token_exchange(request: Request) -> Response:
                 },
                 status=status.HTTP_503_SERVICE_UNAVAILABLE,
             )
+
+        firebase_uid = decoded_token["uid"]
+        firebase_email = decoded_token.get("email")
+        email_verified = bool(decoded_token.get("email_verified"))
+        sign_in_provider = decoded_token.get("firebase", {}).get("sign_in_provider", "")
+
+        # Reject unverified-email tokens to prevent account takeover via Firebase
+        # email/password sign-up to a never-verified address that collides with an
+        # existing Django user. Google and Apple get no exemption (todo 447
+        # item 8): Firebase sets the claim true for a verified federated
+        # email, and web Google already requires `verified_email`, so a
+        # false claim is refused on every provider alike. That includes a
+        # uid already bound to an account (owner decision 2026-09-26, todo
+        # 449 item 1): before #285 and, for Google/Apple, before #842 a uid
+        # could be bound under a false claim, so a binding proves nothing.
+        if firebase_email and not email_verified:
+            logger.warning(
+                f"[FIREBASE AUTH] Rejected unverified email login "
+                f"(provider={sign_in_provider}, email={redact_email(firebase_email)})"
+            )
+            return Response(
+                {"error": "Email address must be verified before logging in."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        logger.info(
+            f"[FIREBASE AUTH] Token validated for uid={firebase_uid}, email={redact_email(firebase_email)}"
+        )
 
         # Get or create Django user. display_name comes from the verified
         # Firebase token's `name` claim — never from client-supplied request data.

@@ -6,7 +6,6 @@ import 'package:go_router/go_router.dart';
 import '../../../core/constants/app_spacing.dart';
 import '../../../services/api_service.dart';
 import '../../forum/services/forum_link_launcher.dart';
-import '../../forum/widgets/forum_html_text.dart';
 import '../models/blog_post.dart';
 import '../providers/blog_providers.dart';
 import '../services/blog_api.dart';
@@ -14,7 +13,8 @@ import '../widgets/blog_block_view.dart';
 import 'blog_format.dart';
 
 /// One blog post (todo 385). [initialTitle] is the list row's title, shown
-/// in the app bar while the post loads.
+/// in the app bar while the post loads; without one the bar says the blog's
+/// name rather than nothing (todo 460).
 class BlogPostScreen extends ConsumerWidget {
   const BlogPostScreen({super.key, required this.slug, this.initialTitle});
 
@@ -27,7 +27,7 @@ class BlogPostScreen extends ConsumerWidget {
     return Scaffold(
       appBar: AppBar(
         title: Text(
-          post.asData?.value.title ?? initialTitle ?? '',
+          post.asData?.value.title ?? initialTitle ?? blogDisplayName,
           maxLines: 1,
           overflow: TextOverflow.ellipsis,
         ),
@@ -60,6 +60,7 @@ class BlogPostScreen extends ConsumerWidget {
             post: post,
             mediaUrl: ref.read(blogApiProvider).mediaUrl,
             onOpenLink: (href) => _openLink(context, ref, href),
+            onOpenPage: (id) => _openPage(context, ref, id),
           ),
         ),
       ),
@@ -75,14 +76,49 @@ class BlogPostScreen extends ConsumerWidget {
     WidgetRef ref,
     String href,
   ) async {
-    final internal = RegExp(r'^/blog/([\w-]+)/?$').firstMatch(href.trim());
-    if (internal != null) {
-      context.pushNamed(
-        'blogPost',
-        pathParameters: {'slug': internal.group(1)!},
-      );
+    final slug = internalBlogSlug(href);
+    if (slug != null) {
+      _openPost(context, slug);
       return;
     }
+    await _openExternal(context, ref, href);
+  }
+
+  /// A Wagtail internal link (`<a linktype="page" id="N">`) carries only the
+  /// page id. Resolve it when tapped (owner decision 2026-10-10, todo 460): a
+  /// blog post opens in the app, any other page at its web URL.
+  Future<void> _openPage(BuildContext context, WidgetRef ref, int id) async {
+    final BlogPageRef page;
+    try {
+      page = await ref.read(blogApiProvider).fetchPage(id);
+    } catch (_) {
+      if (context.mounted) _cannotOpen(context);
+      return;
+    }
+    if (!context.mounted) return;
+    if (page.isBlogPost) {
+      _openPost(context, page.slug, title: page.title);
+      return;
+    }
+    await _openExternal(context, ref, page.htmlUrl);
+  }
+
+  /// Push the post at [slug], unless it is this one: a link to itself would
+  /// stack a duplicate screen.
+  void _openPost(BuildContext context, String slug, {String? title}) {
+    if (slug == this.slug) return;
+    context.pushNamed(
+      'blogPost',
+      pathParameters: {'slug': slug},
+      extra: title != null && title.isNotEmpty ? title : null,
+    );
+  }
+
+  Future<void> _openExternal(
+    BuildContext context,
+    WidgetRef ref,
+    String href,
+  ) async {
     final uri = openableForumLink(href);
     var opened = false;
     if (uri != null) {
@@ -92,12 +128,26 @@ class BlogPostScreen extends ConsumerWidget {
         opened = false;
       }
     }
-    if (!opened && context.mounted) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text("Couldn't open this link.")));
-    }
+    if (!opened && context.mounted) _cannotOpen(context);
   }
+
+  void _cannotOpen(BuildContext context) {
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(const SnackBar(content: Text("Couldn't open this link.")));
+  }
+}
+
+/// The post slug of a relative `/blog/<slug>` link, or null for anything
+/// else. Read from the parsed path, so a unicode slug (Wagtail allows them
+/// by default), raw or percent-encoded, matches too (todo 460).
+String? internalBlogSlug(String href) {
+  final uri = Uri.tryParse(href.trim());
+  if (uri == null || uri.hasScheme || uri.hasAuthority) return null;
+  if (!uri.path.startsWith('/')) return null;
+  final segments = uri.pathSegments.where((s) => s.isNotEmpty).toList();
+  if (segments.length != 2 || segments.first != 'blog') return null;
+  return segments.last;
 }
 
 class _PostBody extends StatelessWidget {
@@ -105,11 +155,13 @@ class _PostBody extends StatelessWidget {
     required this.post,
     required this.mediaUrl,
     required this.onOpenLink,
+    required this.onOpenPage,
   });
 
   final BlogPost post;
   final String Function(String url) mediaUrl;
   final void Function(String href) onOpenLink;
+  final void Function(int pageId) onOpenPage;
 
   @override
   Widget build(BuildContext context) {
@@ -163,7 +215,11 @@ class _PostBody extends StatelessWidget {
         ],
         if (post.introduction.isNotEmpty) ...[
           const SizedBox(height: AppSpacing.md),
-          ForumHtmlText(post.introduction, onOpenLink: onOpenLink),
+          BlogRichText(
+            post.introduction,
+            onOpenLink: onOpenLink,
+            onOpenPage: onOpenPage,
+          ),
         ],
         for (final block in post.blocks) ...[
           const SizedBox(height: AppSpacing.md),
@@ -171,6 +227,7 @@ class _PostBody extends StatelessWidget {
             block: block,
             mediaUrl: mediaUrl,
             onOpenLink: onOpenLink,
+            onOpenPage: onOpenPage,
           ),
         ],
       ],

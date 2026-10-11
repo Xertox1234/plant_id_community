@@ -94,6 +94,7 @@ This document describes the Firebase Authentication integration for the Plant ID
 ### Response Format
 
 **Success (200 OK)**:
+
 ```json
 {
   "access_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
@@ -107,10 +108,25 @@ This document describes the Firebase Authentication integration for the Plant ID
 }
 ```
 
-**Error Responses**:
-- **400 Bad Request**: Missing firebase_token
-- **401 Unauthorized**: Invalid or expired Firebase token
-- **500 Internal Server Error**: Unexpected error
+**Error Responses** (each a JSON object with `error`, and `code` where noted):
+
+- **400 Bad Request**: `firebase_token` missing or not a string
+- **401 Unauthorized**: invalid, expired or revoked Firebase token, or a
+  disabled Firebase account. The mobile app signs the user out.
+- **403 Forbidden**: the token's email is not verified
+- **409 Conflict**: the account cannot be linked; `code` is
+  `unverified_account` (the app offers a password reset) or
+  `account_conflict`. The app keeps the user signed in to Firebase and shows
+  the conflict.
+- **429 Too Many Requests**: the per-IP exchange rate limit, with `Retry-After`
+- **500 Internal Server Error**: a bug on our side after the token was
+  verified (Sentry sees it)
+- **503 Service Unavailable**: the token could not be checked (Google's public
+  certificates unreachable, Firebase Admin not set up); `code` is
+  `verifier_unavailable`. The app keeps the session and retries.
+
+The app treats only a JSON 401/403 as a refusal; 409, 429, 5xx and anything
+else keep the user signed in (todo 498, todo 500).
 
 ## Flutter Implementation
 
@@ -156,16 +172,19 @@ final response = await apiService.get('/plant-identification/');
 ### Backend Setup
 
 1. **Install firebase-admin**:
+
    ```bash
    pip install firebase-admin>=6.6.0,<7.0.0
    ```
 
 2. **Configure Firebase credentials**:
+
    ```bash
    export GOOGLE_APPLICATION_CREDENTIALS="/path/to/serviceAccountKey.json"
    ```
 
 3. **Verify setup**:
+
    ```bash
    python manage.py test apps.users.tests.test_firebase_auth --keepdb
    ```
@@ -173,6 +192,7 @@ final response = await apiService.get('/plant-identification/');
 ### Flutter Setup
 
 1. **Add dependencies** (already in `pubspec.yaml`):
+
    ```yaml
    dependencies:
      firebase_core: ^3.12.0
@@ -185,6 +205,7 @@ final response = await apiService.get('/plant-identification/');
 2. **Configure Firebase** (see `backend/FIREBASE_SETUP.md`)
 
 3. **Run code generation**:
+
    ```bash
    flutter pub run build_runner build --delete-conflicting-outputs
    ```
@@ -196,6 +217,7 @@ final response = await apiService.get('/plant-identification/');
 **File**: `backend/apps/users/tests/test_firebase_auth.py`
 
 **Test Coverage**:
+
 - ✅ Successful token exchange for new users
 - ✅ Successful token exchange for existing users
 - ✅ Missing firebase_token error handling
@@ -208,6 +230,7 @@ final response = await apiService.get('/plant-identification/');
 - ✅ Unexpected error handling
 
 **Run tests**:
+
 ```bash
 python manage.py test apps.users.tests.test_firebase_auth --keepdb -v 2
 ```
@@ -266,22 +289,22 @@ python manage.py test apps.users.tests.test_firebase_auth --keepdb -v 2
 
 ### IMPORTANT Issues Fixed
 
-4. **Missing `from __future__ import annotations`**
+1. **Missing `from __future__ import annotations`**
    - Added for Python 3.10+ compatibility
 
-5. **PII in logs**
+2. **PII in logs**
    - Implemented `redact_email()` function
    - Applied to all log statements
 
-6. **Firebase initialization not environment-aware**
+3. **Firebase initialization not environment-aware**
    - Implemented `_ensure_firebase_initialized()`
    - Lazy initialization for test environments
 
-7. **StreamSubscription memory leak**
+4. **StreamSubscription memory leak**
    - Added field to store subscription
    - Added `ref.onDispose()` cleanup
 
-8. **Debug logging verbosity**
+5. **Debug logging verbosity**
    - All logs use bracketed prefixes: `[FIREBASE AUTH]`
 
 ## Performance

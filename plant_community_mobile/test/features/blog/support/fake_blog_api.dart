@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:plant_community_mobile/features/blog/models/blog_post.dart';
 import 'package:plant_community_mobile/features/blog/services/blog_api.dart';
 import 'package:plant_community_mobile/services/api_service.dart';
@@ -12,6 +14,19 @@ class FakeBlogApi implements BlogApi {
   final List<BlogPostPage> pages;
   final Map<String, BlogPost> posts;
 
+  /// Wagtail pages by id, for rich-text internal links; a missing id 404s.
+  final pagesById = <int, BlogPageRef>{};
+
+  /// Inline-image file URLs by id; a missing id resolves to null.
+  final imageUrls = <int, String>{};
+  final imageLookups = <int>[];
+
+  /// When set, a `fetchPosts` past the first page waits on it.
+  Completer<void>? moreGate;
+
+  /// When set, a first-page `fetchPosts` (a load or a refresh) waits on it.
+  Completer<void>? listGate;
+
   /// Every `fetchPosts` call as `(tag, offset)`.
   final calls = <(String?, int)>[];
   Object? postsError;
@@ -19,8 +34,11 @@ class FakeBlogApi implements BlogApi {
   @override
   Future<BlogPostPage> fetchPosts({String? tag, int offset = 0}) async {
     calls.add((tag, offset));
-    if (postsError != null) throw postsError!;
+    // Picked before any gate, so a held call keeps the page it asked for.
     final i = calls.length - 1;
+    if (offset > 0 && moreGate != null) await moreGate!.future;
+    if (offset == 0 && listGate != null) await listGate!.future;
+    if (postsError != null) throw postsError!;
     return i < pages.length
         ? pages[i]
         : BlogPostPage(items: const [], totalCount: pages.last.totalCount);
@@ -31,6 +49,19 @@ class FakeBlogApi implements BlogApi {
     final post = posts[slug];
     if (post == null) throw ApiException('Post not found', statusCode: 404);
     return post;
+  }
+
+  @override
+  Future<BlogPageRef> fetchPage(int id) async {
+    final page = pagesById[id];
+    if (page == null) throw ApiException('Page not found', statusCode: 404);
+    return page;
+  }
+
+  @override
+  Future<String?> fetchImageUrl(int id) async {
+    imageLookups.add(id);
+    return imageUrls[id];
   }
 
   @override

@@ -232,8 +232,19 @@ void main() {
       var accepted = 'first-token';
       final seen = <(String, String?, Object?)>[];
       server.listen((request) async {
-        final body = jsonDecode(await utf8.decodeStream(request));
+        final raw = await utf8.decodeStream(request);
         final auth = request.headers.value(HttpHeaders.authorizationHeader);
+        Object? body;
+        try {
+          body = jsonDecode(raw);
+        } on FormatException {
+          // A bad body is answered, not left to hang the test until the
+          // suite timeout (todo 500).
+          seen.add((request.method, auth, raw));
+          request.response.statusCode = HttpStatus.badRequest;
+          await request.response.close();
+          return;
+        }
         seen.add((request.method, auth, body));
         final ok = auth == 'Bearer $accepted';
         request.response
@@ -267,6 +278,27 @@ void main() {
       expect(seen.last.$1, 'PATCH');
       expect(seen.last.$2, 'Bearer fresh', reason: 'the clear was not re-sent');
       expect(seen.last.$3, {'fcm_token': ''});
+    });
+  });
+
+  group('clearOnLogout bound (todo 500 F6)', () {
+    testWidgets('a clear whose 401 refresh outlasts the 3 s bound is '
+        'abandoned at 3 s, so sign-out is never held by it', (tester) async {
+      await service.registerToken('device-token-1');
+      // The clear PATCH, its refresh and the re-send are all still running:
+      // the documented limit is that past 3 s the clear is given up.
+      final hung = Completer<void>();
+      fakeApi.patchGate = hung;
+
+      var done = false;
+      final clear = service.clearOnLogout().then((_) => done = true);
+      await tester.pump(const Duration(milliseconds: 2900));
+      expect(done, isFalse, reason: 'the clear was cut short');
+      await tester.pump(const Duration(milliseconds: 200));
+      expect(done, isTrue, reason: 'sign-out waited past the bound');
+
+      hung.complete();
+      await clear;
     });
   });
 

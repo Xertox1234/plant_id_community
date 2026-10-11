@@ -39,9 +39,11 @@ class ApiService {
   static const String skipAuthRefreshKey = 'skip_auth_refresh';
 
   /// Request-extra flag: send this request with no `Authorization` header,
-  /// even while a bearer token is set. Set on the refresh's token exchange:
-  /// the backend authenticates any bearer before the view runs, so the expired
-  /// token it would otherwise carry turns the exchange into a 401 (todo 462).
+  /// even while a bearer token is set. Set on the refresh's token exchange,
+  /// which trusts only the Firebase token in its body. The exchange view runs
+  /// no authenticator now (`@authentication_classes([])`, todo 498), so a
+  /// stale bearer no longer 401s it; omitting the header is the client half
+  /// of that, and keeps the expired token off the wire (todo 462).
   static const String omitAuthHeaderKey = 'omit_auth_header';
 
   /// Set on a request once it has been retried after a refresh, so a second
@@ -322,6 +324,10 @@ class ApiService {
             ),
           );
         case _Superseded():
+          // Reached when the refresher reports it was overtaken
+          // ([RefreshSupersededException]: the Firebase user changed or
+          // signed out under it), even if the API session has not ended yet
+          // (todo 500). Nobody to sign out, nothing to re-send.
           return handler.next(error);
       }
     }
@@ -369,23 +375,28 @@ class ApiService {
     String? token;
     try {
       token = await _onRefreshAccessToken?.call();
-    } catch (error) {
+    } on RefreshSupersededException {
+      // The refresher was overtaken (todo 500 finding 2): not a refusal, so
+      // nobody is signed out.
+      return const _Superseded();
+    } on Exception catch (error) {
       if (kDebugMode) {
         debugPrint('[API AUTH] Token refresh failed, not refused: $error');
       }
-      // An explicit sign-out or a user switch while the refresh ran is not a
-      // failure the user needs to hear about.
-      if (_authSession != session) {
-        return const _Superseded();
-      }
-      return _Unavailable(
-        error is ApiException
-            ? error
-            : ApiException(
-                'Could not renew your session right now. Please check your '
-                'connection and try again.',
-              ),
+      return _refreshFailed(session);
+    } catch (error, stack) {
+      // An Error (TypeError, StateError) is a bug in the refresher, not an
+      // outage (todo 500 finding 7). The user still stays signed in, but it
+      // is reported as the bug it is instead of passing as "try again".
+      FlutterError.reportError(
+        FlutterErrorDetails(
+          exception: error,
+          stack: stack,
+          library: 'api_service',
+          context: ErrorDescription('while refreshing the access token'),
+        ),
       );
+      return _refreshFailed(session);
     }
 
     // A token refreshed for the old user must not be installed for the new
@@ -403,6 +414,26 @@ class ApiService {
     return const _Refreshed();
   }
 
+  /// A refresh that failed for a reason that may pass. Reported to the caller
+  /// as its own error, never as the exchange's status (todo 500 finding 5):
+  /// a 429 from the exchange's per-IP limit must not read as the endpoint's
+  /// own rate limit ("Too many diagnoses in a row"), nor a 503 as that
+  /// endpoint's outage.
+  _RefreshOutcome _refreshFailed(int session) {
+    // An explicit sign-out or a user switch while the refresh ran is not a
+    // failure the user needs to hear about.
+    if (_authSession != session) {
+      return const _Superseded();
+    }
+    return _Unavailable(
+      ApiException(
+        'Could not renew your session right now. Please try again in a '
+        'moment.',
+        code: sessionRefreshUnavailableCode,
+      ),
+    );
+  }
+
   /// Sign out after an unrecoverable 401 on a request sent under the current
   /// session. Every 401 of one session shares one sign-out, however many
   /// arrive at once (todo 498). A request marked [skipSessionExpiryKey]
@@ -414,6 +445,12 @@ class ApiService {
           '[API AUTH] 401 on a sign-out-exempt request; not signed out',
         );
       }
+      return;
+    }
+    // With no handler there is nothing to run, and recording the session
+    // would make every later 401 of it a no-op, even once a handler is set
+    // (todo 500 finding 9).
+    if (_onSessionExpired == null) {
       return;
     }
     final session = options.extra[_sentSessionKey] as int?;
@@ -496,8 +533,11 @@ class ApiService {
   /// It returns the new token, or `null` only when the server definitely
   /// refused the session, which signs the user out. It THROWS for anything
   /// transient (offline, timeout, 5xx, 429): the user stays signed in, the
-  /// request fails with that error, and the next 401 tries again (todo 498).
-  /// Unset, a 401 signs out directly.
+  /// request fails with a `session_refresh_unavailable` [ApiException], and
+  /// the next 401 tries again (todo 498). It throws
+  /// [RefreshSupersededException] when it was overtaken (a sign-out or a user
+  /// switch under it): nobody is signed out (todo 500). Unset, a 401 signs
+  /// out directly.
   void setAccessTokenRefresher(Future<String?> Function()? refresher) {
     _onRefreshAccessToken = refresher;
   }
@@ -642,18 +682,25 @@ class ApiService {
   ///   data: {'latitude': 37.7749, 'longitude': -122.4194},
   /// );
   /// ```
+  ///
+  /// [filename] overrides the part's filename, which defaults to the path's
+  /// basename. [receiveTimeout] overrides the client's 30 s default for this
+  /// one request: a synchronous analysis upload (diagnose, identify) can take
+  /// longer than that on the server ([slowAnalysisReceiveTimeout], todo 461).
   Future<Response> uploadFile(
     String path, {
     required String filePath,
     String fieldName = 'image',
+    String? filename,
     Map<String, dynamic>? data,
     void Function(int sent, int total)? onSendProgress,
+    Duration? receiveTimeout,
   }) async {
     try {
       final formData = FormData.fromMap({
         fieldName: await MultipartFile.fromFile(
           filePath,
-          filename: filePath.split('/').last,
+          filename: filename ?? filePath.split('/').last,
         ),
         ...?data,
       });
@@ -662,7 +709,10 @@ class ApiService {
         path,
         data: formData,
         onSendProgress: onSendProgress,
-        options: Options(headers: {'Content-Type': 'multipart/form-data'}),
+        options: Options(
+          headers: {'Content-Type': 'multipart/form-data'},
+          receiveTimeout: receiveTimeout,
+        ),
       );
     } on DioException catch (e) {
       throw handleDioException(e);
@@ -673,9 +723,12 @@ class ApiService {
   @visibleForTesting
   Exception handleDioException(DioException e) {
     // A 401 whose refresh failed for a transient reason carries that
-    // failure, already in its final form (todo 498).
+    // failure, already in its final form (todo 498). Matched by its code, so
+    // an ApiException some other interceptor wrapped is not mistaken for it
+    // (todo 500 finding 11).
     final carried = e.error;
-    if (carried is ApiException) {
+    if (carried is ApiException &&
+        carried.code == sessionRefreshUnavailableCode) {
       return carried;
     }
     switch (e.type) {
@@ -687,14 +740,26 @@ class ApiService {
           statusCode: null,
         );
 
+      case DioExceptionType.connectionError:
+        // Dio 5 reports a refused or unreachable host this way, not as
+        // `unknown` (todo 500 finding 5).
+        return ApiException(
+          'No internet connection. Please check your network.',
+          statusCode: null,
+        );
+
       case DioExceptionType.badResponse:
         final statusCode = e.response?.statusCode;
         String message;
+        // A JSON object is what our views answer; anything else (an HTML
+        // page from a proxy or a WAF) is not their verdict (todo 500 F8).
+        final unstructured = e.response?.data is! Map<String, dynamic>;
 
         if (statusCode == 401) {
           return ApiException(
             'Your session has expired. Please sign in again.',
             statusCode: statusCode,
+            unstructured: unstructured,
           );
         }
 
@@ -742,6 +807,7 @@ class ApiService {
           message,
           statusCode: statusCode,
           code: code is String ? code : null,
+          unstructured: unstructured,
         );
 
       case DioExceptionType.cancel:
@@ -765,6 +831,16 @@ class ApiService {
   }
 }
 
+/// Receive timeout for an upload the server analyses before it answers
+/// (todo 461, owner decision 2026-10-10). The client default is 30 s, but the
+/// server's plant.health call alone may take 60 s
+/// (`plant_health_service.py`), and identify runs Plant.id (35 s) before its
+/// PlantNet fallback (20 s). Timing out first told the user "unavailable"
+/// while the server finished, billed and stored the result, and a retry spent
+/// the rate limit again. Only these uploads get it; every other request keeps
+/// the 30 s default.
+const Duration slowAnalysisReceiveTimeout = Duration(seconds: 90);
+
 /// Custom exception for API errors
 ///
 /// This exception includes both a user-friendly message and
@@ -777,12 +853,37 @@ class ApiException implements Exception {
   /// token exchange's 409 `unverified_account`).
   final String? code;
 
-  ApiException(this.message, {this.statusCode, this.code});
+  /// True when an error response's body was not a JSON object: not an answer
+  /// from one of our views, but e.g. an HTML page from a proxy or a WAF. The
+  /// token refresh never treats such a 401/403 as a refusal (todo 500).
+  final bool unstructured;
+
+  ApiException(
+    this.message, {
+    this.statusCode,
+    this.code,
+    this.unstructured = false,
+  });
 
   @override
   String toString() => statusCode != null
       ? 'ApiException($statusCode): $message'
       : 'ApiException: $message';
+}
+
+/// [ApiException.code] of a request whose 401 could not be recovered because
+/// the token refresh failed for a reason that may pass (todo 500 finding 5).
+const String sessionRefreshUnavailableCode = 'session_refresh_unavailable';
+
+/// Thrown by an access-token refresher that was overtaken: the signed-in
+/// user changed or signed out while it ran (todo 500 finding 2). ApiService
+/// then neither re-sends the request nor signs anyone out. Returning `null`
+/// instead would read as a refusal and sign out whoever is current.
+class RefreshSupersededException implements Exception {
+  const RefreshSupersededException();
+
+  @override
+  String toString() => 'RefreshSupersededException';
 }
 
 /// What one token refresh came to, for every 401 waiting on it (todo 498).

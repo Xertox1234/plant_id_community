@@ -32,6 +32,15 @@ class PushRegistrationService {
   final ApiService _apiService;
 
   static const String _profilePath = '/forum/me/profile/';
+
+  /// The whole budget of sign-out's FCM clear. When the access token expired
+  /// while the app sat idle, the PATCH, its 401, `getIdToken`, the token
+  /// exchange and the re-sent PATCH must all fit in it. Past it the clear is
+  /// abandoned and sign-out goes on: a slow network must not hold the user
+  /// on a sign-out spinner (todo 500 finding 6, a documented limit). What
+  /// that costs is bounded: the token stays on the signed-out profile until
+  /// any account registers it on this device again, which releases it
+  /// (MeProfileSerializer's device-uniqueness rule).
   static const Duration _logoutClearTimeout = Duration(seconds: 3);
 
   /// Test seam, mirroring AuthService.firebaseAuth: a lazy getter so

@@ -15,6 +15,8 @@ import 'package:plant_community_mobile/services/auth_service.dart';
 import 'package:plant_community_mobile/services/push_registration_service.dart';
 import 'package:plant_community_mobile/services/user_profile_service.dart';
 
+import '../support/wait_until.dart';
+
 /// Unit harness for [AuthService] (todo 288).
 ///
 /// Modelled on `push_registration_service_test.dart`: hand-rolled fakes, no
@@ -647,7 +649,11 @@ void main() {
       addTearDown(harness.dispose);
       await pumpEventQueue();
 
-      expect(await harness.api.accessTokenRefresher!(), isNull);
+      // Overtaken, not refused (todo 500 F2): nobody is left to sign out.
+      await expectLater(
+        harness.api.accessTokenRefresher!(),
+        throwsA(isA<RefreshSupersededException>()),
+      );
       expect(harness.api.postCalls, isEmpty);
     });
 
@@ -663,7 +669,8 @@ void main() {
       await harness.container.read(authServiceProvider.notifier).signOut();
       gate.complete();
 
-      expect(await refresh, isNull);
+      // Overtaken, not refused (todo 500 F2).
+      await expectLater(refresh, throwsA(isA<RefreshSupersededException>()));
       expect(harness.container.read(authServiceProvider).jwtToken, isNull);
       expect(harness.api.currentToken, isNull);
     });
@@ -745,7 +752,9 @@ void main() {
       return harness;
     }
 
-    for (final status in [401, 403, 409]) {
+    // 409 left this set in todo 500 (F1): see 'an exchange 409 keeps the
+    // user signed in…' below.
+    for (final status in [401, 403]) {
       test('an exchange $status refuses the session: the refresher returns '
           'null', () async {
         final harness = await signedIn();
@@ -792,8 +801,8 @@ void main() {
     });
 
     test('over real HTTP, a 503 from the exchange leaves the user signed in, '
-        'fails the request with the 503, and the next 401 refreshes '
-        'again', () async {
+        'fails the request as a session-refresh failure, and the next 401 '
+        'refreshes again', () async {
       final backend = await _LoopbackBackend.start();
       addTearDown(backend.close);
       backend.exchangeStatus = HttpStatus.serviceUnavailable;
@@ -812,10 +821,14 @@ void main() {
       harness.api.realHttp = true;
       harness.api.setAuthToken('expired');
 
+      // Its own error, not the exchange's 503 (todo 500 F5), which would
+      // read as the endpoint's outage.
       await expectLater(
         harness.api.get('/forum/topics/'),
         throwsA(
-          isA<ApiException>().having((e) => e.statusCode, 'statusCode', 503),
+          isA<ApiException>()
+              .having((e) => e.statusCode, 'statusCode', isNull)
+              .having((e) => e.code, 'code', sessionRefreshUnavailableCode),
         ),
       );
       final state = harness.container.read(authServiceProvider);
@@ -892,10 +905,10 @@ void main() {
       final read = harness.api
           .get('/forum/topics/')
           .then<Object?>((r) => r, onError: (Object e) => e);
-      for (var poll = 0; backend.seen.length < 2; poll++) {
-        if (poll > 400) fail('the refresh never reached the exchange');
-        await Future<void>.delayed(const Duration(milliseconds: 5));
-      }
+      await waitUntil(
+        () => backend.seen.length >= 2,
+        'the refresh to reach the exchange',
+      );
 
       final logoutGate = Completer<void>();
       harness.push.clearOnLogoutGate = logoutGate;
@@ -947,15 +960,15 @@ void main() {
 
       await harness.signIn(_FakeUser(uid: 'ada')); // the exchange is held
       final read = harness.api.get('/forum/topics/'); // goes out anonymous
-      for (var poll = 0; backend.seen.length < 2; poll++) {
-        if (poll > 400) fail('the read never reached the server');
-        await Future<void>.delayed(const Duration(milliseconds: 5));
-      }
+      await waitUntil(
+        () => backend.seen.length >= 2,
+        'the read to reach the server',
+      );
       exchangeGate.complete();
-      for (var poll = 0; harness.api.currentToken != 'fresh'; poll++) {
-        if (poll > 400) fail('the launch exchange never installed its JWT');
-        await Future<void>.delayed(const Duration(milliseconds: 5));
-      }
+      await waitUntil(
+        () => harness.api.currentToken == 'fresh',
+        'the launch exchange to install its JWT',
+      );
       readGate.complete(); // its 401 lands after the JWT is installed
 
       expect((await read).statusCode, 200);
@@ -979,6 +992,248 @@ void main() {
       await pumpEventQueue();
 
       expect(harness.push.calls, contains('syncAfterLogin'));
+    });
+  });
+
+  group('todo 500', () {
+    Future<_Harness> signedInOver(
+      _LoopbackBackend backend, {
+      bool useRealPushService = false,
+    }) async {
+      final harness = _Harness(
+        currentUser: _FakeUser(uid: 'ada'),
+        baseUrl: backend.baseUrl,
+        useRealPushService: useRealPushService,
+      );
+      addTearDown(harness.dispose);
+      await pumpEventQueue(); // the launch exchange (faked) settles
+      return harness;
+    }
+
+    test('F1: an exchange 409 keeps the user signed in and the conflict on '
+        'screen, never "session expired"', () async {
+      final backend = await _LoopbackBackend.start();
+      addTearDown(backend.close);
+      backend.exchangeStatus = HttpStatus.conflict;
+      backend.exchangeBody = {
+        'error': 'Account linking conflict',
+        'code': 'unverified_account',
+      };
+      final harness = await signedInOver(backend);
+      var sessionExpiredCalls = 0;
+      final handler = harness.api.sessionExpiredHandler!;
+      harness.api.setSessionExpiredHandler(() async {
+        sessionExpiredCalls++;
+        await handler();
+      });
+      harness.api.realHttp = true;
+      harness.api.setAuthToken('expired');
+
+      await expectLater(
+        harness.api.get('/forum/topics/'),
+        throwsA(isA<ApiException>()),
+      );
+      await pumpEventQueue();
+
+      expect(sessionExpiredCalls, 0, reason: 'a 409 signed the user out');
+      expect(harness.events, isNot(contains('firebase.signOut')));
+      final state = harness.container.read(authServiceProvider);
+      expect(state.error, accountConflictMessage);
+      expect(state.unverifiedAccountConflict, isTrue);
+      expect(state.firebaseUser?.uid, 'ada');
+    });
+
+    test(
+      'F1: any other 409 says the link failed, without the reset offer',
+      () async {
+        final harness = _Harness(currentUser: _FakeUser(uid: 'ada'));
+        addTearDown(harness.dispose);
+        await pumpEventQueue();
+        harness.api.postError = ApiException(
+          'Account linking conflict',
+          statusCode: 409,
+          code: 'account_conflict',
+        );
+
+        await expectLater(
+          harness.api.accessTokenRefresher!(),
+          throwsA(isA<ApiException>()),
+        );
+        final state = harness.container.read(authServiceProvider);
+        expect(state.error, accountLinkFailedMessage);
+        expect(state.unverifiedAccountConflict, isFalse);
+        expect(harness.events, isNot(contains('firebase.signOut')));
+      },
+    );
+
+    test('F2: a refresh whose Firebase user changed under it signs nobody '
+        'out', () async {
+      final backend = await _LoopbackBackend.start();
+      addTearDown(backend.close);
+      final exchangeGate = Completer<void>();
+      backend.holds['/auth/firebase-token-exchange/'] = exchangeGate.future;
+      final harness = await signedInOver(backend);
+      var sessionExpiredCalls = 0;
+      final handler = harness.api.sessionExpiredHandler!;
+      harness.api.setSessionExpiredHandler(() async {
+        sessionExpiredCalls++;
+        await handler();
+      });
+      harness.api.realHttp = true;
+      harness.api.setAuthToken('expired');
+
+      final read = harness.api
+          .get('/forum/topics/')
+          .then<Object?>((r) => r, onError: (Object e) => e);
+      await waitUntil(
+        () => backend.seen.length >= 2,
+        'the refresh to reach the exchange',
+      );
+      // B is current before the auth-state listener has heard of it.
+      harness.firebaseAuth.currentUser = _FakeUser(uid: 'bea');
+      exchangeGate.complete();
+
+      expect(await read, isA<ApiException>());
+      await pumpEventQueue();
+      expect(sessionExpiredCalls, 0, reason: 'B was signed out for A');
+      expect(harness.events, isNot(contains('firebase.signOut')));
+    });
+
+    test('F3: a sign-out whose FCM clear 401s with no JWT re-sends the clear '
+        'and registers nothing after it', () async {
+      final backend = await _LoopbackBackend.start();
+      addTearDown(backend.close);
+      final harness = _Harness(
+        currentUser: _FakeUser(uid: 'ada'),
+        baseUrl: backend.baseUrl,
+        useRealPushService: true,
+      );
+      addTearDown(harness.dispose);
+      // The launch exchange fails: signed in to Firebase, no JWT.
+      harness.api.postError = ApiException('server down', statusCode: 500);
+      harness.container.read(authServiceProvider);
+      await pumpEventQueue();
+      expect(harness.container.read(authServiceProvider).jwtToken, isNull);
+      // A registration from earlier is still live on the server.
+      await harness.realPush!.registerToken('device-token-1');
+      harness.api.postError = null;
+      harness.api.realHttp = true;
+
+      await harness.container.read(authServiceProvider.notifier).signOut();
+      await waitUntil(
+        () =>
+            backend.bodies.where((b) => b.$1 == '/forum/me/profile/').length >=
+            2,
+        'the clear and its re-send',
+      );
+      // Give a stray syncAfterLogin time to PATCH.
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+      await pumpEventQueue();
+
+      final patches = [
+        for (final b in backend.bodies)
+          if (b.$1 == '/forum/me/profile/') b.$2,
+      ];
+      expect(patches, [
+        {'fcm_token': ''},
+        {'fcm_token': ''},
+      ], reason: 'the refresh re-registered push mid-sign-out');
+      expect(
+        backend.seen.where((r) => r.$1 == '/forum/me/profile/').last.$2,
+        'Bearer fresh',
+      );
+      final state = harness.container.read(authServiceProvider);
+      expect(state.jwtToken, isNull);
+      expect(state.error, isNull);
+    });
+
+    test('F3: a 401 while the launch exchange runs completes the login once: '
+        'push is registered once', () async {
+      final backend = await _LoopbackBackend.start();
+      addTearDown(backend.close);
+      final launchGate = Completer<void>();
+      backend.holds['/auth/firebase-token-exchange/'] = launchGate.future;
+      final harness = _Harness(baseUrl: backend.baseUrl);
+      addTearDown(harness.dispose);
+      harness.container.read(authServiceProvider);
+      harness.api.realHttp = true;
+
+      await harness.signIn(_FakeUser(uid: 'ada')); // the launch is held
+      final read = await harness.api.get('/forum/topics/'); // 401 → refresh
+      expect(read.statusCode, 200);
+      launchGate.complete();
+      await waitUntil(
+        () => backend.seen.where((r) => r.$1.contains('exchange')).length >= 2,
+        'both exchanges',
+      );
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+      await pumpEventQueue();
+
+      expect(
+        harness.push.calls.where((c) => c == 'syncAfterLogin'),
+        hasLength(1),
+      );
+      expect(harness.container.read(authServiceProvider).jwtToken, 'fresh');
+    });
+
+    test('F8: a 401 or 403 that is not the view\'s JSON (a proxy page) is '
+        'transient, not a refusal', () async {
+      final harness = _Harness(currentUser: _FakeUser(uid: 'ada'));
+      addTearDown(harness.dispose);
+      await pumpEventQueue();
+      for (final status in [401, 403]) {
+        harness.api.postError = ApiException(
+          '<html>Forbidden</html>',
+          statusCode: status,
+          unstructured: true,
+        );
+        await expectLater(
+          harness.api.accessTokenRefresher!(),
+          throwsA(isA<ApiException>()),
+          reason: 'an HTML $status signed the user out',
+        );
+      }
+    });
+
+    test('a user switch A→B clears A\'s bearer before B\'s exchange '
+        'returns', () async {
+      final harness = _Harness(currentUser: _FakeUser(uid: 'ada'));
+      addTearDown(harness.dispose);
+      await pumpEventQueue();
+      expect(harness.api.currentToken, 'django-jwt');
+
+      final gate = Completer<void>();
+      harness.api.postGate = gate;
+      harness.api.nextAccessToken = 'bea-jwt';
+      final switching = harness.signIn(_FakeUser(uid: 'bea'));
+      await pumpEventQueue();
+      expect(
+        harness.api.currentToken,
+        isNull,
+        reason: "B's requests would go out under A's token",
+      );
+
+      gate.complete();
+      await switching;
+      await pumpEventQueue();
+      expect(harness.api.currentToken, 'bea-jwt');
+    });
+
+    test('Firebase handing back no ID token is transient', () async {
+      final harness = _Harness(
+        currentUser: _FakeUser(
+          uid: 'ada',
+          getIdTokenOverride: () async => null,
+        ),
+      );
+      addTearDown(harness.dispose);
+      await pumpEventQueue();
+
+      await expectLater(
+        harness.api.accessTokenRefresher!(),
+        throwsA(isA<AuthException>()),
+      );
+      expect(harness.events, isNot(contains('firebase.signOut')));
     });
   });
 
@@ -1325,6 +1580,14 @@ class _FakeApiService extends ApiService {
     Options? options,
   }) async {
     patchCalls.add(_RequestCall(path, data as Map<String, dynamic>?, options));
+    if (realHttp) {
+      return super.patch(
+        path,
+        data: data,
+        queryParameters: queryParameters,
+        options: options,
+      );
+    }
     return Response<dynamic>(requestOptions: RequestOptions(path: path));
   }
 }
@@ -1384,10 +1647,10 @@ class _FakeUser implements User {
 }
 
 /// A loopback backend for the refresh tests (todo 498): `Bearer fresh` is
-/// the only accepted token, and the token exchange answers
-/// [exchangeStatus], only when it carries no bearer, like the real view
-/// behind DRF's authenticators. [holds] delays the first response on a
-/// path.
+/// the only accepted token, and the token exchange answers [exchangeStatus]
+/// with [exchangeBody], whatever bearer it carries: the real view runs no
+/// authenticator (todo 500). [holds] delays the first response on a path,
+/// and [bodies] records each request's decoded JSON body.
 class _LoopbackBackend {
   _LoopbackBackend._(this._server, this._savedOverrides) {
     _server.listen(_handle);
@@ -1406,34 +1669,43 @@ class _LoopbackBackend {
   final HttpServer _server;
   final HttpOverrides? _savedOverrides;
   final List<(String, String?)> seen = [];
+  final List<(String, Object?)> bodies = [];
   int exchangeStatus = HttpStatus.ok;
+  Map<String, Object?>? exchangeBody;
   final Map<String, Future<void>> holds = {};
 
   String get baseUrl => 'http://${_server.address.host}:${_server.port}';
 
   Future<void> _handle(HttpRequest request) async {
-    await request.drain<void>();
+    final raw = await utf8.decodeStream(request);
+    Object? body;
+    try {
+      body = raw.isEmpty ? null : jsonDecode(raw);
+    } on FormatException {
+      body = raw;
+    }
     final auth = request.headers.value(HttpHeaders.authorizationHeader);
     seen.add((request.uri.path, auth));
+    bodies.add((request.uri.path, body));
     final hold = holds.remove(request.uri.path);
     if (hold != null) await hold;
     final isExchange = request.uri.path == '/auth/firebase-token-exchange/';
     int status;
-    Object body;
+    Object reply;
     if (isExchange) {
-      status = auth != null ? HttpStatus.unauthorized : exchangeStatus;
-      body = status == HttpStatus.ok
+      status = exchangeStatus;
+      reply = status == HttpStatus.ok
           ? {'access_token': 'fresh', 'refresh_token': 'refresh'}
-          : {'error': 'exchange failed'};
+          : exchangeBody ?? {'error': 'exchange failed'};
     } else {
       final ok = auth == 'Bearer fresh';
       status = ok ? HttpStatus.ok : HttpStatus.unauthorized;
-      body = ok ? {'ok': true} : {'detail': 'Token is expired'};
+      reply = ok ? {'ok': true} : {'detail': 'Token is expired'};
     }
     request.response
       ..statusCode = status
       ..headers.contentType = ContentType.json
-      ..write(jsonEncode(body));
+      ..write(jsonEncode(reply));
     await request.response.close();
   }
 

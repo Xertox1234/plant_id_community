@@ -217,6 +217,8 @@ sealed class BlogBlock {
           image: BlogImage.fromJson(value['image']),
           imageCredit: _str(value['image_credit']).trim(),
           imageCreditUrl: _str(value['image_credit_url']),
+          creditLead: _str(value['credit_lead']).trim(),
+          unsplashHref: _str(value['unsplash_href']),
         );
       case 'call_to_action':
         if (value is! Map<String, dynamic>) return null;
@@ -266,6 +268,8 @@ class BlogPlantSpotlightBlock extends BlogBlock {
     this.image,
     this.imageCredit = '',
     this.imageCreditUrl = '',
+    this.creditLead = '',
+    this.unsplashHref = '',
   });
 
   final String plantName;
@@ -278,6 +282,14 @@ class BlogPlantSpotlightBlock extends BlogBlock {
   /// is shown (todo 376), so the renderer must show it with the image.
   final String imageCredit;
   final String imageCreditUrl;
+
+  /// For an Unsplash credit, the API splits it (todo 442): [creditLead] is
+  /// the text before " on Unsplash" ("Photo by Jane Doe"), linked to the
+  /// photographer, and [unsplashHref] is Unsplash's own link with the
+  /// referral parameters its guidelines require. Both empty for any other
+  /// credit, which then renders as one link, as on the web (todo 438).
+  final String creditLead;
+  final String unsplashHref;
 }
 
 class BlogCallToActionBlock extends BlogBlock {

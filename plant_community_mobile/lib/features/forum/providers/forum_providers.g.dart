@@ -104,7 +104,7 @@ final class BoardTopicsProvider
   }
 }
 
-String _$boardTopicsHash() => r'e3ceae0252f9b4dc891e48cf03f7a0a2e9572942';
+String _$boardTopicsHash() => r'33706c719f3cdcd779417d7a3f21a33977749be9';
 
 /// Topics in a board, cursor-paginated with [loadMore].
 

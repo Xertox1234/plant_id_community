@@ -43,6 +43,8 @@ class PlantIdentificationService extends Notifier<void> {
         filePath: imagePath,
         fieldName: 'image',
         data: {'image_url': imageUrl},
+        // Identification runs synchronously on the server (todo 461).
+        receiveTimeout: slowAnalysisReceiveTimeout,
       );
 
       final responseData = response.data;

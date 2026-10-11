@@ -44,8 +44,12 @@ class Boards extends _$Boards {
 /// Topics in a board, cursor-paginated with [loadMore].
 @riverpod
 class BoardTopics extends _$BoardTopics {
+  /// Bumped by every [build]: see [loadMore].
+  int _builds = 0;
+
   @override
   Future<PagedList<ForumTopicListItem>> build(String boardSlug) async {
+    _builds++;
     final page = await ref
         .watch(forumApiProvider)
         .fetchTopics(boardSlug: boardSlug);
@@ -54,7 +58,13 @@ class BoardTopics extends _$BoardTopics {
 
   /// Fetch and append the next page. Rethrows on failure with the loading flag
   /// reset so the caller can surface an error and the user can retry.
+  ///
+  /// A refresh or a dispose while the page is in flight leaves it belonging
+  /// to a feed that no longer exists: it is dropped rather than appended to
+  /// the new one or written to a disposed ref (todo 460).
   Future<void> loadMore() async {
+    final build = _builds;
+    bool superseded() => !ref.mounted || build != _builds;
     final current = state.asData?.value;
     if (current == null || !current.hasMore || current.isLoadingMore) return;
     state = AsyncData(
@@ -68,12 +78,14 @@ class BoardTopics extends _$BoardTopics {
       final page = await ref
           .read(forumApiProvider)
           .fetchTopics(boardSlug: boardSlug, cursorUrl: current.nextUrl);
+      if (superseded()) return;
       // Re-read after the await so a concurrent state change isn't lost.
       final latest = state.asData?.value ?? current;
       state = AsyncData(
         PagedList(items: [...latest.items, ...page.items], nextUrl: page.next),
       );
     } catch (_) {
+      if (superseded()) return;
       final latest = state.asData?.value ?? current;
       state = AsyncData(
         PagedList(items: latest.items, nextUrl: latest.nextUrl),
