@@ -202,8 +202,12 @@ describe('card runs', () => {
     };
     render(<StreamFieldRenderer blocks={[untitled('a'), untitled('b')]} />);
 
-    expect(iframes()[0].getAttribute('title')).toBe('https://youtu.be/…');
-    expect(screen.getByRole('button', { name: 'https://youtu.be/…, YouTube' })).toBeInTheDocument();
+    // Both share one short address, so each carries its ordinal in this body
+    // (todo 563, owner decision 2026-10-11): still one name per video.
+    expect(iframes()[0].getAttribute('title')).toBe('https://youtu.be/… (1)');
+    expect(
+      screen.getByRole('button', { name: 'https://youtu.be/… (2), YouTube' })
+    ).toBeInTheDocument();
   });
 
   it('keeps a null link card out of a run (it renders nothing)', () => {

@@ -182,6 +182,22 @@ describe('findUnknownClasses', () => {
     expect(flagged("const label = open ? 'Close menu' : 'Open menu';")).toEqual([]);
   });
 
+  it('leaves the prose or CSS-value branch of a mixed conditional unchecked (todo 564)', () => {
+    // One branch is a class list, but its sibling does not read like one, so
+    // the sibling is not promoted to strict class-checking.
+    expect(flagged("const hint = x ? 'p-2' : 'Loading...';")).toEqual([]);
+    expect(flagged("const hint = x ? 'rounded-sm' : 'Show details';")).toEqual([]);
+    expect(flagged("const label = a ? 'p-2' : 'Close menu';")).toEqual([]);
+    expect(flagged("const width = big ? 'p-2' : 'auto';")).toEqual([]);
+    expect(flagged("const dir = x ? 'rounded-sm' : 'row';")).toEqual([]);
+  });
+
+  it('still checks a sibling branch that reads like a class list (todo 564)', () => {
+    // Class-shaped (lower case) with a utility-shaped token: promoted.
+    expect(flagged("const w = x ? 'p-2' : 'prose prose-lg';")).toEqual(['prose', 'prose-lg']);
+    expect(flagged("const w = x ? 'p-2' : 'bg-[#FFF] never';")).toEqual(['bg-[#FFF]', 'never']);
+  });
+
   it('checks class strings held in constants', () => {
     expect(flagged("const CARD = { sm: 'p-2 rounded-card md:rounded-card' };")).toEqual([
       'rounded-card',

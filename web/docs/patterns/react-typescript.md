@@ -577,3 +577,15 @@ video's `title` is its SHORT address, never the full URL. `CompactCardRow`
 reads all three; the full card (`StreamFieldRenderer`'s `embed` case) reads
 `title` for the iframe's `title` and the fallback card's first line, so the
 same video is named one way wherever it falls in a run.
+
+Two untitled videos in ONE body that would share a short address each carry
+an ordinal (`https://youtu.be/… (1)`, `… (2)`): `StreamFieldRenderer` computes
+`untitledEmbedOrdinals(blocks)` once and passes each video's ordinal to its
+full card and its row, so a frame list can tell the players apart (owner
+decision 2026-10-11, todo 563). The scope is the renderer, never the page: two
+posts on one thread can still share a name, a trade-off the owner accepted.
+An UNTITLED fallback card shows only the short address, so it keeps the link
+card's affordances: the full URL as its hover `title`, and `aria-describedby`
+on an `sr-only` "Opens in a new tab" hint so that `title` is never spoken. The
+anchor has no `aria-label`, so the hint sits OUTSIDE it, or it would join the
+name (todo 563).

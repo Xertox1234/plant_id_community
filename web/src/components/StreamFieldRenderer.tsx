@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useId, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { createSafeMarkup, SANITIZE_PRESETS } from '../utils/sanitize';
 import { highlightMentions } from '../utils/mentions';
@@ -9,8 +9,12 @@ import { safeExternalUrl } from '../utils/externalUrl';
 import LinkPreviewCard from './forum/LinkPreviewCard';
 import CompactCardRow from './forum/CompactCardRow';
 import { groupCardRuns } from './forum/cardRuns';
-import { embedDisplay } from './forum/embedDisplay';
-import type { PostQuoteBlockValue, StreamFieldBlock as StreamFieldBlockType } from '@/types/blog';
+import { embedDisplay, untitledEmbedOrdinals } from './forum/embedDisplay';
+import type {
+  EmbedBlockValue,
+  PostQuoteBlockValue,
+  StreamFieldBlock as StreamFieldBlockType,
+} from '@/types/blog';
 
 /**
  * SafeHTML Component
@@ -121,6 +125,9 @@ export default function StreamFieldRenderer({
   // paragraph by `.rich-text` (todo 450). The typography-plugin classes it
   // used to carry never compiled: @tailwindcss/typography is not installed.
   const wrapper = variant === 'article' ? 'mx-auto w-full max-w-[70ch] text-body-lg' : undefined;
+  // Untitled videos that would share a name in this body each get an
+  // ordinal, read by the full card and the compact row alike (todo 563).
+  const embedOrdinals = untitledEmbedOrdinals(blocks);
 
   const full = (block: StreamFieldBlockType, index: number) => (
     <StreamFieldBlock
@@ -128,6 +135,7 @@ export default function StreamFieldRenderer({
       block={block}
       mentionHighlight={mentionHighlight}
       currentTopicId={currentTopicId}
+      embedOrdinal={embedOrdinals.get(index)}
     />
   );
   const anchored = (index: number, key: string | number, node: React.ReactNode) =>
@@ -161,6 +169,7 @@ export default function StreamFieldRenderer({
                   <CompactCardRow
                     key={block.id || index}
                     block={block}
+                    embedOrdinal={embedOrdinals.get(index)}
                     renderFull={() => full(block, index)}
                   />
                 )
@@ -182,9 +191,16 @@ interface StreamFieldBlockProps {
   block: StreamFieldBlockType;
   mentionHighlight?: boolean;
   currentTopicId?: number;
+  /** An untitled video's ordinal in its body, when its name collides (todo 563). */
+  embedOrdinal?: number;
 }
 
-function StreamFieldBlock({ block, mentionHighlight, currentTopicId }: StreamFieldBlockProps) {
+function StreamFieldBlock({
+  block,
+  mentionHighlight,
+  currentTopicId,
+  embedOrdinal,
+}: StreamFieldBlockProps) {
   const { type } = block;
 
   switch (type) {
@@ -248,15 +264,16 @@ function StreamFieldBlock({ block, mentionHighlight, currentTopicId }: StreamFie
       // origin (the provider), which the YouTube/Vimeo players require.
       // An untitled video is named by its SHORT address, never the full URL
       // a screen reader would spell out: the name its compact row uses too
-      // (`embedDisplay`, todo 518).
-      const { url, embed_url, thumbnail_url, provider_name } = block.value;
-      const label = embedDisplay(block.value).title;
+      // (`embedDisplay`, todo 518), with an ordinal when two untitled videos
+      // in this body would share it (todo 563).
+      const { embed_url } = block.value;
+      const { title } = embedDisplay(block.value, embedOrdinal);
       if (embed_url) {
         return (
           <div className="my-5 aspect-video overflow-hidden rounded-md border border-line bg-surface-2">
             <iframe
               src={embed_url}
-              title={label}
+              title={title}
               className="h-full w-full"
               sandbox="allow-scripts allow-same-origin allow-presentation allow-popups allow-popups-to-escape-sandbox"
               referrerPolicy="strict-origin-when-cross-origin"
@@ -266,28 +283,7 @@ function StreamFieldBlock({ block, mentionHighlight, currentTopicId }: StreamFie
           </div>
         );
       }
-      return (
-        <a
-          href={getSafeHref(url)}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="my-5 flex items-center gap-3 rounded-md border border-line bg-surface-2 p-3 text-ink hover:bg-surface-3"
-        >
-          {thumbnail_url && (
-            <img
-              src={thumbnail_url}
-              alt=""
-              className="h-16 w-28 shrink-0 rounded-sm object-cover"
-            />
-          )}
-          <span className="min-w-0">
-            <span className="block truncate font-medium">{label}</span>
-            <span className="block text-xs text-ink-3">
-              {provider_name ? `Watch on ${provider_name}` : 'Open link'}
-            </span>
-          </span>
-        </a>
-      );
+      return <EmbedFallbackCard value={block.value} title={title} />;
     }
 
     case 'link_preview':
@@ -467,6 +463,50 @@ function StreamFieldBlock({ block, mentionHighlight, currentTopicId }: StreamFie
         </div>
       );
   }
+}
+
+/**
+ * A video with no player URL, as a thumbnail link card (todo 344). Its name
+ * is its content: `title` (from `embedDisplay`) plus "Watch on PROVIDER" or
+ * "Open link". An UNTITLED card shows only the short address, so it keeps
+ * the link card's full-URL affordances (owner decision 2026-10-10, todo
+ * 563): the full URL as the hover `title`, and an `aria-describedby` hint
+ * ("Opens in a new tab") so that `title` is never read aloud as the
+ * description (docs/rules/react.md). The hint sits OUTSIDE the anchor: the
+ * anchor has no `aria-label`, so a hint inside it would join its name.
+ */
+function EmbedFallbackCard({ value, title }: { value: EmbedBlockValue; title: string }) {
+  const hintId = useId();
+  const { url, thumbnail_url, provider_name } = value;
+  const href = getSafeHref(url);
+  const showAddress = !value.title && href !== '#';
+  return (
+    <>
+      <a
+        href={href}
+        target="_blank"
+        rel="noopener noreferrer"
+        title={showAddress ? href : undefined}
+        aria-describedby={showAddress ? hintId : undefined}
+        className="my-5 flex items-center gap-3 rounded-md border border-line bg-surface-2 p-3 text-ink hover:bg-surface-3"
+      >
+        {thumbnail_url && (
+          <img src={thumbnail_url} alt="" className="h-16 w-28 shrink-0 rounded-sm object-cover" />
+        )}
+        <span className="min-w-0">
+          <span className="block truncate font-medium">{title}</span>
+          <span className="block text-xs text-ink-3">
+            {provider_name ? `Watch on ${provider_name}` : 'Open link'}
+          </span>
+        </span>
+      </a>
+      {showAddress && (
+        <span id={hintId} className="sr-only">
+          Opens in a new tab
+        </span>
+      )}
+    </>
+  );
 }
 
 /**

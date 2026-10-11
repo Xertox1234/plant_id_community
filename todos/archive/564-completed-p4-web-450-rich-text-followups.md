@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: p4
 issue_id: "564"
 tags: [web, follow-ups]
@@ -29,7 +29,29 @@ PR #997 (todo sweep run 2026-10-11-0053, group g2, todos 450); follow-ups: verif
 
 ## Acceptance Criteria
 
-- [ ] Each finding above is fixed with a test where it is a behaviour change, or recorded in the Work Log as
+- [x] Each finding above is fixed with a test where it is a behaviour change, or recorded in the Work Log as
       declined with a reason.
 
 ## Work Log
+
+### 2026-10-11 - Implemented by the todo sweep (run 2026-10-11-1448)
+
+- Findings 1, 4 and 6 (one issue): `web/scripts/check-tailwind-classes.mjs` now checks a conditional's sibling branch as classes only when it reads like a class list itself. Every token must be lower case with no prose punctuation, and at least one must be utility-shaped. This is `classValuedLiterals`, which replaces `classValuedGroups`. So `x ? 'p-2' : 'Loading...'`, `'Show details'`, `'auto'` and `'row'` are no longer false positives, while `'prose prose-lg'` beside a class list is still caught. The cost: a lone bare word beside a class list (`x ? 'p-2' : 'prose'`) is no longer caught. `checkTailwindClasses.test.ts` pins both directions, and the todo 450 cases pass unchanged. `npm run check:classes` is clean on `src/`.
+- Finding 2: a new test in `StreamFieldRenderer.test.tsx` reads `web/src/index.css` and pins `.rich-text ul` to `list-style: disc` and `.rich-text ol` to `decimal`. The component test, renamed so it no longer claims to prove the markers, pins only the wrapper.
+- Findings 3 and 5: the "no typography-plugin class" test first asserts that `.rich-text` and its list rendered, so an empty render can no longer pass the absence check.
+
+### 2026-10-11 - Verified by the todo sweep (run 2026-10-11-1448)
+
+- AC 1: `cd web && npx vitest run src/tests/checkTailwindClasses.test.ts src/components/StreamFieldRenderer.test.tsx` — evidence `.sweep-evidence/g7/564-ac0.txt` (not committed), last lines:
+
+  ```text
+
+   Test Files  2 passed (2)
+        Tests  103 passed (103)
+     Start at  10:31:10
+     Duration  837ms (transform 166ms, setup 110ms, import 435ms, tests 250ms, environment 502ms)
+  ```
+
+### 2026-10-11 - Completed by the todo sweep (run 2026-10-11-1448)
+
+- Archived by `land.py archive`; evidence is quoted above, review is on the PR.

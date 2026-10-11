@@ -395,13 +395,23 @@ match, below). A card or compact row is named
 SHORT address — or the title alone when there is no second line (a link whose
 title IS its address says it once). An untitled video is titled by its SHORT
 address too, never the full URL, on its row (todo 505) AND its full card (owner
-decision 2026-10-02, todo 518): one rule, `_embedTitle`, whose web twin is
-`embedDisplay`. The full video card's second line is its visible "Watch on
-PROVIDER": that matches only the web's no-player
+decision 2026-10-02, todo 518): one rule, `_embedTitle` / `_embedRow`, whose
+web twin is `embedDisplay` (`_embedTitle` gives its `title`, `_embedRow` its
+`detail` and `label`). Two untitled videos in ONE body that would share a
+short address each carry an ordinal, `https://youtu.be/… (1)`, `… (2)`, on
+the full card and the row alike (`untitledEmbedOrdinals`, web twin of the same
+name; owner decision 2026-10-11, todo 563). The scope is the body, never the
+screen: two posts on one thread can still share a name, a trade-off the owner
+accepted. The full video card's second line is its visible "Watch on
+PROVIDER", or "Open link" with no provider, as on the web (todo 563): that
+matches only the web's no-player
 FALLBACK card, which takes its name from its content. It is NOT the web's name
 for a video with a player (an iframe titled by the title alone), and with no
 provider the web fallback reads "title Open link" where mobile says the title
-alone (todo 505; the label itself is the owner's call, kept as decided).
+alone (todo 505; the label itself is the owner's call, kept as decided). An
+UNTITLED full video card shows no full URL, so it keeps the link card's
+long-press sheet and "Show full address" / "Copy link" actions (todo 563); a
+titled card and a video row do not.
 No "Link:" / "PROVIDER video:" prefix: on the web the element's role
 says what it is. Mobile keeps `button: onTap != null` — a tap hands the URL
 to `onOpenLink` (the in-app browser), not to a system link — so the role

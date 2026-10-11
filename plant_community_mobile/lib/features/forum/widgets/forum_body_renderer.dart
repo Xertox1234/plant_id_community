@@ -64,6 +64,9 @@ class ForumBodyRenderer extends StatelessWidget {
     if (blocks.isEmpty) return const SizedBox.shrink();
     final children = <Widget>[];
     final card = [for (final block in blocks) isForumCardBlock(block)];
+    // Untitled videos that would share a name in this body each get an
+    // ordinal, read by the full card and the compact row alike (todo 563).
+    final ordinals = untitledEmbedOrdinals(blocks);
     for (var i = 0; i < blocks.length; i++) {
       if (children.isNotEmpty) {
         children.add(const SizedBox(height: AppSpacing.sm));
@@ -74,11 +77,17 @@ class ForumBodyRenderer extends StatelessWidget {
       while (card[i] && end + 1 < blocks.length && card[end + 1]) {
         end++;
       }
-      children.add(_block(context, blocks[i]));
+      children.add(_block(context, blocks[i], ordinals[i]));
       for (var j = i + 1; j <= end; j++) {
         children
           ..add(const SizedBox(height: AppSpacing.xs))
-          ..add(_CompactCardRow(block: blocks[j], onOpenLink: onOpenLink));
+          ..add(
+            _CompactCardRow(
+              block: blocks[j],
+              onOpenLink: onOpenLink,
+              embedOrdinal: ordinals[j],
+            ),
+          );
       }
       i = end;
     }
@@ -88,7 +97,11 @@ class ForumBodyRenderer extends StatelessWidget {
     );
   }
 
-  Widget _block(BuildContext context, ForumBodyBlock block) {
+  Widget _block(
+    BuildContext context,
+    ForumBodyBlock block, [
+    int? embedOrdinal,
+  ]) {
     final theme = Theme.of(context);
     return switch (block) {
       HeadingBlock(:final text) => Text(
@@ -122,6 +135,7 @@ class ForumBodyRenderer extends StatelessWidget {
           providerName: providerName,
           title: title,
           thumbnailUrl: thumbnailUrl,
+          ordinal: embedOrdinal,
           onOpenLink: onOpenLink,
         ),
       LinkPreviewBlock card => _LinkPreviewCard(
@@ -432,20 +446,27 @@ class _Image extends StatelessWidget {
 /// and a web fallback card with no provider reads "title Open link" where
 /// this card says the title alone (todo 505). An untitled video is titled by
 /// its SHORT address ([_embedTitle]), the name its compact row uses, never
-/// the full URL (owner decision, todo 518). With no provider either, the
-/// second line still shows the URL itself: visible, but never spoken.
+/// the full URL (owner decision, todo 518), with an [ordinal] when another
+/// untitled video in the body shares it (todo 563). With no provider, the
+/// second line reads "Open link", as the web's fallback card does (owner
+/// decision 2026-10-10, todo 563); it is visible only, never spoken. An
+/// untitled card shows no full URL anywhere, so it keeps the link card's
+/// affordances: a long-press sheet with the full address and "Copy link",
+/// and the same two custom semantics actions (todo 563).
 class _EmbedCard extends StatelessWidget {
   const _EmbedCard({
     required this.url,
     required this.providerName,
     required this.title,
     required this.thumbnailUrl,
+    this.ordinal,
     this.onOpenLink,
   });
   final String url;
   final String providerName;
   final String title;
   final String thumbnailUrl;
+  final int? ordinal;
   final void Function(String href)? onOpenLink;
 
   @override
@@ -457,7 +478,7 @@ class _EmbedCard extends StatelessWidget {
       );
     }
     final theme = Theme.of(context);
-    final label = _embedTitle(url, title);
+    final label = _embedTitle(url, title, ordinal);
     final fallbackIcon = Icon(
       LucideIcons.circlePlay,
       size: 32,
@@ -467,12 +488,25 @@ class _EmbedCard extends StatelessWidget {
     final onTap = onOpenLink == null || url.isEmpty
         ? null
         : () => onOpenLink(url);
+    // Only an untitled card with a real link: a titled card names itself,
+    // and a non-http(s) "URL" is already shown raw as its title.
+    final showsAddress = title.isEmpty && linkPreviewShortAddress(url) != null;
+    void showAddress() => _showLinkAddressSheet(context, url);
     return Semantics(
       label: providerName.isNotEmpty ? '$label, Watch on $providerName' : label,
       button: onTap != null,
       // excludeSemantics drops the InkWell's own tap action, so the node
       // must carry it or a screen reader's double-tap does nothing.
       onTap: onTap,
+      onLongPress: showsAddress ? showAddress : null,
+      customSemanticsActions: showsAddress
+          ? {
+              const CustomSemanticsAction(label: 'Show full address'):
+                  showAddress,
+              const CustomSemanticsAction(label: 'Copy link'): () =>
+                  _copyLink(context, url),
+            }
+          : null,
       // The composed label already says everything the two Text children
       // say; without this a screen reader announces the title twice.
       excludeSemantics: true,
@@ -482,6 +516,7 @@ class _EmbedCard extends StatelessWidget {
         child: InkWell(
           borderRadius: BorderRadius.circular(AppSpacing.rXs),
           onTap: onTap,
+          onLongPress: showsAddress ? showAddress : null,
           child: Padding(
             padding: const EdgeInsets.all(AppSpacing.sm),
             child: Row(
@@ -518,7 +553,7 @@ class _EmbedCard extends StatelessWidget {
                       Text(
                         providerName.isNotEmpty
                             ? 'Watch on $providerName'
-                            : url,
+                            : 'Open link',
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: theme.textTheme.bodySmall?.copyWith(
@@ -657,9 +692,17 @@ class _LinkPreviewCard extends StatelessWidget {
 /// to [onOpenLink]. A link row keeps the full card's long-press sheet and
 /// "Show full address" / "Copy link" actions. At least [_rowMinHeight] tall.
 class _CompactCardRow extends StatelessWidget {
-  const _CompactCardRow({required this.block, this.onOpenLink});
+  const _CompactCardRow({
+    required this.block,
+    this.onOpenLink,
+    this.embedOrdinal,
+  });
   final ForumBodyBlock block;
   final void Function(String href)? onOpenLink;
+
+  /// An untitled video's ordinal in its body, when its name collides (todo
+  /// 563).
+  final int? embedOrdinal;
 
   @override
   Widget build(BuildContext context) {
@@ -677,7 +720,7 @@ class _CompactCardRow extends StatelessWidget {
       thumbnail,
       fallbackIcon,
     ) = switch (block) {
-      EmbedBlock e => _embedRow(e),
+      EmbedBlock e => _embedRow(e, embedOrdinal),
       LinkPreviewBlock c => switch (linkPreviewDisplay(c)) {
         // Never the raw URL: callers only pass usable cards, and a row
         // with no display renders nothing (see the guard below).
@@ -792,8 +835,11 @@ class _CompactCardRow extends StatelessWidget {
 /// A video row's URL, title, second line, label, thumbnail and icon, the
 /// web's `CompactCardRow` rule (its `embedDisplay`): "title, provider", or
 /// the title alone. The title is [_embedTitle], the full card's too.
-(String, String, String, String, String, IconData) _embedRow(EmbedBlock e) {
-  final title = _embedTitle(e.url, e.title);
+(String, String, String, String, String, IconData) _embedRow(
+  EmbedBlock e, [
+  int? ordinal,
+]) {
+  final title = _embedTitle(e.url, e.title, ordinal);
   final provider = e.providerName;
   return (
     e.url,
@@ -809,10 +855,43 @@ class _CompactCardRow extends StatelessWidget {
 /// 518): its title or, for an untitled video, its SHORT address, never the
 /// full URL a screen reader would spell out (the todo 428 rule). The raw URL
 /// only when it is not an http(s) link, which never joins a run, so only a
-/// full card can show it. The web twin is `embedDisplay`
-/// (web/src/components/forum/embedDisplay.ts).
-String _embedTitle(String url, String title) =>
-    title.isNotEmpty ? title : linkPreviewShortAddress(url) ?? url;
+/// full card can show it. With an [ordinal] (two untitled videos in one body
+/// would share the name, [untitledEmbedOrdinals]) it reads
+/// "https://youtu.be/… (2)". [_embedTitle] and [_embedRow] together are the
+/// twin of the web's `embedDisplay` (web/src/components/forum/embedDisplay.ts):
+/// this gives its `title`, [_embedRow] its `detail` and `label`.
+String _embedTitle(String url, String title, [int? ordinal]) {
+  if (title.isNotEmpty) return title;
+  final base = _untitledName(url);
+  return ordinal == null ? base : '$base ($ordinal)';
+}
+
+/// An untitled video's base name: its short address, else its raw URL.
+String _untitledName(String url) => linkPreviewShortAddress(url) ?? url;
+
+/// The ordinal each untitled video carries in one body, keyed by its index in
+/// [blocks] (todo 563, owner decision 2026-10-11). Two untitled videos on one
+/// host share a short address, so a screen reader could not tell their cards
+/// apart. Only names that collide get one, numbered 1, 2, … in body order; a
+/// lone untitled video keeps its bare short address. The scope is one body
+/// (one renderer), never the screen: two posts on one thread can still share
+/// a name. The web twin is `untitledEmbedOrdinals` (`embedDisplay.ts`).
+@visibleForTesting
+Map<int, int> untitledEmbedOrdinals(List<ForumBodyBlock> blocks) {
+  final byName = <String, List<int>>{};
+  for (var i = 0; i < blocks.length; i++) {
+    final block = blocks[i];
+    if (block is! EmbedBlock || block.title.isNotEmpty) continue;
+    final name = _untitledName(block.url);
+    if (name.isEmpty) continue;
+    (byName[name] ??= []).add(i);
+  }
+  return {
+    for (final indexes in byName.values)
+      if (indexes.length > 1)
+        for (var n = 0; n < indexes.length; n++) indexes[n]: n + 1,
+  };
+}
 
 Future<void> _copyLink(BuildContext context, String url) async {
   final messenger = ScaffoldMessenger.maybeOf(context);
