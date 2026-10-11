@@ -141,7 +141,6 @@ PREFIXES = {
         "Plant identification error": "[IDENTIFY]",
         "Health check failed": "[HEALTH]",
     },
-    "backend/apps/plant_identification/services/ai_care_service.py": "[AI]",
     "backend/apps/plant_identification/services/ai_image_service.py": {
         "OpenAI API key not configured": "[AI]",
         "Failed to initialize OpenAI client": "[AI]",
