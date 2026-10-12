@@ -114,27 +114,41 @@ class MeProfileView(forum_views.MeProfileView):
         otherwise a second pre-621 build on the account would leave the first
         build's row behind, and that build's later sign-out (a clear, which can
         only name the column's current token) would remove the second build's
-        device while the signed-out one kept receiving pushes. Devices
-        registered through ``/push/devices/`` never touch the column, so they
-        are not affected.
+        device while the signed-out one kept receiving pushes.
+
+        The replaced (or cleared) token is released only while it is still a
+        legacy row. The column can still hold the token of a phone that has
+        since upgraded and re-registered through ``/push-devices/`` with an
+        ``installation_id``; that row belongs to the upgraded install, and an
+        old build's write must not remove it.
         """
         import logging
 
+        from apps.core.models import PushDevice
         from apps.core.push_devices import register_device, unregister_device
         from django.db import IntegrityError
 
+        user = self.request.user
         previous = serializer.instance.fcm_token
         super().perform_update(serializer)
         if "fcm_token" not in serializer.validated_data:
             return
         token = serializer.validated_data["fcm_token"]
+
+        def release_previous():
+            upgraded = PushDevice.objects.filter(
+                user=user, token=previous, installation_id__isnull=False
+            ).exists()
+            if not upgraded:
+                unregister_device(user, previous)
+
         try:
             if token:
-                register_device(self.request.user, token, platform="legacy")
+                register_device(user, token, platform="legacy")
                 if previous and previous != token:
-                    unregister_device(self.request.user, previous)
+                    release_previous()
             elif previous:
-                unregister_device(self.request.user, previous)
+                release_previous()
         except IntegrityError:
             # Lost a race to a concurrent registration of the same token. The
             # column write above stands and the send path reads it, so the

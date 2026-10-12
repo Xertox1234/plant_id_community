@@ -343,6 +343,37 @@ class PushDeviceApiTest(TestCase):
         response = self.client.patch(ME_PROFILE, {"fcm_token": ""}, format="json")
         self.assertEqual(response.status_code, 200, response.data)
         self.assertEqual(_tokens(self.alice), ["fake-token-new-build"])
+
+    def test_an_old_build_never_removes_a_phone_that_upgraded(self):
+        """The column can still hold the token of a phone that has upgraded.
+
+        Phone B wrote the column as a pre-621 build, then upgraded and
+        re-registered the same token with an installation id. An old build
+        on phone A replacing or clearing the column must leave B's row.
+        """
+        _set_legacy(self.alice, "fake-token-phone-b")
+        register_device(self.alice, "fake-token-phone-b", "install-b")
+        self.client.force_authenticate(self.alice)
+
+        response = self.client.patch(
+            ME_PROFILE, {"fcm_token": "fake-token-legacy-a"}, format="json"
+        )
+        self.assertEqual(response.status_code, 200, response.data)
+        self.assertEqual(
+            sorted(_tokens(self.alice)),
+            ["fake-token-legacy-a", "fake-token-phone-b"],
+        )
+
+        # A signs out: only A's own legacy row goes.
+        response = self.client.patch(ME_PROFILE, {"fcm_token": ""}, format="json")
+        self.assertEqual(response.status_code, 200, response.data)
+        self.assertEqual(_tokens(self.alice), ["fake-token-phone-b"])
+
+        # A clear while the column names the upgraded phone leaves it too.
+        _set_legacy(self.alice, "fake-token-phone-b")
+        response = self.client.patch(ME_PROFILE, {"fcm_token": ""}, format="json")
+        self.assertEqual(response.status_code, 200, response.data)
+        self.assertEqual(_tokens(self.alice), ["fake-token-phone-b"])
         self.assertEqual(_legacy(self.alice), "")
 
     def test_a_profile_patch_without_a_token_leaves_devices_alone(self):
