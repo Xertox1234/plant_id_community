@@ -121,15 +121,48 @@ def record_throttled_operations(endpoints):
 _PATH_PARAM = re.compile(r"\{[^}]*\}")
 
 
+def _coerced_name_matches(recorded, schema):
+    """True when a recorded path parameter can be the schema's one: the same
+    name, or a ``{pk}`` / ``{<x>_pk}`` the generator renames after
+    preprocessing (``SCHEMA_COERCE_PATH_PK`` and ``..._PK_SUFFIX``)."""
+    return recorded == schema or recorded == "{pk}" or recorded.endswith("_pk}")
+
+
+def _schema_path_item(path, paths, by_shape):
+    """The schema path item a recorded ``path`` names, or None.
+
+    An exact key wins. Otherwise the path is matched with its parameter names
+    blanked, because the generator renames a ViewSet's ``{pk}`` to ``{id}``
+    after preprocessing (todo 607 item 7). Two schema paths can share that
+    shape (``/x/{id}/`` and ``/x/{slug}/``), so a shape match must also agree
+    on every parameter name the generator does not rename, and must be the
+    only such path: an ambiguous match documents nothing rather than the
+    wrong operation (todo 632 item 1). A dropped 429 fails the gate in
+    ``apps/core/tests/test_openapi_rate_limit_429.py``.
+    """
+    if path in paths:
+        return paths[path]
+    names = _PATH_PARAM.findall(path)
+    candidates = [
+        candidate
+        for candidate in by_shape.get(_PATH_PARAM.sub("{}", path), ())
+        if all(
+            _coerced_name_matches(recorded, schema)
+            for recorded, schema in zip(names, _PATH_PARAM.findall(candidate))
+        )
+    ]
+    return paths[candidates[0]] if len(candidates) == 1 else None
+
+
 def document_throttle_429(result, generator, request, public):
     """Postprocessing hook: add a 429 response to every rate-limited operation
     recorded by :func:`record_throttled_operations`."""
     paths = result.get("paths", {})
-    # Matched with the parameter names blanked: the generator renames a
-    # ViewSet's ``{pk}`` to ``{id}`` after preprocessing (todo 607 item 7).
-    by_shape = {_PATH_PARAM.sub("{}", path): item for path, item in paths.items()}
+    by_shape = {}
+    for schema_path in paths:
+        by_shape.setdefault(_PATH_PARAM.sub("{}", schema_path), []).append(schema_path)
     for path, method in getattr(_state, "throttled_operations", set()):
-        operation = by_shape.get(_PATH_PARAM.sub("{}", path), {}).get(method)
+        operation = (_schema_path_item(path, paths, by_shape) or {}).get(method)
         if operation is not None:
             operation.setdefault("responses", {}).setdefault(
                 "429", copy.deepcopy(RATE_LIMIT_429_RESPONSE)

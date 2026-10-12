@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: p4
 issue_id: "632"
 tags: [api, mobile, follow-ups]
@@ -28,7 +28,7 @@ PR #1077 (todo sweep run 2026-10-12-0349, group g7, todos 607); follow-ups: veri
 
 ## Acceptance Criteria
 
-- [ ] Each finding above is fixed with a test where it is a behaviour change, or recorded in the Work Log as
+- [x] Each finding above is fixed with a test where it is a behaviour change, or recorded in the Work Log as
       declined with a reason (or as already fixed on main, with the evidence).
 
 ## Work Log
@@ -36,3 +36,26 @@ PR #1077 (todo sweep run 2026-10-12-0349, group g7, todos 607); follow-ups: veri
 ### 2026-10-12 - Filed from the PR #1077 review (todo sweep run 2026-10-12-0349)
 
 Filed by the closing step of the run from `state.py followups-md g7`.
+
+### 2026-10-12 - Implemented by the todo sweep (run 2026-10-12-1724)
+
+- Item 1 (fixed): `backend/plant_community_backend/api_schema.py` now matches a recorded path exactly first, then by shape only when exactly one schema path fits and every parameter name agrees except a `{pk}` / `{x_pk}` the generator renames. An ambiguous match documents nothing, so the gate reports it as missing instead of a 429 landing on the wrong operation. New test `test_hook_does_not_mix_up_paths_that_differ_only_in_parameter_name` fails against the old hook.
+- Item 2 (fixed): the gate in `backend/apps/core/tests/test_openapi_rate_limit_429.py` now counts a 429 as `extra` when a `_throttled_actions` / `_forum_throttled_methods` marker names an operation that no ratelimit covers. Canary `test_gate_catches_a_stale_marker_and_skips_an_excluded_view` covers it.
+- Item 4 (fixed): a rate-limited view that `extend_schema(exclude=True)` keeps out of the schema is now skipped, not counted as `unmatched`. The same canary covers it, and the misleading comment is corrected.
+- Item 3 (fixed, doc only): `plant_community_mobile/lib/services/auth_service.dart` moves `/// Clear stored JWT tokens` back onto `_clearJWT`, so `_clearJWTWhileCurrent` keeps only its own doc. This changes no behaviour, so it has no test.
+
+### 2026-10-12 - Verified by the todo sweep (run 2026-10-12-1724)
+
+- AC 1: `cd backend && python3 ../scripts/todos/slot_env.py --main-root .. 6 -- venv/bin/python -m pytest apps/core/tests/test_openapi_rate_limit_429.py apps/forum_host/tests/test_schema_429.py --create-db -v -p no:warnings && grep -n -B1 -A1 'Future<void> _clearJWT() async' ../plant_community_mobile/lib/services/auth_service.dart && grep -n -A5 'Implemented by the todo sweep (run 2026-10-12-1724)' ../todos/archive/632-completed-p4-throttle-429-gate-1077.md` — evidence `.sweep-evidence/g6/632-ac0.txt` (not committed), last lines:
+
+  ```text
+  41-
+  42-- Item 1 (fixed): `backend/plant_community_backend/api_schema.py` now matches a recorded path exactly first, then by shape only when exactly one schema path fits and every parameter name agrees except a `{pk}` / `{x_pk}` the generator renames. An ambiguous match documents nothing, so the gate reports it as missing instead of a 429 landing on the wrong operation. New test `test_hook_does_not_mix_up_paths_that_differ_only_in_parameter_name` fails against the old hook.
+  43-- Item 2 (fixed): the gate in `backend/apps/core/tests/test_openapi_rate_limit_429.py` now counts a 429 as `extra` when a `_throttled_actions` / `_forum_throttled_methods` marker names an operation that no ratelimit covers. Canary `test_gate_catches_a_stale_marker_and_skips_an_excluded_view` covers it.
+  44-- Item 4 (fixed): a rate-limited view that `extend_schema(exclude=True)` keeps out of the schema is now skipped, not counted as `unmatched`. The same canary covers it, and the misleading comment is corrected.
+  45-- Item 3 (fixed, doc only): `plant_community_mobile/lib/services/auth_service.dart` moves `/// Clear stored JWT tokens` back onto `_clearJWT`, so `_clearJWTWhileCurrent` keeps only its own doc. This changes no behaviour, so it has no test.
+  ```
+
+### 2026-10-12 - Completed by the todo sweep (run 2026-10-12-1724)
+
+- Archived by `land.py archive`; evidence is quoted above, review is on the PR.
