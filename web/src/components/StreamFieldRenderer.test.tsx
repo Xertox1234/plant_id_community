@@ -267,6 +267,35 @@ describe('StreamFieldRenderer', () => {
       expect(link).toHaveAccessibleDescription('Opens in a new tab');
     });
 
+    // Todo 592, finding 5 (owner decision 2026-10-11): web adopts mobile's
+    // gate (`linkPreviewShortAddress(url) != null`), so only an http(s) URL
+    // gets the full-address affordance. A mailto: or relative URL still links,
+    // but gets no hover title and no new-tab description, as on mobile.
+    it.each([
+      ['a mailto: URL', 'mailto:someone@example.com'],
+      ['a relative URL', '/forum/topics/12'],
+    ])(
+      'gives an untitled fallback card for %s no full-address affordance (todo 592)',
+      (_label, url) => {
+        render(
+          <StreamFieldRenderer
+            blocks={[
+              {
+                type: 'embed',
+                id: 'e7',
+                value: { url, provider_name: '', title: '', thumbnail_url: '', embed_url: null },
+              },
+            ]}
+          />
+        );
+        const link = screen.getByRole('link');
+        expect(link).toHaveAttribute('href', url);
+        expect(link).not.toHaveAttribute('title');
+        expect(link).not.toHaveAttribute('aria-describedby');
+        expect(screen.queryByText('Opens in a new tab')).toBeNull();
+      }
+    );
+
     it('leaves a titled fallback card as it was: no hover URL (todo 563)', () => {
       render(
         <StreamFieldRenderer

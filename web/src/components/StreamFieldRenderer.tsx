@@ -5,7 +5,7 @@ import { highlightMentions } from '../utils/mentions';
 import { postAnchor, userProfilePath } from '../utils/forumUrls';
 import { DELETED_AUTHOR_USERNAME } from '../utils/forumAuthor';
 import { mediaUrl } from '../services/blogService';
-import { safeExternalUrl } from '../utils/externalUrl';
+import { safeExternalUrl, shortLinkAddress } from '../utils/externalUrl';
 import LinkPreviewCard from './forum/LinkPreviewCard';
 import CompactCardRow from './forum/CompactCardRow';
 import { groupCardRuns } from './forum/cardRuns';
@@ -479,7 +479,10 @@ function EmbedFallbackCard({ value, title }: { value: EmbedBlockValue; title: st
   const hintId = useId();
   const { url, thumbnail_url, provider_name } = value;
   const href = getSafeHref(url);
-  const showAddress = !value.title && href !== '#';
+  // The mobile gate (`linkPreviewShortAddress(url) != null`, todo 592): only
+  // an http(s) URL gets the full-address affordance. A mailto: or relative
+  // URL still links, but the same block exposes its address on neither.
+  const showAddress = !value.title && shortLinkAddress(href) !== null;
   return (
     <>
       <a
